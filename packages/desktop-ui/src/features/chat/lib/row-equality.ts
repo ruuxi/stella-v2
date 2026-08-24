@@ -382,6 +382,10 @@ const assistantRowEqual = (
     Boolean(b.toolEventSummary?.totalCountIsLowerBound) &&
   Boolean(a.toolEventSummary?.detailLoaded) ===
     Boolean(b.toolEventSummary?.detailLoaded) &&
+  Boolean(a.toolEventSummary?.detailHasMore) ===
+    Boolean(b.toolEventSummary?.detailHasMore) &&
+  Boolean(a.toolEventSummary?.livePinsPending) ===
+    Boolean(b.toolEventSummary?.livePinsPending) &&
   (a.toolEventSummary?.detailCursor?.timestamp ?? null) ===
     (b.toolEventSummary?.detailCursor?.timestamp ?? null) &&
   (a.toolEventSummary?.detailCursor?.id ?? null) ===

@@ -124,4 +124,76 @@ describe("mobile message replay acceptance", () => {
       .toMatchObject({ requestId: "mobile:a" });
     service.close();
   });
+
+  it("does not advance past a middle-of-turn artifact omitted by desktop eager projection", () => {
+    const { service } = createService();
+    const conversationId = "conversation-artifact-cursor";
+    service.appendEvent({
+      conversationId,
+      eventId: "seed-user",
+      type: "user_message",
+      timestamp: 1,
+      payload: { text: "seed" },
+    });
+    service.appendEvent({
+      conversationId,
+      eventId: "seed-assistant",
+      type: "assistant_message",
+      timestamp: 2,
+      payload: { text: "ready" },
+    });
+    const initial = service.syncMessages({ conversationId });
+    service.appendEvent({
+      conversationId,
+      eventId: "artifact-user",
+      type: "user_message",
+      timestamp: 100,
+      payload: { text: "make a report" },
+    });
+    for (let index = 0; index < 41; index += 1) {
+      service.appendEvent({
+        conversationId,
+        eventId: `artifact-event-${index}`,
+        type: index === 20 ? "tool_result" : "agent-progress",
+        timestamp: 101 + index,
+        payload:
+          index === 20
+            ? {
+                toolName: "exec_command",
+                producedFiles: [
+                  { path: "/tmp/middle.pdf", kind: { type: "add" } },
+                ],
+              }
+            : { agentId: "noise", statusText: `step ${index}` },
+      });
+    }
+    service.appendEvent({
+      conversationId,
+      eventId: "artifact-assistant",
+      type: "assistant_message",
+      timestamp: 200,
+      payload: { text: "done" },
+    });
+
+    const delta = service.syncMessages({
+      conversationId,
+      sinceCursor: initial.cursor,
+    });
+
+    expect(delta.messages.flatMap((message) => message.artifacts ?? [])).toEqual(
+      [
+        expect.objectContaining({
+          kind: "pdf",
+          filePath: "/tmp/middle.pdf",
+        }),
+      ],
+    );
+    expect(
+      service.syncMessages({
+        conversationId,
+        sinceCursor: delta.cursor,
+      }).messages,
+    ).toEqual([]);
+    service.close();
+  });
 });

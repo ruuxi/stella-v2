@@ -17,7 +17,10 @@ import {
   streamRevealRate,
   type StreamTextAnimationScheduler,
 } from '@/features/chat/streaming/use-stream-text-animation'
-import { splitLongMarkdown } from '@/features/chat/streaming/markdown-chunks'
+import {
+  MAX_MARKDOWN_PARSE_CHARS,
+  shouldUseBoundedMarkdownPlaintext,
+} from '@/features/chat/streaming/markdown-chunks'
 import { CLAUDE_CODE_CAPTURED_TRACE } from '../../fixtures/stream-cadence-traces'
 
 class FakeScheduler implements StreamTextAnimationScheduler {
@@ -96,18 +99,19 @@ const createScene = () => {
 }
 
 describe('StreamTextAnimationController', () => {
-  it('bounds long Markdown at top-level blank lines without cutting fences', () => {
-    const prose = Array.from(
-      { length: 120 },
-      (_, index) => `Paragraph ${index} ${'x'.repeat(80)}\n\n`,
-    ).join('')
-    const fenced = `\`\`\`ts\n${'const x = 1;\n'.repeat(400)}\`\`\`\n\n`
-    const text = `${prose}${fenced}${prose}`
-    const chunks = splitLongMarkdown(text)
-
-    expect(chunks.join('')).toBe(text)
-    expect(chunks.length).toBeGreaterThan(3)
-    expect(chunks.filter((chunk) => chunk.includes('```ts'))).toHaveLength(1)
+  it('hard-bounds every Markdown parse, including unsplittable blocks', () => {
+    expect(shouldUseBoundedMarkdownPlaintext(MAX_MARKDOWN_PARSE_CHARS - 1)).toBe(
+      false,
+    )
+    expect(shouldUseBoundedMarkdownPlaintext(MAX_MARKDOWN_PARSE_CHARS)).toBe(true)
+    expect(
+      shouldUseBoundedMarkdownPlaintext(
+        `\`\`\`ts\n${'const value = 1;\n'.repeat(1_000)}\`\`\``.length,
+      ),
+    ).toBe(true)
+    expect(
+      shouldUseBoundedMarkdownPlaintext('one pathological paragraph '.repeat(1_000).length),
+    ).toBe(true)
   })
 
   it('reduces full markdown commit frequency as the visible reply grows', () => {

@@ -147,6 +147,8 @@ export type LocalChatSyncMessageWithArtifacts = {
 export type LocalChatMobileSyncCursor = {
   timestamp: number;
   id: string;
+  /** Authoritative durable order. Absent only on decoded legacy v1 cursors. */
+  sequence?: number;
 };
 
 export type LocalChatMobileSyncResult = {
@@ -159,11 +161,13 @@ type MobileArtifactOptions = {
 };
 
 const ARTIFACT_LIMIT_PER_MESSAGE = 8;
-const SYNC_CURSOR_VERSION = "v1";
+const SYNC_CURSOR_VERSION = "v2";
+const LEGACY_SYNC_CURSOR_VERSION = "v1";
 
 type ArtifactEventRecord = {
   _id?: string;
   timestamp: number;
+  sequence?: number;
   type: string;
   payload?: Record<string, unknown>;
 };
@@ -191,7 +195,10 @@ export const encodeMobileSyncCursor = (
 ): string => {
   const timestamp = Math.floor(cursor.timestamp);
   if (!Number.isFinite(timestamp) || !cursor.id.trim()) return "";
-  return `${SYNC_CURSOR_VERSION}:${timestamp}:${encodeURIComponent(cursor.id)}`;
+  const sequence = Math.floor(cursor.sequence ?? Number.NaN);
+  return Number.isFinite(sequence) && sequence >= 0
+    ? `${SYNC_CURSOR_VERSION}:${sequence}:${timestamp}:${encodeURIComponent(cursor.id)}`
+    : `${LEGACY_SYNC_CURSOR_VERSION}:${timestamp}:${encodeURIComponent(cursor.id)}`;
 };
 
 export const decodeMobileSyncCursor = (
@@ -199,16 +206,29 @@ export const decodeMobileSyncCursor = (
 ): LocalChatMobileSyncCursor | null => {
   const raw = typeof cursor === "string" ? cursor.trim() : "";
   if (!raw) return null;
-  const prefix = `${SYNC_CURSOR_VERSION}:`;
+  const isV2 = raw.startsWith(`${SYNC_CURSOR_VERSION}:`);
+  const prefix = isV2
+    ? `${SYNC_CURSOR_VERSION}:`
+    : `${LEGACY_SYNC_CURSOR_VERSION}:`;
   if (!raw.startsWith(prefix)) return null;
-  const rest = raw.slice(prefix.length);
+  let rest = raw.slice(prefix.length);
+  let sequence: number | undefined;
+  if (isV2) {
+    const sequenceSeparator = rest.indexOf(":");
+    if (sequenceSeparator <= 0) return null;
+    sequence = Number.parseInt(rest.slice(0, sequenceSeparator), 10);
+    if (!Number.isFinite(sequence) || sequence < 0) return null;
+    rest = rest.slice(sequenceSeparator + 1);
+  }
   const separator = rest.indexOf(":");
   if (separator <= 0 || separator === rest.length - 1) return null;
   const timestamp = Number.parseInt(rest.slice(0, separator), 10);
   if (!Number.isFinite(timestamp)) return null;
   try {
     const id = decodeURIComponent(rest.slice(separator + 1)).trim();
-    return id ? { timestamp, id } : null;
+    return id
+      ? { timestamp, id, ...(sequence === undefined ? {} : { sequence }) }
+      : null;
   } catch {
     return null;
   }
@@ -217,12 +237,20 @@ export const decodeMobileSyncCursor = (
 const considerNewestSource = (
   current: LocalChatMobileSyncCursor | null,
   candidate: LocalChatMobileSyncCursor,
-): LocalChatMobileSyncCursor =>
-  !current ||
-  candidate.timestamp > current.timestamp ||
-  (candidate.timestamp === current.timestamp && candidate.id > current.id)
+): LocalChatMobileSyncCursor => {
+  const currentSequence = current?.sequence;
+  const candidateSequence = candidate.sequence;
+  const useSequence =
+    typeof currentSequence === "number" &&
+    typeof candidateSequence === "number";
+  return !current ||
+  (useSequence
+    ? candidateSequence > currentSequence
+    : candidate.timestamp > current.timestamp ||
+      (candidate.timestamp === current.timestamp && candidate.id > current.id))
     ? candidate
     : current;
+};
 
 const cursorForNewestSourceRecord = (
   records: readonly ArtifactSourceRecord[],
@@ -232,12 +260,18 @@ const cursorForNewestSourceRecord = (
     newest = considerNewestSource(newest, {
       timestamp: record.timestamp,
       id: record._id,
+      ...(typeof record.sequence === "number"
+        ? { sequence: record.sequence }
+        : {}),
     });
     for (const event of record.toolEvents ?? []) {
       if (!event._id) continue;
       newest = considerNewestSource(newest, {
         timestamp: event.timestamp,
         id: event._id,
+        ...(typeof event.sequence === "number"
+          ? { sequence: event.sequence }
+          : {}),
       });
     }
   }

@@ -15,6 +15,7 @@ export const MAX_RETAINED_TIMELINE_MESSAGES = 320;
 
 const MAX_RETAINED_UNUSED_CONVERSATIONS = 8;
 const EAGER_TOOL_EVENT_LIMIT = 32;
+export const MAX_RETAINED_TOOL_DETAIL_EVENTS = 320;
 
 export type MessageTimelineSnapshot = {
   messages: MessageRecord[];
@@ -37,7 +38,12 @@ type TimelineEntry = {
   inFlight: ReadKind | null;
   failedRead: ReadKind | null;
   queuedTailRefresh: boolean;
+  queuedLatestRefresh: boolean;
   tailCursor: LocalChatTimelineCursor | null;
+  mutationRevision: number;
+  pendingEventsDuringRead: Map<string, EventRecord>;
+  liveToolEventPins: Map<string, Map<string, EventRecord>>;
+  detailResetRequired: Set<string>;
   lastUsed: number;
   stability: StableMessageListState | null;
 };
@@ -126,6 +132,132 @@ function mergeOrderedMessages(
   return Array.from(byId.values()).sort(compareMessageOrder);
 }
 
+function mergeReadMessages(
+  current: MessageRecord[],
+  incoming: MessageRecord[],
+): MessageRecord[] {
+  const currentById = new Map(current.map((message) => [message._id, message]));
+  const reconciled = incoming.map((message) => {
+    const resident = currentById.get(message._id);
+    if (!resident?.toolEventSummary?.detailLoaded) return message;
+    const toolEvents = new Map(
+      [...resident.toolEvents, ...message.toolEvents].map((event) => [
+        event._id,
+        event,
+      ]),
+    );
+    const retainedEvents = retainBoundedToolEvents(
+      [...toolEvents.values()].sort(compareEventOrder),
+    );
+    const incomingPayloadProjected = message.toolEvents.some(
+      hasProjectedEagerPayload,
+    );
+    return {
+      ...message,
+      toolEvents: retainedEvents,
+      toolEventSummary: incomingPayloadProjected
+        ? {
+            totalCount: Math.max(
+              resident.toolEventSummary.totalCount,
+              message.toolEventSummary?.totalCount ?? retainedEvents.length,
+            ),
+            loadedCount: retainedEvents.length,
+            truncated: true,
+            ...(resident.toolEventSummary.totalCountIsLowerBound === true ||
+            message.toolEventSummary?.totalCountIsLowerBound === true
+              ? { totalCountIsLowerBound: true }
+              : {}),
+          }
+        : resident.toolEventSummary,
+    };
+  });
+  return mergeOrderedMessages(current, reconciled);
+}
+
+function reconcileLatestMessages(
+  current: MessageRecord[],
+  incoming: MessageRecord[],
+): MessageRecord[] {
+  const incomingIds = new Set(incoming.map((message) => message._id));
+  return mergeReadMessages(current, incoming).filter((message) =>
+    incomingIds.has(message._id),
+  );
+}
+
+function compareEventOrder(a: EventRecord, b: EventRecord): number {
+  if (
+    typeof a.sequence === "number" &&
+    typeof b.sequence === "number" &&
+    a.sequence !== b.sequence
+  ) {
+    return a.sequence - b.sequence;
+  }
+  return a.timestamp - b.timestamp || a._id.localeCompare(b._id);
+}
+
+function retainBoundedToolEvents(events: EventRecord[]): EventRecord[] {
+  if (events.length <= MAX_RETAINED_TOOL_DETAIL_EVENTS) return events;
+  const headCount = MAX_RETAINED_TOOL_DETAIL_EVENTS / 2;
+  return [
+    ...events.slice(0, headCount),
+    ...events.slice(-(MAX_RETAINED_TOOL_DETAIL_EVENTS - headCount)),
+  ];
+}
+
+function cursorForMessage(message: MessageRecord): LocalChatTimelineCursor {
+  return {
+    timestamp: message.timestamp,
+    id: message._id,
+    ...(typeof message.sequence === "number"
+      ? { sequence: message.sequence }
+      : {}),
+  };
+}
+
+function compareCursors(
+  a: LocalChatTimelineCursor,
+  b: LocalChatTimelineCursor,
+): number {
+  if (
+    typeof a.sequence === "number" &&
+    typeof b.sequence === "number" &&
+    a.sequence !== b.sequence
+  ) {
+    return a.sequence - b.sequence;
+  }
+  return a.timestamp - b.timestamp || a.id.localeCompare(b.id);
+}
+
+function advanceTailCursor(
+  entry: TimelineEntry,
+  cursor: LocalChatTimelineCursor | undefined,
+) {
+  if (!cursor) return;
+  if (!entry.tailCursor || compareCursors(cursor, entry.tailCursor) > 0) {
+    entry.tailCursor = cursor;
+  }
+}
+
+function replayPendingReadEvents(entry: TimelineEntry) {
+  if (entry.pendingEventsDuringRead.size === 0) return;
+  const pending = [...entry.pendingEventsDuringRead.values()].sort(
+    compareEventOrder,
+  );
+  entry.pendingEventsDuringRead.clear();
+  for (const event of pending) {
+    const patched = patchNotifiedEvent(entry, event);
+    if (
+      !patched &&
+      (event.type === "user_message" ||
+        event.type === "assistant_message" ||
+        (entry.tailCursor !== null &&
+          compareEventToCursor(event, entry.tailCursor) <= 0))
+    ) {
+      entry.queuedLatestRefresh = true;
+    }
+  }
+}
+
 function newestMessages(
   messages: MessageRecord[],
   count: number,
@@ -153,6 +285,19 @@ function publish(entry: TimelineEntry, snapshot: MessageTimelineSnapshot) {
     stable.result === snapshot.messages
       ? snapshot
       : { ...snapshot, messages: stable.result };
+  const retainedMessageIds = new Set(
+    entry.snapshot.messages.map((message) => message._id),
+  );
+  for (const messageId of entry.liveToolEventPins.keys()) {
+    if (!retainedMessageIds.has(messageId)) {
+      entry.liveToolEventPins.delete(messageId);
+    }
+  }
+  for (const messageId of entry.detailResetRequired) {
+    if (!retainedMessageIds.has(messageId)) {
+      entry.detailResetRequired.delete(messageId);
+    }
+  }
   touch(entry);
   debugStats.maxResidentMessages = Math.max(
     debugStats.maxResidentMessages,
@@ -194,7 +339,12 @@ function getOrCreateEntry(conversationId: string): TimelineEntry {
     inFlight: null,
     failedRead: null,
     queuedTailRefresh: false,
+    queuedLatestRefresh: false,
     tailCursor: null,
+    mutationRevision: 0,
+    pendingEventsDuringRead: new Map(),
+    liveToolEventPins: new Map(),
+    detailResetRequired: new Set(),
     lastUsed: ++useCounter,
     stability: null,
   };
@@ -218,13 +368,19 @@ function finishRead(entry: TimelineEntry, requestId: number) {
   entry.inFlight = null;
   debugStats.pendingReads = Math.max(0, debugStats.pendingReads - 1);
   const shouldRefreshTail = entry.queuedTailRefresh;
+  const shouldRefreshLatest = entry.queuedLatestRefresh;
   entry.queuedTailRefresh = false;
+  entry.queuedLatestRefresh = false;
   if (
-    shouldRefreshTail &&
-    !entry.snapshot.hasNewer &&
+    (shouldRefreshLatest || (shouldRefreshTail && !entry.snapshot.hasNewer)) &&
     entry.listeners.size > 0
   ) {
-    queueMicrotask(() => void readTail(entry));
+    queueMicrotask(
+      () =>
+        void (shouldRefreshLatest
+          ? readInitial(entry, "latest")
+          : readTail(entry)),
+    );
   }
   return true;
 }
@@ -244,21 +400,21 @@ async function readInitial(entry: TimelineEntry, kind: "initial" | "latest") {
       conversationId: entry.conversationId,
       maxVisibleMessages: MESSAGE_TIMELINE_PAGE_SIZE + 1,
     });
-    const messages = visibleMessages(result.messages);
+    const incoming = visibleMessages(result.messages);
     if (entry.requestId !== requestId) return false;
-    const hasOlder = result.visibleMessageCount > MESSAGE_TIMELINE_PAGE_SIZE;
-    const newest = messages.at(-1);
-    entry.tailCursor =
+    const messages =
+      kind === "latest"
+        ? reconcileLatestMessages(entry.snapshot.messages, incoming)
+        : incoming;
+    const hasOlder =
+      result.visibleMessageCount > MESSAGE_TIMELINE_PAGE_SIZE ||
+      messages.length > MESSAGE_TIMELINE_PAGE_SIZE;
+    const newestIncoming = incoming.at(-1);
+    const nextCursor =
       result.nextCursor ??
-      (newest
-        ? {
-            timestamp: newest.timestamp,
-            id: newest._id,
-            ...(typeof newest.sequence === "number"
-              ? { sequence: newest.sequence }
-              : {}),
-          }
-        : null);
+      (newestIncoming ? cursorForMessage(newestIncoming) : undefined);
+    if (kind === "initial") entry.tailCursor = nextCursor ?? null;
+    else advanceTailCursor(entry, nextCursor);
     publish(entry, {
       messages: newestMessages(messages, MESSAGE_TIMELINE_PAGE_SIZE),
       hasLoaded: true,
@@ -268,10 +424,12 @@ async function readInitial(entry: TimelineEntry, kind: "initial" | "latest") {
       isLoadingNewer: false,
       error: null,
     });
+    replayPendingReadEvents(entry);
     entry.failedRead = null;
     return true;
   } catch (error) {
     if (entry.requestId === requestId) {
+      entry.pendingEventsDuringRead.clear();
       entry.failedRead = kind;
       publish(entry, {
         ...entry.snapshot,
@@ -308,7 +466,7 @@ async function readOlder(entry: TimelineEntry) {
     if (entry.requestId !== requestId) return false;
 
     const hasOlder = result.visibleMessageCount > MESSAGE_TIMELINE_PAGE_SIZE;
-    let messages = mergeOrderedMessages(
+    let messages = mergeReadMessages(
       entry.snapshot.messages,
       newestMessages(page, MESSAGE_TIMELINE_PAGE_SIZE),
     );
@@ -326,10 +484,12 @@ async function readOlder(entry: TimelineEntry) {
       isLoadingNewer: false,
       error: null,
     });
+    replayPendingReadEvents(entry);
     entry.failedRead = null;
     return true;
   } catch (error) {
     if (entry.requestId === requestId) {
+      entry.pendingEventsDuringRead.clear();
       entry.failedRead = "older";
       publish(entry, {
         ...entry.snapshot,
@@ -352,9 +512,9 @@ function strictMessagesAfter(
 
 async function readNewer(entry: TimelineEntry) {
   const api = getApi();
-  const current = entry.snapshot.messages;
-  const newest = current[current.length - 1];
-  const queryCursor = current[current.length - 2] ?? newest;
+  const currentAtStart = entry.snapshot.messages;
+  const newest = currentAtStart[currentAtStart.length - 1];
+  const queryCursor = currentAtStart[currentAtStart.length - 2] ?? newest;
   if (!newest && entry.snapshot.hasLoaded && !entry.inFlight) {
     return readInitial(entry, "latest");
   }
@@ -364,6 +524,7 @@ async function readNewer(entry: TimelineEntry) {
 
   entry.inFlight = "newer";
   const requestId = ++entry.requestId;
+  const mutationRevision = entry.mutationRevision;
   debugStats.newerReads += 1;
   setLoading(entry, "newer", true);
 
@@ -383,7 +544,8 @@ async function readNewer(entry: TimelineEntry) {
 
     const strict = strictMessagesAfter(changed, newest);
     const hasNewer = strict.length > MESSAGE_TIMELINE_PAGE_SIZE;
-    if (!hasNewer && result.nextCursor) entry.tailCursor = result.nextCursor;
+    if (!hasNewer) advanceTailCursor(entry, result.nextCursor);
+    const current = entry.snapshot.messages;
     const currentIds = new Set(current.map((message) => message._id));
     const pageIds = new Set(
       oldestMessages(strict, MESSAGE_TIMELINE_PAGE_SIZE).map(
@@ -393,7 +555,10 @@ async function readNewer(entry: TimelineEntry) {
     const eligibleChanged = changed.filter(
       (message) => currentIds.has(message._id) || pageIds.has(message._id),
     );
-    let messages = mergeOrderedMessages(current, eligibleChanged);
+    let messages =
+      entry.mutationRevision === mutationRevision
+        ? mergeOrderedMessages(current, eligibleChanged)
+        : mergeReadMessages(current, eligibleChanged);
     let hasOlder = entry.snapshot.hasOlder;
     if (messages.length > MAX_RETAINED_TIMELINE_MESSAGES) {
       messages = newestMessages(messages, MAX_RETAINED_TIMELINE_MESSAGES);
@@ -408,10 +573,12 @@ async function readNewer(entry: TimelineEntry) {
       isLoadingNewer: false,
       error: null,
     });
+    replayPendingReadEvents(entry);
     entry.failedRead = null;
     return true;
   } catch (error) {
     if (entry.requestId === requestId) {
+      entry.pendingEventsDuringRead.clear();
       entry.failedRead = "newer";
       publish(entry, {
         ...entry.snapshot,
@@ -427,8 +594,8 @@ async function readNewer(entry: TimelineEntry) {
 
 async function readTail(entry: TimelineEntry) {
   const api = getApi();
-  const current = entry.snapshot.messages;
-  const newest = current[current.length - 1];
+  const currentAtStart = entry.snapshot.messages;
+  const newest = currentAtStart[currentAtStart.length - 1];
   const queryCursor = entry.tailCursor ?? newest;
   if (!newest && entry.snapshot.hasLoaded && !entry.inFlight) {
     return readInitial(entry, "latest");
@@ -446,6 +613,7 @@ async function readTail(entry: TimelineEntry) {
 
   entry.inFlight = "tail";
   const requestId = ++entry.requestId;
+  const mutationRevision = entry.mutationRevision;
   debugStats.tailReads += 1;
   debugStats.pendingReads += 1;
   try {
@@ -458,7 +626,7 @@ async function readTail(entry: TimelineEntry) {
     });
     const changed = visibleMessages(result.messages);
     if (entry.requestId !== requestId) return false;
-    if (result.nextCursor) entry.tailCursor = result.nextCursor;
+    advanceTailCursor(entry, result.nextCursor);
 
     const strict = strictMessagesAfter(changed, newest);
     // A saturated tail response is intentionally collapsed to a fresh latest
@@ -469,12 +637,19 @@ async function readTail(entry: TimelineEntry) {
       return readInitial(entry, "latest");
     }
 
+    const current = entry.snapshot.messages;
     const currentIds = new Set(current.map((message) => message._id));
     const eligibleChanged = changed.filter(
       (message) =>
         currentIds.has(message._id) || compareMessageOrder(message, newest) > 0,
     );
-    let messages = mergeOrderedMessages(current, eligibleChanged);
+    // Always merge against the latest resident snapshot. If a notification or
+    // lazy-detail page landed while IPC was pending, preserve that newer local
+    // projection and replay the exact pushed events below.
+    let messages =
+      entry.mutationRevision === mutationRevision
+        ? mergeOrderedMessages(current, eligibleChanged)
+        : mergeReadMessages(current, eligibleChanged);
     let hasOlder = entry.snapshot.hasOlder;
     if (messages.length > MAX_RETAINED_TIMELINE_MESSAGES) {
       messages = newestMessages(messages, MAX_RETAINED_TIMELINE_MESSAGES);
@@ -489,10 +664,12 @@ async function readTail(entry: TimelineEntry) {
       isLoadingNewer: false,
       error: null,
     });
+    replayPendingReadEvents(entry);
     entry.failedRead = null;
     return true;
   } catch (error) {
     if (entry.requestId === requestId) {
+      entry.pendingEventsDuringRead.clear();
       entry.failedRead = "tail";
       publish(entry, { ...entry.snapshot, error: normalizeError(error) });
     }
@@ -527,7 +704,43 @@ function compareToolEventToCursor(
   ) {
     return event.sequence - cursor.sequence;
   }
-  return event.timestamp - cursor.timestamp || event._id.localeCompare(cursor.id);
+  return (
+    event.timestamp - cursor.timestamp || event._id.localeCompare(cursor.id)
+  );
+}
+
+function hasProjectedEagerPayload(event: EventRecord): boolean {
+  const payload = event.payload as
+    | { __stellaEagerProjection?: { truncated?: unknown } }
+    | null
+    | undefined;
+  return payload?.__stellaEagerProjection?.truncated === true;
+}
+
+function rememberLiveToolEvent(
+  entry: TimelineEntry,
+  messageId: string,
+  event: EventRecord,
+) {
+  const message = entry.snapshot.messages.find(
+    (candidate) => candidate._id === messageId,
+  );
+  const readKey = `${entry.conversationId}\n${messageId}`;
+  if (
+    message?.toolEventSummary?.detailLoaded !== true &&
+    !detailReads.has(readKey)
+  ) {
+    return;
+  }
+  const pins = entry.liveToolEventPins.get(messageId) ?? new Map();
+  pins.set(event._id, event);
+  while (pins.size > EAGER_TOOL_EVENT_LIMIT) {
+    const oldestId = pins.keys().next().value as string | undefined;
+    if (!oldestId) break;
+    pins.delete(oldestId);
+    entry.detailResetRequired.add(messageId);
+  }
+  entry.liveToolEventPins.set(messageId, pins);
 }
 
 /** Apply an in-place event upsert without reopening the durable tail. */
@@ -536,6 +749,11 @@ function patchNotifiedEvent(
   event: NonNullable<LocalChatUpdatedPayload["event"]>,
 ): boolean {
   let changed = false;
+  const eventWasKnown = entry.snapshot.messages.some(
+    (message) =>
+      message._id === event._id ||
+      message.toolEvents.some((candidate) => candidate._id === event._id),
+  );
   const messages = entry.snapshot.messages.map((message) => {
     if (message._id === event._id) {
       changed = true;
@@ -548,7 +766,47 @@ function patchNotifiedEvent(
     const toolEvents = message.toolEvents.slice();
     toolEvents[eventIndex] = event;
     changed = true;
-    return { ...message, toolEvents };
+    const payloadProjected = hasProjectedEagerPayload(event);
+    if (payloadProjected) entry.detailResetRequired.add(message._id);
+    const detailLoaded = message.toolEventSummary?.detailLoaded === true;
+    const detailCursor = message.toolEventSummary?.detailCursor;
+    const requiresLivePin = !(
+      detailLoaded &&
+      detailCursor &&
+      compareToolEventToCursor(event, detailCursor) <= 0
+    );
+    if (requiresLivePin) rememberLiveToolEvent(entry, message._id, event);
+    return {
+      ...message,
+      toolEvents,
+      ...(detailLoaded && requiresLivePin
+        ? {
+            toolEventSummary: {
+              ...message.toolEventSummary,
+              totalCount:
+                message.toolEventSummary?.totalCount ?? toolEvents.length,
+              loadedCount: message.toolEventSummary?.loadedCount ?? 0,
+              truncated: true,
+              totalCountIsLowerBound: true,
+              livePinsPending: true,
+            },
+          }
+        : payloadProjected
+          ? {
+              toolEventSummary: {
+                ...message.toolEventSummary,
+                totalCount:
+                  message.toolEventSummary?.totalCount ?? toolEvents.length,
+                loadedCount:
+                  message.toolEventSummary?.loadedCount ?? toolEvents.length,
+                truncated: true,
+                ...(message.toolEventSummary?.totalCountIsLowerBound === true
+                  ? { totalCountIsLowerBound: true }
+                  : {}),
+              },
+            }
+        : {}),
+    };
   });
   if (
     !changed &&
@@ -590,10 +848,7 @@ function patchNotifiedEvent(
       });
       const detailLoaded = target.toolEventSummary?.detailLoaded === true;
       const exceededEagerLimit = toolEvents.length > EAGER_TOOL_EVENT_LIMIT;
-      if (
-        exceededEagerLimit &&
-        !detailLoaded
-      ) {
+      if (exceededEagerLimit && !detailLoaded) {
         const withoutPinned = toolEvents.filter(
           (candidate) => candidate._id !== event._id,
         );
@@ -612,29 +867,37 @@ function patchNotifiedEvent(
         });
       }
       const detailCursor = target.toolEventSummary?.detailCursor;
+      rememberLiveToolEvent(entry, target._id, event);
       if (detailLoaded && detailCursor) {
         const prefix = toolEvents.filter(
           (candidate) => compareToolEventToCursor(candidate, detailCursor) <= 0,
         );
         const livePins = toolEvents
           .filter(
-            (candidate) => compareToolEventToCursor(candidate, detailCursor) > 0,
+            (candidate) =>
+              compareToolEventToCursor(candidate, detailCursor) > 0,
           )
           .slice(-EAGER_TOOL_EVENT_LIMIT);
-        toolEvents = [...prefix, ...livePins];
+        toolEvents = retainBoundedToolEvents([...prefix, ...livePins]);
       }
-      const isNewTailEvent =
-        !entry.tailCursor || compareEventToCursor(event, entry.tailCursor) > 0;
       const priorTotal = target.toolEventSummary?.totalCount ?? 0;
-      const hasIncompleteDetail = detailLoaded && isNewTailEvent;
+      const payloadProjected = hasProjectedEagerPayload(event);
+      if (payloadProjected) entry.detailResetRequired.add(target._id);
+      const canSafelyIncrementTotal =
+        target.toolEventSummary?.totalCountIsLowerBound !== true;
+      const totalIncrement = eventWasKnown || !canSafelyIncrementTotal ? 0 : 1;
+      const loadedCount = detailLoaded
+        ? (target.toolEventSummary?.loadedCount ?? 0)
+        : toolEvents.length;
       const totalCount = detailLoaded
-        ? Math.max(priorTotal + (isNewTailEvent ? 1 : 0), toolEvents.length)
+        ? Math.max(priorTotal + totalIncrement, loadedCount)
         : Math.max(
-            priorTotal + (isNewTailEvent ? 1 : 0),
+            priorTotal + totalIncrement,
             toolEvents.length + (exceededEagerLimit ? 1 : 0),
           );
       const truncated =
-        hasIncompleteDetail ||
+        payloadProjected ||
+        detailLoaded ||
         (!detailLoaded &&
           (exceededEagerLimit || target.toolEventSummary?.truncated === true));
       messages[targetIndex] = {
@@ -642,17 +905,28 @@ function patchNotifiedEvent(
         toolEvents,
         toolEventSummary: {
           totalCount,
-          loadedCount: toolEvents.length,
+          loadedCount,
           truncated,
-          ...(truncated ? { totalCountIsLowerBound: true } : {}),
+          ...(target.toolEventSummary?.totalCountIsLowerBound === true ||
+          exceededEagerLimit ||
+          detailLoaded
+            ? { totalCountIsLowerBound: true }
+            : {}),
           ...(detailLoaded ? { detailLoaded: true } : {}),
           ...(detailCursor ? { detailCursor } : {}),
+          ...(typeof target.toolEventSummary?.detailHasMore === "boolean"
+            ? { detailHasMore: target.toolEventSummary.detailHasMore }
+            : {}),
+          ...(detailLoaded ? { livePinsPending: true } : {}),
         },
       };
       changed = true;
     }
   }
-  if (changed) publish(entry, { ...entry.snapshot, messages });
+  if (changed) {
+    entry.mutationRevision += 1;
+    publish(entry, { ...entry.snapshot, messages });
+  }
   return changed;
 }
 
@@ -660,49 +934,40 @@ function handleLocalUpdate(payload: LocalChatUpdatedPayload | null) {
   if (!payload?.conversationId) return;
   const entry = entries.get(payload.conversationId);
   if (!entry || entry.listeners.size === 0) return;
-  if (entry.snapshot.hasNewer) return;
   // Destructive update (Rewind truncate): no appended event exists, and an
   // incremental tail read keys strictly AFTER the newest loaded row — it can
   // never observe rows that were REMOVED. Re-read the latest page instead so
   // truncated suffixes drop out of the visible timeline. Append
   // notifications always carry their event and keep using the cheap
   // incremental path below.
-  if (payload.event) {
-    if (
-      payload.event.type !== "user_message" &&
-      payload.event.type !== "assistant_message" &&
-      patchNotifiedEvent(entry, payload.event)
-    ) {
-      if (
-        !entry.tailCursor ||
-        compareEventToCursor(payload.event, entry.tailCursor) > 0
-      ) {
-        entry.tailCursor = {
-          timestamp: payload.event.timestamp,
-          id: payload.event._id,
-          ...(typeof payload.event.sequence === "number"
-            ? { sequence: payload.event.sequence }
-            : {}),
-        };
-      }
-      return;
-    }
-    if (
-      entry.tailCursor &&
-      compareEventToCursor(payload.event, entry.tailCursor) <= 0
-    ) {
-      patchNotifiedEvent(entry, payload.event);
-      return;
-    }
+  if (!payload.event) {
+    if (entry.inFlight) entry.queuedLatestRefresh = true;
+    else void readInitial(entry, "latest");
+    return;
+  }
+  if (entry.snapshot.hasNewer) return;
+  {
     if (entry.inFlight) {
+      entry.pendingEventsDuringRead.set(payload.event._id, payload.event);
       entry.queuedTailRefresh = true;
+    }
+    const patched = patchNotifiedEvent(entry, payload.event);
+    const authored =
+      payload.event.type === "user_message" ||
+      payload.event.type === "assistant_message";
+    const atOrBeforeDurableCursor =
+      entry.tailCursor !== null &&
+      compareEventToCursor(payload.event, entry.tailCursor) <= 0;
+    if (entry.inFlight) return;
+    if (!authored && patched) return;
+    if (atOrBeforeDurableCursor) {
+      // A failed patch below the durable high-water mark cannot be recovered by
+      // a strictly-after query. Reconcile the bounded latest window instead of
+      // silently dropping an out-of-order authored notification.
+      if (!patched) void readInitial(entry, "latest");
       return;
     }
     void readTail(entry);
-  } else if (entry.inFlight) {
-    entry.queuedTailRefresh = true;
-  } else {
-    void readInitial(entry, "latest");
   }
 }
 
@@ -741,11 +1006,14 @@ export async function loadLocalMessageToolEventPage(
   }
   if (!message.toolEventSummary?.truncated) return false;
   detailReads.add(readKey);
+  const restartFromBeginning = entry.detailResetRequired.delete(messageId);
+  const pinsAtReadStart = new Map(entry.liveToolEventPins.get(messageId) ?? []);
   try {
     const detailLoaded = message.toolEventSummary.detailLoaded === true;
-    const last = detailLoaded
-      ? message.toolEventSummary?.detailCursor
-      : undefined;
+    const last =
+      !restartFromBeginning && detailLoaded
+        ? message.toolEventSummary?.detailCursor
+        : undefined;
     const page = await api.listMessageToolEvents({
       conversationId,
       messageTimestampMs: message.timestamp,
@@ -764,16 +1032,47 @@ export async function loadLocalMessageToolEventPage(
       (candidate) => candidate._id === messageId,
     );
     if (!current) return false;
-    const events = detailLoaded
-      ? [
-          ...new Map(
-            [...current.toolEvents, ...page.events].map((event) => [
-              event._id,
-              event,
-            ]),
-          ).values(),
-        ]
-      : page.events;
+    const pins = entry.liveToolEventPins.get(messageId) ?? new Map();
+    for (const event of page.events) {
+      const currentPin = pins.get(event._id);
+      if (
+        currentPin !== undefined &&
+        pinsAtReadStart.get(event._id) === currentPin
+      ) {
+        pins.delete(event._id);
+      }
+    }
+    if (pins.size === 0) entry.liveToolEventPins.delete(messageId);
+    else entry.liveToolEventPins.set(messageId, pins);
+
+    const uncoveredInsidePage =
+      page.nextCursor !== undefined &&
+      [...pins.values()].some(
+        (event) => compareToolEventToCursor(event, page.nextCursor!) <= 0,
+      );
+    const nextDetailCursor = uncoveredInsidePage
+      ? last
+      : (page.nextCursor ?? last);
+    const historicalDetailHasMore =
+      page.hasMore ||
+      uncoveredInsidePage ||
+      entry.detailResetRequired.has(messageId);
+    const livePinsPending = pins.size > 0;
+    const hasUnreadDurableEvents = historicalDetailHasMore || livePinsPending;
+    const mergedEvents = [
+      ...new Map(
+        [...current.toolEvents, ...page.events, ...pins.values()].map(
+          (event) => [event._id, event],
+        ),
+      ).values(),
+    ].sort(compareEventOrder);
+    const events = retainBoundedToolEvents(mergedEvents);
+    const priorLoadedCount = current.toolEventSummary?.loadedCount ?? 0;
+    const loadedCount =
+      restartFromBeginning || !detailLoaded
+        ? page.events.length
+        : priorLoadedCount + page.events.length;
+    entry.mutationRevision += 1;
     publish(entry, {
       ...entry.snapshot,
       messages: entry.snapshot.messages.map((candidate) =>
@@ -782,29 +1081,30 @@ export async function loadLocalMessageToolEventPage(
               ...candidate,
               toolEvents: events,
               toolEventSummary: {
-                totalCount: page.hasMore
+                totalCount: hasUnreadDurableEvents
                   ? Math.max(
                       candidate.toolEventSummary?.totalCount ?? 0,
-                      events.length + 1,
+                      loadedCount + 1,
                     )
-                  : events.length,
-                loadedCount: events.length,
-                truncated: page.hasMore,
-                ...(page.hasMore ? { totalCountIsLowerBound: true } : {}),
+                  : loadedCount,
+                loadedCount,
+                truncated: hasUnreadDurableEvents,
+                ...(hasUnreadDurableEvents
+                  ? { totalCountIsLowerBound: true }
+                  : {}),
                 detailLoaded: true,
-                ...(page.nextCursor
-                  ? { detailCursor: page.nextCursor }
-                  : candidate.toolEventSummary?.detailCursor
-                    ? {
-                        detailCursor: candidate.toolEventSummary.detailCursor,
-                      }
-                    : {}),
+                detailHasMore: historicalDetailHasMore,
+                livePinsPending,
+                ...(nextDetailCursor ? { detailCursor: nextDetailCursor } : {}),
               },
             }
           : candidate,
       ),
     });
     return true;
+  } catch (error) {
+    if (restartFromBeginning) entry.detailResetRequired.add(messageId);
+    throw error;
   } finally {
     detailReads.delete(readKey);
   }
@@ -830,6 +1130,8 @@ export function subscribeToLocalMessageTimeline(
       entry.requestId += 1;
       entry.inFlight = null;
       entry.queuedTailRefresh = false;
+      entry.queuedLatestRefresh = false;
+      entry.pendingEventsDuringRead.clear();
       entry.snapshot = {
         ...entry.snapshot,
         isLoadingOlder: false,
@@ -898,6 +1200,14 @@ export function retryLocalMessageTimeline(
 }
 
 export const __testing = {
+  getLiveToolEventPinIds(conversationId: string, messageId: string): string[] {
+    return [
+      ...(entries
+        .get(conversationId)
+        ?.liveToolEventPins.get(messageId)
+        ?.keys() ?? []),
+    ];
+  },
   getDebugStats(): MessageTimelineDebugStats {
     const retained = Array.from(entries.values());
     return {

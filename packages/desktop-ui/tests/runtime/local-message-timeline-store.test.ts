@@ -11,6 +11,7 @@ import {
   loadLatestLocalMessages,
   loadNewerLocalMessages,
   loadOlderLocalMessages,
+  MAX_RETAINED_TOOL_DETAIL_EVENTS,
   MAX_RETAINED_TIMELINE_MESSAGES,
   MESSAGE_TIMELINE_PAGE_SIZE,
   retryLocalMessageTimeline,
@@ -57,6 +58,14 @@ const asWindow = (messages: MessageRecord[]): MessageWindow => {
 const expectStarted = (result: false | Promise<boolean>) => {
   expect(result).toBeInstanceOf(Promise);
 };
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
 
 const waitFor = async (assertion: () => void, timeoutMs = 1_000) => {
   const startedAt = Date.now();
@@ -247,7 +256,7 @@ describe("local message timeline production store", () => {
       const { unsubscribe } = await subscribeAndWait("conversation-b");
       const appended = makeMessage(500, "stream start");
       api.timeline.push(appended);
-      api.emit("conversation-b");
+      api.emit("conversation-b", appended);
       await waitFor(() =>
         expect(
           getLocalMessageTimelineSnapshot("conversation-b").messages.at(-1)
@@ -257,7 +266,7 @@ describe("local message timeline production store", () => {
 
       const streamed = makeMessage(500, "stream completed");
       api.timeline[api.timeline.length - 1] = streamed;
-      api.emit("conversation-b");
+      api.emit("conversation-b", streamed);
       await waitFor(() =>
         expect(
           getLocalMessageTimelineSnapshot("conversation-b").messages.at(-1)
@@ -272,8 +281,9 @@ describe("local message timeline production store", () => {
       const unpinned = getLocalMessageTimelineSnapshot("conversation-b");
       expect(unpinned.hasNewer).toBe(true);
       const callsBeforeUnpinnedAppend = api.listMessagesAfter.mock.calls.length;
-      api.timeline.push(makeMessage(501, "arrived while reading"));
-      api.emit("conversation-b");
+      const unpinnedAppend = makeMessage(501, "arrived while reading");
+      api.timeline.push(unpinnedAppend);
+      api.emit("conversation-b", unpinnedAppend);
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(api.listMessagesAfter).toHaveBeenCalledTimes(
         callsBeforeUnpinnedAppend,
@@ -293,7 +303,7 @@ describe("local message timeline production store", () => {
     }
   });
 
-  it("patches tool pushes directly and tails new messages from their high-water sequence", async () => {
+  it("patches tool pushes directly without advancing the durable tail cursor", async () => {
     const user = makeMessage(0);
     const assistant = makeMessage(1);
     const firstTool = {
@@ -345,11 +355,238 @@ describe("local message timeline production store", () => {
       await waitForIdle("event-cursor");
       expect(api.listMessagesAfter).toHaveBeenCalledTimes(1);
       expect(api.listMessagesAfter.mock.calls[0]?.[0]).toEqual(
-        expect.objectContaining({ afterSequence: 4 }),
+        expect.objectContaining({ afterSequence: 2 }),
       );
       expect(
         getLocalMessageTimelineSnapshot("event-cursor").messages.at(-1)?._id,
       ).toBe(nextUser._id);
+      unsubscribe();
+    } finally {
+      api.restore();
+    }
+  });
+
+  it("recovers an older authored push that arrives while a newer tail read is pending", async () => {
+    const initial = [makeMessage(0), makeMessage(1)];
+    const olderAuthored = makeMessage(2, "older authored");
+    const newerAuthored = makeMessage(3, "newer authored");
+    const api = installTimelineApi(initial);
+    const pending = deferred<MessageWindow>();
+    api.listMessagesAfter.mockImplementationOnce(() => pending.promise);
+
+    try {
+      const { unsubscribe } = await subscribeAndWait("out-of-order-authored");
+      api.timeline.push(olderAuthored, newerAuthored);
+      api.emit("out-of-order-authored", newerAuthored);
+      api.emit("out-of-order-authored", olderAuthored);
+      pending.resolve({
+        messages: [newerAuthored],
+        visibleMessageCount: 1,
+        nextCursor: {
+          timestamp: newerAuthored.timestamp,
+          id: newerAuthored._id,
+          sequence: newerAuthored.sequence,
+        },
+      });
+
+      await waitForIdle("out-of-order-authored");
+      await waitFor(() =>
+        expect(
+          getLocalMessageTimelineSnapshot("out-of-order-authored")
+            .messages.slice(-2)
+            .map((message) => message._id),
+        ).toEqual([olderAuthored._id, newerAuthored._id]),
+      );
+      expect(api.listMessagesAfter).toHaveBeenCalledTimes(1);
+      unsubscribe();
+    } finally {
+      api.restore();
+    }
+  });
+
+  it("replays a live tool patch after a stale tail response completes", async () => {
+    const initial = [makeMessage(0), makeMessage(1)];
+    const nextUser = makeMessage(2, "next turn");
+    const liveTool = {
+      _id: "live-tool-during-tail",
+      timestamp: initial[1]!.timestamp + 1,
+      sequence: 3,
+      type: "tool_result" as const,
+      payload: { output: "must survive" },
+    };
+    const api = installTimelineApi(initial);
+    api.timeline.push(nextUser);
+    const pending = deferred<MessageWindow>();
+    api.listMessagesAfter.mockImplementationOnce(() => pending.promise);
+
+    try {
+      const { unsubscribe } = await subscribeAndWait("stale-tail-race");
+      api.emit("stale-tail-race", nextUser);
+      api.emit("stale-tail-race", liveTool);
+      pending.resolve(asWindow([nextUser]));
+      await waitForIdle("stale-tail-race");
+
+      const assistant = getLocalMessageTimelineSnapshot(
+        "stale-tail-race",
+      ).messages.find((message) => message._id === initial[1]!._id);
+      expect(assistant?.toolEvents).toContainEqual(liveTool);
+      unsubscribe();
+    } finally {
+      api.restore();
+    }
+  });
+
+  it("reconciles a rewind queued during initial hydration", async () => {
+    const original = Array.from({ length: 500 }, (_, index) =>
+      makeMessage(index),
+    );
+    const api = installTimelineApi(original);
+    const pending = deferred<MessageWindow>();
+    api.listMessages.mockImplementationOnce(() => pending.promise);
+
+    try {
+      const unsubscribe = subscribeToLocalMessageTimeline(
+        "rewind-during-initial",
+        () => {},
+      );
+      await waitFor(() => expect(api.listMessages).toHaveBeenCalledTimes(1));
+      api.timeline.splice(450);
+      api.emit("rewind-during-initial");
+      pending.resolve(asWindow(original.slice(-81)));
+
+      await waitFor(() => expect(api.listMessages).toHaveBeenCalledTimes(2));
+      await waitForIdle("rewind-during-initial");
+      expect(
+        getLocalMessageTimelineSnapshot("rewind-during-initial").messages.at(-1)
+          ?._id,
+      ).toBe("message-0000449");
+      unsubscribe();
+    } finally {
+      api.restore();
+    }
+  });
+
+  it("reconciles a rewind queued during older-page hydration", async () => {
+    const original = Array.from({ length: 500 }, (_, index) =>
+      makeMessage(index),
+    );
+    const api = installTimelineApi(original);
+    const pending = deferred<MessageWindow>();
+
+    try {
+      const { unsubscribe } = await subscribeAndWait("rewind-during-older");
+      api.listMessagesBefore.mockImplementationOnce(() => pending.promise);
+      const olderRead = loadOlderLocalMessages("rewind-during-older");
+      expectStarted(olderRead);
+      api.timeline.splice(490);
+      api.emit("rewind-during-older");
+      pending.resolve(asWindow(original.slice(339, 420)));
+      await olderRead;
+
+      await waitFor(() => expect(api.listMessages).toHaveBeenCalledTimes(2));
+      await waitForIdle("rewind-during-older");
+      expect(
+        getLocalMessageTimelineSnapshot("rewind-during-older").messages.at(-1)
+          ?._id,
+      ).toBe("message-0000489");
+      unsubscribe();
+    } finally {
+      api.restore();
+    }
+  });
+
+  it("reconciles a rewind queued during newer-page hydration", async () => {
+    const original = Array.from({ length: 500 }, (_, index) =>
+      makeMessage(index),
+    );
+    const api = installTimelineApi(original);
+    const pending = deferred<MessageWindow>();
+
+    try {
+      const { unsubscribe } = await subscribeAndWait("rewind-during-newer");
+      for (let page = 0; page < 4; page += 1) {
+        expectStarted(loadOlderLocalMessages("rewind-during-newer"));
+        await waitForIdle("rewind-during-newer");
+      }
+      expect(
+        getLocalMessageTimelineSnapshot("rewind-during-newer").hasNewer,
+      ).toBe(true);
+
+      api.listMessagesAfter.mockImplementationOnce(() => pending.promise);
+      const newerRead = loadNewerLocalMessages("rewind-during-newer");
+      expectStarted(newerRead);
+      api.timeline.splice(400);
+      api.emit("rewind-during-newer");
+      pending.resolve(asWindow(original.slice(418)));
+      await newerRead;
+
+      await waitFor(() => expect(api.listMessages).toHaveBeenCalledTimes(2));
+      await waitForIdle("rewind-during-newer");
+      expect(
+        getLocalMessageTimelineSnapshot("rewind-during-newer").messages.at(-1)
+          ?._id,
+      ).toBe("message-0000399");
+      unsubscribe();
+    } finally {
+      api.restore();
+    }
+  });
+
+  it("reconciles a rewind queued during a live tail read", async () => {
+    const original = Array.from({ length: 500 }, (_, index) =>
+      makeMessage(index),
+    );
+    const api = installTimelineApi(original);
+    const pending = deferred<MessageWindow>();
+
+    try {
+      const { unsubscribe } = await subscribeAndWait("rewind-during-tail");
+      api.listMessagesAfter.mockImplementationOnce(() => pending.promise);
+      const appended = makeMessage(500);
+      api.timeline.push(appended);
+      api.emit("rewind-during-tail", appended);
+      await waitFor(() =>
+        expect(api.listMessagesAfter).toHaveBeenCalledTimes(1),
+      );
+
+      api.timeline.splice(490);
+      api.emit("rewind-during-tail");
+      pending.resolve(asWindow([appended]));
+
+      await waitFor(() => expect(api.listMessages).toHaveBeenCalledTimes(2));
+      await waitForIdle("rewind-during-tail");
+      const snapshot = getLocalMessageTimelineSnapshot("rewind-during-tail");
+      expect(snapshot.messages.at(-1)?._id).toBe("message-0000489");
+      expect(
+        snapshot.messages.some((message) => message._id === appended._id),
+      ).toBe(false);
+      unsubscribe();
+    } finally {
+      api.restore();
+    }
+  });
+
+  it("reconciles a rewind while a historical window has newer rows", async () => {
+    const api = installTimelineApi(
+      Array.from({ length: 500 }, (_, index) => makeMessage(index)),
+    );
+    try {
+      const { unsubscribe } = await subscribeAndWait("rewind-with-newer");
+      for (let page = 0; page < 4; page += 1) {
+        expectStarted(loadOlderLocalMessages("rewind-with-newer"));
+        await waitForIdle("rewind-with-newer");
+      }
+      expect(
+        getLocalMessageTimelineSnapshot("rewind-with-newer").hasNewer,
+      ).toBe(true);
+
+      api.timeline.splice(400);
+      api.emit("rewind-with-newer");
+      await waitFor(() => expect(api.listMessages).toHaveBeenCalledTimes(2));
+      await waitForIdle("rewind-with-newer");
+      const snapshot = getLocalMessageTimelineSnapshot("rewind-with-newer");
+      expect(snapshot.messages.at(-1)?._id).toBe("message-0000399");
+      expect(snapshot.hasNewer).toBe(false);
       unsubscribe();
     } finally {
       api.restore();
@@ -456,9 +693,10 @@ describe("local message timeline production store", () => {
         payload: { output: "projected tail" },
       });
 
-      const summary = getLocalMessageTimelineSnapshot(
-        "detail-cursor",
-      ).messages.at(-1)?.toolEventSummary;
+      const summary =
+        getLocalMessageTimelineSnapshot("detail-cursor").messages.at(
+          -1,
+        )?.toolEventSummary;
       expect(summary).toEqual(
         expect.objectContaining({
           detailLoaded: true,
@@ -476,6 +714,560 @@ describe("local message timeline production store", () => {
           afterSequence: 159,
         }),
       );
+      unsubscribe();
+    } finally {
+      api.restore();
+    }
+  });
+
+  it("prunes live tool-event pins when their message is removed", async () => {
+    const user = { ...makeMessage(0), sequence: 100, timestamp: 100 };
+    const assistant = {
+      ...makeMessage(1),
+      sequence: 200,
+      timestamp: 200,
+      toolEventSummary: {
+        totalCount: 1,
+        loadedCount: 1,
+        truncated: true,
+      },
+    } satisfies MessageRecord;
+    const api = installTimelineApi([user, assistant]);
+    api.listMessageToolEvents.mockResolvedValueOnce({
+      events: [],
+      hasMore: false,
+    });
+
+    try {
+      const { unsubscribe } = await subscribeAndWait("removed-detail-pins");
+      expect(
+        await loadLocalMessageToolEventPage(
+          "removed-detail-pins",
+          assistant._id,
+        ),
+      ).toBe(true);
+      api.emit("removed-detail-pins", {
+        _id: "live-after-detail",
+        timestamp: 150,
+        sequence: 150,
+        type: "tool_result",
+        payload: { output: "live" },
+      });
+      expect(
+        __testing.getLiveToolEventPinIds(
+          "removed-detail-pins",
+          assistant._id,
+        ),
+      ).toEqual(["live-after-detail"]);
+
+      api.timeline.splice(0, api.timeline.length);
+      api.emit("removed-detail-pins");
+      await waitForIdle("removed-detail-pins");
+
+      expect(
+        getLocalMessageTimelineSnapshot("removed-detail-pins").messages,
+      ).toEqual([]);
+      expect(
+        __testing.getLiveToolEventPinIds(
+          "removed-detail-pins",
+          assistant._id,
+        ),
+      ).toEqual([]);
+      unsubscribe();
+    } finally {
+      api.restore();
+    }
+  });
+
+  it("offers lazy detail when a live tool payload is projected", async () => {
+    const user = { ...makeMessage(0), sequence: 100, timestamp: 100 };
+    const toolEvent = {
+      _id: "projected-live-tool",
+      timestamp: 150,
+      sequence: 150,
+      type: "tool_result" as const,
+      payload: { output: "short" },
+    };
+    const assistant = {
+      ...makeMessage(1),
+      sequence: 200,
+      timestamp: 200,
+      toolEvents: [toolEvent],
+      toolEventSummary: {
+        totalCount: 1,
+        loadedCount: 1,
+        truncated: false,
+      },
+    } satisfies MessageRecord;
+    const api = installTimelineApi([user, assistant]);
+    api.listMessageToolEvents.mockResolvedValueOnce({
+      events: [
+        {
+          ...toolEvent,
+          payload: { output: "x".repeat(10_000) },
+        },
+      ],
+      hasMore: false,
+      nextCursor: {
+        timestamp: toolEvent.timestamp,
+        id: toolEvent._id,
+        sequence: toolEvent.sequence,
+      },
+    });
+
+    try {
+      const { unsubscribe } = await subscribeAndWait("live-payload-detail");
+      api.emit("live-payload-detail", {
+        ...toolEvent,
+        payload: {
+          output: "projected",
+          __stellaEagerProjection: {
+            truncated: true,
+            fullDetailAvailable: true,
+          },
+        },
+      });
+
+      const summary = getLocalMessageTimelineSnapshot(
+        "live-payload-detail",
+      ).messages.at(-1)?.toolEventSummary;
+      expect(summary).toMatchObject({
+        totalCount: 1,
+        loadedCount: 1,
+        truncated: true,
+      });
+      expect(summary).not.toHaveProperty("totalCountIsLowerBound");
+
+      expect(
+        await loadLocalMessageToolEventPage(
+          "live-payload-detail",
+          assistant._id,
+        ),
+      ).toBe(true);
+      expect(api.listMessageToolEvents).toHaveBeenCalledWith(
+        expect.not.objectContaining({ afterEventId: expect.anything() }),
+      );
+      const loaded = getLocalMessageTimelineSnapshot(
+        "live-payload-detail",
+      ).messages.at(-1);
+      expect(loaded?.toolEvents[0]?.payload).toEqual({
+        output: "x".repeat(10_000),
+      });
+      expect(loaded?.toolEventSummary?.truncated).toBe(false);
+      unsubscribe();
+    } finally {
+      api.restore();
+    }
+  });
+
+  it("reopens detail when a durable read replaces loaded payload with a projection", async () => {
+    const user = { ...makeMessage(0), sequence: 100, timestamp: 100 };
+    const projectedEvent = {
+      _id: "durable-projected-tool",
+      timestamp: 150,
+      sequence: 150,
+      type: "tool_result" as const,
+      payload: {
+        output: "projected-v1",
+        __stellaEagerProjection: {
+          truncated: true,
+          fullDetailAvailable: true,
+        },
+      },
+    };
+    const assistant = {
+      ...makeMessage(1),
+      sequence: 200,
+      timestamp: 200,
+      toolEvents: [projectedEvent],
+      toolEventSummary: {
+        totalCount: 1,
+        loadedCount: 1,
+        truncated: true,
+      },
+    } satisfies MessageRecord;
+    const api = installTimelineApi([user, assistant]);
+    api.listMessageToolEvents
+      .mockResolvedValueOnce({
+        events: [
+          {
+            ...projectedEvent,
+            payload: { output: "full-v1" },
+          },
+        ],
+        hasMore: false,
+      })
+      .mockResolvedValueOnce({
+        events: [
+          {
+            ...projectedEvent,
+            payload: { output: "full-v2" },
+          },
+        ],
+        hasMore: false,
+      });
+
+    try {
+      const { unsubscribe } = await subscribeAndWait("durable-payload-detail");
+      expect(
+        await loadLocalMessageToolEventPage(
+          "durable-payload-detail",
+          assistant._id,
+        ),
+      ).toBe(true);
+
+      api.timeline[1] = {
+        ...assistant,
+        toolEvents: [
+          {
+            ...projectedEvent,
+            payload: {
+              ...projectedEvent.payload,
+              output: "projected-v2",
+            },
+          },
+        ],
+      };
+      api.emit("durable-payload-detail");
+      await waitForIdle("durable-payload-detail");
+
+      let current = getLocalMessageTimelineSnapshot(
+        "durable-payload-detail",
+      ).messages.at(-1);
+      expect(current?.toolEvents[0]?.payload?.output).toBe("projected-v2");
+      expect(current?.toolEventSummary).toMatchObject({
+        truncated: true,
+        loadedCount: 1,
+      });
+      expect(current?.toolEventSummary?.detailLoaded).not.toBe(true);
+
+      expect(
+        await loadLocalMessageToolEventPage(
+          "durable-payload-detail",
+          assistant._id,
+        ),
+      ).toBe(true);
+      expect(api.listMessageToolEvents.mock.calls[1]?.[0]).not.toHaveProperty(
+        "afterEventId",
+      );
+      current = getLocalMessageTimelineSnapshot(
+        "durable-payload-detail",
+      ).messages.at(-1);
+      expect(current?.toolEvents[0]?.payload?.output).toBe("full-v2");
+      expect(current?.toolEventSummary?.truncated).toBe(false);
+      unsubscribe();
+    } finally {
+      api.restore();
+    }
+  });
+
+  it("does not advance detail past a live pin omitted by an in-flight page", async () => {
+    const user = { ...makeMessage(0), sequence: 100, timestamp: 100 };
+    const assistant = {
+      ...makeMessage(1),
+      sequence: 300,
+      timestamp: 300,
+      toolEventSummary: {
+        totalCount: 101,
+        loadedCount: 32,
+        truncated: true,
+        totalCountIsLowerBound: true,
+      },
+    } satisfies MessageRecord;
+    const live = {
+      _id: "live-inside-stale-page",
+      timestamp: 150,
+      sequence: 150,
+      type: "tool_result" as const,
+      payload: { output: "live" },
+    };
+    const staleEvents = Array.from({ length: 100 }, (_, index) => ({
+      _id: `stale-page-${index}`,
+      timestamp: 101 + index,
+      sequence: 101 + index,
+      type: "tool_result" as const,
+      payload: { output: `${index}` },
+    }));
+    const api = installTimelineApi([user, assistant]);
+    const pending = deferred<LocalChatToolEventPage>();
+    let detailReadCount = 0;
+    api.listMessageToolEvents.mockImplementation(() => {
+      detailReadCount += 1;
+      if (detailReadCount === 1) return pending.promise;
+      return Promise.resolve({
+        events: [...staleEvents, live],
+        hasMore: false,
+        nextCursor: { timestamp: 200, id: "stale-page-99", sequence: 200 },
+      });
+    });
+
+    try {
+      const { unsubscribe } = await subscribeAndWait("detail-race");
+      const firstRead = loadLocalMessageToolEventPage(
+        "detail-race",
+        assistant._id,
+      );
+      api.emit("detail-race", live);
+      pending.resolve({
+        events: staleEvents,
+        hasMore: true,
+        nextCursor: { timestamp: 200, id: "stale-page-99", sequence: 200 },
+      });
+      expect(await firstRead).toBe(true);
+
+      let summary =
+        getLocalMessageTimelineSnapshot("detail-race").messages.at(
+          -1,
+        )?.toolEventSummary;
+      expect(summary).toEqual(
+        expect.objectContaining({
+          truncated: true,
+          livePinsPending: true,
+        }),
+      );
+      expect(summary?.detailCursor).toBeUndefined();
+      expect(
+        __testing.getLiveToolEventPinIds("detail-race", assistant._id),
+      ).toEqual([live._id]);
+      expect(
+        getLocalMessageTimelineSnapshot("detail-race").messages.at(-1)
+          ?.toolEvents,
+      ).toContainEqual(live);
+
+      expect(
+        await loadLocalMessageToolEventPage("detail-race", assistant._id),
+      ).toBe(true);
+      expect(detailReadCount).toBe(2);
+      expect(
+        __testing.getLiveToolEventPinIds("detail-race", assistant._id),
+      ).toEqual([]);
+      expect(api.listMessageToolEvents.mock.calls[1]?.[0]).not.toHaveProperty(
+        "afterId",
+      );
+      summary =
+        getLocalMessageTimelineSnapshot("detail-race").messages.at(
+          -1,
+        )?.toolEventSummary;
+      expect(summary).toEqual(
+        expect.objectContaining({
+          truncated: false,
+          detailHasMore: false,
+          livePinsPending: false,
+        }),
+      );
+      expect(
+        getLocalMessageTimelineSnapshot("detail-race").messages.at(-1)
+          ?.toolEvents,
+      ).toContainEqual(live);
+      unsubscribe();
+    } finally {
+      api.restore();
+    }
+  });
+
+  it("accepts a fresh payload when a tool event id is updated", async () => {
+    const user = { ...makeMessage(0), sequence: 100, timestamp: 100 };
+    const staleEvent = {
+      _id: "mutable-tool-event",
+      timestamp: 150,
+      sequence: 150,
+      type: "tool_result" as const,
+      payload: { output: "stale" },
+    };
+    const assistant = {
+      ...makeMessage(1),
+      sequence: 200,
+      timestamp: 200,
+      toolEvents: [staleEvent],
+      toolEventSummary: {
+        totalCount: 1,
+        loadedCount: 1,
+        truncated: false,
+      },
+    } satisfies MessageRecord;
+    const api = installTimelineApi([user, assistant]);
+
+    try {
+      const { unsubscribe } = await subscribeAndWait("same-id-update");
+      api.emit("same-id-update", {
+        ...staleEvent,
+        payload: { output: "fresh" },
+      });
+
+      expect(
+        getLocalMessageTimelineSnapshot("same-id-update").messages.at(-1)
+          ?.toolEvents[0]?.payload,
+      ).toEqual({ output: "fresh" });
+      unsubscribe();
+    } finally {
+      api.restore();
+    }
+  });
+
+  it("keeps a same-id push authoritative over a stale in-flight detail page", async () => {
+    const user = { ...makeMessage(0), sequence: 100, timestamp: 100 };
+    const staleEvent = {
+      _id: "mutable-detail-event",
+      timestamp: 150,
+      sequence: 150,
+      type: "tool_result" as const,
+      payload: { output: "stale" },
+    };
+    const freshEvent = {
+      ...staleEvent,
+      payload: { output: "fresh" },
+    };
+    const assistant = {
+      ...makeMessage(1),
+      sequence: 300,
+      timestamp: 300,
+      toolEvents: [staleEvent],
+      toolEventSummary: {
+        totalCount: 101,
+        loadedCount: 1,
+        truncated: true,
+        totalCountIsLowerBound: true,
+      },
+    } satisfies MessageRecord;
+    const api = installTimelineApi([user, assistant]);
+    const pending = deferred<LocalChatToolEventPage>();
+    api.listMessageToolEvents.mockImplementationOnce(() => pending.promise);
+    api.listMessageToolEvents.mockResolvedValueOnce({
+      events: [freshEvent],
+      hasMore: false,
+      nextCursor: {
+        timestamp: freshEvent.timestamp,
+        id: freshEvent._id,
+        sequence: freshEvent.sequence,
+      },
+    });
+
+    try {
+      const { unsubscribe } = await subscribeAndWait("same-id-detail-race");
+      const firstRead = loadLocalMessageToolEventPage(
+        "same-id-detail-race",
+        assistant._id,
+      );
+      api.emit("same-id-detail-race", freshEvent);
+      pending.resolve({
+        events: [staleEvent],
+        hasMore: true,
+        nextCursor: {
+          timestamp: staleEvent.timestamp,
+          id: staleEvent._id,
+          sequence: staleEvent.sequence,
+        },
+      });
+      expect(await firstRead).toBe(true);
+
+      let loaded = getLocalMessageTimelineSnapshot(
+        "same-id-detail-race",
+      ).messages.at(-1)!;
+      expect(
+        loaded.toolEvents.find((event) => event._id === staleEvent._id),
+      ).toEqual(freshEvent);
+      expect(
+        __testing.getLiveToolEventPinIds("same-id-detail-race", assistant._id),
+      ).toEqual([freshEvent._id]);
+      expect(loaded.toolEventSummary?.detailCursor).toBeUndefined();
+
+      expect(
+        await loadLocalMessageToolEventPage(
+          "same-id-detail-race",
+          assistant._id,
+        ),
+      ).toBe(true);
+      loaded = getLocalMessageTimelineSnapshot(
+        "same-id-detail-race",
+      ).messages.at(-1)!;
+      expect(
+        loaded.toolEvents.find((event) => event._id === staleEvent._id),
+      ).toEqual(freshEvent);
+      expect(
+        __testing.getLiveToolEventPinIds("same-id-detail-race", assistant._id),
+      ).toEqual([]);
+      unsubscribe();
+    } finally {
+      api.restore();
+    }
+  });
+
+  it("bounds retained paginated tool detail while advancing the full cursor", async () => {
+    const user = { ...makeMessage(0), sequence: 100, timestamp: 100 };
+    const eagerToolEvents = [
+      ...Array.from({ length: 16 }, (_, index) => index),
+      ...Array.from({ length: 16 }, (_, index) => 484 + index),
+    ].map((index) => ({
+      _id: `detail-${index.toString().padStart(3, "0")}`,
+      timestamp: 101 + index,
+      sequence: 101 + index,
+      type: "tool_result" as const,
+      payload: { output: `projected detail ${index}` },
+    }));
+    const assistant = {
+      ...makeMessage(1),
+      sequence: 1_000,
+      timestamp: 1_000,
+      toolEvents: eagerToolEvents,
+      toolEventSummary: {
+        totalCount: 500,
+        loadedCount: 32,
+        truncated: true,
+      },
+    } satisfies MessageRecord;
+    const api = installTimelineApi([user, assistant]);
+    let nextPageIndex = 0;
+    api.listMessageToolEvents.mockImplementation(async () => {
+      const pageIndex = nextPageIndex;
+      nextPageIndex += 1;
+      const start = pageIndex * 100;
+      const events = Array.from({ length: 100 }, (_, offset) => {
+        const index = start + offset;
+        return {
+          _id: `detail-${index.toString().padStart(3, "0")}`,
+          timestamp: 101 + index,
+          sequence: 101 + index,
+          type: "tool_result" as const,
+          payload: { output: `detail ${index}` },
+        };
+      });
+      const last = events.at(-1)!;
+      return {
+        events,
+        hasMore: pageIndex < 4,
+        nextCursor: {
+          timestamp: last.timestamp,
+          id: last._id,
+          sequence: last.sequence,
+        },
+      };
+    });
+
+    try {
+      const { unsubscribe } = await subscribeAndWait("bounded-detail");
+      for (let page = 0; page < 5; page += 1) {
+        expect(
+          await loadLocalMessageToolEventPage("bounded-detail", assistant._id),
+        ).toBe(true);
+      }
+
+      const loaded =
+        getLocalMessageTimelineSnapshot("bounded-detail").messages.at(-1)!;
+      expect(loaded.toolEvents).toHaveLength(MAX_RETAINED_TOOL_DETAIL_EVENTS);
+      expect(loaded.toolEventSummary).toEqual(
+        expect.objectContaining({
+          loadedCount: 500,
+          totalCount: 500,
+          truncated: false,
+          detailCursor: {
+            timestamp: 600,
+            id: "detail-499",
+            sequence: 600,
+          },
+        }),
+      );
+      expect(loaded.toolEvents[0]?._id).toBe("detail-000");
+      expect(loaded.toolEvents.at(-1)?._id).toBe("detail-499");
       unsubscribe();
     } finally {
       api.restore();

@@ -68,6 +68,7 @@ type ThreadActivityEntry = {
   disposed: boolean;
   assistantUpdates: Map<string, ThreadActivityAssistantUpdate>;
   recordWatermarks: Map<string, ThreadActivityRecord>;
+  equalVersionConflicts: Map<string, string>;
 };
 
 const EMPTY_SNAPSHOT: ThreadActivitySnapshot = {
@@ -110,7 +111,7 @@ const recordsSignature = (records: ThreadActivityRecord[]): string =>
   records
     .map(
       (record) =>
-        `${record.threadId}\u0000${record.source}\u0000${record.readOnly ? 1 : 0}\u0000${record.parentAgentId ?? ""}\u0000${record.status}\u0000${record.attemptGeneration ?? 0}\u0000${record.updatedAt}\u0000${record.description}\u0000${record.rootRunId ?? ""}\u0000${JSON.stringify(record.modelConfigSnapshot ?? null)}\u0000${record.assistantMessagesUpdatedSequence ?? ""}\u0000${JSON.stringify(record.assistantMessages ?? [])}`,
+        `${record.threadId}\u0000${record.source}\u0000${record.readOnly ? 1 : 0}\u0000${record.parentAgentId ?? ""}\u0000${record.status}\u0000${record.attemptGeneration ?? 0}\u0000${record.recordRevision ?? 0}\u0000${record.updatedAt}\u0000${record.description}\u0000${record.rootRunId ?? ""}\u0000${JSON.stringify(record.modelConfigSnapshot ?? null)}\u0000${record.assistantMessagesUpdatedSequence ?? ""}\u0000${JSON.stringify(record.assistantMessages ?? [])}`,
     )
     .join("\n");
 
@@ -236,10 +237,34 @@ const compareRecordVersions = (
   left: ThreadActivityRecord,
   right: ThreadActivityRecord,
 ): number =>
+  (left.recordRevision ?? 0) - (right.recordRevision ?? 0) ||
   (left.attemptGeneration ?? 0) - (right.attemptGeneration ?? 0) ||
   left.updatedAt - right.updatedAt ||
   (left.status === "running" ? 0 : 1) -
     (right.status === "running" ? 0 : 1);
+
+const recordVersionPayloadSignature = (record: ThreadActivityRecord): string =>
+  JSON.stringify({
+    source: record.source,
+    threadId: record.threadId,
+    conversationId: record.conversationId,
+    agentType: record.agentType,
+    description: record.description,
+    status: record.status,
+    attemptGeneration: record.attemptGeneration ?? 0,
+    recordRevision: record.recordRevision ?? 0,
+    rootRunId: record.rootRunId ?? null,
+    modelConfigSnapshot: record.modelConfigSnapshot ?? null,
+    parentAgentId: record.parentAgentId ?? null,
+    groupKey: record.groupKey ?? null,
+    groupLabel: record.groupLabel ?? null,
+    readOnly: record.readOnly ?? false,
+    startedAt: record.startedAt,
+    completedAt: record.completedAt ?? null,
+    result: record.result ?? null,
+    error: record.error ?? null,
+    updatedAt: record.updatedAt,
+  });
 
 /** A keyed push can race an older hydration request. Keep the pushed durable
  * row until a later list result demonstrably catches up to its version. */
@@ -253,9 +278,31 @@ const applyRecordWatermarks = (
   );
   for (const [threadId, watermark] of entry.recordWatermarks) {
     const fetched = protectedRecords.get(threadId);
-    if (fetched && compareRecordVersions(fetched, watermark) >= 0) {
-      entry.recordWatermarks.delete(threadId);
-      continue;
+    if (fetched) {
+      const comparison = compareRecordVersions(fetched, watermark);
+      if (comparison > 0) {
+        entry.recordWatermarks.delete(threadId);
+        entry.equalVersionConflicts.delete(threadId);
+        continue;
+      }
+      if (comparison === 0) {
+        const fetchedSignature = recordVersionPayloadSignature(fetched);
+        const watermarkSignature = recordVersionPayloadSignature(watermark);
+        if (fetchedSignature === watermarkSignature) {
+          entry.recordWatermarks.delete(threadId);
+          entry.equalVersionConflicts.delete(threadId);
+          continue;
+        }
+        // Equal timestamps/status ranks are not proof that an older hydration
+        // caught a push. Keep the pushed row and force one deterministic
+        // follow-up read; persisted Stella records use recordRevision so the
+        // next result can establish a strict order.
+        const conflictSignature = `${fetchedSignature}\n${watermarkSignature}`;
+        if (entry.equalVersionConflicts.get(threadId) !== conflictSignature) {
+          entry.equalVersionConflicts.set(threadId, conflictSignature);
+          entry.pendingRefetch = true;
+        }
+      }
     }
     protectedRecords.set(threadId, watermark);
   }
@@ -436,6 +483,7 @@ export const subscribeToThreadActivity = (
       disposed: false,
       assistantUpdates: new Map(),
       recordWatermarks: new Map(),
+      equalVersionConflicts: new Map(),
     };
     entries.set(conversationId, entry);
   }
@@ -493,6 +541,7 @@ export const subscribeToThreadActivityRecord = (
       disposed: false,
       assistantUpdates: new Map(),
       recordWatermarks: new Map(),
+      equalVersionConflicts: new Map(),
     };
     entries.set(conversationId, entry);
   }

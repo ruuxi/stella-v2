@@ -58,6 +58,7 @@ const ORCHESTRATOR_AGENT_IDLE_EVICTION_MS = 5 * 60 * 1000;
 export class OrchestratorSession extends PiSessionCore {
     conversationId;
     idleEvictionTimer = null;
+    activeTurnCount = 0;
     /**
      * Mutable tracker slot. Set at the start of every `runTurn`, cleared at
      * the end. The Agent's `afterToolCall` closure (built once at Agent
@@ -76,9 +77,14 @@ export class OrchestratorSession extends PiSessionCore {
     scheduleIdleEviction() {
         if (this.idleEvictionTimer) {
             clearTimeout(this.idleEvictionTimer);
+            this.idleEvictionTimer = null;
         }
+        if (this.activeTurnCount > 0)
+            return;
         this.idleEvictionTimer = setTimeout(() => {
             this.idleEvictionTimer = null;
+            if (this.activeTurnCount > 0)
+                return;
             this.dispose();
         }, ORCHESTRATOR_AGENT_IDLE_EVICTION_MS);
         this.idleEvictionTimer.unref?.();
@@ -121,11 +127,14 @@ export class OrchestratorSession extends PiSessionCore {
             clearTimeout(this.idleEvictionTimer);
             this.idleEvictionTimer = null;
         }
+        this.activeTurnCount += 1;
         try {
             return await this.runActiveTurn(opts);
         }
         finally {
-            this.scheduleIdleEviction();
+            this.activeTurnCount = Math.max(0, this.activeTurnCount - 1);
+            if (this.activeTurnCount === 0)
+                this.scheduleIdleEviction();
         }
     }
     async runActiveTurn(opts) {

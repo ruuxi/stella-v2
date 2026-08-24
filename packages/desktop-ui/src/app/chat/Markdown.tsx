@@ -1,5 +1,5 @@
 import type { CSSProperties, ImgHTMLAttributes } from "react";
-import { memo, startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useMemo, useRef } from "react";
 import { Streamdown, defaultRemarkPlugins } from "streamdown";
 import { cn } from "@/shared/lib/utils";
 import {
@@ -14,7 +14,7 @@ import {
 } from "./emoji-sprites/active-emoji-pack";
 import { remarkEmojiSprites } from "./emoji-sprites/remark-emoji-sprites";
 import { shouldUseStreamingMarkdownPlaintext } from "@/features/chat/streaming/use-stream-text-animation";
-import { splitLongMarkdown } from "@/features/chat/streaming/markdown-chunks";
+import { shouldUseBoundedMarkdownPlaintext } from "@/features/chat/streaming/markdown-chunks";
 import {
   cellToRowCol,
   getEmojiSpriteGridSize,
@@ -141,90 +141,6 @@ const buildComponents = (hideHorizontalRules: boolean) => ({
   [STELLA_FILE_TAG]: StellaFileLink,
 });
 
-type MarkdownChunkProps = {
-  text: string;
-  cacheKey: string;
-  className?: string;
-  remarkPlugins: typeof BASE_REMARK_PLUGINS;
-  components: ReturnType<typeof buildComponents>;
-};
-
-const MarkdownChunk = memo(function MarkdownChunk({
-  text,
-  cacheKey,
-  className,
-  remarkPlugins,
-  components,
-}: MarkdownChunkProps) {
-  return (
-    <Streamdown
-      key={cacheKey}
-      mode="static"
-      className={cn("markdown", className)}
-      remarkPlugins={remarkPlugins}
-      components={components}
-      allowedTags={ALLOWED_TAGS}
-      linkSafety={LINK_SAFETY}
-    >
-      {text}
-    </Streamdown>
-  );
-});
-
-const ProgressiveMarkdown = ({
-  text,
-  cacheKey,
-  className,
-  remarkPlugins,
-  components,
-}: MarkdownChunkProps) => {
-  const chunks = useMemo(() => splitLongMarkdown(text), [text]);
-  const [formattedCount, setFormattedCount] = useState(0);
-
-  useEffect(() => {
-    if (formattedCount >= chunks.length) return;
-    let canceled = false;
-    let idleId: number | null = null;
-    let timerId: number | null = null;
-    const formatNext = () => {
-      if (canceled) return;
-      startTransition(() => {
-        setFormattedCount((count) => Math.min(chunks.length, count + 1));
-      });
-    };
-    if (typeof window.requestIdleCallback === "function") {
-      idleId = window.requestIdleCallback(formatNext, { timeout: 100 });
-    } else {
-      timerId = window.setTimeout(formatNext, 16);
-    }
-    return () => {
-      canceled = true;
-      if (idleId !== null) window.cancelIdleCallback(idleId);
-      if (timerId !== null) window.clearTimeout(timerId);
-    };
-  }, [chunks.length, formattedCount]);
-
-  return chunks.map((chunk, index) =>
-    index < formattedCount ? (
-      <MarkdownChunk
-        key={`${cacheKey}:${index}`}
-        text={chunk}
-        cacheKey={`${cacheKey}:${index}`}
-        className={className}
-        remarkPlugins={remarkPlugins}
-        components={components}
-      />
-    ) : (
-      <div
-        key={`${cacheKey}:plain:${index}`}
-        className={cn("markdown markdown--streaming-plaintext", className)}
-      >
-        {chunk}
-      </div>
-    ),
-  );
-};
-
 let nextAnonCacheKey = 0;
 
 export const Markdown = memo(function Markdown({
@@ -279,20 +195,18 @@ export const Markdown = memo(function Markdown({
     mode,
     text.length,
   );
+  // Streamdown parsing is intentionally a hard-bounded main-thread task.
+  // Parsing separate fragments changes document-level Markdown semantics
+  // (references, lists), while one pathological paragraph or fence defeats
+  // blank-line chunking. Preserve the complete authored text as plaintext
+  // once the bounded parser budget is exceeded.
+  const useBoundedPlaintext = shouldUseBoundedMarkdownPlaintext(text.length);
   return (
     <div style={emojiVars}>
-      {useStreamingPlaintext ? (
+      {useStreamingPlaintext || useBoundedPlaintext ? (
         <div className={cn("markdown markdown--streaming-plaintext", className)}>
           {text}
         </div>
-      ) : mode === "static" && text.length >= 12_000 ? (
-        <ProgressiveMarkdown
-          text={text}
-          cacheKey={streamdownKey}
-          className={className}
-          remarkPlugins={remarkPlugins}
-          components={components}
-        />
       ) : (
         <Streamdown
           key={streamdownKey}

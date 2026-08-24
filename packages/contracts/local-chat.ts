@@ -95,6 +95,8 @@ export type ThreadActivityRecord = {
   status: "running" | "completed" | "error" | "canceled";
   /** Durable attempt epoch for reused threads. */
   attemptGeneration?: number;
+  /** Monotonic revision of the persisted runtime_agents row. */
+  recordRevision?: number;
   /** Root run that owns the thread's latest lifecycle. */
   rootRunId?: string;
   /** Exact engine/model configuration captured for this thread's run. */
@@ -379,6 +381,10 @@ export type MessageRecord = {
     detailLoaded?: boolean;
     /** Last contiguous full-detail event read; projected live pins may follow. */
     detailCursor?: LocalChatTimelineCursor;
+    /** Whether durable historical pagination still has unread rows. */
+    detailHasMore?: boolean;
+    /** Whether pushed live events are retained pending durable page coverage. */
+    livePinsPending?: boolean;
   };
 };
 

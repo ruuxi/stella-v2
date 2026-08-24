@@ -547,6 +547,9 @@ export class LocalAgentManager {
             ...(task.modelConfigSnapshot
                 ? { modelConfigSnapshot: task.modelConfigSnapshot }
                 : {}),
+            ...(task.toolWorkspaceRoot
+                ? { toolWorkspaceRoot: task.toolWorkspaceRoot }
+                : {}),
             status: task.status === "pending" || isParked || completionPending
                 ? "running"
                 : task.status,
@@ -767,6 +770,9 @@ export class LocalAgentManager {
             ],
             descendantWakePending: record.descendantBoundaryState?.wakePending ?? false,
             modelConfigSnapshot: record.modelConfigSnapshot,
+            ...(record.toolWorkspaceRoot
+                ? { toolWorkspaceRoot: record.toolWorkspaceRoot }
+                : {}),
             recentActivity: [`Continuing thread: ${truncate(prompt, 200)}`],
             lastActivityAt: Date.now(),
             activeToolCount: 0,
@@ -780,9 +786,13 @@ export class LocalAgentManager {
             // Resuming an evicted/persisted thread is always a `send_input`
             // follow-up (this helper is only reached from that path).
             pendingStartIsFollowUp: true,
+            // A terminal record can be evicted while its canceled execution is
+            // still unwinding (or ignoring abort entirely). Rehydration is a new
+            // attempt boundary, just like resetTaskForNextAttempt: advance here
+            // so stale ownership is fenced before enqueueTask observes it.
             attemptGeneration: Number.isFinite(record.attemptGeneration)
-                ? Math.max(0, Math.floor(record.attemptGeneration))
-                : 0,
+                ? Math.max(0, Math.floor(record.attemptGeneration)) + 1
+                : 1,
         };
         if (record.prompt) {
             task.initialPrompt = record.prompt;
@@ -868,6 +878,36 @@ export class LocalAgentManager {
             // ignored abort). Release its scheduler slot and remove its ownership
             // record. Generation/controller checks fence every later callback and
             // state write from that promise if it eventually returns.
+            this.attemptTakeoverTimers.delete(task.threadId);
+            this.inFlightAttempts.delete(task.threadId);
+            this.runningCount = Math.max(0, this.runningCount - 1);
+            this.tryStartNext();
+        }, timeoutMs);
+        timer.unref?.();
+        this.attemptTakeoverTimers.set(task.threadId, {
+            generation: activeAttempt.generation,
+            promise: activeAttempt.promise,
+            timer,
+        });
+    }
+    scheduleCanceledAttemptRelease(task, activeAttempt) {
+        this.clearAttemptTakeoverTimer(task.threadId);
+        const timeoutMs = Math.max(1, this.opts.attemptTeardownTimeoutMs ??
+            DEFAULT_AGENT_ATTEMPT_TEARDOWN_TIMEOUT_MS);
+        const timer = setTimeout(() => {
+            const inFlight = this.inFlightAttempts.get(task.threadId);
+            const pending = this.attemptTakeoverTimers.get(task.threadId);
+            if (inFlight?.generation !== activeAttempt.generation ||
+                inFlight.promise !== activeAttempt.promise ||
+                pending?.generation !== activeAttempt.generation ||
+                pending.promise !== activeAttempt.promise) {
+                this.clearAttemptTakeoverTimer(task.threadId, activeAttempt.generation, activeAttempt.promise);
+                return;
+            }
+            // Cancellation has already disposed the live Pi session and fenced
+            // durable writes by generation. A bridge/tool that ignores abort
+            // must not retain the global scheduler slot forever even when this
+            // thread is never resumed.
             this.attemptTakeoverTimers.delete(task.threadId);
             this.inFlightAttempts.delete(task.threadId);
             this.runningCount = Math.max(0, this.runningCount - 1);
@@ -984,7 +1024,8 @@ export class LocalAgentManager {
         });
     }
     async executeTask(task, attempt) {
-        const isCurrentAttempt = () => task.attemptGeneration === attempt.generation &&
+        const isCurrentAttempt = () => this.tasks.get(task.threadId) === task &&
+            task.attemptGeneration === attempt.generation &&
             task.controller === attempt.controller;
         try {
             const runId = `run:${task.threadId}:${++this.nextId}`;
@@ -1607,6 +1648,10 @@ export class LocalAgentManager {
                 statusText: "Pausing",
             });
             local.controller.abort(new Error(local.error));
+            const activeAttempt = this.inFlightAttempts.get(agentId);
+            if (activeAttempt) {
+                this.scheduleCanceledAttemptRelease(local, activeAttempt);
+            }
             // Dispose the long-lived `SubagentSession` eagerly here too.
             // `executeTask` disposes at the end of the run, which is the
             // happy path for normal cancellation (abort propagates into

@@ -22,7 +22,8 @@ const createStore = () => {
       result TEXT,
       error TEXT,
       updated_at INTEGER NOT NULL,
-      root_run_id TEXT
+      root_run_id TEXT,
+      record_revision INTEGER NOT NULL DEFAULT 0
     )
   `);
   return { db, store: new SessionStore(db) };

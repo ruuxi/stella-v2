@@ -35,11 +35,7 @@ import {
   registerExtensionToolHandlers,
 } from "./registry.js";
 import { buildBuiltinTools } from "./defs/index.js";
-import {
-  AGENT_ORCHESTRATION_TOOL_NAMES,
-  withoutSpawnAgentModelParam,
-} from "./defs/task.js";
-import { getDeveloperModeEnabled } from "../preferences/local-preferences.js";
+import { AGENT_ORCHESTRATION_TOOL_NAMES } from "./defs/task.js";
 import type { ToolDefinition as BuiltinToolDefinition } from "./types.js";
 import { sanitizeToolError, sanitizeToolResult } from "./safety.js";
 import { searchToolCatalog } from "./code-catalog.js";
@@ -130,11 +126,6 @@ export const createToolHost = ({
   contextProvider,
 }: ToolHostOptions) => {
   const stateRoot = stellaDataDir ?? stellaAppDir;
-
-  const applyDeveloperModeToolGate = (tool: ToolMetadata): ToolMetadata =>
-    getDeveloperModeEnabled(stateRoot)
-      ? tool
-      : (withoutSpawnAgentModelParam(tool) as ToolMetadata);
   const toolCatalog = new Map<string, ToolMetadata>();
 
   const shellState: ShellState = createShellState(stateRoot, {
@@ -193,9 +184,7 @@ export const createToolHost = ({
 
     searchTools: (query, context, limit) =>
       searchToolCatalog(
-        collectReplSearchableTools(toolCatalog.values(), context).map((tool) =>
-          applyDeveloperModeToolGate(tool),
-        ),
+        collectReplSearchableTools(toolCatalog.values(), context),
         query,
         limit,
       ),
@@ -471,7 +460,7 @@ export const createToolHost = ({
         return false;
       }
       return true;
-    }).map((tool) => applyDeveloperModeToolGate(tool));
+    });
   };
 
   const extensionToolNames = new Set<string>();

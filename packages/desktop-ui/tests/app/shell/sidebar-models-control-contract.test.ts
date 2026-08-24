@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { shouldShowGlobalModelsControl } from "@/shell/global-models-control-visibility";
+import type { SidebarSection } from "@/features/workspace-display/sidebar-sections";
 
 const SOURCE_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -18,6 +20,7 @@ describe("global Models control placement", () => {
     const home = readSource("shell/WorkspaceHomeSurface.tsx");
     const work = readSource("shell/sidebar-sections/FilesSection.jsx");
     const control = readSource("shell/GlobalModelsControl.jsx");
+    const defaultTabs = readSource("shell/display/default-tabs.tsx");
     const styles = readSource("shell/global-models-control.css");
 
     expect(root).toContain(
@@ -47,9 +50,43 @@ describe("global Models control placement", () => {
     expect(control).toContain("useEngineOverlayOpen");
     expect(control).not.toContain("setPanelOpen");
     expect(control).not.toContain("setActiveSection");
+    expect(defaultTabs).toContain("displayTabs.setPanelOpen(true)");
+    expect(defaultTabs).toContain('sidebarSections.selectSection("home")');
 
     expect(styles).toContain(".global-models-control {");
     expect(styles).toContain(".models-popover {");
     expect(styles).toContain(".pill-btn.work-models-button {");
+  });
+
+  it.each([
+    ["closed with no Activity", false, "home", false],
+    ["closed while Activity is displayed", false, "home", false],
+    [
+      "closed while qualifying Activity is breakpoint-hidden",
+      false,
+      "home",
+      false,
+    ],
+    ["open on Home", true, "home", true],
+    ["open on Files", true, "files", true],
+    ["open on Apps", true, "apps", true],
+    ["open on Browser", true, "browser", true],
+    ["open on Quick chat", true, "quickchat", false],
+  ] as const)(
+    "%s",
+    (_label, panelOpen, activeSidebarSection, expected) => {
+      expect(
+        shouldShowGlobalModelsControl({
+          panelOpen,
+          activeSidebarSection: activeSidebarSection as SidebarSection,
+        }),
+      ).toBe(expected);
+    },
+  );
+
+  it("does not derive Models visibility from Activity qualification", () => {
+    const root = readSource("routes/__root.tsx");
+    expect(root).not.toContain("useHasQualifyingActivity");
+    expect(root).not.toContain("hasQualifyingActivity");
   });
 });

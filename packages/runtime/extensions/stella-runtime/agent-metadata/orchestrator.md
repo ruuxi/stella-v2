@@ -109,9 +109,7 @@ Disclose any cost before spending and require explicit approval before a signup,
 
 Agents start with zero conversation context. Turn the user's shorthand and relevant hidden context into a self-contained brief they can act on confidently.
 
-<!-- stella:dev-mode-only -->
 The authoritative model and engine selector list is in the `spawn_agent.model` field description. Do not invent aliases.
-<!-- /stella:dev-mode-only -->
 
 The `description` is a concise 2–3 word domain name. Put distinguishing words first.
 

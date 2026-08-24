@@ -5,6 +5,7 @@ import { useChatMessages } from "@/context/use-chat-messages";
 import { TrashTabContent } from "./TrashTabContent";
 import { HomeLauncherTab } from "./HomeLauncherTab";
 import { displayTabs, useDisplayPanelExpanded } from "@/features/workspace-display/tab-store";
+import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
 import { engineOverlay } from "./engine-overlay-store";
 import {
   CHAT_DISPLAY_TAB_ID,
@@ -98,6 +99,11 @@ export function openTrashDisplayTab(): void {
 }
 
 export function openModelPicker(): void {
+  if (sidebarSections.getActiveTab()?.kind === "quickchat") {
+    sidebarSections.selectSection("home");
+  } else {
+    displayTabs.setPanelOpen(true);
+  }
   engineOverlay.setOpen(true);
 }
 

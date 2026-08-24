@@ -52,10 +52,6 @@
       "title": "Filforhåndsvisninger for utviklere",
       "description": "Vis kodeendringer i chatten og åpne dem i sidepanelet."
     },
-    "developerMode": {
-      "title": "Utviklermodus",
-      "description": "Vis avanserte kontroller for modeller, motorer og leverandører, inkludert oppsett av din egen API-nøkkel."
-    },
     "nativeFontSmoothing": {
       "title": "Innebygd skriftutjevning",
       "description": "Gjengir tekst slik macOS-apper gjør, med kantutjevning i gråtoner."
@@ -377,7 +373,6 @@
       "workingModeUnavailable": "Orkestratormodus er ikke tilgjengelig i dette vinduet.",
       "loadMemory": "Kunne ikke laste inn minneinnstillingen.",
       "saveMemory": "Kunne ikke oppdatere minneinnstillingen.",
-      "saveDeveloperMode": "Kunne ikke oppdatere utviklermodus.",
       "memoryUnavailable": "Minneinnstillinger er ikke tilgjengelige i dette vinduet.",
       "loadPermissions": "Kunne ikke laste inn tillatelsesstatus for skrivebordet.",
       "savePermission": "Kunne ikke oppdatere tillatelsen {kind}.",

@@ -12,7 +12,6 @@ import { hasRealtimeVoiceSessionRouteChanged, } from "@stella/contracts/local-pr
 import { resetStellaCustomizations } from "@stella/runtime/kernel/home/reset-customizations";
 import { ensureStellaDataDirSeeded } from "@stella/runtime/kernel/home/stella-home";
 import { loadAgentSystemPrompt } from "@stella/runtime/kernel/agents/home-agent-prompt";
-import { applyDeveloperModePromptGate } from "@stella/runtime/kernel/agents/prompt-dev-mode";
 import { deletePromptPreset, isCustomizablePromptAgentId, listPromptPresets, readPromptPreset, savePromptPreset, } from "@stella/runtime/kernel/prompts/prompt-presets";
 import { getPromptPresetSelection, setPromptPresetSelection, } from "@stella/runtime/kernel/preferences/local-preferences";
 import { listCodexAppServerModels } from "@stella/runtime/kernel/integrations/codex-agent-runtime";
@@ -1021,8 +1020,7 @@ export const registerSystemHandlers = (options) => {
         const id = String(presetId ?? "");
 
         if (id === "default") {
-
-            const content = applyDeveloperModePromptGate((await loadAgentSystemPrompt(agentId)) ?? "", true);
+            const content = (await loadAgentSystemPrompt(agentId)) ?? "";
             return { id: "default", name: "default", agentId, content };
         }
         return await readPromptPreset(dir, agentId, id);
@@ -1217,9 +1215,6 @@ export const registerSystemHandlers = (options) => {
         }
         if (payload?.memoryEnabled !== undefined) {
             patch.memoryEnabled = payload.memoryEnabled === true;
-        }
-        if (payload?.developerModeEnabled !== undefined) {
-            patch.developerModeEnabled = payload.developerModeEnabled === true;
         }
         const saved = updateLocalModelPreferences(stellaAppDir, patch);
         if (previousRealtimeVoice &&

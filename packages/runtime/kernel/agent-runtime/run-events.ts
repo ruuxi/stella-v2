@@ -447,6 +447,13 @@ const looksLikeMachineStatusText = (value: string): boolean => {
   if (!trimmed) return false;
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) return true;
   if (trimmed.includes("\n") && /[{[]/.test(trimmed)) return true;
+  if (
+    /^Wall time: [^\n]+ seconds\nProcess (?:running with session ID|exited with code) [^\n]+\nOriginal token count: \d+\n/.test(
+      trimmed,
+    )
+  ) {
+    return true;
+  }
   return /"(?:session_id|exit_code|wall_time_seconds|original_token_count)"\s*:/.test(
     trimmed,
   );
@@ -471,8 +478,8 @@ const extractToolUpdateStatusText = (
     return undefined;
   }
   const text = firstTextBlock.text.trim();
-  // Progress payloads (exec_command session JSON, pretty-printed objects)
-  // are model-facing, not working-indicator copy.
+  // Progress payloads (exec_command results, pretty-printed objects) are
+  // model-facing, not working-indicator copy.
   return looksLikeMachineStatusText(text) ? undefined : text;
 };
 

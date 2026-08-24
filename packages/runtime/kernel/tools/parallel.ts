@@ -5,6 +5,7 @@ import type {
 import type { ToolContext, ToolHandlerExtras, ToolResult } from "./types.js";
 
 export const MULTI_TOOL_USE_PARALLEL_TOOL_NAME = "multi_tool_use_parallel";
+const COMMAND_OUTPUT_TOOL_NAMES = new Set(["exec_command", "write_stdin"]);
 
 /**
  * Tools that mutate session state and must never be invoked concurrently
@@ -57,6 +58,16 @@ type ParallelEntryResult = {
   details?: unknown;
   fileChanges?: FileChangeRecord[];
   producedFiles?: ProducedFileRecord[];
+};
+
+const withoutDuplicatedCommandResult = (
+  entry: ParallelEntryResult,
+): ParallelEntryResult => {
+  if (!COMMAND_OUTPUT_TOOL_NAMES.has(entry.tool_name) || !("result" in entry)) {
+    return entry;
+  }
+  const { result: _commandOutput, ...metadata } = entry;
+  return metadata;
 };
 
 export const handleMultiToolUseParallel = async (
@@ -199,7 +210,7 @@ export const handleMultiToolUseParallel = async (
 
   return {
     result: rendered,
-    details: { results },
+    details: { results: results.map(withoutDuplicatedCommandResult) },
     ...(fileChanges.length > 0 ? { fileChanges } : {}),
     ...(producedFiles.length > 0 ? { producedFiles } : {}),
   };

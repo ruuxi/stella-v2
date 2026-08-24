@@ -1983,15 +1983,27 @@ const runUntilExecDeadline = async <T>(
 const toolErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+type ExecToolPayload = {
+  session_id: string | null;
+  running: boolean;
+  exit_code: number | null;
+  output: string;
+  wall_time_seconds: number;
+  original_token_count: number;
+  cwd: string;
+  command: string;
+  hint?: string;
+};
+
 const buildExecToolPayload = (
   record: ManagedShellRecord,
   drained: DrainedOutput,
   callStartedAt: number,
-): Record<string, unknown> => {
+): ExecToolPayload => {
   const wallTimeSeconds = (Date.now() - callStartedAt) / 1000;
   // Includes wall_time_seconds and original_token_count so the model can
   // detect output omitted by the raw one-MiB collector and react.
-  const payload: Record<string, unknown> = {
+  const payload: ExecToolPayload = {
     session_id: record.running ? record.id : null,
     running: record.running,
     exit_code: record.running ? null : record.exitCode,
@@ -2014,6 +2026,40 @@ const buildExecToolPayload = (
     if (hint) payload.hint = hint;
   }
   return payload;
+};
+
+const buildExecToolDetails = (
+  payload: ExecToolPayload,
+  drained: DrainedOutput,
+) => {
+  const { output: _modelOutput, ...metadata } = payload;
+  return {
+    ...metadata,
+    original_output_bytes: drained.originalLength,
+    raw_output_truncated: drained.truncated,
+  };
+};
+
+const formatExecToolResult = (
+  payload: ExecToolPayload,
+  drained: DrainedOutput,
+): string => {
+  const status = payload.running
+    ? `Process running with session ID ${payload.session_id}`
+    : `Process exited with code ${payload.exit_code ?? "unknown"}`;
+  return [
+    `Wall time: ${payload.wall_time_seconds} seconds`,
+    status,
+    `Original token count: ${payload.original_token_count}`,
+    ...(drained.truncated
+      ? [
+          "Raw process output exceeded the 1 MiB collection cap; omitted bytes remain marked in Output.",
+        ]
+      : []),
+    "Output:",
+    payload.output,
+    ...(payload.hint ? [`Hint: ${payload.hint}`] : []),
+  ].join("\n");
 };
 
 const writeToShellStdin = async (
@@ -2119,7 +2165,10 @@ export const handleExecCommand = async (
       truncated: unread.omittedBytes > 0,
     };
     const payload = buildExecToolPayload(record, drained, callStartedAt);
-    onUpdate({ result: payload, details: payload });
+    onUpdate({
+      result: formatExecToolResult(payload, drained),
+      details: buildExecToolDetails(payload, drained),
+    });
   };
   const record = startShell(
     state,
@@ -2190,8 +2239,8 @@ export const handleExecCommand = async (
     }
   }
   return {
-    result: payload,
-    details: payload,
+    result: formatExecToolResult(payload, drained),
+    details: buildExecToolDetails(payload, drained),
     modelOutputTokens,
     ...(producedFiles ? { producedFiles } : {}),
   };
@@ -2251,8 +2300,8 @@ export const handleWriteStdin = async (
   const payload = buildExecToolPayload(record, drained, callStartedAt);
   const producedFiles = await takeCompletedProducedFiles(record);
   return {
-    result: payload,
-    details: payload,
+    result: formatExecToolResult(payload, drained),
+    details: buildExecToolDetails(payload, drained),
     modelOutputTokens: resolveExecOutputTokens(args.max_output_tokens),
     ...(producedFiles ? { producedFiles } : {}),
   };

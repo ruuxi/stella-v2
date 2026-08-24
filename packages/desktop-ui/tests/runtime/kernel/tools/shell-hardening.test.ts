@@ -115,8 +115,8 @@ describe("shell hardening", () => {
 
     expect(Date.now() - startedAt).toBeLessThan(500);
     expect(result.error).toBeUndefined();
-    expect(result.result).toMatchObject({ running: true, cwd: root });
-    const sessionId = (result.result as { session_id: string }).session_id;
+    expect(result.details).toMatchObject({ running: true, cwd: root });
+    const sessionId = (result.details as { session_id: string }).session_id;
     expect(typeof sessionId).toBe("string");
     state.shells.get(sessionId)?.kill();
   });
@@ -137,7 +137,7 @@ describe("shell hardening", () => {
     );
 
     expect(result.error).toBeUndefined();
-    expect(result.result).toMatchObject({ running: false, exit_code: 0 });
+    expect(result.details).toMatchObject({ running: false, exit_code: 0 });
     expect(mocks.readdir).not.toHaveBeenCalled();
   });
 
@@ -165,6 +165,6 @@ describe("shell hardening", () => {
 
     expect(Date.now() - startedAt).toBeLessThan(500);
     expect(result.error).toBeUndefined();
-    expect(result.result).toMatchObject({ running: false, exit_code: 0 });
+    expect(result.details).toMatchObject({ running: false, exit_code: 0 });
   });
 });

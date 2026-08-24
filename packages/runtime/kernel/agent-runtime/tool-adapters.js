@@ -25,6 +25,24 @@ export const STELLA_LOCAL_TOOLS = [
     TOOL_IDS.NO_RESPONSE,
 ];
 const NODE_REPL_TOOL_NAME = "node_repl";
+const COMMAND_OUTPUT_TOOL_NAMES = new Set(["exec_command", "write_stdin"]);
+const MULTI_TOOL_USE_PARALLEL_TOOL_NAME = "multi_tool_use_parallel";
+export const MODEL_VISIBLE_COMMAND_RESULT_MAX_BYTES = 10_000;
+const COMMAND_RESULT_LIMITS = Object.freeze({
+    maxBytes: MODEL_VISIBLE_COMMAND_RESULT_MAX_BYTES,
+    maxLines: Number.MAX_SAFE_INTEGER,
+});
+const containsCommandOutput = (toolName, toolResult) => {
+    if (COMMAND_OUTPUT_TOOL_NAMES.has(toolName)) return true;
+    if (toolName !== MULTI_TOOL_USE_PARALLEL_TOOL_NAME) return false;
+    const results = toolResult?.details?.results;
+    return Array.isArray(results) && results.some((entry) => entry &&
+        typeof entry === "object" &&
+        COMMAND_OUTPUT_TOOL_NAMES.has(entry.tool_name));
+};
+const modelVisibleLimitsFor = (toolName, toolResult) => containsCommandOutput(toolName, toolResult)
+    ? COMMAND_RESULT_LIMITS
+    : undefined;
 const formatToolLabel = (toolName) => toolName
     .replace(/[_-]+/g, " ")
     .replace(/\s+/g, " ")
@@ -85,7 +103,7 @@ const mergeToolSideEffectsIntoDetails = (details, fileChanges, producedFiles) =>
         return sideEffects;
     return { result: details, ...sideEffects };
 };
-const formatToolResult = (toolResult) => {
+const formatToolResult = (toolResult, toolName) => {
     if (toolResult.error) {
         const error = sanitizeToolError(toolResult.error);
         return {
@@ -96,7 +114,8 @@ const formatToolResult = (toolResult) => {
     const result = sanitizeToolResult(toolResult.result);
     return {
         text: sanitizeToolVisibleText(textFromUnknown(result)),
-        details: mergeToolSideEffectsIntoDetails(sanitizeToolResult(toolResult.details ?? result), toolResult.fileChanges, toolResult.producedFiles),
+        details: mergeToolSideEffectsIntoDetails(sanitizeToolResult(toolResult.details ??
+            (COMMAND_OUTPUT_TOOL_NAMES.has(toolName) ? undefined : result)), toolResult.fileChanges, toolResult.producedFiles),
     };
 };
 // Model-visible tool text is bounded once, before the tool-result message is
@@ -639,8 +658,8 @@ export const createPiTools = (opts) => {
                     signal,
                     onUpdate: onUpdate
                         ? (partialResult) => {
-                            const formattedPartial = formatToolResult(partialResult);
-                            const truncatedPartial = truncateModelVisibleToolText(formattedPartial.text);
+                            const formattedPartial = formatToolResult(partialResult, toolName);
+                            const truncatedPartial = truncateModelVisibleToolText(formattedPartial.text, modelVisibleLimitsFor(toolName, partialResult));
                             onUpdate({
                                 content: [{ type: "text", text: truncatedPartial.text }],
                                 details: formattedPartial.details,
@@ -648,7 +667,7 @@ export const createPiTools = (opts) => {
                         }
                         : undefined,
                 });
-                const formatted = formatToolResult(toolResult);
+                const formatted = formatToolResult(toolResult, toolName);
                 // Detect [stella-attach-image] markers in diagnostic tool output and
                 // read the referenced PNG(s) into image content blocks. The model sees
                 // the screenshot on the very next turn with no extra Read step.
@@ -657,7 +676,7 @@ export const createPiTools = (opts) => {
           stellaDataDir: opts.stellaDataDir,
           runId: opts.runId,
           toolCallId,
-        });
+        }, modelVisibleLimitsFor(toolName, toolResult));
         const truncatedText = preservedText.text;
                 const content = [];
                 const screenshotNote = legacyImages.length > 0

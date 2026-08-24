@@ -1258,7 +1258,7 @@ describe("sensitive runtime event payloads", () => {
     __privateTaskDecorationStore.resetForTests();
   });
 
-  it("does not publish exec_command session JSON as working-indicator status", () => {
+  it("does not publish exec_command results as working-indicator status", () => {
     const listeners = new Set<(event: AgentEvent) => void>();
     const agent = {
       state: { messages: [] },
@@ -1286,29 +1286,38 @@ describe("sensitive runtime event payloads", () => {
       },
     });
 
-    const payload = {
+    const details = {
       session_id: null,
       running: false,
       exit_code: 127,
-      output: "",
       wall_time_seconds: 45.209,
       original_token_count: 0,
       cwd: "C:\\\\Users\\\\user\\\\AppData\\\\Local\\\\Programs\\\\Stella\\\\resources",
-      command: "wsl -e bash -lc \"nvcc --version\"",
+      command: 'wsl -e bash -lc "nvcc --version"',
     };
-    for (const listener of listeners) {
-      listener({
-        type: "tool_execution_update",
-        toolCallId: "call-exec",
-        toolName: "exec_command",
-        args: { cmd: payload.command },
-        partialResult: {
-          content: [
-            { type: "text", text: JSON.stringify(payload, null, 2) },
-          ],
-          details: payload,
-        },
-      });
+    const commandResults = [
+      JSON.stringify({ ...details, output: "" }, null, 2),
+      [
+        "Wall time: 45.209 seconds",
+        "Process exited with code 127",
+        "Original token count: 0",
+        "Output:",
+        "command not found",
+      ].join("\n"),
+    ];
+    for (const commandResult of commandResults) {
+      for (const listener of listeners) {
+        listener({
+          type: "tool_execution_update",
+          toolCallId: "call-exec",
+          toolName: "exec_command",
+          args: { cmd: details.command },
+          partialResult: {
+            content: [{ type: "text", text: commandResult }],
+            details,
+          },
+        });
+      }
     }
 
     expect(statusEvents).toEqual([]);

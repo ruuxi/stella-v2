@@ -5,7 +5,6 @@ import { createToolHost } from "../tools/host.js";
 import { HookEmitter } from "../extensions/hook-emitter.js";
 import {
   getAgentRuntimeEngine,
-  getDeveloperModeEnabled,
   loadLocalPreferences,
   getAssistantWorkingMode,
   getMaxAgentConcurrency,
@@ -36,7 +35,6 @@ import {
 import { anyApi } from "convex/server";
 import type { LocalAgentContext } from "../agents/local-agent-manager.js";
 import { loadAgentSystemPrompt } from "../agents/home-agent-prompt.js";
-import { applyDeveloperModePromptGate } from "../agents/prompt-dev-mode.js";
 import { renderSkillCatalogBlock } from "../shared/skill-catalog.js";
 import type {
   RunnerContext,
@@ -1414,13 +1412,10 @@ export const buildAgentContext = async (
   }
 
   return {
-
-    systemPrompt: applyDeveloperModePromptGate(
+    systemPrompt:
       bundledSystemPrompt ??
-        agent?.systemPrompt ??
-        defaultPromptForAgentType(args.agentType, context.stellaDataDir),
-      getDeveloperModeEnabled(context.stellaDataDir),
-    ),
+      agent?.systemPrompt ??
+      defaultPromptForAgentType(args.agentType, context.stellaDataDir),
     dynamicContext: dynamicContextSections.join("\n\n"),
     orchestratorReminderText: activeThreadsPrompt || undefined,
     shouldInjectDynamicReminder: reminderState.shouldInjectDynamicReminder,

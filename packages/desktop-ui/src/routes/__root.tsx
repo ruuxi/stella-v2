@@ -50,9 +50,8 @@ const SubscriptionUpgradeDialog = lazy(() =>
 );
 import { ShellTopBarFull } from "@/shell/ShellTopBarFull";
 import { GlobalModelsControl } from "@/shell/GlobalModelsControl";
-import { useDeveloperModeEnabled } from "@/global/settings/hooks/use-developer-mode";
 import { useActiveSidebarSection } from "@/features/workspace-display/sidebar-sections";
-import { useHasQualifyingActivity } from "@/shell/workspace/use-qualifying-activity";
+import { shouldShowGlobalModelsControl } from "@/shell/global-models-control-visibility";
 import { DisplayPanelTopBar } from "@/shell/DisplayPanelTopBar";
 import { StellaContextMenu } from "@/shell/context-menu/StellaContextMenu";
 import {
@@ -152,16 +151,10 @@ function RootChrome() {
   const panelExpanded = useDisplayPanelExpanded();
   const shellBreakpoints = useShellBreakpointState();
   const activeSidebarSection = useActiveSidebarSection();
-
-  const hasQualifyingActivity = useHasQualifyingActivity();
-
-  const activityWorkspaceVisible =
-    panelOpen ||
-    (!shellBreakpoints.hideWorkspaceStrip && hasQualifyingActivity);
-  const onQuickChatSurface =
-    panelOpen && activeSidebarSection === "quickchat";
-  const modelControlVisible = activityWorkspaceVisible && !onQuickChatSurface;
-  const developerModeEnabled = useDeveloperModeEnabled();
+  const modelControlVisible = shouldShowGlobalModelsControl({
+    panelOpen,
+    activeSidebarSection,
+  });
   const panelExpandedBeforeTakeoverRef = useRef<boolean | null>(null);
   const displayBreakpointTransitionTimeoutRef = useRef<number | null>(null);
 
@@ -532,12 +525,7 @@ function RootChrome() {
         </Suspense>
       </StellaContextMenu>
 
-      {
-
-}
-      {developerModeEnabled ? (
-        <GlobalModelsControl visible={modelControlVisible} />
-      ) : null}
+      <GlobalModelsControl visible={modelControlVisible} />
 
       <FullShellDialogs
         activeDialog={activeDialog ?? null}

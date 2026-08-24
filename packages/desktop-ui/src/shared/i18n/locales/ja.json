@@ -52,10 +52,6 @@
       "title": "開発者向けファイルプレビュー",
       "description": "コードの変更をチャットに表示し、サイドパネルで開きます。"
     },
-    "developerMode": {
-      "title": "開発者モード",
-      "description": "モデル、エンジン、プロバイダーの高度な設定を表示します。独自の API キーの設定も含まれます。"
-    },
     "nativeFontSmoothing": {
       "title": "ネイティブのフォントスムージング",
       "description": "macOS アプリと同じように、グレースケールのアンチエイリアスでテキストを描画します。"
@@ -377,7 +373,6 @@
       "workingModeUnavailable": "このウィンドウではオーケストレーターモードを利用できません。",
       "loadMemory": "メモリ設定を読み込めませんでした。",
       "saveMemory": "メモリ設定を更新できませんでした。",
-      "saveDeveloperMode": "開発者モードを更新できませんでした。",
       "memoryUnavailable": "このウィンドウではメモリ設定を利用できません。",
       "loadPermissions": "デスクトップのアクセス権の状態を読み込めませんでした。",
       "savePermission": "{kind} のアクセス権を更新できませんでした。",

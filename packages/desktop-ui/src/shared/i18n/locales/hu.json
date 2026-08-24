@@ -52,10 +52,6 @@
       "title": "Fejlesztői fájl-előnézetek",
       "description": "Megjeleníti a kódmódosításokat a csevegésben, és megnyitja őket az oldalsó panelen."
     },
-    "developerMode": {
-      "title": "Fejlesztői mód",
-      "description": "Speciális modell-, motor- és szolgáltatóbeállítások megjelenítése, beleértve a saját API-kulcs beállítását."
-    },
     "nativeFontSmoothing": {
       "title": "Natív betűsimítás",
       "description": "Úgy jeleníti meg a szöveget, ahogy a macOS-alkalmazások, szürkeárnyalatos élsimítással."
@@ -377,7 +373,6 @@
       "workingModeUnavailable": "Az orkesztrátor mód nem érhető el ebben az ablakban.",
       "loadMemory": "Nem sikerült betölteni a memóriabeállítást.",
       "saveMemory": "Nem sikerült frissíteni a memóriabeállítást.",
-      "saveDeveloperMode": "Nem sikerült frissíteni a fejlesztői módot.",
       "memoryUnavailable": "A memóriabeállítások nem érhetők el ebben az ablakban.",
       "loadPermissions": "Nem sikerült betölteni az asztali engedélyek állapotát.",
       "savePermission": "Nem sikerült frissíteni a(z) {kind} engedélyt.",

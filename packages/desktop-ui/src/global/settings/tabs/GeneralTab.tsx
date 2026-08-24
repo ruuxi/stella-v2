@@ -99,12 +99,6 @@ export function GeneralTab() {
   const [memoryEnabledError, setMemoryEnabledError] = useState<string | null>(
     null,
   );
-  const [developerModeEnabled, setDeveloperModeEnabled] = useState(false);
-  const [developerModeLoaded, setDeveloperModeLoaded] = useState(false);
-  const [isSavingDeveloperMode, setIsSavingDeveloperMode] = useState(false);
-  const [developerModeError, setDeveloperModeError] = useState<string | null>(
-    null,
-  );
   const initialPermissionStatus = useMemo<DesktopPermissionStatus>(
     () => ({
       accessibility: platform === "darwin" ? false : true,
@@ -129,10 +123,8 @@ export function GeneralTab() {
             coerceAssistantWorkingMode(preferences?.assistantWorkingMode),
           );
           setMemoryEnabled(preferences?.memoryEnabled !== false);
-          setDeveloperModeEnabled(preferences?.developerModeEnabled === true);
           setAssistantWorkingModeError(null);
           setMemoryEnabledError(null);
-          setDeveloperModeError(null);
         }
       } catch (error) {
         if (!cancelled) {
@@ -148,7 +140,6 @@ export function GeneralTab() {
       } finally {
         if (!cancelled) setAssistantWorkingModeLoaded(true);
         if (!cancelled) setMemoryEnabledLoaded(true);
-        if (!cancelled) setDeveloperModeLoaded(true);
       }
     };
     void load();
@@ -458,36 +449,6 @@ export function GeneralTab() {
     [memoryEnabled, t],
   );
 
-  const handleDeveloperModeChange = useCallback(
-    async (enabled: boolean) => {
-      const preferencesApi = window.electronAPI?.system;
-      if (!preferencesApi?.setLocalModelPreferences) {
-        setDeveloperModeError(t("settings.errors.saveDeveloperMode"));
-        return;
-      }
-      const previous = developerModeEnabled;
-      setDeveloperModeEnabled(enabled);
-      setDeveloperModeError(null);
-      setIsSavingDeveloperMode(true);
-      try {
-        const preferences = await preferencesApi.setLocalModelPreferences({
-          developerModeEnabled: enabled,
-        });
-        setDeveloperModeEnabled(preferences?.developerModeEnabled === true);
-        window.dispatchEvent(
-          new CustomEvent("stella:local-model-preferences-changed"),
-        );
-      } catch (error) {
-        setDeveloperModeEnabled(previous);
-        setDeveloperModeError(
-          getSettingsErrorMessage(error, t("settings.errors.saveDeveloperMode")),
-        );
-      } finally {
-        setIsSavingDeveloperMode(false);
-      }
-    },
-    [developerModeEnabled, t],
-  );
   const formatPermissionLoadError = useCallback(
     (error: unknown) =>
       getSettingsErrorMessage(error, t("settings.errors.loadPermissions")),
@@ -1008,14 +969,6 @@ export function GeneralTab() {
             {t("settings.developerPreviews.description")}
           </p>
         </div>
-        {renderToggleCard({
-          title: t("settings.developerMode.title"),
-          description: t("settings.developerMode.description"),
-          error: developerModeError,
-          checked: developerModeEnabled,
-          disabled: !developerModeLoaded || isSavingDeveloperMode,
-          onChange: (checked) => void handleDeveloperModeChange(checked),
-        })}
         {platform === "darwin"
           ? renderToggleCard({
               title: t("settings.nativeFontSmoothing.title"),

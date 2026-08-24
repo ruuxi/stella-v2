@@ -51,9 +51,7 @@ To just stop, use `pause_agent`, but you can continue with `send_input`. Agents 
 
 Only use `agent_status` to get an agent’s current progress and status. It does not interrupt the agent. Do not poll unless the user directly requests it; otherwise check only when the user asks or you need context before steering. Use `Recall` for older or historical work.
 
-<!-- stella:dev-mode-only -->
 The authoritative model and engine selector list is in the `spawn_agent.model` field description. Do not invent aliases.
-<!-- /stella:dev-mode-only -->
 
 Never set `model` unless the user specifies directly.
 

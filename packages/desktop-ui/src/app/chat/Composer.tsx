@@ -41,7 +41,6 @@ import {
 } from "./ComposerModelMentionMenu";
 import { ComposerModelMentionTextarea } from "./ModelMentionText";
 import { MiniModelPicker } from "./MiniModelPicker";
-import { useDeveloperModeEnabled } from "@/global/settings/hooks/use-developer-mode";
 import { useUiState } from "@/context/ui-state";
 import { useT } from "@/shared/i18n";
 import "./full-shell.composer.css";
@@ -142,9 +141,7 @@ function ComposerImpl({
   const hasText = message.trim().length > 0;
   const dictationBelow = dictation.isRecordingVisible && hasText;
   const dictationInline = dictation.isRecordingVisible && !hasText;
-
-  const developerModeEnabled = useDeveloperModeEnabled();
-  const modelPinned = useComposerModelPinned() && developerModeEnabled;
+  const modelPinned = useComposerModelPinned();
   const isExpanded =
     composerExpanded || dictationBelow || (modelPinned && !dictationInline);
 
@@ -177,13 +174,13 @@ function ComposerImpl({
 
   const refreshModelMentionTrigger = useCallback(
     (value: string, caret: number | null) => {
-      if (!suggestionsActive || !developerModeEnabled) {
+      if (!suggestionsActive) {
         setModelMentionTrigger(null);
         return;
       }
       setModelMentionTrigger(findComposerModelMentionTrigger(value, caret));
     },
-    [developerModeEnabled, suggestionsActive],
+    [suggestionsActive],
   );
 
   const selectModelMention = useCallback(

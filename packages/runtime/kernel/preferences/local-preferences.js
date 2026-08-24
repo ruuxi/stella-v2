@@ -3,8 +3,6 @@ import path from "path";
 import { ensurePrivateDirSync, writePrivateFileSync, } from "../shared/private-fs.js";
 import { coerceAssistantWorkingMode, coerceRealtimeVoiceProvider, DEFAULT_ASSISTANT_WORKING_MODE } from "@stella/contracts/local-preferences";
 import { coerceAgentRuntimeEngine, DEFAULT_CODEX_MODEL, DEFAULT_CODEX_SERVICE_TIER } from "@stella/contracts/agent-engine";
-import { listLocalLlmCredentials } from "../storage/llm-credentials.js";
-import { listLocalLlmOAuthCredentials } from "../storage/llm-oauth-credentials.js";
 export { DEFAULT_CODEX_MODEL } from "@stella/contracts/agent-engine";
 export const DEFAULT_CLAUDE_CODE_MODEL = "default";
 export { resolveRealtimeUnderlyingProvider, resolveReadAloudProvider } from "@stella/contracts/local-preferences";
@@ -46,8 +44,6 @@ const DEFAULT_PREFERENCES = {
     wakeWordThreshold: 0.6,
     readAloudEnabled: false,
     promptPresetSelections: {},
-
-    developerModeEnabled: undefined,
 };
 
 const normalizePromptPresetSelections = (value) => {
@@ -149,9 +145,6 @@ export const loadLocalPreferences = (stellaDataDir) => {
                 : DEFAULT_PREFERENCES.wakeWordThreshold,
             readAloudEnabled: parsed.readAloudEnabled === true,
             promptPresetSelections: normalizePromptPresetSelections(parsed.promptPresetSelections),
-            developerModeEnabled: typeof parsed.developerModeEnabled === "boolean"
-                ? parsed.developerModeEnabled
-                : undefined,
         };
         _cached = prefs;
         _cachedMtime = stat.mtimeMs;
@@ -235,7 +228,6 @@ export const getLocalModelPreferences = (stellaDataDir) => {
         realtimeVoice: { ...prefs.realtimeVoice },
         assistantWorkingMode: prefs.assistantWorkingMode,
         memoryEnabled: prefs.memoryEnabled,
-        developerModeEnabled: getDeveloperModeEnabled(stellaDataDir),
     };
 };
 export const updateLocalModelPreferences = (stellaDataDir, patch) => {
@@ -305,9 +297,6 @@ export const updateLocalModelPreferences = (stellaDataDir, patch) => {
         memoryEnabled: patch.memoryEnabled === undefined
             ? prefs.memoryEnabled
             : patch.memoryEnabled !== false,
-        developerModeEnabled: patch.developerModeEnabled === undefined
-            ? prefs.developerModeEnabled
-            : patch.developerModeEnabled === true,
     };
     saveLocalPreferences(stellaDataDir, next);
     return getLocalModelPreferences(stellaDataDir);
@@ -351,53 +340,6 @@ export const setPromptPresetSelection = (stellaDataDir, agentId, presetId) => {
     else
         selections[agentId] = presetId;
     saveLocalPreferences(stellaDataDir, { ...prefs, promptPresetSelections: selections });
-};
-export const hasDeveloperModeSignals = (stellaDataDir) => {
-    const prefs = loadLocalPreferences(stellaDataDir);
-    if (prefs.agentRuntimeEngine !== "default")
-        return true;
-    if (prefs.useNativeCodexRuntime || prefs.useNativeClaudeCodeRuntime)
-        return true;
-    if (prefs.codexModelExplicit)
-        return true;
-    if (prefs.claudeCodeModel !== DEFAULT_CLAUDE_CODE_MODEL)
-        return true;
-    if (Object.keys(prefs.defaultModels).length > 0 ||
-        Object.keys(prefs.modelOverrides).length > 0 ||
-        Object.keys(prefs.stellaConversationModelOverrides).length > 0 ||
-        Object.keys(prefs.reasoningEfforts).length > 0) {
-        return true;
-    }
-    try {
-        if (listLocalLlmCredentials(stellaDataDir).length > 0)
-            return true;
-    }
-    catch {
-
-    }
-    try {
-        if (listLocalLlmOAuthCredentials(stellaDataDir).length > 0)
-            return true;
-    }
-    catch {
-
-    }
-    return false;
-};
-
-export const getDeveloperModeEnabled = (stellaDataDir) => {
-    const prefs = loadLocalPreferences(stellaDataDir);
-    if (typeof prefs.developerModeEnabled === "boolean") {
-        return prefs.developerModeEnabled;
-    }
-    return hasDeveloperModeSignals(stellaDataDir);
-};
-export const setDeveloperModeEnabled = (stellaDataDir, enabled) => {
-    const prefs = loadLocalPreferences(stellaDataDir);
-    saveLocalPreferences(stellaDataDir, {
-        ...prefs,
-        developerModeEnabled: enabled === true,
-    });
 };
 export const getOnboardingCompleted = (stellaDataDir) => loadLocalPreferences(stellaDataDir).onboardingCompleted;
 export const setOnboardingCompleted = (stellaDataDir, completed) => {

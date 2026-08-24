@@ -71,6 +71,25 @@ describe("loadParsedAgentsFromDir", () => {
     expect(orchestrated?.maxAgentDepth).toBe(2);
   });
 
+  it("tells both orchestrators to link URLs and local files", () => {
+    const agents = loadParsedAgentsFromDir(
+      path.resolve(
+        process.cwd(),
+        "..",
+        "runtime",
+        "extensions",
+        "stella-runtime",
+        "agent-metadata",
+      ),
+    );
+
+    for (const agentId of ["orchestrator", "orchestrator-orchestrated"]) {
+      const prompt = agents.find((agent) => agent.id === agentId)?.systemPrompt;
+      expect(prompt).toContain("Link URLs in markdown.");
+      expect(prompt).toContain("`stella://file/<absolute path>`");
+    }
+  });
+
   it("loads agents when given a directory string path", () => {
     const dir = tempDirs.create("agent-loader-");
     writeFileSync(path.join(dir, "orchestrator.md"), AGENT_MD, "utf-8");

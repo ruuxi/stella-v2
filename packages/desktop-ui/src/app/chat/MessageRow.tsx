@@ -678,6 +678,9 @@ export const AssistantMessageRow = memo(
                   text={text}
                   cacheKey={row.cacheKey}
                   mode={row.isStreaming ? "streaming" : "static"}
+                  animateStreamingWords={Boolean(
+                    row.isStreaming && !row.isFadingOut,
+                  )}
                   hideHorizontalRules
                 />
               </StreamingTextReveal>

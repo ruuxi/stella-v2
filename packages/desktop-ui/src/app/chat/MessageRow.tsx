@@ -76,7 +76,6 @@ import type {
   UserRowViewModel,
 } from "@/features/chat/conversation-row-types";
 import type { AgentModelConfigsByThread } from "@/features/chat/hooks/use-agent-model-configs";
-import { loadLocalMessageToolEventPage } from "@/features/chat/services/local-message-timeline-store";
 
 type Translate = ReturnType<typeof useT>;
 
@@ -621,10 +620,6 @@ export const AssistantMessageRow = memo(
     conversationId,
     agentModelConfigByThread,
   }: AssistantRowProps) {
-    const t = useT();
-    const [detailLoadState, setDetailLoadState] = useState<
-      "idle" | "loading" | "error"
-    >("idle");
     const text = row.text;
     const hasText = text.trim().length > 0;
     const hasWebSearchResults = (row.webSearchResults?.length ?? 0) > 0;
@@ -745,32 +740,6 @@ export const AssistantMessageRow = memo(
             />
           ) : row.resourcePayload ? (
             <EndResourceCard payload={row.resourcePayload} />
-          ) : null}
-          {row.toolEventSummary?.truncated && row.sourceMessageId ? (
-            <button
-              type="button"
-              className="turn-detail-load"
-              disabled={detailLoadState === "loading" || !conversationId}
-              onClick={async () => {
-                if (!conversationId || detailLoadState === "loading") return;
-                setDetailLoadState("loading");
-                try {
-                  const loaded = await loadLocalMessageToolEventPage(
-                    conversationId,
-                    row.sourceMessageId!,
-                  );
-                  setDetailLoadState(loaded ? "idle" : "error");
-                } catch {
-                  setDetailLoadState("error");
-                }
-              }}
-            >
-              {detailLoadState === "loading"
-                ? t("common.loading")
-                : detailLoadState === "error"
-                  ? t("common.tryAgain")
-                  : `${t("app.chat.userMessage.showMore")} (${row.toolEventSummary.loadedCount}/${row.toolEventSummary.totalCount}${row.toolEventSummary.totalCountIsLowerBound ? "+" : ""})`}
-            </button>
           ) : null}
           {row.customSlot ? row.customSlot : null}
           {hasText && !row.isIntraTurn && (

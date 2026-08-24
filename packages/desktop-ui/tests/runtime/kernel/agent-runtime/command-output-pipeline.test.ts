@@ -11,14 +11,17 @@ const createCommandTool = ({
   stellaDataDir,
   toolResult,
   onRawUpdate,
+  toolName = "exec_command",
 }: {
   stellaDataDir: string;
   toolResult: {
     result?: unknown;
     details?: unknown;
     error?: string;
+    modelOutputTokens?: number;
   };
   onRawUpdate?: (update: unknown) => void;
+  toolName?: "exec_command" | "write_stdin" | "multi_tool_use_parallel";
 }) => {
   const [tool] = createPiTools({
     runId: "run-command-output",
@@ -29,10 +32,10 @@ const createCommandTool = ({
     stellaAppDir: stellaDataDir,
     stellaDataDir,
     agentDepth: 1,
-    toolsAllowlist: ["exec_command"],
+    toolsAllowlist: [toolName],
     toolCatalog: [
       {
-        name: "exec_command",
+        name: toolName,
         description: "Run a command",
         parameters: { type: "object", properties: {} },
       },
@@ -44,7 +47,7 @@ const createCommandTool = ({
       return toolResult;
     },
   });
-  if (!tool) throw new Error("exec_command adapter was not created");
+  if (!tool) throw new Error(`${toolName} adapter was not created`);
   return tool;
 };
 
@@ -197,6 +200,198 @@ describe("command output pipeline", () => {
         ],
       });
       expect(adapted.content[0]?.type).toBe("text");
+    } finally {
+      await rm(stellaDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["exec_command", "write_stdin"] as const)(
+    "%s applies max_output_tokens as a four-byte model-output budget",
+    async (toolName) => {
+      const stellaDataDir = await mkdtemp(
+        path.join(os.tmpdir(), "stella-command-token-budget-"),
+      );
+      try {
+        const rawModelText = [
+          "Wall time: 0.1 seconds",
+          "Process exited with code 0",
+          "Original token count: 6000",
+          "Output:",
+          "TOKEN-BUDGET-HEAD",
+          "x".repeat(20_000),
+          "TOKEN-BUDGET-TAIL",
+        ].join("\n");
+        const tool = createCommandTool({
+          stellaDataDir,
+          toolName,
+          toolResult: {
+            result: rawModelText,
+            details: {
+              exit_code: 0,
+              original_output_bytes: Buffer.byteLength(rawModelText, "utf8"),
+              raw_output_truncated: false,
+            },
+            modelOutputTokens: 256,
+          },
+        });
+
+        const adapted = await tool.execute(
+          `call-${toolName}-token-budget`,
+          {},
+          undefined,
+          undefined,
+        );
+        const content = adapted.content[0];
+        const modelText = content?.type === "text" ? content.text : "";
+        const spillMarkerAt = modelText.indexOf(
+          "\n\n[TOOL_OUTPUT_TRUNCATED complete post-sanitization output preserved:",
+        );
+        expect(spillMarkerAt).toBeGreaterThanOrEqual(0);
+        const preview = modelText.slice(0, spillMarkerAt);
+
+        expect(Buffer.byteLength(preview, "utf8")).toBeLessThanOrEqual(256 * 4);
+        expect(Buffer.byteLength(modelText, "utf8")).toBeLessThanOrEqual(
+          256 * 4,
+        );
+        expect(Buffer.byteLength(modelText, "utf8")).toBeLessThanOrEqual(
+          10_000,
+        );
+        expect(preview).toContain("TOKEN-BUDGET-HEAD");
+        expect(preview).toContain("TOKEN-BUDGET-TAIL");
+        expect(preview).toContain("Tool output truncated");
+        expect(modelText).toContain("Read more with Read({ file_path:");
+        expect(adapted.modelOutputTokens).toBe(256);
+
+        const details = adapted.details as {
+          toolOutputArtifact: { path: string };
+        };
+        await expect(
+          readFile(details.toolOutputArtifact.path, "utf8"),
+        ).resolves.toBe(rawModelText);
+      } finally {
+        await rm(stellaDataDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("clamps larger max_output_tokens requests to the 10 KB model policy", async () => {
+    const stellaDataDir = await mkdtemp(
+      path.join(os.tmpdir(), "stella-command-policy-clamp-"),
+    );
+    try {
+      const rawModelText = `HEAD${"y".repeat(15_000)}\n${"z".repeat(15_000)}TAIL`;
+      const tool = createCommandTool({
+        stellaDataDir,
+        toolResult: {
+          result: rawModelText,
+          details: { exit_code: 0 },
+          modelOutputTokens: 70_000,
+        },
+      });
+
+      const adapted = await tool.execute(
+        "call-command-policy-clamp",
+        {},
+        undefined,
+        undefined,
+      );
+      const content = adapted.content[0];
+      const modelText = content?.type === "text" ? content.text : "";
+
+      expect(Buffer.byteLength(modelText, "utf8")).toBeLessThanOrEqual(10_000);
+      expect(Buffer.byteLength(modelText, "utf8")).toBeGreaterThan(256 * 4);
+      expect(modelText).toContain("HEAD");
+      expect(modelText).toContain("TAIL");
+      expect(modelText).toContain("Read more with Read({ file_path:");
+      expect(adapted.modelOutputTokens).toBe(70_000);
+    } finally {
+      await rm(stellaDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts a zero max_output_tokens budget while retaining the spill marker", async () => {
+    const stellaDataDir = await mkdtemp(
+      path.join(os.tmpdir(), "stella-command-zero-token-budget-"),
+    );
+    try {
+      const rawModelText =
+        "Output:\ncontent preserved only in the spill artifact";
+      const tool = createCommandTool({
+        stellaDataDir,
+        toolResult: {
+          result: rawModelText,
+          details: { exit_code: 0 },
+          modelOutputTokens: 0,
+        },
+      });
+
+      const adapted = await tool.execute(
+        "call-command-zero-token-budget",
+        {},
+        undefined,
+        undefined,
+      );
+      const content = adapted.content[0];
+      const modelText = content?.type === "text" ? content.text : "";
+      const markerAt = modelText.indexOf(
+        "[TOOL_OUTPUT_TRUNCATED complete post-sanitization output preserved:",
+      );
+
+      expect(markerAt).toBeGreaterThanOrEqual(0);
+      expect(modelText.slice(0, markerAt).trim()).toBe("");
+      expect(modelText).toContain("Read more with Read({ file_path:");
+      expect(adapted.modelOutputTokens).toBe(0);
+      const details = adapted.details as {
+        toolOutputArtifact: { path: string };
+      };
+      await expect(
+        readFile(details.toolOutputArtifact.path, "utf8"),
+      ).resolves.toBe(rawModelText);
+    } finally {
+      await rm(stellaDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("applies the summed token budget from a parallel command-only batch", async () => {
+    const stellaDataDir = await mkdtemp(
+      path.join(os.tmpdir(), "stella-parallel-command-token-budget-"),
+    );
+    try {
+      const rawModelText = `PARALLEL-HEAD${"p".repeat(10_000)}\n${"q".repeat(10_000)}PARALLEL-TAIL`;
+      const tool = createCommandTool({
+        stellaDataDir,
+        toolName: "multi_tool_use_parallel",
+        toolResult: {
+          result: rawModelText,
+          details: {
+            results: [
+              { tool_name: "exec_command", modelOutputTokens: 128 },
+              { tool_name: "exec_command", modelOutputTokens: 256 },
+            ],
+          },
+          modelOutputTokens: 384,
+        },
+      });
+
+      const adapted = await tool.execute(
+        "call-parallel-command-token-budget",
+        {},
+        undefined,
+        undefined,
+      );
+      const content = adapted.content[0];
+      const modelText = content?.type === "text" ? content.text : "";
+      const markerAt = modelText.indexOf(
+        "\n\n[TOOL_OUTPUT_TRUNCATED complete post-sanitization output preserved:",
+      );
+      expect(markerAt).toBeGreaterThanOrEqual(0);
+      expect(
+        Buffer.byteLength(modelText.slice(0, markerAt), "utf8"),
+      ).toBeLessThanOrEqual(384 * 4);
+      expect(Buffer.byteLength(modelText, "utf8")).toBeLessThanOrEqual(384 * 4);
+      expect(modelText).toContain("PARALLEL-HEAD");
+      expect(modelText).toContain("PARALLEL-TAIL");
+      expect(adapted.modelOutputTokens).toBe(384);
     } finally {
       await rm(stellaDataDir, { recursive: true, force: true });
     }

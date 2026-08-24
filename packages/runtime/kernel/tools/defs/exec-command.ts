@@ -56,7 +56,8 @@ export const createExecCommandTool = (
           "How long to wait (in milliseconds) for output before yielding control back to you with a session_id. Defaults to 10000.",
       },
       max_output_tokens: {
-        type: "number",
+        type: "integer",
+        minimum: 0,
         description:
           "Output token budget. Defaults to 10000 tokens; larger requests may be capped by the active model policy.",
       },

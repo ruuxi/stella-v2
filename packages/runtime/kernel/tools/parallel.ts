@@ -58,6 +58,7 @@ type ParallelEntryResult = {
   details?: unknown;
   fileChanges?: FileChangeRecord[];
   producedFiles?: ProducedFileRecord[];
+  modelOutputTokens?: number;
 };
 
 const withoutDuplicatedCommandResult = (
@@ -181,6 +182,9 @@ export const handleMultiToolUseParallel = async (
         ...(nested.producedFiles
           ? { producedFiles: nested.producedFiles }
           : {}),
+        ...(typeof nested.modelOutputTokens === "number"
+          ? { modelOutputTokens: nested.modelOutputTokens }
+          : {}),
       };
     }),
   );
@@ -208,9 +212,25 @@ export const handleMultiToolUseParallel = async (
     })
     .join("\n\n");
 
+  const modelOutputTokens = results.every(
+    (entry) =>
+      COMMAND_OUTPUT_TOOL_NAMES.has(entry.tool_name) &&
+      typeof entry.modelOutputTokens === "number",
+  )
+    ? results.reduce(
+        (total, entry) =>
+          Math.min(
+            Number.MAX_SAFE_INTEGER,
+            total + (entry.modelOutputTokens ?? 0),
+          ),
+        0,
+      )
+    : undefined;
+
   return {
     result: rendered,
     details: { results: results.map(withoutDuplicatedCommandResult) },
+    ...(modelOutputTokens !== undefined ? { modelOutputTokens } : {}),
     ...(fileChanges.length > 0 ? { fileChanges } : {}),
     ...(producedFiles.length > 0 ? { producedFiles } : {}),
   };

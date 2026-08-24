@@ -88,6 +88,16 @@ const RETIRED_MODEL_PROVIDERS = new Set([
     "mistral",
     "fal",
 ]);
+// Keep dedicated native Codex ids valid; only migrate direct-provider routing
+// references removed from the maintained ChatGPT OAuth catalog.
+const RETIRED_OPENAI_CODEX_MODELS = new Set([
+    "gpt-5.1",
+    "gpt-5.1-codex-max",
+    "gpt-5.1-codex-mini",
+    "gpt-5.2",
+    "gpt-5.2-codex",
+    "gpt-5.3-codex",
+]);
 let _cached = null;
 let _cachedMtime = null;
 const prefsPath = (stellaDataDir) => path.join(stellaDataDir, "preferences.json");
@@ -507,7 +517,12 @@ const normalizeModelPreferenceMap = (value) => {
         if (RETIRED_MODEL_PROVIDERS.has(trimmedModel.split("/", 1)[0] ?? "")) {
             continue;
         }
-        normalized[trimmedAgentType] = trimmedModel;
+        const [provider, ...modelParts] = trimmedModel.split("/");
+        const modelId = modelParts.join("/");
+        normalized[trimmedAgentType] = provider === "openai-codex" &&
+            RETIRED_OPENAI_CODEX_MODELS.has(modelId)
+            ? `openai-codex/${DEFAULT_CODEX_MODEL}`
+            : trimmedModel;
     }
     return normalized;
 };

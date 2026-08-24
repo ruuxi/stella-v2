@@ -1039,7 +1039,7 @@ export function AgentModelPicker({ active = true, onSelected, className, surface
         {reasoningControl}
         <div className="agent-model-picker-engine-options">
           {selectedChatGptSupportsFast ? (<Switch className="agent-model-picker-engine-option" label="Fast" title="Uses more ChatGPT credits for faster responses." checked={preferences?.codexServiceTier === "fast"} disabled={!preferences || pendingAgent !== null} onCheckedChange={(checked) => void handleCodexServiceTierSelect(checked ? "fast" : "standard")}/>) : null}
-          <Switch className="agent-model-picker-engine-option" label="Use Codex instead" title="Uses Codex app-server with your native Codex configuration and tools instead of Stella's harness." checked={preferences?.useNativeCodexRuntime === true} disabled={!preferences || pendingAgent !== null} onCheckedChange={(checked) => void handleNativeRuntimeChange("useNativeCodexRuntime", checked)}/>
+          <Switch className="agent-model-picker-engine-option" label="Use Codex instead" title="Requires a separately installed Codex CLI and uses its app-server, configuration, and tools instead of Stella's harness." checked={preferences?.useNativeCodexRuntime === true} disabled={!preferences || pendingAgent !== null} onCheckedChange={(checked) => void handleNativeRuntimeChange("useNativeCodexRuntime", checked)}/>
         </div>
       </div>);
     /**

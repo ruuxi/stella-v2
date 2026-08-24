@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { getModels } from "@stella/runtime/ai/models";
 import { streamOpenAICodexResponses } from "@stella/runtime/ai/providers/openai-codex-responses";
 import type { Model } from "@stella/runtime/ai/types";
 
@@ -11,6 +12,18 @@ afterEach(() => {
 });
 
 describe("OpenAI Codex direct transport", () => {
+  it("uses pi-mono's explicit build-time ChatGPT OAuth catalog", () => {
+    expect(getModels("openai-codex").map((model) => model.id)).toEqual([
+      "gpt-5.3-codex-spark",
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5.5",
+      "gpt-5.6-luna",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+    ]);
+  });
+
   it("sends ChatGPT OAuth models directly to the backend API", async () => {
     const payload = Buffer.from(
       JSON.stringify({

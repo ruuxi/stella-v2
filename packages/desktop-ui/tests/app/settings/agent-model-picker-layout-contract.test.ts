@@ -124,6 +124,7 @@ describe("full-area agent model picker layout", () => {
 
   it("keeps optional Codex discovery failures inline and out of the toast", () => {
     const picker = readSource("global/settings/AgentModelPicker.tsx");
+    const miniPicker = readSource("app/chat/MiniModelPicker.jsx");
     const toastEffectStart = picker.indexOf(
       "const lastToastedErrorRef =",
     );
@@ -137,11 +138,20 @@ describe("full-area agent model picker layout", () => {
     expect(picker.slice(toastEffectStart, toastEffectEnd)).not.toContain(
       "codexCatalog.error",
     );
+    expect(picker).toMatch(
+      /const codexCatalogEnabled = active\s*&&\s*nativeCodexRuntimeEnabled\s*&&\s*\(chatGptSectionOpen\s*\|\|\s*committedEngine\s*===\s*"codex_cli"\)/,
+    );
     expect(picker).toContain(
-      "codexCatalog.error && !codexCatalog.loading",
+      "const codexCatalog = useCodexModelCatalog(codexCatalogEnabled)",
     );
     expect(picker).toMatch(
-      /useCodexModelCatalog\(\s*active\s*&&\s*\(chatGptSectionOpen\s*\|\|\s*committedEngine\s*===\s*"codex_cli"\)\s*\)/,
+      /if \(!nativeCodexRuntimeEnabled\)\s*return listChatGptCatalogModels\(allModels\)/,
+    );
+    expect(picker).toMatch(
+      /content: \(\) => \(nativeCodexRuntimeEnabled\s*&&\s*codexCatalog\.error/,
+    );
+    expect(miniPicker).toMatch(
+      /useCodexModelCatalog\(committedEngine\s*===\s*"codex_cli"\s*&&\s*nativeCodexRuntimeEnabled\)/,
     );
     expect(picker).toContain("chatGptRegistryOptions");
     expect(picker).toContain(": chatGptRegistryOptions");

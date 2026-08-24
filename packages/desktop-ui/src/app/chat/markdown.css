@@ -29,6 +29,21 @@
   white-space: pre-wrap;
 }
 
+/* Native word animation is prose-only. Streamdown still uses its wrappers to
+   preserve incremental Markdown identity, but controls and structured inline
+   content must remain immediately readable and behaviorally stable. */
+.markdown
+  :is(
+    [data-streamdown="link"],
+    [data-streamdown="inline-code"],
+    [data-streamdown="table-wrapper"]
+  )
+  [data-sd-animate],
+.markdown img[data-sd-animate],
+.markdown .markdown-stella-file [data-sd-animate] {
+  animation: none;
+}
+
 /* Spacing for flow */
 .markdown > *:first-child {
   margin-top: 0;

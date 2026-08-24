@@ -97,17 +97,41 @@ const execPayloadOf = (
   | (Record<string, unknown> & { running?: unknown; output?: unknown })
   | null => {
   const payload = result.result;
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return null;
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    return payload as Record<string, unknown>;
   }
-  return payload as Record<string, unknown>;
+  if (typeof payload !== "string") return null;
+  const details =
+    result.details &&
+    typeof result.details === "object" &&
+    !Array.isArray(result.details)
+      ? (result.details as Record<string, unknown>)
+      : {};
+  return { ...details, output: payload };
 };
 
 const annotate = (result: ToolResult, note: string): ToolResult => {
   const payload = execPayloadOf(result);
   if (!payload) return result;
-  const annotated = { ...payload, note };
-  return { ...result, result: annotated, details: annotated };
+  const details =
+    result.details &&
+    typeof result.details === "object" &&
+    !Array.isArray(result.details)
+      ? { ...(result.details as Record<string, unknown>) }
+      : {};
+  delete details.output;
+  if (typeof result.result === "string") {
+    return {
+      ...result,
+      result: `${result.result}\nNote: ${note}`,
+      details: { ...details, note },
+    };
+  }
+  return {
+    ...result,
+    result: { ...payload, note },
+    details: { ...details, note },
+  };
 };
 
 const withTimeout = async (

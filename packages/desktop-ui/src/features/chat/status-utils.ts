@@ -369,7 +369,17 @@ const looksLikeJsonBlob = (value: string): boolean => {
   );
 };
 
+const PLAIN_EXEC_COMMAND_RESULT_PATTERN =
+  /^Wall time: [^\n]+ seconds\nProcess (running with session ID|exited with code) ([^\n]+)\nOriginal token count: \d+\n/;
+
 const tryFriendlyExecCommandStatus = (value: string): string | undefined => {
+  const plainResult = PLAIN_EXEC_COMMAND_RESULT_PATTERN.exec(value);
+  if (plainResult) {
+    const exitCode = Number(plainResult[2]);
+    return plainResult[1] === "exited with code" && exitCode !== 0
+      ? "Command failed"
+      : computeStatus({ toolName: "exec_command", seed: "" });
+  }
   if (!looksLikeJsonBlob(value)) return undefined;
   const looksLikeExecPayload =
     /"session_id"\s*:/.test(value) &&

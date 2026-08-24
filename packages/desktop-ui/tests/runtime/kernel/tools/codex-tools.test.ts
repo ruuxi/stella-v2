@@ -62,6 +62,10 @@ describe("general agent tools", () => {
     expect(properties.tty?.description).toContain("ConPTY");
     expect(properties.login?.description).toContain("-lc");
     expect(properties.login?.description).toContain("-c");
+    expect(properties.max_output_tokens).toMatchObject({
+      type: "integer",
+      minimum: 0,
+    });
   });
 
   it("exec_command returns one-shot output inline", async () => {
@@ -514,6 +518,7 @@ describe("general agent tools", () => {
         session_id: sessionId,
         chars: "console.log(21 * 2)\n.exit\n",
         yield_time_ms: 1_000,
+        max_output_tokens: 128,
       },
       context,
     );
@@ -524,6 +529,7 @@ describe("general agent tools", () => {
       running: false,
       exit_code: 0,
     });
+    expect(finished.modelOutputTokens).toBe(128);
     expect(execTextOf(finished)).toContain("42");
   });
 
@@ -830,6 +836,42 @@ EOF`,
     expect(payload.wall_time_seconds).toBeGreaterThanOrEqual(0);
     expect(typeof payload.original_token_count).toBe("number");
     expect(payload.original_token_count).toBeGreaterThan(256);
+    expect(result.modelOutputTokens).toBe(256);
+  });
+
+  it("exec_command accepts zero and rejects invalid max_output_tokens before execution", async () => {
+    const root = await createTempDir();
+    const shellState = createShellState(root);
+    const markerPath = path.join(root, "should-not-exist.txt");
+    const context = {
+      conversationId: "c-output-budget-validation",
+      deviceId: "d-output-budget-validation",
+      requestId: "r-output-budget-validation",
+      stellaAppDir: root,
+    };
+
+    const zero = await handleExecCommand(
+      shellState,
+      { cmd: "printf zero", yield_time_ms: 1_000, max_output_tokens: 0 },
+      context,
+    );
+    expect(zero.error).toBeUndefined();
+    expect(zero.modelOutputTokens).toBe(0);
+
+    for (const invalid of [-1, 1.5, Number.POSITIVE_INFINITY]) {
+      const rejected = await handleExecCommand(
+        shellState,
+        {
+          cmd: `touch ${JSON.stringify(markerPath)}`,
+          max_output_tokens: invalid,
+        },
+        context,
+      );
+      expect(rejected.error).toBe(
+        "max_output_tokens must be a non-negative safe integer.",
+      );
+    }
+    await expect(access(markerPath)).rejects.toThrow();
   });
 
   it("exec_command payload includes original_token_count even when output is small", async () => {
@@ -997,11 +1039,19 @@ EOF`,
           tool_uses: [
             {
               recipient_name: "exec_command",
-              parameters: { cmd: "printf one", yield_time_ms: 500 },
+              parameters: {
+                cmd: "printf one",
+                yield_time_ms: 500,
+                max_output_tokens: 128,
+              },
             },
             {
               recipient_name: "functions.exec_command",
-              parameters: { cmd: "printf two", yield_time_ms: 500 },
+              parameters: {
+                cmd: "printf two",
+                yield_time_ms: 500,
+                max_output_tokens: 256,
+              },
             },
           ],
         },
@@ -1019,18 +1069,21 @@ EOF`,
       expect(typeof result.result).toBe("string");
       expect(result.result as string).toContain("one");
       expect(result.result as string).toContain("two");
+      expect(result.modelOutputTokens).toBe(384);
       const details = result.details as {
         results: Array<{
           tool_name: string;
           result?: unknown;
           details?: unknown;
+          modelOutputTokens?: number;
         }>;
       };
       expect(details.results).toHaveLength(2);
-      for (const nested of details.results) {
+      for (const [index, nested] of details.results.entries()) {
         expect(nested.tool_name).toBe("exec_command");
         expect(nested).not.toHaveProperty("result");
         expect(nested.details).not.toHaveProperty("output");
+        expect(nested.modelOutputTokens).toBe(index === 0 ? 128 : 256);
       }
     } finally {
       await host.shutdown();

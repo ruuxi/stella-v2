@@ -582,7 +582,8 @@ export const parseRuntimeThreadPayload = (
       (record.modelOutputTokens === undefined ||
         (typeof record.modelOutputTokens === "number" &&
           Number.isFinite(record.modelOutputTokens) &&
-          record.modelOutputTokens > 0)) &&
+          Number.isSafeInteger(record.modelOutputTokens) &&
+          record.modelOutputTokens >= 0)) &&
       isFiniteTimestamp(record.timestamp)
     ) {
       return {

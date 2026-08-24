@@ -28,6 +28,11 @@ const NODE_REPL_TOOL_NAME = "node_repl";
 const COMMAND_OUTPUT_TOOL_NAMES = new Set(["exec_command", "write_stdin"]);
 const MULTI_TOOL_USE_PARALLEL_TOOL_NAME = "multi_tool_use_parallel";
 export const MODEL_VISIBLE_COMMAND_RESULT_MAX_BYTES = 10_000;
+// Codex's ExecCommandToolOutput::model_output_policy compares the model's
+// truncation policy with max_output_tokens at four approximate bytes/token.
+// Keep Stella's approved 10KB model policy as the outer cap and let smaller
+// per-call token requests reduce only the command preview inside that cap.
+const APPROX_COMMAND_OUTPUT_BYTES_PER_TOKEN = 4;
 const COMMAND_RESULT_LIMITS = Object.freeze({
     maxBytes: MODEL_VISIBLE_COMMAND_RESULT_MAX_BYTES,
     maxLines: Number.MAX_SAFE_INTEGER,
@@ -40,8 +45,24 @@ const containsCommandOutput = (toolName, toolResult) => {
         typeof entry === "object" &&
         COMMAND_OUTPUT_TOOL_NAMES.has(entry.tool_name));
 };
+const commandResultLimitsFor = (toolResult) => {
+    const requestedTokens = typeof toolResult?.modelOutputTokens === "number" &&
+        Number.isFinite(toolResult.modelOutputTokens)
+        ? Math.max(0, Math.floor(toolResult.modelOutputTokens))
+        : undefined;
+    const requestedBytes = requestedTokens === undefined ||
+        requestedTokens >=
+            Math.ceil(MODEL_VISIBLE_COMMAND_RESULT_MAX_BYTES /
+                APPROX_COMMAND_OUTPUT_BYTES_PER_TOKEN)
+        ? MODEL_VISIBLE_COMMAND_RESULT_MAX_BYTES
+        : requestedTokens * APPROX_COMMAND_OUTPUT_BYTES_PER_TOKEN;
+    return {
+        ...COMMAND_RESULT_LIMITS,
+        previewMaxBytes: requestedBytes,
+    };
+};
 const modelVisibleLimitsFor = (toolName, toolResult) => containsCommandOutput(toolName, toolResult)
-    ? COMMAND_RESULT_LIMITS
+    ? commandResultLimitsFor(toolResult)
     : undefined;
 const formatToolLabel = (toolName) => toolName
     .replace(/[_-]+/g, " ")
@@ -127,11 +148,18 @@ export const MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS = DEFAULT_MAX_BYTES;
 
 const resolveModelVisibleLimits = (limits) => {
     if (typeof limits === "number") {
-        return { maxBytes: Math.max(0, limits), maxLines: Number.MAX_SAFE_INTEGER };
+        const maxBytes = Math.max(0, limits);
+        return {
+            maxBytes,
+            maxLines: Number.MAX_SAFE_INTEGER,
+            previewMaxBytes: maxBytes,
+        };
     }
+    const maxBytes = limits?.maxBytes ?? DEFAULT_MAX_BYTES;
     return {
-        maxBytes: limits?.maxBytes ?? DEFAULT_MAX_BYTES,
+        maxBytes,
         maxLines: limits?.maxLines ?? DEFAULT_MAX_LINES,
+        previewMaxBytes: Math.min(maxBytes, limits?.previewMaxBytes ?? maxBytes),
     };
 };
 
@@ -166,7 +194,9 @@ const windowsOverlap = (text, head, tail) => {
 
 export const truncateModelVisibleToolText = (text, limits) => {
     const originalChars = text.length;
-    const { maxBytes, maxLines } = resolveModelVisibleLimits(limits);
+    const resolved = resolveModelVisibleLimits(limits);
+    const maxBytes = Math.min(resolved.maxBytes, resolved.previewMaxBytes);
+    const { maxLines } = resolved;
     const originalBytes = utf8ByteLength(text);
     const originalLines = splitLinesForCounting(text).length;
     if (originalBytes <= maxBytes && originalLines <= maxLines) {
@@ -227,7 +257,7 @@ export const preserveModelVisibleToolText = async (text, context, limits) => {
     toolCallId: context.toolCallId,
   });
   const marker = `\n\n[TOOL_OUTPUT_TRUNCATED complete post-sanitization output preserved: artifact=${artifact.path} bytes=${artifact.bytes} sha256=${artifact.sha256} encoding=${artifact.encoding} lines=${artifact.lineCount}. Read more with Read({ file_path: ${JSON.stringify(artifact.path)}, offset: 1, limit: 200 }); offsets are 1-based lines; complete byte range is [0, ${artifact.bytes}).]`;
-  const previewBudget = Math.max(0, resolved.maxBytes - utf8ByteLength(marker));
+  const previewBudget = Math.max(0, Math.min(resolved.previewMaxBytes, resolved.maxBytes) - utf8ByteLength(marker));
   return {
     ...truncated,
     text: `${truncateModelVisibleToolText(text, { maxBytes: previewBudget, maxLines: resolved.maxLines }).text}${marker}`,

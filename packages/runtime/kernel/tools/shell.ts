@@ -1092,9 +1092,14 @@ type SpawnedPtyShell = {
 };
 
 export const resolveExecOutputTokens = (value: unknown): number =>
-  typeof value === "number" && Number.isFinite(value)
-    ? Math.max(1, Math.floor(value))
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
     : DEFAULT_EXEC_OUTPUT_TOKENS;
+
+const invalidExecOutputTokens = (value: unknown): boolean =>
+  value !== undefined &&
+  value !== null &&
+  (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0);
 
 type DrainedOutput = {
   text: string;
@@ -2097,6 +2102,10 @@ export const handleExecCommand = async (
   onUpdate?: ToolUpdateCallback,
 ): Promise<ToolResult> => {
   const callStartedAt = Date.now();
+  if (invalidExecOutputTokens(args.max_output_tokens)) {
+    return { error: "max_output_tokens must be a non-negative safe integer." };
+  }
+  const modelOutputTokens = resolveExecOutputTokens(args.max_output_tokens);
   const yieldTimeMs = resolveExecYieldTime(
     args.yield_time_ms,
     DEFAULT_EXEC_YIELD_MS,
@@ -2152,7 +2161,6 @@ export const handleExecCommand = async (
     }
   }
   let lastUpdateAt = 0;
-  const modelOutputTokens = resolveExecOutputTokens(args.max_output_tokens);
   const emitUpdate = (record: ManagedShellRecord) => {
     if (!onUpdate) return;
     const now = Date.now();
@@ -2168,6 +2176,7 @@ export const handleExecCommand = async (
     onUpdate({
       result: formatExecToolResult(payload, drained),
       details: buildExecToolDetails(payload, drained),
+      modelOutputTokens,
     });
   };
   const record = startShell(
@@ -2253,6 +2262,10 @@ export const handleWriteStdin = async (
   signal?: AbortSignal,
 ): Promise<ToolResult> => {
   const callStartedAt = Date.now();
+  if (invalidExecOutputTokens(args.max_output_tokens)) {
+    return { error: "max_output_tokens must be a non-negative safe integer." };
+  }
+  const modelOutputTokens = resolveExecOutputTokens(args.max_output_tokens);
   const sessionId = String(args.session_id ?? "").trim();
   if (!sessionId) {
     return { error: "session_id is required." };
@@ -2302,7 +2315,7 @@ export const handleWriteStdin = async (
   return {
     result: formatExecToolResult(payload, drained),
     details: buildExecToolDetails(payload, drained),
-    modelOutputTokens: resolveExecOutputTokens(args.max_output_tokens),
+    modelOutputTokens,
     ...(producedFiles ? { producedFiles } : {}),
   };
 };

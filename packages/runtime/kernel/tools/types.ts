@@ -337,8 +337,8 @@ export type ToolHostOptions = {
   ) => Promise<unknown>;
   /**
    * Optional context lookup backing the orchestrator's read-only `Recall`
-   * tool. The host runs the recall agent (memory ledger + past-thread search
-   * + live machine state) and returns its synthesized brief.
+   * tool. The host runs unified durable-thread/transcript retrieval plus live
+   * machine context and returns its bounded brief.
    */
   contextProvider?: (payload: {
     conversationId: string;
@@ -350,11 +350,6 @@ export type ToolHostOptions = {
     modelConfigSnapshot?: AgentModelConfigSnapshot;
     signal?: AbortSignal;
   }) => Promise<RecallLookupResult>;
-  /**
-   * Optional DreamInboxStore + stellaDataDir used by the background Dream
-   * agent's consolidation pass.
-   */
-  dreamInboxStore?: import("../memory/dream-inbox-store.js").DreamInboxStore;
   stellaDataDir?: string;
   requestCredential?: (payload: {
     provider: string;

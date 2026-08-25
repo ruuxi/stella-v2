@@ -5,7 +5,6 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
-import { buildMemoryReviewSystemPrompt } from "@stella/runtime/kernel/agent-runtime/memory-review";
 import {
   readOrSeedPersonality,
   resolvePersonalityPresetContent,
@@ -45,15 +44,6 @@ const writePrompt = async (dir: string, id: string, content: string) => {
 };
 
 describe("bundled prompt consumers", () => {
-  it("resolves memory review from the bundled prompts", async () => {
-    const prompts = await tempPromptsDir();
-    const home = await tempDir();
-    expect(buildMemoryReviewSystemPrompt()).toBe("");
-    expect(buildMemoryReviewSystemPrompt(home)).toBe("");
-    await writePrompt(prompts, "memory-review", "shipped memory review");
-    expect(buildMemoryReviewSystemPrompt(home)).toBe("shipped memory review");
-  });
-
   it("resolves thread compaction from the bundled prompts", async () => {
     const prompts = await tempPromptsDir();
     expect(resolveThreadCompactionSystemPrompt()).toBe("");
@@ -97,7 +87,11 @@ describe("personality composition", () => {
     expect(readOrSeedPersonality(home)).toBe("");
 
     await writePrompt(prompts, "personality-stella", "Stella voice");
-    await writePrompt(prompts, "personality-professional", "Professional voice");
+    await writePrompt(
+      prompts,
+      "personality-professional",
+      "Professional voice",
+    );
 
     expect(resolvePersonalityPresetContent(home, "stella")).toBe(
       "Stella voice\n",
@@ -116,7 +110,11 @@ describe("personality composition", () => {
     const prompts = await tempPromptsDir();
     const home = await tempDir();
     await writePrompt(prompts, "personality-stella", "Stella voice");
-    await writePrompt(prompts, "personality-professional", "Professional voice");
+    await writePrompt(
+      prompts,
+      "personality-professional",
+      "Professional voice",
+    );
 
     await writeFile(path.join(home, "PERSONALITY.md"), "my custom voice");
     expect(readOrSeedPersonality(home)).toBe("my custom voice");

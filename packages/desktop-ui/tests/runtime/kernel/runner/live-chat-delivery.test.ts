@@ -91,6 +91,7 @@ describe("buildRuntimeSendPromptMessage", () => {
       buildRuntimeSendPromptMessage(
         {
           customType: "runtime.task_lifecycle",
+          eventId: "task-1:1:agent-completed",
           display: false,
           timestamp: 123,
         },
@@ -100,6 +101,7 @@ describe("buildRuntimeSendPromptMessage", () => {
       text: "task completed",
       messageType: "message",
       customType: "runtime.task_lifecycle",
+      eventId: "task-1:1:agent-completed",
       display: false,
       timestamp: 123,
     });
@@ -123,6 +125,7 @@ describe("normalizeChatRunInput", () => {
           text: " lifecycle report ",
           messageType: "message",
           customType: " runtime.task_lifecycle ",
+          eventId: " task-1:1:agent-completed ",
           display: false,
           timestamp: 123,
         },
@@ -134,6 +137,7 @@ describe("normalizeChatRunInput", () => {
         text: "lifecycle report",
         messageType: "message",
         customType: "runtime.task_lifecycle",
+        eventId: "task-1:1:agent-completed",
         display: false,
         timestamp: 123,
       },

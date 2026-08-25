@@ -13,15 +13,28 @@ export const executeOrQueueUserOrchestratorTurn = async <T>(args: {
   }
 
   return await new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const settleResolve = (value: T) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const settleReject = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      reject(normalizeQueueError(error));
+    };
     args.queueOrchestratorTurn({
       priority: "user",
       execute: async () => {
+        if (settled) return;
         try {
-          resolve(await args.execute());
+          settleResolve(await args.execute());
         } catch (error) {
-          reject(normalizeQueueError(error));
+          settleReject(error);
         }
       },
+      cancel: settleReject,
     });
   });
 };
@@ -31,17 +44,35 @@ export const executeOrQueueSystemOrchestratorTurn = async (args: {
   queueOrchestratorTurn: (turn: QueuedOrchestratorTurn) => void;
   execute: () => Promise<void>;
 }): Promise<void> => {
-  const queuedTurn: QueuedOrchestratorTurn = {
-    priority: "system",
-    execute: async () => {
+  if (!args.hasActiveRun) {
       await args.execute();
-    },
-  };
-
-  if (args.hasActiveRun) {
-    args.queueOrchestratorTurn(queuedTurn);
     return;
   }
 
-  await queuedTurn.execute();
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const settleResolve = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    const settleReject = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      reject(normalizeQueueError(error));
+    };
+    args.queueOrchestratorTurn({
+      priority: "system",
+      execute: async () => {
+        if (settled) return;
+        try {
+          await args.execute();
+          settleResolve();
+        } catch (error) {
+          settleReject(error);
+        }
+      },
+      cancel: settleReject,
+    });
+  });
 };

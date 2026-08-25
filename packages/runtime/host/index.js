@@ -1694,9 +1694,6 @@ export class StellaRuntimeHost {
     async googleWorkspaceDisconnect() {
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_GOOGLE_WORKSPACE_DISCONNECT, undefined, { ensureWorker: true, recordActivity: true });
     }
-    async triggerDreamNow(trigger = "manual") {
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_DREAM_TRIGGER_NOW, { trigger }, { ensureWorker: true, recordActivity: true });
-    }
     buildWorkerInitializationState() {
         return {
             protocolVersion: STELLA_RUNTIME_PROTOCOL_VERSION,

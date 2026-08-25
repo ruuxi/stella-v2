@@ -44,7 +44,10 @@ export const ToolExecutionModeSchema = StringEnum(
 export type ToolExecutionMode = Static<typeof ToolExecutionModeSchema>;
 
 /** A single tool call content block emitted by an assistant message. */
-export type AgentToolCall = Extract<AssistantMessage["content"][number], { type: "toolCall" }>;
+export type AgentToolCall = Extract<
+  AssistantMessage["content"][number],
+  { type: "toolCall" }
+>;
 
 /**
  * Result returned from `beforeToolCall`.
@@ -156,7 +159,10 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 * }
 	 * ```
 	 */
-	transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
+  transformContext?: (
+    messages: AgentMessage[],
+    signal?: AbortSignal,
+  ) => Promise<AgentMessage[]>;
 
 	/**
 	 * Resolves an API key dynamically for each LLM call.
@@ -166,7 +172,9 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 *
 	 * Contract: must not throw or reject. Return undefined when no key is available.
 	 */
-	getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
+  getApiKey?: (
+    provider: string,
+  ) => Promise<string | undefined> | string | undefined;
 
 	/**
 	 * Refreshes an API key after a provider auth failure.
@@ -262,7 +270,13 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
  * Thinking/reasoning level for models that support it.
  * Note: "xhigh" is only supported by selected OpenAI high-reasoning models.
  */
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type ThinkingLevel =
+  | "off"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh";
 
 /**
  * Extensible interface for custom app messages.
@@ -285,6 +299,7 @@ export interface CustomAgentMessages {
 		content: string | (TextContent | ImageContent)[];
 		timestamp: number;
 		customType?: string;
+    eventId?: string;
 		display?: boolean;
 	};
 	/** Preserves declaration merging without widening the indexed union. */
@@ -296,7 +311,9 @@ export interface CustomAgentMessages {
  * This abstraction allows apps to add custom message types while maintaining
  * type safety and compatibility with the base LLM messages.
  */
-export type AgentMessage = Message | NonNullable<CustomAgentMessages[keyof CustomAgentMessages]>;
+export type AgentMessage =
+  | Message
+  | NonNullable<CustomAgentMessages[keyof CustomAgentMessages]>;
 
 /**
  * Agent state containing all configuration and conversation data.
@@ -325,10 +342,15 @@ export interface AgentToolResult<T> {
 }
 
 // Callback for streaming tool execution updates
-export type AgentToolUpdateCallback<T = unknown> = (partialResult: AgentToolResult<T>) => void;
+export type AgentToolUpdateCallback<T = unknown> = (
+  partialResult: AgentToolResult<T>,
+) => void;
 
 // AgentTool extends Tool but adds the execute function
-export interface AgentTool<TParameters extends TSchema = TSchema, TDetails = unknown> extends Tool<TParameters> {
+export interface AgentTool<
+  TParameters extends TSchema = TSchema,
+  TDetails = unknown,
+> extends Tool<TParameters> {
 	// A human-readable label for the tool to be displayed in UI
 	label: string;
 	// User-facing status text while the tool is running.
@@ -358,11 +380,19 @@ export type AgentEvent =
 	| { type: "agent_end"; messages: AgentMessage[] }
 	// Turn lifecycle - a turn is one assistant response + any tool calls/results
 	| { type: "turn_start" }
-	| { type: "turn_end"; message: AgentMessage; toolResults: ToolResultMessage[] }
+  | {
+      type: "turn_end";
+      message: AgentMessage;
+      toolResults: ToolResultMessage[];
+    }
 	// Message lifecycle - emitted for user, assistant, and toolResult messages
 	| { type: "message_start"; message: AgentMessage }
 	// Only emitted for assistant messages during streaming
-	| { type: "message_update"; message: AgentMessage; assistantMessageEvent: AssistantMessageEvent }
+  | {
+      type: "message_update";
+      message: AgentMessage;
+      assistantMessageEvent: AssistantMessageEvent;
+    }
 	| { type: "message_end"; message: AgentMessage }
 	// Tool execution lifecycle
 	| {

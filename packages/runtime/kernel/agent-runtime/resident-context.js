@@ -5,7 +5,7 @@
  * A resident block is a piece of context that must sit at a byte-stable
  * position in the provider request for the lifetime of a thread so that
  * provider prompt caches keep hitting: the pinned startup docs (personality,
- * core memory, user profile, Dream memory map) and the skill catalog.
+ * core memory, user profile) and the skill catalog.
  * Every block registers here once and gets exactly two mutation paths:
  *
  *   1. Mid-thread delta (`buildResidentContextMessages`): each turn the
@@ -24,7 +24,7 @@
  *      `runtime.context_delta.*` notices.
  *
  * The window-gated `before_user_message` reminder hooks (connector
- * availability, stale-user, memory cadence) are deliberately NOT folded into
+ * availability and stale-user) are deliberately NOT folded into
  * this registry: they are advisory, recurring notices rather than resident
  * state, and their once-per-context-window dedup
  * (`runner/reminder-window-gate.ts`) already resets on compaction. They
@@ -62,20 +62,11 @@ export const PINNED_INSTRUCTION_ENTRY_ID_MARKER = "::pinned-instruction";
 export const LIFE_PERSONALITY_DISPLAY_PATH = "~/.stella/PERSONALITY.md";
 export const LIFE_CORE_MEMORY_DISPLAY_PATH = "~/.stella/core-memory.md";
 export const LIFE_USER_PROFILE_DISPLAY_PATH = "~/.stella/memories/profile.md";
-export const LIFE_MEMORY_MAP_DISPLAY_PATH = "~/.stella/memories/memory_map.md";
-export const RETIRED_MEMORY_SUMMARY_DISPLAY_PATH =
-  "~/.stella/memories/memory_summary.md";
-
-export const MEMORY_MAP_BOOTSTRAP_MAX_CHARS = 12_000;
-const MEMORY_MAP_TRUNCATION_MARKER = "\n...[resident memory map truncated]";
-
-const capMemoryMap = (text) =>
-  text.length > MEMORY_MAP_BOOTSTRAP_MAX_CHARS
-    ? `${text.slice(
-        0,
-        MEMORY_MAP_BOOTSTRAP_MAX_CHARS - MEMORY_MAP_TRUNCATION_MARKER.length,
-      )}${MEMORY_MAP_TRUNCATION_MARKER}`
-    : text;
+export const RETIRED_MEMORY_DISPLAY_PATHS = [
+  "~/.stella/memories/MEMORY.md",
+  "~/.stella/memories/memory_map.md",
+  "~/.stella/memories/memory_summary.md",
+];
 
 const buildStartupDocText = (displayPath, content) =>
   [`<startup_doc path="${displayPath}">`, content, "</startup_doc>"].join("\n");
@@ -134,23 +125,6 @@ export const RESIDENT_BLOCKS = [
       raw.trim() ? redactMemoryText(raw.trim()) || undefined : undefined,
   },
   {
-    id: "memory-map",
-    customType: BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
-    docPath: LIFE_MEMORY_MAP_DISPLAY_PATH,
-    diskFile: path.join("memories", "memory_map.md"),
-    memoryDoc: true,
-    resolve: (context) => {
-      const raw = context.memoryMap
-        ? redactMemoryText(context.memoryMap.trim())
-        : "";
-      return raw ? capMemoryMap(raw) : undefined;
-    },
-    renderDiskBody: (raw) => {
-      const redacted = raw.trim() ? redactMemoryText(raw.trim()) : "";
-      return redacted ? capMemoryMap(redacted) : undefined;
-    },
-  },
-  {
     id: "skills",
     customType: BOOTSTRAP_SKILLS_CUSTOM_TYPE,
     // The catalog carries its own `<skills>` envelope; no startup_doc wrap.
@@ -174,14 +148,14 @@ export const customMessageContentText = (content) => {
     .join("\n");
 };
 
-/** Legacy startup messages containing the retired summary must never replay. */
-export const isRetiredMemorySummaryCustomMessage = (customMessage) =>
-  Boolean(
-    customMessage &&
-      customMessageContentText(customMessage.content).includes(
-        RETIRED_MEMORY_SUMMARY_DISPLAY_PATH,
-      ),
+/** Startup messages for retired automatic-memory artifacts must never replay. */
+export const isRetiredMemoryCustomMessage = (customMessage) => {
+  if (!customMessage) return false;
+  const text = customMessageContentText(customMessage.content);
+  return RETIRED_MEMORY_DISPLAY_PATHS.some((displayPath) =>
+    text.includes(displayPath),
   );
+};
 
 const hasPersistedResidentText = (context, customType, text) => {
   const needle = text.trim();
@@ -195,8 +169,8 @@ const hasPersistedResidentText = (context, customType, text) => {
         return false;
       }
       // Match on the full block body, not just its identity. A resident
-      // block whose content changed mid-thread (a Remember replace/remove,
-      // Dream refreshing memory_map.md, a skill save) must re-append so
+      // block whose content changed mid-thread (a Remember replace/remove or
+      // a skill save) must re-append so
       // the thread sees the current version; the stale copy already in
       // history is left untouched until compaction folds it away.
       return customMessageContentText(customMessage.content).trim() === needle;
@@ -229,12 +203,17 @@ export const buildResidentContextMessages = (context) => {
 };
 
 const STARTUP_DOC_PATH_RE = /^<startup_doc path="([^"]+)">/;
+const STARTUP_DOC_BODY_RE =
+  /^<startup_doc path="[^"]+">\n([\s\S]*)\n<\/startup_doc>$/;
 
 /** Display path from a rendered `<startup_doc>` body, or null. */
 export const parseStartupDocPath = (text) => {
   const match = STARTUP_DOC_PATH_RE.exec(text.trim());
   return match?.[1] ?? null;
 };
+
+const parseStartupDocBody = (text) =>
+  STARTUP_DOC_BODY_RE.exec(text.trim())?.[1] ?? null;
 
 /**
  * Stable fold identity for a persisted resident-block custom message:
@@ -245,7 +224,7 @@ export const parseStartupDocPath = (text) => {
  */
 export const residentIdentityForCustomMessage = (customMessage) => {
   if (!customMessage) return null;
-  if (isRetiredMemorySummaryCustomMessage(customMessage)) return null;
+  if (isRetiredMemoryCustomMessage(customMessage)) return null;
   if (customMessage.customType === BOOTSTRAP_SKILLS_CUSTOM_TYPE) {
     return "skills";
   }
@@ -265,6 +244,16 @@ const blockByDocIdentity = new Map(
   ]),
 );
 
+const canonicalizeInThreadDocText = (identity, text) => {
+  const block = blockByDocIdentity.get(identity);
+  if (!block?.docPath || !block.renderDiskBody) return text;
+  const body = parseStartupDocBody(text);
+  const canonicalBody = body === null ? undefined : block.renderDiskBody(body);
+  return canonicalBody
+    ? buildStartupDocText(block.docPath, canonicalBody)
+    : text;
+};
+
 const readOptionalDiskFile = (filePath) => {
   try {
     return fs.readFileSync(filePath, "utf-8");
@@ -282,7 +271,7 @@ const MAX_FOLD_DOCS = 16;
  * that accumulated duplicate appends), then re-renders registered docs from
  * current disk state where possible:
  *
- *   - personality/core-memory/profile/memory-map re-read their files
+ *   - personality/core-memory/profile re-read their files
  *     (memory docs only when `refreshMemoryDocsFromDisk`), falling back to
  *     the newest in-thread copy when the file is missing/empty;
  *   - the skills block keeps the newest in-thread copy — its render options
@@ -302,7 +291,7 @@ export const buildResidentFold = (args) => {
     if (message.role !== "runtimeInternal" || !message.customMessage) {
       continue;
     }
-    if (isRetiredMemorySummaryCustomMessage(message.customMessage)) continue;
+    if (isRetiredMemoryCustomMessage(message.customMessage)) continue;
     const identity = residentIdentityForCustomMessage(message.customMessage);
     if (!identity) continue;
     if (!newestByIdentity.has(identity)) {
@@ -326,7 +315,7 @@ export const buildResidentFold = (args) => {
     const inThread = newestByIdentity.get(identity);
     if (!inThread?.text) return;
     const block = blockByDocIdentity.get(identity);
-    let text = inThread.text;
+    let text = canonicalizeInThreadDocText(identity, inThread.text);
     if (
       block?.diskFile &&
       block.renderDiskBody &&
@@ -382,18 +371,21 @@ export const parseResidentFold = (details) => {
       continue;
     }
     if (
-      isRetiredMemorySummaryCustomMessage({
+      isRetiredMemoryCustomMessage({
         customType: doc.customType,
         content: doc.text,
       })
     ) {
       continue;
     }
-    docs.push({ customType: doc.customType, text: doc.text });
     const identity = residentIdentityForCustomMessage({
       customType: doc.customType,
       content: doc.text,
     });
+    const text = identity
+      ? canonicalizeInThreadDocText(identity, doc.text)
+      : doc.text;
+    docs.push({ customType: doc.customType, text });
     if (identity) identities.add(identity);
   }
   return docs.length > 0 ? { docs, identities } : null;

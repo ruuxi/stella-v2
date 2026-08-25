@@ -1,10 +1,7 @@
 /**
  * `Read` — local text and image file reader.
  *
- * In the Dream subagent context, `dispatchLocalTool` intercepts and applies
- * path restrictions (only files under `~/.stella/memories` and
- * `~/.stella/memories_extensions`). In all other contexts the host's
- * `handleRead` runs directly.
+ * The host's `handleRead` applies the runtime file-access policy.
  */
 
 import { handleRead } from "../file.js";

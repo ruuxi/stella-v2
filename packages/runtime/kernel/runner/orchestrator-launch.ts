@@ -16,7 +16,6 @@ import type {
   RuntimeAttachmentRef,
   RuntimePromptMessage,
 } from "@stella/contracts/protocol";
-import { agentHasCapability } from "@stella/contracts/agent-runtime";
 
 type BuildAgentContext = (
   args: BuildAgentContextArgs,
@@ -42,12 +41,6 @@ export type PreparedOrchestratorRun = {
   agentContext: LocalAgentContext;
   resolvedLlm: ResolvedLlmRoute;
   abortController: AbortController;
-  /**
-   * Memory-review user-turn counter AFTER incrementing for this run.
-   * Only set when the run is a real user turn (Orchestrator + uiVisibility !== "hidden").
-   * Consumed by finalizeOrchestratorSuccess to decide whether to spawn the review.
-   */
-  userTurnsSinceMemoryReview?: number;
 };
 
 export const prepareOrchestratorRun = async (args: {
@@ -73,8 +66,6 @@ export const prepareOrchestratorRun = async (args: {
    * event from the legacy pre-transition history shim. */
   userMessageId?: string;
 }): Promise<PreparedOrchestratorRun> => {
-  const isUserTurn = args.uiVisibility !== "hidden";
-
   args.context.state.activeOrchestratorRunId = args.runId;
   args.context.state.activeOrchestratorConversationId = args.conversationId;
   args.context.state.activeOrchestratorUiVisibility =
@@ -108,26 +99,6 @@ export const prepareOrchestratorRun = async (args: {
     if (abortController.signal.aborted) {
       throw new Error("Run canceled.");
     }
-    // Increment the memory-review counter only on real user-driven turns
-    // for agents that declare the `triggersMemoryReview` capability.
-    // Synthetic task-callback turns (uiVisibility === "hidden") and
-    // capability-less agents do not count — they would inflate the counter
-    // without representing user input.
-    let userTurnsSinceMemoryReview: number | undefined;
-    if (
-      isUserTurn &&
-      agentHasCapability(args.agentType, "triggersMemoryReview")
-    ) {
-      try {
-        userTurnsSinceMemoryReview =
-          args.context.runtimeStore.incrementUserTurnsSinceMemoryReview(
-            args.conversationId,
-          );
-      } catch {
-        // Memory review is best-effort. Counter failure must not block the turn.
-      }
-    }
-
     const prepared: PreparedOrchestratorRun = {
       runId: args.runId,
       conversationId: args.conversationId,
@@ -146,9 +117,6 @@ export const prepareOrchestratorRun = async (args: {
       agentContext,
       resolvedLlm,
       abortController,
-      ...(userTurnsSinceMemoryReview != null
-        ? { userTurnsSinceMemoryReview }
-        : {}),
     };
     return prepared;
   } catch (error) {
@@ -232,9 +200,6 @@ export const launchPreparedOrchestratorRun = (args: {
     onExecutionSessionCreated: args.onExecutionSessionCreated,
     orchestratorSession,
     compactionScheduler: context.state.compactionScheduler,
-    ...(prepared.userTurnsSinceMemoryReview != null
-      ? { userTurnsSinceMemoryReview: prepared.userTurnsSinceMemoryReview }
-      : {}),
   })
     .finally(() =>
       context.toolHost.endBrowserTurn(prepared.runId, "retain-tabs"),

@@ -25,4 +25,9 @@ describe("agent runtime contracts", () => {
     expect(normalizeRetiredAgentType("manager")).toBe(AGENT_IDS.GENERAL);
     expect(AGENT_IDS).not.toHaveProperty("MANAGER");
   });
+
+  it("keeps historical Dream rows without exposing Dream as a built-in", () => {
+    expect(normalizeRetiredAgentType("dream")).toBe(AGENT_IDS.GENERAL);
+    expect(AGENT_IDS).not.toHaveProperty("DREAM");
+  });
 });

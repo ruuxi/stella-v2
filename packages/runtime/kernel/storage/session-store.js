@@ -7,6 +7,7 @@ import { slugify } from "../shared/slug.js";
 import {
   DEFAULT_CONVERSATION_SETTING_KEY,
   MAX_EVENTS_PER_CONVERSATION,
+  ORCHESTRATOR_ROSTER_CUSTOM_TYPE,
   RUNTIME_THREAD_SESSION_VERSION,
   asFiniteNumber,
   asObject,
@@ -21,12 +22,12 @@ import {
 } from "./shared.js";
 import { isUiHiddenChatMessagePayload } from "@stella/contracts/chat-event-visibility";
 import { normalizeRetiredAgentType } from "@stella/contracts/agent-runtime";
-import { DreamInboxStore } from "../memory/dream-inbox-store.js";
+import { ThreadSummaryStore } from "../memory/thread-summary-store.js";
 import {
   CONTEXT_DELTA_CUSTOM_TYPE_PREFIX,
   PINNED_INSTRUCTION_ENTRY_ID_MARKER,
   RESIDENT_FOLD_ENTRY_ID_MARKER,
-  isRetiredMemorySummaryCustomMessage,
+  isRetiredMemoryCustomMessage,
   parseResidentFold,
   residentIdentityForCustomMessage,
 } from "../agent-runtime/resident-context.js";
@@ -266,11 +267,10 @@ const TRANSCRIPT_SEARCH_TEXT_CAP = 4_000;
 // preserved in practice; `ORDER BY rank` keeps the most relevant candidates
 // on the rare query where the cap binds.
 const THREAD_SEARCH_FTS_CANDIDATE_CAP = 200;
-// SQL-side truncation for the index's result/error excerpts: real final
-// results average ~4k chars, so untruncated excerpts would multiply the
-// index size ~10x for no identification gain.
-const RECALL_INDEX_RESULT_EXCERPT_CHARS = 400;
-const RECALL_INDEX_ERROR_EXCERPT_CHARS = 300;
+// SQL-side truncation for unified Recall result/error excerpts: real final
+// results average ~4k chars, so unbounded evidence would crowd out other hits.
+export const RECALL_THREAD_RESULT_EXCERPT_CHARS = 1_600;
+const RECALL_THREAD_ERROR_EXCERPT_CHARS = 300;
 // English function words dropped from search queries before matching.
 // Under OR-with-ranking semantics a stray stopword can never exclude a
 // result, only pad the 6-token budget and inflate scores with rows that
@@ -560,7 +560,9 @@ const chunkExactThreadEntryData = (exactData, boundedData) => {
     },
   };
   if (jsonByteLength(toJsonValueString(data)) > THREAD_ROW_MAX_BYTES) {
-    throw new Error("Exact thread payload metadata exceeds the SQLite row limit.");
+    throw new Error(
+      "Exact thread payload metadata exceeds the SQLite row limit.",
+    );
   }
   return { data, exactDataJson, exactChunkEnds };
 };
@@ -999,6 +1001,10 @@ const parseCheckpointQuarantineKeys = (details) => {
 const normalizeCompactionOverlay = (compaction, rawMessages) => {
   const timestamp = Date.parse(compaction.timestamp) || Date.now();
   const residentFold = parseResidentFold(compaction.details);
+  const replaceDerivedContext =
+    compaction.details &&
+    typeof compaction.details === "object" &&
+    compaction.details.replaceDerivedContext === true;
   const pinnedUserInstruction = parsePinnedUserInstruction(compaction.details);
   const checkpointQuarantineKeys = parseCheckpointQuarantineKeys(
     compaction.details,
@@ -1010,6 +1016,7 @@ const normalizeCompactionOverlay = (compaction, rawMessages) => {
       fromEntryId: compaction.fromEntryId,
       toEntryId: compaction.toEntryId,
       timestamp,
+      ...(replaceDerivedContext ? { replaceDerivedContext: true } : {}),
       ...(residentFold ? { residentFold } : {}),
       ...(pinnedUserInstruction ? { pinnedUserInstruction } : {}),
       ...(checkpointQuarantineKeys.length > 0
@@ -1037,6 +1044,7 @@ const normalizeCompactionOverlay = (compaction, rawMessages) => {
     fromEntryId,
     toEntryId,
     timestamp,
+    ...(replaceDerivedContext ? { replaceDerivedContext: true } : {}),
     ...(residentFold ? { residentFold } : {}),
     ...(pinnedUserInstruction ? { pinnedUserInstruction } : {}),
     ...(checkpointQuarantineKeys.length > 0
@@ -1050,9 +1058,9 @@ const buildThreadCompactionOverlays = (path, rawMessages) =>
     .map((entry) => normalizeCompactionOverlay(entry, rawMessages))
     .filter((entry) => entry !== null);
 /**
- * Resident-block fold-in half of the overlay application. The newest applied
- * overlay that carries a `residentFold` (written by `maybeCompactRuntimeThread`)
- * re-establishes the canonical resident context:
+ * Derived-context replacement half of the overlay application. The newest
+ * applied overlay written by `maybeCompactRuntimeThread` re-establishes the
+ * canonical resident context:
  *
  *   1. every older copy of a folded block (stale head docs, mid-thread
  *      re-appends that survived in the kept tail) and every accumulated
@@ -1067,7 +1075,10 @@ const buildThreadCompactionOverlays = (path, rawMessages) =>
  * entries, so every store rebuild materializes the same canonical window.
  */
 const applyResidentFold = (messages, overlay) => {
-  const fold = overlay.residentFold;
+  const fold = overlay.residentFold ?? {
+    docs: [],
+    identities: new Set(),
+  };
   const checkpointIndex = messages.findIndex(
     (message) => message.entryId === overlay.id,
   );
@@ -1078,13 +1089,16 @@ const applyResidentFold = (messages, overlay) => {
     if (message.role !== "runtimeInternal" || !message.customMessage) {
       return true;
     }
-    if (isRetiredMemorySummaryCustomMessage(message.customMessage)) {
+    if (isRetiredMemoryCustomMessage(message.customMessage)) {
       return false;
     }
     if (message.timestamp > overlay.timestamp) {
       return true;
     }
     const customType = message.customMessage.customType;
+    if (customType === ORCHESTRATOR_ROSTER_CUSTOM_TYPE) {
+      return false;
+    }
     if (
       typeof customType === "string" &&
       customType.startsWith(CONTEXT_DELTA_CUSTOM_TYPE_PREFIX)
@@ -1172,7 +1186,7 @@ const applyCompactionOverlays = (rawMessages, overlays) => {
     index += 1;
   }
   const foldOverlay = appliedOverlays
-    .filter((overlay) => overlay.residentFold)
+    .filter((overlay) => overlay.residentFold || overlay.replaceDerivedContext)
     .pop();
   if (foldOverlay) {
     result = applyResidentFold(result, foldOverlay);
@@ -1188,7 +1202,7 @@ const buildThreadMessagesFromEntries = (entries) => {
 export class SessionStore {
   db;
   options;
-  dreamInboxStoreInstance = null;
+  threadSummaryStoreInstance = null;
   constructor(db, options = {}) {
     this.db = db;
     this.options = options;
@@ -1275,16 +1289,12 @@ export class SessionStore {
       params: [cursor.timestamp, cursor.timestamp, cursor.id],
     };
   }
-  /**
-   * Lazily-constructed singleton DreamInboxStore — the unified queue of
-   * everything Dream consolidates: subagent rollout summaries, orchestrator
-   * memory-review notes.
-   */
-  get dreamInboxStore() {
-    if (!this.dreamInboxStoreInstance) {
-      this.dreamInboxStoreInstance = new DreamInboxStore(this.db);
+  /** Lazily constructed durable delegated-thread summary store. */
+  get threadSummaryStore() {
+    if (!this.threadSummaryStoreInstance) {
+      this.threadSummaryStoreInstance = new ThreadSummaryStore(this.db);
     }
-    return this.dreamInboxStoreInstance;
+    return this.threadSummaryStoreInstance;
   }
   withTransaction(work) {
     this.db.exec("BEGIN TRANSACTION;");
@@ -1847,11 +1857,6 @@ export class SessionStore {
       this.db
         .prepare(
           `DELETE FROM runtime_conversation_state WHERE conversation_id = ?`,
-        )
-        .run(conversationId);
-      this.db
-        .prepare(
-          `DELETE FROM runtime_memory_review_state WHERE conversation_id = ?`,
         )
         .run(conversationId);
       this.db
@@ -2626,7 +2631,10 @@ export class SessionStore {
     const projectionRows = includeSourceEvents
       ? Array.from(
           new Map(
-            [...messageRows, ...sourceEvents].map((event) => [event._id, event]),
+            [...messageRows, ...sourceEvents].map((event) => [
+              event._id,
+              event,
+            ]),
           ).values(),
         ).sort((a, b) =>
           compareTimelineCursor(
@@ -2817,7 +2825,9 @@ export class SessionStore {
       ? {
           timestamp: row.timestamp,
           id: row.id,
-          ...(typeof row.sequence === "number" ? { sequence: row.sequence } : {}),
+          ...(typeof row.sequence === "number"
+            ? { sequence: row.sequence }
+            : {}),
         }
       : null;
   }
@@ -2879,7 +2889,9 @@ export class SessionStore {
       ? {
           timestamp: row.timestamp,
           id: row.id,
-          ...(typeof row.sequence === "number" ? { sequence: row.sequence } : {}),
+          ...(typeof row.sequence === "number"
+            ? { sequence: row.sequence }
+            : {}),
         }
       : null;
   }
@@ -3106,12 +3118,8 @@ export class SessionStore {
         const start = index === 0 && user ? cursorFor(user) : cursorFor(anchor);
         const end =
           index + 1 < anchors.length ? cursorFor(anchors[index + 1]) : turnEnd;
-        const {
-          events,
-          totalCount,
-          eventCountTruncated,
-          detailTruncated,
-        } = this.fetchBoundedToolEvents(conversationId, start, end);
+        const { events, totalCount, eventCountTruncated, detailTruncated } =
+          this.fetchBoundedToolEvents(conversationId, start, end);
         attachedById.set(anchor._id, {
           ...anchor,
           toolEvents: events,
@@ -3156,7 +3164,11 @@ export class SessionStore {
     const turnStart = this.findTurnFetchCutoff(conversationId, anchor);
     const previousAssistant =
       anchorRow?.type === "assistant_message"
-        ? this.findPreviousVisibleAssistantAfter(conversationId, turnStart, anchor)
+        ? this.findPreviousVisibleAssistantAfter(
+            conversationId,
+            turnStart,
+            anchor,
+          )
         : null;
     const rangeStart = previousAssistant ? anchor : (turnStart ?? anchor);
     const rangeEnd =
@@ -3845,7 +3857,11 @@ export class SessionStore {
          ) VALUES (?, ?, ?, ?)`,
       );
       let offset = 0;
-      for (let chunkIndex = 0; chunkIndex < args.exactChunkEnds.length; chunkIndex += 1) {
+      for (
+        let chunkIndex = 0;
+        chunkIndex < args.exactChunkEnds.length;
+        chunkIndex += 1
+      ) {
         const end = args.exactChunkEnds[chunkIndex];
         insertChunk.run(
           entryId,
@@ -4077,7 +4093,7 @@ export class SessionStore {
         : []),
       ...rawTail,
     ];
-    return overlay.residentFold
+    return overlay.residentFold || overlay.replaceDerivedContext
       ? applyResidentFold(messages, overlay)
       : messages;
   }
@@ -4092,7 +4108,9 @@ export class SessionStore {
     }
     const prepared = messages.map((message) => {
       if (normalizeRuntimeThreadId(message.threadKey) !== threadKey) {
-        throw new Error("All thread messages in a batch must use the same threadKey.");
+        throw new Error(
+          "All thread messages in a batch must use the same threadKey.",
+        );
       }
       const fallbackPayload = buildFallbackThreadPayload(message);
       const boundedPayload = enforceThreadPayloadRowSizeLimit(fallbackPayload);
@@ -4316,7 +4334,9 @@ export class SessionStore {
     if (!threadKey) {
       throw new Error("threadKey is required.");
     }
-    return buildRawThreadMessages(buildThreadPathEntries(this.loadThreadSessionEntries(threadKey))).map((message) => ({
+    return buildRawThreadMessages(
+      buildThreadPathEntries(this.loadThreadSessionEntries(threadKey)),
+    ).map((message) => ({
       ...(message.entryId ? { entryId: message.entryId } : {}),
       timestamp: message.timestamp,
       role: message.role,
@@ -4762,102 +4782,6 @@ export class SessionStore {
     return rows.map((row) => this.deserializeRuntimeThread(row));
   }
   /**
-   * The rows behind Recall's inline "# Thread Index": the most recent
-   * `limit` delegated agent threads across ALL conversations (including
-   * evicted ones), by genuine last-active time. Carries the fields the
-   * index renders that the generic thread record lacks — the agent's final
-   * `result` and `error` text (truncated in SQL; `summary` is empty on
-   * nearly every real thread, so `result` is the only durable record of
-   * what a finished thread actually did). Exclusions mirror
-   * `searchThreads`: orchestrator threads and implicit subagent sessions
-   * are not resumable work.
-   *
-   * Ordering by MAX(last_used_at, agent updated_at) can't use an index
-   * directly, so the query gathers candidates from TWO indexed recency
-   * scans (top `limit` by thread last_used_at, top `limit` by agent
-   * updated_at) and only sorts that ≤2·limit union by the MAX. That union
-   * provably contains the true top `limit` by last-active: if a thread
-   * ranked top-N by the max of the two columns, it must rank top-N on
-   * whichever column supplied that max. No full-table scan or whole-table
-   * temp sort as history grows.
-   */
-  listThreadsForRecallIndex(args) {
-    const limit = Math.max(1, Math.min(2_000, Math.floor(args.limit)));
-    const activeSinceMs =
-      Number.isFinite(args.activeSinceMs) && (args.activeSinceMs ?? 0) > 0
-        ? Math.floor(args.activeSinceMs)
-        : 0;
-    const rows = this.db
-      .prepare(
-        `
-      WITH candidates(thread_key) AS (
-        SELECT thread_key FROM (
-          SELECT thread_key
-          FROM runtime_threads
-          WHERE agent_type != 'orchestrator'
-            AND thread_key NOT LIKE '%::subagent::%'
-            AND last_used_at >= ?
-          ORDER BY last_used_at DESC
-          LIMIT ?
-        )
-        UNION
-        SELECT thread_id FROM (
-          SELECT thread_id
-          FROM runtime_agents
-          WHERE agent_type != 'orchestrator'
-            AND thread_id NOT LIKE '%::subagent::%'
-            AND updated_at >= ?
-          ORDER BY updated_at DESC
-          LIMIT ?
-        )
-      )
-      SELECT
-        thread_key AS threadId,
-        runtime_threads.conversation_id AS conversationId,
-        runtime_threads.name AS name,
-        runtime_threads.created_at AS createdAt,
-        runtime_threads.last_used_at AS lastUsedAt,
-        runtime_agents.description AS description,
-        runtime_agents.status AS agentStatus,
-        runtime_agents.updated_at AS agentUpdatedAt,
-        substr(runtime_agents.result, 1, ${RECALL_INDEX_RESULT_EXCERPT_CHARS}) AS resultExcerpt,
-        substr(runtime_agents.error, 1, ${RECALL_INDEX_ERROR_EXCERPT_CHARS}) AS errorExcerpt
-      FROM runtime_threads
-      LEFT JOIN runtime_agents
-        ON runtime_agents.thread_id = runtime_threads.thread_key
-      WHERE thread_key IN (SELECT thread_key FROM candidates)
-        AND runtime_threads.agent_type != 'orchestrator'
-        AND thread_key NOT LIKE '%::subagent::%'
-        AND MAX(
-          runtime_threads.last_used_at,
-          COALESCE(runtime_agents.updated_at, 0)
-        ) >= ?
-      ORDER BY MAX(
-        runtime_threads.last_used_at,
-        COALESCE(runtime_agents.updated_at, 0)
-      ) DESC
-      LIMIT ?
-    `,
-      )
-      .all(activeSinceMs, limit, activeSinceMs, limit, activeSinceMs, limit);
-    return rows.map((row) => ({
-      threadId: row.threadId,
-      conversationId: row.conversationId,
-      name: row.name,
-      createdAt: row.createdAt,
-      lastUsedAt: row.lastUsedAt,
-      ...(row.description ? { description: row.description } : {}),
-      ...(row.agentStatus ? { agentStatus: row.agentStatus } : {}),
-      ...(typeof row.agentUpdatedAt === "number"
-        ? { agentUpdatedAt: row.agentUpdatedAt }
-        : {}),
-      ...(row.resultExcerpt?.trim()
-        ? { resultExcerpt: row.resultExcerpt }
-        : {}),
-      ...(row.errorExcerpt?.trim() ? { errorExcerpt: row.errorExcerpt } : {}),
-    }));
-  }
-  /**
    * Final result/error excerpts for a set of threads, keyed by thread id.
    * Recall's thread search renders these because `summary` is empty on
    * nearly every real thread — the agent's final `result` is the only
@@ -4872,8 +4796,8 @@ export class SessionStore {
         `
       SELECT
         thread_id AS threadId,
-        substr(result, 1, ${RECALL_INDEX_RESULT_EXCERPT_CHARS}) AS resultExcerpt,
-        substr(error, 1, ${RECALL_INDEX_ERROR_EXCERPT_CHARS}) AS errorExcerpt
+        substr(result, 1, ${RECALL_THREAD_RESULT_EXCERPT_CHARS}) AS resultExcerpt,
+        substr(error, 1, ${RECALL_THREAD_ERROR_EXCERPT_CHARS}) AS errorExcerpt
       FROM runtime_agents
       WHERE thread_id IN (${ids.map(() => "?").join(", ")})
     `,
@@ -4890,32 +4814,10 @@ export class SessionStore {
     return map;
   }
   /**
-   * How many index-eligible threads were created since `sinceMs` — the
-   * cheap signal Recall uses to size its thread index (a high-volume day
-   * widens the index so heavy users keep their realistic recall window).
-   * `idx_runtime_threads_created` makes this a range scan over just the
-   * recent window (the eligibility filters apply as residuals on those few
-   * rows), so the preflight scales with daily volume, not total history.
-   */
-  countThreadsCreatedSince(sinceMs) {
-    const row = this.db
-      .prepare(
-        `
-      SELECT COUNT(*) AS count
-      FROM runtime_threads
-      WHERE agent_type != 'orchestrator'
-        AND thread_key NOT LIKE '%::subagent::%'
-        AND created_at >= ?
-    `,
-      )
-      .get(sinceMs);
-    return typeof row?.count === "number" ? row.count : 0;
-  }
-  /**
    * Search what was actually SAID in chat: user/assistant message text
    * across ALL conversations (not just the caller's). This is the only
    * durable index over things the user merely mentioned in conversation —
-   * no agent thread, no memory note — so it is what answers episodic
+   * no delegated result required — so it is what answers episodic
    * questions ("did I ever tell you…", "where did we…"). Same
    * OR-with-ranking token semantics as `searchThreads`: a hit must match
    * at least one non-stopword token, ranks by how many tokens it matches,
@@ -5336,16 +5238,6 @@ export class SessionStore {
     const trimmed = summary.trim();
     if (!trimmed) return;
     this.ensureImplicitThreadRow(threadKey);
-    const row = this.db
-      .prepare(
-        `
-      SELECT conversation_id AS conversationId
-      FROM runtime_threads
-      WHERE thread_key = ?
-      LIMIT 1
-    `,
-      )
-      .get(threadKey);
     this.db
       .prepare(
         `
@@ -5355,12 +5247,6 @@ export class SessionStore {
     `,
       )
       .run(trimmed, Date.now(), threadKey);
-    if (
-      typeof row?.conversationId === "string" &&
-      row.conversationId.length > 0
-    ) {
-      this.forceOrchestratorReminderOnNextTurn(row.conversationId);
-    }
   }
   getThreadName(threadKey) {
     // Deliberately side-effect-free: callers probe arbitrary agent ids, and
@@ -5980,7 +5866,6 @@ export class SessionStore {
       .prepare(
         `
       SELECT
-        reminder_tokens_since_last_injection AS reminderTokensSinceLastInjection,
         force_reminder_on_next_turn AS forceReminderOnNextTurn
       FROM runtime_conversation_state
       WHERE conversation_id = ?
@@ -5988,222 +5873,34 @@ export class SessionStore {
     `,
       )
       .get(conversationId);
-    const current =
-      typeof row?.reminderTokensSinceLastInjection === "number"
-        ? Math.max(0, Math.floor(row.reminderTokensSinceLastInjection))
-        : 0;
-    const shouldInjectDynamicReminder = row?.forceReminderOnNextTurn === 1;
     return {
-      shouldInjectDynamicReminder,
-      reminderTokensSinceLastInjection: current,
+      shouldInjectDynamicReminder: row?.forceReminderOnNextTurn === 1,
     };
   }
-  updateOrchestratorReminderCounter(args) {
-    const currentState = this.db
-      .prepare(
-        `
-      SELECT
-        reminder_tokens_since_last_injection AS reminderTokensSinceLastInjection,
-        force_reminder_on_next_turn AS forceReminderOnNextTurn
-      FROM runtime_conversation_state
-      WHERE conversation_id = ?
-      LIMIT 1
-    `,
-      )
-      .get(args.conversationId);
-    const current =
-      typeof currentState?.reminderTokensSinceLastInjection === "number"
-        ? currentState.reminderTokensSinceLastInjection
-        : 0;
-    const nextValue =
-      args.resetTo != null
-        ? Math.max(0, Math.floor(args.resetTo))
-        : Math.max(0, Math.floor(current + (args.incrementBy ?? 0)));
-    const forceReminderOnNextTurn =
-      args.resetTo != null
-        ? 0
-        : currentState?.forceReminderOnNextTurn === 1
-          ? 1
-          : 0;
-    this.db
-      .prepare(
-        `
-      INSERT INTO runtime_conversation_state (
-        conversation_id,
-        reminder_tokens_since_last_injection,
-        force_reminder_on_next_turn
-      )
-      VALUES (?, ?, ?)
-      ON CONFLICT(conversation_id) DO UPDATE SET
-        reminder_tokens_since_last_injection = excluded.reminder_tokens_since_last_injection,
-        force_reminder_on_next_turn = excluded.force_reminder_on_next_turn
-    `,
-      )
-      .run(args.conversationId, nextValue, forceReminderOnNextTurn);
-  }
   forceOrchestratorReminderOnNextTurn(conversationId) {
-    const currentState = this.db
-      .prepare(
-        `
-      SELECT reminder_tokens_since_last_injection AS reminderTokensSinceLastInjection
-      FROM runtime_conversation_state
-      WHERE conversation_id = ?
-      LIMIT 1
-    `,
-      )
-      .get(conversationId);
-    const reminderTokensSinceLastInjection =
-      typeof currentState?.reminderTokensSinceLastInjection === "number"
-        ? currentState.reminderTokensSinceLastInjection
-        : 0;
     this.db
       .prepare(
         `
       INSERT INTO runtime_conversation_state (
         conversation_id,
-        reminder_tokens_since_last_injection,
         force_reminder_on_next_turn
       )
-      VALUES (?, ?, 1)
+      VALUES (?, 1)
       ON CONFLICT(conversation_id) DO UPDATE SET
-        reminder_tokens_since_last_injection = excluded.reminder_tokens_since_last_injection,
         force_reminder_on_next_turn = 1
     `,
       )
-      .run(conversationId, reminderTokensSinceLastInjection);
+      .run(conversationId);
   }
-  /**
-   * Increment the memory-review user-turn counter for the given conversation
-   * and return the new value. Caller is responsible for gating on
-   * `uiVisibility !== "hidden"` so that synthetic task-callback turns do not
-   * inflate the count.
-   */
-  incrementUserTurnsSinceMemoryReview(conversationId) {
-    const row = this.db
+  consumeOrchestratorReminder(conversationId) {
+    this.db
       .prepare(
         `
-      SELECT user_turns_since_review AS userTurnsSinceReview
-      FROM runtime_memory_review_state
+      UPDATE runtime_conversation_state
+      SET force_reminder_on_next_turn = 0
       WHERE conversation_id = ?
-      LIMIT 1
     `,
       )
-      .get(conversationId);
-    const current =
-      typeof row?.userTurnsSinceReview === "number"
-        ? Math.max(0, Math.floor(row.userTurnsSinceReview))
-        : 0;
-    const next = current + 1;
-    this.db
-      .prepare(
-        `
-      INSERT INTO runtime_memory_review_state (
-        conversation_id,
-        user_turns_since_review,
-        last_review_at
-      )
-      VALUES (?, ?, NULL)
-      ON CONFLICT(conversation_id) DO UPDATE SET
-        user_turns_since_review = excluded.user_turns_since_review
-    `,
-      )
-      .run(conversationId, next);
-    return next;
-  }
-  /**
-   * Current memory-review state for a conversation. `lastReviewedMessageTs`
-   * is the timestamp of the newest message the last review consumed; the
-   * review pass slices the transcript to messages newer than this so each
-   * pass only sees the delta since the previous review. It is a message
-   * timestamp (a value), not an array index, so it stays valid across
-   * compaction rebuilds and worker restarts.
-   */
-  getMemoryReviewState(conversationId) {
-    const row = this.db
-      .prepare(
-        `
-      SELECT user_turns_since_review AS userTurnsSinceReview,
-             last_reviewed_message_ts AS lastReviewedMessageTs
-      FROM runtime_memory_review_state
-      WHERE conversation_id = ?
-      LIMIT 1
-    `,
-      )
-      .get(conversationId);
-    return {
-      userTurnsSinceReview:
-        typeof row?.userTurnsSinceReview === "number"
-          ? Math.max(0, Math.floor(row.userTurnsSinceReview))
-          : 0,
-      lastReviewedMessageTs:
-        typeof row?.lastReviewedMessageTs === "number"
-          ? Math.max(0, Math.floor(row.lastReviewedMessageTs))
-          : 0,
-    };
-  }
-  /**
-   * Reset the memory-review user-turn counter to zero and stamp the time of
-   * the review. Call after a memory review fires so a quick second turn does
-   * not double-trigger. When `lastReviewedMessageTs` is provided it advances
-   * the review watermark so the next pass only reviews newer messages; when
-   * omitted the existing watermark is preserved (never silently cleared).
-   */
-  resetUserTurnsSinceMemoryReview(conversationId, lastReviewedMessageTs) {
-    const now = Date.now();
-    const reviewedTs =
-      typeof lastReviewedMessageTs === "number" &&
-      Number.isFinite(lastReviewedMessageTs) &&
-      lastReviewedMessageTs > 0
-        ? Math.floor(lastReviewedMessageTs)
-        : null;
-    this.db
-      .prepare(
-        `
-      INSERT INTO runtime_memory_review_state (
-        conversation_id,
-        user_turns_since_review,
-        last_review_at,
-        last_reviewed_message_ts
-      )
-      VALUES (?, 0, ?, ?)
-      ON CONFLICT(conversation_id) DO UPDATE SET
-        user_turns_since_review = 0,
-        last_review_at = excluded.last_review_at,
-        last_reviewed_message_ts = COALESCE(
-          excluded.last_reviewed_message_ts,
-          runtime_memory_review_state.last_reviewed_message_ts
-        )
-    `,
-      )
-      .run(conversationId, now, reviewedTs);
-  }
-  /**
-   * Advance only the review watermark, without touching the user-turn counter.
-   * Called after a review actually completes so a transient review failure does
-   * not permanently skip the messages it failed on. Never regresses an existing
-   * watermark.
-   */
-  advanceMemoryReviewWatermark(conversationId, lastReviewedMessageTs) {
-    if (!Number.isFinite(lastReviewedMessageTs) || lastReviewedMessageTs <= 0) {
-      return;
-    }
-    const reviewedTs = Math.floor(lastReviewedMessageTs);
-    this.db
-      .prepare(
-        `
-      INSERT INTO runtime_memory_review_state (
-        conversation_id,
-        user_turns_since_review,
-        last_reviewed_message_ts
-      )
-      VALUES (?, 0, ?)
-      ON CONFLICT(conversation_id) DO UPDATE SET
-        last_reviewed_message_ts = MAX(
-          COALESCE(runtime_memory_review_state.last_reviewed_message_ts, 0),
-          excluded.last_reviewed_message_ts
-        )
-    `,
-      )
-      .run(conversationId, reviewedTs);
+      .run(conversationId);
   }
 }

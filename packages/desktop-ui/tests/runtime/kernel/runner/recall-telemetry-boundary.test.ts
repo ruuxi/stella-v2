@@ -4,7 +4,6 @@ import type { ToolHostOptions } from "@stella/runtime/kernel/tools/types";
 
 const boundaryMocks = vi.hoisted(() => ({
   toolHostOptions: undefined as ToolHostOptions | undefined,
-  routeRecallIntent: vi.fn(),
   runRecall: vi.fn(),
   resolveRunnerRecallLlmRoute: vi.fn(),
 }));
@@ -30,7 +29,6 @@ vi.mock("@stella/runtime/kernel/agent-runtime/context-lookup", () => {
     isRecallNoMatchBrief: (brief: string) =>
       brief.toLowerCase().includes("nothing relevant found"),
     RecallRetrievalError,
-    routeRecallIntent: boundaryMocks.routeRecallIntent,
     runRecall: boundaryMocks.runRecall,
   };
 });
@@ -78,7 +76,6 @@ const mockRunnerClock = (): ReturnType<typeof vi.spyOn> => {
 
 beforeEach(() => {
   boundaryMocks.toolHostOptions = undefined;
-  boundaryMocks.routeRecallIntent.mockReset();
   boundaryMocks.runRecall.mockReset().mockResolvedValue("Found it.");
   boundaryMocks.resolveRunnerRecallLlmRoute.mockReset().mockResolvedValue({
     activeEngine: "default",
@@ -93,7 +90,6 @@ afterEach(() => {
 
 describe("runner Recall telemetry boundary", () => {
   it("hands route and live host-context timings into Recall", async () => {
-    boundaryMocks.routeRecallIntent.mockReturnValue("live_context");
     const browserContext = { activeApp: "Brave", tabs: ["Stella"] };
     const listLocalChatEvents = vi.fn(() => [
       { _id: "event-1", timestamp: 1, type: "user_message" },
@@ -147,8 +143,7 @@ describe("runner Recall telemetry boundary", () => {
     });
   });
 
-  it("records zero host calls without invoking gated providers for durable memory", async () => {
-    boundaryMocks.routeRecallIntent.mockReturnValue("durable_memory");
+  it("collects host evidence for every query instead of intent-gating it", async () => {
     const listLocalChatEvents = vi.fn(() => []);
     const getAppBrowserContext = vi.fn(async () => ({ activeApp: "Brave" }));
     const provider = createContextProvider({
@@ -165,8 +160,8 @@ describe("runner Recall telemetry boundary", () => {
       memorySearchTerms: ["memory", "index"],
     });
 
-    expect(listLocalChatEvents).not.toHaveBeenCalled();
-    expect(getAppBrowserContext).not.toHaveBeenCalled();
+    expect(listLocalChatEvents).toHaveBeenCalledWith("conversation-1", 5);
+    expect(getAppBrowserContext).toHaveBeenCalledTimes(1);
     expect(boundaryMocks.runRecall.mock.calls[0]?.[0]).toMatchObject({
       localEvents: [],
       telemetry: {
@@ -174,18 +169,18 @@ describe("runner Recall telemetry boundary", () => {
         routeMs: 0,
         hostContextMs: 15,
         sourceTimings: {
-          "host.localEvents": { kind: "sql", calls: 0, ms: 5, chars: 0 },
+          "host.localEvents": { kind: "sql", calls: 1, ms: 5, chars: 0 },
           "host.appBrowserContext": {
             kind: "host",
-            calls: 0,
+            calls: 1,
             ms: 3,
-            chars: 0,
+            chars: JSON.stringify({ activeApp: "Brave" }).length,
           },
         },
       },
     });
-    expect(boundaryMocks.runRecall.mock.calls[0]?.[0]).not.toHaveProperty(
-      "appBrowserContext",
-    );
+    expect(boundaryMocks.runRecall.mock.calls[0]?.[0]).toMatchObject({
+      appBrowserContext: { activeApp: "Brave" },
+    });
   });
 });

@@ -295,6 +295,7 @@
     },
   },
   "trustedDependencies": [
+    "@shopify/react-native-skia",
     "esbuild",
     "sharp",
     "electron-winstaller",

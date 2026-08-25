@@ -384,6 +384,7 @@
     ]
   },
   "trustedDependencies": [
+    "@shopify/react-native-skia",
     "better-sqlite3",
     "cloudflared",
     "electron",

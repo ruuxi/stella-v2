@@ -135,6 +135,14 @@ export const createMapTool = (options: MapToolOptions = {}): ToolDefinition => {
     name: "map",
 
     agentTypes: [AGENT_IDS.ORCHESTRATOR],
+    demoted: {
+      searchTerms: [
+        "interactive map",
+        "places and locations",
+        "directions and routes",
+        "restaurants coffee sights",
+      ],
+    },
     description:
       "Show the user an interactive map card inline in the chat — pinned places and/or a route with turn-by-turn-ready directions. Use when the user asks where something is, for places to go (restaurants, coffee, sights), or how to get somewhere. Provide natural inputs: `places` (up to 8 names/addresses) and/or `origin` + `destination` (+ `mode`). Resolution (geocoding, place ratings, route distance/duration) happens automatically; the result summary comes back for you to answer with, and the card includes an 'Open in Apple Maps' handoff. Don't use for abstract geography questions that need no map.",
     promptSnippet:

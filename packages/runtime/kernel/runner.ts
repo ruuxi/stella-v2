@@ -402,7 +402,6 @@ export const createStellaHostRunner = (
         agentContext,
         callbacks: noopRuntimeCallbacks,
         toolExecutor: async () => ({ error: "Voice config has no executor." }),
-
         toolCatalog: context.toolHost
           .getToolCatalog(agentType, {
             model:
@@ -410,7 +409,7 @@ export const createStellaHostRunner = (
               resolved.resolvedLlm.model,
             agentEngine: agentContext.agentEngine,
           })
-          .filter((tool) => !tool.demoted),
+          .filter((tool) => !tool.demoted || tool.name === "map"),
         deviceId: context.deviceId,
         stellaDataDir: context.stellaDataDir,
         resolvedLlm: resolved.resolvedLlm,
@@ -425,7 +424,7 @@ export const createStellaHostRunner = (
             resolved.resolvedLlm.toolPolicyModel ?? resolved.resolvedLlm.model,
           agentEngine: agentContext.agentEngine,
         })
-        .filter((tool) => !tool.demoted);
+        .filter((tool) => !tool.demoted || tool.name === "map");
       const history = buildVoiceHistoryItems(agentContext.threadHistory);
       return {
         instructions,

@@ -4,6 +4,10 @@ import {
   type NodeReplKernelManagerOptions,
 } from "../../computer-use/kernel.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import {
+  isMapRouteArtifact,
+  type MapRouteArtifact,
+} from "@stella/contracts/map-artifact";
 import type { ToolDefinition } from "../types.js";
 
 export type NodeReplToolOptions = NodeReplKernelManagerOptions & {
@@ -14,9 +18,35 @@ export const createNodeReplTool = (
   options: NodeReplToolOptions,
 ): ToolDefinition => {
   const registry = options.registry ?? new NodeReplKernelRegistry(options);
+  const mapArtifactsByCellId = new Map<
+    string,
+    { maps: MapRouteArtifact[]; delivered: number; touchedAt: number }
+  >();
+  const pruneMapArtifacts = () => {
+    const cutoff = Date.now() - 10 * 60_000;
+    for (const [cellId, state] of mapArtifactsByCellId) {
+      if (state.touchedAt < cutoff) mapArtifactsByCellId.delete(cellId);
+    }
+  };
+  const collectMapArtifact =
+    (maps: MapRouteArtifact[]) => (nested: unknown) => {
+      if (!nested || typeof nested !== "object" || Array.isArray(nested))
+        return;
+      const detailsValue = (nested as { details?: unknown }).details;
+      if (
+        !detailsValue ||
+        typeof detailsValue !== "object" ||
+        Array.isArray(detailsValue)
+      ) {
+        return;
+      }
+      const details = detailsValue as Record<string, unknown>;
+      if (isMapRouteArtifact(details.map)) maps.push(details.map);
+    };
   const observationDetails = (
     observation: NodeReplCellObservation,
     forceCell = false,
+    maps: readonly MapRouteArtifact[] = [],
   ) => {
     const media = observation.content?.filter((item) => item.type !== "text");
     const includeCell =
@@ -40,6 +70,8 @@ export const createNodeReplTool = (
           }
         : {}),
       ...(observation.responseMeta ? { _meta: observation.responseMeta } : {}),
+      ...(maps.length === 1 ? { map: maps[0] } : {}),
+      ...(maps.length > 1 ? { maps } : {}),
     };
   };
   const modelText = (observation: NodeReplCellObservation): string =>
@@ -57,6 +89,7 @@ export const createNodeReplTool = (
   const resultForObservation = (
     observation: NodeReplCellObservation,
     forceCellDetails = false,
+    maps: readonly MapRouteArtifact[] = [],
   ) => {
     const tracked = {
       ...(observation.fileChanges && observation.fileChanges.length > 0
@@ -69,7 +102,7 @@ export const createNodeReplTool = (
     if (observation.status === "failed") {
       return {
         error: observation.error ?? "Node REPL cell failed.",
-        details: observationDetails(observation, forceCellDetails),
+        details: observationDetails(observation, forceCellDetails, maps),
         ...tracked,
       };
     }
@@ -77,15 +110,16 @@ export const createNodeReplTool = (
       const text = modelText(observation);
       return {
         result: `${text}${text ? "\n" : ""}[node_repl running: cellId=${JSON.stringify(observation.cellId)} generation=${observation.generation} cursor=${observation.cursor} elapsedMs=${observation.elapsedMs}]`,
-        details: observationDetails(observation, forceCellDetails),
+        details: observationDetails(observation, forceCellDetails, maps),
         ...tracked,
       };
     }
-    const details = observationDetails(observation, forceCellDetails);
+    const details = observationDetails(observation, forceCellDetails, maps);
     const hasDetails =
       forceCellDetails ||
       observation.reset ||
       observation.responseMeta ||
+      maps.length > 0 ||
       observation.content?.some((item) => item.type !== "text");
     return {
       result: modelText(observation),
@@ -170,22 +204,52 @@ export const createNodeReplTool = (
           ? args.cursor
           : undefined;
       try {
-        const observation = hasCode
-          ? await registry.startCell(args.code as string, context, {
+        pruneMapArtifacts();
+        if (hasCode) {
+          const maps: MapRouteArtifact[] = [];
+          const observation = await registry.startCell(
+            args.code as string,
+            context,
+            {
               ...(timeoutMs !== undefined ? { timeoutMs } : {}),
               ...(yieldTimeMs !== undefined ? { yieldTimeMs } : {}),
               ...(extras?.signal ? { signal: extras.signal } : {}),
               ...(extras?.onUpdate ? { onToolUpdate: extras.onUpdate } : {}),
+              onToolResult: collectMapArtifact(maps),
               onResponseMeta: () => undefined,
-            })
-          : await registry.waitCell((args.cell_id as string).trim(), context, {
-              ...(waitMs !== undefined ? { waitMs } : {}),
-              ...(cursor !== undefined ? { afterCursor: cursor } : {}),
-              ...(args.terminate === true ? { terminate: true } : {}),
-              ...(extras?.signal ? { signal: extras.signal } : {}),
+            },
+          );
+          if (observation.status === "running") {
+            mapArtifactsByCellId.set(observation.cellId, {
+              maps,
+              delivered: maps.length,
+              touchedAt: Date.now(),
             });
-        return resultForObservation(observation, hasCellId);
+          }
+          return resultForObservation(observation, false, maps);
+        }
+
+        const cellId = (args.cell_id as string).trim();
+        const state = mapArtifactsByCellId.get(cellId);
+        const observation = await registry.waitCell(cellId, context, {
+          ...(waitMs !== undefined ? { waitMs } : {}),
+          ...(cursor !== undefined ? { afterCursor: cursor } : {}),
+          ...(args.terminate === true ? { terminate: true } : {}),
+          ...(extras?.signal ? { signal: extras.signal } : {}),
+        });
+        const maps = state ? state.maps.slice(state.delivered) : [];
+        if (state) {
+          state.delivered = state.maps.length;
+          state.touchedAt = Date.now();
+          if (observation.status !== "running") {
+            mapArtifactsByCellId.delete(cellId);
+          }
+        }
+        return resultForObservation(observation, true, maps);
       } catch (error) {
+        if (hasCellId) {
+          mapArtifactsByCellId.delete((args.cell_id as string).trim());
+        }
         return {
           error: error instanceof Error ? error.message : String(error),
         };

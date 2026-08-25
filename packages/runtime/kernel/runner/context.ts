@@ -1293,7 +1293,6 @@ export const buildAgentContext = async (
       ? context.runtimeStore.getOrchestratorReminderState(args.conversationId)
       : {
           shouldInjectDynamicReminder: false,
-          reminderTokensSinceLastInjection: 0,
         };
 
   const configuredAgentEngine =

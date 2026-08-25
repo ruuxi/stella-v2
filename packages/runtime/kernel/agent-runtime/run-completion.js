@@ -1,8 +1,5 @@
 import { createRuntimeLogger } from "../debug.js";
-import {
-  compactRuntimeThreadHistory,
-  updateOrchestratorReminderState,
-} from "./thread-memory.js";
+import { compactRuntimeThreadHistory } from "./thread-memory.js";
 import {
   ACTIVE_THREAD_IMAGE_DECODED_BYTE_BUDGET,
   getThreadTokenEstimate,
@@ -10,6 +7,7 @@ import {
 } from "../thread-runtime.js";
 import { isThreadCompactionForced } from "./context-budget.js";
 import { resetSkillReadDedup } from "../tools/skill-read-dedup.js";
+import { isOrchestratorAgentType } from "@stella/contracts/agent-runtime";
 const logger = createRuntimeLogger("agent-runtime.completion");
 
 const FINALIZE_STAGE_TIMEOUT_MS = 30_000;
@@ -269,6 +267,12 @@ export const runCompactionWithHooks = async (args) => {
       : {}),
   });
 
+  if (result.compacted && isOrchestratorAgentType(args.opts.agentType)) {
+    args.opts.store.forceOrchestratorReminderOnNextTurn?.(
+      args.opts.conversationId,
+    );
+  }
+
   if (result.compacted && args.opts.hookEmitter && hookCompaction?.summary) {
     void args.opts.hookEmitter
       .emit(
@@ -364,13 +368,6 @@ export const finalizeOrchestratorSuccess = async (args) => {
       },
     });
   }
-  updateOrchestratorReminderState(args.opts.store, {
-    conversationId: args.opts.conversationId,
-    shouldInjectDynamicReminder:
-      args.opts.agentContext.shouldInjectDynamicReminder,
-    finalText: args.finalText,
-  });
-
 };
 export const finalizeOrchestratorError = (args) => {
   const errorMessage = safeErrorMessage(args.error, "Stella runtime failed");

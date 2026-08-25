@@ -7,6 +7,7 @@ import { slugify } from "../shared/slug.js";
 import {
   DEFAULT_CONVERSATION_SETTING_KEY,
   MAX_EVENTS_PER_CONVERSATION,
+  ORCHESTRATOR_ROSTER_CUSTOM_TYPE,
   RUNTIME_THREAD_SESSION_VERSION,
   asFiniteNumber,
   asObject,
@@ -1033,6 +1034,10 @@ const parseImageReceipts = (details) => {
 const normalizeCompactionOverlay = (compaction, rawMessages) => {
   const timestamp = Date.parse(compaction.timestamp) || Date.now();
   const residentFold = parseResidentFold(compaction.details);
+  const replaceDerivedContext =
+    compaction.details &&
+    typeof compaction.details === "object" &&
+    compaction.details.replaceDerivedContext === true;
   const pinnedUserInstruction = parsePinnedUserInstruction(compaction.details);
   const checkpointQuarantineKeys = parseCheckpointQuarantineKeys(
     compaction.details,
@@ -1045,6 +1050,7 @@ const normalizeCompactionOverlay = (compaction, rawMessages) => {
       fromEntryId: compaction.fromEntryId,
       toEntryId: compaction.toEntryId,
       timestamp,
+      ...(replaceDerivedContext ? { replaceDerivedContext: true } : {}),
       ...(residentFold ? { residentFold } : {}),
       ...(pinnedUserInstruction ? { pinnedUserInstruction } : {}),
       ...(checkpointQuarantineKeys.length > 0
@@ -1073,6 +1079,7 @@ const normalizeCompactionOverlay = (compaction, rawMessages) => {
     fromEntryId,
     toEntryId,
     timestamp,
+    ...(replaceDerivedContext ? { replaceDerivedContext: true } : {}),
     ...(residentFold ? { residentFold } : {}),
     ...(pinnedUserInstruction ? { pinnedUserInstruction } : {}),
     ...(checkpointQuarantineKeys.length > 0
@@ -1086,9 +1093,11 @@ const buildThreadCompactionOverlays = (path, rawMessages) =>
     .filter((entry) => entry.type === "compaction")
     .map((entry) => normalizeCompactionOverlay(entry, rawMessages))
     .filter((entry) => entry !== null);
-
 const applyResidentFold = (messages, overlay) => {
-  const fold = overlay.residentFold;
+  const fold = overlay.residentFold ?? {
+    docs: [],
+    identities: new Set(),
+  };
   const checkpointIndex = messages.findIndex(
     (message) => message.entryId === overlay.id,
   );
@@ -1106,6 +1115,9 @@ const applyResidentFold = (messages, overlay) => {
       return true;
     }
     const customType = message.customMessage.customType;
+    if (customType === ORCHESTRATOR_ROSTER_CUSTOM_TYPE) {
+      return false;
+    }
     if (
       typeof customType === "string" &&
       customType.startsWith(CONTEXT_DELTA_CUSTOM_TYPE_PREFIX)
@@ -1195,7 +1207,7 @@ const applyCompactionOverlays = (rawMessages, overlays) => {
     index += 1;
   }
   const foldOverlay = appliedOverlays
-    .filter((overlay) => overlay.residentFold)
+    .filter((overlay) => overlay.residentFold || overlay.replaceDerivedContext)
     .pop();
   if (foldOverlay) {
     result = applyResidentFold(result, foldOverlay);
@@ -3971,7 +3983,7 @@ export class SessionStore {
         : []),
       ...rawTail,
     ];
-    return overlay.residentFold
+    return overlay.residentFold || overlay.replaceDerivedContext
       ? applyResidentFold(messages, overlay)
       : messages;
   }
@@ -5148,16 +5160,6 @@ export class SessionStore {
     const trimmed = summary.trim();
     if (!trimmed) return;
     this.ensureImplicitThreadRow(threadKey);
-    const row = this.db
-      .prepare(
-        `
-      SELECT conversation_id AS conversationId
-      FROM runtime_threads
-      WHERE thread_key = ?
-      LIMIT 1
-    `,
-      )
-      .get(threadKey);
     this.db
       .prepare(
         `
@@ -5167,12 +5169,6 @@ export class SessionStore {
     `,
       )
       .run(trimmed, Date.now(), threadKey);
-    if (
-      typeof row?.conversationId === "string" &&
-      row.conversationId.length > 0
-    ) {
-      this.forceOrchestratorReminderOnNextTurn(row.conversationId);
-    }
   }
   getThreadName(threadKey) {
 
@@ -5784,7 +5780,6 @@ export class SessionStore {
       .prepare(
         `
       SELECT
-        reminder_tokens_since_last_injection AS reminderTokensSinceLastInjection,
         force_reminder_on_next_turn AS forceReminderOnNextTurn
       FROM runtime_conversation_state
       WHERE conversation_id = ?
@@ -5792,89 +5787,35 @@ export class SessionStore {
     `,
       )
       .get(conversationId);
-    const current =
-      typeof row?.reminderTokensSinceLastInjection === "number"
-        ? Math.max(0, Math.floor(row.reminderTokensSinceLastInjection))
-        : 0;
-    const shouldInjectDynamicReminder = row?.forceReminderOnNextTurn === 1;
     return {
-      shouldInjectDynamicReminder,
-      reminderTokensSinceLastInjection: current,
+      shouldInjectDynamicReminder: row?.forceReminderOnNextTurn === 1,
     };
   }
-  updateOrchestratorReminderCounter(args) {
-    const currentState = this.db
-      .prepare(
-        `
-      SELECT
-        reminder_tokens_since_last_injection AS reminderTokensSinceLastInjection,
-        force_reminder_on_next_turn AS forceReminderOnNextTurn
-      FROM runtime_conversation_state
-      WHERE conversation_id = ?
-      LIMIT 1
-    `,
-      )
-      .get(args.conversationId);
-    const current =
-      typeof currentState?.reminderTokensSinceLastInjection === "number"
-        ? currentState.reminderTokensSinceLastInjection
-        : 0;
-    const nextValue =
-      args.resetTo != null
-        ? Math.max(0, Math.floor(args.resetTo))
-        : Math.max(0, Math.floor(current + (args.incrementBy ?? 0)));
-    const forceReminderOnNextTurn =
-      args.resetTo != null
-        ? 0
-        : currentState?.forceReminderOnNextTurn === 1
-          ? 1
-          : 0;
-    this.db
-      .prepare(
-        `
-      INSERT INTO runtime_conversation_state (
-        conversation_id,
-        reminder_tokens_since_last_injection,
-        force_reminder_on_next_turn
-      )
-      VALUES (?, ?, ?)
-      ON CONFLICT(conversation_id) DO UPDATE SET
-        reminder_tokens_since_last_injection = excluded.reminder_tokens_since_last_injection,
-        force_reminder_on_next_turn = excluded.force_reminder_on_next_turn
-    `,
-      )
-      .run(args.conversationId, nextValue, forceReminderOnNextTurn);
-  }
   forceOrchestratorReminderOnNextTurn(conversationId) {
-    const currentState = this.db
-      .prepare(
-        `
-      SELECT reminder_tokens_since_last_injection AS reminderTokensSinceLastInjection
-      FROM runtime_conversation_state
-      WHERE conversation_id = ?
-      LIMIT 1
-    `,
-      )
-      .get(conversationId);
-    const reminderTokensSinceLastInjection =
-      typeof currentState?.reminderTokensSinceLastInjection === "number"
-        ? currentState.reminderTokensSinceLastInjection
-        : 0;
     this.db
       .prepare(
         `
       INSERT INTO runtime_conversation_state (
         conversation_id,
-        reminder_tokens_since_last_injection,
         force_reminder_on_next_turn
       )
-      VALUES (?, ?, 1)
+      VALUES (?, 1)
       ON CONFLICT(conversation_id) DO UPDATE SET
-        reminder_tokens_since_last_injection = excluded.reminder_tokens_since_last_injection,
         force_reminder_on_next_turn = 1
     `,
       )
-      .run(conversationId, reminderTokensSinceLastInjection);
+      .run(conversationId);
+  }
+  consumeOrchestratorReminder(conversationId) {
+    this.db
+      .prepare(
+        `
+      UPDATE runtime_conversation_state
+      SET force_reminder_on_next_turn = 0
+      WHERE conversation_id = ?
+    `,
+      )
+      .run(conversationId);
   }
 
   incrementUserTurnsSinceMemoryReview(conversationId) {

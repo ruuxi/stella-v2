@@ -109,6 +109,7 @@ export interface CustomAgentMessages {
 		content: string | (TextContent | ImageContent)[];
 		timestamp: number;
 		customType?: string;
+    eventId?: string;
 		display?: boolean;
 	};
 
@@ -143,7 +144,6 @@ export interface AgentToolResult<T> {
 export type AgentToolUpdateCallback<T = unknown> = (partialResult: AgentToolResult<T>) => void;
 
 export interface AgentTool<TParameters extends TSchema = TSchema, TDetails = unknown> extends Tool<TParameters> {
-
 	label: string;
 
 	workingText?: string;

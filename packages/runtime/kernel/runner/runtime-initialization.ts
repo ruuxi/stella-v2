@@ -469,6 +469,10 @@ export const createRuntimeInitialization = (
       }
     }
     context.state.orchestratorSessions.clear();
+    const shutdownError = new Error("Stella runtime is shutting down");
+    for (const turn of context.state.queuedOrchestratorTurns) {
+      turn.cancel?.(shutdownError);
+    }
     context.state.queuedOrchestratorTurns.length = 0;
     for (const controller of context.state.activeRunAbortControllers.values()) {
       controller.abort();

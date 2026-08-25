@@ -61,6 +61,7 @@ import {
   persistThreadCustomMessage,
   persistThreadPayloadMessage,
 } from "./thread-memory.js";
+import { ORCHESTRATOR_ROSTER_CUSTOM_TYPE } from "../storage/shared.js";
 import type {
   BaseRunOptions,
   OrchestratorRunOptions,
@@ -190,7 +191,9 @@ const buildToolResultContent = async (
 };
 
 type ExternalEngineSessionKind =
-  "claude_code_local" | "claude_code_local_vanilla" | "codex_cli";
+  | "claude_code_local"
+  | "claude_code_local_vanilla"
+  | "codex_cli";
 
 type ExternalOrchestratorEngine = "claude_code_local";
 
@@ -288,7 +291,8 @@ const persistExternalPromptMessages = (
     if (
       messageType === "message" &&
       promptMessage.role === "runtimeInternal" &&
-      promptInput.customType?.startsWith("bootstrap.")
+      promptInput.customType?.trim() &&
+      promptInput.customType !== "runtime.queued_message_reply"
     ) {
       persistThreadCustomMessage(opts.store, {
         threadKey,
@@ -296,7 +300,14 @@ const persistExternalPromptMessages = (
         content: promptMessage.content,
         display: promptMessage.display === true,
         timestamp: promptMessage.timestamp,
+        ...(promptMessage.eventId ? { eventId: promptMessage.eventId } : {}),
+        ...(opts.agentType === "orchestrator"
+          ? { preservePayloadExactly: true }
+          : {}),
       });
+      if (promptInput.customType === ORCHESTRATOR_ROSTER_CUSTOM_TYPE) {
+        opts.store.consumeOrchestratorReminder?.(opts.conversationId);
+      }
     }
   }
 };

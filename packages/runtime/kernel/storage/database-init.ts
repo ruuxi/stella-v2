@@ -741,7 +741,6 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   db.exec(`
     CREATE TABLE IF NOT EXISTS runtime_conversation_state (
       conversation_id TEXT PRIMARY KEY,
-      reminder_tokens_since_last_injection INTEGER NOT NULL DEFAULT 0,
       force_reminder_on_next_turn INTEGER NOT NULL DEFAULT 0
     );
   `);

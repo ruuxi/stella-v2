@@ -1,136 +1,105 @@
 import { Buffer } from "node:buffer";
 import { subscribeRuntimeAgentEvents } from "./run-events.js";
-import { createRuntimePromptAgentMessage, prepareRuntimeAttachments, } from "./run-preparation.js";
-import { enrichImageContentForTextOnlyModel, IMAGE_DESCRIPTION_CUSTOM_TYPE, } from "./image-description.js";
+import {
+  createRuntimePromptAgentMessage,
+  prepareRuntimeAttachments,
+} from "./run-preparation.js";
+import {
+  enrichImageContentForTextOnlyModel,
+  IMAGE_DESCRIPTION_CUSTOM_TYPE,
+} from "./image-description.js";
 import { getAgentCompletion, now } from "./shared.js";
-import { persistThreadCustomMessage, persistThreadPayloadMessage, } from "./thread-memory.js";
+import {
+  persistThreadCustomMessage,
+  persistThreadPayloadMessage,
+} from "./thread-memory.js";
 import { THREAD_PERSISTENCE_ERROR_CODE } from "./agent-run-retry.js";
+import { ORCHESTRATOR_ROSTER_CUSTOM_TYPE } from "../storage/shared.js";
 const DEFAULT_AGENT_STARTUP_IDLE_TIMEOUT_MS = 15 * 1000;
 const DEFAULT_AGENT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 
 const DEFAULT_AGENT_TOOL_IDLE_TIMEOUT_MS = 20 * 60 * 1000;
 const configuredTimeoutMs = (envName, fallbackMs) => {
     const raw = process.env[envName]?.trim();
-    if (!raw)
-        return fallbackMs;
+  if (!raw) return fallbackMs;
     const parsed = Number(raw);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackMs;
 };
 const MAX_REMOTE_IMAGE_BYTES = 10 * 1024 * 1024;
-const attachmentMimeType = (attachment) => attachment.mimeType?.trim().toLowerCase() ?? "";
-const isRemoteImageAttachment = (attachment) => /^https?:\/\//i.test(attachment.url) &&
+const attachmentMimeType = (attachment) =>
+  attachment.mimeType?.trim().toLowerCase() ?? "";
+const isRemoteImageAttachment = (attachment) =>
+  /^https?:\/\//i.test(attachment.url) &&
     (attachmentMimeType(attachment).startsWith("image/") ||
         attachment.kind?.toLowerCase() === "image");
 const materializeRemoteImageAttachment = async (attachment, signal) => {
-    if (!isRemoteImageAttachment(attachment))
-        return attachment;
+  if (!isRemoteImageAttachment(attachment)) return attachment;
     try {
         const response = await fetch(attachment.url, { signal });
-        if (!response.ok)
-            return attachment;
+    if (!response.ok) return attachment;
         const bytes = new Uint8Array(await response.arrayBuffer());
-        if (bytes.byteLength > MAX_REMOTE_IMAGE_BYTES)
-            return attachment;
-        const mimeType = attachmentMimeType(attachment) ||
+    if (bytes.byteLength > MAX_REMOTE_IMAGE_BYTES) return attachment;
+    const mimeType =
+      attachmentMimeType(attachment) ||
             response.headers
                 .get("content-type")
                 ?.split(";")[0]
                 ?.trim()
                 .toLowerCase() ||
             "";
-        if (!mimeType.startsWith("image/"))
-            return attachment;
+    if (!mimeType.startsWith("image/")) return attachment;
         return {
             ...attachment,
             mimeType,
             url: `data:${mimeType};base64,${Buffer.from(bytes).toString("base64")}`,
         };
-    }
-    catch {
+  } catch {
         return attachment;
     }
 };
 const materializePromptAttachments = async (attachments, target, signal) => {
-    if (!attachments?.length)
-        return attachments;
-    const materialized = await Promise.all(attachments.map((attachment) => materializeRemoteImageAttachment(attachment, signal)));
+  if (!attachments?.length) return attachments;
+  const materialized = await Promise.all(
+    attachments.map((attachment) =>
+      materializeRemoteImageAttachment(attachment, signal),
+    ),
+  );
     return await prepareRuntimeAttachments(materialized, target);
 };
-export const isDurablyPersistedRuntimePromptInput = (input) => input.messageType === "message" &&
+export const isDurablyPersistedRuntimePromptInput = (input) =>
+  input.messageType === "message" &&
     Boolean(input.customType?.trim()) &&
     input.customType !== "runtime.queued_message_reply";
-const shouldPersistRuntimePromptInput = (input) => isDurablyPersistedRuntimePromptInput(input) &&
-
-    input.customType !== "runtime.task_lifecycle";
-const canonicalizeRuntimePromptContent = (value) => {
-    if (Array.isArray(value))
-        return value.map(canonicalizeRuntimePromptContent);
-    if (value && typeof value === "object") {
-        return Object.fromEntries(Object.entries(value)
-            .sort(([left], [right]) => left.localeCompare(right))
-            .map(([key, nested]) => [key, canonicalizeRuntimePromptContent(nested)]));
-    }
-    return value;
-};
-const sameRuntimePromptContent = (left, right) => {
-    try {
-        return (JSON.stringify(canonicalizeRuntimePromptContent(left)) ===
-            JSON.stringify(canonicalizeRuntimePromptContent(right)));
-    }
-    catch {
-        return left === right;
-    }
-};
-const reusePrePersistedRuntimePromptMessages = (agent, promptMessages) => {
-    const retained = agent.state.messages.slice();
-    let changed = false;
-    for (const promptMessage of promptMessages) {
-        if (promptMessage.input?.customType !== "runtime.task_lifecycle" ||
-            promptMessage.message.role !== "runtimeInternal") {
-            continue;
-        }
-        let existingIndex = -1;
-        for (let index = retained.length - 1; index >= 0; index -= 1) {
-            const message = retained[index];
-            if (message.role === "runtimeInternal" &&
-                message.customType === promptMessage.message.customType &&
-                message.timestamp === promptMessage.message.timestamp &&
-                message.display === promptMessage.message.display &&
-                sameRuntimePromptContent(message.content, promptMessage.message.content)) {
-                existingIndex = index;
-                break;
-            }
-        }
-        if (existingIndex < 0)
-            continue;
-
-        promptMessage.message = retained[existingIndex];
-        retained.splice(existingIndex, 1);
-        changed = true;
-    }
-    if (changed) {
-        agent.state.messages = retained;
-    }
-};
+const shouldPersistRuntimePromptInput = (input) =>
+  isDurablyPersistedRuntimePromptInput(input);
 export const executeRuntimeAgentPrompt = async (args) => {
     const throwIfPromptAborted = () => {
         const signal = args.abortSignal;
-        if (!signal?.aborted)
-            return;
-        if (signal.reason instanceof Error)
-            throw signal.reason;
-        const error = new Error(typeof signal.reason === "string" && signal.reason.trim()
+    if (!signal?.aborted) return;
+    if (signal.reason instanceof Error) throw signal.reason;
+    const error = new Error(
+      typeof signal.reason === "string" && signal.reason.trim()
             ? signal.reason
-            : "Request was aborted");
+        : "Request was aborted",
+    );
         error.name = "AbortError";
         throw error;
     };
     throwIfPromptAborted();
     const abortHandler = () => args.agent.abort();
     args.abortSignal?.addEventListener("abort", abortHandler);
-    const startupIdleTimeoutMs = configuredTimeoutMs("STELLA_AGENT_STARTUP_IDLE_TIMEOUT_MS", DEFAULT_AGENT_STARTUP_IDLE_TIMEOUT_MS);
-    const idleTimeoutMs = configuredTimeoutMs("STELLA_AGENT_IDLE_TIMEOUT_MS", DEFAULT_AGENT_IDLE_TIMEOUT_MS);
-    const toolIdleTimeoutMs = configuredTimeoutMs("STELLA_AGENT_TOOL_IDLE_TIMEOUT_MS", DEFAULT_AGENT_TOOL_IDLE_TIMEOUT_MS);
+  const startupIdleTimeoutMs = configuredTimeoutMs(
+    "STELLA_AGENT_STARTUP_IDLE_TIMEOUT_MS",
+    DEFAULT_AGENT_STARTUP_IDLE_TIMEOUT_MS,
+  );
+  const idleTimeoutMs = configuredTimeoutMs(
+    "STELLA_AGENT_IDLE_TIMEOUT_MS",
+    DEFAULT_AGENT_IDLE_TIMEOUT_MS,
+  );
+  const toolIdleTimeoutMs = configuredTimeoutMs(
+    "STELLA_AGENT_TOOL_IDLE_TIMEOUT_MS",
+    DEFAULT_AGENT_TOOL_IDLE_TIMEOUT_MS,
+  );
     let idleTimer;
     let idleSettled = false;
     let hasAgentActivity = false;
@@ -140,10 +109,8 @@ export const executeRuntimeAgentPrompt = async (args) => {
         rejectIdle = reject;
     });
     const refreshIdleTimer = () => {
-        if (idleSettled)
-            return;
-        if (idleTimer)
-            clearTimeout(idleTimer);
+    if (idleSettled) return;
+    if (idleTimer) clearTimeout(idleTimer);
         idleTimer = undefined;
 
         const toolsInFlight = activeToolCallIds.size > 0;
@@ -160,9 +127,13 @@ export const executeRuntimeAgentPrompt = async (args) => {
             catch {
 
             }
-            rejectIdle(new Error(toolsInFlight
+      rejectIdle(
+        new Error(
+          toolsInFlight
                 ? `Agent produced no activity for ${Math.round(timeoutMs / 1000)}s while ${activeToolCallIds.size} tool call(s) were still marked in flight.`
-                : `Agent did not produce activity for ${Math.round(timeoutMs / 1000)}s.`));
+            : `Agent did not produce activity for ${Math.round(timeoutMs / 1000)}s.`,
+        ),
+      );
         }, timeoutMs);
         idleTimer.unref?.();
     };
@@ -170,8 +141,7 @@ export const executeRuntimeAgentPrompt = async (args) => {
         hasAgentActivity = true;
         if (event?.type === "tool_execution_start") {
             activeToolCallIds.add(event.toolCallId);
-        }
-        else if (event?.type === "tool_execution_end") {
+    } else if (event?.type === "tool_execution_end") {
             activeToolCallIds.delete(event.toolCallId);
         }
         refreshIdleTimer();
@@ -203,8 +173,7 @@ export const executeRuntimeAgentPrompt = async (args) => {
                 threadPersistenceError = undefined;
                 args.onThreadPersistenceRecovered?.();
                 return;
-            }
-            catch (retryError) {
+      } catch (retryError) {
                 threadPersistenceError = retryError;
             }
 
@@ -212,12 +181,14 @@ export const executeRuntimeAgentPrompt = async (args) => {
         },
     });
     const assertThreadPersistence = () => {
-        if (!threadPersistenceError)
-            return;
-        const message = threadPersistenceError instanceof Error
+    if (!threadPersistenceError) return;
+    const message =
+      threadPersistenceError instanceof Error
             ? threadPersistenceError.message
             : String(threadPersistenceError);
-        const persistenceError = new Error(`Failed to persist complete assistant/tool group: ${message}`);
+    const persistenceError = new Error(
+      `Failed to persist complete assistant/tool group: ${message}`,
+    );
         persistenceError.code = THREAD_PERSISTENCE_ERROR_CODE;
         throw persistenceError;
     };
@@ -242,25 +213,45 @@ export const executeRuntimeAgentPrompt = async (args) => {
                 modelId: args.agent.state.model.id,
             }
             : undefined;
-        const promptInputs = args.promptMessages && args.promptMessages.length > 0
-            ? await Promise.all(args.promptMessages.map(async (message) => ({
+    const promptInputs =
+      args.promptMessages && args.promptMessages.length > 0
+        ? await Promise.all(
+            args.promptMessages.map(async (message) => ({
                 ...message,
-                attachments: await materializePromptAttachments(message.attachments, imageTarget, args.abortSignal),
-            })))
+              attachments: await materializePromptAttachments(
+                message.attachments,
+                imageTarget,
+                args.abortSignal,
+              ),
+            })),
+          )
             : [
                 {
                     text: args.promptText ?? "",
-                    attachments: await materializePromptAttachments(args.attachments, imageTarget, args.abortSignal),
+              attachments: await materializePromptAttachments(
+                args.attachments,
+                imageTarget,
+                args.abortSignal,
+              ),
                 },
             ];
         const promptTimestamp = now();
-        const promptMessages = (await Promise.all(promptInputs.map(async (input, index) => {
-            const inputTimestamp = typeof input.timestamp === "number" && Number.isFinite(input.timestamp)
+    const promptMessages = (
+      await Promise.all(
+        promptInputs.map(async (input, index) => {
+          const inputTimestamp =
+            typeof input.timestamp === "number" &&
+            Number.isFinite(input.timestamp)
                 ? input.timestamp
                 : promptTimestamp + index * 2;
-            const message = createRuntimePromptAgentMessage(input, inputTimestamp);
-            if ((message.role !== "user" && message.role !== "runtimeInternal") ||
-                typeof message.content === "string") {
+          const message = createRuntimePromptAgentMessage(
+            input,
+            inputTimestamp,
+          );
+          if (
+            (message.role !== "user" && message.role !== "runtimeInternal") ||
+            typeof message.content === "string"
+          ) {
                 return [{ message, input }];
             }
             const enrichedContent = await enrichImageContentForTextOnlyModel({
@@ -286,19 +277,25 @@ export const executeRuntimeAgentPrompt = async (args) => {
             return [
                 { message, input },
                 {
-                    message: createRuntimePromptAgentMessage(descriptionInput, promptTimestamp + index * 2 + 1),
+              message: createRuntimePromptAgentMessage(
+                descriptionInput,
+                promptTimestamp + index * 2 + 1,
+              ),
                     input: descriptionInput,
                 },
             ];
-        }))).flat();
-        reusePrePersistedRuntimePromptMessages(args.agent, promptMessages);
+        }),
+      )
+    ).flat();
         for (const [index, promptMessage] of promptMessages.entries()) {
             const promptInput = promptMessage.input ?? promptInputs[index];
             const messageType = promptInput?.messageType ?? "user";
-            if (messageType === "user" &&
+      if (
+        messageType === "user" &&
                 promptMessage.message.role === "user" &&
                 args.threadStore &&
-                args.threadKey) {
+        args.threadKey
+      ) {
                 persistThreadPayloadMessage(args.threadStore, {
                     threadKey: args.threadKey,
                     payload: promptMessage.message,
@@ -307,21 +304,29 @@ export const executeRuntimeAgentPrompt = async (args) => {
                         : {}),
                 });
             }
-            if (messageType === "message" &&
+      if (
+        messageType === "message" &&
                 promptMessage.message.role === "runtimeInternal" &&
                 shouldPersistRuntimePromptInput(promptInput) &&
                 args.threadStore &&
-                args.threadKey) {
+        args.threadKey
+      ) {
                 persistThreadCustomMessage(args.threadStore, {
                     threadKey: args.threadKey,
                     customType: promptInput.customType,
                     content: promptMessage.message.content,
                     display: promptMessage.message.display === true,
                     timestamp: promptMessage.message.timestamp,
+          ...(promptMessage.message.eventId
+            ? { eventId: promptMessage.message.eventId }
+            : {}),
                     ...(args.agentType === "orchestrator"
                         ? { preservePayloadExactly: true }
                         : {}),
                 });
+        if (promptInput.customType === ORCHESTRATOR_ROSTER_CUSTOM_TYPE) {
+          args.threadStore.consumeOrchestratorReminder?.(args.conversationId);
+        }
             }
             const uiVisibility = promptInput?.uiVisibility;
             if (messageType === "user" && uiVisibility) {
@@ -335,7 +340,9 @@ export const executeRuntimeAgentPrompt = async (args) => {
         }
 
         throwIfPromptAborted();
-        const promptPromise = args.agent.prompt(promptMessages.map((message) => message.message));
+    const promptPromise = args.agent.prompt(
+      promptMessages.map((message) => message.message),
+    );
         promptPromise.catch(() => undefined);
         await Promise.race([promptPromise, idleFailure]);
         assertThreadPersistence();
@@ -345,15 +352,12 @@ export const executeRuntimeAgentPrompt = async (args) => {
             ...completion,
             finalText: completion.finalText.trim(),
         };
-    }
-    finally {
+  } finally {
         idleSettled = true;
-        if (idleTimer)
-            clearTimeout(idleTimer);
+    if (idleTimer) clearTimeout(idleTimer);
         try {
             await args.onCleanup?.();
-        }
-        finally {
+    } finally {
             unsubscribeIdle();
             unsubscribe();
             args.abortSignal?.removeEventListener("abort", abortHandler);

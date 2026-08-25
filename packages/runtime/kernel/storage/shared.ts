@@ -11,6 +11,8 @@ import type {
   UserMessage,
 } from "../../ai/types.js";
 
+export const ORCHESTRATOR_ROSTER_CUSTOM_TYPE = "runtime.orchestrator_reminder";
+
 export type LocalChatEventRecord = {
   _id: string;
   timestamp: number;
@@ -76,7 +78,9 @@ export type LocalChatSyncMessage = {
 };
 
 export type PersistedRuntimeThreadPayload =
-  UserMessage | AssistantMessage | Omit<ToolResultMessage, "details">;
+  | UserMessage
+  | AssistantMessage
+  | Omit<ToolResultMessage, "details">;
 
 export const RUNTIME_THREAD_SESSION_VERSION = 3;
 
@@ -176,7 +180,8 @@ export type RuntimeThreadSessionEntry =
   | RuntimeThreadSessionInfoEntry;
 
 export type RuntimeThreadSessionFileEntry =
-  RuntimeThreadSessionHeader | RuntimeThreadSessionEntry;
+  | RuntimeThreadSessionHeader
+  | RuntimeThreadSessionEntry;
 
 export type RuntimeThreadMessage = {
   timestamp: number;

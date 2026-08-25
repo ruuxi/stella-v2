@@ -13,8 +13,21 @@ import path from "node:path";
 export const MEMORY_FILE = "MEMORY.md";
 export const MEMORY_MAP_FILE = "memory_map.md";
 export const MEMORY_MAP_MAX_CHARS = 6_000;
+export const RESIDENT_MEMORY_TRUNCATION_MARKER =
+  "\n...[resident memory truncated]";
 export const MEMORY_MAP_MAX_ENTRIES = 80;
 export const MEMORY_MAP_STALE_DAYS = 90;
+
+export const capResidentMemoryDoc = (
+  content: string,
+  maxChars: number,
+): string =>
+  content.length <= maxChars
+    ? content
+    : `${content.slice(
+        0,
+        Math.max(0, maxChars - RESIDENT_MEMORY_TRUNCATION_MARKER.length),
+      )}${RESIDENT_MEMORY_TRUNCATION_MARKER}`;
 
 const MEMORY_TEMPLATE = `# MEMORY
 

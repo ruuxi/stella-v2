@@ -3,6 +3,7 @@ import type {
   PersistedRuntimeThreadPayload,
   RuntimeThreadMessage,
 } from "./storage/shared.js";
+import { ORCHESTRATOR_ROSTER_CUSTOM_TYPE } from "./storage/shared.js";
 import type { RuntimeStore } from "./storage/runtime-store.js";
 import type { ResolvedLlmRoute } from "./model-routing.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
@@ -16,6 +17,7 @@ import {
   isThreadCompactionForced,
 } from "./agent-runtime/context-budget.js";
 import {
+  CONTEXT_DELTA_CUSTOM_TYPE_PREFIX,
   PINNED_INSTRUCTION_ENTRY_ID_MARKER,
   RESIDENT_FOLD_ENTRY_ID_MARKER,
   buildResidentFold,
@@ -262,6 +264,14 @@ const formatThreadMessagesForCompaction = (
   messages: StoredThreadMessage[],
 ): string =>
   messages
+    .filter((message) => {
+      const customType = message.customMessage?.customType;
+      return (
+        !customType?.startsWith("bootstrap.") &&
+        !customType?.startsWith(CONTEXT_DELTA_CUSTOM_TYPE_PREFIX) &&
+        customType !== ORCHESTRATOR_ROSTER_CUSTOM_TYPE
+      );
+    })
     .flatMap((message) => stringifyStoredMessage(message))
     .filter((entry) => entry.length > 0)
     .join("\n\n");
@@ -824,7 +834,9 @@ export const splitGeneralThreadMessagesForCompaction = (
   let lastCheckpointIndex = -1;
   let previousSummary: string | undefined;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const summary = parseThreadCheckpoint(messages[index]?.content ?? "")?.summary;
+    const summary = parseThreadCheckpoint(
+      messages[index]?.content ?? "",
+    )?.summary;
     if (typeof summary === "string" && summary.trim().length > 0) {
       lastCheckpointIndex = index;
       previousSummary = summary;
@@ -1482,7 +1494,6 @@ const generateThreadSummaryWithoutElision = async (args: {
   };
 };
 
-
 /**
  * Result of an attempted thread compaction.
  *
@@ -1581,7 +1592,10 @@ const resolveKeepRecentTokens = (
   );
   let keep = Math.min(GENERAL_COMPACTION_KEEP_RECENT_TOKENS, maxKeep);
   if (keep >= triggerTokens) {
-    keep = Math.max(1, triggerTokens - GENERAL_COMPACTION_SMALL_WINDOW_RESERVE_TOKENS);
+    keep = Math.max(
+      1,
+      triggerTokens - GENERAL_COMPACTION_SMALL_WINDOW_RESERVE_TOKENS,
+    );
   }
   return keep;
 };
@@ -1632,8 +1646,7 @@ export const maybeCompactRuntimeThread = async (args: {
     storedMessages.some((message) => parseThreadCheckpoint(message.content)) &&
     [...quarantineKeys].some(
       (key) =>
-        !effectiveToolResultKeys.has(key) &&
-        !checkpointQuarantineKeys.has(key),
+        !effectiveToolResultKeys.has(key) && !checkpointQuarantineKeys.has(key),
     );
   if (
     rebuildUnsafeCheckpoint &&
@@ -1642,7 +1655,8 @@ export const maybeCompactRuntimeThread = async (args: {
     // A checkpoint that covered a now-quarantined result may already summarize
     // the suspect provider payload. Rebuild from the append-only raw log so the
     // historical context is retained while the offending result is masked.
-    storedMessages = rawStoredMessages ?? args.store.loadRawThreadMessages(args.threadKey);
+    storedMessages =
+      rawStoredMessages ?? args.store.loadRawThreadMessages(args.threadKey);
     quarantineKeys = quarantinedToolResultKeys(storedMessages);
   }
 
@@ -1661,7 +1675,8 @@ export const maybeCompactRuntimeThread = async (args: {
   if (
     !forced &&
     !rebuildUnsafeCheckpoint &&
-    measuredTokens < getCompactionTriggerTokens(args.resolvedLlm, args.agentType)
+    measuredTokens <
+      getCompactionTriggerTokens(args.resolvedLlm, args.agentType)
   ) {
     return { compacted: false };
   }
@@ -1682,7 +1697,8 @@ export const maybeCompactRuntimeThread = async (args: {
           storedMessages,
           protectHead,
           keepRecentTokens,
-          Number.isFinite(args.preserveLastN) && args.preserveLastN !== undefined
+          Number.isFinite(args.preserveLastN) &&
+            args.preserveLastN !== undefined
             ? Math.max(0, Math.floor(args.preserveLastN))
             : THREAD_COMPACTION_MIN_TAIL_MESSAGES,
         );
@@ -1859,6 +1875,9 @@ export const maybeCompactRuntimeThread = async (args: {
         ])
       : null;
   const details = {
+    // Compaction replaces derived bootstrap context even when this particular
+    // thread has no resident documents to fold.
+    replaceDerivedContext: true,
     ...(residentFold ? { residentFold } : {}),
     ...(pinnedInstructionText
       ? { pinnedUserInstruction: { text: pinnedInstructionText } }

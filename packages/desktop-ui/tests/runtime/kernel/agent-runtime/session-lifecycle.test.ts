@@ -88,7 +88,6 @@ const createOptions = (
   },
   store: {
     recordRunEvent: vi.fn(),
-    updateOrchestratorReminderCounter: vi.fn(),
   } as never,
   callbacks: {
     onStream: vi.fn(),
@@ -212,7 +211,8 @@ describe("OrchestratorSession", () => {
         hookEmitter: hookEmitter as never,
       }),
     );
-    const promptedAgent = executeRuntimeAgentPrompt.mock.calls[0]?.[0].agent as {
+    const promptedAgent = executeRuntimeAgentPrompt.mock.calls[0]?.[0]
+      .agent as {
       state: { messages: AgentMessage[] };
     };
     expect(
@@ -464,7 +464,6 @@ describe("OrchestratorSession", () => {
         userPrompt: "After compaction",
         store: {
           recordRunEvent: vi.fn(),
-          updateOrchestratorReminderCounter: vi.fn(),
           loadThreadMessages: vi.fn(() => [
             {
               role: "assistant",

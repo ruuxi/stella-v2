@@ -69,7 +69,10 @@ export type JsonRpcFailure = {
 };
 
 export type JsonRpcMessage =
-  JsonRpcRequest | JsonRpcNotification | JsonRpcSuccess | JsonRpcFailure;
+  | JsonRpcRequest
+  | JsonRpcNotification
+  | JsonRpcSuccess
+  | JsonRpcFailure;
 
 export const RPC_ERROR_CODES = {
   PARSE_ERROR: -32_700,
@@ -258,8 +261,6 @@ export const METHOD_NAMES = {
   INTERNAL_STORE_REPLACE_THREAD_MESSAGES:
     "internal.store.replaceThreadMessages",
   INTERNAL_STORE_UPDATE_THREAD_SUMMARY: "internal.store.updateThreadSummary",
-  INTERNAL_STORE_UPDATE_ORCHESTRATOR_REMINDER_COUNTER:
-    "internal.store.updateOrchestratorReminderCounter",
   INTERNAL_STORE_RECORD_RUN_EVENT: "internal.store.recordRunEvent",
   INTERNAL_STORE_LIST_LOCAL_CHAT_EVENTS: "internal.store.listLocalChatEvents",
   INTERNAL_SCHEDULE_LIST_CRON_JOBS: "internal.schedule.listCronJobs",
@@ -342,7 +343,11 @@ export type HostLlmCredentialsResult =
   | { ok: false; reason: string };
 
 export type RuntimeAuthRefreshSource =
-  "heartbeat" | "subscription" | "register" | "stella_provider" | "connector";
+  | "heartbeat"
+  | "subscription"
+  | "register"
+  | "stella_provider"
+  | "connector";
 
 export type HostRuntimeAuthRefreshParams = {
   source: RuntimeAuthRefreshSource;
@@ -406,8 +411,10 @@ export type RuntimePromptMessage = {
   uiVisibility?: "visible" | "hidden";
   messageType?: "message" | "user";
   customType?: string;
+  /** Structured dedup key retained on persisted runtime-internal messages. */
+  eventId?: string;
   display?: boolean;
-  /** Durable timestamp reused when a pre-persisted runtime prompt is replayed. */
+  /** Optional caller-supplied timestamp for chronological prompt insertion. */
   timestamp?: number;
 };
 

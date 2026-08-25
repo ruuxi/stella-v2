@@ -14,7 +14,6 @@ import { r2 } from "./r2_files";
 const OWNER_TABLES = [
   "user_preferences",
   "devices",
-  "device_presence",
   "cloudflare_tunnels",
   "auth_session_policies",
   "usage_logs",

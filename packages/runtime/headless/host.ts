@@ -1,6 +1,6 @@
 import crypto, { generateKeyPairSync } from "node:crypto";
 import path from "node:path";
-import { signDeviceHeartbeat, type DeviceIdentity } from "../kernel/home/device.js";
+import type { DeviceIdentity } from "../kernel/home/device.js";
 import {
   getLocalLlmCredential,
   listLocalLlmCredentials,
@@ -20,14 +20,12 @@ import {
  *
  * What a host actually owes the worker (see `registerHostHandlers` in
  * `runtime/host/index.js`):
- *   - device identity + heartbeat signing  -> EPHEMERAL. The durable
+ *   - device identity                      -> EPHEMERAL. The durable
  *     `device.json` private key is encrypted with the OS keychain via
  *     Electron safeStorage, so a headless host can neither reuse it nor
  *     safely rotate it (rotation would supersede the desktop's paired
  *     device id). A per-process ed25519 identity keeps the worker happy
- *     without touching the desktop's identity — and this host never
- *     registers devices or heartbeats anyway (`hasConnectedAccount` stays
- *     false).
+ *     without touching the desktop's identity.
  *   - LLM credential brokering             -> desktop decrypts BYOK values
  *     via safeStorage; headless cannot, so we advertise no local BYOK
  *     credentials and the model runtime falls back to env API keys, engine
@@ -88,10 +86,6 @@ export const createHeadlessHostHandlers = (
   });
   return {
     getDeviceIdentity: async () => publicIdentity(),
-    signHeartbeatPayload: async (signedAtMs: number) => ({
-      publicKey: identity.publicKey,
-      signature: signDeviceHeartbeat(identity, signedAtMs),
-    }),
     requestRuntimeAuthRefresh: async () => {
       const token = auth.authToken?.trim() || null;
       return {

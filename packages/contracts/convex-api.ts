@@ -8,11 +8,6 @@ export const api: PublicApiType = anyApi as unknown as PublicApiType;
 
 export type PublicApiType = {
   "agent": {
-    "device_resolver": {
-      "heartbeat": FunctionReference<'mutation', 'public', { deviceName?: string | undefined; platform?: string | undefined; deviceId: string; publicKey: string; signedAtMs: number; signature: string; }, any, string | undefined>;
-      "registerDevice": FunctionReference<'mutation', 'public', { deviceName?: string | undefined; platform?: string | undefined; deviceId: string; }, any, string | undefined>;
-      "goOffline": FunctionReference<'mutation', 'public', { deviceId: string; }, any, string | undefined>;
-    };
     "local_runtime": {
       "executeTool": FunctionReference<'action', 'public', { conversationId?: Id<'conversations'> | undefined; agentType?: string | undefined; toolArgs?: Value | undefined; toolName: string; }, any, string | undefined>;
       "webSearch": FunctionReference<'action', 'public', { conversationId?: Id<'conversations'> | undefined; category?: string | undefined; agentType?: string | undefined; query: string; }, any, string | undefined>;

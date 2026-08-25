@@ -11,7 +11,6 @@
 import type * as account_deletion from "../account_deletion.js";
 import type * as admin_deletes from "../admin_deletes.js";
 import type * as agent_agents from "../agent/agents.js";
-import type * as agent_device_resolver from "../agent/device_resolver.js";
 import type * as agent_hooks from "../agent/hooks.js";
 import type * as agent_invoke from "../agent/invoke.js";
 import type * as agent_local_runtime from "../agent/local_runtime.js";
@@ -240,7 +239,6 @@ declare const fullApi: ApiFromModules<{
   account_deletion: typeof account_deletion;
   admin_deletes: typeof admin_deletes;
   "agent/agents": typeof agent_agents;
-  "agent/device_resolver": typeof agent_device_resolver;
   "agent/hooks": typeof agent_hooks;
   "agent/invoke": typeof agent_invoke;
   "agent/local_runtime": typeof agent_local_runtime;

@@ -10,11 +10,9 @@ import { enforceMutationRateLimit, RATE_STANDARD } from "./lib/rate_limits";
 /**
  * Desktop device identity succession.
  *
- * `devices.devicePublicKey` is bound to `devices.deviceId` for the lifetime of
- * the row — `agent/device_resolver.heartbeat` rejects a heartbeat whose public
- * key differs from the stored one. That binding is deliberate, but it means a
- * desktop whose local keypair stops being readable cannot keep its identity: it
- * mints a fresh `deviceId` instead.
+ * A desktop whose local keypair stops being readable cannot keep its identity:
+ * it mints a fresh `deviceId` instead. Stable device profiles remain separate
+ * from feature-scoped liveness such as mobile bridge leases.
  *
  * Every phone-facing record is keyed by that id (`paired_mobile_devices`,
  * `mobile_bridge_registrations`, `cloudflare_tunnels`), and the phone pins the
@@ -22,10 +20,10 @@ import { enforceMutationRateLimit, RATE_STANDARD } from "./lib/rate_limits";
  * polled a device that would never register a bridge again, saw the desktop as
  * permanently offline, and only re-pairing recovered it.
  *
- * Succession fixes that without weakening the key binding: the new identity is
- * an ordinary, fully-valid device, and it simply inherits the retired id's
- * records. Both ids are owner-scoped and the caller holds an authenticated
- * account session, so no new trust is granted here.
+ * Succession fixes that without introducing a global liveness dependency: the
+ * new identity is an ordinary, fully-valid device, and it simply inherits the
+ * retired id's records. Both ids are owner-scoped and the caller holds an
+ * authenticated account session, so no new trust is granted here.
  */
 
 /** Bounded so a corrupted chain can never spin a query forever. */
@@ -219,22 +217,6 @@ export const adoptDeviceIdentitySuccession = mutation({
       RATE_STANDARD,
       "Too many device identity rotations. Please wait and try again.",
     );
-
-    // The successor must already be a registered device for this owner. That is
-    // what ties the claim to a real, heartbeat-verified identity rather than an
-    // arbitrary id supplied by the caller.
-    const successorProfile = await ctx.db
-      .query("devices")
-      .withIndex("by_ownerId_and_deviceId", (q) =>
-        q.eq("ownerId", ownerId).eq("deviceId", deviceId),
-      )
-      .unique();
-    if (!successorProfile) {
-      throw new ConvexError({
-        code: "NOT_FOUND",
-        message: "Register the new device identity before claiming succession.",
-      });
-    }
 
     const existing = await loadSuccessor(ctx, ownerId, previousDeviceId);
     if (existing) {

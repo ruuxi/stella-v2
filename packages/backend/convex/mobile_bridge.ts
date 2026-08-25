@@ -267,6 +267,21 @@ const upsertRegistrationRecord = async (
   const desktopPublicKey = sanitizeOptionalDesktopPublicKey(
     args.desktopPublicKey,
   );
+  const device = await ctx.db
+    .query("devices")
+    .withIndex("by_ownerId_and_deviceId", (q) =>
+      q.eq("ownerId", args.ownerId).eq("deviceId", deviceId),
+    )
+    .unique();
+  if (!device) {
+    await ctx.db.insert("devices", {
+      ownerId: args.ownerId,
+      deviceId,
+      ...(platform !== undefined ? { platform } : {}),
+    });
+  } else if (platform !== undefined && platform !== device.platform) {
+    await ctx.db.patch(device._id, { platform });
+  }
   const existing = await ctx.db
     .query("mobile_bridge_registrations")
     .withIndex("by_ownerId_and_deviceId", (q) =>
@@ -277,8 +292,7 @@ const upsertRegistrationRecord = async (
   if (existing) {
     // Skip redundant writes: when the caller-supplied content matches what is
     // already stored and the lease is still comfortably fresh, avoid the
-    // patch entirely. This leaves the registration itself at one indexed read
-    // (in addition to the private limiter row) and avoids subscriber churn.
+    // patch entirely and avoids subscriber churn.
     const baseUrlsUnchanged =
       existing.baseUrls.length === sanitizedBaseUrls.length &&
       existing.baseUrls.every((url, i) => url === sanitizedBaseUrls[i]);

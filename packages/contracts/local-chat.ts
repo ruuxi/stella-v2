@@ -5,6 +5,8 @@ import type { AgentModelConfigSnapshot } from "./agent-engine.js";
 export type EventRecord = {
   _id: string;
   timestamp: number;
+  /** Monotonic desktop event order when the ordering migration is active. */
+  sequence?: number;
   type: string;
   deviceId?: string;
   requestId?: string;
@@ -93,11 +95,16 @@ export type ThreadActivityRecord = {
   status: "running" | "completed" | "error" | "canceled";
   /** Durable attempt epoch for reused threads. */
   attemptGeneration?: number;
+  /** Monotonic revision of the persisted runtime_agents row. */
+  recordRevision?: number;
   /** Root run that owns the thread's latest lifecycle. */
   rootRunId?: string;
   /** Exact engine/model configuration captured for this thread's run. */
   modelConfigSnapshot?: AgentModelConfigSnapshot;
   parentAgentId?: string;
+  /** Stable grouping metadata owned by the durable runtime thread. */
+  groupKey?: string;
+  groupLabel?: string;
   /** Native projections are inspectable but are not Stella-controlled. */
   readOnly?: boolean;
   startedAt: number;
@@ -133,6 +140,12 @@ export type ThreadTranscriptUpdate = {
 
 export type ThreadActivityUpdatedPayload = {
   conversationId: string;
+  /**
+   * Durable keyed delta emitted after a runtime_agents write. Consumers patch
+   * this record in place instead of refetching/serializing the conversation's
+   * complete activity snapshot.
+   */
+  record?: ThreadActivityRecord;
   assistantUpdate?: ThreadActivityAssistantUpdate;
   transcriptUpdate?: ThreadTranscriptUpdate;
 };
@@ -359,4 +372,37 @@ export type MessageRecord = {
    * message that is not the anchor of its turn.
    */
   toolEvents: EventRecord[];
+  /** Bounded eager projection metadata; full detail remains in SQLite. */
+  toolEventSummary?: {
+    totalCount: number;
+    loadedCount: number;
+    truncated: boolean;
+    totalCountIsLowerBound?: boolean;
+    detailLoaded?: boolean;
+    /** Last contiguous full-detail event read; projected live pins may follow. */
+    detailCursor?: LocalChatTimelineCursor;
+    /** Whether durable historical pagination still has unread rows. */
+    detailHasMore?: boolean;
+    /** Whether pushed live events are retained pending durable page coverage. */
+    livePinsPending?: boolean;
+  };
+};
+
+export type LocalChatTimelineCursor = {
+  timestamp: number;
+  id: string;
+  sequence?: number;
+};
+
+export type LocalChatMessageWindow = {
+  messages: MessageRecord[];
+  visibleMessageCount: number;
+  /** Highest durable event observed by this read, independent of message rows. */
+  nextCursor?: LocalChatTimelineCursor;
+};
+
+export type LocalChatToolEventPage = {
+  events: EventRecord[];
+  nextCursor?: LocalChatTimelineCursor;
+  hasMore: boolean;
 };

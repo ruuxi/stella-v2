@@ -8,6 +8,7 @@ import {
   activityHubTaskRowKey,
   collectActivityHubArtifacts,
   groupActivityArtifacts,
+  groupActivityHubTasks,
   initialActivityWindow,
   loadNewerActivityWindow,
   loadOlderActivityWindow,
@@ -128,7 +129,7 @@ describe("activity hub source data", () => {
     ).toEqual(["file-0"]);
   });
 
-  test("sorts by activity timestamp without pinning running tasks", () => {
+  test("pins running tasks ahead of newer inactive tasks", () => {
     const tasks = [
       task("old-running"),
       ...Array.from({ length: 16 }, (_, index) => ({
@@ -141,32 +142,63 @@ describe("activity hub source data", () => {
     const firstPage = sortHubTasksByRecency(tasks).slice(0, ACTIVITY_PAGE_SIZE);
 
     expect(firstPage).toHaveLength(16);
-    expect(firstPage.some((entry) => entry.id === "old-running")).toBe(false);
-    expect(firstPage[0]?.id).toBe("recent-15");
+    expect(firstPage[0]?.id).toBe("old-running");
+    expect(firstPage[1]?.id).toBe("recent-15");
   });
 
-  test("completion preserves spawn ordering and deterministic ties", () => {
-    const running = [
-      { ...task("alpha"), status: "running" as const, createdAt: 2_000 },
-      { ...task("beta"), status: "running" as const, createdAt: 2_000 },
-      { ...task("older"), status: "running" as const, createdAt: 1_000 },
+  test("uses last activity recency and deterministic ties within status groups", () => {
+    const tasks = [
+      {
+        ...task("active-older-update"),
+        status: "running" as const,
+        createdAt: 4_000,
+        updatedAt: 5_000,
+      },
+      {
+        ...task("active-newer-update"),
+        status: "running" as const,
+        createdAt: 2_000,
+        updatedAt: 6_000,
+      },
+      { ...task("done-alpha"), createdAt: 3_000, completedAt: 7_000 },
+      { ...task("done-beta"), createdAt: 3_000, completedAt: 7_000 },
     ];
-    const before = sortHubTasksByRecency(running).map((entry) => entry.id);
-    const terminal = running.map((entry, index) => ({
-      ...entry,
-      status: "completed" as const,
-      completedAt: 10_000 + index,
-    }));
 
-    expect(before).toEqual(["alpha", "beta", "older"]);
-    expect(sortHubTasksByRecency(terminal).map((entry) => entry.id)).toEqual(
-      before,
+    expect(sortHubTasksByRecency(tasks).map((entry) => entry.id)).toEqual([
+      "active-newer-update",
+      "active-older-update",
+      "done-alpha",
+      "done-beta",
+    ]);
+  });
+
+  test("promotes a collapsed group when one of its subagents is running", () => {
+    const recentInactive = { ...task("recent-inactive"), createdAt: 8_000 };
+    const inactiveOwner = { ...task("owner"), createdAt: 1_000 };
+    const activeChild = {
+      ...task("active-child"),
+      parentAgentId: inactiveOwner.id,
+      status: "running" as const,
+      createdAt: 2_000,
+      updatedAt: 6_000,
+    };
+
+    const groups = groupActivityHubTasks(
+      sortHubTasksByRecency([recentInactive, inactiveOwner, activeChild]),
     );
+
+    expect(groups.map((group) => group.owner.id)).toEqual([
+      "owner",
+      "recent-inactive",
+    ]);
+    expect(groups[0]?.subagents.map((entry) => entry.id)).toEqual([
+      "active-child",
+    ]);
   });
 });
 
 describe("activity hub paging window", () => {
-  test("opens on exactly the 16 newest entries", () => {
+  test("opens on exactly the first 16 ordered entries", () => {
     expect(initialActivityWindow(50)).toEqual({
       start: 0,
       end: ACTIVITY_PAGE_SIZE,

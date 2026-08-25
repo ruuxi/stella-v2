@@ -147,6 +147,119 @@ describe("thread-runtime compaction planning", () => {
     ]);
   });
 
+  it("never cuts through an interleaved, incomplete multi-tool group", () => {
+    const multiToolPayload: PersistedRuntimeThreadPayload = {
+      role: "assistant",
+      content: [
+        {
+          type: "toolCall",
+          id: "call-a",
+          name: "Read",
+          arguments: { path: "src/a.ts" },
+        },
+        {
+          type: "toolCall",
+          id: "call-b",
+          name: "Read",
+          arguments: { path: "src/b.ts" },
+        },
+        {
+          type: "toolCall",
+          id: "call-c",
+          name: "Read",
+          arguments: { path: "src/c.ts" },
+        },
+      ],
+      api: "openai-responses",
+      provider: "openai",
+      model: "gpt-5.4",
+      usage: zeroUsage,
+      stopReason: "toolUse",
+      timestamp: 3,
+    };
+    const plan = splitThreadMessagesForCompaction(
+      [
+        {
+          entryId: "multi-head",
+          timestamp: 1,
+          role: "user",
+          content: "Head",
+          payload: createUserPayload("Head", 1),
+        },
+        {
+          entryId: "multi-middle",
+          timestamp: 2,
+          role: "assistant",
+          content: "Older compactable work",
+          payload: createAssistantTextPayload("Older compactable work", 2),
+        },
+        {
+          entryId: "multi-assistant",
+          timestamp: 3,
+          role: "assistant",
+          content: "Read(src/a.ts), Read(src/b.ts)",
+          payload: multiToolPayload,
+        },
+        {
+          entryId: "multi-reminder-a",
+          timestamp: 4,
+          role: "runtimeInternal",
+          content: "subagent a completed",
+        },
+        {
+          entryId: "multi-live-steer",
+          timestamp: 4.5,
+          role: "user",
+          content: "Task update persisted while tools were running",
+          payload: createUserPayload(
+            "Task update persisted while tools were running",
+            4.5,
+          ),
+        },
+        {
+          entryId: "multi-result-a",
+          timestamp: 5,
+          role: "toolResult",
+          content: "a".repeat(8_000),
+          toolCallId: "call-a",
+          payload: createToolResultPayload("call-a", "a".repeat(8_000), 5),
+        },
+        {
+          entryId: "multi-reminder-b",
+          timestamp: 6,
+          role: "runtimeInternal",
+          content: "subagent b completed",
+        },
+        {
+          entryId: "multi-result-b",
+          timestamp: 7,
+          role: "toolResult",
+          content: "b",
+          toolCallId: "call-b",
+          payload: createToolResultPayload("call-b", "b", 7),
+        },
+        {
+          entryId: "multi-tail",
+          timestamp: 8,
+          role: "user",
+          content: "Tail",
+          payload: createUserPayload("Tail", 8),
+        },
+      ],
+      1,
+      100,
+      1,
+    );
+
+    expect(plan?.middleMessages.map((message) => message.entryId)).toEqual([
+      "multi-middle",
+    ]);
+    expect(plan).toMatchObject({
+      fromEntryId: "multi-middle",
+      toEntryId: "multi-middle",
+    });
+  });
+
   it("reuses an existing checkpoint summary on subsequent compactions", () => {
     const plan = splitThreadMessagesForCompaction(
       [

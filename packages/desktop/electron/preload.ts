@@ -28,6 +28,8 @@ import {
   IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION,
   IPC_LOCAL_CHAT_FORK_CONVERSATION,
   IPC_LOCAL_CHAT_LIST_CONVERSATIONS,
+  IPC_LOCAL_CHAT_LIST_MESSAGES_AFTER,
+  IPC_LOCAL_CHAT_LIST_MESSAGE_TOOL_EVENTS,
   IPC_LOCAL_CHAT_LIST_MODEL_USAGE,
   IPC_MEDIA_COPY_IMAGE,
   IPC_MEDIA_COPY_ATTACHMENT,
@@ -1931,8 +1933,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
       conversationId: string;
       afterTimestampMs: number;
       afterId: string;
+      afterSequence?: number;
       maxVisibleMessages?: number;
-    }) => ipcRenderer.invoke("localChat:listMessagesAfter", payload),
+    }) => ipcRenderer.invoke(IPC_LOCAL_CHAT_LIST_MESSAGES_AFTER, payload),
+    listMessageToolEvents: (payload: {
+      conversationId: string;
+      messageTimestampMs: number;
+      messageId: string;
+      messageSequence?: number;
+      afterTimestampMs?: number;
+      afterId?: string;
+      afterSequence?: number;
+      limit?: number;
+    }) => ipcRenderer.invoke(IPC_LOCAL_CHAT_LIST_MESSAGE_TOOL_EVENTS, payload),
     listActivity: (payload: {
       conversationId: string;
       limit?: number;

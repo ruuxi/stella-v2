@@ -42,7 +42,7 @@ describe("tool host shell teardown join", () => {
       { cmd: "sleep 60", yield_time_ms: 50 },
       { conversationId: "conv-stop", workingDirectory: root } as never,
     );
-    const sessionId = (started.result as { session_id?: string }).session_id!;
+    const sessionId = (started.details as { session_id?: string }).session_id!;
     const record = state.shells.get(sessionId)!;
     const pid = record.child!.pid!;
     expect(pidIsAlive(pid)).toBe(true);

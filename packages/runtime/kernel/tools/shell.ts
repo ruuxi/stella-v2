@@ -1180,9 +1180,14 @@ type SpawnedPtyShell = {
 };
 
 export const resolveExecOutputTokens = (value: unknown): number =>
-  typeof value === "number" && Number.isFinite(value)
-    ? Math.max(1, Math.floor(value))
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
     : DEFAULT_EXEC_OUTPUT_TOKENS;
+
+const invalidExecOutputTokens = (value: unknown): boolean =>
+  value !== undefined &&
+  value !== null &&
+  (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0);
 
 type DrainedOutput = {
   text: string;
@@ -2207,15 +2212,28 @@ const runUntilExecDeadline = async <T>(
 const toolErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+type ExecToolPayload = {
+  session_id: string | null;
+  running: boolean;
+  exit_code: number | null;
+  output: string;
+  wall_time_seconds: number;
+  original_token_count: number;
+  cwd: string;
+  command: string;
+  hint?: string;
+  produced_files_omitted?: ProducedFilesOmission;
+};
+
 const buildExecToolPayload = (
   record: ManagedShellRecord,
   drained: DrainedOutput,
   callStartedAt: number,
-): Record<string, unknown> => {
+): ExecToolPayload => {
   const wallTimeSeconds = (Date.now() - callStartedAt) / 1000;
   // Includes wall_time_seconds and original_token_count so the model can
   // detect output omitted by the raw one-MiB collector and react.
-  const payload: Record<string, unknown> = {
+  const payload: ExecToolPayload = {
     session_id: record.running ? record.id : null,
     running: record.running,
     exit_code: record.running ? null : record.exitCode,
@@ -2238,6 +2256,40 @@ const buildExecToolPayload = (
     if (hint) payload.hint = hint;
   }
   return payload;
+};
+
+const buildExecToolDetails = (
+  payload: ExecToolPayload,
+  drained: DrainedOutput,
+) => {
+  const { output: _modelOutput, ...metadata } = payload;
+  return {
+    ...metadata,
+    original_output_bytes: drained.originalLength,
+    raw_output_truncated: drained.truncated,
+  };
+};
+
+const formatExecToolResult = (
+  payload: ExecToolPayload,
+  drained: DrainedOutput,
+): string => {
+  const status = payload.running
+    ? `Process running with session ID ${payload.session_id}`
+    : `Process exited with code ${payload.exit_code ?? "unknown"}`;
+  return [
+    `Wall time: ${payload.wall_time_seconds} seconds`,
+    status,
+    `Original token count: ${payload.original_token_count}`,
+    ...(drained.truncated
+      ? [
+          "Raw process output exceeded the 1 MiB collection cap; omitted bytes remain marked in Output.",
+        ]
+      : []),
+    "Output:",
+    payload.output,
+    ...(payload.hint ? [`Hint: ${payload.hint}`] : []),
+  ].join("\n");
 };
 
 const writeToShellStdin = async (
@@ -2275,6 +2327,10 @@ export const handleExecCommand = async (
   onUpdate?: ToolUpdateCallback,
 ): Promise<ToolResult> => {
   const callStartedAt = Date.now();
+  if (invalidExecOutputTokens(args.max_output_tokens)) {
+    return { error: "max_output_tokens must be a non-negative safe integer." };
+  }
+  const modelOutputTokens = resolveExecOutputTokens(args.max_output_tokens);
   const yieldTimeMs = resolveExecYieldTime(
     args.yield_time_ms,
     DEFAULT_EXEC_YIELD_MS,
@@ -2330,7 +2386,6 @@ export const handleExecCommand = async (
     }
   }
   let lastUpdateAt = 0;
-  const modelOutputTokens = resolveExecOutputTokens(args.max_output_tokens);
   const emitUpdate = (record: ManagedShellRecord) => {
     if (!onUpdate) return;
     const now = Date.now();
@@ -2343,7 +2398,11 @@ export const handleExecCommand = async (
       truncated: unread.omittedBytes > 0,
     };
     const payload = buildExecToolPayload(record, drained, callStartedAt);
-    onUpdate({ result: payload, details: payload });
+    onUpdate({
+      result: formatExecToolResult(payload, drained),
+      details: buildExecToolDetails(payload, drained),
+      modelOutputTokens,
+    });
   };
   const record = startShell(
     state,
@@ -2447,8 +2506,8 @@ export const handleExecCommand = async (
     payload.produced_files_omitted = produced.producedFilesOmitted;
   }
   return {
-    result: payload,
-    details: payload,
+    result: formatExecToolResult(payload, drained),
+    details: buildExecToolDetails(payload, drained),
     modelOutputTokens,
     ...produced,
   };
@@ -2461,6 +2520,10 @@ export const handleWriteStdin = async (
   signal?: AbortSignal,
 ): Promise<ToolResult> => {
   const callStartedAt = Date.now();
+  if (invalidExecOutputTokens(args.max_output_tokens)) {
+    return { error: "max_output_tokens must be a non-negative safe integer." };
+  }
+  const modelOutputTokens = resolveExecOutputTokens(args.max_output_tokens);
   const sessionId = String(args.session_id ?? "").trim();
   if (!sessionId) {
     return { error: "session_id is required." };
@@ -2516,9 +2579,9 @@ export const handleWriteStdin = async (
     payload.produced_files_omitted = produced.producedFilesOmitted;
   }
   return {
-    result: payload,
-    details: payload,
-    modelOutputTokens: resolveExecOutputTokens(args.max_output_tokens),
+    result: formatExecToolResult(payload, drained),
+    details: buildExecToolDetails(payload, drained),
+    modelOutputTokens,
     ...produced,
   };
 };

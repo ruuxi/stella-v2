@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   executePreparedToolCall,
+  runAgentLoop,
   type PreparedToolCall,
 } from "@stella/runtime/kernel/agent-core/agent-loop";
 import { Agent } from "@stella/runtime/kernel/agent-core/agent";
 import type {
+  AgentMessage,
   AgentTool,
   AgentToolResult,
 } from "@stella/runtime/kernel/agent-core/types";
@@ -86,13 +88,58 @@ describe("standalone Agent degenerate response recovery", () => {
       initialState: { model },
       streamFn,
     });
+    const endedAttempts: AssistantMessage[] = [];
+    agent.subscribe((event) => {
+      if (event.type === "message_end" && event.message.role === "assistant") {
+        endedAttempts.push(event.message);
+      }
+    });
 
     await agent.prompt("Return a visible result.");
 
     expect(streamFn).toHaveBeenCalledTimes(2);
+    expect(endedAttempts.map((message) => message.stopReason)).toEqual([
+      "error",
+      "stop",
+    ]);
+    expect(endedAttempts[0]?.errorMessage).toContain("retrying once");
+    expect(agent.state.messages).not.toContainEqual(endedAttempts[0]);
     expect(agent.state.messages.at(-1)).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: "recovered" }],
+    });
+  });
+
+  it("does not retain the discarded empty attempt when its retry throws", async () => {
+    const streamFn = vi.fn(() => {
+      if (streamFn.mock.calls.length > 1) {
+        throw new Error("retry transport failed");
+      }
+      const stream = createAssistantMessageEventStream();
+      const message = assistantMessage("");
+      stream.push({ type: "start", partial: message });
+      stream.push({ type: "done", message });
+      return stream;
+    });
+    const agent = new Agent({
+      initialState: { model },
+      streamFn,
+    });
+
+    await agent.prompt("Return a visible result.");
+
+    expect(streamFn).toHaveBeenCalledTimes(2);
+    expect(
+      agent.state.messages.filter(
+        (message) =>
+          message.role === "assistant" &&
+          message.errorMessage?.includes("retrying once"),
+      ),
+    ).toEqual([]);
+    expect(agent.state.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      stopReason: "error",
+      errorMessage: "retry transport failed",
     });
   });
 
@@ -208,6 +255,304 @@ describe("duplicate tool-call execution", () => {
       });
     },
   );
+});
+
+describe("active-turn working-set boundaries", () => {
+  it("does not dispatch when cancellation arrives during prompt preparation", async () => {
+    const controller = new AbortController();
+    const streamFn = vi.fn();
+
+    await expect(
+      runAgentLoop(
+        [
+          {
+            role: "user",
+            content: [{ type: "text", text: "run" }],
+            timestamp: Date.now(),
+          },
+        ],
+        { systemPrompt: "test", messages: [], tools: [] },
+        {
+          model,
+          transformContext: async (messages) => {
+            controller.abort(new Error("Canceled during preparation"));
+            return messages;
+          },
+          convertToLlm: async (messages) => messages as never,
+        },
+        vi.fn(),
+        controller.signal,
+        streamFn,
+      ),
+    ).rejects.toThrow("Canceled during preparation");
+    expect(streamFn).not.toHaveBeenCalled();
+  });
+
+  it("releases the caller's initial history reference during a normal prompt run", async () => {
+    const oldHistory = assistantMessage("x".repeat(10_000));
+    const promptMessage: AgentMessage = {
+      role: "user",
+      content: [{ type: "text", text: "run" }],
+      timestamp: Date.now(),
+    };
+    const toolMessage: AssistantMessage = {
+      ...assistantMessage(""),
+      content: [
+        {
+          type: "toolCall",
+          id: "release-tool",
+          name: "exec_command",
+          arguments: {},
+        },
+      ],
+      stopReason: "toolUse",
+    };
+    const responses = [toolMessage, assistantMessage("done")];
+    const streamFn = vi.fn(() => {
+      const stream = createAssistantMessageEventStream();
+      const message = responses[streamFn.mock.calls.length - 1]!;
+      stream.push({ type: "start", partial: message });
+      stream.push({ type: "done", message });
+      return stream;
+    });
+    const context = {
+      systemPrompt: "test",
+      messages: [oldHistory] as AgentMessage[],
+      tools: [
+        {
+          name: "exec_command",
+          label: "Exec",
+          description: "test tool",
+          parameters: { type: "object", properties: {} } as never,
+          execute: vi.fn(async () => okResult),
+        } as AgentTool,
+      ],
+    };
+
+    await runAgentLoop(
+      [promptMessage],
+      context,
+      {
+        model,
+        convertToLlm: async (messages) => messages as never,
+        onTurnBoundary: async ({ completedMessages }) => [
+          assistantMessage("[[THREAD_CHECKPOINT]] compacted"),
+          ...completedMessages,
+        ],
+      },
+      vi.fn(),
+      undefined,
+      streamFn,
+    );
+
+    expect(context.messages).not.toContain(oldHistory);
+    expect(context.messages.map((message) => message.role)).toEqual([
+      "assistant",
+      "assistant",
+      "toolResult",
+      "assistant",
+    ]);
+  });
+
+  it.each(["steer", "followUp"] as const)(
+    "reports dequeued %s messages before they are emitted",
+    async (delivery) => {
+      const firstStream = createAssistantMessageEventStream();
+      const firstResponse = assistantMessage("first response");
+      const finalResponse = assistantMessage("queued message handled");
+      const streamFn = vi.fn(() => {
+        if (streamFn.mock.calls.length === 1) return firstStream;
+        const stream = createAssistantMessageEventStream();
+        stream.push({ type: "start", partial: finalResponse });
+        stream.push({ type: "done", message: finalResponse });
+        return stream;
+      });
+      const boundary = vi.fn(async () => undefined);
+      const agent = new Agent({
+        initialState: { model },
+        streamFn,
+        onTurnBoundary: boundary,
+      });
+      const queuedMessage: AgentMessage = {
+        role: "user",
+        content: [{ type: "text", text: "queued message" }],
+        timestamp: Date.now(),
+      };
+
+      const prompt = agent.prompt("Start the response.");
+      await vi.waitFor(() => expect(streamFn).toHaveBeenCalledOnce());
+      agent[delivery](queuedMessage);
+      firstStream.push({ type: "start", partial: firstResponse });
+      firstStream.push({ type: "done", message: firstResponse });
+      await prompt;
+
+      expect(boundary).toHaveBeenCalledOnce();
+      expect(boundary.mock.calls[0]?.[0].pendingMessages).toEqual([
+        queuedMessage,
+      ]);
+      expect(streamFn.mock.calls[1]?.[1].messages.at(-1)).toEqual(
+        queuedMessage,
+      );
+    },
+  );
+
+  it("replaces context only after the assistant/tool-result pair is complete", async () => {
+    let releaseTool!: () => void;
+    const toolGate = new Promise<void>((resolve) => {
+      releaseTool = resolve;
+    });
+    let toolStarted!: () => void;
+    const toolStartedGate = new Promise<void>((resolve) => {
+      toolStarted = resolve;
+    });
+    const toolMessage: AssistantMessage = {
+      ...assistantMessage(""),
+      content: [
+        {
+          type: "toolCall",
+          id: "boundary-tool-1",
+          name: "exec_command",
+          arguments: {},
+        },
+      ],
+      stopReason: "toolUse",
+    };
+    const finalMessage = assistantMessage("done after page-in");
+    const responses = [toolMessage, finalMessage];
+    const streamFn = vi.fn(() => {
+      const stream = createAssistantMessageEventStream();
+      const message = responses[streamFn.mock.calls.length - 1]!;
+      stream.push({ type: "start", partial: message });
+      stream.push({ type: "done", message });
+      return stream;
+    });
+    const tool = {
+      name: "exec_command",
+      label: "Exec",
+      description: "test tool",
+      parameters: { type: "object", properties: {} } as never,
+      execute: vi.fn(async () => {
+        toolStarted();
+        await toolGate;
+        return okResult;
+      }),
+    } as AgentTool;
+    const checkpoint = assistantMessage(
+      "[[THREAD_CHECKPOINT]] compacted history",
+    );
+    const durablyFlushedRoles: AgentMessage["role"][] = [];
+    const boundary = vi.fn(
+      async ({ completedMessages }: { completedMessages: AgentMessage[] }) => {
+        expect(durablyFlushedRoles.slice(-2)).toEqual([
+          "assistant",
+          "toolResult",
+        ]);
+        return [
+          checkpoint,
+          ...completedMessages.map((message) => structuredClone(message)),
+        ];
+      },
+    );
+    const agent = new Agent({
+      initialState: { model, tools: [tool] },
+      streamFn,
+      onTurnBoundary: boundary,
+    });
+    agent.subscribe((event) => {
+      if (event.type === "message_end") {
+        // Runtime persistence is a synchronous message_end subscriber. This
+        // stand-in asserts the boundary hook cannot run before those flushes.
+        durablyFlushedRoles.push(event.message.role);
+      }
+    });
+
+    const prompt = agent.prompt("Run the tool.");
+    await toolStartedGate;
+
+    expect(boundary).not.toHaveBeenCalled();
+    expect(agent.state.pendingToolCalls).toEqual(new Set(["boundary-tool-1"]));
+
+    releaseTool();
+    await prompt;
+
+    expect(boundary).toHaveBeenCalledOnce();
+    expect(
+      boundary.mock.calls[0]?.[0].completedMessages.map(
+        (message) => message.role,
+      ),
+    ).toEqual(["assistant", "toolResult"]);
+    const secondProviderContext = streamFn.mock.calls[1]?.[1];
+    expect(
+      secondProviderContext.messages.map(
+        (message: AgentMessage) => message.role,
+      ),
+    ).toEqual(["assistant", "assistant", "toolResult"]);
+    expect(secondProviderContext.messages[0]).toMatchObject({
+      content: [
+        { type: "text", text: "[[THREAD_CHECKPOINT]] compacted history" },
+      ],
+    });
+    expect(agent.state.messages.map((message) => message.role)).toEqual([
+      "assistant",
+      "assistant",
+      "toolResult",
+      "assistant",
+    ]);
+    expect(agent.state.messages).not.toContainEqual(
+      expect.objectContaining({ role: "user", content: expect.anything() }),
+    );
+  });
+
+  it("keeps the existing context when a boundary refresh fails", async () => {
+    const toolMessage: AssistantMessage = {
+      ...assistantMessage(""),
+      content: [
+        {
+          type: "toolCall",
+          id: "boundary-tool-error",
+          name: "exec_command",
+          arguments: {},
+        },
+      ],
+      stopReason: "toolUse",
+    };
+    const responses = [toolMessage, assistantMessage("still completed")];
+    const streamFn = vi.fn(() => {
+      const stream = createAssistantMessageEventStream();
+      const message = responses[streamFn.mock.calls.length - 1]!;
+      stream.push({ type: "start", partial: message });
+      stream.push({ type: "done", message });
+      return stream;
+    });
+    const agent = new Agent({
+      initialState: {
+        model,
+        tools: [
+          {
+            name: "exec_command",
+            label: "Exec",
+            description: "test tool",
+            parameters: { type: "object", properties: {} } as never,
+            execute: vi.fn(async () => okResult),
+          } as AgentTool,
+        ],
+      },
+      streamFn,
+      onTurnBoundary: async () => {
+        throw new Error("page-in failed");
+      },
+    });
+
+    await agent.prompt("Run despite a checkpoint failure.");
+
+    expect(streamFn).toHaveBeenCalledTimes(2);
+    expect(agent.state.messages.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "toolResult",
+      "assistant",
+    ]);
+  });
 });
 
 describe("executePreparedToolCall inactivity bound", () => {

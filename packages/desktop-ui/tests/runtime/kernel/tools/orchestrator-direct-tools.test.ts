@@ -216,7 +216,6 @@ describe("working orchestrator surface", () => {
         "Read",
         "Recall",
         "Remember",
-        "Schedule",
         "spawn_agent",
         "send_input",
         "pause_agent",
@@ -299,7 +298,6 @@ describe("working orchestrator surface", () => {
       "Read",
       "Recall",
       "Remember",
-      "Schedule",
       "spawn_agent",
       "send_input",
       "pause_agent",
@@ -362,12 +360,17 @@ describe("working orchestrator surface", () => {
     const working = directToolNames(AGENT_IDS.ORCHESTRATOR);
     expect(working.has("node_repl")).toBe(true);
     expect(working.has("connector_status")).toBe(false);
+    expect(working.has("schedule_add")).toBe(false);
+    expect(working.has("schedule_list")).toBe(false);
+    expect(working.has("ScriptDraft")).toBe(false);
 
     // Coordinator variant has no node_repl → never-strand fallback puts
     // demoted tools straight into its direct list.
     const orchestrated = directToolNames(ORCHESTRATED_ORCHESTRATOR_ID);
     expect(orchestrated.has("node_repl")).toBe(false);
     expect(orchestrated.has("connector_status")).toBe(true);
+    expect(orchestrated.has("schedule_add")).toBe(true);
+    expect(orchestrated.has("schedule_remove")).toBe(true);
   });
 
   it("never demotes core built-ins and keeps voice-style catalogs demoted-free", async () => {
@@ -382,20 +385,27 @@ describe("working orchestrator surface", () => {
       "Read",
       "Recall",
       "Remember",
-      "Schedule",
       "spawn_agent",
     ]) {
       const entry = catalog.find((tool) => tool.name === toolName);
       expect(entry, toolName).toBeDefined();
       expect(entry?.demoted, toolName).toBeUndefined();
     }
-    // The demoted surface today is exactly the connector-status affordance.
+    // The demoted surface: the connector-status affordance plus the
+    // deferred scheduling tools (and the watch-script authoring tool).
     expect(
       catalog
         .filter((tool) => tool.demoted)
         .map((tool) => tool.name)
         .sort(),
-    ).toEqual(["connector_status"]);
+    ).toEqual([
+      "ScriptDraft",
+      "connector_status",
+      "schedule_add",
+      "schedule_list",
+      "schedule_remove",
+      "schedule_update",
+    ]);
     // Voice paths filter demoted entries out of the realtime function list.
     const voiceCatalog = catalog.filter((tool) => !tool.demoted);
     expect(voiceCatalog.some((tool) => tool.name === "connector_status")).toBe(

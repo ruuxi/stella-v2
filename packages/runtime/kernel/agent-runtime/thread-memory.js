@@ -14,6 +14,7 @@ import {
   customMessageContentText,
   isRetiredMemorySummaryCustomMessage,
 } from "./resident-context.js";
+import { QUARANTINE_CUSTOM_TYPE } from "./provider-abort-containment.js";
 const logger = createRuntimeLogger("agent-runtime.thread-memory");
 const MEMORY_STARTUP_DOC_PATHS = [
   LIFE_CORE_MEMORY_DISPLAY_PATH,
@@ -96,6 +97,8 @@ export const buildHistorySource = (context) => {
           entry.customMessage?.customType !==
             RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE &&
           !isRetiredMemorySummaryEntry(entry) &&
+          entry.customMessage?.customType !== QUARANTINE_CUSTOM_TYPE &&
+          !isFailedAssistantPayload(entry.payload) &&
           (context.memoryEnabled !== false || !isMemoryStartupDocEntry(entry)),
       )
       ?.map((entry) => {
@@ -145,6 +148,15 @@ export const buildHistorySource = (context) => {
 const isRetiredMemorySummaryEntry = (entry) =>
   entry.role === "runtimeInternal" &&
   isRetiredMemorySummaryCustomMessage(entry.customMessage);
+const isFailedAssistantPayload = (payload) =>
+  payload?.role === "assistant" &&
+  (payload.stopReason === "error" ||
+    payload.stopReason === "aborted" ||
+    !payload.content.some(
+      (block) =>
+        block.type === "toolCall" ||
+        (block.type === "text" && block.text.trim().length > 0),
+    ));
 const isMemoryStartupDocEntry = (entry) => {
   if (
     entry.role !== "runtimeInternal" ||
@@ -243,7 +255,35 @@ export const persistThreadPayloadMessage = (store, args) => {
     content: preview,
     ...(toolCallId ? { toolCallId } : {}),
     payload,
+    ...(args.preservePayloadExactly ? { preservePayloadExactly: true } : {}),
   });
+};
+export const persistThreadPayloadMessages = (store, args) => {
+  const timestamp = now();
+  const messages = args.payloads.map((rawPayload, index) => {
+    const payload =
+      rawPayload.role === "assistant"
+        ? {
+            ...rawPayload,
+            ...(args.runId ? { stellaRunId: args.runId } : {}),
+            ...(typeof args.attemptGeneration === "number"
+              ? { stellaAttemptGeneration: args.attemptGeneration }
+              : {}),
+          }
+        : rawPayload;
+    const toolCallId =
+      payload.role === "toolResult" ? payload.toolCallId : undefined;
+    return {
+      threadKey: args.threadKey,
+      timestamp: timestamp + index,
+      role: payload.role,
+      content: buildThreadMessagePreview(payload),
+      ...(toolCallId ? { toolCallId } : {}),
+      payload,
+      ...(args.preservePayloadExactly ? { preservePayloadExactly: true } : {}),
+    };
+  });
+  store.appendThreadMessages(messages);
 };
 export const persistThreadCustomMessage = (store, args) => {
   store.appendThreadCustomMessage({
@@ -252,6 +292,7 @@ export const persistThreadCustomMessage = (store, args) => {
     customType: args.customType,
     content: args.content,
     display: args.display === true,
+    ...(args.preservePayloadExactly ? { preservePayloadExactly: true } : {}),
     ...(args.eventId ? { eventId: args.eventId } : {}),
   });
 };
@@ -520,6 +561,7 @@ export const appendThreadMessage = (store, args) => {
     content: args.content,
     ...(args.toolCallId ? { toolCallId: args.toolCallId } : {}),
     ...(args.payload ? { payload: args.payload } : {}),
+    ...(args.preservePayloadExactly ? { preservePayloadExactly: true } : {}),
   });
 };
 // Retries live where the failures are: summary generation has its own

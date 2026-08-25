@@ -14,6 +14,11 @@ describe("assistant message boundary rendering", () => {
     expect(chatPane.includes("renderTextWithInlineTimeline")).toBe(false);
   });
 
+  test("selects assistant text on the rendered markdown without a plain-text fallback", () => {
+    expect(chatPane).toContain("selectable={!isStreaming}");
+    expect(chatPane.match(/<AssistantTextSelection/g)).toHaveLength(1);
+  });
+
   test("keeps every agent activity artifact in the boundary group", () => {
     expect(chatPane).toContain(
       "const groupAgentWorkArtifacts = agentWorkArtifacts;",

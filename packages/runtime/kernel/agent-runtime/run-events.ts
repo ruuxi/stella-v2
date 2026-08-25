@@ -24,7 +24,10 @@ import {
   getToolResultPreview,
   now,
 } from "./shared.js";
-import { persistThreadPayloadMessage } from "./thread-memory.js";
+import {
+  persistThreadPayloadMessage,
+  persistThreadPayloadMessages,
+} from "./thread-memory.js";
 import { markImageOperationDelivered } from "../tools/image-operation-store.js";
 import type {
   RuntimeEndEvent,
@@ -450,6 +453,13 @@ const looksLikeMachineStatusText = (value: string): boolean => {
   if (!trimmed) return false;
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) return true;
   if (trimmed.includes("\n") && /[{[]/.test(trimmed)) return true;
+  if (
+    /^Wall time: [^\n]+ seconds\nProcess (?:running with session ID|exited with code) [^\n]+\nOriginal token count: \d+\n/.test(
+      trimmed,
+    )
+  ) {
+    return true;
+  }
   return /"(?:session_id|exit_code|wall_time_seconds|original_token_count)"\s*:/.test(
     trimmed,
   );
@@ -474,8 +484,8 @@ const extractToolUpdateStatusText = (
     return undefined;
   }
   const text = firstTextBlock.text.trim();
-  // Progress payloads (exec_command session JSON, pretty-printed objects)
-  // are model-facing, not working-indicator copy.
+  // Progress payloads (exec_command results, pretty-printed objects) are
+  // model-facing, not working-indicator copy.
   return looksLikeMachineStatusText(text) ? undefined : text;
 };
 
@@ -495,6 +505,7 @@ export const subscribeRuntimeAgentEvents = ({
   attemptGeneration,
   stellaDataDir,
   afterDurableMessagePersisted,
+  onThreadPersistenceError,
 }: {
   agent: RuntimeAgentLike;
   runId: string;
@@ -514,6 +525,7 @@ export const subscribeRuntimeAgentEvents = ({
   afterDurableMessagePersisted?: (
     payload: PersistedRuntimeThreadPayload,
   ) => void;
+  onThreadPersistenceError?: (error: unknown, retry: () => void) => void;
 }) => {
   // Stable run-level fields shared by every hook payload from this subscription.
   const hookContext = buildHookRuntimeContext({
@@ -553,7 +565,7 @@ export const subscribeRuntimeAgentEvents = ({
     }
 
     if (event.type === "message_end") {
-      if (threadStore && threadKey) {
+      if (threadStore && threadKey && agentType !== "orchestrator") {
         const payload = toPersistedThreadPayload(event.message);
         if (
           payload &&
@@ -744,6 +756,37 @@ export const subscribeRuntimeAgentEvents = ({
     }
 
     if (event.type === "turn_end") {
+      if (threadStore && threadKey && agentType === "orchestrator") {
+        const payloads = [event.message, ...event.toolResults]
+          .map(toPersistedThreadPayload)
+          .filter(
+            (payload): payload is PersistedRuntimeThreadPayload =>
+              payload !== null,
+          );
+        if (payloads.length > 0) {
+          const persistCompletedGroup = () =>
+            persistThreadPayloadMessages(threadStore, {
+              threadKey,
+              payloads,
+              runId,
+              ...(typeof attemptGeneration === "number"
+                ? { attemptGeneration }
+                : {}),
+              preservePayloadExactly: true,
+            });
+          try {
+            persistCompletedGroup();
+          } catch (error) {
+            logger.error("thread.turn-group-persistence-failed", {
+              threadKey,
+              runId,
+              messageCount: payloads.length,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            onThreadPersistenceError?.(error, persistCompletedGroup);
+          }
+        }
+      }
       const turnText =
         event.message?.role === "assistant"
           ? extractAssistantText(event.message)

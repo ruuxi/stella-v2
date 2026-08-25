@@ -35,6 +35,7 @@ import {
 import type { RunnerContext } from "./types.js";
 import { buildAgentEventPrompt } from "./shared.js";
 import type { LocalChatEventRecord } from "../storage/shared.js";
+import type { ThreadActivityRecord } from "@stella/contracts/local-chat";
 import { createRunnerImageDescriptionService } from "./model-selection.js";
 import { RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE } from "../storage/shared.js";
 import type { ComputerAgentCloudRecords } from "./computer-agent-cloud-records.js";
@@ -79,17 +80,19 @@ const collectProducedFiles = (
   }
 };
 
-const hasPersistedThreadCustomEvent = (
+const findPersistedThreadCustomEvent = (
   context: RunnerContext,
   threadKey: string,
   eventId: string | undefined,
-): boolean => {
-  if (!eventId) return false;
-  const loadThreadMessages = context.runtimeStore.loadThreadMessages;
-  if (typeof loadThreadMessages !== "function") return false;
+): { timestamp: number } | null => {
+  if (!eventId) return null;
+  const loadThreadMessages =
+    context.runtimeStore.loadRawThreadMessages ??
+    context.runtimeStore.loadThreadMessages;
+  if (typeof loadThreadMessages !== "function") return null;
   return loadThreadMessages
     .call(context.runtimeStore, threadKey)
-    .some((message: any) => {
+    .find((message: any) => {
       if (
         message.customMessage?.customType !== "runtime.task_lifecycle" &&
         message.customMessage?.customType !== "runtime.task_update" &&
@@ -99,8 +102,14 @@ const hasPersistedThreadCustomEvent = (
         return false;
       }
       return message.customMessage.eventId === eventId;
-    });
+    }) ?? null;
 };
+
+const hasPersistedThreadCustomEvent = (
+  context: RunnerContext,
+  threadKey: string,
+  eventId: string | undefined,
+): boolean => findPersistedThreadCustomEvent(context, threadKey, eventId) !== null;
 
 // stella-cloud-side callers use the shorter name for the same check.
 const hasPersistedThreadEvent = hasPersistedThreadCustomEvent;
@@ -344,8 +353,9 @@ export const createAgentOrchestration = (
       responseTarget?: import("@stella/contracts/protocol").RuntimeAgentEventPayload["responseTarget"];
       customType?: string;
       display?: boolean;
+      timestamp?: number;
     }) => Promise<void>;
-    cloudAgentRecords: ComputerAgentCloudRecords;
+    cloudAgentRecords?: ComputerAgentCloudRecords;
     /** Test/embedding override; production uses the manager's bounded default. */
     attemptTeardownTimeoutMs?: number;
   },
@@ -495,19 +505,21 @@ export const createAgentOrchestration = (
     const orchestratorThreadKey = resolveOrchestratorThreadKey(
       event.conversationId,
     );
-    if (
-      !hasPersistedThreadCustomEvent(
-        context,
-        orchestratorThreadKey,
-        event.eventId,
-      )
-    ) {
+    const persistedLifecycleMessage = findPersistedThreadCustomEvent(
+      context,
+      orchestratorThreadKey,
+      event.eventId,
+    );
+    // A replay after persistence but before delivery must reuse the durable
+    // row's timestamp so the live prompt can be reconciled with that exact row.
+    const lifecycleTimestamp = persistedLifecycleMessage?.timestamp ?? Date.now();
+    if (!persistedLifecycleMessage) {
       persistThreadCustomMessage(context.runtimeStore, {
         threadKey: orchestratorThreadKey,
         customType: "runtime.task_lifecycle",
         content: [{ type: "text", text: userPrompt }],
         display: false,
-        timestamp: Date.now(),
+        timestamp: lifecycleTimestamp,
         ...(event.eventId ? { eventId: event.eventId } : {}),
         ...(event.type !== "agent-progress" && event.type !== "agent-message"
           ? {
@@ -517,8 +529,12 @@ export const createAgentOrchestration = (
               },
             }
           : {}),
+        preservePayloadExactly: true,
       });
     }
+    context.state.orchestratorSessions
+      .get(event.conversationId)
+      ?.notifyHistoryChanged();
     // Two-phase Dream-inbox stamp, phase 2 (persist-time invariant): the
     // terminal report is now durably in this conversation's orchestrator
     // thread — the exact premise mechanical delta consumption relies on —
@@ -556,6 +572,7 @@ export const createAgentOrchestration = (
       callbackRunId: event.rootRunId,
       customType: "runtime.task_lifecycle",
       display: false,
+      timestamp: lifecycleTimestamp,
       responseTarget: createAgentLifecycleResponseTarget({
         agentId: event.agentId,
         eventType: event.type,
@@ -918,15 +935,52 @@ export const createAgentOrchestration = (
         signal,
         onUpdate,
       ),
-    createCloudAgentRecord: deps.cloudAgentRecords.create,
-    completeCloudAgentRecord: deps.cloudAgentRecords.complete,
-    getCloudAgentRecord: deps.cloudAgentRecords.get,
-    cancelCloudAgentRecord: deps.cloudAgentRecords.cancel,
+    ...(deps.cloudAgentRecords
+      ? {
+          createCloudAgentRecord: deps.cloudAgentRecords.create,
+          completeCloudAgentRecord: deps.cloudAgentRecords.complete,
+          getCloudAgentRecord: deps.cloudAgentRecords.get,
+          cancelCloudAgentRecord: deps.cloudAgentRecords.cancel,
+        }
+      : {}),
     saveAgentRecord: (record: any) => {
-      context.runtimeStore.saveAgentRecord?.(record);
-      // Every thread transition funnels through here — this push is what
-      // keeps the renderer's authoritative Activity store current.
-      context.notifyThreadActivityUpdated?.(record.conversationId);
+      const recordRevision = context.runtimeStore.saveAgentRecord?.(record);
+      if (recordRevision === null) return;
+      // Project the just-persisted row so consumers patch one keyed record
+      // instead of refetching every thread in the conversation.
+      const threadMetadata =
+        context.runtimeStore.getThreadActivityMetadata?.(record.threadId);
+      const activityRecord: ThreadActivityRecord = {
+        source: "stella",
+        threadId: record.threadId,
+        conversationId: record.conversationId,
+        agentType: record.agentType,
+        description: record.description,
+        status: record.status,
+        attemptGeneration: record.attemptGeneration ?? 0,
+        ...(typeof recordRevision === "number"
+          ? { recordRevision }
+          : {}),
+        ...(record.rootRunId ? { rootRunId: record.rootRunId } : {}),
+        ...(record.parentAgentId
+          ? { parentAgentId: record.parentAgentId }
+          : {}),
+        ...(record.modelConfigSnapshot
+          ? { modelConfigSnapshot: record.modelConfigSnapshot }
+          : {}),
+        ...(threadMetadata ?? {}),
+        startedAt: record.startedAt,
+        ...(record.completedAt == null
+          ? {}
+          : { completedAt: record.completedAt }),
+        ...(record.result ? { result: record.result.slice(0, 2_000) } : {}),
+        ...(record.error ? { error: record.error.slice(0, 2_000) } : {}),
+        updatedAt: record.updatedAt,
+      };
+      context.notifyThreadActivityUpdated?.({
+        conversationId: record.conversationId,
+        record: activityRecord,
+      });
     },
     getAgentRecord: (threadId: string) =>
       context.runtimeStore.getAgentRecord?.(threadId) ?? null,

@@ -3,13 +3,24 @@ import {
   STREAM_CATCH_UP_MAX_CPS,
   STREAM_FINISH_FALLBACK_MS,
   STREAM_FINISH_MAX_CPS,
+  STREAM_LARGE_RENDER_INTERVAL_MS,
+  STREAM_LARGE_TEXT_CHARS,
+  STREAM_MARKDOWN_PLAINTEXT_CHARS,
   STREAM_MAX_FRAME_MS,
+  STREAM_MEDIUM_RENDER_INTERVAL_MS,
+  STREAM_MEDIUM_TEXT_CHARS,
   STREAM_MIN_RENDER_INTERVAL_MS,
   STREAM_REVEAL_CPS,
   StreamTextAnimationController,
+  shouldUseStreamingMarkdownPlaintext,
+  streamRenderIntervalMs,
   streamRevealRate,
   type StreamTextAnimationScheduler,
 } from '@/features/chat/streaming/use-stream-text-animation'
+import {
+  MAX_MARKDOWN_PARSE_CHARS,
+  shouldUseBoundedMarkdownPlaintext,
+} from '@/features/chat/streaming/markdown-chunks'
 import { CLAUDE_CODE_CAPTURED_TRACE } from '../../fixtures/stream-cadence-traces'
 
 class FakeScheduler implements StreamTextAnimationScheduler {
@@ -88,6 +99,45 @@ const createScene = () => {
 }
 
 describe('StreamTextAnimationController', () => {
+  it('hard-bounds every Markdown parse, including unsplittable blocks', () => {
+    expect(shouldUseBoundedMarkdownPlaintext(MAX_MARKDOWN_PARSE_CHARS - 1)).toBe(
+      false,
+    )
+    expect(shouldUseBoundedMarkdownPlaintext(MAX_MARKDOWN_PARSE_CHARS)).toBe(true)
+    expect(
+      shouldUseBoundedMarkdownPlaintext(
+        `\`\`\`ts\n${'const value = 1;\n'.repeat(1_000)}\`\`\``.length,
+      ),
+    ).toBe(true)
+    expect(
+      shouldUseBoundedMarkdownPlaintext('one pathological paragraph '.repeat(1_000).length),
+    ).toBe(true)
+  })
+
+  it('reduces full markdown commit frequency as the visible reply grows', () => {
+    expect(streamRenderIntervalMs(STREAM_MEDIUM_TEXT_CHARS - 1)).toBe(
+      STREAM_MIN_RENDER_INTERVAL_MS,
+    )
+    expect(streamRenderIntervalMs(STREAM_MEDIUM_TEXT_CHARS)).toBe(
+      STREAM_MEDIUM_RENDER_INTERVAL_MS,
+    )
+    expect(streamRenderIntervalMs(STREAM_LARGE_TEXT_CHARS)).toBe(
+      STREAM_LARGE_RENDER_INTERVAL_MS,
+    )
+    expect(
+      shouldUseStreamingMarkdownPlaintext(
+        'streaming',
+        STREAM_MARKDOWN_PLAINTEXT_CHARS,
+      ),
+    ).toBe(true)
+    expect(
+      shouldUseStreamingMarkdownPlaintext(
+        'static',
+        STREAM_MARKDOWN_PLAINTEXT_CHARS,
+      ),
+    ).toBe(false)
+  })
+
   it('turns one burst into a steady readable visual stream', () => {
     const { controller, scheduler, updates } = createScene()
     const text = 'x'.repeat(90)
@@ -96,7 +146,7 @@ describe('StreamTextAnimationController', () => {
     scheduler.runFrames(30)
 
     const visible = updates.at(-1)?.text ?? ''
-    expect(visible.length).toBeGreaterThanOrEqual(32)
+    expect(visible.length).toBeGreaterThanOrEqual(30)
     expect(visible.length).toBeLessThanOrEqual(42)
     expect(STREAM_REVEAL_CPS).toBeGreaterThanOrEqual(60)
     expect(STREAM_REVEAL_CPS).toBeLessThanOrEqual(90)
@@ -105,7 +155,26 @@ describe('StreamTextAnimationController', () => {
     const updateGaps = updates
       .slice(1)
       .map((update, index) => update.atMs - updates[index]!.atMs)
-    expect(Math.max(...updateGaps)).toBeLessThan(50)
+    expect(Math.max(...updateGaps)).toBeLessThanOrEqual(70)
+    expect(Math.min(...updateGaps)).toBeGreaterThanOrEqual(
+      STREAM_MIN_RENDER_INTERVAL_MS,
+    )
+  })
+
+  it('coalesces tiny provider chunks instead of committing every frame', () => {
+    const { controller, scheduler, updates } = createScene()
+
+    for (let index = 0; index < 30; index += 1) {
+      controller.enqueue('slot-1', 'run-1', 'x')
+      scheduler.advance(1000 / 60)
+    }
+    scheduler.runUntilNoFrames()
+
+    expect(updates.at(-1)?.text).toBe('x'.repeat(30))
+    expect(updates.length).toBeLessThanOrEqual(11)
+    const updateGaps = updates
+      .slice(1)
+      .map((update, index) => update.atMs - updates[index]!.atMs)
     expect(Math.min(...updateGaps)).toBeGreaterThanOrEqual(
       STREAM_MIN_RENDER_INTERVAL_MS,
     )
@@ -136,10 +205,7 @@ describe('StreamTextAnimationController', () => {
     controller.enqueue('slot-1', 'run-1', chunks[2]!)
     scheduler.runFrames(17)
     controller.enqueue('slot-1', 'run-1', chunks[3]!)
-    controller.finish(
-      (entry) => entry.runId === 'run-1',
-      () => {},
-    )
+    controller.finish((entry) => entry.runId === 'run-1', () => {})
     scheduler.runUntilNoFrames()
 
     expect(updates.at(-1)?.text).toBe(chunks.join(''))
@@ -174,7 +240,9 @@ describe('StreamTextAnimationController', () => {
 
     const afterPause = updates.at(-1)?.text.length ?? 0
     const maxClampedRelease = Math.ceil(
-      (STREAM_CATCH_UP_MAX_CPS * STREAM_MAX_FRAME_MS) / 1000,
+      (STREAM_CATCH_UP_MAX_CPS *
+        (STREAM_MAX_FRAME_MS + STREAM_MIN_RENDER_INTERVAL_MS)) /
+        1000,
     )
     expect(afterPause - beforePause).toBeLessThanOrEqual(maxClampedRelease)
     expect(scheduler.frames.size).toBe(1)
@@ -199,7 +267,10 @@ describe('StreamTextAnimationController', () => {
       }
       scheduler.advance(frameMs)
     }
-    controller.finish((entry) => entry.runId === 'run-1', () => {})
+    controller.finish(
+      (entry) => entry.runId === 'run-1',
+      () => {},
+    )
     scheduler.runUntilNoFrames()
 
     const totalChars = CLAUDE_CODE_CAPTURED_TRACE.arrivals.reduce(
@@ -215,7 +286,11 @@ describe('StreamTextAnimationController', () => {
     expect(totalChars).toBe(1_169)
     expect(updates.at(-1)?.text).toBe('c'.repeat(totalChars))
     expect(maxStep).toBeLessThanOrEqual(
-      Math.ceil((STREAM_FINISH_MAX_CPS * STREAM_MAX_FRAME_MS) / 1000),
+      Math.ceil(
+        (STREAM_FINISH_MAX_CPS *
+          (STREAM_MAX_FRAME_MS + STREAM_MIN_RENDER_INTERVAL_MS)) /
+          1000,
+      ),
     )
     expect(scheduler.time).toBeLessThan(
       CLAUDE_CODE_CAPTURED_TRACE.completeAtMs +

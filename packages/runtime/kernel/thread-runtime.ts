@@ -20,6 +20,12 @@ import {
   RESIDENT_FOLD_ENTRY_ID_MARKER,
   buildResidentFold,
 } from "./agent-runtime/resident-context.js";
+import {
+  QUARANTINE_CUSTOM_TYPE,
+  QUARANTINE_PLACEHOLDER,
+  parseQuarantineRecord,
+  toolResultQuarantineKey,
+} from "./agent-runtime/provider-abort-containment.js";
 import { loadLocalPreferences } from "./preferences/local-preferences.js";
 
 const logger = createRuntimeLogger("thread-runtime");
@@ -95,6 +101,7 @@ type StoredThreadMessage = {
   toolCallId?: string;
   payload?: RuntimeThreadMessage["payload"];
   customMessage?: RuntimeThreadMessage["customMessage"];
+  checkpointQuarantineKeys?: string[];
 };
 
 type ThreadCheckpoint = {
@@ -222,7 +229,22 @@ const stringifyPayloadMessage = (
 };
 
 const stringifyStoredMessage = (message: StoredThreadMessage): string[] => {
+  if (message.customMessage?.customType === QUARANTINE_CUSTOM_TYPE) {
+    return [];
+  }
   if (message.payload) {
+    if (
+      message.payload.role === "assistant" &&
+      (message.payload.stopReason === "error" ||
+        message.payload.stopReason === "aborted" ||
+        !message.payload.content.some(
+          (block) =>
+            block.type === "toolCall" ||
+            (block.type === "text" && block.text.trim().length > 0),
+        ))
+    ) {
+      return [];
+    }
     return stringifyPayloadMessage(message.payload);
   }
   if (message.role === "toolResult") {
@@ -243,6 +265,55 @@ const formatThreadMessagesForCompaction = (
     .flatMap((message) => stringifyStoredMessage(message))
     .filter((entry) => entry.length > 0)
     .join("\n\n");
+
+const quarantinedToolResultKeys = (
+  messages: StoredThreadMessage[],
+): Set<string> =>
+  new Set(
+    messages.flatMap((message) => {
+      if (message.customMessage?.customType !== QUARANTINE_CUSTOM_TYPE) {
+        return [];
+      }
+      const record = parseQuarantineRecord(message.customMessage.content);
+      return record ? [record.key] : [];
+    }),
+  );
+
+const latestCheckpointQuarantineKeys = (
+  messages: StoredThreadMessage[],
+): Set<string> => {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    if (parseThreadCheckpoint(message.content)) {
+      return new Set(message.checkpointQuarantineKeys ?? []);
+    }
+  }
+  return new Set();
+};
+
+const maskQuarantinedCompactionMessages = (
+  messages: StoredThreadMessage[],
+  quarantinedKeys: Set<string>,
+): StoredThreadMessage[] => {
+  if (quarantinedKeys.size === 0) return messages;
+  return messages.map((message) => {
+    const payload = message.payload;
+    if (
+      payload?.role !== "toolResult" ||
+      !quarantinedKeys.has(toolResultQuarantineKey(payload))
+    ) {
+      return message;
+    }
+    return {
+      ...message,
+      content: QUARANTINE_PLACEHOLDER,
+      payload: {
+        ...payload,
+        content: [{ type: "text", text: QUARANTINE_PLACEHOLDER }],
+      },
+    };
+  });
+};
 
 const estimateMessageTokens = (message: ThreadMessage): number =>
   Math.max(1, Math.ceil((message.content ?? "").length / 4));
@@ -397,12 +468,36 @@ const getToolResultId = (message: StoredThreadMessage): string | undefined => {
   return message.toolCallId?.trim();
 };
 
-const isToolResultFor = (
-  message: StoredThreadMessage,
-  callIds: Set<string>,
-): boolean => {
-  const toolCallId = getToolResultId(message);
-  return Boolean(toolCallId && callIds.has(toolCallId));
+const findContainingToolCallGroup = (
+  messages: StoredThreadMessage[],
+  messageIndex: number,
+): { startIndex: number; endIndex: number } | null => {
+  for (let startIndex = messageIndex; startIndex >= 0; startIndex -= 1) {
+    const assistant = messages[startIndex];
+    if (!assistant) return null;
+    if (assistant.role !== "assistant") continue;
+    if (!hasToolCalls(assistant)) return null;
+
+    const callIds = getToolCallIds(assistant);
+    const matchedCallIds = new Set<string>();
+    let endIndex = startIndex;
+    for (let index = startIndex + 1; index < messages.length; index += 1) {
+      const message = messages[index]!;
+      // Live user steering and runtime notices are persisted immediately and
+      // can therefore appear between an assistant tool call and the result
+      // that the running Agent records later. Only a newer assistant turn ends
+      // ownership of the tool-call group.
+      if (message.role === "assistant") break;
+      endIndex = index;
+      const toolCallId = getToolResultId(message);
+      if (toolCallId && callIds.has(toolCallId)) {
+        matchedCallIds.add(toolCallId);
+        if (matchedCallIds.size === callIds.size) break;
+      }
+    }
+    return messageIndex <= endIndex ? { startIndex, endIndex } : null;
+  }
+  return null;
 };
 
 const alignBoundaryForward = (
@@ -412,19 +507,10 @@ const alignBoundaryForward = (
   if (index <= 0 || index >= messages.length) {
     return index;
   }
-  const previous = messages[index - 1];
-  if (!previous || !hasToolCalls(previous)) {
-    return index;
-  }
-  const callIds = getToolCallIds(previous);
-  let nextIndex = index;
-  while (
-    nextIndex < messages.length &&
-    isToolResultFor(messages[nextIndex]!, callIds)
-  ) {
-    nextIndex += 1;
-  }
-  return nextIndex;
+  const containingGroup = findContainingToolCallGroup(messages, index);
+  return containingGroup && index > containingGroup.startIndex
+    ? containingGroup.endIndex + 1
+    : index;
 };
 
 const alignBoundaryBackward = (
@@ -434,25 +520,10 @@ const alignBoundaryBackward = (
   if (index <= 0 || index >= messages.length) {
     return index;
   }
-  let nextIndex = index;
-  while (nextIndex > 0) {
-    const message = messages[nextIndex];
-    if (!message) {
-      break;
-    }
-    if (hasToolCalls(message)) {
-      break;
-    }
-    const previous = messages[nextIndex - 1];
-    if (!previous || !hasToolCalls(previous)) {
-      break;
-    }
-    if (!isToolResultFor(message, getToolCallIds(previous))) {
-      break;
-    }
-    nextIndex -= 1;
-  }
-  return nextIndex;
+  const containingGroup = findContainingToolCallGroup(messages, index);
+  return containingGroup && index > containingGroup.startIndex
+    ? containingGroup.startIndex
+    : index;
 };
 
 const findTailStartIndexByTokenBudget = (
@@ -1351,6 +1422,66 @@ const generateThreadSummary = async (args: {
   return { text: null, reason };
 };
 
+const generateThreadSummaryWithoutElision = async (args: {
+  threadKey: string;
+  messages: StoredThreadMessage[];
+  resolvedLlm: ResolvedLlmRoute;
+  durableMemoryReference?: string;
+  policy?: ThreadCompactionSplitPolicy;
+}): Promise<{ text: string | null; reason?: string }> => {
+  const policy = args.policy ?? "orchestrator";
+  const systemPrompt =
+    policy === "general"
+      ? GENERAL_SUMMARIZATION_SYSTEM_PROMPT
+      : resolveThreadCompactionSystemPrompt();
+  let previousSummary: string | undefined;
+  let offset = 0;
+
+  while (offset < args.messages.length) {
+    const maxChars = getSummaryInputCharBudget(
+      args.resolvedLlm,
+      estimateSummaryOverheadChars({
+        systemPromptChars: systemPrompt.length,
+        previousSummary,
+        durableMemoryReference:
+          policy === "general" ? undefined : args.durableMemoryReference,
+      }),
+    );
+    let end = offset;
+    while (end < args.messages.length) {
+      const candidate = formatThreadMessagesForCompaction(
+        args.messages.slice(offset, end + 1),
+      ).trim();
+      if (candidate.length > maxChars) {
+        break;
+      }
+      end += 1;
+    }
+    if (end === offset) {
+      return {
+        text: null,
+        reason: "one compaction message exceeds the summary input budget",
+      };
+    }
+
+    const generated = await generateThreadSummary({
+      ...args,
+      messages: args.messages.slice(offset, end),
+      previousSummary,
+    });
+    if (!generated.text) {
+      return generated;
+    }
+    previousSummary = generated.text;
+    offset = end;
+  }
+
+  return {
+    text: previousSummary ?? null,
+    ...(!previousSummary ? { reason: "empty formatted conversation" } : {}),
+  };
+};
+
 
 /**
  * Result of an attempted thread compaction.
@@ -1474,9 +1605,47 @@ export const maybeCompactRuntimeThread = async (args: {
    */
   stellaDataDir?: string;
 }): Promise<ThreadCompactionResult> => {
-  const storedMessages = args.store.loadThreadMessages(args.threadKey);
+  let storedMessages = args.store.loadThreadMessages(args.threadKey);
   if (storedMessages.length === 0) {
     return { compacted: false };
+  }
+
+  const rawStoredMessages =
+    typeof args.store.loadRawThreadMessages === "function"
+      ? args.store.loadRawThreadMessages(args.threadKey)
+      : null;
+  // Quarantine records are durable control data, not summary content. An
+  // effective checkpoint may cover their custom rows, so always discover keys
+  // from the append-only view when the store provides one.
+  let quarantineKeys = quarantinedToolResultKeys(
+    rawStoredMessages ?? storedMessages,
+  );
+  const effectiveToolResultKeys = new Set(
+    storedMessages
+      .filter((message: any) => message.payload?.role === "toolResult")
+      .map((message: any) => toolResultQuarantineKey(message)),
+  );
+  const checkpointQuarantineKeys =
+    latestCheckpointQuarantineKeys(storedMessages);
+  const rebuildUnsafeCheckpoint =
+    quarantineKeys.size > 0 &&
+    storedMessages.some((message: any) =>
+      parseThreadCheckpoint(message.content),
+    ) &&
+    [...quarantineKeys].some(
+      (key) =>
+        !effectiveToolResultKeys.has(key) &&
+        !checkpointQuarantineKeys.has(key),
+    );
+  if (
+    rebuildUnsafeCheckpoint &&
+    typeof args.store.loadRawThreadMessages === "function"
+  ) {
+    // A checkpoint that covered a now-quarantined result may already summarize
+    // the suspect provider payload. Rebuild from the append-only raw log so the
+    // historical context is retained while the offending result is masked.
+    storedMessages = rawStoredMessages ?? args.store.loadRawThreadMessages(args.threadKey);
+    quarantineKeys = quarantinedToolResultKeys(storedMessages);
   }
 
   const policy = resolveCompactionSplitPolicy(args.agentType);
@@ -1493,6 +1662,7 @@ export const maybeCompactRuntimeThread = async (args: {
   );
   if (
     !forced &&
+    !rebuildUnsafeCheckpoint &&
     measuredTokens < getCompactionTriggerTokens(args.resolvedLlm, args.agentType)
   ) {
     return { compacted: false };
@@ -1518,7 +1688,7 @@ export const maybeCompactRuntimeThread = async (args: {
             ? Math.max(0, Math.floor(args.preserveLastN))
             : THREAD_COMPACTION_MIN_TAIL_MESSAGES,
         );
-  if (!splitMessages && forced) {
+  if (!splitMessages && (forced || rebuildUnsafeCheckpoint)) {
     // Emergency split for an overflow that the standard cut points cannot
     // relieve (e.g. a few enormous messages inside the protected head or
     // tail). Only the orchestrator's bootstrap docs stay pinned; everything
@@ -1545,11 +1715,24 @@ export const maybeCompactRuntimeThread = async (args: {
     return { compacted: false };
   }
 
+  const summaryMiddleMessages = maskQuarantinedCompactionMessages(
+    splitMessages.middleMessages,
+    quarantineKeys,
+  );
+  const summaryTurnPrefixMessages = maskQuarantinedCompactionMessages(
+    splitMessages.turnPrefixMessages ?? [],
+    quarantineKeys,
+  );
+
   const durableMemoryReference =
     args.agentType === AGENT_IDS.ORCHESTRATOR
       ? buildDurableMemoryReference(args.stellaDataDir)
       : undefined;
-  let summary = args.overrideSummary?.trim() || null;
+  // Hook summaries are produced outside this quarantine-aware snapshot and
+  // may already contain suspect tool content. Regenerate from masked rows
+  // whenever any quarantine is active.
+  let summary =
+    quarantineKeys.size === 0 ? args.overrideSummary?.trim() || null : null;
   if (!summary) {
     // One single-pass summary request. A middle too large for the current
     // model's summarizer window is normally prevented up front: a shrinking
@@ -1566,14 +1749,22 @@ export const maybeCompactRuntimeThread = async (args: {
             ? undefined
             : "empty formatted conversation",
         }
-      : await generateThreadSummary({
-          threadKey: args.threadKey,
-          messages: splitMessages.middleMessages,
-          previousSummary: splitMessages.previousSummary,
-          resolvedLlm: args.resolvedLlm,
-          durableMemoryReference,
-          policy,
-        });
+      : rebuildUnsafeCheckpoint
+        ? await generateThreadSummaryWithoutElision({
+            threadKey: args.threadKey,
+            messages: summaryMiddleMessages,
+            resolvedLlm: args.resolvedLlm,
+            durableMemoryReference,
+            policy,
+          })
+        : await generateThreadSummary({
+            threadKey: args.threadKey,
+            messages: summaryMiddleMessages,
+            previousSummary: splitMessages.previousSummary,
+            resolvedLlm: args.resolvedLlm,
+            durableMemoryReference,
+            policy,
+          });
     summary = generated.text;
     if (
       policy === "general" &&
@@ -1582,7 +1773,7 @@ export const maybeCompactRuntimeThread = async (args: {
     ) {
       const prefix = await generateThreadSummary({
         threadKey: args.threadKey,
-        messages: splitMessages.turnPrefixMessages ?? [],
+        messages: summaryTurnPrefixMessages,
         resolvedLlm: args.resolvedLlm,
         policy,
         promptKind: "turnPrefix",
@@ -1674,6 +1865,9 @@ export const maybeCompactRuntimeThread = async (args: {
     ...(pinnedInstructionText
       ? { pinnedUserInstruction: { text: pinnedInstructionText } }
       : {}),
+    ...(quarantineKeys.size > 0
+      ? { quarantinedToolResultKeys: [...quarantineKeys].sort() }
+      : {}),
     ...(generalFileOps
       ? {
           readFiles: generalFileOps.readFiles,
@@ -1682,6 +1876,11 @@ export const maybeCompactRuntimeThread = async (args: {
       : {}),
   };
 
+  // Quarantine can engage while the summary provider call is in flight. A
+  // summary generated from the earlier snapshot is then unsafe to publish,
+  // even though the quarantine row may have been appended before this write.
+  // Re-check synchronously immediately before the synchronous SQLite write;
+  // the next compaction will regenerate from the masked snapshot.
   for (
     let attempt = 0;
     attempt <= COMPACTION_STORE_WRITE_RETRY_DELAYS_MS.length;
@@ -1691,6 +1890,19 @@ export const maybeCompactRuntimeThread = async (args: {
       await sleep(COMPACTION_STORE_WRITE_RETRY_DELAYS_MS[attempt - 1]!);
     }
     try {
+      const latestQuarantineKeys = quarantinedToolResultKeys(
+        typeof args.store.loadRawThreadMessages === "function"
+          ? args.store.loadRawThreadMessages(args.threadKey)
+          : args.store.loadThreadMessages(args.threadKey),
+      );
+      if ([...latestQuarantineKeys].some((key) => !quarantineKeys.has(key))) {
+        logger.warn("thread.compaction.quarantine-changed-before-write", {
+          threadKey: args.threadKey,
+          quarantineCountBefore: quarantineKeys.size,
+          quarantineCountAfter: latestQuarantineKeys.size,
+        });
+        return { compacted: false };
+      }
       args.store.compactThread({
         threadKey: args.threadKey,
         summary,

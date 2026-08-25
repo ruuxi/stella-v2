@@ -60,6 +60,67 @@ export const STELLA_LOCAL_TOOLS = [
 ] as const;
 
 const NODE_REPL_TOOL_NAME = "node_repl";
+const COMMAND_OUTPUT_TOOL_NAMES = new Set(["exec_command", "write_stdin"]);
+const MULTI_TOOL_USE_PARALLEL_TOOL_NAME = "multi_tool_use_parallel";
+export const MODEL_VISIBLE_COMMAND_RESULT_MAX_BYTES = 10_000;
+// Codex's ExecCommandToolOutput::model_output_policy compares the model's
+// truncation policy with max_output_tokens at four approximate bytes/token.
+// Keep Stella's approved 10KB model policy as the outer cap and let smaller
+// per-call token requests reduce only the command preview inside that cap.
+const APPROX_COMMAND_OUTPUT_BYTES_PER_TOKEN = 4;
+const COMMAND_RESULT_LIMITS = Object.freeze({
+  maxBytes: MODEL_VISIBLE_COMMAND_RESULT_MAX_BYTES,
+  maxLines: Number.MAX_SAFE_INTEGER,
+});
+
+const containsCommandOutput = (
+  toolName: string,
+  toolResult: ToolResult,
+): boolean => {
+  if (COMMAND_OUTPUT_TOOL_NAMES.has(toolName)) return true;
+  if (toolName !== MULTI_TOOL_USE_PARALLEL_TOOL_NAME) return false;
+  const results = (
+    toolResult.details as { results?: Array<{ tool_name?: unknown }> } | undefined
+  )?.results;
+  return (
+    Array.isArray(results) &&
+    results.some(
+      (entry) =>
+        entry &&
+        typeof entry === "object" &&
+        typeof entry.tool_name === "string" &&
+        COMMAND_OUTPUT_TOOL_NAMES.has(entry.tool_name),
+    )
+  );
+};
+
+const commandResultLimitsFor = (
+  toolResult: ToolResult,
+): ModelVisibleLimits & { previewMaxBytes: number } => {
+  const requestedTokens =
+    typeof toolResult.modelOutputTokens === "number" &&
+    Number.isFinite(toolResult.modelOutputTokens)
+      ? Math.max(0, Math.floor(toolResult.modelOutputTokens))
+      : undefined;
+  const requestedBytes =
+    requestedTokens === undefined ||
+    requestedTokens >=
+      Math.ceil(
+        MODEL_VISIBLE_COMMAND_RESULT_MAX_BYTES /
+          APPROX_COMMAND_OUTPUT_BYTES_PER_TOKEN,
+      )
+      ? MODEL_VISIBLE_COMMAND_RESULT_MAX_BYTES
+      : requestedTokens * APPROX_COMMAND_OUTPUT_BYTES_PER_TOKEN;
+  return { ...COMMAND_RESULT_LIMITS, previewMaxBytes: requestedBytes };
+};
+
+const modelVisibleLimitsFor = (
+  toolName: string,
+  toolResult: ToolResult,
+): ModelVisibleLimits | undefined =>
+  containsCommandOutput(toolName, toolResult)
+    ? commandResultLimitsFor(toolResult)
+    : undefined;
 
 const formatToolLabel = (toolName: string): string =>
   toolName
@@ -150,6 +211,7 @@ const mergeToolSideEffectsIntoDetails = (
 
 const formatToolResult = (
   toolResult: ToolResult,
+  toolName: string,
 ): { text: string; details: unknown } => {
   if (toolResult.error) {
     const error = sanitizeToolError(toolResult.error);
@@ -168,7 +230,10 @@ const formatToolResult = (
   return {
     text: sanitizeToolVisibleText(textFromUnknown(result)),
     details: mergeToolSideEffectsIntoDetails(
-      sanitizeToolResult(toolResult.details ?? result),
+      sanitizeToolResult(
+        toolResult.details ??
+          (COMMAND_OUTPUT_TOOL_NAMES.has(toolName) ? undefined : result),
+      ),
       toolResult.fileChanges,
       toolResult.producedFiles,
       toolResult.producedFilesOmitted,
@@ -183,17 +248,29 @@ export const MODEL_VISIBLE_TOOL_RESULT_MAX_LINES = DEFAULT_MAX_LINES;
 export const MODEL_VISIBLE_TOOL_RESULT_MAX_BYTES = DEFAULT_MAX_BYTES;
 export const MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS = DEFAULT_MAX_BYTES;
 
-type ModelVisibleLimits = number | { maxBytes?: number; maxLines?: number };
+type ModelVisibleLimits =
+  | number
+  | { maxBytes?: number; maxLines?: number; previewMaxBytes?: number };
 
 const resolveModelVisibleLimits = (
   limits?: ModelVisibleLimits,
-): { maxBytes: number; maxLines: number } => {
+): { maxBytes: number; maxLines: number; previewMaxBytes: number } => {
   if (typeof limits === "number") {
-    return { maxBytes: Math.max(0, limits), maxLines: Number.MAX_SAFE_INTEGER };
+    const maxBytes = Math.max(0, limits);
+    return {
+      maxBytes,
+      maxLines: Number.MAX_SAFE_INTEGER,
+      previewMaxBytes: maxBytes,
+    };
   }
+  const maxBytes = limits?.maxBytes ?? DEFAULT_MAX_BYTES;
   return {
-    maxBytes: limits?.maxBytes ?? DEFAULT_MAX_BYTES,
+    maxBytes,
     maxLines: limits?.maxLines ?? DEFAULT_MAX_LINES,
+    previewMaxBytes: Math.min(
+      maxBytes,
+      limits?.previewMaxBytes ?? maxBytes,
+    ),
   };
 };
 
@@ -246,7 +323,9 @@ export const truncateModelVisibleToolText = (
   originalLines: number;
 } => {
   const originalChars = text.length;
-  const { maxBytes, maxLines } = resolveModelVisibleLimits(limits);
+  const resolved = resolveModelVisibleLimits(limits);
+  const maxBytes = Math.min(resolved.maxBytes, resolved.previewMaxBytes);
+  const { maxLines } = resolved;
   const originalBytes = utf8ByteLength(text);
   const originalLines = splitLinesForCounting(text).length;
   if (originalBytes <= maxBytes && originalLines <= maxLines) {
@@ -316,7 +395,10 @@ export const preserveModelVisibleToolText = async (
     toolCallId: context.toolCallId,
   });
   const marker = `\n\n[TOOL_OUTPUT_TRUNCATED complete post-sanitization output preserved: artifact=${artifact.path} bytes=${artifact.bytes} sha256=${artifact.sha256} encoding=${artifact.encoding} lines=${artifact.lineCount}. Read more with Read({ file_path: ${JSON.stringify(artifact.path)}, offset: 1, limit: 200 }); offsets are 1-based lines; complete byte range is [0, ${artifact.bytes}).]`;
-  const previewBudget = Math.max(0, resolved.maxBytes - utf8ByteLength(marker));
+  const previewBudget = Math.max(
+    0,
+    Math.min(resolved.previewMaxBytes, resolved.maxBytes) - utf8ByteLength(marker),
+  );
   return {
     ...truncated,
     text: `${truncateModelVisibleToolText(text, { maxBytes: previewBudget, maxLines: resolved.maxLines }).text}${marker}`,
@@ -930,9 +1012,10 @@ export const createPiTools = (opts: {
         signal,
         onUpdate: onUpdate
           ? (partialResult: ToolResult) => {
-              const formattedPartial = formatToolResult(partialResult);
+              const formattedPartial = formatToolResult(partialResult, toolName);
               const truncatedPartial = truncateModelVisibleToolText(
                 formattedPartial.text,
+                modelVisibleLimitsFor(toolName, partialResult),
               );
               onUpdate({
                 content: [{ type: "text", text: truncatedPartial.text }],
@@ -941,17 +1024,21 @@ export const createPiTools = (opts: {
             }
           : undefined,
       });
-      const formatted = formatToolResult(toolResult);
+      const formatted = formatToolResult(toolResult, toolName);
       // Detect [stella-attach-image] markers in diagnostic tool output and
       // read the referenced PNG(s) into image content blocks. The model sees
       // the screenshot on the very next turn with no extra Read step.
       const { text: forwardedText, images: legacyImages } =
         await extractAttachImageBlocks(formatted.text, opts.imageCapTarget);
-      const preservedText = await preserveModelVisibleToolText(forwardedText, {
-        stellaDataDir: opts.stellaDataDir,
-        runId: opts.runId,
-        toolCallId,
-      });
+      const preservedText = await preserveModelVisibleToolText(
+        forwardedText,
+        {
+          stellaDataDir: opts.stellaDataDir,
+          runId: opts.runId,
+          toolCallId,
+        },
+        modelVisibleLimitsFor(toolName, toolResult),
+      );
       const truncatedText = preservedText.text;
       const content: Array<TextContent | ImageBlock> = [];
       const screenshotNote =

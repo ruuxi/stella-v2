@@ -2,6 +2,7 @@ import path from "path";
 import type { SqliteDatabase } from "./shared.js";
 import { ensurePrivateDirSync } from "../shared/private-fs.js";
 import { installChatOrderingSequence } from "./chat-ordering-sequence.js";
+import { ensureChatUiVisibilityIndex } from "./chat-ui-visibility.js";
 
 const DB_FILE = "stella.sqlite";
 
@@ -679,6 +680,7 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     CREATE INDEX IF NOT EXISTS idx_part_session_created
     ON part(session_id, created_at, id);
   `);
+  ensureChatUiVisibilityIndex(db);
 
   try {
     ensureTranscriptSearchIndex(db);
@@ -811,6 +813,21 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
         FOREIGN KEY(thread_key) REFERENCES runtime_threads(thread_key) ON DELETE CASCADE
       );
     `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS runtime_thread_entry_payload_chunks (
+        entry_id TEXT NOT NULL,
+        thread_key TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL,
+        chunk_text TEXT NOT NULL,
+        PRIMARY KEY (entry_id, chunk_index),
+        FOREIGN KEY(entry_id) REFERENCES runtime_thread_entries(entry_id) ON DELETE CASCADE,
+        FOREIGN KEY(thread_key) REFERENCES runtime_threads(thread_key) ON DELETE CASCADE
+      );
+    `);
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_runtime_thread_entry_payload_chunks_thread
+      ON runtime_thread_entry_payload_chunks(thread_key, entry_id, chunk_index);
+    `);
     try {
       db.exec(
         "ALTER TABLE runtime_thread_entries ADD COLUMN insertion_sequence INTEGER;",
@@ -916,6 +933,7 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       max_agent_depth INTEGER,
       parent_agent_id TEXT,
       model_config_json TEXT,
+      tool_workspace_root TEXT,
       status TEXT NOT NULL,
       started_at INTEGER NOT NULL,
       completed_at INTEGER,
@@ -927,7 +945,8 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       manager_final_report TEXT,
       manager_final_report_id TEXT,
       manager_report_ids_json TEXT,
-      manager_report_sequence INTEGER NOT NULL DEFAULT 0
+      manager_report_sequence INTEGER NOT NULL DEFAULT 0,
+      record_revision INTEGER NOT NULL DEFAULT 0
     );
   `);
   try {
@@ -976,9 +995,31 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   } catch {
     // Column already exists.
   }
+  try {
+    db.exec("ALTER TABLE runtime_agents ADD COLUMN tool_workspace_root TEXT;");
+  } catch {
+    // Column already exists.
+  }
+  try {
+    db.exec(
+      "ALTER TABLE runtime_agents ADD COLUMN record_revision INTEGER NOT NULL DEFAULT 0;",
+    );
+  } catch {
+    // Column already exists.
+  }
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_runtime_agents_conversation_updated
     ON runtime_agents(conversation_id, updated_at, thread_id);
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_runtime_agents_active_updated
+    ON runtime_agents(conversation_id, updated_at DESC, thread_id)
+    WHERE status IN ('pending', 'running');
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_runtime_agents_terminal_updated
+    ON runtime_agents(conversation_id, updated_at DESC, thread_id)
+    WHERE status NOT IN ('pending', 'running');
   `);
   // Second half of the recall-index recency scan (see runtime_threads
   // counterpart above): a running turn bumps only the agent record, so

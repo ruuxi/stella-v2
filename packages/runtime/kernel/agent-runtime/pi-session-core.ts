@@ -18,14 +18,21 @@ import {
 } from "./provider-abort-containment.js";
 import { createRuntimeAgent, resolveAgentThinkingLevel } from "./shared.js";
 import { buildHistorySource } from "./thread-memory.js";
-import { getThreadTokenEstimate } from "../thread-runtime.js";
-import { CONTEXT_DELTA_CUSTOM_TYPE_PREFIX } from "./resident-context.js";
+import {
+  getCompactionTriggerTokens,
+  getThreadTokenEstimate,
+} from "../thread-runtime.js";
+import {
+  CONTEXT_DELTA_CUSTOM_TYPE_PREFIX,
+  PINNED_INSTRUCTION_ENTRY_ID_MARKER,
+} from "./resident-context.js";
 import {
   checkPromptPrefixStability,
   clearPromptPrefixSnapshot,
 } from "./prompt-prefix-guard.js";
 import {
   clearProviderContextWindow,
+  estimateProviderPayloadTokens,
   getLastProviderPayloadTokens,
   providerInputBudgetTokens,
   setProviderContextWindow,
@@ -66,6 +73,27 @@ type SessionLogContext = Record<string, unknown>;
  */
 const ORCHESTRATOR_COMPACTION_BLOCK_WINDOW_FRACTION = 0.9;
 
+const awaitUnlessAborted = async (
+  promise: Promise<unknown>,
+  signal?: AbortSignal,
+): Promise<boolean> => {
+  if (!signal) {
+    await promise;
+    return true;
+  }
+  if (signal.aborted) return false;
+  let onAbort = () => {};
+  const aborted = new Promise<boolean>((resolve) => {
+    onAbort = () => resolve(false);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([promise.then(() => true), aborted]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+};
+
 const resolveCodexProviderServiceTier = (
   resolvedLlm: ResolvedLlmRoute,
   agentContext: LocalAgentContext,
@@ -89,6 +117,115 @@ const safeSchemaJson = (value: unknown): string => {
   } catch {
     return "";
   }
+};
+
+const durableComparableMessage = (message: AgentMessage): unknown => {
+  if (message.role === "assistant") {
+    const {
+      stellaRunId: _runId,
+      stellaAttemptGeneration: _attemptGeneration,
+      ...comparable
+    } = message as typeof message & {
+      stellaRunId?: string;
+      stellaAttemptGeneration?: number;
+    };
+    return comparable;
+  }
+  if (message.role === "toolResult") {
+    return {
+      role: "toolResult",
+      toolCallId: message.toolCallId,
+      toolName: message.toolName,
+      content: message.content,
+      ...(typeof message.modelOutputTokens === "number"
+        ? { modelOutputTokens: message.modelOutputTokens }
+        : {}),
+      isError: message.isError,
+      timestamp: message.timestamp,
+    };
+  }
+  if (message.role === "runtimeInternal") {
+    return {
+      role: "runtimeInternal",
+      content: message.content,
+      timestamp: message.timestamp,
+      ...(message.customType ? { customType: message.customType } : {}),
+      // Custom rows persist the provider-equivalent default explicitly.
+      display: message.display === true,
+    };
+  }
+  return message;
+};
+
+const hasExactDurableCompletedSuffix = (
+  history: AgentMessage[],
+  completedMessages: AgentMessage[],
+): boolean => {
+  if (
+    completedMessages.length === 0 ||
+    completedMessages.length > history.length
+  ) {
+    return false;
+  }
+  const offset = history.length - completedMessages.length;
+  return completedMessages.every(
+    (message, index) =>
+      safeSchemaJson(durableComparableMessage(history[offset + index])) ===
+      safeSchemaJson(durableComparableMessage(message)),
+  );
+};
+
+const hasExactDurableRawTail = (args: {
+  store: RuntimeStore;
+  threadKey: string;
+  threadHistory: any[];
+  agentContext: LocalAgentContext;
+  residentMessages: AgentMessage[];
+  refreshedMessages: AgentMessage[];
+}): boolean => {
+  if (typeof args.store.findLatestRangeCompaction !== "function") return true;
+  const compaction = args.store.findLatestRangeCompaction(args.threadKey);
+  const checkpointId = compaction?.entry?.id;
+  if (!checkpointId) return false;
+  const checkpointIndex = args.threadHistory.findIndex(
+    (entry) => entry.entryId === checkpointId,
+  );
+  if (checkpointIndex < 0) return false;
+  const rawTailEntries = args.threadHistory
+    .slice(checkpointIndex + 1)
+    .filter(
+      (entry) =>
+        !entry.entryId?.includes(PINNED_INSTRUCTION_ENTRY_ID_MARKER),
+    );
+  const durableRawTail = buildHistorySource({
+    ...args.agentContext,
+    threadHistory: rawTailEntries,
+  });
+  const rawTailLength = durableRawTail.length;
+  if (
+    rawTailLength > args.residentMessages.length ||
+    rawTailLength > args.refreshedMessages.length
+  ) {
+    return false;
+  }
+  const residentOffset = args.residentMessages.length - rawTailLength;
+  const refreshedOffset = args.refreshedMessages.length - rawTailLength;
+  for (let index = 0; index < rawTailLength; index += 1) {
+    const durable = safeSchemaJson(
+      durableComparableMessage(durableRawTail[index]),
+    );
+    if (
+      safeSchemaJson(
+        durableComparableMessage(args.refreshedMessages[refreshedOffset + index]),
+      ) !== durable ||
+      safeSchemaJson(
+        durableComparableMessage(args.residentMessages[residentOffset + index]),
+      ) !== durable
+    ) {
+      return false;
+    }
+  }
+  return true;
 };
 
 /** Provider-visible bytes per tool, snapshotted when the thread context freezes. */
@@ -116,7 +253,7 @@ type FrozenToolSchemas = ReturnType<typeof snapshotToolSchemas>;
  */
 export class PiSessionCore {
   private readonly logger;
-  private agent: Agent | null = null;
+  protected agent: Agent | null = null;
   private currentResolvedLlm: ResolvedLlmRoute | null = null;
   private pendingHistoryRefresh = false;
   private lastMemoryEnabled: boolean | null = null;
@@ -239,6 +376,187 @@ export class PiSessionCore {
     };
     this.refreshHistoryIfNeeded(refreshedContext, logContext);
     return refreshedContext;
+  }
+
+  /**
+   * Bound a continuously-running Pi loop at the same durable checkpoint
+   * boundary used between outer runtime turns. The agent-core invokes this
+   * only after the completed assistant/tool-result group has synchronously
+   * emitted `message_end` and immediately before another provider call.
+   *
+   * SQLite stays authoritative: compaction appends its overlay first, then
+   * this method reloads the checkpoint + exact post-checkpoint tail. Until
+   * both steps succeed it returns no replacement, leaving the live mirror
+   * untouched. The compactor owns split selection, including atomic
+   * assistant-tool-call/tool-result groups.
+   */
+  protected async refreshActiveWorkingSetAtBoundary(args: {
+    opts: OrchestratorRunOptions;
+    agentContext: LocalAgentContext;
+    runId: string;
+    messages: AgentMessage[];
+    completedMessages: AgentMessage[];
+    requiredResidentSuffix?: AgentMessage[];
+    signal?: AbortSignal;
+    onCompacting?: () => void;
+    canApply?: () => boolean;
+    logContext: SessionLogContext;
+  }): Promise<AgentMessage[] | undefined> {
+    const agent = this.agent;
+    const scheduler = args.opts.compactionScheduler;
+    if (!agent || !scheduler || args.signal?.aborted) return undefined;
+
+    let measuredTokens = 0;
+    if (!this.pendingHistoryRefresh) {
+      try {
+        const lastProviderTokens = getLastProviderPayloadTokens(this.threadKey);
+        if (lastProviderTokens === undefined) {
+          // Durable history already includes the completed group.
+          measuredTokens = getThreadTokenEstimate(
+            args.opts.store.loadThreadMessages(this.threadKey),
+          );
+        } else {
+          // The last measured provider payload predates this completed
+          // assistant/tool group. Include it so a large tool result can
+          // trigger compaction before it reaches the next provider call.
+          measuredTokens =
+            lastProviderTokens +
+            estimateProviderPayloadTokens(
+              { messages: args.completedMessages },
+              Number.POSITIVE_INFINITY,
+            );
+        }
+      } catch {
+        // A failed size probe must not affect the active loop. The normal
+        // provider preflight/overflow-recovery path remains authoritative.
+        return undefined;
+      }
+      const triggerTokens = getCompactionTriggerTokens(
+        args.opts.resolvedLlm,
+        args.opts.agentType,
+      );
+      if (measuredTokens < triggerTokens) return undefined;
+      args.onCompacting?.();
+    }
+
+    try {
+      // Serialize with any compaction scheduled by an immediately-prior
+      // outer turn. The scheduler can coalesce queued callbacks, so drain
+      // first and schedule our own pass only once it is idle.
+      let pending = scheduler.pending(this.threadKey);
+      while (pending) {
+        if (!(await awaitUnlessAborted(pending, args.signal))) return undefined;
+        pending = scheduler.pending(this.threadKey);
+      }
+      if (this.agent !== agent || args.signal?.aborted) return undefined;
+
+      if (!this.pendingHistoryRefresh) {
+        let compacted = false;
+        const inputBudget = providerInputBudgetTokens(
+          args.opts.resolvedLlm.model.contextWindow,
+        );
+        const runCompaction = () =>
+          runCompactionWithHooks({
+            opts: args.opts,
+            threadKey: this.threadKey,
+            runId: args.runId,
+            messageCount: args.messages.length,
+          });
+        const scheduled = scheduler.schedule({
+          threadKey: this.threadKey,
+          run: async () => {
+            const result =
+              inputBudget && measuredTokens >= inputBudget
+                ? await withForcedThreadCompaction(
+                    this.threadKey,
+                    runCompaction,
+                  )
+                : await runCompaction();
+            compacted = result.compacted;
+            if (compacted) this.notifyCompacted();
+          },
+        });
+        if (!(await awaitUnlessAborted(scheduled, args.signal))) return undefined;
+        if (!compacted || !this.pendingHistoryRefresh) return undefined;
+      }
+      if (this.agent !== agent || args.signal?.aborted) return undefined;
+
+      // A live steer can arrive while async compaction is running. Its row is
+      // durable before the loop consumes it, so page in only if the caller
+      // confirms there are still no queued/dequeued messages.
+      if (args.canApply && !args.canApply()) return undefined;
+      const threadHistory = args.opts.store.loadThreadMessages(this.threadKey);
+      const refreshedContext: LocalAgentContext = {
+        ...args.agentContext,
+        threadHistory,
+      };
+      const refreshed = buildHistorySource(refreshedContext);
+      this.abortContainment.reapplyQuarantine(refreshed);
+
+      // Require both the completed group and the full provider-visible
+      // post-checkpoint tail to match resident context. Failed/aborted attempts
+      // are intentionally non-replayable and filtered by the history builder;
+      // other extra or truncated rows fail open here.
+      const completedSuffixExact = hasExactDurableCompletedSuffix(
+        refreshed,
+        args.completedMessages,
+      );
+      const currentTurnSuffixExact =
+        !args.requiredResidentSuffix ||
+        hasExactDurableCompletedSuffix(
+          refreshed,
+          args.requiredResidentSuffix,
+        );
+      const rawTailExact = hasExactDurableRawTail({
+        store: args.opts.store,
+        threadKey: this.threadKey,
+        threadHistory,
+        agentContext: refreshedContext,
+        residentMessages: args.messages,
+        refreshedMessages: refreshed,
+      });
+      if (!completedSuffixExact || !currentTurnSuffixExact || !rawTailExact) {
+        this.logger.warn("active-working-set-durable-tail-mismatch", {
+          threadKey: this.threadKey,
+          historyLength: refreshed.length,
+          completedMessages: args.completedMessages.length,
+          completedSuffixExact,
+          currentTurnSuffixExact,
+          rawTailExact,
+          ...args.logContext,
+        });
+        return undefined;
+      }
+
+      this.pendingHistoryRefresh = false;
+      this.adoptFreshContextSnapshot = true;
+      checkPromptPrefixStability({
+        threadKey: this.threadKey,
+        systemPrompt: agent.state.systemPrompt,
+        tools: agent.state.tools,
+        messages: refreshed,
+        boundary: true,
+        logger: this.logger,
+      });
+      this.logger.debug("active-working-set-refreshed", {
+        threadKey: this.threadKey,
+        priorMessages: args.messages.length,
+        historyLength: refreshed.length,
+        ...args.logContext,
+      });
+      // The outer run options retain agentContext for the duration of the
+      // prompt. Drop their reference to the pre-compaction durable rows too,
+      // otherwise the Agent swap alone would not release the old history.
+      args.agentContext.threadHistory = threadHistory;
+      return refreshed;
+    } catch (error) {
+      this.logger.warn("active-working-set-refresh-failed", {
+        threadKey: this.threadKey,
+        error: error instanceof Error ? error.message : String(error),
+        ...args.logContext,
+      });
+      return undefined;
+    }
   }
 
   /**
@@ -458,7 +776,11 @@ export class PiSessionCore {
     agent: Agent,
     agentContext: LocalAgentContext,
     logContext: SessionLogContext,
-  ): { messagesBefore: number; newlyQuarantined: QuarantineRecord | null } {
+  ): {
+    messagesBefore: number;
+    failureMessagesBefore: number;
+    newlyQuarantined: QuarantineRecord | null;
+  } {
     const persisted = (agentContext.threadHistory ?? [])
       .map((entry: { customMessage?: { customType?: string; content?: unknown } }) =>
         entry.customMessage?.customType === QUARANTINE_CUSTOM_TYPE
@@ -488,6 +810,7 @@ export class PiSessionCore {
     }
     return {
       messagesBefore: agent.state.messages.length,
+      failureMessagesBefore: agent.state.messages.length,
       newlyQuarantined: application.newlyQuarantined,
     };
   }
@@ -505,13 +828,19 @@ export class PiSessionCore {
    */
   protected prepareSafetyModelSwap(
     agent: Agent,
-    args: { errorMessage: string; logContext: SessionLogContext },
+    args: {
+      errorMessage: string;
+      store: RuntimeStore;
+      runId: string;
+      logContext: SessionLogContext;
+    },
   ): SafetySwapRoute | null {
     if (!this.currentResolvedLlm) return null;
     if (!isProviderContentAbortMessage(args.errorMessage)) return null;
     const swap = buildSafetyAbortSwapRoute(this.currentResolvedLlm);
     if (!swap) return null;
     if (!this.popErroredTailForResume(agent)) return null;
+    this.dropDurableErroredTailForRetry(args.store, args.runId);
 
     this.setResolvedLlm(swap.route);
     agent.state.model = swap.route.model;
@@ -536,12 +865,18 @@ export class PiSessionCore {
    */
   protected prepareSafetySameModelRetry(
     agent: Agent,
-    args: { errorMessage: string; logContext: SessionLogContext },
+    args: {
+      errorMessage: string;
+      store: RuntimeStore;
+      runId: string;
+      logContext: SessionLogContext;
+    },
   ): { modelId: string } | null {
     if (!this.currentResolvedLlm) return null;
     if (!isProviderContentAbortMessage(args.errorMessage)) return null;
     if (!buildSafetyAbortSwapRoute(this.currentResolvedLlm)) return null;
     if (!this.popErroredTailForResume(agent)) return null;
+    this.dropDurableErroredTailForRetry(args.store, args.runId);
 
     const modelId = this.currentResolvedLlm.model.id;
     this.logger.warn("safety-same-model-retry", {
@@ -589,18 +924,22 @@ export class PiSessionCore {
     agent: Agent,
     args: {
       failure: AgentRunFailure;
+      store: RuntimeStore;
+      runId: string;
       logContext: SessionLogContext;
     },
   ): boolean {
     if (!args.failure.retryable) return false;
-    const prepared =
-      args.failure.category === "empty_response"
-        ? this.popEmptyCompletionTailForResume(agent) ||
-          this.popErroredTailForResume(agent)
-        : this.popErroredTailForResume(agent);
-    if (!prepared) {
+    if (
+      !this.popErroredTailForResume(agent, {
+        allowEmpty: args.failure.category === "empty_response",
+      })
+    ) {
       return false;
     }
+    this.dropDurableErroredTailForRetry(args.store, args.runId, {
+      allowEmpty: args.failure.category === "empty_response",
+    });
     this.logger.warn("agent-run-retry", {
       threadKey: this.threadKey,
       category: args.failure.category,
@@ -610,13 +949,81 @@ export class PiSessionCore {
     return true;
   }
 
+  private dropDurableErroredTailForRetry(
+    store: RuntimeStore,
+    runId: string,
+    options?: { allowEmpty?: boolean },
+  ): void {
+    if (
+      !store ||
+      !runId ||
+      typeof store.loadThreadMessages !== "function" ||
+      typeof store.removeThreadMessageEntry !== "function"
+    ) {
+      return;
+    }
+    try {
+      const last = store.loadThreadMessages(this.threadKey).at(-1);
+      const payload = last?.payload;
+      const errored =
+        payload?.role === "assistant" &&
+        (payload.stopReason === "error" || payload.stopReason === "aborted");
+      const empty =
+        options?.allowEmpty === true &&
+        payload?.role === "assistant" &&
+        !payload.content.some(
+          (block: { type: string; text?: string }) =>
+            block.type === "toolCall" ||
+            (block.type === "text" && (block.text ?? "").trim().length > 0),
+        );
+      if (
+        !last?.entryId ||
+        payload?.role !== "assistant" ||
+        payload.stellaRunId !== runId ||
+        (!errored && !empty)
+      ) {
+        return;
+      }
+      store.removeThreadMessageEntry(this.threadKey, last.entryId);
+    } catch (error) {
+      this.logger.warn("agent-run-retry-durable-tail-remove-failed", {
+        threadKey: this.threadKey,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   // Tail-pop logic lives in run-retry.ts so cloud loop hosts share it.
   private popEmptyCompletionTailForResume(agent: Agent): boolean {
     return popEmptyCompletionTailForResume(agent.state.messages);
   }
 
-  private popErroredTailForResume(agent: Agent): boolean {
-    return popErroredTailForResume(agent.state.messages);
+  private popErroredTailForResume(
+    agent: Agent,
+    options?: { allowEmpty?: boolean },
+  ): boolean {
+    if (!options?.allowEmpty) {
+      return popErroredTailForResume(agent.state.messages);
+    }
+    const messages = agent.state.messages;
+    const last = messages[messages.length - 1];
+    const popErroredTail =
+      last?.role === "assistant" &&
+      (last.stopReason === "error" || last.stopReason === "aborted");
+    const popEmptyTail =
+      last?.role === "assistant" &&
+      !last.content.some(
+        (block) =>
+          block.type === "toolCall" ||
+          (block.type === "text" && block.text.trim().length > 0),
+      );
+    const popAssistantTail = popErroredTail || popEmptyTail;
+    const tailAfterPop = popAssistantTail
+      ? messages[messages.length - 2]
+      : last;
+    if (!tailAfterPop || tailAfterPop.role === "assistant") return false;
+    if (popAssistantTail) messages.pop();
+    return true;
   }
 
   protected noteAbortContainmentSuccess(): void {
@@ -632,15 +1039,19 @@ export class PiSessionCore {
     agent: Agent,
     args: {
       messagesBefore: number;
+      failureMessagesBefore?: number;
       errorMessage: string;
       swapAttempted?: { fromModelId: string; toModelId: string } | undefined;
       logContext: SessionLogContext;
     },
   ): string {
     const messages = agent.state.messages;
+    const failureMessagesBefore = Number.isFinite(args.failureMessagesBefore)
+      ? (args.failureMessagesBefore as number)
+      : args.messagesBefore;
     const surfaced = this.abortContainment.noteRunFailure({
-      history: messages.slice(0, args.messagesBefore),
-      appended: messages.slice(args.messagesBefore),
+      history: messages.slice(0, failureMessagesBefore),
+      appended: messages.slice(failureMessagesBefore),
       errorMessage: args.errorMessage,
       swapAttempted: args.swapAttempted,
     });
@@ -796,6 +1207,7 @@ export class PiSessionCore {
     tools: CreateRuntimeAgentArgs["tools"];
     afterToolCall?: CreateRuntimeAgentArgs["afterToolCall"];
     onProviderRetry?: CreateRuntimeAgentArgs["onProviderRetry"];
+    onTurnBoundary?: CreateRuntimeAgentArgs["onTurnBoundary"];
     logContext: SessionLogContext;
   }): Agent {
     const serviceTier = resolveCodexProviderServiceTier(
@@ -825,6 +1237,9 @@ export class PiSessionCore {
         ...(args.afterToolCall ? { afterToolCall: args.afterToolCall } : {}),
         ...(args.onProviderRetry
           ? { onProviderRetry: args.onProviderRetry }
+          : {}),
+        ...(args.onTurnBoundary
+          ? { onTurnBoundary: args.onTurnBoundary }
           : {}),
       });
       this.logger.debug("agent-created", {

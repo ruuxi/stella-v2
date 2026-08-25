@@ -52,7 +52,7 @@ describe("cloud-owned conversation storage", () => {
     });
   });
 
-  test("allows an anonymous authenticated session to refresh its cloud route", () => {
+  test("does not treat a signed-out refresh callback as cloud authentication", () => {
     expect(
       createStellaRoute({
         site: {
@@ -64,6 +64,6 @@ describe("cloud-owned conversation storage", () => {
         agentType: "orchestrator",
         modelId: "stella/default",
       }),
-    ).not.toBeNull();
+    ).toBeNull();
   });
 });

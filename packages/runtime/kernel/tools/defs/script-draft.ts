@@ -1,25 +1,25 @@
 /**
- * `ScriptDraft` — schedule-only authoring tool.
+ * `ScriptDraft` — watch-sensor script authoring tool.
  *
- * Single tool that fuses three steps the Schedule subagent would otherwise
- * have to chain via shell + apply_patch + a separate run:
+ * Single tool that fuses three steps a watch-setup agent would otherwise
+ * have to chain via shell + file edits + a separate run:
  *
  *  1. Pick a fresh `<uuid>.ts` path under `~/.stella/schedule-scripts/`
  *     (the agent never picks the path — the tool owns it).
  *  2. Write the provided `code` to that path.
  *  3. Immediately dry-run it under the exact same `bun run` runtime that the
- *     scheduler tick uses for `payload.kind === 'script'` cron fires.
+ *     scheduler tick uses for `watch` (and legacy `script`) cron fires.
  *
- * Returns the assigned path plus stdout/stderr/exit so the agent can decide
- * whether to commit the cron via `CronAdd({ kind: 'script', scriptPath })`
- * or iterate by calling `ScriptDraft` again with revised code.
+ * This is the "verified at birth" half of the watch trigger: the agent
+ * investigates the target, writes the deterministic check (fetch + extract
+ * + diff against the `<scriptPath>.state.json` baseline), sees a clean
+ * dry-run here, and only then registers the sensor via
+ * `schedule_add({ kind: 'watch', scriptPath })`.
  *
  * Iterated calls leave orphan files until either:
- *   - `CronRemove` deletes a referenced script's file, or
+ *   - `schedule_remove` deletes a referenced script's file, or
  *   - the scheduler's startup `collectOrphanScripts` pass sweeps the
  *     directory for any `.ts` not referenced by an active cron job.
- *
- * Gated to the Schedule subagent — the orchestrator never sees this tool.
  */
 
 import crypto from "node:crypto";
@@ -69,16 +69,30 @@ export const createScriptDraftTool = (
   options: ScriptDraftToolOptions,
 ): ToolDefinition => ({
   name: "ScriptDraft",
-  agentTypes: [AGENT_IDS.SCHEDULE],
+  agentTypes: [AGENT_IDS.ORCHESTRATOR, AGENT_IDS.GENERAL],
+  demoted: {
+    searchTerms: [
+      "watch",
+      "watcher",
+      "sensor",
+      "monitor",
+      "schedule",
+      "script",
+      "check",
+      "poll",
+      "diff",
+      "cron",
+    ],
+  },
   description:
-    "Write a Bun/TypeScript script to the schedule-scripts directory and immediately dry-run it. Returns the assigned scriptPath plus exitCode, stdout, and stderr. Use stdout to deliver the message at fire time (empty stdout = silent). When the dry-run looks correct, register the cron with `CronAdd({ kind: 'script', scriptPath })`.",
+    "Author a watch check script: writes Bun/TypeScript to the schedule-scripts directory and immediately dry-runs it, returning the assigned scriptPath plus exitCode, stdout, and stderr. Watch contract at fire time: empty stdout + exit 0 = no change (silent); non-empty stdout = detected change details; non-zero exit = sensor failure. Keep the script deterministic (fetch + extract + diff against `<scriptPath>.state.json`), store the new baseline in the sidecar, and iterate here until the dry-run is clean — then register the sensor with `schedule_add({ kind: 'watch', scriptPath })`.",
   parameters: {
     type: "object",
     properties: {
       code: {
         type: "string",
         description:
-          "Full TypeScript source for the script. Print to stdout to deliver an assistant message + OS notification at fire time; print nothing to stay silent. May read/write a sidecar `<scriptPath>.state.json` for cross-run state. Wall-clock cap: 30s per run.",
+          "Full TypeScript source for the check script. Print change details to stdout only when something changed (that output escalates to the assistant at fire time); print nothing when unchanged; exit non-zero on sensor failure. Read/write the sidecar `<scriptPath>.state.json` (via env STELLA_SCHEDULE_SCRIPT_PATH) for the last-seen baseline. Wall-clock cap: 30s per run.",
       },
     },
     required: ["code"],

@@ -446,7 +446,9 @@
       },
       "steps": {
         "download": "Stáhněte aplikaci",
-        "downloadQrAlt": "Naskenujte pro stažení Stelly z App Store",
+        "platformSelectorLabel": "Vyberte mobilní platformu",
+        "appStoreQrAlt": "Naskenujte pro stažení Stelly z App Store",
+        "playStoreQrAlt": "Naskenujte pro stažení Stelly z Google Play",
         "connect": "Připojte telefon"
       },
       "toasts": {

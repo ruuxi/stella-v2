@@ -104,9 +104,14 @@ class TestSession extends PiSessionCore {
     });
   }
 
-  retryRun(agent: Agent, failure: AgentRunFailure) {
+  retryRun(
+    agent: Agent,
+    failure: AgentRunFailure,
+    durable?: { store: unknown; runId: string },
+  ) {
     return this.prepareAgentRunRetry(agent, {
       failure,
+      ...durable,
       logContext: {},
     });
   }
@@ -300,6 +305,90 @@ describe("swap-resume flow (end to end)", () => {
 });
 
 describe("transient run retry resume flow", () => {
+  it("removes the durably flushed failed assistant before retrying", () => {
+    const route = fableStellaRoute();
+    const session = new TestSession();
+    session.setRoute(route);
+    const messages: AgentMessage[] = [
+      userMessage(1),
+      assistantMessage(2, "error", { errorMessage: "500 Server Error" }),
+    ];
+    const agent = fakeAgent(messages, route);
+    const durableFailedMessage = {
+      ...messages[1],
+      stellaRunId: "run-retry",
+    };
+    const removeThreadMessageEntry = vi.fn(() => true);
+    const store = {
+      loadThreadMessages: vi.fn(() => [
+        {
+          entryId: "failed-entry",
+          payload: durableFailedMessage,
+        },
+      ]),
+      removeThreadMessageEntry,
+    };
+
+    const retry = session.retryRun(
+      agent,
+      {
+        retryable: true,
+        category: "http_5xx",
+        message: "500 Server Error",
+      },
+      { store, runId: "run-retry" },
+    );
+
+    expect(retry).toBe(true);
+    expect(messages).toHaveLength(1);
+    expect(removeThreadMessageEntry).toHaveBeenCalledWith(
+      "test-thread",
+      "failed-entry",
+    );
+  });
+
+  it("removes a durably flushed empty assistant before retrying", () => {
+    const route = fableStellaRoute();
+    const session = new TestSession();
+    session.setRoute(route);
+    const messages: AgentMessage[] = [
+      userMessage(1),
+      assistantMessage(2, "stop"),
+    ];
+    const agent = fakeAgent(messages, route);
+    const durableEmptyMessage = {
+      ...messages[1],
+      stellaRunId: "run-empty-retry",
+    };
+    const removeThreadMessageEntry = vi.fn(() => true);
+    const store = {
+      loadThreadMessages: vi.fn(() => [
+        {
+          entryId: "empty-entry",
+          payload: durableEmptyMessage,
+        },
+      ]),
+      removeThreadMessageEntry,
+    };
+
+    expect(
+      session.retryRun(
+        agent,
+        {
+          retryable: true,
+          category: "empty_response",
+          message: "Provider returned an empty response",
+        },
+        { store, runId: "run-empty-retry" },
+      ),
+    ).toBe(true);
+    expect(messages).toHaveLength(1);
+    expect(removeThreadMessageEntry).toHaveBeenCalledWith(
+      "test-thread",
+      "empty-entry",
+    );
+  });
+
   it("shares the four-attempt budget across transient and safety stages", async () => {
     const route = fableStellaRoute();
     const session = new TestSession();

@@ -147,20 +147,21 @@ export function MiniModelPicker() {
             : (preferences?.reasoningEfforts?.orchestrator ??
                 preferences?.reasoningEfforts?.general ??
                 "default");
-    // ChatGPT reports each model's default effort through the codex catalog.
-    // The store is shared with the sidebar picker (1h staleness), so this is
-    // a cache read when that surface already fetched it — and disabled
-    // entirely off the codex engine.
-    const codexCatalog = useCodexModelCatalog(committedEngine === "codex_cli");
+    // Model metadata from Codex app-server belongs only to the explicit native
+    // runtime. Regular ChatGPT selections use the in-process OAuth provider and
+    // must not launch the local Codex executable from this compact picker.
+    const nativeCodexRuntimeEnabled = preferences?.useNativeCodexRuntime === true;
+    const codexCatalog = useCodexModelCatalog(committedEngine === "codex_cli" &&
+        nativeCodexRuntimeEnabled);
     const selectedChatGptModel = preferences?.codexModel || DEFAULT_CHATGPT_MODEL;
-    const reportedDefaultReasoningEffort = committedEngine === "codex_cli"
+    const reportedDefaultReasoningEffort = committedEngine === "codex_cli" && nativeCodexRuntimeEnabled
         ? codexCatalog.models?.find((model) => model.id === selectedChatGptModel)
             ?.defaultReasoningEffort
         : null;
     // Fast mode (codexServiceTier) — same gate as the sidebar picker: only
     // offered when the live codex catalog reports the selected ChatGPT model
     // supports a faster service tier.
-    const selectedChatGptLiveModel = committedEngine === "codex_cli"
+    const selectedChatGptLiveModel = committedEngine === "codex_cli" && nativeCodexRuntimeEnabled
         ? (codexCatalog.models?.find((model) => model.id === selectedChatGptModel) ?? null)
         : null;
     const selectedChatGptSupportsFast = codexModelSupportsFast(selectedChatGptLiveModel);

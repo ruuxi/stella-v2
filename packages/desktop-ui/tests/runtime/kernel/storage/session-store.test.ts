@@ -7,7 +7,10 @@ import {
   getDesktopDatabasePath,
   initializeDesktopDatabase,
 } from "@stella/runtime/kernel/storage/database-init";
-import { SessionStore } from "../../../../../runtime/kernel/storage/session-store.js";
+import {
+  SessionStore,
+  projectLocalChatUpdateEvent,
+} from "../../../../../runtime/kernel/storage/session-store.js";
 import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 
 type TestContext = {
@@ -67,6 +70,103 @@ afterEach(async () => {
 });
 
 describe("session-store", () => {
+  it("rolls back an entire assistant/tool group when one SQLite append fails", () => {
+    const { db, store } = createTestContext();
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId: "conv-atomic-tool-group",
+      agentType: "orchestrator",
+    });
+    const originalAppend = store.appendThreadSessionEntry.bind(store);
+    let appendCount = 0;
+    vi.spyOn(store, "appendThreadSessionEntry").mockImplementation((args) => {
+      appendCount += 1;
+      if (appendCount === 2) {
+        throw new Error("injected SQLite failure");
+      }
+      return originalAppend(args);
+    });
+
+    expect(() =>
+      store.appendThreadMessages([
+        {
+          threadKey: threadId,
+          timestamp: 2_100,
+          role: "assistant",
+          content: "Running two tools",
+          payload: {
+            role: "assistant",
+            content: [
+              { type: "text", text: "A".repeat(6_100_000) },
+              { type: "toolCall", id: "call-a", name: "a", arguments: {} },
+              { type: "toolCall", id: "call-b", name: "b", arguments: {} },
+            ],
+            api: "openai-completions",
+            provider: "openai",
+            model: "test-model",
+            usage: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 0,
+              cost: {
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                total: 0,
+              },
+            },
+            stopReason: "toolUse",
+            timestamp: 2_100,
+          },
+          preservePayloadExactly: true,
+        },
+        {
+          threadKey: threadId,
+          timestamp: 2_101,
+          role: "toolResult",
+          content: "first result",
+          toolCallId: "call-a",
+          payload: {
+            role: "toolResult",
+            toolCallId: "call-a",
+            toolName: "a",
+            content: [{ type: "text", text: "first result" }],
+            isError: false,
+            timestamp: 2_101,
+          },
+          preservePayloadExactly: true,
+        },
+        {
+          threadKey: threadId,
+          timestamp: 2_102,
+          role: "toolResult",
+          content: "second result",
+          toolCallId: "call-b",
+          payload: {
+            role: "toolResult",
+            toolCallId: "call-b",
+            toolName: "b",
+            content: [{ type: "text", text: "second result" }],
+            isError: false,
+            timestamp: 2_102,
+          },
+          preservePayloadExactly: true,
+        },
+      ]),
+    ).toThrow("injected SQLite failure");
+
+    expect(store.loadRawThreadMessages(threadId)).toEqual([]);
+    expect(
+      db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM runtime_thread_entry_payload_chunks",
+        )
+        .get()?.count,
+    ).toBe(0);
+  });
+
   it("migrates v1 append-sequence rows to the canonical insertion sequence", async () => {
     const rootPath = path.join(
       os.tmpdir(),
@@ -701,7 +801,7 @@ describe("session-store", () => {
       timestamp: 1_000,
       payload: { text: "show this in HTML" },
     });
-    const hiddenAssistant = store.appendEvent({
+    store.appendEvent({
       conversationId,
       type: "assistant_message",
       timestamp: 1_001,
@@ -733,13 +833,8 @@ describe("session-store", () => {
       maxVisibleMessages: 10,
     });
 
-    expect(messages.map((m) => m._id)).toEqual([
-      userA._id,
-      hiddenAssistant._id,
-      assistantA._id,
-    ]);
-    expect(messages[1]?.toolEvents).toEqual([]);
-    expect(messages[2]?.toolEvents.map((e) => e.type)).toEqual([
+    expect(messages.map((m) => m._id)).toEqual([userA._id, assistantA._id]);
+    expect(messages[1]?.toolEvents.map((e) => e.type)).toEqual([
       "tool_request",
       "tool_result",
     ]);
@@ -781,7 +876,7 @@ describe("session-store", () => {
       conversationId,
       { maxVisibleMessages: 10 },
     );
-    expect(messages).toHaveLength(4);
+    expect(messages).toHaveLength(3);
     // 3 visible (user, assistant, user) — the hidden reminder doesn't
     // count toward the chat's "how many visible messages do we have"
     // metric used for pagination.
@@ -939,10 +1034,8 @@ describe("session-store", () => {
     const { messages } = store.listMessages(conversationId, {
       maxVisibleMessages: 4,
     });
-    // Window should contain the 4 most-recent VISIBLE messages, ignoring
-    // hidden rows. Hidden rows still flow through but the surface filter
-    // hides them at render time — they're returned here so optimistic
-    // overlay merging can deduplicate against them.
+    // Window contains only the 4 most-recent visible messages. Hidden source
+    // rows remain durable in SQLite but never inflate the eager IPC page.
     const visibleTexts = messages
       .filter((m) => {
         const visibility = (
@@ -957,17 +1050,7 @@ describe("session-store", () => {
       "late user 0",
       "late user 1",
     ]);
-    // Hidden reminders ARE in the window (so optimistic overlays can
-    // dedupe against them), but they didn't consume the cap.
-    const hiddenTexts = messages
-      .filter((m) => {
-        const visibility = (
-          m.payload?.metadata as { ui?: { visibility?: string } } | undefined
-        )?.ui?.visibility;
-        return visibility === "hidden";
-      })
-      .map((m) => m.payload?.text);
-    expect(hiddenTexts).toHaveLength(5);
+    expect(messages).toHaveLength(4);
   });
 
   it("listMessagesBefore pages strictly older messages using the oldest-message cursor", () => {
@@ -1004,6 +1087,342 @@ describe("session-store", () => {
       "user 1",
       "user 2",
     ]);
+  });
+
+  it("bounds eager turn activity and pages complete detail on demand", () => {
+    const { store } = createTestContext();
+    const conversationId = store.getOrCreateDefaultConversationId();
+    store.appendEvent({
+      conversationId,
+      type: "user_message",
+      timestamp: 1_000,
+      payload: { text: "run a tool-heavy job" },
+    });
+    const eventIds: string[] = [];
+    for (let index = 0; index < 100; index += 1) {
+      eventIds.push(
+        store.appendEvent({
+          conversationId,
+          type: index % 2 === 0 ? "tool_request" : "tool_result",
+          timestamp: 1_001 + index,
+          payload: {
+            toolName: "exec_command",
+            index,
+            output:
+              `${index}:` +
+              (index === 0 ? "😀".repeat(5_000) : "x".repeat(20_000)),
+          },
+        })._id,
+      );
+    }
+    const assistant = store.appendEvent({
+      conversationId,
+      type: "assistant_message",
+      timestamp: 1_200,
+      payload: { text: "done" },
+    });
+
+    const window = store.listMessages(conversationId, {
+      maxVisibleMessages: 10,
+    });
+    const row = window.messages.find(
+      (message) => message._id === assistant._id,
+    )!;
+    expect(row.toolEventSummary).toMatchObject({
+      totalCount: 33,
+      loadedCount: 32,
+      truncated: true,
+      totalCountIsLowerBound: true,
+    });
+    expect(row.toolEvents.map((event) => event._id)).toEqual([
+      ...eventIds.slice(0, 16),
+      ...eventIds.slice(-16),
+    ]);
+    expect(
+      Math.max(
+        ...row.toolEvents.map(
+          (event) =>
+            new TextEncoder().encode(JSON.stringify(event.payload)).byteLength,
+        ),
+      ),
+    ).toBeLessThanOrEqual(4_096);
+
+    const firstPage = store.listMessageToolEvents(conversationId, {
+      messageId: assistant._id,
+      messageTimestampMs: assistant.timestamp,
+      limit: 25,
+    });
+    expect(firstPage.events).toHaveLength(25);
+    expect(firstPage.hasMore).toBe(true);
+    expect(
+      new TextEncoder().encode(firstPage.events[0]?.payload?.output as string)
+        .byteLength,
+    ).toBeGreaterThan(20_000);
+    const secondPage = store.listMessageToolEvents(conversationId, {
+      messageId: assistant._id,
+      messageTimestampMs: assistant.timestamp,
+      limit: 25,
+      afterId: firstPage.nextCursor!.id,
+      afterTimestampMs: firstPage.nextCursor!.timestamp,
+      afterSequence: firstPage.nextCursor!.sequence,
+    });
+    expect(secondPage.events.map((event) => event._id)).toEqual(
+      eventIds.slice(25, 50),
+    );
+  });
+
+  it("offers lazy full detail when a single eager tool payload is projected", () => {
+    const { store } = createTestContext();
+    const conversationId = store.getOrCreateDefaultConversationId();
+    store.appendEvent({
+      conversationId,
+      type: "user_message",
+      timestamp: 1_000,
+      payload: { text: "show one large result" },
+    });
+    store.appendEvent({
+      conversationId,
+      eventId: "large-single-tool-result",
+      type: "tool_result",
+      timestamp: 1_001,
+      payload: { output: "x".repeat(10_000) },
+    });
+    const assistant = store.appendEvent({
+      conversationId,
+      type: "assistant_message",
+      timestamp: 1_002,
+      payload: { text: "done" },
+    });
+
+    const row = store
+      .listMessages(conversationId, { maxVisibleMessages: 10 })
+      .messages.find((message) => message._id === assistant._id)!;
+    expect(row.toolEventSummary).toMatchObject({
+      totalCount: 1,
+      loadedCount: 1,
+      truncated: true,
+    });
+    expect(row.toolEventSummary).not.toHaveProperty("totalCountIsLowerBound");
+    expect(row.toolEvents[0]?.payload?.__stellaEagerProjection).toEqual({
+      truncated: true,
+      fullDetailAvailable: true,
+    });
+
+    const detail = store.listMessageToolEvents(conversationId, {
+      messageId: assistant._id,
+      messageTimestampMs: assistant.timestamp,
+      limit: 10,
+    });
+    expect(detail.hasMore).toBe(false);
+    expect(detail.events[0]?.payload?.output).toBe("x".repeat(10_000));
+  });
+
+  it("bounds tool-event update pushes while preserving authored text", () => {
+    const toolEvent = projectLocalChatUpdateEvent({
+      _id: "large-tool",
+      timestamp: 1,
+      type: "tool_result",
+      payload: { toolName: "exec_command", output: "😀".repeat(10_000) },
+    });
+    expect(
+      new TextEncoder().encode(JSON.stringify(toolEvent)).byteLength,
+    ).toBeLessThanOrEqual(4_300);
+    expect(toolEvent.payload?.toolName).toBe("exec_command");
+
+    const text = "a".repeat(10_000);
+    const assistantEvent = {
+      _id: "large-assistant",
+      timestamp: 2,
+      type: "assistant_message",
+      payload: { text },
+    };
+    expect(projectLocalChatUpdateEvent(assistantEvent)).toBe(assistantEvent);
+    expect(projectLocalChatUpdateEvent(assistantEvent).payload.text).toBe(text);
+  });
+
+  it("keeps structured arrays schema-valid when projecting tool payloads", () => {
+    const fileChanges = Array.from({ length: 24 }, (_, index) => ({
+      path: `/tmp/${"nested/".repeat(100)}file-${index}.txt`,
+      kind: "created",
+    }));
+    const event = projectLocalChatUpdateEvent({
+      _id: "large-file-event",
+      timestamp: 1,
+      type: "tool_result",
+      payload: { fileChanges },
+    });
+
+    expect(event.payload.fileChanges.length).toBeGreaterThan(0);
+    expect(event.payload.fileChanges.length).toBeLessThan(fileChanges.length);
+    expect(event.payload.fileChanges).toEqual(
+      fileChanges.slice(0, event.payload.fileChanges.length),
+    );
+    expect(
+      event.payload.fileChanges.every(
+        (entry: unknown) =>
+          typeof entry === "object" &&
+          entry !== null &&
+          typeof (entry as { path?: unknown }).path === "string",
+      ),
+    ).toBe(true);
+    expect(event.payload.__stellaEagerProjection).toEqual({
+      truncated: true,
+      fullDetailAvailable: true,
+    });
+  });
+
+  it("preserves artifact identity when the general eager projection cannot fit", () => {
+    const fileChange = {
+      path: `/tmp/${"deep/".repeat(150)}result.html`,
+      kind: { type: "add" },
+    };
+    const event = projectLocalChatUpdateEvent({
+      _id: "large-artifact-event",
+      timestamp: 1,
+      type: "tool_result",
+      payload: {
+        fileChanges: Array.from({ length: 10 }, () => fileChange),
+        producedFiles: Array.from({ length: 10 }, () => fileChange),
+        output: "x".repeat(100_000),
+      },
+    });
+
+    expect(event.payload.fileChanges).toEqual([fileChange]);
+    expect(event.payload.producedFiles).toEqual([fileChange]);
+    expect(event.payload.__stellaEagerProjection).toEqual({
+      truncated: true,
+      fullDetailAvailable: true,
+    });
+    expect(
+      new TextEncoder().encode(JSON.stringify(event.payload)).byteLength,
+    ).toBeLessThanOrEqual(4_096);
+  });
+
+  it("keeps bounded and lazy tool detail owned by the correct assistant", () => {
+    const { store } = createTestContext();
+    const conversationId = store.getOrCreateDefaultConversationId();
+    store.appendEvent({
+      conversationId,
+      eventId: "user-anchor",
+      type: "user_message",
+      timestamp: 1_000,
+      payload: { text: "research this" },
+    });
+    const beforeFirst = store.appendEvent({
+      conversationId,
+      eventId: "tool-before-first",
+      type: "tool_result",
+      timestamp: 1_001,
+      payload: { output: "before first" },
+    });
+    const first = store.appendEvent({
+      conversationId,
+      eventId: "assistant-first",
+      type: "assistant_message",
+      timestamp: 1_002,
+      payload: { text: "I found one lead" },
+    });
+    const afterFirst = store.appendEvent({
+      conversationId,
+      eventId: "tool-after-first",
+      type: "tool_result",
+      timestamp: 1_003,
+      payload: { output: "after first" },
+    });
+    store.appendEvent({
+      conversationId,
+      eventId: "assistant-hidden",
+      type: "assistant_message",
+      timestamp: 1_003.1,
+      payload: {
+        text: "internal reminder",
+        metadata: { ui: { visibility: "hidden" } },
+      },
+    });
+    const afterHidden = store.appendEvent({
+      conversationId,
+      eventId: "tool-after-hidden",
+      type: "tool_result",
+      timestamp: 1_003.2,
+      payload: { output: "after hidden" },
+    });
+    const second = store.appendEvent({
+      conversationId,
+      eventId: "assistant-second",
+      type: "assistant_message",
+      timestamp: 1_004,
+      payload: { text: "Here is the answer" },
+    });
+    const afterSecond = store.appendEvent({
+      conversationId,
+      eventId: "tool-after-second",
+      type: "tool_result",
+      timestamp: 1_005,
+      payload: { output: "after second" },
+    });
+
+    const window = store.listMessages(conversationId, {
+      maxVisibleMessages: 10,
+    });
+    expect(
+      window.messages.find((message) => message._id === first._id)?.toolEvents,
+    ).toEqual([beforeFirst, afterFirst, afterHidden]);
+    expect(
+      window.messages.find((message) => message._id === second._id)?.toolEvents,
+    ).toEqual([afterSecond]);
+
+    expect(
+      store.listMessageToolEvents(conversationId, {
+        messageId: first._id,
+        messageTimestampMs: first.timestamp,
+      }).events,
+    ).toEqual([beforeFirst, afterFirst, afterHidden]);
+    expect(
+      store.listMessageToolEvents(conversationId, {
+        messageId: second._id,
+        messageTimestampMs: second.timestamp,
+      }).events,
+    ).toEqual([afterSecond]);
+  });
+
+  it("advances event cursors by sequence when timestamps and ids disagree", () => {
+    const { store } = createTestContext();
+    const conversationId = store.getOrCreateDefaultConversationId();
+    store.appendEvent({
+      conversationId,
+      eventId: "z-user",
+      type: "user_message",
+      timestamp: 1_000,
+      payload: { text: "go" },
+    });
+    store.appendEvent({
+      conversationId,
+      eventId: "z-assistant",
+      type: "assistant_message",
+      timestamp: 1_000,
+      payload: { text: "working" },
+    });
+    const initial = store.listMessages(conversationId, {
+      maxVisibleMessages: 10,
+    });
+    expect(initial.nextCursor?.sequence).toBeTypeOf("number");
+
+    const later = store.appendEvent({
+      conversationId,
+      eventId: "a-later-tool",
+      type: "tool_result",
+      timestamp: 1_000,
+      payload: { output: "done" },
+    });
+    const tail = store.listMessagesAfter(conversationId, {
+      afterTimestampMs: initial.nextCursor!.timestamp,
+      afterId: initial.nextCursor!.id,
+      afterSequence: initial.nextCursor!.sequence,
+      maxVisibleMessages: 10,
+      includeSourceEvents: false,
+    });
+    expect(tail.nextCursor?.sequence).toBe(later.sequence);
+    expect(tail.messages[0]?.toolEvents.at(-1)?._id).toBe(later._id);
   });
 
   it("listMessagesAfter returns only messages after the mobile cursor", () => {
@@ -1056,6 +1475,67 @@ describe("session-store", () => {
       "tool_result",
       "assistant_message",
     ]);
+  });
+
+  it("keeps middle-of-turn mobile artifacts before advancing the source cursor", () => {
+    const { store } = createTestContext();
+    const conversationId = store.getOrCreateDefaultConversationId();
+    const cursor = store.appendEvent({
+      conversationId,
+      eventId: "artifact-cursor",
+      type: "assistant_message",
+      timestamp: 1_000,
+      payload: { text: "ready" },
+    });
+    store.appendEvent({
+      conversationId,
+      eventId: "artifact-turn",
+      type: "user_message",
+      timestamp: 1_001,
+      payload: { text: "make a report" },
+    });
+    for (let index = 0; index < 41; index += 1) {
+      store.appendEvent({
+        conversationId,
+        eventId: `artifact-event-${index}`,
+        type: index === 20 ? "tool_result" : "agent-progress",
+        timestamp: 1_002 + index,
+        payload:
+          index === 20
+            ? {
+                toolName: "exec_command",
+                producedFiles: [
+                  { path: "/tmp/middle.pdf", kind: { type: "add" } },
+                ],
+              }
+            : { agentId: "noise", statusText: `step ${index}` },
+      });
+    }
+    const last = store.appendEvent({
+      conversationId,
+      eventId: "artifact-finished",
+      type: "assistant_message",
+      timestamp: 1_100,
+      payload: { text: "done" },
+    });
+
+    const delta = store.listMessagesAfter(conversationId, {
+      afterTimestampMs: cursor.timestamp,
+      afterId: cursor._id,
+      afterSequence: cursor.sequence,
+      maxVisibleMessages: 10,
+    });
+
+    expect(delta.nextCursor).toMatchObject({
+      id: last._id,
+      sequence: last.sequence,
+    });
+    expect(
+      delta.messages
+        .flatMap((message) => message.toolEvents)
+        .find((event) => event._id === "artifact-event-20")?.payload
+        ?.producedFiles,
+    ).toEqual([{ path: "/tmp/middle.pdf", kind: { type: "add" } }]);
   });
 
   it("listMessagesAfter returns an existing assistant when its turn gets a new artifact", () => {
@@ -1151,6 +1631,64 @@ describe("session-store", () => {
     ]);
   });
 
+  it("paginates mobile source events without skipping past the row budget", () => {
+    const { store } = createTestContext();
+    const conversationId = store.getOrCreateDefaultConversationId();
+    store.appendEvent({
+      conversationId,
+      type: "user_message",
+      timestamp: 1_000,
+      payload: { text: "large turn" },
+    });
+    const assistant = store.appendEvent({
+      conversationId,
+      type: "assistant_message",
+      timestamp: 1_001,
+      payload: { text: "working" },
+    });
+    for (let index = 0; index < 4_005; index += 1) {
+      store.appendEvent({
+        conversationId,
+        eventId: `mobile-tail-${index.toString().padStart(4, "0")}`,
+        type: "tool_result",
+        timestamp: 1_002 + index,
+        payload: { output: `result ${index}` },
+      });
+    }
+
+    const firstPage = store.listMessagesAfter(conversationId, {
+      afterTimestampMs: assistant.timestamp,
+      afterId: assistant._id,
+      afterSequence: assistant.sequence,
+      maxVisibleMessages: 10,
+    });
+    expect(firstPage.sourceEvents).toHaveLength(4_000);
+    expect(firstPage.nextCursor?.id).toBe("mobile-tail-3999");
+    expect(
+      store.hasMobileSyncEventsAfter(
+        conversationId,
+        firstPage.nextCursor!.timestamp,
+        firstPage.nextCursor!.id,
+        firstPage.nextCursor!.sequence,
+      ),
+    ).toBe(true);
+
+    const secondPage = store.listMessagesAfter(conversationId, {
+      afterTimestampMs: firstPage.nextCursor!.timestamp,
+      afterId: firstPage.nextCursor!.id,
+      afterSequence: firstPage.nextCursor!.sequence,
+      maxVisibleMessages: 10,
+    });
+    expect(secondPage.sourceEvents.map((event) => event._id)).toEqual([
+      "mobile-tail-4000",
+      "mobile-tail-4001",
+      "mobile-tail-4002",
+      "mobile-tail-4003",
+      "mobile-tail-4004",
+    ]);
+    expect(secondPage.nextCursor?.id).toBe("mobile-tail-4004");
+  });
+
   it("bounds listMessagesAfter storage work to the requested cursor page", () => {
     const { store } = createTestContext();
     const conversationId = store.getOrCreateDefaultConversationId();
@@ -1172,7 +1710,7 @@ describe("session-store", () => {
       id: anchors[0]!._id,
     });
     expect(pageEnd?.id).toBe(anchors[10]!._id);
-    expect(store.findMessageCursorAfter(conversationId, pageEnd!)?.id).toBe(
+    expect(store.findVisibleMessageCursorAfter(conversationId, pageEnd!)?.id).toBe(
       anchors[11]!._id,
     );
     const originalFetch = store.fetchTimelineRows.bind(store);
@@ -1191,10 +1729,10 @@ describe("session-store", () => {
     expect(messages.map((message) => message.payload?.text)).toEqual(
       Array.from({ length: 10 }, (_, index) => `message ${index + 1}`),
     );
-    expect(fetchedRowCounts).toEqual([11]);
+    expect(fetchedRowCounts).toEqual([11, 10]);
   });
 
-  it("keeps listMessages bounded when the requested visible window exceeds the scan ceiling", () => {
+  it("hard-caps oversized visible-window requests", () => {
     const { store } = createTestContext();
     const conversationId = store.getOrCreateDefaultConversationId();
 
@@ -1212,10 +1750,140 @@ describe("session-store", () => {
       { maxVisibleMessages: 4_001 },
     );
 
-    expect(visibleMessageCount).toBe(4_000);
-    expect(messages).toHaveLength(4_000);
-    expect(messages[0]?.payload?.text).toBe("user 50");
+    expect(visibleMessageCount).toBe(500);
+    expect(messages).toHaveLength(500);
+    expect(messages[0]?.payload?.text).toBe("user 3550");
     expect(messages.at(-1)?.payload?.text).toBe("user 4049");
+  });
+
+  it("finds visible history beyond more than 4,000 hidden successors", () => {
+    const { store } = createTestContext();
+    const conversationId = store.getOrCreateDefaultConversationId();
+    const visible = store.appendEvent({
+      conversationId,
+      type: "user_message",
+      timestamp: 1_000,
+      payload: { text: "still visible" },
+    });
+    for (let index = 0; index < 4_001; index += 1) {
+      store.appendEvent({
+        conversationId,
+        type: "user_message",
+        timestamp: 2_000 + index,
+        payload: {
+          text: `hidden ${index}`,
+          metadata: { ui: { visibility: "hidden" } },
+        },
+      });
+    }
+
+    const page = store.listMessages(conversationId, { maxVisibleMessages: 80 });
+
+    expect(page.visibleMessageCount).toBe(1);
+    expect(page.messages.map((message) => message._id)).toEqual([visible._id]);
+  });
+
+  it("backfills and maintains the indexed visibility projection", () => {
+    const { db, store } = createTestContext();
+    const conversationId = store.getOrCreateDefaultConversationId();
+    const visible = store.appendEvent({
+      conversationId,
+      eventId: "visibility-visible",
+      type: "user_message",
+      timestamp: 1_000,
+      payload: { text: "visible" },
+    });
+    const hidden = store.appendEvent({
+      conversationId,
+      eventId: "visibility-hidden",
+      type: "user_message",
+      timestamp: 1_001,
+      payload: {
+        text: "hidden",
+        metadata: { ui: { visibility: "hidden" } },
+      },
+    });
+    db.exec(`
+      DROP TRIGGER trg_message_ui_visible_insert;
+      DROP TRIGGER trg_message_ui_visible_type_update;
+      DROP TRIGGER trg_part_ui_visible_insert;
+      DROP TRIGGER trg_part_ui_visible_update;
+      DROP TRIGGER trg_part_ui_visible_delete;
+      UPDATE message SET ui_visible = NULL
+      WHERE id IN ('visibility-visible', 'visibility-hidden');
+    `);
+
+    initializeDesktopDatabase(db);
+
+    const rows = db
+      .prepare(
+        `SELECT id, ui_visible AS visible FROM message
+         WHERE id IN (?, ?) ORDER BY id`,
+      )
+      .all(hidden._id, visible._id) as Array<{ id: string; visible: number }>;
+    expect(rows).toEqual([
+      { id: hidden._id, visible: 0 },
+      { id: visible._id, visible: 1 },
+    ]);
+    const queryPlan = db
+      .prepare(
+        `EXPLAIN QUERY PLAN
+         SELECT id FROM message
+         WHERE session_id = ?
+           AND type IN ('user_message', 'assistant_message')
+           AND ui_visible = 1
+         ORDER BY ordering_sequence DESC
+         LIMIT 80`,
+      )
+      .all(conversationId) as Array<{ detail?: string }>;
+    expect(queryPlan.map((step) => step.detail).join("\n")).toContain(
+      "idx_message_session_visible_sequence",
+    );
+
+    db.prepare(
+      `INSERT INTO part (
+        id, session_id, message_id, ord, type, data_json, created_at
+      ) VALUES (?, ?, ?, 1, 'payload', ?, ?)`,
+    ).run(
+      `${hidden._id}:secondary`,
+      conversationId,
+      hidden._id,
+      JSON.stringify({ metadata: { ui: { visibility: "hidden" } } }),
+      1_002,
+    );
+    db.prepare("UPDATE part SET data_json = ? WHERE id = ?").run(
+      JSON.stringify({ text: "secondary edit" }),
+      `${hidden._id}:secondary`,
+    );
+    expect(
+      db
+        .prepare("SELECT ui_visible AS visible FROM message WHERE id = ?")
+        .get(hidden._id),
+    ).toEqual({ visible: 0 });
+    db.prepare("UPDATE message SET type = 'tool_result' WHERE id = ?").run(
+      hidden._id,
+    );
+    db.prepare("UPDATE message SET type = 'user_message' WHERE id = ?").run(
+      hidden._id,
+    );
+    expect(
+      db
+        .prepare("SELECT ui_visible AS visible FROM message WHERE id = ?")
+        .get(hidden._id),
+    ).toEqual({ visible: 0 });
+
+    store.appendEvent({
+      conversationId,
+      eventId: hidden._id,
+      type: "user_message",
+      timestamp: 1_001,
+      payload: { text: "now visible" },
+    });
+    expect(
+      store
+        .listMessages(conversationId, { maxVisibleMessages: 10 })
+        .messages.map((message) => message._id),
+    ).toEqual([visible._id, hidden._id]);
   });
 
   it("listActivity returns only lifecycle events", () => {
@@ -2014,6 +2682,16 @@ describe("session-store", () => {
       role: "user",
       content: "Latest request",
     });
+    const rawAfterCompaction = store.loadRawThreadMessages(threadId);
+    expect(rawAfterCompaction).toHaveLength(3);
+    expect(rawAfterCompaction.map((message) => message.content)).toEqual([
+      "First request",
+      "First answer",
+      "Latest request",
+    ]);
+    expect(JSON.stringify(rawAfterCompaction)).not.toContain(
+      "[[THREAD_CHECKPOINT]]",
+    );
 
     const compactionRows = db
       .prepare(
@@ -2246,6 +2924,7 @@ describe("session-store", () => {
         pinnedUserInstruction: {
           text: "Task update: do the other thing",
         },
+        quarantinedToolResultKeys: ["6042:call-suspect"],
       },
     });
 
@@ -2271,6 +2950,10 @@ describe("session-store", () => {
       role: "user",
       content: "Task update: do the other thing",
     });
+    expect(after[1]!.checkpointQuarantineKeys).toEqual([
+      "6042:call-suspect",
+    ]);
+    expect(after[1]!.content).not.toContain("6042:call-suspect");
   });
 
   it("truncates oversized persisted tool results to stay under SQLite row limits", () => {
@@ -2315,6 +2998,144 @@ describe("session-store", () => {
       type: "text",
       text: expect.stringContaining("too large to persist in storage"),
     });
+  });
+
+  it("preserves exact oversized payloads for an evictable working set", () => {
+    const { db, store } = createTestContext();
+    const conversationId = "conv-exact-big-tool-result";
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId,
+      agentType: "orchestrator",
+    });
+    const largeOutput = "A".repeat(6_100_000);
+    store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 6_049,
+      role: "user",
+      content: "old request",
+    });
+    const oldEntryId = store.loadThreadMessages(threadId)[0]?.entryId;
+
+    store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 6_050,
+      role: "toolResult",
+      content: largeOutput,
+      toolCallId: "tool-call-exact",
+      preservePayloadExactly: true,
+      payload: {
+        role: "toolResult",
+        toolCallId: "tool-call-exact",
+        toolName: "Read",
+        content: [{ type: "text", text: largeOutput }],
+        isError: false,
+        timestamp: 6_050,
+      },
+    });
+
+    const loaded = store.loadThreadMessages(threadId);
+    expect(loaded[1]?.payload).toMatchObject({
+      role: "toolResult",
+      content: [{ type: "text", text: largeOutput }],
+    });
+    expect(oldEntryId).toBeTruthy();
+    store.compactThread({
+      threadKey: threadId,
+      summary: "Old request summary",
+      fromEntryId: oldEntryId,
+      toEntryId: oldEntryId,
+      tokensBefore: 10,
+      timestamp: 6_051,
+    });
+    expect(
+      store
+        .loadThreadMessages(threadId)
+        .find((message) => message.role === "toolResult")?.payload,
+    ).toMatchObject({
+      role: "toolResult",
+      content: [{ type: "text", text: largeOutput }],
+    });
+    const physicalRows = db
+      .prepare(
+        `SELECT length(CAST(data_json AS BLOB)) AS bytes
+         FROM runtime_thread_entries
+         UNION ALL
+         SELECT length(CAST(chunk_text AS BLOB)) AS bytes
+         FROM runtime_thread_entry_payload_chunks`,
+      )
+      .all() as Array<{ bytes: number }>;
+    expect(physicalRows.length).toBeGreaterThan(2);
+    expect(Math.max(...physicalRows.map((row) => row.bytes))).toBeLessThanOrEqual(
+      6_000_000,
+    );
+  });
+
+  it("preserves exact oversized runtime context for an evictable working set", () => {
+    const { db, store } = createTestContext();
+    const conversationId = "conv-exact-big-runtime-context";
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId,
+      agentType: "orchestrator",
+    });
+    const largeContext = "C".repeat(6_100_000);
+
+    store.appendThreadCustomMessage({
+      threadKey: threadId,
+      timestamp: 6_075,
+      customType: "bootstrap.startup_doc",
+      content: largeContext,
+      display: false,
+      preservePayloadExactly: true,
+    });
+
+    expect(store.loadThreadMessages(threadId)[0]?.customMessage).toMatchObject({
+      content: largeContext,
+      customType: "bootstrap.startup_doc",
+    });
+    const chunkRows = db
+      .prepare(
+        `SELECT length(CAST(chunk_text AS BLOB)) AS bytes
+         FROM runtime_thread_entry_payload_chunks
+         ORDER BY chunk_index ASC`,
+      )
+      .all() as Array<{ bytes: number }>;
+    expect(chunkRows.length).toBeGreaterThan(1);
+    expect(Math.max(...chunkRows.map((row) => row.bytes))).toBeLessThanOrEqual(
+      6_000_000,
+    );
+  });
+
+  it("does not split an exact payload surrogate pair across physical chunks", () => {
+    const { store } = createTestContext();
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId: "conv-exact-surrogate-boundary",
+      agentType: "orchestrator",
+    });
+    const marker = "__SURROGATE_BOUNDARY__";
+    const template = JSON.stringify({
+      customType: "runtime.context_delta.test",
+      content: marker,
+      display: false,
+    });
+    const markerOffset = template.indexOf(marker);
+    expect(markerOffset).toBeGreaterThan(0);
+    const content =
+      "x".repeat(1_000_000 - markerOffset - 1) +
+      "😀" +
+      "y".repeat(5_100_000);
+
+    store.appendThreadCustomMessage({
+      threadKey: threadId,
+      timestamp: 6_075,
+      customType: "runtime.context_delta.test",
+      content,
+      display: false,
+      preservePayloadExactly: true,
+    });
+
+    expect(store.loadThreadMessages(threadId)[0]?.customMessage?.content).toBe(
+      content,
+    );
   });
 
   it("reconstructs explicit legacy tool errors without changing successful rows", () => {
@@ -2399,6 +3220,145 @@ describe("session-store", () => {
 });
 
 describe("thread activity rows", () => {
+  it("rejects a stale attempt generation atomically", () => {
+    const { store } = createTestContext();
+    const current = {
+      threadId: "generation-fence",
+      conversationId: "conv-fence",
+      agentType: "general",
+      description: "Generation fence",
+      agentDepth: 0,
+      status: "completed" as const,
+      startedAt: 1_000,
+      completedAt: 2_000,
+      result: "new result",
+      updatedAt: 2_000,
+      attemptGeneration: 3,
+    };
+    expect(store.saveAgentRecord(current)).toBe(1);
+
+    expect(
+      store.saveAgentRecord({
+        ...current,
+        status: "canceled",
+        result: undefined,
+        error: "stale cancellation",
+        attemptGeneration: 1,
+        updatedAt: 3_000,
+      }),
+    ).toBeNull();
+    expect(store.getAgentRecord(current.threadId)).toMatchObject({
+      status: "completed",
+      result: "new result",
+      attemptGeneration: 3,
+      recordRevision: 1,
+    });
+  });
+
+  it("bounds desktop hydration while retaining active work", () => {
+    const { db, store } = createTestContext();
+    for (let index = 0; index < 501; index += 1) {
+      store.saveAgentRecord({
+        threadId: `terminal-${String(index).padStart(3, "0")}`,
+        conversationId: "conv-bounded-activity",
+        agentType: "general",
+        description: `Terminal ${index}`,
+        agentDepth: 0,
+        status: "completed",
+        startedAt: index + 10,
+        completedAt: index + 10,
+        updatedAt: index + 10,
+      });
+    }
+    store.saveAgentRecord({
+      threadId: "old-active",
+      conversationId: "conv-bounded-activity",
+      agentType: "general",
+      description: "Old but active",
+      agentDepth: 0,
+      status: "running",
+      startedAt: 1,
+      completedAt: null,
+      updatedAt: 1,
+    });
+
+    const rows = store.listThreadActivity("conv-bounded-activity");
+
+    expect(rows).toHaveLength(500);
+    expect(rows.some((row) => row.threadId === "old-active")).toBe(true);
+    expect(rows.some((row) => row.threadId === "terminal-000")).toBe(false);
+    expect(rows.some((row) => row.threadId === "terminal-500")).toBe(true);
+    const mobileRows = store.listThreadActivity("conv-bounded-activity", {
+      view: "mobile-summary",
+      maxItems: 500,
+    });
+    expect(mobileRows).toHaveLength(500);
+    expect(mobileRows.some((row) => row.threadId === "old-active")).toBe(true);
+    expect(mobileRows.some((row) => row.threadId === "terminal-000")).toBe(
+      false,
+    );
+    expect(mobileRows.some((row) => row.threadId === "terminal-500")).toBe(
+      true,
+    );
+    const activePlan = db
+      .prepare(
+        `EXPLAIN QUERY PLAN SELECT thread_id FROM runtime_agents
+         WHERE conversation_id = ? AND status IN ('pending', 'running')
+         ORDER BY updated_at DESC, thread_id ASC LIMIT 500`,
+      )
+      .all("conv-bounded-activity") as Array<{ detail?: string }>;
+    const terminalPlan = db
+      .prepare(
+        `EXPLAIN QUERY PLAN SELECT thread_id FROM runtime_agents
+         WHERE conversation_id = ? AND status NOT IN ('pending', 'running')
+         ORDER BY updated_at DESC, thread_id ASC LIMIT 500`,
+      )
+      .all("conv-bounded-activity") as Array<{ detail?: string }>;
+    expect(activePlan.map((step) => step.detail).join("\n")).toContain(
+      "idx_runtime_agents_active_updated",
+    );
+    expect(terminalPlan.map((step) => step.detail).join("\n")).toContain(
+      "idx_runtime_agents_terminal_updated",
+    );
+  });
+
+  it("persists workspace identity and increments a durable record revision", () => {
+    const { store } = createTestContext();
+    const base = {
+      threadId: "durable-agent",
+      conversationId: "conv-durable",
+      agentType: "general",
+      description: "Durable task",
+      prompt: "Do durable work",
+      promptCreatedAt: 1_000,
+      agentDepth: 0,
+      toolWorkspaceRoot: "/tmp/durable-workspace",
+      status: "running" as const,
+      startedAt: 1_000,
+      completedAt: null,
+      updatedAt: 1_000,
+    };
+
+    expect(store.saveAgentRecord(base)).toBe(1);
+    expect(
+      store.saveAgentRecord({
+        ...base,
+        status: "completed",
+        completedAt: 2_000,
+        updatedAt: 2_000,
+      }),
+    ).toBe(2);
+    expect(store.getAgentRecord(base.threadId)).toMatchObject({
+      status: "completed",
+      toolWorkspaceRoot: "/tmp/durable-workspace",
+      recordRevision: 2,
+    });
+    expect(store.listThreadActivity(base.conversationId)[0]).toMatchObject({
+      threadId: base.threadId,
+      recordRevision: 2,
+    });
+  });
+
   it("projects one authoritative row per thread, joined with group fields", () => {
     const { db, store } = createTestContext();
     store.saveAgentRecord({
@@ -2471,6 +3431,10 @@ describe("thread activity rows", () => {
       status: "completed",
       completedAt: 3_000,
       result: "Booked the Marriott",
+      groupKey: "grp-trip",
+      groupLabel: "Plan the trip",
+    });
+    expect(store.getThreadActivityMetadata("book-hotel")).toEqual({
       groupKey: "grp-trip",
       groupLabel: "Plan the trip",
     });

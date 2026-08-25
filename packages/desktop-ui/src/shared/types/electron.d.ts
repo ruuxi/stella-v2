@@ -18,7 +18,8 @@ import type {
   LocalChatUpdatedPayload,
   ThreadActivityRecord,
   ThreadActivityUpdatedPayload,
-  MessageRecord,
+  LocalChatMessageWindow,
+  LocalChatToolEventPage,
 } from "@stella/contracts/local-chat";
 import type {
   AssistantWorkingMode,
@@ -1443,13 +1444,13 @@ export type ElectronLocalChatApi = {
   listMessages: (payload: {
     conversationId: string;
     maxVisibleMessages?: number;
-  }) => Promise<{ messages: MessageRecord[]; visibleMessageCount: number }>;
+  }) => Promise<LocalChatMessageWindow>;
   listMessagesBefore: (payload: {
     conversationId: string;
     beforeTimestampMs: number;
     beforeId: string;
     maxVisibleMessages?: number;
-  }) => Promise<{ messages: MessageRecord[]; visibleMessageCount: number }>;
+  }) => Promise<LocalChatMessageWindow>;
   /**
    * Changed rows strictly after the `(afterTimestampMs, afterId)` cursor:
    * new user/assistant messages plus existing rows whose turn gained
@@ -1461,8 +1462,19 @@ export type ElectronLocalChatApi = {
     conversationId: string;
     afterTimestampMs: number;
     afterId: string;
+    afterSequence?: number;
     maxVisibleMessages?: number;
-  }) => Promise<{ messages: MessageRecord[]; visibleMessageCount: number }>;
+  }) => Promise<LocalChatMessageWindow>;
+  listMessageToolEvents: (payload: {
+    conversationId: string;
+    messageTimestampMs: number;
+    messageId: string;
+    messageSequence?: number;
+    afterTimestampMs?: number;
+    afterId?: string;
+    afterSequence?: number;
+    limit?: number;
+  }) => Promise<LocalChatToolEventPage>;
   listActivity: (payload: {
     conversationId: string;
     limit?: number;

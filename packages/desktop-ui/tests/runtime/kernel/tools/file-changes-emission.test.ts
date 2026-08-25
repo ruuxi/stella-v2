@@ -253,7 +253,7 @@ describe("fileChanges emission", () => {
     );
 
     expect(started.error).toBeUndefined();
-    const sessionId = (started.result as { session_id: string | null })
+    const sessionId = (started.details as { session_id: string | null })
       .session_id;
     expect(typeof sessionId).toBe("string");
 
@@ -389,7 +389,7 @@ describe("fileChanges emission", () => {
       context,
     );
 
-    const sessionId = (started.result as { session_id: string | null })
+    const sessionId = (started.details as { session_id: string | null })
       .session_id;
     expect(typeof sessionId).toBe("string");
 
@@ -445,7 +445,7 @@ describe("fileChanges emission", () => {
       },
       context,
     );
-    const sessionId = (started.result as { session_id: string | null })
+    const sessionId = (started.details as { session_id: string | null })
       .session_id;
     expect(typeof sessionId).toBe("string");
     // Still running: nothing produced inline yet.
@@ -615,7 +615,7 @@ describe("fileChanges emission", () => {
       },
       context,
     );
-    const sessionId = (started.result as { session_id: string | null })
+    const sessionId = (started.details as { session_id: string | null })
       .session_id;
     expect(typeof sessionId).toBe("string");
 

@@ -5,6 +5,8 @@ import {
   IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION,
   IPC_LOCAL_CHAT_FORK_CONVERSATION,
   IPC_LOCAL_CHAT_LIST_CONVERSATIONS,
+  IPC_LOCAL_CHAT_LIST_MESSAGES_AFTER,
+  IPC_LOCAL_CHAT_LIST_MESSAGE_TOOL_EVENTS,
   IPC_LOCAL_CHAT_LIST_MODEL_USAGE,
 } from "@stella/contracts/desktop/ipc-channels";
 import type { LocalChatHistoryService } from "../services/local-chat-history-service.js";
@@ -203,20 +205,21 @@ export const registerLocalChatHandlers = (
   );
 
   ipcMain.handle(
-    "localChat:listMessagesAfter",
+    IPC_LOCAL_CHAT_LIST_MESSAGES_AFTER,
     async (
       event,
       payload: {
         conversationId?: string;
         afterTimestampMs?: number;
         afterId?: string;
+        afterSequence?: number;
         maxVisibleMessages?: number;
       },
     ) =>
       await withLocalChatClient(
         options,
         event,
-        "localChat:listMessagesAfter",
+        IPC_LOCAL_CHAT_LIST_MESSAGES_AFTER,
         (client) =>
           client.listMessagesAfter({
             conversationId: payload?.conversationId ?? "",
@@ -225,7 +228,41 @@ export const registerLocalChatHandlers = (
                 ? payload.afterTimestampMs
                 : 0,
             afterId: payload?.afterId ?? "",
+            afterSequence: payload?.afterSequence,
             maxVisibleMessages: payload?.maxVisibleMessages,
+          }),
+      ),
+  );
+
+  ipcMain.handle(
+    IPC_LOCAL_CHAT_LIST_MESSAGE_TOOL_EVENTS,
+    async (
+      event,
+      payload: {
+        conversationId?: string;
+        messageTimestampMs?: number;
+        messageId?: string;
+        messageSequence?: number;
+        afterTimestampMs?: number;
+        afterId?: string;
+        afterSequence?: number;
+        limit?: number;
+      },
+    ) =>
+      await withLocalChatClient(
+        options,
+        event,
+        IPC_LOCAL_CHAT_LIST_MESSAGE_TOOL_EVENTS,
+        (client) =>
+          client.listMessageToolEvents({
+            conversationId: payload?.conversationId ?? "",
+            messageTimestampMs: payload?.messageTimestampMs ?? 0,
+            messageId: payload?.messageId ?? "",
+            messageSequence: payload?.messageSequence,
+            afterTimestampMs: payload?.afterTimestampMs,
+            afterId: payload?.afterId,
+            afterSequence: payload?.afterSequence,
+            limit: payload?.limit,
           }),
       ),
   );

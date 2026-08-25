@@ -115,6 +115,17 @@ export const normalizeChatRunInput = (
             ? { uiVisibility: message.uiVisibility }
             : {}),
           ...(message.messageType ? { messageType: message.messageType } : {}),
+          ...(typeof message.customType === "string" &&
+          message.customType.trim()
+            ? { customType: message.customType.trim() }
+            : {}),
+          ...(typeof message.display === "boolean"
+            ? { display: message.display }
+            : {}),
+          ...(typeof message.timestamp === "number" &&
+          Number.isFinite(message.timestamp)
+            ? { timestamp: message.timestamp }
+            : {}),
         }))
     : undefined,
   attachments: normalizeAttachments(payload.attachments),

@@ -61,11 +61,7 @@ import {
   residentIdentityForCustomMessage,
 } from "../agent-runtime/resident-context.js";
 /**
- * Upper bound on the user/assistant rows scanned per `listMessages` /
- * `listMessagesBefore` call to compute the visible-message cutoff. Lets
- * the scan absorb hundreds of hidden system reminders / workspace
- * requests near the tail without scanning every row in chats with
- * millions of historical events.
+ * Upper bound on raw source events returned by one mobile sync delta.
  */
 const CUTOFF_SCAN_CEILING = 4000;
 const CUTOFF_SCAN_BATCH_MIN = 128;
@@ -112,11 +108,160 @@ type VisibleScanRow = {
   id: string | null;
   payloadJson: string | null;
 };
+const MAX_VISIBLE_MESSAGE_WINDOW = 500;
+/**
+ * A transcript row is an index/preview, not a transport for an arbitrarily
+ * large turn. Keep a symmetric head/tail sample so starts and terminal state
+ * survive while SQLite remains the source for complete detail.
+ */
+export const EAGER_TOOL_EVENT_LIMIT = 32;
+export const EAGER_TOOL_EVENT_PAYLOAD_BYTES = 4096;
+const EAGER_TOOL_EVENT_SIDE_LIMIT = EAGER_TOOL_EVENT_LIMIT / 2;
 
-const compareTimelineCursor = (
-  a: { timestamp: number; id: string; sequence?: number },
-  b: { timestamp: number; id: string; sequence?: number },
-): number => {
+const projectBoundedJsonValue = (value, depth, limits) => {
+  if (
+    value == null ||
+    typeof value === "boolean" ||
+    typeof value === "number"
+  ) {
+    return value;
+  }
+  if (typeof value === "string") {
+    return value.length <= limits.stringChars
+      ? value
+      : `${value.slice(0, limits.stringChars)}…`;
+  }
+  if (depth <= 0) return "[detail omitted]";
+  if (Array.isArray(value)) {
+    const projected = value
+      .slice(0, limits.arrayItems)
+      .map((item) => projectBoundedJsonValue(item, depth - 1, limits));
+    return projected;
+  }
+  if (typeof value === "object") {
+    const projected = {};
+    const allEntries = Object.entries(value);
+    const entries = [
+      ...allEntries.filter(
+        ([key]) => key === "fileChanges" || key === "producedFiles",
+      ),
+      ...allEntries.filter(
+        ([key]) => key !== "fileChanges" && key !== "producedFiles",
+      ),
+    ].slice(0, limits.objectKeys);
+    for (const [key, item] of entries) {
+      projected[key] =
+        (key === "fileChanges" || key === "producedFiles") &&
+        Array.isArray(item)
+          ? item.slice(0, limits.arrayItems)
+          : projectBoundedJsonValue(item, depth - 1, limits);
+    }
+    if (Object.keys(value).length > entries.length) {
+      projected.__truncatedKeys = Object.keys(value).length - entries.length;
+    }
+    return projected;
+  }
+  return String(value);
+};
+
+const projectEagerEventPayload = (payload) => {
+  if (!payload) return { payload, projected: false };
+  const markProjected = (value) =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? {
+          ...value,
+          __stellaEagerProjection: {
+            truncated: true,
+            fullDetailAvailable: true,
+          },
+        }
+      : value;
+  const fitsEnvelope = (value) =>
+    new TextEncoder().encode(JSON.stringify(value)).byteLength <=
+    EAGER_TOOL_EVENT_PAYLOAD_BYTES;
+  try {
+    if (fitsEnvelope(payload)) {
+      return { payload, projected: false };
+    }
+  } catch {
+    // Fall through to the defensive projection.
+  }
+  const projected = markProjected(
+    projectBoundedJsonValue(payload, 5, {
+      stringChars: 768,
+      arrayItems: 10,
+      objectKeys: 32,
+    }),
+  );
+  try {
+    if (fitsEnvelope(projected)) {
+      return { payload: projected, projected: true };
+    }
+  } catch {
+    // Fall through to the smallest projection.
+  }
+  const minimal = markProjected(
+    projectBoundedJsonValue(payload, 3, {
+      stringChars: 192,
+      arrayItems: 4,
+      objectKeys: 16,
+    }),
+  );
+  try {
+    if (fitsEnvelope(minimal)) {
+      return { payload: minimal, projected: true };
+    }
+  } catch {
+    // Fall through to the artifact-preserving fallback.
+  }
+  const artifactFallback = {};
+  for (const key of ["fileChanges", "producedFiles"]) {
+    if (Array.isArray(payload[key]) && payload[key].length > 0) {
+      artifactFallback[key] = payload[key].slice(0, 1);
+    }
+  }
+  if (Object.keys(artifactFallback).length > 0) {
+    const projectedArtifacts = markProjected(artifactFallback);
+    try {
+      if (fitsEnvelope(projectedArtifacts)) {
+        return { payload: projectedArtifacts, projected: true };
+      }
+    } catch {
+      // Fall through to the constant-size marker.
+    }
+  }
+  return {
+    payload: {
+      detailOmitted: true,
+      __stellaEagerProjection: {
+        truncated: true,
+        fullDetailAvailable: true,
+      },
+    },
+    projected: true,
+  };
+};
+
+/** Keep invalidation pushes bounded without truncating authored chat text. */
+const projectLocalChatUpdateEventWithMetadata = (event) => {
+  if (
+    !event?.payload ||
+    event.type === "user_message" ||
+    event.type === "assistant_message"
+  ) {
+    return { event, payloadProjected: false };
+  }
+  const projected = projectEagerEventPayload(event.payload);
+  return {
+    event: { ...event, payload: projected.payload },
+    payloadProjected: projected.projected,
+  };
+};
+
+export const projectLocalChatUpdateEvent = (event) => {
+  return projectLocalChatUpdateEventWithMetadata(event).event;
+};
+const compareTimelineCursor = (a, b) => {
   // Sequence-aware: when both cursors carry a finite `sequence` (populated only
   // when the ordering-by-sequence flip is active), order by the dedicated
   // monotonic key. Falls back to the legacy (timestamp, id) tuple otherwise, so
@@ -153,6 +298,7 @@ export type TranscriptSearchHit = {
   text: string;
 };
 
+const DESKTOP_THREAD_ACTIVITY_HYDRATION_LIMIT = 500;
 export class FtsSearchUnavailableError extends Error {
   index;
   name = "FtsSearchUnavailableError";
@@ -616,9 +762,12 @@ const rowSizeTextEncoder = new TextEncoder();
 const THREAD_ROW_MAX_BYTES = 6_000_000;
 const THREAD_ROW_MAX_TEXT_CHARS = 1_000;
 const THREAD_ROW_PREVIEW_CHARS = 500;
+const THREAD_EXACT_PAYLOAD_CHUNK_CHARS = 1_000_000;
+const THREAD_EXACT_PAYLOAD_MARKER = "__stellaExactPayloadChunks";
+const isHighSurrogate = (codeUnit) => codeUnit >= 0xd800 && codeUnit <= 0xdbff;
+const isLowSurrogate = (codeUnit) => codeUnit >= 0xdc00 && codeUnit <= 0xdfff;
 const payloadByteLength = (payload) =>
   rowSizeTextEncoder.encode(JSON.stringify(payload)).byteLength;
-
 const customMessageByteLength = (
   message: Pick<
     RuntimeThreadCustomMessageEntry,
@@ -639,6 +788,41 @@ const isThreadLifecycleEventType = (
   value === "agent-failed" ||
   value === "agent-canceled";
 
+const jsonByteLength = (json) => rowSizeTextEncoder.encode(json).byteLength;
+const chunkExactThreadEntryData = (exactData, boundedData) => {
+  const exactDataJson = toJsonValueString(exactData);
+  if (jsonByteLength(exactDataJson) <= THREAD_ROW_MAX_BYTES) {
+    return { data: exactData };
+  }
+  const exactChunkEnds = [];
+  for (let cursor = 0; cursor < exactDataJson.length; ) {
+    let end = Math.min(
+      exactDataJson.length,
+      cursor + THREAD_EXACT_PAYLOAD_CHUNK_CHARS,
+    );
+    if (
+      end < exactDataJson.length &&
+      isHighSurrogate(exactDataJson.charCodeAt(end - 1)) &&
+      isLowSurrogate(exactDataJson.charCodeAt(end))
+    ) {
+      end -= 1;
+    }
+    exactChunkEnds.push(end);
+    cursor = end;
+  }
+  const data = {
+    ...boundedData,
+    [THREAD_EXACT_PAYLOAD_MARKER]: {
+      version: 1,
+      chunkCount: exactChunkEnds.length,
+      byteLength: jsonByteLength(exactDataJson),
+    },
+  };
+  if (jsonByteLength(toJsonValueString(data)) > THREAD_ROW_MAX_BYTES) {
+    throw new Error("Exact thread payload metadata exceeds the SQLite row limit.");
+  }
+  return { data, exactDataJson, exactChunkEnds };
+};
 const truncatePreview = (
   value: string,
   maxChars = THREAD_ROW_PREVIEW_CHARS,
@@ -1107,10 +1291,28 @@ const parsePinnedUserInstruction = (details) => {
   return text ? { text } : null;
 };
 
+const parseCheckpointQuarantineKeys = (details) => {
+  const keys =
+    details && typeof details === "object" && !Array.isArray(details)
+      ? details.quarantinedToolResultKeys
+      : undefined;
+  if (!Array.isArray(keys)) return [];
+  return [
+    ...new Set(
+      keys.flatMap((key) =>
+        typeof key === "string" && key.trim() ? [key.trim()] : [],
+      ),
+    ),
+  ];
+};
+
 const normalizeCompactionOverlay = (compaction, rawMessages) => {
   const timestamp = Date.parse(compaction.timestamp) || Date.now();
   const residentFold = parseResidentFold(compaction.details);
   const pinnedUserInstruction = parsePinnedUserInstruction(compaction.details);
+  const checkpointQuarantineKeys = parseCheckpointQuarantineKeys(
+    compaction.details,
+  );
   if (compaction.fromEntryId && compaction.toEntryId) {
     return {
       id: compaction.id,
@@ -1120,6 +1322,9 @@ const normalizeCompactionOverlay = (compaction, rawMessages) => {
       timestamp,
       ...(residentFold ? { residentFold } : {}),
       ...(pinnedUserInstruction ? { pinnedUserInstruction } : {}),
+      ...(checkpointQuarantineKeys.length > 0
+        ? { checkpointQuarantineKeys }
+        : {}),
     };
   }
   if (!compaction.firstKeptEntryId) {
@@ -1144,6 +1349,9 @@ const normalizeCompactionOverlay = (compaction, rawMessages) => {
     timestamp,
     ...(residentFold ? { residentFold } : {}),
     ...(pinnedUserInstruction ? { pinnedUserInstruction } : {}),
+    ...(checkpointQuarantineKeys.length > 0
+      ? { checkpointQuarantineKeys }
+      : {}),
   };
 };
 const buildThreadCompactionOverlays = (path, rawMessages) =>
@@ -1241,6 +1449,11 @@ const applyCompactionOverlays = (rawMessages, overlays) => {
           timestamp: overlay.timestamp,
           role: "assistant",
           content: formatThreadCheckpointMessage(overlay.summary),
+          ...(overlay.checkpointQuarantineKeys
+            ? {
+                checkpointQuarantineKeys: overlay.checkpointQuarantineKeys,
+              }
+            : {}),
         });
         // Re-emit the pinned latest-user-instruction copy carried on the
         // overlay right after its checkpoint, so the current instruction
@@ -2493,9 +2706,19 @@ export class SessionStore {
         channelEnvelope,
       });
     });
+    const sequenceRow = this.orderingBySequence
+      ? this.db
+          .prepare(
+            `SELECT ordering_sequence AS sequence FROM message WHERE id = ? LIMIT 1`,
+          )
+          .get(eventId)
+      : null;
     return {
       _id: eventId,
       timestamp,
+      ...(typeof sequenceRow?.sequence === "number"
+        ? { sequence: sequenceRow.sequence }
+        : {}),
       type,
       ...(deviceId ? { deviceId } : {}),
       ...(requestId ? { requestId } : {}),
@@ -2568,7 +2791,7 @@ export class SessionStore {
           `
           SELECT
             message.id AS _id,
-            message.created_at AS timestamp,
+            message.created_at AS timestamp${this.orderingSequenceSelect("message")},
             message.type AS type,
             message.device_id AS deviceId,
             message.request_id AS requestId,
@@ -3388,15 +3611,36 @@ export class SessionStore {
     const conversationId = this.sanitizeConversationId(conversationIdInput);
     const maxVisibleMessages = Math.max(
       1,
-      Math.floor(args.maxVisibleMessages ?? 200),
+      Math.min(
+        MAX_VISIBLE_MESSAGE_WINDOW,
+        Math.floor(args.maxVisibleMessages ?? 200),
+      ),
     );
     const cutoff = this.findVisibleMessageCutoff(
       conversationId,
       maxVisibleMessages,
     );
     const fetchCutoff = this.findTurnFetchCutoff(conversationId, cutoff);
-    const rows = this.fetchTimelineRows(conversationId, fetchCutoff, null);
-    return this.trimMessageWindow(this.assembleMessageWindow(rows), cutoff);
+    const rows = this.fetchTimelineRows(
+      conversationId,
+      fetchCutoff,
+      null,
+      null,
+      null,
+      null,
+      ["user_message", "assistant_message"],
+      true,
+    );
+    const projected = this.attachBoundedToolEvents(
+      conversationId,
+      this.assembleMessageWindow(rows),
+      null,
+    );
+    const nextCursor = this.findLatestTimelineCursor(conversationId);
+    return {
+      ...this.trimMessageWindow(projected, cutoff),
+      ...(nextCursor ? { nextCursor } : {}),
+    };
   }
   /**
    * Same projection as `listMessages` but returns strictly-older messages
@@ -3409,7 +3653,10 @@ export class SessionStore {
     const conversationId = this.sanitizeConversationId(conversationIdInput);
     const maxVisibleMessages = Math.max(
       1,
-      Math.floor(args.maxVisibleMessages ?? 200),
+      Math.min(
+        MAX_VISIBLE_MESSAGE_WINDOW,
+        Math.floor(args.maxVisibleMessages ?? 200),
+      ),
     );
     const beforeTimestamp = Math.floor(args.beforeTimestampMs);
     const beforeId = args.beforeId;
@@ -3420,8 +3667,22 @@ export class SessionStore {
       before,
     );
     const fetchCutoff = this.findTurnFetchCutoff(conversationId, cutoff);
-    const rows = this.fetchTimelineRows(conversationId, fetchCutoff, before);
-    return this.trimMessageWindow(this.assembleMessageWindow(rows), cutoff);
+    const rows = this.fetchTimelineRows(
+      conversationId,
+      fetchCutoff,
+      before,
+      null,
+      null,
+      null,
+      ["user_message", "assistant_message"],
+      true,
+    );
+    const projected = this.attachBoundedToolEvents(
+      conversationId,
+      this.assembleMessageWindow(rows),
+      before,
+    );
+    return this.trimMessageWindow(projected, cutoff);
   }
   /**
    * Same projection as `listMessages`, but walks forward from a known mobile
@@ -3433,7 +3694,10 @@ export class SessionStore {
     const conversationId = this.sanitizeConversationId(conversationIdInput);
     const maxVisibleMessages = Math.max(
       1,
-      Math.floor(args.maxVisibleMessages ?? 200),
+      Math.min(
+        MAX_VISIBLE_MESSAGE_WINDOW,
+        Math.floor(args.maxVisibleMessages ?? 200),
+      ),
     );
     const after = this.resolveCursorSequence(conversationId, {
       timestamp: Math.floor(args.afterTimestampMs),
@@ -3453,37 +3717,83 @@ export class SessionStore {
     // upper bound open so artifact-only updates to the current turn continue
     // to refresh that already-loaded message.
     const until = pageEnd
-      ? this.findMessageCursorAfter(conversationId, pageEnd)
+      ? this.findVisibleMessageCursorAfter(conversationId, pageEnd)
       : null;
     const fetchCutoff = this.findTurnFetchCutoff(conversationId, after);
-    const rows = this.fetchTimelineRows(
+    // The renderer never needs the raw source-event stream: fetch just the
+    // turn's few message anchors, then attach bounded event projections.
+    // Mobile source events use their own strict cursor query. Starting that
+    // bounded query at the turn anchor can spend its entire row budget on
+    // events the mobile client already processed and then skip the remainder
+    // when advancing its cursor.
+    const includeSourceEvents = args.includeSourceEvents !== false;
+    const messageRows = this.fetchTimelineRows(
       conversationId,
       fetchCutoff,
       null,
       null,
-      CUTOFF_SCAN_CEILING,
+      null,
       until,
+      ["user_message", "assistant_message"],
+      true,
     );
-    const sourceEvents = rows.filter(
-      (row) =>
-        compareTimelineCursor(
-          {
-            timestamp: row.timestamp,
-            id: row._id,
-            ...(this.orderingBySequence && typeof row.sequence === "number"
-              ? { sequence: row.sequence }
-              : {}),
-          },
+    const sourceEvents = includeSourceEvents
+      ? this.fetchTimelineRows(
+          conversationId,
+          null,
+          null,
           after,
-        ) > 0,
-    );
+          CUTOFF_SCAN_CEILING,
+          until,
+        )
+      : messageRows.filter(
+          (event) =>
+            compareTimelineCursor(
+              {
+                timestamp: event.timestamp,
+                id: event._id,
+                sequence: event.sequence,
+              },
+              after,
+            ) > 0,
+        );
+    // Mobile advances its durable cursor over `sourceEvents`, so every event
+    // before that cursor must participate in the delta projection. Applying
+    // the desktop head/tail projection here would permanently skip artifacts
+    // in the omitted middle of a busy turn. The source page itself is strictly
+    // capped, and subsequent calls continue from its exact last row.
+    const projectionRows = includeSourceEvents
+      ? Array.from(
+          new Map(
+            [...messageRows, ...sourceEvents].map((event) => [event._id, event]),
+          ).values(),
+        ).sort((a, b) =>
+          compareTimelineCursor(
+            { timestamp: a.timestamp, id: a._id, sequence: a.sequence },
+            { timestamp: b.timestamp, id: b._id, sequence: b.sequence },
+          ),
+        )
+      : messageRows;
+    const assembled = this.assembleMessageWindow(projectionRows);
+    const projected = includeSourceEvents
+      ? assembled
+      : this.attachBoundedToolEvents(conversationId, assembled, until);
+    const lastSourceEvent = includeSourceEvents ? sourceEvents.at(-1) : null;
+    const nextCursor = lastSourceEvent
+      ? {
+          timestamp: lastSourceEvent.timestamp,
+          id: lastSourceEvent._id,
+          ...(typeof lastSourceEvent.sequence === "number"
+            ? { sequence: lastSourceEvent.sequence }
+            : {}),
+        }
+      : includeSourceEvents
+        ? null
+        : this.findLatestTimelineCursor(conversationId, until);
     return {
-      ...this.limitChangedMessageWindow(
-        this.assembleMessageWindow(rows),
-        after,
-        maxVisibleMessages,
-      ),
+      ...this.limitChangedMessageWindow(projected, after, maxVisibleMessages),
       sourceEvents,
+      ...(nextCursor ? { nextCursor } : {}),
     };
   }
   hasMobileSyncEventsAfter(
@@ -3607,20 +3917,7 @@ export class SessionStore {
       ).length,
     };
   }
-  /**
-   * Walks user/assistant rows DESC pulling the payload JSON so we can
-   * skip UI-hidden messages (system reminders, workspace-creation
-   * requests — see `isUiHiddenChatMessagePayload`). Without this, hidden
-   * rows near the tail eat the `maxVisibleMessages` budget and the chat
-   * surface comes back missing real messages.
-   *
-   * Bounded by `CUTOFF_SCAN_CEILING` — large enough to absorb the
-   * worst-case hidden-row density observed in real chats but capped so
-   * conversations with millions of events don't fetch them all to
-   * compute a window cutoff. If the ceiling is hit before we find
-   * `maxVisibleMessages` visible rows, the oldest scanned message becomes
-   * the cutoff so the timeline read remains bounded.
-   */
+  /** UI visibility is materialized and indexed by database-init triggers. */
   findVisibleMessageCutoff(conversationId, maxVisibleMessages) {
     return this.findVisibleMessageCutoffPaged(
       conversationId,
@@ -3640,58 +3937,30 @@ export class SessionStore {
     maxVisibleMessages,
     initialAfter,
   ) {
-    const batchSize = Math.min(
-      CUTOFF_SCAN_BATCH_MAX,
-      Math.max(CUTOFF_SCAN_BATCH_MIN, maxVisibleMessages * 2),
-    );
-    let after = this.resolveCursorSequence(conversationId, initialAfter);
-    let scanned = 0;
-    let visible = 0;
-    let newestScanned = null;
-    while (scanned < CUTOFF_SCAN_CEILING) {
-      const limit = Math.min(batchSize, CUTOFF_SCAN_CEILING - scanned);
-      const afterKeyset = this.timelineKeyset("message", ">", after);
-      const rows = this.db
-        .prepare(
-          `
-        SELECT message.created_at AS timestamp, message.id AS id${this.orderingSequenceSelect("message")}, part.data_json AS payloadJson
-        FROM message
-        LEFT JOIN part
-          ON part.message_id = message.id
-         AND part.ord = 0
-        WHERE message.session_id = ?
-          AND message.type IN ('user_message', 'assistant_message')
-          AND ${afterKeyset.clause}
-        ORDER BY ${this.timelineOrderBy("message", "ASC")}
-        LIMIT ?
-      `,
-        )
-        .all(conversationId, ...afterKeyset.params, limit);
-      if (rows.length === 0) return newestScanned;
-      for (const row of rows) {
-        if (typeof row.timestamp !== "number" || typeof row.id !== "string") {
-          continue;
-        }
-        newestScanned = {
+    const after = this.resolveCursorSequence(conversationId, initialAfter);
+    const afterKeyset = this.timelineKeyset("message", ">", after);
+    const rows = this.db
+      .prepare(
+        `SELECT message.created_at AS timestamp, message.id AS id${this.orderingSequenceSelect("message")}
+         FROM message
+         WHERE message.session_id = ?
+           AND message.type IN ('user_message', 'assistant_message')
+           AND message.ui_visible = 1
+           AND ${afterKeyset.clause}
+         ORDER BY ${this.timelineOrderBy("message", "ASC")}
+         LIMIT ?`,
+      )
+      .all(conversationId, ...afterKeyset.params, maxVisibleMessages);
+    const row = rows.at(-1);
+    return typeof row?.timestamp === "number" && typeof row.id === "string"
+      ? {
           timestamp: row.timestamp,
           id: row.id,
-          ...(typeof row.sequence === "number"
-            ? { sequence: row.sequence }
-            : {}),
-        };
-        const payload = parseJsonRecord(row.payloadJson) ?? null;
-        if (isUiHiddenChatMessagePayload(payload)) continue;
-        visible += 1;
-        if (visible === maxVisibleMessages) return newestScanned;
-      }
-      scanned += rows.length;
-      if (rows.length < limit) return newestScanned;
-      if (!newestScanned) return null;
-      after = newestScanned;
-    }
-    return newestScanned;
+          ...(typeof row.sequence === "number" ? { sequence: row.sequence } : {}),
+        }
+      : null;
   }
-  findMessageCursorAfter(conversationId, initialAfter) {
+  findVisibleMessageCursorAfter(conversationId, initialAfter) {
     const after = this.resolveCursorSequence(conversationId, initialAfter);
     const afterKeyset = this.timelineKeyset("message", ">", after);
     const row = this.db
@@ -3701,6 +3970,7 @@ export class SessionStore {
         FROM message
         WHERE message.session_id = ?
           AND message.type IN ('user_message', 'assistant_message')
+          AND message.ui_visible = 1
           AND ${afterKeyset.clause}
         ORDER BY ${this.timelineOrderBy("message", "ASC")}
         LIMIT 1
@@ -3725,68 +3995,32 @@ export class SessionStore {
     maxVisibleMessages,
     initialBefore,
   ) {
-    const batchSize = Math.min(
-      CUTOFF_SCAN_BATCH_MAX,
-      Math.max(CUTOFF_SCAN_BATCH_MIN, maxVisibleMessages * 2),
-    );
-    // Resolve the external "load older" cursor's sequence up front (M1): under
-    // the flip its keyset must key on ordering_sequence, matching the
-    // sequence-ordered scan and fetchTimelineRows. Later iterations use
-    // `oldestScanned`, which already carries a resolved sequence from the SELECT.
-    let before = this.resolveCursorSequence(conversationId, initialBefore);
-    let scanned = 0;
-    let visible = 0;
-    let oldestScanned = null;
-    while (scanned < CUTOFF_SCAN_CEILING) {
-      const limit = Math.min(batchSize, CUTOFF_SCAN_CEILING - scanned);
-      const beforeKeyset = before
-        ? this.timelineKeyset("message", "<", before)
-        : null;
-      const beforeClause = beforeKeyset ? `AND ${beforeKeyset.clause}` : "";
-      const params = [conversationId];
-      if (beforeKeyset) {
-        params.push(...beforeKeyset.params);
-      }
-      params.push(limit);
-      const rows = this.db
-        .prepare(
-          `
-        SELECT message.created_at AS timestamp, message.id AS id${this.orderingSequenceSelect("message")}, part.data_json AS payloadJson
-        FROM message
-        LEFT JOIN part
-          ON part.message_id = message.id
-         AND part.ord = 0
-        WHERE message.session_id = ?
-          AND message.type IN ('user_message', 'assistant_message')
-          ${beforeClause}
-        ORDER BY ${this.timelineOrderBy("message", "DESC")}
-        LIMIT ?
-      `,
-        )
-        .all(...params);
-      if (rows.length === 0) return null;
-      for (const row of rows) {
-        if (typeof row.timestamp !== "number" || typeof row.id !== "string") {
-          continue;
-        }
-        oldestScanned = {
+    const before = this.resolveCursorSequence(conversationId, initialBefore);
+    const beforeKeyset = before
+      ? this.timelineKeyset("message", "<", before)
+      : null;
+    const params = [conversationId];
+    if (beforeKeyset) params.push(...beforeKeyset.params);
+    params.push(maxVisibleMessages - 1);
+    const row = this.db
+      .prepare(
+        `SELECT message.created_at AS timestamp, message.id AS id${this.orderingSequenceSelect("message")}
+         FROM message
+         WHERE message.session_id = ?
+           AND message.type IN ('user_message', 'assistant_message')
+           AND message.ui_visible = 1
+           ${beforeKeyset ? `AND ${beforeKeyset.clause}` : ""}
+         ORDER BY ${this.timelineOrderBy("message", "DESC")}
+         LIMIT 1 OFFSET ?`,
+      )
+      .get(...params);
+    return typeof row?.timestamp === "number" && typeof row.id === "string"
+      ? {
           timestamp: row.timestamp,
           id: row.id,
-          ...(typeof row.sequence === "number"
-            ? { sequence: row.sequence }
-            : {}),
-        };
-        const payload = parseJsonRecord(row.payloadJson) ?? null;
-        if (isUiHiddenChatMessagePayload(payload)) continue;
-        visible += 1;
-        if (visible === maxVisibleMessages) return oldestScanned;
-      }
-      scanned += rows.length;
-      if (rows.length < limit) return null;
-      before = oldestScanned;
-      if (!before) return null;
-    }
-    return oldestScanned;
+          ...(typeof row.sequence === "number" ? { sequence: row.sequence } : {}),
+        }
+      : null;
   }
   fetchTimelineRows(
     conversationId,
@@ -3795,12 +4029,20 @@ export class SessionStore {
     after = null,
     limit = undefined,
     until = null,
+    eventTypes = null,
+    visibleMessagesOnly = false,
   ) {
+    const normalizedEventTypes = Array.isArray(eventTypes)
+      ? [...new Set(eventTypes.map(asTrimmedString).filter(Boolean))]
+      : [];
     const clauses = [
       "message.session_id = ?",
-      "message.type IN ('user_message', 'assistant_message', 'tool_request', 'tool_result', 'agent-started', 'agent-progress', 'agent-completed', 'agent-failed', 'agent-canceled')",
+      normalizedEventTypes.length > 0
+        ? `message.type IN (${normalizedEventTypes.map(() => "?").join(", ")})`
+        : "message.type IN ('user_message', 'assistant_message', 'tool_request', 'tool_result', 'agent-started', 'agent-progress', 'agent-completed', 'agent-failed', 'agent-canceled')",
     ];
-    const params = [conversationId];
+    const params = [conversationId, ...normalizedEventTypes];
+    if (visibleMessagesOnly) clauses.push("message.ui_visible = 1");
     if (cutoff) {
       const k = this.timelineKeyset(
         "message",
@@ -3865,6 +4107,281 @@ export class SessionStore {
     const rows = this.db.prepare(sql).all(...params);
     return rows.map((row) => this.deserializeEventRow(row));
   }
+  findLatestTimelineCursor(conversationId, until = null) {
+    const clauses = ["message.session_id = ?"];
+    const params = [conversationId];
+    if (until) {
+      const k = this.timelineKeyset(
+        "message",
+        "<",
+        this.resolveCursorSequence(conversationId, until),
+      );
+      clauses.push(k.clause);
+      params.push(...k.params);
+    }
+    const row = this.db
+      .prepare(
+        `SELECT message.created_at AS timestamp, message.id AS id${this.orderingSequenceSelect("message")}
+         FROM message
+         WHERE ${clauses.join(" AND ")}
+         ORDER BY ${this.timelineOrderBy("message", "DESC")}
+         LIMIT 1`,
+      )
+      .get(...params);
+    return typeof row?.timestamp === "number" && typeof row.id === "string"
+      ? {
+          timestamp: row.timestamp,
+          id: row.id,
+          ...(typeof row.sequence === "number"
+            ? { sequence: row.sequence }
+            : {}),
+        }
+      : null;
+  }
+  fetchBoundedToolEvents(conversationId, start, end) {
+    const clauses = [
+      "message.session_id = ?",
+      "message.type IN ('tool_request', 'tool_result', 'agent-started', 'agent-progress', 'agent-completed', 'agent-failed', 'agent-canceled')",
+    ];
+    const params = [conversationId];
+    if (start) {
+      const k = this.timelineKeyset(
+        "message",
+        ">",
+        this.resolveCursorSequence(conversationId, start),
+      );
+      clauses.push(k.clause);
+      params.push(...k.params);
+    }
+    if (end) {
+      const k = this.timelineKeyset(
+        "message",
+        "<",
+        this.resolveCursorSequence(conversationId, end),
+      );
+      clauses.push(k.clause);
+      params.push(...k.params);
+    }
+    const select = `
+      SELECT
+        message.id AS _id,
+        message.created_at AS timestamp${this.orderingSequenceSelect("message")},
+        message.type AS type,
+        message.device_id AS deviceId,
+        message.request_id AS requestId,
+        message.target_device_id AS targetDeviceId,
+        part.data_json AS payloadJson,
+        message.data_json AS channelEnvelopeJson
+      FROM message
+      LEFT JOIN part
+        ON part.message_id = message.id
+       AND part.ord = 0
+      WHERE ${clauses.join(" AND ")}`;
+    const headProbeRows = this.db
+      .prepare(
+        `${select}
+         ORDER BY ${this.timelineOrderBy("message", "ASC")}
+         LIMIT ${EAGER_TOOL_EVENT_LIMIT + 1}`,
+      )
+      .all(...params);
+    const eventCountTruncated = headProbeRows.length > EAGER_TOOL_EVENT_LIMIT;
+    const headRows = eventCountTruncated
+      ? headProbeRows.slice(0, EAGER_TOOL_EVENT_SIDE_LIMIT)
+      : headProbeRows;
+    const tailRows = eventCountTruncated
+      ? this.db
+          .prepare(
+            `${select}
+               ORDER BY ${this.timelineOrderBy("message", "DESC")}
+               LIMIT ${EAGER_TOOL_EVENT_SIDE_LIMIT}`,
+          )
+          .all(...params)
+      : [];
+    const rowsById = new Map();
+    for (const row of [...headRows, ...tailRows]) rowsById.set(row._id, row);
+    let payloadProjected = false;
+    const events = [...rowsById.values()]
+      .map((row) => {
+        const projected = projectLocalChatUpdateEventWithMetadata(
+          this.deserializeEventRow(row),
+        );
+        payloadProjected ||= projected.payloadProjected;
+        return projected.event;
+      })
+      .sort((a, b) =>
+        compareTimelineCursor(
+          { timestamp: a.timestamp, id: a._id, sequence: a.sequence },
+          { timestamp: b.timestamp, id: b._id, sequence: b.sequence },
+        ),
+      );
+    return {
+      events,
+      totalCount: eventCountTruncated ? events.length + 1 : events.length,
+      eventCountTruncated,
+      detailTruncated: eventCountTruncated || payloadProjected,
+    };
+  }
+  attachBoundedToolEvents(conversationId, window, upperBound) {
+    if (window.messages.length === 0) return window;
+    const attachedById = new Map();
+    let turn = [];
+    const cursorFor = (message) => ({
+      timestamp: message.timestamp,
+      id: message._id,
+      ...(typeof message.sequence === "number"
+        ? { sequence: message.sequence }
+        : {}),
+    });
+    const attachTurn = (messages, turnEnd) => {
+      if (messages.length === 0) return;
+      const user = messages.find((message) => message.type === "user_message");
+      const assistants = messages.filter(
+        (message) =>
+          message.type === "assistant_message" &&
+          !isUiHiddenChatMessagePayload(message.payload ?? null),
+      );
+      const anchors = assistants.length > 0 ? assistants : user ? [user] : [];
+      anchors.forEach((anchor, index) => {
+        const start = index === 0 && user ? cursorFor(user) : cursorFor(anchor);
+        const end =
+          index + 1 < anchors.length ? cursorFor(anchors[index + 1]) : turnEnd;
+        const {
+          events,
+          totalCount,
+          eventCountTruncated,
+          detailTruncated,
+        } = this.fetchBoundedToolEvents(conversationId, start, end);
+        attachedById.set(anchor._id, {
+          ...anchor,
+          toolEvents: events,
+          toolEventSummary: {
+            totalCount,
+            loadedCount: events.length,
+            truncated: detailTruncated,
+            ...(eventCountTruncated ? { totalCountIsLowerBound: true } : {}),
+          },
+        });
+      });
+    };
+    for (const message of window.messages) {
+      if (message.type === "user_message" && turn.length > 0) {
+        attachTurn(turn, cursorFor(message));
+        turn = [];
+      }
+      turn.push(message);
+    }
+    attachTurn(turn, upperBound);
+    return {
+      ...window,
+      messages: window.messages.map(
+        (message) => attachedById.get(message._id) ?? message,
+      ),
+    };
+  }
+  listMessageToolEvents(conversationIdInput, args) {
+    const conversationId = this.sanitizeConversationId(conversationIdInput);
+    const anchor = this.resolveCursorSequence(conversationId, {
+      timestamp: Math.floor(args.messageTimestampMs),
+      id: args.messageId,
+      ...(typeof args.messageSequence === "number"
+        ? { sequence: args.messageSequence }
+        : {}),
+    });
+    const anchorRow = this.db
+      .prepare(
+        `SELECT type FROM message WHERE session_id = ? AND id = ? LIMIT 1`,
+      )
+      .get(conversationId, anchor.id);
+    const turnStart = this.findTurnFetchCutoff(conversationId, anchor);
+    const previousAssistant =
+      anchorRow?.type === "assistant_message"
+        ? this.findPreviousVisibleAssistantAfter(conversationId, turnStart, anchor)
+        : null;
+    const rangeStart = previousAssistant ? anchor : (turnStart ?? anchor);
+    const rangeEnd =
+      anchorRow?.type === "user_message"
+        ? this.findNextUserMessageAfter(conversationId, anchor)
+        : this.findVisibleMessageCursorAfter(conversationId, anchor);
+    const after = args.afterId
+      ? this.resolveCursorSequence(conversationId, {
+          timestamp: Math.floor(args.afterTimestampMs ?? 0),
+          id: args.afterId,
+          ...(typeof args.afterSequence === "number"
+            ? { sequence: args.afterSequence }
+            : {}),
+        })
+      : rangeStart;
+    const limit = Math.max(1, Math.min(100, Math.floor(args.limit ?? 50)));
+    const rows = this.fetchTimelineRows(
+      conversationId,
+      null,
+      null,
+      after,
+      limit + 1,
+      rangeEnd,
+      [
+        "tool_request",
+        "tool_result",
+        "agent-started",
+        "agent-progress",
+        "agent-completed",
+        "agent-failed",
+        "agent-canceled",
+      ],
+    );
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      events: page,
+      hasMore: rows.length > limit,
+      ...(last
+        ? {
+            nextCursor: {
+              timestamp: last.timestamp,
+              id: last._id,
+              ...(typeof last.sequence === "number"
+                ? { sequence: last.sequence }
+                : {}),
+            },
+          }
+        : {}),
+    };
+  }
+  findPreviousVisibleAssistantAfter(conversationId, start, before) {
+    if (!start || !before) return null;
+    const startKeyset = this.timelineKeyset(
+      "message",
+      ">",
+      this.resolveCursorSequence(conversationId, start),
+    );
+    const beforeKeyset = this.timelineKeyset(
+      "message",
+      "<",
+      this.resolveCursorSequence(conversationId, before),
+    );
+    const row = this.db
+      .prepare(
+        `SELECT message.created_at AS timestamp, message.id AS id${this.orderingSequenceSelect("message")}
+         FROM message
+         WHERE message.session_id = ?
+           AND message.type = 'assistant_message'
+           AND message.ui_visible = 1
+           AND ${startKeyset.clause}
+           AND ${beforeKeyset.clause}
+         ORDER BY ${this.timelineOrderBy("message", "DESC")}
+         LIMIT 1`,
+      )
+      .get(conversationId, ...startKeyset.params, ...beforeKeyset.params);
+    return typeof row?.timestamp === "number" && typeof row.id === "string"
+      ? {
+          timestamp: row.timestamp,
+          id: row.id,
+          ...(typeof row.sequence === "number"
+            ? { sequence: row.sequence }
+            : {}),
+        }
+      : null;
+  }
   findTurnFetchCutoff(conversationId, cutoff) {
     if (!cutoff) return null;
     const resolved = this.resolveCursorSequence(conversationId, cutoff);
@@ -3876,6 +4393,7 @@ export class SessionStore {
       FROM message
       WHERE message.session_id = ?
         AND message.type = 'user_message'
+        AND message.ui_visible = 1
         AND ${keyset.clause}
       ORDER BY ${this.timelineOrderBy("message", "DESC")}
       LIMIT 1
@@ -3902,6 +4420,7 @@ export class SessionStore {
       FROM message
       WHERE message.session_id = ?
         AND message.type = 'user_message'
+        AND message.ui_visible = 1
         AND ${keyset.clause}
       ORDER BY ${this.timelineOrderBy("message", "ASC")}
       LIMIT 1
@@ -4455,7 +4974,120 @@ export class SessionStore {
         args.timestamp,
         toJsonValueString(args.data),
       );
+    if (args.exactDataJson && args.exactChunkEnds) {
+      const insertChunk = this.db.prepare(
+        `INSERT INTO runtime_thread_entry_payload_chunks (
+           entry_id,
+           thread_key,
+           chunk_index,
+           chunk_text
+         ) VALUES (?, ?, ?, ?)`,
+      );
+      let offset = 0;
+      for (let chunkIndex = 0; chunkIndex < args.exactChunkEnds.length; chunkIndex += 1) {
+        const end = args.exactChunkEnds[chunkIndex];
+        insertChunk.run(
+          entryId,
+          args.threadKey,
+          chunkIndex,
+          args.exactDataJson.slice(offset, end),
+        );
+        offset = end;
+      }
+    }
     return entryId;
+  }
+  loadExactThreadEntryData(threadKey, entryIds) {
+    if (entryIds && entryIds.length === 0) return new Map();
+    const rows = [];
+    const batches = entryIds
+      ? Array.from({ length: Math.ceil(entryIds.length / 250) }, (_, index) =>
+          entryIds.slice(index * 250, index * 250 + 250),
+        )
+      : [null];
+    for (const batch of batches) {
+      const entryFilter = batch
+        ? ` AND chunks.entry_id IN (${batch.map(() => "?").join(", ")})`
+        : "";
+      rows.push(
+        ...this.db
+          .prepare(
+            `SELECT chunks.entry_id AS entryId,
+                    chunks.chunk_index AS chunkIndex,
+                    chunks.chunk_text AS chunkText
+             FROM runtime_thread_entry_payload_chunks chunks
+             WHERE chunks.thread_key = ?${entryFilter}
+             ORDER BY chunks.entry_id ASC, chunks.chunk_index ASC`,
+          )
+          .all(threadKey, ...(batch ?? [])),
+      );
+    }
+    const chunksByEntryId = new Map();
+    for (const row of rows) {
+      if (
+        typeof row.entryId !== "string" ||
+        typeof row.chunkText !== "string" ||
+        typeof row.chunkIndex !== "number"
+      ) {
+        continue;
+      }
+      const record = chunksByEntryId.get(row.entryId) ?? {
+        chunks: [],
+        contiguous: true,
+      };
+      if (row.chunkIndex !== record.chunks.length) {
+        record.contiguous = false;
+      }
+      record.chunks.push(row.chunkText);
+      chunksByEntryId.set(row.entryId, record);
+    }
+    return new Map(
+      [...chunksByEntryId].map(([entryId, record]) => [
+        entryId,
+        {
+          dataJson: record.chunks.join(""),
+          chunkCount: record.chunks.length,
+          contiguous: record.contiguous,
+        },
+      ]),
+    );
+  }
+  parseThreadSessionEntryRows(threadKey, rows, exactDataByEntryId) {
+    const exactData =
+      exactDataByEntryId ??
+      this.loadExactThreadEntryData(
+        threadKey,
+        rows
+          .filter(
+            (row) =>
+              typeof row.dataJson === "string" &&
+              row.dataJson.includes(`"${THREAD_EXACT_PAYLOAD_MARKER}"`),
+          )
+          .map((row) => row.entryId),
+      );
+    return rows
+      .map((row) => {
+        const exact = exactData.get(row.entryId);
+        const bounded = exact ? parseJsonValue(row.dataJson) : null;
+        const marker = bounded?.[THREAD_EXACT_PAYLOAD_MARKER];
+        const expectedChunkCount =
+          marker && typeof marker === "object"
+            ? asFiniteNumber(marker.chunkCount)
+            : null;
+        const expectedByteLength =
+          marker && typeof marker === "object"
+            ? asFiniteNumber(marker.byteLength)
+            : null;
+        const hasCompleteExactData =
+          exact?.contiguous === true &&
+          expectedChunkCount === exact.chunkCount &&
+          expectedByteLength === jsonByteLength(exact.dataJson);
+        return parseThreadSessionEntry({
+          ...row,
+          dataJson: hasCompleteExactData ? exact.dataJson : row.dataJson,
+        });
+      })
+      .filter((entry) => entry !== null);
   }
   loadThreadSessionEntries(threadKey, limit = undefined) {
     const normalizedLimit =
@@ -4482,67 +5114,200 @@ export class SessionStore {
     const rows = normalizedLimit
       ? this.db.prepare(sql).all(threadKey, normalizedLimit)
       : this.db.prepare(sql).all(threadKey);
-    return rows
-      .map((row) => parseThreadSessionEntry(row))
-      .filter((entry) => entry !== null);
+    return this.parseThreadSessionEntryRows(threadKey, rows);
+  }
+  findLatestRangeCompaction(threadKey) {
+    const row = this.db
+      .prepare(
+        `
+      SELECT
+        compact.entry_id AS entryId,
+        compact.parent_entry_id AS parentEntryId,
+        compact.entry_type AS entryType,
+        compact.timestamp_iso AS timestampIso,
+        compact.created_at AS createdAt,
+        compact.data_json AS dataJson,
+        covered_from.insertion_sequence AS coveredFromSequence,
+        covered_through.insertion_sequence AS coveredThroughSequence
+      FROM runtime_thread_entries compact
+      JOIN runtime_thread_entries covered_from
+        ON covered_from.thread_key = compact.thread_key
+       AND covered_from.entry_id = json_extract(compact.data_json, '$.fromEntryId')
+      JOIN runtime_thread_entries covered_through
+        ON covered_through.thread_key = compact.thread_key
+       AND covered_through.entry_id = json_extract(compact.data_json, '$.toEntryId')
+      WHERE compact.thread_key = ?
+        AND compact.entry_type = 'compaction'
+        AND json_type(compact.data_json, '$.fromEntryId') = 'text'
+        AND json_type(compact.data_json, '$.toEntryId') = 'text'
+      ORDER BY compact.insertion_sequence DESC, compact.rowid DESC
+      LIMIT 1
+    `,
+      )
+      .get(threadKey);
+    const entry = row ? parseThreadSessionEntry(row) : null;
+    return entry?.type === "compaction" &&
+      entry.fromEntryId &&
+      entry.toEntryId &&
+      typeof row.coveredFromSequence === "number" &&
+      typeof row.coveredThroughSequence === "number"
+      ? {
+          entry,
+          coveredFromSequence: row.coveredFromSequence,
+          coveredThroughSequence: row.coveredThroughSequence,
+        }
+      : null;
+  }
+  loadThreadMessagesAfterCompaction(threadKey, compaction) {
+    const loadRange = (predicate, sequence) =>
+      this.parseThreadSessionEntryRows(
+        threadKey,
+        this.db
+          .prepare(
+            `
+      SELECT
+        entry_id AS entryId,
+        parent_entry_id AS parentEntryId,
+        entry_type AS entryType,
+        timestamp_iso AS timestampIso,
+        created_at AS createdAt,
+        data_json AS dataJson
+      FROM runtime_thread_entries
+      WHERE thread_key = ?
+        AND insertion_sequence ${predicate} ?
+      ORDER BY insertion_sequence ASC, rowid ASC
+    `,
+          )
+          .all(threadKey, sequence),
+      );
+    const headEntries = loadRange("<", compaction.coveredFromSequence);
+    const tailEntries = loadRange(">", compaction.coveredThroughSequence);
+    const rawHead = buildRawThreadMessages(buildThreadPathEntries(headEntries));
+    const rawTail = buildRawThreadMessages(buildThreadPathEntries(tailEntries));
+    const overlay = normalizeCompactionOverlay(compaction.entry, []);
+    if (!overlay) return null;
+    const messages = [
+      ...rawHead,
+      {
+        entryId: overlay.id,
+        threadKey: "",
+        timestamp: overlay.timestamp,
+        role: "assistant",
+        content: formatThreadCheckpointMessage(overlay.summary),
+        ...(overlay.checkpointQuarantineKeys
+          ? { checkpointQuarantineKeys: overlay.checkpointQuarantineKeys }
+          : {}),
+      },
+      ...(overlay.pinnedUserInstruction
+        ? [
+            {
+              entryId: `${overlay.id}${PINNED_INSTRUCTION_ENTRY_ID_MARKER}`,
+              threadKey: "",
+              timestamp: overlay.timestamp,
+              role: "user",
+              content: overlay.pinnedUserInstruction.text,
+              payload: {
+                role: "user",
+                content: overlay.pinnedUserInstruction.text,
+                timestamp: overlay.timestamp,
+              },
+            },
+          ]
+        : []),
+      ...rawTail,
+    ];
+    return overlay.residentFold
+      ? applyResidentFold(messages, overlay)
+      : messages;
   }
   appendThreadMessage(message) {
-    const threadKey = normalizeRuntimeThreadId(message.threadKey);
+    this.appendThreadMessages([message]);
+  }
+  appendThreadMessages(messages) {
+    if (!Array.isArray(messages) || messages.length === 0) return;
+    const threadKey = normalizeRuntimeThreadId(messages[0].threadKey);
     if (!threadKey) {
       throw new Error("threadKey is required.");
     }
-    const payload = enforceThreadPayloadRowSizeLimit(
-      buildFallbackThreadPayload(message),
-    );
+    const prepared = messages.map((message) => {
+      if (normalizeRuntimeThreadId(message.threadKey) !== threadKey) {
+        throw new Error("All thread messages in a batch must use the same threadKey.");
+      }
+      const fallbackPayload = buildFallbackThreadPayload(message);
+      const boundedPayload = enforceThreadPayloadRowSizeLimit(fallbackPayload);
+      const storage =
+        message.preservePayloadExactly === true
+          ? chunkExactThreadEntryData(
+              { message: fallbackPayload },
+              { message: boundedPayload },
+            )
+          : { data: { message: boundedPayload } };
+      return {
+        message,
+        payload: fallbackPayload,
+        storage,
+      };
+    });
     const capture = this.ephemeralThreadCaptures.get(threadKey);
     if (capture) {
-      capture.appendedMessages.push({
-        ...message,
-        threadKey,
-        role: payload.role,
-        payload,
-        entryId: `ephemeral:${capture.captureId}:${capture.appendedMessages.length}`,
-      });
+      for (const { message, storage } of prepared) {
+        const payload = storage.data.message;
+        capture.appendedMessages.push({
+          ...message,
+          threadKey,
+          role: payload.role,
+          payload,
+          entryId: `ephemeral:${capture.captureId}:${capture.appendedMessages.length}`,
+        });
+      }
       return;
     }
     const conversationId = this.getThreadConversationId(threadKey);
-    let entryId = "";
+    const appended = [];
     this.withImmediateTransaction(() => {
-      this.upsertSession(conversationId, message.timestamp);
-      const threadSession = this.ensureThreadSession(
-        threadKey,
-        conversationId,
-        message.timestamp,
-      );
-      entryId = this.appendThreadSessionEntry({
-        threadKey,
-        sessionId: threadSession.sessionId,
-        entryType: "message",
-        timestamp: message.timestamp,
-        data: {
-          message: payload,
-        },
-      });
+      for (const { message, payload, storage } of prepared) {
+        this.upsertSession(conversationId, message.timestamp);
+        const threadSession = this.ensureThreadSession(
+          threadKey,
+          conversationId,
+          message.timestamp,
+        );
+        const entryId = this.appendThreadSessionEntry({
+          threadKey,
+          sessionId: threadSession.sessionId,
+          entryType: "message",
+          timestamp: message.timestamp,
+          data: storage.data,
+          ...(storage.exactDataJson
+            ? {
+                exactDataJson: storage.exactDataJson,
+                exactChunkEnds: storage.exactChunkEnds,
+              }
+            : {}),
+        });
+        appended.push({ entryId, message, payload });
+      }
       this.touchThread(threadKey);
     });
-    // Emit the single source-tagged transcript update (nested `transcriptUpdate`
-    // shape) the cloud journal consumes; the legacy flat emit is retired.
-    if (entryId) {
-      this.options.onThreadTranscriptUpdate?.({
-        conversationId,
-        transcriptUpdate: {
-          source: "stella",
-          threadId: threadKey,
-          entryId,
-          atMs: message.timestamp,
-        },
-      });
-    }
-    if (
-      payload.role === "assistant" &&
-      activitySummaryTextFromAssistantPayload(payload)
-    ) {
-      this.emitThreadAssistantUpdate(threadKey, message.timestamp);
+    for (const { entryId, message, payload } of appended) {
+      if (!entryId) continue;
+      try {
+        this.options.onThreadTranscriptUpdate?.({
+          conversationId,
+          transcriptUpdate: {
+            source: "stella",
+            threadId: threadKey,
+            entryId,
+            atMs: message.timestamp,
+          },
+        });
+        if (payload.role === "assistant") {
+          this.emitThreadAssistantUpdate(threadKey, message.timestamp);
+        }
+      } catch {
+        // The transaction already committed. Notification failures must not
+        // make the caller retry and duplicate a durably appended turn group.
+      }
     }
   }
 
@@ -4554,6 +5319,7 @@ export class SessionStore {
     display: boolean;
     eventId?: string;
     lifecycleEvent?: RuntimeThreadCustomMessageEntry["lifecycleEvent"];
+    preservePayloadExactly?: boolean;
   }): void {
     const threadKey = normalizeRuntimeThreadId(message.threadKey);
     if (!threadKey) {
@@ -4563,7 +5329,7 @@ export class SessionStore {
     if (!customType) {
       throw new Error("customType is required.");
     }
-    const boundedMessage = enforceCustomMessageRowSizeLimit({
+    const exactMessage = {
       customType,
       content: message.content,
       display: message.display,
@@ -4571,7 +5337,12 @@ export class SessionStore {
       ...(message.lifecycleEvent
         ? { lifecycleEvent: message.lifecycleEvent }
         : {}),
-    });
+    };
+    const boundedMessage = enforceCustomMessageRowSizeLimit(exactMessage);
+    const storage =
+      message.preservePayloadExactly === true
+        ? chunkExactThreadEntryData(exactMessage, boundedMessage)
+        : { data: boundedMessage };
     const conversationId = this.getThreadConversationId(threadKey);
     let entryId = "";
     this.withImmediateTransaction(() => {
@@ -4586,17 +5357,13 @@ export class SessionStore {
         sessionId: threadSession.sessionId,
         entryType: "custom_message",
         timestamp: message.timestamp,
-        data: {
-          customType: boundedMessage.customType,
-          content: boundedMessage.content,
-          display: boundedMessage.display,
-          ...(boundedMessage.eventId
-            ? { eventId: boundedMessage.eventId }
-            : {}),
-          ...(boundedMessage.lifecycleEvent
-            ? { lifecycleEvent: boundedMessage.lifecycleEvent }
-            : {}),
-        },
+        data: storage.data,
+        ...(storage.exactDataJson
+          ? {
+              exactDataJson: storage.exactDataJson,
+              exactChunkEnds: storage.exactChunkEnds,
+            }
+          : {}),
       });
       this.touchThread(threadKey);
     });
@@ -4686,11 +5453,16 @@ export class SessionStore {
       throw new Error("threadKey is required.");
     }
     const capture = this.ephemeralThreadCaptures.get(threadKey);
+    const latestCompaction = capture || limit
+      ? null
+      : this.findLatestRangeCompaction(threadKey);
     const messages = capture
       ? [...capture.seedMessages, ...capture.appendedMessages]
-      : buildThreadMessagesFromEntries(
-          this.loadThreadSessionEntries(threadKey, limit),
-        );
+      : latestCompaction
+        ? this.loadThreadMessagesAfterCompaction(threadKey, latestCompaction)
+        : buildThreadMessagesFromEntries(
+            this.loadThreadSessionEntries(threadKey, limit),
+          );
     const normalizedLimit =
       typeof limit === "number" && Number.isFinite(limit)
         ? Math.max(1, Math.floor(limit))
@@ -4705,6 +5477,11 @@ export class SessionStore {
         ...(message.payload ? { payload: message.payload } : {}),
         ...(message.customMessage
           ? { customMessage: message.customMessage }
+          : {}),
+        ...(message.checkpointQuarantineKeys
+          ? {
+              checkpointQuarantineKeys: message.checkpointQuarantineKeys,
+            }
           : {}),
       }),
     );
@@ -4878,7 +5655,7 @@ export class SessionStore {
    * overlay used to rebuild model context. The latter deliberately flattens
    * tool transport into a text checkpoint, which loses the block semantics
    * the read-only transcript needs to distinguish authored prose from tools. */
-  private loadRawThreadMessages(
+  loadRawThreadMessages(
     threadKey: string,
     limit?: number,
   ): Array<RuntimeThreadMessage & { entryId: string }> {
@@ -5204,13 +5981,9 @@ export class SessionStore {
     const conversationId = this.getThreadConversationId(threadKey);
     let entryId = "";
     this.withImmediateTransaction(() => {
-      const path = buildThreadPathEntries(
-        this.loadThreadSessionEntries(threadKey),
-      );
-      const rawMessages = buildRawThreadMessages(path);
-      const existingOverlays = buildThreadCompactionOverlays(path, rawMessages);
+      const latestRangeCompaction = this.findLatestRangeCompaction(threadKey);
       const normalizedFromEntryId =
-        existingOverlays[0]?.fromEntryId ?? fromEntryId;
+        latestRangeCompaction?.entry.fromEntryId ?? fromEntryId;
       const threadSession = this.ensureThreadSession(
         threadKey,
         conversationId,
@@ -6267,7 +7040,7 @@ export class SessionStore {
   }
   saveAgentRecord(record) {
     this.upsertSession(record.conversationId, record.updatedAt);
-    this.db
+    const revisionRow = this.db
       .prepare(
         `
       INSERT INTO runtime_agents (
@@ -6282,6 +7055,7 @@ export class SessionStore {
         max_agent_depth,
         parent_agent_id,
         model_config_json,
+        tool_workspace_root,
         status,
         started_at,
         completed_at,
@@ -6293,9 +7067,10 @@ export class SessionStore {
         manager_final_report,
         manager_final_report_id,
         manager_report_ids_json,
-        manager_report_sequence
+        manager_report_sequence,
+        record_revision
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
       ON CONFLICT(thread_id) DO UPDATE SET
         conversation_id = excluded.conversation_id,
         storage_mode = excluded.storage_mode,
@@ -6307,6 +7082,7 @@ export class SessionStore {
         max_agent_depth = excluded.max_agent_depth,
         parent_agent_id = excluded.parent_agent_id,
         model_config_json = excluded.model_config_json,
+        tool_workspace_root = excluded.tool_workspace_root,
         status = excluded.status,
         started_at = excluded.started_at,
         completed_at = excluded.completed_at,
@@ -6318,10 +7094,13 @@ export class SessionStore {
         manager_final_report = excluded.manager_final_report,
         manager_final_report_id = excluded.manager_final_report_id,
         manager_report_ids_json = excluded.manager_report_ids_json,
-        manager_report_sequence = excluded.manager_report_sequence
+        manager_report_sequence = excluded.manager_report_sequence,
+        record_revision = runtime_agents.record_revision + 1
+      WHERE excluded.attempt_generation >= runtime_agents.attempt_generation
+      RETURNING record_revision
     `,
       )
-      .run(
+      .get(
         record.threadId,
         record.conversationId,
         record.storageMode ?? "local",
@@ -6333,6 +7112,7 @@ export class SessionStore {
         record.maxAgentDepth ?? null,
         record.parentAgentId ?? null,
         toJsonValueString(record.modelConfigSnapshot) ?? null,
+        record.toolWorkspaceRoot ?? null,
         record.status,
         record.startedAt,
         record.completedAt ?? null,
@@ -6346,6 +7126,7 @@ export class SessionStore {
         toJsonValueString(record.managerReportIds) ?? null,
         record.managerReportSequence ?? 0,
       );
+    return revisionRow?.record_revision ?? null;
   }
   private listAgentAssistantMessagesByThread(
     targetsInput: readonly {
@@ -6542,6 +7323,7 @@ export class SessionStore {
         max_agent_depth,
         parent_agent_id,
         model_config_json,
+        tool_workspace_root,
         status,
         started_at,
         completed_at,
@@ -6553,7 +7335,8 @@ export class SessionStore {
         manager_final_report,
         manager_final_report_id,
         manager_report_ids_json,
-        manager_report_sequence
+        manager_report_sequence,
+        record_revision
       FROM runtime_agents
       WHERE thread_id = ?
       LIMIT 1
@@ -6582,6 +7365,7 @@ export class SessionStore {
           manager_final_report_id: string | null;
           manager_report_ids_json: string | null;
           manager_report_sequence: number;
+          record_revision: number;
         }
       | undefined;
     if (!row) {
@@ -6612,8 +7396,12 @@ export class SessionStore {
         : { maxAgentDepth: row.max_agent_depth }),
       ...(row.parent_agent_id ? { parentAgentId: row.parent_agent_id } : {}),
       ...(modelConfigSnapshot ? { modelConfigSnapshot } : {}),
+      ...(row.tool_workspace_root
+        ? { toolWorkspaceRoot: row.tool_workspace_root }
+        : {}),
       status: row.status,
       attemptGeneration: row.attempt_generation ?? 0,
+      recordRevision: row.record_revision ?? 0,
       ...(row.root_run_id ? { rootRunId: row.root_run_id } : {}),
       ...(row.manager_final_report
         ? { managerFinalReport: row.manager_final_report }
@@ -6646,6 +7434,7 @@ export class SessionStore {
         max_agent_depth,
         parent_agent_id,
         model_config_json,
+        tool_workspace_root,
         status,
         started_at,
         completed_at,
@@ -6657,7 +7446,8 @@ export class SessionStore {
         manager_final_report,
         manager_final_report_id,
         manager_report_ids_json,
-        manager_report_sequence
+        manager_report_sequence,
+        record_revision
       FROM runtime_agents
       WHERE status = ?
       ORDER BY updated_at DESC, thread_id ASC
@@ -6685,6 +7475,7 @@ export class SessionStore {
       manager_final_report_id: string | null;
       manager_report_ids_json: string | null;
       manager_report_sequence: number;
+      record_revision: number;
     }>;
 
     return rows.map((row) => {
@@ -6715,8 +7506,12 @@ export class SessionStore {
           : { maxAgentDepth: row.max_agent_depth }),
         ...(row.parent_agent_id ? { parentAgentId: row.parent_agent_id } : {}),
         ...(modelConfigSnapshot ? { modelConfigSnapshot } : {}),
+        ...(row.tool_workspace_root
+          ? { toolWorkspaceRoot: row.tool_workspace_root }
+          : {}),
         status: row.status,
         attemptGeneration: row.attempt_generation ?? 0,
+        recordRevision: row.record_revision ?? 0,
         ...(row.root_run_id ? { rootRunId: row.root_run_id } : {}),
         ...(row.manager_final_report
           ? { managerFinalReport: row.manager_final_report }
@@ -6737,10 +7532,40 @@ export class SessionStore {
   /**
    * Authoritative Activity read: one row per background-agent thread in the
    * conversation, straight from `runtime_agents` (the single writer is the
-   * LocalAgentManager's `persistTask`). Ordered oldest-started first — the renderer sorts for
-   * display. Truncated result/error previews keep the wire payload small;
-   * the full result still rides the completion chat card.
+   * LocalAgentManager's `persistTask`). Initial hydration is active work plus
+   * a bounded recent terminal window; keyed pushes keep it current afterward.
+   * SQLite retains every older record.
    */
+  selectBoundedThreadActivityIds(conversationId, maxItems) {
+    const activeRows = this.db
+      .prepare(
+        `SELECT thread_id
+         FROM runtime_agents
+         WHERE conversation_id = ?
+           AND status IN ('pending', 'running')
+         ORDER BY updated_at DESC, thread_id ASC
+         LIMIT ?`,
+      )
+      .all(conversationId, maxItems);
+    const remaining = maxItems - activeRows.length;
+    const terminalRows =
+      remaining > 0
+        ? this.db
+            .prepare(
+              `SELECT thread_id
+               FROM runtime_agents
+               WHERE conversation_id = ?
+                 AND status NOT IN ('pending', 'running')
+               ORDER BY updated_at DESC, thread_id ASC
+               LIMIT ?`,
+            )
+            .all(conversationId, remaining)
+        : [];
+    return [...activeRows, ...terminalRows]
+      .map((row) => row.thread_id)
+      .filter((threadId) => typeof threadId === "string");
+  }
+
   listThreadActivity(conversationId, options = {}) {
     if (options.view === "mobile-summary") {
       const requestedMaxItems = Number.isFinite(options.maxItems)
@@ -6750,38 +7575,36 @@ export class SessionStore {
         500,
         Math.max(1, Math.floor(requestedMaxItems)),
       );
+      const selectedThreadIds = this.selectBoundedThreadActivityIds(
+        conversationId,
+        maxItems,
+      );
+      if (selectedThreadIds.length === 0) return [];
+      const selectedPlaceholders = selectedThreadIds.map(() => "?").join(", ");
       const rows = this.db
         .prepare(
           `
-        WITH selected AS (
-          SELECT
-            a.thread_id,
-            a.conversation_id,
-            a.agent_type,
-            a.description,
-            a.status,
-            a.attempt_generation,
-            a.parent_agent_id,
-            a.started_at,
-            a.completed_at,
-            substr(a.result, 1, 512) AS result,
-            substr(a.error, 1, 512) AS error,
-            a.updated_at,
-            a.root_run_id
-          FROM runtime_agents a
-          WHERE a.conversation_id = ?
-          ORDER BY
-            CASE WHEN a.status = 'running' THEN 0 ELSE 1 END ASC,
-            a.updated_at DESC,
-            a.thread_id ASC
-          LIMIT ?
-        )
-        SELECT *
-        FROM selected
-        ORDER BY started_at ASC, thread_id ASC
+        SELECT
+          a.thread_id,
+          a.conversation_id,
+          a.agent_type,
+          a.description,
+          a.status,
+          a.attempt_generation,
+          a.record_revision,
+          a.parent_agent_id,
+          a.started_at,
+          a.completed_at,
+          substr(a.result, 1, 512) AS result,
+          substr(a.error, 1, 512) AS error,
+          a.updated_at,
+          a.root_run_id
+        FROM runtime_agents a
+        WHERE a.thread_id IN (${selectedPlaceholders})
+        ORDER BY a.started_at ASC, a.thread_id ASC
       `,
         )
-        .all(conversationId, maxItems);
+        .all(...selectedThreadIds);
       return rows.map((row) => ({
         source: "stella",
         threadId: row.thread_id,
@@ -6790,6 +7613,7 @@ export class SessionStore {
         description: row.description,
         status: row.status,
         attemptGeneration: row.attempt_generation ?? 0,
+        recordRevision: row.record_revision ?? 0,
         ...(row.root_run_id ? { rootRunId: row.root_run_id } : {}),
         ...(row.parent_agent_id ? { parentAgentId: row.parent_agent_id } : {}),
         startedAt: row.started_at,
@@ -6799,6 +7623,19 @@ export class SessionStore {
         updatedAt: row.updated_at,
       }));
     }
+    const requestedMaxItems = Number.isFinite(options.maxItems)
+      ? options.maxItems
+      : DESKTOP_THREAD_ACTIVITY_HYDRATION_LIMIT;
+    const maxItems = Math.min(
+      DESKTOP_THREAD_ACTIVITY_HYDRATION_LIMIT,
+      Math.max(1, Math.floor(requestedMaxItems)),
+    );
+    const selectedThreadIds = this.selectBoundedThreadActivityIds(
+      conversationId,
+      maxItems,
+    );
+    if (selectedThreadIds.length === 0) return [];
+    const selectedPlaceholders = selectedThreadIds.map(() => "?").join(", ");
     const rows = this.db
       .prepare(
         `
@@ -6809,6 +7646,7 @@ export class SessionStore {
         a.description,
         a.status,
         a.attempt_generation,
+        a.record_revision,
         a.parent_agent_id,
         a.model_config_json,
         a.started_at,
@@ -6821,11 +7659,11 @@ export class SessionStore {
         t.group_label
       FROM runtime_agents a
       LEFT JOIN runtime_threads t ON t.thread_key = a.thread_id
-      WHERE a.conversation_id = ?
+      WHERE a.thread_id IN (${selectedPlaceholders})
       ORDER BY a.started_at ASC, a.thread_id ASC
     `,
       )
-      .all(conversationId);
+      .all(...selectedThreadIds);
     const assistantTargets = rows
       .filter((row) => normalizeRetiredAgentType(row.agent_type) === "general")
       .sort(
@@ -6839,6 +7677,7 @@ export class SessionStore {
         threadId: row.thread_id,
         startedAt: row.started_at,
         attemptGeneration: row.attempt_generation ?? 0,
+        recordRevision: row.record_revision ?? 0,
       }));
     const assistantMessagesByThread =
       this.listAgentAssistantMessagesByThread(assistantTargets);
@@ -6855,6 +7694,7 @@ export class SessionStore {
         description: row.description,
         status: row.status,
         attemptGeneration: row.attempt_generation ?? 0,
+        recordRevision: row.record_revision ?? 0,
         ...(row.root_run_id ? { rootRunId: row.root_run_id } : {}),
         ...(row.parent_agent_id ? { parentAgentId: row.parent_agent_id } : {}),
         ...(modelConfigSnapshot ? { modelConfigSnapshot } : {}),
@@ -6880,7 +7720,6 @@ export class SessionStore {
       };
     });
   }
-
   /** Bounded, read-only transcript projection for General/Manager detail UI. */
   listThreadTranscript(
     threadIdInput: string,
@@ -7010,6 +7849,24 @@ export class SessionStore {
       status: record.status,
       entries,
       truncated,
+    };
+  }
+
+  getThreadActivityMetadata(threadId) {
+    const row = this.db
+      .prepare(
+        `
+      SELECT group_key, group_label
+      FROM runtime_threads
+      WHERE thread_key = ?
+      LIMIT 1
+    `,
+      )
+      .get(threadId);
+    if (!row) return null;
+    return {
+      ...(row.group_key ? { groupKey: row.group_key } : {}),
+      ...(row.group_label ? { groupLabel: row.group_label } : {}),
     };
   }
   getOrchestratorReminderState(conversationId) {

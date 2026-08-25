@@ -446,7 +446,9 @@
       },
       "steps": {
         "download": "Κατεβάστε την εφαρμογή",
-        "downloadQrAlt": "Σαρώστε για λήψη της Stella από το App Store",
+        "platformSelectorLabel": "Επιλέξτε πλατφόρμα κινητού",
+        "appStoreQrAlt": "Σαρώστε για λήψη της Stella από το App Store",
+        "playStoreQrAlt": "Σαρώστε για λήψη της Stella από το Google Play",
         "connect": "Συνδέστε το τηλέφωνό σας"
       },
       "toasts": {

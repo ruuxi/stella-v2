@@ -8,6 +8,10 @@ import type {
 } from "@stella/contracts/file-changes";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type { BrowserUseResponseMeta } from "@stella/contracts/local-chat";
+import {
+  isMapRouteArtifact,
+  type MapRouteArtifact,
+} from "@stella/contracts/map-artifact";
 import type { ToolDefinition } from "../types.js";
 
 export type NodeReplToolOptions = NodeReplKernelManagerOptions & {
@@ -53,6 +57,7 @@ export const createNodeReplTool = (
       try {
         const fileChanges: FileChangeRecord[] = [];
         const producedFiles: ProducedFileRecord[] = [];
+        const maps: MapRouteArtifact[] = [];
         const result = await registry.evaluate(args.code, context, {
           ...(timeoutMs !== undefined ? { timeoutMs } : {}),
           ...(extras?.signal ? { signal: extras.signal } : {}),
@@ -64,11 +69,23 @@ export const createNodeReplTool = (
             if (nested.fileChanges) fileChanges.push(...nested.fileChanges);
             if (nested.producedFiles)
               producedFiles.push(...nested.producedFiles);
+            const details =
+              nested.details &&
+              typeof nested.details === "object" &&
+              !Array.isArray(nested.details)
+                ? (nested.details as Record<string, unknown>)
+                : undefined;
+            if (isMapRouteArtifact(details?.map)) maps.push(details.map);
           },
         });
+        const details = {
+          ...(responseMeta ? { _meta: responseMeta } : {}),
+          ...(maps.length === 1 ? { map: maps[0] } : {}),
+          ...(maps.length > 1 ? { maps } : {}),
+        };
         return {
           result,
-          ...(responseMeta ? { details: { _meta: responseMeta } } : {}),
+          ...(Object.keys(details).length > 0 ? { details } : {}),
           ...(fileChanges.length > 0 ? { fileChanges } : {}),
           ...(producedFiles.length > 0 ? { producedFiles } : {}),
         };

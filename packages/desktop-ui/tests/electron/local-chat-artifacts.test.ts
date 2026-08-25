@@ -134,6 +134,13 @@ describe("local chat mobile artifacts", () => {
         { id: "p1", name: "Blue Bottle Coffee", lat: 37.7961, lng: -122.3939 },
       ],
     };
+    const deferredMap = {
+      kind: "map-route",
+      version: 1,
+      markers: [
+        { id: "p2", name: "Ferry Building", lat: 37.7955, lng: -122.3937 },
+      ],
+    };
     const artifacts = deriveMobileArtifactsForMessage(
       baseMessage({
         toolEvents: [
@@ -157,10 +164,16 @@ describe("local chat mobile artifacts", () => {
             type: "tool_result",
             payload: { toolName: "map", error: "Map lookup failed", map },
           },
+          {
+            _id: "tool-4",
+            timestamp: 1_400,
+            type: "tool_result",
+            payload: { toolName: "node_repl", map: deferredMap },
+          },
         ],
       }),
     );
-    expect(artifacts).toEqual([map]);
+    expect(artifacts).toEqual([map, deferredMap]);
   });
 
   it("omits developer file artifacts unless explicitly enabled", () => {

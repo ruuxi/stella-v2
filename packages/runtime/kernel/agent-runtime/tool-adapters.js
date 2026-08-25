@@ -109,7 +109,6 @@ export const getRuntimeToolMetadata = (opts) => {
     resolved.push(entry);
   }
   if (missing.length > 0) {
-
     console.warn(
       `[tool-adapters] dropped unknown tools from allowlist: ${missing.join(", ")}`,
     );
@@ -397,7 +396,39 @@ export const appendDemotedCatalogToNodeRepl = (
       : tool,
   );
 };
-
+export const getProviderToolMetadata = (opts) => {
+  const catalog = opts.toolCatalog ?? [];
+  const requestedNames = getRequestedRuntimeToolNames(opts.toolsAllowlist);
+  const nodeReplAvailable =
+    requestedNames.includes(NODE_REPL_TOOL_NAME) &&
+    catalog.some((tool) => tool.name === NODE_REPL_TOOL_NAME);
+  const hasExplicitAllowlist =
+    Array.isArray(opts.toolsAllowlist) && opts.toolsAllowlist.length > 0;
+  const visibleDemotedTools = hasExplicitAllowlist
+    ? collectVisibleDemotedTools(catalog, opts.connectorProvider)
+    : [];
+  const visibleDemotedNames = new Set(
+    visibleDemotedTools.map((tool) => tool.name),
+  );
+  const eager = [];
+  const eagerNames = new Set();
+  for (const tool of getRuntimeToolMetadata(opts)) {
+    if (tool.demoted) {
+      if (!visibleDemotedNames.has(tool.name) || nodeReplAvailable) continue;
+    }
+    eager.push(tool);
+    eagerNames.add(tool.name);
+  }
+  if (!nodeReplAvailable) {
+    for (const tool of visibleDemotedTools) {
+      if (eagerNames.has(tool.name)) continue;
+      eager.push(tool);
+      eagerNames.add(tool.name);
+    }
+    return eager;
+  }
+  return appendDemotedCatalogToNodeRepl(eager, catalog, opts.connectorProvider);
+};
 export const extractAttachImageBlocks = async (text, target = {}) => {
   if (!text || !text.includes("[stella-attach-image]")) {
     return { text, images: [] };
@@ -427,7 +458,6 @@ export const extractAttachImageBlocks = async (text, target = {}) => {
 
   for (const { full, path: imgPath, detailOriginal } of matches) {
     try {
-
       const buf = await readImageFileSettled(imgPath);
       const mimeType = resolveImageMimeType(imgPath, buf);
       if (!mimeType) {
@@ -482,7 +512,6 @@ export const extractAttachImageBlocks = async (text, target = {}) => {
         sourcePath: imgPath,
       });
     } catch {
-
       markerReplacements.push({ full, replacement: full });
       continue;
     }
@@ -585,9 +614,7 @@ export const extractNodeReplImageBlocks = async (details, target = {}) => {
         sourcePath: item.path,
       });
     } catch {
-
     } finally {
-
       if (item.deleteAfterAttach === true) {
         await fs.rm(item.path, { force: true }).catch(() => undefined);
       }
@@ -833,7 +860,6 @@ export const createPiTools = (opts) => {
     if (activeToolNames.has(toolName)) continue;
     const demotedMeta = catalog.get(toolName)?.demoted;
     if (demotedMeta) {
-
       if (!demotedToolNames.has(toolName)) continue;
 
       if (nodeReplAvailable) continue;

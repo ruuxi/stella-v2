@@ -32,10 +32,10 @@ import {
   createRuntimePromptAgentMessage,
 } from "./run-preparation.js";
 import {
-  appendDemotedCatalogToNodeRepl,
   collectDemotedToolNames,
   executeRuntimeToolCall,
   extractAttachImageBlocks,
+  getProviderToolMetadata,
   getRuntimeToolMetadata,
   truncateModelVisibleToolText,
   preserveModelVisibleToolText,
@@ -81,10 +81,7 @@ const widenAllowlistWithDemotedTools = (
   toolCatalog: readonly { name: string }[] | undefined,
   connectorProvider: string | undefined,
 ): string[] | undefined => {
-  if (!toolsAllowlist?.includes("node_repl")) return toolsAllowlist;
-  if (!toolCatalog?.some((tool) => tool.name === "node_repl")) {
-    return toolsAllowlist;
-  }
+  if (!toolsAllowlist || toolsAllowlist.length === 0) return toolsAllowlist;
   const demoted: string[] = collectDemotedToolNames(
     toolCatalog,
     connectorProvider,
@@ -591,17 +588,13 @@ const runClaudeHostedTurn = async (args: {
     threadKey,
     engine: sessionEngine,
   });
-
   const toolMetadata = vanilla
     ? []
-    : appendDemotedCatalogToNodeRepl(
-        getRuntimeToolMetadata({
-          toolsAllowlist: args.opts.agentContext.toolsAllowlist,
-          toolCatalog: args.opts.toolCatalog,
-        }),
-        args.opts.toolCatalog,
-        args.opts.connectorDeliveryTarget?.provider,
-      );
+    : getProviderToolMetadata({
+        toolsAllowlist: args.opts.agentContext.toolsAllowlist,
+        toolCatalog: args.opts.toolCatalog,
+        connectorProvider: args.opts.connectorDeliveryTarget?.provider,
+      });
   const claudeCodeModelId = getClaudeCodeAgentModelId(
     args.opts.stellaAppDir,
     args.opts.agentContext.model,
@@ -669,7 +662,6 @@ const runClaudeHostedTurn = async (args: {
     signal?: AbortSignal,
     onUpdate?: ToolUpdateCallback,
   ) => {
-
     const imageCapTarget: ImageCapTarget = { provider: "anthropic" };
     flushPreambleBeforeTool({ toolCallId, toolName, toolArgs });
     responseTargetTracker?.noteToolStart(toolName, toolArgs);
@@ -830,7 +822,6 @@ const runClaudeHostedTurn = async (args: {
           );
         },
         onStream: (chunk) => {
-
           assistantUpdateBuffer.append(chunk);
           runEvents.noteAssistantTextChunk(chunk);
         },
@@ -844,7 +835,6 @@ const runClaudeHostedTurn = async (args: {
       completedThisTurn = true;
     } catch (error) {
       if (wasSteered && !args.opts.abortSignal?.aborted) {
-
         if (error instanceof ClaudeCodeSteeringInterruptError) {
           collectTurnFileChanges(error.fileChanges);
         }
@@ -861,7 +851,6 @@ const runClaudeHostedTurn = async (args: {
     const queued = args.liveAgent?.drain() ?? [];
     if (queued.length === 0) {
       if (completedThisTurn && finalResult) {
-
         args.liveAgent?.finish();
         break;
       }
@@ -1028,7 +1017,6 @@ const runCodexHostedTurn = async (args: {
     signal?: AbortSignal,
     onUpdate?: ToolUpdateCallback,
   ) => {
-
     const imageCapTarget: ImageCapTarget = { provider: "openai" };
     flushPreambleBeforeTool({ toolCallId, toolName, toolArgs });
     responseTargetTracker?.noteToolStart(toolName, toolArgs);
@@ -1237,7 +1225,6 @@ const runCodexHostedTurn = async (args: {
                   callbacks: args.callbacks,
                 });
               } catch {
-
                 args.liveAgent?.prepend(entries);
               }
             });
@@ -1251,7 +1238,6 @@ const runCodexHostedTurn = async (args: {
         },
         onCommandExecution: emitCodexCommandExecution,
         onStream: (chunk) => {
-
           assistantUpdateBuffer.append(chunk);
           args.opts.onProgress?.(chunk);
           runEvents.noteAssistantTextChunk(chunk);
@@ -1278,7 +1264,6 @@ const runCodexHostedTurn = async (args: {
     const queued = args.liveAgent?.drain() ?? [];
     if (queued.length === 0) {
       if (completedThisTurn && finalResult) {
-
         args.liveAgent?.finish();
         break;
       }
@@ -1340,7 +1325,6 @@ export const runExternalOrchestratorTurn = async (
   const liveAgent = createExternalLiveAgent();
 
   try {
-
     const systemPrompt = await buildRuntimeSystemPrompt({
       ...opts,
       runId: session.runId,

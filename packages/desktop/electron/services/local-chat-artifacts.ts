@@ -201,10 +201,11 @@ const considerNewestSource = (
     typeof currentSequence === "number" &&
     typeof candidateSequence === "number";
   return !current ||
-  (useSequence
-    ? candidateSequence > currentSequence
-    : candidate.timestamp > current.timestamp ||
-      (candidate.timestamp === current.timestamp && candidate.id > current.id))
+    (useSequence
+      ? candidateSequence > currentSequence
+      : candidate.timestamp > current.timestamp ||
+        (candidate.timestamp === current.timestamp &&
+          candidate.id > current.id))
     ? candidate
     : current;
 };
@@ -882,7 +883,6 @@ const buildMobileTasksById = (
 
   const tasks = new Map<string, MobileTask>();
   for (const build of builds.values()) {
-
     const status =
       build.status === "running" &&
       nowMs - build.spawnedAt > AGENT_WORK_STALE_MS
@@ -1067,20 +1067,26 @@ export const deriveMobileToolSteps = (
   return steps;
 };
 
-const mapArtifactPayload = (
+const mapArtifactPayloads = (
   event: ArtifactEventRecord,
-): MapRouteArtifact | null => {
-  if (event.type !== "tool_result") return null;
+): MapRouteArtifact[] => {
+  if (event.type !== "tool_result") return [];
   const payload = event.payload;
-  if (!payload || payload.toolName !== "map" || payload.error) return null;
-  return isMapRouteArtifact(payload.map) ? payload.map : null;
+  if (
+    !payload ||
+    (payload.toolName !== "map" && payload.toolName !== "node_repl") ||
+    payload.error
+  ) {
+    return [];
+  }
+  const candidates = Array.isArray(payload.maps) ? payload.maps : [payload.map];
+  return candidates.filter(isMapRouteArtifact);
 };
 
 export const deriveMobileArtifactsForMessage = (
   message: Pick<ArtifactMessageRecord, "toolEvents">,
   options?: MobileArtifactOptions,
-): MobileSyncArtifact[] =>
-  deriveMobileArtifactsForMessages([message], options);
+): MobileSyncArtifact[] => deriveMobileArtifactsForMessages([message], options);
 
 export const deriveMobileArtifactsForMessages = (
   messages: readonly Pick<ArtifactMessageRecord, "toolEvents">[],
@@ -1090,7 +1096,12 @@ export const deriveMobileArtifactsForMessages = (
   const seen = new Set<string>();
 
   for (const message of messages) {
-    collectMobileArtifactsFromEvents(message.toolEvents, artifacts, seen, options);
+    collectMobileArtifactsFromEvents(
+      message.toolEvents,
+      artifacts,
+      seen,
+      options,
+    );
   }
 
   return artifacts.slice(0, ARTIFACT_LIMIT_PER_MESSAGE);
@@ -1112,8 +1123,7 @@ const collectMobileArtifactsFromEvents = (
 
     pushArtifact(artifacts, seen, imageGenPayload(event));
 
-    const mapArtifact = mapArtifactPayload(event);
-    if (mapArtifact) {
+    for (const mapArtifact of mapArtifactPayloads(event)) {
       const key = `map:${mapArtifact.markers.map((m) => m.id).join("|")}:${
         mapArtifact.route?.polyline ?? ""
       }`;
@@ -1238,21 +1248,26 @@ export const buildMobileSyncMessages = (
               const candidate = imageGenPayload(event);
               if (!candidate || candidate.kind !== "media") return false;
               const artifactCallId =
-                "toolCallId" in artifact && typeof artifact.toolCallId === "string"
+                "toolCallId" in artifact &&
+                typeof artifact.toolCallId === "string"
                   ? artifact.toolCallId
                   : undefined;
               const candidateCallId =
-                "toolCallId" in candidate && typeof candidate.toolCallId === "string"
+                "toolCallId" in candidate &&
+                typeof candidate.toolCallId === "string"
                   ? candidate.toolCallId
                   : undefined;
               if (artifactCallId && candidateCallId) {
                 return artifactCallId === candidateCallId;
               }
-              return candidate.asset.kind === "image" &&
-                candidate.asset.filePaths.some((path) =>
-                  artifact.asset.kind === "image" &&
-                  artifact.asset.filePaths.includes(path),
-                );
+              return (
+                candidate.asset.kind === "image" &&
+                candidate.asset.filePaths.some(
+                  (path) =>
+                    artifact.asset.kind === "image" &&
+                    artifact.asset.filePaths.includes(path),
+                )
+              );
             }),
           );
 
@@ -1268,9 +1283,7 @@ export const buildMobileSyncMessages = (
         for (const segment of turnSegments) {
           fileArtifactsByMessageId.set(
             segment._id,
-            segment === anchor
-              ? turnArtifacts
-              : [],
+            segment === anchor ? turnArtifacts : [],
           );
         }
       }

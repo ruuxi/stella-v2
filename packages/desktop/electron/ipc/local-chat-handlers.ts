@@ -8,6 +8,7 @@ import {
   IPC_LOCAL_CHAT_LIST_MESSAGES_AFTER,
   IPC_LOCAL_CHAT_LIST_MESSAGE_TOOL_EVENTS,
   IPC_LOCAL_CHAT_LIST_MODEL_USAGE,
+  IPC_LOCAL_CHAT_LIST_SYNC_MESSAGES_BEFORE,
 } from "@stella/contracts/desktop/ipc-channels";
 import type { LocalChatHistoryService } from "../services/local-chat-history-service.js";
 import { assertPrivilegedRequest } from "./privileged-ipc.js";
@@ -447,6 +448,37 @@ export const registerLocalChatHandlers = (
         (client) =>
           client.listSyncMessages({
             conversationId: payload?.conversationId ?? "",
+            maxMessages: payload?.maxMessages,
+            includeDeveloperArtifacts:
+              payload?.includeDeveloperArtifacts === true,
+          }),
+      ),
+  );
+
+  ipcMain.handle(
+    IPC_LOCAL_CHAT_LIST_SYNC_MESSAGES_BEFORE,
+    async (
+      event,
+      payload: {
+        conversationId?: string;
+        beforeTimestampMs?: number;
+        beforeId?: string;
+        maxMessages?: number;
+        includeDeveloperArtifacts?: boolean;
+      },
+    ) =>
+      await withLocalChatClient(
+        options,
+        event,
+        IPC_LOCAL_CHAT_LIST_SYNC_MESSAGES_BEFORE,
+        (client) =>
+          client.listSyncMessagesBefore({
+            conversationId: payload?.conversationId ?? "",
+            beforeTimestampMs:
+              typeof payload?.beforeTimestampMs === "number"
+                ? payload.beforeTimestampMs
+                : Number.MAX_SAFE_INTEGER,
+            beforeId: payload?.beforeId ?? "",
             maxMessages: payload?.maxMessages,
             includeDeveloperArtifacts:
               payload?.includeDeveloperArtifacts === true,

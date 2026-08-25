@@ -3,6 +3,7 @@ import type {
   PersistedRuntimeThreadPayload,
   RuntimeThreadMessage,
 } from "./storage/shared.js";
+import { ORCHESTRATOR_ROSTER_CUSTOM_TYPE } from "./storage/shared.js";
 import type { RuntimeStore } from "./storage/runtime-store.js";
 import type { ResolvedLlmRoute } from "./model-routing.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
@@ -19,6 +20,7 @@ import {
   isThreadCompactionForced,
 } from "./agent-runtime/context-budget.js";
 import {
+  CONTEXT_DELTA_CUSTOM_TYPE_PREFIX,
   PINNED_INSTRUCTION_ENTRY_ID_MARKER,
   RESIDENT_FOLD_ENTRY_ID_MARKER,
   buildResidentFold,
@@ -245,6 +247,14 @@ const formatThreadMessagesForCompaction = (
   messages: StoredThreadMessage[],
 ): string =>
   messages
+    .filter((message) => {
+      const customType = message.customMessage?.customType;
+      return (
+        !customType?.startsWith("bootstrap.") &&
+        !customType?.startsWith(CONTEXT_DELTA_CUSTOM_TYPE_PREFIX) &&
+        customType !== ORCHESTRATOR_ROSTER_CUSTOM_TYPE
+      );
+    })
     .flatMap((message) => stringifyStoredMessage(message))
     .filter((entry) => entry.length > 0)
     .join("\n\n");
@@ -1829,7 +1839,6 @@ export const maybeCompactRuntimeThread = async (args: {
     rebuildUnsafeCheckpoint &&
     typeof args.store.loadRawThreadMessages === "function"
   ) {
-
     storedMessages =
       rawStoredMessages ?? args.store.loadRawThreadMessages(args.threadKey);
     quarantineKeys = new Set([
@@ -2067,6 +2076,9 @@ export const maybeCompactRuntimeThread = async (args: {
         ])
       : null;
   const details = {
+    // Compaction replaces derived bootstrap context even when this particular
+    // thread has no resident documents to fold.
+    replaceDerivedContext: true,
     ...(residentFold ? { residentFold } : {}),
     ...(pinnedInstructionText
       ? { pinnedUserInstruction: { text: pinnedInstructionText } }

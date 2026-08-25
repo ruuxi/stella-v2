@@ -119,10 +119,10 @@ describe("buildStartupPromptMessages", () => {
   });
 
   it.each([
-    { chars: 12_000, truncated: false },
-    { chars: 12_001, truncated: true },
+    { chars: 6_000, truncated: false },
+    { chars: 6_001, truncated: true },
   ])(
-    "caps a $chars-character resident memory map at 12,000 characters",
+    "caps a $chars-character resident memory map at 6,000 characters",
     async ({ chars, truncated }) => {
       const messages = await buildStartupPromptMessages({
         context: {
@@ -135,8 +135,8 @@ describe("buildStartupPromptMessages", () => {
       });
 
       const body = readStartupDocBody(messages[0]?.text ?? "");
-      expect(body).toHaveLength(12_000);
-      expect(body.includes("resident memory map truncated")).toBe(truncated);
+      expect(body).toHaveLength(6_000);
+      expect(body.includes("resident memory truncated")).toBe(truncated);
     },
   );
 
@@ -237,6 +237,53 @@ describe("buildStartupPromptMessages", () => {
     expect(promptText).toContain('path="~/.stella/memories/profile.md"');
     expect(promptText).toContain("The user goes by Robert");
     expect(promptText).not.toContain("The user goes by Bob");
+  });
+
+  it("keeps one unchanged canonical memory map after compaction and appends a real update once", async () => {
+    const initialMap = "x".repeat(6_001);
+    const initial = await buildStartupPromptMessages({
+      context: {
+        systemPrompt: "system",
+        dynamicContext: "",
+        maxAgentDepth: 1,
+        threadHistory: [],
+        memoryMap: initialMap,
+      },
+    });
+    const foldedHistory = [
+      {
+        role: "runtimeInternal" as const,
+        content: initial[0]!.text,
+        customMessage: {
+          customType: "bootstrap.startup_doc",
+          content: [{ type: "text" as const, text: initial[0]!.text }],
+          display: false,
+        },
+      },
+    ];
+
+    const unchanged = await buildStartupPromptMessages({
+      context: {
+        systemPrompt: "system",
+        dynamicContext: "",
+        maxAgentDepth: 1,
+        threadHistory: foldedHistory,
+        memoryMap: initialMap,
+      },
+    });
+    expect(unchanged).toEqual([]);
+
+    const updated = await buildStartupPromptMessages({
+      context: {
+        systemPrompt: "system",
+        dynamicContext: "",
+        maxAgentDepth: 1,
+        threadHistory: foldedHistory,
+        memoryMap: `${"y".repeat(5_900)}REAL_UPDATE`,
+      },
+    });
+    expect(updated).toHaveLength(1);
+    expect(updated[0]!.text).toContain("REAL_UPDATE");
   });
 
   it("injects personality as a startup doc ahead of core memory on the first turn", async () => {
@@ -349,6 +396,22 @@ describe("resident memory compaction", () => {
     expect(JSON.stringify(fold)).toContain("current map");
   });
 
+  it("uses the same canonical 6,000-character memory-map rendering in folds", () => {
+    const fold = buildResidentFold({
+      messages: [
+        startupDoc("~/.stella/memories/memory_map.md", "x".repeat(6_001)),
+      ],
+    });
+
+    const foldedMap = fold?.docs.find((doc) =>
+      doc.text.includes("memory_map.md"),
+    );
+    expect(foldedMap).toBeDefined();
+    const body = readStartupDocBody(foldedMap?.text ?? "");
+    expect(body).toHaveLength(6_000);
+    expect(body).toContain("...[resident memory truncated]");
+  });
+
   it("discards a legacy summary embedded in a persisted fold", () => {
     const parsed = parseResidentFold({
       residentFold: {
@@ -367,6 +430,23 @@ describe("resident memory compaction", () => {
 
     expect(JSON.stringify(parsed)).not.toContain("LEGACY_RETIRED_SUMMARY");
     expect(JSON.stringify(parsed)).toContain("current map");
+  });
+
+  it("canonicalizes an oversized memory map recovered from a fold", () => {
+    const parsed = parseResidentFold({
+      residentFold: {
+        docs: [
+          {
+            customType: "bootstrap.startup_doc",
+            text: `<startup_doc path="~/.stella/memories/memory_map.md">\n${"x".repeat(12_000)}\n</startup_doc>`,
+          },
+        ],
+      },
+    });
+
+    const body = readStartupDocBody(parsed?.docs[0]?.text ?? "");
+    expect(body).toHaveLength(6_000);
+    expect(body).toContain("...[resident memory truncated]");
   });
 });
 
@@ -404,6 +484,34 @@ describe("buildSubagentPromptMessages", () => {
 });
 
 describe("buildHistorySource", () => {
+  it("keeps only the latest durable Other Threads roster provider-visible", () => {
+    const roster = (text: string, timestamp: number) => ({
+      role: "runtimeInternal" as const,
+      content: text,
+      timestamp,
+      customMessage: {
+        customType: "runtime.orchestrator_reminder",
+        content: [{ type: "text" as const, text }],
+        display: false,
+      },
+    });
+    const history = buildHistorySource({
+      systemPrompt: "system",
+      dynamicContext: "",
+      maxAgentDepth: 1,
+      threadHistory: [
+        roster("stale roster", 1),
+        { role: "user", content: "keep this turn", timestamp: 2 },
+        roster("current roster", 3),
+      ],
+    });
+
+    const text = JSON.stringify(history);
+    expect(text).not.toContain("stale roster");
+    expect(text).toContain("keep this turn");
+    expect(text).toContain("current roster");
+  });
+
   it("keeps quarantine control records out of provider-visible history", () => {
     const history = buildHistorySource({
       systemPrompt: "system",
@@ -434,7 +542,11 @@ describe("buildHistorySource", () => {
     });
 
     expect(history).toEqual([
-      { role: "user", content: "keep this turn", timestamp: expect.any(Number) },
+      {
+        role: "user",
+        content: "keep this turn",
+        timestamp: expect.any(Number),
+      },
     ]);
   });
 

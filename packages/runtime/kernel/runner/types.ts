@@ -169,6 +169,7 @@ export type RuntimeSendMessageInput = {
   callbackRunId?: string;
   responseTarget?: RuntimeAgentEventPayload["responseTarget"];
   customType?: string;
+  eventId?: string;
   display?: boolean;
   timestamp?: number;
 };
@@ -221,6 +222,7 @@ export type AgentCallbacks = {
 export type QueuedOrchestratorTurn = {
   priority: "user" | "system";
   execute: () => Promise<void>;
+  cancel?: (reason: unknown) => void;
 };
 
 export type PendingFollowUpReply = {

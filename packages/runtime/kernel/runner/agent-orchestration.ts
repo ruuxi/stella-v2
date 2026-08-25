@@ -87,21 +87,22 @@ const findPersistedThreadCustomEvent = (
     context.runtimeStore.loadRawThreadMessages ??
     context.runtimeStore.loadThreadMessages;
   if (typeof loadThreadMessages !== "function") return null;
-  return loadThreadMessages
-    .call(context.runtimeStore, threadKey)
-    .find((message) => {
+  return (
+    loadThreadMessages.call(context.runtimeStore, threadKey).find((message) => {
       if (message.customMessage?.customType !== "runtime.task_lifecycle") {
         return false;
       }
       return message.customMessage.eventId === eventId;
-    }) ?? null;
+    }) ?? null
+  );
 };
 
 const hasPersistedThreadCustomEvent = (
   context: RunnerContext,
   threadKey: string,
   eventId: string | undefined,
-): boolean => findPersistedThreadCustomEvent(context, threadKey, eventId) !== null;
+): boolean =>
+  findPersistedThreadCustomEvent(context, threadKey, eventId) !== null;
 
 const getShellExecutionState = (
   result: ToolResult,
@@ -310,6 +311,7 @@ export const createAgentOrchestration = (
       callbackRunId?: string;
       responseTarget?: import("@stella/contracts/protocol").RuntimeAgentEventPayload["responseTarget"];
       customType?: string;
+      eventId?: string;
       display?: boolean;
       timestamp?: number;
     }) => Promise<void>;
@@ -317,7 +319,8 @@ export const createAgentOrchestration = (
     attemptTeardownTimeoutMs?: number;
   },
 ) => {
-  const handleAgentLifecycleEvent = (event) => {
+  const inFlightLifecycleEventIds = new Set<string>();
+  const handleAgentLifecycleEvent = async (event) => {
     const installedManager = context.state.localAgentManager;
     const parentOwner = installedManager
       ? installedManager.resolveOwningParentThread(
@@ -371,70 +374,74 @@ export const createAgentOrchestration = (
     if (!userPrompt) {
       return;
     }
+    const deliveryEventId = event.eventId?.trim();
+    if (deliveryEventId) {
+      if (inFlightLifecycleEventIds.has(deliveryEventId)) return;
+      inFlightLifecycleEventIds.add(deliveryEventId);
+    }
     if (parentThreadId) {
-
-      if (
-        !hasPersistedThreadCustomEvent(context, parentThreadId, event.eventId)
-      ) {
+      try {
+        if (
+          hasPersistedThreadCustomEvent(context, parentThreadId, event.eventId)
+        ) {
+          return;
+        }
         persistThreadCustomMessage(context.runtimeStore, {
           threadKey: parentThreadId,
           customType: "runtime.task_lifecycle",
           content: [{ type: "text", text: userPrompt }],
           display: false,
           timestamp: Date.now(),
-          ...(event.eventId ? { eventId: event.eventId } : {}),
+          ...(deliveryEventId ? { eventId: deliveryEventId } : {}),
         });
-      }
-      const deliveryEventId = event.eventId?.trim();
-      const delivery = context.state.localAgentManager?.sendAgentMessage(
-        parentThreadId,
-        userPrompt,
-        "orchestrator",
-        {
-          deliveryKind: "child-report",
-          ...(deliveryEventId ? { deliveryEventId } : {}),
-        },
-      );
-      if (deliveryEventId && delivery) {
-        void delivery
-          .then((result) => {
-            if (result.delivered) {
-              context.state.localAgentManager?.markParentWakeDelivered(
-                event.agentId,
-                deliveryEventId,
-              );
-            }
-          })
-          .catch(() => undefined);
+        await context.state.localAgentManager?.sendAgentMessage(
+          parentThreadId,
+          userPrompt,
+          "orchestrator",
+          {
+            deliveryKind: "child-report",
+            ...(deliveryEventId ? { deliveryEventId } : {}),
+          },
+        );
+      } finally {
+        if (deliveryEventId) inFlightLifecycleEventIds.delete(deliveryEventId);
       }
       return;
     }
-
     const orchestratorThreadKey = resolveOrchestratorThreadKey(
       event.conversationId,
     );
-    const persistedLifecycleMessage = findPersistedThreadCustomEvent(
-      context,
-      orchestratorThreadKey,
-      event.eventId,
-    );
-
-    const lifecycleTimestamp = persistedLifecycleMessage?.timestamp ?? Date.now();
-    if (!persistedLifecycleMessage) {
-      persistThreadCustomMessage(context.runtimeStore, {
-        threadKey: orchestratorThreadKey,
+    try {
+      if (
+        hasPersistedThreadCustomEvent(
+          context,
+          orchestratorThreadKey,
+          event.eventId,
+        )
+      ) {
+        return;
+      }
+      await deps.sendMessage({
+        conversationId: event.conversationId,
+        text: userPrompt,
+        uiVisibility: "hidden",
+        agentType: AGENT_IDS.ORCHESTRATOR,
+        deliverAs: "steer",
+        callbackRunId: event.rootRunId,
         customType: "runtime.task_lifecycle",
-        content: [{ type: "text", text: userPrompt }],
+        ...(deliveryEventId ? { eventId: deliveryEventId } : {}),
         display: false,
-        timestamp: lifecycleTimestamp,
-        ...(event.eventId ? { eventId: event.eventId } : {}),
-        preservePayloadExactly: true,
+        responseTarget: createAgentLifecycleResponseTarget({
+          agentId: event.agentId,
+          eventType: event.type,
+          ...(event.type === "agent-completed" && event.eventId
+            ? { completionEventId: event.eventId }
+            : {}),
+        }),
       });
+    } finally {
+      if (deliveryEventId) inFlightLifecycleEventIds.delete(deliveryEventId);
     }
-    context.state.orchestratorSessions
-      .get(event.conversationId)
-      ?.notifyHistoryChanged();
-
     if (event.type === "agent-completed" && event.result?.trim()) {
       try {
         const inbox = context.runtimeStore.dreamInboxStore;
@@ -452,24 +459,6 @@ export const createAgentOrchestration = (
 
       }
     }
-    void deps.sendMessage({
-      conversationId: event.conversationId,
-      text: userPrompt,
-      uiVisibility: "hidden",
-      agentType: AGENT_IDS.ORCHESTRATOR,
-      deliverAs: "steer",
-      callbackRunId: event.rootRunId,
-      customType: "runtime.task_lifecycle",
-      display: false,
-      timestamp: lifecycleTimestamp,
-      responseTarget: createAgentLifecycleResponseTarget({
-        agentId: event.agentId,
-        eventType: event.type,
-        ...(event.type === "agent-completed" && event.eventId
-          ? { completionEventId: event.eventId }
-          : {}),
-      }),
-    });
   };
   context.state.localAgentManager = new LocalAgentManager({
     maxConcurrent: 24,
@@ -490,7 +479,9 @@ export const createAgentOrchestration = (
     },
     listActiveThreads: (conversationId) =>
       context.runtimeStore.listActiveThreads(conversationId),
-    onAgentEvent: handleAgentLifecycleEvent,
+    onAgentEvent: (event) => {
+      void handleAgentLifecycleEvent(event).catch(() => undefined);
+    },
     fetchAgentContext: deps.buildAgentContext,
     runSubagent: async ({
       conversationId,
@@ -735,11 +726,10 @@ export const createAgentOrchestration = (
         toolContext,
         signal,
         onUpdate,
-    ),
+      ),
     saveAgentRecord: (record) => {
       const recordRevision = context.runtimeStore.saveAgentRecord?.(record);
       if (recordRevision === null) return;
-
       const threadMetadata =
         context.runtimeStore.getThreadActivityMetadata?.(record.threadId);
       const activityRecord: ThreadActivityRecord = {
@@ -750,9 +740,7 @@ export const createAgentOrchestration = (
         description: record.description,
         status: record.status,
         attemptGeneration: record.attemptGeneration ?? 0,
-        ...(typeof recordRevision === "number"
-          ? { recordRevision }
-          : {}),
+        ...(typeof recordRevision === "number" ? { recordRevision } : {}),
         ...(record.rootRunId ? { rootRunId: record.rootRunId } : {}),
         ...(record.parentAgentId
           ? { parentAgentId: record.parentAgentId }

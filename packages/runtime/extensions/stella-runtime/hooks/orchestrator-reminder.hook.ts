@@ -1,5 +1,6 @@
 import type { HookDefinition } from "../../../kernel/extensions/types.js";
 import { wrapSystemReminder } from "@stella/contracts/message-timestamp";
+import { ORCHESTRATOR_ROSTER_CUSTOM_TYPE } from "../../../kernel/storage/shared.js";
 
 export const createOrchestratorReminderHook =
   (): HookDefinition<"before_user_message"> => ({
@@ -14,7 +15,7 @@ export const createOrchestratorReminderHook =
             text: wrapSystemReminder(text),
             uiVisibility: "hidden",
             messageType: "message",
-            customType: "runtime.orchestrator_reminder",
+            customType: ORCHESTRATOR_ROSTER_CUSTOM_TYPE,
           },
         ],
       };

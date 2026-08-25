@@ -9,6 +9,7 @@ import {
   persistThreadCustomMessage,
   persistThreadPayloadMessage,
 } from "../agent-runtime/thread-memory.js";
+import { ORCHESTRATOR_ROSTER_CUSTOM_TYPE } from "../storage/shared.js";
 import { decorateUserTranscriptContent } from "../agent-runtime/transcript-decoration.js";
 import { buildRuntimeThreadKey } from "../thread-runtime.js";
 import { createRuntimeLogger } from "../debug.js";
@@ -74,13 +75,14 @@ export const matchesSteerableOrchestratorSession = (args: {
 export const buildRuntimeSendPromptMessage = (
   input: Pick<
     RuntimeSendMessageInput,
-    "customType" | "display" | "timestamp"
+    "customType" | "eventId" | "display" | "timestamp"
   >,
   text: string,
 ): NonNullable<ChatPayload["promptMessages"]>[number] => ({
   text,
   messageType: "message",
   customType: input.customType ?? "runtime.send_message",
+  ...(input.eventId ? { eventId: input.eventId } : {}),
   ...(input.display !== undefined ? { display: input.display } : {}),
   ...(typeof input.timestamp === "number" && Number.isFinite(input.timestamp)
     ? { timestamp: input.timestamp }
@@ -508,19 +510,21 @@ export const createOrchestratorController = (
         promptMessage,
         promptMessage.timestamp ?? Date.now(),
       );
-      if (
-        message.role === "runtimeInternal" &&
-        message.customType &&
-        message.customType !== "runtime.task_lifecycle"
-      ) {
+      if (message.role === "runtimeInternal" && message.customType) {
         persistThreadCustomMessage(context.runtimeStore, {
           threadKey: liveSession.threadKey,
           customType: message.customType,
           content: message.content,
           display: message.display === true,
           timestamp: message.timestamp,
+          ...(message.eventId ? { eventId: message.eventId } : {}),
           preservePayloadExactly: true,
         });
+        if (message.customType === ORCHESTRATOR_ROSTER_CUSTOM_TYPE) {
+          context.runtimeStore.consumeOrchestratorReminder?.(
+            input.conversationId,
+          );
+        }
         context.state.orchestratorSessions
           .get(input.conversationId)
           ?.notifyHistoryChanged();

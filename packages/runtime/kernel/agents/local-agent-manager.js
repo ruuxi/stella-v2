@@ -2,28 +2,25 @@ import path from "path";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { AGENT_ORCHESTRATION_TOOL_NAMES } from "../tools/defs/task.js";
 import { sanitizeForLogs, truncate } from "../tools/utils.js";
-import { getOrCreateSubagentSession, } from "../agent-runtime/subagent-session.js";
+import { getOrCreateSubagentSession } from "../agent-runtime/subagent-session.js";
 const formatTaskUpdateStatusText = (text) => truncate(text.replace(/\s+/g, " ").trim(), 200);
 const fileRecordKey = (record) => `${record.kind.type}:${record.path}:${record.kind.type === "update" ? (record.kind.move_path ?? "") : ""}`;
-
 const mergeUniqueFileRecords = (existing, incoming) => {
-    if (!incoming?.length)
-        return existing;
-    if (!existing?.length)
-        return [...incoming];
+    if (!incoming?.length) return existing;
+    if (!existing?.length) return [...incoming];
     const out = [];
     const seen = new Set();
     for (const record of [...existing, ...incoming]) {
         const key = fileRecordKey(record);
-        if (seen.has(key))
-            continue;
+        if (seen.has(key)) continue;
         seen.add(key);
         out.push(record);
     }
     return out;
 };
 const ENV_ASSIGNMENT_RE = /\b([A-Za-z_][A-Za-z0-9_]*)=(?:"[^"]*"|'[^']*'|[^\s]+)/g;
-const SECRET_FLAG_RE = /(\s--?(?:api[-_]?key|token|secret|password|passwd|authorization))(?:=|\s+)(?:"[^"]*"|'[^']*'|[^\s]+)/gi;
+const SECRET_FLAG_RE =
+    /(\s--?(?:api[-_]?key|token|secret|password|passwd|authorization))(?:=|\s+)(?:"[^"]*"|'[^']*'|[^\s]+)/gi;
 const TOOL_ACTIVITY_HINT_CHARS = 320;
 const redactEnvironmentValues = (value) => {
     if (Array.isArray(value)) {
@@ -34,13 +31,8 @@ const redactEnvironmentValues = (value) => {
     }
     const output = {};
     for (const [key, entry] of Object.entries(value)) {
-        if (/^(?:env|environment)$/i.test(key) &&
-            entry &&
-            typeof entry === "object") {
-            output[key] = Object.fromEntries(Object.keys(entry).map((envKey) => [
-                envKey,
-                "[REDACTED]",
-            ]));
+        if (/^(?:env|environment)$/i.test(key) && entry && typeof entry === "object") {
+            output[key] = Object.fromEntries(Object.keys(entry).map((envKey) => [envKey, "[REDACTED]"]));
             continue;
         }
         output[key] = redactEnvironmentValues(entry);
@@ -52,18 +44,16 @@ export const sanitizeTaskToolArgsHint = (value) => {
     try {
         const json = JSON.stringify(redactEnvironmentValues(sanitizeForLogs(value)));
         serialized = typeof json === "string" ? json : "";
-    }
-    catch {
+    } catch {
         return "";
     }
-    return truncate(serialized
-        .replace(ENV_ASSIGNMENT_RE, "$1=[REDACTED]")
-        .replace(SECRET_FLAG_RE, "$1 [REDACTED]"), TOOL_ACTIVITY_HINT_CHARS);
+    return truncate(
+        serialized.replace(ENV_ASSIGNMENT_RE, "$1=[REDACTED]").replace(SECRET_FLAG_RE, "$1 [REDACTED]"),
+        TOOL_ACTIVITY_HINT_CHARS,
+    );
 };
 const exitCodeFromToolEnd = (event) => {
-    const details = event.details && typeof event.details === "object"
-        ? event.details
-        : null;
+    const details = event.details && typeof event.details === "object" ? event.details : null;
     const value = details?.exitCode ?? details?.exit_code;
     return typeof value === "number" ? value : undefined;
 };
@@ -83,17 +73,14 @@ const taskToolActivityFromEnd = (event) => {
     return {
         toolCallId: event.toolCallId,
         toolName: event.toolName,
-        label: exitCode === undefined
-            ? `Finished ${event.toolName}`
-            : `${event.toolName} exited ${exitCode}`,
+        label: exitCode === undefined ? `Finished ${event.toolName}` : `${event.toolName} exited ${exitCode}`,
         ...(argsHint ? { argsHint } : {}),
         state: "completed",
         ...(exitCode !== undefined ? { exitCode } : {}),
     };
 };
 const normalizeString = (value) => {
-    if (typeof value !== "string")
-        return undefined;
+    if (typeof value !== "string") return undefined;
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : undefined;
 };
@@ -103,18 +90,20 @@ const normalizeFsPathKey = (candidate, cwd) => {
     return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 };
 const pathsOverlap = (a, b) => {
-    if (a === "*" || b === "*")
-        return true;
-    if (a === b)
-        return true;
+    if (a === "*" || b === "*") return true;
+    if (a === b) return true;
     const sep = path.sep;
     return a.startsWith(`${b}${sep}`) || b.startsWith(`${a}${sep}`);
 };
-const BASH_PATH_PATTERN = String.raw `(?:[A-Za-z]:[\\/]|\\\\|\/|\.\.?[\\/])`;
+const BASH_PATH_PATTERN = String.raw`(?:[A-Za-z]:[\\/]|\\\\|\/|\.\.?[\\/])`;
 const extractBashPath = (command) => {
-    const match = command.match(new RegExp(String.raw `(?:^|\s)(?:"(${BASH_PATH_PATTERN}[^"]+)"|'(${BASH_PATH_PATTERN}[^']+)'|(${BASH_PATH_PATTERN}[^\s"'` +
-        "`" +
-        String.raw `]+))`));
+    const match = command.match(
+        new RegExp(
+            String.raw`(?:^|\s)(?:"(${BASH_PATH_PATTERN}[^"]+)"|'(${BASH_PATH_PATTERN}[^']+)'|(${BASH_PATH_PATTERN}[^\s"'` +
+                "`" +
+                String.raw`]+))`,
+        ),
+    );
     return match?.[1] ?? match?.[2] ?? match?.[3];
 };
 const READ_ONLY_EXEC_TOOLS = new Set([
@@ -161,23 +150,25 @@ const isClearlyReadOnlyExecProgram = (source) => {
 const getFsLockKey = (toolName, args, context) => {
     if (toolName === "Write" || toolName === "Edit") {
         const filePath = normalizeString(args.file_path ?? args.path ?? args.target_path);
-        if (!filePath)
-            return "*";
-        return normalizeFsPathKey(filePath, normalizeString(args.working_directory ?? args.cwd ?? context?.stellaAppDir));
+        if (!filePath) return "*";
+        return normalizeFsPathKey(
+            filePath,
+            normalizeString(args.working_directory ?? args.cwd ?? context?.stellaAppDir),
+        );
     }
     if (toolName === "Bash") {
         const command = normalizeString(args.command);
-        if (!command)
-            return "*";
+        if (!command) return "*";
         const pathFromCommand = extractBashPath(command);
-        if (!pathFromCommand)
-            return "*";
-        return normalizeFsPathKey(pathFromCommand, normalizeString(args.working_directory ?? args.cwd ?? context?.stellaAppDir));
+        if (!pathFromCommand) return "*";
+        return normalizeFsPathKey(
+            pathFromCommand,
+            normalizeString(args.working_directory ?? args.cwd ?? context?.stellaAppDir),
+        );
     }
     if (toolName === "Exec") {
         const source = normalizeString(args.source ?? args.code);
-        if (!source)
-            return "*";
+        if (!source) return "*";
         return isClearlyReadOnlyExecProgram(source) ? null : "*";
     }
     return null;
@@ -206,9 +197,6 @@ export class LocalAgentManager {
     nextId = 0;
 
     bootInterruptedThreads = [];
-
-    bootPendingBoundaryRecords = [];
-
     bootInterruptionEpisodeId = null;
     constructor(opts) {
         this.opts = opts;
@@ -223,75 +211,10 @@ export class LocalAgentManager {
     getBootInterruptionEpisodeId() {
         return this.bootInterruptionEpisodeId;
     }
-
-    repairInterruptedDescendantBoundaries() {
-        const records = this.bootPendingBoundaryRecords.splice(0);
-        for (const record of records) {
-            const pendingCompletionEventId = record.descendantBoundaryState?.pendingCompletionEventId;
-            if (pendingCompletionEventId) {
-                this.emitAgentLifecycleEventOnce({
-                    type: "agent-completed",
-                    conversationId: record.conversationId,
-                    eventId: pendingCompletionEventId,
-                    rootRunId: record.rootRunId,
-                    agentId: record.threadId,
-                    agentType: record.agentType,
-                    description: record.description,
-                    parentAgentId: record.parentAgentId,
-                    attemptGeneration: record.attemptGeneration,
-                    result: record.result,
-                });
-                const boundary = record.descendantBoundaryState;
-                const consumedEventIds = boundary?.consumedEventIds ?? [];
-                const retainsBoundary = consumedEventIds.length > 0 ||
-                    Boolean(boundary?.finalParked) ||
-                    Boolean(boundary?.parentWakePendingEventId) ||
-                    Boolean(boundary?.parentWakeDeliveredEventId);
-                this.opts.saveAgentRecord?.({
-                    ...record,
-                    status: "completed",
-                    completedAt: Date.now(),
-                    descendantBoundaryState: retainsBoundary
-                        ? {
-                            consumedEventIds,
-                            wakePending: false,
-                            ...(boundary?.finalParked ? { finalParked: true } : {}),
-                            ...(boundary?.parentWakePendingEventId
-                                ? {
-                                    parentWakePendingEventId: boundary.parentWakePendingEventId,
-                                }
-                                : {}),
-                            ...(boundary?.parentWakeDeliveredEventId
-                                ? {
-                                    parentWakeDeliveredEventId: boundary.parentWakeDeliveredEventId,
-                                }
-                                : {}),
-                        }
-                        : undefined,
-                    updatedAt: Date.now(),
-                });
-                continue;
-            }
-            if (!record.descendantBoundaryState?.wakePending)
-                continue;
-            if (this.tasks.has(record.threadId))
-                continue;
-            const resumedTask = this.hydrateTaskFromRecord(record, "A subagent you started has finished. Review its newly persisted report in this thread and continue your task.", "Reviewing a subagent's report");
-            resumedTask.rootRunId = record.rootRunId;
-
-            resumedTask.pendingStartAudience = "orchestrator-only";
-            this.enqueueTask(resumedTask, true);
-        }
-    }
     recoverOrCancelOrphanedPersistedAgents() {
         const now = Date.now();
         const runningRecords = this.opts.listAgentRecordsByStatus?.("running") ?? [];
         for (const record of runningRecords) {
-            if (record.descendantBoundaryState?.pendingCompletionEventId ||
-                record.descendantBoundaryState?.wakePending ||
-                record.descendantBoundaryState?.finalParked) {
-                continue;
-            }
             this.bootInterruptedThreads.push({
                 threadId: record.threadId,
                 conversationId: record.conversationId,
@@ -308,35 +231,13 @@ export class LocalAgentManager {
             }
         }
         for (const record of runningRecords) {
-            if (record.descendantBoundaryState?.pendingCompletionEventId ||
-                record.descendantBoundaryState?.wakePending ||
-                record.descendantBoundaryState?.finalParked) {
-                this.bootPendingBoundaryRecords.push(record);
-                continue;
-            }
             const error = AGENT_ORPHANED_RESTART_CANCEL_REASON;
             const cancellationEventId = `${record.threadId}:${record.attemptGeneration}:agent-canceled`;
-            const boundary = record.descendantBoundaryState;
             this.opts.saveAgentRecord?.({
                 ...record,
                 status: "canceled",
                 completedAt: now,
                 error,
-                ...(record.parentAgentId
-                    ? {
-                        descendantBoundaryState: {
-                            consumedEventIds: boundary?.consumedEventIds ?? [],
-                            wakePending: boundary?.wakePending ?? false,
-                            ...(boundary?.finalParked ? { finalParked: true } : {}),
-                            ...(boundary?.pendingCompletionEventId
-                                ? {
-                                    pendingCompletionEventId: boundary.pendingCompletionEventId,
-                                }
-                                : {}),
-                            parentWakePendingEventId: cancellationEventId,
-                        },
-                    }
-                    : {}),
                 updatedAt: now,
             });
 
@@ -355,11 +256,8 @@ export class LocalAgentManager {
         }
     }
     consumeTaskMessages(task, recipient) {
-        const queue = recipient === "subagent"
-            ? task.toSubagentQueue
-            : task.toOrchestratorQueue;
-        if (queue.length === 0)
-            return [];
+        const queue = recipient === "subagent" ? task.toSubagentQueue : task.toOrchestratorQueue;
+        if (queue.length === 0) return [];
         const out = [...queue];
         queue.length = 0;
         return out;
@@ -368,17 +266,11 @@ export class LocalAgentManager {
         if (updates.length === 0) {
             return task.prompt;
         }
-        const updateBlock = updates
-            .map((text, index) => `${index + 1}. ${text}`)
-            .join("\n");
-        const updateInstruction = "Apply each update per its intent: answer a question or status request and stop; apply new or changed instructions and continue the task. Newer updates override earlier ones.";
+        const updateBlock = updates.map((text, index) => `${index + 1}. ${text}`).join("\n");
+        const updateInstruction =
+            "Apply each update per its intent: answer a question or status request and stop; apply new or changed instructions and continue the task. Newer updates override earlier ones.";
         if (task.turnCount === 0) {
-            return [
-                task.prompt,
-                "Task updates:",
-                updateBlock,
-                updateInstruction,
-            ].join("\n\n");
+            return [task.prompt, "Task updates:", updateBlock, updateInstruction].join("\n\n");
         }
         return [
             "Task update:",
@@ -395,19 +287,16 @@ export class LocalAgentManager {
     updateWaiters = new Map();
     notifyAgentUpdated(threadId) {
         const waiters = this.updateWaiters.get(threadId);
-        if (!waiters?.size)
-            return;
+        if (!waiters?.size) return;
         this.updateWaiters.delete(threadId);
-        for (const wake of waiters)
-            wake();
+        for (const wake of waiters) wake();
     }
 
     waitForAgentUpdate(threadId, timeoutMs = 2_000) {
         return new Promise((resolve) => {
             let timer = null;
             const wake = () => {
-                if (timer)
-                    clearTimeout(timer);
+                if (timer) clearTimeout(timer);
                 resolve();
             };
             const waiters = this.updateWaiters.get(threadId) ?? new Set();
@@ -426,31 +315,17 @@ export class LocalAgentManager {
             }
         });
     }
-    persistTask(task, options) {
+    persistTask(task) {
         this.notifyAgentUpdated(task.threadId);
         const isParked = task.status === "completed" && task.descendantFinalParked;
-        const completionPending = Boolean(options?.pendingCompletionEventId);
-        const boundaryState = task.consumedDescendantEventIds.length > 0 ||
-            task.descendantWakePending ||
-            isParked ||
-            completionPending ||
-            Boolean(task.parentWakePendingEventId) ||
-            Boolean(task.parentWakeDeliveredEventId)
-            ? {
-                consumedEventIds: task.consumedDescendantEventIds.slice(-256),
-                wakePending: task.descendantWakePending,
-                ...(isParked ? { finalParked: true } : {}),
-                ...(options?.pendingCompletionEventId
-                    ? { pendingCompletionEventId: options.pendingCompletionEventId }
-                    : {}),
-                ...(task.parentWakePendingEventId
-                    ? { parentWakePendingEventId: task.parentWakePendingEventId }
-                    : {}),
-                ...(task.parentWakeDeliveredEventId
-                    ? { parentWakeDeliveredEventId: task.parentWakeDeliveredEventId }
-                    : {}),
-            }
-            : undefined;
+        const boundaryState =
+            task.consumedDescendantEventIds.length > 0 || task.descendantWakePending || isParked
+                ? {
+                      consumedEventIds: task.consumedDescendantEventIds.slice(-256),
+                      wakePending: task.descendantWakePending,
+                      ...(isParked ? { finalParked: true } : {}),
+                  }
+                : undefined;
         this.opts.saveAgentRecord?.({
             threadId: task.threadId,
             conversationId: task.conversationId,
@@ -458,29 +333,21 @@ export class LocalAgentManager {
             description: task.description,
             ...(task.initialPrompt
                 ? {
-                    prompt: task.initialPrompt,
-                    promptCreatedAt: task.promptCreatedAt,
-                }
+                      prompt: task.initialPrompt,
+                      promptCreatedAt: task.promptCreatedAt,
+                  }
                 : {}),
             agentDepth: task.agentDepth,
-            ...(typeof task.maxAgentDepth === "number"
-                ? { maxAgentDepth: task.maxAgentDepth }
-                : {}),
+            ...(typeof task.maxAgentDepth === "number" ? { maxAgentDepth: task.maxAgentDepth } : {}),
             ...(task.parentAgentId ? { parentAgentId: task.parentAgentId } : {}),
             ...(boundaryState ? { descendantBoundaryState: boundaryState } : {}),
-            ...(task.modelConfigSnapshot
-                ? { modelConfigSnapshot: task.modelConfigSnapshot }
-                : {}),
-            ...(task.toolWorkspaceRoot
-                ? { toolWorkspaceRoot: task.toolWorkspaceRoot }
-                : {}),
-            status: task.status === "pending" || isParked || completionPending
-                ? "running"
-                : task.status,
+            ...(task.modelConfigSnapshot ? { modelConfigSnapshot: task.modelConfigSnapshot } : {}),
+            ...(task.toolWorkspaceRoot ? { toolWorkspaceRoot: task.toolWorkspaceRoot } : {}),
+            status: task.status === "pending" || isParked ? "running" : task.status,
             attemptGeneration: task.attemptGeneration,
             ...(task.rootRunId ? { rootRunId: task.rootRunId } : {}),
             startedAt: task.startedAt,
-            completedAt: isParked || completionPending ? null : task.completedAt,
+            completedAt: isParked ? null : task.completedAt,
             ...(typeof task.result === "string" ? { result: task.result } : {}),
             ...(typeof task.error === "string" ? { error: task.error } : {}),
             updatedAt: Date.now(),
@@ -518,10 +385,8 @@ export class LocalAgentManager {
         const visited = new Set();
         let cursor = this.getAgentState(threadId)?.parentAgentId;
         while (cursor) {
-            if (cursor === ancestorThreadId)
-                return true;
-            if (visited.has(cursor))
-                return false;
+            if (cursor === ancestorThreadId) return true;
+            if (visited.has(cursor)) return false;
             visited.add(cursor);
             cursor = this.getAgentState(cursor)?.parentAgentId;
         }
@@ -529,88 +394,85 @@ export class LocalAgentManager {
     }
     hasActiveDescendants(parentThreadId) {
         for (const task of this.tasks.values()) {
-            if (task.threadId !== parentThreadId &&
+            if (
+                task.threadId !== parentThreadId &&
                 this.isActiveAgentState(task) &&
-                this.isDescendantOf(task.threadId, parentThreadId)) {
+                this.isDescendantOf(task.threadId, parentThreadId)
+            ) {
                 return true;
             }
         }
-        for (const record of this.opts.listAgentRecordsByStatus?.("running") ??
-            []) {
-            if (!this.tasks.has(record.threadId) &&
-                this.isDescendantOf(record.threadId, parentThreadId)) {
+        for (const record of this.opts.listAgentRecordsByStatus?.("running") ?? []) {
+            if (!this.tasks.has(record.threadId) && this.isDescendantOf(record.threadId, parentThreadId)) {
                 return true;
             }
         }
         return false;
     }
     shouldParkFinalForDescendants(task) {
-
         return (task.status === "completed" &&
             task.agentType === AGENT_IDS.GENERAL &&
             (task.modelConfigSnapshot?.engine !== "codex_cli" ||
                 task.modelConfigSnapshot.subscriptionHarnessEnabled === true) &&
-            this.hasActiveDescendants(task.threadId));
+            this.hasActiveDescendants(task.threadId)
+        );
     }
 
     resolveOwningParentThread(threadId, parentAgentId) {
         const parent = parentAgentId ?? this.getAgentState(threadId)?.parentAgentId;
         if (!parent)
             return undefined;
-
         const visited = new Set([threadId]);
         let cursor = parent;
         while (cursor) {
-            if (visited.has(cursor))
-                return null;
+            if (visited.has(cursor)) return null;
             visited.add(cursor);
             const state = this.getAgentState(cursor);
-            if (!state)
-                return null;
+            if (!state) return null;
             cursor = state.parentAgentId;
         }
         return parent;
     }
     getAgentState(threadId) {
-        return (this.tasks.get(threadId) ?? this.opts.getAgentRecord?.(threadId) ?? null);
+        return this.tasks.get(threadId) ?? this.opts.getAgentRecord?.(threadId) ?? null;
     }
     evictTerminalTaskIfDurable(task) {
-        if (task.descendantFinalParked ||
-            (task.status !== "completed" &&
-                task.status !== "error" &&
-                task.status !== "canceled")) {
+        if (
+            task.descendantFinalParked ||
+            (task.status !== "completed" && task.status !== "error" && task.status !== "canceled")
+        ) {
             return;
         }
         const persisted = this.opts.getAgentRecord?.(task.threadId);
-        if (!persisted ||
+        if (
+            !persisted ||
             persisted.status !== task.status ||
-            (persisted.attemptGeneration ?? 0) < task.attemptGeneration) {
+            (persisted.attemptGeneration ?? 0) < task.attemptGeneration
+        ) {
             return;
         }
 
         this.tasks.delete(task.threadId);
     }
     isActiveAgentState(task) {
-        return (task?.status === "pending" ||
+        return (
+            task?.status === "pending" ||
             task?.status === "running" ||
-            (task?.status === "completed" &&
-                "descendantFinalParked" in task &&
-                task.descendantFinalParked));
+            (task?.status === "completed" && "descendantFinalParked" in task && task.descendantFinalParked)
+        );
     }
     lifecycleEventId(task, type) {
         return `${task.threadId}:${task.attemptGeneration}:${type}`;
     }
     emitAgentLifecycleEventOnce(event) {
         const eventId = event.eventId?.trim();
-        if (eventId &&
-            this.opts.hasAgentLifecycleEvent?.(event.conversationId, eventId, event.type)) {
+        if (eventId && this.opts.hasAgentLifecycleEvent?.(event.conversationId, eventId, event.type)) {
             return;
         }
         this.opts.onAgentEvent?.(event);
     }
     assertActiveParentChain(request) {
-        if (!request.parentAgentId)
-            return;
+        if (!request.parentAgentId) return;
         const visited = new Set();
         let cursor = request.parentAgentId;
         while (cursor) {
@@ -641,8 +503,6 @@ export class LocalAgentManager {
         task.result = undefined;
         task.error = undefined;
         task.descendantFinalParked = false;
-        task.parentWakePendingEventId = undefined;
-        task.parentWakeDeliveredEventId = undefined;
         task.progressBuffer = "";
         task.recentActivity = [`Continuing thread: ${truncate(prompt, 200)}`];
         task.lastActivityAt = Date.now();
@@ -672,14 +532,10 @@ export class LocalAgentManager {
             storageMode: "local",
             parentAgentId: record.parentAgentId,
             descendantFinalParked: false,
-            consumedDescendantEventIds: [
-                ...(record.descendantBoundaryState?.consumedEventIds ?? []),
-            ],
+            consumedDescendantEventIds: [...(record.descendantBoundaryState?.consumedEventIds ?? [])],
             descendantWakePending: record.descendantBoundaryState?.wakePending ?? false,
             modelConfigSnapshot: record.modelConfigSnapshot,
-            ...(record.toolWorkspaceRoot
-                ? { toolWorkspaceRoot: record.toolWorkspaceRoot }
-                : {}),
+            ...(record.toolWorkspaceRoot ? { toolWorkspaceRoot: record.toolWorkspaceRoot } : {}),
             recentActivity: [`Continuing thread: ${truncate(prompt, 200)}`],
             lastActivityAt: Date.now(),
             activeToolCount: 0,
@@ -707,8 +563,7 @@ export class LocalAgentManager {
         this.tasks.set(task.threadId, task);
         if (prioritize) {
             this.pendingQueue.unshift(task.threadId);
-        }
-        else {
+        } else {
             this.pendingQueue.push(task.threadId);
         }
         this.persistTask(task);
@@ -725,41 +580,36 @@ export class LocalAgentManager {
         task.pendingStartAudience = pendingStartAudience;
 
         task.pendingStartIsFollowUp = true;
-        task.recentActivity = [
-            pendingStartStatusText ?? "Applying task update.",
-        ];
+        task.recentActivity = [pendingStartStatusText ?? "Applying task update."];
         this.pendingQueue.unshift(task.threadId);
         this.persistTask(task);
     }
     clearAttemptTakeoverTimer(threadId, generation, promise) {
         const pending = this.attemptTakeoverTimers.get(threadId);
-        if (!pending)
-            return;
-        if (generation !== undefined && pending.generation !== generation)
-            return;
-        if (promise !== undefined && pending.promise !== promise)
-            return;
+        if (!pending) return;
+        if (generation !== undefined && pending.generation !== generation) return;
+        if (promise !== undefined && pending.promise !== promise) return;
         clearTimeout(pending.timer);
         this.attemptTakeoverTimers.delete(threadId);
     }
     scheduleAttemptTakeover(task, activeAttempt) {
         const existing = this.attemptTakeoverTimers.get(task.threadId);
-        if (existing?.generation === activeAttempt.generation &&
-            existing.promise === activeAttempt.promise) {
+        if (existing?.generation === activeAttempt.generation && existing.promise === activeAttempt.promise) {
             return;
         }
         this.clearAttemptTakeoverTimer(task.threadId);
-        const timeoutMs = Math.max(1, this.opts.attemptTeardownTimeoutMs ??
-            DEFAULT_AGENT_ATTEMPT_TEARDOWN_TIMEOUT_MS);
+        const timeoutMs = Math.max(1, this.opts.attemptTeardownTimeoutMs ?? DEFAULT_AGENT_ATTEMPT_TEARDOWN_TIMEOUT_MS);
         const timer = setTimeout(() => {
             const inFlight = this.inFlightAttempts.get(task.threadId);
             const takeover = this.attemptTakeoverTimers.get(task.threadId);
-            if (inFlight?.generation !== activeAttempt.generation ||
+            if (
+                inFlight?.generation !== activeAttempt.generation ||
                 inFlight.promise !== activeAttempt.promise ||
                 takeover?.generation !== activeAttempt.generation ||
                 takeover.promise !== activeAttempt.promise ||
                 task.status !== "pending" ||
-                task.attemptGeneration === activeAttempt.generation) {
+                task.attemptGeneration === activeAttempt.generation
+            ) {
                 this.clearAttemptTakeoverTimer(task.threadId, activeAttempt.generation, activeAttempt.promise);
                 return;
             }
@@ -778,15 +628,16 @@ export class LocalAgentManager {
     }
     scheduleCanceledAttemptRelease(task, activeAttempt) {
         this.clearAttemptTakeoverTimer(task.threadId);
-        const timeoutMs = Math.max(1, this.opts.attemptTeardownTimeoutMs ??
-            DEFAULT_AGENT_ATTEMPT_TEARDOWN_TIMEOUT_MS);
+        const timeoutMs = Math.max(1, this.opts.attemptTeardownTimeoutMs ?? DEFAULT_AGENT_ATTEMPT_TEARDOWN_TIMEOUT_MS);
         const timer = setTimeout(() => {
             const inFlight = this.inFlightAttempts.get(task.threadId);
             const pending = this.attemptTakeoverTimers.get(task.threadId);
-            if (inFlight?.generation !== activeAttempt.generation ||
+            if (
+                inFlight?.generation !== activeAttempt.generation ||
                 inFlight.promise !== activeAttempt.promise ||
                 pending?.generation !== activeAttempt.generation ||
-                pending.promise !== activeAttempt.promise) {
+                pending.promise !== activeAttempt.promise
+            ) {
                 this.clearAttemptTakeoverTimer(task.threadId, activeAttempt.generation, activeAttempt.promise);
                 return;
             }
@@ -805,7 +656,6 @@ export class LocalAgentManager {
     }
     tryStartNext() {
         const maxConcurrent = Math.max(1, optsValueOrDefault(this.opts.getMaxConcurrent?.(), this.defaultMaxConcurrent));
-
         for (const threadId of this.pendingQueue) {
             const task = this.tasks.get(threadId);
             const activeAttempt = this.inFlightAttempts.get(threadId);
@@ -814,12 +664,9 @@ export class LocalAgentManager {
             }
         }
         let remainingCandidates = this.pendingQueue.length;
-        while (this.runningCount < maxConcurrent &&
-            this.pendingQueue.length > 0 &&
-            remainingCandidates > 0) {
+        while (this.runningCount < maxConcurrent && this.pendingQueue.length > 0 && remainingCandidates > 0) {
             const threadId = this.pendingQueue.shift();
-            if (!threadId)
-                break;
+            if (!threadId) break;
             remainingCandidates -= 1;
             const task = this.tasks.get(threadId);
             if (!task || task.status !== "pending") {
@@ -863,8 +710,7 @@ export class LocalAgentManager {
             this.inFlightAttempts.set(threadId, { generation, promise: execution });
             void execution.finally(() => {
                 const activeAttempt = this.inFlightAttempts.get(threadId);
-                if (activeAttempt?.generation === generation &&
-                    activeAttempt.promise === execution) {
+                if (activeAttempt?.generation === generation && activeAttempt.promise === execution) {
                     this.clearAttemptTakeoverTimer(threadId, generation, execution);
                     this.inFlightAttempts.delete(threadId);
                     this.runningCount = Math.max(0, this.runningCount - 1);
@@ -876,7 +722,9 @@ export class LocalAgentManager {
     acquireFsLock(threadId, key) {
         return new Promise((resolve) => {
             const attempt = () => {
-                const conflicting = this.activeFsLocks.some((lock) => lock.threadId !== threadId && pathsOverlap(lock.key, key));
+                const conflicting = this.activeFsLocks.some(
+                    (lock) => lock.threadId !== threadId && pathsOverlap(lock.key, key),
+                );
                 if (conflicting) {
                     this.fsLockWaiters.push(attempt);
                     return;
@@ -902,12 +750,12 @@ export class LocalAgentManager {
         });
     }
     async executeTask(task, attempt) {
-        const isCurrentAttempt = () => this.tasks.get(task.threadId) === task &&
+        const isCurrentAttempt = () =>
+            this.tasks.get(task.threadId) === task &&
             task.attemptGeneration === attempt.generation &&
             task.controller === attempt.controller;
         try {
             const runId = `run:${task.threadId}:${++this.nextId}`;
-
             const subagentSession = getOrCreateSubagentSession(this.subagentSessions, task.threadId, task.conversationId, task.agentType);
             const context = await this.opts.fetchAgentContext({
                 conversationId: task.conversationId,
@@ -916,18 +764,11 @@ export class LocalAgentManager {
                 threadId: task.threadId,
                 ...(task.model ? { model: task.model } : {}),
                 ...(task.spawnEngine ? { spawnEngine: task.spawnEngine } : {}),
-                ...(task.spawnReasoningEffort
-                    ? { spawnReasoningEffort: task.spawnReasoningEffort }
-                    : {}),
-                ...(task.modelConfigSnapshot
-                    ? { modelConfigSnapshot: task.modelConfigSnapshot }
-                    : {}),
-                ...(task.toolWorkspaceRoot
-                    ? { toolWorkspaceRoot: task.toolWorkspaceRoot }
-                    : {}),
+                ...(task.spawnReasoningEffort ? { spawnReasoningEffort: task.spawnReasoningEffort } : {}),
+                ...(task.modelConfigSnapshot ? { modelConfigSnapshot: task.modelConfigSnapshot } : {}),
+                ...(task.toolWorkspaceRoot ? { toolWorkspaceRoot: task.toolWorkspaceRoot } : {}),
             });
-            if (!isCurrentAttempt())
-                return;
+            if (!isCurrentAttempt()) return;
             if (context.modelConfigSnapshot) {
                 task.modelConfigSnapshot = context.modelConfigSnapshot;
 
@@ -940,7 +781,6 @@ export class LocalAgentManager {
             context.agentDepth = task.agentDepth;
             context.parentAgentId = task.parentAgentId;
             if (task.parentAgentId && context.toolsAllowlist) {
-
                 context.toolsAllowlist = context.toolsAllowlist.filter((toolName) => !AGENT_ORCHESTRATION_TOOL_NAMES.includes(toolName));
             }
             context.attemptGeneration = attempt.generation;
@@ -952,9 +792,7 @@ export class LocalAgentManager {
                 agentType: task.agentType,
                 agentId: task.threadId,
                 rootRunId: task.rootRunId,
-                ...(task.toolWorkspaceRoot
-                    ? { toolWorkspaceRoot: task.toolWorkspaceRoot }
-                    : {}),
+                ...(task.toolWorkspaceRoot ? { toolWorkspaceRoot: task.toolWorkspaceRoot } : {}),
                 taskDescription: task.description,
                 taskPrompt,
                 agentContext: context,
@@ -963,28 +801,20 @@ export class LocalAgentManager {
                 enableRemoteTools: true,
                 abortSignal: attempt.controller.signal,
                 onProgress: (chunk) => {
-                    if (!isCurrentAttempt() ||
-                        attempt.controller.signal.aborted ||
-                        task.status === "canceled")
-                        return;
-                    if (typeof chunk !== "string" || !chunk)
-                        return;
+                    if (!isCurrentAttempt() || attempt.controller.signal.aborted || task.status === "canceled") return;
+                    if (typeof chunk !== "string" || !chunk) return;
                     task.progressBuffer += chunk;
                     if (task.progressBuffer.length > 4_000) {
                         task.progressBuffer = task.progressBuffer.slice(task.progressBuffer.length - 4_000);
                     }
                     const compact = task.progressBuffer.replace(/\s+/g, " ").trim();
-                    if (!compact)
-                        return;
+                    if (!compact) return;
                     task.recentActivity = [truncate(compact, 500)];
                     task.lastActivityAt = Date.now();
                 },
                 onStatus: (event) => {
-                    if (event.statusState !== "provider-retry")
-                        return;
-                    if (!isCurrentAttempt() ||
-                        attempt.controller.signal.aborted ||
-                        task.status === "canceled") {
+                    if (event.statusState !== "provider-retry") return;
+                    if (!isCurrentAttempt() || attempt.controller.signal.aborted || task.status === "canceled") {
                         return;
                     }
                     const statusText = truncate(event.statusText, 500);
@@ -1003,7 +833,6 @@ export class LocalAgentManager {
                     });
                 },
                 onToolStart: (ev) => {
-
                     if (!isCurrentAttempt() ||
                         attempt.controller.signal.aborted ||
                         task.status === "canceled") {
@@ -1032,9 +861,7 @@ export class LocalAgentManager {
                     });
                 },
                 onToolEnd: (ev) => {
-                    if (!isCurrentAttempt() ||
-                        attempt.controller.signal.aborted ||
-                        task.status === "canceled") {
+                    if (!isCurrentAttempt() || attempt.controller.signal.aborted || task.status === "canceled") {
                         return;
                     }
                     task.lastActivityAt = Date.now();
@@ -1055,8 +882,7 @@ export class LocalAgentManager {
                     });
                 },
                 toolExecutor: async (toolName, toolArgs, toolContext, signal) => {
-                    if (!isCurrentAttempt() ||
-                        attempt.controller.signal.aborted) {
+                    if (!isCurrentAttempt() || attempt.controller.signal.aborted) {
                         return { error: "Agent attempt was superseded." };
                     }
                     const scopedContext = {
@@ -1071,13 +897,11 @@ export class LocalAgentManager {
                     }
                     const release = await this.acquireFsLock(task.threadId, lockKey);
                     try {
-                        if (!isCurrentAttempt() ||
-                            attempt.controller.signal.aborted) {
+                        if (!isCurrentAttempt() || attempt.controller.signal.aborted) {
                             return { error: "Agent attempt was superseded." };
                         }
                         return await this.opts.toolExecutor(toolName, toolArgs, scopedContext, signal);
-                    }
-                    finally {
+                    } finally {
                         release();
                     }
                 },
@@ -1086,54 +910,44 @@ export class LocalAgentManager {
 
             try {
                 result = await this.opts.runSubagent(runSubagentArgs);
-            }
-            finally {
+            } finally {
                 if (isCurrentAttempt()) {
                     task.activeToolCount = 0;
                 }
             }
-            if (!isCurrentAttempt())
-                return;
+            if (!isCurrentAttempt()) return;
             task.completedAt = Date.now();
 
             task.bankedFileChanges = mergeUniqueFileRecords(task.bankedFileChanges, result.fileChanges);
             task.bankedProducedFiles = mergeUniqueFileRecords(task.bankedProducedFiles, result.producedFiles);
-            if (attempt.controller.signal.aborted ||
-                task.status === "canceled") {
+            if (attempt.controller.signal.aborted || task.status === "canceled") {
                 task.status = "canceled";
                 task.error = task.error ?? "Canceled";
-            }
-            else if (result.interrupted) {
+            } else if (result.interrupted) {
                 task.status = "canceled";
                 task.error = "Canceled";
-            }
-            else if (result.error) {
+            } else if (result.error) {
                 task.status = "error";
                 task.error = result.error;
-            }
-            else {
+            } else {
                 task.status = "completed";
                 task.result = result.result;
 
                 task.fileChanges = task.bankedFileChanges;
                 task.producedFiles = task.bankedProducedFiles;
             }
-        }
-        catch (error) {
-            if (!isCurrentAttempt())
-                return;
+        } catch (error) {
+            if (!isCurrentAttempt()) return;
             task.completedAt = Date.now();
             if (attempt.controller.signal.aborted) {
                 task.status = "canceled";
                 task.error = task.error ?? "Canceled";
-            }
-            else {
+            } else {
                 task.status = "error";
                 task.error = error.message ?? "Task failed";
             }
         }
-        if (!isCurrentAttempt())
-            return;
+        if (!isCurrentAttempt()) return;
         if (this.shouldParkFinalForDescendants(task)) {
 
             task.descendantFinalParked = true;
@@ -1154,26 +968,7 @@ export class LocalAgentManager {
 
             }
         }
-        if (task.parentAgentId &&
-            !task.descendantFinalParked &&
-            !task.terminalEventEmitted) {
-            const terminalType = task.status === "completed"
-                ? "agent-completed"
-                : task.status === "error"
-                    ? "agent-failed"
-                    : task.status === "canceled"
-                        ? "agent-canceled"
-                        : undefined;
-            if (terminalType) {
-                task.parentWakePendingEventId = this.lifecycleEventId(task, terminalType);
-                task.parentWakeDeliveredEventId = undefined;
-            }
-        }
-        const publishesCompletion = task.status === "completed" && !task.descendantFinalParked;
-        if (!publishesCompletion) {
-            this.persistTask(task);
-        }
-
+        this.persistTask(task);
         if (!task.terminalEventEmitted) {
             if (task.status === "completed") {
                 if (!task.descendantFinalParked) {
@@ -1189,25 +984,16 @@ export class LocalAgentManager {
                         parentAgentId: task.parentAgentId,
                         attemptGeneration: task.attemptGeneration,
                         result: task.result,
-                        ...(task.fileChanges?.length
-                            ? { fileChanges: task.fileChanges }
-                            : {}),
-                        ...(task.producedFiles?.length
-                            ? { producedFiles: task.producedFiles }
-                            : {}),
+                        ...(task.fileChanges?.length ? { fileChanges: task.fileChanges } : {}),
+                        ...(task.producedFiles?.length ? { producedFiles: task.producedFiles } : {}),
                     };
-
-                    this.persistTask(task, {
-                        pendingCompletionEventId: completionEventId,
-                    });
                     this.emitAgentLifecycleEventOnce(completedEvent);
                     task.bankedFileChanges = undefined;
                     task.bankedProducedFiles = undefined;
                     task.descendantWakePending = false;
                     this.persistTask(task);
                 }
-            }
-            else if (task.status === "error") {
+            } else if (task.status === "error") {
                 this.opts.onAgentEvent?.({
                     type: "agent-failed",
                     conversationId: task.conversationId,
@@ -1220,8 +1006,7 @@ export class LocalAgentManager {
                     attemptGeneration: task.attemptGeneration,
                     error: task.error,
                 });
-            }
-            else if (task.status === "canceled") {
+            } else if (task.status === "canceled") {
                 this.opts.onAgentEvent?.({
                     type: "agent-canceled",
                     conversationId: task.conversationId,
@@ -1242,12 +1027,13 @@ export class LocalAgentManager {
     async createAgent(request) {
         this.assertActiveParentChain(request);
         const controller = new AbortController();
-        const resolvedThread = this.opts.resolveTaskThread?.({
-            conversationId: request.conversationId,
-            agentType: request.agentType,
-            threadId: request.threadId,
-            nameHint: request.description,
-        }) ?? null;
+        const resolvedThread =
+            this.opts.resolveTaskThread?.({
+                conversationId: request.conversationId,
+                agentType: request.agentType,
+                threadId: request.threadId,
+                nameHint: request.description,
+            }) ?? null;
         const threadId = resolvedThread?.threadId ?? request.threadId ?? `thread-${++this.nextId}`;
         const createdAt = Date.now();
         const task = {
@@ -1261,19 +1047,12 @@ export class LocalAgentManager {
             agentType: request.agentType,
             ...(request.model ? { model: request.model } : {}),
             ...(request.spawnEngine ? { spawnEngine: request.spawnEngine } : {}),
-            ...(request.spawnReasoningEffort
-                ? { spawnReasoningEffort: request.spawnReasoningEffort }
-                : {}),
-            ...(request.modelConfigSnapshot
-                ? { modelConfigSnapshot: request.modelConfigSnapshot }
-                : {}),
-            ...(request.toolWorkspaceRoot
-                ? { toolWorkspaceRoot: request.toolWorkspaceRoot }
-                : {}),
+            ...(request.spawnReasoningEffort ? { spawnReasoningEffort: request.spawnReasoningEffort } : {}),
+            ...(request.modelConfigSnapshot ? { modelConfigSnapshot: request.modelConfigSnapshot } : {}),
+            ...(request.toolWorkspaceRoot ? { toolWorkspaceRoot: request.toolWorkspaceRoot } : {}),
             agentDepth: Math.max(1, request.agentDepth ?? 1),
-            maxAgentDepth: typeof request.maxAgentDepth === "number"
-                ? Math.max(1, Math.floor(request.maxAgentDepth))
-                : undefined,
+            maxAgentDepth:
+                typeof request.maxAgentDepth === "number" ? Math.max(1, Math.floor(request.maxAgentDepth)) : undefined,
             status: "pending",
             startedAt: createdAt,
             completedAt: null,
@@ -1340,8 +1119,7 @@ export class LocalAgentManager {
                     const release = await this.acquireFsLock(args.agentId, lockKey);
                     try {
                         return await this.opts.toolExecutor(toolName, toolArgs, scopedContext, signal);
-                    }
-                    finally {
+                    } finally {
                         release();
                     }
                 },
@@ -1351,8 +1129,7 @@ export class LocalAgentManager {
                 ...(outcome.error ? { error: outcome.error } : {}),
                 ...(outcome.interrupted ? { interrupted: true } : {}),
             };
-        }
-        finally {
+        } finally {
             const liveSession = this.subagentSessions.get(args.agentId);
             if (liveSession) {
                 this.subagentSessions.delete(args.agentId);
@@ -1369,23 +1146,22 @@ export class LocalAgentManager {
     listActiveDescendantThreadIds(parentThreadId) {
         const threadIds = new Set();
         for (const task of this.tasks.values()) {
-            if (task.threadId !== parentThreadId &&
+            if (
+                task.threadId !== parentThreadId &&
                 this.isDescendantOf(task.threadId, parentThreadId) &&
-                this.isActiveAgentState(task)) {
+                this.isActiveAgentState(task)
+            ) {
                 threadIds.add(task.threadId);
             }
         }
-        for (const record of this.opts.listAgentRecordsByStatus?.("running") ??
-            []) {
-            if (record.threadId !== parentThreadId &&
-                this.isDescendantOf(record.threadId, parentThreadId)) {
+        for (const record of this.opts.listAgentRecordsByStatus?.("running") ?? []) {
+            if (record.threadId !== parentThreadId && this.isDescendantOf(record.threadId, parentThreadId)) {
                 threadIds.add(record.threadId);
             }
         }
         return [...threadIds];
     }
     async cascadeCancelChildren(parentThreadId, reason) {
-
         if (this.cancelCascadeInProgress.has(parentThreadId))
             return;
         this.cancelCascadeInProgress.add(parentThreadId);
@@ -1393,8 +1169,7 @@ export class LocalAgentManager {
             for (const childThreadId of this.listActiveDescendantThreadIds(parentThreadId)) {
                 await this.cancelAgent(childThreadId, reason);
             }
-        }
-        finally {
+        } finally {
             this.cancelCascadeInProgress.delete(parentThreadId);
         }
     }
@@ -1412,8 +1187,7 @@ export class LocalAgentManager {
     getActiveAgentCount() {
         let count = 0;
         for (const task of this.tasks.values()) {
-            if (!this.isActiveAgentState(task))
-                continue;
+            if (!this.isActiveAgentState(task)) continue;
             count++;
         }
         return count;
@@ -1421,11 +1195,9 @@ export class LocalAgentManager {
     listActiveAgentRuns() {
         const byRunId = new Map();
         for (const task of this.tasks.values()) {
-            if (!this.isActiveAgentState(task))
-                continue;
+            if (!this.isActiveAgentState(task)) continue;
             const runId = task.rootRunId ?? task.threadId;
-            if (!runId)
-                continue;
+            if (!runId) continue;
             byRunId.set(runId, {
                 runId,
                 conversationId: task.conversationId,
@@ -1439,8 +1211,7 @@ export class LocalAgentManager {
         }
         this.attemptTakeoverTimers.clear();
         for (const task of this.tasks.values()) {
-            if (!this.isActiveAgentState(task))
-                continue;
+            if (!this.isActiveAgentState(task)) continue;
             void this.cancelAgent(task.threadId, reason);
         }
     }
@@ -1448,9 +1219,11 @@ export class LocalAgentManager {
         const local = this.tasks.get(agentId);
         if (local) {
             const wasParked = local.status === "completed" && local.descendantFinalParked;
-            if ((local.status === "completed" && !wasParked) ||
+            if (
+                (local.status === "completed" && !wasParked) ||
                 local.status === "error" ||
-                local.status === "canceled") {
+                local.status === "canceled"
+            ) {
                 await this.cascadeCancelChildren(agentId, reason);
                 return { canceled: true };
             }
@@ -1490,16 +1263,11 @@ export class LocalAgentManager {
 
                 }
             }
-            if ((!local.terminalEventEmitted || wasParked) &&
-                (previousStatus === "pending" ||
-                    previousStatus === "running" ||
-                    wasParked)) {
+            if (
+                (!local.terminalEventEmitted || wasParked) &&
+                (previousStatus === "pending" || previousStatus === "running" || wasParked)
+            ) {
                 const cancellationEventId = this.lifecycleEventId(local, "agent-canceled");
-                if (local.parentAgentId) {
-                    local.parentWakePendingEventId = cancellationEventId;
-                    local.parentWakeDeliveredEventId = undefined;
-                }
-
                 this.persistTask(local);
                 this.opts.onAgentEvent?.({
                     type: "agent-canceled",
@@ -1529,9 +1297,8 @@ export class LocalAgentManager {
                     status: "canceled",
                     completedAt: Date.now(),
                     error: reason ?? "Canceled",
-                    descendantBoundaryState: consumedEventIds.length > 0
-                        ? { consumedEventIds, wakePending: false }
-                        : undefined,
+                    descendantBoundaryState:
+                        consumedEventIds.length > 0 ? { consumedEventIds, wakePending: false } : undefined,
                     updatedAt: Date.now(),
                 });
             }
@@ -1539,41 +1306,6 @@ export class LocalAgentManager {
             return { canceled: true };
         }
         return { canceled: false };
-    }
-
-    markParentWakeDelivered(agentId, eventIdInput) {
-        const eventId = eventIdInput.trim();
-        if (!eventId)
-            return false;
-        const task = this.tasks.get(agentId);
-        if (task) {
-            if (task.parentWakeDeliveredEventId === eventId)
-                return true;
-            if (task.parentWakePendingEventId !== eventId)
-                return false;
-            task.parentWakePendingEventId = undefined;
-            task.parentWakeDeliveredEventId = eventId;
-            this.persistTask(task);
-            return true;
-        }
-        const record = this.opts.getAgentRecord?.(agentId);
-        const boundary = record?.descendantBoundaryState;
-        if (!record || !boundary)
-            return false;
-        if (boundary.parentWakeDeliveredEventId === eventId)
-            return true;
-        if (boundary.parentWakePendingEventId !== eventId)
-            return false;
-        const { parentWakePendingEventId: _pending, ...settledBoundary } = boundary;
-        this.opts.saveAgentRecord?.({
-            ...record,
-            descendantBoundaryState: {
-                ...settledBoundary,
-                parentWakeDeliveredEventId: eventId,
-            },
-            updatedAt: Date.now(),
-        });
-        return true;
     }
     async sendAgentMessage(agentId, message, from, options) {
         const text = message.trim();
@@ -1589,9 +1321,10 @@ export class LocalAgentManager {
 
         const updateStatusSource = isChildReport
             ? "Reviewing a subagent's report"
-            : task?.description ?? persisted?.description ?? text;
+            : options?.description?.trim() || task?.description || persisted?.description || text;
         const updateStatusText = formatTaskUpdateStatusText(updateStatusSource);
         const rootRunId = options?.rootRunId?.trim() || undefined;
+        const followUpDescription = from === "orchestrator" ? options?.description?.trim() || undefined : undefined;
         const deliveredInput = isChildReport
             ? "A subagent you started has finished. Review its newly persisted report in this thread and continue your task."
             : text;
@@ -1602,13 +1335,11 @@ export class LocalAgentManager {
             if (!persisted) {
                 return { delivered: false };
             }
-            if (deliveryEventId &&
-                persisted.descendantBoundaryState?.consumedEventIds.includes(deliveryEventId)) {
+            if (deliveryEventId && persisted.descendantBoundaryState?.consumedEventIds.includes(deliveryEventId)) {
                 return { delivered: true };
             }
             if (isChildReport &&
                 (persisted.status === "error" || persisted.status === "canceled")) {
-
                 if (deliveryEventId) {
                     const consumedEventIds = [
                         ...(persisted.descendantBoundaryState?.consumedEventIds ?? []),
@@ -1638,6 +1369,9 @@ export class LocalAgentManager {
             if (options?.parentAgentId) {
                 resumedTask.parentAgentId = options.parentAgentId;
             }
+            if (followUpDescription) {
+                resumedTask.description = followUpDescription;
+            }
             if (deliveryEventId) {
                 resumedTask.consumedDescendantEventIds.push(deliveryEventId);
                 resumedTask.descendantWakePending = true;
@@ -1656,8 +1390,7 @@ export class LocalAgentManager {
         if (isChildReport) {
 
             this.subagentSessions.get(agentId)?.notifyHistoryChanged();
-            if (deliveryEventId &&
-                task.consumedDescendantEventIds.includes(deliveryEventId)) {
+            if (deliveryEventId && task.consumedDescendantEventIds.includes(deliveryEventId)) {
                 return { delivered: true };
             }
             if (task.status === "error" || task.status === "canceled") {
@@ -1673,9 +1406,7 @@ export class LocalAgentManager {
         if (options?.parentAgentId) {
             task.parentAgentId = options.parentAgentId;
         }
-        if (task.status === "completed" ||
-            task.status === "error" ||
-            task.status === "canceled") {
+        if (task.status === "completed" || task.status === "error" || task.status === "canceled") {
             if (from !== "orchestrator") {
                 return { delivered: false };
             }
@@ -1689,6 +1420,9 @@ export class LocalAgentManager {
             }
             if (rootRunId) {
                 task.rootRunId = rootRunId;
+            }
+            if (followUpDescription) {
+                task.description = followUpDescription;
             }
             if (deliveryEventId) {
                 task.consumedDescendantEventIds.push(deliveryEventId);
@@ -1706,7 +1440,6 @@ export class LocalAgentManager {
             task.pendingStartAudience = isChildReport
                 ? "orchestrator-only"
                 : undefined;
-
             task.pendingStartIsFollowUp = true;
             task.recentActivity = [updateStatusText];
             this.opts.onAgentEvent?.({
@@ -1745,10 +1478,11 @@ export class LocalAgentManager {
             if (rootRunId) {
                 task.rootRunId = rootRunId;
             }
+            if (followUpDescription) {
+                task.description = followUpDescription;
+            }
             task.pendingStartStatusText = updateStatusText;
-            task.pendingStartAudience = isChildReport
-                ? "orchestrator-only"
-                : undefined;
+            task.pendingStartAudience = isChildReport ? "orchestrator-only" : undefined;
             task.recentActivity = [updateStatusText];
             this.opts.onAgentEvent?.({
                 type: "agent-progress",
@@ -1782,9 +1516,7 @@ export class LocalAgentManager {
                             attemptGeneration: task.attemptGeneration,
                             statusText: updateStatusText,
                             isFollowUp: true,
-                            ...(isChildReport
-                                ? { audience: "orchestrator-only" }
-                                : {}),
+                            ...(isChildReport ? { audience: "orchestrator-only" } : {}),
                         });
                     }
                 }
@@ -1795,8 +1527,7 @@ export class LocalAgentManager {
     }
     async drainAgentMessages(agentId, recipient) {
         const task = this.tasks.get(agentId);
-        if (!task)
-            return [];
+        if (!task) return [];
         return this.consumeTaskMessages(task, recipient);
     }
 }

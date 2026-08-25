@@ -230,9 +230,7 @@ describe("orchestrator thread compaction failure handling", () => {
       content: "FAILED_ATTEMPT_MUST_NOT_REPLAY",
       payload: {
         role: "assistant",
-        content: [
-          { type: "text", text: "FAILED_ATTEMPT_MUST_NOT_REPLAY" },
-        ],
+        content: [{ type: "text", text: "FAILED_ATTEMPT_MUST_NOT_REPLAY" }],
         stopReason: "error",
       },
     };
@@ -273,7 +271,8 @@ describe("orchestrator thread compaction failure handling", () => {
   });
 
   it("masks quarantined tool content and discards a suspect prior checkpoint", async () => {
-    const rawMessages: Array<Record<string, unknown>> = buildBigThreadMessages();
+    const rawMessages: Array<Record<string, unknown>> =
+      buildBigThreadMessages();
     const messages = [...rawMessages];
     messages[44] = {
       ...messages[44],
@@ -318,9 +317,11 @@ describe("orchestrator thread compaction failure handling", () => {
     rawMessages[46] = messages[46]!;
     messages.splice(45, 1);
     const { store, compactCalls } = createFakeStore(messages);
-    (store as RuntimeStore & {
+    (
+      store as RuntimeStore & {
       loadRawThreadMessages: () => Array<Record<string, unknown>>;
-    }).loadRawThreadMessages = () => rawMessages;
+      }
+    ).loadRawThreadMessages = () => rawMessages;
     completeSimpleMock.mockResolvedValue(successResponse());
 
     const result = await maybeCompactRuntimeThread({
@@ -422,7 +423,9 @@ describe("orchestrator thread compaction failure handling", () => {
         role: "toolResult",
         toolCallId: "call-race",
         toolName: "Read",
-        content: [{ type: "text", text: "RESULT_QUARANTINED_WHILE_SUMMARIZING" }],
+        content: [
+          { type: "text", text: "RESULT_QUARANTINED_WHILE_SUMMARIZING" },
+        ],
         isError: false,
         timestamp: 2_045,
       },
@@ -468,7 +471,8 @@ describe("orchestrator thread compaction failure handling", () => {
   });
 
   it("rebuilds a suspect checkpoint from raw history without dropping safe context", async () => {
-    const rawMessages: Array<Record<string, unknown>> = buildFittingThreadMessages();
+    const rawMessages: Array<Record<string, unknown>> =
+      buildFittingThreadMessages();
     rawMessages[2] = {
       ...rawMessages[2],
       content: "SAFE_PRECHECKPOINT_HISTORY_MUST_SURVIVE",
@@ -548,7 +552,9 @@ describe("orchestrator thread compaction failure handling", () => {
     });
 
     expect(result).toEqual({ compacted: true });
-    expect(loadRawThreadMessages).toHaveBeenCalledWith("quarantine-raw-rebuild");
+    expect(loadRawThreadMessages).toHaveBeenCalledWith(
+      "quarantine-raw-rebuild",
+    );
     expect(compactCalls[0]).toMatchObject({ fromEntryId: "entry-1" });
     const context = completeSimpleMock.mock.calls[0]![1] as {
       messages: Array<{ content: Array<{ text: string }> }>;
@@ -561,7 +567,8 @@ describe("orchestrator thread compaction failure handling", () => {
   });
 
   it("rebuilds an oversized suspect checkpoint in masked chunks without eliding old safe history", async () => {
-    const rawMessages: Array<Record<string, unknown>> = buildBigThreadMessages();
+    const rawMessages: Array<Record<string, unknown>> =
+      buildBigThreadMessages();
     rawMessages[2] = {
       ...rawMessages[2],
       content: "SAFE_OLD_HISTORY_MUST_REACH_THE_REBUILT_CHECKPOINT",
@@ -590,9 +597,7 @@ describe("orchestrator thread compaction failure handling", () => {
         role: "toolResult",
         toolCallId: "call-chunked",
         toolName: "Read",
-        content: [
-          { type: "text", text: "CHUNKED_RAW_SUSPECT_MUST_BE_MASKED" },
-        ],
+        content: [{ type: "text", text: "CHUNKED_RAW_SUSPECT_MUST_BE_MASKED" }],
         isError: false,
         timestamp: 2_045,
       },
@@ -631,7 +636,10 @@ describe("orchestrator thread compaction failure handling", () => {
       updateThreadSummary: () => undefined,
     } as unknown as RuntimeStore;
     completeSimpleMock.mockImplementation(
-      (_model: unknown, context: { messages: Array<{ content: Array<{ text: string }> }> }) => {
+      (
+        _model: unknown,
+        context: { messages: Array<{ content: Array<{ text: string }> }> },
+      ) => {
         const prompt = context.messages[0]!.content[0]!.text;
         const safeHistory = prompt.includes(
           "SAFE_OLD_HISTORY_MUST_REACH_THE_REBUILT_CHECKPOINT",
@@ -681,7 +689,8 @@ describe("orchestrator thread compaction failure handling", () => {
   });
 
   it("reuses a rebuilt checkpoint whose internal metadata proves quarantine masking", async () => {
-    const rawMessages: Array<Record<string, unknown>> = buildBigThreadMessages();
+    const rawMessages: Array<Record<string, unknown>> =
+      buildBigThreadMessages();
     rawMessages[2] = {
       ...rawMessages[2],
       content: "RAW_HISTORY_MUST_NOT_BE_REBUILT_AGAIN",
@@ -818,7 +827,6 @@ describe("orchestrator thread compaction failure handling", () => {
     const context = completeSimpleMock.mock.calls[0]![1] as {
       messages: Array<{ content: Array<{ text: string }> }>;
     };
-
     expect(
       Number.isFinite(context.messages[0]!.content[0]!.text.length),
     ).toBe(true);
@@ -855,6 +863,93 @@ describe("orchestrator thread compaction failure handling", () => {
     expect(compactCalls[0]).toMatchObject({
       fromEntryId: "m1",
       toEntryId: "m3",
+    });
+  });
+
+  it("excludes resident and roster messages from checkpoint prose without changing anchors", async () => {
+    const messages = [
+      {
+        entryId: "m1",
+        timestamp: 1,
+        role: "runtimeInternal",
+        content: "STALE_OTHER_THREADS_ROSTER",
+        customMessage: {
+          customType: "runtime.orchestrator_reminder",
+          content: [{ type: "text", text: "STALE_OTHER_THREADS_ROSTER" }],
+          display: false,
+        },
+      },
+      {
+        entryId: "m2",
+        timestamp: 2,
+        role: "runtimeInternal",
+        content: "STALE_MEMORY_MAP_COPY",
+        customMessage: {
+          customType: "bootstrap.startup_doc",
+          content: [{ type: "text", text: "STALE_MEMORY_MAP_COPY" }],
+          display: false,
+        },
+      },
+      {
+        entryId: "m3",
+        timestamp: 3,
+        role: "runtimeInternal",
+        content: "STALE_SKILLS_CATALOG",
+        customMessage: {
+          customType: "bootstrap.skills_catalog",
+          content: [{ type: "text", text: "STALE_SKILLS_CATALOG" }],
+          display: false,
+        },
+      },
+      {
+        entryId: "m4",
+        timestamp: 4,
+        role: "runtimeInternal",
+        content: "STALE_CONTEXT_DELTA",
+        customMessage: {
+          customType: "runtime.context_delta.tools",
+          content: [{ type: "text", text: "STALE_CONTEXT_DELTA" }],
+          display: false,
+        },
+      },
+      {
+        entryId: "m5",
+        timestamp: 5,
+        role: "user",
+        content: "ORDINARY_HISTORY_TO_SUMMARIZE",
+      },
+      {
+        entryId: "m6",
+        timestamp: 6,
+        role: "assistant",
+        content: "recent tail",
+      },
+    ];
+    completeSimpleMock.mockResolvedValue(successResponse());
+    const { store, compactCalls } = createFakeStore(messages);
+
+    const result = await withForcedThreadCompaction("structural-filter", () =>
+      maybeCompactRuntimeThread({
+        store,
+        threadKey: "structural-filter",
+        resolvedLlm: createRoute(async () => "auth-token"),
+        agentType: "general",
+      }),
+    );
+
+    expect(result).toEqual({ compacted: true });
+    const context = completeSimpleMock.mock.calls[0]![1] as {
+      messages: Array<{ content: Array<{ type: string; text: string }> }>;
+    };
+    const prompt = context.messages[0]!.content[0]!.text;
+    expect(prompt).toContain("ORDINARY_HISTORY_TO_SUMMARIZE");
+    expect(prompt).not.toContain("STALE_OTHER_THREADS_ROSTER");
+    expect(prompt).not.toContain("STALE_MEMORY_MAP_COPY");
+    expect(prompt).not.toContain("STALE_SKILLS_CATALOG");
+    expect(prompt).not.toContain("STALE_CONTEXT_DELTA");
+    expect(compactCalls[0]).toMatchObject({
+      fromEntryId: "m1",
+      toEntryId: "m5",
     });
   });
 
@@ -962,8 +1057,18 @@ describe("orchestrator thread compaction failure handling", () => {
     const followUpText = `Follow-up task\n\nNow migrate the parser ${"y".repeat(30_000)}`;
     const messages = [
       { entryId: "entry-1", timestamp: 1_000, role: "user", content: "spawn" },
-      { entryId: "entry-2", timestamp: 1_001, role: "assistant", content: "ok" },
-      { entryId: "entry-3", timestamp: 1_002, role: "assistant", content: "ok" },
+      {
+        entryId: "entry-2",
+        timestamp: 1_001,
+        role: "assistant",
+        content: "ok",
+      },
+      {
+        entryId: "entry-3",
+        timestamp: 1_002,
+        role: "assistant",
+        content: "ok",
+      },
       {
         entryId: "entry-4",
         timestamp: 1_003,
@@ -1024,8 +1129,18 @@ describe("orchestrator thread compaction failure handling", () => {
   it("pins an active-steer Task update turn and skips pinning when the instruction is already in the tail", async () => {
     const buildMessages = (latestUserAtTail: boolean) => [
       { entryId: "entry-1", timestamp: 1_000, role: "user", content: "spawn" },
-      { entryId: "entry-2", timestamp: 1_001, role: "assistant", content: "ok" },
-      { entryId: "entry-3", timestamp: 1_002, role: "assistant", content: "ok" },
+      {
+        entryId: "entry-2",
+        timestamp: 1_001,
+        role: "assistant",
+        content: "ok",
+      },
+      {
+        entryId: "entry-3",
+        timestamp: 1_002,
+        role: "assistant",
+        content: "ok",
+      },
       {
         entryId: "entry-4",
         timestamp: 1_003,
@@ -1126,8 +1241,18 @@ describe("general/subagent compaction path", () => {
     const followUpText = `Follow-up task\n\nNow migrate the parser ${"y".repeat(30_000)}`;
     const messages = [
       { entryId: "entry-1", timestamp: 1_000, role: "user", content: "spawn" },
-      { entryId: "entry-2", timestamp: 1_001, role: "assistant", content: "ok" },
-      { entryId: "entry-3", timestamp: 1_002, role: "assistant", content: "ok" },
+      {
+        entryId: "entry-2",
+        timestamp: 1_001,
+        role: "assistant",
+        content: "ok",
+      },
+      {
+        entryId: "entry-3",
+        timestamp: 1_002,
+        role: "assistant",
+        content: "ok",
+      },
       {
         entryId: "entry-4",
         timestamp: 1_003,
@@ -1322,4 +1447,3 @@ describe("general/subagent compaction path", () => {
     });
   });
 });
-

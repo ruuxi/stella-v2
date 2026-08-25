@@ -250,7 +250,6 @@ export type ToolHostOptions = {
     ref: unknown,
     args: Record<string, unknown>,
   ) => Promise<unknown>;
-
   contextProvider?: (payload: {
     conversationId: string;
     requestId: string;
@@ -261,8 +260,6 @@ export type ToolHostOptions = {
     modelConfigSnapshot?: AgentModelConfigSnapshot;
     signal?: AbortSignal;
   }) => Promise<RecallLookupResult>;
-
-  dreamInboxStore?: import("../memory/dream-inbox-store.js").DreamInboxStore;
   stellaDataDir?: string;
   requestCredential?: (payload: {
     provider: string;

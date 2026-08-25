@@ -4,7 +4,6 @@ export const AGENT_IDS = {
   GENERAL: "general",
   OFFLINE_RESPONDER: "offline_responder",
   EXPLORE: "explore",
-  DREAM: "dream",
 } as const;
 
 export type AgentId = (typeof AGENT_IDS)[keyof typeof AGENT_IDS];
@@ -26,20 +25,11 @@ export type AgentCapabilities = {
   injectsPersonality?: boolean;
 
   injectsCoreMemory?: boolean;
-
-  injectsResidentMemory?: boolean;
-
-  injectsDynamicMemory?: boolean;
-
+  injectsUserProfile?: boolean;
   injectsRuntimeReminders?: boolean;
 
   injectsSkillCatalog?: boolean;
-
   recordsThreadSummary?: boolean;
-
-  triggersDreamScheduler?: boolean;
-
-  triggersMemoryReview?: boolean;
 };
 
 type AgentDefinition = {
@@ -80,12 +70,9 @@ const BUILTIN_AGENT_DEFINITIONS = [
       followUpMode: "all",
       injectsPersonality: true,
       injectsCoreMemory: true,
-      injectsResidentMemory: true,
-      injectsDynamicMemory: true,
+      injectsUserProfile: true,
       injectsRuntimeReminders: true,
       injectsSkillCatalog: true,
-      triggersDreamScheduler: true,
-      triggersMemoryReview: true,
     },
   },
   {
@@ -123,7 +110,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
     },
     capabilities: {
       injectsSkillCatalog: true,
-
       recordsThreadSummary: true,
     },
   },
@@ -157,23 +143,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
     modelSettings: {
       description: "Finds relevant context before a task starts",
       order: 3,
-    },
-  },
-  {
-    id: AGENT_IDS.DREAM,
-    name: "Dream",
-    description:
-      "Background memory consolidator. Reads the Dream inbox and surgically updates ~/.stella/memories/ markdown files.",
-    activityLabel: "Dreaming",
-    bundledCore: true,
-    runsAsSubagent: false,
-    includeInAgentRoster: false,
-    usesLocalCliRuntime: false,
-    promptRole: "subagent",
-    localCliWorkingDirectory: null,
-    modelSettings: {
-      description: "Consolidates memory in the background",
-      order: 5,
     },
   },
 ] as const satisfies readonly AgentDefinition[];
@@ -220,6 +189,10 @@ const RETIRED_AGENT_TYPE_REPLACEMENTS: Readonly<Record<string, AgentId>> =
     manager: AGENT_IDS.GENERAL,
 
     schedule: AGENT_IDS.GENERAL,
+    // Automatic memory consolidation is retired. Historical Dream rows remain
+    // available as ordinary General history without exposing Dream as a
+    // resumable built-in agent.
+    dream: AGENT_IDS.GENERAL,
   });
 
 export const normalizeRetiredAgentType = (agentType: string): string =>
@@ -424,7 +397,5 @@ export const RUNTIME_RUN_EVENT_TYPES = {
 
 export const TOOL_IDS = {
   NO_RESPONSE: "NoResponse",
-  DREAM: "Dream",
   READ: "Read",
-  STR_REPLACE: "StrReplace",
 } as const;

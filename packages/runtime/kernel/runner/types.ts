@@ -446,20 +446,4 @@ export type RunnerPublicApi = {
     name?: string;
   }>;
   googleWorkspaceDisconnect: () => Promise<{ ok: boolean }>;
-
-  triggerDreamNow: (trigger?: "manual" | "startup_catchup") => Promise<{
-    scheduled: boolean;
-    reason:
-      | "scheduled"
-      | "disabled"
-      | "in_flight"
-      | "count_failed"
-      | "no_inputs"
-      | "below_threshold"
-      | "lock_busy"
-      | "no_api_key"
-      | "unavailable";
-    pendingItems: number;
-    detail?: string;
-  }>;
 };

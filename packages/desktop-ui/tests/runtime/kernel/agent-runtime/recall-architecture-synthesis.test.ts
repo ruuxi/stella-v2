@@ -45,13 +45,11 @@ const makeStore = (transcripts: unknown[]) =>
     searchThreads: vi.fn(() => []),
     searchTranscripts: vi.fn(() => transcripts),
     listTranscriptNeighbors: vi.fn(() => []),
-    listThreadsForRecallIndex: vi.fn(() => []),
     listAgentAssistantMessages: vi.fn(() => []),
     listThreadResultExcerpts: vi.fn(() => new Map()),
-    dreamInboxStore: {
-      listRecentThreadSummaries: vi.fn(() => []),
+    threadSummaryStore: {
+      searchThreadSummaries: vi.fn(() => []),
       findThreadSummariesByThreadIds: vi.fn(() => []),
-      recordUsage: vi.fn(),
     },
   }) as never;
 
@@ -91,6 +89,12 @@ describe("architectural Recall synthesis returns a model brief", () => {
         role: "user" as const,
         atMs: Date.parse("2026-03-02T09:00:00Z"),
         text: "I first drove the blue Lotus today, 2026-03-02, around the coast road.",
+      },
+      {
+        conversationId: "conv-1",
+        role: "assistant" as const,
+        atMs: Date.parse("2026-02-01T09:00:00Z"),
+        text: "The blue Lotus tire-pressure note is unrelated.",
       },
     ];
 
@@ -168,6 +172,12 @@ describe("architectural Recall synthesis returns a model brief", () => {
           role: "user" as const,
           atMs: Date.parse("2026-03-02T09:00:00Z"),
           text: "I first drove the blue Lotus today, 2026-03-02, around the coast road.",
+        },
+        {
+          conversationId: "conv-1",
+          role: "assistant" as const,
+          atMs: Date.parse("2026-02-01T09:00:00Z"),
+          text: "The blue Lotus tire-pressure note is unrelated.",
         },
       ]),
       localEvents: [],

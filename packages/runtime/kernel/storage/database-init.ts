@@ -503,11 +503,7 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     CREATE INDEX IF NOT EXISTS idx_runtime_threads_last_used
     ON runtime_threads(last_used_at);
   `);
-
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_runtime_threads_created
-    ON runtime_threads(created_at);
-  `);
+  db.exec("DROP INDEX IF EXISTS idx_runtime_threads_created;");
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS runtime_thread_sessions (
@@ -745,68 +741,55 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     );
   `);
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS runtime_memory_review_state (
-      conversation_id TEXT PRIMARY KEY,
-      user_turns_since_review INTEGER NOT NULL DEFAULT 0,
-      last_review_at INTEGER,
-      last_reviewed_message_ts INTEGER
-    );
-  `);
-  try {
-    db.exec(
-      "ALTER TABLE runtime_memory_review_state ADD COLUMN last_reviewed_message_ts INTEGER;",
-    );
-  } catch {
+  db.exec("DROP TABLE IF EXISTS runtime_memory_review_state;");
 
-  }
-
-  db.exec("DROP TABLE IF EXISTS thread_summaries;");
   db.exec(`
-    CREATE TABLE IF NOT EXISTS dream_inbox (
+    CREATE TABLE IF NOT EXISTS durable_thread_summaries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      kind TEXT NOT NULL,
       source_key TEXT NOT NULL,
-      thread_id TEXT,
-      run_id TEXT,
-      agent_type TEXT,
-      title TEXT,
+      thread_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      agent_type TEXT NOT NULL,
       content TEXT NOT NULL,
-      metadata TEXT,
       conversation_id TEXT,
       source_updated_at INTEGER NOT NULL,
-      processed_by_dream_at INTEGER,
-      usage_count INTEGER NOT NULL DEFAULT 0,
-      last_usage INTEGER,
-      UNIQUE (kind, source_key)
+      UNIQUE (source_key)
     );
   `);
-  const dreamInboxColumns = new Set(
-    (
-      db.prepare("PRAGMA table_info(dream_inbox)").all() as Array<{
-        name?: string;
-      }>
+  const legacyDreamInbox = db
+    .prepare(
+      "SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = 'dream_inbox'",
     )
-      .map((column) => column.name)
-      .filter((name): name is string => Boolean(name)),
-  );
-  for (const [name, definition] of [
-    ["conversation_id", "conversation_id TEXT"],
-    ["usage_count", "usage_count INTEGER NOT NULL DEFAULT 0"],
-    ["last_usage", "last_usage INTEGER"],
-  ] as const) {
-    if (!dreamInboxColumns.has(name)) {
-
-      db.exec(`ALTER TABLE dream_inbox ADD COLUMN ${definition};`);
-      dreamInboxColumns.add(name);
+    .get() as { found?: number } | undefined;
+  if (legacyDreamInbox?.found === 1) {
+    const columns = new Set(
+      (
+        db.prepare("PRAGMA table_info(dream_inbox)").all() as Array<{
+          name?: string;
+        }>
+      )
+        .map((column) => column.name)
+        .filter((name): name is string => Boolean(name)),
+    );
+    if (!columns.has("conversation_id")) {
+      db.exec("ALTER TABLE dream_inbox ADD COLUMN conversation_id TEXT;");
     }
+    db.exec(`
+      INSERT OR IGNORE INTO durable_thread_summaries (
+        source_key, thread_id, run_id, agent_type, content, conversation_id,
+        source_updated_at
+      )
+      SELECT source_key, thread_id, run_id, COALESCE(agent_type, 'general'),
+             content, conversation_id, source_updated_at
+      FROM dream_inbox
+      WHERE kind = 'thread_summary'
+        AND thread_id IS NOT NULL
+        AND run_id IS NOT NULL;
+    `);
   }
+  db.exec("DROP TABLE IF EXISTS dream_inbox;");
   db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_dream_inbox_unprocessed
-    ON dream_inbox(processed_by_dream_at, source_updated_at);
-  `);
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_dream_inbox_kind_updated
-    ON dream_inbox(kind, source_updated_at);
+    CREATE INDEX IF NOT EXISTS idx_durable_thread_summaries_updated
+    ON durable_thread_summaries(source_updated_at);
   `);
 };

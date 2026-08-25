@@ -1,3 +1,9 @@
+/**
+ * `Read` — local text and image file reader.
+ *
+ * The host's `handleRead` applies the runtime file-access policy.
+ */
+
 import { handleRead } from "../file.js";
 import type { ToolDefinition } from "../types.js";
 

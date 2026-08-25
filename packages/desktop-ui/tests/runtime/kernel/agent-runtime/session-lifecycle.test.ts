@@ -127,18 +127,6 @@ describe("OrchestratorSession", () => {
     const session = new OrchestratorSession("conversation-1");
     const compactionScheduler = new BackgroundCompactionScheduler();
     const schedule = vi.spyOn(compactionScheduler, "schedule");
-    let agentEndSnapshot: AgentMessage[] = [];
-    const hookEmitter = {
-      emitAll: vi.fn(async () => []),
-      emit: vi.fn(async (event: string, payload: unknown) => {
-        if (event === "agent_end") {
-          agentEndSnapshot = (
-            payload as { services: { messagesSnapshot: AgentMessage[] } }
-          ).services.messagesSnapshot;
-        }
-        return undefined;
-      }),
-    };
 
     executeRuntimeAgentPrompt.mockImplementation(async ({ agent }) => {
       (agent as { state: { messages: AgentMessage[] } }).state.messages.push({
@@ -208,7 +196,6 @@ describe("OrchestratorSession", () => {
           },
         ],
         compactionScheduler,
-        hookEmitter: hookEmitter as never,
       }),
     );
     const promptedAgent = executeRuntimeAgentPrompt.mock.calls[0]?.[0]
@@ -218,13 +205,6 @@ describe("OrchestratorSession", () => {
     expect(
       promptedAgent.state.messages.some(
         (message) => message.role === "runtimeInternal",
-      ),
-    ).toBe(false);
-    expect(
-      agentEndSnapshot.some(
-        (message) =>
-          message.role === "runtimeInternal" &&
-          message.customType === "runtime.queued_message_reply",
       ),
     ).toBe(false);
   });

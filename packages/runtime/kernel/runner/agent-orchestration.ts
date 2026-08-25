@@ -444,19 +444,18 @@ export const createAgentOrchestration = (
     }
     if (event.type === "agent-completed" && event.result?.trim()) {
       try {
-        const inbox = context.runtimeStore.dreamInboxStore;
+        const summaries = context.runtimeStore.threadSummaryStore;
         if (
-          inbox &&
-          typeof inbox.promoteThreadSummaryConversation === "function"
+          summaries &&
+          typeof summaries.promoteThreadSummaryConversation === "function"
         ) {
-          inbox.promoteThreadSummaryConversation({
+          summaries.promoteThreadSummaryConversation({
             threadId: event.agentId,
             conversationId: event.conversationId,
             rolloutSummary: event.result,
           });
         }
       } catch {
-
       }
     }
   };

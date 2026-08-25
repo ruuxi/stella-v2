@@ -4,14 +4,12 @@ import type {
   LocalChatAppendEventArgs,
   LocalContextEvent,
 } from "../storage/shared.js";
-import type { AgentMessage } from "../agent-core/types.js";
 
 export type ExtensionServices = {
 
   stellaDataDir: string;
 
   stellaAppDir: string;
-
   store: RuntimeStore;
 
   notifyLinkSpendApproval?: (payload: {
@@ -24,9 +22,6 @@ export type ExtensionServices = {
 export type RuntimeRunServices = {
 
   resolvedLlm?: ResolvedLlmRoute;
-
-  messagesSnapshot?: AgentMessage[];
-
   appendLocalChatEvent?: (args: LocalChatAppendEventArgs) => void;
 
   listLocalChatEvents?: (
@@ -35,8 +30,4 @@ export type RuntimeRunServices = {
   ) => LocalContextEvent[];
 
   resolveSubsidiaryLlmRoute?: (agentType: string) => ResolvedLlmRoute;
-
-  userTurnsSinceMemoryReview?: number;
-
-  orchestratorTokenEstimate?: number;
 };

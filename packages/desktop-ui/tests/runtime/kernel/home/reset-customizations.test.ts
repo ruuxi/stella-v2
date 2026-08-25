@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -32,7 +39,7 @@ describe("resetStellaCustomizations", () => {
     );
     await mkdir(path.join(home, "prompts"), { recursive: true });
     await writeFile(
-      path.join(home, "prompts", "memory-review.md"),
+      path.join(home, "prompts", "fallback-orchestrator.md"),
       "override",
     );
     await writeFile(path.join(home, "PERSONALITY.md"), "custom personality");
@@ -57,7 +64,7 @@ describe("resetStellaCustomizations", () => {
         "PERSONALITY.md",
         path.join("agents", "general.md"),
         path.join("agents", "orchestrator.replace.md"),
-        path.join("prompts", "memory-review.md"),
+        path.join("prompts", "fallback-orchestrator.md"),
         path.join("skills", "pdf"),
       ].sort(),
     );

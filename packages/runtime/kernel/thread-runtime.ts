@@ -1502,10 +1502,6 @@ const buildDurableMemoryReference = (
       label: "User profile (memories/profile.md)",
       docPath: path.join(stellaDataDir, "memories", "profile.md"),
     },
-    {
-      label: "Memory map (memories/memory_map.md)",
-      docPath: path.join(stellaDataDir, "memories", "memory_map.md"),
-    },
   ]
     .map(({ label, docPath }) => {
       const text = readDurableMemoryDoc(docPath);

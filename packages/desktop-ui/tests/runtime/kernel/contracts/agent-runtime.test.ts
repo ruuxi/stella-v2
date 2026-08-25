@@ -35,14 +35,16 @@ describe("agent runtime contracts", () => {
     expect(agentHasCapability(AGENT_IDS.EXPLORE, "injectsPersonality")).toBe(
       false,
     );
-    expect(agentHasCapability(AGENT_IDS.DREAM, "injectsPersonality")).toBe(
-      false,
-    );
     expect(agentHasCapability(AGENT_IDS.FASHION, "injectsPersonality")).toBe(
       false,
     );
     expect(
       agentHasCapability(AGENT_IDS.OFFLINE_RESPONDER, "injectsPersonality"),
     ).toBe(false);
+  });
+
+  it("keeps historical Dream rows without exposing Dream as a built-in", () => {
+    expect(normalizeRetiredAgentType("dream")).toBe(AGENT_IDS.GENERAL);
+    expect(AGENT_IDS).not.toHaveProperty("DREAM");
   });
 });

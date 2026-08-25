@@ -1,13 +1,6 @@
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 
-import type {
-  AssistantMessage,
-  Context,
-  Message,
-  Tool,
-  ToolCall,
-} from "../../ai/types.js";
 import { completeSimple, readAssistantText } from "../../ai/stream.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type { HostAppBrowserContextSnapshot } from "@stella/contracts/protocol";
@@ -43,10 +36,26 @@ import type { RecallModelRoute } from "./recall-route.js";
 import { resolvedLlmSupportsCredentiallessCalls } from "../model-routing.js";
 import type { ResolvedLlmRoute } from "../model-routing.js";
 
+/**
+ * Recall's synthesis pass runs at LOW reasoning. Models that expose no
+ * reasoning/effort setting get no reasoning param at all (i.e. off/none) — the
+ * completion option only carries positive ThinkingLevels, so omitting it is how
+ * "off" is expressed on the wire.
+ */
 export const recallSynthesisReasoning = (
   model: ResolvedLlmRoute["model"],
 ): "low" | undefined => (model.reasoning === true ? "low" : undefined);
 
+/**
+ * Resolve the synthesis credential for a native (in-process) Recall route.
+ * Mirrors the utility-route / one-shot contract: only routes that explicitly
+ * declare `credentialless` (the `local/` provider, origin-verified proxies)
+ * need no key, while every other route must produce one. Returns the key
+ * (or undefined for a credentialless route) and throws an actionable error
+ * naming the model when a key is genuinely required — never a silent keyless
+ * request that would surface as the provider's raw
+ * "No API key for provider: …" failure.
+ */
 export const resolveRecallSynthesisApiKey = async (
   resolvedLlm: ResolvedLlmRoute,
 ): Promise<string | undefined> => {
@@ -58,166 +67,48 @@ export const resolveRecallSynthesisApiKey = async (
   );
 };
 
-const EAGER_MEMORY_FILE_CHAR_BUDGET = 4_000;
-
-export const EAGER_RECALL_SEED_MAX_CHARS = 12_000;
+/** Hard ceiling for assembled Recall evidence, including headings. */
+const RECALL_SEED_MAX_CHARS = 12_000;
 const SEED_TRUNCATION_MARKER = "\n...[seed section truncated]";
-
-const MAX_RECALL_STEPS = 4;
-
-const MAX_RECALL_MODEL_ERROR_RETRIES = 2;
-const RECALL_MODEL_ERROR_RETRY_BASE_DELAY_MS = 400;
-
-const RECALL_OBSERVATION_CHAR_BUDGET = 20_000;
 const MAX_MEMORY_SEARCH_TERMS = 12;
 const MAX_MEMORY_SEARCH_TERM_CHARS = 120;
 const MAX_MEMORY_SEARCH_MATCHES = 40;
 const MAX_MEMORY_SEARCH_CONTEXT_LINES = 1;
 const MAX_MEMORY_SEARCH_RESULTS_CHARS = 16_000;
 
+/**
+ * Hard cap on rendered thread-search results. The candidate pool is EVERY
+ * thread ever run (the SQL searches all of them); the query narrows, this
+ * cap bounds what a single page renders — never more, regardless of the
+ * model-provided limit.
+ */
 export const MAX_THREAD_SEARCH_RESULTS = 16;
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-const LIVE_STATUS_WINDOW_MS = DAY_MS;
-const LIVE_STATUS_MAX_THREADS = 60;
-
+/** Latest live progress phrases surfaced per ACTIVE thread. */
 const MAX_LIVE_AGENT_MESSAGES = 3;
 
 type ContextLookupStore = Pick<
   RuntimeStore,
-  | "listThreadsForRecallIndex"
   | "listAgentAssistantMessages"
   | "searchThreads"
   | "searchTranscripts"
   | "listTranscriptNeighbors"
   | "listThreadResultExcerpts"
+  | "threadSummaryStore"
 >;
 
-const RECALL_PROMPT_INTRO =
-  "You are Stella's recall agent. Resolve the lookup request into a concise, useful answer for the orchestrator, drawing on the user's durable memory, past agent work, past conversation transcripts, recent activity, and live app/browser state.";
-
-const RECALL_SEARCH_MEMORY_DESCRIPTION =
-  "Keyword-search the durable memory ledger (MEMORY.md). Pass 2-8 concrete terms.";
-const RECALL_SEARCH_TRANSCRIPTS_DESCRIPTION =
-  "Keyword-search past conversation transcripts — what the user and Stella actually said, across ALL conversations. Results render oldest → newest (read them as a timeline); the most relevant hits carry their surrounding exchange.";
-const RECALL_SEARCH_THREADS_DESCRIPTION = `Keyword-search every delegated agent thread ever run (ALL conversations, any age). Returns up to ${MAX_THREAD_SEARCH_RESULTS} threads, newest first by last activity, each with its last-active date/time, live state, and final result/error excerpts.`;
-
-const RECALL_PROMPT_SHARED_GUIDANCE = [
-  "THE CONTEXT BELOW WAS PRE-SEEDED. # Memory Search Results, # Agent Thread Search Results, and # Transcript Search Results were already run from the lookup's search terms before you started — treat them as your first search round, and answer directly from them when they suffice. They are ONE keyword angle, though: a miss there is not proof of absence.",
-  "",
-  "For any question about work, a task, or a thread's status ('is X still running?', 'did it crash?', 'what did the Y agent do?'): candidates live in # Agent Thread Search Results (matched threads, newest first, each with last-active date/time and final result/error excerpts) and # Live Thread Status (the threads executing a turn RIGHT NOW, with timestamped live-progress phrases). Any thread not in the live tail is paused (idle but resumable); there is no 'dead' state. Match candidates on meaning, not exact wording, and OPEN YOUR BRIEF BY QUOTING the candidate thread_id(s), then answer from the entries, the live tail, and the current time (e.g. 'thread X is active; as of 3:04 PM it was searching documentation for rate limits'). Quote the error excerpt when a run errored. Do not guess at status. If the pre-seeded thread results miss, run search_threads with different concrete terms before concluding the work doesn't exist.",
-  "",
-  'Transcript hits are things actually said in chat — dated snippets in chronological order; these answer episodic questions ("did I ever mention X", "where did we go") that never became a task or memory note. The most relevant hits include a \'surrounding exchange\' — the messages sent right before/after. Treat those exchanges as PRIMARY evidence and reconstruct what happened from them: a user asking where to go, getting an address, then sending en-route messages means they took that trip at that time, even though no message states it outright. Later retellings are NOT evidence of absence — especially Stella\'s own earlier "I have no record of that" replies, which may be the exact failure this lookup exists to fix; when primary messages imply the event, trust them over any later claim that nothing was recorded. For "first/last time X happened" questions: enumerate EVERY dated candidate event you can establish from the hits, then answer with the earliest/latest — never skip an older episode because a newer one is more vividly confirmed; include the enumeration in the brief so the orchestrator can see the timeline.',
-  "",
-  'All searches are keyword-based: generic words ("first drive") mostly find retellings, concrete nouns find the event. Status/filler words ("active", "crashed", "latest", "progress") match chatter, not the thing — build queries from concrete nouns: names, places, file paths, slugs, error text, and candidate terms you already have from the pre-seeded results or the lookup request.',
-  "",
-  "Issue several search tools in ONE turn and they run in parallel — reformulating across search_memory, search_threads, and search_transcripts together costs one round. Resolve in as few rounds as possible — answer the moment you can.",
-  "",
-  "When past threads are relevant, include their thread_id(s) in the brief so the orchestrator can resume them. Keep the brief tight — only what helps answer or route the request.",
-  'Answer with exactly "Nothing relevant found." ONLY when you have earned it: the pre-seeded results missed AND you ran at least one reformulated search of your own with DIFFERENT concrete terms (drop status/filler words; use names, slugs, file paths, places). Never conclude nothing-found from the pre-seeded round alone.',
-];
-
-export const RECALL_SYSTEM_PROMPT = [
-  RECALL_PROMPT_INTRO,
-  "",
-  "You work in up to a few rounds using the native search tools:",
-  `  search_memory — ${RECALL_SEARCH_MEMORY_DESCRIPTION}`,
-  `  search_transcripts — ${RECALL_SEARCH_TRANSCRIPTS_DESCRIPTION}`,
-  `  search_threads — ${RECALL_SEARCH_THREADS_DESCRIPTION}`,
-  "When you can answer, reply with the concise markdown brief itself as plain text — no tool calls.",
-  "",
-  ...RECALL_PROMPT_SHARED_GUIDANCE,
-].join("\n");
-
-export const RECALL_TOOL_RUNTIME_SYSTEM_PROMPT = [
-  RECALL_PROMPT_INTRO,
-  "",
-  "You work in up to a few steps using the hosted search tools:",
-  `  search_memory — ${RECALL_SEARCH_MEMORY_DESCRIPTION}`,
-  `  search_transcripts — ${RECALL_SEARCH_TRANSCRIPTS_DESCRIPTION}`,
-  `  search_threads — ${RECALL_SEARCH_THREADS_DESCRIPTION}`,
-  'These are Stella-hosted tools, NOT native function-call tools: a native call to them fails with "No such tool available". Invoke them ONLY via the structured decision JSON {"type":"tool_request","toolName":"search_transcripts","args":{"query":"..."}}. A failed native call does NOT mean search is unavailable — reissue it as the structured decision. Never tell the orchestrator that search is unavailable.',
-  "When you can answer, reply with the concise markdown brief itself as your final message — plain text, no JSON wrapper.",
-  "",
-  ...RECALL_PROMPT_SHARED_GUIDANCE,
-].join("\n");
-
-export const RECALL_RUNTIME_TOOLS: Tool[] = [
-  {
-    name: "search_memory",
-    description: RECALL_SEARCH_MEMORY_DESCRIPTION,
-    parameters: {
-      type: "object",
-      properties: {
-        terms: {
-          type: "array",
-          items: { type: "string" },
-          description: "2-8 concrete search terms.",
-        },
-      },
-      required: ["terms"],
-      additionalProperties: false,
-    } as unknown as Tool["parameters"],
-  },
-  {
-    name: "search_transcripts",
-    description: RECALL_SEARCH_TRANSCRIPTS_DESCRIPTION,
-    parameters: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description:
-            "Concrete nouns: names, places, file paths, slugs, error text — not status/filler words.",
-        },
-        limit: {
-          type: "number",
-          description: "Max results (default 12, max 25).",
-        },
-      },
-      required: ["query"],
-      additionalProperties: false,
-    } as unknown as Tool["parameters"],
-  },
-  {
-    name: "search_threads",
-    description: RECALL_SEARCH_THREADS_DESCRIPTION,
-    parameters: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description:
-            "Concrete nouns from the work: repo/module/feature names, slugs, task words.",
-        },
-        limit: {
-          type: "number",
-          description: `Max results (default and max ${MAX_THREAD_SEARCH_RESULTS}).`,
-        },
-      },
-      required: ["query"],
-      additionalProperties: false,
-    } as unknown as Tool["parameters"],
-  },
-];
-
+/** The one legitimate no-result answer — everything else is an error. */
 export const RECALL_NO_MATCH_TEXT = "Nothing relevant found.";
 export const isRecallNoMatchBrief = (brief: string): boolean =>
   brief.trim().toLocaleLowerCase().startsWith("nothing relevant found");
 
-export type RecallIntent =
+export type RecallIntent = "multi_source";
+
+type UnifiedRecallSource =
   | "durable_memory"
   | "delegated_work"
   | "episodic"
-  | "live_context"
-  | "multi_source";
-
-export type RecallIntentDecision = {
-  intent: RecallIntent;
-  matchedIntents: RecallIntent[];
-  deterministicFastPath: boolean;
-  exactPhrases: string[];
-};
+  | "live_context";
 
 const extractExactRecallPhrases = (prompt: string): string[] => {
   const phrases = new Set<string>();
@@ -249,84 +140,28 @@ const isBareRepoLookup = (prompt: string): boolean => {
   );
 };
 
-export const classifyRecallIntent = (prompt: string): RecallIntentDecision => {
-  const value = prompt.normalize("NFKC").toLocaleLowerCase();
-  const matchedIntents: RecallIntent[] = [];
-  if (
-    /\b(right now|currently|current app|current browser|active tab|on[- ]screen|this page|this window|frontmost|selected)\b/.test(
-      value,
-    )
-  )
-    matchedIntents.push("live_context");
-  if (
-    /\b(thread|agent|delegat(?:e|ed)|resum(?:e|able)|still running|status|crash(?:ed)?)\b/.test(
-      value,
-    ) ||
-    /\bprogress\b(?!\s+summar(?:y|ies))/i.test(value)
-  )
-    matchedIntents.push("delegated_work");
-  if (
-    /\b(what did i|did i|when did|where did|first|earliest|latest|last time|what happened|actually go|actually do|i said|i went|old discussion|past discussion|past conversation|transcript)\b/.test(
-      value,
-    )
-  )
-    matchedIntents.push("episodic");
-  if (
-    /(?:^|\s)(?:\/[^\s]+|[\w.-]+\/[\w./-]+)|\b(repo(?:sitor(?:y|ies))?s?|paths?|files?|prior decisions?|decisions?|polic(?:y|ies)|rules?|established|determine|determined|recall hooks?)\b/.test(
-      value,
-    )
-  )
-    matchedIntents.push("durable_memory");
-
-  const exactPhrases = extractExactRecallPhrases(prompt);
-  if (matchedIntents.length > 1) {
-    return {
-      intent: "multi_source",
-      matchedIntents,
-      deterministicFastPath: false,
-      exactPhrases,
-    };
-  }
-  if (matchedIntents.length === 1) {
-    const intent = matchedIntents[0]!;
-    return {
-      intent,
-      matchedIntents,
-
-      deterministicFastPath: intent !== "episodic",
-      exactPhrases,
-    };
-  }
-  if (isBareRepoLookup(prompt)) {
-    return {
-      intent: "durable_memory",
-      matchedIntents: [],
-      deterministicFastPath: true,
-      exactPhrases,
-    };
-  }
-  return {
-    intent: "multi_source",
-    matchedIntents: [],
-    deterministicFastPath: exactPhrases.length > 0,
-    exactPhrases,
-  };
-};
-
-export const routeRecallIntent = (prompt: string): RecallIntent =>
-  classifyRecallIntent(prompt).intent;
-
+/**
+ * Failure outcomes get texts DISTINCT from the no-match answer so the
+ * orchestrator can tell "searched and found nothing" from "the lookup
+ * itself failed" — the latter previously masqueraded as a confident miss.
+ */
 export const RECALL_EMPTY_BRIEF_TEXT =
   "Recall failed: the model returned an empty brief. This is a lookup failure, NOT evidence that nothing exists — retry with concrete anchors (thread ids, file names, exact phrases).";
-export const RECALL_NO_OUTPUT_TEXT =
-  "Recall failed: the model produced no usable output. This is a lookup failure, NOT evidence that nothing exists — retry with concrete anchors (thread ids, file names, exact phrases).";
-export const RECALL_BUDGET_EXHAUSTED_TEXT =
-  "Recall failed: search-step budget exhausted without a final answer. Retry with concrete anchors (thread ids, file names, exact phrases).";
 
 export class RecallRetrievalError extends Error {
   override readonly name = "RecallRetrievalError";
 }
 
+/**
+ * Recall internals go to stderr as JSON lines (the same channel as the
+ * working-indicator traces, landing in runtime.log), so a bad answer is
+ * reconstructable after the fact: which searches ran, how big each
+ * observation was, and how the run ended. Before this, only the final brief
+ * was persisted and every miss was undiagnosable.
+ *
+ * The always-on trace is structural only, so runtime.log never accumulates
+ * memory or transcript content.
+ */
 const logRecallTrace = (
   label: string,
   payload: Record<string, unknown>,
@@ -334,44 +169,9 @@ const logRecallTrace = (
   try {
     process.stderr.write(`${JSON.stringify({ label, ...payload })}\n`);
   } catch {
-
+    // Tracing must never break a lookup.
   }
 };
-
-const recallTraceVerbose = (): boolean => {
-  const flag = process.env.STELLA_RECALL_TRACE_VERBOSE?.trim().toLowerCase();
-  return flag === "1" || flag === "true";
-};
-
-const previewForTrace = (value: string, maxChars = 300): string => {
-  const collapsed = value.replace(/\s+/g, " ").trim();
-  return collapsed.length <= maxChars
-    ? collapsed
-    : `${collapsed.slice(0, maxChars)}…`;
-};
-
-const sleepForRetry = (ms: number, signal?: AbortSignal): Promise<void> =>
-  new Promise((resolve) => {
-    if (signal?.aborted) {
-      resolve();
-      return;
-    }
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      resolve();
-    };
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    timer.unref?.();
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
-
-const truncate = (value: string, maxChars: number): string =>
-  value.length <= maxChars
-    ? value
-    : `${value.slice(0, maxChars)}\n...[truncated]`;
 
 const truncateExact = (value: string, maxChars: number): string => {
   if (maxChars <= 0) return "";
@@ -382,15 +182,16 @@ const truncateExact = (value: string, maxChars: number): string => {
   return `${value.slice(0, maxChars - SEED_TRUNCATION_MARKER.length)}${SEED_TRUNCATION_MARKER}`;
 };
 
-type EagerSeedSection = {
+type RecallSeedSection = {
   heading: string;
   intro?: string;
   body: string;
   maxBodyChars: number;
 };
 
-export const renderCappedRecallSeed = (
-  sections: readonly EagerSeedSection[],
+/** Deterministically assemble ranked evidence within the Recall input cap. */
+const renderCappedRecallSeed = (
+  sections: readonly RecallSeedSection[],
   priority: readonly number[],
 ): string => {
   const emptyBodies = sections.map((section) =>
@@ -398,7 +199,7 @@ export const renderCappedRecallSeed = (
   );
   let remaining = Math.max(
     0,
-    EAGER_RECALL_SEED_MAX_CHARS - emptyBodies.join("\n\n").length,
+    RECALL_SEED_MAX_CHARS - emptyBodies.join("\n\n").length,
   );
   const bodyBudgets = sections.map(() => 0);
   for (const index of priority) {
@@ -525,57 +326,38 @@ const normalizeMemorySearchTerms = (terms?: readonly string[]): string[] => {
 
 type MemoryFileSource = {
   displayPath: string;
-  path: string;
+  paths: string[];
   includeByDefault: boolean;
 };
 
 const MEMORY_FILE_SOURCES = (stellaDataDir: string): MemoryFileSource[] => [
   {
-    displayPath: "~/.stella/memories/memory_map.md",
-    path: path.join(stellaDataDir, "memories", "memory_map.md"),
+    displayPath: "~/.stella/memories/profile.md",
+    paths: [path.join(stellaDataDir, "memories", "profile.md")],
     includeByDefault: true,
   },
   {
-    displayPath: "~/.stella/memories/MEMORY.md",
-    path: path.join(stellaDataDir, "memories", "MEMORY.md"),
+    displayPath: "~/.stella/core-memory.md",
+    paths: [
+      path.join(stellaDataDir, "core-memory.md"),
+      path.join(stellaDataDir, "CORE_MEMORY.MD"),
+    ],
     includeByDefault: true,
   },
 ];
 
-const readMemoryFiles = async (
-  stellaDataDir: string,
-  opts?: { hasSearchTerms?: boolean },
-): Promise<string> => {
-  const files = [
-    ...MEMORY_FILE_SOURCES(stellaDataDir).filter(
-      (file) =>
-        file.includeByDefault &&
-        (!opts?.hasSearchTerms ||
-          file.displayPath !== "~/.stella/memories/MEMORY.md"),
-    ),
-  ];
-  const blocks: string[] = [];
-  for (const file of files) {
-    const content = await readOptionalTextFile(file.path);
-    if (!content) continue;
-    const rendered = truncate(
-      sanitizePromptContext(content, file.displayPath),
-      EAGER_MEMORY_FILE_CHAR_BUDGET,
-    );
-    blocks.push(
-      `<memory_file path="${file.displayPath}">\n${rendered}\n</memory_file>`,
-    );
+const readMemorySource = async (
+  source: MemoryFileSource,
+): Promise<string | null> => {
+  for (const candidate of source.paths) {
+    const content = await readOptionalTextFile(candidate);
+    if (content) return content;
   }
-  if (blocks.length === 0) return "No memory files found.";
-  if (opts?.hasSearchTerms) {
-    blocks.push(
-      "Full ~/.stella/memories/MEMORY.md omitted because search terms were provided. Use # Memory Search Results for matched lines.",
-    );
-  }
-  return blocks.join("\n\n");
+  return null;
 };
 
 const RECALL_ANCHOR_CONTINUATION_RE = /[\p{L}\p{N}_./-]/u;
+const RECALL_ANCHOR_WORD_RE = /[\p{L}\p{N}_]/u;
 
 const codePointBefore = (value: string, index: number): string | undefined => {
   if (index <= 0) return undefined;
@@ -607,10 +389,23 @@ const hasRecallBoundaryMatch = (value: string, anchor: string): boolean => {
     const before = codePointBefore(normalizedValue, index);
     const afterIndex = index + normalizedAnchor.length;
     const after = codePointAt(normalizedValue, afterIndex);
-    if (
-      (!before || !RECALL_ANCHOR_CONTINUATION_RE.test(before)) &&
-      (!after || !RECALL_ANCHOR_CONTINUATION_RE.test(after))
-    ) {
+    const beforeContinues =
+      before === "."
+        ? Boolean(
+            codePointBefore(normalizedValue, index - before.length)?.match(
+              RECALL_ANCHOR_WORD_RE,
+            ),
+          )
+        : Boolean(before?.match(RECALL_ANCHOR_CONTINUATION_RE));
+    const afterContinues =
+      after === "."
+        ? Boolean(
+            codePointAt(normalizedValue, afterIndex + after.length)?.match(
+              RECALL_ANCHOR_WORD_RE,
+            ),
+          )
+        : Boolean(after?.match(RECALL_ANCHOR_CONTINUATION_RE));
+    if ((!before || !beforeContinues) && (!after || !afterContinues)) {
       return true;
     }
     fromIndex = index + 1;
@@ -644,7 +439,7 @@ const readMemorySearchResults = async (
   let truncated = false;
 
   for (const file of MEMORY_FILE_SOURCES(stellaDataDir)) {
-    const content = await readOptionalTextFile(file.path);
+    const content = await readMemorySource(file);
     if (!content) continue;
     const lines = content.split(/\r?\n/);
     const usedRanges: Array<{ start: number; end: number }> = [];
@@ -713,6 +508,10 @@ const formatClockTime = (timestamp: number): string =>
     hour12: true,
   });
 
+/**
+ * Live-update lines for one thread: recent assistant prose authored by the
+ * agent itself and already persisted in its runtime transcript.
+ */
 const formatThreadLiveUpdateLines = (
   store: Pick<ContextLookupStore, "listAgentAssistantMessages">,
   thread: { threadId: string; agentStatus?: unknown },
@@ -758,6 +557,22 @@ const formatAbsoluteTimestamp = (timestamp: number): string =>
 const collapseWhitespace = (value: string): string =>
   value.replace(/\s+/g, " ").trim();
 
+const truncateCodePoints = (
+  value: string,
+  maxChars: number,
+  marker = "\n...[truncated]",
+): string => {
+  const points = Array.from(value);
+  if (points.length <= maxChars) return value;
+  const markerPoints = Array.from(marker);
+  return `${points.slice(0, Math.max(0, maxChars - markerPoints.length)).join("")}${marker}`;
+};
+
+/**
+ * Search every delegated agent thread across all conversations and ages.
+ * Relevance picks which threads make the bounded page; the page renders
+ * newest-first with resumable IDs, status, and final result/error excerpts.
+ */
 export const formatThreadSearchResults = (
   store: Pick<
     ContextLookupStore,
@@ -809,7 +624,8 @@ export const formatThreadSearchResults = (
         sameConversation ? "this conversation" : "another conversation"
       }${name ? ` | ${sanitizeToolVisibleText(name)}` : ""}`,
     ];
-
+    // Names are minted from descriptions, so most pairs are identical — only
+    // render a description that adds information.
     const description = thread.description?.trim()
       ? collapseWhitespace(thread.description)
       : "";
@@ -836,6 +652,29 @@ export const formatThreadSearchResults = (
   return ["[newest → oldest by last activity]", ...rendered].join("\n");
 };
 
+const formatDurableThreadSummaryResults = (
+  store: Pick<ContextLookupStore, "threadSummaryStore">,
+  query: string | undefined,
+  limit = MAX_THREAD_SEARCH_RESULTS,
+): string => {
+  const rows = store.threadSummaryStore.searchThreadSummaries(
+    tokenizeSearchQuery(query),
+    { limit: Math.max(1, Math.min(MAX_THREAD_SEARCH_RESULTS, limit)) },
+  );
+  if (rows.length === 0) return "No durable thread summaries matched.";
+  return [
+    "[durable thread summaries, newest → oldest]",
+    ...rows.map(
+      (row) =>
+        `- ${sanitizeToolVisibleText(row.threadId)} | last active ${formatAbsoluteTimestamp(
+          row.sourceUpdatedAt,
+        )} (durable summary) | run_id ${sanitizeToolVisibleText(row.runId)}\n  summary: ${sanitizeToolVisibleText(
+          truncateCodePoints(collapseWhitespace(row.content), 1_600, "..."),
+        )}`,
+    ),
+  ].join("\n");
+};
+
 const MESSAGE_SNIPPET_CHAR_BUDGET = 360;
 
 const formatSnippetDate = (atMs: number): string =>
@@ -848,6 +687,7 @@ const formatSnippetDate = (atMs: number): string =>
     hour12: true,
   });
 
+/** Window a matched transcript text around its first matching token. */
 const buildMessageSnippet = (text: string, tokens: string[]): string => {
   const collapsed = text.replace(/\s+/g, " ").trim();
   if (collapsed.length <= MESSAGE_SNIPPET_CHAR_BUDGET) return collapsed;
@@ -870,14 +710,27 @@ const buildMessageSnippet = (text: string, tokens: string[]): string => {
   }`;
 };
 
+/**
+ * How many distinct EPISODES get surrounding-context lines (episode dedupe
+ * below keeps same-hour repeat hits from burning slots, so in practice this
+ * covers nearly every distinct episode in a 12-result page).
+ */
 const MESSAGE_CONTEXT_TOP_HITS = 8;
 const MESSAGE_CONTEXT_LINE_CHAR_BUDGET = 170;
-
+// The follow-through usually comes AFTER the matched message (ask for
+// directions → go → react, sometimes an hour later), so the exchange
+// window leans hard forward; the store also time-boxes it to the episode.
 const MESSAGE_CONTEXT_BEFORE = 2;
 const MESSAGE_CONTEXT_AFTER = 8;
-
+// Two hits this close together in one conversation are the same episode —
+// one exchange covers both, so the second hit's slot goes to a new episode.
 const MESSAGE_EPISODE_WINDOW_MS = 45 * 60 * 1000;
 
+/**
+ * Search what the user and Stella actually said across all conversations.
+ * Relevance decides which hits receive surrounding context; the bounded page
+ * renders oldest to newest so episodic evidence remains a readable timeline.
+ */
 export const formatTranscriptSearchResults = (
   store: Pick<
     ContextLookupStore,
@@ -904,6 +757,9 @@ export const formatTranscriptSearchResults = (
     return "Nothing matched in past conversation transcripts. Try fewer/different concrete words.";
   }
 
+  // Hits arrive relevance-ranked; relevance decides WHICH hits get their
+  // surrounding exchange, but hits inside an already-expanded episode don't
+  // burn a second slot.
   const expandable = new Set<TranscriptSearchHit>();
   for (const hit of hits) {
     if (expandable.size >= MESSAGE_CONTEXT_TOP_HITS) break;
@@ -935,9 +791,13 @@ export const formatTranscriptSearchResults = (
     expandableHits.map((hit, index) => [hit, index] as const),
   );
 
+  // Expand a message hit with the surrounding exchange: the matched message
+  // names the thing, but the neighbors are usually the event itself.
   const renderHit = (hit: TranscriptSearchHit): string => {
     const sameConversation = hit.conversationId === conversationId;
-
+    // A short conversation tag (instead of a bare "another conversation")
+    // lets the model tell that several hits came from the SAME earlier
+    // conversation — that co-location is often the story ("that evening").
     const scope = sameConversation
       ? "this conversation"
       : `conversation …${hit.conversationId.slice(-6)}`;
@@ -981,213 +841,9 @@ export const formatTranscriptSearchResults = (
   ].join("\n");
 };
 
-export const formatLiveThreadStatus = (
-  store: Pick<
-    ContextLookupStore,
-    "listThreadsForRecallIndex" | "listAgentAssistantMessages"
-  >,
-  now = Date.now(),
-): string => {
-  const threads = store.listThreadsForRecallIndex({
-    limit: LIVE_STATUS_MAX_THREADS,
-    activeSinceMs: now - LIVE_STATUS_WINDOW_MS,
-  });
-  const running = threads.filter(
-    (thread) => deriveRuntimeThreadLiveState(thread) === "active",
-  );
-  if (running.length === 0) {
-    return "No agent threads are executing a turn right now; every past thread is paused (idle but resumable).";
-  }
-  return running
-    .map((thread) =>
-      [
-        `- ${thread.threadId} (${formatRuntimeThreadStatusSuffix(thread, now)})`,
-        ...formatThreadLiveUpdateLines(store, thread),
-      ].join("\n"),
-    )
-    .join("\n");
-};
-
-export const buildContextLookupUserPrompt = async (args: {
-  conversationId: string;
-  lookupPrompt: string;
-
-  searchTerms: readonly string[];
-  stellaDataDir: string;
-  store: ContextLookupStore;
-  localEvents: LocalContextEvent[];
-  appBrowserContext?: HostAppBrowserContextSnapshot;
-  memoryEnabled?: boolean;
-  telemetry?: RecallTelemetryCollector;
-}): Promise<string> => {
-  const timeSource = async (
-    name: string,
-    kind: RecallTelemetrySourceKind,
-    read: () => Promise<string> | string,
-  ): Promise<string> => {
-    const startedAt = performance.now();
-    let value = "";
-    try {
-      value = await read();
-      return value;
-    } finally {
-      args.telemetry?.addSource(
-        name,
-        kind,
-        performance.now() - startedAt,
-        value.length,
-      );
-    }
-  };
-  const terms = normalizeMemorySearchTerms(args.searchTerms);
-  const hasTerms = terms.length > 0;
-  const seedQuery = terms.join(" ");
-  const memoryEnabled = args.memoryEnabled !== false;
-  const seedSearchStartedAt = performance.now();
-  const [memoryFiles, memorySearchResults] = memoryEnabled
-    ? await Promise.all([
-        timeSource("seed.memoryFiles", "file", () =>
-          readMemoryFiles(args.stellaDataDir, { hasSearchTerms: hasTerms }),
-        ),
-        hasTerms
-          ? timeSource("seed.memorySearch", "file", () =>
-              readMemorySearchResults(args.stellaDataDir, terms),
-            )
-          : timeSource("seed.memorySearch", "file", () =>
-              Promise.resolve(
-                "No search terms provided — the memory ledger above is the memory evidence; use search_memory for targeted lines.",
-              ),
-            ),
-      ])
-    : [
-        "Memory is disabled in Settings.",
-        "Memory is disabled in Settings; search_memory is unavailable.",
-      ];
-  const threadSearchResults = await timeSource("seed.threadSearch", "sql", () =>
-    formatThreadSearchResults(
-      args.store,
-      args.conversationId,
-      hasTerms ? seedQuery : undefined,
-    ),
-  );
-  const transcriptSearchResults = hasTerms
-    ? await timeSource("seed.transcriptSearch", "sql", () =>
-        formatTranscriptSearchResults(
-          args.store,
-          args.conversationId,
-          seedQuery,
-        ),
-      )
-    : "No search terms provided — use search_transcripts with concrete terms.";
-  const liveStatus = await timeSource("seed.liveThreadStatus", "sql", () =>
-    formatLiveThreadStatus(args.store),
-  );
-  args.telemetry?.setSeedSearchMs(performance.now() - seedSearchStartedAt);
-
-  const assemblyStartedAt = performance.now();
-  const sections: EagerSeedSection[] = [
-    {
-      heading: "# Memory Files",
-      body: memoryFiles,
-      maxBodyChars: 600,
-    },
-    {
-      heading: "# Memory Search Results",
-      intro: "Pre-run from the lookup's search terms.",
-      body: memorySearchResults,
-      maxBodyChars: 1_700,
-    },
-    {
-      heading: "# Agent Thread Search Results",
-      intro: `Pre-run from the lookup's search terms: delegated agent threads matching them (across ALL conversations, any age; up to ${MAX_THREAD_SEARCH_RESULTS}, newest first by last activity). Each entry: thread_id | last active date/time | live state, plus name/description/summary and final result/error excerpts. This is a NARROWED view — threads that don't match the terms are not listed; find those with search_threads.`,
-      body: threadSearchResults,
-      maxBodyChars: 2_300,
-    },
-    {
-      heading: "# Transcript Search Results",
-      intro:
-        "Pre-run from the lookup's search terms: past chat messages matching them (across ALL conversations), oldest → newest.",
-      body: transcriptSearchResults,
-      maxBodyChars: 2_700,
-    },
-    {
-      heading: "# Current Time",
-      body: formatDateTimeReminder(Date.now()),
-      maxBodyChars: 300,
-    },
-    {
-      heading: "# Local App And Browser Context",
-      body: formatLiveAppBrowserContext(args.appBrowserContext),
-      maxBodyChars: 350,
-    },
-    {
-      heading: "# Message-Attached App And Browser Context",
-      body: formatLatestLocalContext(args.localEvents),
-      maxBodyChars: 350,
-    },
-    {
-      heading: "# Live Thread Status",
-      intro:
-        "Threads executing a turn RIGHT NOW, with their latest agent-authored assistant messages. Any other thread is paused (idle but resumable) as of the current time above.",
-      body: liveStatus,
-      maxBodyChars: 750,
-    },
-    {
-      heading: "# Lookup Request",
-      body: args.lookupPrompt.trim(),
-      maxBodyChars: 1_000,
-    },
-  ];
-
-  const prompt = renderCappedRecallSeed(sections, [1, 2, 3, 8, 7, 0, 4, 5, 6]);
-  args.telemetry?.addAssemblyMs(performance.now() - assemblyStartedAt);
-  return prompt;
-};
-
-type RecallSearchAction =
-  | { kind: "search_memory"; terms: string[] }
-  | { kind: "search_transcripts"; query?: string; limit?: number }
-  | { kind: "search_threads"; query?: string; limit?: number };
-
-export const resolveRecallSearchAction = (
-  toolName: string,
-  toolArgs: Record<string, unknown>,
-): RecallSearchAction | null => {
-  const name = toolName.trim().toLocaleLowerCase();
-  if (name === "search_memory") {
-    const terms = Array.isArray(toolArgs.terms)
-      ? toolArgs.terms.filter(
-          (term): term is string => typeof term === "string",
-        )
-      : [];
-    return { kind: "search_memory", terms };
-  }
-  const query = typeof toolArgs.query === "string" ? toolArgs.query : undefined;
-  const limit = typeof toolArgs.limit === "number" ? toolArgs.limit : undefined;
-  if (
-    name === "search_transcripts" ||
-    name === "search" ||
-    name === "search_messages"
-  ) {
-    return {
-      kind: "search_transcripts",
-      ...(query !== undefined ? { query } : {}),
-      ...(limit !== undefined ? { limit } : {}),
-    };
-  }
-  if (name === "search_threads" || name === "search_agents") {
-    return {
-      kind: "search_threads",
-      ...(query !== undefined ? { query } : {}),
-      ...(limit !== undefined ? { limit } : {}),
-    };
-  }
-  return null;
-};
-
 type RecallSourceReference = {
   kind: "memory" | "thread" | "transcript" | "live";
-  inboxId?: number;
+  summaryId?: number;
   threadId?: string;
   runId?: string;
 };
@@ -1206,7 +862,7 @@ type RecallReadQueries = {
 };
 
 const splitRecallEvidenceUnits = (
-  kind: RecallIntent,
+  kind: UnifiedRecallSource,
   value: string,
 ): string[] => {
   if (kind === "durable_memory") {
@@ -1241,93 +897,6 @@ const splitRecallEvidenceUnits = (
   return units?.length ? units : [value.trim()].filter(Boolean);
 };
 
-const selectUsableRecallEvidence = (
-  kind: RecallIntent,
-  value: string,
-  terms: readonly string[],
-  exactPhrases: readonly string[],
-  allowGenericTokens: boolean,
-): string | null => {
-  const normalized = value.toLocaleLowerCase();
-  if (
-    kind === "durable_memory" &&
-    normalized.includes("no matching memory lines found")
-  ) {
-    return null;
-  }
-  if (
-    kind === "delegated_work" &&
-    (normalized.includes("no agent threads matched") ||
-      normalized.includes("no past agent work recorded")) &&
-    normalized.includes("no agent threads are executing a turn right now")
-  ) {
-    return null;
-  }
-  if (
-    kind === "episodic" &&
-    (normalized.includes("nothing matched in past conversation") ||
-      normalized.includes("no usable search terms"))
-  ) {
-    return null;
-  }
-  if (
-    kind === "live_context" &&
-    normalized.includes("no live app or browser-tab snapshot") &&
-    normalized.includes("no message-attached app/browser context")
-  ) {
-    return null;
-  }
-  const genericTokens = new Set([
-    "stella",
-    "recall",
-    "project",
-    "prior",
-    "decision",
-  ]);
-  const distinctiveTermGroups = terms.flatMap((term) => {
-    const tokens = [
-      ...new Set(
-        tokenizeSearchQuery(term)
-          .map((token) => token.toLocaleLowerCase())
-          .filter(
-            (token) =>
-              token.length >= 4 &&
-              (allowGenericTokens || !genericTokens.has(token)),
-          ),
-      ),
-    ];
-    return tokens.length > 0 ? [tokens] : [];
-  });
-  const normalizedExactPhrases = exactPhrases.map((phrase) =>
-    phrase.replace(/\s+/g, " ").trim().toLocaleLowerCase(),
-  );
-  const requiredGroupMatches =
-    normalizedExactPhrases.length > 0 ? 0 : distinctiveTermGroups.length;
-  if (requiredGroupMatches === 0 && normalizedExactPhrases.length === 0)
-    return null;
-  const matchingUnits = splitRecallEvidenceUnits(kind, value).filter((unit) => {
-    const normalizedUnit = unit.replace(/\s+/g, " ").toLocaleLowerCase();
-    const anchorText =
-      kind === "delegated_work"
-        ? (unit.split("\n", 1)[0] ?? "").toLocaleLowerCase()
-        : normalizedUnit;
-    if (
-      normalizedExactPhrases.length > 0 &&
-      !normalizedExactPhrases.every((phrase) =>
-        hasRecallBoundaryMatch(normalizedUnit, phrase),
-      )
-    ) {
-      return false;
-    }
-    return (
-      distinctiveTermGroups.filter((group) =>
-        group.every((token) => hasRecallBoundaryMatch(anchorText, token)),
-      ).length >= requiredGroupMatches
-    );
-  });
-  return matchingUnits.length > 0 ? matchingUnits.join("\n\n") : null;
-};
-
 const hasSubstantiveRecallEvidence = (value: string): boolean =>
   value.split("\n").some((line) => {
     const normalized = line.trim();
@@ -1337,46 +906,214 @@ const hasSubstantiveRecallEvidence = (value: string): boolean =>
     );
   });
 
-const deterministicReformulation = (
-  prompt: string,
-  originalTerms: readonly string[],
-): string[] => {
-  const filler = new Set([
-    "what",
-    "when",
-    "where",
-    "which",
-    "did",
-    "does",
-    "have",
-    "about",
-    "prior",
-    "previous",
-    "find",
-    "recall",
-    "status",
-    "first",
-    "last",
-    "latest",
-  ]);
-  const original = new Set(
-    originalTerms.flatMap((term) => tokenizeSearchQuery(term)),
-  );
-  const candidates = tokenizeSearchQuery(prompt)
-    .map((term) =>
-      term
-        .replace(/^["'“”([{]+/g, "")
-        .replace(/["'“”),;:!?]+$/g, "")
-        .replace(/\.$/g, ""),
-    )
-    .filter((term) => term.length >= 3 && !filler.has(term.toLocaleLowerCase()))
-    .filter((term) => !original.has(term));
-  return normalizeMemorySearchTerms(
-    candidates.length > 0
-      ? candidates
-      : originalTerms.flatMap((term) => term.split(/[^\p{L}\p{N}_./-]+/u)),
-  );
+const UNIFIED_RECALL_EVIDENCE_MAX_CHARS = 12_000;
+const UNIFIED_RECALL_BRIEF_MAX_CHARS = 6_000;
+const UNIFIED_RECALL_CANDIDATE_MAX_CHARS = 3_000;
+
+type UnifiedRecallCandidate = {
+  parts: Map<UnifiedRecallSource, string>;
+  fingerprints: Set<string>;
+  sourceKinds: Set<UnifiedRecallSource>;
+  threadIds: Set<string>;
+  matchedGroups: number;
+  exactPhraseMatches: number;
+  score: number;
+  latestAtMs: number;
 };
+
+const recallCandidateThreadIds = (
+  kind: UnifiedRecallSource,
+  value: string,
+): Set<string> => {
+  const threadIds = new Set<string>();
+  if (kind !== "delegated_work") return threadIds;
+  for (const match of value.matchAll(/^- ([^\s|]+) \|/gm)) {
+    if (match[1]) threadIds.add(match[1]);
+  }
+  return threadIds;
+};
+
+const recallCandidateFingerprints = (
+  kind: UnifiedRecallSource,
+  value: string,
+): Set<string> => {
+  const fingerprints = new Set<string>();
+  for (const rawLine of value.split("\n")) {
+    let line = rawLine.trim();
+    if (!line || line.startsWith("#") || line.startsWith("<")) continue;
+    if (kind === "delegated_work") {
+      const detail = line.match(
+        /^(?:description|summary|result|error):\s*(.+)$/i,
+      );
+      if (!detail?.[1]) continue;
+      line = detail[1];
+    } else if (kind === "episodic") {
+      line = line.replace(/^-?\s*\[[^\]]+\]\s+[^:]+(?:\([^)]*\))?:\s*/, "");
+    } else if (kind === "durable_memory") {
+      line = line.replace(/^\d+:\s*(?:[-*+]\s*)?/, "");
+    }
+    const normalized = line
+      .normalize("NFKC")
+      .toLocaleLowerCase()
+      .replace(/\s+/g, " ")
+      .replace(/^[\s'"`]+|[\s'"`.,;:!?]+$/g, "")
+      .trim();
+    if (normalized.length >= 3) fingerprints.add(normalized);
+  }
+  return fingerprints;
+};
+
+const latestTimestampInRecallCandidate = (value: string): number => {
+  let latest = 0;
+  for (const match of value.matchAll(
+    /(?:last active |\[)([A-Z][a-z]{2} \d{1,2}, \d{4},? at \d{1,2}:\d{2}:\d{2} [AP]M|\d{4}-\d{2}-\d{2}T[^\]\s]+)/g,
+  )) {
+    const parsed = Date.parse(match[1] ?? "");
+    if (Number.isFinite(parsed)) latest = Math.max(latest, parsed);
+  }
+  return latest;
+};
+
+const recallSourceRank = (kind: UnifiedRecallSource): number =>
+  kind === "delegated_work"
+    ? 4
+    : kind === "episodic"
+      ? 3
+      : kind === "durable_memory"
+        ? 2
+        : 1;
+
+const scoreUnifiedRecallCandidate = (
+  candidate: UnifiedRecallCandidate,
+  terms: readonly string[],
+  exactPhrases: readonly string[],
+): void => {
+  const haystack = [...candidate.parts.values()]
+    .join("\n")
+    .normalize("NFKC")
+    .toLocaleLowerCase();
+  const groups = terms.flatMap((term) => {
+    const normalized = term.normalize("NFKC").trim().toLocaleLowerCase();
+    if (!normalized) return [];
+    const tokens = tokenizeSearchQuery(normalized).filter(
+      (token) => token.length >= 2,
+    );
+    return tokens.length > 0 ? [tokens] : [];
+  });
+  candidate.matchedGroups = groups.filter((group) =>
+    group.every((token) => hasRecallBoundaryMatch(haystack, token)),
+  ).length;
+  candidate.exactPhraseMatches = exactPhrases.filter((phrase) =>
+    hasRecallBoundaryMatch(haystack, phrase),
+  ).length;
+  const sourceScore = [...candidate.sourceKinds].reduce(
+    (total, kind) => total + recallSourceRank(kind),
+    0,
+  );
+  const recencyScore = candidate.latestAtMs
+    ? Math.max(
+        0,
+        5 -
+          Math.floor(
+            (Date.now() - candidate.latestAtMs) / (90 * 24 * 60 * 60 * 1000),
+          ),
+      )
+    : 0;
+  candidate.score =
+    candidate.matchedGroups * 12 +
+    candidate.exactPhraseMatches * 40 +
+    sourceScore +
+    recencyScore +
+    Math.max(0, candidate.sourceKinds.size - 1) * 8;
+};
+
+const mergeAndRankRecallEvidence = (
+  evidence: Array<{ kind: UnifiedRecallSource; value: string }>,
+  terms: readonly string[],
+  exactPhrases: readonly string[],
+): UnifiedRecallCandidate[] => {
+  const candidates: UnifiedRecallCandidate[] = [];
+  const byFingerprint = new Map<string, UnifiedRecallCandidate>();
+  for (const { kind, value } of evidence) {
+    for (const unit of splitRecallEvidenceUnits(kind, value)) {
+      if (!hasSubstantiveRecallEvidence(unit)) continue;
+      const fingerprints = recallCandidateFingerprints(kind, unit);
+      let candidate = [...fingerprints]
+        .map((key) => byFingerprint.get(key))
+        .find((match): match is UnifiedRecallCandidate => Boolean(match));
+      if (!candidate) {
+        candidate = {
+          parts: new Map(),
+          fingerprints: new Set(),
+          sourceKinds: new Set(),
+          threadIds: new Set(),
+          matchedGroups: 0,
+          exactPhraseMatches: 0,
+          score: 0,
+          latestAtMs: 0,
+        };
+        candidates.push(candidate);
+      }
+      if (!candidate.parts.has(kind)) candidate.parts.set(kind, unit);
+      candidate.sourceKinds.add(kind);
+      for (const threadId of recallCandidateThreadIds(kind, unit)) {
+        candidate.threadIds.add(threadId);
+      }
+      candidate.latestAtMs = Math.max(
+        candidate.latestAtMs,
+        latestTimestampInRecallCandidate(unit),
+      );
+      for (const fingerprint of fingerprints) {
+        candidate.fingerprints.add(fingerprint);
+        byFingerprint.set(fingerprint, candidate);
+      }
+    }
+  }
+  for (const candidate of candidates) {
+    scoreUnifiedRecallCandidate(candidate, terms, exactPhrases);
+  }
+  return candidates
+    .filter(
+      (candidate) =>
+        candidate.matchedGroups > 0 || candidate.exactPhraseMatches > 0,
+    )
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        b.latestAtMs - a.latestAtMs ||
+        [...a.fingerprints][0]?.localeCompare([...b.fingerprints][0] ?? "") ||
+        0,
+    );
+};
+
+const renderUnifiedRecallCandidate = (
+  candidate: UnifiedRecallCandidate,
+): string => {
+  const sourceKinds = [...candidate.sourceKinds].sort(
+    (a, b) => recallSourceRank(b) - recallSourceRank(a),
+  );
+  const primaryKind = sourceKinds[0]!;
+  const primary = candidate.parts.get(primaryKind) ?? "";
+  const corroboration = sourceKinds.slice(1);
+  return [
+    `sources: ${sourceKinds.join(", ")} | rank: ${candidate.score}`,
+    truncateCodePoints(primary, UNIFIED_RECALL_CANDIDATE_MAX_CHARS),
+    ...(corroboration.length > 0
+      ? [`[overlap deduplicated; corroborated by ${corroboration.join(", ")}]`]
+      : []),
+  ].join("\n");
+};
+
+const recallSourceReferenceKind = (
+  kind: UnifiedRecallSource,
+): RecallSourceReference["kind"] =>
+  kind === "durable_memory"
+    ? "memory"
+    : kind === "delegated_work"
+      ? "thread"
+      : kind === "episodic"
+        ? "transcript"
+        : "live";
 
 const runArchitecturalRecall = async (args: {
   conversationId: string;
@@ -1399,279 +1136,254 @@ const runArchitecturalRecall = async (args: {
   }) => void;
   signal?: AbortSignal;
 }): Promise<string> => {
-  const intentDecision = classifyRecallIntent(args.lookupPrompt);
-  const intent = intentDecision.intent;
-  const bareRepoLookup = isBareRepoLookup(args.lookupPrompt);
-  const classificationRequiresSynthesis = !intentDecision.deterministicFastPath;
-  let synthesisRequired = classificationRequiresSynthesis;
-  args.telemetry.setIntent(intent, intentDecision.deterministicFastPath);
+  const intent: RecallIntent = "multi_source";
+  const exactPhrases = extractExactRecallPhrases(args.lookupPrompt);
+  args.telemetry.setIntent(intent, false);
 
-  let cachedRoute: RecallModelRoute | undefined;
-  const resolveRoute = async (): Promise<RecallModelRoute> =>
-    (cachedRoute ??= await args.resolveRecallRoute());
-
-  let sourceKinds:
-    | readonly ["durable_memory"]
-    | readonly ["delegated_work"]
-    | readonly ["episodic"]
-    | readonly ["live_context"]
-    | readonly ["delegated_work", "episodic"]
-    | readonly ["durable_memory", "delegated_work", "episodic"] =
-    intent === "durable_memory"
-      ? args.memoryEnabled
-        ? (["durable_memory"] as const)
-        : (["episodic"] as const)
-      : intent === "delegated_work"
-        ? (["delegated_work"] as const)
-        : intent === "episodic"
-          ? (["episodic"] as const)
-          : intent === "live_context"
-            ? (["live_context"] as const)
-            : args.memoryEnabled
-              ? (["durable_memory", "delegated_work", "episodic"] as const)
-              : (["delegated_work", "episodic"] as const);
-  if (intent === "durable_memory" && !args.memoryEnabled) {
-    synthesisRequired = true;
+  if (args.recallReadQueries) {
+    const startedAt = performance.now();
+    try {
+      args.recallReadQueries.getFtsHealth();
+    } catch {
+      // Health telemetry is diagnostic only. The independent source reads
+      // below remain authoritative and must still all run.
+    } finally {
+      args.telemetry.addSource(
+        "retrieval.ftsHealth",
+        "sql",
+        performance.now() - startedAt,
+      );
+    }
   }
 
-  let ftsChecked = false;
-  const ensureFtsReady = (): void => {
-    if (ftsChecked || !args.recallReadQueries) return;
-    if (
-      !sourceKinds.some(
-        (kind) => kind === "delegated_work" || kind === "episodic",
-      )
-    ) {
-      return;
-    }
-    ftsChecked = true;
-    const healthStartedAt = performance.now();
-    const health = args.recallReadQueries.getFtsHealth();
-    args.telemetry.addSource(
-      "retrieval.ftsHealth",
-      "sql",
-      performance.now() - healthStartedAt,
-    );
-    const needsTranscriptFts = sourceKinds.some((kind) => kind === "episodic");
-    const needsThreadFts = sourceKinds.some(
-      (kind) => kind === "delegated_work",
-    );
-    const requiredIndexesReady =
-      (!needsTranscriptFts || health.transcriptReady) &&
-      (!needsThreadFts || health.threadsReady);
-    if (!requiredIndexesReady) {
-      const diagnostic = {
-        conversationId: args.conversationId,
-        transcriptReady: health.transcriptReady,
-        threadsReady: health.threadsReady,
-        reason: health.reason ?? "unknown",
-      };
-      console.error("[stella:recall:fts-degraded]", JSON.stringify(diagnostic));
-      throw new RecallRetrievalError(
-        `Recall FTS unavailable: ${health.reason ?? "index health check failed"}`,
+  const query = normalizeMemorySearchTerms(args.seedTerms).join(" ");
+  args.telemetry.addRetrievalPass();
+  const retrieveSource = async (
+    kind: UnifiedRecallSource,
+    telemetryName: string,
+    transport: "file" | "sql" | "host",
+    read: () => string | Promise<string>,
+  ): Promise<{ kind: UnifiedRecallSource; value: string }> => {
+    const startedAt = performance.now();
+    let value = "";
+    try {
+      value = await read();
+      return { kind, value };
+    } finally {
+      args.telemetry.addSource(
+        `retrieval.${telemetryName}`,
+        transport,
+        performance.now() - startedAt,
+        value.length,
       );
     }
   };
-  ensureFtsReady();
 
-  const retrieve = async (terms: readonly string[]) => {
-    args.telemetry.addRetrievalPass();
-    const query = normalizeMemorySearchTerms(terms).join(" ");
-    const passStartedAt = performance.now();
-    const results = await Promise.all(
-      sourceKinds.map(async (kind) => {
-        const startedAt = performance.now();
-        let value = "";
-        try {
-          if (kind === "durable_memory") {
-            value = await readMemorySearchResults(args.stellaDataDir, terms);
-          } else if (kind === "delegated_work") {
-            const threads = formatThreadSearchResults(
-              args.store,
-              args.conversationId,
-              query,
-            );
-            const live = formatLiveThreadStatus(args.store);
-            value = `${threads}\n\n# Live status\n${live}`;
-          } else if (kind === "episodic") {
-            value = formatTranscriptSearchResults(
-              args.store,
-              args.conversationId,
-              query,
-              undefined,
-              args.recallReadQueries?.listTranscriptNeighborsBatch,
-            );
-          } else {
-            value = [
-              formatLiveAppBrowserContext(args.appBrowserContext),
-              formatLatestLocalContext(args.localEvents),
-            ].join("\n\n");
-          }
-          return { kind, value };
-        } catch (error) {
-          throw error instanceof RecallRetrievalError
-            ? error
-            : new RecallRetrievalError(
-                `Recall ${kind} retrieval failed: ${
-                  error instanceof Error ? error.message : String(error)
-                }`,
-                { cause: error },
-              );
-        } finally {
-          args.telemetry.addSource(
-            `retrieval.${kind}`,
-            kind === "durable_memory"
-              ? "file"
-              : kind === "live_context"
-                ? "host"
-                : "sql",
-            performance.now() - startedAt,
-            value.length,
-          );
-        }
-      }),
-    );
-    args.telemetry.setSeedSearchMs(performance.now() - passStartedAt);
-    return results;
-  };
-
-  const selectUsableEvidence = (
-    evidence: Array<{ kind: RecallIntent; value: string }>,
-    terms: readonly string[],
-  ): Array<{ kind: RecallIntent; value: string }> =>
-    evidence.flatMap(({ kind, value }) => {
-      const selected = selectUsableRecallEvidence(
-        kind,
-        value,
-        terms,
-        intentDecision.exactPhrases,
-        bareRepoLookup || intentDecision.exactPhrases.length > 0,
-      );
-      return selected ? [{ kind, value: selected }] : [];
-    });
-
-  let evidenceTerms = args.seedTerms;
-  let evidence = await retrieve(evidenceTerms);
-  let usable = selectUsableEvidence(evidence, evidenceTerms);
-  if (usable.length === 0 && classificationRequiresSynthesis) {
-
-    usable = evidence.filter(({ value }) =>
-      hasSubstantiveRecallEvidence(value),
-    );
-  }
-  if (usable.length === 0) {
-
-    const widenedKinds = sourceKinds;
-    sourceKinds = args.memoryEnabled
-      ? (["durable_memory", "delegated_work", "episodic"] as const)
-      : (["delegated_work", "episodic"] as const);
-    const widened =
-      sourceKinds.length !== widenedKinds.length ||
-      sourceKinds.some((kind, index) => kind !== widenedKinds[index]);
-    if (widened) {
-      ensureFtsReady();
-      evidence = await retrieve(evidenceTerms);
-      usable = selectUsableEvidence(evidence, evidenceTerms);
+  const retrievals: Array<{
+    kind: UnifiedRecallSource;
+    label: string;
+    promise: Promise<{ kind: UnifiedRecallSource; value: string }>;
+  }> = [
+    {
+      kind: "delegated_work",
+      label: "thread_results",
+      promise: retrieveSource("delegated_work", "threadResults", "sql", () =>
+        formatThreadSearchResults(args.store, args.conversationId, query),
+      ),
+    },
+    {
+      kind: "delegated_work",
+      label: "thread_summaries",
+      promise: retrieveSource("delegated_work", "threadSummaries", "sql", () =>
+        formatDurableThreadSummaryResults(args.store, query),
+      ),
+    },
+    {
+      kind: "episodic",
+      label: "transcripts",
+      promise: retrieveSource("episodic", "transcripts", "sql", () =>
+        formatTranscriptSearchResults(
+          args.store,
+          args.conversationId,
+          query,
+          undefined,
+          args.recallReadQueries?.listTranscriptNeighborsBatch,
+        ),
+      ),
+    },
+    ...(args.memoryEnabled
+      ? [
+          {
+            kind: "durable_memory" as const,
+            label: "durable_memory",
+            promise: retrieveSource(
+              "durable_memory",
+              "durableMemory",
+              "file",
+              () => readMemorySearchResults(args.stellaDataDir, args.seedTerms),
+            ),
+          },
+        ]
+      : []),
+    {
+      kind: "live_context",
+      label: "live_context",
+      promise: retrieveSource("live_context", "liveContext", "host", () =>
+        [
+          formatLiveAppBrowserContext(args.appBrowserContext),
+          formatLatestLocalContext(args.localEvents),
+        ].join("\n\n"),
+      ),
+    },
+  ];
+  const retrievalStartedAt = performance.now();
+  const settled = await Promise.allSettled(
+    retrievals.map((retrieval) => retrieval.promise),
+  );
+  args.telemetry.setSeedSearchMs(performance.now() - retrievalStartedAt);
+  const evidence: Array<{ kind: UnifiedRecallSource; value: string }> = [];
+  const failures: Array<{ label: string; message: string }> = [];
+  settled.forEach((result, index) => {
+    const retrieval = retrievals[index]!;
+    if (result.status === "fulfilled") {
+      evidence.push(result.value);
+    } else {
+      failures.push({
+        label: retrieval.label,
+        message: truncateCodePoints(
+          result.reason instanceof Error
+            ? result.reason.message
+            : String(result.reason),
+          300,
+          "...[truncated]",
+        ),
+      });
     }
-  }
-  if (usable.length === 0) {
-    const reformulated = deterministicReformulation(
-      args.lookupPrompt,
-      args.seedTerms,
-    );
-    if (reformulated.length > 0) {
-      evidenceTerms = reformulated;
-      evidence = await retrieve(evidenceTerms);
-    }
-    usable = selectUsableEvidence(evidence, evidenceTerms);
-  }
-  if (usable.length === 0 && classificationRequiresSynthesis) {
-    usable = evidence.filter(({ value }) =>
-      hasSubstantiveRecallEvidence(value),
-    );
-  }
+  });
 
   const assemblyStartedAt = performance.now();
-
-  const evidenceText =
-    usable.length === 0
-      ? [
-          "# No indexed evidence",
-          "(The indexed sweep found no matching evidence for this request.)",
-        ].join("\n\n")
-      : renderCappedRecallSeed(
-          usable.map(({ kind, value }) => ({
-            heading: `# ${kind.replaceAll("_", " ")}`,
-            body: value,
-            maxBodyChars: 8_500,
-          })),
-          usable.map((_, index) => index),
-        );
-  if (usable.length === 0) {
-    synthesisRequired = true;
-    args.telemetry.setSeedChars(0);
-  } else {
-    args.telemetry.setSeedChars(evidenceText.length);
+  const candidates = mergeAndRankRecallEvidence(
+    evidence,
+    args.seedTerms,
+    exactPhrases,
+  );
+  if (candidates.length === 0 && failures.length > 0) {
+    throw new RecallRetrievalError(
+      `Recall retrieval incomplete with no valid evidence: ${failures
+        .map(({ label, message }) => `${label}: ${message}`)
+        .join("; ")}`,
+    );
   }
+  const failureNotice =
+    failures.length > 0
+      ? `# Partial source failure\n${failures
+          .map(
+            ({ label, message }) =>
+              `- ${label}: ${sanitizeToolVisibleText(message)}`,
+          )
+          .join("\n")}`
+      : "";
+  const sections = candidates.slice(0, 16).map((candidate, index) => ({
+    heading: `# Ranked evidence ${index + 1}`,
+    body: renderUnifiedRecallCandidate(candidate),
+    maxBodyChars: UNIFIED_RECALL_CANDIDATE_MAX_CHARS + 200,
+  }));
+  if (failureNotice) {
+    sections.unshift({
+      heading: "# Retrieval notice",
+      body: failureNotice,
+      maxBodyChars: 1_000,
+    });
+  }
+  if (sections.length === 0) {
+    sections.push({
+      heading: "# No indexed evidence",
+      body: "The unified thread and transcript sweep found no matching evidence.",
+      maxBodyChars: 200,
+    });
+  }
+  const evidenceText = truncateCodePoints(
+    renderCappedRecallSeed(
+      sections,
+      sections.map((_, index) => index),
+    ),
+    UNIFIED_RECALL_EVIDENCE_MAX_CHARS,
+  );
+  args.telemetry.setSeedChars(candidates.length > 0 ? evidenceText.length : 0);
   args.telemetry.addAssemblyMs(performance.now() - assemblyStartedAt);
 
-  const threadIds = new Set<string>();
-  for (const match of evidenceText.matchAll(/^- ([^\s|]+) \|/gm)) {
-    if (match[1]) threadIds.add(match[1]);
-  }
-  const sources: RecallSourceReference[] = usable.map(({ kind }) => ({
-    kind:
-      kind === "durable_memory"
-        ? "memory"
-        : kind === "delegated_work"
-          ? "thread"
-          : kind === "episodic"
-            ? "transcript"
-            : "live",
+  const sourceKinds = new Set(
+    candidates.flatMap((candidate) => [...candidate.sourceKinds]),
+  );
+  const sources: RecallSourceReference[] = [...sourceKinds].map((kind) => ({
+    kind: recallSourceReferenceKind(kind),
   }));
+  const threadIds = new Set<string>();
+  for (const candidate of candidates) {
+    for (const threadId of candidate.threadIds) threadIds.add(threadId);
+  }
   if (threadIds.size > 0) {
-    const rows = args.store.dreamInboxStore.findThreadSummariesByThreadIds([
-      ...threadIds,
-    ]);
-    for (const row of rows) {
-      if (!row.threadId || !row.runId || !threadIds.has(row.threadId)) continue;
-      try {
-        args.store.dreamInboxStore.recordUsage(row.threadId, row.runId);
-      } catch (error) {
-
-        logRecallTrace("[stella:recall:usage-feedback-failed]", {
+    try {
+      const rows = args.store.threadSummaryStore.findThreadSummariesByThreadIds(
+        [...threadIds],
+      );
+      for (const row of rows) {
+        if (!row.threadId || !row.runId || !threadIds.has(row.threadId))
+          continue;
+        sources.push({
+          kind: "thread",
+          summaryId: row.id,
           threadId: row.threadId,
           runId: row.runId,
-          error: error instanceof Error ? error.message : String(error),
         });
       }
-      sources.push({
-        kind: "thread",
-        inboxId: row.id,
-        threadId: row.threadId,
-        runId: row.runId,
-      });
-      threadIds.delete(row.threadId);
+    } catch {
+      // Resumable metadata is best-effort enrichment. Its failure must not
+      // erase ranked evidence already returned by an independent corpus.
     }
   }
 
-  if (!synthesisRequired) {
+  if (candidates.length === 0) {
+    args.telemetry.setIntent(intent, true);
     args.onResultMetadata?.({ intent, fastPath: true, sources });
-    args.emitTelemetry("fast-path");
+    args.emitTelemetry("no-match");
+    return RECALL_NO_MATCH_TEXT;
+  }
+
+  const allGroupsMatched =
+    args.seedTerms.length > 0 &&
+    (candidates[0]?.matchedGroups ?? 0) >= args.seedTerms.length;
+  const deterministicAnchor =
+    exactPhrases.length > 0 ||
+    isBareRepoLookup(args.lookupPrompt) ||
+    /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/.test(args.lookupPrompt) ||
+    /(?:^|\s)(?:\/[\w./-]+|[\w.-]+\/[\w./-]+)|\b\d{4}-\d{2}-\d{2}\b|\b(?:thread[_ -]?id|error|crash(?:ed)?)\b/i.test(
+      args.lookupPrompt,
+    );
+  const fastPath =
+    candidates.length > 0 &&
+    (failures.length > 0 ||
+      deterministicAnchor ||
+      (candidates.length === 1 && allGroupsMatched));
+  if (fastPath) {
+    args.telemetry.setIntent(intent, true);
+    args.onResultMetadata?.({ intent, fastPath: true, sources });
+    args.emitTelemetry(failures.length > 0 ? "partial-fast-path" : "fast-path");
     return evidenceText;
   }
 
-  args.telemetry.setIntent(intent, false);
-
-  const recallRoute = await resolveRoute();
+  const recallRoute = await args.resolveRecallRoute();
   const useClaudeCode = recallRoute.executionEngine === "claude-code";
   args.telemetry.setRoute(
     useClaudeCode ? "claude-code" : "native",
     recallRoute.modelId,
   );
   const systemPrompt =
-    "Synthesize the supplied Recall evidence into one concise factual brief. Cite dates and thread ids present in evidence. Do not invent facts. If evidence is insufficient, answer exactly: Nothing relevant found.";
-  const userPrompt = `${evidenceText}\n\n# Lookup request\n${args.lookupPrompt.trim()}`;
+    "Synthesize the supplied unified Recall evidence into one concise factual brief. Cite dates and resumable thread ids present in evidence. Source type is ranking evidence, not a routing rule. Do not invent facts. If evidence is insufficient, answer exactly: Nothing relevant found.";
+  const userPrompt = `${evidenceText}\n\n# Lookup request\n${truncateCodePoints(
+    args.lookupPrompt.trim(),
+    1_000,
+  )}`;
   const modelStartedAt = performance.now();
   let brief = "";
   try {
@@ -1696,13 +1408,11 @@ const runArchitecturalRecall = async (args: {
           },
           abortSignal: args.signal,
         })
-      ).trim();
+      ).text.trim();
     } else {
       const resolvedLlm = recallRoute.resolvedLlm;
-      if (!resolvedLlm) {
-        throw new Error("Recall light-tier route is unavailable.");
-      }
-
+      if (!resolvedLlm)
+        throw new Error("Recall native route was not resolved.");
       const apiKey = await resolveRecallSynthesisApiKey(resolvedLlm);
       const reasoning = recallSynthesisReasoning(resolvedLlm.model);
       const response = await completeSimple(
@@ -1723,7 +1433,6 @@ const runArchitecturalRecall = async (args: {
           ...(resolvedLlm.refreshApiKey
             ? { refreshApiKey: resolvedLlm.refreshApiKey }
             : {}),
-
           omitMaxTokens: true,
           ...(args.signal ? { signal: args.signal } : {}),
         },
@@ -1739,17 +1448,25 @@ const runArchitecturalRecall = async (args: {
   } finally {
     args.telemetry.addModelCall(performance.now() - modelStartedAt);
   }
+  brief = truncateCodePoints(brief, UNIFIED_RECALL_BRIEF_MAX_CHARS);
   args.onResultMetadata?.({ intent, fastPath: false, sources });
   args.emitTelemetry(
     !brief
       ? "empty-brief"
       : isRecallNoMatchBrief(brief)
         ? "no-match"
-        : "answer",
+        : failures.length > 0
+          ? "partial-answer"
+          : "answer",
   );
   return brief || RECALL_EMPTY_BRIEF_TEXT;
 };
 
+/**
+ * Unified Recall searches durable thread evidence and transcripts on every
+ * query, merges and ranks the results once, and performs at most one bounded
+ * synthesis call when deterministic evidence is not enough.
+ */
 export const runRecall = async (args: {
   conversationId: string;
   lookupPrompt: string;
@@ -1782,482 +1499,44 @@ export const runRecall = async (args: {
     try {
       args.onTelemetry?.(record);
     } catch {
-
+      // Observers are diagnostic-only and must never break Recall.
     }
   };
-
+  // The Recall tool requires search terms; for callers that still omit
+  // them, tokenizing the lookup prompt keeps deterministic retrieval useful.
   const seedTerms = normalizeMemorySearchTerms(
     args.memorySearchTerms?.length
       ? args.memorySearchTerms
       : tokenizeSearchQuery(args.lookupPrompt),
   );
-  if (args.recallReadQueries) {
-    try {
-      return await runArchitecturalRecall({
-        conversationId: args.conversationId,
-        lookupPrompt: args.lookupPrompt,
-        seedTerms,
-        stellaAppDir: args.stellaAppDir,
-        stellaDataDir: args.stellaDataDir,
-        store: args.store,
-        localEvents: args.localEvents,
-        ...(args.appBrowserContext
-          ? { appBrowserContext: args.appBrowserContext }
-          : {}),
-        resolveRecallRoute: args.resolveRecallRoute,
-        ...(args.recallReadQueries
-          ? { recallReadQueries: args.recallReadQueries }
-          : {}),
-        telemetry,
-        emitTelemetry,
-        memoryEnabled,
-        ...(args.onResultMetadata
-          ? { onResultMetadata: args.onResultMetadata }
-          : {}),
-        ...(args.signal ? { signal: args.signal } : {}),
-      });
-    } catch (error) {
-      emitTelemetry("thrown");
-      throw error instanceof RecallRetrievalError
-        ? error
-        : new Error(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  let seed: string;
   try {
-    seed = await buildContextLookupUserPrompt({
+    return await runArchitecturalRecall({
       conversationId: args.conversationId,
       lookupPrompt: args.lookupPrompt,
-      searchTerms: seedTerms,
+      seedTerms,
+      stellaAppDir: args.stellaAppDir,
       stellaDataDir: args.stellaDataDir,
       store: args.store,
       localEvents: args.localEvents,
       ...(args.appBrowserContext
         ? { appBrowserContext: args.appBrowserContext }
         : {}),
-      memoryEnabled,
+      resolveRecallRoute: args.resolveRecallRoute,
+      ...(args.recallReadQueries
+        ? { recallReadQueries: args.recallReadQueries }
+        : {}),
       telemetry,
+      emitTelemetry,
+      memoryEnabled,
+      ...(args.onResultMetadata
+        ? { onResultMetadata: args.onResultMetadata }
+        : {}),
+      ...(args.signal ? { signal: args.signal } : {}),
     });
   } catch (error) {
     emitTelemetry("thrown");
-    throw new RecallRetrievalError(
-      error instanceof Error ? error.message : String(error),
-      { cause: error },
-    );
-  }
-  telemetry.setSeedChars(seed.length);
-
-  const recallRoute = await args.resolveRecallRoute();
-  const useClaudeCode = recallRoute.executionEngine === "claude-code";
-  telemetry.setRoute(
-    useClaudeCode ? "claude-code" : "native",
-    recallRoute.modelId,
-  );
-  const verbose = recallTraceVerbose();
-  const finish = (outcome: string, brief: string): string => {
-    logRecallTrace("[stella:recall:answer]", {
-      conversationId: args.conversationId,
-      outcome,
-      briefChars: brief.length,
-      ...(verbose ? { briefPreview: previewForTrace(brief) } : {}),
-    });
-    emitTelemetry(outcome);
-    return brief;
-  };
-  const resolvedLlm = recallRoute.resolvedLlm;
-  if (!useClaudeCode && !resolvedLlm) {
-    return finish(
-      "route-unavailable",
-      "Recall failed: the active engine's light-tier route is unavailable.",
-    );
-  }
-
-  const credentialless =
-    !!resolvedLlm && resolvedLlmSupportsCredentiallessCalls(resolvedLlm);
-  const apiKey =
-    useClaudeCode || credentialless
-      ? undefined
-      : (await resolvedLlm?.getApiKey())?.trim();
-  if (!useClaudeCode && !credentialless && !apiKey) {
-    return finish(
-      "credential-unavailable",
-      "Recall is unavailable because no model credential is configured.",
-    );
-  }
-
-  let ranSearch = false;
-  let searchStep = 0;
-
-  const executeSearchAction = async (
-    action: RecallSearchAction,
-  ): Promise<string> => {
-    ranSearch = true;
-    const sourceStartedAt = performance.now();
-    let observation = "";
-    try {
-      observation =
-        action.kind === "search_memory"
-          ? memoryEnabled
-            ? await readMemorySearchResults(args.stellaDataDir, action.terms)
-            : "Memory is disabled in Settings; search_memory is unavailable."
-          : action.kind === "search_transcripts"
-            ? formatTranscriptSearchResults(
-                args.store,
-                args.conversationId,
-                action.query,
-                action.limit,
-              )
-            : formatThreadSearchResults(
-                args.store,
-                args.conversationId,
-                action.query,
-                action.limit,
-              );
-    } finally {
-      telemetry.addSource(
-        `tool.${action.kind === "search_memory" ? "memorySearch" : action.kind === "search_transcripts" ? "transcriptSearch" : "threadSearch"}`,
-        action.kind === "search_memory" ? "file" : "sql",
-        performance.now() - sourceStartedAt,
-        observation.length,
-      );
-    }
-    logRecallTrace("[stella:recall:step]", {
-      conversationId: args.conversationId,
-      step: searchStep++,
-      action: action.kind,
-      observationChars: observation.length,
-
-      ...(verbose
-        ? {
-            actionDetail:
-              action.kind === "search_memory"
-                ? { terms: action.terms }
-                : { query: action.query ?? null },
-            observationPreview: previewForTrace(observation),
-          }
-        : {}),
-    });
-    return truncate(observation, RECALL_OBSERVATION_CHAR_BUDGET);
-  };
-
-  const executeRecallToolCall = async (
-    toolName: string,
-    toolArgs: Record<string, unknown>,
-  ): Promise<{ result?: unknown; error?: string }> => {
-    const action = resolveRecallSearchAction(toolName, toolArgs);
-    if (!action) {
-      return {
-        error: `Unknown tool "${toolName}". Use search_memory, search_transcripts, or search_threads, or reply with the final brief as plain text.`,
-      };
-    }
-    try {
-      return { result: await executeSearchAction(action) };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return { error: `Search failed: ${message}` };
-    }
-  };
-
-  logRecallTrace("[stella:recall:start]", {
-    conversationId: args.conversationId,
-    promptChars: args.lookupPrompt.length,
-    seedChars: seed.length,
-    seedTermCount: seedTerms.length,
-    ...(verbose
-      ? { promptPreview: previewForTrace(args.lookupPrompt, 200) }
-      : {}),
-  });
-
-  const runModelCall = async <T>(call: () => Promise<T>): Promise<T> => {
-    const startedAt = performance.now();
-    let failed = false;
-    try {
-      return await call();
-    } catch (error) {
-      failed = true;
-      throw error;
-    } finally {
-      telemetry.addModelCall(performance.now() - startedAt);
-      if (failed) emitTelemetry("thrown");
-    }
-  };
-
-  const userMessage = (text: string): Message => ({
-    role: "user",
-    content: [{ type: "text", text }],
-    timestamp: Date.now(),
-  });
-
-  const rejectionText = (searchHint: string): string =>
-    `Rejected: you answered "Nothing relevant found." without running a single search of your own. The pre-seeded results are ONE keyword angle, not proof of absence — re-scan the pre-seeded sections for candidates, then run ${searchHint} with DIFFERENT concrete terms from the lookup request (names, slugs, file paths — not status words) before concluding nothing exists.`;
-
-  if (useClaudeCode) {
-
-    const messages: Message[] = [userMessage(seed)];
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const context: Context = {
-        systemPrompt: RECALL_TOOL_RUNTIME_SYSTEM_PROMPT,
-        tools: RECALL_RUNTIME_TOOLS,
-        messages,
-      };
-      let observedModelRounds = 0;
-      const observedModelRoundIds = new Set<string>();
-      const observedToolRoundIds = new Set<string>();
-      let anonymousModelRound = 0;
-      let activeToolExecutions = 0;
-      let toolExecutionStartedAt = 0;
-      let toolExecutionMs = 0;
-      const beginToolExecution = (): void => {
-        if (activeToolExecutions === 0) {
-          toolExecutionStartedAt = performance.now();
-        }
-        activeToolExecutions += 1;
-      };
-      const endToolExecution = (): void => {
-        activeToolExecutions = Math.max(0, activeToolExecutions - 1);
-        if (activeToolExecutions === 0) {
-          toolExecutionMs += performance.now() - toolExecutionStartedAt;
-        }
-      };
-      const modelStartedAt = performance.now();
-      let modelFailed = false;
-      let text: string;
-      try {
-        text = (
-          await runClaudeCodeAgentTextCompletion({
-
-            stellaAppDir: args.stellaDataDir,
-            cwd: args.stellaAppDir,
-            agentType: AGENT_IDS.ORCHESTRATOR,
-            modelOverride: recallRoute.claudeCodeModel,
-            effortLevel: "low",
-            context,
-            abortSignal: args.signal,
-            onModelRound: ({ messageId, toolCallCount }) => {
-              const roundId = messageId ?? `anonymous:${anonymousModelRound++}`;
-              if (!observedModelRoundIds.has(roundId)) {
-                observedModelRoundIds.add(roundId);
-                observedModelRounds += 1;
-                telemetry.addModelCall();
-              }
-              if (toolCallCount > 0 && !observedToolRoundIds.has(roundId)) {
-                observedToolRoundIds.add(roundId);
-                telemetry.addToolRound();
-              }
-            },
-            executeTool: async (_toolCallId, toolName, toolArgs) => {
-              beginToolExecution();
-              try {
-                return await executeRecallToolCall(toolName, toolArgs);
-              } finally {
-                endToolExecution();
-              }
-            },
-          })
-        ).trim();
-      } catch (error) {
-        modelFailed = true;
-        throw error;
-      } finally {
-        if (activeToolExecutions > 0) {
-          toolExecutionMs += performance.now() - toolExecutionStartedAt;
-          activeToolExecutions = 0;
-        }
-        telemetry.addModelRuntimeMs(
-          Math.max(0, performance.now() - modelStartedAt - toolExecutionMs),
-        );
-
-        if (modelFailed || observedModelRounds === 0) telemetry.addModelCall();
-        if (modelFailed) emitTelemetry("thrown");
-      }
-      if (attempt === 0 && text && isRecallNoMatchBrief(text) && !ranSearch) {
-        logRecallTrace("[stella:recall:step]", {
-          conversationId: args.conversationId,
-          step: searchStep,
-          action: "answer-rejected",
-          reason: "nothing-found-without-search",
-        });
-        messages.push(
-          userMessage(
-            `Your previous reply was: ${JSON.stringify(previewForTrace(text))}\n\n${rejectionText(
-              "the search_transcripts/search_threads/search_memory tools",
-            )}`,
-          ),
-        );
-        continue;
-      }
-      return finish(
-        text ? "answer" : "no-output",
-        text || RECALL_NO_OUTPUT_TEXT,
-      );
-    }
-    return finish("no-output", RECALL_NO_OUTPUT_TEXT);
-  }
-
-  const messages: Message[] = [userMessage(seed)];
-  const complete = async (): Promise<AssistantMessage> =>
-    runModelCall(() =>
-      completeSimple(
-        resolvedLlm!.model,
-        {
-          systemPrompt: RECALL_SYSTEM_PROMPT,
-          tools: RECALL_RUNTIME_TOOLS,
-          messages,
-        },
-        {
-          ...(apiKey ? { apiKey } : {}),
-          ...(recallSynthesisReasoning(resolvedLlm!.model)
-            ? { reasoning: recallSynthesisReasoning(resolvedLlm!.model) }
-            : {}),
-          ...(resolvedLlm!.refreshApiKey
-            ? { refreshApiKey: resolvedLlm!.refreshApiKey }
-            : {}),
-
-          omitMaxTokens: true,
-          ...(args.signal ? { signal: args.signal } : {}),
-        },
-      ),
-    );
-
-  const completeWithRetry = async (): Promise<AssistantMessage> => {
-    let response = await complete();
-    for (
-      let attempt = 1;
-      response.stopReason === "error" &&
-      attempt <= MAX_RECALL_MODEL_ERROR_RETRIES &&
-      !args.signal?.aborted;
-      attempt += 1
-    ) {
-      logRecallTrace("[stella:recall:step]", {
-        conversationId: args.conversationId,
-        step: searchStep,
-        action: "model-error-retry",
-        attempt,
-        ...(response.errorMessage
-          ? { error: previewForTrace(response.errorMessage, 200) }
-          : {}),
-      });
-      await sleepForRetry(
-        RECALL_MODEL_ERROR_RETRY_BASE_DELAY_MS * attempt,
-        args.signal,
-      );
-      if (args.signal?.aborted) break;
-      response = await complete();
-    }
-    return response;
-  };
-
-  let toolRounds = 0;
-  let rejectedNothingFound = false;
-
-  for (;;) {
-    const response = await completeWithRetry();
-    if (response.stopReason === "error" || response.stopReason === "aborted") {
-      logRecallTrace("[stella:recall:step]", {
-        conversationId: args.conversationId,
-        step: searchStep,
-        action: "model-error",
-        stopReason: response.stopReason,
-
-        ...(response.errorMessage
-          ? { error: previewForTrace(response.errorMessage, 200) }
-          : {}),
-      });
-      return finish("model-error", RECALL_NO_OUTPUT_TEXT);
-    }
-    const toolCalls = response.content.filter(
-      (part): part is ToolCall => part.type === "toolCall",
-    );
-    if (toolCalls.length === 0) {
-      const brief = readAssistantText(response).trim();
-      if (
-        brief &&
-        isRecallNoMatchBrief(brief) &&
-        !ranSearch &&
-        !rejectedNothingFound
-      ) {
-        rejectedNothingFound = true;
-        logRecallTrace("[stella:recall:step]", {
-          conversationId: args.conversationId,
-          step: searchStep,
-          action: "answer-rejected",
-          reason: "nothing-found-without-search",
-        });
-        messages.push(
-          response,
-          userMessage(
-            rejectionText(
-              "search_transcripts / search_threads / search_memory",
-            ),
-          ),
-        );
-        continue;
-      }
-      return finish(
-        brief ? "answer" : "empty-brief",
-        brief || RECALL_EMPTY_BRIEF_TEXT,
-      );
-    }
-    messages.push(response);
-
-    telemetry.addToolRound();
-    if (toolRounds >= MAX_RECALL_STEPS) {
-
-      for (const call of toolCalls) {
-        messages.push({
-          role: "toolResult",
-          toolCallId: call.id,
-          toolName: call.name,
-          content: [
-            {
-              type: "text",
-              text: "Search budget exhausted — no more searches will run.",
-            },
-          ],
-          isError: true,
-          timestamp: Date.now(),
-        });
-      }
-      messages.push(
-        userMessage(
-          "You are out of search steps. Reply now with the final concise brief (plain text) summarizing what you found. Do not call tools.",
-        ),
-      );
-      const final = await completeWithRetry();
-      const brief = readAssistantText(final).trim();
-      return finish(
-        brief ? "forced-answer" : "budget-exhausted",
-        brief || RECALL_BUDGET_EXHAUSTED_TEXT,
-      );
-    }
-    toolRounds += 1;
-
-    const results = await Promise.all(
-      toolCalls.map(async (call) => {
-        const executed = await executeRecallToolCall(
-          call.name,
-          call.arguments ?? {},
-        );
-        return {
-          call,
-          text:
-            typeof executed.result === "string"
-              ? executed.result
-              : (executed.error ?? "Search failed."),
-          isError: Boolean(executed.error),
-        };
-      }),
-    );
-    for (const { call, text, isError } of results) {
-      messages.push({
-        role: "toolResult",
-        toolCallId: call.id,
-        toolName: call.name,
-        content: [{ type: "text", text }],
-        isError,
-        timestamp: Date.now(),
-      });
-    }
+    throw error instanceof RecallRetrievalError
+      ? error
+      : new Error(error instanceof Error ? error.message : String(error));
   }
 };

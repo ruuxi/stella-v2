@@ -148,7 +148,7 @@ describe("prompt preset store", () => {
       "orchestrator",
     );
     expect(promptSelectionAgentId("general")).toBe("general");
-    expect(promptSelectionAgentId("dream")).toBeNull();
+    expect(promptSelectionAgentId("fashion")).toBeNull();
     expect(isCustomizablePromptAgentId("explore")).toBe(false);
     expect(slugifyPresetName("Über Prompt!!")).toBe("uber-prompt");
   });

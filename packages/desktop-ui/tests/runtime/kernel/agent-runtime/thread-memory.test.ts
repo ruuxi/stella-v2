@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -14,13 +14,6 @@ import {
   buildResidentFold,
   parseResidentFold,
 } from "@stella/runtime/kernel/agent-runtime/resident-context.js";
-import { readMemoryMapDoc } from "@stella/runtime/kernel/runner/shared";
-
-const readStartupDocBody = (text: string): string => {
-  const match = text.match(/<startup_doc[^>]*>\n([\s\S]*)\n<\/startup_doc>/);
-  if (!match?.[1]) throw new Error("startup doc body not found");
-  return match[1];
-};
 
 describe("buildSystemPrompt", () => {
   it("adds structured file-editing guidance when apply_patch is available", () => {
@@ -96,7 +89,7 @@ describe("buildStartupPromptMessages", () => {
     expect(promptText).toContain("***");
   });
 
-  it("push-injects the resident user profile and memory map as startup docs", async () => {
+  it("push-injects the resident user profile without a memory map", async () => {
     const messages = await buildStartupPromptMessages({
       context: {
         systemPrompt: "system",
@@ -104,79 +97,17 @@ describe("buildStartupPromptMessages", () => {
         maxAgentDepth: 1,
         threadHistory: [],
         userProfile: "# User Profile\n\n- The user goes by Bob",
-        memoryMap: "# Memory map\n\n- Stella v2; source: memory",
       },
     });
 
     const promptText = messages.map((message) => message.text).join("\n");
     expect(promptText).toContain('path="~/.stella/memories/profile.md"');
     expect(promptText).toContain("The user goes by Bob");
-    expect(promptText).toContain('path="~/.stella/memories/memory_map.md"');
-    expect(promptText).toContain("Stella v2; source: memory");
+    expect(promptText).not.toContain("memory_map.md");
+    expect(promptText).not.toContain("MEMORY.md");
     expect(
       messages.every((m) => m.customType === "bootstrap.startup_doc"),
     ).toBe(true);
-  });
-
-  it.each([
-    { chars: 6_000, truncated: false },
-    { chars: 6_001, truncated: true },
-  ])(
-    "caps a $chars-character resident memory map at 6,000 characters",
-    async ({ chars, truncated }) => {
-      const messages = await buildStartupPromptMessages({
-        context: {
-          systemPrompt: "system",
-          dynamicContext: "",
-          maxAgentDepth: 1,
-          threadHistory: [],
-          memoryMap: "x".repeat(chars),
-        },
-      });
-
-      const body = readStartupDocBody(messages[0]?.text ?? "");
-      expect(body).toHaveLength(6_000);
-      expect(body.includes("resident memory truncated")).toBe(truncated);
-    },
-  );
-
-  it("reads only the bounded current memory map when a legacy summary still exists", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "stella-resident-memory-"));
-    try {
-      const memoriesDir = path.join(root, "memories");
-      await mkdir(memoriesDir, { recursive: true });
-      await writeFile(
-        path.join(memoriesDir, "memory_summary.md"),
-        "LEGACY_RETIRED_SUMMARY",
-      );
-      await writeFile(
-        path.join(memoriesDir, "memory_map.md"),
-        `${"m".repeat(6_000 - "MAP_SENTINEL".length)}MAP_SENTINEL`,
-      );
-      const memoryMap = readMemoryMapDoc(root);
-      expect(memoryMap).toHaveLength(6_000);
-      expect(memoryMap).toContain("MAP_SENTINEL");
-      expect(memoryMap).not.toContain("LEGACY_RETIRED_SUMMARY");
-
-      const messages = await buildStartupPromptMessages({
-        context: {
-          systemPrompt: "system",
-          dynamicContext: "",
-          maxAgentDepth: 1,
-          threadHistory: [],
-          memoryMap,
-        },
-      });
-      const body = readStartupDocBody(messages[0]?.text ?? "");
-      expect(messages[0]?.text).toContain(
-        'path="~/.stella/memories/memory_map.md"',
-      );
-      expect(body).toHaveLength(6_000);
-      expect(body).toContain("MAP_SENTINEL");
-      expect(body).not.toContain("LEGACY_RETIRED_SUMMARY");
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
   });
 
   it("does not re-inject resident docs already persisted in thread history", async () => {
@@ -239,15 +170,15 @@ describe("buildStartupPromptMessages", () => {
     expect(promptText).not.toContain("The user goes by Bob");
   });
 
-  it("keeps one unchanged canonical memory map after compaction and appends a real update once", async () => {
-    const initialMap = "x".repeat(6_001);
+  it("keeps one unchanged canonical profile after compaction and appends a real Remember update once", async () => {
+    const initialProfile = "# Profile\n\n- Preferred editor: Zed";
     const initial = await buildStartupPromptMessages({
       context: {
         systemPrompt: "system",
         dynamicContext: "",
         maxAgentDepth: 1,
         threadHistory: [],
-        memoryMap: initialMap,
+        userProfile: initialProfile,
       },
     });
     const foldedHistory = [
@@ -268,7 +199,7 @@ describe("buildStartupPromptMessages", () => {
         dynamicContext: "",
         maxAgentDepth: 1,
         threadHistory: foldedHistory,
-        memoryMap: initialMap,
+        userProfile: initialProfile,
       },
     });
     expect(unchanged).toEqual([]);
@@ -279,7 +210,7 @@ describe("buildStartupPromptMessages", () => {
         dynamicContext: "",
         maxAgentDepth: 1,
         threadHistory: foldedHistory,
-        memoryMap: `${"y".repeat(5_900)}REAL_UPDATE`,
+        userProfile: `${initialProfile}\n- REAL_UPDATE`,
       },
     });
     expect(updated).toHaveLength(1);
@@ -370,7 +301,7 @@ describe("buildStartupPromptMessages", () => {
   });
 });
 
-describe("resident memory compaction", () => {
+describe("resident profile compaction", () => {
   const startupDoc = (displayPath: string, text: string) => ({
     role: "runtimeInternal",
     customMessage: {
@@ -379,7 +310,7 @@ describe("resident memory compaction", () => {
     },
   });
 
-  it("excludes a legacy summary while retaining current memory in fold plans", () => {
+  it("excludes every retired automatic-memory doc while retaining the profile", () => {
     const fold = buildResidentFold({
       messages: [
         startupDoc(
@@ -388,28 +319,14 @@ describe("resident memory compaction", () => {
         ),
         startupDoc("~/.stella/memories/profile.md", "current profile"),
         startupDoc("~/.stella/memories/memory_map.md", "current map"),
+        startupDoc("~/.stella/memories/MEMORY.md", "current ledger"),
       ],
     });
 
     expect(JSON.stringify(fold)).not.toContain("LEGACY_RETIRED_SUMMARY");
     expect(JSON.stringify(fold)).toContain("current profile");
-    expect(JSON.stringify(fold)).toContain("current map");
-  });
-
-  it("uses the same canonical 6,000-character memory-map rendering in folds", () => {
-    const fold = buildResidentFold({
-      messages: [
-        startupDoc("~/.stella/memories/memory_map.md", "x".repeat(6_001)),
-      ],
-    });
-
-    const foldedMap = fold?.docs.find((doc) =>
-      doc.text.includes("memory_map.md"),
-    );
-    expect(foldedMap).toBeDefined();
-    const body = readStartupDocBody(foldedMap?.text ?? "");
-    expect(body).toHaveLength(6_000);
-    expect(body).toContain("...[resident memory truncated]");
+    expect(JSON.stringify(fold)).not.toContain("current map");
+    expect(JSON.stringify(fold)).not.toContain("current ledger");
   });
 
   it("discards a legacy summary embedded in a persisted fold", () => {
@@ -422,17 +339,22 @@ describe("resident memory compaction", () => {
           },
           {
             customType: "bootstrap.startup_doc",
-            text: '<startup_doc path="~/.stella/memories/memory_map.md">\ncurrent map\n</startup_doc>',
+            text: '<startup_doc path="~/.stella/memories/MEMORY.md">\nLEGACY_LEDGER\n</startup_doc>',
+          },
+          {
+            customType: "bootstrap.startup_doc",
+            text: '<startup_doc path="~/.stella/memories/profile.md">\ncurrent profile\n</startup_doc>',
           },
         ],
       },
     });
 
     expect(JSON.stringify(parsed)).not.toContain("LEGACY_RETIRED_SUMMARY");
-    expect(JSON.stringify(parsed)).toContain("current map");
+    expect(JSON.stringify(parsed)).not.toContain("LEGACY_LEDGER");
+    expect(JSON.stringify(parsed)).toContain("current profile");
   });
 
-  it("canonicalizes an oversized memory map recovered from a fold", () => {
+  it("discards a memory map recovered from a persisted fold", () => {
     const parsed = parseResidentFold({
       residentFold: {
         docs: [
@@ -444,9 +366,7 @@ describe("resident memory compaction", () => {
       },
     });
 
-    const body = readStartupDocBody(parsed?.docs[0]?.text ?? "");
-    expect(body).toHaveLength(6_000);
-    expect(body).toContain("...[resident memory truncated]");
+    expect(parsed).toBeNull();
   });
 });
 
@@ -690,7 +610,7 @@ describe("buildHistorySource", () => {
     ]);
   });
 
-  it("drops legacy summaries while retaining current memory entries in chronological order", () => {
+  it("drops retired ledger, map, and summary entries while retaining unrelated legacy context", () => {
     const history = buildHistorySource({
       systemPrompt: "system",
       dynamicContext: "",
@@ -763,14 +683,14 @@ describe("buildHistorySource", () => {
         },
         {
           role: "runtimeInternal",
-          content: "new map",
+          content: "new ledger",
           timestamp: 4.5,
           customMessage: {
             customType: "bootstrap.memory_file",
             content: [
               {
                 type: "text",
-                text: '<memory_file path="~/.stella/memories/memory_map.md">\nnew map\n</memory_file>',
+                text: '<memory_file path="~/.stella/memories/MEMORY.md">\nnew ledger\n</memory_file>',
               },
             ],
             display: false,
@@ -806,15 +726,12 @@ describe("buildHistorySource", () => {
       .join("\n");
 
     expect(replayedText).not.toContain("old summary");
-    expect(replayedText).toContain("old map");
+    expect(replayedText).not.toContain("old map");
     expect(replayedText).toContain("old user");
     expect(replayedText).not.toContain("new summary");
-    expect(replayedText).toContain("new map");
+    expect(replayedText).not.toContain("new ledger");
     expect(replayedText).toContain("new memory");
 
-    expect(replayedText.indexOf("old map")).toBeLessThan(
-      replayedText.indexOf("new map"),
-    );
     expect(replayedText.indexOf("old user")).toBeLessThan(
       replayedText.indexOf("new memory"),
     );

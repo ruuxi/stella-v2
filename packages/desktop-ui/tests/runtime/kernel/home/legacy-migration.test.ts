@@ -5,7 +5,10 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { migrateLegacyHomeLayout } from "@stella/runtime/kernel/home/legacy-migration";
+import {
+  migrateLegacyHomeLayout,
+  retireAutomaticMemoryArtifacts,
+} from "@stella/runtime/kernel/home/legacy-migration";
 
 const roots = new Set<string>();
 
@@ -60,8 +63,8 @@ describe("migrateLegacyHomeLayout", () => {
 
     await mkdir(path.join(home, "prompts"), { recursive: true });
     await writeFile(
-      path.join(home, "prompts", "memory-review.md"),
-      "shipped review",
+      path.join(home, "prompts", "fallback-orchestrator.md"),
+      "shipped fallback",
     );
     await writeFile(
       path.join(home, "prompts", "thread-compaction.md"),
@@ -70,7 +73,9 @@ describe("migrateLegacyHomeLayout", () => {
     await writeFile(
       path.join(home, "prompts", ".bundled-manifest.json"),
       manifest({
-        "memory-review": { lastSyncedHash: hash("shipped review") },
+        "fallback-orchestrator": {
+          lastSyncedHash: hash("shipped fallback"),
+        },
         "thread-compaction": { lastSyncedHash: hash("shipped compaction") },
       }),
     );
@@ -104,7 +109,7 @@ describe("migrateLegacyHomeLayout", () => {
       readFile(path.join(home, "agents", "general.md"), "utf-8"),
     ).rejects.toThrow();
     await expect(
-      readFile(path.join(home, "prompts", "memory-review.md"), "utf-8"),
+      readFile(path.join(home, "prompts", "fallback-orchestrator.md"), "utf-8"),
     ).rejects.toThrow();
     await expect(
       readFile(path.join(home, "skills", "pdf", "SKILL.md"), "utf-8"),
@@ -167,5 +172,47 @@ describe("migrateLegacyHomeLayout", () => {
     await expect(
       readFile(path.join(home, "agents", "orchestrator.md"), "utf-8"),
     ).resolves.toBe("overlay");
+  });
+
+  it("idempotently removes only retired automatic-memory artifacts", async () => {
+    const home = await tempDir("retired-memory-migration-");
+    await mkdir(path.join(home, "memories"), { recursive: true });
+    await mkdir(path.join(home, "threads"), { recursive: true });
+    await mkdir(path.join(home, "transcripts"), { recursive: true });
+
+    const retired = [
+      path.join(home, "DREAM.md"),
+      path.join(home, "memories", "MEMORY.md"),
+      path.join(home, "memories", "memory_map.md"),
+      path.join(home, "memories", "memory_summary.md"),
+    ];
+    await Promise.all(
+      retired.map((filePath) => writeFile(filePath, "retired artifact")),
+    );
+    const retained = new Map([
+      [path.join(home, "core-memory.md"), "core memory"],
+      [path.join(home, "memories", "profile.md"), "durable profile"],
+      [path.join(home, "threads", "thread-42.json"), "thread result"],
+      [path.join(home, "transcripts", "conv-7.jsonl"), "transcript"],
+      [path.join(home, "memories", "thread-pointers.md"), "thread-42"],
+      [path.join(home, "unrelated.txt"), "leave me alone"],
+    ]);
+    await Promise.all(
+      [...retained].map(([filePath, content]) => writeFile(filePath, content)),
+    );
+
+    await retireAutomaticMemoryArtifacts(home);
+    await retireAutomaticMemoryArtifacts(home);
+
+    await Promise.all(
+      retired.map((filePath) =>
+        expect(readFile(filePath, "utf-8")).rejects.toThrow(),
+      ),
+    );
+    await Promise.all(
+      [...retained].map(([filePath, content]) =>
+        expect(readFile(filePath, "utf-8")).resolves.toBe(content),
+      ),
+    );
   });
 });

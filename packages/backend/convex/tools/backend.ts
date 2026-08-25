@@ -7,7 +7,6 @@ import { normalizeSafeExternalUrl } from "../lib/url_security";
 import type { BackendToolSet, ToolOptions } from "./types";
 
 const MAX_WEB_SEARCH_RESULTS = 6;
-const MAX_WEB_SEARCH_HIGHLIGHT_CHARS = 400;
 const MAX_WEB_SEARCH_SNIPPET_CHARS = 300;
 const MAX_WEB_FETCH_REDIRECTS = 5;
 const MAX_WEB_FETCH_BODY_BYTES = 5 * 1024 * 1024;
@@ -244,9 +243,9 @@ export type SearchHit = {
   title: string;
   url: string;
   snippet: string;
-  /** Representative thumbnail/hero image URL, when Exa returns one. */
+  /** Optional compatibility field for providers that return result images. */
   image?: string;
-  /** Site favicon URL, when Exa returns one. */
+  /** Optional compatibility field for providers that return favicons. */
   favicon?: string;
 };
 
@@ -290,28 +289,29 @@ export const executeWebSearch = async (
     };
   }
 
-  const apiKey = process.env.EXA_API_KEY;
+  const apiKey = process.env.PARALLEL_API_KEY;
   if (!apiKey) {
     return {
-      text: "WebSearch is not configured (missing EXA_API_KEY).",
+      text: "WebSearch is not configured (missing PARALLEL_API_KEY).",
       results: [],
     };
   }
 
   try {
-    const response = await fetch("https://api.exa.ai/search", {
+    const response = await fetch("https://api.parallel.ai/v1/search", {
       method: "POST",
       headers: {
         "x-api-key": apiKey,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        query,
-        type: "auto",
-        numResults: MAX_WEB_SEARCH_RESULTS,
-        ...(options.category ? { category: options.category } : {}),
-        contents: {
-          highlights: { maxCharacters: MAX_WEB_SEARCH_HIGHLIGHT_CHARS },
+        search_queries: [query],
+        objective: options.category
+          ? `Find information relevant to: ${query}. Focus on ${options.category}.`
+          : query,
+        mode: "fast",
+        advanced_settings: {
+          max_results: MAX_WEB_SEARCH_RESULTS,
         },
       }),
     });
@@ -327,26 +327,16 @@ export const executeWebSearch = async (
       results?: Array<{
         title?: string;
         url?: string;
-        highlights?: string[];
-        text?: string;
-        image?: string;
-        favicon?: string;
+        excerpts?: string[];
       }>;
     };
 
     const results: SearchHit[] = (data.results ?? []).map((result) => {
-      const snippet = result.highlights?.length
-        ? result.highlights.join(" ... ")
-        : (result.text ?? "");
-      const image = typeof result.image === "string" ? result.image.trim() : "";
-      const favicon =
-        typeof result.favicon === "string" ? result.favicon.trim() : "";
+      const snippet = result.excerpts?.join(" ... ") ?? "";
       return {
         title: (result.title ?? "(no title)").trim(),
         url: (result.url ?? "").trim(),
         snippet: snippet.trim().slice(0, MAX_WEB_SEARCH_SNIPPET_CHARS),
-        ...(image ? { image } : {}),
-        ...(favicon ? { favicon } : {}),
       };
     });
 
@@ -375,7 +365,7 @@ const WEB_SEARCH_PARAMETERS = {
     category: {
       type: "string",
       description:
-        "Optional Exa category hint. Most queries should omit this (for example 'news', 'company', or 'research_paper').",
+        "Optional focus hint for the search objective. Most queries should omit this.",
     },
   },
   required: ["query"],
@@ -416,14 +406,10 @@ export const createBackendTools = (
     [BACKEND_TOOL_IDS.WEB_SEARCH]: {
       name: BACKEND_TOOL_IDS.WEB_SEARCH,
       description:
-        "Search the web via Exa for current information.\n\n" +
+        "Search the web via Parallel for current information.\n\n" +
         "Use natural language queries, not keywords (e.g. 'Tesla current stock performance' not 'TSLA stock price').\n" +
-        "Returns up to 6 results with title, URL, and highlighted excerpts.\n\n" +
-        "CATEGORIES - use sparingly, most queries should omit:\n" +
-        "- 'company': only for company research.\n" +
-        "- 'people': only for non-public figures. Never for public figures or news about someone.\n" +
-        "- 'research_paper' (legacy 'research paper' is also accepted): only for academic papers.\n" +
-        "For news, sports, general facts - do NOT set a category.",
+        "Returns up to 6 ranked results with title, URL, and relevant excerpts.\n\n" +
+        "The optional category is a general focus hint; most queries should omit it.",
       parameters: WEB_SEARCH_PARAMETERS,
       execute: async (args) => {
         const result = await executeWebSearch(ctx, String(args.query ?? ""), {

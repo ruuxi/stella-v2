@@ -27,13 +27,15 @@ describe("schemaToTs renderer", () => {
   });
 
   it("renders arrays, enums, unions, const, and type arrays", () => {
-    expect(
-      schemaToTs({ type: "array", items: { type: "number" } }),
-    ).toBe("Array<number>");
-    expect(schemaToTs({ type: "string", enum: ["a", "b"] })).toBe("'a' | 'b'".replace(/'/g, '"'));
-    expect(
-      schemaToTs({ anyOf: [{ type: "string" }, { type: "null" }] }),
-    ).toBe("string | null");
+    expect(schemaToTs({ type: "array", items: { type: "number" } })).toBe(
+      "Array<number>",
+    );
+    expect(schemaToTs({ type: "string", enum: ["a", "b"] })).toBe(
+      "'a' | 'b'".replace(/'/g, '"'),
+    );
+    expect(schemaToTs({ anyOf: [{ type: "string" }, { type: "null" }] })).toBe(
+      "string | null",
+    );
     expect(
       schemaToTs({ oneOf: [{ type: "integer" }, { type: "number" }] }),
     ).toBe("number");
@@ -77,9 +79,9 @@ describe("schemaToTs renderer", () => {
       expect(() => schemaToTs(garbage)).not.toThrow();
       expect(typeof schemaToTs(garbage)).toBe("string");
     }
-    expect(
-      renderToolSignature({ name: "broken", parameters: undefined }),
-    ).toBe("tools.broken(input: unknown): Promise<unknown>");
+    expect(renderToolSignature({ name: "broken", parameters: undefined })).toBe(
+      "tools.broken(input: unknown): Promise<unknown>",
+    );
   });
 
   it("renders full callable signatures", () => {
@@ -221,11 +223,17 @@ describe("scoreToolSearch + searchToolCatalog", () => {
     {
       name: "example_react_message",
       description: "Add or remove a reaction on an example connector message.",
-      demoted: { requiredConnectorProvider: "example_connector", searchTerms: ["reaction"] },
+      demoted: {
+        requiredConnectorProvider: "example_connector",
+        searchTerms: ["reaction"],
+      },
       parameters: {
         type: "object",
         properties: {
-          message_id: { type: "string", description: "Example connector message UUID." },
+          message_id: {
+            type: "string",
+            description: "Example connector message UUID.",
+          },
         },
       },
     },
@@ -279,11 +287,23 @@ describe("scoreToolSearch + searchToolCatalog", () => {
     expect(first!.name.localeCompare(second!.name)).toBeLessThan(0);
   });
 
-  it("returns full signatures so no second lookup is needed", () => {
+  it("returns compact signatures and descriptions without raw full schemas", () => {
     const results = searchToolCatalog(catalog, "example");
     for (const result of results) {
-      expect(result.signature).toMatch(/^tools\..+\(input: .+\): Promise<unknown>$/);
+      expect(result.signature).toMatch(
+        /^tools\..+\(input: .+\): Promise<unknown>$/,
+      );
+      expect(Object.keys(result).sort()).toEqual([
+        "description",
+        "name",
+        "signature",
+      ]);
     }
+    const serialized = JSON.stringify(results);
+    expect(serialized).not.toContain('"parameters"');
+    expect(serialized).not.toContain('"inputSchema"');
+    expect(serialized).not.toContain('"properties"');
+    expect(serialized).not.toContain('"required"');
   });
 
   it("clamps limit and returns [] for garbage", () => {

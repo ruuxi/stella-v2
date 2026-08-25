@@ -374,7 +374,7 @@ export const collectDemotedToolNames = (toolCatalog, connectorProvider) =>
     (tool) => tool.name,
   );
 const DEMOTED_WORKFLOW_TEXT =
-  'Some tools are demoted from your direct tool list and callable only here via tools.<name>(args). The catalog below lists their exact signatures. When it is marked COMPLETE, call listed tools directly. When PARTIAL, first run await tools.$search({ query: "<intent + key nouns>" }) — it returns full callable signatures, so search once and call in the same or next cell. Do not guess tool names.';
+  'Some tools are demoted from your direct tool list and callable only here via tools.<name>(args). The compact catalog below lists names, signatures, and descriptions. When it is marked COMPLETE, call simple listed tools directly. When PARTIAL, first run await tools.$search({ query: "<intent + key nouns>" }) for ranked compact matches. For an unfamiliar or complex match, optionally run await tools.$describe(name) to load exactly that tool\'s complete schema, then invoke tools.<name>(args). Do not guess tool names.';
 
 const buildDemotedNodeReplSuffix = (demotedTools) =>
   demotedTools.length > 0

@@ -75,6 +75,12 @@ export type ToolMetadata = {
   workingText?: string;
   description: string;
   parameters: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  resultSchema?: Record<string, unknown>;
+  approval?: unknown;
+  sideEffects?: unknown;
+  reversible?: boolean;
+  annotations?: Record<string, unknown>;
 
   demoted?: {
     searchTerms?: readonly string[];
@@ -423,6 +429,18 @@ export type ToolDefinition = {
   description: string;
 
   parameters: Record<string, unknown>;
+
+  outputSchema?: Record<string, unknown>;
+
+  resultSchema?: Record<string, unknown>;
+
+  approval?: unknown;
+
+  sideEffects?: unknown;
+
+  reversible?: boolean;
+
+  annotations?: Record<string, unknown>;
 
   agentTypes?: readonly string[];
 

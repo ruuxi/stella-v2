@@ -457,6 +457,23 @@ const nodeReplWorkerMain = async (
   const searchTool = Object.freeze((args: Record<string, unknown> = {}) =>
     callTool("$search", args),
   );
+  const describeTool = Object.freeze(
+    (name: string, options: { cursor?: number } = {}) => {
+      if (typeof name !== "string" || name.trim().length === 0) {
+        return Promise.reject(
+          new Error(
+            "tools.$describe requires an exact non-empty tool name string.",
+          ),
+        );
+      }
+      if (!options || typeof options !== "object" || Array.isArray(options)) {
+        return Promise.reject(
+          new Error("tools.$describe options must be an object when provided."),
+        );
+      }
+      return callTool("$describe", { ...options, name });
+    },
+  );
   const IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
   const toolAccess = (name: string) =>
     IDENTIFIER_RE.test(name)
@@ -474,16 +491,18 @@ const nodeReplWorkerMain = async (
   const lookupTool = (property: PropertyKey) =>
     property === "$search"
       ? searchTool
-      : property === "$list"
-        ? listTools
-        : typeof property === "string"
-          ? toolFunctions.get(property)
-          : undefined;
+      : property === "$describe"
+        ? describeTool
+        : property === "$list"
+          ? listTools
+          : typeof property === "string"
+            ? toolFunctions.get(property)
+            : undefined;
 
   const tools = new Proxy(Object.create(null) as Record<string, unknown>, {
     get: (_target, property) => lookupTool(property),
     has: (_target, property) => lookupTool(property) !== undefined,
-    ownKeys: () => ["$search", "$list", ...toolFunctions.keys()],
+    ownKeys: () => ["$search", "$describe", "$list", ...toolFunctions.keys()],
     getOwnPropertyDescriptor: (_target, property) => {
       const value = lookupTool(property);
       if (value === undefined) return undefined;

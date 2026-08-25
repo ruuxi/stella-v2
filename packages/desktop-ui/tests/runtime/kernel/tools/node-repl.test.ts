@@ -5,8 +5,14 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import type { MapRouteArtifact } from "@stella/contracts/map-artifact";
 import { NodeReplKernelRegistry } from "@stella/runtime/kernel/computer-use/kernel";
 import type { BrowserSessionClient } from "@stella/runtime/kernel/browser-use/client";
+import {
+  buildCatalogSection,
+  searchToolCatalog,
+  type DemotedToolCatalogEntry,
+} from "@stella/runtime/kernel/tools/code-catalog";
 import { createNodeReplTool } from "@stella/runtime/kernel/tools/defs/node-repl";
 import type { ToolContext } from "@stella/runtime/kernel/tools/types";
 
@@ -150,9 +156,24 @@ describe("node_repl tool", () => {
     }
   });
 
-  it("reaches demoted tools that are absent from the model's direct list via tools.<name> and tools.$search", async () => {
-    const executed: Array<{ name: string; args: Record<string, unknown> }> =
-      [];
+  it("discovers and invokes all six built-in demoted tools through the bounded proxy", async () => {
+    const executed: Array<{ name: string; args: Record<string, unknown> }> = [];
+    const demotedCatalog: DemotedToolCatalogEntry[] = [
+      ["schedule_add", "Create a scheduled trigger."],
+      ["schedule_list", "List scheduled triggers."],
+      ["schedule_update", "Update a scheduled trigger."],
+      ["schedule_remove", "Remove a scheduled trigger."],
+      ["ScriptDraft", "Author and dry-run a watch script."],
+      ["connector_status", "Check a connector and request consent."],
+    ].map(([name, description]) => ({
+      name: name!,
+      description,
+      parameters: {
+        type: "object",
+        properties: { probe: { type: "string" } },
+      },
+      demoted: { searchTerms: [description!] },
+    }));
     const registry = new NodeReplKernelRegistry({
       sessionFactory: () => ({ request: async () => ({}) }),
       executeTool: async (name, args) => {
@@ -161,44 +182,135 @@ describe("node_repl tool", () => {
       },
       searchTools: (query, toolContext) => {
         expect(toolContext.conversationId).toBe("conversation-1");
-        return query.includes("connector")
-          ? [
-              {
-                name: "connector_status",
-                signature:
-                  "tools.connector_status(input: { connector: string }): Promise<unknown>",
-                description: "Check a connector.",
-              },
-            ]
-          : [];
+        return searchToolCatalog(demotedCatalog, query);
       },
     });
     const tool = createNodeReplTool({ registry });
     try {
-      // `connector_status` is demoted: never in the model's direct tool
-      // list, but present in allowedToolNames via the REPL-reachable union.
       const demotedContext = {
         ...context,
-        allowedToolNames: ["node_repl", "connector_status"],
+        allowedToolNames: [
+          "node_repl",
+          ...demotedCatalog.map((entry) => entry.name),
+        ],
       };
       await expect(
         tool.execute(
           {
             code: [
-              "const matches = await tools.$search({ query: 'connector status' });",
-              "const outcome = await tools[matches[0].name]({ connector: 'gmail' });",
-              "({ matches, outcome })",
+              `const names = ${JSON.stringify(demotedCatalog.map((entry) => entry.name))};`,
+              "const matches = await Promise.all(names.map(async (name) => (await tools.$search({ query: name }))[0]));",
+              "const outcomes = await Promise.all(names.map((name) => tools[name]({ probe: name })));",
+              "({ matches, outcomes })",
             ].join("\n"),
             timeout_ms: 5_000,
           },
           demotedContext,
         ),
       ).resolves.toMatchObject({
-        result: expect.stringContaining("ran connector_status"),
+        result: expect.stringContaining(
+          "tools.connector_status(input: { probe?: string }): Promise<unknown>",
+        ),
       });
-      expect(executed).toEqual([
-        { name: "connector_status", args: { connector: "gmail" } },
-      ]);
+      expect(executed.map((entry) => entry.name).sort()).toEqual(
+        demotedCatalog.map((entry) => entry.name).sort(),
+      );
+      for (const entry of executed) {
+        expect(entry.args).toEqual({ probe: entry.name });
+      }
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("invokes deferred map and lifts its exact artifact onto the outer result", async () => {
+    const map: MapRouteArtifact = {
+      kind: "map-route",
+      version: 1,
+      title: "Coffee",
+      markers: [
+        {
+          id: "p1",
+          name: "Blue Bottle Coffee",
+          lat: 37.7961,
+          lng: -122.3939,
+        },
+      ],
+    };
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: () => ({ request: async () => ({}) }),
+      executeTool: async (name, args) => {
+        expect(name).toBe("map");
+        expect(args).toEqual({ places: ["Blue Bottle Coffee"] });
+        return {
+          result: "Pinned place: Blue Bottle Coffee.",
+          details: { map },
+        };
+      },
+    });
+    const tool = createNodeReplTool({ registry });
+    try {
+      await expect(
+        tool.execute(
+          {
+            code: 'await tools.map({ places: ["Blue Bottle Coffee"] })',
+          },
+          { ...context, allowedToolNames: ["node_repl", "map"] },
+        ),
+      ).resolves.toEqual({
+        result: "'Pinned place: Blue Bottle Coffee.'",
+        details: { map },
+      });
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("searches the full live catalog when the embedded catalog is partial", async () => {
+    const liveCatalog: DemotedToolCatalogEntry[] = Array.from(
+      { length: 40 },
+      (_, index) => ({
+        name: `alpha_verbose_${String(index).padStart(2, "0")}`,
+        description: `Verbose catalog entry ${index} ${"x".repeat(100)}`,
+        parameters: { type: "object" },
+        demoted: { searchTerms: [`alpha ${index}`] },
+      }),
+    );
+    liveCatalog.push({
+      name: "alpha_zz_hidden_route_planner",
+      description: `Plan a far-horizon route beyond the embedded prefix. ${"y".repeat(400)}`,
+      parameters: {
+        type: "object",
+        properties: { destination: { type: "string" } },
+        required: ["destination"],
+      },
+      demoted: { searchTerms: ["far horizon", "hidden route"] },
+    });
+    const embedded = buildCatalogSection(liveCatalog, 80);
+    expect(embedded).toContain("PARTIAL");
+    expect(embedded).not.toContain("alpha_zz_hidden_route_planner");
+
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: () => ({ request: async () => ({}) }),
+      executeTool: async () => ({ result: "unused" }),
+      searchTools: (query) => searchToolCatalog(liveCatalog, query),
+    });
+    try {
+      const result = await registry.evaluate(
+        "await tools.$search({ query: 'far horizon route' })",
+        {
+          ...context,
+          allowedToolNames: [
+            "node_repl",
+            ...liveCatalog.map((entry) => entry.name),
+          ],
+        },
+      );
+      expect(result).toContain("alpha_zz_hidden_route_planner");
+      expect(result).toContain(
+        "tools.alpha_zz_hidden_route_planner(input: { destination: string }): Promise<unknown>",
+      );
+      expect(result).toContain("beyond the embedded prefix");
     } finally {
       await registry.dispose();
     }

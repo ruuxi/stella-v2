@@ -414,9 +414,9 @@ export const createStellaHostRunner = (
         agentContext,
         callbacks: noopRuntimeCallbacks,
         toolExecutor: async () => ({ error: "Voice config has no executor." }),
-        // Voice has no node_repl surface: demoted tools would be
-        // unreachable dead weight in the realtime function list, so they
-        // are filtered out of both the prompt build and the tool list.
+        // Voice has no node_repl surface: configuration/background demoted
+        // tools would be unreachable dead weight in the realtime function
+        // list. Map remains eager here as the safe no-REPL fallback.
         toolCatalog: context.toolHost
           .getToolCatalog(agentType, {
             model:
@@ -424,7 +424,7 @@ export const createStellaHostRunner = (
               resolved.resolvedLlm.model,
             agentEngine: agentContext.agentEngine,
           })
-          .filter((tool) => !tool.demoted),
+          .filter((tool) => !tool.demoted || tool.name === "map"),
         deviceId: context.deviceId,
         stellaDataDir: context.stellaDataDir,
         resolvedLlm: resolved.resolvedLlm,
@@ -439,7 +439,7 @@ export const createStellaHostRunner = (
             resolved.resolvedLlm.toolPolicyModel ?? resolved.resolvedLlm.model,
           agentEngine: agentContext.agentEngine,
         })
-        .filter((tool) => !tool.demoted);
+        .filter((tool) => !tool.demoted || tool.name === "map");
       const history = buildVoiceHistoryItems(agentContext.threadHistory);
       return {
         instructions,

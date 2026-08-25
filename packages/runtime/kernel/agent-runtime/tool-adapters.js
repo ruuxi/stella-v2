@@ -356,8 +356,8 @@ export const collectVisibleDemotedTools = (toolCatalog, connectorProvider) => (t
 });
 /**
  * Names to widen `allowedToolNames` with so node_repl's nested dispatcher
- * (and multi_tool_use_parallel) can reach demoted tools. Only meaningful
- * for contexts that actually have node_repl.
+ * (and multi_tool_use_parallel) or a provider's direct-schema fallback can
+ * reach demoted tools.
  */
 export const collectDemotedToolNames = (toolCatalog, connectorProvider) => collectVisibleDemotedTools(toolCatalog, connectorProvider).map((tool) => tool.name);
 const DEMOTED_WORKFLOW_TEXT = 'Some tools are demoted from your direct tool list and callable only here via tools.<name>(args). The catalog below lists their exact signatures. When it is marked COMPLETE, call listed tools directly. When PARTIAL, first run await tools.$search({ query: "<intent + key nouns>" }) — it returns full callable signatures, so search once and call in the same or next cell. Do not guess tool names.';
@@ -379,6 +379,46 @@ export const appendDemotedCatalogToNodeRepl = (toolMetadata, toolCatalog, connec
     return toolMetadata.map((tool) => tool.name === NODE_REPL_TOOL_NAME
         ? { ...tool, description: `${tool.description}${suffix}` }
         : tool);
+};
+/**
+ * Provider-visible metadata with deferred-tool semantics applied.
+ *
+ * This is the metadata-only counterpart to createPiTools for external
+ * engines: when node_repl is active, demoted tools are removed from the eager
+ * function list and summarized in node_repl's bounded catalog. Without
+ * node_repl, visible demoted tools retain their full direct schemas so a
+ * profile can never strand them.
+ */
+export const getProviderToolMetadata = (opts) => {
+    const catalog = opts.toolCatalog ?? [];
+    const requestedNames = getRequestedRuntimeToolNames(opts.toolsAllowlist);
+    const nodeReplAvailable = requestedNames.includes(NODE_REPL_TOOL_NAME) &&
+        catalog.some((tool) => tool.name === NODE_REPL_TOOL_NAME);
+    const hasExplicitAllowlist = Array.isArray(opts.toolsAllowlist) && opts.toolsAllowlist.length > 0;
+    const visibleDemotedTools = hasExplicitAllowlist
+        ? collectVisibleDemotedTools(catalog, opts.connectorProvider)
+        : [];
+    const visibleDemotedNames = new Set(visibleDemotedTools.map((tool) => tool.name));
+    const eager = [];
+    const eagerNames = new Set();
+    for (const tool of getRuntimeToolMetadata(opts)) {
+        if (tool.demoted) {
+            if (!visibleDemotedNames.has(tool.name) || nodeReplAvailable)
+                continue;
+        }
+        eager.push(tool);
+        eagerNames.add(tool.name);
+    }
+    if (!nodeReplAvailable) {
+        for (const tool of visibleDemotedTools) {
+            if (eagerNames.has(tool.name))
+                continue;
+            eager.push(tool);
+            eagerNames.add(tool.name);
+        }
+        return eager;
+    }
+    return appendDemotedCatalogToNodeRepl(eager, catalog, opts.connectorProvider);
 };
 // Exported for tests. See `desktop/tests/runtime/kernel/agent-runtime/stella-attach-image.test.ts`.
 export const extractAttachImageBlocks = async (text, target = {}) => {
@@ -616,8 +656,8 @@ export const createPiTools = (opts) => {
     const connectorProvider = opts.connectorDeliveryTarget?.provider;
     // Never-strand rule: demoted tools leave the direct list ONLY when
     // node_repl is actually part of this turn's resolved active set.
-    // Agents without node_repl (e.g. the orchestrated coordinator variant)
-    // keep demoted tools as plain direct tools with full schemas.
+    // Profiles intentionally lacking node_repl keep demoted tools as plain
+    // direct tools with full schemas.
     const nodeReplAvailable = requested.includes(NODE_REPL_TOOL_NAME) &&
         catalog.has(NODE_REPL_TOOL_NAME);
     // Demoted reachability requires an explicit per-agent allowlist. The

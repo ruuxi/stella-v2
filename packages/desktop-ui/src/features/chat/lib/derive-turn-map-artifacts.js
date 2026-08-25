@@ -3,8 +3,9 @@
  *
  * The orchestrator's `map` tool persists its resolved `map-route` artifact
  * onto the `tool_result` payload (`details: { map }`, spread by the worker —
- * see `runtime/kernel/tools/defs/map.ts`). Each successful call on the turn
- * becomes one inline interactive map card, in call order.
+ * see `runtime/kernel/tools/defs/map.ts`). When invoked through `node_repl`,
+ * the REPL lifts the same artifact onto its outer result. Each successful
+ * call on the turn becomes one inline interactive map card, in call order.
  *
  * Purely a renderer affordance derived from already-persisted events — the
  * model only sees the tool's text summary.
@@ -19,7 +20,8 @@ export const deriveTurnMapArtifacts = (events) => {
         if (!event || event.type !== "tool_result")
             continue;
         const payload = event.payload;
-        if (!payload || payload.toolName !== "map")
+        if (!payload ||
+            (payload.toolName !== "map" && payload.toolName !== "node_repl"))
             continue;
         if (typeof payload.error === "string" && payload.error)
             continue;
@@ -29,11 +31,18 @@ export const deriveTurnMapArtifacts = (events) => {
         if (agentType !== undefined && agentType !== AGENT_IDS.ORCHESTRATOR) {
             continue;
         }
-        if (!isMapRouteArtifact(payload.map))
-            continue;
-        cards.push({ id: event._id, map: payload.map });
-        if (cards.length >= MAX_MAP_CARDS_PER_TURN)
-            break;
+        const candidates = Array.isArray(payload.maps) ? payload.maps : [payload.map];
+        for (let index = 0; index < candidates.length; index += 1) {
+            const map = candidates[index];
+            if (!isMapRouteArtifact(map))
+                continue;
+            cards.push({
+                id: candidates.length === 1 ? event._id : `${event._id}:map:${index}`,
+                map,
+            });
+            if (cards.length >= MAX_MAP_CARDS_PER_TURN)
+                return cards;
+        }
     }
     return cards;
 };

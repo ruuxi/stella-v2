@@ -14,6 +14,7 @@ import {
   isRetiredMemorySummaryCustomMessage,
 } from "./resident-context.js";
 import { QUARANTINE_CUSTOM_TYPE } from "./provider-abort-containment.js";
+import { ORCHESTRATOR_ROSTER_CUSTOM_TYPE } from "../storage/shared.js";
 const logger = createRuntimeLogger("agent-runtime.thread-memory");
 const MEMORY_STARTUP_DOC_PATHS = [
   LIFE_CORE_MEMORY_DISPLAY_PATH,
@@ -84,12 +85,24 @@ export const stripStaleImageBlocks = (messages) => {
   return rewroteAny ? out.reverse() : messages;
 };
 export const buildHistorySource = (context) => {
-  // Keep older bootstrap entries so cadence injections do not shift the
-  // prompt-cache prefix on coast turns.
+  const threadHistory = context.threadHistory ?? [];
+  let latestRosterIndex = -1;
+  for (let index = threadHistory.length - 1; index >= 0; index -= 1) {
+    if (
+      threadHistory[index]?.customMessage?.customType ===
+      ORCHESTRATOR_ROSTER_CUSTOM_TYPE
+    ) {
+      latestRosterIndex = index;
+      break;
+    }
+  }
   const messages =
-    context.threadHistory
+    threadHistory
       ?.filter(
-        (entry) =>
+        (entry, index) =>
+          (entry.customMessage?.customType !==
+            ORCHESTRATOR_ROSTER_CUSTOM_TYPE ||
+            index === latestRosterIndex) &&
           !isRetiredMemorySummaryEntry(entry) &&
           entry.customMessage?.customType !== QUARANTINE_CUSTOM_TYPE &&
           !isFailedAssistantPayload(entry.payload) &&
@@ -534,18 +547,6 @@ export const buildOrchestratorPromptMessages = async (args) => {
     messages.push({ text: args.userPrompt });
   }
   return messages;
-};
-export const updateOrchestratorReminderState = (store, args) => {
-  const updateCounter = store.updateOrchestratorReminderCounter;
-  if (typeof updateCounter !== "function") {
-    return;
-  }
-  if (args.shouldInjectDynamicReminder) {
-    updateCounter.call(store, {
-      conversationId: args.conversationId,
-      resetTo: 0,
-    });
-  }
 };
 export const appendThreadMessage = (store, args) => {
   store.appendThreadMessage({

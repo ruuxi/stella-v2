@@ -7,6 +7,7 @@ import { slugify } from "../shared/slug.js";
 import {
   DEFAULT_CONVERSATION_SETTING_KEY,
   MAX_EVENTS_PER_CONVERSATION,
+  ORCHESTRATOR_ROSTER_CUSTOM_TYPE,
   RUNTIME_THREAD_SESSION_VERSION,
   asFiniteNumber,
   asObject,
@@ -560,7 +561,9 @@ const chunkExactThreadEntryData = (exactData, boundedData) => {
     },
   };
   if (jsonByteLength(toJsonValueString(data)) > THREAD_ROW_MAX_BYTES) {
-    throw new Error("Exact thread payload metadata exceeds the SQLite row limit.");
+    throw new Error(
+      "Exact thread payload metadata exceeds the SQLite row limit.",
+    );
   }
   return { data, exactDataJson, exactChunkEnds };
 };
@@ -999,6 +1002,10 @@ const parseCheckpointQuarantineKeys = (details) => {
 const normalizeCompactionOverlay = (compaction, rawMessages) => {
   const timestamp = Date.parse(compaction.timestamp) || Date.now();
   const residentFold = parseResidentFold(compaction.details);
+  const replaceDerivedContext =
+    compaction.details &&
+    typeof compaction.details === "object" &&
+    compaction.details.replaceDerivedContext === true;
   const pinnedUserInstruction = parsePinnedUserInstruction(compaction.details);
   const checkpointQuarantineKeys = parseCheckpointQuarantineKeys(
     compaction.details,
@@ -1010,6 +1017,7 @@ const normalizeCompactionOverlay = (compaction, rawMessages) => {
       fromEntryId: compaction.fromEntryId,
       toEntryId: compaction.toEntryId,
       timestamp,
+      ...(replaceDerivedContext ? { replaceDerivedContext: true } : {}),
       ...(residentFold ? { residentFold } : {}),
       ...(pinnedUserInstruction ? { pinnedUserInstruction } : {}),
       ...(checkpointQuarantineKeys.length > 0
@@ -1037,6 +1045,7 @@ const normalizeCompactionOverlay = (compaction, rawMessages) => {
     fromEntryId,
     toEntryId,
     timestamp,
+    ...(replaceDerivedContext ? { replaceDerivedContext: true } : {}),
     ...(residentFold ? { residentFold } : {}),
     ...(pinnedUserInstruction ? { pinnedUserInstruction } : {}),
     ...(checkpointQuarantineKeys.length > 0
@@ -1050,9 +1059,9 @@ const buildThreadCompactionOverlays = (path, rawMessages) =>
     .map((entry) => normalizeCompactionOverlay(entry, rawMessages))
     .filter((entry) => entry !== null);
 /**
- * Resident-block fold-in half of the overlay application. The newest applied
- * overlay that carries a `residentFold` (written by `maybeCompactRuntimeThread`)
- * re-establishes the canonical resident context:
+ * Derived-context replacement half of the overlay application. The newest
+ * applied overlay written by `maybeCompactRuntimeThread` re-establishes the
+ * canonical resident context:
  *
  *   1. every older copy of a folded block (stale head docs, mid-thread
  *      re-appends that survived in the kept tail) and every accumulated
@@ -1067,7 +1076,10 @@ const buildThreadCompactionOverlays = (path, rawMessages) =>
  * entries, so every store rebuild materializes the same canonical window.
  */
 const applyResidentFold = (messages, overlay) => {
-  const fold = overlay.residentFold;
+  const fold = overlay.residentFold ?? {
+    docs: [],
+    identities: new Set(),
+  };
   const checkpointIndex = messages.findIndex(
     (message) => message.entryId === overlay.id,
   );
@@ -1085,6 +1097,9 @@ const applyResidentFold = (messages, overlay) => {
       return true;
     }
     const customType = message.customMessage.customType;
+    if (customType === ORCHESTRATOR_ROSTER_CUSTOM_TYPE) {
+      return false;
+    }
     if (
       typeof customType === "string" &&
       customType.startsWith(CONTEXT_DELTA_CUSTOM_TYPE_PREFIX)
@@ -1172,7 +1187,7 @@ const applyCompactionOverlays = (rawMessages, overlays) => {
     index += 1;
   }
   const foldOverlay = appliedOverlays
-    .filter((overlay) => overlay.residentFold)
+    .filter((overlay) => overlay.residentFold || overlay.replaceDerivedContext)
     .pop();
   if (foldOverlay) {
     result = applyResidentFold(result, foldOverlay);
@@ -2626,7 +2641,10 @@ export class SessionStore {
     const projectionRows = includeSourceEvents
       ? Array.from(
           new Map(
-            [...messageRows, ...sourceEvents].map((event) => [event._id, event]),
+            [...messageRows, ...sourceEvents].map((event) => [
+              event._id,
+              event,
+            ]),
           ).values(),
         ).sort((a, b) =>
           compareTimelineCursor(
@@ -2817,7 +2835,9 @@ export class SessionStore {
       ? {
           timestamp: row.timestamp,
           id: row.id,
-          ...(typeof row.sequence === "number" ? { sequence: row.sequence } : {}),
+          ...(typeof row.sequence === "number"
+            ? { sequence: row.sequence }
+            : {}),
         }
       : null;
   }
@@ -2879,7 +2899,9 @@ export class SessionStore {
       ? {
           timestamp: row.timestamp,
           id: row.id,
-          ...(typeof row.sequence === "number" ? { sequence: row.sequence } : {}),
+          ...(typeof row.sequence === "number"
+            ? { sequence: row.sequence }
+            : {}),
         }
       : null;
   }
@@ -3106,12 +3128,8 @@ export class SessionStore {
         const start = index === 0 && user ? cursorFor(user) : cursorFor(anchor);
         const end =
           index + 1 < anchors.length ? cursorFor(anchors[index + 1]) : turnEnd;
-        const {
-          events,
-          totalCount,
-          eventCountTruncated,
-          detailTruncated,
-        } = this.fetchBoundedToolEvents(conversationId, start, end);
+        const { events, totalCount, eventCountTruncated, detailTruncated } =
+          this.fetchBoundedToolEvents(conversationId, start, end);
         attachedById.set(anchor._id, {
           ...anchor,
           toolEvents: events,
@@ -3156,7 +3174,11 @@ export class SessionStore {
     const turnStart = this.findTurnFetchCutoff(conversationId, anchor);
     const previousAssistant =
       anchorRow?.type === "assistant_message"
-        ? this.findPreviousVisibleAssistantAfter(conversationId, turnStart, anchor)
+        ? this.findPreviousVisibleAssistantAfter(
+            conversationId,
+            turnStart,
+            anchor,
+          )
         : null;
     const rangeStart = previousAssistant ? anchor : (turnStart ?? anchor);
     const rangeEnd =
@@ -3845,7 +3867,11 @@ export class SessionStore {
          ) VALUES (?, ?, ?, ?)`,
       );
       let offset = 0;
-      for (let chunkIndex = 0; chunkIndex < args.exactChunkEnds.length; chunkIndex += 1) {
+      for (
+        let chunkIndex = 0;
+        chunkIndex < args.exactChunkEnds.length;
+        chunkIndex += 1
+      ) {
         const end = args.exactChunkEnds[chunkIndex];
         insertChunk.run(
           entryId,
@@ -4077,7 +4103,7 @@ export class SessionStore {
         : []),
       ...rawTail,
     ];
-    return overlay.residentFold
+    return overlay.residentFold || overlay.replaceDerivedContext
       ? applyResidentFold(messages, overlay)
       : messages;
   }
@@ -4092,7 +4118,9 @@ export class SessionStore {
     }
     const prepared = messages.map((message) => {
       if (normalizeRuntimeThreadId(message.threadKey) !== threadKey) {
-        throw new Error("All thread messages in a batch must use the same threadKey.");
+        throw new Error(
+          "All thread messages in a batch must use the same threadKey.",
+        );
       }
       const fallbackPayload = buildFallbackThreadPayload(message);
       const boundedPayload = enforceThreadPayloadRowSizeLimit(fallbackPayload);
@@ -4316,7 +4344,9 @@ export class SessionStore {
     if (!threadKey) {
       throw new Error("threadKey is required.");
     }
-    return buildRawThreadMessages(buildThreadPathEntries(this.loadThreadSessionEntries(threadKey))).map((message) => ({
+    return buildRawThreadMessages(
+      buildThreadPathEntries(this.loadThreadSessionEntries(threadKey)),
+    ).map((message) => ({
       ...(message.entryId ? { entryId: message.entryId } : {}),
       timestamp: message.timestamp,
       role: message.role,
@@ -5336,16 +5366,6 @@ export class SessionStore {
     const trimmed = summary.trim();
     if (!trimmed) return;
     this.ensureImplicitThreadRow(threadKey);
-    const row = this.db
-      .prepare(
-        `
-      SELECT conversation_id AS conversationId
-      FROM runtime_threads
-      WHERE thread_key = ?
-      LIMIT 1
-    `,
-      )
-      .get(threadKey);
     this.db
       .prepare(
         `
@@ -5355,12 +5375,6 @@ export class SessionStore {
     `,
       )
       .run(trimmed, Date.now(), threadKey);
-    if (
-      typeof row?.conversationId === "string" &&
-      row.conversationId.length > 0
-    ) {
-      this.forceOrchestratorReminderOnNextTurn(row.conversationId);
-    }
   }
   getThreadName(threadKey) {
     // Deliberately side-effect-free: callers probe arbitrary agent ids, and
@@ -5980,7 +5994,6 @@ export class SessionStore {
       .prepare(
         `
       SELECT
-        reminder_tokens_since_last_injection AS reminderTokensSinceLastInjection,
         force_reminder_on_next_turn AS forceReminderOnNextTurn
       FROM runtime_conversation_state
       WHERE conversation_id = ?
@@ -5988,89 +6001,35 @@ export class SessionStore {
     `,
       )
       .get(conversationId);
-    const current =
-      typeof row?.reminderTokensSinceLastInjection === "number"
-        ? Math.max(0, Math.floor(row.reminderTokensSinceLastInjection))
-        : 0;
-    const shouldInjectDynamicReminder = row?.forceReminderOnNextTurn === 1;
     return {
-      shouldInjectDynamicReminder,
-      reminderTokensSinceLastInjection: current,
+      shouldInjectDynamicReminder: row?.forceReminderOnNextTurn === 1,
     };
   }
-  updateOrchestratorReminderCounter(args) {
-    const currentState = this.db
-      .prepare(
-        `
-      SELECT
-        reminder_tokens_since_last_injection AS reminderTokensSinceLastInjection,
-        force_reminder_on_next_turn AS forceReminderOnNextTurn
-      FROM runtime_conversation_state
-      WHERE conversation_id = ?
-      LIMIT 1
-    `,
-      )
-      .get(args.conversationId);
-    const current =
-      typeof currentState?.reminderTokensSinceLastInjection === "number"
-        ? currentState.reminderTokensSinceLastInjection
-        : 0;
-    const nextValue =
-      args.resetTo != null
-        ? Math.max(0, Math.floor(args.resetTo))
-        : Math.max(0, Math.floor(current + (args.incrementBy ?? 0)));
-    const forceReminderOnNextTurn =
-      args.resetTo != null
-        ? 0
-        : currentState?.forceReminderOnNextTurn === 1
-          ? 1
-          : 0;
-    this.db
-      .prepare(
-        `
-      INSERT INTO runtime_conversation_state (
-        conversation_id,
-        reminder_tokens_since_last_injection,
-        force_reminder_on_next_turn
-      )
-      VALUES (?, ?, ?)
-      ON CONFLICT(conversation_id) DO UPDATE SET
-        reminder_tokens_since_last_injection = excluded.reminder_tokens_since_last_injection,
-        force_reminder_on_next_turn = excluded.force_reminder_on_next_turn
-    `,
-      )
-      .run(args.conversationId, nextValue, forceReminderOnNextTurn);
-  }
   forceOrchestratorReminderOnNextTurn(conversationId) {
-    const currentState = this.db
-      .prepare(
-        `
-      SELECT reminder_tokens_since_last_injection AS reminderTokensSinceLastInjection
-      FROM runtime_conversation_state
-      WHERE conversation_id = ?
-      LIMIT 1
-    `,
-      )
-      .get(conversationId);
-    const reminderTokensSinceLastInjection =
-      typeof currentState?.reminderTokensSinceLastInjection === "number"
-        ? currentState.reminderTokensSinceLastInjection
-        : 0;
     this.db
       .prepare(
         `
       INSERT INTO runtime_conversation_state (
         conversation_id,
-        reminder_tokens_since_last_injection,
         force_reminder_on_next_turn
       )
-      VALUES (?, ?, 1)
+      VALUES (?, 1)
       ON CONFLICT(conversation_id) DO UPDATE SET
-        reminder_tokens_since_last_injection = excluded.reminder_tokens_since_last_injection,
         force_reminder_on_next_turn = 1
     `,
       )
-      .run(conversationId, reminderTokensSinceLastInjection);
+      .run(conversationId);
+  }
+  consumeOrchestratorReminder(conversationId) {
+    this.db
+      .prepare(
+        `
+      UPDATE runtime_conversation_state
+      SET force_reminder_on_next_turn = 0
+      WHERE conversation_id = ?
+    `,
+      )
+      .run(conversationId);
   }
   /**
    * Increment the memory-review user-turn counter for the given conversation

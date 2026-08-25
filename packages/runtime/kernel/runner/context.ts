@@ -1396,7 +1396,6 @@ export const buildAgentContext = async (
       ? context.runtimeStore.getOrchestratorReminderState(args.conversationId)
       : {
           shouldInjectDynamicReminder: false,
-          reminderTokensSinceLastInjection: 0,
         };
   // A per-spawn engine selection wins over the preference-configured engine
   // for this run only; saved preferences are never touched.

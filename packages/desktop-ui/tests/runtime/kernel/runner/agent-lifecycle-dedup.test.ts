@@ -7,7 +7,126 @@ import {
 } from "@stella/runtime/kernel/agents/local-agent-manager";
 
 describe("task lifecycle deduping", () => {
-  it("reuses a pre-persisted lifecycle timestamp when crash delivery replays", () => {
+  it("delivers one distinct completion once as hidden ordinary parent history", async () => {
+    const persistedMessages: Array<Record<string, unknown>> = [];
+    const sendMessage = vi.fn(async (input: Record<string, unknown>) => {
+      persistedMessages.push({
+        role: "runtimeInternal",
+        content: input.text,
+        customMessage: {
+          customType: input.customType,
+          eventId: input.eventId,
+          display: input.display,
+        },
+      });
+    });
+    const context = {
+      state: {
+        localAgentManager: null,
+        orchestratorSessions: new Map(),
+        runCallbacksByRunId: new Map(),
+      },
+      runtimeStore: {
+        loadRawThreadMessages: () => persistedMessages,
+      },
+      stellaDataDir: "/tmp/stella-test",
+    } as never;
+    createAgentOrchestration(context, {
+      buildAgentContext: vi.fn(),
+      sendMessage,
+    });
+    const manager = (context as { state: { localAgentManager: unknown } }).state
+      .localAgentManager as {
+      opts: { onAgentEvent: (event: Record<string, unknown>) => void };
+    };
+    const event = {
+      type: "agent-completed",
+      conversationId: "conversation-1",
+      rootRunId: "run-1",
+      eventId: "task-fresh:1:agent-completed",
+      agentId: "task-fresh",
+      agentType: "general",
+      description: "Finish the task",
+      result: "Full final report",
+      audience: "orchestrator-only",
+    };
+
+    manager.opts.onAgentEvent(event);
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
+    manager.opts.onAgentEvent(event);
+    await Promise.resolve();
+
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uiVisibility: "hidden",
+        customType: "runtime.task_lifecycle",
+        eventId: event.eventId,
+        display: false,
+      }),
+    );
+    expect(persistedMessages).toHaveLength(1);
+    expect(JSON.stringify(persistedMessages[0])).toContain("Full final report");
+  });
+
+  it("sequences simultaneous distinct completions and deduplicates each one", async () => {
+    const persistedMessages: Array<Record<string, unknown>> = [];
+    const sendMessage = vi.fn(async (input: Record<string, unknown>) => {
+      persistedMessages.push({
+        role: "runtimeInternal",
+        customMessage: {
+          customType: input.customType,
+          eventId: input.eventId,
+        },
+      });
+    });
+    const context = {
+      state: {
+        localAgentManager: null,
+        orchestratorSessions: new Map(),
+        runCallbacksByRunId: new Map(),
+      },
+      runtimeStore: {
+        loadRawThreadMessages: () => persistedMessages,
+      },
+      stellaDataDir: "/tmp/stella-test",
+    } as never;
+    createAgentOrchestration(context, {
+      buildAgentContext: vi.fn(),
+      sendMessage,
+    });
+    const manager = (context as { state: { localAgentManager: unknown } }).state
+      .localAgentManager as {
+      opts: { onAgentEvent: (event: Record<string, unknown>) => void };
+    };
+    const completion = (agentId: string) => ({
+      type: "agent-completed",
+      conversationId: "conversation-1",
+      rootRunId: "run-1",
+      eventId: `${agentId}:1:agent-completed`,
+      agentId,
+      agentType: "general",
+      description: `Finish ${agentId}`,
+      result: `Report ${agentId}`,
+      audience: "orchestrator-only",
+    });
+    const first = completion("task-a");
+    const second = completion("task-b");
+
+    manager.opts.onAgentEvent(first);
+    manager.opts.onAgentEvent(second);
+    manager.opts.onAgentEvent(first);
+    manager.opts.onAgentEvent(second);
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
+
+    expect(sendMessage.mock.calls.map(([input]) => input.eventId)).toEqual([
+      first.eventId,
+      second.eventId,
+    ]);
+    expect(persistedMessages).toHaveLength(2);
+  });
+
+  it("does not replay a lifecycle report already persisted in parent history", () => {
     const sendMessage = vi.fn(async () => undefined);
     const context = {
       state: {
@@ -51,12 +170,70 @@ describe("task lifecycle deduping", () => {
       audience: "orchestrator-only",
     });
 
-    expect(sendMessage).toHaveBeenCalledWith(
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("retries a failed delivery, then consumes the event ID exactly once", async () => {
+    const persistedMessages: Array<Record<string, unknown>> = [];
+    const sendMessage = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("delivery failed"))
+      .mockImplementationOnce(async (input: { eventId?: string }) => {
+        persistedMessages.push({
+          role: "runtimeInternal",
+          customMessage: {
+            customType: "runtime.task_lifecycle",
+            eventId: input.eventId,
+          },
+        });
+      });
+    const context = {
+      state: {
+        localAgentManager: null,
+        orchestratorSessions: new Map(),
+        runCallbacksByRunId: new Map(),
+      },
+      runtimeStore: {
+        loadRawThreadMessages: () => persistedMessages,
+      },
+      stellaDataDir: "/tmp/stella-test",
+    } as never;
+    createAgentOrchestration(context, {
+      buildAgentContext: vi.fn(),
+      sendMessage,
+    });
+
+    const manager = (context as { state: { localAgentManager: unknown } }).state
+      .localAgentManager as {
+      opts: { onAgentEvent: (event: Record<string, unknown>) => void };
+    };
+    const event = {
+      type: "agent-completed",
+      conversationId: "conversation-1",
+      rootRunId: "run-1",
+      eventId: "task-2:1:agent-completed",
+      agentId: "task-2",
+      agentType: "general",
+      description: "Finish the task",
+      result: "Done",
+      audience: "orchestrator-only",
+    };
+
+    manager.opts.onAgentEvent(event);
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+
+    manager.opts.onAgentEvent(event);
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
+    expect(sendMessage).toHaveBeenLastCalledWith(
       expect.objectContaining({
         customType: "runtime.task_lifecycle",
-        timestamp: 123,
+        eventId: event.eventId,
       }),
     );
+
+    manager.opts.onAgentEvent(event);
+    await Promise.resolve();
+    expect(sendMessage).toHaveBeenCalledTimes(2);
   });
 
   it("does not build hidden orchestrator prompts for agent-started", () => {

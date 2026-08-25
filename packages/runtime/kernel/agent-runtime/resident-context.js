@@ -33,6 +33,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { redactMemoryText } from "../memory/redaction.js";
+import {
+  capResidentMemoryDoc,
+  MEMORY_MAP_MAX_CHARS,
+} from "../memory/dream-storage.js";
 
 export const BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE = "bootstrap.startup_doc";
 export const BOOTSTRAP_SKILLS_CUSTOM_TYPE = "bootstrap.skills_catalog";
@@ -65,17 +69,6 @@ export const LIFE_USER_PROFILE_DISPLAY_PATH = "~/.stella/memories/profile.md";
 export const LIFE_MEMORY_MAP_DISPLAY_PATH = "~/.stella/memories/memory_map.md";
 export const RETIRED_MEMORY_SUMMARY_DISPLAY_PATH =
   "~/.stella/memories/memory_summary.md";
-
-export const MEMORY_MAP_BOOTSTRAP_MAX_CHARS = 12_000;
-const MEMORY_MAP_TRUNCATION_MARKER = "\n...[resident memory map truncated]";
-
-const capMemoryMap = (text) =>
-  text.length > MEMORY_MAP_BOOTSTRAP_MAX_CHARS
-    ? `${text.slice(
-        0,
-        MEMORY_MAP_BOOTSTRAP_MAX_CHARS - MEMORY_MAP_TRUNCATION_MARKER.length,
-      )}${MEMORY_MAP_TRUNCATION_MARKER}`
-    : text;
 
 const buildStartupDocText = (displayPath, content) =>
   [`<startup_doc path="${displayPath}">`, content, "</startup_doc>"].join("\n");
@@ -143,11 +136,13 @@ export const RESIDENT_BLOCKS = [
       const raw = context.memoryMap
         ? redactMemoryText(context.memoryMap.trim())
         : "";
-      return raw ? capMemoryMap(raw) : undefined;
+      return raw ? capResidentMemoryDoc(raw, MEMORY_MAP_MAX_CHARS) : undefined;
     },
     renderDiskBody: (raw) => {
       const redacted = raw.trim() ? redactMemoryText(raw.trim()) : "";
-      return redacted ? capMemoryMap(redacted) : undefined;
+      return redacted
+        ? capResidentMemoryDoc(redacted, MEMORY_MAP_MAX_CHARS)
+        : undefined;
     },
   },
   {
@@ -229,12 +224,17 @@ export const buildResidentContextMessages = (context) => {
 };
 
 const STARTUP_DOC_PATH_RE = /^<startup_doc path="([^"]+)">/;
+const STARTUP_DOC_BODY_RE =
+  /^<startup_doc path="[^"]+">\n([\s\S]*)\n<\/startup_doc>$/;
 
 /** Display path from a rendered `<startup_doc>` body, or null. */
 export const parseStartupDocPath = (text) => {
   const match = STARTUP_DOC_PATH_RE.exec(text.trim());
   return match?.[1] ?? null;
 };
+
+const parseStartupDocBody = (text) =>
+  STARTUP_DOC_BODY_RE.exec(text.trim())?.[1] ?? null;
 
 /**
  * Stable fold identity for a persisted resident-block custom message:
@@ -264,6 +264,16 @@ const blockByDocIdentity = new Map(
     block,
   ]),
 );
+
+const canonicalizeInThreadDocText = (identity, text) => {
+  const block = blockByDocIdentity.get(identity);
+  if (!block?.docPath || !block.renderDiskBody) return text;
+  const body = parseStartupDocBody(text);
+  const canonicalBody = body === null ? undefined : block.renderDiskBody(body);
+  return canonicalBody
+    ? buildStartupDocText(block.docPath, canonicalBody)
+    : text;
+};
 
 const readOptionalDiskFile = (filePath) => {
   try {
@@ -326,7 +336,7 @@ export const buildResidentFold = (args) => {
     const inThread = newestByIdentity.get(identity);
     if (!inThread?.text) return;
     const block = blockByDocIdentity.get(identity);
-    let text = inThread.text;
+    let text = canonicalizeInThreadDocText(identity, inThread.text);
     if (
       block?.diskFile &&
       block.renderDiskBody &&
@@ -389,11 +399,14 @@ export const parseResidentFold = (details) => {
     ) {
       continue;
     }
-    docs.push({ customType: doc.customType, text: doc.text });
     const identity = residentIdentityForCustomMessage({
       customType: doc.customType,
       content: doc.text,
     });
+    const text = identity
+      ? canonicalizeInThreadDocText(identity, doc.text)
+      : doc.text;
+    docs.push({ customType: doc.customType, text });
     if (identity) identities.add(identity);
   }
   return docs.length > 0 ? { docs, identities } : null;

@@ -321,8 +321,9 @@ export type RunnerState = {
   /**
    * Late-bound web search handler. Wired by `createStellaHostRunner` after the
    * Convex session is created so the toolHost (built earlier in startup) can
-   * reach Exa via the same convex-session call path that the rest of the
-   * runtime uses. Stored on state so the toolHost can read it lazily.
+   * reach the managed search provider via the same convex-session call path
+   * that the rest of the runtime uses. Stored on state so the toolHost can
+   * read it lazily.
    */
   webSearch:
     | ((

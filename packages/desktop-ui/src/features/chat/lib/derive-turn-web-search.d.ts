@@ -3,8 +3,8 @@
  *
  * The `web` tool (search mode) persists its structured hits onto the
  * `tool_result` payload (see `runtime/kernel/tools/defs/web.ts` and the
- * worker spread in `runtime/worker/server.ts`). Each hit may carry an
- * `image`/`favicon` URL supplied by Exa. We surface those as an inline
+ * worker spread in `runtime/worker/server.ts`). Each hit may carry optional
+ * `image`/`favicon` URLs. We surface those as an inline
  * "Results from the web" strip, Claude-style — but only for hits that
  * actually have a thumbnail, since the cards are image-first.
  *

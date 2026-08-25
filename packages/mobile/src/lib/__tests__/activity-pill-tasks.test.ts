@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 // AsyncStorage's non-native fallback talks to `window.localStorage`; give the
 // bun test runtime an in-memory one before the storage module is exercised.
@@ -12,13 +12,22 @@ const memoryStore = new Map<string, string>();
     removeItem: (key: string) => {
       memoryStore.delete(key);
     },
+    get length() {
+      return memoryStore.size;
+    },
+    key: (index: number) => [...memoryStore.keys()][index] ?? null,
+    clear: () => memoryStore.clear(),
   },
 };
 
 import type { ChatMessage, MobileTask } from "../../types";
 import { mergeMessagesById } from "../chat-merge";
 import { collectConversationTasks } from "../mobile-task-merge";
-import { loadChatMessages, saveChatMessages } from "../offline-chat-storage";
+import {
+  __setTranscriptDatabaseForTests,
+  loadChatMessages,
+  saveChatMessages,
+} from "../offline-chat-storage";
 
 /**
  * The floating activity pill shows its running tally iff the conversation's
@@ -44,6 +53,11 @@ const runningCount = (messages: ChatMessage[]) =>
     .length;
 
 describe("activity pill task derivation under push-connected sync", () => {
+  beforeEach(async () => {
+    memoryStore.clear();
+    await __setTranscriptDatabaseForTests(null);
+  });
+
   test("a push-delta anchor row re-delivers the running task to an already-synced transcript", () => {
     // Phone state: rows already synced (e.g. reloaded from storage that
     // predates the tasks fix), no task snapshots anywhere.

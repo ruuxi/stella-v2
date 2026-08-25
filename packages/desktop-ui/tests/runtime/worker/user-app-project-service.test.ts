@@ -11,7 +11,10 @@ import os from "node:os";
 import path from "node:path";
 import { createServer } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { UserAppProjectService } from "@stella/runtime/worker/user-apps/project-service";
+import {
+  detectUserAppRuntime,
+  UserAppProjectService,
+} from "@stella/runtime/worker/user-apps/project-service";
 
 const roots: string[] = [];
 
@@ -31,6 +34,7 @@ const writeProject = async (
   manifestSlug = slug,
   includeReact = true,
   runtime?: unknown,
+  scripts?: Record<string, string>,
 ) => {
   const projectPath = path.join(workspace, "apps", slug);
   await mkdir(path.join(projectPath, "node_modules", "vite"), {
@@ -53,7 +57,11 @@ const writeProject = async (
   );
   await writeFile(
     path.join(projectPath, "package.json"),
-    JSON.stringify({ name: slug, private: true }),
+    JSON.stringify({
+      name: slug,
+      private: true,
+      ...(scripts ? { scripts } : {}),
+    }),
   );
   return projectPath;
 };
@@ -97,7 +105,7 @@ if (process.argv[2] === 'install') {
   process.exit(0)
 }
 const portIndex = process.argv.indexOf('--port')
-const port = process.argv[portIndex + 1]
+const port = portIndex >= 0 ? process.argv[portIndex + 1] : process.env.PORT
 ${announceUrl ? "setTimeout(() => console.log('  Local:   http://127.0.0.1:' + port + '/'), 250)" : ""}
 const { createServer } = await import('node:net')
 createServer(() => {}).listen(Number(port), '127.0.0.1')
@@ -186,6 +194,110 @@ afterEach(async () => {
 });
 
 describe("UserAppProjectService", () => {
+  it("detects ordinary frontend, API, and worker package scripts", () => {
+    const runtime = detectUserAppRuntime({
+      dev: "vite",
+      "dev:api": "tsx src/server.ts",
+      "dev:worker": "tsx src/worker.ts",
+    });
+
+    expect(runtime.frontend).toBe("frontend");
+    expect(runtime.processes).toMatchObject([
+      {
+        id: "dev-api",
+        args: ["run", "dev:api"],
+        port: "auto",
+        readiness: { type: "tcp" },
+      },
+      {
+        id: "dev-worker",
+        args: ["run", "dev:worker"],
+        port: null,
+        readiness: { type: "process" },
+      },
+      {
+        id: "frontend",
+        args: [
+          "run",
+          "dev",
+          "--",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "${PORT}",
+          "--strictPort",
+        ],
+      },
+    ]);
+  });
+
+  it("detects split full-stack scripts without requiring a dev alias", () => {
+    const runtime = detectUserAppRuntime({
+      "dev:web": "vite",
+      "server:dev": "tsx src/server.ts",
+    });
+
+    expect(runtime.processes.map((process) => process.id)).toEqual([
+      "server-dev",
+      "frontend",
+    ]);
+    expect(runtime.processes.at(-1)?.args.slice(0, 2)).toEqual([
+      "run",
+      "dev:web",
+    ]);
+  });
+
+  it("splits a transparent aggregate into individually supervised scripts", () => {
+    const runtime = detectUserAppRuntime({
+      dev: 'concurrently "bun run dev:web" "bun run dev:api"',
+      "dev:web": "vite",
+      "dev:api": "tsx src/server.ts",
+    });
+    expect(runtime.processes.map((process) => process.id)).toEqual([
+      "dev-api",
+      "frontend",
+    ]);
+  });
+
+  it("does not double-start opaque aggregate dev commands", () => {
+    for (const dev of ["node scripts/dev.mjs", "turbo dev"]) {
+      const runtime = detectUserAppRuntime({
+        dev,
+        "dev:web": "vite",
+        "dev:api": "tsx src/server.ts",
+      });
+      expect(runtime.processes).toMatchObject([
+        { id: "frontend", args: ["run", "dev"] },
+      ]);
+      expect(runtime.processes).toHaveLength(1);
+    }
+  });
+
+  it("recognizes an ordinary backend dev script next to a named frontend", () => {
+    const runtime = detectUserAppRuntime({
+      dev: "tsx src/server.ts",
+      "dev:web": "vite",
+      "dev:worker": "tsx src/worker.ts",
+    });
+    expect(runtime.processes.map((process) => process.id)).toEqual([
+      "dev",
+      "dev-worker",
+      "frontend",
+    ]);
+  });
+
+  it("fails safely when ordinary frontend discovery is ambiguous", () => {
+    expect(() =>
+      detectUserAppRuntime({
+        "dev:web": "vite",
+        "dev:client": "next dev",
+      }),
+    ).toThrow("Frontend discovery is ambiguous");
+    expect(() =>
+      detectUserAppRuntime({ "dev:api": "tsx src/server.ts" }),
+    ).toThrow("No usable frontend dev script");
+  });
+
   it("rejects traversal and non-canonical slugs before touching disk", async () => {
     const workspace = await makeWorkspace();
     const service = new UserAppProjectService({ workspacePath: workspace });
@@ -452,6 +564,119 @@ describe("UserAppProjectService", () => {
     await service.shutdown();
   });
 
+  it("automatically supervises and cleans up an ordinary split full-stack app", async () => {
+    const workspace = await makeWorkspace();
+    const projectPath = await writeProject(
+      workspace,
+      "ordinary-full-stack",
+      "ordinary-full-stack",
+      true,
+      undefined,
+      { dev: "vite", "dev:api": "tsx src/server.ts" },
+    );
+    const executablePath = await fakeMultiProcessBun(workspace);
+    const service = new UserAppProjectService({
+      workspacePath: workspace,
+      executablePath,
+    });
+    await service.start();
+
+    await expect(
+      service.startProject("ordinary-full-stack"),
+    ).resolves.toMatchObject({
+      status: "running",
+      url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/$/),
+    });
+    const starts = (
+      await readFile(path.join(projectPath, ".process-events"), "utf8")
+    )
+      .split("\n")
+      .filter((line) => line.startsWith("start:"));
+    expect(starts.map((line) => line.split(":")[1])).toEqual([
+      "dev-api",
+      "frontend",
+    ]);
+    const pids = await Promise.all(
+      starts.flatMap((line) => {
+        const id = line.split(":")[1]!;
+        return [
+          Promise.resolve(Number(line.split(":")[2])),
+          readFile(path.join(projectPath, `.grandchild-${id}`), "utf8").then(
+            Number,
+          ),
+        ];
+      }),
+    );
+
+    await service.stopProject("ordinary-full-stack");
+    await waitFor(() => pids.every((pid) => !processExists(pid)));
+    await service.shutdown();
+  });
+
+  it("starts transparent aggregate children once without also launching the parent", async () => {
+    const workspace = await makeWorkspace();
+    const projectPath = await writeProject(
+      workspace,
+      "aggregate-app",
+      "aggregate-app",
+      true,
+      undefined,
+      {
+        dev: 'concurrently "bun run dev:web" "bun run dev:api"',
+        "dev:web": "vite",
+        "dev:api": "tsx src/server.ts",
+      },
+    );
+    const executablePath = await fakeMultiProcessBun(workspace);
+    const service = new UserAppProjectService({
+      workspacePath: workspace,
+      executablePath,
+    });
+    await service.start();
+
+    await expect(service.startProject("aggregate-app")).resolves.toMatchObject({
+      status: "running",
+    });
+    const starts = (
+      await readFile(path.join(projectPath, ".process-events"), "utf8")
+    )
+      .split("\n")
+      .filter((line) => line.startsWith("start:"));
+    expect(starts.map((line) => line.split(":")[1])).toEqual([
+      "dev-api",
+      "frontend",
+    ]);
+    await service.stopProject("aggregate-app");
+    await service.shutdown();
+  });
+
+  it("reports automatic discovery ambiguity without spawning a process", async () => {
+    const workspace = await makeWorkspace();
+    const projectPath = await writeProject(
+      workspace,
+      "ambiguous-app",
+      "ambiguous-app",
+      true,
+      undefined,
+      { "dev:web": "vite", "dev:client": "next dev" },
+    );
+    const executablePath = await fakeBun(workspace);
+    const service = new UserAppProjectService({
+      workspacePath: workspace,
+      executablePath,
+    });
+    await service.start();
+
+    await expect(service.startProject("ambiguous-app")).resolves.toMatchObject({
+      status: "error",
+      error: expect.stringContaining("Frontend discovery is ambiguous"),
+    });
+    await expect(
+      readFile(path.join(projectPath, ".spawn-count"), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await service.shutdown();
+  });
+
   it("starts one multi-process lifecycle, exposes sibling ports, and stops every process tree", async () => {
     const workspace = await makeWorkspace();
     const projectPath = await writeProject(
@@ -538,17 +763,18 @@ describe("UserAppProjectService", () => {
     await waitFor(() => restartedPids.every((pid) => !processExists(pid)));
   });
 
-  it("rolls back processes that started before a later process fails", async () => {
+  it("rolls back automatically discovered siblings when a later process fails", async () => {
     const workspace = await makeWorkspace();
     const projectPath = await writeProject(
       workspace,
       "failing-multi-app",
       "failing-multi-app",
       true,
-      multiProcessRuntime,
+      undefined,
+      { dev: "vite", "dev:api": "tsx src/server.ts" },
     );
     const executablePath = await fakeMultiProcessBun(workspace, {
-      failProcess: "web",
+      failProcess: "frontend",
     });
     const service = new UserAppProjectService({
       workspacePath: workspace,
@@ -562,7 +788,7 @@ describe("UserAppProjectService", () => {
       slug: "failing-multi-app",
       status: "error",
       url: null,
-      error: expect.stringContaining("web"),
+      error: expect.stringContaining("frontend"),
     });
     const events = (
       await readFile(path.join(projectPath, ".process-events"), "utf8")
@@ -650,9 +876,14 @@ describe("UserAppProjectService", () => {
     const executablePath = await fakeMultiProcessBun(workspace, {
       crashOnceProcess: "api",
     });
-    const service = new UserAppProjectService({ workspacePath: workspace, executablePath });
+    const service = new UserAppProjectService({
+      workspacePath: workspace,
+      executablePath,
+    });
     await service.start();
-    await expect(service.startProject("manual-recovery-app")).resolves.toMatchObject({
+    await expect(
+      service.startProject("manual-recovery-app"),
+    ).resolves.toMatchObject({
       status: "running",
     });
     await waitFor(async () => {
@@ -660,11 +891,15 @@ describe("UserAppProjectService", () => {
       return listed.apps[0]?.status === "error";
     });
 
-    await expect(service.startProject("manual-recovery-app")).resolves.toMatchObject({
+    await expect(
+      service.startProject("manual-recovery-app"),
+    ).resolves.toMatchObject({
       status: "running",
     });
     await new Promise((resolve) => setTimeout(resolve, 2_300));
-    const starts = (await readFile(path.join(projectPath, ".process-events"), "utf8"))
+    const starts = (
+      await readFile(path.join(projectPath, ".process-events"), "utf8")
+    )
       .split("\n")
       .filter((line) => line.startsWith("start:"));
     expect(starts).toHaveLength(4);

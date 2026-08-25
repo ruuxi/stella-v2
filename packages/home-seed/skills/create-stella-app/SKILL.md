@@ -74,73 +74,30 @@ Add packages from the app directory only:
 bun add <package>
 ```
 
-Stella's managed app runtime launches the project's local Vite installation on
-loopback and embeds its URL in the Apps sidebar. Stella discovers the app from
-`stella.app.json`; do not add it to a renderer registry. Source changes use
-Vite HMR; the built `dist/` directory is validation output, not the live
-discovery protocol. Do not start a second manual dev server unless you are
-explicitly debugging the project outside Stella.
+Stella's managed app runtime launches the project's ordinary local dev setup on
+loopback and embeds its frontend URL in the Apps sidebar. Standard frontend,
+backend, and worker package scripts are discovered and supervised
+automatically; app code does not need a Stella-specific process declaration.
+Stella discovers the app from `stella.app.json`; do not add it to a renderer
+registry. Source changes use Vite HMR; the built `dist/` directory is validation
+output, not the live discovery protocol. Do not start a second manual dev
+server unless you are explicitly debugging the project outside Stella.
 
-### Apps with multiple processes
+Use ordinary package-script conventions:
 
-The metadata-only manifest remains the default and is fully backward
-compatible. When an app needs its own API, worker, or other cooperating local
-service, declare the complete process set in the optional `runtime` block:
+- A single frontend uses `dev` (for example, `vite`).
+- Split projects can use `dev:web` or `dev:frontend` plus `dev:api`,
+  `dev:server`, and `dev:worker`. Stella starts each script once, waits for
+  network services, and treats workers as long-running processes.
+- An aggregate `dev` script may own all children with a standard process runner
+  or a `scripts/dev.mjs` entrypoint. Do not also start those children elsewhere.
+- Servers should honor `PORT` and bind to `127.0.0.1`; workers do not need a
+  port. Stella supplies stable ports, starts backends before the frontend,
+  rolls back partial launches, restarts failed process sets, and stops all
+  descendant processes with the app.
 
-```json
-{
-  "schemaVersion": 1,
-  "slug": "local-dashboard",
-  "name": "Local Dashboard",
-  "createdAt": "2026-01-01T00:00:00.000Z",
-  "runtime": {
-    "frontend": "web",
-    "processes": [
-      {
-        "id": "api",
-        "command": "bun",
-        "args": ["run", "api"],
-        "port": "auto",
-        "readiness": { "type": "http", "path": "/health" }
-      },
-      {
-        "id": "web",
-        "command": "bun",
-        "args": [
-          "x",
-          "vite",
-          "--host",
-          "127.0.0.1",
-          "--port",
-          "${PORT}",
-          "--strictPort"
-        ],
-        "port": "auto",
-        "readiness": { "type": "http", "path": "/" }
-      }
-    ]
-  }
-}
-```
-
-Processes start and become ready in declaration order. Stella opens only the
-declared frontend after every process is ready. A failed launch rolls back all
-processes, and app stop or Stella shutdown terminates every process tree.
-Repeated start and stop requests are idempotent.
-
-Commands are spawned directly without a shell. `"bun"` selects Stella's
-bundled Bun. A process with `"port": "auto"` receives `PORT` and
-`STELLA_APP_PORT`; arguments can reference `${PORT}`. Every process also
-receives stable sibling values such as `STELLA_APP_PORT_API` and
-`STELLA_APP_URL_API`. Process ids are lowercase slugs and become uppercase
-with hyphens changed to underscores in those environment names. Use HTTP
-readiness for a health endpoint, TCP readiness for a listening socket, or
-process readiness only for workers that have no port.
-
-A process that needs more than one socket can add named TCP or UDP ports, for
-example `"ports": [{ "id": "rtc-udp", "protocol": "udp" }]`. The process
-receives `STELLA_APP_PORT_RTC_UDP`, and siblings receive the fully qualified
-`STELLA_APP_PORT_<PROCESS>_RTC_UDP` name.
+Only unusual topologies that cannot be inferred safely need the optional
+`stella.app.json` runtime override. Do not add one to normal projects.
 
 ## Project boundaries
 

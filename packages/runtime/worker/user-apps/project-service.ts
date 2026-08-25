@@ -47,6 +47,11 @@ type ProjectRuntime = {
   processes: ProjectProcess[];
 };
 
+type ProjectPackage = {
+  scripts: Record<string, string>;
+  dependencyNames: Set<string>;
+};
+
 type ProjectManifest = {
   schemaVersion: 1;
   slug: string;
@@ -58,6 +63,7 @@ type ProjectManifest = {
 type DiscoveredProject = UserAppProjectDescriptor & {
   projectPath: string;
   runtime: ProjectRuntime | null;
+  package: ProjectPackage;
 };
 
 type RuntimeEntry = {
@@ -314,6 +320,208 @@ const parseManifest = (raw: string, expectedSlug: string): ProjectManifest => {
         }
       : null,
   };
+};
+
+const FRONTEND_COMMAND_RE =
+  /(?:^|[\s"'])(?:bunx\s+|bun\s+x\s+|npx\s+)?(?:vite|next(?:\s+dev)?|astro\s+dev|remix\s+dev|webpack(?:-dev-server)?|react-scripts\s+start)(?=$|[\s"'])/i;
+const FRONTEND_SCRIPT_RE = /(?:^|:)(?:web|frontend|client|ui)(?:$|:)/i;
+const SIBLING_SCRIPT_RE =
+  /^(?:dev|start):(?:api|server|backend|worker|workers|job|jobs|queue|livekit|realtime|socket|db|database)(?::|$)|^(?:api|server|backend|worker|workers|job|jobs|queue|livekit|realtime|socket|db|database):(?:dev|start)$/i;
+const WORKER_SCRIPT_RE = /(?:^|:)(?:worker|workers|job|jobs|queue)(?:$|:)/i;
+const AGGREGATE_COMMAND_RE =
+  /(?:^|[\s"'])(?:concurrently|npm-run-all|run-p|turbo\s+dev|nx\s+(?:run-many|affected)|bun\s+run\s+--parallel)(?=$|[\s"'])|(?:^|[\s"'])(?:node|bun)\s+(?:\.\/)?scripts\/(?:dev|start)\.[cm]?[jt]s(?=$|[\s"'])/i;
+const BACKEND_COMMAND_RE =
+  /(?:^|[\s"'])(?:(?:node|bun|tsx?|nodemon)\b[^\n]*\b(?:api|backend|server)[./_\w-]*|(?:convex|wrangler)\s+dev)(?=$|[\s"'])/i;
+
+const escapeRegExp = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const referencesScript = (command: string, scriptName: string) =>
+  new RegExp(
+    `(?:bun|npm|pnpm|yarn)\\s+(?:run\\s+)?${escapeRegExp(scriptName)}(?=$|[\\s"'])`,
+    "i",
+  ).test(command);
+
+const automaticScriptProcess = (
+  scriptName: string,
+  id: string,
+  kind: "frontend" | "server" | "worker",
+  scriptCommand: string,
+  aggregate = false,
+): ProjectProcess => ({
+  id,
+  command: "bun",
+  args:
+    kind === "frontend" &&
+    !aggregate &&
+    /(?:^|\s)vite(?:\s|$)/i.test(scriptCommand)
+      ? [
+          "run",
+          scriptName,
+          "--",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "${PORT}",
+          "--strictPort",
+        ]
+      : ["run", scriptName],
+  port: kind === "worker" ? null : "auto",
+  ports: [],
+  readiness:
+    kind === "worker"
+      ? { type: "process", delayMs: 250 }
+      : { type: "tcp", timeoutMs: URL_TIMEOUT_MS },
+});
+
+const processIdForScript = (scriptName: string): string => {
+  const normalized = scriptName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return (
+    normalized.match(/^[a-z]/) ? normalized : `process-${normalized}`
+  ).slice(0, 32);
+};
+
+export const detectUserAppRuntime = (
+  scripts: Record<string, string>,
+  dependencyNames: ReadonlySet<string> = new Set(),
+): ProjectRuntime => {
+  const entries = Object.entries(scripts).filter(
+    ([name, command]) =>
+      name.length > 0 && typeof command === "string" && command.trim(),
+  );
+  if (entries.length === 0) {
+    if (dependencyNames.size > 0 && !dependencyNames.has("vite")) {
+      throw new Error(
+        "No standard frontend dev script was found. Add an ordinary package.json dev script.",
+      );
+    }
+    return {
+      frontend: "frontend",
+      processes: [
+        {
+          id: "frontend",
+          command: "bun",
+          args: [
+            "x",
+            "vite",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "${PORT}",
+            "--strictPort",
+          ],
+          port: "auto",
+          ports: [],
+          readiness: { type: "tcp", timeoutMs: URL_TIMEOUT_MS },
+        },
+      ],
+    };
+  }
+
+  const devCommand = scripts.dev?.trim();
+  const siblingNames = entries
+    .map(([name]) => name)
+    .filter((name) => name !== "dev" && SIBLING_SCRIPT_RE.test(name));
+  const namedFrontendCandidates = entries
+    .filter(
+      ([name, command]) =>
+        name !== "dev" &&
+        (FRONTEND_SCRIPT_RE.test(name) || FRONTEND_COMMAND_RE.test(command)),
+    )
+    .map(([name]) => name);
+  const referencedNames = devCommand
+    ? entries
+        .map(([name]) => name)
+        .filter((name) => name !== "dev" && referencesScript(devCommand, name))
+    : [];
+  const splitAggregate =
+    namedFrontendCandidates.length === 1 &&
+    siblingNames.length > 0 &&
+    referencedNames.includes(namedFrontendCandidates[0]!) &&
+    siblingNames.every((name) => referencedNames.includes(name));
+  const aggregate =
+    !!devCommand &&
+    !splitAggregate &&
+    (AGGREGATE_COMMAND_RE.test(devCommand) ||
+      siblingNames.some((name) => referencesScript(devCommand, name)));
+  if (aggregate) {
+    return {
+      frontend: "frontend",
+      processes: [
+        automaticScriptProcess("dev", "frontend", "frontend", devCommand, true),
+      ],
+    };
+  }
+
+  let frontendScript: string;
+  let devIsBackend = false;
+  if (devCommand && FRONTEND_COMMAND_RE.test(devCommand)) {
+    if (namedFrontendCandidates.length > 0) {
+      throw new Error(
+        `Frontend discovery is ambiguous between dev and ${namedFrontendCandidates.join(", ")}. Make dev own the full process set or use the optional manifest runtime override.`,
+      );
+    }
+    frontendScript = "dev";
+  } else if (devCommand && splitAggregate) {
+    frontendScript = namedFrontendCandidates[0]!;
+  } else if (devCommand) {
+    if (
+      namedFrontendCandidates.length === 1 &&
+      BACKEND_COMMAND_RE.test(devCommand)
+    ) {
+      devIsBackend = true;
+      frontendScript = namedFrontendCandidates[0]!;
+    } else if (namedFrontendCandidates.length > 0) {
+      throw new Error(
+        `The dev script does not clearly own frontend script ${namedFrontendCandidates.join(", ")}. Make dev the ordinary aggregate command or use the optional manifest runtime override.`,
+      );
+    } else {
+      frontendScript = "dev";
+    }
+  } else if (namedFrontendCandidates.length === 1) {
+    frontendScript = namedFrontendCandidates[0]!;
+  } else if (namedFrontendCandidates.length === 0) {
+    throw new Error(
+      "No usable frontend dev script was found. Add a standard dev, dev:web, or dev:frontend package script.",
+    );
+  } else {
+    throw new Error(
+      `Frontend discovery is ambiguous between ${namedFrontendCandidates.join(", ")}. Add one ordinary aggregate dev script or use the optional manifest runtime override.`,
+    );
+  }
+
+  const auxiliaryNames = [
+    ...(devIsBackend ? ["dev"] : []),
+    ...siblingNames.filter((name) => name !== frontendScript),
+  ];
+  const ids = new Set<string>(["frontend"]);
+  const processes = auxiliaryNames.map((scriptName) => {
+    const id = processIdForScript(scriptName);
+    if (ids.has(id)) {
+      throw new Error(
+        `Process discovery produced duplicate id ${id}. Rename the package scripts or use the optional manifest runtime override.`,
+      );
+    }
+    ids.add(id);
+    return automaticScriptProcess(
+      scriptName,
+      id,
+      WORKER_SCRIPT_RE.test(scriptName) ? "worker" : "server",
+      scripts[scriptName]!,
+    );
+  });
+  processes.push(
+    automaticScriptProcess(
+      frontendScript,
+      "frontend",
+      "frontend",
+      scripts[frontendScript]!,
+    ),
+  );
+  return { frontend: "frontend", processes };
 };
 
 const killProcessTree = async (child: ChildProcess): Promise<void> => {
@@ -612,19 +820,37 @@ export class UserAppProjectService {
     const packageRaw = await readRegularFile(
       path.join(projectReal, PACKAGE_FILE),
     );
+    let packageJson: Record<string, unknown>;
     try {
-      const packageJson = JSON.parse(packageRaw);
-      if (!packageJson || typeof packageJson !== "object") {
+      const parsed: unknown = JSON.parse(packageRaw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
         throw new Error();
       }
+      packageJson = parsed as Record<string, unknown>;
     } catch {
       throw new Error(`${PACKAGE_FILE} must contain a JSON object.`);
+    }
+    const scripts = Object.fromEntries(
+      Object.entries(
+        packageJson.scripts && typeof packageJson.scripts === "object"
+          ? packageJson.scripts
+          : {},
+      ).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string",
+      ),
+    );
+    const dependencyNames = new Set<string>();
+    for (const field of ["dependencies", "devDependencies"] as const) {
+      const dependencies = packageJson[field];
+      if (!dependencies || typeof dependencies !== "object") continue;
+      for (const name of Object.keys(dependencies)) dependencyNames.add(name);
     }
     return {
       slug,
       projectPath: projectReal,
       meta: { label: manifest.name, createdAt: manifest.createdAt },
       runtime: manifest.runtime,
+      package: { scripts, dependencyNames },
     };
   }
 
@@ -646,7 +872,8 @@ export class UserAppProjectService {
       }
       entry.status = "starting";
       this.options.onChanged?.();
-      const processes = this.processesForProject(entry.project);
+      const runtime = this.runtimeForProject(entry.project);
+      const processes = runtime.processes;
       const ports = new Map<string, number>();
       const namedPorts = new Map<string, number>();
       for (const process of processes) {
@@ -656,8 +883,7 @@ export class UserAppProjectService {
             await this.portForProcess(
               slug,
               process.id,
-              !entry.project.runtime ||
-                process.id === entry.project.runtime.frontend,
+              process.id === runtime.frontend,
             ),
           );
         }
@@ -738,8 +964,7 @@ export class UserAppProjectService {
       ) {
         throw new Error("An app process exited during startup.");
       }
-      const frontendId = entry.project.runtime?.frontend ?? "frontend";
-      const frontendPort = ports.get(frontendId);
+      const frontendPort = ports.get(runtime.frontend);
       if (!frontendPort)
         throw new Error("The frontend process did not receive a port.");
       const url = `http://127.0.0.1:${frontendPort}/`;
@@ -773,26 +998,14 @@ export class UserAppProjectService {
     }
   }
 
-  private processesForProject(project: DiscoveredProject): ProjectProcess[] {
-    if (project.runtime) return project.runtime.processes;
-    return [
-      {
-        id: "frontend",
-        command: "bun",
-        args: [
-          "x",
-          "vite",
-          "--host",
-          "127.0.0.1",
-          "--port",
-          "${PORT}",
-          "--strictPort",
-        ],
-        port: "auto",
-        ports: [],
-        readiness: { type: "tcp", timeoutMs: URL_TIMEOUT_MS },
-      },
-    ];
+  private runtimeForProject(project: DiscoveredProject): ProjectRuntime {
+    return (
+      project.runtime ??
+      detectUserAppRuntime(
+        project.package.scripts,
+        project.package.dependencyNames,
+      )
+    );
   }
 
   private processEnvironment(
@@ -841,7 +1054,7 @@ export class UserAppProjectService {
   ): Promise<boolean> {
     try {
       const dependencyStat = await fs.stat(
-        project.runtime
+        project.runtime || Object.keys(project.package.scripts).length > 0
           ? path.join(project.projectPath, "node_modules")
           : path.join(project.projectPath, "node_modules", "vite"),
       );

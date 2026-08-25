@@ -2526,7 +2526,10 @@ export class SessionStore {
     );
     const beforeTimestamp = Math.floor(args.beforeTimestampMs);
     const beforeId = args.beforeId;
-    const before = { timestamp: beforeTimestamp, id: beforeId };
+    const before = this.resolveCursorSequence(conversationId, {
+      timestamp: beforeTimestamp,
+      id: beforeId,
+    });
     const cutoff = this.findVisibleMessageCutoffBefore(
       conversationId,
       maxVisibleMessages,
@@ -2684,6 +2687,7 @@ export class SessionStore {
       SELECT 1 AS found
       FROM message
       WHERE session_id = ?
+        AND type IN ('user_message', 'assistant_message', 'tool_request', 'tool_result', 'agent-started', 'agent-progress', 'agent-completed', 'agent-failed', 'agent-canceled')
         AND ${keyset.clause}
       ORDER BY ${this.timelineOrderBy("", "ASC")}
       LIMIT 1
@@ -2691,6 +2695,29 @@ export class SessionStore {
       )
       .get(conversationId, ...keyset.params);
     return row?.found === 1;
+  }
+  isMobileSyncCursorValid(
+    conversationIdInput,
+    cursorTimestampMs,
+    cursorId,
+    cursorSequence,
+  ) {
+    const conversationId = this.sanitizeConversationId(conversationIdInput);
+    if (typeof cursorId !== "string" || cursorId.length === 0) return false;
+    const row = this.db
+      .prepare(
+        `SELECT created_at AS timestamp${this.orderingSequenceSelect()}
+           FROM message
+          WHERE session_id = ? AND id = ?
+          LIMIT 1`,
+      )
+      .get(conversationId, cursorId);
+    if (!row || row.timestamp !== Math.floor(cursorTimestampMs)) return false;
+    return (
+      typeof cursorSequence !== "number" ||
+      !this.orderingBySequence ||
+      row.sequence === Math.floor(cursorSequence)
+    );
   }
   /**
    * Resolve lifecycle state only for task ids a cursor delta touched. This is

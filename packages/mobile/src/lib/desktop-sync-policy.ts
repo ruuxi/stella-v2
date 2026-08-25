@@ -188,13 +188,12 @@ export const desktopLiveConnectionSyncPlan = (details: {
 /**
  * Which cursor a pull sends to the desktop.
  *
- * Steady-state pulls (task poll, push-notified, send-path reconcile) ride the
- * cheap external timestamp/id cursor. Sequence-enabled desktop stores resolve
- * that cursor to their monotonic `ordering_sequence`, so backdated and
- * same-millisecond events remain visible to the next delta. Catch-up pulls
- * (landing, foreground return, reconnect, Force Sync) still use a full window:
- * it re-converges after a long socket gap and supports older desktop stores
- * that can only use the legacy timestamp/id ordering.
+ * Every pull with a known conversation and cursor starts with the cheap delta,
+ * including landing/reconnect/Force Sync. Sequence-enabled desktop stores
+ * resolve legacy timestamp/id cursors onto monotonic `ordering_sequence`, so
+ * backdated and same-millisecond events remain visible. The sync endpoint
+ * reports invalid cursors explicitly and returns a bounded recovery snapshot;
+ * larger valid gaps are drained as bounded forward pages.
  *
  * A cursor is only usable at all when it was minted for the conversation we
  * expect — on a conversation switch the delta must restart from scratch.
@@ -204,7 +203,7 @@ export const desktopSyncPullPlan = (args: {
   expectedConversationId: string | null;
   cursor: string | null;
 }): { sinceCursor: string | null; fullWindow: boolean } => {
-  if (args.catchUp || !args.expectedConversationId || !args.cursor) {
+  if (!args.expectedConversationId || !args.cursor) {
     return { sinceCursor: null, fullWindow: true };
   }
   return { sinceCursor: args.cursor, fullWindow: false };

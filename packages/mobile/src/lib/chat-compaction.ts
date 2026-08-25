@@ -1,5 +1,10 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { ChatMessage } from "../types";
+import {
+  accountChatMetadataReadsBlocked,
+  runAccountChatMetadataWrite,
+} from "./chat-account-metadata-queue";
+import { CHAT_CHECKPOINT_STORAGE_KEY } from "./chat-storage-keys";
 
 /**
  * Checkpoint-based compaction for the offline (cloud) chat, mirroring the
@@ -25,24 +30,34 @@ import type { ChatMessage } from "../types";
  * responder runs a small model with a short context window.
  */
 
-const CHECKPOINT_KEY = "stella-mobile-chat-checkpoint-v1";
-
 /** ~4 chars/token, the same rough ratio the desktop compactor assumes. */
 const EST_CHARS_PER_TOKEN = 4;
 /** Compact once the running context passes this estimate. */
 export const COMPACTION_TRIGGER_TOKENS = 6_000;
 /** Keep at least this many recent tokens verbatim after a checkpoint. */
 export const KEEP_RECENT_TOKENS = 2_000;
-/** Never fold the first turns on the very first compaction (keep the ask). */
-export const PROTECT_HEAD_MESSAGES = 2;
 /** Always leave at least this many recent messages verbatim. */
 export const MIN_TAIL_MESSAGES = 4;
+/** Row bound protects short-message chats that stay under the token trigger. */
+export const MAX_CONTEXT_TAIL_MESSAGES = 160;
+/** A single historical Markdown message must not monopolize the request. */
+export const MAX_CONTEXT_MESSAGE_CHARS = 12_000;
+/** Bound both legacy and newly generated rolling checkpoint summaries. */
+export const MAX_CHECKPOINT_SUMMARY_CHARS = 12_000;
+/** Bound new raw turns per summarizer pass; backlogs fold hierarchically. */
+export const MAX_COMPACTION_BATCH_TOKENS = 6_000;
+const MAX_COMPACTION_PASSES = 512;
+const MESSAGE_FRAME_TOKENS = 4;
 
 export type ChatCheckpoint = {
   /** Rolling summary of every message folded so far (structured markdown). */
   summary: string;
   /** Ids of the messages already folded into `summary` (a contiguous prefix). */
   coveredIds: string[];
+  /** New checkpoints use one contiguous-prefix watermark instead of 10k ids. */
+  coveredThroughId?: string;
+  /** Crash marker while durable history is being folded oldest-first. */
+  bootstrapPending?: boolean;
   updatedAt: number;
 };
 
@@ -52,14 +67,40 @@ export const estimateTokens = (text: string): number =>
   Math.ceil(text.length / EST_CHARS_PER_TOKEN);
 
 const messageTokens = (message: Pick<ChatMessage, "text">): number =>
-  estimateTokens(message.text ?? "");
+  estimateTokens(message.text ?? "") + MESSAGE_FRAME_TOKENS;
+
+const clippedHistoricalText = (value: string): string => {
+  const text = value.trim();
+  if (text.length <= MAX_CONTEXT_MESSAGE_CHARS) return text;
+  const half = Math.floor(MAX_CONTEXT_MESSAGE_CHARS / 2);
+  return `${text.slice(0, half)}\n\n[historical message clipped]\n\n${text.slice(-half)}`;
+};
+
+const compactionMessageTokens = (message: ChatMessage): number =>
+  estimateTokens(clippedHistoricalText(message.text)) + MESSAGE_FRAME_TOKENS;
+
+const clippedCheckpointSummary = (value: string): string => {
+  const summary = value.trim();
+  if (summary.length <= MAX_CHECKPOINT_SUMMARY_CHARS) return summary;
+  const half = Math.floor(MAX_CHECKPOINT_SUMMARY_CHARS / 2);
+  return `${summary.slice(0, half)}\n\n[checkpoint summary clipped]\n\n${summary.slice(-half)}`;
+};
 
 /** The messages not yet folded into the checkpoint (the live tail). */
 export const uncoveredMessages = (
   messages: ChatMessage[],
   checkpoint: ChatCheckpoint | null,
 ): ChatMessage[] => {
-  if (!checkpoint || checkpoint.coveredIds.length === 0) return messages;
+  if (!checkpoint) return messages;
+  if (checkpoint.coveredThroughId) {
+    const coveredIndex = messages.findIndex(
+      (message) => message.id === checkpoint.coveredThroughId,
+    );
+    // A bounded recent window normally starts after the watermark. In that
+    // case every loaded row is new; if the marker is present, take its suffix.
+    return coveredIndex >= 0 ? messages.slice(coveredIndex + 1) : messages;
+  }
+  if (checkpoint.coveredIds.length === 0) return messages;
   const covered = new Set(checkpoint.coveredIds);
   return messages.filter((message) => !covered.has(message.id));
 };
@@ -78,13 +119,16 @@ export const contextTokenEstimate = (
 
 export async function loadCheckpoint(): Promise<ChatCheckpoint | null> {
   try {
-    const raw = await AsyncStorage.getItem(CHECKPOINT_KEY);
+    if (await accountChatMetadataReadsBlocked()) return null;
+    const raw = await AsyncStorage.getItem(CHAT_CHECKPOINT_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object") return null;
     const record = parsed as Record<string, unknown>;
     const summary =
-      typeof record.summary === "string" ? record.summary.trim() : "";
+      typeof record.summary === "string"
+        ? clippedCheckpointSummary(record.summary)
+        : "";
     const coveredIds = Array.isArray(record.coveredIds)
       ? record.coveredIds.filter((id): id is string => typeof id === "string")
       : [];
@@ -92,6 +136,11 @@ export async function loadCheckpoint(): Promise<ChatCheckpoint | null> {
     return {
       summary,
       coveredIds,
+      ...(typeof record.coveredThroughId === "string" &&
+      record.coveredThroughId.trim()
+        ? { coveredThroughId: record.coveredThroughId.trim() }
+        : {}),
+      ...(record.bootstrapPending === true ? { bootstrapPending: true } : {}),
       updatedAt:
         typeof record.updatedAt === "number" &&
         Number.isFinite(record.updatedAt)
@@ -106,11 +155,18 @@ export async function loadCheckpoint(): Promise<ChatCheckpoint | null> {
 export async function saveCheckpoint(
   checkpoint: ChatCheckpoint,
 ): Promise<void> {
-  await AsyncStorage.setItem(CHECKPOINT_KEY, JSON.stringify(checkpoint));
+  await runAccountChatMetadataWrite(() =>
+    AsyncStorage.setItem(
+      CHAT_CHECKPOINT_STORAGE_KEY,
+      JSON.stringify(checkpoint),
+    ),
+  );
 }
 
 export async function clearCheckpoint(): Promise<void> {
-  await AsyncStorage.removeItem(CHECKPOINT_KEY);
+  await runAccountChatMetadataWrite(() =>
+    AsyncStorage.removeItem(CHAT_CHECKPOINT_STORAGE_KEY),
+  );
 }
 
 /* ── planning ─────────────────────────────────────────────────────────── */
@@ -122,27 +178,30 @@ export type CompactionPlan = {
   previousSummary: string | undefined;
   /** coveredIds for the checkpoint written after summarizing `middle`. */
   nextCoveredIds: string[];
+  nextCoveredThroughId: string;
 };
 
 /**
  * Decide what to fold this turn. Returns null when the context is under the
- * trigger or there is nothing new worth folding — mirroring
- * `splitThreadMessagesForCompaction`: protect the head, keep a recent tail by
- * token budget, summarize the middle.
+ * trigger or there is nothing new worth folding. It keeps a recent tail by
+ * token budget and summarizes a contiguous oldest-first prefix.
  */
 export function planCompaction(
   messages: ChatMessage[],
   checkpoint: ChatCheckpoint | null,
 ): CompactionPlan | null {
-  if (contextTokenEstimate(messages, checkpoint) < COMPACTION_TRIGGER_TOKENS) {
+  const uncovered = uncoveredMessages(messages, checkpoint);
+  if (
+    contextTokenEstimate(messages, checkpoint) < COMPACTION_TRIGGER_TOKENS &&
+    uncovered.length <= MAX_CONTEXT_TAIL_MESSAGES
+  ) {
     return null;
   }
-  const tail = uncoveredMessages(messages, checkpoint);
-  // Head protection only applies before the first checkpoint exists; once the
-  // summary exists the head is already captured in it.
-  const compressionStart = checkpoint
-    ? 0
-    : Math.min(PROTECT_HEAD_MESSAGES, tail.length);
+  const tail = uncovered;
+  // Coverage must be a contiguous prefix so a single durable watermark can
+  // replace an ever-growing array of ids. The summary prompt preserves the
+  // initial ask; recent continuity stays verbatim in the bounded tail.
+  const compressionStart = 0;
 
   // Walk back from the end accumulating the recent tail to keep verbatim.
   let accumulated = 0;
@@ -160,18 +219,31 @@ export function planCompaction(
   if (minTailStart >= compressionStart) {
     tailStart = Math.min(tailStart, minTailStart);
   }
+  tailStart = Math.max(tailStart, tail.length - MAX_CONTEXT_TAIL_MESSAGES);
 
-  const middle = tail.slice(compressionStart, tailStart);
+  let compressionEnd = compressionStart;
+  let compressionTokens = 0;
+  while (compressionEnd < tailStart) {
+    const nextTokens =
+      compressionTokens + compactionMessageTokens(tail[compressionEnd]!);
+    if (
+      compressionEnd > compressionStart &&
+      nextTokens > MAX_COMPACTION_BATCH_TOKENS
+    ) {
+      break;
+    }
+    compressionTokens = nextTokens;
+    compressionEnd += 1;
+  }
+  const middle = tail.slice(compressionStart, compressionEnd);
   if (middle.length === 0) return null;
 
-  const nextCoveredIds = [
-    ...(checkpoint?.coveredIds ?? []),
-    ...middle.map((message) => message.id),
-  ];
+  const nextCoveredThroughId = middle[middle.length - 1]!.id;
   return {
     middle,
     previousSummary: checkpoint?.summary,
-    nextCoveredIds,
+    nextCoveredIds: [nextCoveredThroughId],
+    nextCoveredThroughId,
   };
 }
 
@@ -192,19 +264,20 @@ const SUMMARY_STRUCTURE = `## Topic
 const SUMMARY_GUIDELINES =
   "Guidelines:\n- Preserve durable facts about the user (name, location, stable preferences, ongoing situation) that were stated in these turns.\n- Quote any question you asked the user that was left unanswered, verbatim, under Open Items.\n- Be factual - only include information explicitly discussed. Do not invent details.";
 
-export const formatMessagesForCompaction = (
-  messages: ChatMessage[],
-): string =>
+export const formatMessagesForCompaction = (messages: ChatMessage[]): string =>
   messages
     .map((message) => {
       const who = message.role === "user" ? "User" : "Assistant";
-      return `${who}: ${message.text.trim()}`;
+      return `${who}: ${clippedHistoricalText(message.text)}`;
     })
     .filter((line) => line.length > 0)
     .join("\n\n");
 
 export const computeSummaryBudget = (middle: ChatMessage[]): number => {
-  const tokens = middle.reduce((sum, m) => sum + messageTokens(m), 0);
+  const tokens = middle.reduce(
+    (sum, message) => sum + compactionMessageTokens(message),
+    0,
+  );
   return Math.max(80, Math.floor(tokens * 0.3));
 };
 
@@ -215,7 +288,7 @@ export function buildSummaryPrompt(
 ): string {
   const footer = `${SUMMARY_GUIDELINES}\n\nTarget ~${budget} tokens. Write only the summary body.`;
   if (previousSummary?.trim()) {
-    return `You are updating a conversation summary. A previous summary exists below. New conversation turns have occurred since then and need to be incorporated.\n\nPREVIOUS SUMMARY:\n${previousSummary.trim()}\n\nNEW TURNS TO INCORPORATE:\n${formattedConversation}\n\nUpdate the summary. PRESERVE existing information that is still relevant. ADD new information. Remove information only if it is clearly obsolete.\n\n${SUMMARY_STRUCTURE}\n\n${footer}`;
+    return `You are updating a conversation summary. A previous summary exists below. New conversation turns have occurred since then and need to be incorporated.\n\nPREVIOUS SUMMARY:\n${clippedCheckpointSummary(previousSummary)}\n\nNEW TURNS TO INCORPORATE:\n${formattedConversation}\n\nUpdate the summary. PRESERVE existing information that is still relevant. ADD new information. Remove information only if it is clearly obsolete.\n\n${SUMMARY_STRUCTURE}\n\n${footer}`;
   }
   return `Create a concise summary of this conversation that preserves the important information for future context.\n\nCONVERSATION TO SUMMARIZE:\n${formattedConversation}\n\nUse this structure:\n\n${SUMMARY_STRUCTURE}\n\n${footer}`;
 }
@@ -230,30 +303,38 @@ export async function runCompaction(args: {
   messages: ChatMessage[];
   checkpoint: ChatCheckpoint | null;
   summarize: (prompt: string) => Promise<string>;
+  bootstrapPending?: boolean;
 }): Promise<ChatCheckpoint | null> {
-  const plan = planCompaction(args.messages, args.checkpoint);
-  if (!plan) return null;
-  const prompt = buildSummaryPrompt(
-    formatMessagesForCompaction(plan.middle),
-    plan.previousSummary,
-    computeSummaryBudget(plan.middle),
-  );
-  let summary = "";
-  try {
-    summary = (await args.summarize(prompt)).trim();
-  } catch {
-    // Best-effort: a failed summarization just leaves the tail uncompacted
-    // this turn (the next turn retries), never drops messages.
-    return null;
+  let checkpoint = args.checkpoint;
+  let compacted = false;
+  for (let pass = 0; pass < MAX_COMPACTION_PASSES; pass += 1) {
+    const plan = planCompaction(args.messages, checkpoint);
+    if (!plan) return compacted ? checkpoint : null;
+    const prompt = buildSummaryPrompt(
+      formatMessagesForCompaction(plan.middle),
+      plan.previousSummary,
+      computeSummaryBudget(plan.middle),
+    );
+    let summary = "";
+    try {
+      summary = clippedCheckpointSummary(await args.summarize(prompt));
+    } catch {
+      // Best-effort: a failed summarization leaves the last durable checkpoint
+      // intact and retries on the next turn.
+      return compacted ? checkpoint : null;
+    }
+    if (!summary) return compacted ? checkpoint : null;
+    checkpoint = {
+      summary,
+      coveredIds: plan.nextCoveredIds,
+      coveredThroughId: plan.nextCoveredThroughId,
+      ...(args.bootstrapPending ? { bootstrapPending: true } : {}),
+      updatedAt: Date.now(),
+    };
+    compacted = true;
+    await saveCheckpoint(checkpoint);
   }
-  if (!summary) return null;
-  const checkpoint: ChatCheckpoint = {
-    summary,
-    coveredIds: plan.nextCoveredIds,
-    updatedAt: Date.now(),
-  };
-  await saveCheckpoint(checkpoint);
-  return checkpoint;
+  return compacted ? checkpoint : null;
 }
 
 /**
@@ -265,11 +346,32 @@ export function buildCompactedContext(
   messages: ChatMessage[],
   checkpoint: ChatCheckpoint | null,
 ): { summary: string; history: HistoryTurn[] } {
-  const tail = uncoveredMessages(messages, checkpoint);
+  const rowBoundedTail = uncoveredMessages(messages, checkpoint).slice(
+    -MAX_CONTEXT_TAIL_MESSAGES,
+  );
+  let tailStart = rowBoundedTail.length;
+  let tokens = 0;
+  while (tailStart > 0) {
+    const nextTokens = tokens + messageTokens(rowBoundedTail[tailStart - 1]!);
+    if (
+      rowBoundedTail.length - tailStart >= MIN_TAIL_MESSAGES &&
+      nextTokens > KEEP_RECENT_TOKENS
+    ) {
+      break;
+    }
+    tokens = nextTokens;
+    tailStart -= 1;
+  }
+  const tail = rowBoundedTail.slice(tailStart);
   return {
-    summary: checkpoint?.summary ?? "",
+    summary: checkpoint ? clippedCheckpointSummary(checkpoint.summary) : "",
     history: tail
-      .map((message) => ({ role: message.role, text: message.text.trim() }))
+      .map((message) => {
+        return {
+          role: message.role,
+          text: clippedHistoricalText(message.text),
+        };
+      })
       .filter((turn) => turn.text.length > 0),
   };
 }

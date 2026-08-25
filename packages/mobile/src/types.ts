@@ -248,6 +248,14 @@ export type ChatMessage = {
    */
   canonicalCreatedAt?: number;
   /**
+   * Durable desktop source row used for backward keyset pagination. Synthetic
+   * mobile projections (for example `:agent` cards) keep their own stable id,
+   * but paging must continue from the real SessionStore row that produced
+   * them.
+   */
+  sourceMessageId?: string;
+  sourceTimestamp?: number;
+  /**
    * Authoritative monotonic ordering key from the desktop (chat-ordering
    * re-architecture). When every row carries it the transcript is ordered by it
    * (jump-free, clock-independent). Present on canonical rows; absent on

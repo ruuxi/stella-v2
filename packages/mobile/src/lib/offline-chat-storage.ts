@@ -5,7 +5,35 @@ import {
   desktopChatOutboxStorageKeys,
   waitForDesktopChatOutboxWrites,
 } from "./desktop-chat-outbox";
+import {
+  CHAT_CHECKPOINT_STORAGE_KEY,
+  CHAT_MEMORY_STORAGE_KEY,
+} from "./chat-storage-keys";
+import {
+  finalizeAccountChatCleanup,
+  loadAccountChatCleanupIntent,
+  loadAccountChatCleanupProgress,
+  markAccountCanonicalChatCleared,
+  markAccountChatIndexCleared,
+} from "./chat-account-cleanup-state";
+import {
+  accountChatMetadataReadsBlocked,
+  beginAccountChatMetadataCleanup,
+  finishAccountChatMetadataCleanup,
+  waitForAccountChatMetadataWrites,
+} from "./chat-account-metadata-queue";
 import { parseChatArtifacts } from "./mobile-artifacts";
+import {
+  clearAsyncTranscriptRows,
+  findAsyncTranscriptCursor,
+  loadNewerAsyncTranscriptRows,
+  loadOldestAsyncTranscriptRows,
+  loadOlderAsyncTranscriptRows,
+  loadRecentAsyncTranscriptRows,
+  saveAsyncTranscriptRows,
+  truncateAsyncTranscriptRows,
+  type AsyncTranscriptPage,
+} from "./async-transcript-fallback";
 
 /**
  * The independent chat transcripts. The cloud thread keeps the original key
@@ -20,7 +48,17 @@ import { parseChatArtifacts } from "./mobile-artifacts";
  * and sync cursor so the two mounted surfaces never race each other's
  * persistence.
  */
-export type ChatThreadId = "cloud" | "computer" | "carplay" | "carplay-computer";
+export type ChatThreadId =
+  | "cloud"
+  | "computer"
+  | "carplay"
+  | "carplay-computer";
+const CHAT_THREAD_IDS: ChatThreadId[] = [
+  "cloud",
+  "computer",
+  "carplay",
+  "carplay-computer",
+];
 
 const MESSAGES_KEY: Record<ChatThreadId, string> = {
   cloud: "stella-mobile-offline-chat-v1",
@@ -34,7 +72,310 @@ const SYNC_STATE_KEY: Record<ChatThreadId, string> = {
   carplay: "stella-mobile-carplay-sync-state-v1",
   "carplay-computer": "stella-mobile-carplay-computer-sync-state-v1",
 };
-const MAX_MESSAGES = 1000;
+
+const TRANSCRIPT_DB_NAME = "stella-mobile-transcripts.db";
+const TRANSCRIPT_CLEANUP_REQUIRED_KEY =
+  "stella-mobile-transcript-cleanup-required-v1";
+const TRANSCRIPT_SCHEMA = `
+PRAGMA journal_mode = WAL;
+
+CREATE TABLE IF NOT EXISTS mobile_chat_messages (
+  thread_id TEXT NOT NULL,
+  message_id TEXT NOT NULL,
+  order_key INTEGER NOT NULL,
+  canonical_id TEXT,
+  canonical_created_at INTEGER,
+  sequence INTEGER,
+  payload_json TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (thread_id, message_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS mobile_chat_messages_order
+  ON mobile_chat_messages(thread_id, order_key, message_id);
+CREATE INDEX IF NOT EXISTS mobile_chat_messages_canonical
+  ON mobile_chat_messages(thread_id, canonical_id);
+CREATE INDEX IF NOT EXISTS mobile_chat_messages_sequence
+  ON mobile_chat_messages(thread_id, sequence);
+
+CREATE TABLE IF NOT EXISTS mobile_chat_meta (
+  key TEXT PRIMARY KEY NOT NULL,
+  value TEXT NOT NULL
+);
+`;
+
+/**
+ * Initial hydration is deliberately small. Durable history lives in SQLite;
+ * React/Hermes owns only a sliding window and asks for adjacent pages as the
+ * user scrolls.
+ */
+export const CHAT_TRANSCRIPT_INITIAL_LIMIT = 160;
+export const CHAT_TRANSCRIPT_PAGE_LIMIT = 80;
+export const CHAT_TRANSCRIPT_MAX_LOADED = 480;
+const ORDER_STRIDE = 1_000_000;
+
+export type ChatTranscriptCursor = {
+  orderKey: number;
+  id: string;
+};
+
+export type ChatTranscriptPage = {
+  messages: ChatMessage[];
+  oldestCursor: ChatTranscriptCursor | null;
+  newestCursor: ChatTranscriptCursor | null;
+  hasOlder: boolean;
+  hasNewer: boolean;
+};
+
+export const chatTranscriptCursorForMessage = (
+  thread: ChatThreadId,
+  messageId: string,
+): ChatTranscriptCursor | null => {
+  const orderKey = orderKeysByThread.get(thread)?.get(messageId);
+  return orderKey === undefined ? null : { orderKey, id: messageId };
+};
+
+type SQLiteResult = { changes: number; lastInsertRowId: number };
+type SQLiteDatabase = {
+  execAsync: (sql: string) => Promise<void>;
+  runAsync: (sql: string, ...params: unknown[]) => Promise<SQLiteResult>;
+  getFirstAsync: <T>(sql: string, ...params: unknown[]) => Promise<T | null>;
+  getAllAsync: <T>(sql: string, ...params: unknown[]) => Promise<T[]>;
+  withTransactionAsync: (task: () => Promise<void>) => Promise<void>;
+};
+
+type StoredMessageRow = {
+  message_id: string;
+  order_key: number;
+  payload_json: string;
+};
+
+let transcriptDbPromise: Promise<SQLiteDatabase | null> | null = null;
+let transcriptWriteQueue: Promise<unknown> = Promise.resolve();
+const orderKeysByThread = new Map<ChatThreadId, Map<string, number>>();
+const serializedByThread = new Map<ChatThreadId, Map<string, string>>();
+const transcriptGenerationByThread = new Map<ChatThreadId, number>();
+let transcriptCleanupInProgress = false;
+let transcriptCleanupRecoveryRequired = false;
+let transcriptCleanupMarkerCheck: Promise<boolean> | null = null;
+let transcriptCleanupRecovery: Promise<void> | null = null;
+const transcriptCleanupListeners = new Set<() => void>();
+
+/** Notify mounted transcript owners before account data is wiped. */
+export function subscribeChatStorageCleanup(listener: () => void): () => void {
+  transcriptCleanupListeners.add(listener);
+  return () => transcriptCleanupListeners.delete(listener);
+}
+
+/** Synchronously detach mounted producers once durable account intent exists. */
+export function invalidateChatStorageForAccountCleanup(): void {
+  beginAccountChatMetadataCleanup();
+  for (const listener of transcriptCleanupListeners) {
+    try {
+      listener();
+    } catch {
+      // Every mounted surface is independent; one bad listener must not leave
+      // another surface writing the departing account back into storage.
+    }
+  }
+  for (const thread of CHAT_THREAD_IDS) invalidateTranscriptWrites(thread);
+  orderKeysByThread.clear();
+  serializedByThread.clear();
+  fallbackMigrations.clear();
+}
+const TRANSCRIPT_CACHE_MAX_ROWS = CHAT_TRANSCRIPT_MAX_LOADED * 2;
+
+const transcriptGeneration = (thread: ChatThreadId): number =>
+  transcriptGenerationByThread.get(thread) ?? 0;
+
+const invalidateTranscriptWrites = (thread: ChatThreadId): void => {
+  transcriptGenerationByThread.set(thread, transcriptGeneration(thread) + 1);
+};
+
+const touchCacheValue = <T>(
+  map: Map<string, T>,
+  id: string,
+  value: T,
+): void => {
+  map.delete(id);
+  map.set(id, value);
+};
+
+const trimCache = <T>(map: Map<string, T>): void => {
+  while (map.size > TRANSCRIPT_CACHE_MAX_ROWS) {
+    const oldest = map.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    map.delete(oldest);
+  }
+};
+
+const trimThreadCaches = (thread: ChatThreadId): void => {
+  const orderKeys = orderKeysByThread.get(thread);
+  const serialized = serializedByThread.get(thread);
+  if (orderKeys) trimCache(orderKeys);
+  if (serialized) trimCache(serialized);
+};
+
+const emptyPage = (): ChatTranscriptPage => ({
+  messages: [],
+  oldestCursor: null,
+  newestCursor: null,
+  hasOlder: false,
+  hasNewer: false,
+});
+
+const enqueueTranscriptWrite = <T>(work: () => Promise<T>): Promise<T> => {
+  const run = transcriptWriteQueue.then(work, work);
+  transcriptWriteQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+};
+
+const allAccountChatStorageKeys = (): string[] => [
+  ...Object.values(MESSAGES_KEY),
+  ...Object.values(SYNC_STATE_KEY),
+  ...desktopChatOutboxStorageKeys(),
+  CHAT_CHECKPOINT_STORAGE_KEY,
+  CHAT_MEMORY_STORAGE_KEY,
+];
+
+async function cleanupRequired(): Promise<boolean> {
+  if (transcriptCleanupRecoveryRequired) return true;
+  transcriptCleanupMarkerCheck ??= AsyncStorage.getItem(
+    TRANSCRIPT_CLEANUP_REQUIRED_KEY,
+  )
+    .then((value) => value === "1")
+    .catch((error) => {
+      // A storage read failure cannot be interpreted as "no cleanup intent":
+      // doing so could expose the prior account's rows. Leave the check
+      // retryable and fail closed until AsyncStorage is readable again.
+      transcriptCleanupMarkerCheck = null;
+      throw error;
+    });
+  return transcriptCleanupMarkerCheck;
+}
+
+async function recoverInterruptedCleanup(
+  db: SQLiteDatabase | null,
+): Promise<void> {
+  if (!(await cleanupRequired())) return;
+  if (transcriptCleanupRecovery) return transcriptCleanupRecovery;
+  transcriptCleanupRecovery = (async () => {
+    await waitForDesktopChatOutboxWrites().catch(() => {});
+    if (db) {
+      await enqueueTranscriptWrite(() =>
+        db.withTransactionAsync(async () => {
+          await db.execAsync(
+            "DELETE FROM mobile_chat_messages; DELETE FROM mobile_chat_meta;",
+          );
+        }),
+      );
+    } else {
+      await enqueueTranscriptWrite(async () => {});
+    }
+    await Promise.all(
+      CHAT_THREAD_IDS.map((thread) => clearAsyncTranscriptRows(thread)),
+    );
+    await AsyncStorage.multiRemove(allAccountChatStorageKeys());
+    await AsyncStorage.removeItem(TRANSCRIPT_CLEANUP_REQUIRED_KEY);
+    orderKeysByThread.clear();
+    serializedByThread.clear();
+    transcriptCleanupRecoveryRequired = false;
+    transcriptCleanupMarkerCheck = Promise.resolve(false);
+  })();
+  try {
+    await transcriptCleanupRecovery;
+  } finally {
+    transcriptCleanupRecovery = null;
+  }
+}
+
+let accountCleanupRecovery: Promise<void> | null = null;
+
+async function recoverInterruptedAccountCleanup(): Promise<void> {
+  const token = await loadAccountChatCleanupIntent();
+  if (!token) return;
+  if (accountCleanupRecovery) return accountCleanupRecovery;
+  accountCleanupRecovery = (async () => {
+    const progress = await loadAccountChatCleanupProgress(token);
+    const messageIndex = await import("./chat-message-index");
+    if (!progress.canonicalCleared) {
+      invalidateChatStorageForAccountCleanup();
+      // Account intent may have been the final write before a process kill.
+      // Establish the independent index block before canonical deletion so a
+      // stale FTS database can never become the only surviving account copy.
+      await messageIndex.ensureMessageIndexRebuildIntent();
+      // `clearAllChatStorage` raises its own canonical marker before deleting
+      // anything. Its in-progress latch prevents this recovery call from
+      // recursively entering through getTranscriptDb().
+      await clearAllChatStorage();
+      await markAccountCanonicalChatCleared(token);
+    }
+    const latestProgress = await loadAccountChatCleanupProgress(token);
+    if (!latestProgress.indexCleared) {
+      // Recovery may begin at the transcript entry point before the recall
+      // subsystem mounts. Finish the independently durable index deletion here
+      // rather than leaving the account-wide owner pending indefinitely.
+      await messageIndex.clearMessageIndex();
+      await markAccountChatIndexCleared(token);
+    }
+    if (!(await finalizeAccountChatCleanup(token))) {
+      // A concurrent index recovery may already have finalized this token.
+      if ((await loadAccountChatCleanupIntent()) === token) {
+        throw new Error("Local chat account cleanup did not finalize");
+      }
+    }
+  })();
+  try {
+    await accountCleanupRecovery;
+  } finally {
+    accountCleanupRecovery = null;
+  }
+}
+
+async function openTranscriptDb(): Promise<SQLiteDatabase | null> {
+  let SQLite: typeof import("expo-sqlite");
+  try {
+    // Dynamic import keeps Bun's non-native unit-test runtime on the explicit
+    // AsyncStorage fallback while native iOS/Android builds use expo-sqlite.
+    SQLite = await import("expo-sqlite");
+  } catch {
+    return null;
+  }
+  try {
+    const db = (await SQLite.openDatabaseAsync(
+      TRANSCRIPT_DB_NAME,
+    )) as unknown as SQLiteDatabase;
+    await db.execAsync(TRANSCRIPT_SCHEMA);
+    return db;
+  } catch (error) {
+    if ("Bun" in globalThis) return null;
+    throw error;
+  }
+}
+
+const getTranscriptDb = async () => {
+  // Cross-store ownership must be recovered before any canonical store is
+  // opened or served. Recovery's own clearAllChatStorage() call raises the
+  // in-progress latch before recursively opening the DB, so this does not
+  // recurse.
+  if (!transcriptCleanupInProgress) {
+    await recoverInterruptedAccountCleanup();
+  }
+  if (!transcriptDbPromise) {
+    transcriptDbPromise = openTranscriptDb().catch((error) => {
+      transcriptDbPromise = null;
+      throw error;
+    });
+  }
+  const db = await transcriptDbPromise;
+  if (!transcriptCleanupInProgress) {
+    await recoverInterruptedCleanup(db);
+  }
+  return db;
+};
 
 export type ChatSyncState = {
   conversationId: string | null;
@@ -69,19 +410,23 @@ function parseStoredToolSteps(value: unknown): ToolStep[] {
       record.args && typeof record.args === "object"
         ? Object.fromEntries(
             Object.entries(record.args as Record<string, unknown>).filter(
-              (entry): entry is [string, string] => typeof entry[1] === "string",
+              (entry): entry is [string, string] =>
+                typeof entry[1] === "string",
             ),
           )
         : undefined;
-    return [{
-      id: record.id,
-      toolName: record.toolName,
-      status: record.status,
-      ...(args && Object.keys(args).length > 0 ? { args } : {}),
-      ...(typeof record.textOffset === "number" && Number.isFinite(record.textOffset)
-        ? { textOffset: record.textOffset }
-        : {}),
-    }];
+    return [
+      {
+        id: record.id,
+        toolName: record.toolName,
+        status: record.status,
+        ...(args && Object.keys(args).length > 0 ? { args } : {}),
+        ...(typeof record.textOffset === "number" &&
+        Number.isFinite(record.textOffset)
+          ? { textOffset: record.textOffset }
+          : {}),
+      },
+    ];
   });
 }
 
@@ -132,6 +477,14 @@ function parseStoredTasks(value: unknown): MobileTask[] {
       Number.isFinite(record.completedAt)
         ? record.completedAt
         : undefined;
+    const updatedAt =
+      typeof record.updatedAt === "number" && Number.isFinite(record.updatedAt)
+        ? record.updatedAt
+        : undefined;
+    const resultText =
+      typeof record.resultText === "string" ? record.resultText.trim() : "";
+    const errorMessage =
+      typeof record.errorMessage === "string" ? record.errorMessage.trim() : "";
     const settledStale =
       status === "running" &&
       Date.now() - createdAt > STORED_RUNNING_TASK_STALE_MS;
@@ -144,6 +497,9 @@ function parseStoredTasks(value: unknown): MobileTask[] {
       ...(statusText && !settledStale ? { statusText } : {}),
       ...(reasoningSummaries.length > 0 ? { reasoningSummaries } : {}),
       createdAt,
+      ...(updatedAt !== undefined ? { updatedAt } : {}),
+      ...(resultText ? { resultText } : {}),
+      ...(errorMessage ? { errorMessage } : {}),
       ...(completedAt !== undefined ? { completedAt } : {}),
     });
   }
@@ -192,6 +548,16 @@ function parseRow(row: unknown): ChatMessage | null {
     Number.isFinite(o.canonicalCreatedAt)
       ? { canonicalCreatedAt: o.canonicalCreatedAt }
       : {}),
+    ...(typeof o.sourceMessageId === "string" && o.sourceMessageId.trim()
+      ? { sourceMessageId: o.sourceMessageId.trim() }
+      : {}),
+    ...(typeof o.sourceTimestamp === "number" &&
+    Number.isFinite(o.sourceTimestamp)
+      ? { sourceTimestamp: o.sourceTimestamp }
+      : {}),
+    ...(typeof o.sequence === "number" && Number.isFinite(o.sequence)
+      ? { sequence: o.sequence }
+      : {}),
     role: o.role,
     text: o.text,
     ...(artifacts.length > 0 ? { artifacts } : {}),
@@ -199,6 +565,9 @@ function parseRow(row: unknown): ChatMessage | null {
     ...(tasks.length > 0 ? { tasks } : {}),
     ...(o.hasImage === true ? { hasImage: true } : {}),
     ...(thumbnailUris.length > 0 ? { thumbnailUris } : {}),
+    ...(typeof o.quotedText === "string" && o.quotedText.trim()
+      ? { quotedText: o.quotedText }
+      : {}),
     ...(o.cloudFallback === true ? { cloudFallback: true } : {}),
     // A queued-but-unsent bubble must reload as queued, never as a delivered
     // message. The hook re-enqueues these on hydration so a restart actually
@@ -208,18 +577,11 @@ function parseRow(row: unknown): ChatMessage | null {
   };
 }
 
-export async function loadChatMessages(
-  thread: ChatThreadId,
-): Promise<ChatMessage[]> {
+function parseStoredMessages(raw: string | null): ChatMessage[] {
+  if (!raw) return [];
   try {
-    const raw = await AsyncStorage.getItem(MESSAGES_KEY[thread]);
-    if (!raw) {
-      return [];
-    }
     const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
+    if (!Array.isArray(parsed)) return [];
     const out: ChatMessage[] = [];
     for (const item of parsed) {
       // Hydration must be corruption-tolerant per ROW: parseRow is defensive,
@@ -242,12 +604,740 @@ export async function loadChatMessages(
   }
 }
 
+const migrationKey = (thread: ChatThreadId) => `legacy-migration-v1:${thread}`;
+
+/**
+ * Copy the old whole-array AsyncStorage value into SQLite exactly once. The
+ * marker and rows commit in one transaction; deleting the source happens only
+ * after that commit. A kill at any boundary therefore retries harmlessly:
+ * primary-key INSERT OR IGNORE prevents duplicates and the source remains
+ * available until the durable commit is known to have succeeded.
+ */
+async function migrateLegacyTranscript(
+  db: SQLiteDatabase,
+  thread: ChatThreadId,
+): Promise<void> {
+  if (transcriptCleanupInProgress) return;
+  const generation = transcriptGeneration(thread);
+  const key = migrationKey(thread);
+  const marker = await db.getFirstAsync<{ value: string }>(
+    "SELECT value FROM mobile_chat_meta WHERE key = ?",
+    key,
+  );
+  if (marker?.value === "done") return;
+
+  const legacyRaw = await AsyncStorage.getItem(MESSAGES_KEY[thread]);
+  const legacy = parseStoredMessages(legacyRaw);
+  const committed = await enqueueTranscriptWrite(async () => {
+    if (
+      transcriptCleanupInProgress ||
+      generation !== transcriptGeneration(thread)
+    ) {
+      return false;
+    }
+    await db.withTransactionAsync(async () => {
+      for (let index = 0; index < legacy.length; index += 1) {
+        const message = legacy[index];
+        if (!message) continue;
+        const serialized = JSON.stringify(message);
+        await db.runAsync(
+          `INSERT OR IGNORE INTO mobile_chat_messages(
+             thread_id, message_id, order_key, canonical_id,
+             canonical_created_at, sequence, payload_json, updated_at
+           ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+          thread,
+          message.id,
+          index * ORDER_STRIDE,
+          message.canonicalId ?? null,
+          message.canonicalCreatedAt ?? null,
+          message.sequence ?? null,
+          serialized,
+          Date.now(),
+        );
+      }
+      await db.runAsync(
+        `INSERT INTO mobile_chat_meta(key, value) VALUES(?, 'done')
+         ON CONFLICT(key) DO UPDATE SET value = 'done'`,
+        key,
+      );
+    });
+    return true;
+  });
+  if (!committed) return;
+  // If this removal fails, the completed SQLite marker wins next launch. The
+  // legacy value is merely redundant; it can never overwrite canonical rows.
+  await AsyncStorage.removeItem(MESSAGES_KEY[thread]).catch(() => {});
+}
+
+/** Narrow test seam for deterministic crash/retry coverage without a native runtime. */
+export const __migrateLegacyTranscriptForTests = (
+  db: unknown,
+  thread: ChatThreadId,
+): Promise<void> => migrateLegacyTranscript(db as SQLiteDatabase, thread);
+
+/** Install a real in-memory SQLite adapter for repository contract tests. */
+export async function __setTranscriptDatabaseForTests(
+  database: unknown,
+): Promise<void> {
+  for (const thread of CHAT_THREAD_IDS) invalidateTranscriptWrites(thread);
+  await transcriptWriteQueue.catch(() => {});
+  const db = database as SQLiteDatabase | null;
+  if (db) await db.execAsync(TRANSCRIPT_SCHEMA);
+  transcriptDbPromise = Promise.resolve(db);
+  transcriptWriteQueue = Promise.resolve();
+  orderKeysByThread.clear();
+  serializedByThread.clear();
+  fallbackMigrations.clear();
+}
+
+export function __getTranscriptCacheSizesForTests(thread: ChatThreadId): {
+  orderKeys: number;
+  serialized: number;
+} {
+  return {
+    orderKeys: orderKeysByThread.get(thread)?.size ?? 0,
+    serialized: serializedByThread.get(thread)?.size ?? 0,
+  };
+}
+
+const cursorForRow = (row: StoredMessageRow): ChatTranscriptCursor => ({
+  orderKey: row.order_key,
+  id: row.message_id,
+});
+
+function messagesFromStoredRows(
+  thread: ChatThreadId,
+  rows: StoredMessageRow[],
+): ChatMessage[] {
+  const orderKeys = orderKeysByThread.get(thread) ?? new Map<string, number>();
+  const serialized =
+    serializedByThread.get(thread) ?? new Map<string, string>();
+  orderKeysByThread.set(thread, orderKeys);
+  serializedByThread.set(thread, serialized);
+  const messages: ChatMessage[] = [];
+  for (const row of rows) {
+    let parsed: ChatMessage | null = null;
+    try {
+      parsed = parseRow(JSON.parse(row.payload_json) as unknown);
+    } catch {
+      parsed = null;
+    }
+    if (!parsed) continue;
+    touchCacheValue(orderKeys, parsed.id, row.order_key);
+    touchCacheValue(serialized, parsed.id, row.payload_json);
+    messages.push(parsed);
+  }
+  trimThreadCaches(thread);
+  return messages;
+}
+
+function pageFromRows(args: {
+  thread: ChatThreadId;
+  rows: StoredMessageRow[];
+  hasOlder: boolean;
+  hasNewer: boolean;
+}): ChatTranscriptPage {
+  const messages = messagesFromStoredRows(args.thread, args.rows);
+  if (args.rows.length === 0) return emptyPage();
+  return {
+    messages,
+    oldestCursor: cursorForRow(args.rows[0]!),
+    newestCursor: cursorForRow(args.rows[args.rows.length - 1]!),
+    hasOlder: args.hasOlder,
+    hasNewer: args.hasNewer,
+  };
+}
+
+const fallbackMigrations = new Map<ChatThreadId, Promise<void>>();
+
+async function ensureIncrementalFallback(thread: ChatThreadId): Promise<void> {
+  const existing = fallbackMigrations.get(thread);
+  if (existing) return existing;
+  const migration = (async () => {
+    const raw = await AsyncStorage.getItem(MESSAGES_KEY[thread]);
+    if (!raw) return;
+    const messages = parseStoredMessages(raw);
+    if (messages.length > 0) {
+      await saveAsyncTranscriptRows(
+        thread,
+        messages.map((message) => ({
+          id: message.id,
+          messageJson: JSON.stringify(message),
+          ...(message.canonicalId ? { canonicalId: message.canonicalId } : {}),
+        })),
+      );
+    }
+    await AsyncStorage.removeItem(MESSAGES_KEY[thread]);
+  })().catch((error) => {
+    fallbackMigrations.delete(thread);
+    throw error;
+  });
+  fallbackMigrations.set(thread, migration);
+  return migration;
+}
+
+function pageFromAsyncRows(
+  thread: ChatThreadId,
+  page: AsyncTranscriptPage,
+): ChatTranscriptPage {
+  return pageFromRows({
+    thread,
+    rows: page.rows.map((row) => ({
+      message_id: row.id,
+      order_key: row.orderKey,
+      payload_json: row.messageJson,
+    })),
+    hasOlder: page.hasOlder,
+    hasNewer: page.hasNewer,
+  });
+}
+
+async function saveFallbackMessages(
+  thread: ChatThreadId,
+  incoming: ChatMessage[],
+): Promise<void> {
+  await ensureIncrementalFallback(thread);
+  const serialized =
+    serializedByThread.get(thread) ?? new Map<string, string>();
+  serializedByThread.set(thread, serialized);
+  const candidates = incoming.map((message) => ({
+    message,
+    messageJson: JSON.stringify(message),
+  }));
+  if (
+    candidates.every(
+      ({ message, messageJson }) => serialized.get(message.id) === messageJson,
+    )
+  ) {
+    return;
+  }
+  // Keep unchanged neighbors in the bounded write. They are ordering anchors
+  // for historical prefixes and middle insertions; filtering them before the
+  // fallback allocates keys would misclassify an adjacent page as a
+  // disconnected newer delta.
+  const saved = await saveAsyncTranscriptRows(
+    thread,
+    candidates.map(({ message, messageJson }) => ({
+      id: message.id,
+      messageJson,
+      ...(message.canonicalId ? { canonicalId: message.canonicalId } : {}),
+    })),
+  );
+  const orderKeys = orderKeysByThread.get(thread) ?? new Map<string, number>();
+  orderKeysByThread.set(thread, orderKeys);
+  for (let index = 0; index < candidates.length; index += 1) {
+    const { message, messageJson } = candidates[index]!;
+    if (message.canonicalId && message.canonicalId !== message.id) {
+      orderKeys.delete(message.canonicalId);
+      serialized.delete(message.canonicalId);
+    }
+    touchCacheValue(orderKeys, message.id, saved[index]!.orderKey);
+    touchCacheValue(serialized, message.id, messageJson);
+  }
+  trimThreadCaches(thread);
+}
+
+export async function loadRecentChatMessages(
+  thread: ChatThreadId,
+  limit = CHAT_TRANSCRIPT_INITIAL_LIMIT,
+): Promise<ChatTranscriptPage> {
+  const boundedLimit = Math.max(1, Math.floor(limit));
+  const db = await getTranscriptDb();
+  if (!db) {
+    await ensureIncrementalFallback(thread);
+    return pageFromAsyncRows(
+      thread,
+      await loadRecentAsyncTranscriptRows(thread, boundedLimit),
+    );
+  }
+  await migrateLegacyTranscript(db, thread);
+  const descending = await db.getAllAsync<StoredMessageRow>(
+    `SELECT message_id, order_key, payload_json
+       FROM mobile_chat_messages
+      WHERE thread_id = ?
+      ORDER BY order_key DESC, message_id DESC
+      LIMIT ?`,
+    thread,
+    boundedLimit + 1,
+  );
+  const hasOlder = descending.length > boundedLimit;
+  const rows = descending.slice(0, boundedLimit).reverse();
+  return pageFromRows({ thread, rows, hasOlder, hasNewer: false });
+}
+
+/** Start an oldest-to-newest bounded scan (used to seed a missing checkpoint). */
+export async function loadOldestChatMessages(
+  thread: ChatThreadId,
+  limit = CHAT_TRANSCRIPT_INITIAL_LIMIT,
+): Promise<ChatTranscriptPage> {
+  const boundedLimit = Math.max(1, Math.floor(limit));
+  const db = await getTranscriptDb();
+  if (!db) {
+    await ensureIncrementalFallback(thread);
+    return pageFromAsyncRows(
+      thread,
+      await loadOldestAsyncTranscriptRows(thread, boundedLimit),
+    );
+  }
+  await migrateLegacyTranscript(db, thread);
+  const ascending = await db.getAllAsync<StoredMessageRow>(
+    `SELECT message_id, order_key, payload_json
+       FROM mobile_chat_messages
+      WHERE thread_id = ?
+      ORDER BY order_key ASC, message_id ASC
+      LIMIT ?`,
+    thread,
+    boundedLimit + 1,
+  );
+  const hasNewer = ascending.length > boundedLimit;
+  return pageFromRows({
+    thread,
+    rows: ascending.slice(0, boundedLimit),
+    hasOlder: false,
+    hasNewer,
+  });
+}
+
+export async function loadOlderChatMessages(
+  thread: ChatThreadId,
+  before: ChatTranscriptCursor,
+  limit = CHAT_TRANSCRIPT_PAGE_LIMIT,
+): Promise<ChatTranscriptPage> {
+  const boundedLimit = Math.max(1, Math.floor(limit));
+  const db = await getTranscriptDb();
+  if (!db) {
+    await ensureIncrementalFallback(thread);
+    return pageFromAsyncRows(
+      thread,
+      await loadOlderAsyncTranscriptRows(thread, before, boundedLimit),
+    );
+  }
+  await migrateLegacyTranscript(db, thread);
+  const resolvedBefore = await db.getFirstAsync<{
+    order_key: number;
+    message_id: string;
+  }>(
+    `SELECT order_key, message_id FROM mobile_chat_messages
+      WHERE thread_id = ? AND message_id = ?
+      LIMIT 1`,
+    thread,
+    before.id,
+  );
+  const currentBefore = resolvedBefore
+    ? { orderKey: resolvedBefore.order_key, id: resolvedBefore.message_id }
+    : before;
+  const descending = await db.getAllAsync<StoredMessageRow>(
+    `SELECT message_id, order_key, payload_json
+       FROM mobile_chat_messages
+      WHERE thread_id = ?
+        AND (order_key < ? OR (order_key = ? AND message_id < ?))
+      ORDER BY order_key DESC, message_id DESC
+      LIMIT ?`,
+    thread,
+    currentBefore.orderKey,
+    currentBefore.orderKey,
+    currentBefore.id,
+    boundedLimit + 1,
+  );
+  const hasOlder = descending.length > boundedLimit;
+  const rows = descending.slice(0, boundedLimit).reverse();
+  const newest = rows[rows.length - 1];
+  const newer = newest
+    ? await db.getFirstAsync<{ present: number }>(
+        `SELECT 1 AS present FROM mobile_chat_messages
+          WHERE thread_id = ?
+            AND (order_key > ? OR (order_key = ? AND message_id > ?))
+          LIMIT 1`,
+        thread,
+        newest.order_key,
+        newest.order_key,
+        newest.message_id,
+      )
+    : null;
+  return pageFromRows({ thread, rows, hasOlder, hasNewer: Boolean(newer) });
+}
+
+export async function loadNewerChatMessages(
+  thread: ChatThreadId,
+  after: ChatTranscriptCursor,
+  limit = CHAT_TRANSCRIPT_PAGE_LIMIT,
+): Promise<ChatTranscriptPage> {
+  const boundedLimit = Math.max(1, Math.floor(limit));
+  const db = await getTranscriptDb();
+  if (!db) {
+    await ensureIncrementalFallback(thread);
+    return pageFromAsyncRows(
+      thread,
+      await loadNewerAsyncTranscriptRows(thread, after, boundedLimit),
+    );
+  }
+  await migrateLegacyTranscript(db, thread);
+  const resolvedAfter = await db.getFirstAsync<{
+    order_key: number;
+    message_id: string;
+  }>(
+    `SELECT order_key, message_id FROM mobile_chat_messages
+      WHERE thread_id = ? AND message_id = ?
+      LIMIT 1`,
+    thread,
+    after.id,
+  );
+  const currentAfter = resolvedAfter
+    ? { orderKey: resolvedAfter.order_key, id: resolvedAfter.message_id }
+    : after;
+  const ascending = await db.getAllAsync<StoredMessageRow>(
+    `SELECT message_id, order_key, payload_json
+       FROM mobile_chat_messages
+      WHERE thread_id = ?
+        AND (order_key > ? OR (order_key = ? AND message_id > ?))
+      ORDER BY order_key ASC, message_id ASC
+      LIMIT ?`,
+    thread,
+    currentAfter.orderKey,
+    currentAfter.orderKey,
+    currentAfter.id,
+    boundedLimit + 1,
+  );
+  const hasNewer = ascending.length > boundedLimit;
+  const rows = ascending.slice(0, boundedLimit);
+  const oldest = rows[0];
+  const older = oldest
+    ? await db.getFirstAsync<{ present: number }>(
+        `SELECT 1 AS present FROM mobile_chat_messages
+          WHERE thread_id = ?
+            AND (order_key < ? OR (order_key = ? AND message_id < ?))
+          LIMIT 1`,
+        thread,
+        oldest.order_key,
+        oldest.order_key,
+        oldest.message_id,
+      )
+    : null;
+  return pageFromRows({ thread, rows, hasOlder: Boolean(older), hasNewer });
+}
+
+/** Resolve a canonical transcript row to the keyset cursor used by paging. */
+export async function findChatMessageCursor(
+  thread: ChatThreadId,
+  messageId: string,
+): Promise<ChatTranscriptCursor | null> {
+  const id = messageId.trim();
+  if (!id) return null;
+  const db = await getTranscriptDb();
+  if (!db) {
+    await ensureIncrementalFallback(thread);
+    return findAsyncTranscriptCursor(thread, id);
+  }
+  await migrateLegacyTranscript(db, thread);
+  const row = await db.getFirstAsync<{
+    message_id: string;
+    order_key: number;
+  }>(
+    `SELECT message_id, order_key
+       FROM mobile_chat_messages
+      WHERE thread_id = ? AND message_id = ?
+      LIMIT 1`,
+    thread,
+    id,
+  );
+  return row ? { orderKey: row.order_key, id: row.message_id } : null;
+}
+
+/** Compatibility helper for call sites that only need the bounded recent tail. */
+export async function loadChatMessages(
+  thread: ChatThreadId,
+): Promise<ChatMessage[]> {
+  return (await loadRecentChatMessages(thread)).messages;
+}
+
+async function assignOrderKeys(
+  db: SQLiteDatabase,
+  thread: ChatThreadId,
+  messages: ChatMessage[],
+  allowRebalance = true,
+): Promise<Map<string, number>> {
+  const known = orderKeysByThread.get(thread) ?? new Map<string, number>();
+  orderKeysByThread.set(thread, known);
+  for (const message of messages) {
+    if (known.has(message.id)) continue;
+    const canonicalId = message.canonicalId?.trim();
+    if (canonicalId && known.has(canonicalId)) {
+      known.set(message.id, known.get(canonicalId)!);
+      continue;
+    }
+    const stored = await db.getFirstAsync<{ order_key: number }>(
+      `SELECT order_key FROM mobile_chat_messages
+        WHERE thread_id = ? AND message_id IN (?, ?)
+        ORDER BY CASE WHEN message_id = ? THEN 0 ELSE 1 END
+        LIMIT 1`,
+      thread,
+      message.id,
+      canonicalId ?? message.id,
+      message.id,
+    );
+    if (stored) known.set(message.id, stored.order_key);
+  }
+
+  const bounds = await db.getFirstAsync<{
+    min_key: number | null;
+    max_key: number | null;
+  }>(
+    `SELECT MIN(order_key) AS min_key, MAX(order_key) AS max_key
+       FROM mobile_chat_messages WHERE thread_id = ?`,
+    thread,
+  );
+  let globalMin = bounds?.min_key ?? 0;
+  let globalMax = bounds?.max_key ?? -ORDER_STRIDE;
+
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index]!;
+    if (known.has(message.id)) continue;
+    let runEnd = index + 1;
+    while (runEnd < messages.length && !known.has(messages[runEnd]!.id)) {
+      runEnd += 1;
+    }
+    const previous = index > 0 ? known.get(messages[index - 1]!.id) : undefined;
+    const next =
+      runEnd < messages.length ? known.get(messages[runEnd]!.id) : undefined;
+    const count = runEnd - index;
+    if (previous !== undefined && next !== undefined) {
+      const step = (next - previous) / (count + 1);
+      let priorCandidate = previous;
+      let precisionExhausted = next > previous && !Number.isFinite(step);
+      if (next > previous) {
+        for (let offset = 0; offset < count; offset += 1) {
+          const candidate = previous + step * (offset + 1);
+          if (!(candidate > priorCandidate && candidate < next)) {
+            precisionExhausted = true;
+            break;
+          }
+          priorCandidate = candidate;
+        }
+      }
+      if (precisionExhausted) {
+        if (!allowRebalance) {
+          throw new Error("Could not allocate stable transcript order keys");
+        }
+        const cachedIds = new Set(known.keys());
+        for (const candidate of messages) {
+          cachedIds.add(candidate.id);
+          if (candidate.canonicalId) cachedIds.add(candidate.canonicalId);
+        }
+        const durable = await db.getAllAsync<{ message_id: string }>(
+          `SELECT message_id FROM mobile_chat_messages
+            WHERE thread_id = ?
+            ORDER BY order_key ASC, message_id ASC`,
+          thread,
+        );
+        await db.withTransactionAsync(async () => {
+          for (
+            let durableIndex = 0;
+            durableIndex < durable.length;
+            durableIndex += 1
+          ) {
+            await db.runAsync(
+              `UPDATE mobile_chat_messages SET order_key = ?
+                WHERE thread_id = ? AND message_id = ?`,
+              durableIndex * ORDER_STRIDE,
+              thread,
+              durable[durableIndex]!.message_id,
+            );
+          }
+        });
+        known.clear();
+        for (
+          let durableIndex = 0;
+          durableIndex < durable.length;
+          durableIndex += 1
+        ) {
+          const id = durable[durableIndex]!.message_id;
+          if (cachedIds.has(id)) known.set(id, durableIndex * ORDER_STRIDE);
+        }
+        return assignOrderKeys(db, thread, messages, false);
+      }
+      for (let offset = 0; offset < count; offset += 1) {
+        known.set(messages[index + offset]!.id, previous + step * (offset + 1));
+      }
+    } else if (previous !== undefined) {
+      for (let offset = 0; offset < count; offset += 1) {
+        globalMax = Math.max(globalMax, previous) + ORDER_STRIDE;
+        known.set(messages[index + offset]!.id, globalMax);
+      }
+    } else if (next !== undefined) {
+      const first = Math.min(globalMin, next) - ORDER_STRIDE * count;
+      for (let offset = 0; offset < count; offset += 1) {
+        known.set(messages[index + offset]!.id, first + ORDER_STRIDE * offset);
+      }
+      globalMin = first;
+    } else {
+      // A disconnected batch is empty only during first persistence. A cursor
+      // delta can legitimately have no overlap with a stale local window; in
+      // that case it is newer and must append after the durable maximum rather
+      // than reusing order key zero (which violates the unique order index).
+      const emptyTranscript =
+        bounds?.min_key == null && bounds?.max_key == null;
+      for (let offset = 0; offset < count; offset += 1) {
+        const orderKey = emptyTranscript
+          ? offset * ORDER_STRIDE
+          : globalMax + ORDER_STRIDE;
+        known.set(messages[index + offset]!.id, orderKey);
+        globalMax = orderKey;
+      }
+      if (emptyTranscript) globalMin = 0;
+    }
+    index = runEnd - 1;
+  }
+  return known;
+}
+
 export async function saveChatMessages(
   thread: ChatThreadId,
   messages: ChatMessage[],
 ): Promise<void> {
-  const trimmed = messages.slice(-MAX_MESSAGES);
-  await AsyncStorage.setItem(MESSAGES_KEY[thread], JSON.stringify(trimmed));
+  if (transcriptCleanupInProgress) return;
+  const generation = transcriptGeneration(thread);
+  const db = await getTranscriptDb();
+  if (!db) {
+    // Non-native tests/web do not have expo-sqlite. Keep an explicit uncapped,
+    // incremental compatibility store; native builds never take this branch.
+    await enqueueTranscriptWrite(() =>
+      generation === transcriptGeneration(thread)
+        ? saveFallbackMessages(thread, messages)
+        : Promise.resolve(),
+    );
+    return;
+  }
+  await migrateLegacyTranscript(db, thread);
+  await enqueueTranscriptWrite(async () => {
+    if (generation !== transcriptGeneration(thread)) return;
+    const orderKeys = await assignOrderKeys(db, thread, messages);
+    const priorSerialized =
+      serializedByThread.get(thread) ?? new Map<string, string>();
+    serializedByThread.set(thread, priorSerialized);
+    const changed = messages.flatMap((message) => {
+      const payload = JSON.stringify(message);
+      return priorSerialized.get(message.id) === payload
+        ? []
+        : [{ message, payload }];
+    });
+    if (changed.length === 0) {
+      trimThreadCaches(thread);
+      return;
+    }
+    await db.withTransactionAsync(async () => {
+      for (const { message, payload } of changed) {
+        if (message.canonicalId && message.canonicalId !== message.id) {
+          // A crash between a canonical pull and optimistic-row reconciliation
+          // can leave both identities on disk. Once the stable local row links
+          // to the desktop id it owns that canonical row; remove the raw twin
+          // in the same transaction so hydration cannot render both.
+          await db.runAsync(
+            `DELETE FROM mobile_chat_messages
+              WHERE thread_id = ? AND message_id = ?`,
+            thread,
+            message.canonicalId,
+          );
+        }
+        await db.runAsync(
+          `INSERT INTO mobile_chat_messages(
+             thread_id, message_id, order_key, canonical_id,
+             canonical_created_at, sequence, payload_json, updated_at
+           ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(thread_id, message_id) DO UPDATE SET
+             canonical_id = excluded.canonical_id,
+             canonical_created_at = excluded.canonical_created_at,
+             sequence = excluded.sequence,
+             payload_json = excluded.payload_json,
+             updated_at = excluded.updated_at
+           WHERE mobile_chat_messages.payload_json <> excluded.payload_json`,
+          thread,
+          message.id,
+          orderKeys.get(message.id) ?? 0,
+          message.canonicalId ?? null,
+          message.canonicalCreatedAt ?? null,
+          message.sequence ?? null,
+          payload,
+          Date.now(),
+        );
+      }
+    });
+    for (const { message, payload } of changed) {
+      if (message.canonicalId && message.canonicalId !== message.id) {
+        orderKeys.delete(message.canonicalId);
+        priorSerialized.delete(message.canonicalId);
+      }
+      touchCacheValue(priorSerialized, message.id, payload);
+    }
+    trimThreadCaches(thread);
+  });
+}
+
+export async function truncateChatMessagesFrom(
+  thread: ChatThreadId,
+  messageId: string,
+): Promise<void> {
+  invalidateTranscriptWrites(thread);
+  const db = await getTranscriptDb();
+  if (!db) {
+    await enqueueTranscriptWrite(async () => {
+      await ensureIncrementalFallback(thread);
+      await truncateAsyncTranscriptRows(thread, messageId);
+      orderKeysByThread.delete(thread);
+      serializedByThread.delete(thread);
+    });
+    return;
+  }
+  await migrateLegacyTranscript(db, thread);
+  await enqueueTranscriptWrite(async () => {
+    const anchor = await db.getFirstAsync<{ order_key: number }>(
+      `SELECT order_key FROM mobile_chat_messages
+        WHERE thread_id = ? AND message_id = ?`,
+      thread,
+      messageId,
+    );
+    if (!anchor) return;
+    await db.runAsync(
+      `DELETE FROM mobile_chat_messages
+        WHERE thread_id = ?
+          AND (order_key > ? OR (order_key = ? AND message_id >= ?))`,
+      thread,
+      anchor.order_key,
+      anchor.order_key,
+      messageId,
+    );
+    orderKeysByThread.get(thread)?.forEach((orderKey, id, map) => {
+      if (
+        orderKey > anchor.order_key ||
+        (orderKey === anchor.order_key && id >= messageId)
+      ) {
+        map.delete(id);
+      }
+    });
+    serializedByThread.get(thread)?.forEach((_payload, id, map) => {
+      if (!orderKeysByThread.get(thread)?.has(id)) map.delete(id);
+    });
+  });
+}
+
+/** Replace one thread's canonical transcript without touching account metadata. */
+export async function clearChatMessages(thread: ChatThreadId): Promise<void> {
+  invalidateTranscriptWrites(thread);
+  const db = await getTranscriptDb();
+  await recoverInterruptedCleanup(db);
+  await fallbackMigrations.get(thread)?.catch(() => {});
+  await enqueueTranscriptWrite(async () => {
+    if (db) {
+      await db.runAsync(
+        "DELETE FROM mobile_chat_messages WHERE thread_id = ?",
+        thread,
+      );
+    }
+    await clearAsyncTranscriptRows(thread);
+    await AsyncStorage.removeItem(MESSAGES_KEY[thread]);
+    orderKeysByThread.delete(thread);
+    serializedByThread.delete(thread);
+    fallbackMigrations.delete(thread);
+  });
 }
 
 const normalizeSyncState = (value: unknown): ChatSyncState => {
@@ -259,8 +1349,7 @@ const normalizeSyncState = (value: unknown): ChatSyncState => {
     typeof record.conversationId === "string"
       ? record.conversationId.trim()
       : "";
-  const cursor =
-    typeof record.cursor === "string" ? record.cursor.trim() : "";
+  const cursor = typeof record.cursor === "string" ? record.cursor.trim() : "";
   return {
     conversationId: conversationId || null,
     cursor: cursor || null,
@@ -270,14 +1359,17 @@ const normalizeSyncState = (value: unknown): ChatSyncState => {
 export async function loadChatSyncState(
   thread: ChatThreadId,
 ): Promise<ChatSyncState> {
+  const empty = { conversationId: null, cursor: null };
   try {
+    if (await accountChatMetadataReadsBlocked()) return empty;
     const raw = await AsyncStorage.getItem(SYNC_STATE_KEY[thread]);
+    if (await accountChatMetadataReadsBlocked()) return empty;
     if (raw) {
       return normalizeSyncState(JSON.parse(raw) as unknown);
     }
-    return { conversationId: null, cursor: null };
+    return empty;
   } catch {
-    return { conversationId: null, cursor: null };
+    return empty;
   }
 }
 
@@ -285,12 +1377,28 @@ export async function saveChatSyncState(
   thread: ChatThreadId,
   state: ChatSyncState,
 ): Promise<void> {
-  const next = normalizeSyncState(state);
-  if (!next.conversationId && !next.cursor) {
-    await AsyncStorage.removeItem(SYNC_STATE_KEY[thread]);
+  if (
+    transcriptCleanupInProgress ||
+    (await accountChatMetadataReadsBlocked())
+  ) {
     return;
   }
-  await AsyncStorage.setItem(SYNC_STATE_KEY[thread], JSON.stringify(next));
+  const generation = transcriptGeneration(thread);
+  const next = normalizeSyncState(state);
+  await enqueueTranscriptWrite(async () => {
+    if (
+      transcriptCleanupInProgress ||
+      generation !== transcriptGeneration(thread) ||
+      (await accountChatMetadataReadsBlocked())
+    ) {
+      return;
+    }
+    if (!next.conversationId && !next.cursor) {
+      await AsyncStorage.removeItem(SYNC_STATE_KEY[thread]);
+      return;
+    }
+    await AsyncStorage.setItem(SYNC_STATE_KEY[thread], JSON.stringify(next));
+  });
 }
 
 /**
@@ -300,17 +1408,72 @@ export async function saveChatSyncState(
  * previous user's messages.
  */
 export async function clearAllChatStorage(): Promise<void> {
-  const keys = [
-    ...Object.values(MESSAGES_KEY),
-    ...Object.values(SYNC_STATE_KEY),
-    ...desktopChatOutboxStorageKeys(),
-  ];
+  transcriptCleanupInProgress = true;
+  transcriptCleanupRecoveryRequired = true;
+  transcriptCleanupMarkerCheck = Promise.resolve(true);
+  invalidateChatStorageForAccountCleanup();
+  // Do not let an enqueue already committing in the background recreate the
+  // old account's outbox after sign-out has removed its storage keys. Cleanup
+  // remains independent: a SQLite failure must not skip AsyncStorage removal.
+  let databaseCleared = false;
+  let fallbackCleared = false;
+  let asyncStorageCleared = false;
   try {
-    // Do not let an enqueue already committing in the background recreate the
-    // old account's outbox after sign-out has removed its storage keys.
-    await waitForDesktopChatOutboxWrites();
-    await AsyncStorage.multiRemove(keys);
-  } catch {
-    // Best-effort: a failed wipe must not block sign-out.
+    // Do not begin a partly durable account wipe. If intent persistence fails,
+    // the caller gets an error and canonical data remains intact for a retry;
+    // the process-local latch still prevents this process from serving it.
+    await AsyncStorage.setItem(TRANSCRIPT_CLEANUP_REQUIRED_KEY, "1");
+    await waitForAccountChatMetadataWrites();
+    await waitForDesktopChatOutboxWrites().catch(() => {});
+    let databaseOpenFailed = false;
+    const db = await getTranscriptDb().catch(() => {
+      databaseOpenFailed = true;
+      return null;
+    });
+    if (db) {
+      databaseCleared = await enqueueTranscriptWrite(() =>
+        db
+          .withTransactionAsync(async () => {
+            await db.execAsync(
+              "DELETE FROM mobile_chat_messages; DELETE FROM mobile_chat_meta;",
+            );
+          })
+          .then(() => true),
+      ).catch(() => false);
+    } else {
+      await enqueueTranscriptWrite(async () => {}).catch(() => {});
+      databaseCleared = !databaseOpenFailed;
+    }
+    fallbackCleared = await Promise.all(
+      CHAT_THREAD_IDS.map((thread) => clearAsyncTranscriptRows(thread)),
+    )
+      .then(() => true)
+      .catch(() => false);
+    asyncStorageCleared = await AsyncStorage.multiRemove(
+      allAccountChatStorageKeys(),
+    )
+      .then(() => true)
+      .catch(() => false);
+    if (databaseCleared && fallbackCleared && asyncStorageCleared) {
+      const markerRemoved = await AsyncStorage.removeItem(
+        TRANSCRIPT_CLEANUP_REQUIRED_KEY,
+      )
+        .then(() => true)
+        .catch(() => false);
+      if (markerRemoved) {
+        transcriptCleanupRecoveryRequired = false;
+        transcriptCleanupMarkerCheck = Promise.resolve(false);
+      }
+    }
+    if (!databaseCleared || !fallbackCleared || !asyncStorageCleared) {
+      throw new Error("Local chat account cleanup did not complete");
+    }
+  } finally {
+    for (const thread of CHAT_THREAD_IDS) invalidateTranscriptWrites(thread);
+    orderKeysByThread.clear();
+    serializedByThread.clear();
+    fallbackMigrations.clear();
+    transcriptCleanupInProgress = false;
+    finishAccountChatMetadataCleanup();
   }
 }

@@ -4,6 +4,7 @@ import {
   appendDemotedCatalogToNodeRepl,
   collectDemotedToolNames,
   createPiTools,
+  getProviderToolMetadata,
 } from "@stella/runtime/kernel/agent-runtime/tool-adapters";
 import { collectReplSearchableTools } from "@stella/runtime/kernel/tools/host";
 import { createMultiToolUseParallelTool } from "@stella/runtime/kernel/tools/defs/multi-tool-use-parallel";
@@ -118,6 +119,27 @@ describe("demoted tool catalog (createPiTools)", () => {
     expect(connectorStatus?.parameters).toMatchObject({
       required: ["connector"],
     });
+  });
+
+  it("applies the same deferred list and safe fallback to metadata-only provider routes", () => {
+    const withRepl = getProviderToolMetadata({
+      toolsAllowlist: ["node_repl", "web"],
+      toolCatalog: baseCatalog,
+    });
+    expect(withRepl.map((tool) => tool.name)).toEqual(["node_repl", "web"]);
+    expect(withRepl[0]?.description).toContain("tools.connector_status(");
+
+    const withoutRepl = getProviderToolMetadata({
+      toolsAllowlist: ["web"],
+      toolCatalog: baseCatalog,
+    });
+    expect(withoutRepl.map((tool) => tool.name)).toEqual([
+      "web",
+      "connector_status",
+    ]);
+    expect(withoutRepl[1]?.parameters).toEqual(
+      baseCatalog.find((tool) => tool.name === "connector_status")?.parameters,
+    );
   });
 
   it("embeds a COMPLETE signature catalog into node_repl's description", () => {

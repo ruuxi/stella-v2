@@ -42,12 +42,33 @@ describe("deriveTurnMapArtifacts", () => {
     expect(cards[1]!.map.route?.polyline).toBe("poly");
   });
 
+  it("collects the same artifacts from deferred node_repl map calls", () => {
+    const first = map("First");
+    const second = map("Second", "poly");
+    const third = map("Third");
+    const cards = deriveTurnMapArtifacts([
+      result("t1", { toolName: "node_repl", map: first }),
+      result("t2", { toolName: "node_repl", maps: [second, third] }),
+    ]);
+
+    expect(cards).toEqual([
+      { id: "t1", map: first },
+      { id: "t2:map:0", map: second },
+      { id: "t2:map:1", map: third },
+    ]);
+  });
+
   it("skips errored calls, subagent calls, and malformed payloads", () => {
     const cards = deriveTurnMapArtifacts([
       result("t1", { toolName: "map", error: "failed", map: map("X") }),
       result("t2", { toolName: "map", agentType: "general", map: map("Y") }),
       result("t3", { toolName: "map", map: { kind: "map-route", markers: [] } }),
       result("t4", { toolName: "map" }),
+      result("t5", {
+        toolName: "node_repl",
+        agentType: "general",
+        map: map("Z"),
+      }),
     ]);
     expect(cards).toEqual([]);
   });

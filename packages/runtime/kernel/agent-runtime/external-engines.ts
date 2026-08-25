@@ -32,10 +32,10 @@ import {
   createRuntimePromptAgentMessage,
 } from "./run-preparation.js";
 import {
-  appendDemotedCatalogToNodeRepl,
   collectDemotedToolNames,
   executeRuntimeToolCall,
   extractAttachImageBlocks,
+  getProviderToolMetadata,
   getRuntimeToolMetadata,
   truncateModelVisibleToolText,
   preserveModelVisibleToolText,
@@ -79,22 +79,18 @@ import { sanitizeSensitiveData } from "@stella/contracts/sensitive-data";
 /**
  * External engines run node_repl through the same host dispatcher, so the
  * tool contexts they build must include context-visible demoted tool names:
- * demoted tools are deliberately absent from the direct/MCP tool list and
- * are reachable only as `tools.<name>` inside node_repl, which is gated on
- * `context.allowedToolNames`. Mirrors createPiTools' two-sided gate:
- * node_repl must be in the allowlist AND in the resolved catalog. Note
- * external engines have NO never-strand fallback — without node_repl in
- * scope, demoted tools are simply unreachable on this surface.
+ * when node_repl is available, demoted tools are deliberately absent from
+ * the direct/MCP tool list and reachable only as `tools.<name>` inside the
+ * REPL, which is gated on `context.allowedToolNames`.
+ * Without node_repl, getProviderToolMetadata exposes demoted tools directly,
+ * so this union must include them in the host permission context too.
  */
 const widenAllowlistWithDemotedTools = (
   toolsAllowlist: string[] | undefined,
   toolCatalog: readonly { name: string }[] | undefined,
   connectorProvider: string | undefined,
 ): string[] | undefined => {
-  if (!toolsAllowlist?.includes("node_repl")) return toolsAllowlist;
-  if (!toolCatalog?.some((tool) => tool.name === "node_repl")) {
-    return toolsAllowlist;
-  }
+  if (!toolsAllowlist || toolsAllowlist.length === 0) return toolsAllowlist;
   const demoted: string[] = collectDemotedToolNames(
     toolCatalog,
     connectorProvider,
@@ -642,20 +638,15 @@ const runClaudeHostedTurn = async (args: {
     threadKey,
     engine: sessionEngine,
   });
-  // Parity with createPiTools: node_repl's description carries the demoted
-  // workflow text + signature catalog here too, so demoted tools stay
-  // discoverable under external engines (appendDemotedCatalogToNodeRepl is
-  // a no-op when node_repl is absent or nothing is demoted).
+  // Parity with createPiTools: node_repl carries the bounded deferred catalog;
+  // profiles without it get the safe direct-schema fallback instead.
   const toolMetadata = vanilla
     ? []
-    : appendDemotedCatalogToNodeRepl(
-        getRuntimeToolMetadata({
-          toolsAllowlist: args.opts.agentContext.toolsAllowlist,
-          toolCatalog: args.opts.toolCatalog,
-        }),
-        args.opts.toolCatalog,
-        args.opts.connectorDeliveryTarget?.provider,
-      );
+    : getProviderToolMetadata({
+        toolsAllowlist: args.opts.agentContext.toolsAllowlist,
+        toolCatalog: args.opts.toolCatalog,
+        connectorProvider: args.opts.connectorDeliveryTarget?.provider,
+      });
   const claudeCodeModelId = getClaudeCodeAgentModelId(
     args.opts.stellaAppDir,
     args.opts.agentContext.model,

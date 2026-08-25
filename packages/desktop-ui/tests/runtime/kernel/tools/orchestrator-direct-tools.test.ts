@@ -18,6 +18,7 @@ import {
   createPiTools,
   getRuntimeToolMetadata,
 } from "@stella/runtime/kernel/agent-runtime/tool-adapters.js";
+import { estimateProviderPayloadTokens } from "@stella/runtime/kernel/agent-runtime/context-budget.js";
 import { buildSystemPrompt } from "@stella/runtime/kernel/agent-runtime/thread-memory.js";
 import { loadParsedAgentsFromDir } from "@stella/runtime/kernel/agents/markdown-agent-loader";
 import { loadStellaRuntimeAgents } from "@stella/runtime/extensions/stella-runtime/index";
@@ -42,6 +43,14 @@ const metadataDir = path.join(
   repoRoot,
   "packages/runtime/extensions/stella-runtime/agent-metadata",
 );
+const BUILT_IN_DEMOTED_TOOL_NAMES = [
+  "schedule_add",
+  "schedule_list",
+  "schedule_update",
+  "schedule_remove",
+  "ScriptDraft",
+  "connector_status",
+] as const;
 
 const createTestHost = async (
   options: Pick<
@@ -212,6 +221,7 @@ describe("working orchestrator surface", () => {
     );
     expect(orchestrated?.toolsAllowlist).toEqual(
       expect.arrayContaining([
+        "node_repl",
         "web",
         "Read",
         "Recall",
@@ -223,12 +233,7 @@ describe("working orchestrator surface", () => {
       ]),
     );
     expect(orchestrated?.toolsAllowlist).not.toEqual(
-      expect.arrayContaining([
-        "exec_command",
-        "write_stdin",
-        "node_repl",
-        "apply_patch",
-      ]),
+      expect.arrayContaining(["exec_command", "write_stdin", "apply_patch"]),
     );
 
     expect(
@@ -325,55 +330,100 @@ describe("working orchestrator surface", () => {
     expect(childGeneral.has("agent_status")).toBe(false);
   });
 
-  it("keeps demoted connector tools out of the working orchestrator's direct list but direct for the coordinator", async () => {
+  it("builds the real orchestrated provider request with only the bounded deferred surface", async () => {
     const { host } = await createTestHost();
     const agents = loadParsedAgentsFromDir(metadataDir);
-    const directToolNames = (
-      agentId: string,
-      connectorProvider?: string,
-    ): Set<string> => {
-      const agent = agents.find((candidate) => candidate.id === agentId);
-      const tools = createPiTools({
+    const orchestrated = resolveAgentForWorkingMode(
+      agents,
+      AGENT_IDS.ORCHESTRATOR,
+      "orchestrated",
+    );
+    const buildProviderTools = (toolsAllowlist: string[] | undefined) =>
+      createPiTools({
         runId: "run-1",
         conversationId: "conv-1",
         agentType: AGENT_IDS.ORCHESTRATOR,
         deviceId: "device-1",
-        ...(connectorProvider
-          ? {
-              connectorDeliveryTarget: {
-                requestId: "remote-1",
-                conversationId: "backend-conv-1",
-                provider: connectorProvider,
-              },
-            }
-          : {}),
-        toolsAllowlist: agent?.toolsAllowlist,
+        toolsAllowlist,
         toolCatalog: host.getToolCatalog(AGENT_IDS.ORCHESTRATOR),
         store: {} as never,
         toolExecutor: async () => ({ result: "unused" }),
-      }) as Array<{ name: string; description: string }>;
-      return new Set(tools.map((tool) => tool.name));
-    };
+      }) as Array<{
+        name: string;
+        description: string;
+        parameters: unknown;
+      }>;
 
-    // Working orchestrator has node_repl → demoted tools leave the direct
-    // list and are advertised inside node_repl's description instead.
-    const working = directToolNames(AGENT_IDS.ORCHESTRATOR);
-    expect(working.has("node_repl")).toBe(true);
-    expect(working.has("connector_status")).toBe(false);
-    expect(working.has("schedule_add")).toBe(false);
-    expect(working.has("schedule_list")).toBe(false);
-    expect(working.has("ScriptDraft")).toBe(false);
+    const providerTools = buildProviderTools(orchestrated?.toolsAllowlist);
+    expect(providerTools.map((tool) => tool.name).sort()).toEqual([
+      "Read",
+      "Recall",
+      "Remember",
+      "agent_status",
+      "html",
+      "image_gen",
+      "node_repl",
+      "pause_agent",
+      "send_input",
+      "spawn_agent",
+      "web",
+    ]);
+    for (const toolName of BUILT_IN_DEMOTED_TOOL_NAMES) {
+      expect(
+        providerTools.some((tool) => tool.name === toolName),
+        toolName,
+      ).toBe(false);
+    }
+    expect(providerTools.some((tool) => tool.name === "map")).toBe(false);
+    const nodeRepl = providerTools.find((tool) => tool.name === "node_repl");
+    for (const toolName of BUILT_IN_DEMOTED_TOOL_NAMES) {
+      expect(nodeRepl?.description, toolName).toContain(`tools.${toolName}(`);
+    }
+    expect(nodeRepl?.description).toContain("tools.map(");
 
-    // Coordinator variant has no node_repl → never-strand fallback puts
-    // demoted tools straight into its direct list.
-    const orchestrated = directToolNames(ORCHESTRATED_ORCHESTRATOR_ID);
-    expect(orchestrated.has("node_repl")).toBe(false);
-    expect(orchestrated.has("connector_status")).toBe(true);
-    expect(orchestrated.has("schedule_add")).toBe(true);
-    expect(orchestrated.has("schedule_remove")).toBe(true);
+    // Reconstruct the old/no-REPL profile to prove the never-strand fallback
+    // and account for the exact provider payload reduction.
+    const fallbackTools = buildProviderTools(
+      orchestrated?.toolsAllowlist?.filter((name) => name !== "node_repl"),
+    );
+    expect(fallbackTools.map((tool) => tool.name).sort()).toEqual([
+      "Read",
+      "Recall",
+      "Remember",
+      "ScriptDraft",
+      "agent_status",
+      "connector_status",
+      "html",
+      "image_gen",
+      "map",
+      "pause_agent",
+      "schedule_add",
+      "schedule_list",
+      "schedule_remove",
+      "schedule_update",
+      "send_input",
+      "spawn_agent",
+      "web",
+    ]);
+    const deferredTokens = estimateProviderPayloadTokens(
+      {
+        tools: providerTools,
+      },
+      1,
+    );
+    const fallbackTokens = estimateProviderPayloadTokens(
+      {
+        tools: fallbackTools,
+      },
+      1,
+    );
+    expect(providerTools).toHaveLength(11);
+    expect(fallbackTools).toHaveLength(17);
+    expect(deferredTokens).toBeLessThan(fallbackTokens);
+    expect(fallbackTokens - deferredTokens).toBeGreaterThan(1_000);
   });
 
-  it("never demotes core built-ins and keeps voice-style catalogs demoted-free", async () => {
+  it("never demotes core built-ins and preserves the voice map fallback", async () => {
     const { host } = await createTestHost();
     const catalog = host.getToolCatalog(AGENT_IDS.ORCHESTRATOR);
     for (const toolName of [
@@ -391,8 +441,9 @@ describe("working orchestrator surface", () => {
       expect(entry, toolName).toBeDefined();
       expect(entry?.demoted, toolName).toBeUndefined();
     }
-    // The demoted surface: the connector-status affordance plus the
-    // deferred scheduling tools (and the watch-script authoring tool).
+    // The demoted surface: connector status, scheduling, watch-script
+    // authoring, and map. node_repl lifts map details back onto its outer
+    // result so the existing inline artifact contract remains intact.
     expect(
       catalog
         .filter((tool) => tool.demoted)
@@ -401,16 +452,21 @@ describe("working orchestrator surface", () => {
     ).toEqual([
       "ScriptDraft",
       "connector_status",
+      "map",
       "schedule_add",
       "schedule_list",
       "schedule_remove",
       "schedule_update",
     ]);
-    // Voice paths filter demoted entries out of the realtime function list.
-    const voiceCatalog = catalog.filter((tool) => !tool.demoted);
+    // Voice has no node_repl: background/configuration deferred tools stay
+    // out, while map retains its eager no-REPL fallback.
+    const voiceCatalog = catalog.filter(
+      (tool) => !tool.demoted || tool.name === "map",
+    );
     expect(voiceCatalog.some((tool) => tool.name === "connector_status")).toBe(
       false,
     );
+    expect(voiceCatalog.some((tool) => tool.name === "map")).toBe(true);
     expect(voiceCatalog.some((tool) => tool.name === "web")).toBe(true);
   });
 

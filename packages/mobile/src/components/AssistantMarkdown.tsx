@@ -178,6 +178,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
   text,
   colors,
   isStreaming = false,
+  selectable = false,
   onStellaFileLink,
 }: {
   text: string;
@@ -189,6 +190,8 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
    * of snapping when the renderer would otherwise swap.
    */
   isStreaming?: boolean;
+  /** Enables native selection on the rendered markdown text nodes. */
+  selectable?: boolean;
   /**
    * Tap handler for `stella://file/<path>` links — the assistant's way of
    * pointing at a local file. When provided, such links open the in-app
@@ -255,10 +258,11 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
           node={node}
           Renderer={Renderer}
           colors={colors}
+          selectable={selectable}
         />
       ),
     }),
-    [colors, useStreamingMode],
+    [colors, selectable, useStreamingMode],
   );
 
   const onLinkPress = useCallback(
@@ -294,6 +298,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
         stylingStrategy="minimal"
         renderers={renderers}
         onLinkPress={onLinkPress}
+        selectable={selectable}
         updateStrategy="raf"
       />
     );
@@ -306,6 +311,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
         stylingStrategy="minimal"
         renderers={renderers}
         onLinkPress={onLinkPress}
+        selectable={selectable}
       >
         {text}
       </Markdown>

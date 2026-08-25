@@ -258,15 +258,13 @@ export default defineConfig({
   optimizeDeps: {
     // Front-load prebundling of the heavy/transitive deps deterministically on
     // first launch. Without this, dep discovery is entirely on-demand: a cold
-    // cache (fresh clone, dep bump, cache invalidation) lets the first markdown
-    // /chart/PDF render discover an unoptimized dep at runtime, which makes Vite
-    // emit a full-reload ("optimized dependencies changed. reloading") that
-    // yanks the renderer mid-session. mermaid (~75MB) and katex come in
-    // transitively via streamdown; recharts/react-pdf are large leaf deps.
+    // cache (fresh clone, dep bump, cache invalidation) lets the first markdown,
+    // chart, or PDF render discover an unoptimized dep at runtime, which makes
+    // Vite emit a full-reload ("optimized dependencies changed. reloading")
+    // that yanks the renderer mid-session. Streamdown's optional plugins are
+    // not installed; recharts/react-pdf are large leaf deps.
     include: [
       "streamdown",
-      "mermaid",
-      "katex",
       "recharts",
       "react-pdf",
       "motion",

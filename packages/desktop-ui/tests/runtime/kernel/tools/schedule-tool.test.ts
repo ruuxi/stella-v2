@@ -1,16 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  handleSchedule,
-  type ScheduleWaitPolicy,
+  handleScheduleAdd,
+  handleScheduleList,
+  handleScheduleRemove,
+  handleScheduleUpdate,
 } from "@stella/runtime/kernel/tools/schedule";
-import { LocalAgentManager } from "@stella/runtime/kernel/agents/local-agent-manager";
 import type {
-  AgentToolApi,
-  AgentToolSnapshot,
-  ToolContext,
-  ToolResult,
-} from "@stella/runtime/kernel/tools/types";
+  LocalCronJobCreateInput,
+  LocalCronJobRecord,
+  LocalCronJobUpdatePatch,
+  LocalHeartbeatConfigRecord,
+  LocalHeartbeatUpsertInput,
+} from "@stella/contracts/scheduling";
+import type { ScheduleToolApi, ToolContext } from "@stella/runtime/kernel/tools/types";
 
 const context: ToolContext = {
   conversationId: "c1",
@@ -18,286 +21,365 @@ const context: ToolContext = {
   requestId: "r1",
 };
 
-const args = { prompt: "Set up a daily 9am check-in" };
-
-const makeAgentApi = (
-  snapshots: () => AgentToolSnapshot,
-): AgentToolApi & { canceled: string[] } => {
-  const canceled: string[] = [];
+/** In-memory ScheduleToolApi double mirroring LocalSchedulerService semantics. */
+const makeApi = (
+  seed: LocalCronJobRecord[] = [],
+  seedHeartbeats: LocalHeartbeatConfigRecord[] = [],
+): ScheduleToolApi & {
+  jobs: LocalCronJobRecord[];
+  heartbeats: LocalHeartbeatConfigRecord[];
+} => {
+  const jobs = [...seed];
+  const heartbeats = [...seedHeartbeats];
+  let counter = 0;
   return {
-    canceled,
-    createAgent: async () => ({ threadId: "thread-1" }),
-    getAgent: async () => snapshots(),
-    cancelAgent: async (threadId: string) => {
-      canceled.push(threadId);
-      return { canceled: true };
+    jobs,
+    heartbeats,
+    listCronJobs: async () => jobs.map((job) => ({ ...job })),
+    addCronJob: async (input: LocalCronJobCreateInput) => {
+      const now = Date.now();
+      counter += 1;
+      const record: LocalCronJobRecord = {
+        id: `cron:test-${counter}`,
+        conversationId: input.conversationId,
+        name: input.name,
+        ...(input.description ? { description: input.description } : {}),
+        enabled: input.enabled !== false,
+        schedule: input.schedule,
+        payload: input.payload,
+        ...(typeof input.deleteAfterRun === "boolean"
+          ? { deleteAfterRun: input.deleteAfterRun }
+          : {}),
+        nextRunAtMs: now + 60_000,
+        createdAt: now,
+        updatedAt: now,
+      };
+      jobs.push(record);
+      return { ...record };
     },
+    updateCronJob: async (jobId: string, patch: LocalCronJobUpdatePatch) => {
+      const job = jobs.find((entry) => entry.id === jobId);
+      if (!job) return null;
+      if (patch.name !== undefined) job.name = patch.name;
+      if (patch.schedule !== undefined) job.schedule = patch.schedule;
+      if (patch.payload !== undefined) job.payload = patch.payload;
+      if (patch.enabled !== undefined) job.enabled = patch.enabled;
+      if (patch.description !== undefined) job.description = patch.description;
+      job.updatedAt = Date.now();
+      return { ...job };
+    },
+    removeCronJob: async (jobId: string) => {
+      const index = jobs.findIndex((entry) => entry.id === jobId);
+      if (index < 0) return false;
+      jobs.splice(index, 1);
+      return true;
+    },
+    runCronJob: async () => null,
+    listHeartbeats: async () => heartbeats.map((entry) => ({ ...entry })),
+    getHeartbeatConfig: async (conversationId: string) =>
+      heartbeats.find((entry) => entry.conversationId === conversationId) ??
+      null,
+    upsertHeartbeat: async (input: LocalHeartbeatUpsertInput) => {
+      const existing = heartbeats.find(
+        (entry) => entry.conversationId === input.conversationId,
+      );
+      if (!existing) throw new Error("heartbeat not found");
+      if (input.enabled !== undefined) existing.enabled = input.enabled;
+      if (typeof input.intervalMs === "number") {
+        existing.intervalMs = input.intervalMs;
+      }
+      if (input.prompt !== undefined) existing.prompt = input.prompt;
+      existing.nextRunAtMs = Date.now() + existing.intervalMs;
+      existing.updatedAt = Date.now();
+      return { ...existing };
+    },
+    runHeartbeat: async () => null,
   };
 };
 
-const runningSnapshot = (
-  recentActivity?: string[],
-  lastActivityAt?: number,
-  activeToolCount?: number,
-): AgentToolSnapshot => ({
-  id: "thread-1",
-  status: "running",
-  description: "Apply local scheduling changes",
-  startedAt: Date.now(),
-  completedAt: null,
-  ...(recentActivity ? { recentActivity } : {}),
-  ...(typeof lastActivityAt === "number" ? { lastActivityAt } : {}),
-  ...(typeof activeToolCount === "number" ? { activeToolCount } : {}),
+const checkinHeartbeat = (): LocalHeartbeatConfigRecord => ({
+  id: "heartbeat:hb-1",
+  conversationId: "c1",
+  enabled: true,
+  intervalMs: 30 * 60_000,
+  prompt: "Check the build queue",
+  nextRunAtMs: Date.now() + 60_000,
+  createdAt: 1,
+  updatedAt: 1,
 });
 
-const fastPolicy = (
-  overrides: Partial<ScheduleWaitPolicy> = {},
-): ScheduleWaitPolicy => ({
-  maxWaitMs: 500,
-  idleTimeoutMs: 120,
-  pollMs: 5,
-  ...overrides,
+const reminderJob = (): LocalCronJobRecord => ({
+  id: "cron:reminder-1",
+  conversationId: "c1",
+  name: "Daily: 9 AM gym",
+  enabled: true,
+  schedule: { kind: "cron", expr: "0 9 * * *" },
+  payload: { kind: "notify", text: "9:00 AM — gym time" },
+  nextRunAtMs: Date.now() + 60_000,
+  createdAt: 1,
+  updatedAt: 1,
 });
 
-describe("handleSchedule wait policy", () => {
-  it("returns the subagent result when it completes", async () => {
-    let polls = 0;
-    const api = makeAgentApi(() => {
-      polls += 1;
-      if (polls < 3) return runningSnapshot();
-      return {
-        ...runningSnapshot(),
-        status: "completed",
-        completedAt: Date.now(),
-        result: "Created daily 9am cron.",
-      };
-    });
+const legacyAgentJob = (): LocalCronJobRecord => ({
+  id: "cron:agent-1",
+  conversationId: "c1",
+  name: "X scan",
+  enabled: true,
+  schedule: { kind: "every", everyMs: 3_600_000 },
+  payload: { kind: "agent", prompt: "scan X", agentType: "general" },
+  nextRunAtMs: Date.now() + 60_000,
+  createdAt: 1,
+  updatedAt: 1,
+});
 
-    const result = await handleSchedule(
+describe("schedule_add", () => {
+  it("maps kind=reminder onto a notify payload", async () => {
+    const api = makeApi();
+    const result = await handleScheduleAdd(
       api,
-      undefined,
-      args,
+      {
+        name: "Lunch",
+        kind: "reminder",
+        schedule: { kind: "cron", expr: "0 12 * * *" },
+        message: "12:00 PM — lunch time",
+      },
       context,
-      fastPolicy(),
     );
-    expect(result.result).toBe("Created daily 9am cron.");
-    expect(api.canceled).toEqual([]);
+    expect(result.error).toBeUndefined();
+    expect(api.jobs[0]?.payload).toEqual({
+      kind: "notify",
+      text: "12:00 PM — lunch time",
+    });
+    expect(api.jobs[0]?.conversationId).toBe("c1");
+    expect(result.details).toMatchObject({
+      schedule: { changes: { added: [{ kind: "cron", id: api.jobs[0]!.id }] } },
+    });
+    expect(result.result).toContain("reminder");
   });
 
-  it("keeps waiting past the idle window while activity keeps changing", async () => {
-    const start = Date.now();
-    let polls = 0;
-    const api = makeAgentApi(() => {
-      polls += 1;
-      // Complete only well after the idle window would have tripped for a
-      // silent agent; activity changes every poll so the idle clock resets.
-      if (Date.now() - start > 250) {
-        return {
-          ...runningSnapshot(),
-          status: "completed",
-          completedAt: Date.now(),
-          result: "Done after long active run.",
-        };
-      }
-      return runningSnapshot([`step ${polls}`]);
-    });
-
-    const result = await handleSchedule(
+  it("maps kind=task onto a task payload", async () => {
+    const api = makeApi();
+    await handleScheduleAdd(
       api,
-      undefined,
-      args,
+      {
+        name: "Morning brief",
+        kind: "task",
+        schedule: { kind: "cron", expr: "0 8 * * *" },
+        prompt: "Summarize my inbox and calendar for today.",
+      },
       context,
-      fastPolicy({ idleTimeoutMs: 100, maxWaitMs: 2_000 }),
     );
-    expect(result.result).toBe("Done after long active run.");
-    expect(api.canceled).toEqual([]);
-  });
-
-  it("stays alive through one slow tool call: static stamp, tool in flight", async () => {
-    // Faithful to LocalAgentManager mid-tool: lastActivityAt was stamped
-    // once at tool start and does NOT move while the tool runs; the only
-    // liveness signal is activeToolCount > 0. The tool outlasts the idle
-    // window several times over.
-    const start = Date.now();
-    const stampAtToolStart = Date.now();
-    const api = makeAgentApi(() => {
-      if (Date.now() - start > 350) {
-        return {
-          ...runningSnapshot(),
-          status: "completed",
-          completedAt: Date.now(),
-          result: "Cron created after slow connector probe.",
-        };
-      }
-      return runningSnapshot(["Running exec_command"], stampAtToolStart, 1);
+    expect(api.jobs[0]?.payload).toEqual({
+      kind: "task",
+      prompt: "Summarize my inbox and calendar for today.",
     });
-
-    const result = await handleSchedule(
-      api,
-      undefined,
-      args,
-      context,
-      fastPolicy({ idleTimeoutMs: 100, maxWaitMs: 2_000 }),
-    );
-    expect(result.result).toBe("Cron created after slow connector probe.");
-    expect(api.canceled).toEqual([]);
   });
 
-  it("cancels on a static stamp once no tool is in flight", async () => {
-    // Same static stamp, but activeToolCount is 0 — a genuinely idle agent
-    // (e.g. wedged between turns) still gets cancelled after the idle window.
-    const staleStamp = Date.now();
-    const api = makeAgentApi(() =>
-      runningSnapshot(["Running exec_command"], staleStamp, 0),
-    );
-
+  it("maps kind=watch onto a watch payload and requires scriptPath", async () => {
+    const api = makeApi();
     await expect(
-      handleSchedule(api, undefined, args, context, fastPolicy()),
-    ).rejects.toThrow("Scheduling request timed out.");
-    expect(api.canceled).toEqual(["thread-1"]);
-  });
-
-  it("cancels when lastActivityAt goes stale even if recentActivity churns", async () => {
-    // lastActivityAt is authoritative when present: a frozen stamp means
-    // idle, regardless of cosmetic recentActivity changes.
-    const staleStamp = Date.now();
-    let polls = 0;
-    const api = makeAgentApi(() => {
-      polls += 1;
-      return runningSnapshot([`cosmetic ${polls}`], staleStamp);
-    });
-
-    await expect(
-      handleSchedule(api, undefined, args, context, fastPolicy()),
-    ).rejects.toThrow("Scheduling request timed out.");
-    expect(api.canceled).toEqual(["thread-1"]);
-  });
-
-  it("returns the result when the agent completes right as the cancel lands", async () => {
-    let canceled = false;
-    const api = makeAgentApi(() =>
-      canceled
-        ? {
-            ...runningSnapshot(),
-            status: "completed",
-            completedAt: Date.now(),
-            result: "Finished during cancellation race.",
-          }
-        : runningSnapshot(["stuck on one step"]),
-    );
-    const innerCancel = api.cancelAgent;
-    api.cancelAgent = async (threadId: string, reason?: string) => {
-      canceled = true;
-      return innerCancel(threadId, reason);
-    };
-
-    const result = await handleSchedule(
-      api,
-      undefined,
-      args,
-      context,
-      fastPolicy(),
-    );
-    expect(result.result).toBe("Finished during cancellation race.");
-  });
-
-  it("cancels the subagent after sustained inactivity", async () => {
-    const api = makeAgentApi(() => runningSnapshot(["stuck on one step"]));
-
-    await expect(
-      handleSchedule(api, undefined, args, context, fastPolicy()),
-    ).rejects.toThrow("Scheduling request timed out.");
-    expect(api.canceled).toEqual(["thread-1"]);
-  });
-
-  it("cancels at the hard cap even when activity keeps changing", async () => {
-    let polls = 0;
-    const api = makeAgentApi(() => {
-      polls += 1;
-      return runningSnapshot([`step ${polls}`]);
-    });
-
-    await expect(
-      handleSchedule(
+      handleScheduleAdd(
         api,
-        undefined,
-        args,
+        {
+          name: "OpenRouter models",
+          kind: "watch",
+          schedule: { kind: "every", everyMs: 1_800_000 },
+        },
         context,
-        fastPolicy({ maxWaitMs: 150, idleTimeoutMs: 10_000 }),
       ),
-    ).rejects.toThrow("Scheduling request timed out.");
-    expect(api.canceled).toEqual(["thread-1"]);
-  });
+    ).rejects.toThrow("scriptPath");
 
-  it("survives a real LocalAgentManager run whose single tool outlasts the idle window", async () => {
-    // End-to-end contract test: the genuine manager (not a hand-rolled
-    // snapshot) runs a subagent whose only activity is one tool call that
-    // takes ~3x the idle window, with zero streamed progress. The static
-    // mid-tool lastActivityAt must not get the agent cancelled.
-    const sleep = (ms: number) =>
-      new Promise<void>((resolve) => setTimeout(resolve, ms));
-    const manager = new LocalAgentManager({
-      maxConcurrent: 1,
-      fetchAgentContext: async () => ({
-        systemPrompt: "",
-        dynamicContext: "",
-        maxAgentDepth: 3,
-      }),
-      runSubagent: async (runArgs) => {
-        runArgs.onToolStart?.({
-          runId: runArgs.runId,
-          seq: 1,
-          toolCallId: "call-1",
-          toolName: "exec_command",
-          statusText: "Running exec_command",
-        });
-        await sleep(300);
-        runArgs.onToolEnd?.({
-          runId: runArgs.runId,
-          seq: 2,
-          toolCallId: "call-1",
-          toolName: "exec_command",
-          resultPreview: "ok",
-        });
-        return { runId: runArgs.runId, result: "Cron created." };
-      },
-      toolExecutor: async (): Promise<ToolResult> => ({ result: "unused" }),
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
-    });
-    const canceled: string[] = [];
-    const api: AgentToolApi = {
-      createAgent: (request) => manager.createAgent(request),
-      getAgent: (threadId) => manager.getAgent(threadId),
-      cancelAgent: async (threadId, reason) => {
-        canceled.push(threadId);
-        return manager.cancelAgent(threadId, reason);
-      },
-    };
-
-    const result = await handleSchedule(
+    await handleScheduleAdd(
       api,
-      undefined,
-      args,
+      {
+        name: "OpenRouter models",
+        kind: "watch",
+        schedule: { kind: "every", everyMs: 1_800_000 },
+        scriptPath: "/tmp/schedule-scripts/watch.ts",
+      },
       context,
-      fastPolicy({ idleTimeoutMs: 100, maxWaitMs: 2_000, pollMs: 10 }),
     );
-    expect(result.result).toBe("Cron created.");
-    expect(canceled).toEqual([]);
+    expect(api.jobs[0]?.payload).toEqual({
+      kind: "watch",
+      scriptPath: "/tmp/schedule-scripts/watch.ts",
+    });
   });
 
-  it("surfaces subagent errors instead of timing out", async () => {
-    const api = makeAgentApi(() => ({
-      ...runningSnapshot(),
-      status: "error",
-      error: "Cron store unavailable.",
-    }));
-
+  it("rejects unknown trigger kinds", async () => {
+    const api = makeApi();
     await expect(
-      handleSchedule(api, undefined, args, context, fastPolicy()),
-    ).rejects.toThrow("Cron store unavailable.");
-    expect(api.canceled).toEqual([]);
+      handleScheduleAdd(
+        api,
+        { name: "x", kind: "cron", schedule: { kind: "every", everyMs: 1000 } },
+        context,
+      ),
+    ).rejects.toThrow('kind must be "reminder", "task", or "watch"');
+  });
+});
+
+describe("schedule_list", () => {
+  it("reports trigger kinds including legacy payloads and heartbeats", async () => {
+    const api = makeApi([reminderJob(), legacyAgentJob()], [checkinHeartbeat()]);
+    const result = await handleScheduleList(api, context);
+    const parsed = JSON.parse(result.result as string) as {
+      entries: Array<{ jobId: string; triggerKind: string }>;
+      heartbeats: Array<{ jobId: string; triggerKind: string; prompt?: string }>;
+    };
+    expect(parsed.entries.map((entry) => entry.triggerKind)).toEqual([
+      "reminder",
+      "legacy-agent",
+    ]);
+    expect(parsed.heartbeats).toEqual([
+      expect.objectContaining({
+        jobId: "heartbeat:hb-1",
+        triggerKind: "heartbeat",
+        prompt: "Check the build queue",
+      }),
+    ]);
+  });
+});
+
+describe("schedule_update", () => {
+  it("edits a reminder's message while preserving its payload kind", async () => {
+    const api = makeApi([reminderJob()]);
+    const result = await handleScheduleUpdate(api, {
+      jobId: "cron:reminder-1",
+      message: "9:00 AM — gym, no excuses",
+    });
+    expect(result.error).toBeUndefined();
+    expect(api.jobs[0]?.payload).toEqual({
+      kind: "notify",
+      text: "9:00 AM — gym, no excuses",
+    });
+  });
+
+  it("keeps a legacy agent job legacy when its prompt is edited", async () => {
+    const api = makeApi([legacyAgentJob()]);
+    await handleScheduleUpdate(api, {
+      jobId: "cron:agent-1",
+      prompt: "scan X for new topics",
+    });
+    expect(api.jobs[0]?.payload).toEqual({
+      kind: "agent",
+      prompt: "scan X for new topics",
+      agentType: "general",
+    });
+  });
+
+  it("rejects content fields that do not match the entry's kind", async () => {
+    const api = makeApi([reminderJob()]);
+    await expect(
+      handleScheduleUpdate(api, {
+        jobId: "cron:reminder-1",
+        scriptPath: "/tmp/nope.ts",
+      }),
+    ).rejects.toThrow("scriptPath only applies to watch entries");
+  });
+
+  it("supports pause/resume via enabled", async () => {
+    const api = makeApi([reminderJob()]);
+    await handleScheduleUpdate(api, {
+      jobId: "cron:reminder-1",
+      enabled: false,
+    });
+    expect(api.jobs[0]?.enabled).toBe(false);
+  });
+
+  it("errors on unknown jobId", async () => {
+    const api = makeApi();
+    const result = await handleScheduleUpdate(api, { jobId: "cron:nope" });
+    expect(result.error).toContain("No schedule entry found");
+  });
+});
+
+describe("heartbeat editing through the schedule tools", () => {
+  it("pauses and resumes a check-in via schedule_update enabled", async () => {
+    const api = makeApi([], [checkinHeartbeat()]);
+    const paused = await handleScheduleUpdate(api, {
+      jobId: "heartbeat:hb-1",
+      enabled: false,
+    });
+    expect(paused.error).toBeUndefined();
+    expect(api.heartbeats[0]?.enabled).toBe(false);
+    expect(paused.details).toMatchObject({
+      schedule: {
+        changes: { updated: [{ kind: "heartbeat", id: "heartbeat:hb-1" }] },
+      },
+    });
+
+    await handleScheduleUpdate(api, { jobId: "heartbeat:hb-1", enabled: true });
+    expect(api.heartbeats[0]?.enabled).toBe(true);
+  });
+
+  it("changes cadence via schedule { kind: 'every' } without clobbering it otherwise", async () => {
+    const api = makeApi([], [checkinHeartbeat()]);
+    const result = await handleScheduleUpdate(api, {
+      jobId: "heartbeat:hb-1",
+      schedule: { kind: "every", everyMs: 24 * 60 * 60_000 },
+    });
+    expect(result.error).toBeUndefined();
+    expect(api.heartbeats[0]?.intervalMs).toBe(24 * 60 * 60_000);
+
+    // A patch that doesn't touch cadence keeps the current interval.
+    await handleScheduleUpdate(api, {
+      jobId: "heartbeat:hb-1",
+      prompt: "Check the deploy queue",
+    });
+    expect(api.heartbeats[0]?.intervalMs).toBe(24 * 60 * 60_000);
+    expect(api.heartbeats[0]?.prompt).toBe("Check the deploy queue");
+  });
+
+  it("rejects non-interval cadences and cron-only fields for heartbeats", async () => {
+    const api = makeApi([], [checkinHeartbeat()]);
+    await expect(
+      handleScheduleUpdate(api, {
+        jobId: "heartbeat:hb-1",
+        schedule: { kind: "cron", expr: "0 9 * * *" },
+      }),
+    ).rejects.toThrow("kind: 'every'");
+    await expect(
+      handleScheduleUpdate(api, {
+        jobId: "heartbeat:hb-1",
+        message: "nope",
+      }),
+    ).rejects.toThrow("does not apply to a heartbeat");
+  });
+
+  it("schedule_remove turns a check-in off (reversible disable, matching the UI)", async () => {
+    const api = makeApi([], [checkinHeartbeat()]);
+    const result = await handleScheduleRemove(api, {
+      jobId: "heartbeat:hb-1",
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.result).toContain("Turned off check-in");
+    expect(api.heartbeats).toHaveLength(1);
+    expect(api.heartbeats[0]?.enabled).toBe(false);
+    expect(result.details).toMatchObject({
+      schedule: {
+        changes: { removed: [{ kind: "heartbeat", id: "heartbeat:hb-1" }] },
+      },
+    });
+  });
+});
+
+describe("schedule_remove", () => {
+  it("removes an entry and reports the removal", async () => {
+    const api = makeApi([reminderJob()]);
+    const result = await handleScheduleRemove(api, {
+      jobId: "cron:reminder-1",
+    });
+    expect(result.error).toBeUndefined();
+    expect(api.jobs).toHaveLength(0);
+    expect(result.details).toMatchObject({
+      schedule: {
+        changes: { removed: [{ kind: "cron", id: "cron:reminder-1" }] },
+      },
+    });
+  });
+
+  it("errors on unknown jobId", async () => {
+    const api = makeApi();
+    const result = await handleScheduleRemove(api, { jobId: "cron:nope" });
+    expect(result.error).toContain("No schedule entry found");
   });
 });

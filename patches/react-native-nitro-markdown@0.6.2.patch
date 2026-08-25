@@ -1,0 +1,179 @@
+diff --git a/lib/typescript/commonjs/MarkdownContext.d.ts b/lib/typescript/commonjs/MarkdownContext.d.ts
+index 64f0c6125c405e962318ce8a299abd29d66afda6..08f6644b848ab9239f5e22820e8fe5e74bc59489 100644
+--- a/lib/typescript/commonjs/MarkdownContext.d.ts
++++ b/lib/typescript/commonjs/MarkdownContext.d.ts
+@@ -99,6 +99,7 @@ export type MarkdownContextValue = {
+     theme: MarkdownTheme;
+     styles?: NodeStyleOverrides;
+     stylingStrategy: StylingStrategy;
++    selectable?: boolean;
+     onLinkPress?: LinkPressHandler;
+     highlightCode?: boolean | CodeHighlighter;
+     tableOptions?: TableOptions;
+diff --git a/lib/typescript/commonjs/markdown.d.ts b/lib/typescript/commonjs/markdown.d.ts
+index 6357427833b3795962d5e494b07938216dc48ef5..f57bf73fd509cdb32fab207f84dff44370af2d79 100644
+--- a/lib/typescript/commonjs/markdown.d.ts
++++ b/lib/typescript/commonjs/markdown.d.ts
+@@ -116,6 +116,11 @@ export type MarkdownProps = {
+      * Optional style for the container view.
+      */
+     style?: StyleProp<ViewStyle>;
++    /**
++     * Allows the rendered text to use the platform's native selection UI.
++     * @default false
++     */
++    selectable?: boolean;
+     /**
+      * Optional link press handler.
+      * Return false to prevent the default openURL behavior.
+diff --git a/lib/typescript/module/MarkdownContext.d.ts b/lib/typescript/module/MarkdownContext.d.ts
+index 64f0c6125c405e962318ce8a299abd29d66afda6..08f6644b848ab9239f5e22820e8fe5e74bc59489 100644
+--- a/lib/typescript/module/MarkdownContext.d.ts
++++ b/lib/typescript/module/MarkdownContext.d.ts
+@@ -99,6 +99,7 @@ export type MarkdownContextValue = {
+     theme: MarkdownTheme;
+     styles?: NodeStyleOverrides;
+     stylingStrategy: StylingStrategy;
++    selectable?: boolean;
+     onLinkPress?: LinkPressHandler;
+     highlightCode?: boolean | CodeHighlighter;
+     tableOptions?: TableOptions;
+diff --git a/lib/typescript/module/markdown.d.ts b/lib/typescript/module/markdown.d.ts
+index 6357427833b3795962d5e494b07938216dc48ef5..f57bf73fd509cdb32fab207f84dff44370af2d79 100644
+--- a/lib/typescript/module/markdown.d.ts
++++ b/lib/typescript/module/markdown.d.ts
+@@ -116,6 +116,11 @@ export type MarkdownProps = {
+      * Optional style for the container view.
+      */
+     style?: StyleProp<ViewStyle>;
++    /**
++     * Allows the rendered text to use the platform's native selection UI.
++     * @default false
++     */
++    selectable?: boolean;
+     /**
+      * Optional link press handler.
+      * Return false to prevent the default openURL behavior.
+diff --git a/src/MarkdownContext.ts b/src/MarkdownContext.ts
+index 4b142cea2931daffc481ec875e0db01f5838202b..85a0128e2f2082ca8d273ba8c54109b095eafa6a 100644
+--- a/src/MarkdownContext.ts
++++ b/src/MarkdownContext.ts
+@@ -133,6 +133,7 @@ export type MarkdownContextValue = {
+   theme: MarkdownTheme;
+   styles?: NodeStyleOverrides;
+   stylingStrategy: StylingStrategy;
++  selectable?: boolean;
+   onLinkPress?: LinkPressHandler;
+   highlightCode?: boolean | CodeHighlighter;
+   tableOptions?: TableOptions;
+@@ -144,6 +145,7 @@ export const MarkdownContext = createContext<MarkdownContextValue>({
+   theme: defaultMarkdownTheme,
+   styles: undefined,
+   stylingStrategy: "opinionated",
++  selectable: false,
+   onLinkPress: undefined,
+ });
+
+diff --git a/src/markdown.tsx b/src/markdown.tsx
+index a06317b701e7bf74e267f740330c84b0ea9b7b77..077a56440e646a00990c324e4296a662af29ee18 100644
+--- a/src/markdown.tsx
++++ b/src/markdown.tsx
+@@ -408,6 +408,11 @@ export type MarkdownProps = {
+    * Optional style for the container view.
+    */
+   style?: StyleProp<ViewStyle>;
++  /**
++   * Allows the rendered text to use the platform's native selection UI.
++   * @default false
++   */
++  selectable?: boolean;
+   /**
+    * Optional link press handler.
+    * Return false to prevent the default openURL behavior.
+@@ -454,6 +459,7 @@ export const Markdown: FC<MarkdownProps> = ({
+   styles: nodeStyles,
+   stylingStrategy = "opinionated",
+   style,
++  selectable = false,
+   onParsingInProgress,
+   onParseComplete,
+   onLinkPress,
+@@ -567,6 +573,7 @@ export const Markdown: FC<MarkdownProps> = ({
+       theme,
+       styles: nodeStyles,
+       stylingStrategy,
++      selectable,
+       onLinkPress,
+       tableOptions,
+       imageOptions,
+@@ -577,6 +584,7 @@ export const Markdown: FC<MarkdownProps> = ({
+       theme,
+       nodeStyles,
+       stylingStrategy,
++      selectable,
+       onLinkPress,
+       tableOptions,
+       imageOptions,
+@@ -669,7 +677,12 @@ const NodeRendererComponent: FC<NodeRendererProps> = ({
+   inListItem,
+   parentIsText = false,
+ }) => {
+-  const { renderers, theme, styles: nodeStyles } = useMarkdownContext();
++  const {
++    renderers,
++    theme,
++    styles: nodeStyles,
++    selectable,
++  } = useMarkdownContext();
+   const baseStyles = getBaseStyles(theme);
+
+   const renderChildren = (
+@@ -714,7 +727,7 @@ const NodeRendererComponent: FC<NodeRendererProps> = ({
+           const Wrapper = childParentIsText ? Fragment : Text;
+           const wrapperProps = childParentIsText
+             ? {}
+-            : { style: baseStyles.text };
++            : { style: baseStyles.text, selectable };
+
+           elements.push(
+             <Wrapper key={`inline-group-${elements.length}`} {...wrapperProps}>
+@@ -828,7 +841,12 @@ const NodeRendererComponent: FC<NodeRendererProps> = ({
+         return <Text>{node.content}</Text>;
+       }
+       return (
+-        <Text style={[baseStyles.text, nodeStyles?.text]}>{node.content}</Text>
++        <Text
++          style={[baseStyles.text, nodeStyles?.text]}
++          selectable={selectable}
++        >
++          {node.content}
++        </Text>
+       );
+
+     case "bold":
+diff --git a/src/renderers/heading.tsx b/src/renderers/heading.tsx
+index 013beb00a58bf75d4f80980ae58168871cf0c3da..a2962b87cc4f1813779a7b223ae8d2c8258ec20d 100644
+--- a/src/renderers/heading.tsx
++++ b/src/renderers/heading.tsx
+@@ -21,7 +21,7 @@ const ANDROID_SYSTEM_FONTS = new Set([
+ ]);
+
+ export const Heading: FC<HeadingProps> = ({ level, children, style }) => {
+-  const { theme } = useMarkdownContext();
++  const { theme, selectable } = useMarkdownContext();
+   const styles = getCachedStyles(stylesCache, theme, createStyles);
+
+   const headingStyles = [
+@@ -35,7 +35,11 @@ export const Heading: FC<HeadingProps> = ({ level, children, style }) => {
+   ];
+
+   return (
+-    <Text style={[...headingStyles, style]} accessibilityRole="header">
++    <Text
++      style={[...headingStyles, style]}
++      accessibilityRole="header"
++      selectable={selectable}
++    >
+       {children}
+     </Text>
+   );

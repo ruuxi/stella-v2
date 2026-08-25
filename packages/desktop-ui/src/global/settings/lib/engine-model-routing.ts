@@ -157,9 +157,10 @@ export function fromOpenAiCodexModelId(modelId: string): string | null {
  * Build the single preference write that changes the runtime engine and its
  * conversation model routing. ChatGPT is intentionally asymmetric:
  * orchestrator resolves through the existing OpenAI OAuth provider, while
- * general is intercepted by the Codex runtime through `agentRuntimeEngine`.
- * Both overrides stay routable so preparation succeeds before the general
- * agent hands off to Codex.
+ * general stays on that in-process provider in managed mode and is intercepted
+ * through `agentRuntimeEngine` only after an explicit native-runtime opt-in.
+ * Both overrides stay provider-routable so managed mode never requires a local
+ * Codex executable.
  */
 export function buildEngineRoutingPatch(
   preferences: EngineRoutingPreferences,

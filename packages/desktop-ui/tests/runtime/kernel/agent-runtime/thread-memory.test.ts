@@ -404,6 +404,40 @@ describe("buildSubagentPromptMessages", () => {
 });
 
 describe("buildHistorySource", () => {
+  it("keeps quarantine control records out of provider-visible history", () => {
+    const history = buildHistorySource({
+      systemPrompt: "system",
+      dynamicContext: "",
+      maxAgentDepth: 1,
+      threadHistory: [
+        {
+          role: "runtimeInternal",
+          content: "quarantine control record",
+          timestamp: 1,
+          customMessage: {
+            customType: "containment.quarantine",
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  key: "20:call-a",
+                  toolName: "read_email",
+                  timestamp: 20,
+                }),
+              },
+            ],
+            display: false,
+          },
+        },
+        { role: "user", content: "keep this turn", timestamp: 2 },
+      ],
+    });
+
+    expect(history).toEqual([
+      { role: "user", content: "keep this turn", timestamp: expect.any(Number) },
+    ]);
+  });
+
   it("filters persisted memory docs when memory is disabled", () => {
     const startupDoc = (displayPath: string, text: string) => ({
       role: "runtimeInternal" as const,
@@ -488,6 +522,62 @@ describe("buildHistorySource", () => {
         : null,
     ).toBe(assistantText);
   });
+
+  it("excludes persisted failed assistant attempts from reconstructed history", () => {
+    const failedAssistant = (stopReason: "error" | "aborted") => ({
+      role: "assistant" as const,
+      content: "failed provider text",
+      timestamp: 1,
+      payload: {
+        role: "assistant" as const,
+        content: [{ type: "text" as const, text: "failed provider text" }],
+        api: "openai-responses" as const,
+        provider: "test",
+        model: "test-model",
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 0,
+          },
+        },
+        stopReason,
+        timestamp: 1,
+      },
+    });
+
+    const history = buildHistorySource({
+      systemPrompt: "system",
+      dynamicContext: "",
+      maxAgentDepth: 1,
+      threadHistory: [
+        { role: "user", content: "keep user", timestamp: 0 },
+        failedAssistant("error"),
+        failedAssistant("aborted"),
+        {
+          ...failedAssistant("error"),
+          content: "",
+          payload: {
+            ...failedAssistant("error").payload,
+            content: [{ type: "thinking", thinking: "discarded retry" }],
+            stopReason: "stop",
+          },
+        },
+      ],
+    });
+
+    expect(history).toEqual([
+      { role: "user", content: "keep user", timestamp: expect.any(Number) },
+    ]);
+  });
+
   // Retaining current bootstrap entries keeps the prompt-cache prefix stable.
   it("drops legacy summaries while retaining current memory entries in chronological order", () => {
     const history = buildHistorySource({

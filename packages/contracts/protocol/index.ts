@@ -263,6 +263,7 @@ export const METHOD_NAMES = {
   INTERNAL_STORE_RECORD_RUN_EVENT: "internal.store.recordRunEvent",
   INTERNAL_STORE_LIST_LOCAL_CHAT_EVENTS: "internal.store.listLocalChatEvents",
   INTERNAL_SCHEDULE_LIST_CRON_JOBS: "internal.schedule.listCronJobs",
+  INTERNAL_SCHEDULE_LIST_HEARTBEATS: "internal.schedule.listHeartbeats",
   INTERNAL_SCHEDULE_ADD_CRON_JOB: "internal.schedule.addCronJob",
   INTERNAL_SCHEDULE_UPDATE_CRON_JOB: "internal.schedule.updateCronJob",
   INTERNAL_SCHEDULE_REMOVE_CRON_JOB: "internal.schedule.removeCronJob",
@@ -407,6 +408,8 @@ export type RuntimePromptMessage = {
   messageType?: "message" | "user";
   customType?: string;
   display?: boolean;
+  /** Durable timestamp reused when a pre-persisted runtime prompt is replayed. */
+  timestamp?: number;
 };
 
 export type RuntimeChatPayload = {

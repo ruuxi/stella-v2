@@ -225,12 +225,12 @@ export async function runAgentLoop(
 	return runLoopPromise(
 		Effect.scoped(
 			Effect.gen(function* () {
-				const abortLatch = yield* acquireAbortLatch(signal);
-				const newMessages: AgentMessage[] = [...prompts];
-				const currentContext: AgentContext = {
-					...context,
-					messages: [...context.messages, ...prompts],
-				};
+					const abortLatch = yield* acquireAbortLatch(signal);
+					const newMessages: AgentMessage[] = [...prompts];
+					// Reuse the caller's context object so a later boundary replacement releases
+					// its pre-compaction history reference during a normal prompt run too.
+					const currentContext = context;
+					currentContext.messages = [...currentContext.messages, ...prompts];
 
 				yield* emitEvent(emit, { type: "agent_start" });
 				yield* emitEvent(emit, { type: "turn_start" });
@@ -272,9 +272,11 @@ export async function runAgentLoopContinue(
 	return runLoopPromise(
 		Effect.scoped(
 			Effect.gen(function* () {
-				const abortLatch = yield* acquireAbortLatch(signal);
-				const newMessages: AgentMessage[] = [];
-				const currentContext: AgentContext = { ...context };
+					const abortLatch = yield* acquireAbortLatch(signal);
+					const newMessages: AgentMessage[] = [];
+					// Keep one context object so a boundary replacement also releases the
+					// caller's reference to the pre-compaction message array.
+					const currentContext = context;
 
 				yield* emitEvent(emit, { type: "agent_start" });
 				yield* emitEvent(emit, { type: "turn_start" });
@@ -321,10 +323,34 @@ const pollFollowUpMessages = (
  * tool events → turn_end → (steering | follow-up | agent_end).
  */
 const runLoop = (env: LoopEnv): Effect.Effect<void, unknown> =>
-	Effect.gen(function* () {
-		const { currentContext, newMessages, config, emit } = env;
-		let firstTurn = true;
-		let pendingMessages: AgentMessage[] = yield* pollSteeringMessages(config);
+		Effect.gen(function* () {
+			const { currentContext, newMessages, config, emit } = env;
+			let firstTurn = true;
+			let pendingMessages: AgentMessage[] = yield* pollSteeringMessages(config);
+			let completedTurnMessages: AgentMessage[] = [];
+
+			const refreshAtTurnBoundary = (
+				nextMessages: AgentMessage[] = pendingMessages,
+			): Effect.Effect<void, unknown> =>
+				Effect.gen(function* () {
+					if (!config.onTurnBoundary || completedTurnMessages.length === 0) return;
+					const replacement = yield* Effect.promise(() =>
+						config.onTurnBoundary!(
+							{
+								context: currentContext,
+								completedMessages: completedTurnMessages.slice(),
+								pendingMessages: nextMessages.slice(),
+							},
+							env.signal,
+						),
+					);
+					completedTurnMessages = [];
+					if (!replacement) return;
+					currentContext.messages = replacement.slice();
+					// The replacement durably represents everything completed before this
+					// boundary, so do not retain those messages in the loop result as well.
+					newMessages.length = 0;
+				});
 
 		for (;;) {
 			let hasMoreToolCalls = true;
@@ -365,26 +391,32 @@ const runLoop = (env: LoopEnv): Effect.Effect<void, unknown> =>
 					toolResults.push(...toolExecution.toolResults);
 					steeringAfterTools = toolExecution.steeringMessages ?? null;
 
-					for (const result of toolResults) {
-						currentContext.messages.push(result);
-						newMessages.push(result);
+						for (const result of toolResults) {
+							currentContext.messages.push(result);
+							newMessages.push(result);
+						}
 					}
-				}
+					completedTurnMessages = [message, ...toolResults];
 
-				yield* emitEvent(emit, { type: "turn_end", message, toolResults });
+					yield* emitEvent(emit, { type: "turn_end", message, toolResults });
 
 				if (steeringAfterTools && steeringAfterTools.length > 0) {
 					pendingMessages = steeringAfterTools;
 					steeringAfterTools = null;
-				} else {
-					pendingMessages = yield* pollSteeringMessages(config);
-				}
-			}
+					} else {
+						pendingMessages = yield* pollSteeringMessages(config);
+					}
 
-			const followUpMessages = yield* pollFollowUpMessages(config);
-			if (followUpMessages.length > 0) {
-				pendingMessages = followUpMessages;
-				continue;
+					if (hasMoreToolCalls || pendingMessages.length > 0) {
+						yield* refreshAtTurnBoundary();
+					}
+				}
+
+				const followUpMessages = yield* pollFollowUpMessages(config);
+				if (followUpMessages.length > 0) {
+					yield* refreshAtTurnBoundary(followUpMessages);
+					pendingMessages = followUpMessages;
+					continue;
 			}
 
 			break;
@@ -405,24 +437,39 @@ const runLoop = (env: LoopEnv): Effect.Effect<void, unknown> =>
  */
 const streamAssistantResponse = (
 	env: LoopEnv,
-): Effect.Effect<AssistantMessage, unknown> =>
-	Effect.gen(function* () {
-		const { currentContext: context, config, signal, emit, streamFn } = env;
-		const requestBudget = config.requestBudget;
+	): Effect.Effect<AssistantMessage, unknown> =>
+		Effect.gen(function* () {
+			const { currentContext: context, config, signal, emit, streamFn } = env;
+			const throwIfAbortedBeforeDispatch = (): void => {
+				if (!signal?.aborted) return;
+				if (signal.reason instanceof Error) throw signal.reason;
+				const error = new Error(
+					typeof signal.reason === "string"
+						? signal.reason
+						: "Operation aborted before provider dispatch",
+				);
+				error.name = "AbortError";
+				throw error;
+			};
+
+			throwIfAbortedBeforeDispatch();
+			const requestBudget = config.requestBudget;
 		if (requestBudget && !requestBudget.active) {
 			requestBudget.used = 0;
 			requestBudget.active = true;
 			delete requestBudget.exhaustionReason;
 		}
 		let messages = context.messages;
-		if (config.transformContext) {
-			const transformContext = config.transformContext;
-			messages = yield* Effect.promise(() => transformContext(messages, signal));
-		}
+			if (config.transformContext) {
+				const transformContext = config.transformContext;
+				messages = yield* Effect.promise(() => transformContext(messages, signal));
+				throwIfAbortedBeforeDispatch();
+			}
 
-		const llmMessages = yield* Effect.promise(async () =>
-			config.convertToLlm(messages),
-		);
+			const llmMessages = yield* Effect.promise(async () =>
+				config.convertToLlm(messages),
+			);
+			throwIfAbortedBeforeDispatch();
 
 		const llmContext: Context = {
 			systemPrompt: context.systemPrompt,
@@ -432,10 +479,11 @@ const streamAssistantResponse = (
 
 		const streamFunction = streamFn || streamSimple;
 		const getApiKey = config.getApiKey;
-		const resolvedApiKey =
-			(getApiKey
-				? yield* Effect.promise(async () => getApiKey(config.model.provider))
-				: undefined) || config.apiKey;
+			const resolvedApiKey =
+				(getApiKey
+					? yield* Effect.promise(async () => getApiKey(config.model.provider))
+					: undefined) || config.apiKey;
+			throwIfAbortedBeforeDispatch();
 
 		// Intentionally do NOT inject a `maxTokens` cap here. Setting a
 		// hard cap truncates mid-sentence / mid-tool-call when hit, and
@@ -551,12 +599,11 @@ const streamAssistantResponse = (
 				}
 				if (addedPartial) {
 					context.messages[context.messages.length - 1] = next;
-				} else {
-					context.messages.push(next);
-					yield* emitEvent(emit, { type: "message_start", message: { ...next } });
-				}
-				yield* emitEvent(emit, { type: "message_end", message: next });
-				return next;
+					} else {
+						context.messages.push(next);
+						yield* emitEvent(emit, { type: "message_start", message: { ...next } });
+					}
+					return next;
 			},
 		);
 
@@ -574,13 +621,23 @@ const streamAssistantResponse = (
 			retry < maxDegenerateRetries && isDegenerateAssistantMessage(finalMessage);
 			retry += 1
 		) {
-			if (context.messages[context.messages.length - 1] === finalMessage) {
-				context.messages.pop();
+				if (context.messages[context.messages.length - 1] === finalMessage) {
+					context.messages.pop();
+				}
+				yield* emitEvent(emit, {
+					type: "message_end",
+					message: {
+						...finalMessage,
+						stopReason: "error",
+						errorMessage: "Provider returned no usable assistant output; retrying once.",
+					},
+				});
+				finalMessage = yield* runOnce;
 			}
-			finalMessage = yield* runOnce;
-		}
 
-		return finalMessage;
+			yield* emitEvent(emit, { type: "message_end", message: finalMessage });
+
+			return finalMessage;
 	});
 
 /**

@@ -446,7 +446,9 @@
       },
       "steps": {
         "download": "ดาวน์โหลดแอป",
-        "downloadQrAlt": "สแกนเพื่อดาวน์โหลด Stella จาก App Store",
+        "platformSelectorLabel": "เลือกแพลตฟอร์มมือถือ",
+        "appStoreQrAlt": "สแกนเพื่อดาวน์โหลด Stella จาก App Store",
+        "playStoreQrAlt": "สแกนเพื่อดาวน์โหลด Stella จาก Google Play",
         "connect": "เชื่อมต่อโทรศัพท์ของคุณ"
       },
       "toasts": {

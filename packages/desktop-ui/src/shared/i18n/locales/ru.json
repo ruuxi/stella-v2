@@ -446,7 +446,9 @@
       },
       "steps": {
         "download": "Скачайте приложение",
-        "downloadQrAlt": "Отсканируйте, чтобы скачать Stella из App Store",
+        "platformSelectorLabel": "Выберите мобильную платформу",
+        "appStoreQrAlt": "Отсканируйте, чтобы скачать Stella из App Store",
+        "playStoreQrAlt": "Отсканируйте, чтобы скачать Stella из Google Play",
         "connect": "Подключите телефон"
       },
       "toasts": {

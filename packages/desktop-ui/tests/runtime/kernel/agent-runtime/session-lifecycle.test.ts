@@ -18,6 +18,13 @@ const executeRuntimeAgentPrompt = vi.fn();
 vi.mock("@stella/runtime/kernel/agent-runtime/run-execution.js", () => ({
   executeRuntimeAgentPrompt: (...args: unknown[]) =>
     executeRuntimeAgentPrompt(...args),
+  isDurablyPersistedRuntimePromptInput: (input: {
+    customType?: string;
+    messageType?: string;
+  }) =>
+    input.messageType === "message" &&
+    Boolean(input.customType?.trim()) &&
+    input.customType !== "runtime.queued_message_reply",
 }));
 
 const model = {
@@ -115,6 +122,187 @@ describe("OrchestratorSession", () => {
 
     expect(seenAgents).toHaveLength(2);
     expect(seenAgents[1]).toBe(seenAgents[0]);
+  });
+
+  it("keeps a queued-reply wrapper resident, then removes it", async () => {
+    const session = new OrchestratorSession("conversation-1");
+    const compactionScheduler = new BackgroundCompactionScheduler();
+    const schedule = vi.spyOn(compactionScheduler, "schedule");
+    let agentEndSnapshot: AgentMessage[] = [];
+    const hookEmitter = {
+      emitAll: vi.fn(async () => []),
+      emit: vi.fn(async (event: string, payload: unknown) => {
+        if (event === "agent_end") {
+          agentEndSnapshot = (
+            payload as { services: { messagesSnapshot: AgentMessage[] } }
+          ).services.messagesSnapshot;
+        }
+        return undefined;
+      }),
+    };
+
+    executeRuntimeAgentPrompt.mockImplementation(async ({ agent }) => {
+      (agent as { state: { messages: AgentMessage[] } }).state.messages.push({
+        role: "runtimeInternal",
+        content: [
+          { type: "text", text: "Reply to the already-persisted follow-up" },
+        ],
+        customType: "runtime.queued_message_reply",
+        timestamp: 2,
+      });
+      const completedAssistant = {
+        role: "assistant" as const,
+        content: [{ type: "text" as const, text: "done" }],
+        api: "openai-completions" as const,
+        provider: "test",
+        model: "test-model",
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 0,
+          },
+        },
+        stopReason: "stop" as const,
+        timestamp: 3,
+      };
+      (agent as { state: { messages: AgentMessage[] } }).state.messages.push(
+        completedAssistant,
+      );
+      const scheduledBeforeBoundary = schedule.mock.calls.length;
+      const replacement = await (
+        agent as unknown as {
+          _onTurnBoundary: (context: {
+            context: { messages: AgentMessage[] };
+            completedMessages: AgentMessage[];
+            pendingMessages: AgentMessage[];
+          }) => Promise<AgentMessage[] | undefined>;
+        }
+      )._onTurnBoundary({
+        context: {
+          messages: (agent as { state: { messages: AgentMessage[] } }).state
+            .messages,
+        },
+        completedMessages: [completedAssistant],
+        pendingMessages: [],
+      });
+      expect(replacement).toBeUndefined();
+      expect(schedule).toHaveBeenCalledTimes(scheduledBeforeBoundary);
+      return { finalText: "done" };
+    });
+
+    await session.runTurn(
+      createOptions({
+        userPrompt: "",
+        promptMessages: [
+          {
+            text: "Reply to the already-persisted follow-up",
+            messageType: "message",
+            customType: "runtime.queued_message_reply",
+          },
+        ],
+        compactionScheduler,
+        hookEmitter: hookEmitter as never,
+      }),
+    );
+    const promptedAgent = executeRuntimeAgentPrompt.mock.calls[0]?.[0].agent as {
+      state: { messages: AgentMessage[] };
+    };
+    expect(
+      promptedAgent.state.messages.some(
+        (message) => message.role === "runtimeInternal",
+      ),
+    ).toBe(false);
+    expect(
+      agentEndSnapshot.some(
+        (message) =>
+          message.role === "runtimeInternal" &&
+          message.customType === "runtime.queued_message_reply",
+      ),
+    ).toBe(false);
+  });
+
+  it("evicts an idle Agent and reconstructs the compacted durable window", async () => {
+    vi.useFakeTimers();
+    const session = new OrchestratorSession("conversation-1");
+    const seenAgents: unknown[] = [];
+    const startMessages: string[][] = [];
+
+    try {
+      executeRuntimeAgentPrompt.mockImplementation(async ({ agent }) => {
+        seenAgents.push(agent);
+        startMessages.push(textFromMessages(agent.state.messages));
+        return { finalText: "done" };
+      });
+
+      await session.runTurn(createOptions({ runId: "run-before-idle" }));
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+      await session.runTurn(
+        createOptions({
+          runId: "run-after-idle",
+          agentContext: {
+            systemPrompt: "System prompt",
+            dynamicContext: "",
+            maxAgentDepth: 1,
+            reasoningEffort: "high",
+            threadHistory: [
+              {
+                role: "assistant",
+                content: "Durable compacted checkpoint",
+                timestamp: 2,
+              },
+            ],
+          },
+        }),
+      );
+
+      expect(seenAgents[1]).not.toBe(seenAgents[0]);
+      expect(startMessages[1]).toContain("Durable compacted checkpoint");
+      expect(startMessages[1]).not.toContain("Initial persisted history");
+    } finally {
+      session.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("never arms idle eviction while another orchestrator turn is active", async () => {
+    vi.useFakeTimers();
+    const session = new OrchestratorSession("conversation-1");
+    const completions: Array<() => void> = [];
+    const dispose = vi.spyOn(session, "dispose");
+
+    try {
+      executeRuntimeAgentPrompt.mockImplementation(
+        () =>
+          new Promise<{ finalText: string }>((resolve) => {
+            completions.push(() => resolve({ finalText: "done" }));
+          }),
+      );
+      const first = session.runTurn(createOptions({ runId: "queued-1" }));
+      await vi.waitFor(() => expect(completions).toHaveLength(1));
+      const second = session.runTurn(createOptions({ runId: "queued-2" }));
+      await vi.waitFor(() => expect(completions).toHaveLength(2));
+
+      completions[0]!();
+      await first;
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+      expect(dispose).not.toHaveBeenCalled();
+
+      completions[1]!();
+      await second;
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+      expect(dispose).toHaveBeenCalledOnce();
+    } finally {
+      session.dispose();
+      vi.useRealTimers();
+    }
   });
 
   it("forwards the image description service to prompt execution", async () => {
@@ -274,6 +462,17 @@ describe("OrchestratorSession", () => {
       createOptions({
         runId: "run-2",
         userPrompt: "After compaction",
+        store: {
+          recordRunEvent: vi.fn(),
+          updateOrchestratorReminderCounter: vi.fn(),
+          loadThreadMessages: vi.fn(() => [
+            {
+              role: "assistant",
+              content: "Compacted checkpoint summary",
+              timestamp: 2,
+            },
+          ]),
+        } as never,
         agentContext: {
           systemPrompt: "System prompt",
           dynamicContext: "",
@@ -281,9 +480,9 @@ describe("OrchestratorSession", () => {
           reasoningEffort: "high",
           threadHistory: [
             {
-              role: "assistant",
-              content: "Compacted checkpoint summary",
-              timestamp: 2,
+              role: "user",
+              content: "Stale pre-compaction history",
+              timestamp: 1,
             },
           ],
         },
@@ -293,6 +492,7 @@ describe("OrchestratorSession", () => {
     expect(startMessages[0]).toContain("Initial persisted history");
     expect(startMessages[1]).toContain("Compacted checkpoint summary");
     expect(startMessages[1]).not.toContain("Initial persisted history");
+    expect(startMessages[1]).not.toContain("Stale pre-compaction history");
   });
 });
 

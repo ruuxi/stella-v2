@@ -1939,6 +1939,7 @@ export class StellaRuntimeHost {
             return { ok: true };
         });
         peer.registerRequestHandler(METHOD_NAMES.INTERNAL_SCHEDULE_LIST_CRON_JOBS, async () => await this.listCronJobs());
+        peer.registerRequestHandler(METHOD_NAMES.INTERNAL_SCHEDULE_LIST_HEARTBEATS, async () => await this.listHeartbeats());
         peer.registerRequestHandler(METHOD_NAMES.INTERNAL_SCHEDULE_ADD_CRON_JOB, async (params) => await this.ensureScheduler().addCronJob(params));
         peer.registerRequestHandler(METHOD_NAMES.INTERNAL_SCHEDULE_UPDATE_CRON_JOB, async (params) => {
             const payload = params;

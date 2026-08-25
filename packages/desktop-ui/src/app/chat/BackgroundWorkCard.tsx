@@ -34,7 +34,7 @@
 import { useLayoutEffect, useMemo } from "react";
 import { notifyChatContentGrowth } from "@/shell/chat-scroll-follow";
 import { TextShimmer } from "@/app/chat/TextShimmer";
-import { useThreadActivity } from "@/features/chat/hooks/use-thread-activity";
+import { useThreadActivityRecords } from "@/features/chat/hooks/use-thread-activity-records";
 import {
   deriveAgentCardPresentationStatus,
   deriveThreadAndOwnedPresentationStatus,
@@ -108,7 +108,7 @@ export function BackgroundWorkCard({
 }) {
   const t = useT();
   const tPlural = useTPlural();
-  const { records: threadActivity } = useThreadActivity(conversationId);
+  const threadActivity = useThreadActivityRecords(conversationId, threadIds);
 
   const presentationStatus = useMemo(() => {
     const completed = new Set(completedThreadIds ?? []);
@@ -119,7 +119,7 @@ export function BackgroundWorkCard({
       .filter((threadId) => !superseded.has(threadId))
       .map((threadId) => {
         const authoritative = deriveThreadAndOwnedPresentationStatus(
-          threadActivity,
+          threadActivity.has(threadId) ? [threadActivity.get(threadId)!] : [],
           threadId,
           {
             attemptGeneration: attemptGenerationsByThread?.[threadId],
@@ -187,9 +187,7 @@ export function BackgroundWorkCard({
 
   if (threadIds.length === 0) return null;
   const openThread = (threadId: string) => {
-    const record = threadActivity.find(
-      (candidate) => candidate.threadId === threadId,
-    );
+    const record = threadActivity.get(threadId);
     openAgentThreadTab({
       threadId,
       conversationId,

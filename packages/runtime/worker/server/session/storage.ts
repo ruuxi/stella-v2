@@ -4,6 +4,7 @@ import { createDesktopDatabase } from "../../../kernel/storage/database.js";
 import { ChatStore } from "../../../kernel/storage/chat-store.js";
 import { RuntimeStore } from "../../../kernel/storage/runtime-store.js";
 import { RunEventLog } from "../../../kernel/storage/run-event-log.js";
+import { projectLocalChatUpdateEvent } from "../../../kernel/storage/session-store.js";
 import type {
   LocalChatEventRecord,
   SqliteDatabase,
@@ -80,7 +81,7 @@ export const layer = Layer.effect(
         event || conversationId
           ? {
               ...(conversationId ? { conversationId } : {}),
-              ...(event ? { event } : {}),
+              ...(event ? { event: projectLocalChatUpdateEvent(event) } : {}),
             }
           : null,
       );

@@ -39,7 +39,10 @@ import {
   markOrchestratorErrorReported,
   resolveInterruptionReason,
 } from "./run-completion.js";
-import { executeRuntimeAgentPrompt } from "./run-execution.js";
+import {
+  executeRuntimeAgentPrompt,
+  isDurablyPersistedRuntimePromptInput,
+} from "./run-execution.js";
 import { executeWithContextOverflowRecovery } from "./context-overflow-recovery.js";
 import {
   enrichImageContentForTextOnlyModel,
@@ -47,10 +50,11 @@ import {
 } from "./image-description.js";
 import type { Api, Model } from "../../ai/types.js";
 import {
-  executeAgentRunWithRetry,
+  AGENT_RUN_MAX_ATTEMPTS,
+  executeAgentTurnWithRetry,
+  formatAgentRunRetryStatus,
   hasAgentRunAttemptBudget,
-  type AgentRunRetryInfo,
-} from "./run-retry.js";
+} from "./agent-run-retry.js";
 import { buildRuntimeSystemPrompt } from "./run-preparation.js";
 import {
   createRunEventRecorder,
@@ -78,6 +82,8 @@ import { createRunScopedStreamFn } from "./provider-stream-lifecycle.js";
 import { streamSimple } from "../../ai/stream.js";
 import type { OrchestratorRunOptions, RuntimeRunCallbacks } from "./types.js";
 import type { RuntimePromptMessage } from "@stella/contracts/protocol";
+import type { Agent } from "../agent-core/agent.js";
+import type { AgentTurnBoundaryContext } from "../agent-core/types.js";
 
 /**
  * Stable runId fragment fed to {@link buildRunThreadKey} so the
@@ -89,8 +95,54 @@ import type { RuntimePromptMessage } from "@stella/contracts/protocol";
  * conversation key migration.
  */
 const ORCHESTRATOR_SESSION_RUN_ID = "session";
+const ORCHESTRATOR_AGENT_IDLE_EVICTION_MS = 5 * 60 * 1000;
+
+const runtimeInternalText = (message: {
+  content: string | Array<{ type: string; text?: string }>;
+}): string =>
+  Array.isArray(message.content)
+    ? message.content
+        .filter(
+          (block): block is { type: "text"; text: string } =>
+            block.type === "text" && typeof block.text === "string",
+        )
+        .map((block) => block.text)
+        .join("\n")
+    : message.content;
+
+const removeTransientRuntimePromptInputs = (
+  agent: Agent,
+  inputs: RuntimePromptMessage[],
+  messagesBefore: number,
+): boolean => {
+  const remaining = inputs
+    .filter(
+      (input) =>
+        input.messageType === "message" &&
+        !isDurablyPersistedRuntimePromptInput(input),
+    )
+    .map((input) => ({ customType: input.customType, text: input.text }));
+  if (remaining.length === 0) return false;
+  const messages = agent.state.messages;
+  const nextMessages = messages.filter((message, index) => {
+    if (index < messagesBefore || message.role !== "runtimeInternal") return true;
+    const matchIndex = remaining.findIndex(
+      (input) =>
+        input.customType === message.customType &&
+        input.text === runtimeInternalText(message),
+    );
+    if (matchIndex < 0) return true;
+    remaining.splice(matchIndex, 1);
+    return false;
+  });
+  if (nextMessages.length === messages.length) return false;
+  agent.replaceMessages(nextMessages);
+  return true;
+};
 
 export class OrchestratorSession extends PiSessionCore {
+  private idleEvictionTimer: ReturnType<typeof setTimeout> | null = null;
+  private activeTurnCount = 0;
   /**
    * Mutable tracker slot. Set at the start of every `runTurn`, cleared at
    * the end. The Agent's `afterToolCall` closure (built once at Agent
@@ -113,6 +165,34 @@ export class OrchestratorSession extends PiSessionCore {
     model: Pick<Model<Api>, "input">;
     describeImages?: ImageDescriptionService;
   } | null = null;
+  /** Per-run data read by the long-lived Agent's quiescent-boundary hook. */
+  private currentActiveWorkingSetContext: {
+    opts: OrchestratorRunOptions;
+    agentContext: OrchestratorRunOptions["agentContext"];
+    runId: string;
+    onCompacting: () => void;
+    containmentTurn: {
+      messagesBefore: number;
+      failureMessagesBefore: number;
+    };
+    refreshBlocked: boolean;
+  } | null = null;
+  private hasUnresolvedThreadPersistenceFailure = false;
+
+  private scheduleIdleEviction(): void {
+    if (this.idleEvictionTimer) {
+      clearTimeout(this.idleEvictionTimer);
+      this.idleEvictionTimer = null;
+    }
+    if (this.activeTurnCount > 0 || this.hasUnresolvedThreadPersistenceFailure)
+      return;
+    this.idleEvictionTimer = setTimeout(() => {
+      this.idleEvictionTimer = null;
+      if (this.activeTurnCount > 0) return;
+      this.dispose();
+    }, ORCHESTRATOR_AGENT_IDLE_EVICTION_MS);
+    this.idleEvictionTimer.unref?.();
+  }
 
   constructor(public readonly conversationId: string) {
     super({
@@ -135,6 +215,7 @@ export class OrchestratorSession extends PiSessionCore {
     delayMs: number;
     reason?: string;
   }): void => {
+    if (info.attempt < 2) return;
     const ctx = this.currentRetryStatusContext;
     if (!ctx) return;
     const seconds = Math.max(1, Math.round(info.delayMs / 1000));
@@ -147,7 +228,80 @@ export class OrchestratorSession extends PiSessionCore {
     }
   };
 
+  private handleActiveTurnBoundary = async (
+    context: AgentTurnBoundaryContext,
+    signal?: AbortSignal,
+  ) => {
+    const current = this.currentActiveWorkingSetContext;
+    if (!current) return undefined;
+    // The completed group is the suspect tail for containment, while the
+    // narrower failure baseline tracks only the next provider attempt.
+    current.containmentTurn.messagesBefore = Math.max(
+      0,
+      context.context.messages.length - context.completedMessages.length,
+    );
+    current.containmentTurn.failureMessagesBefore =
+      context.context.messages.length;
+    // Steering rows are durable before consumption. Page-in while none are
+    // queued so the same row cannot be loaded and appended twice.
+    if (
+      current.refreshBlocked ||
+      context.pendingMessages.length > 0 ||
+      this.agent?.hasQueuedMessages()
+    ) {
+      return undefined;
+    }
+    const turnStartIndex = Math.min(
+      context.context.messages.length,
+      Math.max(0, current.containmentTurn.messagesBefore),
+    );
+    const currentTurnTail = context.context.messages.slice(turnStartIndex);
+    const replacement = await this.refreshActiveWorkingSetAtBoundary({
+      opts: current.opts,
+      agentContext: current.agentContext,
+      runId: current.runId,
+      messages: context.context.messages,
+      completedMessages: context.completedMessages,
+      requiredResidentSuffix: currentTurnTail,
+      signal,
+      onCompacting: current.onCompacting,
+      canApply: () =>
+        this.currentActiveWorkingSetContext === current &&
+        context.pendingMessages.length === 0 &&
+        !this.agent?.hasQueuedMessages(),
+      logContext: {
+        conversationId: this.conversationId,
+        runId: current.runId,
+      },
+    });
+    if (replacement && this.currentActiveWorkingSetContext === current) {
+      current.containmentTurn.messagesBefore =
+        replacement.length - currentTurnTail.length;
+      current.containmentTurn.failureMessagesBefore = replacement.length;
+    }
+    return replacement;
+  };
+
   async runTurn(opts: OrchestratorRunOptions): Promise<string> {
+    if (this.hasUnresolvedThreadPersistenceFailure) {
+      throw new Error(
+        "Cannot continue this live session after an unresolved thread persistence failure.",
+      );
+    }
+    if (this.idleEvictionTimer) {
+      clearTimeout(this.idleEvictionTimer);
+      this.idleEvictionTimer = null;
+    }
+    this.activeTurnCount += 1;
+    try {
+      return await this.runActiveTurn(opts);
+    } finally {
+      this.activeTurnCount = Math.max(0, this.activeTurnCount - 1);
+      if (this.activeTurnCount === 0) this.scheduleIdleEviction();
+    }
+  }
+
+  private async runActiveTurn(opts: OrchestratorRunOptions): Promise<string> {
     const runId = opts.runId ?? `local:${crypto.randomUUID()}`;
     const turnOpts = opts.runId === runId ? opts : { ...opts, runId };
     const effectiveSystemPrompt = await buildRuntimeSystemPrompt(turnOpts);
@@ -205,9 +359,14 @@ export class OrchestratorSession extends PiSessionCore {
     });
 
     // Apply compaction overlays before provider calls, never mid-stream.
-    this.refreshHistoryIfNeeded(opts.agentContext, {
-      conversationId: this.conversationId,
-    });
+    const refreshedAgentContext = this.refreshHistoryFromStoreIfNeeded(
+      opts.agentContext,
+      opts.store,
+      { conversationId: this.conversationId },
+    );
+    if (refreshedAgentContext !== opts.agentContext) {
+      opts.agentContext.threadHistory = refreshedAgentContext.threadHistory;
+    }
     this.currentImageDescriptionContext = {
       model: opts.resolvedLlm.model,
       ...(opts.describeImages ? { describeImages: opts.describeImages } : {}),
@@ -267,6 +426,7 @@ export class OrchestratorSession extends PiSessionCore {
         return content === context.result.content ? undefined : { content };
       },
       onProviderRetry: this.handleProviderRetry,
+      onTurnBoundary: this.handleActiveTurnBoundary,
       logContext: {
         conversationId: this.conversationId,
         runId,
@@ -335,8 +495,32 @@ export class OrchestratorSession extends PiSessionCore {
       this.currentResponseTargetTracker = null;
       this.currentRetryStatusContext = null;
       this.currentImageDescriptionContext = null;
+      this.currentActiveWorkingSetContext = null;
       return runId;
     }
+
+    this.currentActiveWorkingSetContext = {
+      opts,
+      agentContext: opts.agentContext,
+      runId,
+      onCompacting: emitCompactingStatus,
+      containmentTurn,
+      refreshBlocked: false,
+    };
+    let transientRuntimePromptInputs: RuntimePromptMessage[] = [];
+    const transientRuntimePromptStart = containmentTurn.messagesBefore;
+    const dropTransientRuntimePromptInputs = () => {
+      if (
+        removeTransientRuntimePromptInputs(
+          agent,
+          transientRuntimePromptInputs,
+          transientRuntimePromptStart,
+        )
+      ) {
+        opts.agentContext.threadHistory = agent.state.messages;
+      }
+      transientRuntimePromptInputs = [];
+    };
 
     try {
       // Frozen-context drift notes (queued by createOrReuseAgent) ride as
@@ -361,6 +545,20 @@ export class OrchestratorSession extends PiSessionCore {
           ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
         },
       });
+      const workingSetContext = this.currentActiveWorkingSetContext!;
+      transientRuntimePromptInputs = promptMessages.filter(
+        (message) =>
+          message.messageType === "message" &&
+          !isDurablyPersistedRuntimePromptInput(message),
+      );
+      if (
+        workingSetContext?.runId === runId &&
+        transientRuntimePromptInputs.length > 0
+      ) {
+        // Queued-reply wrappers are intentionally not durable: their user
+        // messages already are. Keep this turn resident until cleanup.
+        workingSetContext.refreshBlocked = true;
+      }
 
       const executionArgs = {
         agent,
@@ -388,10 +586,20 @@ export class OrchestratorSession extends PiSessionCore {
           ? { attemptGeneration: opts.agentContext.attemptGeneration }
           : {}),
         ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
+        onThreadPersistenceError: () => {
+          workingSetContext.refreshBlocked = true;
+          this.hasUnresolvedThreadPersistenceFailure = true;
+        },
+        onThreadPersistenceRecovered: () => {
+          this.hasUnresolvedThreadPersistenceFailure = false;
+          if (transientRuntimePromptInputs.length === 0) {
+            workingSetContext.refreshBlocked = false;
+          }
+        },
       };
       const retryState = { attemptsUsed: 0, retriesUsed: 0 };
       const executeWithTransientRetry = (initialResume = false) =>
-        executeAgentRunWithRetry({
+        executeAgentTurnWithRetry({
           state: retryState,
           initialResume,
           execute: (resume) =>
@@ -399,18 +607,18 @@ export class OrchestratorSession extends PiSessionCore {
               ...executionArgs,
               ...(resume ? { resume: true } : {}),
             }),
-          prepareResume: (errorMessage, classification) =>
-            this.prepareTransientFailureRetry(agent, {
-              errorMessage,
-              classification,
+          prepareRetry: (failure) =>
+            this.prepareAgentRunRetry(agent, {
+              failure,
+              store: opts.store,
+              runId,
               logContext: { conversationId: this.conversationId, runId },
             }),
-          ...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
-          onRetry: (info: AgentRunRetryInfo) => {
-            const seconds = Math.max(1, Math.round(info.delayMs / 1_000));
+          ...(opts.abortSignal ? { signal: opts.abortSignal } : {}),
+          onRetry: (info) => {
             opts.callbacks?.onStatus?.(
               runEvents.recordStatus(
-                `Stella hit a transient ${info.category.replaceAll("-", " ")} — retrying attempt ${info.nextAttempt}/${info.maxAttempts} in ${seconds}s`,
+                formatAgentRunRetryStatus(info),
                 "provider-retry",
               ),
             );
@@ -434,11 +642,13 @@ export class OrchestratorSession extends PiSessionCore {
       while (
         execution.errorMessage &&
         !opts.abortSignal?.aborted &&
-        hasAgentRunAttemptBudget(retryState) &&
+        hasAgentRunAttemptBudget(retryState, AGENT_RUN_MAX_ATTEMPTS) &&
         fableAttempts < SAFETY_ABORT_FABLE_ATTEMPTS
       ) {
         const retry = this.prepareSafetySameModelRetry(agent, {
           errorMessage: execution.errorMessage,
+          store: opts.store,
+          runId,
           logContext: {
             conversationId: this.conversationId,
             runId,
@@ -465,10 +675,12 @@ export class OrchestratorSession extends PiSessionCore {
       if (
         execution.errorMessage &&
         !opts.abortSignal?.aborted &&
-        hasAgentRunAttemptBudget(retryState)
+        hasAgentRunAttemptBudget(retryState, AGENT_RUN_MAX_ATTEMPTS)
       ) {
         const swap = this.prepareSafetyModelSwap(agent, {
           errorMessage: execution.errorMessage,
+          store: opts.store,
+          runId,
           logContext: { conversationId: this.conversationId, runId },
         });
         if (swap) {
@@ -508,6 +720,9 @@ export class OrchestratorSession extends PiSessionCore {
         throw new Error(errorMessage);
       }
 
+      // One-shot queued-reply wrappers must not reach agent_end memory review
+      // or the post-turn compaction snapshot; their user rows are durable.
+      dropTransientRuntimePromptInputs();
       this.noteAbortContainmentSuccess();
       await finalizeOrchestratorSuccess({
         opts,
@@ -536,6 +751,7 @@ export class OrchestratorSession extends PiSessionCore {
       }
       const surfacedMessage = this.noteAbortContainmentFailure(agent, {
         messagesBefore: containmentTurn.messagesBefore,
+        failureMessagesBefore: containmentTurn.failureMessagesBefore,
         errorMessage:
           error instanceof Error
             ? error.message || "Stella runtime failed"
@@ -556,17 +772,24 @@ export class OrchestratorSession extends PiSessionCore {
       });
       throw markOrchestratorErrorReported(surfacedError);
     } finally {
+      dropTransientRuntimePromptInputs();
       this.currentResponseTargetTracker = null;
       this.currentRetryStatusContext = null;
       this.currentImageDescriptionContext = null;
+      this.currentActiveWorkingSetContext = null;
     }
   }
 
   dispose(): void {
+    if (this.idleEvictionTimer) {
+      clearTimeout(this.idleEvictionTimer);
+      this.idleEvictionTimer = null;
+    }
     super.dispose();
     this.currentResponseTargetTracker = null;
     this.currentRetryStatusContext = null;
     this.currentImageDescriptionContext = null;
+    this.currentActiveWorkingSetContext = null;
   }
 }
 

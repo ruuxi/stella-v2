@@ -27,14 +27,17 @@ import {
   resolvedLlmSupportsCredentiallessCalls,
   type ResolvedLlmRoute,
 } from "../model-routing.js";
-import { getModelOverride } from "../preferences/local-preferences.js";
+import {
+  getAgentRuntimeEngine,
+  getModelOverride,
+  getSubscriptionHarnessEnabled,
+} from "../preferences/local-preferences.js";
 import { resolveAgentWorkingDirectory } from "./shared.js";
 import {
   runClaudeCodeAgentTextCompletion,
   shouldUseClaudeCodeAgentRuntime,
 } from "../integrations/claude-code-agent-runtime.js";
 import { runCodexAgentTurn } from "../integrations/codex-agent-runtime.js";
-import { getAgentRuntimeEngine } from "../preferences/local-preferences.js";
 import {
   closeClaudeCodeSessionWhenIdle,
   scheduleClaudeCodeSessionCloseWhenIdle,
@@ -203,9 +206,11 @@ export const runOneShotCompletion = async (args: {
   };
 
   try {
+    const activeEngine = getAgentRuntimeEngine(runtime.stellaDataDir);
     if (
       request.utility === true &&
-      getAgentRuntimeEngine(runtime.stellaDataDir) === "codex_cli"
+      activeEngine === "codex_cli" &&
+      !getSubscriptionHarnessEnabled(runtime.stellaDataDir, activeEngine)
     ) {
       const result = await runCodexAgentTurn({
         runId: `codex:${request.agentType}:${crypto.randomUUID()}`,

@@ -29,6 +29,24 @@ const createTempDir = async () => {
   return await tempDirs.create("stella-general-tools-");
 };
 
+type ExecDetails = {
+  session_id: string | null;
+  running: boolean;
+  exit_code: number | null;
+  wall_time_seconds: number;
+  original_token_count: number;
+  cwd: string;
+  command: string;
+  original_output_bytes: number;
+  raw_output_truncated: boolean;
+};
+
+const execDetailsOf = (result: { details?: unknown }): ExecDetails =>
+  result.details as ExecDetails;
+
+const execTextOf = (result: { result?: unknown }): string =>
+  result.result as string;
+
 describe("general agent tools", () => {
   it("exec_command advertises pipes by default and a cross-platform opt-in PTY", async () => {
     const root = await createTempDir();
@@ -45,6 +63,10 @@ describe("general agent tools", () => {
     expect(properties.tty?.description).toContain("ConPTY");
     expect(properties.login?.description).toContain("-lc");
     expect(properties.login?.description).toContain("-c");
+    expect(properties.max_output_tokens).toMatchObject({
+      type: "integer",
+      minimum: 0,
+    });
   });
 
   it("exec_command returns one-shot output inline", async () => {
@@ -66,12 +88,13 @@ describe("general agent tools", () => {
     );
 
     expect(result.error).toBeUndefined();
-    expect(result.result).toMatchObject({
+    expect(result.details).toMatchObject({
       session_id: null,
       running: false,
       exit_code: 0,
-      output: "ready",
     });
+    expect(result.details).not.toHaveProperty("output");
+    expect(execTextOf(result)).toContain("\nOutput:\nready");
   });
 
   it("exec_command defaults to the turn workspace and rejects poisoned runtime cwd fallbacks", async () => {
@@ -91,10 +114,10 @@ describe("general agent tools", () => {
         toolWorkspaceRoot: workspaceRoot,
       },
     );
-    expect(workspaceResult.result).toMatchObject({
+    expect(workspaceResult.details).toMatchObject({
       cwd: workspaceRoot,
-      output: expect.stringContaining(path.basename(workspaceRoot)),
     });
+    expect(execTextOf(workspaceResult)).toContain(path.basename(workspaceRoot));
 
     const fallbackResult = await handleExecCommand(
       createShellState(root),
@@ -106,10 +129,10 @@ describe("general agent tools", () => {
         stellaAppDir: appAsar,
       },
     );
-    expect(fallbackResult.result).toMatchObject({
+    expect(fallbackResult.details).toMatchObject({
       cwd: os.homedir(),
-      output: expect.stringContaining(path.basename(os.homedir())),
     });
+    expect(execTextOf(fallbackResult)).toContain(path.basename(os.homedir()));
   });
 
   it("exec_command honors an explicit shell and non-login mode", async () => {
@@ -134,15 +157,13 @@ describe("general agent tools", () => {
     );
 
     expect(result.error).toBeUndefined();
-    expect(result.result).toMatchObject({
+    expect(result.details).toMatchObject({
       session_id: null,
       running: false,
       exit_code: 0,
     });
-    expect((result.result as { output: string }).output).toMatch(
-      /^\/bin\/sh\|/,
-    );
-    expect((result.result as { output: string }).output).not.toContain("l");
+    expect(execTextOf(result)).toMatch(/\nOutput:\n\/bin\/sh\|/);
+    expect(execTextOf(result).split("\nOutput:\n").at(-1)).not.toContain("l");
   });
 
   it("exec_command uses PowerShell-native arguments on Windows", () => {
@@ -239,12 +260,12 @@ describe("general agent tools", () => {
     );
 
     expect(result.error).toBeUndefined();
-    expect(result.result).toMatchObject({
+    expect(result.details).toMatchObject({
       session_id: null,
       running: false,
       exit_code: 1,
     });
-    const output = (result.result as { output: string }).output;
+    const output = execTextOf(result);
     expect(output).toContain("Failed to start exec_command shell");
     expect(output).toContain("runner=node:child_process.spawn");
     expect(output).toContain("namespace=runtime-worker");
@@ -273,13 +294,13 @@ describe("general agent tools", () => {
     );
 
     expect(result.error).toBeUndefined();
-    expect(result.result).toMatchObject({
+    expect(result.details).toMatchObject({
       session_id: null,
       running: false,
       exit_code: 1,
       cwd: cwdFile,
     });
-    const output = (result.result as { output: string }).output;
+    const output = execTextOf(result);
     expect(output).toContain("Failed to start exec_command shell");
     expect(output).toContain(`cwd=${JSON.stringify(cwdFile)}`);
   });
@@ -339,7 +360,7 @@ describe("general agent tools", () => {
         { cmd: interactiveCommand, shell, tty: true, yield_time_ms: 50 },
         context,
       );
-      const sessionId = started.result?.session_id;
+      const sessionId = started.details?.session_id;
       if (!sessionId) throw new Error("interactive PTY did not stay running");
       const writes = [];
       writes.push(
@@ -349,7 +370,7 @@ describe("general agent tools", () => {
           context,
         ),
       );
-      if (writes.at(-1)?.result?.running) {
+      if (writes.at(-1)?.details?.running) {
         writes.push(
           await handleWriteStdin(
             state,
@@ -372,21 +393,19 @@ describe("general agent tools", () => {
       stdout.slice(markerIndex + marker.length).trim(),
     );
     expect(fixture.probe.error).toBeUndefined();
-    expect(fixture.probe.result).toMatchObject({
+    expect(fixture.probe.details).toMatchObject({
       running: false,
       exit_code: 0,
-      output: expect.stringContaining("tty-ready"),
     });
+    expect(fixture.probe.result).toContain("tty-ready");
     const interactionOutput = [
-      fixture.started?.result?.output,
-      ...fixture.writes.map(
-        (write: { result?: { output?: string } }) => write.result?.output,
-      ),
+      fixture.started?.result,
+      ...fixture.writes.map((write: { result?: string }) => write.result),
     ]
       .filter(Boolean)
       .join("");
     expect(interactionOutput).toContain("got:hello");
-    expect(fixture.writes.at(-1)?.result).toMatchObject({
+    expect(fixture.writes.at(-1)?.details).toMatchObject({
       running: false,
       exit_code: 0,
     });
@@ -412,12 +431,12 @@ describe("general agent tools", () => {
     );
 
     expect(result.error).toBeUndefined();
-    expect(result.result).toMatchObject({
+    expect(result.details).toMatchObject({
       session_id: null,
       running: false,
       exit_code: 0,
-      output: "42",
     });
+    expect(execTextOf(result)).toContain("\nOutput:\n42");
   });
 
   it("General launches Node.js through the ToolHost exec_command boundary", async () => {
@@ -442,11 +461,11 @@ describe("general agent tools", () => {
       );
 
       expect(result.error).toBeUndefined();
-      expect(result.result).toMatchObject({
+      expect(result.details).toMatchObject({
         running: false,
         exit_code: 0,
-        output: '{"runtime":"node"}',
       });
+      expect(execTextOf(result)).toContain('\nOutput:\n{"runtime":"node"}');
     } finally {
       await host.shutdown();
     }
@@ -476,12 +495,12 @@ describe("general agent tools", () => {
     );
 
     expect(result.error).toBeUndefined();
-    expect(result.result).toMatchObject({
+    expect(result.details).toMatchObject({
       session_id: null,
       running: false,
       exit_code: 0,
-      output: "42",
     });
+    expect(execTextOf(result)).toContain("\nOutput:\n42");
   });
 
   it("write_stdin drives an interactive Node.js REPL", async () => {
@@ -501,8 +520,7 @@ describe("general agent tools", () => {
       context,
     );
     expect(started.error).toBeUndefined();
-    const sessionId = (started.result as { session_id: string | null })
-      .session_id;
+    const sessionId = execDetailsOf(started).session_id;
     expect(typeof sessionId).toBe("string");
 
     const finished = await handleWriteStdin(
@@ -511,17 +529,19 @@ describe("general agent tools", () => {
         session_id: sessionId,
         chars: "console.log(21 * 2)\n.exit\n",
         yield_time_ms: 1_000,
+        max_output_tokens: 128,
       },
       context,
     );
 
     expect(finished.error).toBeUndefined();
-    expect(finished.result).toMatchObject({
+    expect(finished.details).toMatchObject({
       session_id: null,
       running: false,
       exit_code: 0,
     });
-    expect((finished.result as { output: string }).output).toContain("42");
+    expect(finished.modelOutputTokens).toBe(128);
+    expect(execTextOf(finished)).toContain("42");
   });
 
   it("write_stdin continues an interactive exec_command session", async () => {
@@ -544,8 +564,7 @@ describe("general agent tools", () => {
     );
 
     expect(started.error).toBeUndefined();
-    const sessionId = (started.result as { session_id: string | null })
-      .session_id;
+    const sessionId = execDetailsOf(started).session_id;
     expect(typeof sessionId).toBe("string");
 
     const finished = await handleWriteStdin(
@@ -559,14 +578,12 @@ describe("general agent tools", () => {
     );
 
     expect(finished.error).toBeUndefined();
-    expect(finished.result).toMatchObject({
+    expect(finished.details).toMatchObject({
       session_id: null,
       running: false,
       exit_code: 0,
     });
-    expect((finished.result as { output: string }).output).toContain(
-      "echo:hello world",
-    );
+    expect(execTextOf(finished)).toContain("echo:hello world");
   });
 
   it("apply_patch updates an existing file", async () => {
@@ -825,11 +842,47 @@ EOF`,
     );
 
     expect(result.error).toBeUndefined();
-    const payload = result.result as Record<string, unknown>;
+    const payload = execDetailsOf(result);
     expect(typeof payload.wall_time_seconds).toBe("number");
-    expect(payload.wall_time_seconds as number).toBeGreaterThanOrEqual(0);
+    expect(payload.wall_time_seconds).toBeGreaterThanOrEqual(0);
     expect(typeof payload.original_token_count).toBe("number");
-    expect(payload.original_token_count as number).toBeGreaterThan(256);
+    expect(payload.original_token_count).toBeGreaterThan(256);
+    expect(result.modelOutputTokens).toBe(256);
+  });
+
+  it("exec_command accepts zero and rejects invalid max_output_tokens before execution", async () => {
+    const root = await createTempDir();
+    const shellState = createShellState(root);
+    const markerPath = path.join(root, "should-not-exist.txt");
+    const context = {
+      conversationId: "c-output-budget-validation",
+      deviceId: "d-output-budget-validation",
+      requestId: "r-output-budget-validation",
+      stellaAppDir: root,
+    };
+
+    const zero = await handleExecCommand(
+      shellState,
+      { cmd: "printf zero", yield_time_ms: 1_000, max_output_tokens: 0 },
+      context,
+    );
+    expect(zero.error).toBeUndefined();
+    expect(zero.modelOutputTokens).toBe(0);
+
+    for (const invalid of [-1, 1.5, Number.POSITIVE_INFINITY]) {
+      const rejected = await handleExecCommand(
+        shellState,
+        {
+          cmd: `touch ${JSON.stringify(markerPath)}`,
+          max_output_tokens: invalid,
+        },
+        context,
+      );
+      expect(rejected.error).toBe(
+        "max_output_tokens must be a non-negative safe integer.",
+      );
+    }
+    await expect(access(markerPath)).rejects.toThrow();
   });
 
   it("exec_command payload includes original_token_count even when output is small", async () => {
@@ -851,10 +904,10 @@ EOF`,
     );
 
     expect(result.error).toBeUndefined();
-    const payload = result.result as Record<string, unknown>;
-    expect(payload.output).toBe("ok");
+    const payload = execDetailsOf(result);
+    expect(execTextOf(result)).toContain("\nOutput:\nok");
     expect(typeof payload.original_token_count).toBe("number");
-    expect((payload.original_token_count as number) >= 1).toBe(true);
+    expect(payload.original_token_count >= 1).toBe(true);
   });
 
   it("multi_tool_use_parallel rejects write_stdin (non-parallel-safe)", async () => {
@@ -997,11 +1050,19 @@ EOF`,
           tool_uses: [
             {
               recipient_name: "exec_command",
-              parameters: { cmd: "printf one", yield_time_ms: 500 },
+              parameters: {
+                cmd: "printf one",
+                yield_time_ms: 500,
+                max_output_tokens: 128,
+              },
             },
             {
               recipient_name: "functions.exec_command",
-              parameters: { cmd: "printf two", yield_time_ms: 500 },
+              parameters: {
+                cmd: "printf two",
+                yield_time_ms: 500,
+                max_output_tokens: 256,
+              },
             },
           ],
         },
@@ -1019,6 +1080,22 @@ EOF`,
       expect(typeof result.result).toBe("string");
       expect(result.result as string).toContain("one");
       expect(result.result as string).toContain("two");
+      expect(result.modelOutputTokens).toBe(384);
+      const details = result.details as {
+        results: Array<{
+          tool_name: string;
+          result?: unknown;
+          details?: unknown;
+          modelOutputTokens?: number;
+        }>;
+      };
+      expect(details.results).toHaveLength(2);
+      for (const [index, nested] of details.results.entries()) {
+        expect(nested.tool_name).toBe("exec_command");
+        expect(nested).not.toHaveProperty("result");
+        expect(nested.details).not.toHaveProperty("output");
+        expect(nested.modelOutputTokens).toBe(index === 0 ? 128 : 256);
+      }
     } finally {
       await host.shutdown();
     }

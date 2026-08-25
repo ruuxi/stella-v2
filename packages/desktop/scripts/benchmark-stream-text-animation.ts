@@ -2,11 +2,11 @@
 import {
   StreamTextAnimationController,
   type StreamTextAnimationScheduler,
-} from '../src/features/chat/streaming/use-stream-text-animation'
+} from '../../desktop-ui/src/features/chat/streaming/use-stream-text-animation'
 import {
   ALL_STREAM_CADENCE_TRACES,
   type StreamCadenceTrace,
-} from '../tests/fixtures/stream-cadence-traces'
+} from '../../desktop-ui/tests/fixtures/stream-cadence-traces'
 
 const FRAME_MS = 1000 / 60
 

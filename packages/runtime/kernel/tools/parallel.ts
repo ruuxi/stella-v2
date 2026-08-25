@@ -11,6 +11,7 @@ import type {
 import { mergeProducedFilesOmissions } from "./utils.js";
 
 export const MULTI_TOOL_USE_PARALLEL_TOOL_NAME = "multi_tool_use_parallel";
+const COMMAND_OUTPUT_TOOL_NAMES = new Set(["exec_command", "write_stdin"]);
 
 /**
  * Tools that mutate session state and must never be invoked concurrently
@@ -64,6 +65,17 @@ type ParallelEntryResult = {
   fileChanges?: FileChangeRecord[];
   producedFiles?: ProducedFileRecord[];
   producedFilesOmitted?: ProducedFilesOmission;
+  modelOutputTokens?: number;
+};
+
+const withoutDuplicatedCommandResult = (
+  entry: ParallelEntryResult,
+): ParallelEntryResult => {
+  if (!COMMAND_OUTPUT_TOOL_NAMES.has(entry.tool_name) || !("result" in entry)) {
+    return entry;
+  }
+  const { result: _commandOutput, ...metadata } = entry;
+  return metadata;
 };
 
 export const handleMultiToolUseParallel = async (
@@ -180,6 +192,9 @@ export const handleMultiToolUseParallel = async (
         ...(nested.producedFilesOmitted
           ? { producedFilesOmitted: nested.producedFilesOmitted }
           : {}),
+        ...(typeof nested.modelOutputTokens === "number"
+          ? { modelOutputTokens: nested.modelOutputTokens }
+          : {}),
       };
     }),
   );
@@ -214,9 +229,25 @@ export const handleMultiToolUseParallel = async (
     })
     .join("\n\n");
 
+  const modelOutputTokens = results.every(
+    (entry) =>
+      COMMAND_OUTPUT_TOOL_NAMES.has(entry.tool_name) &&
+      typeof entry.modelOutputTokens === "number",
+  )
+    ? results.reduce(
+        (total, entry) =>
+          Math.min(
+            Number.MAX_SAFE_INTEGER,
+            total + (entry.modelOutputTokens ?? 0),
+          ),
+        0,
+      )
+    : undefined;
+
   return {
     result: rendered,
-    details: { results },
+    details: { results: results.map(withoutDuplicatedCommandResult) },
+    ...(modelOutputTokens !== undefined ? { modelOutputTokens } : {}),
     ...(fileChanges.length > 0 ? { fileChanges } : {}),
     ...(producedFiles.length > 0 ? { producedFiles } : {}),
     ...(producedFilesOmitted ? { producedFilesOmitted } : {}),

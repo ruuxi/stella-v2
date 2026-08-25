@@ -30,6 +30,7 @@
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-masked-view/masked-view": "^0.3.2",
     "@react-navigation/native": "^7.1.33",
+    "@shopify/react-native-skia": "2.4.18",
     "better-auth": "^1.4.9",
     "convex": "^1.44.0",
     "expo": "~55.0.24",
@@ -93,6 +94,7 @@
   "private": true,
   "patchedDependencies": {
     "react-native-carplay@2.3.0": "patches/react-native-carplay@2.3.0.patch",
-    "react-native@0.83.6": "patches/react-native@0.83.6.patch"
+    "react-native@0.83.6": "patches/react-native@0.83.6.patch",
+    "react-native-nitro-markdown@0.6.2": "patches/react-native-nitro-markdown@0.6.2.patch"
   }
 }

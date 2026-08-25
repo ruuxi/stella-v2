@@ -127,9 +127,10 @@ export const layer = Layer.effect(
         storage.appendChatEventAndNotify(args);
       },
       notifyThreadActivityUpdated: (conversationId) => {
-        hostBus.notify(NOTIFICATION_NAMES.THREAD_ACTIVITY_UPDATED, {
-          conversationId,
-        });
+        hostBus.notify(
+          NOTIFICATION_NAMES.THREAD_ACTIVITY_UPDATED,
+          storage.chatStore.getThreadActivityMetadata(conversationId),
+        );
       },
       getDefaultConversationId: () =>
         storage.chatStore.getOrCreateDefaultConversationId(),
@@ -157,6 +158,12 @@ export const layer = Layer.effect(
         listCronJobs: async () =>
           await hostBus.request(
             METHOD_NAMES.INTERNAL_SCHEDULE_LIST_CRON_JOBS,
+            undefined,
+            { retryOnDisconnect: true },
+          ),
+        listHeartbeats: async () =>
+          await hostBus.request(
+            METHOD_NAMES.INTERNAL_SCHEDULE_LIST_HEARTBEATS,
             undefined,
             { retryOnDisconnect: true },
           ),

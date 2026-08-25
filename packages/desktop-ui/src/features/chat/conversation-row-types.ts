@@ -57,6 +57,19 @@ export type AssistantRowViewModel = {
    * persisted handoff so the markdown parse cache is reused.
    */
   cacheKey: string;
+  /** Durable row identity used for explicit, paginated tool-detail reads. */
+  sourceMessageId?: string;
+  sourceMessageSequence?: number;
+  toolEventSummary?: {
+    totalCount: number;
+    loadedCount: number;
+    truncated: boolean;
+    totalCountIsLowerBound?: boolean;
+    detailLoaded?: boolean;
+    detailCursor?: { timestamp: number; id: string; sequence?: number };
+    detailHasMore?: boolean;
+    livePinsPending?: boolean;
+  };
   /**
    * Set when this row is sourced from a live `StreamingAssistantOverlay`
    * (text still growing). Scroll follow uses `data-scroll-follow-key`

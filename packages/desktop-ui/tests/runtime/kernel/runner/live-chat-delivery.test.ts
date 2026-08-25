@@ -4,7 +4,11 @@ import {
   recordPendingFollowUpReplyEntry,
   resolveLiveChatMessageDelivery,
 } from "@stella/runtime/kernel/runner/shared";
-import { matchesSteerableOrchestratorSession } from "@stella/runtime/kernel/runner/orchestrator";
+import {
+  buildRuntimeSendPromptMessage,
+  matchesSteerableOrchestratorSession,
+} from "@stella/runtime/kernel/runner/orchestrator";
+import { normalizeChatRunInput } from "@stella/runtime/kernel/runner/orchestrator-policy";
 import type {
   ActiveOrchestratorSession,
   PendingFollowUpReply,
@@ -78,6 +82,62 @@ describe("matchesSteerableOrchestratorSession", () => {
         conversationId: "conv-2",
       }),
     ).toBe(false);
+  });
+});
+
+describe("buildRuntimeSendPromptMessage", () => {
+  it("carries a durable lifecycle timestamp into a fresh queued turn", () => {
+    expect(
+      buildRuntimeSendPromptMessage(
+        {
+          customType: "runtime.task_lifecycle",
+          display: false,
+          timestamp: 123,
+        },
+        "task completed",
+      ),
+    ).toEqual({
+      text: "task completed",
+      messageType: "message",
+      customType: "runtime.task_lifecycle",
+      display: false,
+      timestamp: 123,
+    });
+  });
+
+  it("does not carry a non-finite runtime timestamp", () => {
+    expect(
+      buildRuntimeSendPromptMessage({ timestamp: Number.NaN }, "message"),
+    ).not.toHaveProperty("timestamp");
+  });
+});
+
+describe("normalizeChatRunInput", () => {
+  it("preserves durable custom prompt identity fields", () => {
+    const normalized = normalizeChatRunInput({
+      conversationId: "conv-1",
+      userMessageId: "message-1",
+      userPrompt: "",
+      promptMessages: [
+        {
+          text: " lifecycle report ",
+          messageType: "message",
+          customType: " runtime.task_lifecycle ",
+          display: false,
+          timestamp: 123,
+        },
+      ],
+    });
+
+    expect(normalized.promptMessages).toEqual([
+      {
+        text: "lifecycle report",
+        messageType: "message",
+        customType: "runtime.task_lifecycle",
+        display: false,
+        timestamp: 123,
+      },
+    ]);
   });
 });
 

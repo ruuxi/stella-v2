@@ -723,6 +723,13 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
             cacheKey: activityKey,
             replyToUserMessageId: message._id,
             backgroundWork: userBackgroundWork,
+            sourceMessageId: message._id,
+            ...(typeof message.sequence === "number"
+              ? { sourceMessageSequence: message.sequence }
+              : {}),
+            ...(message.toolEventSummary
+              ? { toolEventSummary: message.toolEventSummary }
+              : {}),
           });
           pushAdditionalBackgroundWorkRows(
             produced,
@@ -827,6 +834,13 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           text: voiceSession ? "" : text,
           timestampMs: message.timestamp,
           cacheKey: stableKey,
+          sourceMessageId: message._id,
+          ...(typeof message.sequence === "number"
+            ? { sourceMessageSequence: message.sequence }
+            : {}),
+          ...(message.toolEventSummary
+            ? { toolEventSummary: message.toolEventSummary }
+            : {}),
           ...(isStreamingOverlay && !isHiddenTransition
             ? { isStreaming: true }
             : {}),

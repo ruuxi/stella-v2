@@ -8,6 +8,7 @@ import type {
   AfterToolCallResult,
   AgentMessage,
   AgentTool,
+  AgentTurnBoundaryContext,
   ThinkingLevel,
 } from "../agent-core/types.js";
 import type { Message, ServiceTier } from "../../ai/types.js";
@@ -261,6 +262,10 @@ export const createRuntimeAgent = (args: {
     | Promise<AfterToolCallResult | undefined>
     | AfterToolCallResult
     | undefined;
+  onTurnBoundary?: (
+    context: AgentTurnBoundaryContext,
+    signal?: AbortSignal,
+  ) => Promise<AgentMessage[] | undefined> | AgentMessage[] | undefined;
   /**
    * Surface a transient "trying again in X" status when the provider
    * adapter retries a recoverable failure. Sessions wire this to a STATUS
@@ -323,6 +328,9 @@ export const createRuntimeAgent = (args: {
       return transformed;
     },
     onProviderRetry: args.onProviderRetry,
+    onTurnBoundary: args.onTurnBoundary
+      ? async (context, signal) => await args.onTurnBoundary?.(context, signal)
+      : undefined,
     // The runtime's four-attempt policy owns empty completions. Leaving the
     // Agent core's default one-shot enabled here would allow every outer
     // attempt to make two provider calls.

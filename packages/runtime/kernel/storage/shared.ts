@@ -19,6 +19,7 @@ export const RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE =
 export type LocalChatEventRecord = {
   _id: string;
   timestamp: number;
+  sequence?: number;
   type: string;
   deviceId?: string;
   requestId?: string;
@@ -40,10 +41,18 @@ export type LocalChatRecentActivityRecord = LocalChatEventRecord & {
  */
 export type LocalChatMessageRecord = LocalChatEventRecord & {
   toolEvents: LocalChatEventRecord[];
+  toolEventSummary?: {
+    totalCount: number;
+    loadedCount: number;
+    truncated: boolean;
+    totalCountIsLowerBound?: boolean;
+    detailLoaded?: boolean;
+  };
 };
 
 export type LocalChatMessageWindow = {
   messages: LocalChatMessageRecord[];
+  nextCursor?: { timestamp: number; id: string; sequence?: number };
   /**
    * Count of user/assistant entries in `messages` whose payload is not
    * UI-hidden (see `isUiHiddenChatMessagePayload`). The chat hook bases
@@ -617,7 +626,8 @@ export const parseRuntimeThreadPayload = (
       (record.modelOutputTokens === undefined ||
         (typeof record.modelOutputTokens === "number" &&
           Number.isFinite(record.modelOutputTokens) &&
-          record.modelOutputTokens > 0)) &&
+          Number.isSafeInteger(record.modelOutputTokens) &&
+          record.modelOutputTokens >= 0)) &&
       isFiniteTimestamp(record.timestamp)
     ) {
       return {

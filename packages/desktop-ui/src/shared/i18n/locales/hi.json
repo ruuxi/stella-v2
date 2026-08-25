@@ -446,7 +446,9 @@
       },
       "steps": {
         "download": "ऐप डाउनलोड करें",
-        "downloadQrAlt": "App Store से Stella डाउनलोड करने के लिए स्कैन करें",
+        "platformSelectorLabel": "मोबाइल प्लेटफ़ॉर्म चुनें",
+        "appStoreQrAlt": "App Store से Stella डाउनलोड करने के लिए स्कैन करें",
+        "playStoreQrAlt": "Google Play से Stella डाउनलोड करने के लिए स्कैन करें",
         "connect": "अपना फ़ोन कनेक्ट करें"
       },
       "toasts": {

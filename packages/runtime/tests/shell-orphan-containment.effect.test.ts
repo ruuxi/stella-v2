@@ -94,7 +94,7 @@ describe("shell ownership on abort", () => {
       { conversationId: "conv-2", workingDirectory: root } as never,
     );
     expect(started.error).toBeUndefined();
-    const payload = started.result as { session_id?: string };
+    const payload = started.details as { session_id?: string };
     expect(payload.session_id).toBeTruthy();
     const record = state.shells.get(payload.session_id!);
     const pid = record?.child?.pid;

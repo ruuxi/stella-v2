@@ -246,6 +246,30 @@ describe("loadLocalPreferences", () => {
     );
   });
 
+  it("migrates retired ChatGPT OAuth routes without changing native Codex ids", () => {
+    const stellaDataDir = makeStellaDataDir();
+    writePreferences(stellaDataDir, {
+      codexModel: "gpt-5.3-codex",
+      defaultModels: {
+        orchestrator: "openai-codex/gpt-5.2",
+      },
+      modelOverrides: {
+        general: "openai-codex/gpt-5.1-codex-max",
+        explore: "openai-codex/custom-codex-model",
+      },
+    });
+
+    const loaded = loadLocalPreferences(stellaDataDir);
+    expect(loaded.codexModel).toBe("gpt-5.3-codex");
+    expect(loaded.defaultModels).toEqual({
+      orchestrator: "openai-codex/gpt-5.6-sol",
+    });
+    expect(loaded.modelOverrides).toEqual({
+      general: "openai-codex/gpt-5.6-sol",
+      explore: "openai-codex/custom-codex-model",
+    });
+  });
+
   it("preserves the Codex reasoning preference", () => {
     const stellaDataDir = makeStellaDataDir();
 

@@ -7,10 +7,11 @@ import {
 } from "./run-completion.js";
 import { executeRuntimeAgentPrompt } from "./run-execution.js";
 import {
-  executeAgentRunWithRetry,
+  AGENT_RUN_MAX_ATTEMPTS,
+  executeAgentTurnWithRetry,
+  formatAgentRunRetryStatus,
   hasAgentRunAttemptBudget,
-  type AgentRunRetryInfo,
-} from "./run-retry.js";
+} from "./agent-run-retry.js";
 import { buildSubagentSystemPrompt } from "./run-preparation.js";
 import {
   createRunEventRecorder,
@@ -79,6 +80,7 @@ export class SubagentSession extends PiSessionCore {
     delayMs: number;
     reason?: string;
   }): void => {
+    if (info.attempt < 2) return;
     const context = this.currentRetryStatusContext;
     if (!context) return;
     const seconds = Math.max(1, Math.round(info.delayMs / 1_000));
@@ -218,10 +220,6 @@ export class SubagentSession extends PiSessionCore {
       mode: "blocking",
       onCompacting: emitCompactingStatus,
       logContext: { threadId: this.threadId, runId },
-    });
-
-    this.refreshHistoryIfNeeded(opts.agentContext, {
-      threadId: this.threadId,
     });
 
     const tools = createPiTools({
@@ -405,7 +403,7 @@ export class SubagentSession extends PiSessionCore {
       };
       const retryState = { attemptsUsed: 0, retriesUsed: 0 };
       const executeWithTransientRetry = (initialResume = false) =>
-        executeAgentRunWithRetry({
+        executeAgentTurnWithRetry({
           state: retryState,
           initialResume,
           execute: (resume) =>
@@ -413,18 +411,18 @@ export class SubagentSession extends PiSessionCore {
               ...executionArgs,
               ...(resume ? { resume: true } : {}),
             }),
-          prepareResume: (errorMessage, classification) =>
-            this.prepareTransientFailureRetry(agent, {
-              errorMessage,
-              classification,
+          prepareRetry: (failure) =>
+            this.prepareAgentRunRetry(agent, {
+              failure,
+              store: opts.store,
+              runId,
               logContext: { threadId: this.threadId, runId },
             }),
-          ...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
-          onRetry: (info: AgentRunRetryInfo) => {
-            const seconds = Math.max(1, Math.round(info.delayMs / 1_000));
+          ...(opts.abortSignal ? { signal: opts.abortSignal } : {}),
+          onRetry: (info) => {
             opts.callbacks?.onStatus?.(
               runEvents.recordStatus(
-                `Task hit a transient ${info.category.replaceAll("-", " ")} — retrying attempt ${info.nextAttempt}/${info.maxAttempts} in ${seconds}s`,
+                formatAgentRunRetryStatus(info),
                 "provider-retry",
               ),
             );
@@ -448,11 +446,13 @@ export class SubagentSession extends PiSessionCore {
       while (
         execution.errorMessage &&
         !opts.abortSignal?.aborted &&
-        hasAgentRunAttemptBudget(retryState) &&
+        hasAgentRunAttemptBudget(retryState, AGENT_RUN_MAX_ATTEMPTS) &&
         fableAttempts < SAFETY_ABORT_FABLE_ATTEMPTS
       ) {
         const retry = this.prepareSafetySameModelRetry(agent, {
           errorMessage: execution.errorMessage,
+          store: opts.store,
+          runId,
           logContext: {
             threadId: this.threadId,
             runId,
@@ -479,10 +479,12 @@ export class SubagentSession extends PiSessionCore {
       if (
         execution.errorMessage &&
         !opts.abortSignal?.aborted &&
-        hasAgentRunAttemptBudget(retryState)
+        hasAgentRunAttemptBudget(retryState, AGENT_RUN_MAX_ATTEMPTS)
       ) {
         const swap = this.prepareSafetyModelSwap(agent, {
           errorMessage: execution.errorMessage,
+          store: opts.store,
+          runId,
           logContext: { threadId: this.threadId, runId },
         });
         if (swap) {
@@ -546,6 +548,7 @@ export class SubagentSession extends PiSessionCore {
       }
       const surfacedMessage = this.noteAbortContainmentFailure(agent, {
         messagesBefore: containmentTurn.messagesBefore,
+        failureMessagesBefore: containmentTurn.failureMessagesBefore,
         errorMessage:
           error instanceof Error
             ? error.message || "Subagent failed"

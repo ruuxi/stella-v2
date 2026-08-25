@@ -27,6 +27,7 @@ import type {
 	AgentMessage,
 	AgentState,
 	AgentTool,
+	AgentTurnBoundaryContext,
 	BeforeToolCallContext,
 	BeforeToolCallResult,
 	StreamFn,
@@ -147,6 +148,12 @@ export interface AgentOptions {
 	 */
 	toolInactivityTimeoutMs?: number;
 
+	/** Called at a quiescent boundary before another provider request. */
+	onTurnBoundary?: (
+		context: AgentTurnBoundaryContext,
+		signal?: AbortSignal,
+	) => Promise<AgentMessage[] | undefined>;
+
 	/** Called before a tool is executed, after arguments have been validated. */
 	beforeToolCall?: (
 		context: BeforeToolCallContext,
@@ -198,6 +205,10 @@ export class Agent {
 	private _requestBudget?: NonNullable<SimpleStreamOptions["requestBudget"]>;
 	private _toolExecution: ToolExecutionMode;
 	private _toolInactivityTimeoutMs?: number;
+	private _onTurnBoundary?: (
+		context: AgentTurnBoundaryContext,
+		signal?: AbortSignal,
+	) => Promise<AgentMessage[] | undefined>;
 	private _beforeToolCall?: (
 		context: BeforeToolCallContext,
 		signal?: AbortSignal,
@@ -232,6 +243,7 @@ export class Agent {
 				: undefined;
 		this._toolExecution = opts.toolExecution ?? "parallel";
 		this._toolInactivityTimeoutMs = opts.toolInactivityTimeoutMs;
+		this._onTurnBoundary = opts.onTurnBoundary;
 		this._beforeToolCall = opts.beforeToolCall;
 		this._afterToolCall = opts.afterToolCall;
 	}
@@ -629,6 +641,18 @@ export class Agent {
 			requestBudget: this._requestBudget,
 			toolExecution: this._toolExecution,
 			toolInactivityTimeoutMs: this._toolInactivityTimeoutMs,
+			onTurnBoundary: this._onTurnBoundary
+				? async (boundaryContext, signal) => {
+						try {
+							const replacement = await this._onTurnBoundary?.(boundaryContext, signal);
+							if (!replacement) return undefined;
+							this.replaceMessages(replacement);
+							return replacement.slice();
+						} catch {
+							return undefined;
+						}
+					}
+				: undefined,
 			beforeToolCall: this._beforeToolCall
 				? async (toolContext, signal) => {
 						try {
@@ -718,8 +742,20 @@ export class Agent {
 					this.streamFn,
 				);
 			}
-		} catch (err: unknown) {
-			// Empty-content placeholder with stopReason: "aborted" | "error" is
+			// The loop can intentionally discard a provider attempt before retrying.
+			// Reconcile from its authoritative context so event-only diagnostic rows
+			// do not remain resident in the long-lived Agent working set.
+			this._state.messages = context.messages.slice();
+			} catch (err: unknown) {
+				// A defensive in-loop retry can emit a failed diagnostic attempt before
+				// its replacement call throws. Keep those discarded attempts out of the
+				// resident mirror just as the successful reconciliation path above does.
+				this._state.messages = this._state.messages.filter(
+					(message) =>
+						message.role !== "assistant" ||
+						(message.stopReason !== "error" && message.stopReason !== "aborted"),
+				);
+				// Empty-content placeholder with stopReason: "aborted" | "error" is
 			// intentional. It marks the failed turn for the UI / introspection
 			// helpers; transformMessages strips any aborted/errored assistant
 			// before serializing to providers, so the model never sees it.

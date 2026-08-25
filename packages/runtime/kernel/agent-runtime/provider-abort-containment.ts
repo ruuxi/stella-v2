@@ -166,7 +166,7 @@ export const parseQuarantineRecord = (
   }
 };
 
-const toolResultQuarantineKey = (
+export const toolResultQuarantineKey = (
   message: Extract<AgentMessage, { role: "toolResult" }>,
 ): string => `${message.timestamp}:${message.toolCallId}`;
 
@@ -274,15 +274,7 @@ export class ProviderAbortContainment {
    * Mutates `messages` in place; never touches persisted records.
    */
   applyQuarantine(messages: AgentMessage[]): QuarantineApplication {
-    const reappliedKeys: string[] = [];
-    for (const message of messages) {
-      if (message.role !== "toolResult") continue;
-      const key = toolResultQuarantineKey(message);
-      if (!this.quarantined.has(key)) continue;
-      if (maskToolResult(message)) {
-        reappliedKeys.push(key);
-      }
-    }
+    const reappliedKeys = this.reapplyQuarantine(messages);
 
     if (!this.shouldQuarantine) {
       return { reappliedKeys, newlyQuarantined: null };
@@ -304,6 +296,20 @@ export class ProviderAbortContainment {
     }
 
     return { reappliedKeys, newlyQuarantined: null };
+  }
+
+  /** Re-mask known records after a durable history reload without advancing healing. */
+  reapplyQuarantine(messages: AgentMessage[]): string[] {
+    const reappliedKeys: string[] = [];
+    for (const message of messages) {
+      if (message.role !== "toolResult") continue;
+      const key = toolResultQuarantineKey(message);
+      if (!this.quarantined.has(key)) continue;
+      if (maskToolResult(message)) {
+        reappliedKeys.push(key);
+      }
+    }
+    return reappliedKeys;
   }
 
   private describeDeterministicAbort(input: ContainmentFailureInput): string {

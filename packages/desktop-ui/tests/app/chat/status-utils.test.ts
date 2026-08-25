@@ -16,6 +16,14 @@ const EXEC_COMMAND_RESULT_JSON = `{
   "command": "wsl -e bash -lc \\"nvcc --version\\""
 }`;
 
+const EXEC_COMMAND_RESULT_TEXT = [
+  "Wall time: 45.209 seconds",
+  "Process exited with code 127",
+  "Original token count: 0",
+  "Output:",
+  "command not found",
+].join("\n");
+
 describe("normalizeDisplayStatusText", () => {
   it("maps verb-prefixed runtime tool names to friendly copy", () => {
     expect(normalizeDisplayStatusText("Running Web")).toBe("Searching");
@@ -27,10 +35,16 @@ describe("normalizeDisplayStatusText", () => {
     );
   });
 
-  it("maps a leaked exec_command session payload to friendly command copy", () => {
+  it("maps leaked exec_command payloads to friendly command copy", () => {
     expect(normalizeDisplayStatusText(EXEC_COMMAND_RESULT_JSON)).toBe(
       "Command failed",
     );
+    expect(normalizeDisplayStatusText(EXEC_COMMAND_RESULT_TEXT)).toBe(
+      "Command failed",
+    );
+    expect(
+      getWorkingIndicatorDisplayStatus({ status: EXEC_COMMAND_RESULT_TEXT }),
+    ).toBe("Command failed");
     expect(
       getWorkingIndicatorDisplayStatus({
         status: EXEC_COMMAND_RESULT_JSON,

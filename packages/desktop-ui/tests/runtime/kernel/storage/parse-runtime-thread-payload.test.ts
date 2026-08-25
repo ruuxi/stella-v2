@@ -76,6 +76,25 @@ describe("parseRuntimeThreadPayload", () => {
     expect(parsed?.providerHint).toBe("anthropic");
   });
 
+  it("preserves a zero model-output token budget on tool results", () => {
+    const parsed = parseRuntimeThreadPayload(
+      JSON.stringify({
+        role: "toolResult",
+        toolCallId: "call_zero_budget",
+        toolName: "exec_command",
+        isError: false,
+        content: [{ type: "text", text: "spill marker" }],
+        modelOutputTokens: 0,
+        timestamp: 1_700_000_000_000,
+      }),
+    );
+
+    expect(parsed).toMatchObject({
+      role: "toolResult",
+      modelOutputTokens: 0,
+    });
+  });
+
   it("still returns undefined for invalid records", () => {
     expect(parseRuntimeThreadPayload(null)).toBeUndefined();
     expect(parseRuntimeThreadPayload("not json")).toBeUndefined();

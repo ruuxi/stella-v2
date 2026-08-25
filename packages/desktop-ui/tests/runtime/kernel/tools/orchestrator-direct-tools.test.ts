@@ -424,6 +424,41 @@ describe("working orchestrator surface", () => {
     expect(fallbackTools).toHaveLength(17);
     expect(deferredTokens).toBeLessThan(fallbackTokens);
     expect(fallbackTokens - deferredTokens).toBeGreaterThan(1_000);
+
+    const schemaMarker = `HOST_ONLY_FULL_SCHEMA_${"z".repeat(12_000)}`;
+    host.registerExtensionTools([
+      {
+        name: "schema_bloat_probe",
+        description: "Deferred provider accounting probe.",
+        parameters: {
+          type: "object",
+          properties: {
+            nested: {
+              type: "object",
+              properties: {
+                value: { type: "string", description: schemaMarker },
+              },
+            },
+          },
+        },
+        demoted: { searchTerms: ["schema accounting probe"] },
+        execute: async () => ({ result: "unused" }),
+      },
+    ]);
+    const deferredWithProbe = buildProviderTools(orchestrated?.toolsAllowlist);
+    const fallbackWithProbe = buildProviderTools(
+      orchestrated?.toolsAllowlist?.filter((name) => name !== "node_repl"),
+    );
+    expect(
+      deferredWithProbe.some((tool) => tool.name === "schema_bloat_probe"),
+    ).toBe(false);
+    expect(JSON.stringify(deferredWithProbe)).not.toContain(schemaMarker);
+    expect(JSON.stringify(fallbackWithProbe)).toContain(schemaMarker);
+    expect(
+      estimateProviderPayloadTokens({ tools: deferredWithProbe }, 1),
+    ).toBeLessThan(
+      estimateProviderPayloadTokens({ tools: fallbackWithProbe }, 1),
+    );
   });
 
   it("never demotes core built-ins and preserves the voice map fallback", async () => {
@@ -498,6 +533,265 @@ describe("working orchestrator surface", () => {
     expect(catalog.some((tool) => tool.name === "$evil")).toBe(false);
     const demotedExt = catalog.find((tool) => tool.name === "ext_demoted_tool");
     expect(demotedExt?.demoted).toEqual({ searchTerms: ["ext"] });
+  });
+
+  it("describes the real nested schedule union only on demand", async () => {
+    const { host, rootPath } = await createTestHost();
+    const result = await host.executeTool(
+      "node_repl",
+      {
+        code: [
+          'const docs = await tools.$describe("schedule_add");',
+          "nodeRepl.write(JSON.stringify(docs));",
+        ].join("\n"),
+      },
+      {
+        ...makeOrchestratorContext(),
+        agentId: "agent-schedule-describe",
+        stellaAppDir: rootPath,
+        allowedToolNames: ["node_repl", "schedule_add"],
+      },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.result).toContain('"name":"schedule_add"');
+    expect(result.result).toContain('"inputSchema"');
+    expect(result.result).toContain('"oneOf"');
+    expect(result.result).toContain('"const":"at"');
+    expect(result.result).toContain('"atMs"');
+    expect(result.result).toContain('"const":"every"');
+    expect(result.result).toContain('"everyMs"');
+    expect(result.result).toContain('"anchorMs"');
+    expect(result.result).toContain('"const":"cron"');
+    expect(result.result).toContain('"expr"');
+    expect(result.result).toContain('"tz"');
+    expect(result.result).not.toContain("Record<string, unknown>");
+  });
+
+  it("searches, fully describes, and invokes a connector-gated GitHub action", async () => {
+    const { host, rootPath } = await createTestHost();
+    const invocations: Array<Record<string, unknown>> = [];
+    const toolName = "github_create_pull_request";
+    host.registerExtensionTools([
+      {
+        name: toolName,
+        description:
+          "Create a GitHub pull request with reviewers and merge options.",
+        parameters: {
+          type: "object",
+          additionalProperties: false,
+          required: ["repository", "title", "head", "base", "reviewers"],
+          properties: {
+            repository: {
+              type: "object",
+              additionalProperties: false,
+              required: ["owner", "name"],
+              properties: {
+                owner: { type: "string", minLength: 1 },
+                name: { type: "string", minLength: 1 },
+              },
+            },
+            title: { type: "string", minLength: 1, maxLength: 256 },
+            head: { type: "string", minLength: 1 },
+            base: { type: "string", minLength: 1, default: "main" },
+            reviewers: {
+              type: "array",
+              minItems: 1,
+              items: {
+                oneOf: [
+                  {
+                    type: "object",
+                    required: ["login"],
+                    properties: {
+                      login: { type: "string", minLength: 1 },
+                      role: {
+                        type: "string",
+                        enum: ["reviewer", "maintainer"],
+                      },
+                    },
+                  },
+                  { type: "string", minLength: 1 },
+                ],
+              },
+            },
+            draft: { type: "boolean", default: false },
+          },
+        },
+        outputSchema: {
+          type: "object",
+          required: ["number", "url"],
+          properties: {
+            number: { type: "integer", minimum: 1 },
+            url: { type: "string", format: "uri" },
+          },
+        },
+        approval: { required: false },
+        sideEffects: { creates: ["pull_request"] },
+        reversible: false,
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+        },
+        demoted: {
+          requiredConnectorProvider: "github",
+          searchTerms: ["github pull request create pr"],
+        },
+        execute: async (args) => {
+          invocations.push(args);
+          return {
+            result: {
+              number: 42,
+              url: "https://github.com/fromyou/stella/pull/42",
+            },
+          };
+        },
+      },
+    ]);
+
+    const allowedContext: ToolContext = {
+      ...makeOrchestratorContext(),
+      agentId: "agent-github-action",
+      stellaAppDir: rootPath,
+      allowedToolNames: ["node_repl", toolName],
+      connectorDeliveryTarget: {
+        requestId: "connector-request-1",
+        conversationId: "connector-conversation-1",
+        provider: "github",
+      },
+    };
+    const result = await host.executeTool(
+      "node_repl",
+      {
+        code: [
+          'const hit = (await tools.$search({ query: "create github pull request" }))[0];',
+          "const compact = JSON.stringify(hit);",
+          "const docs = await tools.$describe(hit.name);",
+          `const outcome = await tools[hit.name](${JSON.stringify({
+            repository: { owner: "fromyou", name: "stella" },
+            title: "Deferred schema docs",
+            head: "feature/deferred-schema",
+            base: "main",
+            reviewers: [{ login: "rahul", role: "maintainer" }],
+            draft: false,
+          })});`,
+          "nodeRepl.write(JSON.stringify({ compact, docs, outcome }));",
+        ].join("\n"),
+      },
+      allowedContext,
+    );
+
+    expect(result.error).toBeUndefined();
+    const payload = JSON.parse(result.result ?? "{}");
+    const compact = JSON.parse(payload.compact);
+    expect(compact.name).toBe(toolName);
+    expect(Object.keys(compact).sort()).toEqual([
+      "description",
+      "name",
+      "signature",
+    ]);
+    expect(compact).not.toHaveProperty("inputSchema");
+    expect(
+      payload.docs.inputSchema.properties.reviewers.items.oneOf,
+    ).toHaveLength(2);
+    expect(
+      payload.docs.inputSchema.properties.reviewers.items.oneOf[0].properties
+        .role.enum,
+    ).toEqual(["reviewer", "maintainer"]);
+    expect(payload.docs.inputSchema.properties.base.default).toBe("main");
+    expect(payload.docs.inputSchema.properties.title.maxLength).toBe(256);
+    expect(payload.docs.outputSchema.required).toEqual(["number", "url"]);
+    expect(payload.docs.approval).toEqual({ required: false });
+    expect(payload.docs.sideEffects).toEqual({ creates: ["pull_request"] });
+    expect(payload.docs.reversible).toBe(false);
+    expect(payload.docs.annotations.readOnlyHint).toBe(false);
+    expect(payload.outcome).toMatchObject({ number: 42 });
+    expect(invocations).toHaveLength(1);
+    expect(invocations[0]).toMatchObject({
+      repository: { owner: "fromyou", name: "stella" },
+      reviewers: [{ login: "rahul", role: "maintainer" }],
+    });
+
+    const denied = await host.executeTool(
+      "node_repl",
+      { code: `await tools.$describe("${toolName}")` },
+      {
+        ...allowedContext,
+        agentId: "agent-github-action-denied",
+        connectorDeliveryTarget: undefined,
+      },
+    );
+    expect(denied.error).toContain("unknown or not available");
+    expect(denied.error).not.toContain("reviewers");
+
+    const unknown = await host.executeTool(
+      "node_repl",
+      { code: 'await tools.$describe("github_nonexistent_secret_action")' },
+      allowedContext,
+    );
+    expect(unknown.error).toContain("unknown or not available");
+    expect(unknown.error).not.toContain("inputSchema");
+  });
+
+  it("retrieves an oversized full schema through deterministic lossless pages", async () => {
+    const { host, rootPath } = await createTestHost();
+    const marker = `schema-start:${"z".repeat(280_000)}:schema-end`;
+    host.registerExtensionTools([
+      {
+        name: "oversized_schema_probe",
+        description: "Exercise lossless on-demand schema paging.",
+        parameters: {
+          type: "object",
+          properties: {
+            value: { type: "string", description: marker },
+          },
+        },
+        demoted: { searchTerms: ["oversized schema"] },
+        execute: async () => ({ result: "unused" }),
+      },
+    ]);
+
+    const result = await host.executeTool(
+      "node_repl",
+      {
+        code: [
+          'const name = "oversized_schema_probe";',
+          "let page = await tools.$describe(name);",
+          "const chunks = [];",
+          "const pageStates = [];",
+          "let expectedHash = page.sha256;",
+          "let expectedChars = page.totalChars;",
+          "while (page && page.format === 'lossless-json-chunks') {",
+          "  chunks.push(page.chunk);",
+          "  pageStates.push({ cursor: page.cursor, complete: page.complete, nextCursor: page.nextCursor });",
+          "  if (page.sha256 !== expectedHash || page.totalChars !== expectedChars) throw new Error('paging metadata drifted');",
+          "  if (page.nextCursor === undefined) break;",
+          "  page = await tools.$describe(name, { cursor: page.nextCursor });",
+          "}",
+          "const combined = chunks.join('');",
+          "const docs = JSON.parse(combined);",
+          "const description = docs.inputSchema.properties.value.description;",
+          "nodeRepl.write(JSON.stringify({ pages: pageStates.length, pageStates, combinedLength: combined.length, expectedChars, markerLength: description.length, starts: description.startsWith('schema-start:'), ends: description.endsWith(':schema-end') }));",
+        ].join("\n"),
+      },
+      {
+        ...makeOrchestratorContext(),
+        agentId: "agent-oversized-schema",
+        stellaAppDir: rootPath,
+        allowedToolNames: ["node_repl", "oversized_schema_probe"],
+      },
+    );
+
+    expect(result.error).toBeUndefined();
+    const parsed = JSON.parse(result.result ?? "{}");
+    expect(parsed.pages).toBeGreaterThan(1);
+    expect(parsed.combinedLength).toBe(parsed.expectedChars);
+    expect(parsed.markerLength).toBe(marker.length);
+    expect(parsed.starts).toBe(true);
+    expect(parsed.ends).toBe(true);
+    expect(parsed.pageStates[0]).toMatchObject({ cursor: 0, complete: false });
+    expect(parsed.pageStates.at(-1)).toMatchObject({ complete: true });
+    expect(parsed.pageStates.at(-1).nextCursor).toBeUndefined();
   });
 
   it("captures the configured General model instead of inheriting the Orchestrator model", async () => {

@@ -101,6 +101,18 @@ export type ToolMetadata = {
   workingText?: string;
   description: string;
   parameters: Record<string, unknown>;
+  /** Optional JSON Schema for a successful tool result. */
+  outputSchema?: Record<string, unknown>;
+  /** Optional alternate result contract used by some extension/tool SDKs. */
+  resultSchema?: Record<string, unknown>;
+  /** Existing approval policy metadata, when the tool source provides it. */
+  approval?: unknown;
+  /** Existing side-effect metadata, when the tool source provides it. */
+  sideEffects?: unknown;
+  /** Existing reversibility hint, when the tool source provides it. */
+  reversible?: boolean;
+  /** MCP-style callable annotations, when the tool source provides them. */
+  annotations?: Record<string, unknown>;
   /**
    * Demoted tools leave the model's direct tool list whenever `node_repl`
    * is available for the agent and become callable only as
@@ -543,6 +555,18 @@ export type ToolDefinition = {
   description: string;
   /** JSON Schema for tool arguments. */
   parameters: Record<string, unknown>;
+  /** Optional JSON Schema for a successful tool result. */
+  outputSchema?: Record<string, unknown>;
+  /** Optional alternate result contract used by some extension/tool SDKs. */
+  resultSchema?: Record<string, unknown>;
+  /** Approval policy metadata supplied by the tool source. */
+  approval?: unknown;
+  /** Side-effect metadata supplied by the tool source. */
+  sideEffects?: unknown;
+  /** Reversibility hint supplied by the tool source. */
+  reversible?: boolean;
+  /** MCP-style callable annotations supplied by the tool source. */
+  annotations?: Record<string, unknown>;
   /**
    * Optional declarative agent-type gate. When set, the tool is hidden from
    * agents not in the list (catalog filter) and rejected at executeTool if
@@ -561,7 +585,8 @@ export type ToolDefinition = {
    * Demoted tools are dropped from the model's direct tool list whenever
    * `node_repl` is available for the agent; they remain callable inside the
    * REPL as `tools.<name>(args)` and are advertised through the signature
-   * catalog appended to node_repl's description (plus `tools.$search`).
+   * catalog appended to node_repl's description (plus `tools.$search` and
+   * on-demand full docs via `tools.$describe`).
    * `requiredConnectorProvider` gates context-specific tools to matching
    * connector-delivery turns; `searchTerms` feed `$search` scoring.
    * Agents without node_repl get demoted tools in their direct list as

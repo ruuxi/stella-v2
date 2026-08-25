@@ -14,6 +14,7 @@
  * extension-injected ToolDefinitions) sit alongside in the same map.
  */
 
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { AGENT_IDS, getAgentDefinition } from "@stella/contracts/agent-runtime";
 
@@ -58,7 +59,7 @@ import {
 import { getDeveloperModeEnabled } from "../preferences/local-preferences.js";
 import type { ToolDefinition as BuiltinToolDefinition } from "./types.js";
 import { sanitizeToolError, sanitizeToolResult } from "./safety.js";
-import { searchToolCatalog } from "./code-catalog.js";
+import { describeToolCatalogEntry, searchToolCatalog } from "./code-catalog.js";
 import {
   NODE_REPL_EXCLUDED_TOOL_NAMES,
   NodeReplKernelRegistry,
@@ -77,11 +78,32 @@ export type { ToolContext, ToolHandlerExtras, ToolResult };
 
 export type ToolHost = ReturnType<typeof createToolHost>;
 
+const MAX_INLINE_TOOL_DESCRIPTION_CHARS = 256_000;
+const TOOL_DESCRIPTION_CHUNK_CHARS = 192_000;
+
+const copyCallableMetadata = (
+  tool: BuiltinToolDefinition | ToolDefinition,
+): ToolMetadata => ({
+  name: tool.name,
+  ...(tool.label ? { label: tool.label } : {}),
+  ...(tool.workingText ? { workingText: tool.workingText } : {}),
+  description: tool.description,
+  parameters: tool.parameters,
+  ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
+  ...(tool.resultSchema ? { resultSchema: tool.resultSchema } : {}),
+  ...(tool.approval !== undefined ? { approval: tool.approval } : {}),
+  ...(tool.sideEffects !== undefined ? { sideEffects: tool.sideEffects } : {}),
+  ...(tool.reversible !== undefined ? { reversible: tool.reversible } : {}),
+  ...(tool.annotations ? { annotations: tool.annotations } : {}),
+  ...(tool.demoted ? { demoted: tool.demoted } : {}),
+  ...(tool.agentTypes ? { agentTypes: tool.agentTypes } : {}),
+});
+
 /**
  * `$`-prefixed tool names are reserved for Node REPL intrinsics
- * (`tools.$search`). Built-ins violating this fail loudly at startup;
- * extension tools are skipped with an error log so a bad extension cannot
- * shadow the intrinsic surface.
+ * (`tools.$search`, `tools.$describe`). Built-ins violating this fail loudly
+ * at startup; extension tools are skipped with an error log so a bad extension
+ * cannot shadow the intrinsic surface.
  */
 const isReservedToolName = (name: string): boolean => name.startsWith("$");
 
@@ -255,6 +277,58 @@ export const createToolHost = ({
         query,
         limit,
       ),
+    describeTool: (name, context, cursor) => {
+      const tool = collectReplSearchableTools(toolCatalog.values(), context)
+        .map((entry) => applyDeveloperModeToolGate(entry))
+        .find((entry) => entry.name === name);
+      if (!tool) {
+        throw new Error(
+          `Tool "${name}" is unknown or not available to describe in this context.`,
+        );
+      }
+
+      const description = describeToolCatalogEntry(tool);
+      const serialized = JSON.stringify(description);
+      if (serialized.length <= MAX_INLINE_TOOL_DESCRIPTION_CHARS) {
+        if (cursor !== undefined && cursor !== 0) {
+          throw new Error(
+            `Tool "${name}" does not have another description page.`,
+          );
+        }
+        return description;
+      }
+
+      const start = cursor ?? 0;
+      if (start >= serialized.length) {
+        throw new Error(
+          `Tool "${name}" description cursor is past the end of the document.`,
+        );
+      }
+      let end = Math.min(
+        serialized.length,
+        start + TOOL_DESCRIPTION_CHUNK_CHARS,
+      );
+      if (
+        end < serialized.length &&
+        /[\uD800-\uDBFF]/.test(serialized.charAt(end - 1))
+      ) {
+        end -= 1;
+      }
+      const nextCursor = end < serialized.length ? end : undefined;
+      return {
+        name,
+        complete: nextCursor === undefined,
+        format: "lossless-json-chunks",
+        totalChars: serialized.length,
+        totalBytes: Buffer.byteLength(serialized, "utf8"),
+        sha256: createHash("sha256").update(serialized).digest("hex"),
+        cursor: start,
+        chunk: serialized.slice(start, end),
+        ...(nextCursor !== undefined ? { nextCursor } : {}),
+        instruction:
+          "Concatenate chunk values in cursor order, requesting each nextCursor with await tools.$describe(name, { cursor: nextCursor }), then JSON.parse the exact combined string. No schema fields were clipped.",
+      };
+    },
     // In-REPL `connect` client — the only agent surface for third-party
     // app integrations: catalog from the shared disk cache, action
     // execution through the CLI bridge → backend connector action broker.
@@ -326,18 +400,10 @@ export const createToolHost = ({
   for (const tool of builtinTools) {
     if (isReservedToolName(tool.name)) {
       throw new Error(
-        `Built-in tool "${tool.name}" uses a reserved "$"-prefixed name; "$" names belong to Node REPL intrinsics like tools.$search.`,
+        `Built-in tool "${tool.name}" uses a reserved "$"-prefixed name; "$" names belong to Node REPL intrinsics like tools.$search and tools.$describe.`,
       );
     }
-    toolCatalog.set(tool.name, {
-      name: tool.name,
-      ...(tool.label ? { label: tool.label } : {}),
-      ...(tool.workingText ? { workingText: tool.workingText } : {}),
-      description: tool.description,
-      parameters: tool.parameters,
-      ...(tool.demoted ? { demoted: tool.demoted } : {}),
-      ...(tool.agentTypes ? { agentTypes: tool.agentTypes } : {}),
-    });
+    toolCatalog.set(tool.name, copyCallableMetadata(tool));
     handlers[tool.name] = (args, context, extras) =>
       tool.execute(args, context, extras);
     builtinToolNames.add(tool.name);
@@ -351,7 +417,7 @@ export const createToolHost = ({
     (tool) => {
       if (isReservedToolName(tool.name)) {
         logError(
-          `Extension tool "${tool.name}" uses a reserved "$"-prefixed name; skipping registration. "$" names belong to Node REPL intrinsics like tools.$search.`,
+          `Extension tool "${tool.name}" uses a reserved "$"-prefixed name; skipping registration. "$" names belong to Node REPL intrinsics like tools.$search and tools.$describe.`,
         );
         return false;
       }
@@ -366,15 +432,7 @@ export const createToolHost = ({
   );
   registerExtensionToolHandlers(handlers, acceptedStartupExtensionTools);
   for (const tool of acceptedStartupExtensionTools) {
-    toolCatalog.set(tool.name, {
-      name: tool.name,
-      ...(tool.label ? { label: tool.label } : {}),
-      ...(tool.workingText ? { workingText: tool.workingText } : {}),
-      description: tool.description,
-      parameters: tool.parameters,
-      ...(tool.demoted ? { demoted: tool.demoted } : {}),
-      ...(tool.agentTypes ? { agentTypes: tool.agentTypes } : {}),
-    });
+    toolCatalog.set(tool.name, copyCallableMetadata(tool));
   }
 
   executeTool = async (
@@ -644,7 +702,7 @@ export const createToolHost = ({
       for (const tool of tools) {
         if (isReservedToolName(tool.name)) {
           logError(
-            `Extension tool "${tool.name}" uses a reserved "$"-prefixed name; skipping registration. "$" names belong to Node REPL intrinsics like tools.$search.`,
+            `Extension tool "${tool.name}" uses a reserved "$"-prefixed name; skipping registration. "$" names belong to Node REPL intrinsics like tools.$search and tools.$describe.`,
           );
           continue;
         }
@@ -658,15 +716,7 @@ export const createToolHost = ({
       }
       registerExtensionToolHandlers(handlers, accepted);
       for (const tool of accepted) {
-        toolCatalog.set(tool.name, {
-          name: tool.name,
-          ...(tool.label ? { label: tool.label } : {}),
-          ...(tool.workingText ? { workingText: tool.workingText } : {}),
-          description: tool.description,
-          parameters: tool.parameters,
-          ...(tool.demoted ? { demoted: tool.demoted } : {}),
-          ...(tool.agentTypes ? { agentTypes: tool.agentTypes } : {}),
-        });
+        toolCatalog.set(tool.name, copyCallableMetadata(tool));
         extensionToolNames.add(tool.name);
       }
     },

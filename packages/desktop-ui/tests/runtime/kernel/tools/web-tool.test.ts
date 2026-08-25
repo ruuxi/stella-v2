@@ -19,6 +19,8 @@ describe("unified web tool", () => {
       properties: {
         category: {
           enum: ["company", "people", "research paper"],
+          description:
+            "Optional focus hint when using query. Most searches should omit it.",
         },
         format: { enum: ["text", "markdown", "html"] },
       },

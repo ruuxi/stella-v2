@@ -48,7 +48,7 @@ export const WEB_TOOL_PARAMETERS: Record<string, unknown> = {
       type: "string",
       enum: ["company", "people", "research paper"],
       description:
-        "Optional Exa category hint when using query. Most searches should omit it.",
+        "Optional focus hint when using query. Most searches should omit it.",
     },
     prompt: {
       type: "string",

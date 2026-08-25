@@ -106,6 +106,78 @@ describe("node_repl connect client dispatch", () => {
     }
   }, 30_000);
 
+  it("finds a GitHub action by name and description and invokes it through the proxy", async () => {
+    const createPullRequest = {
+      name: "GITHUB_CREATE_PULL_REQUEST",
+      description: "Create a pull request from a head branch to a base branch.",
+    };
+    const call = vi.fn(async () => ({
+      number: 42,
+      html_url: "https://github.test/fromyou/stella/pull/42",
+    }));
+    const client: ReplConnectClient = {
+      discover: vi.fn(async () => ({ query: "", matches: [] })),
+      connectors: vi.fn(async () => []),
+      actions: vi.fn(async (_id: string, options?: { query?: string }) => ({
+        connector: "github",
+        total: 1,
+        shown: 1,
+        actions:
+          options?.query &&
+          options.query
+            .toLowerCase()
+            .split(/\s+/)
+            .every((term) =>
+              `${createPullRequest.name} ${createPullRequest.description}`
+                .toLowerCase()
+                .includes(term),
+            )
+            ? [createPullRequest]
+            : [],
+      })),
+      schema: vi.fn(async () => ({})),
+      call,
+      addMcp: vi.fn(async () => ({})),
+      remove: vi.fn(async () => ({})),
+    };
+    const registry = createRegistry(client);
+    try {
+      const output = await registry.evaluate(
+        `const found = await connect.actions("github", { query: "create pull request" });
+         const action = found.actions[0];
+         const result = await connect.call("github", action.name, {
+           owner: "fromyou",
+           repo: "stella",
+           head: "feature",
+           base: "main",
+           title: "Deferred tools",
+         });
+         nodeRepl.write(JSON.stringify({ action, result }))`,
+        context("agent-connect-github"),
+      );
+      expect(JSON.parse(output)).toEqual({
+        action: createPullRequest,
+        result: {
+          number: 42,
+          html_url: "https://github.test/fromyou/stella/pull/42",
+        },
+      });
+      expect(call).toHaveBeenCalledWith(
+        "github",
+        "GITHUB_CREATE_PULL_REQUEST",
+        {
+          owner: "fromyou",
+          repo: "stella",
+          head: "feature",
+          base: "main",
+          title: "Deferred tools",
+        },
+      );
+    } finally {
+      await registry.dispose();
+    }
+  }, 30_000);
+
   it("propagates broker errors as thrown Errors inside the REPL", async () => {
     const client: ReplConnectClient = {
       discover: vi.fn(async () => ({})),

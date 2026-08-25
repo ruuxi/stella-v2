@@ -3,8 +3,9 @@
  *
  * The orchestrator's `map` tool persists its resolved `map-route` artifact
  * onto the `tool_result` payload (`details: { map }`, spread by the worker —
- * see `runtime/kernel/tools/defs/map.ts`). Each successful call on the turn
- * becomes one inline interactive map card, in call order.
+ * see `runtime/kernel/tools/defs/map.ts`). When invoked through `node_repl`,
+ * the REPL lifts the same artifact onto its outer result. Each successful
+ * call on the turn becomes one inline interactive map card, in call order.
  *
  * Purely a renderer affordance derived from already-persisted events — the
  * model only sees the tool's text summary.
@@ -12,7 +13,7 @@
 import type { EventRecord } from "@/features/chat/lib/event-transforms";
 import type { MapRouteArtifact } from "@stella/contracts/map-artifact";
 export type TurnMapArtifact = {
-    /** Stable per-turn key (the tool_result event id). */
+    /** Stable key (the tool_result event id, with a batch index when needed). */
     id: string;
     map: MapRouteArtifact;
 };

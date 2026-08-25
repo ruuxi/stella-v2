@@ -1201,16 +1201,23 @@ export const deriveMobileToolSteps = (
 };
 
 /**
- * Lift a successful `map` tool_result's `map-route` artifact (see
- * `runtime/kernel/tools/defs/map.ts`) for the mobile inline map card.
+ * Lift successful direct or node_repl-deferred `map-route` artifacts (see
+ * `runtime/kernel/tools/defs/map.ts`) for mobile inline map cards.
  */
-const mapArtifactPayload = (
+const mapArtifactPayloads = (
   event: ArtifactEventRecord,
-): MapRouteArtifact | null => {
-  if (event.type !== "tool_result") return null;
+): MapRouteArtifact[] => {
+  if (event.type !== "tool_result") return [];
   const payload = event.payload;
-  if (!payload || payload.toolName !== "map" || payload.error) return null;
-  return isMapRouteArtifact(payload.map) ? payload.map : null;
+  if (
+    !payload ||
+    (payload.toolName !== "map" && payload.toolName !== "node_repl") ||
+    payload.error
+  ) {
+    return [];
+  }
+  const candidates = Array.isArray(payload.maps) ? payload.maps : [payload.map];
+  return candidates.filter(isMapRouteArtifact);
 };
 
 export const deriveMobileArtifactsForMessage = (
@@ -1258,8 +1265,7 @@ const collectMobileArtifactsFromEvents = (
 
     pushArtifact(artifacts, seen, imageGenPayload(event));
 
-    const mapArtifact = mapArtifactPayload(event);
-    if (mapArtifact) {
+    for (const mapArtifact of mapArtifactPayloads(event)) {
       const key = `map:${mapArtifact.markers.map((m) => m.id).join("|")}:${
         mapArtifact.route?.polyline ?? ""
       }`;

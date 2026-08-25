@@ -103,7 +103,7 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
       "profile",
       "context",
       "personalization",
-      "memory.md",
+      "core-memory.md",
     ],
   },
   {

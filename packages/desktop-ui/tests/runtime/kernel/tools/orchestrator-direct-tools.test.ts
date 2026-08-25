@@ -112,7 +112,7 @@ const makeOrchestratorContext = (): ToolContext => ({
 });
 
 describe("working orchestrator surface", () => {
-  it("assembles concise routing guidance without the retired memory summary", () => {
+  it("describes unified Recall and retained profile memory only", () => {
     const orchestrator = loadParsedAgentsFromDir(metadataDir).find(
       (agent) => agent.id === AGENT_IDS.ORCHESTRATOR,
     );
@@ -127,10 +127,13 @@ describe("working orchestrator surface", () => {
     expect(prompt).toContain(
       "The authoritative model and engine selector list is in the `spawn_agent.model` field description. Do not invent aliases.",
     );
-    expect(prompt).toContain("injected profile and memory map");
-    expect(prompt).toContain("~/.stella/memories/memory_map.md");
+    expect(prompt).toContain(
+      "Every query searches and merges both thread and transcript history",
+    );
+    expect(prompt).toContain("~/.stella/memories/profile.md");
+    expect(prompt).not.toContain("memory_map.md");
+    expect(prompt).not.toContain("MEMORY.md");
     expect(prompt).not.toContain("memory_summary.md");
-    expect(prompt).not.toContain("injected profile/summary");
     expect(prompt).not.toContain("stella/gpt-5.6-sol");
   });
 
@@ -376,6 +379,10 @@ describe("working orchestrator surface", () => {
   it("never demotes core built-ins and keeps voice-style catalogs demoted-free", async () => {
     const { host } = await createTestHost();
     const catalog = host.getToolCatalog(AGENT_IDS.ORCHESTRATOR);
+    expect(Object.values(AGENT_IDS)).not.toContain("dream");
+    expect(catalog.map((tool) => tool.name)).not.toEqual(
+      expect.arrayContaining(["Dream", "StrReplace"]),
+    );
     for (const toolName of [
       "exec_command",
       "write_stdin",

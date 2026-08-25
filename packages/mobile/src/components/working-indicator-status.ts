@@ -102,9 +102,9 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Getting oriented",
     "Looking at what matters",
   ],
-  // Recall delegates to a recall agent that greps the memory ledger and
-  // past threads — often the orchestrator's longest wait, so the copy
-  // must read as memory-digging rather than generic thinking.
+  // Recall searches durable thread evidence and conversation transcripts -
+  // often the orchestrator's longest wait, so the copy must read as
+  // memory-digging rather than generic thinking.
   recall: [
     "Searching my memory",
     "Digging through history",
@@ -275,14 +275,6 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Handling a few things",
     "Multitasking",
     "Running things together",
-  ],
-  dream: [
-    "Thinking it over",
-    "Mulling it over",
-    "Reflecting",
-    "Turning it over",
-    "Working it out",
-    "Connecting the dots",
   ],
   import_source: [
     "Pulling it in",

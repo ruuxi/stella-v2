@@ -466,32 +466,24 @@ export const createAgentOrchestration = (
     } finally {
       if (deliveryEventId) inFlightLifecycleEventIds.delete(deliveryEventId);
     }
-    // Two-phase Dream-inbox stamp, phase 2 (persist-time invariant): the
+    // Two-phase summary stamp, phase 2 (persist-time invariant): the
     // terminal report is now durably in this conversation's orchestrator
-    // thread — the exact premise mechanical delta consumption relies on —
-    // so promote the matching NULL-conversation row recorded at finalize.
-    // Only THIS branch ever promotes: a superseded/adopted/crashed run
-    // whose report never reached here leaves its row NULL forever (model-
-    // driven path). Content-matched, so a later attempt's event can never
-    // stamp an earlier attempt's unreported row. Best-effort: a missed
-    // promotion (partial store, hook write racing behind) only keeps the
-    // row on the model path — never enables consumption.
+    // thread, so associate the matching summary with that conversation.
     if (event.type === "agent-completed" && event.result?.trim()) {
       try {
-        const inbox = context.runtimeStore.dreamInboxStore;
+        const summaries = context.runtimeStore.threadSummaryStore;
         if (
-          inbox &&
-          typeof inbox.promoteThreadSummaryConversation === "function"
+          summaries &&
+          typeof summaries.promoteThreadSummaryConversation === "function"
         ) {
-          inbox.promoteThreadSummaryConversation({
+          summaries.promoteThreadSummaryConversation({
             threadId: event.agentId,
             conversationId: event.conversationId,
             rolloutSummary: event.result,
           });
         }
       } catch {
-        // Promotion is bookkeeping for an optimization; the row remains
-        // consolidatable through the model-driven list either way.
+        // Promotion is best-effort bookkeeping for transcript association.
       }
     }
   };

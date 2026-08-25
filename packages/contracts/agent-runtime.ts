@@ -5,7 +5,6 @@ export const AGENT_IDS = {
   SOCIAL_SESSION: "social_session",
   OFFLINE_RESPONDER: "offline_responder",
   EXPLORE: "explore",
-  DREAM: "dream",
 } as const;
 
 export type AgentId = (typeof AGENT_IDS)[keyof typeof AGENT_IDS];
@@ -38,26 +37,14 @@ export type AgentCapabilities = {
    * hidden `~/.stella/core-memory.md` startup doc on the first turn.
    */
   injectsCoreMemory?: boolean;
-  /**
-   * Push-inject the live resident memory docs — the durable user profile
-   * (`~/.stella/memories/profile.md`, written by the Remember tool) and
-   * Dream's routing map (`~/.stella/memories/memory_map.md`) — as hidden
-   * startup docs, so durable facts are always in context without a Context
-   * lookup.
-   */
-  injectsResidentMemory?: boolean;
-  /** Inject the dynamic memory bundle on the every-Nth-turn cadence. */
-  injectsDynamicMemory?: boolean;
+  /** Push-inject the durable user profile as a hidden startup document. */
+  injectsUserProfile?: boolean;
   /** Inject runtime reminder hidden messages. */
   injectsRuntimeReminders?: boolean;
   /** Inject the skill catalog block into the dynamic context. */
   injectsSkillCatalog?: boolean;
-  /** Queue a Dream-inbox thread-summary row on successful run completion. */
+  /** Record a durable thread summary on successful run completion. */
   recordsThreadSummary?: boolean;
-  /** Notify the Dream scheduler on successful run completion. */
-  triggersDreamScheduler?: boolean;
-  /** Trigger the orchestrator memory-review pass on successful real user turns. */
-  triggersMemoryReview?: boolean;
 };
 
 type AgentDefinition = {
@@ -98,12 +85,9 @@ const BUILTIN_AGENT_DEFINITIONS = [
       followUpMode: "all",
       injectsPersonality: true,
       injectsCoreMemory: true,
-      injectsResidentMemory: true,
-      injectsDynamicMemory: true,
+      injectsUserProfile: true,
       injectsRuntimeReminders: true,
       injectsSkillCatalog: true,
-      triggersDreamScheduler: true,
-      triggersMemoryReview: true,
     },
   },
   {
@@ -141,9 +125,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
     },
     capabilities: {
       injectsSkillCatalog: true,
-      // Subagents queue Dream-inbox thread summaries for Dream to consume, but they
-      // do not trigger Dream — consolidation is driven by orchestrator context
-      // growth, so these rows are folded on the next orchestrator-driven run.
       recordsThreadSummary: true,
     },
   },
@@ -194,23 +175,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
     modelSettings: {
       description: "Finds relevant context before a task starts",
       order: 3,
-    },
-  },
-  {
-    id: AGENT_IDS.DREAM,
-    name: "Dream",
-    description:
-      "Background memory consolidator. Reads the Dream inbox and surgically updates ~/.stella/memories/ markdown files.",
-    activityLabel: "Dreaming",
-    bundledCore: true,
-    runsAsSubagent: false,
-    includeInAgentRoster: false,
-    usesLocalCliRuntime: false,
-    promptRole: "subagent",
-    localCliWorkingDirectory: null,
-    modelSettings: {
-      description: "Consolidates memory in the background",
-      order: 5,
     },
   },
 ] as const satisfies readonly AgentDefinition[];
@@ -271,6 +235,10 @@ const RETIRED_AGENT_TYPE_REPLACEMENTS: Readonly<Record<string, AgentId>> =
     // schedule tools now, so the plain-language schedule specialist is gone.
     // Its threads were ordinary one-shot workers.
     schedule: AGENT_IDS.GENERAL,
+    // Automatic memory consolidation is retired. Historical Dream rows remain
+    // available as ordinary General history without exposing Dream as a
+    // resumable built-in agent.
+    dream: AGENT_IDS.GENERAL,
   });
 
 export const normalizeRetiredAgentType = (agentType: string): string =>
@@ -478,7 +446,5 @@ export const RUNTIME_RUN_EVENT_TYPES = {
 
 export const TOOL_IDS = {
   NO_RESPONSE: "NoResponse",
-  DREAM: "Dream",
   READ: "Read",
-  STR_REPLACE: "StrReplace",
 } as const;

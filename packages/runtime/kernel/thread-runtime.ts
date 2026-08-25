@@ -1280,7 +1280,7 @@ const readDurableMemoryDoc = (filePath: string): string | undefined => {
 
 /**
  * Build the "already known — do not repeat" reference from the always-loaded
- * durable-memory docs (user profile + Dream memory map), so the
+ * durable user profile, so the
  * summarizer can skip restating facts the assistant sees on every turn.
  */
 const buildDurableMemoryReference = (
@@ -1296,10 +1296,6 @@ const buildDurableMemoryReference = (
     {
       label: "User profile (memories/profile.md)",
       docPath: path.join(stellaDataDir, "memories", "profile.md"),
-    },
-    {
-      label: "Memory map (memories/memory_map.md)",
-      docPath: path.join(stellaDataDir, "memories", "memory_map.md"),
     },
   ]
     .map(({ label, docPath }) => {

@@ -1,6 +1,5 @@
 import { createRuntimeLogger } from "../debug.js";
 import { compactRuntimeThreadHistory } from "./thread-memory.js";
-import { getThreadTokenEstimate } from "../thread-runtime.js";
 import { isThreadCompactionForced } from "./context-budget.js";
 import { resetSkillReadDedup } from "../tools/skill-read-dedup.js";
 import { isOrchestratorAgentType } from "@stella/contracts/agent-runtime";
@@ -117,12 +116,10 @@ const emitAgentEndHook = async (opts, args) => {
             runId: args.runId,
             ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
             isUserTurn: opts.uiVisibility !== "hidden",
-            // Stella-runtime post-finalize hooks (memory review, dream notify,
-            // thread summaries) read accessors off `services`
+            // Stella-runtime post-finalize hooks read accessors off `services`
             // instead of being baked into the kernel.
             services: {
                 resolvedLlm: opts.resolvedLlm,
-                messagesSnapshot: args.messagesSnapshot,
                 ...(opts.appendLocalChatEvent
                     ? { appendLocalChatEvent: opts.appendLocalChatEvent }
                     : {}),
@@ -131,12 +128,6 @@ const emitAgentEndHook = async (opts, args) => {
                     : {}),
                 ...(opts.resolveSubsidiaryLlmRoute
                     ? { resolveSubsidiaryLlmRoute: opts.resolveSubsidiaryLlmRoute }
-                    : {}),
-                ...(opts.userTurnsSinceMemoryReview != null
-                    ? { userTurnsSinceMemoryReview: opts.userTurnsSinceMemoryReview }
-                    : {}),
-                ...(args.orchestratorTokenEstimate != null
-                    ? { orchestratorTokenEstimate: args.orchestratorTokenEstimate }
                     : {}),
             },
       },
@@ -328,24 +319,6 @@ export const finalizeOrchestratorSuccess = async (args) => {
         fallback: undefined,
         work: runBeforeRunEnd,
     });
-    // Estimated orchestrator thread size on the same basis the compaction
-    // trigger uses, so post-finalize hooks can drive the token-interval Dream
-    // cadence and detect when a compaction is imminent (flush boundary).
-    let orchestratorTokenEstimate;
-    try {
-    orchestratorTokenEstimate = getThreadTokenEstimate(
-      args.opts.store.loadThreadMessages(args.threadKey),
-    );
-  } catch (error) {
-        // The token-interval / pre-compaction Dream cadence keys off this number;
-        // without it the orchestrator-driven cadence stalls until restart, so warn
-        // (don't silently swallow) to keep the stall diagnosable.
-        orchestratorTokenEstimate = undefined;
-        logger.warn("orchestrator.token-estimate-failed", {
-            threadKey: args.threadKey,
-            error: error instanceof Error ? error.message : String(error),
-        });
-    }
     await boundedFinalizeStage({
         stage: "agent_end-hooks",
         runId: args.runId,
@@ -355,14 +328,6 @@ export const finalizeOrchestratorSuccess = async (args) => {
             finalText: args.finalText,
             runId: args.runId,
             threadKey: args.threadKey,
-            // Snapshot the messages array now so memory-review / other
-            // post-finalize hooks see the state at end-of-turn rather than a
-            // mutated state if a follow-up turn lands before the hook handler
-            // runs.
-            messagesSnapshot: [...args.agent.state.messages],
-            ...(orchestratorTokenEstimate != null
-                ? { orchestratorTokenEstimate }
-                : {}),
         }),
     });
     // Finish the visible turn before scheduling compaction.
@@ -388,11 +353,6 @@ export const finalizeOrchestratorSuccess = async (args) => {
             },
         });
     }
-    // Memory review now lives as an `agent_end` hook in
-    // `runtime/extensions/stella-runtime/hooks/memory-review.hook.ts`.
-    // The hook reads `userTurnsSinceMemoryReview` off
-    // `payload.services` (populated by `emitAgentEndHook` above) and
-    // self-skips when the threshold isn't met.
 };
 export const finalizeOrchestratorError = (args) => {
     const errorMessage = safeErrorMessage(args.error, "Stella runtime failed");
@@ -432,8 +392,8 @@ export const finalizeOrchestratorInterrupted = (args) => {
 export const SUBAGENT_EMPTY_RESULT_SENTINEL =
   "(Agent completed without a user-visible reply. Re-prompt with send_input if you need the outcome.)";
 export const finalizeSubagentSuccess = async (args) => {
-    // Thread-summaries record and dream-scheduler notify
-    // live as `agent_end` hooks in `runtime/extensions/stella-runtime/`.
+    // Durable thread summaries are recorded by an `agent_end` hook in
+    // `runtime/extensions/stella-runtime/`.
     // The kernel just fires the lifecycle event with the per-run services
     // populated; each hook self-skips when its capability gate doesn't match.
     const trimmedResult = args.result.trim();

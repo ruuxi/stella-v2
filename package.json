@@ -273,7 +273,6 @@
         "from": "packages/home-seed",
         "to": "home-seed",
         "filter": [
-          "DREAM.md",
           "skills/**",
           "outputs/README.md"
         ]

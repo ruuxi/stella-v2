@@ -1892,6 +1892,47 @@ describe("persistent Node REPL kernels", () => {
     }
   });
 
+  it("round-trips tools.$describe(name) through its dedicated host handler", async () => {
+    const calls: Array<{ name: string; cursor?: number }> = [];
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: defaultSessionFactory,
+      idleTimeoutMs: 60_000,
+      describeTool: (name, _context, cursor) => {
+        calls.push({ name, ...(cursor !== undefined ? { cursor } : {}) });
+        if (name !== "example_send_message") {
+          throw new Error(`Tool "${name}" is unknown or unauthorized.`);
+        }
+        return {
+          name,
+          description: "Full untruncated description.",
+          inputSchema: {
+            type: "object",
+            required: ["message"],
+            properties: { message: { type: "string", minLength: 1 } },
+          },
+        };
+      },
+    });
+    try {
+      const output = await registry.evaluate(
+        "await tools.$describe('example_send_message')",
+        context("agent-describe"),
+      );
+      expect(output).toContain("Full untruncated description");
+      expect(output).toContain("minLength: 1");
+      expect(calls).toEqual([{ name: "example_send_message" }]);
+
+      await expect(
+        registry.evaluate(
+          "await tools.$describe('not_authorized')",
+          context("agent-describe"),
+        ),
+      ).rejects.toThrow("unknown or unauthorized");
+    } finally {
+      await registry.dispose();
+    }
+  });
+
   it("fails tools.$search clearly when no searchTools handler is configured", async () => {
     const registry = createRegistry();
     try {
@@ -1931,6 +1972,7 @@ describe("persistent Node REPL kernels", () => {
       expect(second).toContain("beta_tool");
       expect(second).not.toContain("alpha_tool");
       expect(second).toContain("$search");
+      expect(second).toContain("$describe");
       await expect(
         registry.evaluate(
           "await tools.beta_tool({})",
@@ -1985,6 +2027,7 @@ describe("persistent Node REPL kernels", () => {
       );
       expect(keys).toContain("real_tool");
       expect(keys).toContain("'$search'");
+      expect(keys).toContain("'$describe'");
       expect(keys).not.toContain("$evil");
       expect(keys).toContain("shadow: 'undefined'");
 

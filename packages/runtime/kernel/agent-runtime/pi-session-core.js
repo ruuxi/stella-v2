@@ -821,7 +821,7 @@ export class PiSessionCore {
       if (this.announcedToolDriftSignature !== signature) {
         this.announcedToolDriftSignature = signature;
         this.pendingContextDeltaMessages.push({
-          text: `<system-reminder>Available tool definitions changed mid-conversation (${driftedToolNames.join(", ")}) — for example the set of integration tools reachable from the current delivery surface. Your visible tool schemas are a thread-start snapshot and refresh at the next context compaction; current callable signatures are always discoverable inside node_repl via await tools.$search({ query: "<capability>" }).</system-reminder>`,
+          text: `<system-reminder>Available tool definitions changed mid-conversation (${driftedToolNames.join(", ")}) — for example the set of integration tools reachable from the current delivery surface. Your visible tool schemas are a thread-start snapshot and refresh at the next context compaction; current callable names and compact signatures are discoverable inside node_repl via await tools.$search({ query: "<capability>" }), and one selected live schema is available via await tools.$describe(name).</system-reminder>`,
           uiVisibility: "hidden",
           messageType: "message",
           customType: `${CONTEXT_DELTA_CUSTOM_TYPE_PREFIX}tools`,

@@ -10,9 +10,11 @@ import { NodeReplKernelRegistry } from "@stella/runtime/kernel/computer-use/kern
 import type { BrowserSessionClient } from "@stella/runtime/kernel/browser-use/client";
 import {
   buildCatalogSection,
+  describeToolCatalogEntry,
   searchToolCatalog,
   type DemotedToolCatalogEntry,
 } from "@stella/runtime/kernel/tools/code-catalog";
+import { createMapTool } from "@stella/runtime/kernel/tools/defs/map";
 import { createNodeReplTool } from "@stella/runtime/kernel/tools/defs/node-repl";
 import type { ToolContext } from "@stella/runtime/kernel/tools/types";
 
@@ -215,6 +217,7 @@ describe("node_repl tool", () => {
   });
 
   it("invokes deferred map and lifts its exact artifact onto the outer result", async () => {
+    const mapDefinition = createMapTool();
     const map: MapRouteArtifact = {
       kind: "map-route",
       version: 1,
@@ -238,18 +241,28 @@ describe("node_repl tool", () => {
           details: { map },
         };
       },
+      describeTool: (name) => {
+        expect(name).toBe("map");
+        return describeToolCatalogEntry(mapDefinition);
+      },
     });
     const tool = createNodeReplTool({ registry });
     try {
       await expect(
         tool.execute(
           {
-            code: 'await tools.map({ places: ["Blue Bottle Coffee"] })',
+            code: [
+              'const mapDocs = await tools.$describe("map");',
+              'const mapResult = await tools.map({ places: ["Blue Bottle Coffee"] });',
+              "({ mapDocs, mapResult })",
+            ].join("\n"),
           },
           { ...context, allowedToolNames: ["node_repl", "map"] },
         ),
-      ).resolves.toEqual({
-        result: "'Pinned place: Blue Bottle Coffee.'",
+      ).resolves.toMatchObject({
+        result: expect.stringMatching(
+          /inputSchema[\s\S]*places[\s\S]*Pinned place/,
+        ),
         details: { map },
       });
     } finally {
@@ -326,10 +339,25 @@ describe("node_repl tool", () => {
       sessionFactory: () => ({ request: async () => ({}) }),
       executeTool: async () => ({ result: "unused" }),
       searchTools: (query) => searchToolCatalog(liveCatalog, query),
+      describeTool: (name) => {
+        const entry = liveCatalog.find((candidate) => candidate.name === name);
+        if (!entry?.description || !entry.parameters) {
+          throw new Error("unknown test tool");
+        }
+        return describeToolCatalogEntry({
+          ...entry,
+          description: entry.description,
+          parameters: entry.parameters,
+        });
+      },
     });
     try {
       const result = await registry.evaluate(
-        "await tools.$search({ query: 'far horizon route' })",
+        [
+          "const hit = (await tools.$search({ query: 'far horizon route' }))[0];",
+          "const docs = await tools.$describe(hit.name);",
+          "({ hit, docs })",
+        ].join("\n"),
         {
           ...context,
           allowedToolNames: [
@@ -343,6 +371,8 @@ describe("node_repl tool", () => {
         "tools.alpha_zz_hidden_route_planner(input: { destination: string }): Promise<unknown>",
       );
       expect(result).toContain("beyond the embedded prefix");
+      expect(result).toContain("inputSchema");
+      expect(result).toContain("destination");
     } finally {
       await registry.dispose();
     }

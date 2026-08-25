@@ -52,6 +52,7 @@ import {
   MAX_NODE_REPL_PENDING_SKY_CALLS,
   MAX_NODE_REPL_PENDING_TOOL_CALLS,
   MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES,
+  NODE_REPL_TOOL_DESCRIBE_NAME,
   NODE_REPL_TOOL_SEARCH_NAME,
   type ConnectMethod,
   type NodeReplContentItem,
@@ -176,6 +177,11 @@ export type NodeReplKernelManagerOptions = {
     context: ToolContext,
     limit?: number,
   ) => Promise<NodeReplToolSearchResult[]> | NodeReplToolSearchResult[];
+  describeTool?: (
+    name: string,
+    context: ToolContext,
+    cursor?: number,
+  ) => Promise<unknown> | unknown;
 };
 
 export type ComputerUseSessionFactoryOptions = Readonly<{
@@ -627,6 +633,7 @@ class NodeReplKernel {
   private readonly requestBrowserExtensionConnect?: BrowserExtensionConnectRequester;
   private readonly executeTool?: NodeReplKernelManagerOptions["executeTool"];
   private readonly searchTools?: NodeReplKernelManagerOptions["searchTools"];
+  private readonly describeTool?: NodeReplKernelManagerOptions["describeTool"];
   private readonly connectClient?: ReplConnectClient;
   private readonly onTerminated: (kernel: NodeReplKernel) => void;
   private tail: Promise<void> = Promise.resolve();
@@ -664,6 +671,7 @@ class NodeReplKernel {
       requestBrowserExtensionConnect?: BrowserExtensionConnectRequester;
       executeTool?: NodeReplKernelManagerOptions["executeTool"];
       searchTools?: NodeReplKernelManagerOptions["searchTools"];
+      describeTool?: NodeReplKernelManagerOptions["describeTool"];
       connectClient?: ReplConnectClient;
       toolNames: string[];
       browserSessionId: string;
@@ -678,6 +686,7 @@ class NodeReplKernel {
       options.requestBrowserExtensionConnect;
     this.executeTool = options.executeTool;
     this.searchTools = options.searchTools;
+    this.describeTool = options.describeTool;
     this.connectClient = options.connectClient;
     this.browserSessionId = options.browserSessionId;
     const getSignal = () => this.active?.controller.signal;
@@ -1584,6 +1593,54 @@ class NodeReplKernel {
       return;
     }
 
+    if (message.toolName === NODE_REPL_TOOL_DESCRIBE_NAME) {
+      try {
+        if (!this.describeTool) {
+          throw new Error("tools.$describe is not available in this session.");
+        }
+        const name = message.args.name;
+        if (typeof name !== "string" || name.trim().length === 0) {
+          throw new Error(
+            "tools.$describe requires an exact non-empty tool name string.",
+          );
+        }
+        const rawCursor = message.args.cursor;
+        if (
+          rawCursor !== undefined &&
+          (typeof rawCursor !== "number" ||
+            !Number.isSafeInteger(rawCursor) ||
+            rawCursor < 0)
+        ) {
+          throw new Error(
+            "tools.$describe cursor must be a non-negative safe integer.",
+          );
+        }
+        const result = await this.describeTool(
+          name,
+          active.context,
+          rawCursor as number | undefined,
+        );
+        if (serializedSize(result) > MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES) {
+          throw new Error(
+            "Tool description exceeds the Node REPL protocol limit. The host must provide deterministic paged retrieval.",
+          );
+        }
+        if (!this.closed && this.active === active) {
+          this.post({
+            type: "tool-result",
+            callId: message.callId,
+            ok: true,
+            value: result,
+          });
+        }
+      } catch (error) {
+        if (!this.closed && this.active === active) {
+          this.postToolError(message.callId, error);
+        }
+      }
+      return;
+    }
+
     const allowedToolNames = new Set(active.context.allowedToolNames ?? []);
     if (
       !this.executeTool ||
@@ -2379,6 +2436,7 @@ export class NodeReplKernelRegistry {
           this.options.requestBrowserExtensionConnect,
         executeTool: this.options.executeTool,
         searchTools: this.options.searchTools,
+        describeTool: this.options.describeTool,
         connectClient: this.options.connectClient,
         toolNames: replToolNamesForContext(context),
         browserSessionId,

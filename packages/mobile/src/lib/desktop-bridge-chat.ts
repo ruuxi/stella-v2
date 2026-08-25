@@ -17,6 +17,7 @@ import {
   BRIDGE_FEATURE_COMPACT_THREAD_ACTIVITY,
   BRIDGE_FEATURE_DEFLATE,
   BRIDGE_FEATURE_LOCAL_CHAT_PUSH,
+  BRIDGE_FEATURE_LOCAL_CHAT_HISTORY_BEFORE,
   MOBILE_SUPPORTED_BRIDGE_FEATURES,
   parseBase64DataUrl,
   standardBase64ToBytes,
@@ -57,6 +58,10 @@ import { canReuseDesktopSendBatch } from "./desktop-send-batch-policy";
 import { parseThreadActivityTasks } from "./desktop-thread-activity";
 import { probeDesktopBridgeStatus } from "./desktop-bridge-discovery";
 import { desktopBridgeEventMatchesActiveRun } from "./desktop-chat-event-policy";
+import {
+  fetchDesktopHistoryBeforePage,
+  type DesktopHistoryPage,
+} from "./desktop-history-pagination";
 
 const DESKTOP_WAKE_ATTEMPTS = 5;
 const DESKTOP_WAKE_RETRY_MS = 3_000;
@@ -229,6 +234,8 @@ export type DesktopBridgeChatSyncResult = {
   conversationId: string;
   conversationChanged: boolean;
   cursor: string | null;
+  cursorStatus?: "valid" | "snapshot" | "invalid";
+  hasMore?: boolean;
   messages: ChatMessage[];
 
   preparedSend: DesktopBridgeSendBatch;
@@ -970,6 +977,75 @@ async function listDesktopBridgeMessages(
   return parseDesktopBridgeMessageRows(rows, conversationId);
 }
 
+export type DesktopBridgeHistoryPage = DesktopHistoryPage;
+
+/**
+ * Load the artifact-rich page immediately before a durable desktop cursor.
+ * Older desktops fall back to their bounded recent-window endpoint; callers
+ * increase legacyMaxMessages only while the user explicitly pages backward.
+ */
+export async function fetchDesktopBridgeHistoryBefore({
+  access,
+  conversationId,
+  beforeTimestampMs,
+  beforeId,
+  maxMessages,
+  legacyMaxMessages,
+}: {
+  access: StoredPhoneAccess;
+  conversationId: string;
+  beforeTimestampMs: number;
+  beforeId: string;
+  maxMessages: number;
+  legacyMaxMessages: number;
+}): Promise<DesktopBridgeHistoryPage> {
+  const bridge = await resolveDesktopBridge(access);
+  return fetchDesktopHistoryBeforePage(
+    { beforeTimestampMs, beforeId, maxMessages, legacyMaxMessages },
+    {
+      supportsHistoryBefore: bridge.features.has(
+        BRIDGE_FEATURE_LOCAL_CHAT_HISTORY_BEFORE,
+      ),
+      invokeHistoryBefore: async () => {
+        const result = asRecord(
+          await invokeDesktopBridge(
+            bridge,
+            "localChat:listSyncMessagesBefore",
+            [
+              {
+                conversationId,
+                beforeTimestampMs,
+                beforeId,
+                maxMessages,
+                includeDeveloperArtifacts: bridge.includeDeveloperArtifacts,
+              },
+            ],
+            BRIDGE_SYNC_TIMEOUT_MS,
+          ),
+        );
+        const rows = Array.isArray(result?.messages) ? result.messages : [];
+        const oldestSourceCursor = asRecord(result?.oldestSourceCursor);
+        const sourceTimestamp =
+          typeof oldestSourceCursor?.timestamp === "number" &&
+          Number.isFinite(oldestSourceCursor.timestamp)
+            ? oldestSourceCursor.timestamp
+            : undefined;
+        const sourceId = asString(oldestSourceCursor?.id).trim();
+        return {
+          messages: parseDesktopBridgeMessageRows(rows, conversationId),
+          hasOlder: result?.hasOlder === true,
+          oldestSourceCursor:
+            sourceTimestamp !== undefined && sourceId
+              ? { timestamp: sourceTimestamp, id: sourceId }
+              : null,
+        };
+      },
+      fetchRecent: (limit) =>
+        listDesktopBridgeMessages(bridge, conversationId, limit),
+    },
+  );
+}
+
 function parseToolSteps(value: unknown): ToolStep[] {
   if (!Array.isArray(value)) return [];
   const steps: ToolStep[] = [];
@@ -1134,6 +1210,12 @@ function parseDesktopBridgeMessageRows(
         typeof record.sequence === "number" && Number.isFinite(record.sequence)
           ? record.sequence
           : undefined;
+      const sourceMessageId = asString(record.sourceMessageId).trim();
+      const sourceTimestamp =
+        typeof record.sourceTimestamp === "number" &&
+        Number.isFinite(record.sourceTimestamp)
+          ? record.sourceTimestamp
+          : undefined;
       if (
         !id ||
         (role !== "user" && role !== "assistant") ||
@@ -1151,6 +1233,8 @@ function parseDesktopBridgeMessageRows(
         ...(requestId ? { requestId } : {}),
         ...(timestamp !== undefined ? { timestamp, createdAt: timestamp } : {}),
         ...(sequence !== undefined ? { sequence } : {}),
+        ...(sourceMessageId ? { sourceMessageId } : {}),
+        ...(sourceTimestamp !== undefined ? { sourceTimestamp } : {}),
         ...(artifacts.length > 0 ? { artifacts } : {}),
         ...(toolSteps.length > 0 ? { toolSteps } : {}),
         ...(tasks.length > 0 ? { tasks } : {}),
@@ -1221,6 +1305,14 @@ export async function syncDesktopBridgeChatMessages({
             conversationId,
             conversationChanged,
             cursor,
+            ...(hello?.cursorStatus === "valid" ||
+            hello?.cursorStatus === "snapshot" ||
+            hello?.cursorStatus === "invalid"
+              ? { cursorStatus: hello.cursorStatus }
+              : {}),
+            ...(typeof hello?.hasMore === "boolean"
+              ? { hasMore: hello.hasMore }
+              : {}),
             messages: parseDesktopBridgeMessageRows(rows, conversationId),
             preparedSend: {
               desktopDeviceId: access.desktopDeviceId,
@@ -1266,6 +1358,14 @@ export async function syncDesktopBridgeChatMessages({
       conversationId,
       conversationChanged,
       cursor,
+      ...(result?.cursorStatus === "valid" ||
+      result?.cursorStatus === "snapshot" ||
+      result?.cursorStatus === "invalid"
+        ? { cursorStatus: result.cursorStatus }
+        : {}),
+      ...(typeof result?.hasMore === "boolean"
+        ? { hasMore: result.hasMore }
+        : {}),
       messages: parseDesktopBridgeMessageRows(rows, conversationId),
       preparedSend: {
         desktopDeviceId: access.desktopDeviceId,

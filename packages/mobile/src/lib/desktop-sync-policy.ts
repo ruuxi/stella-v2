@@ -114,18 +114,30 @@ export const desktopLiveConnectionSyncPlan = (details: {
     return { catchUp: false, trigger: "push-connect" };
   }
   if (details.foregroundResume) {
-
     return { catchUp: false, trigger: "push-resume-connect" };
   }
   return { catchUp: true, trigger: "push-reconnect" };
 };
 
+/**
+ * Which cursor a pull sends to the desktop.
+ *
+ * Every pull with a known conversation and cursor starts with the cheap delta,
+ * including landing/reconnect/Force Sync. Sequence-enabled desktop stores
+ * resolve legacy timestamp/id cursors onto monotonic `ordering_sequence`, so
+ * backdated and same-millisecond events remain visible. The sync endpoint
+ * reports invalid cursors explicitly and returns a bounded recovery snapshot;
+ * larger valid gaps are drained as bounded forward pages.
+ *
+ * A cursor is only usable at all when it was minted for the conversation we
+ * expect — on a conversation switch the delta must restart from scratch.
+ */
 export const desktopSyncPullPlan = (args: {
   catchUp: boolean;
   expectedConversationId: string | null;
   cursor: string | null;
 }): { sinceCursor: string | null; fullWindow: boolean } => {
-  if (args.catchUp || !args.expectedConversationId || !args.cursor) {
+  if (!args.expectedConversationId || !args.cursor) {
     return { sinceCursor: null, fullWindow: true };
   }
   return { sinceCursor: args.cursor, fullWindow: false };

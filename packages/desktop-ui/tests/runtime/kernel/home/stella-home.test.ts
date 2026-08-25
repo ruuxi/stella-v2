@@ -48,9 +48,11 @@ describe("ensureStellaDataDirSeeded", () => {
     expect(result.synced).toBe(true);
 
     await expect(
+      readFile(path.join(stellaDataDir, "outputs", "README.md"), "utf-8"),
+    ).resolves.toBe("outputs");
+    await expect(
       readFile(path.join(stellaDataDir, "DREAM.md"), "utf-8"),
-    ).resolves.toBe("seed dream");
-
+    ).rejects.toThrow();
     await expect(
       readFile(path.join(stellaDataDir, "preferences.json"), "utf-8"),
     ).rejects.toThrow();

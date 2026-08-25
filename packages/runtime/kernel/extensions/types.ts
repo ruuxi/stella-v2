@@ -5,24 +5,29 @@ import type { AssistantMessageEvent } from "../../ai/types.js";
 import type { RuntimePromptMessage } from "@stella/contracts/protocol";
 
 export interface ToolDefinition {
-
+  /** Tool name (must be unique). */
   name: string;
-
+  /** Human-readable label surfaced to the UI. */
   label?: string;
-
+  /** User-facing status text while the tool is running. */
   workingText?: string;
-
+  /** One-line description for the LLM. */
   description: string;
-
+  /** Which agent types can use this tool. Omit for all. */
   agentTypes?: string[];
-
+  /** JSON Schema for tool parameters. */
   parameters: Record<string, unknown>;
-
+  /**
+   * Demoted: dropped from the model's direct tool list when node_repl is
+   * available; callable inside the REPL as `tools.<name>(args)` and
+   * discoverable via `tools.$search`. Direct-listed as a normal tool for
+   * agents without node_repl.
+   */
   demoted?: {
     searchTerms?: readonly string[];
     requiredConnectorProvider?: string;
   };
-
+  /** Execute the tool. */
   execute(
     args: Record<string, unknown>,
     context: ToolContext,
@@ -51,16 +56,17 @@ export type HookEvent =
   | "session_start"
   | "session_shutdown";
 
+/** Common runtime context fields available on most hook payloads. */
 export type HookRuntimeContext = {
-
+  /** Conversation this run belongs to (orchestrator: stable per chat; subagent: parent's). */
   conversationId?: string;
-
+  /** Engine thread key (orchestrator: conversationId; subagent: namespaced per task). */
   threadKey?: string;
-
+  /** Run id for the in-flight run, if any. */
   runId?: string;
-
+  /** True when this run is a real user-driven turn (uiVisibility !== "hidden"). */
   isUserTurn?: boolean;
-
+  /** UI visibility for the run; mirrors RuntimeRunCallbacks payloads. */
   uiVisibility?: "visible" | "hidden";
 };
 
@@ -97,20 +103,53 @@ export type BeforeAgentStartHookResult = {
   systemPromptReplace?: string;
 };
 
+/**
+ * Payload for `before_user_message` — fires once per turn during prompt-
+ * message assembly, before built-in startup docs and before the user's
+ * typed prompt. Hooks return messages to splice into the prompt-message
+ * array.
+ *
+ * Fires for both orchestrator (`buildOrchestratorPromptMessages`) and
+ * subagent (`buildSubagentPromptMessages`) prompt builds. Read
+ * `payload.agentType` to scope behavior to a specific agent.
+ *
+ * Reminder fields (`staleUserReminderText`, `orchestratorReminderText`,
+ * `shouldInjectDynamicReminder`) are forwarded from the orchestrator's
+ * agent-context so the stella-runtime reminder hooks can read them
+ * without the kernel passing an opaque agentContext blob through the
+ * payload. They're undefined for subagent builds.
+ */
 export type BeforeUserMessagePayload = HookRuntimeContext & {
   agentType: string;
   userPrompt: string;
   staleUserReminderText?: string;
   orchestratorReminderText?: string;
-
+  /**
+   * Pre-rendered hidden reminder text describing a change in the user's
+   * routing surface (desktop ⇄ connector / connector ⇄ different
+   * connector). Computed in `prepareOrchestratorRun`; undefined when
+   * the surface didn't change since the previous user message. Hooks
+   * inject it as a hidden system reminder so the orchestrator only sees
+   * the format guidance on the transition turn.
+   */
   connectorTransitionReminderText?: string;
   shouldInjectDynamicReminder?: boolean;
 };
 
 export type BeforeUserMessageHookResult = {
-
+  /**
+   * Messages prepended to the prompt-message array in registration
+   * order. Each hook's prepends land before any bundled startup
+   * messages and before the user's typed prompt. Use `display: false`
+   * (or `uiVisibility: "hidden"`) to keep the message out of the
+   * user-facing chat surface.
+   */
   prependMessages?: RuntimePromptMessage[];
-
+  /**
+   * Messages appended just before the user's typed prompt. Useful for
+   * context that should land close to the user's text without sitting
+   * inside the bundled startup section.
+   */
   appendMessages?: RuntimePromptMessage[];
 };
 
@@ -120,11 +159,21 @@ export type AgentStartPayload = HookRuntimeContext & {
 
 export type AgentEndPayload = HookRuntimeContext & {
   agentType: string;
-
+  /**
+   * Final assistant text on success, the error message on failures, or
+   * the interruption reason on cancellation. Hook consumers should
+   * branch on `outcome` rather than treat this as ground truth.
+   */
   finalText: string;
-
+  /** Fires for every terminal outcome; success-only consumers must gate explicitly. */
   outcome: "success" | "error" | "interrupted";
-
+  /**
+   * Per-run runtime services. Populated by emit sites that have them
+   * wired (the orchestrator and subagent finalize paths); undefined
+   * for synthetic emit sites (cleanup-only emissions on
+   * error/interrupted, test fixtures without a runtime). Stella-runtime
+   * post-finalize thread-summary recording reads from here.
+   */
   services?: import("./services.js").RuntimeRunServices;
 };
 
@@ -160,6 +209,7 @@ export type MessageEndPayload = HookRuntimeContext & {
   message: AgentMessage;
 };
 
+/** `message_end` is observation-only and fires after persistence. */
 export type MessageEndHookResult = void;
 
 export type ToolExecutionStartPayload = HookRuntimeContext & {
@@ -203,7 +253,7 @@ export type SessionCompactPayload = HookRuntimeContext & {
   agentType: string;
   summary: string;
   preserveLastN?: number;
-
+  /** True if the compaction summary was supplied by a `before_compact` hook. */
   fromHook: boolean;
 };
 
@@ -236,6 +286,7 @@ export type SessionShutdownPayload = HookRuntimeContext & {
   targetThreadKey?: string;
 };
 
+/** Map from hook event to its payload and result types. */
 export interface HookEventMap {
   before_tool: { payload: BeforeToolPayload; result: BeforeToolHookResult };
   after_tool: { payload: AfterToolPayload; result: AfterToolHookResult };
@@ -275,17 +326,27 @@ export interface HookEventMap {
 }
 
 export interface HookDefinition<E extends HookEvent = HookEvent> {
-
+  /** Which lifecycle event to hook into. */
   event: E;
-
+  /** Optional filter - only trigger for matching tools or agent types. */
   filter?: { tool?: string; agentType?: string };
-
+  /**
+   * Where this hook came from. Bundled hooks ship with Stella and survive
+   * extension hot-reloads; user-installable extensions are tagged
+   * "extension" so a reload can replace them without touching bundled
+   * behavior. Defaults to "extension" when unset; bundled registrations
+   * set it explicitly via `registerBundledHooks`.
+   */
   source?: "bundled" | "extension";
-
+  /** Hook handler. Return a result object to modify behavior, or void to observe only. */
   handler(
     payload: HookEventMap[E]["payload"],
   ): Promise<HookEventMap[E]["result"] | void>;
 }
+
+// ---------------------------------------------------------------------------
+// Provider Definition
+// ---------------------------------------------------------------------------
 
 export interface ProviderModelDefinition {
   id: string;
@@ -303,28 +364,32 @@ export interface ProviderModelDefinition {
 }
 
 export interface ProviderDefinition {
-
+  /** Unique provider name. */
   name: string;
-
+  /** API compatibility type (e.g. "openai-completions", "anthropic-messages"). */
   api: string;
-
+  /** Base URL for the provider API. */
   baseUrl: string;
-
+  /** Environment variable name for the API key. */
   apiKeyEnv?: string;
-
+  /** Available models. */
   models: ProviderModelDefinition[];
-
+  /** Additional request headers. */
   headers?: Record<string, string>;
 }
 
+// ---------------------------------------------------------------------------
+// Prompt Template
+// ---------------------------------------------------------------------------
+
 export interface PromptTemplate {
-
+  /** Prompt name (derived from filename if not in frontmatter). */
   name: string;
-
+  /** Short description. */
   description: string;
-
+  /** The template body, may contain {{variable}} placeholders. */
   template: string;
-
+  /** Source file path. */
   filePath: string;
 }
 
@@ -340,10 +405,24 @@ export interface ExtensionRegistrationApi {
   registerAgent(agent: ParsedAgent): void;
 }
 
+/**
+ * Extension factory contract.
+ *
+ * The second argument carries runtime services (see
+ * `runtime/kernel/extensions/services.ts`) that bundled-as-extension
+ * hooks like memory need access to at registration
+ * time. Third-party extensions are free to ignore the services arg —
+ * but the field is non-optional in the type so the loader can always
+ * pass it without conditional plumbing.
+ */
 export type ExtensionFactory = (
   api: ExtensionRegistrationApi,
   services: import("./services.js").ExtensionServices,
 ) => void | Promise<void>;
+
+// ---------------------------------------------------------------------------
+// Loaded extensions bundle
+// ---------------------------------------------------------------------------
 
 export interface LoadedExtensions {
   tools: ToolDefinition[];

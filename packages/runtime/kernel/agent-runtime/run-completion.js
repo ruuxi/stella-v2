@@ -2,14 +2,12 @@ import { createRuntimeLogger } from "../debug.js";
 import { compactRuntimeThreadHistory } from "./thread-memory.js";
 import {
   ACTIVE_THREAD_IMAGE_DECODED_BYTE_BUDGET,
-  getThreadTokenEstimate,
   MAX_ACTIVE_THREAD_IMAGES,
 } from "../thread-runtime.js";
 import { isThreadCompactionForced } from "./context-budget.js";
 import { resetSkillReadDedup } from "../tools/skill-read-dedup.js";
 import { isOrchestratorAgentType } from "@stella/contracts/agent-runtime";
 const logger = createRuntimeLogger("agent-runtime.completion");
-
 const FINALIZE_STAGE_TIMEOUT_MS = 30_000;
 const boundedFinalizeStage = async (args) => {
   let timer;
@@ -114,10 +112,8 @@ const emitAgentEndHook = async (opts, args) => {
         runId: args.runId,
         ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
         isUserTurn: opts.uiVisibility !== "hidden",
-
         services: {
           resolvedLlm: opts.resolvedLlm,
-          messagesSnapshot: args.messagesSnapshot,
           ...(opts.appendLocalChatEvent
             ? { appendLocalChatEvent: opts.appendLocalChatEvent }
             : {}),
@@ -127,12 +123,6 @@ const emitAgentEndHook = async (opts, args) => {
           ...(opts.resolveSubsidiaryLlmRoute
             ? { resolveSubsidiaryLlmRoute: opts.resolveSubsidiaryLlmRoute }
             : {}),
-          ...(opts.userTurnsSinceMemoryReview != null
-            ? { userTurnsSinceMemoryReview: opts.userTurnsSinceMemoryReview }
-            : {}),
-          ...(args.orchestratorTokenEstimate != null
-            ? { orchestratorTokenEstimate: args.orchestratorTokenEstimate }
-            : {}),
         },
       },
       { agentType: opts.agentType },
@@ -141,7 +131,6 @@ const emitAgentEndHook = async (opts, args) => {
     return;
   }
 };
-
 const emitAgentEndCleanup = (opts, args) => {
   if (!opts.hookEmitter) return;
   void opts.hookEmitter
@@ -161,7 +150,6 @@ const emitAgentEndCleanup = (opts, args) => {
     )
     .catch(() => undefined);
 };
-
 const emitSubagentAgentEnd = (opts, args) => {
   if (!opts.hookEmitter) return;
   void opts.hookEmitter
@@ -176,7 +164,6 @@ const emitSubagentAgentEnd = (opts, args) => {
         runId: args.runId,
         ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
         isUserTurn: opts.uiVisibility !== "hidden",
-
         ...(args.sideEffectsAllowed
           ? {
               services: {
@@ -200,7 +187,6 @@ const emitSubagentAgentEnd = (opts, args) => {
     )
     .catch(() => undefined);
 };
-
 export const runCompactionWithHooks = async (args) => {
   let shouldCompact = true;
   let hookCompaction;
@@ -230,7 +216,6 @@ export const runCompactionWithHooks = async (args) => {
         { agentType: args.opts.agentType },
       )
       .catch(() => undefined);
-
     if (
       hookResult?.cancel &&
       !hardImagePressure &&
@@ -266,13 +251,11 @@ export const runCompactionWithHooks = async (args) => {
         }
       : {}),
   });
-
   if (result.compacted && isOrchestratorAgentType(args.opts.agentType)) {
     args.opts.store.forceOrchestratorReminderOnNextTurn?.(
       args.opts.conversationId,
     );
   }
-
   if (result.compacted && args.opts.hookEmitter && hookCompaction?.summary) {
     void args.opts.hookEmitter
       .emit(
@@ -315,20 +298,6 @@ export const finalizeOrchestratorSuccess = async (args) => {
     fallback: undefined,
     work: runBeforeRunEnd,
   });
-
-  let orchestratorTokenEstimate;
-  try {
-    orchestratorTokenEstimate = getThreadTokenEstimate(
-      args.opts.store.loadThreadMessages(args.threadKey),
-    );
-  } catch (error) {
-
-    orchestratorTokenEstimate = undefined;
-    logger.warn("orchestrator.token-estimate-failed", {
-      threadKey: args.threadKey,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
   await boundedFinalizeStage({
     stage: "agent_end-hooks",
     runId: args.runId,
@@ -338,14 +307,8 @@ export const finalizeOrchestratorSuccess = async (args) => {
         finalText: args.finalText,
         runId: args.runId,
         threadKey: args.threadKey,
-
-        messagesSnapshot: [...args.agent.state.messages],
-        ...(orchestratorTokenEstimate != null
-          ? { orchestratorTokenEstimate }
-          : {}),
       }),
   });
-
   args.opts.callbacks.onEnd(
     args.runEvents.recordRunEnd({
       finalText: args.finalText,
@@ -396,11 +359,9 @@ export const finalizeOrchestratorInterrupted = (args) => {
   }
   return args.reason;
 };
-
 export const SUBAGENT_EMPTY_RESULT_SENTINEL =
   "(Agent completed without a user-visible reply. Re-prompt with send_input if you need the outcome.)";
 export const finalizeSubagentSuccess = async (args) => {
-
   const trimmedResult = args.result.trim();
   const resolvedResult = trimmedResult || SUBAGENT_EMPTY_RESULT_SENTINEL;
   const sideEffectsAllowed = !args.opts.suppressCompletionSideEffects;
@@ -411,13 +372,11 @@ export const finalizeSubagentSuccess = async (args) => {
     finalText: resolvedResult,
     sideEffectsAllowed,
   });
-
   if (!args.opts.suppressCompletionSideEffects) {
     args.opts.callbacks?.onEnd?.(
       args.runEvents.recordRunEnd({ finalText: resolvedResult }),
     );
   }
-
   if (trimmedResult) {
     const messageCount = args.agentMessageCount ?? 0;
     void args.opts.compactionScheduler.schedule({
@@ -450,7 +409,6 @@ export const finalizeSubagentError = (args) => {
       threadKey: args.threadKey,
       outcome: "error",
       finalText: errorMessage,
-
       sideEffectsAllowed: false,
     });
   }
@@ -470,7 +428,6 @@ export const finalizeSubagentInterrupted = (args) => {
       threadKey: args.threadKey,
       outcome: "interrupted",
       finalText: args.reason,
-
       sideEffectsAllowed: false,
     });
   }

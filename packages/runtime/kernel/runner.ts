@@ -482,51 +482,5 @@ export const createStellaHostRunner = (
       ]);
       return { ok: true };
     },
-
-    triggerDreamNow: async (trigger = "manual") => {
-      try {
-        const { maybeSpawnDreamRun } = await import(
-          "./agent-runtime/dream-scheduler.js"
-        );
-        const { resolveRunnerLlmRoute } = await import(
-          "./runner/model-selection.js"
-        );
-        const { AGENT_IDS } = await import("@stella/contracts/agent-runtime");
-        const pendingItems =
-          context.runtimeStore.dreamInboxStore.countUnprocessed();
-        if (pendingItems === 0) {
-          return {
-            scheduled: false,
-            reason: "no_inputs" as const,
-            pendingItems,
-          };
-        }
-        const dreamAgent = resolveAgent(context, AGENT_IDS.DREAM);
-        const dreamModel = getConfiguredModel(
-          context,
-          AGENT_IDS.DREAM,
-          dreamAgent,
-        );
-        const resolvedLlm = resolveRunnerLlmRoute(
-          context,
-          AGENT_IDS.DREAM,
-          dreamModel,
-        );
-        return await maybeSpawnDreamRun({
-          stellaDataDir: context.stellaDataDir,
-          store: context.runtimeStore,
-          resolvedLlm,
-          trigger,
-        });
-      } catch (error) {
-        console.warn("[runner] triggerDreamNow failed", error);
-        return {
-          scheduled: false,
-          reason: "unavailable" as const,
-          pendingItems: 0,
-          detail: error instanceof Error ? error.message : String(error),
-        };
-      }
-    },
   };
 };

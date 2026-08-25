@@ -758,7 +758,4 @@ export class RuntimeHostAdapter {
     googleWorkspaceDisconnect() {
         return this.host.googleWorkspaceDisconnect();
     }
-    triggerDreamNow(trigger) {
-        return this.host.triggerDreamNow(trigger);
-    }
 }

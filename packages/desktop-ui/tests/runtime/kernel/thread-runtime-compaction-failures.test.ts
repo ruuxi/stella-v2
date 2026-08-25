@@ -319,7 +319,7 @@ describe("orchestrator thread compaction failure handling", () => {
     const { store, compactCalls } = createFakeStore(messages);
     (
       store as RuntimeStore & {
-      loadRawThreadMessages: () => Array<Record<string, unknown>>;
+        loadRawThreadMessages: () => Array<Record<string, unknown>>;
       }
     ).loadRawThreadMessages = () => rawMessages;
     completeSimpleMock.mockResolvedValue(successResponse());
@@ -883,10 +883,10 @@ describe("orchestrator thread compaction failure handling", () => {
         entryId: "m2",
         timestamp: 2,
         role: "runtimeInternal",
-        content: "STALE_MEMORY_MAP_COPY",
+        content: "STALE_STARTUP_DOC_COPY",
         customMessage: {
           customType: "bootstrap.startup_doc",
-          content: [{ type: "text", text: "STALE_MEMORY_MAP_COPY" }],
+          content: [{ type: "text", text: "STALE_STARTUP_DOC_COPY" }],
           display: false,
         },
       },
@@ -944,7 +944,7 @@ describe("orchestrator thread compaction failure handling", () => {
     const prompt = context.messages[0]!.content[0]!.text;
     expect(prompt).toContain("ORDINARY_HISTORY_TO_SUMMARIZE");
     expect(prompt).not.toContain("STALE_OTHER_THREADS_ROSTER");
-    expect(prompt).not.toContain("STALE_MEMORY_MAP_COPY");
+    expect(prompt).not.toContain("STALE_STARTUP_DOC_COPY");
     expect(prompt).not.toContain("STALE_SKILLS_CATALOG");
     expect(prompt).not.toContain("STALE_CONTEXT_DELTA");
     expect(compactCalls[0]).toMatchObject({
@@ -984,7 +984,7 @@ describe("orchestrator thread compaction failure handling", () => {
     expect(compactCalls).toHaveLength(1);
   });
 
-  it("threads summary guidelines and the durable-memory reference into the prompt", async () => {
+  it("threads summary guidelines and the retained profile reference into the prompt", async () => {
     const stellaDataDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "stella-compaction-memory-"),
     );
@@ -998,8 +998,8 @@ describe("orchestrator thread compaction failure handling", () => {
       "LEGACY_RETIRED_SUMMARY",
     );
     fs.writeFileSync(
-      path.join(stellaDataDir, "memories", "memory_map.md"),
-      "Workflow tiers: tier-1 ships without review.",
+      path.join(stellaDataDir, "memories", "MEMORY.md"),
+      "LEGACY_LEDGER_SENTINEL",
     );
     try {
       const { store } = createFakeStore();
@@ -1023,8 +1023,8 @@ describe("orchestrator thread compaction failure handling", () => {
 
       expect(prompt).toContain("ALREADY KNOWN");
       expect(prompt).toContain("123 Elm Street");
-      expect(prompt).toContain("tier-1 ships without review");
       expect(prompt).not.toContain("LEGACY_RETIRED_SUMMARY");
+      expect(prompt).not.toContain("LEGACY_LEDGER_SENTINEL");
       expect(prompt).toContain("Do not restate durable memory");
 
       completeSimpleMock.mockClear();

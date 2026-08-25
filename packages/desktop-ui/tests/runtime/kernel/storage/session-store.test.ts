@@ -2771,7 +2771,7 @@ describe("session-store", () => {
     });
   });
 
-  it("removes legacy memory summaries from compaction overlays", () => {
+  it("removes all retired automatic-memory docs from compaction overlays", () => {
     const { store } = createTestContext();
     const conversationId = "conv-retired-memory-overlay";
     const { threadId } = store.resolveOrCreateActiveThread({
@@ -2810,7 +2810,11 @@ describe("session-store", () => {
             },
             {
               customType: "bootstrap.startup_doc",
-              text: '<startup_doc path="~/.stella/memories/memory_map.md">\ncurrent map\n</startup_doc>',
+              text: '<startup_doc path="~/.stella/memories/MEMORY.md">\nLEGACY_LEDGER\n</startup_doc>',
+            },
+            {
+              customType: "bootstrap.startup_doc",
+              text: '<startup_doc path="~/.stella/memories/profile.md">\ncurrent profile\n</startup_doc>',
             },
           ],
         },
@@ -2819,7 +2823,8 @@ describe("session-store", () => {
 
     const compacted = JSON.stringify(store.loadThreadMessages(threadId));
     expect(compacted).not.toContain("LEGACY_RETIRED_SUMMARY");
-    expect(compacted).toContain("current map");
+    expect(compacted).not.toContain("LEGACY_LEDGER");
+    expect(compacted).toContain("current profile");
   });
 
   it("sweeps stale rosters at compaction and retains only the next fresh snapshot", () => {
@@ -2848,7 +2853,7 @@ describe("session-store", () => {
       timestamp: 4_002,
       customType: "bootstrap.startup_doc",
       content:
-        '<startup_doc path="~/.stella/memories/memory_map.md">\ncurrent map\n</startup_doc>',
+        '<startup_doc path="~/.stella/memories/profile.md">\ncurrent profile\n</startup_doc>',
       display: false,
     });
 

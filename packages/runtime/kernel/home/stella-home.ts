@@ -62,10 +62,7 @@ const copyPathIfMissing = async (sourcePath: string, targetPath: string) => {
   await fs.copyFile(sourcePath, targetPath);
 };
 
-const STELLA_DATA_SEED_ENTRIES = [
-  "DREAM.md",
-  path.join("outputs", "README.md"),
-] as const;
+const STELLA_DATA_SEED_ENTRIES = [path.join("outputs", "README.md")] as const;
 
 export const ensureStellaDataDirSeeded = async (
   stellaAppDir: string,

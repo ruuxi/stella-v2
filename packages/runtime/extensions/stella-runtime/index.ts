@@ -7,9 +7,7 @@ import { createConnectorAvailabilityReminderHook } from "./hooks/connector-avail
 import { createConnectorFormatReminderHook } from "./hooks/connector-format-reminder.hook.js";
 import { createLinkSpendNotifyHook } from "./hooks/link-spend-notify.hook.js";
 import { createLinkWalletReminderHook } from "./hooks/link-wallet-reminder.hook.js";
-import { createDreamSchedulerNotifyHook } from "./hooks/dream-scheduler-notify.hook.js";
 import { createOrchestratorReminderHook } from "./hooks/orchestrator-reminder.hook.js";
-import { createMemoryReviewHook } from "./hooks/memory-review.hook.js";
 import { createStaleUserReminderHook } from "./hooks/stale-user-reminder.hook.js";
 import { createThreadSummariesRecordHook } from "./hooks/thread-summaries-record.hook.js";
 import { resolveRuntimeSourceAsset } from "../../kernel/shared/runtime-paths.js";
@@ -52,19 +50,6 @@ const stellaRuntimeExtension: ExtensionFactory = (pi, services) => {
     }),
   );
   register(createLinkSpendNotifyHook(services));
-  register(
-    createMemoryReviewHook({
-      stellaDataDir: services.stellaDataDir,
-      stellaAppDir: services.stellaAppDir,
-      store: services.store,
-    }),
-  );
-  register(
-    createDreamSchedulerNotifyHook({
-      stellaDataDir: services.stellaDataDir,
-      store: services.store,
-    }),
-  );
   register(createThreadSummariesRecordHook({ store: services.store }));
 };
 

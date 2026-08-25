@@ -1,6 +1,5 @@
 import { getMainLogger } from "../observability/main-logger.js";
 import { getTotalSystemMemoryMb, isLowMemoryWindowsDevice, } from "../resource-profile.js";
-const DREAM_READY_RETRY_MS = 5_000;
 const OVERLAY_STARTUP_WARM_DELAY_MS = 5_000;
 const runDeferredStartupTask = async (context, task) => {
     if (task.delayMs) {
@@ -15,24 +14,6 @@ const runDeferredStartupTask = async (context, task) => {
     }
     await task.run();
     return true;
-};
-const triggerDreamWhenAgentReady = (context, trigger) => {
-    const runner = context.lifecycle.getRunner();
-    if (!runner) {
-        return;
-    }
-    void (async () => {
-        const health = await runner.agentHealthCheck();
-        if (!health?.ready) {
-            context.state.processRuntime.setManagedTimeout(() => {
-                triggerDreamWhenAgentReady(context, trigger);
-            }, DREAM_READY_RETRY_MS);
-            return;
-        }
-        await runner.triggerDreamNow(trigger);
-    })().catch((error) => {
-        console.debug("[dream] trigger failed:", error instanceof Error ? error.message : String(error));
-    });
 };
 const scheduleOverlayWarmup = (context) => {
     const { state } = context;
@@ -59,7 +40,7 @@ const scheduleOverlayWarmup = (context) => {
     }, OVERLAY_STARTUP_WARM_DELAY_MS);
 };
 const createDeferredStartupTasks = (context) => {
-    const { config, state } = context;
+    const { state } = context;
 
     return [
         {
@@ -76,14 +57,6 @@ const createDeferredStartupTasks = (context) => {
             label: "overlay-warmup-schedule",
             run: () => {
                 scheduleOverlayWarmup(context);
-            },
-        },
-        {
-
-            label: "dream-startup-sweep",
-            delayMs: config.startupStageDelayMs,
-            run: () => {
-                triggerDreamWhenAgentReady(context, "startup_catchup");
             },
         },
     ];

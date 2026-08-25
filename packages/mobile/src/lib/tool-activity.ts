@@ -113,10 +113,6 @@ const TOOL_DESCRIPTORS: Record<string, ToolDescriptor> = {
     phrase: plural("created a PDF", (n) => `created ${n} PDFs`),
   },
   html: { category: "create", phrase: plural("built a page", (n) => `built ${n} pages`) },
-  dream: {
-    category: "create",
-    phrase: plural("generated a vision", (n) => `generated ${n} visions`),
-  },
   recall: { category: "memory", phrase: () => "checked memory" },
   remember: {
     category: "memory",
@@ -240,7 +236,6 @@ const titleForCall = (
       return cmd ? clamp(cmd, 48) : "command";
     }
     case "image_gen":
-    case "dream":
       return str(a.prompt) ? clamp(str(a.prompt)!, 48) : "image";
     case "pdf":
       return str(a.title) ?? "PDF";

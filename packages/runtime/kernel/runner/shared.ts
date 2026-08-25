@@ -13,10 +13,6 @@ import {
 import { isOrchestratorAgentType } from "@stella/contracts/agent-runtime";
 import { formatAgentTerminalStateSystemReminder } from "@stella/contracts/system-reminders";
 import { redactMemoryText } from "../memory/redaction.js";
-import {
-  capResidentMemoryDoc,
-  MEMORY_MAP_MAX_CHARS,
-} from "../memory/dream-storage.js";
 import { USER_PROFILE_INJECT_MAX_CHARS } from "../memory/user-profile-store.js";
 import { readRuntimePrompt } from "../prompts/home-prompts.js";
 import { boundParentAgentReport } from "./agent-report-bounds.js";
@@ -66,19 +62,13 @@ const readResidentMemoryDoc = (
     const content = fs.readFileSync(filePath, "utf-8").trim();
     return content
       ? maxChars
-      ? capResidentMemoryDoc(redactMemoryText(content), maxChars)
+        ? redactMemoryText(content).slice(0, maxChars)
         : redactMemoryText(content)
       : undefined;
   } catch {
     return undefined;
   }
 };
-
-export const readMemoryMapDoc = (stellaDataDir: string): string | undefined =>
-  readResidentMemoryDoc(
-    path.join(stellaDataDir, "memories", "memory_map.md"),
-    MEMORY_MAP_MAX_CHARS,
-  );
 
 export const readUserProfileDoc = (stellaDataDir: string): string | undefined =>
   readResidentMemoryDoc(

@@ -22,12 +22,12 @@ import {
 } from "./shared.js";
 import { isUiHiddenChatMessagePayload } from "@stella/contracts/chat-event-visibility";
 import { normalizeRetiredAgentType } from "@stella/contracts/agent-runtime";
-import { DreamInboxStore } from "../memory/dream-inbox-store.js";
+import { ThreadSummaryStore } from "../memory/thread-summary-store.js";
 import {
   CONTEXT_DELTA_CUSTOM_TYPE_PREFIX,
   PINNED_INSTRUCTION_ENTRY_ID_MARKER,
   RESIDENT_FOLD_ENTRY_ID_MARKER,
-  isRetiredMemorySummaryCustomMessage,
+  isRetiredMemoryCustomMessage,
   parseResidentFold,
   residentIdentityForCustomMessage,
 } from "../agent-runtime/resident-context.js";
@@ -261,10 +261,8 @@ const THREAD_CHECKPOINT_MARKER = "[[THREAD_CHECKPOINT]]";
 const TRANSCRIPT_SEARCH_TEXT_CAP = 4_000;
 
 const THREAD_SEARCH_FTS_CANDIDATE_CAP = 200;
-
-const RECALL_INDEX_RESULT_EXCERPT_CHARS = 400;
-const RECALL_INDEX_ERROR_EXCERPT_CHARS = 300;
-
+export const RECALL_THREAD_RESULT_EXCERPT_CHARS = 1_600;
+const RECALL_THREAD_ERROR_EXCERPT_CHARS = 300;
 const SEARCH_STOPWORDS = new Set([
   "a",
   "an",
@@ -1108,7 +1106,7 @@ const applyResidentFold = (messages, overlay) => {
     if (message.role !== "runtimeInternal" || !message.customMessage) {
       return true;
     }
-    if (isRetiredMemorySummaryCustomMessage(message.customMessage)) {
+    if (isRetiredMemoryCustomMessage(message.customMessage)) {
       return false;
     }
     if (message.timestamp > overlay.timestamp) {
@@ -1223,7 +1221,7 @@ const buildThreadMessagesFromEntries = (entries) => {
 export class SessionStore {
   db;
   options;
-  dreamInboxStoreInstance = null;
+  threadSummaryStoreInstance = null;
   constructor(db, options = {}) {
     this.db = db;
     this.options = options;
@@ -1284,12 +1282,11 @@ export class SessionStore {
       params: [cursor.timestamp, cursor.timestamp, cursor.id],
     };
   }
-
-  get dreamInboxStore() {
-    if (!this.dreamInboxStoreInstance) {
-      this.dreamInboxStoreInstance = new DreamInboxStore(this.db);
+  get threadSummaryStore() {
+    if (!this.threadSummaryStoreInstance) {
+      this.threadSummaryStoreInstance = new ThreadSummaryStore(this.db);
     }
-    return this.dreamInboxStoreInstance;
+    return this.threadSummaryStoreInstance;
   }
   withTransaction(work) {
     this.db.exec("BEGIN TRANSACTION;");
@@ -1818,11 +1815,6 @@ export class SessionStore {
       this.db
         .prepare(
           `DELETE FROM runtime_conversation_state WHERE conversation_id = ?`,
-        )
-        .run(conversationId);
-      this.db
-        .prepare(
-          `DELETE FROM runtime_memory_review_state WHERE conversation_id = ?`,
         )
         .run(conversationId);
       this.db
@@ -4648,84 +4640,6 @@ export class SessionStore {
       .all(...params);
     return rows.map((row) => this.deserializeRuntimeThread(row));
   }
-
-  listThreadsForRecallIndex(args) {
-    const limit = Math.max(1, Math.min(2_000, Math.floor(args.limit)));
-    const activeSinceMs =
-      Number.isFinite(args.activeSinceMs) && (args.activeSinceMs ?? 0) > 0
-        ? Math.floor(args.activeSinceMs)
-        : 0;
-    const rows = this.db
-      .prepare(
-        `
-      WITH candidates(thread_key) AS (
-        SELECT thread_key FROM (
-          SELECT thread_key
-          FROM runtime_threads
-          WHERE agent_type != 'orchestrator'
-            AND thread_key NOT LIKE '%::subagent::%'
-            AND last_used_at >= ?
-          ORDER BY last_used_at DESC
-          LIMIT ?
-        )
-        UNION
-        SELECT thread_id FROM (
-          SELECT thread_id
-          FROM runtime_agents
-          WHERE agent_type != 'orchestrator'
-            AND thread_id NOT LIKE '%::subagent::%'
-            AND updated_at >= ?
-          ORDER BY updated_at DESC
-          LIMIT ?
-        )
-      )
-      SELECT
-        thread_key AS threadId,
-        runtime_threads.conversation_id AS conversationId,
-        runtime_threads.name AS name,
-        runtime_threads.created_at AS createdAt,
-        runtime_threads.last_used_at AS lastUsedAt,
-        runtime_agents.description AS description,
-        runtime_agents.status AS agentStatus,
-        runtime_agents.updated_at AS agentUpdatedAt,
-        substr(runtime_agents.result, 1, ${RECALL_INDEX_RESULT_EXCERPT_CHARS}) AS resultExcerpt,
-        substr(runtime_agents.error, 1, ${RECALL_INDEX_ERROR_EXCERPT_CHARS}) AS errorExcerpt
-      FROM runtime_threads
-      LEFT JOIN runtime_agents
-        ON runtime_agents.thread_id = runtime_threads.thread_key
-      WHERE thread_key IN (SELECT thread_key FROM candidates)
-        AND runtime_threads.agent_type != 'orchestrator'
-        AND thread_key NOT LIKE '%::subagent::%'
-        AND MAX(
-          runtime_threads.last_used_at,
-          COALESCE(runtime_agents.updated_at, 0)
-        ) >= ?
-      ORDER BY MAX(
-        runtime_threads.last_used_at,
-        COALESCE(runtime_agents.updated_at, 0)
-      ) DESC
-      LIMIT ?
-    `,
-      )
-      .all(activeSinceMs, limit, activeSinceMs, limit, activeSinceMs, limit);
-    return rows.map((row) => ({
-      threadId: row.threadId,
-      conversationId: row.conversationId,
-      name: row.name,
-      createdAt: row.createdAt,
-      lastUsedAt: row.lastUsedAt,
-      ...(row.description ? { description: row.description } : {}),
-      ...(row.agentStatus ? { agentStatus: row.agentStatus } : {}),
-      ...(typeof row.agentUpdatedAt === "number"
-        ? { agentUpdatedAt: row.agentUpdatedAt }
-        : {}),
-      ...(row.resultExcerpt?.trim()
-        ? { resultExcerpt: row.resultExcerpt }
-        : {}),
-      ...(row.errorExcerpt?.trim() ? { errorExcerpt: row.errorExcerpt } : {}),
-    }));
-  }
-
   listThreadResultExcerpts(threadIds) {
     const ids = [...new Set(threadIds)].slice(0, 64);
     const map = new Map();
@@ -4735,8 +4649,8 @@ export class SessionStore {
         `
       SELECT
         thread_id AS threadId,
-        substr(result, 1, ${RECALL_INDEX_RESULT_EXCERPT_CHARS}) AS resultExcerpt,
-        substr(error, 1, ${RECALL_INDEX_ERROR_EXCERPT_CHARS}) AS errorExcerpt
+        substr(result, 1, ${RECALL_THREAD_RESULT_EXCERPT_CHARS}) AS resultExcerpt,
+        substr(error, 1, ${RECALL_THREAD_ERROR_EXCERPT_CHARS}) AS errorExcerpt
       FROM runtime_agents
       WHERE thread_id IN (${ids.map(() => "?").join(", ")})
     `,
@@ -4752,22 +4666,6 @@ export class SessionStore {
     }
     return map;
   }
-
-  countThreadsCreatedSince(sinceMs) {
-    const row = this.db
-      .prepare(
-        `
-      SELECT COUNT(*) AS count
-      FROM runtime_threads
-      WHERE agent_type != 'orchestrator'
-        AND thread_key NOT LIKE '%::subagent::%'
-        AND created_at >= ?
-    `,
-      )
-      .get(sinceMs);
-    return typeof row?.count === "number" ? row.count : 0;
-  }
-
   searchTranscripts(args) {
     const limit = Math.max(1, Math.min(25, Math.floor(args.limit ?? 12)));
     const tokens = tokenizeSearchQuery(args.query);
@@ -5816,116 +5714,5 @@ export class SessionStore {
     `,
       )
       .run(conversationId);
-  }
-
-  incrementUserTurnsSinceMemoryReview(conversationId) {
-    const row = this.db
-      .prepare(
-        `
-      SELECT user_turns_since_review AS userTurnsSinceReview
-      FROM runtime_memory_review_state
-      WHERE conversation_id = ?
-      LIMIT 1
-    `,
-      )
-      .get(conversationId);
-    const current =
-      typeof row?.userTurnsSinceReview === "number"
-        ? Math.max(0, Math.floor(row.userTurnsSinceReview))
-        : 0;
-    const next = current + 1;
-    this.db
-      .prepare(
-        `
-      INSERT INTO runtime_memory_review_state (
-        conversation_id,
-        user_turns_since_review,
-        last_review_at
-      )
-      VALUES (?, ?, NULL)
-      ON CONFLICT(conversation_id) DO UPDATE SET
-        user_turns_since_review = excluded.user_turns_since_review
-    `,
-      )
-      .run(conversationId, next);
-    return next;
-  }
-
-  getMemoryReviewState(conversationId) {
-    const row = this.db
-      .prepare(
-        `
-      SELECT user_turns_since_review AS userTurnsSinceReview,
-             last_reviewed_message_ts AS lastReviewedMessageTs
-      FROM runtime_memory_review_state
-      WHERE conversation_id = ?
-      LIMIT 1
-    `,
-      )
-      .get(conversationId);
-    return {
-      userTurnsSinceReview:
-        typeof row?.userTurnsSinceReview === "number"
-          ? Math.max(0, Math.floor(row.userTurnsSinceReview))
-          : 0,
-      lastReviewedMessageTs:
-        typeof row?.lastReviewedMessageTs === "number"
-          ? Math.max(0, Math.floor(row.lastReviewedMessageTs))
-          : 0,
-    };
-  }
-
-  resetUserTurnsSinceMemoryReview(conversationId, lastReviewedMessageTs) {
-    const now = Date.now();
-    const reviewedTs =
-      typeof lastReviewedMessageTs === "number" &&
-      Number.isFinite(lastReviewedMessageTs) &&
-      lastReviewedMessageTs > 0
-        ? Math.floor(lastReviewedMessageTs)
-        : null;
-    this.db
-      .prepare(
-        `
-      INSERT INTO runtime_memory_review_state (
-        conversation_id,
-        user_turns_since_review,
-        last_review_at,
-        last_reviewed_message_ts
-      )
-      VALUES (?, 0, ?, ?)
-      ON CONFLICT(conversation_id) DO UPDATE SET
-        user_turns_since_review = 0,
-        last_review_at = excluded.last_review_at,
-        last_reviewed_message_ts = COALESCE(
-          excluded.last_reviewed_message_ts,
-          runtime_memory_review_state.last_reviewed_message_ts
-        )
-    `,
-      )
-      .run(conversationId, now, reviewedTs);
-  }
-
-  advanceMemoryReviewWatermark(conversationId, lastReviewedMessageTs) {
-    if (!Number.isFinite(lastReviewedMessageTs) || lastReviewedMessageTs <= 0) {
-      return;
-    }
-    const reviewedTs = Math.floor(lastReviewedMessageTs);
-    this.db
-      .prepare(
-        `
-      INSERT INTO runtime_memory_review_state (
-        conversation_id,
-        user_turns_since_review,
-        last_reviewed_message_ts
-      )
-      VALUES (?, 0, ?)
-      ON CONFLICT(conversation_id) DO UPDATE SET
-        last_reviewed_message_ts = MAX(
-          COALESCE(runtime_memory_review_state.last_reviewed_message_ts, 0),
-          excluded.last_reviewed_message_ts
-        )
-    `,
-      )
-      .run(conversationId, reviewedTs);
   }
 }

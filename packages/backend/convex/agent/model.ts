@@ -343,7 +343,6 @@ export const TASK_MODEL_SELECTIONS: Record<string, TaskModelSelection> = {
   synthesis: "synthesis",
   welcome: "light",
   asset_metadata: "light",
-  dream: "light",
   chronicle: "light",
   image_description: "image_description",
   html_finish: "light",

@@ -53,7 +53,18 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Setting a reminder",
     "Putting it on the schedule",
   ],
-
+  context: [
+    "Looking back",
+    "Checking my notes",
+    "Checking recent notes",
+    "Finding the thread",
+    "Looking for the reference",
+    "Checking recent activity",
+    "Finding the background",
+    "Catching up",
+    "Getting oriented",
+    "Looking at what matters",
+  ],
   recall: [
     "Searching my memory",
     "Digging through history",
@@ -135,14 +146,6 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Putting it together",
     "Updating the code",
   ],
-  str_replace: [
-    "Editing",
-    "Making changes",
-    "Tweaking it",
-    "Updating the text",
-    "Swapping things out",
-    "Refining it",
-  ],
   grep: [
     "Searching",
     "Looking it up",
@@ -200,14 +203,6 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Handling a few things",
     "Multitasking",
     "Running things together",
-  ],
-  dream: [
-    "Thinking it over",
-    "Mulling it over",
-    "Reflecting",
-    "Turning it over",
-    "Working it out",
-    "Connecting the dots",
   ],
   import_source: [
     "Pulling it in",

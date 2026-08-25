@@ -1,30 +1,93 @@
+/**
+ * ResidentBlock registry — the single owner of the "resident early-context
+ * blocks never mutate mid-thread" pattern.
+ *
+ * A resident block is a piece of context that must sit at a byte-stable
+ * position in the provider request for the lifetime of a thread so that
+ * provider prompt caches keep hitting: the pinned startup docs (personality,
+ * core memory, user profile) and the skill catalog.
+ * Every block registers here once and gets exactly two mutation paths:
+ *
+ *   1. Mid-thread delta (`buildResidentContextMessages`): each turn the
+ *      block re-renders from current state and is compared byte-for-byte
+ *      against the copies already persisted in the thread. Unchanged →
+ *      nothing is emitted and the prompt prefix stays byte-identical.
+ *      Changed → the full updated block is APPENDED as a hidden message
+ *      before the next user message; the canonical copy already in history
+ *      is never touched.
+ *
+ *   2. Compaction fold-in (`buildResidentFold` + the overlay support in
+ *      `storage/session-store.js`): compaction is the one moment the cache
+ *      is legitimately dead, so the fold re-renders every block from
+ *      current state, pins exactly one fresh copy of each at the head of
+ *      the rebuilt window, and sweeps all older copies plus accumulated
+ *      `runtime.context_delta.*` notices.
+ *
+ * The window-gated `before_user_message` reminder hooks (connector
+ * availability and stale-user) are deliberately NOT folded into
+ * this registry: they are advisory, recurring notices rather than resident
+ * state, and their once-per-context-window dedup
+ * (`runner/reminder-window-gate.ts`) already resets on compaction. They
+ * compose cleanly alongside this mechanism and stay hooks.
+ */
 import fs from "node:fs";
 import path from "node:path";
 import { redactMemoryText } from "../memory/redaction.js";
-import {
-  capResidentMemoryDoc,
-  MEMORY_MAP_MAX_CHARS,
-} from "../memory/dream-storage.js";
 
 export const BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE = "bootstrap.startup_doc";
 export const BOOTSTRAP_SKILLS_CUSTOM_TYPE = "bootstrap.skills_catalog";
-
+/**
+ * Custom-type namespace for mid-thread resident-context change notices
+ * (e.g. the frozen-tools delta note). Persisted by `run-execution` so store
+ * rebuilds reproduce what the model saw, and swept wholesale by the
+ * compaction fold-in once the canonical blocks have been re-rendered.
+ */
 export const CONTEXT_DELTA_CUSTOM_TYPE_PREFIX = "runtime.context_delta.";
 
+/**
+ * Marker inside the synthetic entryIds of fold-materialized doc messages
+ * (`<overlayEntryId>::resident:<n>`). These entries exist only in the
+ * materialized view — compaction span boundaries must never land on one.
+ */
 export const RESIDENT_FOLD_ENTRY_ID_MARKER = "::resident:";
 
+/**
+ * Marker inside the synthetic entryId of the pinned latest-user-instruction
+ * message a compaction overlay re-emits right after its checkpoint
+ * (`<overlayEntryId>::pinned-instruction`). Exists only in the materialized
+ * view — compaction span boundaries must never land on it.
+ */
 export const PINNED_INSTRUCTION_ENTRY_ID_MARKER = "::pinned-instruction";
 
 export const LIFE_PERSONALITY_DISPLAY_PATH = "~/.stella/PERSONALITY.md";
 export const LIFE_CORE_MEMORY_DISPLAY_PATH = "~/.stella/core-memory.md";
 export const LIFE_USER_PROFILE_DISPLAY_PATH = "~/.stella/memories/profile.md";
-export const LIFE_MEMORY_MAP_DISPLAY_PATH = "~/.stella/memories/memory_map.md";
-export const RETIRED_MEMORY_SUMMARY_DISPLAY_PATH =
-  "~/.stella/memories/memory_summary.md";
+export const RETIRED_MEMORY_DISPLAY_PATHS = [
+  "~/.stella/memories/MEMORY.md",
+  "~/.stella/memories/memory_map.md",
+  "~/.stella/memories/memory_summary.md",
+];
 
 const buildStartupDocText = (displayPath, content) =>
   [`<startup_doc path="${displayPath}">`, content, "</startup_doc>"].join("\n");
 
+/**
+ * The registry. Order is the canonical head order for new threads and for
+ * the compaction fold-in. Each block declares:
+ *
+ *   - `id`          stable identity used in logs and fold bookkeeping;
+ *   - `customType`  the persisted custom-message type (all `bootstrap.*`
+ *                   so compaction head-protection and run-execution
+ *                   persistence keep working unchanged);
+ *   - `docPath`     display path when the block renders as a
+ *                   `<startup_doc>` wrapper (absent for the skills block,
+ *                   which carries its own `<skills>` envelope);
+ *   - `resolve`     canonical body from the per-turn agent context
+ *                   (deterministic — same state, same bytes);
+ *   - `diskFile`    optional data-dir-relative file the compaction fold-in
+ *                   re-reads for a fresh render (`renderDiskBody` applies
+ *                   the same redaction/truncation as `resolve`).
+ */
 export const RESIDENT_BLOCKS = [
   {
     id: "personality",
@@ -62,32 +125,14 @@ export const RESIDENT_BLOCKS = [
       raw.trim() ? redactMemoryText(raw.trim()) || undefined : undefined,
   },
   {
-    id: "memory-map",
-    customType: BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
-    docPath: LIFE_MEMORY_MAP_DISPLAY_PATH,
-    diskFile: path.join("memories", "memory_map.md"),
-    memoryDoc: true,
-    resolve: (context) => {
-      const raw = context.memoryMap
-        ? redactMemoryText(context.memoryMap.trim())
-        : "";
-      return raw ? capResidentMemoryDoc(raw, MEMORY_MAP_MAX_CHARS) : undefined;
-    },
-    renderDiskBody: (raw) => {
-      const redacted = raw.trim() ? redactMemoryText(raw.trim()) : "";
-      return redacted
-        ? capResidentMemoryDoc(redacted, MEMORY_MAP_MAX_CHARS)
-        : undefined;
-    },
-  },
-  {
     id: "skills",
     customType: BOOTSTRAP_SKILLS_CUSTOM_TYPE,
-
+    // The catalog carries its own `<skills>` envelope; no startup_doc wrap.
     resolve: (context) => context.skillsCatalog?.trim() || undefined,
   },
 ];
 
+/** Full message text for a block, or undefined when the block is absent. */
 export const renderResidentBlockText = (block, context) => {
   const body = block.resolve(context);
   if (!body) return undefined;
@@ -103,13 +148,14 @@ export const customMessageContentText = (content) => {
     .join("\n");
 };
 
-export const isRetiredMemorySummaryCustomMessage = (customMessage) =>
-  Boolean(
-    customMessage &&
-      customMessageContentText(customMessage.content).includes(
-        RETIRED_MEMORY_SUMMARY_DISPLAY_PATH,
-      ),
+/** Startup messages for retired automatic-memory artifacts must never replay. */
+export const isRetiredMemoryCustomMessage = (customMessage) => {
+  if (!customMessage) return false;
+  const text = customMessageContentText(customMessage.content);
+  return RETIRED_MEMORY_DISPLAY_PATHS.some((displayPath) =>
+    text.includes(displayPath),
   );
+};
 
 const hasPersistedResidentText = (context, customType, text) => {
   const needle = text.trim();
@@ -122,7 +168,11 @@ const hasPersistedResidentText = (context, customType, text) => {
       ) {
         return false;
       }
-
+      // Match on the full block body, not just its identity. A resident
+      // block whose content changed mid-thread (a Remember replace/remove or
+      // a skill save) must re-append so
+      // the thread sees the current version; the stale copy already in
+      // history is left untouched until compaction folds it away.
       return customMessageContentText(customMessage.content).trim() === needle;
     }) ?? false
   );
@@ -135,6 +185,12 @@ const createInternalPromptMessage = (text, customType) => ({
   customType,
 });
 
+/**
+ * The single mid-thread mutation path: render every registered block from
+ * the current agent context and emit an appended copy for each block whose
+ * exact bytes are not already present in the thread. First turn → the full
+ * canonical head; later turns → only the blocks that actually changed.
+ */
 export const buildResidentContextMessages = (context) => {
   const messages = [];
   for (const block of RESIDENT_BLOCKS) {
@@ -150,6 +206,7 @@ const STARTUP_DOC_PATH_RE = /^<startup_doc path="([^"]+)">/;
 const STARTUP_DOC_BODY_RE =
   /^<startup_doc path="[^"]+">\n([\s\S]*)\n<\/startup_doc>$/;
 
+/** Display path from a rendered `<startup_doc>` body, or null. */
 export const parseStartupDocPath = (text) => {
   const match = STARTUP_DOC_PATH_RE.exec(text.trim());
   return match?.[1] ?? null;
@@ -158,9 +215,16 @@ export const parseStartupDocPath = (text) => {
 const parseStartupDocBody = (text) =>
   STARTUP_DOC_BODY_RE.exec(text.trim())?.[1] ?? null;
 
+/**
+ * Stable fold identity for a persisted resident-block custom message:
+ * `skills` for the skill catalog, `doc:<display path>` for startup docs
+ * (including legacy docs this registry no longer renders, e.g. the old
+ * registry.md doc — they still fold as themselves). Null for anything that
+ * is not a resident block.
+ */
 export const residentIdentityForCustomMessage = (customMessage) => {
   if (!customMessage) return null;
-  if (isRetiredMemorySummaryCustomMessage(customMessage)) return null;
+  if (isRetiredMemoryCustomMessage(customMessage)) return null;
   if (customMessage.customType === BOOTSTRAP_SKILLS_CUSTOM_TYPE) {
     return "skills";
   }
@@ -198,8 +262,28 @@ const readOptionalDiskFile = (filePath) => {
   }
 };
 
+/** Upper bound on folded docs; guards against a pathological thread. */
 const MAX_FOLD_DOCS = 16;
 
+/**
+ * Compaction-time fold plan. Scans the materialized thread for resident
+ * blocks (newest copy wins per identity — this is what heals legacy threads
+ * that accumulated duplicate appends), then re-renders registered docs from
+ * current disk state where possible:
+ *
+ *   - personality/core-memory/profile re-read their files
+ *     (memory docs only when `refreshMemoryDocsFromDisk`), falling back to
+ *     the newest in-thread copy when the file is missing/empty;
+ *   - the skills block keeps the newest in-thread copy — its render options
+ *     (engine-specific omissions) are unknown at compaction time, and the
+ *     per-turn delta path re-appends a fresh catalog next turn if disk
+ *     state drifted.
+ *
+ * Returns `{ docs: [{ customType, text }] }` in canonical head order (plus
+ * unknown legacy docs in first-seen order), or null when the thread has no
+ * resident blocks. The result rides the compaction entry's `details` and is
+ * applied by the overlay materializer in `storage/session-store.js`.
+ */
 export const buildResidentFold = (args) => {
   const newestByIdentity = new Map();
   const firstSeenOrder = [];
@@ -207,7 +291,7 @@ export const buildResidentFold = (args) => {
     if (message.role !== "runtimeInternal" || !message.customMessage) {
       continue;
     }
-    if (isRetiredMemorySummaryCustomMessage(message.customMessage)) continue;
+    if (isRetiredMemoryCustomMessage(message.customMessage)) continue;
     const identity = residentIdentityForCustomMessage(message.customMessage);
     if (!identity) continue;
     if (!newestByIdentity.has(identity)) {
@@ -250,6 +334,7 @@ export const buildResidentFold = (args) => {
     docs.push({ customType: inThread.customType, text });
   };
 
+  // Canonical order first, then unknown legacy identities as encountered.
   for (const block of RESIDENT_BLOCKS) {
     emit(block.docPath ? `doc:${block.docPath}` : "skills");
   }
@@ -259,6 +344,10 @@ export const buildResidentFold = (args) => {
   return docs.length > 0 ? { docs } : null;
 };
 
+/**
+ * Validate a `residentFold` recovered from a persisted compaction entry's
+ * `details`. Returns `{ docs, identities }` or null when malformed.
+ */
 export const parseResidentFold = (details) => {
   const fold =
     details && typeof details === "object" && !Array.isArray(details)
@@ -282,7 +371,7 @@ export const parseResidentFold = (details) => {
       continue;
     }
     if (
-      isRetiredMemorySummaryCustomMessage({
+      isRetiredMemoryCustomMessage({
         customType: doc.customType,
         content: doc.text,
       })

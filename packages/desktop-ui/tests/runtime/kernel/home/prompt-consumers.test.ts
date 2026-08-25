@@ -5,7 +5,6 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
-import { buildMemoryReviewSystemPrompt } from "@stella/runtime/kernel/agent-runtime/memory-review";
 import { readOrSeedPersonality } from "@stella/runtime/kernel/personality/personality";
 import { defaultPromptForAgentType } from "@stella/runtime/kernel/runner/shared";
 import { resolveThreadCompactionSystemPrompt } from "@stella/runtime/kernel/thread-runtime";
@@ -39,15 +38,6 @@ const writePrompt = async (dir: string, id: string, content: string) => {
 };
 
 describe("bundled prompt consumers", () => {
-  it("resolves memory review from the bundled prompts", async () => {
-    const prompts = await tempPromptsDir();
-    const home = await tempDir();
-    expect(buildMemoryReviewSystemPrompt()).toBe("");
-    expect(buildMemoryReviewSystemPrompt(home)).toBe("");
-    await writePrompt(prompts, "memory-review", "shipped memory review");
-    expect(buildMemoryReviewSystemPrompt(home)).toBe("shipped memory review");
-  });
-
   it("resolves thread compaction from the bundled prompts", async () => {
     const prompts = await tempPromptsDir();
     expect(resolveThreadCompactionSystemPrompt()).toBe("");

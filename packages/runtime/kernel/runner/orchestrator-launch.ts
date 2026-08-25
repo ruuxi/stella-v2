@@ -16,7 +16,6 @@ import type {
   RuntimeAttachmentRef,
   RuntimePromptMessage,
 } from "@stella/contracts/protocol";
-import { agentHasCapability } from "@stella/contracts/agent-runtime";
 
 type BuildAgentContext = (
   args: BuildAgentContextArgs,
@@ -42,8 +41,6 @@ export type PreparedOrchestratorRun = {
   agentContext: LocalAgentContext;
   resolvedLlm: ResolvedLlmRoute;
   abortController: AbortController;
-
-  userTurnsSinceMemoryReview?: number;
 };
 
 export const prepareOrchestratorRun = async (args: {
@@ -65,11 +62,10 @@ export const prepareOrchestratorRun = async (args: {
     externalMessageId?: string;
   };
   toolWorkspaceRoot?: string;
-
+  /** Current turn's user-message id; excludes the just-appended display
+   * event from the legacy pre-transition history shim. */
   userMessageId?: string;
 }): Promise<PreparedOrchestratorRun> => {
-  const isUserTurn = args.uiVisibility !== "hidden";
-
   args.context.state.activeOrchestratorRunId = args.runId;
   args.context.state.activeOrchestratorConversationId = args.conversationId;
   args.context.state.activeOrchestratorUiVisibility =
@@ -103,22 +99,6 @@ export const prepareOrchestratorRun = async (args: {
     if (abortController.signal.aborted) {
       throw new Error("Run canceled.");
     }
-
-    let userTurnsSinceMemoryReview: number | undefined;
-    if (
-      isUserTurn &&
-      agentHasCapability(args.agentType, "triggersMemoryReview")
-    ) {
-      try {
-        userTurnsSinceMemoryReview =
-          args.context.runtimeStore.incrementUserTurnsSinceMemoryReview(
-            args.conversationId,
-          );
-      } catch {
-
-      }
-    }
-
     const prepared: PreparedOrchestratorRun = {
       runId: args.runId,
       conversationId: args.conversationId,
@@ -137,9 +117,6 @@ export const prepareOrchestratorRun = async (args: {
       agentContext,
       resolvedLlm,
       abortController,
-      ...(userTurnsSinceMemoryReview != null
-        ? { userTurnsSinceMemoryReview }
-        : {}),
     };
     return prepared;
   } catch (error) {
@@ -223,9 +200,6 @@ export const launchPreparedOrchestratorRun = (args: {
     onExecutionSessionCreated: args.onExecutionSessionCreated,
     orchestratorSession,
     compactionScheduler: context.state.compactionScheduler,
-    ...(prepared.userTurnsSinceMemoryReview != null
-      ? { userTurnsSinceMemoryReview: prepared.userTurnsSinceMemoryReview }
-      : {}),
   })
     .finally(() =>
       context.toolHost.endBrowserTurn(prepared.runId, "retain-tabs"),

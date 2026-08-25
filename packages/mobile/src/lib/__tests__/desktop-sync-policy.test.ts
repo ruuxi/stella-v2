@@ -3,6 +3,7 @@ import {
   consumeDesktopLocalChatPush,
   desktopSyncPullPlan,
   desktopSyncJoinPlan,
+  DESKTOP_PUSH_DEDUPE_LIMIT,
   DESKTOP_TASK_POLL_MS,
   DESKTOP_TASK_POLL_PUSH_VERIFY_MS,
   desktopLiveConnectionSyncPlan,
@@ -61,6 +62,23 @@ describe("consumeDesktopLocalChatPush", () => {
       }),
     ).toBe("sync");
     expect(seenEventIds).toEqual(new Set(["conv-1:event-2"]));
+  });
+
+  test("bounds identity state across a deterministic 100k-event push storm", () => {
+    const seenEventIds = new Set<string>();
+    for (let index = 0; index < 100_000; index += 1) {
+      expect(
+        consumeDesktopLocalChatPush({
+          activeConversationId: "conv-scale",
+          payloadConversationId: "conv-scale",
+          eventId: `event-${index}`,
+          seenEventIds,
+        }),
+      ).toBe("sync");
+    }
+    expect(seenEventIds.size).toBe(DESKTOP_PUSH_DEDUPE_LIMIT);
+    expect(seenEventIds.has("conv-scale:event-99999")).toBe(true);
+    expect(seenEventIds.has("conv-scale:event-0")).toBe(false);
   });
 });
 
@@ -151,6 +169,28 @@ describe("shouldSyncOnLocalChatPush", () => {
     expect(
       shouldSyncOnLocalChatPush({ storageLoaded: false, sending: false }),
     ).toBe(false);
+  });
+});
+
+describe("deferred reconnect gaps", () => {
+  test("coalesces 100k mid-send pushes and preserves catch-up intent", () => {
+    let intent: ReturnType<typeof mergeDeferredDesktopSyncIntent> | null = null;
+    for (let index = 0; index < 100_000; index += 1) {
+      expect(
+        shouldDeferLocalChatPushDuringSend({
+          storageLoaded: true,
+          sending: true,
+        }),
+      ).toBe(true);
+      intent = mergeDeferredDesktopSyncIntent(intent, index === 50_000);
+    }
+    expect(intent).toEqual({ catchUp: true });
+    expect(
+      shouldStartDesktopSyncRun({ sending: true, duringSend: false }),
+    ).toBe(false);
+    expect(
+      shouldStartDesktopSyncRun({ sending: false, duringSend: false }),
+    ).toBe(true);
   });
 });
 
@@ -294,14 +334,14 @@ describe("desktopSyncPullPlan", () => {
     ).toEqual({ sinceCursor: CURSOR, fullWindow: false });
   });
 
-  test("catch-up ignores the cursor and pulls the full window", () => {
+  test("catch-up preserves a usable cursor for the fast delta path", () => {
     expect(
       desktopSyncPullPlan({
         catchUp: true,
         expectedConversationId: "conv-1",
         cursor: CURSOR,
       }),
-    ).toEqual({ sinceCursor: null, fullWindow: true });
+    ).toEqual({ sinceCursor: CURSOR, fullWindow: false });
   });
 
   test("no known conversation or no cursor → full window either way", () => {
@@ -321,45 +361,22 @@ describe("desktopSyncPullPlan", () => {
     ).toBe(true);
   });
 
-  /**
-   * The production failure this exists for: the desktop's delta filter is
-   * strictly `(created_at, id) > cursor`, and the cursor is minted from the
-   * newest *source event* the last pull saw. Rows can land at-or-behind the
-   * cursor (backdated caller timestamps, same-millisecond inserts with a
-   * smaller random id, >maxMessages truncation) — a "cursor-ahead" state in
-   * which every delta, including Force Sync's, returns zero rows while the
-   * desktop transcript plainly has them. This models the desktop filter and
-   * shows the delta stays empty forever while the catch-up plan's full window
-   * delivers the rows.
-   */
-  test("cursor-ahead: deltas are permanent no-ops, the catch-up full pull heals", () => {
-    type Row = { createdAt: number; id: string };
-    const desktopRows: Row[] = [
-      { createdAt: 1_000, id: "a" },
-      // Same-stamp row whose id sorts BELOW the cursor id — behind the cursor.
-      { createdAt: 2_000, id: "b" },
-      // Backdated insert: appended after the phone's last pull but stamped
-      // earlier than the cursor.
-      { createdAt: 1_500, id: "z-late" },
+  test("catch-up relies on the durable sequence cursor, not wall-clock order", () => {
+    const desktopRows = [
+      { createdAt: 2_000, id: "cursor", sequence: 10 },
+      { createdAt: 1_500, id: "backdated", sequence: 11 },
+      { createdAt: 2_000, id: "a-smaller-id", sequence: 12 },
     ];
-    // Cursor minted from a newer source event (e.g. a tool lifecycle row).
-    const cursor = { createdAt: 2_000, id: "c-tool-event" };
-    const afterCursor = (row: Row) =>
-      row.createdAt > cursor.createdAt ||
-      (row.createdAt === cursor.createdAt && row.id > cursor.id);
-
-    // Every delta pull: nothing, forever.
-    expect(desktopRows.filter(afterCursor)).toEqual([]);
-
-    // The catch-up plan refuses the delta…
     const plan = desktopSyncPullPlan({
       catchUp: true,
       expectedConversationId: "conv-1",
-      cursor: "1:2000:c-tool-event",
+      cursor: "v2:10:2000:cursor",
     });
-    expect(plan.sinceCursor).toBeNull();
-    // …and the full-window read (no cursor filter) returns all rows.
-    expect(desktopRows.length).toBe(3);
+    expect(plan.sinceCursor).toBe("v2:10:2000:cursor");
+    expect(desktopRows.filter((row) => row.sequence > 10)).toEqual([
+      { createdAt: 1_500, id: "backdated", sequence: 11 },
+      { createdAt: 2_000, id: "a-smaller-id", sequence: 12 },
+    ]);
   });
 
   test("cursor-behind (normal case): the delta stays cheap and correct", () => {

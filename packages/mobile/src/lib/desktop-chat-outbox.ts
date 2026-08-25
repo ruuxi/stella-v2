@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { ChatThreadId } from "./offline-chat-storage";
+import { accountChatMetadataReadsBlocked } from "./chat-account-metadata-queue";
 import {
   acknowledgeDesktopChatOutboxRecords,
   appendDesktopChatOutboxRecord,
@@ -18,7 +19,9 @@ const mutations = new Map<string, Promise<void>>();
 
 const read = async (thread: ChatThreadId): Promise<DesktopChatOutboxRecord[]> => {
   try {
+    if (await accountChatMetadataReadsBlocked()) return [];
     const raw = await AsyncStorage.getItem(OUTBOX_KEY[thread]);
+    if (await accountChatMetadataReadsBlocked()) return [];
     return raw ? parseDesktopChatOutbox(JSON.parse(raw) as unknown) : [];
   } catch {
     return [];
@@ -43,8 +46,14 @@ const mutate = async <T>(
   const operation = predecessor
     .catch(() => undefined)
     .then(async () => {
+      if (await accountChatMetadataReadsBlocked()) {
+        throw new Error("Local chat account cleanup is active");
+      }
       const current = await read(thread);
       const next = update(current);
+      if (await accountChatMetadataReadsBlocked()) {
+        throw new Error("Local chat account cleanup is active");
+      }
       if (next.records.length === 0) {
         await AsyncStorage.removeItem(key);
       } else {

@@ -1,4 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  accountChatMetadataReadsBlocked,
+  runAccountChatMetadataWrite,
+} from "./chat-account-metadata-queue";
+import { CHAT_MEMORY_STORAGE_KEY } from "./chat-storage-keys";
 
 /**
  * Persistent memory for the offline (cloud) chat — the mobile analog of the
@@ -15,8 +20,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
  * SQLite is introduced so the feature ships over-the-air like the rest of the
  * chat.
  */
-
-const MEMORY_KEY = "stella-mobile-chat-memory-v1";
 
 /** Guardrails so a runaway tool call can't bloat every future request. */
 const MAX_FACTS = 200;
@@ -74,19 +77,11 @@ const parseFacts = (raw: string | null): MemoryFact[] => {
 
 export async function loadMemoryFacts(): Promise<MemoryFact[]> {
   try {
-    return parseFacts(await AsyncStorage.getItem(MEMORY_KEY));
+    if (await accountChatMetadataReadsBlocked()) return [];
+    return parseFacts(await AsyncStorage.getItem(CHAT_MEMORY_STORAGE_KEY));
   } catch {
     return [];
   }
-}
-
-async function saveMemoryFacts(facts: MemoryFact[]): Promise<void> {
-  // Newest first, capped — the same "recent facts win" bias the desktop
-  // profile has when a memory doc is trimmed.
-  const trimmed = [...facts]
-    .sort((a, b) => b.updatedAt - a.updatedAt)
-    .slice(0, MAX_FACTS);
-  await AsyncStorage.setItem(MEMORY_KEY, JSON.stringify(trimmed));
 }
 
 /**
@@ -101,29 +96,47 @@ export async function rememberFact(
   const cleanValue = clamp(value.trim(), MAX_VALUE_CHARS);
   if (!cleanKey || !cleanValue) return loadMemoryFacts();
   const identity = normalizeMemoryKey(cleanKey);
-  const existing = await loadMemoryFacts();
-  const next = existing.filter(
-    (fact) => normalizeMemoryKey(fact.key) !== identity,
-  );
-  next.push({ key: cleanKey, value: cleanValue, updatedAt: Date.now() });
-  await saveMemoryFacts(next);
-  return next;
+  const result = await runAccountChatMetadataWrite(async () => {
+    const existing = parseFacts(
+      await AsyncStorage.getItem(CHAT_MEMORY_STORAGE_KEY),
+    );
+    const next = existing.filter(
+      (fact) => normalizeMemoryKey(fact.key) !== identity,
+    );
+    next.push({ key: cleanKey, value: cleanValue, updatedAt: Date.now() });
+    const trimmed = [...next]
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, MAX_FACTS);
+    await AsyncStorage.setItem(
+      CHAT_MEMORY_STORAGE_KEY,
+      JSON.stringify(trimmed),
+    );
+    return trimmed;
+  });
+  return result.executed ? result.value : [];
 }
 
 /** Remove the fact whose key matches (case-insensitive). */
 export async function forgetFact(key: string): Promise<MemoryFact[]> {
   const identity = normalizeMemoryKey(key);
   if (!identity) return loadMemoryFacts();
-  const existing = await loadMemoryFacts();
-  const next = existing.filter(
-    (fact) => normalizeMemoryKey(fact.key) !== identity,
-  );
-  await saveMemoryFacts(next);
-  return next;
+  const result = await runAccountChatMetadataWrite(async () => {
+    const existing = parseFacts(
+      await AsyncStorage.getItem(CHAT_MEMORY_STORAGE_KEY),
+    );
+    const next = existing.filter(
+      (fact) => normalizeMemoryKey(fact.key) !== identity,
+    );
+    await AsyncStorage.setItem(CHAT_MEMORY_STORAGE_KEY, JSON.stringify(next));
+    return next;
+  });
+  return result.executed ? result.value : [];
 }
 
 export async function clearMemory(): Promise<void> {
-  await AsyncStorage.removeItem(MEMORY_KEY);
+  await runAccountChatMetadataWrite(() =>
+    AsyncStorage.removeItem(CHAT_MEMORY_STORAGE_KEY),
+  );
 }
 
 /**

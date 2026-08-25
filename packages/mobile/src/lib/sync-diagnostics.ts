@@ -17,7 +17,10 @@ export interface SyncDiagnosticEntry {
   outcome: "ok" | "offline" | "error" | "deferred" | "stale-generation";
   /** Rows the desktop returned (before merge de-dupe). */
   rows?: number;
+  pages?: number;
   cursorOut?: string | null;
+  cursorStatus?: "valid" | "snapshot" | "invalid";
+  continuationNeeded?: boolean;
   conversationChanged?: boolean;
   durationMs?: number;
   error?: string;
@@ -28,7 +31,8 @@ const entries: SyncDiagnosticEntry[] = [];
 
 export function recordSyncDiagnostic(entry: SyncDiagnosticEntry): void {
   entries.push(entry);
-  if (entries.length > MAX_ENTRIES) entries.splice(0, entries.length - MAX_ENTRIES);
+  if (entries.length > MAX_ENTRIES)
+    entries.splice(0, entries.length - MAX_ENTRIES);
   const cursorLabel = entry.fullWindow
     ? "full-window"
     : `delta(${entry.sinceCursor ?? "none"})`;
@@ -37,9 +41,14 @@ export function recordSyncDiagnostic(entry: SyncDiagnosticEntry): void {
     cursorLabel,
     entry.outcome,
     entry.rows !== undefined ? `rows=${entry.rows}` : null,
+    entry.pages !== undefined ? `pages=${entry.pages}` : null,
+    entry.cursorStatus ? `cursor=${entry.cursorStatus}` : null,
+    entry.continuationNeeded ? "continuing" : null,
     entry.conversationChanged ? "conversation-changed" : null,
     entry.durationMs !== undefined ? `${entry.durationMs}ms` : null,
-    entry.cursorOut !== undefined ? `cursor→${entry.cursorOut ?? "none"}` : null,
+    entry.cursorOut !== undefined
+      ? `cursor→${entry.cursorOut ?? "none"}`
+      : null,
     entry.error ? `error=${entry.error}` : null,
   ].filter(Boolean);
   console.log(parts.join(" "));

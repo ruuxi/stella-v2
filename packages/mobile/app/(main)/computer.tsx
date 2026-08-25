@@ -486,6 +486,11 @@ function ComputerChatSurface({
           </Text>
         }
         historyLoading={!thread.storageLoaded}
+        hasOlderHistory={thread.hasOlderMessages}
+        hasNewerHistory={thread.hasNewerMessages}
+        historyPageLoading={thread.historyPageLoading}
+        onLoadOlderHistory={thread.loadOlderMessages}
+        onLoadNewerHistory={thread.loadNewerMessages}
         draft={thread.draft}
         onChangeDraft={thread.setDraft}
         composerModelPicker={composerModelPicker}

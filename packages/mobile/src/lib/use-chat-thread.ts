@@ -3,10 +3,21 @@ import { AppState, LayoutAnimation } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { File } from "expo-file-system";
 import {
-  loadChatMessages,
+  CHAT_TRANSCRIPT_MAX_LOADED,
+  CHAT_TRANSCRIPT_PAGE_LIMIT,
+  chatTranscriptCursorForMessage,
+  clearChatMessages,
+  findChatMessageCursor,
+  loadNewerChatMessages,
+  loadOldestChatMessages,
+  loadOlderChatMessages,
+  loadRecentChatMessages,
   saveChatMessages,
+  subscribeChatStorageCleanup,
+  truncateChatMessagesFrom,
   loadChatSyncState,
   saveChatSyncState,
+  type ChatTranscriptCursor,
   type ChatThreadId,
 } from "./offline-chat-storage";
 import {
@@ -28,6 +39,7 @@ import {
 import {
   closeDesktopBridgeSendBatch,
   DesktopOfflineError,
+  fetchDesktopBridgeHistoryBefore,
   fetchDesktopBridgeThreadTasks,
   sendDesktopBridgeChat,
   sendDesktopBridgeSteer,
@@ -67,6 +79,10 @@ import {
   shouldScheduleDesktopTranscriptSyncForPush,
   shouldSyncOnLocalChatPush,
 } from "./desktop-sync-policy";
+import {
+  drainDesktopSyncPages,
+  shouldUseLegacySyncRecoverySnapshot,
+} from "./desktop-sync-pagination";
 import { recordSyncDiagnostic } from "./sync-diagnostics";
 import { applyLiveAgentWorkState } from "./agent-work-live-state";
 import {
@@ -86,20 +102,37 @@ import {
 } from "./offline-chat-request";
 import { admitSend } from "./send-admission";
 import { shouldReuseQueuedReplayBatch } from "./desktop-send-batch-policy";
+import {
+  createSerializedChatPersistenceQueue,
+  enqueueSerializedChatPersistence,
+  establishTranscriptRewindBarrier,
+  persistBoundedTranscriptMerge,
+  selectIncrementalPersistenceRows,
+} from "./chat-persistence-policy";
+import {
+  mergeNewerTranscriptPage,
+  mergeOlderTranscriptPage,
+} from "./chat-transcript-window";
 import { drainDesktopSteerAcceptanceQueue } from "./desktop-steer-pump";
 import { userFacingError } from "./user-facing-error";
 import { notifySuccess } from "./haptics";
 import { loadMemoryFacts, rememberFact, forgetFact } from "./chat-memory";
 import {
+  clearCheckpoint,
+  saveCheckpoint,
   loadCheckpoint,
+  planCompaction,
   runCompaction,
   buildCompactedContext,
+  uncoveredMessages,
 } from "./chat-compaction";
 import { buildMobileModelContext, normalizeMobileToolCall } from "./chat-tools";
 import { formatRecallResults } from "./chat-recall";
 import {
+  beginMessageIndexRebuild,
   initMessageIndex,
   indexMessages,
+  rebuildMessageIndex,
   searchMessages,
 } from "./chat-message-index";
 import { resolveMap, mapArtifactFor } from "./chat-maps";
@@ -114,7 +147,6 @@ import type {
 } from "../types";
 
 export type DesktopSyncOutcome = {
-
   offline: boolean;
 
   deferred?: boolean;
@@ -129,6 +161,19 @@ export type DesktopSyncOutcome = {
 };
 
 const HISTORY_MESSAGE_LIMIT = 100;
+type DesktopSourceCursor = { timestamp: number; id: string };
+
+const desktopSourceCursorForMessage = (
+  message: ChatMessage | undefined,
+): DesktopSourceCursor | null => {
+  if (!message) return null;
+  const timestamp =
+    message.sourceTimestamp ?? message.canonicalCreatedAt ?? message.createdAt;
+  const id = message.sourceMessageId ?? message.canonicalId ?? message.id;
+  return typeof timestamp === "number" && Number.isFinite(timestamp) && id
+    ? { timestamp, id }
+    : null;
+};
 
 const OFFLINE_CHAT_STREAM_PATH = "/api/mobile/offline-chat/stream";
 
@@ -140,7 +185,6 @@ const PERSIST_DEBOUNCE_MS = 500;
 
 let lastLocalIdOrder = 0;
 const createId = () => {
-
   lastLocalIdOrder = Math.max(Date.now(), lastLocalIdOrder + 1);
   const random =
     globalThis.crypto?.randomUUID?.() ??
@@ -181,7 +225,6 @@ const assetsToBridgeAttachments = async (
 ): Promise<DesktopBridgeAttachment[]> => {
   const out: DesktopBridgeAttachment[] = [];
   for (const asset of assets) {
-
     const sendable = await toSendableImage(asset);
     if (!sendable) continue;
     out.push({
@@ -190,7 +233,6 @@ const assetsToBridgeAttachments = async (
     });
   }
   if (assets.length > 0 && out.length === 0) {
-
     throw new Error("Couldn't attach that photo. Try a different image.");
   }
   return out;
@@ -213,9 +255,7 @@ const restoreRewoundAttachments = async (
         width: 0,
         height: 0,
       } as ImagePicker.ImagePickerAsset);
-    } catch {
-
-    }
+    } catch {}
   }
   return assets;
 };
@@ -239,7 +279,6 @@ export type ChatTransport =
   | { kind: "desktop"; access: StoredPhoneAccess };
 
 export type ChatThread = {
-
   conversationId?: string | null;
   messages: ChatMessage[];
   draft: string;
@@ -258,7 +297,14 @@ export type ChatThread = {
 
   workingIndicator: WorkingIndicatorState;
   storageLoaded: boolean;
-
+  /** Whether durable history exists before/after the bounded loaded window. */
+  hasOlderMessages: boolean;
+  hasNewerMessages: boolean;
+  historyPageLoading: boolean;
+  /** Page the adjacent durable window without growing Hermes state unbounded. */
+  loadOlderMessages: () => Promise<void>;
+  loadNewerMessages: () => Promise<void>;
+  /** All artifacts in the conversation, newest first and de-duplicated. */
   conversationArtifacts: ChatArtifact[];
 
   conversationTasks: MobileTask[];
@@ -271,7 +317,18 @@ export type ChatThread = {
 
   sendPrompt?: (prompt: string) => { userMessageId: string } | null;
   stop: () => void;
-
+  /**
+   * Coalesced wake + pull + merge against the canonical desktop rows. A no-op
+   * for the cloud transport; safe to call repeatedly (in-flight runs are
+   * shared) so resume/focus catch-up syncs never stack.
+   *
+   * Pass `catchUp: true` from the call sites where the user could be looking
+   * at stale content without knowing — landing sync, foreground/refocus
+   * reconnect, manual Force Sync — so `catchingUp` reflects the pull. Catch-up
+   * pulls preserve a valid durable cursor and drain bounded forward pages.
+   * Invalid cursors receive one bounded recovery snapshot. The steady-state
+   * task poll and send-path pulls use the same cheap delta path.
+   */
   runDesktopSync: (options?: {
     catchUp?: boolean;
     trigger?: string;
@@ -290,9 +347,39 @@ export function useChatThread(opts: {
 }): ChatThread {
   const { threadId, transport } = opts;
   const isDesktop = transport.kind === "desktop";
+  const desktopAccess = isDesktop ? transport.access : null;
+  const desktopDeviceId = desktopAccess?.desktopDeviceId ?? null;
+  const desktopTransportEnabledRef = useRef(true);
+  useEffect(() => {
+    desktopTransportEnabledRef.current = true;
+  }, [desktopAccess?.pairSecret, desktopDeviceId, threadId]);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const messagesRef = useRef<ChatMessage[]>(messages);
+  const updateMessages = useCallback(
+    (update: React.SetStateAction<ChatMessage[]>) => {
+      const next =
+        typeof update === "function"
+          ? (update as (current: ChatMessage[]) => ChatMessage[])(
+              messagesRef.current,
+            )
+          : update;
+      messagesRef.current = next;
+      setMessages(next);
+    },
+    [],
+  );
   const [storageLoaded, setStorageLoaded] = useState(false);
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
+  const [hasNewerMessages, setHasNewerMessages] = useState(false);
+  const [historyPageLoading, setHistoryPageLoading] = useState(false);
+  const oldestLoadedCursorRef = useRef<ChatTranscriptCursor | null>(null);
+  const newestLoadedCursorRef = useRef<ChatTranscriptCursor | null>(null);
+  const historyPageRunRef = useRef<Promise<void> | null>(null);
+  const historyPageGenerationRef = useRef(0);
+  const desktopHistoryExhaustedRef = useRef(false);
+  const desktopLegacyHistoryLimitRef = useRef(HISTORY_MESSAGE_LIMIT);
+  const desktopOldestSourceCursorRef = useRef<DesktopSourceCursor | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(
     isDesktop ? null : threadId,
   );
@@ -329,7 +416,6 @@ export function useChatThread(opts: {
 
   const patchActivity = useCallback((patch: Partial<WorkingActivity>) => {
     setWorkingActivity((current) => {
-
       for (const key of Object.keys(patch) as (keyof WorkingActivity)[]) {
         if (!Object.is(current[key], patch[key])) {
           return { ...current, ...patch };
@@ -365,7 +451,7 @@ export function useChatThread(opts: {
   const steerPumpPromiseRef = useRef<Promise<unknown> | null>(null);
   const steerPumpGenerationRef = useRef(0);
   const pumpDesktopSteersRef = useRef<(() => void) | null>(null);
-  const messagesRef = useRef<ChatMessage[]>([]);
+  const desktopMergeQueueRef = useRef(createSerializedChatPersistenceQueue());
   const syncCursorRef = useRef<string | null>(null);
   const syncConversationIdRef = useRef<string | null>(null);
   const didMountSyncRef = useRef(false);
@@ -385,12 +471,220 @@ export function useChatThread(opts: {
     null,
   );
 
+  const loadOlderMessages = useCallback(async (): Promise<void> => {
+    if (sendingRef.current) return;
+    if (historyPageRunRef.current) return historyPageRunRef.current;
+    const before = oldestLoadedCursorRef.current;
+    const generation = historyPageGenerationRef.current;
+    const run = (async () => {
+      setHistoryPageLoading(true);
+      try {
+        const page = before
+          ? await loadOlderChatMessages(threadId, before)
+          : null;
+        if (generation !== historyPageGenerationRef.current) return;
+        if (
+          (!page || page.messages.length === 0) &&
+          isDesktop &&
+          desktopAccess &&
+          desktopTransportEnabledRef.current
+        ) {
+          const oldest = messagesRef.current[0];
+          const activeConversationId = syncConversationIdRef.current;
+          if (!activeConversationId) {
+            setHasOlderMessages(false);
+            return;
+          }
+          let sourceBefore = desktopOldestSourceCursorRef.current ??
+            desktopSourceCursorForMessage(oldest) ?? {
+              timestamp: Number.MAX_SAFE_INTEGER,
+              id: "\uffff",
+            };
+          let remote: Awaited<
+            ReturnType<typeof fetchDesktopBridgeHistoryBefore>
+          >;
+          for (;;) {
+            const legacyMaxMessages = Math.min(
+              1_000,
+              desktopLegacyHistoryLimitRef.current + CHAT_TRANSCRIPT_PAGE_LIMIT,
+            );
+            remote = await fetchDesktopBridgeHistoryBefore({
+              access: desktopAccess,
+              conversationId: activeConversationId,
+              beforeTimestampMs: sourceBefore.timestamp,
+              beforeId: sourceBefore.id,
+              maxMessages: CHAT_TRANSCRIPT_PAGE_LIMIT,
+              legacyMaxMessages,
+            });
+            if (generation !== historyPageGenerationRef.current) return;
+            if (remote.usedLegacyFallback) {
+              desktopLegacyHistoryLimitRef.current = legacyMaxMessages;
+            }
+            const oldestRemote = desktopSourceCursorForMessage(
+              remote.messages[0],
+            );
+            const nextSourceCursor = remote.oldestSourceCursor ?? oldestRemote;
+            const cursorAdvanced = Boolean(
+              nextSourceCursor &&
+              (nextSourceCursor.timestamp !== sourceBefore.timestamp ||
+                nextSourceCursor.id !== sourceBefore.id),
+            );
+            if (nextSourceCursor) {
+              sourceBefore = nextSourceCursor;
+              desktopOldestSourceCursorRef.current = nextSourceCursor;
+            }
+            if (
+              remote.messages.length > 0 ||
+              !remote.hasOlder ||
+              (!cursorAdvanced &&
+                (!remote.usedLegacyFallback || legacyMaxMessages >= 1_000))
+            ) {
+              break;
+            }
+          }
+          desktopHistoryExhaustedRef.current = !remote.hasOlder;
+          if (remote.messages.length === 0) {
+            setHasOlderMessages(remote.hasOlder);
+            return;
+          }
+          // Include the adjacent loaded anchor so a newly fetched prefix gets
+          // a stable order key before the current window instead of looking
+          // like an unrelated append-only batch.
+          await saveChatMessages(threadId, [
+            ...remote.messages,
+            ...(oldest ? [oldest] : []),
+          ]);
+          if (generation !== historyPageGenerationRef.current) return;
+          updateMessages((current) => {
+            const merged = mergeMessagesById(remote.messages, current);
+            const droppedNewer = merged.length > CHAT_TRANSCRIPT_MAX_LOADED;
+            const next = droppedNewer
+              ? merged.slice(0, CHAT_TRANSCRIPT_MAX_LOADED)
+              : merged;
+            oldestLoadedCursorRef.current = next[0]
+              ? chatTranscriptCursorForMessage(threadId, next[0].id)
+              : null;
+            newestLoadedCursorRef.current = next[next.length - 1]
+              ? chatTranscriptCursorForMessage(
+                  threadId,
+                  next[next.length - 1]!.id,
+                )
+              : null;
+            setHasOlderMessages(remote.hasOlder);
+            setHasNewerMessages((value) => value || droppedNewer);
+            return next;
+          });
+          return;
+        }
+        if (!page || page.messages.length === 0) {
+          setHasOlderMessages(false);
+          return;
+        }
+        updateMessages((current) => {
+          const window = mergeOlderTranscriptPage(
+            current,
+            page.messages,
+            CHAT_TRANSCRIPT_MAX_LOADED,
+          );
+          const next = window.messages;
+          oldestLoadedCursorRef.current = next[0]
+            ? chatTranscriptCursorForMessage(threadId, next[0].id)
+            : null;
+          newestLoadedCursorRef.current = next[next.length - 1]
+            ? chatTranscriptCursorForMessage(
+                threadId,
+                next[next.length - 1]!.id,
+              )
+            : null;
+          if (isDesktop) {
+            desktopOldestSourceCursorRef.current =
+              desktopSourceCursorForMessage(next[0]);
+          }
+          setHasOlderMessages(
+            page.hasOlder || (isDesktop && !desktopHistoryExhaustedRef.current),
+          );
+          setHasNewerMessages(
+            (value) => value || page.hasNewer || window.droppedNewer,
+          );
+          return next;
+        });
+      } catch {
+        // Keep the page available for retry after transient storage/bridge
+        // failures; scroll callbacks must never surface an unhandled promise.
+      } finally {
+        setHistoryPageLoading(false);
+      }
+    })();
+    historyPageRunRef.current = run;
+    void run.finally(() => {
+      if (historyPageRunRef.current === run) historyPageRunRef.current = null;
+    });
+    return run;
+  }, [desktopAccess, isDesktop, threadId]);
+
+  const loadNewerMessages = useCallback(async (): Promise<void> => {
+    if (sendingRef.current) return;
+    if (historyPageRunRef.current) return historyPageRunRef.current;
+    const after = newestLoadedCursorRef.current;
+    if (!after) {
+      setHasNewerMessages(false);
+      return;
+    }
+    const generation = historyPageGenerationRef.current;
+    const run = (async () => {
+      setHistoryPageLoading(true);
+      try {
+        const page = await loadNewerChatMessages(threadId, after);
+        if (generation !== historyPageGenerationRef.current) return;
+        if (page.messages.length === 0) {
+          setHasNewerMessages(false);
+          return;
+        }
+        updateMessages((current) => {
+          const window = mergeNewerTranscriptPage(
+            current,
+            page.messages,
+            CHAT_TRANSCRIPT_MAX_LOADED,
+          );
+          const next = window.messages;
+          oldestLoadedCursorRef.current = next[0]
+            ? chatTranscriptCursorForMessage(threadId, next[0].id)
+            : null;
+          newestLoadedCursorRef.current = next[next.length - 1]
+            ? chatTranscriptCursorForMessage(
+                threadId,
+                next[next.length - 1]!.id,
+              )
+            : null;
+          setHasOlderMessages(
+            (value) => value || page.hasOlder || window.droppedOlder,
+          );
+          setHasNewerMessages(page.hasNewer);
+          return next;
+        });
+      } catch {
+        // Leave hasNewerMessages intact so the user can retry the page.
+      } finally {
+        setHistoryPageLoading(false);
+      }
+    })();
+    historyPageRunRef.current = run;
+    void run.finally(() => {
+      if (historyPageRunRef.current === run) historyPageRunRef.current = null;
+    });
+    return run;
+  }, [threadId]);
+
+  // ─── Hydration & persistence ─────────────────────────────────────────────
   useEffect(() => {
+    let active = true;
+    const generation = historyPageGenerationRef.current;
     void Promise.all([
-      loadChatMessages(threadId),
+      loadRecentChatMessages(threadId),
       loadChatSyncState(threadId),
       loadDesktopChatOutbox(threadId),
-    ]).then(([loaded, syncState, storedOutbox]) => {
+    ]).then(([page, syncState, storedOutbox]) => {
+      if (!active || generation !== historyPageGenerationRef.current) return;
       syncConversationIdRef.current = syncState.conversationId;
       setConversationId(
         isDesktop ? (syncState.conversationId ?? null) : threadId,
@@ -398,10 +692,17 @@ export function useChatThread(opts: {
       syncCursorRef.current = syncState.cursor;
 
       const healed = restoreOutboxMessages(
-        collapseLinkedDuplicates(loaded),
+        collapseLinkedDuplicates(page.messages),
         storedOutbox,
       );
-      setMessages(healed);
+      oldestLoadedCursorRef.current = page.oldestCursor;
+      newestLoadedCursorRef.current = page.newestCursor;
+      desktopOldestSourceCursorRef.current = isDesktop
+        ? desktopSourceCursorForMessage(healed[0])
+        : null;
+      setHasOlderMessages(page.hasOlder || isDesktop);
+      setHasNewerMessages(page.hasNewer);
+      updateMessages(healed);
       setStorageLoaded(true);
 
       const outboxByUserMessageId = new Map(
@@ -435,16 +736,77 @@ export function useChatThread(opts: {
         drainQueueRef.current?.();
       }
     });
+    return () => {
+      active = false;
+      historyPageGenerationRef.current += 1;
+    };
   }, [isDesktop, threadId]);
 
+  const refreshLoadedCursors = useCallback(
+    (snapshot: ChatMessage[]) => {
+      const first = snapshot[0];
+      const last = snapshot[snapshot.length - 1];
+      if (first) {
+        oldestLoadedCursorRef.current = chatTranscriptCursorForMessage(
+          threadId,
+          first.id,
+        );
+        if (isDesktop) {
+          desktopOldestSourceCursorRef.current =
+            desktopSourceCursorForMessage(first);
+        }
+      }
+      if (last) {
+        newestLoadedCursorRef.current = chatTranscriptCursorForMessage(
+          threadId,
+          last.id,
+        );
+      }
+    },
+    [isDesktop, threadId],
+  );
+
+  const refreshLoadedCursorsIfCurrent = useCallback(
+    (snapshot: ChatMessage[]) => {
+      const current = messagesRef.current;
+      if (
+        current[0]?.id !== snapshot[0]?.id ||
+        current[current.length - 1]?.id !== snapshot[snapshot.length - 1]?.id
+      ) {
+        return;
+      }
+      refreshLoadedCursors(snapshot);
+    },
+    [refreshLoadedCursors],
+  );
+
   const pendingSaveRef = useRef<ChatMessage[] | null>(null);
+  const pendingSaveIdsRef = useRef(new Set<string>());
+  const observedMessagesRef = useRef(new Map<string, ChatMessage>());
+  const persistenceThreadRef = useRef(threadId);
+  const persistenceGenerationRef = useRef(0);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastMessageChangeAtRef = useRef(0);
   useEffect(() => {
     if (!storageLoaded) return;
+    if (persistenceThreadRef.current !== threadId) {
+      persistenceThreadRef.current = threadId;
+      persistenceGenerationRef.current += 1;
+      rewindInProgressRef.current = false;
+      pendingSaveIdsRef.current.clear();
+      observedMessagesRef.current.clear();
+    }
+    const observed = observedMessagesRef.current;
+    for (const message of messages) {
+      if (observed.get(message.id) !== message) {
+        pendingSaveIdsRef.current.add(message.id);
+      }
+    }
+    observedMessagesRef.current = new Map(
+      messages.map((message) => [message.id, message]),
+    );
     pendingSaveRef.current = messages;
     lastMessageChangeAtRef.current = Date.now();
-
     if (saveTimerRef.current !== null) return;
     const arm = (delayMs: number) => {
       saveTimerRef.current = setTimeout(() => {
@@ -457,12 +819,35 @@ export function useChatThread(opts: {
         const snapshot = pendingSaveRef.current;
         if (!snapshot) return;
         pendingSaveRef.current = null;
-        void saveChatMessages(threadId, snapshot);
-        if (threadId === "cloud") void indexMessages(snapshot);
+        const changedIds = new Set(pendingSaveIdsRef.current);
+        for (const id of changedIds) pendingSaveIdsRef.current.delete(id);
+        const changed = selectIncrementalPersistenceRows(snapshot, changedIds);
+        if (changed.length === 0) return;
+        const persistenceGeneration = persistenceGenerationRef.current;
+        void saveChatMessages(threadId, changed)
+          .then(async () => {
+            if (persistenceGeneration !== persistenceGenerationRef.current) {
+              return;
+            }
+            if (threadId === "cloud") await indexMessages(changed);
+            refreshLoadedCursorsIfCurrent(snapshot);
+          })
+          .catch(() => {
+            if (
+              persistenceThreadRef.current !== threadId ||
+              persistenceGeneration !== persistenceGenerationRef.current
+            ) {
+              return;
+            }
+            for (const id of changedIds) pendingSaveIdsRef.current.add(id);
+            pendingSaveRef.current ??= snapshot;
+            lastMessageChangeAtRef.current = Date.now();
+            if (saveTimerRef.current === null) arm(PERSIST_DEBOUNCE_MS);
+          });
       }, delayMs);
     };
     arm(PERSIST_DEBOUNCE_MS);
-  }, [messages, storageLoaded, threadId]);
+  }, [messages, refreshLoadedCursorsIfCurrent, storageLoaded, threadId]);
 
   useEffect(() => {
     return () => {
@@ -474,24 +859,49 @@ export function useChatThread(opts: {
 
   useEffect(() => {
     if (threadId !== "cloud") return;
-    void initMessageIndex();
-  }, [threadId]);
-
-  useEffect(() => {
+    let active = true;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const initialize = () => {
+      void initMessageIndex().catch(() => {
+        if (!active) return;
+        retryTimer = setTimeout(initialize, 5_000);
+      });
+    };
+    initialize();
     return () => {
-      const pending = pendingSaveRef.current;
-      if (pending) {
-        pendingSaveRef.current = null;
-        void saveChatMessages(threadId, pending);
-      }
+      active = false;
+      if (retryTimer !== null) clearTimeout(retryTimer);
     };
   }, [threadId]);
 
   useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
+    const pendingSaveIds = pendingSaveIdsRef.current;
+    return () => {
+      const pending = pendingSaveRef.current;
+      if (pending) {
+        pendingSaveRef.current = null;
+        const changedIds = new Set(pendingSaveIds);
+        for (const id of changedIds) pendingSaveIds.delete(id);
+        const changed = selectIncrementalPersistenceRows(pending, changedIds);
+        const persistenceGeneration = persistenceGenerationRef.current;
+        void saveChatMessages(threadId, changed)
+          .then(async () => {
+            if (persistenceGeneration !== persistenceGenerationRef.current) {
+              return;
+            }
+            if (threadId === "cloud") await indexMessages(changed);
+            refreshLoadedCursorsIfCurrent(pending);
+          })
+          .catch(() => {});
+      }
+    };
+  }, [refreshLoadedCursorsIfCurrent, threadId]);
 
   const sendingRef = useRef(false);
+  const rewindInProgressRef = useRef(false);
+  const indexRebuildRetryTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const markSending = useCallback((next: boolean) => {
     sendingRef.current = next;
     setSending(next);
@@ -499,6 +909,25 @@ export function useChatThread(opts: {
   useEffect(() => {
     sendingRef.current = sending;
   }, [sending]);
+  useEffect(
+    () => () => {
+      if (indexRebuildRetryTimerRef.current !== null) {
+        clearTimeout(indexRebuildRetryTimerRef.current);
+        indexRebuildRetryTimerRef.current = null;
+      }
+    },
+    [],
+  );
+  const scheduleMessageIndexRecovery = useCallback(() => {
+    if (indexRebuildRetryTimerRef.current !== null) return;
+    const retry = () => {
+      indexRebuildRetryTimerRef.current = setTimeout(() => {
+        indexRebuildRetryTimerRef.current = null;
+        void initMessageIndex().catch(retry);
+      }, 5_000);
+    };
+    retry();
+  }, []);
 
   const pendingPushSyncRef = useRef<{ catchUp: boolean } | null>(null);
   const deferDesktopSync = useCallback((catchUp: boolean) => {
@@ -508,14 +937,112 @@ export function useChatThread(opts: {
     );
   }, []);
 
+  useEffect(
+    () =>
+      subscribeChatStorageCleanup(() => {
+        // Account cleanup may run while tab routes remain mounted. Invalidate
+        // every producer before storage deletes so an old hydration, page,
+        // stream, debounce, or desktop sync cannot repopulate cleared data.
+        persistenceGenerationRef.current += 1;
+        historyPageGenerationRef.current += 1;
+        syncGenerationRef.current += 1;
+        dispatchGenerationRef.current += 1;
+        steerPumpGenerationRef.current += 1;
+        if (saveTimerRef.current !== null) {
+          clearTimeout(saveTimerRef.current);
+          saveTimerRef.current = null;
+        }
+        pendingSaveRef.current = null;
+        pendingSaveIdsRef.current.clear();
+        observedMessagesRef.current.clear();
+        historyPageRunRef.current = null;
+        pendingPushSyncRef.current = null;
+        pendingReconcileRef.current = null;
+        queueRef.current = [];
+        for (const id of pendingEnqueueRef.current) {
+          stoppedDispatchIdsRef.current.add(id);
+        }
+        pendingEnqueueRef.current.clear();
+        const activeDispatch = activeDispatchRef.current;
+        if (activeDispatch) {
+          stoppedDispatchIdsRef.current.add(activeDispatch.dispatchId);
+          activeDispatch.abort.abort();
+        }
+        activeDispatchRef.current = null;
+        acceptedDesktopSendIdsRef.current.clear();
+        closeDesktopBridgeSendBatch(desktopSendBatchRef.current);
+        desktopSendBatchRef.current = null;
+        oldestLoadedCursorRef.current = null;
+        newestLoadedCursorRef.current = null;
+        desktopOldestSourceCursorRef.current = null;
+        desktopHistoryExhaustedRef.current = false;
+        desktopLegacyHistoryLimitRef.current = HISTORY_MESSAGE_LIMIT;
+        syncCursorRef.current = null;
+        syncConversationIdRef.current = null;
+        messagesRef.current = [];
+        rewindInProgressRef.current = false;
+        if (isDesktop) desktopTransportEnabledRef.current = false;
+        markSending(false);
+        setHistoryPageLoading(false);
+        setHasOlderMessages(false);
+        setHasNewerMessages(false);
+        updateMessages([]);
+        setConversationId(isDesktop ? null : threadId);
+        setDraft("");
+        setAttachments([]);
+        setQuotes([]);
+        setWorkingActivity(IDLE_WORKING_ACTIVITY);
+        setDesktopThreadTasks(null);
+        setDesktopTaskDecoration(null);
+        setLivePushConnected(false);
+      }),
+    [isDesktop, markSending, threadId],
+  );
+
   const persistSyncState = useCallback(
-    (state: { conversationId?: string | null; cursor?: string | null }) => {
+    async (state: {
+      conversationId?: string | null;
+      cursor?: string | null;
+    }): Promise<void> => {
       const conversationId = state.conversationId?.trim() || null;
       const cursor = state.cursor?.trim() || null;
       syncConversationIdRef.current = conversationId;
       setConversationId(conversationId);
       syncCursorRef.current = cursor;
-      void saveChatSyncState(threadId, { conversationId, cursor });
+      await saveChatSyncState(threadId, { conversationId, cursor });
+    },
+    [threadId],
+  );
+
+  const persistDesktopMerge = useCallback(
+    (merge: (current: ChatMessage[]) => ChatMessage[]) => {
+      const persistenceGeneration = persistenceGenerationRef.current;
+      return enqueueSerializedChatPersistence(
+        desktopMergeQueueRef.current,
+        async () => {
+          // A cleanup/thread reset can invalidate work while an earlier merge
+          // owns the queue. Do not let this queued closure republish its stale
+          // desktop page after the reset has synchronously emptied refs/UI.
+          if (persistenceGeneration !== persistenceGenerationRef.current) {
+            return { messages: messagesRef.current, droppedOlder: false };
+          }
+          return persistBoundedTranscriptMerge({
+            getCurrent: () => messagesRef.current,
+            setCurrent: (messages) => {
+              messagesRef.current = messages;
+            },
+            getPending: () => pendingSaveRef.current,
+            setPending: (messages) => {
+              pendingSaveRef.current = messages;
+            },
+            merge,
+            maxLoaded: CHAT_TRANSCRIPT_MAX_LOADED,
+            saveChanged: (messages) => saveChatMessages(threadId, messages),
+            isCurrent: () =>
+              persistenceGeneration === persistenceGenerationRef.current,
+          });
+        },
+      );
     },
     [threadId],
   );
@@ -535,9 +1062,6 @@ export function useChatThread(opts: {
     },
     [threadId],
   );
-
-  const desktopAccess = isDesktop ? transport.access : null;
-  const desktopDeviceId = desktopAccess?.desktopDeviceId ?? null;
 
   const [catchingUp, setCatchingUp] = useState(false);
   const catchUpDepthRef = useRef(0);
@@ -561,9 +1085,11 @@ export function useChatThread(opts: {
       const catchUp = options?.catchUp === true;
       const trigger = options?.trigger ?? "unlabelled";
       if (!desktopAccess) return Promise.resolve({ offline: false });
+      if (!desktopTransportEnabledRef.current) {
+        return Promise.resolve({ offline: true });
+      }
       const existing = desktopSyncRef.current;
       if (existing) {
-
         const joinPlan = desktopSyncJoinPlan({
           existingCatchUp: existing.catchUp,
           requestedCatchUp: catchUp,
@@ -598,6 +1124,8 @@ export function useChatThread(opts: {
       }
 
       const generation = syncGenerationRef.current;
+      const staleGeneration = Symbol("stale desktop sync generation");
+      let continueAfterRun = false;
       let run: Promise<DesktopSyncOutcome> = Promise.resolve({
         offline: false,
       });
@@ -605,23 +1133,160 @@ export function useChatThread(opts: {
         const startedAt = Date.now();
         let plan = { sinceCursor: null as string | null, fullWindow: true };
         try {
-
           const pendingReconcile = pendingReconcileRef.current;
           if (pendingReconcile) await pendingReconcile;
           const expectedConversationId = syncConversationIdRef.current;
-
+          // Catch-up pulls keep a valid durable cursor. The desktop validates
+          // it and either serves the missing suffix in bounded forward pages or
+          // returns one bounded recovery snapshot for an invalid cursor.
           plan = desktopSyncPullPlan({
             catchUp,
             expectedConversationId,
             cursor: syncCursorRef.current,
           });
-          const next = await syncDesktopBridgeChatMessages({
-            access: desktopAccess,
-            expectedConversationId,
-            sinceCursor: plan.sinceCursor,
-            maxMessages: HISTORY_MESSAGE_LIMIT,
+          let persistedMessages = messagesRef.current;
+          let droppedOlder = false;
+          let preparedSend: DesktopBridgeSendBatch | undefined;
+          const acceptedUserMessageIds = new Set<string>();
+          let resetApplied = false;
+          let legacyRecoverySnapshot = false;
+          const pullDesktopPage = (pageCursor: string | null) =>
+            syncDesktopBridgeChatMessages({
+              access: desktopAccess,
+              expectedConversationId,
+              sinceCursor: pageCursor,
+              maxMessages: HISTORY_MESSAGE_LIMIT,
+            });
+          const consumeDesktopPage = async (
+            next: Awaited<ReturnType<typeof pullDesktopPage>>,
+          ) => {
+            if (generation !== syncGenerationRef.current) {
+              throw staleGeneration;
+            }
+            const resetRequired =
+              !resetApplied &&
+              (next.conversationChanged || next.cursorStatus === "invalid");
+            if (resetRequired) {
+              // The cursor no longer names durable desktop history (rewind,
+              // conversation replacement, or malformed local state). Drop
+              // the stale mobile projection before committing the desktop's
+              // bounded recovery snapshot. Older rows remain pageable from
+              // the desktop source of truth.
+              resetApplied = true;
+              persistenceGenerationRef.current += 1;
+              if (saveTimerRef.current !== null) {
+                clearTimeout(saveTimerRef.current);
+                saveTimerRef.current = null;
+              }
+              pendingSaveRef.current = null;
+              pendingSaveIdsRef.current.clear();
+              observedMessagesRef.current.clear();
+              messagesRef.current = [];
+              await clearChatMessages(threadId);
+              oldestLoadedCursorRef.current = null;
+              newestLoadedCursorRef.current = null;
+              desktopOldestSourceCursorRef.current = null;
+              desktopHistoryExhaustedRef.current = false;
+            }
+            const persistedMerge = await persistDesktopMerge((current) =>
+              mergeMessagesById(current, next.messages),
+            );
+            if (generation !== syncGenerationRef.current) {
+              throw staleGeneration;
+            }
+            persistedMessages = persistedMerge.messages;
+            droppedOlder ||= persistedMerge.droppedOlder;
+            refreshLoadedCursors(persistedMessages);
+            await persistSyncState({
+              conversationId: next.conversationId,
+              cursor: next.cursor,
+            });
+            if (generation !== syncGenerationRef.current) {
+              throw staleGeneration;
+            }
+            closeDesktopBridgeSendBatch(desktopSendBatchRef.current);
+            desktopSendBatchRef.current = next.preparedSend;
+            preparedSend = next.preparedSend;
+            for (const message of next.messages) {
+              if (message.role === "user") {
+                acceptedUserMessageIds.add(message.id);
+              }
+            }
+            acknowledgeDesktopSendIds(acceptedUserMessageIds);
+            if (
+              (plan.fullWindow || legacyRecoverySnapshot || resetRequired) &&
+              next.messages.length >= HISTORY_MESSAGE_LIMIT
+            ) {
+              setHasOlderMessages(true);
+            }
+          };
+          let pageRun = await drainDesktopSyncPages({
+            initialCursor: plan.sinceCursor,
+            pageSize: HISTORY_MESSAGE_LIMIT,
+            pull: pullDesktopPage,
+            consume: consumeDesktopPage,
           });
-          if (generation !== syncGenerationRef.current) {
+          let totalPages = pageRun.pages;
+          let totalRows = pageRun.rows;
+          if (
+            shouldUseLegacySyncRecoverySnapshot({
+              catchUp,
+              initialCursor: plan.sinceCursor,
+              cursorStatus: pageRun.lastPage.cursorStatus,
+              rows: pageRun.rows,
+            })
+          ) {
+            // Pre-pagination desktops cannot validate old timestamp cursors.
+            // Preserve their poisoned-cursor healing as a compatibility path,
+            // but only after the cursor delta came back empty. Any actual
+            // missing suffix therefore stays on the one-request fast path.
+            legacyRecoverySnapshot = true;
+            pageRun = await drainDesktopSyncPages({
+              initialCursor: null,
+              pageSize: HISTORY_MESSAGE_LIMIT,
+              pull: pullDesktopPage,
+              consume: consumeDesktopPage,
+            });
+            totalPages += pageRun.pages;
+            totalRows += pageRun.rows;
+          }
+          continueAfterRun = pageRun.continuationNeeded;
+          updateMessages(() => {
+            const bounded = persistedMessages;
+            desktopOldestSourceCursorRef.current =
+              desktopSourceCursorForMessage(bounded[0]);
+            if (droppedOlder) {
+              setHasOlderMessages(true);
+              setHasNewerMessages(false);
+            }
+            return bounded;
+          });
+          if (!sendingRef.current && queueRef.current.length > 0) {
+            queueMicrotask(() => drainQueueRef.current?.());
+          }
+          recordSyncDiagnostic({
+            at: Date.now(),
+            trigger,
+            catchUp,
+            sinceCursor: plan.sinceCursor,
+            fullWindow: plan.fullWindow || legacyRecoverySnapshot,
+            outcome: "ok",
+            rows: totalRows,
+            pages: totalPages,
+            cursorOut: pageRun.lastPage.cursor,
+            conversationChanged: pageRun.lastPage.conversationChanged,
+            cursorStatus: pageRun.lastPage.cursorStatus,
+            continuationNeeded: pageRun.continuationNeeded,
+            durationMs: Date.now() - startedAt,
+          });
+          return {
+            offline: false,
+            rows: totalRows,
+            acceptedUserMessageIds: [...acceptedUserMessageIds],
+            preparedSend,
+          };
+        } catch (error) {
+          if (error === staleGeneration) {
             recordSyncDiagnostic({
               at: Date.now(),
               trigger,
@@ -633,40 +1298,11 @@ export function useChatThread(opts: {
             });
             return { offline: false };
           }
-          persistSyncState({
-            conversationId: next.conversationId,
-            cursor: next.cursor,
-          });
-          closeDesktopBridgeSendBatch(desktopSendBatchRef.current);
-          desktopSendBatchRef.current = next.preparedSend;
-          const acceptedUserMessageIds = next.messages
-            .filter((message) => message.role === "user")
-            .map((message) => message.id);
-          acknowledgeDesktopSendIds(acceptedUserMessageIds);
-          setMessages((current) => mergeMessagesById(current, next.messages));
-          if (!sendingRef.current && queueRef.current.length > 0) {
-            queueMicrotask(() => drainQueueRef.current?.());
-          }
-          recordSyncDiagnostic({
-            at: Date.now(),
-            trigger,
-            catchUp,
-            sinceCursor: plan.sinceCursor,
-            fullWindow: plan.fullWindow,
-            outcome: "ok",
-            rows: next.messages.length,
-            cursorOut: next.cursor,
-            conversationChanged: next.conversationChanged,
-            durationMs: Date.now() - startedAt,
-          });
-          return {
-            offline: false,
-            rows: next.messages.length,
-            acceptedUserMessageIds,
-            preparedSend: next.preparedSend,
-          };
-        } catch (error) {
-
+          // Best-effort: the device-status poll drives the connection badge, and
+          // the next send/landing retries the sync. Report a confirmed offline so
+          // the send can surface it without spending a second wake budget, and
+          // carry the message so Force Sync can show a real error instead of a
+          // silent no-op.
           const offline = error instanceof DesktopOfflineError;
           const message =
             error instanceof Error ? error.message : String(error);
@@ -682,10 +1318,22 @@ export function useChatThread(opts: {
           });
           return { offline, error: message };
         } finally {
-
           if (generation === syncGenerationRef.current) {
             if (desktopSyncRef.current?.promise === run) {
               desktopSyncRef.current = null;
+            }
+            if (continueAfterRun) {
+              queueMicrotask(() => {
+                if (
+                  generation === syncGenerationRef.current &&
+                  desktopTransportEnabledRef.current
+                ) {
+                  void runDesktopSyncRef.current({
+                    catchUp: true,
+                    trigger: `${trigger}-continue`,
+                  });
+                }
+              });
             }
           }
         }
@@ -698,7 +1346,9 @@ export function useChatThread(opts: {
       acknowledgeDesktopSendIds,
       desktopAccess,
       deferDesktopSync,
+      persistDesktopMerge,
       persistSyncState,
+      refreshLoadedCursors,
       trackCatchUpRun,
     ],
   );
@@ -726,7 +1376,8 @@ export function useChatThread(opts: {
     if (didMountSyncRef.current) return;
     if (!storageLoaded) return;
     didMountSyncRef.current = true;
-
+    // Catch-up: the phone may have been away arbitrarily long. Preserve its
+    // durable cursor and drain bounded suffix pages while the pill covers it.
     void runDesktopSync({ catchUp: true, trigger: "landing" });
   }, [appActive, desktopAccess, runDesktopSync, storageLoaded]);
 
@@ -756,7 +1407,7 @@ export function useChatThread(opts: {
     };
   }
   const refreshDesktopThreadTasks = useCallback(async () => {
-    if (!desktopAccess) return;
+    if (!desktopAccess || !desktopTransportEnabledRef.current) return;
     const state = threadTasksFetchRef.current;
     if (state.scopeKey !== threadTasksScopeKey) return;
     if (state.inFlight) {
@@ -773,8 +1424,14 @@ export function useChatThread(opts: {
           desktopAccess,
           conversationId,
         );
-
-        if (threadTasksFetchRef.current !== state) return;
+        // The user may switch threads or computers while the bridge request is
+        // in flight. Only the still-current scope may publish its result.
+        if (
+          threadTasksFetchRef.current !== state ||
+          !desktopTransportEnabledRef.current
+        ) {
+          return;
+        }
         if (tasks) setDesktopThreadTasks(tasks);
       } while (state.queued);
     } finally {
@@ -805,6 +1462,7 @@ export function useChatThread(opts: {
     const handle = openDesktopBridgeLive({
       access: desktopAccess,
       onLocalChatUpdated: (payload) => {
+        if (!desktopTransportEnabledRef.current) return;
         const disposition = consumeDesktopLocalChatPush({
           activeConversationId: syncConversationIdRef.current,
           payloadConversationId: payload.conversationId,
@@ -830,7 +1488,6 @@ export function useChatThread(opts: {
         pushDebounce = setTimeout(() => {
           pushDebounce = null;
           if (sendingRef.current) {
-
             deferDesktopSync(false);
             return;
           }
@@ -839,6 +1496,7 @@ export function useChatThread(opts: {
       },
 
       onThreadActivityUpdated: (payload) => {
+        if (!desktopTransportEnabledRef.current) return;
         const current = syncConversationIdRef.current;
         if (
           payload.conversationId &&
@@ -849,9 +1507,14 @@ export function useChatThread(opts: {
         }
         void refreshDesktopThreadTasks();
       },
-
-      onTaskDecorationUpdated: setDesktopTaskDecoration,
+      // Decoration pushes carry the snapshot itself — store and render.
+      onTaskDecorationUpdated: (decoration) => {
+        if (desktopTransportEnabledRef.current) {
+          setDesktopTaskDecoration(decoration);
+        }
+      },
       onConnectedChange: (connected, details) => {
+        if (!desktopTransportEnabledRef.current) return;
         setLivePushConnected(connected);
 
         if (connected) void refreshDesktopThreadTasks();
@@ -904,7 +1567,7 @@ export function useChatThread(opts: {
   const appendAssistantSegment = useCallback(
     (replyId: string, segment: string) => {
       if (!segment) return;
-      setMessages((m) =>
+      updateMessages((m) =>
         m.map((msg) => {
           if (msg.id !== replyId) return msg;
           const text = msg.text
@@ -919,7 +1582,6 @@ export function useChatThread(opts: {
 
   const finishDispatch = useCallback(() => {
     const settle = async () => {
-
       while (steerPumpPromiseRef.current) {
         await steerPumpPromiseRef.current;
       }
@@ -988,7 +1650,7 @@ export function useChatThread(opts: {
             item.userMessageId,
             receipt.userMessageId,
           ]);
-          setMessages((current) =>
+          updateMessages((current) =>
             current.map((message) =>
               message.id === item.userMessageId
                 ? {
@@ -1011,7 +1673,6 @@ export function useChatThread(opts: {
         if (
           queueRef.current.length > 0 &&
           activeDispatchRef.current?.primaryAccepted &&
-
           pumpOutcome === "drained"
         ) {
           queueMicrotask(() => pumpDesktopSteersRef.current?.());
@@ -1026,12 +1687,29 @@ export function useChatThread(opts: {
   }, [pumpDesktopSteers]);
 
   const flushPersistNow = useCallback(() => {
-    setMessages((current) => {
-      void saveChatMessages(threadId, current).catch(() => {});
-      if (threadId === "cloud") void indexMessages(current);
+    updateMessages((current) => {
+      const observed = observedMessagesRef.current;
+      for (const message of current) {
+        if (observed.get(message.id) !== message) {
+          pendingSaveIdsRef.current.add(message.id);
+        }
+      }
+      const changedIds = new Set(pendingSaveIdsRef.current);
+      for (const id of changedIds) pendingSaveIdsRef.current.delete(id);
+      const changed = selectIncrementalPersistenceRows(current, changedIds);
+      const persistenceGeneration = persistenceGenerationRef.current;
+      void saveChatMessages(threadId, changed)
+        .then(async () => {
+          if (persistenceGeneration !== persistenceGenerationRef.current) {
+            return;
+          }
+          if (threadId === "cloud") await indexMessages(changed);
+          refreshLoadedCursorsIfCurrent(current);
+        })
+        .catch(() => {});
       return current;
     });
-  }, [threadId]);
+  }, [refreshLoadedCursorsIfCurrent, threadId]);
 
   const dispatchCloud = useCallback(
     async (item: QueuedSend, replyId: string, abort: AbortController) => {
@@ -1039,7 +1717,21 @@ export function useChatThread(opts: {
 
       const toolsEnabled = threadId === "cloud" && transport.kind === "cloud";
       const queuedIds = new Set(queueRef.current.map((q) => q.userMessageId));
-      const priorMessages = messagesRef.current.filter(
+      // Paging may leave the rendered window on an older slice. Context must
+      // always come from the canonical durable recent tail, with current
+      // optimistic rows overlaid, rather than whichever slice is on screen.
+      const durableRecent = toolsEnabled
+        ? await loadRecentChatMessages(
+            threadId,
+            CHAT_TRANSCRIPT_MAX_LOADED,
+          ).catch(() => null)
+        : null;
+      const contextRows = durableRecent
+        ? mergeMessagesById(durableRecent.messages, messagesRef.current).slice(
+            -CHAT_TRANSCRIPT_MAX_LOADED,
+          )
+        : messagesRef.current;
+      const priorMessages = contextRows.filter(
         (m) =>
           m.id !== item.userMessageId &&
           m.id !== replyId &&
@@ -1054,7 +1746,7 @@ export function useChatThread(opts: {
       try {
         imagesPayload = await prepareOfflineChatImages(item.assets);
       } catch (error) {
-        setMessages((messages) =>
+        updateMessages((messages) =>
           messages.map((message) =>
             message.id === replyId
               ? { ...message, text: userFacingError(error) }
@@ -1069,7 +1761,7 @@ export function useChatThread(opts: {
       }
 
       const ensureFallbackReply = () => {
-        setMessages((m) =>
+        updateMessages((m) =>
           m.map((msg) =>
             msg.id === replyId && !msg.text
               ? { ...msg, text: "No reply came back. Try again." }
@@ -1110,7 +1802,7 @@ export function useChatThread(opts: {
       const upsertToolStep = (
         step: NonNullable<ChatMessage["toolSteps"]>[number],
       ) => {
-        setMessages((current) =>
+        updateMessages((current) =>
           current.map((message) => {
             if (message.id !== replyId) return message;
             const steps = message.toolSteps ?? [];
@@ -1130,7 +1822,7 @@ export function useChatThread(opts: {
         );
       };
       const removeToolStep = (toolCallId: string) => {
-        setMessages((current) =>
+        updateMessages((current) =>
           current.map((message) =>
             message.id === replyId
               ? {
@@ -1144,7 +1836,7 @@ export function useChatThread(opts: {
         );
       };
       const upsertArtifact = (artifact: ChatArtifact) => {
-        setMessages((current) =>
+        updateMessages((current) =>
           current.map((message) => {
             if (message.id !== replyId) return message;
             const artifacts = message.artifacts ?? [];
@@ -1305,7 +1997,6 @@ export function useChatThread(opts: {
 
       try {
         if (!toolsEnabled) {
-
           await streamFn(
             OFFLINE_CHAT_STREAM_PATH,
             buildOfflineChatRequest({
@@ -1330,6 +2021,106 @@ export function useChatThread(opts: {
         ]);
         let checkpoint = existingCheckpoint;
         try {
+          // The old AsyncStorage format could contain 1,000 rows while normal
+          // hydration deliberately loads only the recent window. Seed a
+          // missing checkpoint oldest-first in bounded batches so migration
+          // never silently skips the prefix. A pending marker means the app
+          // was killed mid-bootstrap; resume after its durable watermark.
+          if (durableRecent?.hasOlder) {
+            let bootstrapPending = checkpoint?.bootstrapPending === true;
+            let page = null as Awaited<
+              ReturnType<typeof loadOldestChatMessages>
+            > | null;
+            const checkpointWatermark = checkpoint
+              ? (checkpoint.coveredThroughId ??
+                checkpoint.coveredIds[checkpoint.coveredIds.length - 1])
+              : undefined;
+            if (!checkpoint) {
+              bootstrapPending = true;
+              page = await loadOldestChatMessages(
+                threadId,
+                CHAT_TRANSCRIPT_MAX_LOADED,
+              );
+            } else if (
+              checkpointWatermark &&
+              (bootstrapPending ||
+                !priorMessages.some(
+                  (message) => message.id === checkpointWatermark,
+                ))
+            ) {
+              // More than one rendered window can arrive after an existing
+              // checkpoint. Resume exactly after its durable watermark rather
+              // than summarizing only the recent window and silently skipping
+              // the intervening rows. A missing watermark makes the checkpoint
+              // unverifiable, so restart the crash-safe oldest-first bootstrap.
+              const coveredCursor = await findChatMessageCursor(
+                threadId,
+                checkpointWatermark,
+              );
+              if (coveredCursor) {
+                page = await loadNewerChatMessages(
+                  threadId,
+                  coveredCursor,
+                  CHAT_TRANSCRIPT_PAGE_LIMIT * 4,
+                );
+              } else {
+                await clearCheckpoint();
+                checkpoint = null;
+                bootstrapPending = true;
+                page = await loadOldestChatMessages(
+                  threadId,
+                  CHAT_TRANSCRIPT_MAX_LOADED,
+                );
+              }
+            } else if (bootstrapPending) {
+              await clearCheckpoint();
+              checkpoint = null;
+              page = await loadOldestChatMessages(
+                threadId,
+                CHAT_TRANSCRIPT_MAX_LOADED,
+              );
+            }
+            if (page) {
+              let rolling = page.messages.filter(
+                (message) => !message.queued && message.text.trim().length > 0,
+              );
+              while (true) {
+                while (planCompaction(rolling, checkpoint)) {
+                  const priorWatermark = checkpoint?.coveredThroughId;
+                  const updated = await runCompaction({
+                    messages: rolling,
+                    checkpoint,
+                    summarize: (prompt) => complete(prompt, []),
+                    bootstrapPending,
+                  });
+                  if (!updated || updated.coveredThroughId === priorWatermark) {
+                    throw new Error(
+                      "Could not finish durable history compaction",
+                    );
+                  }
+                  checkpoint = updated;
+                }
+                if (!page.hasNewer || !page.newestCursor) break;
+                rolling = uncoveredMessages(rolling, checkpoint);
+                page = await loadNewerChatMessages(
+                  threadId,
+                  page.newestCursor,
+                  CHAT_TRANSCRIPT_PAGE_LIMIT * 4,
+                );
+                rolling.push(
+                  ...page.messages.filter(
+                    (message) =>
+                      !message.queued && message.text.trim().length > 0,
+                  ),
+                );
+              }
+              if (checkpoint && bootstrapPending) {
+                const { bootstrapPending: _pending, ...completed } = checkpoint;
+                checkpoint = { ...completed, updatedAt: Date.now() };
+                await saveCheckpoint(checkpoint);
+              }
+            }
+          }
           const updated = await runCompaction({
             messages: priorMessages,
             checkpoint,
@@ -1337,7 +2128,11 @@ export function useChatThread(opts: {
           });
           if (updated) checkpoint = updated;
         } catch {
-
+          // A partial checkpoint remains a durable contiguous prefix and can
+          // resume from its watermark on the next send. Do not use it for this
+          // request, though: the unsummarized gap before the recent window is
+          // not yet represented, so fall back to bounded recent context.
+          checkpoint = null;
         }
         const context = buildCompactedContext(priorMessages, checkpoint);
         const mobileModelContext = buildMobileModelContext({
@@ -1553,13 +2348,13 @@ export function useChatThread(opts: {
         notifySuccess();
       } catch (e) {
         if (e instanceof StreamAbortError) {
-          setMessages((m) =>
+          updateMessages((m) =>
             m.map((msg) =>
               msg.id === replyId ? { ...msg, stopped: true } : msg,
             ),
           );
         } else {
-          setMessages((m) =>
+          updateMessages((m) =>
             m.map((msg) =>
               msg.id === replyId
                 ? { ...msg, text: msg.text || userFacingError(e) }
@@ -1600,7 +2395,6 @@ export function useChatThread(opts: {
       let canonicalUserMessageIdSeen = "";
 
       try {
-
         patchActivity({ statusText: WAKE_STATUS_COPY.connecting });
         const reusableBatch = shouldReuseQueuedReplayBatch({
           queueSequence: item.queueSequence,
@@ -1629,7 +2423,7 @@ export function useChatThread(opts: {
         ) {
           acknowledgeDesktopSendIds([item.clientRequestId, item.userMessageId]);
           activeDispatchRef.current = null;
-          setMessages((messages) =>
+          updateMessages((messages) =>
             messages
               .filter((message) => message.id !== replyId)
               .map((message) =>
@@ -1659,8 +2453,14 @@ export function useChatThread(opts: {
               item.userMessageId,
               id,
             ]);
-
-            setMessages((m) =>
+            // Link the turn's optimistic rows to their canonical identity NOW,
+            // not just when the turn settles: if the app is killed/suspended or
+            // the bridge drops mid-stream, the persisted partial reply row
+            // would otherwise carry no `requestId`, so no later merge could
+            // ever fold the canonical reply into it (or sweep it as a
+            // superseded snapshot) — it would render forever as a stale
+            // partial duplicate above the full reply.
+            updateMessages((m) =>
               linkOptimisticTurnToCanonical(m, {
                 userMessageId: item.userMessageId,
                 replyId,
@@ -1682,7 +2482,7 @@ export function useChatThread(opts: {
             if (active?.replyId === replyId) {
               active.latestResponseUserMessageId = boundary.userMessageId;
             }
-            setMessages((current) =>
+            updateMessages((current) =>
               retargetOptimisticReplyToUser(current, {
                 replyId,
                 userMessageId: boundary.userMessageId,
@@ -1719,7 +2519,7 @@ export function useChatThread(opts: {
                 artifact.payload.generationState === "canceled",
             );
             if (stopped && !hasCanceledImage) return;
-            setMessages((m) =>
+            updateMessages((m) =>
               m.map((msg) =>
                 msg.id === replyId ? { ...msg, artifacts } : msg,
               ),
@@ -1728,8 +2528,7 @@ export function useChatThread(opts: {
         });
         if (stoppedDispatchIdsRef.current.has(item.dispatchId)) {
           activeDispatchRef.current = null;
-
-          setMessages((m) =>
+          updateMessages((m) =>
             linkOptimisticTurnToCanonical(m, {
               userMessageId: item.userMessageId,
               replyId,
@@ -1745,11 +2544,10 @@ export function useChatThread(opts: {
           activeDispatchRef.current?.latestResponseUserMessageId ||
           canonicalUserMessageId ||
           item.userMessageId;
-        setMessages((m) => {
+        updateMessages((m) => {
           let changed = false;
           const next = m.map((msg) => {
             if (msg.id === replyId) {
-
               const text = finalizeAssistantTurnText(msg.text, result.text);
               const requestId = canonicalUserMessageId || msg.requestId;
               const artifacts =
@@ -1789,29 +2587,13 @@ export function useChatThread(opts: {
             : null,
           maxMessages: HISTORY_MESSAGE_LIMIT,
         })
-          .then((delta) => {
+          .then(async (delta) => {
             if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;
             if (reconcileGeneration !== syncGenerationRef.current) return;
-            persistSyncState({
-              conversationId: delta.conversationId,
-              cursor: delta.cursor,
-            });
-
-            if (
-              deferredSyncAtReconcileStart &&
-              !deferredSyncAtReconcileStart.catchUp &&
-              pendingPushSyncRef.current === deferredSyncAtReconcileStart
-            ) {
-              pendingPushSyncRef.current = null;
-            }
-            const hasCanonicalAssistant = delta.messages.some(
-              (message) => message.role === "assistant",
-            );
-            if (!hasCanonicalAssistant) return;
-            setMessages((m) =>
+            const mergeReconciled = (current: ChatMessage[]) =>
               responseUserMessageId === item.userMessageId
                 ? reconcileSentDesktopTurn({
-                    current: m,
+                    current,
                     userMessageId: item.userMessageId,
                     replyId,
                     sentText: item.promptText ?? item.text,
@@ -1820,12 +2602,31 @@ export function useChatThread(opts: {
                       ? { canonicalUserMessageId }
                       : {}),
                   })
-                : mergeMessagesById(m, delta.messages),
-            );
+                : mergeMessagesById(current, delta.messages);
+            const persistedMerge = await persistDesktopMerge(mergeReconciled);
+            if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;
+            if (reconcileGeneration !== syncGenerationRef.current) return;
+            refreshLoadedCursors(persistedMerge.messages);
+            await persistSyncState({
+              conversationId: delta.conversationId,
+              cursor: delta.cursor,
+            });
+            if (reconcileGeneration !== syncGenerationRef.current) return;
+            // The reconcile read every event through its returned cursor. If
+            // the only deferred request is the ordinary push intent that was
+            // already pending when this read began, it is satisfied now. A
+            // newer push has a different object identity and a catch-up intent
+            // still needs its full-window healer, so neither is cleared here.
+            if (
+              deferredSyncAtReconcileStart &&
+              !deferredSyncAtReconcileStart.catchUp &&
+              pendingPushSyncRef.current === deferredSyncAtReconcileStart
+            ) {
+              pendingPushSyncRef.current = null;
+            }
+            updateMessages(persistedMerge.messages);
           })
-          .catch(() => {
-
-          });
+          .catch(() => {});
 
         pendingReconcileRef.current = reconcilePromise;
         void reconcilePromise.finally(() => {
@@ -1838,8 +2639,7 @@ export function useChatThread(opts: {
       } catch (e) {
         if (stoppedDispatchIdsRef.current.has(item.dispatchId)) {
           activeDispatchRef.current = null;
-
-          setMessages((m) =>
+          updateMessages((m) =>
             linkOptimisticTurnToCanonical(m, {
               userMessageId: item.userMessageId,
               replyId,
@@ -1856,7 +2656,7 @@ export function useChatThread(opts: {
             : userFacingError(e);
 
         const linkId = canonicalUserMessageIdSeen.trim();
-        setMessages((m) =>
+        updateMessages((m) =>
           linkId
             ? m.map((msg) => {
                 if (msg.id === replyId) {
@@ -1882,7 +2682,6 @@ export function useChatThread(opts: {
         if (linkId) {
           finishDispatch();
         } else {
-
           if (
             !queueRef.current.some(
               (queued) => queued.clientRequestId === item.clientRequestId,
@@ -1908,8 +2707,10 @@ export function useChatThread(opts: {
       finishDispatch,
       markSending,
       patchActivity,
+      persistDesktopMerge,
       replaceActivity,
       persistSyncState,
+      refreshLoadedCursors,
       runDesktopSync,
     ],
   );
@@ -1932,22 +2733,27 @@ export function useChatThread(opts: {
       setWorkingActivity(IDLE_WORKING_ACTIVITY);
 
       const dispatchedAt = Date.now();
-      setMessages((m) => [
-        ...m.map((msg) => {
-          if (msg.id !== item.userMessageId) return msg;
-
-          return msg.queued
-            ? { ...msg, queued: false, createdAt: dispatchedAt }
-            : { ...msg, queued: false };
-        }),
-        {
-          id: replyId,
-          role: "assistant" as const,
-          requestId: item.userMessageId,
-          text: "",
-          createdAt: dispatchedAt,
-        },
-      ]);
+      updateMessages((m) => {
+        const next = [
+          ...m.map((msg) => {
+            if (msg.id !== item.userMessageId) return msg;
+            return msg.queued
+              ? { ...msg, queued: false, createdAt: dispatchedAt }
+              : { ...msg, queued: false };
+          }),
+          {
+            id: replyId,
+            role: "assistant" as const,
+            requestId: item.userMessageId,
+            text: "",
+            createdAt: dispatchedAt,
+          },
+        ];
+        if (next.length <= CHAT_TRANSCRIPT_MAX_LOADED) return next;
+        setHasOlderMessages(true);
+        setHasNewerMessages(false);
+        return next.slice(-CHAT_TRANSCRIPT_MAX_LOADED);
+      });
 
       if (transport.kind === "desktop") {
         await dispatchDesktop(item, replyId, abort, transport.access);
@@ -1975,8 +2781,13 @@ export function useChatThread(opts: {
 
   const submit = useCallback(
     (suppliedPrompt?: string): { userMessageId: string } | null => {
-
-      if (!storageLoaded) return null;
+      if (
+        !storageLoaded ||
+        rewindInProgressRef.current ||
+        (transport.kind === "desktop" && !desktopTransportEnabledRef.current)
+      ) {
+        return null;
+      }
       const supplied = suppliedPrompt !== undefined;
       const typed = (suppliedPrompt ?? draft).trim();
 
@@ -2024,7 +2835,44 @@ export function useChatThread(opts: {
         duration: 350,
         update: { type: LayoutAnimation.Types.spring, springDamping: 1 },
       });
-      setMessages((m) => [...m, userMsg]);
+      updateMessages((m) => {
+        const next = [...m, userMsg];
+        if (next.length <= CHAT_TRANSCRIPT_MAX_LOADED) return next;
+        setHasOlderMessages(true);
+        setHasNewerMessages(false);
+        return next.slice(-CHAT_TRANSCRIPT_MAX_LOADED);
+      });
+      if (hasNewerMessages) {
+        // Sending from a historical slice must return the rendered window to
+        // the canonical tail. Keep the optimistic row(s) from the functional
+        // state update above, but do not leave them visually inserted ahead of
+        // newer durable turns that were temporarily evicted by backward paging.
+        const historyGeneration = historyPageGenerationRef.current;
+        void loadRecentChatMessages(threadId, CHAT_TRANSCRIPT_MAX_LOADED)
+          .then((page) => {
+            if (historyGeneration !== historyPageGenerationRef.current) return;
+            updateMessages((current) => {
+              const merged = mergeMessagesById(page.messages, current);
+              const next = merged.slice(-CHAT_TRANSCRIPT_MAX_LOADED);
+              oldestLoadedCursorRef.current = next[0]
+                ? chatTranscriptCursorForMessage(threadId, next[0].id)
+                : page.oldestCursor;
+              newestLoadedCursorRef.current =
+                (next[next.length - 1]
+                  ? chatTranscriptCursorForMessage(
+                      threadId,
+                      next[next.length - 1]!.id,
+                    )
+                  : null) ?? page.newestCursor;
+              setHasOlderMessages(
+                page.hasOlder || merged.length > CHAT_TRANSCRIPT_MAX_LOADED,
+              );
+              setHasNewerMessages(false);
+              return next;
+            });
+          })
+          .catch(() => {});
+      }
 
       const item: QueuedSend = {
         dispatchId: userMessageId,
@@ -2079,7 +2927,7 @@ export function useChatThread(opts: {
           pendingEnqueueRef.current.delete(userMessageId);
           if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;
           if (admission === "dispatch") markSending(false);
-          setMessages((current) =>
+          updateMessages((current) =>
             current.map((message) =>
               message.id === userMessageId
                 ? { ...message, queued: true }
@@ -2094,6 +2942,7 @@ export function useChatThread(opts: {
       attachments,
       dispatch,
       draft,
+      hasNewerMessages,
       quotes,
       markSending,
       storageLoaded,
@@ -2106,7 +2955,6 @@ export function useChatThread(opts: {
   const sendPrompt = useCallback((prompt: string) => submit(prompt), [submit]);
 
   const stop = useCallback(() => {
-
     steerPumpGenerationRef.current += 1;
     const cancelledIds = [
       ...new Set([
@@ -2121,8 +2969,10 @@ export function useChatThread(opts: {
       acknowledgeDesktopSendIds(cancelledIds);
     }
     if (cancelledIds.length > 0) {
-
-      setMessages((m) =>
+      // A canceled queued send is still part of the user's transcript. Keep
+      // the bubble and mark it honestly instead of making text the user just
+      // saw disappear from the conversation.
+      updateMessages((m) =>
         m.map((msg) =>
           cancelledIds.includes(msg.id)
             ? { ...msg, queued: false, stopped: true }
@@ -2135,7 +2985,7 @@ export function useChatThread(opts: {
       stoppedDispatchIdsRef.current.add(active.dispatchId);
       acknowledgeDesktopSendIds([active.dispatchId, active.userMessageId]);
       active.abort.abort();
-      setMessages((m) =>
+      updateMessages((m) =>
         m.map((msg) =>
           msg.id === active.replyId ? { ...msg, stopped: true } : msg,
         ),
@@ -2152,30 +3002,106 @@ export function useChatThread(opts: {
     (messageId: string) => {
       if (transport.kind !== "cloud") return;
       if (!storageLoaded) return;
-
-      if (sendingRef.current) return;
+      if (sendingRef.current || rewindInProgressRef.current) return;
       const current = messagesRef.current;
       const index = current.findIndex((m) => m.id === messageId);
       if (index < 0) return;
       const target = current[index];
       if (target.role !== "user") return;
-      LayoutAnimation.configureNext({
-        duration: 250,
-        update: { type: LayoutAnimation.Types.easeInEaseOut },
-      });
-
-      setMessages(current.slice(0, index));
-
-      const restoredText =
-        target.hasImage && target.text === "Photo" ? "" : target.text;
-      setDraft(restoredText);
-      setAttachments([]);
-      setQuotes([]);
-      void restoreRewoundAttachments(target).then((assets) => {
-        if (assets.length > 0) setAttachments(assets);
-      });
+      // SQLite, not the loaded JS window, owns the transcript. Delete from the
+      // durable anchor so rows outside this window cannot reappear later.
+      persistenceGenerationRef.current += 1;
+      const rewindGeneration = persistenceGenerationRef.current;
+      rewindInProgressRef.current = true;
+      void (async () => {
+        // Disarm the old snapshot, then establish a transcript-queue barrier
+        // before truncation. Otherwise a debounce armed before the menu action
+        // can run after DELETE and upsert the rewound suffix back into SQLite.
+        // Rewind is rare and destructive, so flushing the bounded UI window is
+        // preferable to attempting to infer which pending rows own the edge.
+        await establishTranscriptRewindBarrier(
+          () => {
+            if (saveTimerRef.current !== null) {
+              clearTimeout(saveTimerRef.current);
+              saveTimerRef.current = null;
+            }
+            pendingSaveRef.current = null;
+            pendingSaveIdsRef.current.clear();
+          },
+          () => saveChatMessages(threadId, current),
+        );
+        if (rewindGeneration !== persistenceGenerationRef.current) return;
+        let truncated = false;
+        if (threadId === "cloud") {
+          // Invalidate the derived store before mutating its canonical source.
+          // A durable rebuild marker spans the canonical truncate, so a kill
+          // at either boundary rebuilds from the surviving transcript instead
+          // of recalling rows that rewind deleted.
+          let rebuildStarted = false;
+          try {
+            await beginMessageIndexRebuild();
+            rebuildStarted = true;
+            // A stale checkpoint can also reintroduce deleted turns into model
+            // context, so its durable removal is part of the rewind commit.
+            await clearCheckpoint();
+            await truncateChatMessagesFrom(threadId, messageId);
+            truncated = true;
+          } finally {
+            if (rebuildStarted) {
+              await rebuildMessageIndex().catch(() => {
+                scheduleMessageIndexRecovery();
+              });
+            }
+          }
+        } else {
+          await truncateChatMessagesFrom(threadId, messageId);
+          truncated = true;
+        }
+        if (
+          !truncated ||
+          rewindGeneration !== persistenceGenerationRef.current
+        ) {
+          return;
+        }
+        LayoutAnimation.configureNext({
+          duration: 250,
+          update: { type: LayoutAnimation.Types.easeInEaseOut },
+        });
+        const retained = current.slice(0, index);
+        pendingSaveRef.current = retained;
+        const retainedIds = new Set(retained.map((message) => message.id));
+        pendingSaveIdsRef.current.forEach((id) => {
+          if (!retainedIds.has(id)) pendingSaveIdsRef.current.delete(id);
+        });
+        updateMessages(retained);
+        setHasNewerMessages(false);
+        newestLoadedCursorRef.current =
+          index > 0
+            ? chatTranscriptCursorForMessage(threadId, current[index - 1]!.id)
+            : null;
+        // `text` holds the "Photo" placeholder for an image-only send (see
+        // `submit`), so restore empty text in that case rather than the literal.
+        const restoredText =
+          target.hasImage && target.text === "Photo" ? "" : target.text;
+        setDraft(restoredText);
+        setAttachments([]);
+        setQuotes([]);
+        const assets = await restoreRewoundAttachments(target);
+        if (
+          assets.length > 0 &&
+          rewindGeneration === persistenceGenerationRef.current
+        ) {
+          setAttachments(assets);
+        }
+      })()
+        .catch(() => {})
+        .finally(() => {
+          if (rewindGeneration === persistenceGenerationRef.current) {
+            rewindInProgressRef.current = false;
+          }
+        });
     },
-    [storageLoaded, transport.kind],
+    [scheduleMessageIndexRecovery, storageLoaded, threadId, transport.kind],
   );
 
   const workingIndicator = useMemo(
@@ -2210,7 +3136,6 @@ export function useChatThread(opts: {
   );
 
   useEffect(() => {
-
     if (
       !shouldArmDesktopTaskPoll({
         isDesktopTransport: Boolean(desktopAccess),
@@ -2249,6 +3174,11 @@ export function useChatThread(opts: {
     sending,
     workingIndicator,
     storageLoaded,
+    hasOlderMessages,
+    hasNewerMessages,
+    historyPageLoading,
+    loadOlderMessages,
+    loadNewerMessages,
     conversationArtifacts,
     conversationTasks,
     activityArtifactsByTaskId: activityArtifactGroups.byTaskId,

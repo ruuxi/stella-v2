@@ -30,6 +30,10 @@ import {
   planCompaction,
   buildCompactedContext,
   contextTokenEstimate,
+  MAX_CHECKPOINT_SUMMARY_CHARS,
+  MAX_CONTEXT_MESSAGE_CHARS,
+  MAX_CONTEXT_TAIL_MESSAGES,
+  runCompaction,
   type ChatCheckpoint,
 } from "../chat-compaction";
 
@@ -46,7 +50,6 @@ describe("chat-recall FTS helpers", () => {
   });
 
   test("buildFtsMatchQuery neutralizes FTS operators and punctuation", () => {
-
     expect(buildFtsMatchQuery('cat AND "dog"')).toBe('"cat" OR "and" OR "dog"');
   });
 
@@ -181,16 +184,16 @@ describe("chat-compaction planning", () => {
     expect(planCompaction(few, null)).toBeNull();
   });
 
-  test("folds an oldest run once over the trigger, protecting the head", () => {
+  test("folds a contiguous oldest run and records one watermark", () => {
     expect(contextTokenEstimate(many, null)).toBeGreaterThan(6000);
     const plan = planCompaction(many, null);
     expect(plan === null).toBe(false);
-
-    expect(plan!.middle.some((m) => m.id === "0" || m.id === "1")).toBe(false);
-
+    expect(plan!.middle[0]?.id).toBe("0");
+    // A recent tail stays out of the middle.
     expect(plan!.middle.some((m) => m.id === "39")).toBe(false);
     expect(plan!.middle.length).toBeGreaterThan(0);
-    expect(plan!.nextCoveredIds).toEqual(plan!.middle.map((m) => m.id));
+    expect(plan!.nextCoveredIds).toEqual([plan!.middle.at(-1)!.id]);
+    expect(plan!.nextCoveredThroughId).toBe(plan!.middle.at(-1)!.id);
   });
 
   test("compacted context = summary + uncovered tail", () => {
@@ -201,7 +204,86 @@ describe("chat-compaction planning", () => {
     };
     const context = buildCompactedContext(many, checkpoint);
     expect(context.summary).toContain("introduced themselves");
+    expect(context.history.length).toBeLessThan(many.length - 4);
+    expect(context.history.at(-1)?.text).toContain("39");
+  });
 
-    expect(context.history.length).toBe(many.length - 4);
+  test("bounds 10k short rows and oversized historical Markdown", async () => {
+    const shortRows = Array.from({ length: 10_000 }, (_, index) =>
+      msg(`short-${index}`, index % 2 ? "assistant" : "user", "ok", index),
+    );
+    const plan = planCompaction(shortRows, null);
+    expect(plan === null).toBe(false);
+    const checkpoint: ChatCheckpoint = {
+      summary: "Earlier short turns retained in summary form.",
+      coveredIds: plan!.nextCoveredIds,
+      coveredThroughId: plan!.nextCoveredThroughId,
+      updatedAt: 1,
+    };
+    expect(
+      buildCompactedContext(shortRows, checkpoint).history.length,
+    ).toBeLessThanOrEqual(MAX_CONTEXT_TAIL_MESSAGES);
+
+    const markdown = `# Report\n\n${"large table cell | ".repeat(20_000)}`;
+    const markdownRows = Array.from({ length: 8 }, (_, index) =>
+      msg(
+        `markdown-${index}`,
+        index % 2 ? "assistant" : "user",
+        markdown,
+        index,
+      ),
+    );
+    const context = buildCompactedContext(markdownRows, null);
+    expect(context.history).toHaveLength(4);
+    expect(
+      context.history.every(
+        (turn) => turn.text.length <= MAX_CONTEXT_MESSAGE_CHARS + 64,
+      ),
+    ).toBe(true);
+    expect(context.history[0]?.text).toContain("historical message clipped");
+
+    const promptLengths: number[] = [];
+    const markdownCheckpoint = await runCompaction({
+      messages: markdownRows,
+      checkpoint: null,
+      summarize: async (prompt) => {
+        promptLengths.push(prompt.length);
+        return "Bounded Markdown summary.";
+      },
+    });
+    expect(markdownCheckpoint?.coveredThroughId).toBe("markdown-3");
+    expect(promptLengths).toHaveLength(4);
+    expect(promptLengths.every((length) => length < 14_000)).toBe(true);
+
+    const oversizedSummary = await runCompaction({
+      messages: shortRows,
+      checkpoint: null,
+      summarize: async () => "summary ".repeat(20_000),
+    });
+    expect(oversizedSummary?.summary.length).toBeLessThanOrEqual(
+      MAX_CHECKPOINT_SUMMARY_CHARS + 64,
+    );
+  });
+
+  test("hierarchically folds a 10k-row bootstrap with a crash marker", async () => {
+    const shortRows = Array.from({ length: 10_000 }, (_, index) =>
+      msg(`bootstrap-${index}`, index % 2 ? "assistant" : "user", "ok", index),
+    );
+    let calls = 0;
+    const checkpoint = await runCompaction({
+      messages: shortRows,
+      checkpoint: null,
+      bootstrapPending: true,
+      summarize: async () => {
+        calls += 1;
+        return `summary pass ${calls}`;
+      },
+    });
+    expect(calls).toBeGreaterThan(1);
+    expect(checkpoint?.bootstrapPending).toBe(true);
+    expect(checkpoint?.coveredThroughId).toBe("bootstrap-9839");
+    expect(buildCompactedContext(shortRows, checkpoint).history).toHaveLength(
+      MAX_CONTEXT_TAIL_MESSAGES,
+    );
   });
 });

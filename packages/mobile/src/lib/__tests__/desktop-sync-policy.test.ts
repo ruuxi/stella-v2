@@ -3,6 +3,7 @@ import {
   consumeDesktopLocalChatPush,
   desktopSyncPullPlan,
   desktopSyncJoinPlan,
+  DESKTOP_PUSH_DEDUPE_LIMIT,
   DESKTOP_TASK_POLL_MS,
   DESKTOP_TASK_POLL_PUSH_VERIFY_MS,
   desktopLiveConnectionSyncPlan,
@@ -62,6 +63,23 @@ describe("consumeDesktopLocalChatPush", () => {
     ).toBe("sync");
     expect(seenEventIds).toEqual(new Set(["conv-1:event-2"]));
   });
+
+  test("bounds identity state across a deterministic 100k-event push storm", () => {
+    const seenEventIds = new Set<string>();
+    for (let index = 0; index < 100_000; index += 1) {
+      expect(
+        consumeDesktopLocalChatPush({
+          activeConversationId: "conv-scale",
+          payloadConversationId: "conv-scale",
+          eventId: `event-${index}`,
+          seenEventIds,
+        }),
+      ).toBe("sync");
+    }
+    expect(seenEventIds.size).toBe(DESKTOP_PUSH_DEDUPE_LIMIT);
+    expect(seenEventIds.has("conv-scale:event-99999")).toBe(true);
+    expect(seenEventIds.has("conv-scale:event-0")).toBe(false);
+  });
 });
 
 describe("shouldScheduleDesktopTranscriptSyncForPush", () => {
@@ -113,7 +131,6 @@ describe("shouldArmDesktopTaskPoll", () => {
   });
 
   test("stays armed while the push socket is connected (build-94 regression)", () => {
-
     expect(shouldArmDesktopTaskPoll(base)).toBe(true);
     expect(desktopTaskPollIntervalMs(false)).toBe(DESKTOP_TASK_POLL_MS);
     expect(desktopTaskPollIntervalMs(true)).toBe(
@@ -153,9 +170,30 @@ describe("shouldSyncOnLocalChatPush", () => {
   });
 });
 
+describe("deferred reconnect gaps", () => {
+  test("coalesces 100k mid-send pushes and preserves catch-up intent", () => {
+    let intent: ReturnType<typeof mergeDeferredDesktopSyncIntent> | null = null;
+    for (let index = 0; index < 100_000; index += 1) {
+      expect(
+        shouldDeferLocalChatPushDuringSend({
+          storageLoaded: true,
+          sending: true,
+        }),
+      ).toBe(true);
+      intent = mergeDeferredDesktopSyncIntent(intent, index === 50_000);
+    }
+    expect(intent).toEqual({ catchUp: true });
+    expect(
+      shouldStartDesktopSyncRun({ sending: true, duringSend: false }),
+    ).toBe(false);
+    expect(
+      shouldStartDesktopSyncRun({ sending: false, duringSend: false }),
+    ).toBe(true);
+  });
+});
+
 describe("shouldDeferLocalChatPushDuringSend", () => {
   test("mid-send pushes are deferred, not dropped", () => {
-
     expect(
       shouldDeferLocalChatPushDuringSend({
         storageLoaded: true,
@@ -291,14 +329,14 @@ describe("desktopSyncPullPlan", () => {
     ).toEqual({ sinceCursor: CURSOR, fullWindow: false });
   });
 
-  test("catch-up ignores the cursor and pulls the full window", () => {
+  test("catch-up preserves a usable cursor for the fast delta path", () => {
     expect(
       desktopSyncPullPlan({
         catchUp: true,
         expectedConversationId: "conv-1",
         cursor: CURSOR,
       }),
-    ).toEqual({ sinceCursor: null, fullWindow: true });
+    ).toEqual({ sinceCursor: CURSOR, fullWindow: false });
   });
 
   test("no known conversation or no cursor → full window either way", () => {
@@ -318,31 +356,22 @@ describe("desktopSyncPullPlan", () => {
     ).toBe(true);
   });
 
-  test("cursor-ahead: deltas are permanent no-ops, the catch-up full pull heals", () => {
-    type Row = { createdAt: number; id: string };
-    const desktopRows: Row[] = [
-      { createdAt: 1_000, id: "a" },
-
-      { createdAt: 2_000, id: "b" },
-
-      { createdAt: 1_500, id: "z-late" },
+  test("catch-up relies on the durable sequence cursor, not wall-clock order", () => {
+    const desktopRows = [
+      { createdAt: 2_000, id: "cursor", sequence: 10 },
+      { createdAt: 1_500, id: "backdated", sequence: 11 },
+      { createdAt: 2_000, id: "a-smaller-id", sequence: 12 },
     ];
-
-    const cursor = { createdAt: 2_000, id: "c-tool-event" };
-    const afterCursor = (row: Row) =>
-      row.createdAt > cursor.createdAt ||
-      (row.createdAt === cursor.createdAt && row.id > cursor.id);
-
-    expect(desktopRows.filter(afterCursor)).toEqual([]);
-
     const plan = desktopSyncPullPlan({
       catchUp: true,
       expectedConversationId: "conv-1",
-      cursor: "1:2000:c-tool-event",
+      cursor: "v2:10:2000:cursor",
     });
-    expect(plan.sinceCursor).toBeNull();
-
-    expect(desktopRows.length).toBe(3);
+    expect(plan.sinceCursor).toBe("v2:10:2000:cursor");
+    expect(desktopRows.filter((row) => row.sequence > 10)).toEqual([
+      { createdAt: 1_500, id: "backdated", sequence: 11 },
+      { createdAt: 2_000, id: "a-smaller-id", sequence: 12 },
+    ]);
   });
 
   test("cursor-behind (normal case): the delta stays cheap and correct", () => {

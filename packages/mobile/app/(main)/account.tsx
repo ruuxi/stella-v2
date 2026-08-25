@@ -19,7 +19,7 @@ import { clearAiConsent } from "../../src/lib/ai-consent";
 import { clearCachedToken } from "../../src/lib/auth-token";
 import { clearCachedDesktopBridge } from "../../src/lib/desktop-bridge-chat";
 import { isGuest } from "../../src/lib/guest-mode";
-import { clearAllChatStorage } from "../../src/lib/offline-chat-storage";
+import { clearAccountChatData } from "../../src/lib/chat-account-cleanup";
 import { userFacingError } from "../../src/lib/user-facing-error";
 import { tapLight } from "../../src/lib/haptics";
 import {
@@ -169,7 +169,7 @@ export default function AccountScreen() {
         clearStoredPhoneAccess(access.desktopDeviceId).catch(() => {}),
       ),
     );
-    await clearAllChatStorage();
+    await clearAccountChatData();
     await refreshPaired();
   };
 
@@ -181,6 +181,8 @@ export default function AccountScreen() {
       clearCachedToken();
       clearCachedDesktopBridge();
       await clearLocalAccountState();
+    } catch (e) {
+      Alert.alert(t("mobile.settings.signOutLabel"), userFacingError(e));
     } finally {
       setIsSigningOut(false);
     }

@@ -95,6 +95,11 @@ export default function ChatScreen() {
           <Text style={styles.emptyText}>{t("mobile.chat.emptyPrompt")}</Text>
         }
         historyLoading={!thread.storageLoaded}
+        hasOlderHistory={thread.hasOlderMessages}
+        hasNewerHistory={thread.hasNewerMessages}
+        historyPageLoading={thread.historyPageLoading}
+        onLoadOlderHistory={thread.loadOlderMessages}
+        onLoadNewerHistory={thread.loadNewerMessages}
         draft={thread.draft}
         onChangeDraft={thread.setDraft}
         canSubmit={canSubmit}

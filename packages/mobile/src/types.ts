@@ -111,7 +111,6 @@ export type MobileDisplayPayload =
       textOffset?: number;
     }
   | {
-
       kind: "agent-work";
       state: "running" | "done";
 
@@ -133,7 +132,6 @@ export type MobileDisplayPayload =
       failed?: boolean;
     }
   | {
-
       kind: "map-route";
       version: 1;
       title?: string;
@@ -164,7 +162,23 @@ export type ChatMessage = {
   createdAt?: number;
 
   canonicalCreatedAt?: number;
-
+  /**
+   * Durable desktop source row used for backward keyset pagination. Synthetic
+   * mobile projections (for example `:agent` cards) keep their own stable id,
+   * but paging must continue from the real SessionStore row that produced
+   * them.
+   */
+  sourceMessageId?: string;
+  sourceTimestamp?: number;
+  /**
+   * Authoritative monotonic ordering key from the desktop (chat-ordering
+   * re-architecture). When every row carries it the transcript is ordered by it
+   * (jump-free, clock-independent). Present on canonical rows; absent on
+   * in-flight optimistic rows until they reconcile, and on rows from a peer
+   * desktop on an older build that never sends it — in those windows the merge
+   * falls back to canonical insertion order (see rederiveOrder) so a row never
+   * inverts above its neighbours.
+   */
   sequence?: number;
   role: "assistant" | "user";
   text: string;

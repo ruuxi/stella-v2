@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 const memoryStore = new Map<string, string>();
 (globalThis as Record<string, unknown>).window = {
@@ -10,13 +10,22 @@ const memoryStore = new Map<string, string>();
     removeItem: (key: string) => {
       memoryStore.delete(key);
     },
+    get length() {
+      return memoryStore.size;
+    },
+    key: (index: number) => [...memoryStore.keys()][index] ?? null,
+    clear: () => memoryStore.clear(),
   },
 };
 
 import type { ChatMessage, MobileTask } from "../../types";
 import { mergeMessagesById } from "../chat-merge";
 import { collectConversationTasks } from "../mobile-task-merge";
-import { loadChatMessages, saveChatMessages } from "../offline-chat-storage";
+import {
+  __setTranscriptDatabaseForTests,
+  loadChatMessages,
+  saveChatMessages,
+} from "../offline-chat-storage";
 
 const task = (overrides: Partial<MobileTask> = {}): MobileTask => ({
   id: "agent-1",
@@ -32,6 +41,11 @@ const runningCount = (messages: ChatMessage[]) =>
     .length;
 
 describe("activity pill task derivation under push-connected sync", () => {
+  beforeEach(async () => {
+    memoryStore.clear();
+    await __setTranscriptDatabaseForTests(null);
+  });
+
   test("a push-delta anchor row re-delivers the running task to an already-synced transcript", () => {
 
     const current: ChatMessage[] = [

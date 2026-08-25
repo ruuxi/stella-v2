@@ -2329,6 +2329,12 @@ export type ChatPaneProps = {
   emptyContent: ReactNode;
 
   historyLoading?: boolean;
+  /** Durable pages adjacent to the bounded in-memory message window. */
+  hasOlderHistory?: boolean;
+  hasNewerHistory?: boolean;
+  historyPageLoading?: boolean;
+  onLoadOlderHistory?: () => Promise<void> | void;
+  onLoadNewerHistory?: () => Promise<void> | void;
 
   draft: string;
 
@@ -2420,6 +2426,11 @@ export function ChatPane({
   offline = false,
   emptyContent,
   historyLoading = false,
+  hasOlderHistory = false,
+  hasNewerHistory = false,
+  historyPageLoading = false,
+  onLoadOlderHistory,
+  onLoadNewerHistory,
   draft,
   onChangeDraft,
   composerEnabled = true,
@@ -3533,6 +3544,18 @@ export function ChatPane({
               getItemType={getItemType}
               ItemSeparatorComponent={renderSeparator}
               ListFooterComponent={listFooter}
+              onStartReached={() => {
+                if (hasOlderHistory && !historyPageLoading) {
+                  void onLoadOlderHistory?.();
+                }
+              }}
+              onStartReachedThreshold={0.35}
+              onEndReached={() => {
+                if (hasNewerHistory && !historyPageLoading) {
+                  void onLoadNewerHistory?.();
+                }
+              }}
+              onEndReachedThreshold={0.35}
               onScroll={handleListScroll}
               onScrollBeginDrag={() => {
 

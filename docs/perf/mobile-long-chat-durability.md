@@ -148,20 +148,93 @@ optimistic/canonical duplicate-user race.
 - **Corrupt row:** hydration skips that row only. Other SQLite rows and pages
   remain available.
 
+## Catch-up regression and performance evidence
+
+The cursor regression is directly visible in Git history. Commit
+`47bd4a6cb6b59acd8dea5077b5ba877299c1f124` (2026-07-03 04:40:15 -0700,
+`Fix computer-chat catch-up sync: full-window pulls, reconnect invariant,
+honest Force Sync`) introduced `desktopSyncPullPlan` and made every
+catch-up-classified landing, foreground, reconnect, or Force Sync discard an
+otherwise valid cursor. Commit `c85ea062d1d24cb3dbfeefc5eb5144b486207a84`
+(2026-08-08 14:36:55 -0700, `chore: integrate backend and mobile workspaces`)
+moved the mobile workspace into the monorepo while retaining that policy.
+Commit `c07862c225e79fdf5315c900053fb1322a08ff93`
+(2026-08-15 13:34:16 -0700, `fix(mobile): heal poisoned delta cursor so live
+sync catches the newest rows`) amplified this by escalating an empty ordinary
+push/connect/post-send delta to a second full-window catch-up. Commit
+`5630329b7b45bae8a98413affddc7209773b9b5f` (authored 2026-08-22 15:52:58
+-0700, committed 16:40:09 -0700, `fix(mobile): eliminate chat sync and voice
+freezes`) removed that generic empty-delta escalation after adding sequence
+ordering, but explicitly retained full-window behavior for normal catch-up.
+Commit `6f0defe605fcfd43b70bad5338912b07f80adc78` now preserves a valid cursor
+for those catch-up reasons and drains only the missing bounded suffix.
+
+Those code transitions are evidence. The claim that they caused a particular
+field report's perceived latency is an inference: no production timing trace
+or device telemetry was captured for the old build. The host benchmark isolates
+the policy's storage-projection and JSON-serialization consequence rather than
+claiming end-to-end phone latency.
+
+The benchmark was run from `packages/desktop-ui` with:
+
+```sh
+../../node_modules/.bin/vitest bench benchmarks/long-chat-perf.bench.ts --run
+```
+
+Host: MacBook Air `Mac16,13`, Apple M4 (10 cores), 24 GB RAM, macOS 15.6.1;
+Node 22.23.2 with SQLite 3.51.3; Vitest 4.1.7; Bun 1.4.0 was installed but did
+not execute this Node/Vitest benchmark. The temporary host SQLite dataset has
+500 turns, 1,140 tool events per turn, 571,001 total events after one appended
+tail event, an 80-visible-message full window, and 893 final-turn tool payloads
+of 5,000 characters. The reported catch-up percentiles use 12 timed full-window
+samples and 20 timed suffix samples; Vitest's adaptive microbench separately
+collected 44 full-window and 566 suffix samples.
+
+The baseline is not a checkout of an old commit. It applies the prior
+null-cursor policy to today's bounded `SessionStore.listMessages(...80)` path,
+then JSON-serializes that full result. The current case calls
+`SessionStore.listMessagesAfter` from a valid sequence cursor for the one-event
+suffix and serializes that result. This holds storage implementation and data
+constant while isolating cursor policy: 214,565 to 17,659 bytes (91.77% less),
+p50 10.773041 to 0.879583 ms, and p95 14.092333 to 4.253708 ms. It includes
+local host SQLite projection and `JSON.stringify`; it excludes tunnel/network,
+bridge encryption/envelopes, IPC transport, React Native/LegendList rendering,
+Hermes, and native `expo-sqlite`.
+
+`bun run mobile:lint` exits successfully with 0 errors and 74 warnings. An
+archive of base `08d7e73b30183d0b88eebd1a371b015a48559a09`, linted with the
+same installed dependency graph, has 0 errors and 49 warnings. The 25-warning
+delta is branch-local: 14 exhaustive-dependency notices around the stable
+`updateMessages` callback (one also names `threadId`), one unused pagination
+local, two array-style notices in a new pagination test, three import-order
+notices in the new index test, and five additional mock/import-order notices in
+the expanded storage test. No lint failure was attributed to the base, and no
+unrelated warning cleanup was folded into this phase.
+
+Verification was host-only. No iOS simulator, Android emulator, or physical
+device ran this branch, and neither the production app nor a desktop dev server
+was launched. Real-device verification still needs native SQLite migration and
+kill recovery, Hermes memory behavior, LegendList scroll anchoring, and actual
+tunnel reconnect/background/legacy-desktop flows.
+
 ## Deterministic verification
 
 The focused suites cover 10,000-row paging, bounded incremental saves,
 transaction interruption/retry, concurrent migration, truncation, 100,000 push
 events, deferred reconnect gaps, old-history task projection, strict desktop
-keysets, and oversized Markdown context. Run:
+keysets, and oversized Markdown context. The final authoritative commands were:
 
 ```sh
-bun test packages/mobile/src/lib/__tests__/offline-chat-storage.test.ts \
-  packages/mobile/src/lib/__tests__/offline-chat-tools.test.ts \
-  packages/mobile/src/lib/__tests__/chat-transcript-window.test.ts \
-  packages/mobile/src/lib/__tests__/desktop-history-pagination.test.ts \
-  packages/mobile/src/lib/__tests__/desktop-sync-policy.test.ts
-bun run test:electron -- tests/electron/mobile-sync-task-context.test.ts
+bun test packages/mobile/src/lib/__tests__
+bun test packages/desktop-ui/tests/electron/mobile-sync-pagination.test.ts \
+  packages/desktop-ui/tests/electron/mobile-sync-task-context.test.ts \
+  packages/desktop-ui/tests/runtime/kernel/storage/session-store.test.ts
+bun test packages/desktop-ui/tests/electron/preload-handler-manifest.test.ts
 bun run mobile:typecheck
 bun run electron:typecheck
+bun run mobile:lint
 ```
+
+They completed with 478/0/0 mobile tests, 72/0/0 affected desktop/runtime
+tests, and 3/0/0 preload-manifest tests (pass/fail/skip), plus both typechecks
+and the warning-only lint result described above.

@@ -47,6 +47,7 @@ import {
   MAX_NODE_REPL_PENDING_SKY_CALLS,
   MAX_NODE_REPL_PENDING_TOOL_CALLS,
   MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES,
+  NODE_REPL_TOOL_DESCRIBE_NAME,
   NODE_REPL_TOOL_SEARCH_NAME,
   type ConnectMethod,
   type NodeReplWorkerData,
@@ -136,6 +137,16 @@ export type NodeReplKernelManagerOptions = {
     context: ToolContext,
     limit?: number,
   ) => Promise<NodeReplToolSearchResult[]> | NodeReplToolSearchResult[];
+  /**
+   * Host-side handler for `tools.$describe(name)`. It resolves one exact name
+   * against the same live, authorized surface as invocation. `cursor` is only
+   * for deterministic lossless paging of exceptionally large schema docs.
+   */
+  describeTool?: (
+    name: string,
+    context: ToolContext,
+    cursor?: number,
+  ) => Promise<unknown> | unknown;
 };
 
 export type ComputerUseSessionFactoryOptions = Readonly<{
@@ -361,7 +372,7 @@ const MAX_BROWSER_SCREENSHOT_FILES_PER_KERNEL = 100;
  * Tools never exposed inside the REPL's `tools` object. `$`-prefixed names
  * need no entry here: the host rejects them at registration, and the worker
  * filters them from every refresh, so nothing can shadow the built-in
- * `tools.$search`.
+ * `tools.$search` or `tools.$describe`.
  */
 export const NODE_REPL_EXCLUDED_TOOL_NAMES: ReadonlySet<string> = new Set([
   "node_repl",
@@ -511,6 +522,7 @@ class NodeReplKernel {
   private readonly requestBrowserExtensionConnect?: BrowserExtensionConnectRequester;
   private readonly executeTool?: NodeReplKernelManagerOptions["executeTool"];
   private readonly searchTools?: NodeReplKernelManagerOptions["searchTools"];
+  private readonly describeTool?: NodeReplKernelManagerOptions["describeTool"];
   private readonly connectClient?: ReplConnectClient;
   private readonly onTerminated: (kernel: NodeReplKernel) => void;
   private tail: Promise<void> = Promise.resolve();
@@ -546,6 +558,7 @@ class NodeReplKernel {
       requestBrowserExtensionConnect?: BrowserExtensionConnectRequester;
       executeTool?: NodeReplKernelManagerOptions["executeTool"];
       searchTools?: NodeReplKernelManagerOptions["searchTools"];
+      describeTool?: NodeReplKernelManagerOptions["describeTool"];
       connectClient?: ReplConnectClient;
       toolNames: string[];
       browserSessionId: string;
@@ -559,6 +572,7 @@ class NodeReplKernel {
       options.requestBrowserExtensionConnect;
     this.executeTool = options.executeTool;
     this.searchTools = options.searchTools;
+    this.describeTool = options.describeTool;
     this.connectClient = options.connectClient;
     this.browserSessionId = options.browserSessionId;
     const getSignal = () => this.active?.controller.signal;
@@ -1335,10 +1349,10 @@ class NodeReplKernel {
       return;
     }
 
-    // `tools.$search` is a kernel intrinsic, resolved host-side over the
-    // live tool catalog BEFORE the per-context allowlist gate: demoted
-    // tools are deliberately absent from the model's direct list, and the
-    // search surface is how the REPL discovers them.
+    // `$search` and `$describe` are kernel intrinsics, resolved host-side over
+    // the live tool catalog BEFORE the per-context direct-tool gate. Demoted
+    // tools are absent from the provider's eager list, and these intrinsics
+    // progressively disclose only the callable surface for this context.
     if (message.toolName === NODE_REPL_TOOL_SEARCH_NAME) {
       try {
         if (!this.searchTools) {
@@ -1368,6 +1382,54 @@ class NodeReplKernel {
             callId: message.callId,
             ok: true,
             value: results,
+          });
+        }
+      } catch (error) {
+        if (!this.closed && this.active === active) {
+          this.postToolError(message.callId, error);
+        }
+      }
+      return;
+    }
+
+    if (message.toolName === NODE_REPL_TOOL_DESCRIBE_NAME) {
+      try {
+        if (!this.describeTool) {
+          throw new Error("tools.$describe is not available in this session.");
+        }
+        const name = message.args.name;
+        if (typeof name !== "string" || name.trim().length === 0) {
+          throw new Error(
+            "tools.$describe requires an exact non-empty tool name string.",
+          );
+        }
+        const rawCursor = message.args.cursor;
+        if (
+          rawCursor !== undefined &&
+          (typeof rawCursor !== "number" ||
+            !Number.isSafeInteger(rawCursor) ||
+            rawCursor < 0)
+        ) {
+          throw new Error(
+            "tools.$describe cursor must be a non-negative safe integer.",
+          );
+        }
+        const result = await this.describeTool(
+          name,
+          active.context,
+          rawCursor as number | undefined,
+        );
+        if (serializedSize(result) > MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES) {
+          throw new Error(
+            "Tool description exceeds the Node REPL protocol limit. The host must provide deterministic paged retrieval.",
+          );
+        }
+        if (!this.closed && this.active === active) {
+          this.post({
+            type: "tool-result",
+            callId: message.callId,
+            ok: true,
+            value: result,
           });
         }
       } catch (error) {
@@ -1880,6 +1942,7 @@ export class NodeReplKernelRegistry {
           this.options.requestBrowserExtensionConnect,
         executeTool: this.options.executeTool,
         searchTools: this.options.searchTools,
+        describeTool: this.options.describeTool,
         connectClient: this.options.connectClient,
         toolNames: replToolNamesForContext(context),
         browserSessionId,

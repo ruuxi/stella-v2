@@ -25,6 +25,8 @@ export const DEFAULT_NODE_REPL_TOOL_DRAIN_TIMEOUT_MS = 60_000;
  * constant must never drift from that literal.
  */
 export const NODE_REPL_TOOL_SEARCH_NAME = "$search";
+/** Reserved exact-tool schema lookup intrinsic; see the `$search` note above. */
+export const NODE_REPL_TOOL_DESCRIBE_NAME = "$describe";
 
 export type SkyMethod = keyof SkyClient;
 export type BrowserMethod = "command" | "chain" | "use";

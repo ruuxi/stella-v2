@@ -17,11 +17,24 @@ export interface ToolDefinition {
   agentTypes?: string[];
   /** JSON Schema for tool parameters. */
   parameters: Record<string, unknown>;
+  /** Optional JSON Schema for a successful result. */
+  outputSchema?: Record<string, unknown>;
+  /** Optional alternate result contract used by some tool SDKs. */
+  resultSchema?: Record<string, unknown>;
+  /** Approval policy metadata supplied by the tool source. */
+  approval?: unknown;
+  /** Side-effect metadata supplied by the tool source. */
+  sideEffects?: unknown;
+  /** Reversibility hint supplied by the tool source. */
+  reversible?: boolean;
+  /** MCP-style callable annotations supplied by the tool source. */
+  annotations?: Record<string, unknown>;
   /**
    * Demoted: dropped from the model's direct tool list when node_repl is
    * available; callable inside the REPL as `tools.<name>(args)` and
-   * discoverable via `tools.$search`. Direct-listed as a normal tool for
-   * agents without node_repl.
+   * discoverable via `tools.$search` and fully documented on demand via
+   * `tools.$describe`. Direct-listed as a normal tool for agents without
+   * node_repl.
    */
   demoted?: {
     searchTerms?: readonly string[];

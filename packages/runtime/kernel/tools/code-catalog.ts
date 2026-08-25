@@ -15,6 +15,14 @@ export type DemotedToolCatalogEntry = {
   name: string;
   description?: string;
   parameters?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  resultSchema?: Record<string, unknown>;
+  approval?: unknown;
+  sideEffects?: unknown;
+  reversible?: boolean;
+  annotations?: Record<string, unknown>;
+  label?: string;
+  workingText?: string;
   demoted?: {
     searchTerms?: readonly string[];
     requiredConnectorProvider?: string;
@@ -25,6 +33,22 @@ export type ToolSearchResult = {
   name: string;
   signature: string;
   description?: string;
+};
+
+/** Full, lossless docs returned only after an authorized `$describe` call. */
+export type ToolDescription = {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  invocation: string;
+  outputSchema?: Record<string, unknown>;
+  resultSchema?: Record<string, unknown>;
+  approval?: unknown;
+  sideEffects?: unknown;
+  reversible?: boolean;
+  annotations?: Record<string, unknown>;
+  label?: string;
+  workingText?: string;
 };
 
 const MAX_SCHEMA_RENDER_DEPTH = 6;
@@ -244,9 +268,7 @@ export const buildCatalogSection = (
     const rotation = namespaceNames.filter(
       (name) => (namespaces.get(name)?.length ?? 0) > 0,
     );
-    const cursors = new Map<string, number>(
-      rotation.map((name) => [name, 0]),
-    );
+    const cursors = new Map<string, number>(rotation.map((name) => [name, 0]));
     let active = [...rotation];
     while (active.length > 0) {
       const next: string[] = [];
@@ -400,9 +422,10 @@ const toSearchResult = (tool: DemotedToolCatalogEntry): ToolSearchResult => {
 };
 
 /**
- * Rank `tools` against `query` and return full callable signatures, so a
- * follow-up lookup is never needed. An exact tool-name query short-circuits
- * straight to that tool. Ties break by name for determinism. Never throws.
+ * Rank `tools` against `query` and return compact callable signatures. Full
+ * JSON schemas deliberately remain host-side until `$describe` selects one
+ * exact tool. An exact name query short-circuits straight to that tool. Ties
+ * break by name for determinism. Never throws.
  */
 export const searchToolCatalog = (
   tools: readonly DemotedToolCatalogEntry[],
@@ -414,9 +437,12 @@ export const searchToolCatalog = (
       (tool): tool is DemotedToolCatalogEntry =>
         Boolean(tool) && typeof tool.name === "string" && tool.name.length > 0,
     );
-    const normalized = typeof query === "string" ? query.trim().toLowerCase() : "";
+    const normalized =
+      typeof query === "string" ? query.trim().toLowerCase() : "";
     if (!normalized) return [];
-    const exact = valid.filter((tool) => tool.name.toLowerCase() === normalized);
+    const exact = valid.filter(
+      (tool) => tool.name.toLowerCase() === normalized,
+    );
     if (exact.length > 0) return exact.map(toSearchResult);
     const queryTokens = tokenizeToolQuery(normalized);
     return valid
@@ -433,3 +459,28 @@ export const searchToolCatalog = (
     return [];
   }
 };
+
+/**
+ * Build full on-demand documentation for one exact tool. This helper performs
+ * no lookup or authorization itself; callers must first select from the live,
+ * context-filtered catalog used for invocation.
+ */
+export const describeToolCatalogEntry = (
+  tool: DemotedToolCatalogEntry & {
+    description: string;
+    parameters: Record<string, unknown>;
+  },
+): ToolDescription => ({
+  name: tool.name,
+  description: tool.description,
+  inputSchema: tool.parameters,
+  invocation: `tools.${tool.name}(args)`,
+  ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
+  ...(tool.resultSchema ? { resultSchema: tool.resultSchema } : {}),
+  ...(tool.approval !== undefined ? { approval: tool.approval } : {}),
+  ...(tool.sideEffects !== undefined ? { sideEffects: tool.sideEffects } : {}),
+  ...(tool.reversible !== undefined ? { reversible: tool.reversible } : {}),
+  ...(tool.annotations ? { annotations: tool.annotations } : {}),
+  ...(tool.label ? { label: tool.label } : {}),
+  ...(tool.workingText ? { workingText: tool.workingText } : {}),
+});

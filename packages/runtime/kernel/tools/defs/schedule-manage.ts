@@ -61,9 +61,72 @@ const SCHEDULE_SEARCH_TERMS = [
 ] as const;
 
 const SCHEDULE_DEFINITION_PROPERTY = {
-  type: "object",
   description:
     "When to fire: { kind: 'at', atMs } for one-shots (epoch ms) | { kind: 'every', everyMs, anchorMs? } | { kind: 'cron', expr, tz? } (5-field cron).",
+  oneOf: [
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind", "atMs"],
+      properties: {
+        kind: {
+          type: "string",
+          const: "at",
+          description: "Run once at an absolute time.",
+        },
+        atMs: {
+          type: "number",
+          exclusiveMinimum: 0,
+          description: "Absolute Unix epoch timestamp in milliseconds.",
+        },
+      },
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind", "everyMs"],
+      properties: {
+        kind: {
+          type: "string",
+          const: "every",
+          description: "Run repeatedly at a fixed interval.",
+        },
+        everyMs: {
+          type: "number",
+          exclusiveMinimum: 0,
+          description: "Positive repeat interval in milliseconds.",
+        },
+        anchorMs: {
+          type: "number",
+          description:
+            "Optional Unix epoch timestamp used to anchor the interval cadence.",
+        },
+      },
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind", "expr"],
+      properties: {
+        kind: {
+          type: "string",
+          const: "cron",
+          description: "Run on a cron expression.",
+        },
+        expr: {
+          type: "string",
+          minLength: 1,
+          description: "Five-field cron expression accepted by the scheduler.",
+        },
+        tz: {
+          type: "string",
+          minLength: 1,
+          description:
+            "Optional IANA time-zone name; omitted uses the scheduler default.",
+        },
+      },
+    },
+  ],
 } as const;
 
 const JOB_ID_PROPERTY = {

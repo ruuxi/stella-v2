@@ -382,9 +382,6 @@ export const recoverContextOverflow = async (args) => {
         threadKey: args.threadKey,
         runId: args.runId,
         messageCount: args.agent.state.messages.length,
-        ...(threadTokenEstimate !== undefined
-          ? { orchestratorTokenEstimate: threadTokenEstimate }
-          : {}),
       }),
     );
   const lastPayloadTokens = getLastProviderPayloadTokens(args.threadKey);

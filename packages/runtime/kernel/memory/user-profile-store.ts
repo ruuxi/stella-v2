@@ -2,12 +2,10 @@
  * Resident user-profile store — the small, always-injected doc of durable
  * facts Stella knows about the user (name, location, stable preferences).
  *
- * This is Stella's answer to "remember my name": unlike the Dream ledger
- * (`MEMORY.md` / `memory_map.md`, reachable only via the `Context`
- * lookup tool), `profile.md` is push-injected into the Orchestrator at
- * session start, so durable identity facts are always in context without a
- * lookup. It is written exclusively by the Orchestrator's `Remember` tool —
- * no other writer touches it, so there is no consolidation race with Dream.
+ * This is Stella's answer to "remember my name": `profile.md` is injected
+ * into the Orchestrator at session start, so durable identity facts are
+ * always in context without a lookup. It is written exclusively through the
+ * Orchestrator's validated `Remember` tool.
  *
  * Entries are one fact per markdown bullet, deduped case-insensitively, with
  * a hard char cap so the resident block stays cheap to inject every session.
@@ -207,7 +205,11 @@ const applyUserProfileOperationLocked = async (
 
   if (op.action === "add") {
     if (!content) {
-      return { ok: false, message: "add requires content.", entryCount: entries.length };
+      return {
+        ok: false,
+        message: "add requires content.",
+        entryCount: entries.length,
+      };
     }
     if (entries.some((entry) => sameEntry(entry, content))) {
       return {

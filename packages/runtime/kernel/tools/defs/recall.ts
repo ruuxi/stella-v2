@@ -22,7 +22,7 @@ export const createRecallTool = (
   name: "Recall",
   agentTypes: [AGENT_IDS.ORCHESTRATOR],
   description:
-    "Look up deeper memory, past work, or live machine context that isn't currently loaded. Recall routes by intent before reading: common repo/path/decision/exact-phrase lookups return indexed evidence directly with no model call; only genuine multi-source episodic questions use one light-tier synthesis call. Past work results include resumable thread_ids and source inbox/run ids. " +
+    "Look up durable profile/core memory, past work, conversation history, or live machine context that isn't currently loaded. Every query searches and merges delegated-thread results, durable thread summaries, and conversation transcripts; source type contributes ranking evidence but never gates retrieval. Strong indexed evidence returns directly, while ambiguous combined evidence may use one bounded synthesis call. Past work results include resumable thread_ids and run ids. " +
     'Use it when the user references something from before ("yesterday", "that", "the thing I was doing"), asks about prior work, names a repo/module/feature with possible history, points at past agent threads to resume, or the request is ambiguous and earlier context could change the answer. ' +
     "You do NOT need it for the user's name, location, stable preferences, or current focus — those are already in your context. Skip it for self-contained requests (current time, simple rewrite, trivial formatting). When in doubt on anything historical or on-screen, do a quick Recall. The result has a structured status: found, no_match, retrieval_error, or synthesis_error. Do not blindly retry the same lookup after no_match or an error; identical same-run lookups are cached.",
   parameters: {
@@ -37,7 +37,7 @@ export const createRecallTool = (
         type: "array",
         items: { type: "string" },
         description:
-          "Grep-like search terms: 2-8 concrete terms from the user's wording, repo/module names, feature names, dates, file names, error text, or prior-decision keywords. Recall chooses the relevant index first and permits at most one deterministic fallback pass.",
+          "Grep-like search terms: 2-8 concrete terms from the user's wording, repo/module names, feature names, dates, file names, error text, or prior-decision keywords. Recall applies them to both thread and transcript history in one unified retrieval pass.",
       },
     },
     required: ["prompt", "memorySearchTerms"],

@@ -101,9 +101,9 @@ describe("getBackgroundWork spawn vs send_input follow-up", () => {
 
   it("excludes orchestrator-reserved builtin agents from the card entirely", () => {
     const work = getBackgroundWork([
-      started("dream-thread", "Consolidate memory", {
-        agentType: "dream",
-        statusText: "folding notes",
+      started("fashion-thread", "Choose an outfit", {
+        agentType: "fashion",
+        statusText: "comparing options",
         isFollowUp: true,
       }),
     ]);

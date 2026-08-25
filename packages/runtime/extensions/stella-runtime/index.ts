@@ -5,9 +5,7 @@ import type {
 } from "../../kernel/extensions/types.js";
 import { createConnectorAvailabilityReminderHook } from "./hooks/connector-availability-reminder.hook.js";
 import { createConnectorFormatReminderHook } from "./hooks/connector-format-reminder.hook.js";
-import { createDreamSchedulerNotifyHook } from "./hooks/dream-scheduler-notify.hook.js";
 import { createOrchestratorReminderHook } from "./hooks/orchestrator-reminder.hook.js";
-import { createMemoryReviewHook } from "./hooks/memory-review.hook.js";
 import { createStaleUserReminderHook } from "./hooks/stale-user-reminder.hook.js";
 import { createThreadSummariesRecordHook } from "./hooks/thread-summaries-record.hook.js";
 import { resolveRuntimeSourceAsset } from "../../kernel/shared/runtime-paths.js";
@@ -35,8 +33,6 @@ export const loadStellaRuntimeAgents = (
  *   - Agent registration from backend-synchronized home markdown
  *   - Stale-user reminder
  *   - Orchestrator reminder (active-threads roster)
- *   - Memory review spawn (post-orchestrator finalize)
- *   - Dream scheduler notify (post-subagent finalize)
  *   - Thread-summaries record (post-subagent finalize, capability-gated)
  *
  * Lives in `runtime/extensions/stella-runtime/` so power users can fork
@@ -76,19 +72,6 @@ const stellaRuntimeExtension: ExtensionFactory = (pi, services) => {
   // active context window (compaction resets eligibility; declines win).
   register(
     createConnectorAvailabilityReminderHook({
-      stellaDataDir: services.stellaDataDir,
-      store: services.store,
-    }),
-  );
-  register(
-    createMemoryReviewHook({
-      stellaDataDir: services.stellaDataDir,
-      stellaAppDir: services.stellaAppDir,
-      store: services.store,
-    }),
-  );
-  register(
-    createDreamSchedulerNotifyHook({
       stellaDataDir: services.stellaDataDir,
       store: services.store,
     }),

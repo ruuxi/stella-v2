@@ -526,23 +526,4 @@ export type RunnerPublicApi = {
     name?: string;
   }>;
   googleWorkspaceDisconnect: () => Promise<{ ok: boolean }>;
-  /**
-   * Ask the Dream scheduler to run now. Trigger names are advisory and used
-   * for diagnostics; eligibility gates apply to non-`manual` triggers.
-   */
-  triggerDreamNow: (trigger?: "manual" | "startup_catchup") => Promise<{
-    scheduled: boolean;
-    reason:
-      | "scheduled"
-      | "disabled"
-      | "in_flight"
-      | "count_failed"
-      | "no_inputs"
-      | "below_threshold"
-      | "lock_busy"
-      | "no_api_key"
-      | "unavailable";
-    pendingItems: number;
-    detail?: string;
-  }>;
 };

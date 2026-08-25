@@ -69,10 +69,7 @@ const copyPathIfMissing = async (sourcePath: string, targetPath: string) => {
 // One-shot copies into the user's space. Bundled skills are mirrored into
 // `system/` instead; system prompts live in the app bundle and never
 // materialize into the data dir at all.
-const STELLA_DATA_SEED_ENTRIES = [
-  "DREAM.md",
-  path.join("outputs", "README.md"),
-] as const;
+const STELLA_DATA_SEED_ENTRIES = [path.join("outputs", "README.md")] as const;
 
 export const ensureStellaDataDirSeeded = async (
   stellaAppDir: string,

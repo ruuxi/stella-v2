@@ -47,11 +47,14 @@ describe("ensureStellaDataDirSeeded", () => {
     const result = await ensureStellaDataDirSeeded(stellaAppDir, stellaDataDir);
     expect(result.mirrored).toBe(true);
 
-    // One-shot seeds land in the user space…
+    // Retained one-shot seeds land in user space.
+    await expect(
+      readFile(path.join(stellaDataDir, "outputs", "README.md"), "utf-8"),
+    ).resolves.toBe("outputs");
+    // Retired and non-seed entries do not.
     await expect(
       readFile(path.join(stellaDataDir, "DREAM.md"), "utf-8"),
-    ).resolves.toBe("seed dream");
-    // …but non-seed entries do not.
+    ).rejects.toThrow();
     await expect(
       readFile(path.join(stellaDataDir, "preferences.json"), "utf-8"),
     ).rejects.toThrow();

@@ -38,7 +38,7 @@ describe("internal helper agent exclusion", () => {
     // The Manager agent type is retired; its rows read as machinery.
     expect(isActivityFeedTask({ agentType: "manager" })).toBe(false);
     expect(isActivityFeedTask({ agentType: "schedule" })).toBe(false);
-    expect(isActivityFeedTask({ agentType: "dream" })).toBe(false);
+    expect(isActivityFeedTask({ agentType: "explore" })).toBe(false);
     expect(isActivityFeedTask({ agentType: "orchestrator" })).toBe(false);
   });
 });

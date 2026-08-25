@@ -133,6 +133,9 @@ export type LocalChatSyncMessageWithArtifacts = {
   role: "user" | "assistant";
   text: string;
   timestamp: number;
+  /** Durable SessionStore row behind this potentially synthetic projection. */
+  sourceMessageId: string;
+  sourceTimestamp: number;
   /** Owning message's monotonic ordering key, when the sequence migration is live. */
   sequence?: number;
   requestId?: string;
@@ -154,6 +157,17 @@ export type LocalChatMobileSyncCursor = {
 export type LocalChatMobileSyncResult = {
   messages: LocalChatSyncMessageWithArtifacts[];
   cursor: string | null;
+  /** Whether the supplied cursor was consumed or a bounded snapshot recovered it. */
+  cursorStatus?: "valid" | "snapshot" | "invalid";
+  /** True when another forward delta page exists after `cursor`. */
+  hasMore?: boolean;
+};
+
+export type LocalChatMobileHistoryPage = {
+  messages: LocalChatSyncMessageWithArtifacts[];
+  hasOlder: boolean;
+  /** Oldest durable source consumed, including when every projection is hidden. */
+  oldestSourceCursor: { timestamp: number; id: string } | null;
 };
 
 type MobileArtifactOptions = {
@@ -1484,6 +1498,8 @@ export const buildMobileSyncMessages = (
           role,
           text,
           timestamp: message.timestamp,
+          sourceMessageId: message._id,
+          sourceTimestamp: message.timestamp,
           ...(typeof message.sequence === "number"
             ? { sequence: message.sequence }
             : {}),
@@ -1504,6 +1520,8 @@ export const buildMobileSyncMessages = (
         role: "assistant",
         text: "",
         timestamp: message.timestamp,
+        sourceMessageId: message._id,
+        sourceTimestamp: message.timestamp,
         ...(typeof message.sequence === "number"
           ? { sequence: message.sequence }
           : {}),
@@ -1518,6 +1536,8 @@ export const buildMobileSyncMessages = (
         role: "assistant",
         text: "",
         timestamp: message.timestamp,
+        sourceMessageId: message._id,
+        sourceTimestamp: message.timestamp,
         ...(typeof message.sequence === "number"
           ? { sequence: message.sequence }
           : {}),

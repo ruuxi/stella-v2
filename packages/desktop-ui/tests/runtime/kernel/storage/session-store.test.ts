@@ -70,6 +70,38 @@ afterEach(async () => {
 });
 
 describe("session-store", () => {
+  it("does not arm an Other Threads roster when a child summary changes", () => {
+    const { store } = createTestContext();
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId: "conv-child-summary",
+      agentType: "general",
+    });
+
+    store.updateThreadSummary(threadId, "Child summary changed.");
+
+    expect(
+      store.getOrchestratorReminderState("conv-child-summary")
+        .shouldInjectDynamicReminder,
+    ).toBe(false);
+  });
+
+  it("keeps a compaction-owned roster flag armed until durable consumption", () => {
+    const { store } = createTestContext();
+    const conversationId = "conv-roster-consumption";
+
+    store.forceOrchestratorReminderOnNextTurn(conversationId);
+    expect(
+      store.getOrchestratorReminderState(conversationId)
+        .shouldInjectDynamicReminder,
+    ).toBe(true);
+
+    store.consumeOrchestratorReminder(conversationId);
+    expect(
+      store.getOrchestratorReminderState(conversationId)
+        .shouldInjectDynamicReminder,
+    ).toBe(false);
+  });
+
   it("rolls back an entire assistant/tool group when one SQLite append fails", () => {
     const { db, store } = createTestContext();
     const { threadId } = store.resolveOrCreateActiveThread({
@@ -1710,9 +1742,9 @@ describe("session-store", () => {
       id: anchors[0]!._id,
     });
     expect(pageEnd?.id).toBe(anchors[10]!._id);
-    expect(store.findVisibleMessageCursorAfter(conversationId, pageEnd!)?.id).toBe(
-      anchors[11]!._id,
-    );
+    expect(
+      store.findVisibleMessageCursorAfter(conversationId, pageEnd!)?.id,
+    ).toBe(anchors[11]!._id);
     const originalFetch = store.fetchTimelineRows.bind(store);
     vi.spyOn(store, "fetchTimelineRows").mockImplementation((...args) => {
       const rows = originalFetch(...args);
@@ -2716,7 +2748,7 @@ describe("session-store", () => {
     });
   });
 
-  it("removes legacy memory summaries from compaction overlays", () => {
+  it("removes all retired automatic-memory docs from compaction overlays", () => {
     const { store } = createTestContext();
     const conversationId = "conv-retired-memory-overlay";
     const { threadId } = store.resolveOrCreateActiveThread({
@@ -2738,15 +2770,6 @@ describe("session-store", () => {
         '<startup_doc path="~/.stella/memories/memory_summary.md">\nLEGACY_RETIRED_SUMMARY\n</startup_doc>',
       display: false,
     });
-    store.appendThreadCustomMessage({
-      threadKey: threadId,
-      timestamp: 4_002,
-      customType: "bootstrap.startup_doc",
-      content:
-        '<startup_doc path="~/.stella/memories/memory_map.md">\ncurrent map\n</startup_doc>',
-      display: false,
-    });
-
     const beforeCompaction = store.loadThreadMessages(threadId);
     store.compactThread({
       threadKey: threadId,
@@ -2764,7 +2787,11 @@ describe("session-store", () => {
             },
             {
               customType: "bootstrap.startup_doc",
-              text: '<startup_doc path="~/.stella/memories/memory_map.md">\ncurrent map\n</startup_doc>',
+              text: '<startup_doc path="~/.stella/memories/MEMORY.md">\nLEGACY_LEDGER\n</startup_doc>',
+            },
+            {
+              customType: "bootstrap.startup_doc",
+              text: '<startup_doc path="~/.stella/memories/profile.md">\ncurrent profile\n</startup_doc>',
             },
           ],
         },
@@ -2773,7 +2800,70 @@ describe("session-store", () => {
 
     const compacted = JSON.stringify(store.loadThreadMessages(threadId));
     expect(compacted).not.toContain("LEGACY_RETIRED_SUMMARY");
-    expect(compacted).toContain("current map");
+    expect(compacted).not.toContain("LEGACY_LEDGER");
+    expect(compacted).toContain("current profile");
+  });
+
+  it("sweeps stale rosters at compaction and retains only the next fresh snapshot", () => {
+    const { store } = createTestContext();
+    const conversationId = "conv-roster-overlay";
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId,
+      agentType: "orchestrator",
+    });
+    store.appendThreadCustomMessage({
+      threadKey: threadId,
+      timestamp: 4_000,
+      customType: "runtime.orchestrator_reminder",
+      content: "STALE_ROSTER",
+      display: false,
+    });
+    store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 4_001,
+      role: "user",
+      content: "Keep working",
+      payload: { role: "user", content: "Keep working", timestamp: 4_001 },
+    });
+    store.appendThreadCustomMessage({
+      threadKey: threadId,
+      timestamp: 4_002,
+      customType: "bootstrap.startup_doc",
+      content:
+        '<startup_doc path="~/.stella/memories/profile.md">\ncurrent profile\n</startup_doc>',
+      display: false,
+    });
+
+    const beforeCompaction = store.loadThreadMessages(threadId);
+    store.compactThread({
+      threadKey: threadId,
+      summary: "Continue without copying the roster",
+      fromEntryId: beforeCompaction[0]!.entryId!,
+      toEntryId: beforeCompaction[1]!.entryId!,
+      tokensBefore: 100,
+      timestamp: 4_100,
+      details: {
+        replaceDerivedContext: true,
+      },
+    });
+    store.appendThreadCustomMessage({
+      threadKey: threadId,
+      timestamp: 4_101,
+      customType: "runtime.orchestrator_reminder",
+      content: "FRESH_ROSTER",
+      display: false,
+    });
+
+    const messages = store.loadThreadMessages(threadId);
+    const compacted = JSON.stringify(messages);
+    expect(compacted).not.toContain("STALE_ROSTER");
+    expect(compacted).toContain("FRESH_ROSTER");
+    expect(
+      messages.filter(
+        (message) =>
+          message.customMessage?.customType === "runtime.orchestrator_reminder",
+      ),
+    ).toHaveLength(1);
   });
 
   it("applies later compaction overlays over the same raw message range", () => {
@@ -2950,9 +3040,7 @@ describe("session-store", () => {
       role: "user",
       content: "Task update: do the other thing",
     });
-    expect(after[1]!.checkpointQuarantineKeys).toEqual([
-      "6042:call-suspect",
-    ]);
+    expect(after[1]!.checkpointQuarantineKeys).toEqual(["6042:call-suspect"]);
     expect(after[1]!.content).not.toContain("6042:call-suspect");
   });
 
@@ -3065,9 +3153,9 @@ describe("session-store", () => {
       )
       .all() as Array<{ bytes: number }>;
     expect(physicalRows.length).toBeGreaterThan(2);
-    expect(Math.max(...physicalRows.map((row) => row.bytes))).toBeLessThanOrEqual(
-      6_000_000,
-    );
+    expect(
+      Math.max(...physicalRows.map((row) => row.bytes)),
+    ).toBeLessThanOrEqual(6_000_000);
   });
 
   it("preserves exact oversized runtime context for an evictable working set", () => {
@@ -3120,9 +3208,7 @@ describe("session-store", () => {
     const markerOffset = template.indexOf(marker);
     expect(markerOffset).toBeGreaterThan(0);
     const content =
-      "x".repeat(1_000_000 - markerOffset - 1) +
-      "😀" +
-      "y".repeat(5_100_000);
+      "x".repeat(1_000_000 - markerOffset - 1) + "😀" + "y".repeat(5_100_000);
 
     store.appendThreadCustomMessage({
       threadKey: threadId,

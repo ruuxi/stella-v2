@@ -74,11 +74,9 @@ import {
   createBackgroundExitWake,
   writeBackgroundExitLog,
 } from "./background-exit-wake.js";
-import { ensureDreamMemoryLayout } from "../memory/dream-storage.js";
 import {
   isRecallNoMatchBrief,
   RecallRetrievalError,
-  routeRecallIntent,
   runRecall,
 } from "../agent-runtime/context-lookup.js";
 import type { RecallTelemetrySeed } from "../agent-runtime/recall-telemetry.js";
@@ -93,7 +91,6 @@ import {
   LOCAL_HISTORY_RESERVE_TOKENS,
   MIN_LOCAL_HISTORY_TOKENS,
   readCoreMemory,
-  readMemoryMapDoc,
   readUserProfileDoc,
   sanitizeConvexDeploymentUrl,
   sanitizeStellaBase,
@@ -699,32 +696,26 @@ export const createRunnerContext = ({
             const sourceTimings: NonNullable<
               RecallTelemetrySeed["sourceTimings"]
             > = {};
-            const intent = routeRecallIntent(payload.prompt);
-            const needsHostContext = intent === "live_context";
             const hostContextStartedAt = performance.now();
             const localEventsStartedAt = performance.now();
-            const localEvents =
-              needsHostContext && context.listLocalChatEvents
-                ? context
-                    .listLocalChatEvents(payload.conversationId, 5)
-                    .filter((event) =>
-                      LOCAL_CONTEXT_EVENT_TYPES.has(event.type),
-                    )
-                : [];
+            const localEvents = context.listLocalChatEvents
+              ? context
+                  .listLocalChatEvents(payload.conversationId, 5)
+                  .filter((event) => LOCAL_CONTEXT_EVENT_TYPES.has(event.type))
+              : [];
             sourceTimings["host.localEvents"] = {
               kind: "sql",
-              calls: needsHostContext && context.listLocalChatEvents ? 1 : 0,
+              calls: context.listLocalChatEvents ? 1 : 0,
               ms: performance.now() - localEventsStartedAt,
               chars: 0,
             };
             const appBrowserStartedAt = performance.now();
-            const appBrowserContext =
-              needsHostContext && getAppBrowserContext
-                ? await getAppBrowserContext()
-                : undefined;
+            const appBrowserContext = getAppBrowserContext
+              ? await getAppBrowserContext()
+              : undefined;
             sourceTimings["host.appBrowserContext"] = {
               kind: "host",
-              calls: needsHostContext && getAppBrowserContext ? 1 : 0,
+              calls: getAppBrowserContext ? 1 : 0,
               ms: performance.now() - appBrowserStartedAt,
               chars: appBrowserContext
                 ? JSON.stringify(appBrowserContext).length
@@ -785,9 +776,6 @@ export const createRunnerContext = ({
         },
       );
     },
-    ...(runtimeStore?.dreamInboxStore
-      ? { dreamInboxStore: runtimeStore.dreamInboxStore }
-      : {}),
     agentApi: {
       createAgent: async (request) => {
         if (!context.state.localAgentManager) {
@@ -1396,7 +1384,6 @@ export const buildAgentContext = async (
       ? context.runtimeStore.getOrchestratorReminderState(args.conversationId)
       : {
           shouldInjectDynamicReminder: false,
-          reminderTokensSinceLastInjection: 0,
         };
   // A per-spawn engine selection wins over the preference-configured engine
   // for this run only; saved preferences are never touched.
@@ -1521,18 +1508,14 @@ export const buildAgentContext = async (
     args.agentType,
     "injectsCoreMemory",
   );
-  const injectsResidentMemory = agentHasCapability(
+  const injectsUserProfile = agentHasCapability(
     args.agentType,
-    "injectsResidentMemory",
+    "injectsUserProfile",
   );
   const injectsPersonality = agentHasCapability(
     args.agentType,
     "injectsPersonality",
   );
-  if (injectsResidentMemory) {
-    await ensureDreamMemoryLayout(context.stellaDataDir);
-  }
-
   return {
     // Developer-mode gate runs at assembly: with the flag off, the fenced
     // engine-routing guidance in the shipped prompt is omitted from the
@@ -1572,12 +1555,8 @@ export const buildAgentContext = async (
       memoryEnabled && injectsCoreMemory
         ? readCoreMemory(context.stellaDataDir)
         : undefined,
-    memoryMap:
-      memoryEnabled && injectsResidentMemory
-        ? readMemoryMapDoc(context.stellaDataDir)
-        : undefined,
     userProfile:
-      memoryEnabled && injectsResidentMemory
+      memoryEnabled && injectsUserProfile
         ? readUserProfileDoc(context.stellaDataDir)
         : undefined,
     personality: injectsPersonality

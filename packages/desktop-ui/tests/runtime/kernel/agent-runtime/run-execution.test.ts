@@ -76,9 +76,7 @@ describe("executeRuntimeAgentPrompt", () => {
   it("recovers one transient atomic assistant/tool-group persistence error", async () => {
     const onThreadPersistenceError = vi.fn();
     const onThreadPersistenceRecovered = vi.fn();
-    const appendThreadMessages = vi
-      .fn()
-      .mockImplementationOnce(() => {
+    const appendThreadMessages = vi.fn().mockImplementationOnce(() => {
         throw new Error("injected SQLite failure");
       });
     const assistant = createAssistantMessage("done");
@@ -145,9 +143,7 @@ describe("executeRuntimeAgentPrompt", () => {
       streamFn,
     });
     const abort = vi.spyOn(agent, "abort");
-    const appendThreadMessages = vi
-      .fn()
-      .mockImplementationOnce(() => {
+    const appendThreadMessages = vi.fn().mockImplementationOnce(() => {
         throw new Error("injected SQLite failure");
       });
     const recorder = {
@@ -286,11 +282,13 @@ describe("executeRuntimeAgentPrompt", () => {
 
     const result = await executeRuntimeAgentPrompt({
       agent,
-      promptMessages: [{
+      promptMessages: [
+        {
         text: "Hidden reminder",
         uiVisibility: "hidden",
         messageType: "message",
-      }],
+        },
+      ],
       runId: "run-1",
       agentType: "orchestrator",
       userMessageId: "msg-1",
@@ -315,7 +313,7 @@ describe("executeRuntimeAgentPrompt", () => {
     expect(onUserMessage).not.toHaveBeenCalled();
   });
 
-  it("does not duplicate a pre-persisted task lifecycle prompt", async () => {
+  it("persists a task lifecycle prompt once with its stable event ID", async () => {
     const appendThreadCustomMessage = vi.fn();
     const priorAssistant = createAssistantMessage("previous turn");
     const durableLifecycleMessage = {
@@ -323,30 +321,20 @@ describe("executeRuntimeAgentPrompt", () => {
       content: [{ type: "text" as const, text: "[Agent completed]" }],
       timestamp: 123,
       customType: "runtime.task_lifecycle",
+      eventId: "task-1:1:agent-completed",
       display: false,
-    };
-    const olderMatchingLifecycleMessage = {
-      ...durableLifecycleMessage,
-      timestamp: 122,
     };
     const agent = {
       state: {
-        messages: [
-          olderMatchingLifecycleMessage,
-          priorAssistant,
-          durableLifecycleMessage,
-        ] as Array<
-          ReturnType<typeof createAssistantMessage> | typeof durableLifecycleMessage
+        messages: [priorAssistant] as Array<
+          | ReturnType<typeof createAssistantMessage>
+          | typeof durableLifecycleMessage
         >,
       },
       subscribe: () => () => {},
       prompt: vi.fn(async (messages: Array<typeof durableLifecycleMessage>) => {
-        expect(agent.state.messages).toEqual([
-          olderMatchingLifecycleMessage,
-          priorAssistant,
-        ]);
+        expect(agent.state.messages).toEqual([priorAssistant]);
         agent.state.messages = [
-          olderMatchingLifecycleMessage,
           priorAssistant,
           ...messages,
           createAssistantMessage("done"),
@@ -359,14 +347,17 @@ describe("executeRuntimeAgentPrompt", () => {
 
     await executeRuntimeAgentPrompt({
       agent,
-      promptMessages: [{
+      promptMessages: [
+        {
         text: "[Agent completed]",
         uiVisibility: "hidden",
         messageType: "message",
         customType: "runtime.task_lifecycle",
+          eventId: durableLifecycleMessage.eventId,
         display: false,
         timestamp: 123,
-      }],
+        },
+      ],
       runId: "run-task-lifecycle",
       agentType: "orchestrator",
       userMessageId: "msg-task-lifecycle",
@@ -376,13 +367,111 @@ describe("executeRuntimeAgentPrompt", () => {
       threadKey: "thread-task-lifecycle",
     });
 
-    expect(appendThreadCustomMessage).not.toHaveBeenCalled();
+    expect(appendThreadCustomMessage).toHaveBeenCalledOnce();
+    expect(appendThreadCustomMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customType: "runtime.task_lifecycle",
+        eventId: durableLifecycleMessage.eventId,
+      }),
+    );
     expect(agent.prompt).toHaveBeenCalledWith([durableLifecycleMessage]);
     expect(
       agent.state.messages.filter(
         (message) => message.role === "runtimeInternal",
       ),
-    ).toEqual([olderMatchingLifecycleMessage, durableLifecycleMessage]);
+    ).toEqual([durableLifecycleMessage]);
+  });
+
+  it("consumes a roster reminder only after its hidden message is durable", async () => {
+    const appendThreadCustomMessage = vi.fn(async () => undefined);
+    const consumeOrchestratorReminder = vi.fn();
+    const agent = {
+      state: {
+        messages: [] as Array<ReturnType<typeof createAssistantMessage>>,
+      },
+      subscribe: () => () => {},
+      prompt: vi.fn(async () => {
+        agent.state.messages = [createAssistantMessage("done")];
+      }),
+      followUp: vi.fn(),
+      continue: vi.fn(),
+      abort: vi.fn(),
+    };
+
+    await executeRuntimeAgentPrompt({
+      agent,
+      promptMessages: [
+        {
+          text: "Other Threads fresh snapshot",
+          uiVisibility: "hidden",
+          messageType: "message",
+          customType: "runtime.orchestrator_reminder",
+          display: false,
+        },
+      ],
+      runId: "run-roster",
+      agentType: "orchestrator",
+      conversationId: "conversation-roster",
+      userMessageId: "msg-roster",
+      recorder: {} as never,
+      callbacks: {},
+      threadStore: {
+        appendThreadCustomMessage,
+        consumeOrchestratorReminder,
+      } as never,
+      threadKey: "thread-roster",
+    });
+
+    expect(appendThreadCustomMessage).toHaveBeenCalledOnce();
+    expect(appendThreadCustomMessage.mock.invocationCallOrder[0]).toBeLessThan(
+      consumeOrchestratorReminder.mock.invocationCallOrder[0]!,
+    );
+    expect(consumeOrchestratorReminder).toHaveBeenCalledWith(
+      "conversation-roster",
+    );
+  });
+
+  it("leaves a roster reminder armed when durable persistence fails", async () => {
+    const appendThreadCustomMessage = vi.fn(() => {
+      throw new Error("disk unavailable");
+    });
+    const consumeOrchestratorReminder = vi.fn();
+    const agent = {
+      state: { messages: [] },
+      subscribe: () => () => {},
+      prompt: vi.fn(),
+      followUp: vi.fn(),
+      continue: vi.fn(),
+      abort: vi.fn(),
+    };
+
+    await expect(
+      executeRuntimeAgentPrompt({
+        agent: agent as never,
+        promptMessages: [
+          {
+            text: "Other Threads fresh snapshot",
+            uiVisibility: "hidden",
+            messageType: "message",
+            customType: "runtime.orchestrator_reminder",
+            display: false,
+          },
+        ],
+        runId: "run-roster-failure",
+        agentType: "orchestrator",
+        conversationId: "conversation-roster",
+        userMessageId: "msg-roster-failure",
+        recorder: {} as never,
+        callbacks: {},
+        threadStore: {
+          appendThreadCustomMessage,
+          consumeOrchestratorReminder,
+        } as never,
+        threadKey: "thread-roster",
+      }),
+    ).rejects.toThrow("disk unavailable");
+
+    expect(consumeOrchestratorReminder).not.toHaveBeenCalled();
   });
 
   it("keeps persisting and emitting user prompt messages", async () => {
@@ -403,10 +492,12 @@ describe("executeRuntimeAgentPrompt", () => {
 
     await executeRuntimeAgentPrompt({
       agent,
-      promptMessages: [{
+      promptMessages: [
+        {
         text: "Visible user message",
         uiVisibility: "visible",
-      }],
+        },
+      ],
       runId: "run-2",
       agentType: "orchestrator",
       userMessageId: "msg-2",
@@ -432,8 +523,8 @@ describe("executeRuntimeAgentPrompt", () => {
     const appendThreadMessage = vi.fn();
     const appendThreadCustomMessage = vi.fn();
     const onUserMessage = vi.fn();
-    const describeImages = vi.fn(async () =>
-      "A settings window with a red connection error.",
+    const describeImages = vi.fn(
+      async () => "A settings window with a red connection error.",
     );
     const agent = {
       state: {
@@ -606,7 +697,8 @@ describe("executeRuntimeAgentPrompt", () => {
         return () => listeners.delete(listener);
       }),
       prompt: vi.fn(
-        () => new Promise<void>((resolve) => {
+        () =>
+          new Promise<void>((resolve) => {
           finishPrompt = resolve;
         }),
       ),

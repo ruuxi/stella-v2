@@ -3021,16 +3021,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     },
   );
 
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_DREAM_TRIGGER_NOW,
-    async (params) => {
-      const trigger =
-        (params as { trigger?: "manual" | "startup_catchup" } | undefined)
-          ?.trigger ?? "manual";
-      return await ensureRunner().triggerDreamNow(trigger);
-    },
-  );
-
   peer.registerRequestHandler(METHOD_NAMES.RUNTIME_HEALTH, async () => {
     const activeRun =
       state.runner?.getActiveOrchestratorRun() ??

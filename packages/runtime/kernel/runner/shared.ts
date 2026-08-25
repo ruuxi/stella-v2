@@ -13,7 +13,6 @@ import {
 import { isOrchestratorAgentType } from "@stella/contracts/agent-runtime";
 import { formatAgentTerminalStateSystemReminder } from "@stella/contracts/system-reminders";
 import { redactMemoryText } from "../memory/redaction.js";
-import { MEMORY_MAP_MAX_CHARS } from "../memory/dream-storage.js";
 import { USER_PROFILE_INJECT_MAX_CHARS } from "../memory/user-profile-store.js";
 import { readRuntimePrompt } from "../prompts/home-prompts.js";
 import { boundParentAgentReport } from "./agent-report-bounds.js";
@@ -55,12 +54,6 @@ export const readCoreMemory = (stellaDataDir: string): string | undefined => {
   return undefined;
 };
 
-const capResidentMemoryDoc = (content: string, maxChars?: number): string => {
-  if (!maxChars || content.length <= maxChars) return content;
-  const marker = "\n...[resident memory truncated]";
-  return `${content.slice(0, Math.max(0, maxChars - marker.length))}${marker}`;
-};
-
 const readResidentMemoryDoc = (
   filePath: string,
   maxChars?: number,
@@ -68,21 +61,14 @@ const readResidentMemoryDoc = (
   try {
     const content = fs.readFileSync(filePath, "utf-8").trim();
     return content
-      ? capResidentMemoryDoc(redactMemoryText(content), maxChars)
+      ? maxChars
+        ? redactMemoryText(content).slice(0, maxChars)
+        : redactMemoryText(content)
       : undefined;
   } catch {
     return undefined;
   }
 };
-
-/**
- * Dream's memory map, read synchronously for resident injection.
- */
-export const readMemoryMapDoc = (stellaDataDir: string): string | undefined =>
-  readResidentMemoryDoc(
-    path.join(stellaDataDir, "memories", "memory_map.md"),
-    MEMORY_MAP_MAX_CHARS,
-  );
 
 /**
  * The durable user-profile facts written by the `Remember` tool, read

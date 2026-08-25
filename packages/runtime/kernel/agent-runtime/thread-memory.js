@@ -7,18 +7,17 @@ import { now } from "./shared.js";
 import {
   BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
   LIFE_CORE_MEMORY_DISPLAY_PATH,
-  LIFE_MEMORY_MAP_DISPLAY_PATH,
   LIFE_USER_PROFILE_DISPLAY_PATH,
   buildResidentContextMessages,
   customMessageContentText,
-  isRetiredMemorySummaryCustomMessage,
+  isRetiredMemoryCustomMessage,
 } from "./resident-context.js";
 import { QUARANTINE_CUSTOM_TYPE } from "./provider-abort-containment.js";
+import { ORCHESTRATOR_ROSTER_CUSTOM_TYPE } from "../storage/shared.js";
 const logger = createRuntimeLogger("agent-runtime.thread-memory");
 const MEMORY_STARTUP_DOC_PATHS = [
   LIFE_CORE_MEMORY_DISPLAY_PATH,
   LIFE_USER_PROFILE_DISPLAY_PATH,
-  LIFE_MEMORY_MAP_DISPLAY_PATH,
 ];
 export const buildRunThreadKey = ({
   conversationId,
@@ -84,13 +83,25 @@ export const stripStaleImageBlocks = (messages) => {
   return rewroteAny ? out.reverse() : messages;
 };
 export const buildHistorySource = (context) => {
-  // Keep older bootstrap entries so cadence injections do not shift the
-  // prompt-cache prefix on coast turns.
+  const threadHistory = context.threadHistory ?? [];
+  let latestRosterIndex = -1;
+  for (let index = threadHistory.length - 1; index >= 0; index -= 1) {
+    if (
+      threadHistory[index]?.customMessage?.customType ===
+      ORCHESTRATOR_ROSTER_CUSTOM_TYPE
+    ) {
+      latestRosterIndex = index;
+      break;
+    }
+  }
   const messages =
-    context.threadHistory
+    threadHistory
       ?.filter(
-        (entry) =>
-          !isRetiredMemorySummaryEntry(entry) &&
+        (entry, index) =>
+          (entry.customMessage?.customType !==
+            ORCHESTRATOR_ROSTER_CUSTOM_TYPE ||
+            index === latestRosterIndex) &&
+          !isRetiredMemoryEntry(entry) &&
           entry.customMessage?.customType !== QUARANTINE_CUSTOM_TYPE &&
           !isFailedAssistantPayload(entry.payload) &&
           (context.memoryEnabled !== false || !isMemoryStartupDocEntry(entry)),
@@ -139,9 +150,9 @@ export const buildHistorySource = (context) => {
       .filter((entry) => entry !== null) ?? [];
   return messages;
 };
-const isRetiredMemorySummaryEntry = (entry) =>
+const isRetiredMemoryEntry = (entry) =>
   entry.role === "runtimeInternal" &&
-  isRetiredMemorySummaryCustomMessage(entry.customMessage);
+  isRetiredMemoryCustomMessage(entry.customMessage);
 const isFailedAssistantPayload = (payload) =>
   payload?.role === "assistant" &&
   (payload.stopReason === "error" ||
@@ -379,7 +390,7 @@ export const buildSystemPrompt = (context) => {
 };
 /**
  * Resident-block delta step. All resident context blocks (personality,
- * core memory, user profile, memory map, skill catalog) live in the
+ * core memory, user profile, skill catalog) live in the
  * ResidentBlock registry (`resident-context.js`), which owns rendering,
  * byte-exact dedup against the persisted thread, and the compaction
  * fold-in. This wrapper keeps the historical call sites stable.
@@ -534,18 +545,6 @@ export const buildOrchestratorPromptMessages = async (args) => {
     messages.push({ text: args.userPrompt });
   }
   return messages;
-};
-export const updateOrchestratorReminderState = (store, args) => {
-  const updateCounter = store.updateOrchestratorReminderCounter;
-  if (typeof updateCounter !== "function") {
-    return;
-  }
-  if (args.shouldInjectDynamicReminder) {
-    updateCounter.call(store, {
-      conversationId: args.conversationId,
-      resetTo: 0,
-    });
-  }
 };
 export const appendThreadMessage = (store, args) => {
   store.appendThreadMessage({

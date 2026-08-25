@@ -46,6 +46,15 @@ describe("task tool activity sanitization", () => {
 });
 
 describe("LocalAgentManager lifecycle observability", () => {
+  it("has no restart-time descendant completion replay API", () => {
+    expect(
+      "repairInterruptedDescendantBoundaries" in LocalAgentManager.prototype,
+    ).toBe(false);
+    expect("markParentWakeDelivered" in LocalAgentManager.prototype).toBe(
+      false,
+    );
+  });
+
   it("emits lifecycle events without unconditional stderr traces", async () => {
     const stderrWrite = vi
       .spyOn(process.stderr, "write")
@@ -111,7 +120,9 @@ describe("LocalAgentManager lifecycle observability", () => {
     let persisted:
       | Parameters<
           NonNullable<
-            ConstructorParameters<typeof LocalAgentManager>[0]["saveAgentRecord"]
+            ConstructorParameters<
+              typeof LocalAgentManager
+            >[0]["saveAgentRecord"]
           >
         >[0]
       | null = null;
@@ -151,9 +162,9 @@ describe("LocalAgentManager lifecycle observability", () => {
     });
     await waitForAgentSettled(manager, created.threadId);
 
-    expect((manager as unknown as { tasks: Map<string, unknown> }).tasks.size).toBe(
-      0,
-    );
+    expect(
+      (manager as unknown as { tasks: Map<string, unknown> }).tasks.size,
+    ).toBe(0);
     expect(persisted).toMatchObject({
       status: "completed",
       result: expect.stringMatching(/^x+$/),
@@ -226,9 +237,9 @@ describe("LocalAgentManager lifecycle observability", () => {
     await firstRunStartedPromise;
     await manager.cancelAgent(created.threadId, "Canceled for regression test");
 
-    expect((manager as unknown as { tasks: Map<string, unknown> }).tasks.size).toBe(
-      0,
-    );
+    expect(
+      (manager as unknown as { tasks: Map<string, unknown> }).tasks.size,
+    ).toBe(0);
     const unrelated = await manager.createAgent({
       conversationId: "abort-ignoring-eviction",
       description: "unrelated task",

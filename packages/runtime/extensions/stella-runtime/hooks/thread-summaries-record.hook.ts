@@ -8,10 +8,7 @@ const logger = createRuntimeLogger("stella-runtime.thread-summaries-record");
 /**
  * Thread-summaries record (stella-runtime).
  *
- * Queues one Dream-inbox row per finalized subagent run
- * (`store.dreamInboxStore`, kind `thread_summary`). Dream's scheduler later
- * consumes the inbox to build longer-horizon summaries; the
- * dream-scheduler-notify hook is the trigger, this hook is the source.
+ * Records one durable summary per finalized delegated run for Recall.
  *
  * Pre-migration this was an inline branch inside
  * `finalizeSubagentSuccess` gated on
@@ -35,7 +32,7 @@ export const createThreadSummariesRecordHook = (opts: {
     if (!payload.services) return;
 
     try {
-      opts.store.dreamInboxStore.recordThreadSummary({
+      opts.store.threadSummaryStore.recordThreadSummary({
         threadId: payload.threadKey,
         runId: payload.runId,
         agentType: payload.agentType,

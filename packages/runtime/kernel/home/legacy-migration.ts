@@ -171,13 +171,29 @@ const migratePersonality = async (stellaDataDir: string): Promise<void> => {
   await fs.rm(manifestPath, { force: true });
 };
 
+/** Remove files owned by the retired automatic memory-consolidation pipeline. */
+export const retireAutomaticMemoryArtifacts = async (
+  stellaDataDir: string,
+): Promise<void> => {
+  await Promise.all(
+    [
+      path.join(stellaDataDir, "DREAM.md"),
+      path.join(stellaDataDir, "memories", "MEMORY.md"),
+      path.join(stellaDataDir, "memories", "memory_map.md"),
+      path.join(stellaDataDir, "memories", "memory_summary.md"),
+    ].map((filePath) => fs.rm(filePath, { force: true })),
+  );
+};
+
 /**
- * Detects the old layout by its manifest files; a home dir that has already
- * migrated (or a fresh one) is a fast no-op.
+ * Always retire known automatic-memory artifacts, then migrate legacy
+ * manifest-owned content. Homes without legacy manifests remain a fast no-op
+ * after the idempotent cleanup.
  */
 export const migrateLegacyHomeLayout = async (
   stellaDataDir: string,
 ): Promise<void> => {
+  await retireAutomaticMemoryArtifacts(stellaDataDir);
   await migrateFileArea(path.join(stellaDataDir, "agents"), {
     replaceSuffixForModified: true,
   });

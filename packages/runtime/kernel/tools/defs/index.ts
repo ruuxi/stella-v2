@@ -25,7 +25,6 @@ import type {
 
 import { applyPatchTool } from "./apply-patch.js";
 import { createRecallTool } from "./recall.js";
-import { dreamTool } from "./dream.js";
 import { editTool } from "./edit.js";
 import { createExecCommandTool } from "./exec-command.js";
 import { createFashionControlTools } from "./fashion-control.js";
@@ -40,7 +39,6 @@ import { createRememberTool } from "./remember.js";
 import { createRequestCredentialTool } from "./request-credential.js";
 import { createScheduleManageTools } from "./schedule-manage.js";
 import { createScriptDraftTool } from "./script-draft.js";
-import { strReplaceTool } from "./str-replace.js";
 import { createAgentTools } from "./task.js";
 import { createConnectorStatusTool } from "./connector-status.js";
 import { createWebTool } from "./web.js";
@@ -177,14 +175,9 @@ export const buildBuiltinTools = (
     }),
   );
 
-  // Shared file/search/dream surface
-  // Read & Grep have unrestricted handlers in the host; StrReplace and Dream
-  // are intercepted by `dispatchLocalTool` inside the Dream subagent and
-  // simply error out from the host path.
+  // Shared file/search surface.
   tools.push(readTool);
   tools.push(grepTool);
-  tools.push(strReplaceTool);
-  tools.push(dreamTool);
 
   return tools;
 };

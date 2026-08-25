@@ -116,6 +116,9 @@ export const normalizeChatRunInput = (
           message.customType.trim()
             ? { customType: message.customType.trim() }
             : {}),
+          ...(typeof message.eventId === "string" && message.eventId.trim()
+            ? { eventId: message.eventId.trim() }
+            : {}),
           ...(typeof message.display === "boolean"
             ? { display: message.display }
             : {}),

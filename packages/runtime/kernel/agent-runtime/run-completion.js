@@ -1,8 +1,8 @@
 import { createRuntimeLogger } from "../debug.js";
-import { compactRuntimeThreadHistory, updateOrchestratorReminderState, } from "./thread-memory.js";
-import { getThreadTokenEstimate } from "../thread-runtime.js";
+import { compactRuntimeThreadHistory } from "./thread-memory.js";
 import { isThreadCompactionForced } from "./context-budget.js";
 import { resetSkillReadDedup } from "../tools/skill-read-dedup.js";
+import { isOrchestratorAgentType } from "@stella/contracts/agent-runtime";
 const logger = createRuntimeLogger("agent-runtime.completion");
 /**
  * Ceiling on each awaited finalization stage between "final answer produced"
@@ -26,16 +26,16 @@ const boundedFinalizeStage = async (args) => {
                         runId: args.runId,
                         timeoutMs: FINALIZE_STAGE_TIMEOUT_MS,
                     });
-                    console.warn(`[runtime] Run finalization stage "${args.stage}" exceeded ${Math.round(FINALIZE_STAGE_TIMEOUT_MS / 1000)}s; finishing the run without it (run ${args.runId}).`);
+          console.warn(
+            `[runtime] Run finalization stage "${args.stage}" exceeded ${Math.round(FINALIZE_STAGE_TIMEOUT_MS / 1000)}s; finishing the run without it (run ${args.runId}).`,
+          );
                     resolve(args.fallback);
                 }, FINALIZE_STAGE_TIMEOUT_MS);
                 timer.unref?.();
             }),
         ]);
-    }
-    finally {
-        if (timer)
-            clearTimeout(timer);
+  } finally {
+    if (timer) clearTimeout(timer);
         const elapsedMs = Date.now() - startedAt;
         if (elapsedMs > 5_000) {
             logger.warn("orchestrator.finalize-stage-slow", {
@@ -47,8 +47,10 @@ const boundedFinalizeStage = async (args) => {
     }
 };
 const REPORTED_ORCHESTRATOR_ERROR = Symbol("reportedOrchestratorError");
-const INTERRUPT_MESSAGE_RE = /^(?:aborted|request was aborted\.?|request aborted by user|interrupted by .+|canceled(?: because .*)?|this operation was aborted|claude code run aborted\.?)$/i;
-const safeErrorMessage = (error, fallback) => error instanceof Error ? error.message || fallback : fallback;
+const INTERRUPT_MESSAGE_RE =
+  /^(?:aborted|request was aborted\.?|request aborted by user|interrupted by .+|canceled(?: because .*)?|this operation was aborted|claude code run aborted\.?)$/i;
+const safeErrorMessage = (error, fallback) =>
+  error instanceof Error ? error.message || fallback : fallback;
 const normalizeInterruptionReason = (value) => {
     const trimmed = value?.trim();
     if (!trimmed) {
@@ -57,18 +59,24 @@ const normalizeInterruptionReason = (value) => {
     if (trimmed.toLowerCase() === "this operation was aborted") {
         return "Canceled";
     }
-    if (/^(?:aborted|request was aborted\.?|request aborted by user|claude code run aborted\.?)$/i.test(trimmed)) {
+  if (
+    /^(?:aborted|request was aborted\.?|request aborted by user|claude code run aborted\.?)$/i.test(
+      trimmed,
+    )
+  ) {
         return "Canceled";
     }
     return trimmed;
 };
 export const resolveInterruptionReason = (args) => {
     const signalReason = args.abortSignal?.aborted
-        ? (normalizeInterruptionReason(args.abortSignal.reason instanceof Error
+    ? (normalizeInterruptionReason(
+        args.abortSignal.reason instanceof Error
             ? args.abortSignal.reason.message
             : typeof args.abortSignal.reason === "string"
                 ? args.abortSignal.reason
-                : undefined) ?? "Canceled")
+            : undefined,
+      ) ?? "Canceled")
         : null;
     if (signalReason) {
         return signalReason;
@@ -80,7 +88,8 @@ export const resolveInterruptionReason = (args) => {
     return normalizeInterruptionReason(message) ?? "Canceled";
 };
 export const markOrchestratorErrorReported = (error) => {
-    const normalized = error instanceof Error
+  const normalized =
+    error instanceof Error
         ? error
         : new Error(safeErrorMessage(error, "Stella runtime failed"));
     Object.defineProperty(normalized, REPORTED_ORCHESTRATOR_ERROR, {
@@ -89,14 +98,16 @@ export const markOrchestratorErrorReported = (error) => {
     });
     return normalized;
 };
-export const isReportedOrchestratorError = (error) => error instanceof Error &&
-    Boolean(error[REPORTED_ORCHESTRATOR_ERROR]);
+export const isReportedOrchestratorError = (error) =>
+  error instanceof Error && Boolean(error[REPORTED_ORCHESTRATOR_ERROR]);
 const emitAgentEndHook = async (opts, args) => {
     if (!opts.hookEmitter) {
         return;
     }
     try {
-        await opts.hookEmitter.emit("agent_end", {
+    await opts.hookEmitter.emit(
+      "agent_end",
+      {
             agentType: opts.agentType,
             finalText: args.finalText,
             outcome: "success",
@@ -105,12 +116,10 @@ const emitAgentEndHook = async (opts, args) => {
             runId: args.runId,
             ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
             isUserTurn: opts.uiVisibility !== "hidden",
-            // Stella-runtime post-finalize hooks (memory review, dream notify,
-            // thread summaries) read accessors off `services`
+            // Stella-runtime post-finalize hooks read accessors off `services`
             // instead of being baked into the kernel.
             services: {
                 resolvedLlm: opts.resolvedLlm,
-                messagesSnapshot: args.messagesSnapshot,
                 ...(opts.appendLocalChatEvent
                     ? { appendLocalChatEvent: opts.appendLocalChatEvent }
                     : {}),
@@ -120,16 +129,11 @@ const emitAgentEndHook = async (opts, args) => {
                 ...(opts.resolveSubsidiaryLlmRoute
                     ? { resolveSubsidiaryLlmRoute: opts.resolveSubsidiaryLlmRoute }
                     : {}),
-                ...(opts.userTurnsSinceMemoryReview != null
-                    ? { userTurnsSinceMemoryReview: opts.userTurnsSinceMemoryReview }
-                    : {}),
-                ...(args.orchestratorTokenEstimate != null
-                    ? { orchestratorTokenEstimate: args.orchestratorTokenEstimate }
-                    : {}),
             },
-        }, { agentType: opts.agentType });
-    }
-    catch {
+      },
+      { agentType: opts.agentType },
+    );
+  } catch {
         return;
     }
 };
@@ -140,10 +144,11 @@ const emitAgentEndHook = async (opts, args) => {
  * state.
  */
 const emitAgentEndCleanup = (opts, args) => {
-    if (!opts.hookEmitter)
-        return;
+  if (!opts.hookEmitter) return;
     void opts.hookEmitter
-        .emit("agent_end", {
+    .emit(
+      "agent_end",
+      {
         agentType: opts.agentType,
         finalText: args.finalText ?? "",
         outcome: args.outcome,
@@ -152,7 +157,9 @@ const emitAgentEndCleanup = (opts, args) => {
         runId: args.runId,
         ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
         isUserTurn: opts.uiVisibility !== "hidden",
-    }, { agentType: opts.agentType })
+      },
+      { agentType: opts.agentType },
+    )
         .catch(() => undefined);
 };
 /**
@@ -161,10 +168,11 @@ const emitAgentEndCleanup = (opts, args) => {
  * user-facing events, but the lifecycle event still closes run-scoped hooks.
  */
 const emitSubagentAgentEnd = (opts, args) => {
-    if (!opts.hookEmitter)
-        return;
+  if (!opts.hookEmitter) return;
     void opts.hookEmitter
-        .emit("agent_end", {
+    .emit(
+      "agent_end",
+      {
         agentType: opts.agentType,
         finalText: args.finalText,
         outcome: args.outcome,
@@ -194,7 +202,9 @@ const emitSubagentAgentEnd = (opts, args) => {
                 },
             }
             : {}),
-    }, { agentType: opts.agentType })
+      },
+      { agentType: opts.agentType },
+    )
         .catch(() => undefined);
 };
 /**
@@ -211,7 +221,9 @@ export const runCompactionWithHooks = async (args) => {
     let hookCompaction;
     if (args.opts.hookEmitter) {
         const hookResult = await args.opts.hookEmitter
-            .emit("before_compact", {
+      .emit(
+        "before_compact",
+        {
             agentType: args.opts.agentType,
             messageCount: args.messageCount,
             conversationId: args.opts.conversationId,
@@ -221,7 +233,9 @@ export const runCompactionWithHooks = async (args) => {
                 ? { uiVisibility: args.opts.uiVisibility }
                 : {}),
             isUserTurn: args.opts.uiVisibility !== "hidden",
-        }, { agentType: args.opts.agentType })
+        },
+        { agentType: args.opts.agentType },
+      )
             .catch(() => undefined);
         // A hook may veto a routine compaction, but never a forced one —
         // overflow recovery forces compaction as the only alternative to
@@ -257,10 +271,17 @@ export const runCompactionWithHooks = async (args) => {
             }
             : {}),
     });
+  if (result.compacted && isOrchestratorAgentType(args.opts.agentType)) {
+    args.opts.store.forceOrchestratorReminderOnNextTurn?.(
+      args.opts.conversationId,
+    );
+  }
     // Only notify observers when an overlay was actually written.
     if (result.compacted && args.opts.hookEmitter && hookCompaction?.summary) {
         void args.opts.hookEmitter
-            .emit("session_compact", {
+      .emit(
+        "session_compact",
+        {
             agentType: args.opts.agentType,
             summary: hookCompaction.summary,
             ...(hookCompaction.preserveLastN !== undefined
@@ -270,7 +291,9 @@ export const runCompactionWithHooks = async (args) => {
             conversationId: args.opts.conversationId,
             threadKey: args.threadKey,
             runId: args.runId,
-        }, { agentType: args.opts.agentType })
+        },
+        { agentType: args.opts.agentType },
+      )
             .catch(() => undefined);
     }
     return result;
@@ -281,58 +304,39 @@ export const finalizeOrchestratorSuccess = async (args) => {
         agentType: args.opts.agentType,
         finalTextPreview: args.finalText.slice(0, 300),
     });
-    const runBeforeRunEnd = () => Promise.resolve(args.opts.beforeRunEnd?.({
+  const runBeforeRunEnd = () =>
+    Promise.resolve(
+      args.opts.beforeRunEnd?.({
         runId: args.runId,
         threadKey: args.threadKey,
         finalText: args.finalText,
         outcome: "success",
-    }));
+      }),
+    );
     await boundedFinalizeStage({
         stage: "beforeRunEnd",
         runId: args.runId,
         fallback: undefined,
         work: runBeforeRunEnd,
     });
-    // Estimated orchestrator thread size on the same basis the compaction
-    // trigger uses, so post-finalize hooks can drive the token-interval Dream
-    // cadence and detect when a compaction is imminent (flush boundary).
-    let orchestratorTokenEstimate;
-    try {
-        orchestratorTokenEstimate = getThreadTokenEstimate(args.opts.store.loadThreadMessages(args.threadKey));
-    }
-    catch (error) {
-        // The token-interval / pre-compaction Dream cadence keys off this number;
-        // without it the orchestrator-driven cadence stalls until restart, so warn
-        // (don't silently swallow) to keep the stall diagnosable.
-        orchestratorTokenEstimate = undefined;
-        logger.warn("orchestrator.token-estimate-failed", {
-            threadKey: args.threadKey,
-            error: error instanceof Error ? error.message : String(error),
-        });
-    }
     await boundedFinalizeStage({
         stage: "agent_end-hooks",
         runId: args.runId,
         fallback: undefined,
-        work: () => emitAgentEndHook(args.opts, {
+    work: () =>
+      emitAgentEndHook(args.opts, {
             finalText: args.finalText,
             runId: args.runId,
             threadKey: args.threadKey,
-            // Snapshot the messages array now so memory-review / other
-            // post-finalize hooks see the state at end-of-turn rather than a
-            // mutated state if a follow-up turn lands before the hook handler
-            // runs.
-            messagesSnapshot: [...args.agent.state.messages],
-            ...(orchestratorTokenEstimate != null
-                ? { orchestratorTokenEstimate }
-                : {}),
         }),
     });
     // Finish the visible turn before scheduling compaction.
-    args.opts.callbacks.onEnd(args.runEvents.recordRunEnd({
+  args.opts.callbacks.onEnd(
+    args.runEvents.recordRunEnd({
         finalText: args.finalText,
         ...(args.responseTarget ? { responseTarget: args.responseTarget } : {}),
-    }));
+    }),
+  );
     if (args.finalText.trim()) {
         void args.opts.compactionScheduler.schedule({
             threadKey: args.threadKey,
@@ -349,16 +353,6 @@ export const finalizeOrchestratorSuccess = async (args) => {
             },
         });
     }
-    updateOrchestratorReminderState(args.opts.store, {
-        conversationId: args.opts.conversationId,
-        shouldInjectDynamicReminder: args.opts.agentContext.shouldInjectDynamicReminder,
-        finalText: args.finalText,
-    });
-    // Memory review now lives as an `agent_end` hook in
-    // `runtime/extensions/stella-runtime/hooks/memory-review.hook.ts`.
-    // The hook reads `userTurnsSinceMemoryReview` off
-    // `payload.services` (populated by `emitAgentEndHook` above) and
-    // self-skips when the threshold isn't met.
 };
 export const finalizeOrchestratorError = (args) => {
     const errorMessage = safeErrorMessage(args.error, "Stella runtime failed");
@@ -374,7 +368,9 @@ export const finalizeOrchestratorError = (args) => {
     return errorMessage;
 };
 export const finalizeOrchestratorInterrupted = (args) => {
-    args.opts.callbacks.onInterrupted?.(args.runEvents.recordInterrupted(args.reason));
+  args.opts.callbacks.onInterrupted?.(
+    args.runEvents.recordInterrupted(args.reason),
+  );
     if (args.runId && args.threadKey) {
         emitAgentEndCleanup(args.opts, {
             runId: args.runId,
@@ -393,10 +389,11 @@ export const finalizeOrchestratorInterrupted = (args) => {
  * turns asking the sub-agent what happened. Covers the Kimi K2 family
  * "thinking-only stop" pathology even after the agent-loop retry.
  */
-export const SUBAGENT_EMPTY_RESULT_SENTINEL = "(Agent completed without a user-visible reply. Re-prompt with send_input if you need the outcome.)";
+export const SUBAGENT_EMPTY_RESULT_SENTINEL =
+  "(Agent completed without a user-visible reply. Re-prompt with send_input if you need the outcome.)";
 export const finalizeSubagentSuccess = async (args) => {
-    // Thread-summaries record and dream-scheduler notify
-    // live as `agent_end` hooks in `runtime/extensions/stella-runtime/`.
+    // Durable thread summaries are recorded by an `agent_end` hook in
+    // `runtime/extensions/stella-runtime/`.
     // The kernel just fires the lifecycle event with the per-run services
     // populated; each hook self-skips when its capability gate doesn't match.
     const trimmedResult = args.result.trim();
@@ -411,7 +408,9 @@ export const finalizeSubagentSuccess = async (args) => {
     });
     // Finish the parent-visible run before scheduling subagent compaction.
     if (!args.opts.suppressCompletionSideEffects) {
-        args.opts.callbacks?.onEnd?.(args.runEvents.recordRunEnd({ finalText: resolvedResult }));
+    args.opts.callbacks?.onEnd?.(
+      args.runEvents.recordRunEnd({ finalText: resolvedResult }),
+    );
     }
     // Only schedule compaction when the model actually produced output;
     // sentinel-only finals carry no new history worth compacting.
@@ -458,7 +457,9 @@ export const finalizeSubagentError = (args) => {
     };
 };
 export const finalizeSubagentInterrupted = (args) => {
-    args.opts.callbacks?.onInterrupted?.(args.runEvents.recordInterrupted(args.reason));
+  args.opts.callbacks?.onInterrupted?.(
+    args.runEvents.recordInterrupted(args.reason),
+  );
     if (args.threadKey) {
         emitSubagentAgentEnd(args.opts, {
             runId: args.runId,

@@ -13,7 +13,7 @@ export type RecallLookupResult = {
   fastPath?: boolean;
   sources?: Array<{
     kind: "memory" | "thread" | "transcript" | "live";
-    inboxId?: number;
+    summaryId?: number;
     threadId?: string;
     runId?: string;
   }>;

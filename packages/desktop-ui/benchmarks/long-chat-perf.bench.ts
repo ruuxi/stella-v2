@@ -465,6 +465,17 @@ beforeAll(() => {
           oneEventTailPayloadBytes: tailPayloadBytes,
           oneEventTailMainThreadBlock: tailTiming,
         },
+        mobileCatchUp: {
+          priorForcedWindowMessages: current.messages.length,
+          validCursorDeltaMessages: tail.messages.length,
+          priorForcedWindowPayloadBytes: currentPayloadBytes,
+          validCursorDeltaPayloadBytes: tailPayloadBytes,
+          payloadReductionPercent:
+            Math.round((1 - tailPayloadBytes / currentPayloadBytes) * 10_000) /
+            100,
+          priorForcedWindowMainThreadBlock: currentTiming,
+          validCursorDeltaMainThreadBlock: tailTiming,
+        },
         activity: {
           recordCount: activityRecords.length,
           legacySnapshotPayloadBytes: Buffer.byteLength(
@@ -532,7 +543,7 @@ describe("pathological long chat", () => {
     JSON.stringify(currentVisibleWindow());
   });
 
-  bench("sequence-cursor one-event tail", () => {
+  bench("mobile catch-up via sequence-cursor small suffix", () => {
     JSON.stringify(currentOneEventTail());
   });
 

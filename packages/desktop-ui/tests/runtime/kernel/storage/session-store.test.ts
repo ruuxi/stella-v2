@@ -1081,6 +1081,42 @@ describe("session-store", () => {
     ]);
   });
 
+  it("listMessagesBefore resolves the source cursor onto sequence ordering", () => {
+    const { store } = createTestContext();
+    const conversationId = store.getOrCreateDefaultConversationId();
+    const timestamps = [6_000, 1_000, 5_000, 2_000, 4_000, 3_000];
+
+    timestamps.forEach((timestamp, index) => {
+      store.appendEvent({
+        conversationId,
+        type: "user_message",
+        timestamp,
+        payload: { text: `sequence user ${index}` },
+      });
+    });
+
+    const { messages: latest } = store.listMessages(conversationId, {
+      maxVisibleMessages: 3,
+    });
+    expect(latest.map((message) => message.payload?.text)).toEqual([
+      "sequence user 3",
+      "sequence user 4",
+      "sequence user 5",
+    ]);
+
+    const oldest = latest[0]!;
+    const { messages: prior } = store.listMessagesBefore(conversationId, {
+      beforeTimestampMs: oldest.timestamp,
+      beforeId: oldest._id,
+      maxVisibleMessages: 3,
+    });
+    expect(prior.map((message) => message.payload?.text)).toEqual([
+      "sequence user 0",
+      "sequence user 1",
+      "sequence user 2",
+    ]);
+  });
+
   it("bounds eager turn activity and pages complete detail on demand", () => {
     const { store } = createTestContext();
     const conversationId = store.getOrCreateDefaultConversationId();

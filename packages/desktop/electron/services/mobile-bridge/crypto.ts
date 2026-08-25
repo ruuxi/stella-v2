@@ -16,6 +16,8 @@ export const BRIDGE_FEATURE_BINARY_UPLOAD = "binary-upload";
 export const BRIDGE_FEATURE_LOCAL_CHAT_PUSH = "localchat-push";
 export const BRIDGE_FEATURE_COMPACT_THREAD_ACTIVITY =
   "compact-thread-activity-v1";
+export const BRIDGE_FEATURE_LOCAL_CHAT_HISTORY_BEFORE =
+  "localchat-history-before-v1";
 
 export const MAX_BRIDGE_ENVELOPE_PLAINTEXT_BYTES = 16 * 1024 * 1024;
 

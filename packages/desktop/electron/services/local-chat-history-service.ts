@@ -34,6 +34,7 @@ import {
   buildMobileSyncMessages,
   decodeMobileSyncCursor,
   type LocalChatMobileSyncResult,
+  type LocalChatMobileHistoryPage,
   type LocalChatSyncMessageWithArtifacts,
 } from "./local-chat-artifacts.js";
 import { listAgentThreadMessages } from "./agent-thread-history.js";
@@ -137,9 +138,12 @@ const mergeTaskContextMessages = (
       ),
     });
   }
-  return [...byId.values()].sort(
-    (a, b) => a.timestamp - b.timestamp || a._id.localeCompare(b._id),
-  );
+  return [...byId.values()].sort((a, b) => {
+    if (typeof a.sequence === "number" && typeof b.sequence === "number") {
+      return a.sequence - b.sequence;
+    }
+    return a.timestamp - b.timestamp || a._id.localeCompare(b._id);
+  });
 };
 
 export class LocalChatHistoryService {
@@ -550,6 +554,98 @@ export class LocalChatHistoryService {
     );
   }
 
+  listSyncMessagesBefore(args: {
+    conversationId: string;
+    beforeTimestampMs: number;
+    beforeId: string;
+    maxMessages?: number;
+    includeDeveloperArtifacts?: boolean;
+  }): LocalChatMobileHistoryPage {
+    const maxMessages = Math.max(1, Math.floor(args.maxMessages ?? 100));
+    const { messages, visibleMessageCount } =
+      this.getStore().listMessagesBefore(args.conversationId, {
+        beforeTimestampMs: args.beforeTimestampMs,
+        beforeId: args.beforeId,
+        maxVisibleMessages: maxMessages + 1,
+      });
+    // A historical page may contain an old task anchor whose completion is
+    // newer than the page cursor, or only a lifecycle row whose anchor is on
+    // an earlier page. Resolve just the touched task ids across the complete
+    // conversation so old pages project today's task/artifact state without a
+    // whole-transcript scan.
+    const { touched } = taskAgentIdsInMessages(messages);
+    const targetedTaskContext =
+      touched.size > 0
+        ? this.getStore().listMobileTaskContext(args.conversationId, [
+            ...touched,
+          ]).messages
+        : [];
+    const taskContextMessages = mergeTaskContextMessages(
+      messages,
+      targetedTaskContext,
+    );
+    const projected = buildMobileSyncMessages(
+      messages,
+      Math.max(1, messages.length * 2),
+      {
+        includeDeveloperArtifacts: args.includeDeveloperArtifacts === true,
+      },
+      this.getAssistantMessagesByAgent(args.conversationId),
+      taskContextMessages,
+      this.statusTextByAgent,
+    );
+    // One durable user row can project both its visible bubble and a synthetic
+    // agent-work bubble. Page whole source groups so a row is never split at
+    // the output limit (which would make the missing sibling unreachable).
+    const sourceIdsNewestFirst: string[] = [];
+    const seenSourceIds = new Set<string>();
+    const projectedCountBySource = new Map<string, number>();
+    for (const message of projected) {
+      projectedCountBySource.set(
+        message.sourceMessageId,
+        (projectedCountBySource.get(message.sourceMessageId) ?? 0) + 1,
+      );
+    }
+    let remainingProjectedRows = maxMessages;
+    for (let index = projected.length - 1; index >= 0; index -= 1) {
+      const sourceId = projected[index]!.sourceMessageId;
+      if (seenSourceIds.has(sourceId)) continue;
+      const groupSize = projectedCountBySource.get(sourceId) ?? 1;
+      if (
+        sourceIdsNewestFirst.length > 0 &&
+        groupSize > remainingProjectedRows
+      ) {
+        break;
+      }
+      seenSourceIds.add(sourceId);
+      sourceIdsNewestFirst.push(sourceId);
+      remainingProjectedRows -= groupSize;
+      if (remainingProjectedRows <= 0) break;
+    }
+    const keptSourceIds = new Set(sourceIdsNewestFirst);
+    const page = projected.filter((message) =>
+      keptSourceIds.has(message.sourceMessageId),
+    );
+    const oldestProjected = page[0];
+    const oldestRaw = messages[0];
+    const oldestSourceCursor = oldestProjected
+      ? {
+          timestamp: oldestProjected.sourceTimestamp,
+          id: oldestProjected.sourceMessageId,
+        }
+      : oldestRaw
+        ? { timestamp: oldestRaw.timestamp, id: oldestRaw._id }
+        : null;
+    return {
+      messages: page,
+      hasOlder:
+        visibleMessageCount > maxMessages ||
+        (Boolean(projected[0]) &&
+          projected[0]!.sourceMessageId !== page[0]?.sourceMessageId),
+      oldestSourceCursor,
+    };
+  }
+
   syncMessages(args: {
     conversationId: string;
     sinceCursor?: string | null;
@@ -560,8 +656,18 @@ export class LocalChatHistoryService {
     const artifactOptions = {
       includeDeveloperArtifacts: args.includeDeveloperArtifacts === true,
     };
-    const cursor = decodeMobileSyncCursor(args.sinceCursor);
-    if (cursor) {
+    const requestedCursor = args.sinceCursor?.trim() || null;
+    const cursor = decodeMobileSyncCursor(requestedCursor);
+    const cursorIsValid = Boolean(
+      cursor &&
+        this.getStore().isMobileSyncCursorValid(
+          args.conversationId,
+          cursor.timestamp,
+          cursor.id,
+          cursor.sequence,
+        ),
+    );
+    if (cursor && cursorIsValid) {
       if (
         !this.getStore().hasMobileSyncEventsAfter(
           args.conversationId,
@@ -570,7 +676,12 @@ export class LocalChatHistoryService {
           cursor.sequence,
         )
       ) {
-        return { messages: [], cursor: args.sinceCursor?.trim() || null };
+        return {
+          messages: [],
+          cursor: requestedCursor,
+          cursorStatus: "valid",
+          hasMore: false,
+        };
       }
       const { messages, sourceEvents } = this.getStore().listMessagesAfter(
         args.conversationId,
@@ -597,7 +708,7 @@ export class LocalChatHistoryService {
         messages,
         targetedTaskContext,
       );
-      return buildMobileSyncMessagesPage(
+      const page = buildMobileSyncMessagesPage(
         messages,
         maxMessages,
         sourceEvents,
@@ -606,12 +717,23 @@ export class LocalChatHistoryService {
         taskContextMessages,
         this.statusTextByAgent,
       );
+      const pageCursor = decodeMobileSyncCursor(page.cursor);
+      const hasMore = Boolean(
+        pageCursor &&
+          this.getStore().hasMobileSyncEventsAfter(
+            args.conversationId,
+            pageCursor.timestamp,
+            pageCursor.id,
+            pageCursor.sequence,
+          ),
+      );
+      return { ...page, cursorStatus: "valid", hasMore };
     }
 
     const { messages } = this.getStore().listMessages(args.conversationId, {
       maxVisibleMessages: maxMessages,
     });
-    return buildMobileSyncMessagesPage(
+    const page = buildMobileSyncMessagesPage(
       messages,
       maxMessages,
       messages,
@@ -620,6 +742,11 @@ export class LocalChatHistoryService {
       messages,
       this.statusTextByAgent,
     );
+    return {
+      ...page,
+      cursorStatus: requestedCursor ? "invalid" : "snapshot",
+      hasMore: false,
+    };
   }
 
   getSyncCheckpoint(args: { conversationId: string }): string | null {

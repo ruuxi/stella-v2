@@ -9,14 +9,14 @@ import {
 } from "@/shell/chat-follow-target";
 
 describe("chat response spacer geometry", () => {
-  it("reserves two thirds of a tall readable viewport", () => {
+  it("reserves one half of a tall readable viewport", () => {
     expect(
       resolveResponseSpacerHeight({
         viewportHeight: 900,
         bottomInsetPx: 56,
         minimumHeightPx: 160,
       }),
-    ).toBeCloseTo(618.6667, 3);
+    ).toBe(478);
   });
 
   it("keeps at least 240px for the latest turn", () => {
@@ -26,14 +26,14 @@ describe("chat response spacer geometry", () => {
         bottomInsetPx: 56,
         minimumHeightPx: 160,
       }),
-    ).toBe(360);
+    ).toBe(328);
     expect(
       resolveResponseSpacerHeight({
         viewportHeight: 600,
         bottomInsetPx: 0,
         minimumHeightPx: 120,
       }),
-    ).toBe(360);
+    ).toBe(300);
   });
 
   it("retains the surface minimum in very short viewports", () => {
@@ -71,14 +71,21 @@ describe("chat response spacer geometry", () => {
   });
 
   it("frames a short user row above the response spacer", () => {
-    expect(
-      resolvePostSendTarget({
-        rowTop: 1_000,
-        rowBottom: 1_080,
-        viewportHeight: 600,
-        responseSpacerHeightPx: 360,
-      }),
-    ).toBe(840);
+    const viewportHeight = 900;
+    const bottomInsetPx = 56;
+    const responseSpacerHeightPx = resolveResponseSpacerHeight({
+      viewportHeight,
+      bottomInsetPx,
+      minimumHeightPx: 160,
+    });
+    const rowBottom = 1_080;
+    const target = resolvePostSendTarget({
+      rowTop: 1_000,
+      rowBottom,
+      viewportHeight,
+      responseSpacerHeightPx,
+    });
+    expect(rowBottom - target).toBe((viewportHeight - bottomInsetPx) / 2);
   });
 
   it("keeps a tall user row below the top fade", () => {

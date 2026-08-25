@@ -75,7 +75,7 @@ export const POST_SEND_TOP_MARGIN_PX = CHAT_VIEWPORT_TOP_FADE_PX + 32;
 export const POST_SEND_USER_MESSAGE_BREATHING_PX = 48;
 
 /** Portion of the readable viewport reserved below a freshly-sent turn. */
-export const RESPONSE_SPACER_VIEWPORT_RATIO = 2 / 3;
+export const RESPONSE_SPACER_VIEWPORT_RATIO = 1 / 2;
 /** Keep this much readable room for the latest turn above the spacer. */
 export const RESPONSE_SPACER_CONTENT_FLOOR_PX = 240;
 /** Do not pull a submit out of scrollback when the user is reading history. */

@@ -99,6 +99,7 @@ import {
   resolveResponseSpacerHeight,
   shouldPlaceLatestTurn,
 } from "../lib/chat-response-spacer";
+import { resolveChatDataChangeScrollOwner } from "../lib/chat-scroll-ownership";
 import { notifySuccess, tapMedium, tapLight } from "../lib/haptics";
 import {
   pauseReadAloud,
@@ -339,6 +340,7 @@ function useChatScroll(
   const metricsRef = useRef({ offsetY: 0, contentHeight: 0, layoutHeight: 0 });
   const contentHeightRef = useRef(0);
   const followArmedRef = useRef(true);
+  const [isFollowingLatest, setIsFollowingLatest] = useState(true);
   const followRearmBlockedRef = useRef(false);
   const followTargetOffsetRef = useRef<number | null>(null);
   const followRafRef = useRef(0);
@@ -381,6 +383,12 @@ function useChatScroll(
   const lastTargetTimeRef = useRef(0);
   /** Gentle one-shot (post-send) vs. stream spring profile. */
   const followGentleRef = useRef(false);
+
+  const setFollowArmed = useCallback((armed: boolean) => {
+    if (followArmedRef.current === armed) return;
+    followArmedRef.current = armed;
+    setIsFollowingLatest(armed);
+  }, []);
 
   const stopFollowLoop = useCallback(() => {
     if (followRafRef.current) {
@@ -456,7 +464,7 @@ function useChatScroll(
       // streaming layout yanks the user straight back down.
       if (distFromBottom <= atBottomLimit) {
         if (!isDraggingRef.current && !followRearmBlockedRef.current) {
-          followArmedRef.current = true;
+          setFollowArmed(true);
         }
       } else if (
         distFromBottom > nearBottomLimit &&
@@ -464,7 +472,7 @@ function useChatScroll(
         !followRafRef.current &&
         Date.now() > followAnimatingUntilMsRef.current
       ) {
-        followArmedRef.current = false;
+        setFollowArmed(false);
         stopFollowLoop();
       }
 
@@ -476,13 +484,15 @@ function useChatScroll(
       nearBottomLimit,
       onConsumeResponseSpacer,
       scheduleManualScrollSettle,
+      setFollowArmed,
       stopFollowLoop,
     ],
   );
 
   const resetAssistantAutoScroll = useCallback(() => {
-    followRearmBlockedRef.current = false;
-    followArmedRef.current = true;
+    // Reset per-row measurements without claiming follow ownership. A fresh
+    // assistant row may arrive while the user is reading history; only an
+    // explicit tail action may re-arm that released latch.
     assistantLayoutBaselineRef.current = null;
     streamingAssistantHeightRef.current = 0;
     stopFollowLoop();
@@ -491,9 +501,9 @@ function useChatScroll(
   const releaseFollow = useCallback(() => {
     pendingSendAnchorRef.current = null;
     followRearmBlockedRef.current = true;
-    followArmedRef.current = false;
+    setFollowArmed(false);
     stopFollowLoop();
-  }, [stopFollowLoop]);
+  }, [setFollowArmed, stopFollowLoop]);
 
   // The user grabbed the list — drop follow immediately and remember the drag
   // is live so `onScroll` won't re-arm until the gesture settles.
@@ -509,9 +519,9 @@ function useChatScroll(
     }
     // Pause follow immediately, but only an actual upward delta should block
     // it from re-arming when a tap/drag gesture ends at the live tail.
-    followArmedRef.current = false;
+    setFollowArmed(false);
     stopFollowLoop();
-  }, [stopFollowLoop]);
+  }, [setFollowArmed, stopFollowLoop]);
 
   // Gesture settled (lift, or end of momentum). Clear the drag flag and re-arm
   // only if the user came to rest at the true tail.
@@ -521,9 +531,9 @@ function useChatScroll(
     const { offsetY, contentHeight, layoutHeight } = metricsRef.current;
     const distFromBottom = Math.max(0, contentHeight - offsetY - layoutHeight);
     if (distFromBottom <= atBottomLimit && !followRearmBlockedRef.current) {
-      followArmedRef.current = true;
+      setFollowArmed(true);
     }
-  }, [atBottomLimit, scheduleManualScrollSettle]);
+  }, [atBottomLimit, scheduleManualScrollSettle, setFollowArmed]);
 
   /** Call when assistant text grows, before layout measures the new height. */
   const prepareAssistantLayoutFollow = useCallback(() => {
@@ -742,12 +752,13 @@ function useChatScroll(
   const scrollToBottom = useCallback(() => {
     pendingSendAnchorRef.current = null;
     followRearmBlockedRef.current = false;
+    setFollowArmed(true);
     onClearResponseSpacer();
     resetAssistantAutoScroll();
     requestAnimationFrame(() =>
       listRef.current?.scrollToEnd({ animated: true }),
     );
-  }, [onClearResponseSpacer, resetAssistantAutoScroll]);
+  }, [onClearResponseSpacer, resetAssistantAutoScroll, setFollowArmed]);
 
   const getShouldPlaceLatestTurn = useCallback(() => {
     const { offsetY, layoutHeight } = metricsRef.current;
@@ -848,14 +859,14 @@ function useChatScroll(
         staleAtMs: Date.now() + POST_SEND_REANCHOR_WINDOW_MS,
       };
       followRearmBlockedRef.current = false;
-      followArmedRef.current = true;
+      setFollowArmed(true);
       stopFollowLoop();
       // The row may already be mounted and measured (a keyboard-deferred
       // nudge runs well after the optimistic append), in which case no new
       // `onLayout` will arrive — so kick off the first placement from here.
       schedulePlaceLatestTurn();
     },
-    [schedulePlaceLatestTurn, stopFollowLoop],
+    [schedulePlaceLatestTurn, setFollowArmed, stopFollowLoop],
   );
 
   return {
@@ -874,6 +885,7 @@ function useChatScroll(
     releaseFollow,
     nudgeAfterSend,
     awayFromBottom,
+    isFollowingLatest,
   };
 }
 
@@ -3034,6 +3046,22 @@ export function ChatPane({
     }
   }, [sendPinSuppressForId, streaming, lastMessage?.id]);
 
+  const dataChangeScrollOwner = resolveChatDataChangeScrollOwner({
+    isFollowingLatest: scroll.isFollowingLatest,
+    isStreaming: streaming,
+    postSendPlacementPending: sendPinSuppressForId !== null,
+  });
+  const maintainVisibleContentPosition = useMemo(
+    () => ({
+      // Native + Legend data anchoring is reserved for history. Enabling it at
+      // the live tail would introduce a second writer beside the stream/send
+      // loop or Legend's end pin.
+      data: dataChangeScrollOwner === "history-anchor",
+      size: true,
+    }),
+    [dataChangeScrollOwner],
+  );
+
   useEffect(() => {
     const grew = visibleMessages.length > prevLenRef.current;
     prevLenRef.current = visibleMessages.length;
@@ -4064,7 +4092,7 @@ export function ChatPane({
               // Keep the visible message anchored when the data array changes
               // (e.g. messages syncing in from the desktop) so the list never
               // snaps back to the top.
-              maintainVisibleContentPosition
+              maintainVisibleContentPosition={maintainVisibleContentPosition}
               // Pin to the tail only when new/synced messages arrive while the
               // user is already near the bottom. Scoped to data changes so it
               // doesn't fight the custom streaming-follow target updates,
@@ -4076,18 +4104,21 @@ export function ChatPane({
               // target and snapping the user back down whenever they try to
               // scroll up. The custom follow loop already keeps the tail in view
               // during streaming, so disable the built-in pin for that window.
-              // The pin is also suppressed while a post-send nudge is in flight
-              // (`sendPinSuppressForId`): the optimistic append is a data change
-              // too, and pinning to the literal end — full response spacer
-              // included — would fight the nudge that owns the tail.
-              maintainScrollAtEnd={{
-                animated: false,
-                on: {
-                  dataChange: !streaming && sendPinSuppressForId === null,
-                  itemLayout: false,
-                  layout: false,
-                },
-              }}
+              // Position ownership is exclusive: history anchoring wins while
+              // follow is released, the custom loop owns streams/post-send
+              // placement, and this pin owns only ordinary live-tail appends.
+              maintainScrollAtEnd={
+                dataChangeScrollOwner === "legend-tail"
+                  ? {
+                      animated: false,
+                      on: {
+                        dataChange: true,
+                        itemLayout: false,
+                        layout: false,
+                      },
+                    }
+                  : false
+              }
             />
             {/* Top taper — fades the list into the surface at the top edge so
                 messages scrolling under the top bar dissolve instead of

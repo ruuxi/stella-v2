@@ -1,6 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
-import { createPrivateKey, generateKeyPairSync, sign } from "crypto";
+import { generateKeyPairSync } from "crypto";
 import {
   deleteProtectedValue,
   protectValue,
@@ -245,18 +245,4 @@ export const clearSupersededDeviceId = async (
   } catch {
     // Nothing to clear; the next successful claim will be a no-op anyway.
   }
-};
-
-export const signDeviceHeartbeat = (
-  identity: DeviceIdentity,
-  signedAtMs: number,
-): string => {
-  const privateKey = createPrivateKey({
-    key: Buffer.from(identity.privateKey, "base64"),
-    format: "der",
-    type: "pkcs8",
-  });
-  const payload = Buffer.from(`${identity.deviceId}:${signedAtMs}`);
-  const signature = sign(null, payload, privateKey);
-  return signature.toString("base64");
 };

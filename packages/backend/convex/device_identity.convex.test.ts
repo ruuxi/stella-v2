@@ -176,18 +176,18 @@ describe("device identity succession", () => {
     ).rejects.toThrow("already been succeeded");
   });
 
-  it("requires the successor to be a registered device for this owner", async () => {
+  it("does not require a global liveness registration before succession", async () => {
     const t = createTest();
 
-    await expect(
-      asOwner(t).mutation(api.device_identity.adoptDeviceIdentitySuccession, {
-        previousDeviceId,
-        deviceId: "never-registered",
-      }),
-    ).rejects.toThrow("Register the new device identity");
+    const result = await asOwner(t).mutation(
+      api.device_identity.adoptDeviceIdentitySuccession,
+      { previousDeviceId, deviceId: "new-local-identity" },
+    );
+
+    expect(result.migratedPairings).toBe(0);
   });
 
-  it("does not let one account claim another's device id", async () => {
+  it("keeps another account's records isolated when device ids match", async () => {
     const t = createTest();
     await seed(t, { pairedPhone: "phone-a" });
 
@@ -198,12 +198,13 @@ describe("device identity succession", () => {
       iat: 1_000,
     });
 
-    await expect(
-      otherOwner.mutation(api.device_identity.adoptDeviceIdentitySuccession, {
+    await otherOwner.mutation(
+      api.device_identity.adoptDeviceIdentitySuccession,
+      {
         previousDeviceId,
         deviceId,
-      }),
-    ).rejects.toThrow("Register the new device identity");
+      },
+    );
 
     await t.run(async (ctx) => {
       const rows = await ctx.db.query("paired_mobile_devices").collect();

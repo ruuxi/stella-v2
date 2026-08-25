@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { closeSync, mkdirSync, openSync } from "node:fs";
 import path from "node:path";
 import { resolveNativeHelperPath } from "../native-helper-path.js";
-import { clearSupersededDeviceId as clearStoredSupersededDeviceId, getOrCreateDeviceIdentity, resetDeviceIdentity as resetStoredDeviceIdentity, signDeviceHeartbeat, } from "@stella/runtime/kernel/home/device";
+import { clearSupersededDeviceId as clearStoredSupersededDeviceId, getOrCreateDeviceIdentity, } from "@stella/runtime/kernel/home/device";
 import { getSoundNotificationsEnabled } from "@stella/runtime/kernel/preferences/local-preferences";
 import { deleteConnectorAccessTokens, loadConnectorTokenPayload, saveConnectorTokenPayload, } from "@stella/runtime/kernel/connectors/oauth";
 import { ensureStellaDataDirSeeded } from "@stella/runtime/kernel/home/stella-home";
@@ -127,26 +127,8 @@ export const createHostRunnerHandlers = (context, options) => ({
                 : {}),
         };
     },
-    resetDeviceIdentity: async () => {
-        const identity = await options.resetDeviceIdentity();
-        context.state.deviceId = identity.deviceId;
-        return {
-            deviceId: identity.deviceId,
-            publicKey: identity.publicKey,
-            ...(identity.supersededDeviceId
-                ? { supersededDeviceId: identity.supersededDeviceId }
-                : {}),
-        };
-    },
     clearSupersededDeviceId: async () => {
         await options.clearSupersededDeviceId();
-    },
-    signHeartbeatPayload: async (signedAtMs) => {
-        const identity = await options.loadDeviceIdentity();
-        return {
-            publicKey: identity.publicKey,
-            signature: signDeviceHeartbeat(identity, signedAtMs),
-        };
     },
     requestRuntimeAuthRefresh: async ({ source }) => await context.services.authService.requestRuntimeAuthRefresh(source, (payload) => {
         broadcastToWindows(context, IPC_AUTH_RUNTIME_REFRESH_REQUESTED, payload);
@@ -341,8 +323,6 @@ export const initializeStellaHostRunner = async (context) => {
     await ensureStellaDataDirSeededOnce(stellaAppDir, stellaDataDirPath);
     await services.securityPolicyService.loadPolicy();
     const loadDeviceIdentity = async () => await getOrCreateDeviceIdentity(stellaDataDirPath);
-    // Involuntary rotation: keep the retired id so its pairings can follow.
-    const resetDeviceIdentity = async () => await resetStoredDeviceIdentity(stellaDataDirPath, { preservePairings: true });
     const clearSupersededDeviceId = async () => await clearStoredSupersededDeviceId(stellaDataDirPath);
     clearHostRunnerSubscriptions(context);
     context.state.officePreviewBridgeStop?.();
@@ -360,7 +340,6 @@ export const initializeStellaHostRunner = async (context) => {
         },
         hostHandlers: createHostRunnerHandlers(context, {
             loadDeviceIdentity,
-            resetDeviceIdentity,
             clearSupersededDeviceId,
         }),
     }));

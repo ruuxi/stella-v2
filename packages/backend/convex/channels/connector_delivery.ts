@@ -38,8 +38,6 @@ const BACKEND_FALLBACK_AGENT_TYPE = "offline_responder";
 const EMPTY_RESPONSE_TEXT = "(Stella had nothing to say.)";
 const RELAYED_MEDIA_DELETE_DELAY_MS = 10 * 60_000;
 
-
-
 /**
  * Look up the original `remote_turn_request` event by `requestId`. The
  * lifecycle (`pending` / `claimed` / `fulfilled` / `cancelled`) lives directly on this
@@ -54,7 +52,6 @@ const findRemoteTurnRequest = async (
     .query("events")
     .withIndex("by_requestId", (q) => q.eq("requestId", requestId))
     .first();
-
 
 // ─── Public Mutation (called by local device via HTTP) ──────────────────────
 export const claimRemoteTurn = mutation({
@@ -237,7 +234,6 @@ export const completeRemoteTurn = mutation({
   },
 });
 
-
 /**
  * Send an unsolicited follow-up message to the connector that initiated
  * the most recent remote turn for a conversation. Routing metadata is
@@ -305,7 +301,6 @@ export const sendConnectorFollowup = mutation({
     return null;
   },
 });
-
 
 // ─── Shared delivery logic (callable from any action in the same runtime) ───
 
@@ -476,24 +471,6 @@ async function deliverExecutionUnavailable(
   });
 }
 
-async function isTargetDeviceStillFresh(
-  ctx: ActionCtx,
-  args: {
-    ownerId: string;
-    targetDeviceId?: string;
-  },
-): Promise<boolean> {
-  if (!args.targetDeviceId) {
-    return false;
-  }
-
-  const freshDevices = (await ctx.runQuery(
-    internal.agent.device_resolver.listFreshDevicesForOwner,
-    { ownerId: args.ownerId, nowMs: Date.now() },
-  )) as Array<{ deviceId: string }>;
-  return freshDevices.some((device) => device.deviceId === args.targetDeviceId);
-}
-
 // ─── Per-request fallback (scheduled by message_pipeline) ───────────────────
 // Runs a few seconds after a remote_turn_request is inserted. This fast rescue
 // exists only for the mobile app's backend offline responder. Other connectors
@@ -533,18 +510,6 @@ export const rescueSingleTurn = internalAction({
     if (!shouldUseOfflineResponderForProvider(args.provider)) {
       console.log(
         `[rescue:trace] Skipping fast rescue for provider=${args.provider}; waiting for desktop claim or orphan watchdog.`,
-      );
-      return null;
-    }
-
-    if (
-      await isTargetDeviceStillFresh(ctx, {
-        ownerId: args.ownerId,
-        targetDeviceId: args.targetDeviceId,
-      })
-    ) {
-      console.log(
-        `[rescue:trace] Skipping fast rescue for ${args.requestId}; target desktop is still online.`,
       );
       return null;
     }
@@ -1034,18 +999,6 @@ export const rescueOrphanedTurns = internalAction({
           if (!conversation) {
             console.error(
               `[watchdog] Conversation ${String(conversationId)} not found, skipping`,
-            );
-            continue;
-          }
-
-          if (
-            await isTargetDeviceStillFresh(ctx, {
-              ownerId: conversation.ownerId,
-              targetDeviceId: orphan.targetDeviceId,
-            })
-          ) {
-            console.log(
-              `[watchdog] Skipping mobile fallback for ${orphan.requestId}; target desktop is still online.`,
             );
             continue;
           }

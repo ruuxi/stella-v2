@@ -10,10 +10,6 @@ const createAdapter = () =>
         deviceId: "dev-device",
         publicKey: "pub",
       }),
-      signHeartbeatPayload: async () => ({
-        publicKey: "pub",
-        signature: "sig",
-      }),
       requestCredential: async () => ({
         secretId: "secret",
         provider: "test",

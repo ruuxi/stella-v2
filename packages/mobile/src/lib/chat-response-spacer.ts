@@ -1,5 +1,5 @@
 /** Portion of the readable viewport reserved for the incoming response. */
-export const RESPONSE_SPACER_VIEWPORT_RATIO = 2 / 3;
+export const RESPONSE_SPACER_VIEWPORT_RATIO = 1 / 2;
 
 /** Keep this much readable room for the latest turn above the spacer. */
 export const RESPONSE_SPACER_CONTENT_FLOOR_PX = 240;
@@ -11,7 +11,7 @@ export const LATEST_TURN_PLACEMENT_THRESHOLD_PX = 300;
  * Codex-style empty response area beneath the latest turn.
  *
  * `bottomInsetPx` is the part of the list covered by the composer, keyboard,
- * and edge fade. It remains part of the physical spacer, while the two-thirds
+ * and edge fade. It remains part of the physical spacer, while the one-half
  * ratio is calculated over the viewport that is actually readable.
  */
 export function resolveResponseSpacerHeight({

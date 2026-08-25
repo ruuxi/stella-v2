@@ -13,14 +13,14 @@ import {
 } from "../user-message-clamp";
 
 describe("chat response spacer geometry", () => {
-  test("reserves two thirds of the readable viewport", () => {
+  test("reserves one half of the readable viewport", () => {
     expect(
       resolveResponseSpacerHeight({
         viewportHeight: 900,
         bottomInsetPx: 120,
         minimumHeightPx: 160,
       }),
-    ).toBe(640);
+    ).toBe(510);
   });
 
   test("keeps at least 240px for the latest turn", () => {
@@ -30,7 +30,7 @@ describe("chat response spacer geometry", () => {
         bottomInsetPx: 80,
         minimumHeightPx: 120,
       }),
-    ).toBe(360);
+    ).toBe(340);
   });
 
   test("retains the surface minimum in a short viewport", () => {
@@ -68,14 +68,21 @@ describe("chat response spacer geometry", () => {
   });
 
   test("frames a short user row above the response spacer", () => {
-    expect(
-      resolvePostSendTarget({
-        rowTop: 1_000,
-        rowBottom: 1_080,
-        viewportHeight: 600,
-        responseSpacerHeightPx: 360,
-      }),
-    ).toBe(840);
+    const viewportHeight = 900;
+    const bottomInsetPx = 120;
+    const responseSpacerHeightPx = resolveResponseSpacerHeight({
+      viewportHeight,
+      bottomInsetPx,
+      minimumHeightPx: 160,
+    });
+    const rowBottom = 1_080;
+    const target = resolvePostSendTarget({
+      rowTop: 1_000,
+      rowBottom,
+      viewportHeight,
+      responseSpacerHeightPx,
+    });
+    expect(rowBottom - target).toBe((viewportHeight - bottomInsetPx) / 2);
   });
 
   test("aligns a tall user row by its top", () => {

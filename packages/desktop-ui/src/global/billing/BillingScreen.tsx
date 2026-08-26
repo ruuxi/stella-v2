@@ -212,15 +212,14 @@ const getErrorMessage = (error: unknown, fallback: string) =>
 /**
  * Stripe redirects back to the website's /billing after Checkout/Portal —
  * the browser tab shows the confirmation while the plan flows into the app
- * reactively over the Convex socket. Base URL comes from the same embed
- * config main already exposes for the Store, so env overrides
- * (STELLA_STORE_WEB_URL) keep working in dev.
+ * reactively over the Convex socket. Base URL comes from main, so env
+ * overrides (STELLA_WEB_URL) keep working in dev.
  */
 const getBillingReturnUrl = async (): Promise<string> => {
   let baseUrl = "https://stella.sh";
   try {
-    const config = await window.electronAPI?.storeWeb?.getEmbedConfig?.();
-    if (config?.baseUrl) baseUrl = config.baseUrl;
+    const resolved = await window.electronAPI?.website?.getBaseUrl?.();
+    if (resolved) baseUrl = resolved;
   } catch {
     // Fall through to the production default.
   }

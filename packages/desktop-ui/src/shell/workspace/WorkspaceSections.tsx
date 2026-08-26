@@ -1,12 +1,11 @@
 /**
- * Activity / Files / Schedule / Store sections, shared by the sidebar's Tasks
- * and Search tabs. With `query` supplied they act as the searchable group
+ * Activity / Files / Schedule sections, shared by the sidebar's Tasks and
+ * Search tabs. With `query` supplied they act as the searchable group
  * overview; section rows open the right sidebar viewer (master-detail).
  *
  * The two hosts differ only in that prop: Tasks renders this unfiltered as the
- * stable activity index, Search threads its debounced query through. Files and
- * Store list nothing without a query — they exist here purely as search
- * results.
+ * stable activity index, Search threads its debounced query through. Files
+ * list nothing without a query — they exist here purely as search results.
  */
 import {
   memo,
@@ -40,12 +39,6 @@ import {
 import { formatNextRun } from "@/global/schedule/format-schedule";
 import { matchesQuery } from "@/features/workspace-display/display-search-store";
 import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
-import {
-  loadOlderFeatureEntries,
-  refreshFeatureSnapshot,
-  useStoreSidePanelState,
-} from "@/features/store/store-side-panel-store";
-import { openStoreDisplayTab } from "@/shell/display/default-tabs";
 import {
   sectionCollapseStore,
   useSectionCollapsed,
@@ -97,13 +90,13 @@ import "@/app/chat/chat-workspace-strip.css";
 // group overview shows more. An active search ignores caps entirely
 // (see `caps` below) and pages in the full dataset.
 const SECTION_CAPS = {
-  strip: { activity: 8, files: 5, schedule: 4, store: 5 },
-  overview: { activity: 9, files: 6, schedule: 6, store: 6 },
+  strip: { activity: 8, files: 5, schedule: 4 },
+  overview: { activity: 9, files: 6, schedule: 6 },
 } as const;
 // Search still scans every loaded record, but rendering an unbounded match
 // set made a common query mount hundreds of rows at once.
-const SEARCH_CAPS = { activity: 40, files: 40, schedule: 30, store: 30 };
-const QUICK_SEARCH_CAPS = { activity: 8, files: 8, schedule: 4, store: 4 };
+const SEARCH_CAPS = { activity: 40, files: 40, schedule: 30 };
+const QUICK_SEARCH_CAPS = { activity: 8, files: 8, schedule: 4 };
 const EMPTY_FILES: ReadonlyArray<ConversationFileEntry> = [];
 const EMPTY_UPDATES: ReadonlyArray<string> = [];
 /** Agent-authored messages shown under an expanded RUNNING agent. */
@@ -668,7 +661,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     loadOlder: loadOlderFiles,
   } = filesFeed;
   const schedules = useConversationSchedules(conversationId);
-  const storeState = useStoreSidePanelState();
   const userAppsRegistry = useSyncExternalStore(
     subscribeToUserApps,
     getUserAppsSnapshot,
@@ -684,11 +676,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
       ? QUICK_SEARCH_CAPS
       : SEARCH_CAPS
     : SECTION_CAPS[variant];
-
-  useEffect(() => {
-    if (searchMode === "quick") return;
-    void refreshFeatureSnapshot();
-  }, [searchMode]);
 
   // While searching, page in the full dataset so the query matches every
   // item, not just what's already loaded. Each loader call updates
@@ -715,21 +702,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     loadOlderFiles,
   ]);
 
-  useEffect(() => {
-    if (!searching || quickSearch) return;
-    const total = storeState.rosterTotal;
-    if (total == null || storeState.olderLoading) return;
-    const loaded =
-      (storeState.snapshot?.items.length ?? 0) + storeState.olderEntries.length;
-    if (loaded < total) void loadOlderFeatureEntries();
-  }, [
-    searching,
-    quickSearch,
-    storeState.rosterTotal,
-    storeState.olderLoading,
-    storeState.snapshot,
-    storeState.olderEntries.length,
-  ]);
   const [openScheduleEntry, setOpenScheduleEntry] =
     useState<ScheduleEntry | null>(null);
   // Ids seen running this session — the sticky half of regular task-row
@@ -941,23 +913,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     return schedules.filter((entry) => matchesQuery(entry.name, query));
   }, [schedules, query]);
 
-  const storeItems = useMemo(() => {
-    const base = storeState.snapshot?.items ?? [];
-    // Search reaches older roster entries too (paged in by the effect above);
-    // the default view only lists the newest snapshot window.
-    const source =
-      searching && !quickSearch
-        ? [...base, ...storeState.olderEntries]
-        : base;
-    if (!query) return source;
-    return source.filter((item) => matchesQuery(item.name, query));
-  }, [
-    storeState.snapshot,
-    storeState.olderEntries,
-    searching,
-    quickSearch,
-    query,
-  ]);
   const visibleUserApps = useMemo(
     () =>
       includeUserApps && searching
@@ -1005,13 +960,9 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     () => filteredSchedules.slice(0, caps.schedule),
     [filteredSchedules, caps.schedule],
   );
-  const storePreview = storeItems.slice(0, caps.store);
-
   const hasActivity = visibleActivityRows.length > 0;
   const hasFiles = searching && visibleFiles.length > 0;
   const hasSchedule = upNext.length > 0;
-  // Store is no longer listed by default — it only surfaces while searching.
-  const hasStore = searching && storePreview.length > 0;
   const hasUserApps = visibleUserApps.length > 0;
   const dialogAffected = useMemo<ScheduleToolAffectedRef[]>(() => {
     if (!openScheduleEntry || !conversationId) return [];
@@ -1051,7 +1002,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     !hasActivity &&
     !hasFiles &&
     !hasSchedule &&
-    !hasStore &&
     !hasUserApps
   ) {
     return renderEmpty ? <>{renderEmpty()}</> : null;
@@ -1161,33 +1111,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
           </WorkspaceSection>
         )}
 
-        {hasStore && (
-          <WorkspaceSection title="Store" sectionId="store">
-            <ul className="chat-workspace-strip__list">
-              {storePreview.map((item) => (
-                <li
-                  key={item.featureId ?? item.name}
-                  className="chat-workspace-strip__row"
-                  title={item.name}
-                >
-                  <button
-                    type="button"
-                    className="chat-workspace-strip__file-button"
-                    onClick={() => {
-                      openStoreDisplayTab();
-                      onNavigate?.();
-                    }}
-                  >
-                    <DisplayTabIcon kind="store" size={15} />
-                    <span className="chat-workspace-strip__file-name">
-                      {item.name}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </WorkspaceSection>
-        )}
       </div>
       <ScheduleDetailsDialog
         open={openScheduleEntry !== null}

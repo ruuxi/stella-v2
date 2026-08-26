@@ -376,7 +376,7 @@ export const ensureNativeEnabled = async (
   if (!entry) return null;
   if (!(await isNativeConnectorEnabled(options.stellaAppDir, id))) {
     throw new Error(
-      `${entry.name} is disabled. Enable it in the Store before calling it.`,
+      `${entry.name} is disabled. Enable it in Connections before calling it.`,
     );
   }
   return entry;
@@ -399,7 +399,7 @@ export const callNativeConnector = async (
   const { stellaAppDir } = options;
   const locallyEnabled = await isNativeConnectorEnabled(stellaAppDir, id);
   const locallyResolved = getNativeConnectorCatalogEntry(id, catalogEntries);
-  // A freshly authenticated desktop may have a live authoritative Store
+  // A freshly authenticated desktop may have a live authoritative connector
   // entry before this process has a disk cache. Do not reinterpret bundled
   // metadata as executable, but allow the trusted broker to resolve and
   // authorize the canonical backend identity for an already-enabled id.
@@ -437,7 +437,7 @@ export const callNativeConnector = async (
     entry.localExecution !== "production-ready"
   ) {
     throw new Error(
-      `${entry.name} local execution is incomplete. A live or cached authoritative Store catalog entry is required.`,
+      `${entry.name} local execution is incomplete. A live or cached authoritative connector catalog entry is required.`,
     );
   }
   if (entry.provider === "backend-composio") {
@@ -1039,7 +1039,7 @@ export const removeMcpConnector = async (
   const id = validateMcpConnectorId(rawId);
   if (getNativeConnectorCatalogEntry(id, resolved.entries)) {
     throw new Error(
-      `${id} is a native Store integration. Disable it in the Store instead of connect.remove.`,
+      `${id} is a native integration. Disable it in Connections instead of connect.remove.`,
     );
   }
   const [command, api] = await Promise.all([
@@ -1157,9 +1157,9 @@ export const discoverConnectorsDetailed = async (
       const next = connected
         ? `Ready. Inspect actions: await connect.actions("${match.id}").`
         : match.declined
-          ? "The user previously declined connecting this in chat. Do not offer it again; they can enable it in the Store."
+          ? "The user previously declined connecting this in chat. Do not offer it again; they can enable it in Connections."
           : match.kind === "native"
-            ? `Not connected. Connect offers are handled by the orchestrator's connector_status tool (inline connect card) or the Store — do not initiate one from here unless the user explicitly asked this turn. Proceed via the browser/computer fallback meanwhile.`
+            ? `Not connected. Connect offers are handled by the orchestrator's connector_status tool (inline connect card) or Connections — do not initiate one from here unless the user explicitly asked this turn. Proceed via the browser/computer fallback meanwhile.`
             : `Configured but not authorized. Calling it pops the auth dialog: await connect.actions("${match.id}").`;
       return {
         id: match.id,

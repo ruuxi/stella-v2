@@ -1,5 +1,5 @@
 /* ============================================================
- * Compact chat surface (sidebar, orb, Store thread)
+ * Compact chat surface (sidebar, orb)
  *
  * Typography tokens (`--chat-text-*`) live on `.chat-viewport-region`
  * in `full-shell.chat.css`. The variant blocks below only override
@@ -17,7 +17,7 @@
   justify-content: flex-end;
   /* Mirror the `--chat-text-*` defaults from `.chat-viewport-region`
      so compact hosts that don't live inside a viewport region (most
-     notably the Store side-panel thread) still resolve every token. */
+     notably the sidebar thread) still resolve every token. */
   --chat-text-size: var(--font-size-lg);
   --chat-text-weight: var(--weight-regular);
   --chat-text-strong-weight: var(--weight-medium);
@@ -43,7 +43,7 @@
 /*
  * When the surface hosts the virtualized LegendList (sidebar or orb),
  * it needs to be a true flex slot inside `.chat-viewport-region` so the
- * list can claim a definite height. The Store panel keeps the original
+ * list can claim a definite height. The side panel keeps the original
  * `min-height: 100%` flow because its messages render flat (no list).
  *
  * `.chat-viewport-region` is a non-flex block in compact surfaces (the
@@ -133,7 +133,7 @@
   width: fit-content;
   /* The full-chat user bubble is a solid accent fill with the derived
      `--chat-user-bubble-text`. The sidebar variant mirrors that exactly; other
-     compact surfaces (orb, Store) use a subtle tint instead, so the
+     compact surfaces (e.g. the orb) use a subtle tint instead, so the
      body text color (`.event-body` reads `--chat-text-color`) routes through
      `--compact-chat-user-color` and each variant keeps text legible on its
      own bubble fill. */

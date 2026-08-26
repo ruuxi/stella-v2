@@ -1,6 +1,6 @@
 /**
  * Per-section collapse state for the consolidated left sidebar (Apps,
- * Activity, Files, Schedule, Store). Persisted so a user's collapsed
+ * Activity, Files, Schedule). Persisted so a user's collapsed
  * sections survive reloads. Keyed by a stable section id string.
  */
 

@@ -1,5 +1,5 @@
 /**
- * Shared connection-state lookup for native Store integrations.
+ * Shared connection-state lookup for native integrations.
  *
  * One place answers "is this integration usable right now?" for the
  * node_repl connect client (discover/connectors), the connector keyword

@@ -31,7 +31,7 @@ const stellaAppDirFromProjectRoot = () => {
  * Small auth adapter for the existing Google Workspace service classes.
  *
  * The old implementation had its own plaintext token file, cloud-function
- * exchange, and browser opener. Store-native integrations now own OAuth:
+ * exchange, and browser opener. Native integrations now own OAuth:
  * tokens live in connector protected storage and browser launch is brokered
  * by the shared connector dialog before this class is ever asked for a client.
  */

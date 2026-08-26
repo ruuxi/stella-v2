@@ -4,11 +4,7 @@ import {
   createRuntimeUnavailableError,
   type JsonRpcPeer,
 } from "@stella/contracts/protocol/rpc-peer";
-import type {
-  AgentHealth,
-  RuntimeActiveRun,
-  SocialSessionServiceSnapshot,
-} from "@stella/contracts/protocol";
+import type { AgentHealth, RuntimeActiveRun } from "@stella/contracts/protocol";
 
 export type WorkerConnection = {
   process: ChildProcessWithoutNullStreams;
@@ -35,7 +31,6 @@ export type WorkerHealthSnapshot = {
   deviceId: string | null;
   voiceBusy?: boolean;
   pendingVoiceRequestCount?: number;
-  socialSessions?: SocialSessionServiceSnapshot;
 };
 
 type InFlightDrainWaiter = {

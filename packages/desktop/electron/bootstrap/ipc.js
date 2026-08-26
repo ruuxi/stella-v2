@@ -9,7 +9,6 @@ import { registerDisplayHandlers } from "../ipc/display-handlers.js";
 import { registerHomeHandlers } from "../ipc/home-handlers.js";
 import { registerLocalChatHandlers } from "../ipc/local-chat-handlers.js";
 import { registerMobileHelloHandlers } from "../ipc/mobile-hello-handlers.js";
-import { registerMorphHandlers } from "../ipc/morph-handlers.js";
 import { registerNativeIntegrationHandlers } from "../ipc/native-integration-handlers.js";
 import { registerOnboardingHandlers } from "../ipc/onboarding-handlers.js";
 import { registerPetHandlers } from "../ipc/pet-handlers.js";
@@ -21,7 +20,8 @@ import { IPC_PREFERENCES_GET_WAKE_WORD, IPC_PREFERENCES_SET_WAKE_WORD, } from "@
 import { registerOfficePreviewHandlers } from "../ipc/office-preview-handlers.js";
 import { registerFashionHandlers } from "../ipc/fashion-handlers.js";
 import { registerScheduleHandlers } from "../ipc/schedule-handlers.js";
-import { registerStoreHandlers } from "../ipc/store-handlers.js";
+import { registerThemeHandlers } from "../ipc/theme-handlers.js";
+import { registerWebsiteHandlers } from "../ipc/website-handlers.js";
 import { registerSystemHandlers, setPreventComputerSleep, } from "../ipc/system-handlers.js";
 import { registerExternalOpenerHandlers } from "../ipc/external-opener-handlers.js";
 import { registerUiHandlers } from "../ipc/ui-handlers.js";
@@ -41,20 +41,20 @@ import { STELLA_BROWSER_EXTENSION_STORE_URL } from "@stella/contracts/browser-ex
 import { scheduleGlobalInputHooksAfterAppReady } from "./global-input-hooks.js";
 import { randomUUID } from "crypto";
 import { startOfficePreviewBridge } from "./office-preview-bridge.js";
-const DEFAULT_STORE_WEB_URL = "https://stella.sh/store";
+const DEFAULT_STELLA_WEB_URL = "https://stella.sh";
 // Delay native-service startup ~4s past app-ready so the bridge/office-preview
 // spawns stay off the first-paint (TTI) path. Previously Windows-only; now
 // applied on all platforms.
 const POST_READY_NATIVE_DELAY_MS = 4_000;
-const readStoreWebBaseUrl = () => (process.env.STELLA_STORE_WEB_URL ??
-    process.env.VITE_STELLA_STORE_WEB_URL ??
-    DEFAULT_STORE_WEB_URL).trim() || DEFAULT_STORE_WEB_URL;
-const getUrlOrigin = (value) => {
+const readStellaWebBaseUrl = () => {
+    const raw = (process.env.STELLA_WEB_URL ??
+        process.env.VITE_STELLA_WEB_URL ??
+        DEFAULT_STELLA_WEB_URL).trim() || DEFAULT_STELLA_WEB_URL;
     try {
-        return new URL(value).origin;
+        return new URL(raw).origin;
     }
     catch {
-        return null;
+        return DEFAULT_STELLA_WEB_URL;
     }
 };
 export const registerBootstrapIpcHandlers = (context, resetFlows) => {
@@ -155,7 +155,6 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         ensureAgentRouting: ensureInAppBrowserAgentRouting,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
-    const allowedStoreWebOrigin = getUrlOrigin(readStoreWebBaseUrl());
     let postReadyNativeServicesScheduled = false;
     const schedulePostReadyNativeServices = () => {
         if (postReadyNativeServicesScheduled) {
@@ -184,38 +183,6 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
                 state.officePreviewBridgeStop = startOfficePreviewBridge(context);
             }
         }, POST_READY_NATIVE_DELAY_MS);
-    };
-    const dispatchStoreWebLocalAction = (action, opts) => {
-        const fullWindow = state.windowManager?.getFullWindow();
-        if (!fullWindow || fullWindow.isDestroyed()) {
-            return Promise.reject(new Error("Stella window is unavailable."));
-        }
-        const requestId = randomUUID();
-        const channel = `storeWeb:localActionResult:${requestId}`;
-        return new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                ipcMain.removeAllListeners(channel);
-                reject(new Error("Timed out waiting for the local Store bridge."));
-            }, opts?.timeoutMs ?? 10_000);
-            ipcMain.once(channel, (event, payload) => {
-                clearTimeout(timeout);
-                if (!services.externalLinkService.assertPrivilegedSender(event, channel)) {
-                    reject(new Error("Rejected untrusted Store bridge response."));
-                    return;
-                }
-                const result = payload;
-                if (result.ok) {
-                    resolve(result.result ?? null);
-                }
-                else {
-                    reject(new Error(result.error || "Store bridge action failed."));
-                }
-            });
-            fullWindow.webContents.send("storeWeb:localAction", {
-                requestId,
-                action,
-            });
-        });
     };
     registerUiHandlers({
         uiState: services.uiStateService.state,
@@ -375,31 +342,12 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         getUiStateSnapshot: () => state.uiStateKvStore?.snapshot() ?? {},
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
-    registerMorphHandlers({
-        windowManager: state.windowManager,
-        getOverlayController: () => state.overlayController,
-    });
-    registerStoreHandlers({
-        getStellaAppDir: lifecycle.getStellaAppDir,
+    registerThemeHandlers({
         getStellaDataDir: lifecycle.getStellaDataDir,
-        getStellaHostRunner: lifecycle.getRunner,
-        getFullWindow: () => state.windowManager?.getFullWindow() ?? null,
-        onStellaHostRunnerChanged: lifecycle.onRunnerChanged,
+    });
+    registerWebsiteHandlers({
+        getWebsiteBaseUrl: readStellaWebBaseUrl,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
-        assertStoreWebSender: (event, channel) => {
-            if (state.windowManager?.isStoreWebViewWebContents(event.sender.id)) {
-                return true;
-            }
-            const senderOrigin = getUrlOrigin(services.externalLinkService.getSenderUrl(event));
-            const trusted = Boolean(allowedStoreWebOrigin && senderOrigin === allowedStoreWebOrigin);
-            if (!trusted) {
-                console.warn(`[security] Blocked untrusted Store web IPC ${channel} from ${senderOrigin ?? "unknown"}`);
-            }
-            return trusted;
-        },
-        getStoreAuthToken: () => services.authService.getConvexAuthToken(),
-        getStoreWebEmbedConfig: () => state.windowManager?.getStoreWebEmbedConfig() ?? null,
-        dispatchStoreWebLocalAction,
     });
     registerFashionHandlers({
         getStellaAppDir: lifecycle.getStellaAppDir,

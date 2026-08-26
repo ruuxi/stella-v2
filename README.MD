@@ -49,8 +49,6 @@ Stella is fully open source. Your files and your conversations stay on your mach
 - Dictation, both inside the app and anywhere else on your computer
 - Realtime voice conversations
 - Schedule things for later, including reminders and recurring tasks
-- Store: share what you make, install what others have built
-- Social: message friends, share and build apps together
 - Text Stella from your phone, or from Discord, Telegram, and other apps. If you're signed in and your computer is on, your phone reaches your real Stella
 
 ## Zero setup

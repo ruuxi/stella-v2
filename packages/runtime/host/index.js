@@ -11,7 +11,6 @@ import { LocalSchedulerService } from "../kernel/local-scheduler-service.js";
 import { createScheduleScriptAuthEnv } from "../kernel/shared/schedule-scripts.js";
 import { createRemoteTurnBridge } from "../kernel/remote-turn-bridge.js";
 import { getConvexErrorCode, isConvexDeviceKeyMismatchError, isConvexUnauthenticatedError, shouldStopRemoteTurnForAuthFailure, } from "../kernel/runner/remote-turn-auth.js";
-import { createEmptySocialSessionServiceSnapshot } from "@stella/contracts";
 import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
 import { resolveConnectorFollowupAction } from "./connector-followup.js";
 import { METHOD_NAMES, NOTIFICATION_NAMES, STELLA_RUNTIME_PROTOCOL_VERSION, } from "@stella/contracts/protocol";
@@ -337,7 +336,7 @@ export class StellaRuntimeHost {
         }
         this.startStaleWorkerQuiescencePoll();
         // Nudge the unified gate soon: restart now if already quiescent, otherwise
-        // an unblock hook (pause release, morph settle, worker idle) or the poll
+        // an unblock hook (pause release, worker idle) or the poll
         // retries. Off this call stack so a caller still inside the startup /
         // apply sequence isn't restarted from under itself.
         const nudge = setTimeout(() => {
@@ -1495,18 +1494,6 @@ export class StellaRuntimeHost {
     async setLocalChatSyncCheckpoint(payload) {
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_LOCAL_CHAT_SET_SYNC_CHECKPOINT, payload, { ensureWorker: true, recordActivity: false });
     }
-    async listStorePackages() {
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_LIST_STORE_PACKAGES, undefined, { ensureWorker: true, recordActivity: true });
-    }
-    async getStorePackage(packageId) {
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_GET_STORE_PACKAGE, { packageId }, { ensureWorker: true, recordActivity: true });
-    }
-    async listStorePackageReleases(packageId) {
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_LIST_STORE_RELEASES, { packageId }, { ensureWorker: true, recordActivity: true });
-    }
-    async getStorePackageRelease(packageId, releaseNumber) {
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_GET_STORE_RELEASE, { packageId, releaseNumber }, { ensureWorker: true, recordActivity: true });
-    }
     async listCronJobs() {
         return this.ensureScheduler().listCronJobs();
     }
@@ -1541,25 +1528,6 @@ export class StellaRuntimeHost {
     }
     async getConversationEventCount(payload) {
         return this.ensureScheduler().getConversationEventCount(payload.conversationId);
-    }
-    async createSocialSession(payload) {
-        this.workerHealthCache = null;
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_SOCIAL_SESSIONS_CREATE, payload, { ensureWorker: true, recordActivity: true });
-    }
-    async updateSocialSessionStatus(payload) {
-        this.workerHealthCache = null;
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_SOCIAL_SESSIONS_UPDATE_STATUS, payload, {
-            ensureWorker: true,
-            recordActivity: true,
-        });
-    }
-    async queueSocialSessionTurn(payload) {
-        this.workerHealthCache = null;
-        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_SOCIAL_SESSIONS_QUEUE_TURN, payload, { ensureWorker: true, recordActivity: true });
-    }
-    async getSocialSessionStatus() {
-        const health = await this.getWorkerHealth({ ensureWorker: false });
-        return health?.socialSessions ?? createEmptySocialSessionServiceSnapshot();
     }
     async listProjects() {
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_PROJECTS_LIST, undefined, { ensureWorker: true, recordActivity: false });

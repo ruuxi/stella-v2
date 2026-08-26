@@ -52,8 +52,6 @@ export const IPC_APP_SET_READY = "app:setReady" as const;
 export const IPC_APP_RELOAD = "app:reload" as const;
 export const IPC_APP_RELAUNCH = "app:relaunch" as const;
 export const IPC_APP_HARD_RESET = "app:hardResetLocalState" as const;
-export const IPC_MORPH_START = "morph:start" as const;
-export const IPC_MORPH_COMPLETE = "morph:complete" as const;
 
 // ── Capture ─────────────────────────────────────────────────────────────────
 
@@ -78,13 +76,6 @@ export const IPC_OVERLAY_START_REGION_CAPTURE =
 export const IPC_OVERLAY_END_REGION_CAPTURE =
   "overlay:endRegionCapture" as const;
 export const IPC_OVERLAY_DISPLAY_CHANGE = "overlay:displayChange" as const;
-export const IPC_OVERLAY_MORPH_FORWARD = "overlay:morphForward" as const;
-export const IPC_OVERLAY_MORPH_BOUNDS = "overlay:morphBounds" as const;
-export const IPC_OVERLAY_MORPH_HANDOFF = "overlay:morphHandoff" as const;
-export const IPC_OVERLAY_MORPH_END = "overlay:morphEnd" as const;
-export const IPC_OVERLAY_MORPH_STATE = "overlay:morphState" as const;
-export const IPC_OVERLAY_MORPH_READY = "overlay:morphReady" as const;
-export const IPC_OVERLAY_MORPH_DONE = "overlay:morphDone" as const;
 export const IPC_OVERLAY_WINDOW_HIGHLIGHT = "overlay:windowHighlight" as const;
 export const IPC_OVERLAY_SHOW_WINDOW_HIGHLIGHT =
   "overlay:showWindowHighlight" as const;
@@ -96,6 +87,10 @@ export const IPC_OVERLAY_PREVIEW_WINDOW_HIGHLIGHT_AT_POINT =
 // ── Theme ───────────────────────────────────────────────────────────────────
 
 export const IPC_THEME_LIST_INSTALLED = "theme:listInstalled" as const;
+
+// ── Website ─────────────────────────────────────────────────────────────────
+
+export const IPC_WEBSITE_GET_BASE_URL = "website:getBaseUrl" as const;
 
 // ── Voice ───────────────────────────────────────────────────────────────────
 
@@ -177,12 +172,6 @@ export const IPC_HOST_SET_MODEL_CATALOG_UPDATED_AT =
 export const IPC_AUTH_CALLBACK = "auth:callback" as const;
 export const IPC_AUTH_CONSUME_PENDING_CALLBACK =
   "auth:consumePendingCallback" as const;
-// Social invite deep links (`stella://join/<code>`,
-// `stella://add-friend/<username>`) — broadcast + cold-boot pull, mirroring
-// the auth callback pair above.
-export const IPC_SOCIAL_INVITE = "social:invite" as const;
-export const IPC_SOCIAL_CONSUME_PENDING_INVITE =
-  "social:consumePendingInvite" as const;
 export const IPC_AUTH_RUNTIME_REFRESH_REQUESTED =
   "auth:runtimeRefreshRequested" as const;
 export const IPC_AUTH_RUNTIME_REFRESH_COMPLETE =
@@ -342,19 +331,6 @@ export const IPC_SCHEDULE_GET_EVENT_COUNT =
   "schedule:getConversationEventCount" as const;
 export const IPC_SCHEDULE_UPDATED = "schedule:updated" as const;
 
-// ── Store ───────────────────────────────────────────────────────────────────
-
-export const IPC_STORE_READ_FEATURE_SNAPSHOT =
-  "store:readFeatureSnapshot" as const;
-export const IPC_STORE_LIST_FEATURE_ROSTER = "store:listFeatureRoster" as const;
-export const IPC_STORE_LIST_PACKAGES = "store:listPackages" as const;
-export const IPC_STORE_GET_PACKAGE = "store:getPackage" as const;
-export const IPC_STORE_LIST_RELEASES = "store:listReleases" as const;
-export const IPC_STORE_GET_RELEASE = "store:getRelease" as const;
-export const IPC_STORE_LIST_INSTALLED = "store:listInstalledMods" as const;
-export const IPC_STORE_INSTALL_FROM_BLUEPRINT =
-  "store:installFromBlueprint" as const;
-export const IPC_STORE_UNINSTALL = "store:uninstallMod" as const;
 // ── Fashion ─────────────────────────────────────────────────────────────────
 //
 // The body photo intentionally does NOT round-trip through Convex storage —
@@ -417,15 +393,6 @@ export const IPC_LOCAL_CHAT_THREAD_ACTIVITY_UPDATED =
 export const IPC_LOCAL_CHAT_TASK_DECORATION_UPDATED =
   "localChat:taskDecorationUpdated" as const;
 
-// ── Social Sessions ─────────────────────────────────────────────────────────
-
-export const IPC_SOCIAL_SESSIONS_CREATE = "socialSessions:create" as const;
-export const IPC_SOCIAL_SESSIONS_UPDATE_STATUS =
-  "socialSessions:updateStatus" as const;
-export const IPC_SOCIAL_SESSIONS_QUEUE_TURN =
-  "socialSessions:queueTurn" as const;
-export const IPC_SOCIAL_SESSIONS_GET_STATUS =
-  "socialSessions:getStatus" as const;
 export const IPC_USER_APPS_LIST = "userApps:list" as const;
 export const IPC_USER_APPS_START = "userApps:start" as const;
 export const IPC_USER_APPS_STOP = "userApps:stop" as const;
@@ -434,8 +401,8 @@ export const IPC_USER_APPS_UPDATED = "userApps:updated" as const;
 // ── Pet Overlay ─────────────────────────────────────────────────────────────
 //
 // The pet renders inside the existing transparent overlay window. State is
-// owned by the main process so toggles from any window (Pets settings,
-// pet's own context menu) reach every renderer; agent status is produced
+// owned by the main process so toggles from any window (the pet's own
+// context menu, the shell) reach every renderer; agent status is produced
 // by the full-shell chat surface and broadcast to all renderers via
 // `pet:status` so the overlay can drive the right animation and bubble.
 //

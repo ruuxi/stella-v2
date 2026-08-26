@@ -64,7 +64,7 @@ const createDeferredStartupTasks = (context) => {
     const { config, state } = context;
     // Perf: the overlay's cold second-renderer is no longer eagerly built here.
     // Every overlay show entrypoint (voice/region-capture/screen-guide/
-    // morph/window-highlight) self-creates the window via
+    // window-highlight) self-creates the window via
     // `OverlayWindowController.ensureReady()`. Startup schedules a delayed warm
     // so first use is usually ready without competing with first paint.
     return [

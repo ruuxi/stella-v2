@@ -5,8 +5,7 @@ import { requireAdminRequest } from "../http_shared/admin";
 
 const ADMIN_DELETE_PATH = "/api/admin/delete";
 const ADMIN_BILLING_PLAN_PATH = "/api/admin/billing/plan";
-const ADMIN_STORE_PARTNER_BADGE_PATH = "/api/admin/store/partner-badge";
-const SOCIAL_DELETE_MAX_STEPS = 200;
+const MEDIA_DELETE_MAX_STEPS = 200;
 
 type AdminDeleteBody = {
   kind?: string;
@@ -20,11 +19,6 @@ type AdminBillingPlanBody = {
   usageMode?: string;
   subscriptionStatus?: string;
   resetUsage?: boolean;
-};
-
-type AdminPartnerBadgeBody = {
-  ownerId?: string;
-  granted?: boolean;
 };
 
 const jsonResponse = (status: number, body: unknown) =>
@@ -118,24 +112,6 @@ const readBillingPlanBody = async (
   };
 };
 
-const readPartnerBadgeBody = async (
-  request: Request,
-): Promise<{ ownerId: string; granted: boolean } | Response> => {
-  const body = (await parseRequestJson(
-    request,
-  )) as AdminPartnerBadgeBody | null;
-  const ownerId = typeof body?.ownerId === "string" ? body.ownerId.trim() : "";
-  if (!ownerId) {
-    return jsonResponse(400, { error: "Missing ownerId." });
-  }
-  if (typeof body?.granted !== "boolean") {
-    return jsonResponse(400, {
-      error: "Missing or invalid 'granted' (must be boolean).",
-    });
-  }
-  return { ownerId, granted: body.granted };
-};
-
 export const registerAdminRoutes = (http: HttpRouter) => {
   http.route({
     path: ADMIN_BILLING_PLAN_PATH,
@@ -155,26 +131,6 @@ export const registerAdminRoutes = (http: HttpRouter) => {
   });
 
   http.route({
-    path: ADMIN_STORE_PARTNER_BADGE_PATH,
-    method: "POST",
-    handler: httpAction(async (ctx, request) => {
-      const admin = requireAdminRequest(request);
-      if (!admin.ok) return admin.response;
-
-      const parsed = await readPartnerBadgeBody(request);
-      if (parsed instanceof Response) return parsed;
-
-      return jsonResponse(
-        200,
-        await ctx.runMutation(
-          internal.social.profiles.setPartnerBadgeForOwnerInternal,
-          parsed,
-        ),
-      );
-    }),
-  });
-
-  http.route({
     path: ADMIN_DELETE_PATH,
     method: "POST",
     handler: httpAction(async (ctx, request) => {
@@ -186,25 +142,6 @@ export const registerAdminRoutes = (http: HttpRouter) => {
 
       const { kind, id } = parsed;
       switch (kind) {
-        case "catalog_pet":
-          return jsonResponse(
-            200,
-            await ctx.runMutation(internal.data.pets.deleteByPetId, { id }),
-          );
-        case "store_package":
-          return jsonResponse(
-            200,
-            await ctx.runMutation(internal.admin_deletes.deleteStorePackage, {
-              packageId: id,
-            }),
-          );
-        case "user_pet":
-          return jsonResponse(
-            200,
-            await ctx.runMutation(internal.admin_deletes.deleteUserPet, {
-              petId: id,
-            }),
-          );
         case "emoji_pack":
           return jsonResponse(
             200,
@@ -214,7 +151,7 @@ export const registerAdminRoutes = (http: HttpRouter) => {
           );
         case "media_job": {
           let result: { hasMore?: boolean } | null = null;
-          for (let step = 0; step < SOCIAL_DELETE_MAX_STEPS; step += 1) {
+          for (let step = 0; step < MEDIA_DELETE_MAX_STEPS; step += 1) {
             result = await ctx.runMutation(
               internal.admin_deletes.deleteMediaJob,
               { jobId: id },
@@ -242,52 +179,6 @@ export const registerAdminRoutes = (http: HttpRouter) => {
               platform: id,
             }),
           );
-        case "social_message":
-          return jsonResponse(
-            200,
-            await ctx.runMutation(internal.admin_deletes.deleteSocialMessage, {
-              id,
-            }),
-          );
-        case "stella_session": {
-          let result: { hasMore?: boolean } | null = null;
-          for (let step = 0; step < SOCIAL_DELETE_MAX_STEPS; step += 1) {
-            result = await ctx.runMutation(
-              internal.admin_deletes.deleteStellaSessionBatch,
-              { id },
-            );
-            if (!result.hasMore) return jsonResponse(200, result);
-          }
-          return jsonResponse(409, {
-            error: "Session delete needs another request.",
-            kind,
-            id,
-            hasMore: true,
-          });
-        }
-        case "social_room": {
-          let result: { hasMore?: boolean; label?: string } | null = null;
-          for (let step = 0; step < SOCIAL_DELETE_MAX_STEPS; step += 1) {
-            result = await ctx.runMutation(
-              internal.admin_deletes.deleteSocialRoomBatch,
-              { id },
-            );
-            if (result.hasMore && result.label) {
-              await ctx.runMutation(
-                internal.admin_deletes.deleteStellaSessionBatch,
-                { id: result.label },
-              );
-              continue;
-            }
-            if (!result.hasMore) return jsonResponse(200, result);
-          }
-          return jsonResponse(409, {
-            error: "Social room delete needs another request.",
-            kind,
-            id,
-            hasMore: true,
-          });
-        }
         default:
           return jsonResponse(400, {
             error: `Unsupported delete kind: ${kind}`,

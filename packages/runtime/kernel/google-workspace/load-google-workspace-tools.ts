@@ -237,7 +237,7 @@ export const loadGoogleWorkspaceTools = async (options: {
     args: Record<string, unknown>,
   ): Promise<ToolResult> => {
     // Fail fast when no credentials are stored instead of silently opening a
-    // browser and blocking the tool call. Connect flow lives in the Store
+    // browser and blocking the tool call. Connect flow lives in Connections
     // (`nativeIntegrations:enable("gmail" | "googlecalendar" | …)`), which
     // brokers the dialog + OAuth before any tool call lands here.
     if (
@@ -247,7 +247,7 @@ export const loadGoogleWorkspaceTools = async (options: {
       options.onAuthStateChanged?.(false);
       return {
         error:
-          "Google Workspace is not connected. Enable Gmail / Calendar / Docs / Drive in the Store first.",
+          "Google Workspace is not connected. Enable Gmail / Calendar / Docs / Drive in Connections first.",
       };
     }
 

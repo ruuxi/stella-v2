@@ -232,6 +232,118 @@ describe("preload IPC handler manifest", () => {
     expect(IPC_PAYLOAD_CONTRACT).not.toHaveProperty("dictation:trigger");
   });
 
+  it("keeps the removed morph, Store and Social surfaces out of the IPC contract", () => {
+    const preload = readFileSync(
+      path.join(repoRoot, "packages/desktop/electron/preload.ts"),
+      "utf8",
+    );
+    const rendererChannels = readFileSync(
+      path.join(
+        repoRoot,
+        "packages/desktop-ui/src/shared/contracts/ipc-channels.ts",
+      ),
+      "utf8",
+    );
+    const contractChannels = readFileSync(
+      path.join(repoRoot, "packages/contracts/desktop/ipc-channels.ts"),
+      "utf8",
+    );
+
+    for (const source of [preload, rendererChannels, contractChannels]) {
+      expect(source).not.toMatch(/morph/i);
+      expect(source).not.toContain("storeWeb");
+      expect(source).not.toContain("socialSessions");
+      expect(source).not.toContain("social:invite");
+      expect(source).not.toContain("store:listPackages");
+    }
+
+    for (const channel of [
+      "morph:start",
+      "morph:complete",
+      "overlay:morphReady",
+      "overlay:morphDone",
+      "storeWeb:getEmbedConfig",
+      "store:listPackages",
+      "store:getPackage",
+      "store:listReleases",
+      "store:getRelease",
+      "socialSessions:create",
+      "socialSessions:updateStatus",
+      "socialSessions:queueTurn",
+      "socialSessions:getStatus",
+      "social:consumePendingInvite",
+    ]) {
+      expect(IPC_PAYLOAD_CONTRACT).not.toHaveProperty(channel);
+    }
+
+    // The neutral replacements the removals left behind must stay wired.
+    expect(IPC_PAYLOAD_CONTRACT).toHaveProperty("theme:listInstalled");
+    expect(IPC_PAYLOAD_CONTRACT).toHaveProperty("website:getBaseUrl");
+  });
+
+  it("never passes an IPC channel constant as an IPC payload", () => {
+    // A bulk edit that appends a channel constant to an import list can also
+    // land inside a nearby `ipcRenderer.send*(CHANNEL, ...)` call, silently
+    // turning a sibling channel name into a payload argument. Every argument
+    // after the first must therefore not be a known channel constant.
+    const preloadPath = path.join(
+      repoRoot,
+      "packages/desktop/electron/preload.ts",
+    );
+    const sourceFile = ts.createSourceFile(
+      preloadPath,
+      readFileSync(preloadPath, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const contractsSource = ts.createSourceFile(
+      path.join(repoRoot, "packages/contracts/desktop/ipc-channels.ts"),
+      readFileSync(
+        path.join(repoRoot, "packages/contracts/desktop/ipc-channels.ts"),
+        "utf8",
+      ),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const channelIdentifiers =
+      collectStaticChannelValues(contractsSource).identifiers;
+
+    const offenders: string[] = [];
+    let inspectedCalls = 0;
+    const visit = (node: ts.Node) => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        ts.isIdentifier(node.expression.expression) &&
+        node.expression.expression.text === "ipcRenderer" &&
+        ["invoke", "send", "sendSync", "on", "off"].includes(
+          node.expression.name.text,
+        )
+      ) {
+        inspectedCalls += 1;
+        for (const argument of node.arguments.slice(1)) {
+          const isChannelConstant =
+            ts.isIdentifier(argument) && channelIdentifiers.has(argument.text);
+          const isChannelLiteral =
+            ts.isStringLiteral(argument) &&
+            [...channelIdentifiers.values()].includes(argument.text);
+          if (isChannelConstant || isChannelLiteral) {
+            offenders.push(
+              `${node.expression.name.text}(... , ${argument.getText()})`,
+            );
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+
+    expect(inspectedCalls).toBeGreaterThan(50);
+    expect(offenders).toEqual([]);
+  });
+
   it("registers a main-process handler for every preload invoke channel", () => {
     const preloadInvokes = collectPreloadInvokes(
       path.join(repoRoot, "packages/desktop/electron/preload.ts"),

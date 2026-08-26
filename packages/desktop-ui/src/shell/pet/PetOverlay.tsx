@@ -13,9 +13,7 @@ import type {
   PetOverlayStatus,
 } from "@stella/contracts/desktop/pet";
 import type { VoiceRuntimeSnapshot } from "@/shared/types/electron";
-import { DEFAULT_PET_ID } from "./built-in-pets";
-import { useSelectedPet } from "./pet-catalog-context";
-import { useSelectedPetId } from "./pet-preferences";
+import { BUILT_IN_PET } from "./built-in-pet";
 import { PetSprite } from "./PetSprite";
 import "./pet-overlay.css";
 
@@ -146,8 +144,7 @@ export const PetOverlay = ({
   onClose,
 }: PetOverlayProps) => {
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const [selectedPetId] = useSelectedPetId(DEFAULT_PET_ID);
-  const pet = useSelectedPet(selectedPetId);
+  const pet = BUILT_IN_PET;
 
   const [hover, setHover] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -453,7 +450,7 @@ export const PetOverlay = ({
     window.electronAPI?.pet?.setOpen?.(false);
   }, [onClose]);
 
-  if (!open || !pet) {
+  if (!open) {
     return null;
   }
 

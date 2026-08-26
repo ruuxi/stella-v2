@@ -1,7 +1,7 @@
 // Brokers agent-initiated connect prompts (the orchestrator's
 // `connector_status` tool with a connection request) into an inline
 // connect card in the chat surfaces. Accepting the card runs the
-// exact same enable + OAuth flow as the Store (`ensureNativeCredential`
+// exact same enable + OAuth flow as Connections (`ensureNativeCredential`
 // + `enableNativeConnector`), with the OAuth dialogs suppressed — the
 // card click IS the launch gesture, so the browser opens directly. The
 // requesting tool call blocks on the outcome, which is what lets the
@@ -292,7 +292,7 @@ export class ConnectorConnectService {
             const target = await resolveDesktopNativeConnectorEntry(flowOptions, stellaAppDir, meta.id);
             const { catalog, entry } = target;
             if (!isCanonicalConnectorConnectable(entry)) {
-                throw new Error(`${meta.name} is no longer available through an executable Store integration.`);
+                throw new Error(`${meta.name} is no longer available through an executable native integration.`);
             }
             const acceptedTarget = { catalog, entry: entry };
             if (!meta.canonicalFingerprint ||
@@ -302,7 +302,7 @@ export class ConnectorConnectService {
             }
             await ensureNativeCredential(flowOptions, stellaAppDir, entry.id, acceptedTarget);
             const configuredOAuthProviders = await loadConfiguredOAuthProviders(flowOptions);
-            await enableNativeConnector(stellaAppDir, entry.id, "store", {
+            await enableNativeConnector(stellaAppDir, entry.id, "desktop", {
                 configuredBackendProviders: configuredOAuthProviders.backend,
                 configuredExternalCallbackProviders: configuredOAuthProviders.externalCallback,
             }, catalog.entries);

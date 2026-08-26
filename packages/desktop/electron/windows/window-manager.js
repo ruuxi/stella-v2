@@ -1,7 +1,5 @@
 import { app, BrowserWindow } from 'electron';
-import { pathToFileURL } from 'node:url';
 import { FullWindowController } from './full-window.js';
-import { attachStoreWebviewGuards, isStoreWebviewWebContents, } from './store-webview.js';
 import { getMainLogger } from '../observability/main-logger.js';
 /**
  * Chromium net error codes for failures that are usually transient, most
@@ -144,10 +142,6 @@ export class WindowManager {
     createFullWindow() {
         const window = this.fullWindowController.create();
         this.observeFullWindow(window);
-        attachStoreWebviewGuards(window, {
-            preloadPath: this.options.storeWebPreloadPath,
-            isAllowedUrl: this.options.isAllowedStoreWebUrl,
-        });
         return window;
     }
     createInitialWindows() {
@@ -158,16 +152,6 @@ export class WindowManager {
     }
     getAllWindows() {
         return BrowserWindow.getAllWindows();
-    }
-    getStoreWebEmbedConfig() {
-        return {
-            baseUrl: this.options.storeWebBaseUrl,
-            partition: `${this.options.sessionPartition}:website`,
-            preloadUrl: pathToFileURL(this.options.storeWebPreloadPath).toString(),
-        };
-    }
-    isStoreWebViewWebContents(id) {
-        return isStoreWebviewWebContents(id);
     }
     isWindowFocused() {
         const window = this.getFullWindow();

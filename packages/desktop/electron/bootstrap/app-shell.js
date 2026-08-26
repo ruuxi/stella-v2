@@ -12,29 +12,6 @@ import { configureStellaSessionPermissions } from "./session-permissions.js";
 import { getAllWindows, getMobileBroadcast, } from "./context.js";
 import { startDeferredStartup } from "./deferred-startup.js";
 import { getMainLogger } from "../observability/main-logger.js";
-const DEFAULT_STELLA_WEB_URL = "https://stella.sh";
-const readStellaWebBaseUrl = () => {
-    const raw = (process.env.STELLA_WEB_URL ??
-        process.env.VITE_STELLA_WEB_URL ??
-        process.env.STELLA_STORE_WEB_URL ??
-        process.env.VITE_STELLA_STORE_WEB_URL ??
-        DEFAULT_STELLA_WEB_URL).trim() || DEFAULT_STELLA_WEB_URL;
-    try {
-        const url = new URL(raw);
-        return url.origin;
-    }
-    catch {
-        return DEFAULT_STELLA_WEB_URL;
-    }
-};
-const storeWebOrigin = (value) => {
-    try {
-        return new URL(value).origin;
-    }
-    catch {
-        return null;
-    }
-};
 const initializeBootstrapLocalState = async (context) => {
     const { config, lifecycle, services, state } = context;
     const stellaDataDir = await resolveStellaDataDir(app, config.stellaAppDir, config.stellaDataDirPath);
@@ -49,9 +26,6 @@ const initializeBootstrapLocalState = async (context) => {
 const initializeWindowShell = (context) => {
     const { config, lifecycle, services, state } = context;
     const preloadPath = path.join(config.electronDir, "preload.js");
-    const storeWebPreloadPath = path.join(config.electronDir, "store-web-preload.js");
-    const storeWebBaseUrl = readStellaWebBaseUrl();
-    const allowedStoreWebOrigin = storeWebOrigin(storeWebBaseUrl);
     configureStellaSessionPermissions({
         appPartition: config.sessionPartition,
         isDev: config.useDevServer,
@@ -77,10 +51,6 @@ const initializeWindowShell = (context) => {
     lifecycle.setWindowManager(new WindowManager({
         electronDir: config.electronDir,
         preloadPath,
-        storeWebPreloadPath,
-        storeWebBaseUrl,
-        isAllowedStoreWebUrl: (url) => Boolean(allowedStoreWebOrigin &&
-            storeWebOrigin(url) === allowedStoreWebOrigin),
         sessionPartition: config.sessionPartition,
         isDev: config.useDevServer,
         getDevServerUrl,

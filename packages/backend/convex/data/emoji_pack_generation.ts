@@ -18,13 +18,10 @@ import {
 } from "../lib/managed_billing";
 import { emoji_pack_validator, emoji_pack_visibility_validator } from "../schema/emoji_packs";
 import { requireBoundedString } from "../shared_validators";
+import { resolveEmojiPackR2Destination } from "../lib/emoji_pack_r2";
 import { EMOJI_SHEETS, EMOJI_SHEET_GRID_SIZE } from "./emoji_pack_grid_constants";
 import { EMOJI_REFERENCE_SHEET_DATA_URLS } from "./emoji_pack_reference_images";
 
-const DEFAULT_BUCKET = "stella-emotes";
-const DEFAULT_PREFIX = "emoji-packs";
-const DEFAULT_PUBLIC_BASE =
-  "https://pub-58708621bfa94e3bb92de37cde354c0d.r2.dev";
 const DEFAULT_STYLE = "playful party style";
 const CACHE_CONTROL = "public, max-age=31536000, immutable";
 const FAL_ENDPOINT_ID = "openai/gpt-image-2/edit";
@@ -44,9 +41,6 @@ const requireEnv = (name: string): string => {
   }
   return value;
 };
-
-const normalizePrefix = (value: string | undefined): string =>
-  (value?.trim() || DEFAULT_PREFIX).replace(/^\/+|\/+$/g, "");
 
 const sha256Hex = (data: string | Buffer): string =>
   createHash("sha256").update(data).digest("hex");
@@ -211,19 +205,14 @@ export const generatePack = action({
     }
     const siteUrl = requireEnv("CONVEX_SITE_URL").replace(/\/+$/, "");
     const webhookUrl = `${siteUrl}/api/media/v1/webhooks/fal?jobId=${encodeURIComponent(`emoji-pack-${randomUUID()}`)}`;
+    const destination = resolveEmojiPackR2Destination();
     const r2 = {
       accessKeyId: requireEnv("R2_ACCESS_KEY_ID"),
       secretAccessKey: requireEnv("R2_SECRET_ACCESS_KEY"),
       endpoint: requireEnv("R2_ENDPOINT"),
-      bucket:
-        process.env.R2_EMOJI_BUCKET?.trim() ||
-        process.env.R2_PETS_BUCKET?.trim() ||
-        DEFAULT_BUCKET,
+      bucket: destination.bucket,
     };
-    const prefix = normalizePrefix(process.env.R2_EMOJI_PREFIX);
-    const publicBase = (
-      process.env.R2_PUBLIC_BASE_URL?.trim() || DEFAULT_PUBLIC_BASE
-    ).replace(/\/+$/, "");
+    const { prefix, publicBase } = destination;
     const packId = buildPackId(prompt);
     const ownerKey = sha256Hex(ownerId).slice(0, 24);
     const uploadId = randomUUID();

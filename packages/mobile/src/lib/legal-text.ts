@@ -49,7 +49,7 @@ The Stella Platform (Free) — Stella is a personal AI assistant that runs prima
 
 The Stella Provider (Paid LLM Service) — Separately, FromYou operates the Stella Provider, a managed LLM inference service that routes AI model requests to upstream providers on your behalf. The Stella Provider is the paid component of the Service — subscription plans and usage-based billing apply to LLM inference consumed through the Stella Provider. You are never required to use the Stella Provider; you may supply your own API keys (BYOK) and use the platform entirely for free.
 
-Additional Backend Services — Our backend also provides authentication, an offline fallback responder, Stella mobile app connectivity, the mod store, social features, and media generation capabilities.
+Additional Backend Services — Our backend also provides authentication, an offline fallback responder, Stella mobile app connectivity, and media generation capabilities.
 
 
 5. Local-First Architecture and Your Data
@@ -105,86 +105,77 @@ Cancellation — You may cancel your subscription at any time. Cancellation take
 Stella's AI agents can modify the application's own user interface and functionality when instructed by you. These modifications are made locally via Vite hot-module replacement and are tracked in a local Git repository on your device. You may revert any self-modification at any time. You are responsible for reviewing and accepting changes made by the AI to your local Stella installation.
 
 
-10. Mod Store
+10. Open-Source Software
 
-Publishing — You may publish modifications ("mods") to the Stella Mod Store. By publishing, you grant FromYou and other Stella users a non-exclusive, worldwide, royalty-free license to use, install, and distribute your mod through the Service.
-
-Installing — Mods are community-created and are not reviewed or endorsed by FromYou. You install mods at your own risk. We are not responsible for any damage, data loss, or security issues caused by third-party mods.
-
-Prohibited Content — You may not publish mods that contain malware, violate any law, infringe third-party rights, or are designed to harm users or their systems.
+Stella's platform is open source. Your use of the open-source code is governed by the applicable open-source license(s) in the repository. These Terms govern your use of the hosted Service (backend APIs, Stella Provider, etc.) which may include components, infrastructure, and services not covered by the open-source license.
 
 
-11. Open-Source Software
-
-Stella's platform is open source. Your use of the open-source code is governed by the applicable open-source license(s) in the repository. These Terms govern your use of the hosted Service (backend APIs, Stella Provider, Mod Store, etc.) which may include components, infrastructure, and services not covered by the open-source license.
-
-
-12. Acceptable Use
+11. Acceptable Use
 
 You agree not to: use the Service for any unlawful purpose or to violate any applicable law or regulation; attempt to gain unauthorized access to any part of the Service or its related systems; interfere with or disrupt the Service, servers, or networks connected to the Service; use the Service to generate content that is illegal, harmful, threatening, abusive, harassing, defamatory, or otherwise objectionable; circumvent any rate limits, usage restrictions, or access controls; reverse-engineer, decompile, or disassemble any proprietary component of the Service (this does not restrict your rights under the applicable open-source license for open-source components); use the Service to build a competing product or service by systematically extracting data from our backend APIs; or resell access to the Stella Provider or backend services without our written permission.
 
 
-13. Intellectual Property
+12. Intellectual Property
 
 Our Rights — The Stella name, logo, and branding are the property of FromYou LLC. The hosted backend services, API infrastructure, and any proprietary components not released under an open-source license remain the intellectual property of FromYou.
 
-Your Rights — You retain all rights to your data, conversations, and any content you create using the Service. You retain all rights to mods you create, subject to the license granted in section 10.
+Your Rights — You retain all rights to your data, conversations, and any content you create using the Service.
 
 Open Source — Open-source components of Stella are licensed under their respective open-source licenses.
 
 
-14. Disclaimer of Warranties
+13. Disclaimer of Warranties
 
 THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. FROMYOU DOES NOT WARRANT THAT THE SERVICE WILL BE UNINTERRUPTED, ERROR-FREE, OR SECURE. THE SERVICE IS IN BETA AND MAY CONTAIN BUGS, ERRORS, AND INCOMPLETE FEATURES.
 
 AI-GENERATED CONTENT MAY BE INACCURATE, INCOMPLETE, OR INAPPROPRIATE. YOU ARE SOLELY RESPONSIBLE FOR EVALUATING AND USING AI-GENERATED OUTPUT. FROMYOU IS NOT LIABLE FOR ANY ACTIONS TAKEN BASED ON AI-GENERATED CONTENT OR ANY ACTIONS PERFORMED BY STELLA'S AI AGENTS ON YOUR COMPUTER, ACCOUNTS, OR CONNECTED SERVICES, INCLUDING BUT NOT LIMITED TO CODE EXECUTION, FILE CREATION OR DELETION, SHELL COMMANDS, WEB BROWSING, FORM SUBMISSIONS, PURCHASES, DATA TRANSMISSION, OR ANY OTHER OPERATION THE AGENT PERFORMS. YOU USE STELLA'S COMPUTER-USE CAPABILITIES ENTIRELY AT YOUR OWN RISK.
 
 
-15. Limitation of Liability
+14. Limitation of Liability
 
 TO THE MAXIMUM EXTENT PERMITTED BY LAW, FROMYOU SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING BUT NOT LIMITED TO LOSS OF DATA, LOSS OF PROFITS, DAMAGE TO YOUR DEVICE OR SYSTEMS, UNAUTHORIZED ACCESS TO YOUR ACCOUNTS, UNINTENDED PURCHASES OR TRANSACTIONS, OR ANY OTHER HARM ARISING FROM ACTIONS PERFORMED BY STELLA'S AI AGENTS, REGARDLESS OF THE THEORY OF LIABILITY.
 
-WITHOUT LIMITING THE FOREGOING, FROMYOU SHALL NOT BE LIABLE FOR ANY DAMAGES ARISING FROM: (A) ACTIONS TAKEN BY AI AGENTS ON YOUR COMPUTER OR ACCOUNTS; (B) INACCURATE, INCOMPLETE, OR HARMFUL AI-GENERATED OUTPUT; (C) MODS OR EXTENSIONS CREATED BY THIRD PARTIES; (D) INTERRUPTIONS OR ERRORS IN THE STELLA PROVIDER INFERENCE SERVICE; OR (E) THE ACTS OR OMISSIONS OF THIRD-PARTY AI MODEL PROVIDERS.
+WITHOUT LIMITING THE FOREGOING, FROMYOU SHALL NOT BE LIABLE FOR ANY DAMAGES ARISING FROM: (A) ACTIONS TAKEN BY AI AGENTS ON YOUR COMPUTER OR ACCOUNTS; (B) INACCURATE, INCOMPLETE, OR HARMFUL AI-GENERATED OUTPUT; (C) SKILLS OR EXTENSIONS CREATED BY THIRD PARTIES; (D) INTERRUPTIONS OR ERRORS IN THE STELLA PROVIDER INFERENCE SERVICE; OR (E) THE ACTS OR OMISSIONS OF THIRD-PARTY AI MODEL PROVIDERS.
 
 OUR TOTAL AGGREGATE LIABILITY FOR ALL CLAIMS ARISING OUT OF OR RELATED TO THESE TERMS OR THE SERVICE SHALL NOT EXCEED THE GREATER OF (A) THE AMOUNT YOU PAID TO FROMYOU FOR THE STELLA PROVIDER IN THE TWELVE MONTHS PRECEDING THE CLAIM, OR (B) FIFTY DOLLARS ($50).
 
 
-16. Indemnification
+15. Indemnification
 
-You agree to indemnify and hold harmless FromYou, its officers, directors, employees, and agents from any claims, liabilities, damages, losses, or expenses (including reasonable attorneys' fees) arising out of or related to: (a) your use of the Service, including any actions taken by AI agents on your behalf; (b) your violation of these Terms; (c) mods you publish to the Mod Store; (d) your violation of any third-party rights; or (e) any consequences of computer-use actions performed by Stella on your device, accounts, or connected services.
+You agree to indemnify and hold harmless FromYou, its officers, directors, employees, and agents from any claims, liabilities, damages, losses, or expenses (including reasonable attorneys' fees) arising out of or related to: (a) your use of the Service, including any actions taken by AI agents on your behalf; (b) your violation of these Terms; (c) your violation of any third-party rights; or (d) any consequences of computer-use actions performed by Stella on your device, accounts, or connected services.
 
 
-17. Third-Party Services
+16. Third-Party Services
 
 The Service integrates with third-party services including AI model providers, Stripe for payments, and fal.ai for media generation. Your use of these services is subject to their respective terms. We are not responsible for the availability, accuracy, or practices of any third-party service.
 
 
-18. Termination
+17. Termination
 
 We may suspend or terminate your access to the Service at any time, with or without cause, with or without notice. You may stop using the Service at any time. Upon termination, your right to use the hosted backend services ceases, but your locally stored data remains on your device under your control.
 
 
-19. Governing Law and Dispute Resolution
+18. Governing Law and Dispute Resolution
 
 These Terms are governed by the laws of the State of Delaware, without regard to its conflict-of-law provisions. Any dispute arising under these Terms shall be resolved in the state or federal courts located in Delaware, and you consent to personal jurisdiction in those courts.
 
 
-20. Changes to These Terms
+19. Changes to These Terms
 
 We may update these Terms from time to time. We will indicate the date of the most recent revision at the top of this page. Your continued use of the Service after any changes constitutes acceptance of the updated Terms. For material changes, we will make reasonable efforts to notify you (e.g., through the application or by email if you have an account).
 
 
-21. Severability
+20. Severability
 
 If any provision of these Terms is found to be invalid or unenforceable, the remaining provisions shall continue in full force and effect.
 
 
-22. Entire Agreement
+21. Entire Agreement
 
 These Terms, together with our Privacy Policy, constitute the entire agreement between you and FromYou regarding the Service and supersede any prior agreements.
 
 
-23. Contact Us
+22. Contact Us
 
 If you have questions about these Terms, contact us at:
 
@@ -241,7 +232,7 @@ The following data is created and stored entirely on your device and is never tr
 • LLM API keys (encrypted) — your own provider credentials for BYOK use
 • Local preferences and settings — theme, model preferences, configuration
 • Self-modification history (Git) — tracking of AI-made UI changes for undo/revert
-• Installed mods and skills — extensions you have installed
+• Installed skills — extensions you have installed
 • Device identity keypair — cryptographic identity for your device
 • Local SQLite database — persistent storage for all of the above
 
@@ -296,22 +287,12 @@ When your desktop registers with our backend (for mobile bridge or connector fun
 If you use Stella without an account, we track: an anonymous device identifier (for rate limiting) and request count and timestamps (for enforcing fair-use limits). This data is not linked to any personal identity.
 
 
-10. Social Features
-
-If you use Stella's social features (friend system, chat rooms, collaborative sessions), the following is stored on our backend: social profile (nickname, friend code), friend relationships, chat room membership and messages, and collaborative session metadata and file operations. Social features are opt-in and require a signed-in account.
-
-
-11. Mod Store
-
-If you publish a mod to the Stella Mod Store, we store the mod package, metadata (name, description, author), and release artifacts. Published mods are publicly visible to other Stella users.
-
-
-12. Third-Party Services
+10. Third-Party Services
 
 Stella integrates with third-party services. When your data reaches these services, it is subject to their respective privacy policies. This includes AI gateways and model providers (OpenRouter, Fireworks, DeepSeek, Anthropic, OpenAI, and Google) when processing AI requests, Stripe when subscribing to a paid plan, fal.ai when using media generation features, and Convex for backend infrastructure. When using BYOK (your own API keys), AI requests go directly from your device to the provider — our servers are not involved.
 
 
-13. Data Retention
+11. Data Retention
 
 • Local device data — until you delete it; we have no access to it
 • Account information — until you delete your account
@@ -319,17 +300,16 @@ Stella integrates with third-party services. When your data reaches these servic
 • Usage metadata — rolling windows (5-hour, weekly, monthly); aggregates retained for billing reconciliation
 • Transient connector events — automatically deleted after a short TTL (minutes to hours)
 • Anonymous device usage — retained for rate-limiting purposes; periodically pruned
-• Social data — until you delete your account or the relevant content
 
 
-14. Data Security
+12. Data Security
 
 We implement reasonable security measures to protect data that does reach our infrastructure: encryption in transit (all communication uses TLS/HTTPS), secret encryption (user-provided secrets stored on our backend are encrypted using AES-256-GCM with a versioned master key system), local encryption (API keys stored on your device are encrypted locally), device identity (devices authenticate using Ed25519 cryptographic keypairs), rate limiting (multi-layer rate limiting protects against abuse), and provider redaction (AI responses are scrubbed of upstream provider details before being returned to you).
 
 
-15. Your Rights and Choices
+13. Your Rights and Choices
 
-Access and Control — Because Stella stores data locally, you have direct access to and control over your data at all times. You can view, export, or delete your local data by accessing Stella's data directory, use the in-app reset function to clear all local data, revoke connected integrations at any time, and delete your account, which removes your account information, billing profile, social data, and published mods from our backend.
+Access and Control — Because Stella stores data locally, you have direct access to and control over your data at all times. You can view, export, or delete your local data by accessing Stella's data directory, use the in-app reset function to clear all local data, revoke connected integrations at any time, and delete your account, which removes your account information and billing profile from our backend.
 
 Discovery Opt-Out — During onboarding, each discovery category is individually selectable. The most sensitive category (Messages & Notes) is disabled by default and requires explicit opt-in. You can skip discovery entirely.
 
@@ -338,37 +318,37 @@ Anonymous Use — You can use Stella's core features without creating an account
 BYOK — You can provide your own AI provider API keys to avoid routing prompts through our infrastructure entirely.
 
 
-16. Children's Privacy
+14. Children's Privacy
 
 Stella is not directed to children under 13 years of age. We do not knowingly collect personal information from children under 13. If you believe we have inadvertently collected such information, please contact us and we will promptly delete it.
 
 
-17. International Users
+15. International Users
 
 Our backend infrastructure is hosted in the United States. If you access the Service from outside the United States, your information (to the extent it reaches our servers, as described in this policy) may be transferred to and processed in the United States.
 
 
-18. California Privacy Rights
+16. California Privacy Rights
 
 If you are a California resident, you may have additional rights under the California Consumer Privacy Act (CCPA). Given Stella's local-first architecture, the personal information we hold on our servers is minimal (account email, billing data, device identifiers). You may exercise your rights to know, delete, or opt out by contacting us. We do not sell your personal information. We do not use your data for targeted advertising.
 
 
-19. European Privacy Rights
+17. European Privacy Rights
 
 If you are in the European Economic Area (EEA) or United Kingdom, you may have rights under the GDPR including the right to access, rectify, erase, restrict processing, data portability, and objection. Given that the vast majority of your data is stored locally on your device and never reaches our servers, these rights primarily apply to account information and billing data. Contact us to exercise these rights. Where we do process personal data, we rely on: (a) contractual necessity; (b) legitimate interests (security, abuse prevention); and (c) your consent (optional features).
 
 
-20. Changes to This Policy
+18. Changes to This Policy
 
 We may update this Privacy Policy from time to time. We will indicate the date of the most recent revision at the top. For material changes, we will make reasonable efforts to notify you. Your continued use of the Service after changes constitutes acceptance of the updated policy.
 
 
-21. Open Source Transparency
+19. Open Source Transparency
 
 Stella's platform is open source, and its source code can be reviewed.
 
 
-22. Contact Us
+20. Contact Us
 
 If you have questions about this Privacy Policy or wish to exercise any of your rights, contact us at:
 

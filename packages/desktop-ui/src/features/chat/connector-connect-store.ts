@@ -30,7 +30,7 @@ export type ConnectorConnectCardRequest = {
   iconUrl?: string;
   category?: string;
   reason?: string;
-  /** "integration" (Store enable + OAuth) or "browser-extension" (Web Store install). */
+  /** "integration" (connector enable + OAuth) or "browser-extension" (Web Store install). */
   kind?: "integration" | "browser-extension";
   /** Owning chat; undefined = unscoped (legacy CLI path), shown everywhere. */
   conversationId?: string;

@@ -191,9 +191,8 @@ export type AssistantRowViewModel = {
     sections: AgentCompletionSection[];
   };
   /**
-   * Optional renderer for surface-specific row attachments (e.g. the Store
-   * thread's draft confirmation card). Mounted after the markdown body and
-   * after built-in inline artifacts.
+   * Optional renderer for surface-specific row attachments. Mounted after
+   * the markdown body and after built-in inline artifacts.
    *
    * Identity-stable per `customSlotKey` — the row equality comparator only
    * checks `customSlotKey` so re-rendering ancestors don't blow away the

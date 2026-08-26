@@ -9,7 +9,6 @@ import type {
   LocalChatUpdatedPayload,
   ThreadActivityUpdatedPayload,
 } from "@stella/contracts/local-chat";
-import type { MorphTimingSettings } from "@stella/contracts/desktop/morph-timing";
 import type { DesktopUpdateSnapshot } from "@stella/contracts/desktop/update";
 import type { OfficePreviewSnapshot } from "@stella/contracts/office-preview";
 import type {
@@ -67,8 +66,6 @@ import {
   IPC_APP_QUIT_FOR_RESTART,
   IPC_AUTH_APPLY_SESSION_COOKIE,
   IPC_AUTH_CONSUME_PENDING_CALLBACK,
-  IPC_SOCIAL_INVITE,
-  IPC_SOCIAL_CONSUME_PENDING_INVITE,
   IPC_AUTH_DELETE_USER,
   IPC_AUTH_GET_CONVEX_TOKEN,
   IPC_AUTH_GET_SESSION,
@@ -123,14 +120,11 @@ import {
   IPC_SHELL_OPEN_WITH,
   IPC_SHELL_OPEN_PATH,
   IPC_SYSTEM_OPEN_FDA,
+  IPC_THEME_LIST_INSTALLED,
   IPC_UI_STATE_KV_APPLY,
   IPC_UI_STATE_KV_CHANGED,
   IPC_UI_STATE_KV_CLEAR,
   IPC_UI_STATE_KV_SNAPSHOT,
-  IPC_SOCIAL_SESSIONS_CREATE,
-  IPC_SOCIAL_SESSIONS_GET_STATUS,
-  IPC_SOCIAL_SESSIONS_QUEUE_TURN,
-  IPC_SOCIAL_SESSIONS_UPDATE_STATUS,
   IPC_USER_APPS_LIST,
   IPC_USER_APPS_START,
   IPC_USER_APPS_STOP,
@@ -143,9 +137,9 @@ import {
   IPC_VOICE_PREFERENCES_CHANGED,
   IPC_VOICE_REPORT_SESSION_ERROR,
   IPC_VOICE_SESSION_ERROR,
+  IPC_WEBSITE_GET_BASE_URL,
 } from "@stella/contracts/desktop/ipc-channels";
 import type {
-  RuntimeSocialSessionStatus,
   RuntimeVoiceOrchestratorConfig,
   RuntimeVoiceToolCallPayload,
   RuntimeVoiceToolCallResult,
@@ -378,14 +372,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     relaunch: () => ipcRenderer.send("app:relaunch"),
     hardReset: () =>
       ipcRenderer.invoke("app:hardResetLocalState") as Promise<{ ok: boolean }>,
-    morphStart: (payload?: {
-      rect?: { x: number; y: number; width: number; height: number };
-    }) =>
-      ipcRenderer.invoke("morph:start", payload) as Promise<{ ok: boolean }>,
-    morphComplete: (payload?: {
-      rect?: { x: number; y: number; width: number; height: number };
-    }) =>
-      ipcRenderer.invoke("morph:complete", payload) as Promise<{ ok: boolean }>,
     setOnboardingPresentation: (active: boolean) =>
       ipcRenderer.invoke(
         "window:setOnboardingPresentation",
@@ -557,39 +543,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
       origin: { x: number; y: number };
       bounds: { x: number; y: number; width: number; height: number };
     }>("overlay:displayChange"),
-    onMorphForward: onIpc<{
-      transitionId: string;
-      screenshotDataUrl: string;
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-      flavor?: "hmr" | "onboarding";
-      timing?: MorphTimingSettings["hmr"] | null;
-    }>("overlay:morphForward"),
-    onMorphBounds: onIpc<{
-      transitionId: string;
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-    }>("overlay:morphBounds"),
-    onMorphHandoff: onIpc<{
-      transitionId: string;
-      screenshotDataUrl: string;
-      requiresFullReload: boolean;
-      flavor?: "hmr" | "onboarding";
-      timing?: MorphTimingSettings["hmr"] | null;
-    }>("overlay:morphHandoff"),
-    onMorphEnd: onIpc<{ transitionId: string }>("overlay:morphEnd"),
-    morphReady: (transitionId: string) =>
-      ipcRenderer.send("overlay:morphReady", { transitionId }),
-    morphDone: (transitionId: string) =>
-      ipcRenderer.send("overlay:morphDone", { transitionId }),
   },
 
   theme: {
-    listInstalled: () => ipcRenderer.invoke("theme:listInstalled"),
+    listInstalled: () => ipcRenderer.invoke(IPC_THEME_LIST_INSTALLED),
+  },
+
+  website: {
+    getBaseUrl: () =>
+      ipcRenderer.invoke(IPC_WEBSITE_GET_BASE_URL) as Promise<string>,
   },
 
   uiState: {
@@ -1024,11 +986,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onAuthCallback: onIpc<{ url: string }>("auth:callback"),
     consumePendingAuthCallback: () =>
       ipcRenderer.invoke(IPC_AUTH_CONSUME_PENDING_CALLBACK) as Promise<
-        string | null
-      >,
-    onSocialInvite: onIpc<{ url: string }>(IPC_SOCIAL_INVITE),
-    consumePendingSocialInvite: () =>
-      ipcRenderer.invoke(IPC_SOCIAL_CONSUME_PENDING_INVITE) as Promise<
         string | null
       >,
     onRuntimeAuthRefreshRequested: onIpc<{
@@ -1819,41 +1776,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onUpdated: onIpcSignal("schedule:updated"),
   },
 
-  store: {
-    listPackages: () => ipcRenderer.invoke("store:listPackages"),
-    getPackage: (packageId: string) =>
-      ipcRenderer.invoke("store:getPackage", { packageId }),
-    listPackageReleases: (packageId: string) =>
-      ipcRenderer.invoke("store:listReleases", { packageId }),
-    getPackageRelease: (payload: {
-      packageId: string;
-      releaseNumber: number;
-    }) => ipcRenderer.invoke("store:getRelease", payload),
-  },
-
-  storeWeb: {
-    getEmbedConfig: () => ipcRenderer.invoke("storeWeb:getEmbedConfig"),
-  },
-
-  storeWebLocal: {
-    onAction: (
-      callback: (payload: { requestId: string; action: unknown }) => void,
-    ) =>
-      onIpc<{ requestId: string; action: unknown }>("storeWeb:localAction")(
-        callback,
-      ),
-    reply: (payload: {
-      requestId: string;
-      ok: boolean;
-      result?: unknown;
-      error?: string;
-    }) =>
-      ipcRenderer.send(
-        `storeWeb:localActionResult:${payload.requestId}`,
-        payload,
-      ),
-  },
-
   fashion: {
     pickAndSaveBodyPhoto: () =>
       ipcRenderer.invoke("fashion:pickAndSaveBodyPhoto"),
@@ -1999,22 +1921,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onThreadActivityUpdated: onIpc<ThreadActivityUpdatedPayload>(
       "localChat:threadActivityUpdated",
     ),
-  },
-
-  socialSessions: {
-    create: (payload: { roomId: string; workspaceLabel?: string }) =>
-      ipcRenderer.invoke(IPC_SOCIAL_SESSIONS_CREATE, payload),
-    updateStatus: (payload: {
-      sessionId: string;
-      status: RuntimeSocialSessionStatus;
-    }) => ipcRenderer.invoke(IPC_SOCIAL_SESSIONS_UPDATE_STATUS, payload),
-    queueTurn: (payload: {
-      sessionId: string;
-      prompt: string;
-      agentType?: string;
-      clientTurnId?: string;
-    }) => ipcRenderer.invoke(IPC_SOCIAL_SESSIONS_QUEUE_TURN, payload),
-    getStatus: () => ipcRenderer.invoke(IPC_SOCIAL_SESSIONS_GET_STATUS),
   },
 
   userApps: {

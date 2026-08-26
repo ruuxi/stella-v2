@@ -32,8 +32,7 @@ export type DisplayTabKind =
   | "model3d"
   | "download"
   | "text"
-  | "trash"
-  | "store";
+  | "trash";
 
 /**
  * Stable, dedup-able description of what a tab represents. Two specs with

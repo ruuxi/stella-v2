@@ -285,10 +285,6 @@ export const Clock = createIcon("clock", <>
     <circle cx="12" cy="12" r="8.25"/>
     <path d="M12 7.5V12l3 2"/>
   </>);
-export const Store = createIcon("store", <>
-    <path d="M5.75 8.25h12.5l-.86 9.78a2.75 2.75 0 0 1-2.74 2.47H9.35a2.75 2.75 0 0 1-2.74-2.47Z"/>
-    <path d="M8.75 8.25V7a3.25 3.25 0 0 1 6.5 0v1.25"/>
-  </>);
 export const Star = createIcon("star", <path d="M12 3.5l2.35 5.26 5.73.61-4.28 3.87L17 18.88 12 16l-5 2.88 1.2-5.64-4.28-3.87 5.73-.61Z"/>);
 export const Lightbulb = createIcon("lightbulb", <>
     <path d="M12 3.25A6.25 6.25 0 0 0 8.6 14.74c.69.45 1.15 1.2 1.15 2.02v.49h4.5v-.49c0-.82.46-1.57 1.15-2.02A6.25 6.25 0 0 0 12 3.25Z"/>

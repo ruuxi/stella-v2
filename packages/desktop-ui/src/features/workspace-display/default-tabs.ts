@@ -2,14 +2,12 @@ import type { OpenTabOptions } from "./types";
 
 export const CHAT_DISPLAY_TAB_ID = "chat";
 export const HOME_DISPLAY_TAB_ID = "home";
-export const STORE_DISPLAY_TAB_ID = "store:side-panel";
 export const TRASH_DISPLAY_TAB_ID = "trash:deferred-delete";
 
 type WorkspaceDefaultTabsAdapter = {
   openChatDisplayTab: (openRequest?: unknown, opts?: OpenTabOptions) => void;
   openHomeDisplayTab: () => void;
   ensureChatDisplayTab: () => void;
-  openStoreDisplayTab: () => void;
   openTrashDisplayTab: () => void;
   openModelPicker: () => void;
 };
@@ -42,10 +40,6 @@ export function openHomeDisplayTab(): void {
 
 export function ensureChatDisplayTab(): void {
   getAdapter().ensureChatDisplayTab();
-}
-
-export function openStoreDisplayTab(): void {
-  getAdapter().openStoreDisplayTab();
 }
 
 export function openTrashDisplayTab(): void {

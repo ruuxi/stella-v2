@@ -296,7 +296,7 @@ export const maybeOfferBrowserExtensionConnect = async (options: {
       return annotate(
         result,
         outcome.reason === "declined"
-          ? "A connect card for the Stella browser extension was shown in the chat and the user declined. Acknowledge once at most (it stays available in the Store/settings), do not re-offer or switch to a visible Chrome/Brave browser, report the exact browser error, and park the browser-dependent step."
+          ? "A connect card for the Stella browser extension was shown in the chat and the user declined. Acknowledge once at most (it stays available in settings), do not re-offer or switch to a visible Chrome/Brave browser, report the exact browser error, and park the browser-dependent step."
           : "A connect card for the Stella browser extension was shown in the chat but the user did not respond in time. Do not re-offer or switch to a visible Chrome/Brave browser. Report the exact browser error and park the browser-dependent step.",
       );
     }

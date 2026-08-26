@@ -1,8 +1,8 @@
 /* ============================================================
  * Chat typography contract
  *
- * Every chat surface — full chat, sidebar, orb,
- * and the Store thread — lives inside `.chat-viewport-region`.
+ * Every chat surface — full chat, sidebar, orb — lives inside
+ * `.chat-viewport-region`.
  * Defining the message typography tokens here means the
  * virtualized rows (which are NOT descendants of any `.event-list`
  * wrapper) reliably inherit them. Surfaces override individual
@@ -484,8 +484,8 @@
   letter-spacing: var(--chat-text-tracking);
 }
 
-/* Long user-message truncation. Every chat surface — full, compact, and
-   Store — clamps to 4 rendered lines so a long prompt never dominates the
+/* Long user-message truncation. Every chat surface — full and compact —
+   clamps to 4 rendered lines so a long prompt never dominates the
    transcript. Overflow is measured from the laid-out box in JS. */
 .event-user-body {
   --user-message-clamp-lines: 4;

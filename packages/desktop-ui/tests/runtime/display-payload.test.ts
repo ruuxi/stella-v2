@@ -74,9 +74,9 @@ describe("normalizeDisplayPayload", () => {
   it("passes through http and https URL payloads", () => {
     const local: DisplayPayload = {
       kind: "url",
-      url: "http://localhost:5173/social/session-1",
-      title: "Social",
-      tabId: "social:session-1",
+      url: "http://localhost:5173/projects/demo",
+      title: "Demo",
+      tabId: "userApp:demo",
     };
     const secure: DisplayPayload = {
       kind: "url",

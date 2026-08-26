@@ -4,9 +4,9 @@
 // us: `app.setAsDefaultProtocolClient` on Linux only flips xdg-mime defaults,
 // which requires a .desktop file to already exist in an XDG applications
 // directory. Without one, deep links (auth callback OTTs, connector OAuth
-// callbacks, social invites) never reach the app. Sign-in itself is NOT
-// blocked — the magic-link flow polls the backend and completes without a
-// deep link — but the round-trip links are nice to have, so on first run we
+// callbacks) never reach the app. Sign-in itself is NOT blocked — the
+// magic-link flow polls the backend and completes without a deep link —
+// but the round-trip links are nice to have, so on first run we
 // install a .desktop entry + icon into the user's XDG data dir and point the
 // x-scheme-handler/stella default at it.
 //

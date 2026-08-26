@@ -4,7 +4,7 @@
  * Checked mechanically against every incoming user message — no LLM
  * call, no network. The index is derived from the connector catalog
  * (bundled fallback + the disk-cached server catalog, so it stays in
- * sync with whatever the Store exposes) with a curated synonym layer on
+ * sync with whatever the connector catalog exposes) with a curated synonym layer on
  * top ("mail"/"email" → gmail AND outlook, "calendar" → google
  * calendar, …). Synonyms only activate for connectors that actually
  * exist in the catalog.

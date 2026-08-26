@@ -23,7 +23,7 @@ export const integrationsSchema = {
     updatedAt: v.number(),
   })
     .index("by_integrationId", ["id"])
-    // Gives Store catalog clients a bounded, deterministic recency ordering.
+    // Gives connector-catalog clients a bounded, deterministic recency ordering.
     .index("by_updatedAt", ["updatedAt"]),
 
   /**

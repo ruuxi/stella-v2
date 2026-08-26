@@ -11,7 +11,6 @@ import {
 import { createConvexSession } from "./runner/convex-session.js";
 import { createOrchestratorController } from "./runner/orchestrator.js";
 import { createRuntimeInitialization } from "./runner/runtime-initialization.js";
-import { createStoreOperations } from "./runner/store-operations.js";
 import { createAgentOrchestration } from "./runner/agent-orchestration.js";
 import { buildRuntimeSystemPrompt } from "./agent-runtime/run-preparation.js";
 import { decorateUserTranscriptContent } from "./agent-runtime/transcript-decoration.js";
@@ -185,9 +184,6 @@ export const createStellaHostRunner = (
   }
   context.state.webSearch = convexSession.webSearch;
 
-  const storeOperations = createStoreOperations(context, {
-    ensureStoreClient: convexSession.ensureStoreClient,
-  });
   const buildAgentContextWithResolvedRoute = async (
     args:
       | Parameters<typeof buildAgentContext>[1]
@@ -340,10 +336,6 @@ export const createStellaHostRunner = (
       }
     },
     webSearch: convexSession.webSearch,
-    listStorePackages: storeOperations.listStorePackages,
-    getStorePackage: storeOperations.getStorePackage,
-    listStorePackageReleases: storeOperations.listStorePackageReleases,
-    getStorePackageRelease: storeOperations.getStorePackageRelease,
     handleLocalChat: orchestratorController.handleLocalChat,
     sendMessage: orchestratorController.sendMessage,
     sendUserMessage: orchestratorController.sendUserMessage,

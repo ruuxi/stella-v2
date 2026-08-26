@@ -87,7 +87,7 @@ export type NativeIntegrationHandlersOptions = {
 /**
  * The subset of the handler options that the credential/enable flow
  * actually consumes. Exported so the in-chat connect card service can
- * run the exact Store connect flow with its own (headless) OAuth
+ * run the exact Connections connect flow with its own (headless) OAuth
  * callbacks instead of the modal-backed ones.
  */
 export type NativeCredentialFlowOptions = Pick<
@@ -452,7 +452,7 @@ export const ensureNativeCredential = async (
   }
 
   throw new Error(
-    `${entry?.name ?? id} is not available as an OAuth Store integration yet.`,
+    `${entry?.name ?? id} is not available as an OAuth native integration yet.`,
   );
 };
 
@@ -494,7 +494,7 @@ export const registerNativeIntegrationHandlers = (
       return await enableNativeConnector(
         stellaAppDir,
         id,
-        "store",
+        "desktop",
         {
           configuredBackendProviders: configuredOAuthProviders.backend,
           configuredExternalCallbackProviders:

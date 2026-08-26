@@ -86,19 +86,12 @@ const electronRuntimeEntryPoints = {
 // radius to the worker.
 const workerEntryPoints = {
   "runtime/worker/entry": "packages/runtime/worker/entry.ts",
-  "runtime/worker/social-sessions/packaged-smoke":
-    "packages/runtime/worker/social-sessions/packaged-smoke.ts",
   "runtime/extensions/stella-runtime/index":
     "packages/runtime/extensions/stella-runtime/index.ts",
 };
 const preloadEntryPoints = {
   "electron/preload": "packages/desktop/electron/preload.ts",
 };
-const storeWebPreloadEntryPoints = {
-  "electron/store-web-preload":
-    "packages/desktop/electron/store-web-preload.ts",
-};
-
 // Workspace packages are source inputs in this monorepo, not installed
 // runtime dependencies. Resolve them before `packages: "external"` is applied
 // so Electron never attempts to execute their TypeScript sources directly.
@@ -241,20 +234,6 @@ const createBuildOptions = () => [
     external: ["electron"],
     entryPoints: preloadEntryPoints,
     format: "cjs",
-    logLevel: "warning",
-    plugins: [pruneDependencyPackageMetadataPlugin],
-    outdir: path.join("packages", "desktop", outdir),
-    platform: "node",
-    target: nodeTarget,
-    tsconfig: path.join("packages", "desktop", "tsconfig.preload.json"),
-  },
-  {
-    absWorkingDir: repoRootDir,
-    alias: workspaceAliases,
-    bundle: true,
-    external: ["electron"],
-    entryPoints: storeWebPreloadEntryPoints,
-    format: "esm",
     logLevel: "warning",
     plugins: [pruneDependencyPackageMetadataPlugin],
     outdir: path.join("packages", "desktop", outdir),

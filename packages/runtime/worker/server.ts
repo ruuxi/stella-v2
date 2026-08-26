@@ -149,9 +149,6 @@ import type {
   LocalChatEventRecord,
   SqliteDatabase,
 } from "../kernel/storage/shared.js";
-import { createEmptySocialSessionServiceSnapshot } from "@stella/contracts";
-import { SocialSessionService } from "./social-sessions/service.js";
-import { SocialSessionStore } from "./social-sessions/store.js";
 import { UserAppProjectService } from "./user-apps/project-service.js";
 import { VoiceRuntimeService } from "./voice/service.js";
 import { createRuntimeLogger } from "../kernel/debug.js";
@@ -256,8 +253,6 @@ type WorkerState = {
   db: SqliteDatabase | null;
   chatStore: ChatStore | null;
   runtimeStore: RuntimeStore | null;
-  socialSessionStore: SocialSessionStore | null;
-  socialSessionService: SocialSessionService | null;
   userAppProjectService: UserAppProjectService | null;
   voiceService: VoiceRuntimeService | null;
   runner: RuntimeRunner | null;
@@ -487,8 +482,6 @@ const materializeImageAttachments = async (
 const stopWorkerServices = async (state: WorkerState) => {
   await state.userAppProjectService?.shutdown().catch(() => undefined);
   state.userAppProjectService = null;
-  state.socialSessionService?.stop();
-  state.socialSessionService = null;
   state.voiceService = null;
   // `runner.stop()` now awaits a bounded drain of the background
   // compaction scheduler so SQLite writes complete before we close
@@ -508,7 +501,6 @@ const stopWorkerServices = async (state: WorkerState) => {
   state.runner = null;
   state.chatStore = null;
   state.runtimeStore = null;
-  state.socialSessionStore = null;
   state.runEventLog?.stop();
   state.runEventLog = null;
   await state.cliBridgeServer?.stop().catch(() => undefined);
@@ -543,8 +535,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     db: null,
     chatStore: null,
     runtimeStore: null,
-    socialSessionStore: null,
-    socialSessionService: null,
     userAppProjectService: null,
     voiceService: null,
     runner: null,
@@ -598,12 +588,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
   const hasActiveWork = (): boolean => {
     // Keep this in sync with host-side shouldKeepWorkerAlive plus
     // worker-only work that the host cannot observe after disconnect.
-    const socialSessions =
-      state.socialSessionService?.getSnapshot() ??
-      createEmptySocialSessionServiceSnapshot();
-    const socialPinned =
-      socialSessions.sessionCount > 0 ||
-      Boolean(socialSessions.processingTurnId);
     const voicePinned =
       (state.voiceService?.isBusy() ?? false) ||
       (state.voiceService?.getPendingRequestCount() ?? 0) > 0;
@@ -613,7 +597,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
       state.runner?.getActiveOrchestratorRun() ||
         (state.runner?.getActiveAgentCount() ?? 0) > 0 ||
         requestPinned ||
-        socialPinned ||
         voicePinned ||
         userAppPinned,
     );
@@ -836,7 +819,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
       },
     });
     const runtimeStore = chatStore as RuntimeStore;
-    const socialSessionStore = new SocialSessionStore(db);
     const runEventLog = new RunEventLog(db);
     const deviceIdentity = await peer.request<HostDeviceIdentity>(
       METHOD_NAMES.HOST_DEVICE_IDENTITY_GET,
@@ -845,7 +827,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     state.db = db;
     state.chatStore = chatStore;
     state.runtimeStore = runtimeStore;
-    state.socialSessionStore = socialSessionStore;
     state.runEventLog = runEventLog;
     await refreshLocalLlmCredentialAccess();
     const bridgePaths = resolveRuntimePaths(init.stellaAppDir);
@@ -1150,7 +1131,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
             { retryOnDisconnect: true },
           ),
       },
-      // Store source mutation and application lifecycle were removed.
       stellaBrowserBinPath: resolveDesktopCliEntrypoint(
         init.stellaAppDir,
         "stella-browser",
@@ -1214,34 +1194,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     // (ensureRunnerInitialized / stopWorkerServices / the post-ready block)
     // surface the error.
     runnerReadyPromise.catch(() => undefined);
-
-    const socialSessionService = new SocialSessionService({
-      getWorkspaceRoot: () => init.stellaWorkspacePath,
-      getDeviceId: () => state.deviceId,
-      getRunner: () => state.runner,
-      getChatStore: () => state.chatStore,
-      getStore: () => state.socialSessionStore,
-      onLocalChatUpdated: () => {
-        notifyLocalChatUpdated(peer);
-      },
-      pushDisplayPayload: (payload) => {
-        // Forward the structured display payload through the existing
-        // host display update bridge. The renderer normalizes it via
-        // `normalizeDisplayPayload` and routes it to the workspace panel.
-        void peer
-          .request(
-            METHOD_NAMES.HOST_DISPLAY_UPDATE,
-            { payload },
-            {
-              retryOnDisconnect: true,
-            },
-          )
-          .catch(() => undefined);
-      },
-    });
-    socialSessionService.setConvexUrl(init.convexUrl);
-    socialSessionService.setAuthToken(init.authToken);
-    state.socialSessionService = socialSessionService;
 
     const userAppProjectService = new UserAppProjectService({
       workspacePath: init.stellaWorkspacePath,
@@ -1369,14 +1321,12 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     state.init = { ...state.init, ...patch };
     if (patch.convexUrl !== undefined) {
       state.runner?.setConvexUrl(patch.convexUrl);
-      state.socialSessionService?.setConvexUrl(patch.convexUrl);
     }
     if (patch.convexSiteUrl !== undefined) {
       state.runner?.setConvexSiteUrl(patch.convexSiteUrl);
     }
     if (patch.authToken !== undefined) {
       state.runner?.setAuthToken(patch.authToken);
-      state.socialSessionService?.setAuthToken(patch.authToken);
     }
     if (patch.hasConnectedAccount !== undefined) {
       state.runner?.setHasConnectedAccount(patch.hasConnectedAccount);
@@ -1423,9 +1373,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
           ? { reason: state.runnerReadyError }
           : { reason: "Stella runtime is still initializing" }),
       } satisfies AgentHealth);
-    const socialSessions =
-      state.socialSessionService?.getSnapshot() ??
-      createEmptySocialSessionServiceSnapshot();
     const activeRun =
       state.runner?.getActiveOrchestratorRun() ??
       state.runner?.listActiveAgentRuns()[0] ??
@@ -1440,7 +1387,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
       voiceBusy: state.voiceService?.isBusy() ?? false,
       pendingVoiceRequestCount:
         state.voiceService?.getPendingRequestCount() ?? 0,
-      socialSessions,
     };
   });
 
@@ -2575,42 +2521,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
   );
 
   peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_LIST_STORE_PACKAGES,
-    async () => {
-      return await ensureRunner().listStorePackages();
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_GET_STORE_PACKAGE,
-    async (params) => {
-      return await ensureRunner().getStorePackage(
-        (params as { packageId: string }).packageId,
-      );
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_LIST_STORE_RELEASES,
-    async (params) => {
-      return await ensureRunner().listStorePackageReleases(
-        (params as { packageId: string }).packageId,
-      );
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_GET_STORE_RELEASE,
-    async (params) => {
-      const payload = params as { packageId: string; releaseNumber: number };
-      return await ensureRunner().getStorePackageRelease(
-        payload.packageId,
-        payload.releaseNumber,
-      );
-    },
-  );
-
-  peer.registerRequestHandler(
     METHOD_NAMES.INTERNAL_WORKER_KILL_ALL_SHELLS,
     async () => {
       ensureRunner().killAllShells();
@@ -2836,88 +2746,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
           | undefined,
         payload.selectedBrowser,
         payload.selectedProfile,
-      );
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_SOCIAL_SESSIONS_CREATE,
-    async (params) => {
-      if (!state.socialSessionService) {
-        throw new Error("Social session service is unavailable.");
-      }
-      const payload = params as { roomId?: string; workspaceLabel?: string };
-      const roomId = asTrimmedString(payload?.roomId);
-      if (!roomId) {
-        throw new Error("Room ID is required.");
-      }
-      return await state.socialSessionService.createSession({
-        roomId,
-        workspaceLabel: asTrimmedString(payload?.workspaceLabel) || undefined,
-      });
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_SOCIAL_SESSIONS_UPDATE_STATUS,
-    async (params) => {
-      if (!state.socialSessionService) {
-        throw new Error("Social session service is unavailable.");
-      }
-      const payload = params as {
-        sessionId?: string;
-        status?: "active" | "paused" | "ended";
-      };
-      const sessionId = asTrimmedString(payload?.sessionId);
-      if (!sessionId) {
-        throw new Error("Session ID is required.");
-      }
-      const status = payload?.status;
-      if (status !== "active" && status !== "paused" && status !== "ended") {
-        throw new Error("Session status is invalid.");
-      }
-      return await state.socialSessionService.updateSessionStatus({
-        sessionId,
-        status,
-      });
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_SOCIAL_SESSIONS_QUEUE_TURN,
-    async (params) => {
-      if (!state.socialSessionService) {
-        throw new Error("Social session service is unavailable.");
-      }
-      const payload = params as {
-        sessionId?: string;
-        prompt?: string;
-        agentType?: string;
-        clientTurnId?: string;
-      };
-      const sessionId = asTrimmedString(payload?.sessionId);
-      const prompt = asTrimmedString(payload?.prompt);
-      if (!sessionId) {
-        throw new Error("Session ID is required.");
-      }
-      if (!prompt) {
-        throw new Error("Prompt is required.");
-      }
-      return await state.socialSessionService.queueTurn({
-        sessionId,
-        prompt,
-        agentType: asTrimmedString(payload?.agentType) || undefined,
-        clientTurnId: asTrimmedString(payload?.clientTurnId) || undefined,
-      });
-    },
-  );
-
-  peer.registerRequestHandler(
-    METHOD_NAMES.INTERNAL_WORKER_SOCIAL_SESSIONS_GET_STATUS,
-    async () => {
-      return (
-        state.socialSessionService?.getSnapshot() ??
-        createEmptySocialSessionServiceSnapshot()
       );
     },
   );

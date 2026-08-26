@@ -1,13 +1,13 @@
 /**
  * Per-integration chat-connect preferences — currently just "the user
  * declined an in-chat connect offer". Persisted so agents never re-offer
- * an integration the user already said no to; the Store remains the
+ * an integration the user already said no to; Connections remains the
  * user-driven path to change their mind (enabling there clears the
  * decline via `clearConnectorDecline`).
  *
  * Single-writer discipline: the runtime records declines
  * when its bridge round-trip resolves `declined`, and the enable paths
- * (Store IPC, `enable-native`, chat connect card) clear them. The
+ * (Connections IPC, `enable-native`, chat connect card) clear them. The
  * desktop reads it only indirectly through CLI output.
  */
 

@@ -233,7 +233,7 @@ describe("scoreToolSearch + searchToolCatalog", () => {
     },
     {
       name: "connector_status",
-      description: "Check whether a Stella Store connector is connected.",
+      description: "Check whether a Stella connector is connected.",
       demoted: { searchTerms: ["connector", "integration"] },
       parameters: {
         type: "object",

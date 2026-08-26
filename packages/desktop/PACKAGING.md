@@ -55,7 +55,7 @@ over its existing local socket transport.
 Most worker dependencies are bundled into the runtime chunks. `undici` and
 `@silvia-odwyer/photon-node` remain installed-file-layout dependencies and are
 copied beside the worker under `Contents/Resources/node_modules` (Photon needs
-its adjacent WASM file). The social-session preview manager launches
+its adjacent WASM file). The user-app project service launches
 `process.execPath`, which is that same bundled Bun inside the worker, for both
 `bun install` and `bun x vite`; it does not depend on the user's PATH.
 
@@ -63,9 +63,9 @@ its adjacent WASM file). The social-session preview manager launches
 
 The worker remains detached while Electron is running so an internal renderer
 or host restart can reattach without losing active work. A true application
-quit explicitly stops it. Worker shutdown stops the social-session service,
+quit explicitly stops it. Worker shutdown stops the user-app project service,
 which terminates each Vite process group with a bounded TERM-to-KILL grace.
-Normal quit therefore owns Electron, Bun, and every social preview child.
+Normal quit therefore owns Electron, Bun, and every user-app preview child.
 On macOS it also terminates this app instance's detached crashpad handler
 after the last reporting client closes, so repeated launches cannot accumulate
 orphaned helpers.

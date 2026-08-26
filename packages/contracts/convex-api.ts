@@ -15,7 +15,7 @@ export type PublicApiType = {
     };
     "local_runtime": {
       "executeTool": FunctionReference<'action', 'public', { conversationId?: Id<'conversations'> | undefined; agentType?: string | undefined; toolArgs?: Value | undefined; toolName: string; }, any, string | undefined>;
-      "webSearch": FunctionReference<'action', 'public', { conversationId?: Id<'conversations'> | undefined; category?: string | undefined; agentType?: string | undefined; query: string; }, any, string | undefined>;
+      "webSearch": FunctionReference<'action', 'public', { conversationId?: Id<'conversations'> | undefined; url?: string | undefined; category?: string | undefined; agentType?: string | undefined; prompt?: string | undefined; query?: string | undefined; format?: 'text' | 'markdown' | 'html' | undefined; }, any, string | undefined>;
       "shopifySearchProducts": FunctionReference<'action', 'public', { limit?: number | undefined; context?: string | undefined; savedCatalog?: string | undefined; query: string; }, any, string | undefined>;
       "shopifyDebugSearchProducts": FunctionReference<'action', 'public', { limit?: number | undefined; context?: string | undefined; savedCatalog?: string | undefined; query: string; }, any, string | undefined>;
       "shopifyGetProductDetails": FunctionReference<'action', 'public', { productId: string; }, any, string | undefined>;
@@ -39,7 +39,7 @@ export type PublicApiType = {
   };
   "billing": {
     "getSubscriptionStatus": FunctionReference<'query', 'public', { now?: number | undefined; }, any, string | undefined>;
-    "createCheckoutSession": FunctionReference<'action', 'public', { plan: 'go' | 'pro'; returnUrl: string; }, any, string | undefined>;
+    "createCheckoutSession": FunctionReference<'action', 'public', { source?: string | undefined; appStoreCountry?: string | undefined; plan: 'go' | 'pro'; returnUrl: string; }, any, string | undefined>;
     "getUsageCreditPurchaseOptions": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "getUsageCreditStatus": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "createUsageCreditCheckoutSession": FunctionReference<'action', 'public', { amountCents: number; returnUrl: string; }, any, string | undefined>;
@@ -73,7 +73,7 @@ export type PublicApiType = {
       "currentDesktopRelease": FunctionReference<'query', 'public', { platform: string; }, any, string | undefined>;
     };
     "emoji_pack_generation": {
-      "generatePack": FunctionReference<'action', 'public', { visibility: 'public' | 'unlisted' | 'private'; prompt: string; }, any, string | undefined>;
+      "generatePack": FunctionReference<'action', 'public', { prompt: string; visibility: 'public' | 'unlisted' | 'private'; }, any, string | undefined>;
     };
     "emoji_pack_grid": {
       "getManifest": FunctionReference<'query', 'public', {}, any, string | undefined>;
@@ -86,8 +86,8 @@ export type PublicApiType = {
       "listTagFacets": FunctionReference<'query', 'public', {}, any, string | undefined>;
       "listMine": FunctionReference<'query', 'public', {}, any, string | undefined>;
       "getByPackId": FunctionReference<'query', 'public', { packId: string; }, any, string | undefined>;
-      "createPack": FunctionReference<'mutation', 'public', { description?: string | undefined; prompt?: string | undefined; coverUrl?: string | undefined; displayName: string; visibility: 'public' | 'unlisted' | 'private'; packId: string; coverEmoji: string; sheetUrls: string[]; }, any, string | undefined>;
-      "setVisibility": FunctionReference<'mutation', 'public', { visibility: 'public' | 'unlisted' | 'private'; packId: string; }, any, string | undefined>;
+      "createPack": FunctionReference<'mutation', 'public', { description?: string | undefined; prompt?: string | undefined; coverUrl?: string | undefined; displayName: string; packId: string; coverEmoji: string; sheetUrls: string[]; visibility: 'public' | 'unlisted' | 'private'; }, any, string | undefined>;
+      "setVisibility": FunctionReference<'mutation', 'public', { packId: string; visibility: 'public' | 'unlisted' | 'private'; }, any, string | undefined>;
       "deletePack": FunctionReference<'mutation', 'public', { packId: string; }, any, string | undefined>;
       "recordInstall": FunctionReference<'mutation', 'public', { packId: string; }, any, string | undefined>;
     };
@@ -111,13 +111,6 @@ export type PublicApiType = {
       "createXConnectUrl": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
       "listXConnections": FunctionReference<'query', 'public', {}, any, string | undefined>;
     };
-    "pets": {
-      "listPublicPage": FunctionReference<'query', 'public', { search?: string | undefined; tag?: string | undefined; sort: 'name' | 'downloads'; paginationOpts: { id?: number; endCursor?: string | null; maximumRowsRead?: number; maximumBytesRead?: number; numItems: number; cursor: string | null; }; }, any, string | undefined>;
-      "getByPetId": FunctionReference<'query', 'public', { id: string; }, any, string | undefined>;
-      "getByPetIds": FunctionReference<'query', 'public', { ids: string[]; }, any, string | undefined>;
-      "listTagFacets": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "incrementDownloads": FunctionReference<'mutation', 'public', { id: string; }, any, string | undefined>;
-    };
     "preferences": {
       "getAccountMode": FunctionReference<'query', 'public', {}, any, string | undefined>;
       "setAccountMode": FunctionReference<'mutation', 'public', { mode: 'private_local' | 'connected'; }, any, string | undefined>;
@@ -131,57 +124,6 @@ export type PublicApiType = {
       "createSecret": FunctionReference<'mutation', 'public', { metadata?: Value | undefined; provider: string; label: string; plaintext: string; }, any, string | undefined>;
       "listSecrets": FunctionReference<'query', 'public', { provider?: string | undefined; }, any, string | undefined>;
       "deleteSecret": FunctionReference<'mutation', 'public', { secretId: Id<'secrets'>; }, any, string | undefined>;
-    };
-    "store_admin": {
-      "isStoreAdmin": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "listPendingSubmissions": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "approveSubmission": FunctionReference<'mutation', 'public', { releaseId: Id<'store_package_releases'>; }, any, string | undefined>;
-      "rejectSubmission": FunctionReference<'mutation', 'public', { reason?: string | undefined; releaseId: Id<'store_package_releases'>; }, any, string | undefined>;
-    };
-    "store_git_artifacts": {
-      "prepareGitObjectUploads": FunctionReference<'action', 'public', { objects: { type: 'blob' | 'tree' | 'commit'; sizeBytes: number; sha: string; }[]; }, any, string | undefined>;
-      "verifyGitObjectUploads": FunctionReference<'action', 'public', { objects: { type: 'blob' | 'tree' | 'commit'; sizeBytes: number; sha: string; }[]; }, any, string | undefined>;
-      "prepareDiffUpload": FunctionReference<'action', 'public', { packageId: string; sha256: string; sizeBytes: number; }, any, string | undefined>;
-      "getReleaseDiff": FunctionReference<'action', 'public', { packageId: string; releaseNumber: number; }, any, string | undefined>;
-      "getReleaseCommits": FunctionReference<'action', 'public', { packageId: string; releaseNumber: number; }, any, string | undefined>;
-      "getReleaseGitObjectUrls": FunctionReference<'action', 'public', { packageId: string; releaseNumber: number; shas: string[]; }, any, string | undefined>;
-    };
-    "store_packages": {
-      "listPackages": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "listPublicPackages": FunctionReference<'query', 'public', { category?: 'integrations' | 'apps-games' | 'productivity' | 'customization' | 'skills-agents' | 'other' | undefined; paginationOpts: { id?: number; endCursor?: string | null; maximumRowsRead?: number; maximumBytesRead?: number; numItems: number; cursor: string | null; }; }, any, string | undefined>;
-      "listNewPublicPackages": FunctionReference<'query', 'public', { limit?: number | undefined; }, any, string | undefined>;
-      "listPromotedPublicPackages": FunctionReference<'query', 'public', { limit?: number | undefined; nowMs: number; }, any, string | undefined>;
-      "getPublicPackage": FunctionReference<'query', 'public', { packageId: string; }, any, string | undefined>;
-      "getPublicPackagesByIds": FunctionReference<'query', 'public', { packageIds: string[]; }, any, string | undefined>;
-      "listPublicReleases": FunctionReference<'query', 'public', { packageId: string; }, any, string | undefined>;
-      "getPublicRelease": FunctionReference<'query', 'public', { packageId: string; releaseNumber: number; }, any, string | undefined>;
-      "searchPublicPackages": FunctionReference<'query', 'public', { category?: 'integrations' | 'apps-games' | 'productivity' | 'customization' | 'skills-agents' | 'other' | undefined; query: string; }, any, string | undefined>;
-      "listPackagesByAuthorUsername": FunctionReference<'query', 'public', { username: string; }, any, string | undefined>;
-      "listMyPackages": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "setPackageVisibility": FunctionReference<'mutation', 'public', { packageId: string; visibility: 'public' | 'unlisted' | 'private'; }, any, string | undefined>;
-      "listMySubmissions": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "deletePackage": FunctionReference<'mutation', 'public', { packageId: string; }, any, string | undefined>;
-      "getPackage": FunctionReference<'query', 'public', { packageId: string; }, any, string | undefined>;
-      "listReleases": FunctionReference<'query', 'public', { packageId: string; }, any, string | undefined>;
-      "getRelease": FunctionReference<'query', 'public', { packageId: string; releaseNumber: number; }, any, string | undefined>;
-      "recordPackageInstall": FunctionReference<'mutation', 'public', { packageId: string; }, any, string | undefined>;
-      "createFirstRelease": FunctionReference<'action', 'public', { description?: string | undefined; category?: 'integrations' | 'apps-games' | 'productivity' | 'customization' | 'skills-agents' | 'other' | undefined; iconUrl?: string | undefined; releaseNotes?: string | undefined; commits?: { hash: string; subject: string; }[] | undefined; commitsDiffRef?: { kind: 'r2'; r2Key: string; sha256: string; sizeBytes: number; } | undefined; gitArtifact?: { security?: { redactedPaths: string[]; omittedPaths: string[]; warnings: string[]; } | undefined; kind: 'git-object-artifact'; schemaVersion: 1; baseCommit: string; featureCommit: string; objects: { type: 'blob' | 'tree' | 'commit'; sizeBytes: number; sha: string; }[]; } | undefined; diffRef?: { kind: 'r2'; r2Key: string; sha256: string; sizeBytes: number; } | undefined; audience?: 'store' | 'circle' | undefined; displayName: string; packageId: string; manifest: { summary?: string | undefined; category?: 'integrations' | 'apps-games' | 'productivity' | 'customization' | 'skills-agents' | 'other' | undefined; iconUrl?: string | undefined; authoredAtCommit?: string | undefined; }; blueprintMarkdown: string; }, any, string | undefined>;
-      "createUpdateRelease": FunctionReference<'action', 'public', { iconUrl?: string | undefined; releaseNotes?: string | undefined; commits?: { hash: string; subject: string; }[] | undefined; commitsDiffRef?: { kind: 'r2'; r2Key: string; sha256: string; sizeBytes: number; } | undefined; gitArtifact?: { security?: { redactedPaths: string[]; omittedPaths: string[]; warnings: string[]; } | undefined; kind: 'git-object-artifact'; schemaVersion: 1; baseCommit: string; featureCommit: string; objects: { type: 'blob' | 'tree' | 'commit'; sizeBytes: number; sha: string; }[]; } | undefined; diffRef?: { kind: 'r2'; r2Key: string; sha256: string; sizeBytes: number; } | undefined; audience?: 'store' | 'circle' | undefined; packageId: string; manifest: { summary?: string | undefined; category?: 'integrations' | 'apps-games' | 'productivity' | 'customization' | 'skills-agents' | 'other' | undefined; iconUrl?: string | undefined; authoredAtCommit?: string | undefined; }; blueprintMarkdown: string; }, any, string | undefined>;
-    };
-    "user_pet_generation": {
-      "generatePet": FunctionReference<'action', 'public', { visibility: 'public' | 'unlisted' | 'private'; prompt: string; }, any, string | undefined>;
-    };
-    "user_pet_uploads": {
-      "createUploadUrl": FunctionReference<'action', 'public', { contentType?: string | undefined; previewSha256?: string | undefined; petId: string; spritesheetSha256: string; }, any, string | undefined>;
-    };
-    "user_pets": {
-      "listPublicPage": FunctionReference<'query', 'public', { search?: string | undefined; paginationOpts: { id?: number; endCursor?: string | null; maximumRowsRead?: number; maximumBytesRead?: number; numItems: number; cursor: string | null; }; }, any, string | undefined>;
-      "listMine": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "getByPetId": FunctionReference<'query', 'public', { petId: string; }, any, string | undefined>;
-      "createPet": FunctionReference<'mutation', 'public', { prompt?: string | undefined; previewUrl?: string | undefined; description: string; displayName: string; visibility: 'public' | 'unlisted' | 'private'; spritesheetUrl: string; petId: string; }, any, string | undefined>;
-      "setVisibility": FunctionReference<'mutation', 'public', { visibility: 'public' | 'unlisted' | 'private'; petId: string; }, any, string | undefined>;
-      "deletePet": FunctionReference<'mutation', 'public', { petId: string; }, any, string | undefined>;
-      "recordInstall": FunctionReference<'mutation', 'public', { petId: string; }, any, string | undefined>;
     };
   };
   "device_identity": {
@@ -227,69 +169,6 @@ export type PublicApiType = {
   "scheduling": {
     "cron_jobs": {
       "completeCronTurnResult": FunctionReference<'mutation', 'public', { conversationId: Id<'conversations'>; text: string; requestId: string; }, any, string | undefined>;
-    };
-  };
-  "social": {
-    "communities": {
-      "getCommunityPreviewByInviteCode": FunctionReference<'query', 'public', { inviteCode: string; }, any, string | undefined>;
-      "createCommunity": FunctionReference<'mutation', 'public', { name: string; }, any, string | undefined>;
-      "joinCommunity": FunctionReference<'mutation', 'public', { inviteCode: string; }, any, string | undefined>;
-      "renameCommunity": FunctionReference<'mutation', 'public', { name: string; roomId: Id<'social_rooms'>; }, any, string | undefined>;
-      "removeCommunityMember": FunctionReference<'mutation', 'public', { roomId: Id<'social_rooms'>; memberOwnerId: string; }, any, string | undefined>;
-      "leaveCommunity": FunctionReference<'mutation', 'public', { roomId: Id<'social_rooms'>; }, any, string | undefined>;
-      "deleteCommunity": FunctionReference<'mutation', 'public', { roomId: Id<'social_rooms'>; }, any, string | undefined>;
-    };
-    "messages": {
-      "listRoomMessages": FunctionReference<'query', 'public', { roomId: Id<'social_rooms'>; paginationOpts: { id?: number; endCursor?: string | null; maximumRowsRead?: number; maximumBytesRead?: number; numItems: number; cursor: string | null; }; }, any, string | undefined>;
-      "sendRoomMessage": FunctionReference<'mutation', 'public', { clientMessageId?: string | undefined; roomId: Id<'social_rooms'>; body: string; }, any, string | undefined>;
-    };
-    "profiles": {
-      "ensureProfile": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
-      "getMyProfile": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "getProfileByUsername": FunctionReference<'query', 'public', { username: string; }, any, string | undefined>;
-      "claimUsername": FunctionReference<'mutation', 'public', { username: string; }, any, string | undefined>;
-      "getProfilesByOwnerIds": FunctionReference<'query', 'public', { ownerIds: string[]; }, any, string | undefined>;
-      "updateMyAvatar": FunctionReference<'mutation', 'public', { avatarUrl: string | null; }, any, string | undefined>;
-    };
-    "relationships": {
-      "listFriends": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "listPendingRequests": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "getUnseenIncomingFriendRequestCount": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "markIncomingFriendRequestsSeen": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
-      "sendFriendRequest": FunctionReference<'mutation', 'public', { username: string; }, any, string | undefined>;
-      "respondToFriendRequest": FunctionReference<'mutation', 'public', { action: 'accept' | 'decline' | 'block'; requesterOwnerId: string; }, any, string | undefined>;
-      "removeFriend": FunctionReference<'mutation', 'public', { otherOwnerId: string; }, any, string | undefined>;
-    };
-    "rooms": {
-      "listRooms": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "getGlobalRoomSummary": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "getOrJoinGlobalRoom": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
-      "getRoom": FunctionReference<'query', 'public', { roomId: Id<'social_rooms'>; }, any, string | undefined>;
-      "getOrCreateDmRoom": FunctionReference<'mutation', 'public', { otherOwnerId: string; }, any, string | undefined>;
-      "createGroupRoom": FunctionReference<'mutation', 'public', { title: string; memberOwnerIds: string[]; }, any, string | undefined>;
-      "addGroupMembers": FunctionReference<'mutation', 'public', { roomId: Id<'social_rooms'>; memberOwnerIds: string[]; }, any, string | undefined>;
-      "markRoomRead": FunctionReference<'mutation', 'public', { messageId?: Id<'social_messages'> | undefined; roomId: Id<'social_rooms'>; }, any, string | undefined>;
-    };
-    "sessions": {
-      "listSessions": FunctionReference<'query', 'public', {}, any, string | undefined>;
-      "getSession": FunctionReference<'query', 'public', { sessionId: Id<'stella_sessions'>; }, any, string | undefined>;
-      "createSession": FunctionReference<'mutation', 'public', { workspaceFolderName?: string | undefined; roomId: Id<'social_rooms'>; hostDeviceId: string; workspaceSlug: string; }, any, string | undefined>;
-      "updateSessionStatus": FunctionReference<'mutation', 'public', { status: 'active' | 'paused' | 'ended'; sessionId: Id<'stella_sessions'>; }, any, string | undefined>;
-      "listTurns": FunctionReference<'query', 'public', { sessionId: Id<'stella_sessions'>; paginationOpts: { id?: number; endCursor?: string | null; maximumRowsRead?: number; maximumBytesRead?: number; numItems: number; cursor: string | null; }; }, any, string | undefined>;
-      "queueTurn": FunctionReference<'mutation', 'public', { agentType?: string | undefined; clientTurnId?: string | undefined; sessionId: Id<'stella_sessions'>; prompt: string; }, any, string | undefined>;
-      "listPendingTurnsForHostDevice": FunctionReference<'query', 'public', { deviceId: string; }, any, string | undefined>;
-      "claimTurn": FunctionReference<'mutation', 'public', { deviceId: string; sessionId: Id<'stella_sessions'>; turnId: Id<'stella_session_turns'>; }, any, string | undefined>;
-      "completeTurn": FunctionReference<'mutation', 'public', { deviceId: string; sessionId: Id<'stella_sessions'>; resultText: string; turnId: Id<'stella_session_turns'>; }, any, string | undefined>;
-      "failTurn": FunctionReference<'mutation', 'public', { deviceId: string; sessionId: Id<'stella_sessions'>; error: string; turnId: Id<'stella_session_turns'>; }, any, string | undefined>;
-      "releaseTurn": FunctionReference<'mutation', 'public', { deviceId: string; sessionId: Id<'stella_sessions'>; turnId: Id<'stella_session_turns'>; }, any, string | undefined>;
-      "listWorkspaceFiles": FunctionReference<'query', 'public', { cursor?: string | null | undefined; includeDownloadUrls?: boolean | undefined; sessionId: Id<'stella_sessions'>; }, any, string | undefined>;
-      "markFileOpsApplied": FunctionReference<'mutation', 'public', { sessionId: Id<'stella_sessions'>; lastAppliedFileOpOrdinal: number; }, any, string | undefined>;
-      "createDirectory": FunctionReference<'mutation', 'public', { sessionId: Id<'stella_sessions'>; relativePath: string; }, any, string | undefined>;
-      "listFileOps": FunctionReference<'query', 'public', { limit?: number | undefined; afterOrdinal?: number | undefined; sessionId: Id<'stella_sessions'>; }, any, string | undefined>;
-      "markSnapshotCreated": FunctionReference<'mutation', 'public', { sessionId: Id<'stella_sessions'>; }, any, string | undefined>;
-      "acknowledgeFileOps": FunctionReference<'mutation', 'public', { sessionId: Id<'stella_sessions'>; lastAppliedOrdinal: number; }, any, string | undefined>;
-      "deleteFile": FunctionReference<'mutation', 'public', { sessionId: Id<'stella_sessions'>; relativePath: string; }, any, string | undefined>;
-      "uploadFile": FunctionReference<'action', 'public', { contentType?: string | undefined; sessionId: Id<'stella_sessions'>; contentHash: string; relativePath: string; contentBase64: string; }, any, string | undefined>;
     };
   };
   "stella_models": {

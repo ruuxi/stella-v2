@@ -9,18 +9,12 @@
  * accents (PDF red, sheet green, slides orange, etc.) so each format is
  * recognizable at a glance.
  *
- * Top-level tab glyphs (Chat, Store, Media, Trash, URL) come from the shared
+ * Top-level tab glyphs (Chat, Media, Trash, URL) come from the shared
  * Stella icon set in `@/ui/icons`; only the badged file-type marks live here.
  */
 
 import type { CSSProperties, ReactNode } from "react";
-import {
-  Globe,
-  Image as ImageGlyph,
-  MessageSquare,
-  Store,
-  Trash2,
-} from "@/ui/icons";
+import { Globe, Image as ImageGlyph, MessageSquare, Trash2 } from "@/ui/icons";
 import { CustomHouse } from "@/ui/nav-icons";
 import type { DisplayTabKind } from "./types";
 
@@ -308,10 +302,6 @@ const DiffIcon = (props: IconProps) => (
   </Sheet>
 );
 
-const StoreIcon = ({ size = 18, style }: IconProps) => (
-  <Store size={size} strokeWidth={1.5} style={style} />
-);
-
 const MediaIcon = ({ size = 18, style }: IconProps) => (
   <ImageGlyph size={size} strokeWidth={1.5} style={style} />
 );
@@ -422,8 +412,6 @@ export const DisplayTabIcon = ({
       return <DownloadIcon size={size} style={style} />;
     case "text":
       return <TextIcon size={size} style={style} />;
-    case "store":
-      return <StoreIcon size={size} style={style} />;
     case "trash":
       return <TrashIcon size={size} style={style} />;
   }

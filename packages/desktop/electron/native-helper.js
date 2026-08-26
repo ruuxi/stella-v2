@@ -21,7 +21,7 @@ const circuits = new Map();
 // Global Win32 spawn governor. Every helper invocation is a full
 // `CreateProcess`, which on Windows is scanned by Defender and shows up as
 // system-wide (not just Stella) lag when several callers fire at once (capture
-// probes, the morph-visibility sample grid, context polls). Serialize win32
+// probes, context polls). Serialize win32
 // spawns so concurrent callers queue behind a single in-flight process instead
 // of stampeding the OS process-creation path. macOS `fork` is cheap, so this
 // only gates win32.

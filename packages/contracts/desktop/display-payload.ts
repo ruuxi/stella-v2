@@ -41,7 +41,7 @@ export type DisplayPayload =
     }
   | {
       /**
-       * Live URL preview (e.g., per-social-session Vite dev server).
+       * Live URL preview (e.g., a user-app project's Vite dev server).
        * Rendered as an iframe in its own dedicated tab.
        */
       kind: "url";

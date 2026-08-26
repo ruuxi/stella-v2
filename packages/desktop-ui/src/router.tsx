@@ -19,10 +19,10 @@ export const router = createRouter({
   routeTree,
   history: createMemoryHistory({ initialEntries: ["/chat"] }),
   // `defaultPreload: "intent"` covers `<Link>` hover/focus on actual route
-  // boundaries (chat / social / store / settings / billing / c.$handle).
+  // boundaries (chat / apps / settings / billing).
   // The hand-rolled `runOnce` cache in `@/shell/topbar/nav-surface-preloads`
   // covers everything *not* in the route graph — popovers, dialogs,
-  // social subdialogs, billing query bundle — so the two layers are
+  // dialog surfaces, billing query bundle — so the two layers are
   // complementary, not redundant. Don't drop either.
   //
   // `defaultPendingMs` / `defaultPendingMinMs` are deliberately left at
@@ -46,8 +46,7 @@ export const router = createRouter({
 // regenerates that file whenever a route is added, removed, or renamed.
 // Without this accept handler, the new module would propagate up to
 // every importer of `router` (FullShell, etc.) and force a full renderer
-// reload -- visible to the user as a blank flash, even when covered by
-// the morph overlay.
+// reload -- visible to the user as a blank flash.
 //
 // Swapping the tree on the existing router instance keeps every
 // subscriber, navigation, and route-state intact: only the route graph

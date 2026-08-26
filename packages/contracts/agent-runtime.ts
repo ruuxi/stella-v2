@@ -2,7 +2,6 @@ export const AGENT_IDS = {
   ORCHESTRATOR: "orchestrator",
   FASHION: "fashion",
   GENERAL: "general",
-  SOCIAL_SESSION: "social_session",
   OFFLINE_RESPONDER: "offline_responder",
   EXPLORE: "explore",
   DREAM: "dream",
@@ -145,23 +144,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
       // do not trigger Dream — consolidation is driven by orchestrator context
       // growth, so these rows are folded on the next orchestrator-driven run.
       recordsThreadSummary: true,
-    },
-  },
-  {
-    id: AGENT_IDS.SOCIAL_SESSION,
-    name: "Social Session",
-    description:
-      "Works inside a shared Stella Together folder with a path-scoped file tool surface.",
-    activityLabel: "Collaborating",
-    bundledCore: true,
-    runsAsSubagent: false,
-    includeInAgentRoster: false,
-    usesLocalCliRuntime: false,
-    promptRole: "subagent",
-    localCliWorkingDirectory: null,
-    modelSettings: {
-      description: "Works inside shared Stella Together folders",
-      order: 10,
     },
   },
   {

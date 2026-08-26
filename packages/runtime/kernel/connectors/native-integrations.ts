@@ -49,7 +49,7 @@ export type NativeConnectorCatalogEntry = {
     type: "composio";
     toolkit: string;
   };
-  /** Authoritative executable action map supplied by the Store catalog. */
+  /** Authoritative executable action map supplied by the connector catalog. */
   actions?: readonly NativeConnectorCatalogAction[];
   oauthConfig?: NativeOAuthProviderConfig;
   oauthSetupGroup?: {
@@ -73,7 +73,7 @@ type NativeConnectorStateEntry = {
   enabled: boolean;
   enabledAt?: number;
   updatedAt: number;
-  source?: "store" | "cli";
+  source?: "desktop" | "cli";
   skillPath?: string;
 };
 
@@ -243,7 +243,7 @@ const getNativeConnectorCatalog = (): NativeConnectorCatalogEntry[] => {
  * NOT replace the bundled catalog: locally-owned entries (Google
  * Workspace, recovered OAuth providers) must stay resolvable even when
  * the backend catalog only carries its Composio set — otherwise Gmail
- * could be offered by discovery yet fail to resolve in the Store/connect
+ * could be offered by discovery yet fail to resolve in the catalog/connect
  * paths that pass the server catalog through.
  */
 export const buildNativeConnectorCatalog = (
@@ -503,7 +503,7 @@ const getNativeConnectorOAuthSetup = (
       connectable: false,
       oauthSetupStatus: "local_implementation_incomplete" as const,
       oauthSetupMessage:
-        "This recovered catalog entry is metadata only. Stella currently relies on its authoritative Store provider for execution.",
+        "This recovered catalog entry is metadata only. Stella currently relies on its authoritative connector provider for execution.",
     };
   }
   if (entry.connectable) {
@@ -625,7 +625,7 @@ export const isNativeConnectorEnabled = async (
  * for Gmail-scale toolkits; the compact top-N reference points agents at
  * `connect.actions` / `connect.schema` for everything else. Existing
  * oversized ACTIONS.md files are rewritten the next time the connector is
- * enabled (Store enable or an accepted in-chat connect card).
+ * enabled (a Connections enable or an accepted in-chat connect card).
  */
 const ACTIONS_MD_TOP_LIMIT = 30;
 
@@ -688,7 +688,7 @@ ${GENERATED_SKILL_MARKER}
 
 # ${entry.name}
 
-Use this skill for work that needs ${entry.name}. The integration must stay enabled in the Store; calls are refused when it is disabled.
+Use this skill for work that needs ${entry.name}. The integration must stay enabled in Connections; calls are refused when it is disabled.
 
 Preferred: the frozen \`connect\` client inside \`node_repl\`:
 
@@ -729,7 +729,7 @@ const removeGeneratedSkill = async (stellaAppDir: string, id: string) => {
 export const enableNativeConnector = async (
   stellaAppDir: string,
   id: string,
-  source: "store" | "cli" = "cli",
+  source: "desktop" | "cli" = "cli",
   options: NativeOAuthProviderConfigOptions = {},
   catalogOverride?: NativeConnectorCatalogOverride,
 ) => {
@@ -740,7 +740,7 @@ export const enableNativeConnector = async (
   if (!setup.connectable) {
     if (setup.oauthSetupStatus === "local_implementation_incomplete") {
       throw new Error(
-        `${entry.name} local execution is incomplete; an authoritative Store catalog entry is required.`,
+        `${entry.name} local execution is incomplete; an authoritative connector catalog entry is required.`,
       );
     }
     const config = getNativeConnectorOAuthConfig(entry);
@@ -783,7 +783,7 @@ export const enableNativeConnector = async (
     skillPath,
   };
   await writeState(stellaAppDir, state);
-  // Enabling — from the Store, the CLI, or an accepted in-chat connect
+  // Enabling — from Connections, the CLI, or an accepted in-chat connect
   // card — supersedes any earlier "don't re-offer this in chat" decline.
   await clearConnectorDecline(stellaAppDir, id).catch(() => undefined);
   // `toolCount` mirrors what `listNativeConnectors` returns so the

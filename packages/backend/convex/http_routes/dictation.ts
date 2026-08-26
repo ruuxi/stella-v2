@@ -42,6 +42,13 @@ import {
   getManagedGatewayConfig,
   resolveManagedGatewayApiKey,
 } from "../lib/managed_gateway";
+import {
+  XAI_STT_MODEL_LABEL,
+  XAI_STT_USD_PER_SECOND,
+  XaiSttError,
+  resolveXaiSttApiKey,
+  transcribeWithXaiRest,
+} from "../lib/xai_stt";
 
 const DICTATION_RATE_LIMIT = 30; // per minute
 const DICTATION_RATE_WINDOW_MS = 60_000;
@@ -59,13 +66,7 @@ export const OPENROUTER_DICTATION_MODEL =
   "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b";
 const OPENROUTER_USD_PER_SECOND = 0.000003;
 
-const XAI_TRANSCRIBE_URL = "https://api.x.ai/v1/stt";
-// xAI's REST STT endpoint has a single model (the OpenRouter alias was
-// `x-ai/grok-stt-1.0`); this id is only used to label usage metering.
-export const XAI_DICTATION_MODEL = "grok-stt-1.0";
-// Grok STT REST list price as of 2026-08 (docs.x.ai): $0.10/hr.
-const XAI_USD_PER_HOUR = 0.1;
-const XAI_USD_PER_SECOND = XAI_USD_PER_HOUR / 3600;
+export const XAI_DICTATION_MODEL = XAI_STT_MODEL_LABEL;
 
 // Convex HTTP actions cap request bodies at ~20MB; base64 inflates by 33%
 // so this keeps a comfortable margin for the JSON envelope.
@@ -174,8 +175,7 @@ export const registerDictationRoutes = (http: HttpRouter) => {
         const provider = resolveDictationProvider();
         // Same org key the realtime Grok Voice path uses (voice.ts); it
         // never leaves the backend.
-        const xaiKey =
-          provider === "xai" ? (process.env.XAI_API_KEY?.trim() || null) : null;
+        const xaiKey = provider === "xai" ? resolveXaiSttApiKey() : null;
         const openRouterKey =
           provider === "openrouter"
             ? (resolveManagedGatewayApiKey(
@@ -262,28 +262,6 @@ export const registerDictationRoutes = (http: HttpRouter) => {
   });
 };
 
-const mimeTypeForFormat = (format: string): string => {
-  switch (format) {
-    case "mp3":
-      return "audio/mpeg";
-    case "ogg":
-      return "audio/ogg";
-    case "flac":
-      return "audio/flac";
-    default:
-      return "audio/wav";
-  }
-};
-
-const base64ToBytes = (base64: string): Uint8Array<ArrayBuffer> => {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-};
-
 const transcribeWithXai = async (args: {
   ctx: ActionCtx;
   origin: string | null;
@@ -297,80 +275,20 @@ const transcribeWithXai = async (args: {
   const format = formatFromAudioEncoding(args.body.audioEncoding);
   const startedAt = Date.now();
 
-  let audioBytes: Uint8Array<ArrayBuffer>;
   try {
-    audioBytes = base64ToBytes(args.audioBase64);
-  } catch {
-    return errorResponse(400, "audioBase64 is not valid base64", args.origin);
-  }
-
-  // xAI's STT endpoint takes multipart/form-data; container formats (WAV,
-  // MP3, ...) are auto-detected, and the file field must come last.
-  const form = new FormData();
-  if (language) {
-    // `format=true` enables inverse text normalization and requires a
-    // language code; the model transcribes any language regardless.
-    form.append("format", "true");
-    form.append("language", language);
-  }
-  form.append(
-    "file",
-    new Blob([audioBytes], { type: mimeTypeForFormat(format) }),
-    `audio.${format}`,
-  );
-
-  try {
-    const upstream = await fetch(XAI_TRANSCRIBE_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${args.xaiKey}`,
-      },
-      body: form,
+    const result = await transcribeWithXaiRest({
+      apiKey: args.xaiKey,
+      audioBase64: args.audioBase64,
+      audioFormat: format,
+      ...(language ? { language } : {}),
     });
-    const text = await upstream.text();
-    if (!upstream.ok) {
-      console.error(
-        "[dictation/transcribe] xAI STT returned",
-        upstream.status,
-        text.slice(0, 400),
-      );
-      await meterManagedUsage(args.ctx, {
-        ownerId: args.ownerId,
-        agentType: "service:dictation",
-        model: modelId,
-        durationMs: Date.now() - startedAt,
-        success: false,
-      });
-      return errorResponse(502, "Failed to transcribe audio", args.origin);
-    }
-    let parsed: {
-      text?: unknown;
-      duration?: unknown;
-    };
-    try {
-      parsed = JSON.parse(text) as typeof parsed;
-    } catch {
-      await meterManagedUsage(args.ctx, {
-        ownerId: args.ownerId,
-        agentType: "service:dictation",
-        model: modelId,
-        durationMs: Date.now() - startedAt,
-        success: false,
-      });
-      return errorResponse(
-        502,
-        "xAI returned a non-JSON transcription response",
-        args.origin,
-      );
-    }
-
-    const transcript = typeof parsed.text === "string" ? parsed.text : "";
-    const durationSeconds = asFiniteNumber(parsed.duration);
+    const transcript = result.text;
+    const durationSeconds = result.durationSeconds;
     const transcribedAudioMs =
       durationSeconds !== undefined ? Math.round(durationSeconds * 1000) : null;
     const costUsd =
       durationSeconds !== undefined
-        ? Math.max(0, durationSeconds) * XAI_USD_PER_SECOND
+        ? Math.max(0, durationSeconds) * XAI_STT_USD_PER_SECOND
         : 0;
     await meterManagedUsage(args.ctx, {
       ownerId: args.ownerId,
@@ -392,10 +310,21 @@ const transcribeWithXai = async (args: {
       args.origin,
     );
   } catch (error) {
-    console.error(
-      "[dictation/transcribe] Failed to contact xAI:",
-      (error as Error).message,
-    );
+    if (error instanceof XaiSttError && error.kind === "invalid_base64") {
+      return errorResponse(400, "audioBase64 is not valid base64", args.origin);
+    }
+    if (error instanceof XaiSttError && error.kind === "upstream") {
+      console.error(
+        "[dictation/transcribe] xAI STT returned",
+        error.upstreamStatus,
+        error.upstreamBody?.slice(0, 400) ?? "",
+      );
+    } else {
+      console.error(
+        "[dictation/transcribe] Failed to contact xAI:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     await meterManagedUsage(args.ctx, {
       ownerId: args.ownerId,
       agentType: "service:dictation",
@@ -403,6 +332,13 @@ const transcribeWithXai = async (args: {
       durationMs: Date.now() - startedAt,
       success: false,
     });
+    if (error instanceof XaiSttError && error.kind === "invalid_response") {
+      return errorResponse(
+        502,
+        "xAI returned a non-JSON transcription response",
+        args.origin,
+      );
+    }
     return errorResponse(502, "Failed to transcribe audio", args.origin);
   }
 };

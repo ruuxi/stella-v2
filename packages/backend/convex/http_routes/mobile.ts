@@ -45,6 +45,13 @@ import {
   scheduleManagedUsage,
 } from "../lib/managed_billing";
 import {
+  XAI_STT_MODEL_LABEL,
+  XAI_STT_USD_PER_SECOND,
+  XaiSttError,
+  resolveXaiSttApiKey,
+  transcribeWithXaiRest,
+} from "../lib/xai_stt";
+import {
   assistantText,
   completeManagedChat,
   streamManagedChat,
@@ -65,13 +72,12 @@ const OFFLINE_CHAT_RATE_WINDOW_MS = 60_000;
  * rotate freely — the IP cap bounds total unauthenticated LLM spend.
  */
 const OFFLINE_CHAT_ANON_IP_RATE_LIMIT = 30;
-/** Per-owner cap on the Voxtral transcription endpoint. */
+/** Per-owner cap on the mobile and CarPlay transcription endpoint. */
 const TRANSCRIBE_RATE_LIMIT = 30;
 const TRANSCRIBE_RATE_WINDOW_MS = 60_000;
 const TRANSCRIBE_ANON_IP_RATE_LIMIT = 60;
 /** ~10 MB of base64 ≈ ~7.5 MB raw audio. Roughly 2 min of m4a. */
 const MAX_TRANSCRIBE_AUDIO_BASE64_CHARS = 10_000_000;
-const TRANSCRIBE_MODEL = "mistralai/voxtral-mini-transcribe";
 const TRANSCRIBE_AUDIO_FORMATS = new Set([
   "wav",
   "mp3",
@@ -854,11 +860,9 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           return owner.response;
         }
 
-        const apiKey = process.env[MANAGED_GATEWAY.apiKeyEnvVar];
+        const apiKey = resolveXaiSttApiKey();
         if (!apiKey) {
-          console.error(
-            `[mobile/transcribe] Missing ${MANAGED_GATEWAY.apiKeyEnvVar}`,
-          );
+          console.error("[mobile/transcribe] Missing XAI_API_KEY");
           return errorResponse(500, "Server configuration error", origin);
         }
 
@@ -919,95 +923,54 @@ export const registerMobileRoutes = (http: HttpRouter) => {
 
         const startedAt = Date.now();
         try {
-          const upstream = await fetch(
-            `${MANAGED_GATEWAY.baseURL}/audio/transcriptions`,
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${apiKey}`,
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://stella.sh",
-                "X-OpenRouter-Title": "Stella",
-              },
-              body: JSON.stringify({
-                input_audio: {
-                  data: audio,
-                  format,
-                },
-                model: TRANSCRIBE_MODEL,
-                ...(language ? { language } : {}),
-              }),
-            },
-          );
-
-          if (!upstream.ok) {
-            const errText = await upstream.text().catch(() => "");
-            console.error(
-              "[mobile/transcribe] Upstream error",
-              upstream.status,
-              errText.slice(0, 500),
-            );
-            await scheduleManagedUsage(ctx, {
-              ownerId: owner.ownerId,
-              agentType: "service:mobile_dictation",
-              model: TRANSCRIBE_MODEL,
-              durationMs: Date.now() - startedAt,
-              success: false,
-            });
-            return errorResponse(
-              upstream.status >= 400 && upstream.status < 500
-                ? upstream.status
-                : 502,
-              "Could not transcribe that audio. Try again.",
-              origin,
-            );
-          }
-
-          const parsed = (await upstream.json()) as {
-            text?: unknown;
-            usage?: {
-              cost?: unknown;
-              input_tokens?: unknown;
-              output_tokens?: unknown;
-              total_tokens?: unknown;
-            };
-          };
-          const text =
-            typeof parsed.text === "string" ? parsed.text.trim() : "";
+          const result = await transcribeWithXaiRest({
+            apiKey,
+            audioBase64: audio,
+            audioFormat: format,
+            ...(language ? { language } : {}),
+          });
+          const text = result.text.trim();
           const costUsd =
-            typeof parsed.usage?.cost === "number" &&
-            Number.isFinite(parsed.usage.cost)
-              ? Math.max(0, parsed.usage.cost)
-              : undefined;
-          const usageNumber = (value: unknown) =>
-            typeof value === "number" && Number.isFinite(value)
-              ? Math.max(0, Math.floor(value))
-              : undefined;
+            Math.max(0, result.durationSeconds ?? 0) * XAI_STT_USD_PER_SECOND;
           await scheduleManagedUsage(ctx, {
             ownerId: owner.ownerId,
             agentType: "service:mobile_dictation",
-            model: TRANSCRIBE_MODEL,
+            model: XAI_STT_MODEL_LABEL,
             durationMs: Date.now() - startedAt,
             success: true,
-            ...(costUsd !== undefined
-              ? { costMicroCents: dollarsToMicroCents(costUsd) }
-              : {}),
-            usage: {
-              inputTokens: usageNumber(parsed.usage?.input_tokens),
-              outputTokens: usageNumber(parsed.usage?.output_tokens),
-              totalTokens: usageNumber(parsed.usage?.total_tokens),
-            },
+            costMicroCents: dollarsToMicroCents(costUsd),
           });
           return jsonResponse({ text }, 200, origin);
         } catch (error) {
-          console.error("[mobile/transcribe] Error:", error);
+          if (error instanceof XaiSttError && error.kind === "upstream") {
+            console.error(
+              "[mobile/transcribe] xAI STT returned",
+              error.upstreamStatus,
+              error.upstreamBody?.slice(0, 500) ?? "",
+            );
+          } else {
+            console.error("[mobile/transcribe] Error:", error);
+          }
           await scheduleManagedUsage(ctx, {
             ownerId: owner.ownerId,
             agentType: "service:mobile_dictation",
-            model: TRANSCRIBE_MODEL,
+            model: XAI_STT_MODEL_LABEL,
             durationMs: Date.now() - startedAt,
             success: false,
           });
+          if (error instanceof XaiSttError) {
+            if (error.kind === "invalid_base64") {
+              return errorResponse(400, "Invalid audio data", origin);
+            }
+            if (error.kind === "upstream") {
+              const status = error.upstreamStatus ?? 502;
+              return errorResponse(
+                status >= 400 && status < 500 ? status : 502,
+                "Could not transcribe that audio. Try again.",
+                origin,
+              );
+            }
+          }
           return errorResponse(
             500,
             readConvexErrorMessage(error, "Could not transcribe that audio."),

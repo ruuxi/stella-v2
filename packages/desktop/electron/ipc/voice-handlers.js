@@ -10,6 +10,7 @@ import { getLocalLlmCredential } from "@stella/runtime/kernel/storage/llm-creden
 import { getLocalLlmOAuthApiKey } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
 import { redactMemoryText } from "@stella/runtime/kernel/memory/redaction";
 import { IPC_VOICE_CREATE_OPENAI_SESSION, IPC_VOICE_EXECUTE_MOBILE_TOOL, IPC_VOICE_EXECUTE_TOOL, IPC_VOICE_ORCHESTRATOR_CONFIG, IPC_VOICE_CREATE_XAI_SESSION, IPC_VOICE_CREATE_INWORLD_SESSION, IPC_VOICE_REPORT_SESSION_ERROR, IPC_VOICE_SESSION_ERROR, } from "@stella/contracts/desktop/ipc-channels";
+import { requireMatchingCloudConversationId } from "../cloud-conversation-mode.js";
 const DEFAULT_OPENAI_REALTIME_MODEL = "gpt-realtime-2.1";
 const DEFAULT_XAI_REALTIME_MODEL = "grok-voice-think-fast-1.0";
 const INWORLD_ICE_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -70,6 +71,7 @@ export const registerVoiceHandlers = (options) => {
         ? value
         : null;
     const errorMessage = (value) => value instanceof Error ? value.message : String(value ?? "Unknown error");
+    const requireCurrentVoiceConversation = (value) => requireMatchingCloudConversationId(value, options.uiState.conversationId);
     const htmlDisplayPayloadFromVoiceTool = (payload, result) => {
         if (payload.name !== "html" || result.error)
             return null;
@@ -355,25 +357,35 @@ export const registerVoiceHandlers = (options) => {
         };
     });
     ipcMain.on("voice:persistTranscript", (_event, payload) => {
-        console.log(`[${ts()}] [Voice RTC] ${payload.role.toUpperCase()}: ${payload.text}`);
+        let conversationId;
+        try {
+            conversationId = requireCurrentVoiceConversation(payload?.conversationId);
+        }
+        catch (error) {
+            console.warn("[voice] Rejected stale transcript:", errorMessage(error));
+            return;
+        }
+        const currentPayload = { ...payload, conversationId };
+        console.log(`[${ts()}] [Voice RTC] ${currentPayload.role.toUpperCase()}: ${currentPayload.text}`);
         const stellaHostRunner = options.getStellaHostRunner();
         if (!stellaHostRunner) {
             return;
         }
-        stellaHostRunner.persistVoiceTranscript(payload).catch((err) => {
+        stellaHostRunner.persistVoiceTranscript(currentPayload).catch((err) => {
             console.debug("[voice] transcript persistence failed (best-effort):", err.message);
         });
     });
     ipcMain.handle("voice:orchestratorChat", async (_event, payload) => {
-        console.log(`[${ts()}] [Voice] orchestratorChat request:`, payload.message);
         if (!options.uiState.isVoiceRtcActive) {
             throw new Error("Voice mode is no longer active.");
         }
+        const conversationId = requireCurrentVoiceConversation(payload?.conversationId);
+        console.log(`[${ts()}] [Voice] orchestratorChat request:`, payload.message);
         const stellaHostRunner = options.getStellaHostRunner();
         if (!stellaHostRunner) {
             throw new Error("Stella runtime not initialized");
         }
-        return await stellaHostRunner.handleVoiceChat(payload, {
+        return await stellaHostRunner.handleVoiceChat({ ...payload, conversationId }, {
             onStream: () => { },
             onToolStart: (event) => {
                 emitVoiceAgentEvent({ ...event, type: "tool-start" });
@@ -404,22 +416,28 @@ export const registerVoiceHandlers = (options) => {
         });
     });
     ipcMain.handle(IPC_VOICE_ORCHESTRATOR_CONFIG, async (_event, payload) => {
+        const conversationId = requireCurrentVoiceConversation(payload?.conversationId);
         const stellaHostRunner = options.getStellaHostRunner();
         if (!stellaHostRunner) {
             throw new Error("Stella runtime not initialized");
         }
-        return await stellaHostRunner.getVoiceOrchestratorConfig(payload);
+        return await stellaHostRunner.getVoiceOrchestratorConfig({
+            ...payload,
+            conversationId,
+        });
     });
     const executeVoiceTool = async (payload) => {
+        const conversationId = requireCurrentVoiceConversation(payload?.conversationId);
+        const currentPayload = { ...payload, conversationId };
         const stellaHostRunner = options.getStellaHostRunner();
         if (!stellaHostRunner) {
             throw new Error("Stella runtime not initialized");
         }
-        emitVoiceToolStart(payload);
+        emitVoiceToolStart(currentPayload);
         try {
-            const result = await stellaHostRunner.executeVoiceTool(payload);
-            emitVoiceToolEnd(payload, result);
-            const displayPayload = htmlDisplayPayloadFromVoiceTool(payload, result);
+            const result = await stellaHostRunner.executeVoiceTool(currentPayload);
+            emitVoiceToolEnd(currentPayload, result);
+            const displayPayload = htmlDisplayPayloadFromVoiceTool(currentPayload, result);
             if (displayPayload) {
                 emitVoiceDisplayPayload(displayPayload);
             }
@@ -427,7 +445,7 @@ export const registerVoiceHandlers = (options) => {
         }
         catch (error) {
             const message = errorMessage(error);
-            emitVoiceToolEnd(payload, {
+            emitVoiceToolEnd(currentPayload, {
                 output: `Error: ${message}`,
                 error: message,
             });

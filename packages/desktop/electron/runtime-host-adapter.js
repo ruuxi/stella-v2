@@ -2,6 +2,7 @@ import { AGENT_STREAM_EVENT_TYPES, isTaskLifecycleEventType, isTaskLifecycleTerm
 import { StellaRuntimeHost, } from "@stella/runtime/host";
 import { createRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
 import { readConfiguredStellaSiteUrl } from "@stella/contracts/convex-urls";
+import { withCloudConversationStorage } from "./cloud-conversation-mode.js";
 const isRunTerminalEvent = (type) => type === AGENT_STREAM_EVENT_TYPES.RUN_FINISHED;
 /**
  * Worker recorder seqs are small (event count per run). Hidden→visible
@@ -23,7 +24,7 @@ export class RuntimeHostAdapter {
     started = false;
     lastConfigureError = null;
     lastAvailabilitySnapshot = null;
-    pendingConfig = {};
+    pendingConfig = { cloudSyncEnabled: true };
     queuedConfigPatch = {};
     configFlushQueued = false;
     localChatSessions = new Map();
@@ -428,8 +429,10 @@ export class RuntimeHostAdapter {
     setHasConnectedAccount(value) {
         this.queueRuntimeConfigPatch({ hasConnectedAccount: value });
     }
-    setCloudSyncEnabled(enabled) {
-        this.queueRuntimeConfigPatch({ cloudSyncEnabled: enabled });
+    setCloudSyncEnabled(_enabled) {
+        // Compatibility surface for older renderers. Conversation authority is
+        // cloud-only, including anonymous Better Auth sessions.
+        this.queueRuntimeConfigPatch({ cloudSyncEnabled: true });
     }
     setModelCatalogUpdatedAt(value) {
         this.queueRuntimeConfigPatch({
@@ -536,10 +539,10 @@ export class RuntimeHostAdapter {
             cleanupTimer: null,
         });
         try {
-            const result = await this.host.startChat({
+            const result = await this.host.startChat(withCloudConversationStorage({
                 ...payload,
                 requestId,
-            });
+            }));
             this.localChatSessions.get(requestId)?.knownRunIds.add(result.runId);
             return result;
         }

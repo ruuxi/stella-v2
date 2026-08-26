@@ -71,7 +71,7 @@ afterEach(async () => {
 });
 
 describe("mobile bridge replay end to end", () => {
-  it("returns one durable canonical acceptance through repeated bridge invokes", async () => {
+  it("ignores legacy SQLite receipts and forces cloud storage at admission", async () => {
     const { startCapturingHandlers } =
       await import("@stella/desktop/electron/services/mobile-bridge/handler-registry.js");
     const stopCapturing = startCapturingHandlers();
@@ -91,7 +91,15 @@ describe("mobile bridge replay end to end", () => {
     );
     roots.add(root);
     const history = new LocalChatHistoryService({ stellaAppDir: root });
+    history.appendEvent({
+      conversationId: "conversation-1",
+      eventId: "mobile:send-1",
+      type: "user_message",
+      timestamp: 999,
+      payload: { text: "stale local receipt" },
+    });
     let runtimeStarts = 0;
+    let admittedPayload: Record<string, unknown> | null = null;
     const runner = {
       waitUntilReady: vi.fn().mockResolvedValue(undefined),
       waitUntilConnected: vi.fn().mockResolvedValue(undefined),
@@ -100,13 +108,7 @@ describe("mobile bridge replay end to end", () => {
         .fn()
         .mockImplementation(async (payload, callbacks) => {
           runtimeStarts += 1;
-          history.appendEvent({
-            conversationId: payload.conversationId,
-            eventId: payload.userMessageEventId,
-            type: "user_message",
-            timestamp: 1_000,
-            payload: { text: payload.userPrompt },
-          });
+          admittedPayload = payload;
           callbacks.onRunStarted?.({
             runId: "run-1",
             userMessageId: payload.userMessageEventId,
@@ -115,12 +117,13 @@ describe("mobile bridge replay end to end", () => {
         }),
     };
 
+    const uiState = { conversationId: "conversation-1" };
     registerAgentHandlers({
       getStellaHostRunner: () => runner as never,
       getAppSessionStartedAt: () => 0,
       isHostAuthAuthenticated: () => true,
+      uiState,
       stellaAppDir: root,
-      localChatHistoryService: history,
       assertPrivilegedSender: () => true,
     });
     stopCapturing();
@@ -145,37 +148,39 @@ describe("mobile bridge replay end to end", () => {
       userMessageEventId: "mobile:send-1",
       storageMode: "local",
     };
-    const invoke = async () => {
-      const response = createResponse();
-      await anyBridge.handleRequest(createInvokeRequest(payload), response);
-      expect(response.statusCode).toBe(200);
-      return JSON.parse(response.body).result as Record<string, unknown>;
-    };
-
-    const first = await invoke();
-    history.close();
-    history.reopen();
-    const replay = await invoke();
+    const response = createResponse();
+    await anyBridge.handleRequest(createInvokeRequest(payload), response);
+    expect(response.statusCode).toBe(200);
+    const first = JSON.parse(response.body).result as Record<string, unknown>;
 
     expect(first).toMatchObject({
       runId: "run-1",
       userMessageId: "mobile:send-1",
       accepted: true,
     });
-    expect(replay).toEqual({
-      ...first,
-      deduplicated: true,
-    });
     expect(runtimeStarts).toBe(1);
-    expect(
-      history
-        .syncMessages({ conversationId: "conversation-1" })
-        .messages.filter((message) => message.role === "user"),
-    ).toHaveLength(1);
+    expect(admittedPayload).toMatchObject({
+      conversationId: "conversation-1",
+      storageMode: "cloud",
+    });
+
+    uiState.conversationId = "conversation-2";
+    const staleResponse = createResponse();
+    await anyBridge.handleRequest(
+      createInvokeRequest({
+        ...payload,
+        clientRequestId: "mobile:send-stale",
+        userMessageEventId: "mobile:send-stale",
+      }),
+      staleResponse,
+    );
+    expect(staleResponse.statusCode).toBe(500);
+    expect(staleResponse.body).toContain("active cloud conversation changed");
+    expect(runtimeStarts).toBe(1);
     history.close();
   });
 
-  it("acknowledges a durable mobile message before its steer is consumed", async () => {
+  it("does not acknowledge from SQLite while cloud admission is pending", async () => {
     const { startCapturingHandlers } =
       await import("@stella/desktop/electron/services/mobile-bridge/handler-registry.js");
     const stopCapturing = startCapturingHandlers();
@@ -227,8 +232,8 @@ describe("mobile bridge replay end to end", () => {
       getStellaHostRunner: () => runner as never,
       getAppSessionStartedAt: () => 0,
       isHostAuthAuthenticated: () => true,
+      uiState: { conversationId: "conversation-1" },
       stellaAppDir: root,
-      localChatHistoryService: history,
       assertPrivilegedSender: () => true,
     });
     stopCapturing();
@@ -247,7 +252,7 @@ describe("mobile bridge replay end to end", () => {
     anyBridge.ensureAuthorized = vi.fn().mockResolvedValue({});
 
     const response = createResponse();
-    await anyBridge.handleRequest(
+    const pendingRequest = anyBridge.handleRequest(
       createInvokeRequest({
         conversationId: "conversation-1",
         userPrompt: "steer now",
@@ -258,35 +263,35 @@ describe("mobile bridge replay end to end", () => {
       response,
     );
 
+    await vi.waitFor(() => {
+      expect(
+        history.hasEventId({
+          eventId: "mobile:send-delayed",
+          type: "user_message",
+        }),
+      ).toBe(true);
+    });
+    expect(response.statusCode).toBeNull();
+
+    releaseSteer();
+    await pendingRequest;
     expect(response.statusCode).toBe(200);
     const accepted = JSON.parse(response.body).result;
-    expect(accepted).toEqual({
+    expect(accepted).toMatchObject({
       requestId: expect.any(String),
+      runId: "run-delayed",
       userMessageId: "mobile:send-delayed",
       accepted: true,
     });
     expect(runner.handleLocalChat).toHaveBeenCalledOnce();
-
-    const cancelResponse = createResponse();
-    await anyBridge.handleRequest(
-      createInvokeRequest(
-        { requestId: accepted.requestId },
-        "agent:cancelChat",
-      ),
-      cancelResponse,
+    expect(runner.handleLocalChat).toHaveBeenCalledWith(
+      expect.objectContaining({ storageMode: "cloud" }),
+      expect.any(Object),
     );
-    expect(cancelResponse.statusCode).toBe(204);
-    expect(runner.cancelLocalChat).not.toHaveBeenCalled();
-
-    releaseSteer();
-    await vi.waitFor(() => {
-      expect(runner.handleLocalChat).toHaveReturned();
-      expect(runner.cancelLocalChat).toHaveBeenCalledWith("run-delayed");
-    });
     history.close();
   });
 
-  it("accepts rapid distinct steers in order without waiting for root completion", async () => {
+  it("accepts rapid distinct cloud admissions in order", async () => {
     const { startCapturingHandlers } =
       await import("@stella/desktop/electron/services/mobile-bridge/handler-registry.js");
     const stopCapturing = startCapturingHandlers();
@@ -306,10 +311,6 @@ describe("mobile bridge replay end to end", () => {
     );
     roots.add(root);
     const history = new LocalChatHistoryService({ stellaAppDir: root });
-    let releaseRoot!: () => void;
-    const rootCompletion = new Promise<void>((resolve) => {
-      releaseRoot = resolve;
-    });
     let runtimeStarts = 0;
     const runner = {
       waitUntilReady: vi.fn().mockResolvedValue(undefined),
@@ -317,14 +318,7 @@ describe("mobile bridge replay end to end", () => {
       agentHealthCheck: vi.fn().mockResolvedValue({ ready: true }),
       handleLocalChat: vi.fn().mockImplementation(async (payload) => {
         runtimeStarts += 1;
-        history.appendEvent({
-          conversationId: payload.conversationId,
-          eventId: payload.userMessageEventId,
-          type: "user_message",
-          timestamp: 1_000 + runtimeStarts,
-          payload: { text: payload.userPrompt },
-        });
-        await rootCompletion;
+        expect(payload.storageMode).toBe("cloud");
         return { runId: "shared-run" };
       }),
     };
@@ -333,8 +327,8 @@ describe("mobile bridge replay end to end", () => {
       getStellaHostRunner: () => runner as never,
       getAppSessionStartedAt: () => 0,
       isHostAuthAuthenticated: () => true,
+      uiState: { conversationId: "conversation-1" },
       stellaAppDir: root,
-      localChatHistoryService: history,
       assertPrivilegedSender: () => true,
     });
     stopCapturing();
@@ -382,21 +376,10 @@ describe("mobile bridge replay end to end", () => {
     });
     expect(replaySecond).toMatchObject({
       userMessageId: "mobile:steer-2",
-      accepted: true,
+      accepted: false,
       deduplicated: true,
     });
     expect(runtimeStarts).toBe(2);
-    expect(
-      history
-        .syncMessages({ conversationId: "conversation-1" })
-        .messages.filter((message) => message.role === "user")
-        .map((message) => message.localMessageId),
-    ).toEqual(["mobile:steer-1", "mobile:steer-2"]);
-
-    releaseRoot();
-    await vi.waitFor(() => {
-      expect(runner.handleLocalChat).toHaveReturnedTimes(2);
-    });
     history.close();
   });
 });

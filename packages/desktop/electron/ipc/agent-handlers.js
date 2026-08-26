@@ -4,6 +4,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { AGENT_RUN_FINISH_OUTCOMES, AGENT_STREAM_EVENT_TYPES, } from "@stella/contracts/agent-runtime";
 import { IPC_AGENT_ONE_SHOT_COMPLETION } from "@stella/contracts/desktop/ipc-channels";
+import { requireMatchingCloudConversationId, selectedCloudConversationId, withCloudConversationStorage, } from "../cloud-conversation-mode.js";
 import { createMonotonicSeqGenerator } from "./monotonic-seq.js";
 const redactSensitiveLogText = (value) => value
     .replace(/\b(sk-[A-Za-z0-9_-]{12,})\b/g, "[redacted-token]")
@@ -18,26 +19,6 @@ const AGENT_EVENT_BUFFER_TTL_MS = 10 * 60 * 1000;
  * duplicate run; we just hand back the original `requestId`.
  */
 const CLIENT_REQUEST_DEDUPE_TTL_MS = 5 * 60 * 1000;
-// The worker persists the canonical user row before it enters orchestrator
-// dispatch. A mobile send should be acknowledged from that durable receipt,
-// even when the active turn has not consumed the steer yet. Keep this window
-// short; if persistence itself is delayed, fall back to the normal startChat
-// result/error path instead of claiming acceptance prematurely.
-const DURABLE_CHAT_ACCEPTANCE_WAIT_MS = 2_000;
-const waitForDurableChatAcceptance = async (history, eventId) => {
-    // Give an already-resolved startChat call its microtask first so normal
-    // starts retain their concrete runId; durable acceptance wins only when
-    // execution is genuinely still pending.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const deadline = Date.now() + DURABLE_CHAT_ACCEPTANCE_WAIT_MS;
-    while (Date.now() < deadline) {
-        if (history.hasEventId({ eventId, type: "user_message" })) {
-            return true;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    return history.hasEventId({ eventId, type: "user_message" });
-};
 const requestIdForClientSend = (clientRequestId) => `req:client:${crypto.createHash("sha256").update(clientRequestId).digest("hex").slice(0, 32)}`;
 /**
  * Mobile clients (the desktop-bridge chat) abort a run after a fixed window
@@ -70,6 +51,7 @@ export const registerAgentHandlers = (options) => {
     const runToConversationId = new Map();
     const runToRequestId = new Map();
     const requestToRunId = new Map();
+    const requestToConversationId = new Map();
     const terminalRunIds = new Set();
     const activeRunByConversation = new Map();
     // Which agent threads are still running under each root run — the only
@@ -246,6 +228,7 @@ export const registerAgentHandlers = (options) => {
             if (linkedRequestId) {
                 requestOwners.delete(linkedRequestId);
                 requestToRunId.delete(linkedRequestId);
+                requestToConversationId.delete(linkedRequestId);
                 pendingCancelRequestIds.delete(linkedRequestId);
                 runToRequestId.delete(runId);
                 const clientRequestKey = clientRequestKeyByRequestId.get(linkedRequestId);
@@ -278,29 +261,25 @@ export const registerAgentHandlers = (options) => {
         return result;
     });
     ipcMain.handle("agent:getActiveRun", async () => {
+        const selectedId = selectedCloudConversationId(options.uiState?.conversationId);
+        if (!selectedId)
+            return null;
         const stellaHostRunner = options.getStellaHostRunner();
         if (!stellaHostRunner)
             return null;
         const health = await stellaHostRunner.agentHealthCheck();
         if (!health?.ready)
             return null;
-        return await stellaHostRunner.getActiveOrchestratorRun();
+        const activeRun = await stellaHostRunner.getActiveOrchestratorRun();
+        return activeRun?.conversationId === selectedId ? activeRun : null;
     });
     ipcMain.handle("agent:getAppSessionStartedAt", async () => {
         return options.getAppSessionStartedAt();
     });
     ipcMain.handle("agent:resume", async (event, payload) => {
         pruneConversationEventBuffers();
-        const conversationId = typeof payload.conversationId === "string"
-            ? payload.conversationId.trim()
-            : "";
+        const conversationId = requireMatchingCloudConversationId(payload?.conversationId, options.uiState?.conversationId);
         const lastSeq = Number.isFinite(payload.lastSeq) ? payload.lastSeq : 0;
-        if (!conversationId) {
-            return {
-                activeRun: null,
-                events: [],
-            };
-        }
         const buffer = conversationEventBuffers.get(conversationId);
         let activeRun = activeRunByConversation.get(conversationId) ?? null;
         let resumeRunId = activeRun?.runId ?? null;
@@ -370,6 +349,7 @@ export const registerAgentHandlers = (options) => {
             runToRequestId.set(resumeRunId, requestId);
             requestOwners.set(requestId, senderWebContentsId);
             requestToRunId.set(requestId, resumeRunId);
+            requestToConversationId.set(requestId, conversationId);
             stellaHostRunner?.attachResumedLocalChatSession({
                 conversationId,
                 runId: resumeRunId,
@@ -515,6 +495,7 @@ export const registerAgentHandlers = (options) => {
         if (!stellaHostRunner) {
             throw new Error("Stella runtime not available");
         }
+        const conversationId = requireMatchingCloudConversationId(payload?.conversationId, options.uiState?.conversationId);
         // Idempotent send: a client (e.g. mobile over a flaky tunnel) can retry
         // the same logical message with a stable `clientRequestId`. If we already
         // started a run for it, hand back the original `requestId` instead of
@@ -526,38 +507,23 @@ export const registerAgentHandlers = (options) => {
         const stableUserMessageId = typeof payload.userMessageEventId === "string"
             ? payload.userMessageEventId.trim()
             : "";
-        const stableRequestId = clientRequestId
-            ? requestIdForClientSend(clientRequestId)
+        const clientRequestKey = clientRequestId
+            ? JSON.stringify([conversationId, clientRequestId])
+            : "";
+        const stableRequestId = clientRequestKey
+            ? requestIdForClientSend(clientRequestKey)
             : "";
         if (clientRequestId) {
             pruneClientRequestIndex();
-            // The canonical user row is the durable acceptance receipt. Mobile
-            // supplies its outbox identity as `userMessageEventId`; the worker
-            // persists that exact primary key before startChat returns. Checking it
-            // here makes replay idempotent across main-process/desktop restarts,
-            // long delays, and expiration of the in-memory fast-path index.
-            if (stableUserMessageId &&
-                options.localChatHistoryService.hasEventId({
-                    eventId: stableUserMessageId,
-                    type: "user_message",
-                })) {
-                const activeReplay = activeRunByConversation.get(payload.conversationId);
-                return {
-                    requestId: stableRequestId,
-                    userMessageId: stableUserMessageId,
-                    accepted: true,
-                    deduplicated: true,
-                    ...(activeReplay?.userMessageId === stableUserMessageId
-                        ? { runId: activeReplay.runId }
-                        : {}),
-                };
-            }
-            const existing = clientRequestIndex.get(clientRequestId);
+            // The cloud journal is the durable acceptance authority. Main keeps
+            // only this short in-memory guard for concurrent retries; it must not
+            // infer cloud acceptance from the legacy localChat transcript.
+            const existing = clientRequestIndex.get(clientRequestKey);
             if (existing) {
                 // A concurrent retry may arrive while the first call is still
-                // waiting for the worker to persist. It shares the request identity,
-                // but is not an acknowledgment yet; mobile keeps its outbox record
-                // until the run event or a later persisted replay proves acceptance.
+                // waiting for the runtime to durably queue cloud admission. It shares
+                // the request identity, but is not an acknowledgment yet; the client
+                // keeps its outbox record until a run event proves acceptance.
                 return {
                     requestId: existing.requestId,
                     ...(requestToRunId.get(existing.requestId)
@@ -573,17 +539,19 @@ export const registerAgentHandlers = (options) => {
         const senderWebContentsId = event.sender.id;
         const requestId = stableRequestId || `req:${crypto.randomUUID()}`;
         requestOwners.set(requestId, senderWebContentsId);
+        requestToConversationId.set(requestId, conversationId);
         if (clientRequestId) {
-            clientRequestIndex.set(clientRequestId, {
+            clientRequestIndex.set(clientRequestKey, {
                 requestId,
                 createdAt: Date.now(),
             });
-            clientRequestKeyByRequestId.set(requestId, clientRequestId);
+            clientRequestKeyByRequestId.set(requestId, clientRequestKey);
         }
         const releaseClientRequest = () => {
             pendingCancelRequestIds.delete(requestId);
+            requestToConversationId.delete(requestId);
             if (clientRequestId) {
-                clientRequestIndex.delete(clientRequestId);
+                clientRequestIndex.delete(clientRequestKey);
                 clientRequestKeyByRequestId.delete(requestId);
             }
         };
@@ -597,7 +565,7 @@ export const registerAgentHandlers = (options) => {
             releaseClientRequest();
             throw error;
         }
-        console.log(`[stella:trace] IPC agent:startChat | convId=${payload.conversationId} | prompt=${redactSensitiveLogText(payload.userPrompt.slice(0, 200))}`);
+        console.log(`[stella:trace] IPC agent:startChat | convId=${conversationId} | prompt=${redactSensitiveLogText(payload.userPrompt.slice(0, 200))}`);
         const emitRunFinished = (args) => {
             if (terminalRunIds.has(args.runId)) {
                 return;
@@ -606,7 +574,7 @@ export const registerAgentHandlers = (options) => {
             emitAgentEvent({
                 type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
                 runId: args.runId,
-                conversationId: payload.conversationId,
+                conversationId,
                 requestId,
                 agentType: args.agentType,
                 userMessageId: args.userMessageId,
@@ -619,22 +587,23 @@ export const registerAgentHandlers = (options) => {
             scheduleRunCleanup(args.runId, requestId);
         };
         const localChatStartPromise = stellaHostRunner
-            .handleLocalChat({
+            .handleLocalChat(withCloudConversationStorage({
             ...payload,
+            conversationId,
             requestId,
-        }, {
+        }), {
             onRunStarted: (ev) => {
                 if (ev.uiVisibility === "hidden") {
                     return;
                 }
                 terminalRunIds.delete(ev.runId);
                 runOwners.set(ev.runId, senderWebContentsId);
-                runToConversationId.set(ev.runId, payload.conversationId);
+                runToConversationId.set(ev.runId, conversationId);
                 runToRequestId.set(ev.runId, requestId);
                 requestToRunId.set(requestId, ev.runId);
-                activeRunByConversation.set(payload.conversationId, {
+                activeRunByConversation.set(conversationId, {
                     runId: ev.runId,
-                    conversationId: payload.conversationId,
+                    conversationId,
                     requestId,
                     userMessageId: ev.userMessageId,
                     uiVisibility: ev.uiVisibility,
@@ -642,7 +611,7 @@ export const registerAgentHandlers = (options) => {
                 emitAgentEvent({
                     type: AGENT_STREAM_EVENT_TYPES.RUN_STARTED,
                     runId: ev.runId,
-                    conversationId: payload.conversationId,
+                    conversationId,
                     requestId,
                     ...(ev.userMessageId
                         ? { userMessageId: ev.userMessageId }
@@ -657,31 +626,31 @@ export const registerAgentHandlers = (options) => {
             onStream: (ev) => emitAgentEvent({
                 ...ev,
                 type: AGENT_STREAM_EVENT_TYPES.STREAM,
-                conversationId: payload.conversationId,
+                conversationId,
                 requestId,
             }, senderWebContentsId),
             onAssistantMessage: (ev) => emitAgentEvent({
                 ...ev,
                 type: AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE,
-                conversationId: payload.conversationId,
+                conversationId,
                 requestId,
             }, senderWebContentsId),
             onStatus: (ev) => emitAgentEvent({
                 ...ev,
                 type: AGENT_STREAM_EVENT_TYPES.STATUS,
-                conversationId: payload.conversationId,
+                conversationId,
                 requestId,
             }, senderWebContentsId),
             onToolStart: (ev) => emitAgentEvent({
                 ...ev,
                 type: AGENT_STREAM_EVENT_TYPES.TOOL_START,
-                conversationId: payload.conversationId,
+                conversationId,
                 requestId,
             }, senderWebContentsId),
             onToolEnd: (ev) => emitAgentEvent({
                 ...ev,
                 type: AGENT_STREAM_EVENT_TYPES.TOOL_END,
-                conversationId: payload.conversationId,
+                conversationId,
                 requestId,
             }, senderWebContentsId),
             onRunFinished: (ev) => {
@@ -705,7 +674,7 @@ export const registerAgentHandlers = (options) => {
                     type: ev.type,
                     runId: ev.rootRunId,
                     rootRunId: ev.rootRunId,
-                    conversationId: payload.conversationId,
+                    conversationId,
                     requestId,
                     userMessageId: ev.userMessageId,
                     agentId: ev.agentId,
@@ -728,7 +697,7 @@ export const registerAgentHandlers = (options) => {
                     type: AGENT_STREAM_EVENT_TYPES.AGENT_REASONING,
                     runId,
                     rootRunId: runId,
-                    conversationId: payload.conversationId,
+                    conversationId,
                     requestId,
                     userMessageId: ev.userMessageId,
                     agentId: ev.agentId,
@@ -754,32 +723,7 @@ export const registerAgentHandlers = (options) => {
             releaseClientRequest();
             throw error;
         });
-        let localChatStart;
-        if (stableUserMessageId) {
-            const startOutcome = await Promise.race([
-                localChatStartPromise.then((value) => ({ kind: "started", value })),
-                waitForDurableChatAcceptance(options.localChatHistoryService, stableUserMessageId).then((accepted) => ({ kind: accepted ? "accepted" : "pending" })),
-            ]);
-            if (startOutcome.kind === "accepted") {
-                // Runtime delivery continues on the same request/callbacks. Any
-                // later run-start event supplies the concrete run id; the phone
-                // can clear its outbox now because the canonical row is durable.
-                void localChatStartPromise.catch((error) => {
-                    console.error("[chat] Durably accepted chat failed before runtime run start:", error instanceof Error ? error.message : String(error));
-                });
-                return {
-                    requestId,
-                    userMessageId: stableUserMessageId,
-                    accepted: true,
-                };
-            }
-            localChatStart = startOutcome.kind === "started"
-                ? startOutcome.value
-                : await localChatStartPromise;
-        }
-        else {
-            localChatStart = await localChatStartPromise;
-        }
+        const localChatStart = await localChatStartPromise;
         return {
             requestId,
             ...(localChatStart?.runId ? { runId: localChatStart.runId } : {}),
@@ -796,8 +740,12 @@ export const registerAgentHandlers = (options) => {
         if (!stellaHostRunner) {
             throw new Error("Stella runtime not available");
         }
+        const conversationId = requireMatchingCloudConversationId(payload?.conversationId, options.uiState?.conversationId);
         await stellaHostRunner.waitUntilConnected(5_000);
-        return await stellaHostRunner.sendAgentInput(payload);
+        return await stellaHostRunner.sendAgentInput({
+            ...payload,
+            conversationId,
+        });
     });
     ipcMain.on("agent:cancelChat", (event, target) => {
         if (!options.assertPrivilegedSender(event, "agent:cancelChat")) {
@@ -818,6 +766,16 @@ export const registerAgentHandlers = (options) => {
             ? target.requestId.trim()
             : "";
         const runId = explicitRunId || (requestId ? requestToRunId.get(requestId) : "");
+        const selectedId = selectedCloudConversationId(options.uiState?.conversationId);
+        const targetConversationId = runId
+            ? runToConversationId.get(runId) ??
+                (requestId ? requestToConversationId.get(requestId) : null)
+            : requestId
+                ? requestToConversationId.get(requestId)
+                : null;
+        if (!selectedId || targetConversationId !== selectedId) {
+            return;
+        }
         if (runId) {
             if (requestId) {
                 pendingCancelRequestIds.delete(requestId);

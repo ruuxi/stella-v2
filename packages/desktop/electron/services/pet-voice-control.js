@@ -1,4 +1,5 @@
 import { IPC_PET_SET_OPEN } from "@stella/contracts/desktop/ipc-channels";
+import { selectedCloudConversationId } from "../cloud-conversation-mode.js";
 let petOpenedByCurrentVoiceSession = false;
 const broadcastPetOpen = (windowManager, open) => {
     for (const window of windowManager.getAllWindows()) {
@@ -29,6 +30,12 @@ export const togglePetVoice = (deps) => {
         ui.deactivateVoiceModes();
         return;
     }
+    const conversationId = selectedCloudConversationId(ui.state.conversationId);
+    if (!conversationId) {
+        // The renderer publishes only an owner-validated cloud id. Voice waits
+        // for that selection instead of inventing a local/default conversation.
+        return;
+    }
     // Show the pet first so the user has something to look at the
     // moment voice activates (and so the renderer's voice-state
     // subscription is mounted by the time runtime events start
@@ -44,5 +51,5 @@ export const togglePetVoice = (deps) => {
     else {
         petOpenedByCurrentVoiceSession = false;
     }
-    ui.activateVoiceRtc(ui.state.conversationId);
+    ui.activateVoiceRtc(conversationId);
 };

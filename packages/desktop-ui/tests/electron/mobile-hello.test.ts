@@ -1,50 +1,65 @@
-import { describe, expect, it, vi } from "vitest";
-import { runMobileHello } from "@stella/desktop/electron/ipc/mobile-hello-handlers.js";
+import { describe, expect, it } from "vitest";
+import {
+  runMobileHello,
+  waitForSelectedCloudConversation,
+} from "@stella/desktop/electron/ipc/mobile-hello-handlers.js";
 
-const makeOptions = () => {
-  const syncMessages = vi.fn(() => ({
-    messages: [{ localMessageId: "message-1" }],
-    cursor: "v1:2:message-1",
-  }));
-  return {
-    syncMessages,
-    options: {
-      localChatHistoryService: {
-        getOrCreateDefaultConversationId: () => "conversation-1",
-        syncMessages,
-      } as any,
-      getActiveConversationId: () => "conversation-1",
-      getUiStateSnapshot: () => ({}),
-    },
-  };
-};
+describe("mobile:hello cloud authority", () => {
+  it("waits boundedly for the renderer-selected cloud conversation", async () => {
+    let reads = 0;
+    const conversationId = await waitForSelectedCloudConversation(
+      () => (++reads >= 2 ? " cloud-selected " : null),
+      {
+        timeoutMs: 100,
+        sleep: async () => undefined,
+      },
+    );
 
-describe("mobile:hello", () => {
-  it("folds the caller's real first sync into the handshake", async () => {
-    const { options, syncMessages } = makeOptions();
-    const result = await runMobileHello(options, {
-      expectedConversationId: "conversation-1",
-      sinceCursor: "v1:1:message-0",
-      maxMessages: 100,
-    });
-    expect(syncMessages).toHaveBeenCalledTimes(1);
-    expect(syncMessages).toHaveBeenCalledWith({
-      conversationId: "conversation-1",
-      sinceCursor: "v1:1:message-0",
-      maxMessages: 100,
-      includeDeveloperArtifacts: false,
-    });
-    expect(result.messages).toHaveLength(1);
+    expect(conversationId).toBe("cloud-selected");
+    expect(reads).toBe(2);
   });
 
-  it("negotiates capabilities without reading the transcript", async () => {
-    const { options, syncMessages } = makeOptions();
-    const result = await runMobileHello(options, {
-      negotiateOnly: true,
-      maxMessages: 1,
+  it("returns cloud authority without reading or creating SQLite history", async () => {
+    const result = await runMobileHello(
+      {
+        getActiveConversationId: () => "cloud-selected",
+        getUiStateSnapshot: () => ({}),
+        conversationWait: { timeoutMs: 0 },
+      },
+      {
+        expectedConversationId: "cloud-selected",
+        sinceCursor: "cloud:17",
+        negotiateOnly: true,
+      },
+    );
+
+    expect(result).toMatchObject({
+      conversationId: "cloud-selected",
+      conversationChanged: false,
+      historyAuthority: "cloud",
+      historyAvailableFromDesktopBridge: false,
+      messages: [],
+      cursor: "cloud:17",
     });
-    expect(syncMessages).not.toHaveBeenCalled();
-    expect(result.messages).toEqual([]);
-    expect(result.features).toContain("envelope-deflate");
+  });
+
+  it("fails closed when cloud selection has not arrived", async () => {
+    await expect(
+      runMobileHello({
+        getActiveConversationId: () => null,
+        getUiStateSnapshot: () => ({}),
+        conversationWait: { timeoutMs: 0 },
+      }),
+    ).rejects.toThrow("cloud conversation is still loading");
+  });
+
+  it("refuses to serve transcript history through the desktop bridge", async () => {
+    await expect(
+      runMobileHello({
+        getActiveConversationId: () => "cloud-selected",
+        getUiStateSnapshot: () => ({}),
+        conversationWait: { timeoutMs: 0 },
+      }),
+    ).rejects.toThrow("history is cloud-owned");
   });
 });

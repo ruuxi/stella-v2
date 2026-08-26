@@ -10,6 +10,7 @@
 
 import { configurePiRuntime } from "@/platform/electron/device";
 import { getJwtExpMs } from "@/shared/lib/jwt";
+import { authClient } from "@/global/auth/lib/auth-client";
 
 let cachedToken: string | null = null;
 let tokenExpiresAt = 0;
@@ -52,8 +53,19 @@ export async function getConvexToken(
   const requestVersion = tokenRequestVersion;
   inflightTokenPromise = (async () => {
     try {
-      await configurePiRuntime();
-      const token = await window.electronAPI?.system.getConvexAuthToken?.();
+      if (typeof window === "undefined") return null;
+      const systemApi = window.electronAPI?.system;
+      let token: string | null | undefined;
+      if (systemApi?.getConvexAuthToken) {
+        await configurePiRuntime();
+        token = await systemApi.getConvexAuthToken();
+      } else {
+        // Standalone web has no Electron host. Better Auth's Convex plugin
+        // mints the same short-lived owner JWT directly from the browser
+        // session, which is what the journal WebSocket authenticates with.
+        const result = await authClient.convex.token();
+        token = result.data?.token ?? null;
+      }
       if (!token) {
         if (requestVersion === tokenRequestVersion) {
           cachedToken = null;

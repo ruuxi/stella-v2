@@ -8,6 +8,7 @@
     "android": "bun run i18n:sync && expo run:android",
     "ios": "bun run i18n:sync && expo run:ios",
     "web": "bun run i18n:sync && expo start --web",
+    "eas-build-post-install": "node node_modules/@shopify/react-native-skia/scripts/install-skia.mjs",
     "lint": "expo lint",
     "typecheck": "bun run i18n:sync && tsc --noEmit",
     "test": "bun test src"

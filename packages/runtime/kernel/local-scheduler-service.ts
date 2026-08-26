@@ -1550,7 +1550,9 @@ export class LocalSchedulerService {
     const deliver = active.deliver !== false
     active.lastStatus = finalText ? 'ok' : 'no-response'
     active.lastError = undefined
-    active.lastOutputPreview = finalText ? truncatePreview(finalText) : undefined
+    active.lastOutputPreview = finalText
+      ? truncatePreview(finalText)
+      : undefined
 
     if (deliver && finalText) {
       this.appendGeneratedAssistantMessage(active.conversationId, {
@@ -1658,7 +1660,11 @@ export class LocalSchedulerService {
       userPrompt:
         escalation.reason === 'change'
           ? buildWatchChangePrompt(active.name, escalation.summary)
-          : buildWatchFailurePrompt(active.name, scriptPath, escalation.summary),
+          : buildWatchFailurePrompt(
+              active.name,
+              scriptPath,
+              escalation.summary,
+            ),
       agentType: 'orchestrator',
     })
 
@@ -1698,7 +1704,9 @@ export class LocalSchedulerService {
         : 'sensor-error'
     active.lastError =
       escalation.reason === 'sensor-error' ? escalation.summary : undefined
-    active.lastOutputPreview = finalText ? truncatePreview(finalText) : undefined
+    active.lastOutputPreview = finalText
+      ? truncatePreview(finalText)
+      : undefined
 
     if (deliver && finalText) {
       this.appendGeneratedAssistantMessage(active.conversationId, {
@@ -1732,7 +1740,6 @@ export class LocalSchedulerService {
     const runResult = await runner.runAutomationTurn({
       conversationId: active.conversationId,
       userPrompt: active.payload.prompt,
-      storageMode: 'local',
       agentType: active.payload.agentType ?? 'general',
     })
 
@@ -1837,7 +1844,6 @@ export class LocalSchedulerService {
         prompt: active.prompt,
         checklist: active.checklist,
       }),
-      storageMode: 'local',
       agentType: active.agentType ?? 'orchestrator',
     })
 

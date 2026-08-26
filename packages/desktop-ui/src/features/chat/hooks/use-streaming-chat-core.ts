@@ -1,17 +1,11 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import { getPlatform } from '@/platform/electron/platform'
-import { useChatStore } from '@/context/chat-store-context'
 import { getOrCreateDeviceId } from '@/platform/electron/device-id'
 import type { SendMessageArgs } from '../streaming/chat-types'
 import type { MessageMetadata } from '@/features/chat/lib/event-transforms'
 import type { EventRecord } from '@/features/chat/lib/event-transforms'
-import type { MessageRecord } from "@stella/contracts/local-chat"
+import type { MessageRecord } from '@stella/contracts/local-chat'
 import { resolveComposerContextState } from '../composer-context'
 import { shouldTreatResumedAnswerAsStarted } from '@/features/chat/working-indicator-state'
 import {
@@ -50,8 +44,7 @@ type UseStreamingChatOptions = {
   persistedMessages: MessageRecord[]
 }
 
-const createLocalMessageId = () =>
-  `local-${crypto.randomUUID()}`
+const createLocalMessageId = () => `local-${crypto.randomUUID()}`
 
 const nextAnimationFrame = () =>
   new Promise<void>((resolve) => {
@@ -175,10 +168,6 @@ export function useStreamingChatCore({
   const pendingSendRef = useRef<symbol | null>(null)
   const activeConversationIdRef = useRef(activeConversationId)
   activeConversationIdRef.current = activeConversationId
-  const {
-    isLocalStorage,
-    storageMode,
-  } = useChatStore()
   const issueDequeueTimestamp = useQueuedDequeueClock({
     conversationId: activeConversationId,
     persistedMessages,
@@ -253,7 +242,6 @@ export function useStreamingChatCore({
     cancelCurrentStream,
   } = useLocalAgentStream({
     activeConversationId,
-    storageMode,
     onRunStarted: handleRunStarted,
     onRunFinished: handleRunFinished,
   }) as Omit<
@@ -275,14 +263,17 @@ export function useStreamingChatCore({
     setPendingUserMessageId(null)
   }, [activeConversationId, setPendingUserMessageId])
 
-  const clearOptimisticMessage = useCallback((messageId: string) => {
-    setOptimisticEvents((current) =>
-      current.filter((event) => event._id !== messageId),
-    )
-    setPendingUserMessageId((current) =>
-      current === messageId ? null : current,
-    )
-  }, [setPendingUserMessageId])
+  const clearOptimisticMessage = useCallback(
+    (messageId: string) => {
+      setOptimisticEvents((current) =>
+        current.filter((event) => event._id !== messageId),
+      )
+      setPendingUserMessageId((current) =>
+        current === messageId ? null : current,
+      )
+    },
+    [setPendingUserMessageId],
+  )
 
   const drainQueuedMessagesIfIdle = useCallback(() => {
     if (isStreaming || !activeConversationId) return
@@ -317,9 +308,9 @@ export function useStreamingChatCore({
         : buildOptimisticUserEvent({
             id: combined.id,
             text:
-              combined.userPrompt
-              || combined.selectedText?.trim()
-              || 'Attached context',
+              combined.userPrompt ||
+              combined.selectedText?.trim() ||
+              'Attached context',
             timestamp: dequeuedAtMs,
             platform: combined.platform,
             timezone: combined.timezone,
@@ -376,9 +367,9 @@ export function useStreamingChatCore({
               return {
                 id: message.id,
                 text:
-                  (typeof payload?.text === 'string' ? payload.text : '')
-                  || message.userPrompt
-                  || 'Attached context',
+                  (typeof payload?.text === 'string' ? payload.text : '') ||
+                  message.userPrompt ||
+                  'Attached context',
                 timestamp: message.optimisticEvent.timestamp,
                 queueOrder: message.queueOrder,
               }
@@ -434,7 +425,10 @@ export function useStreamingChatCore({
     const activeTurnAnswerVisible = persistedMessages.some((message) => {
       if (message.type !== 'assistant_message') return false
       if (!message.payload || typeof message.payload !== 'object') return false
-      const payload = message.payload as { userMessageId?: string; text?: string }
+      const payload = message.payload as {
+        userMessageId?: string
+        text?: string
+      }
       if (payload.userMessageId !== pendingUserMessageId) return false
       return typeof payload.text === 'string' && payload.text.trim().length > 0
     })
@@ -459,7 +453,9 @@ export function useStreamingChatCore({
 
   useEffect(() => {
     if (optimisticEvents.length === 0) return
-    const persistedIds = new Set(persistedMessages.map((message) => message._id))
+    const persistedIds = new Set(
+      persistedMessages.map((message) => message._id),
+    )
     setOptimisticEvents((current) => {
       const next = current.filter((event) => !persistedIds.has(event._id))
       return next.length === current.length ? current : next
@@ -467,7 +463,9 @@ export function useStreamingChatCore({
   }, [optimisticEvents.length, persistedMessages])
 
   useEffect(() => {
-    const persistedIds = new Set(persistedMessages.map((message) => message._id))
+    const persistedIds = new Set(
+      persistedMessages.map((message) => message._id),
+    )
     const queuedPayloads = queuedStreamPayloadsRef.current.filter(
       (message) => !persistedIds.has(message.id),
     )
@@ -495,11 +493,14 @@ export function useStreamingChatCore({
         options.selectedText,
       )
       const hasAttachments = Boolean(
-        options.chatContext?.regionScreenshots?.length
-          || options.chatContext?.files?.length,
+        options.chatContext?.regionScreenshots?.length ||
+        options.chatContext?.files?.length,
       )
 
-      if (!resolvedConversationId || (!cleanedText && !contextState.hasSubmittableContext)) {
+      if (
+        !resolvedConversationId ||
+        (!cleanedText && !contextState.hasSubmittableContext)
+      ) {
         return false
       }
       if (pendingSendRef.current) {
@@ -509,7 +510,7 @@ export function useStreamingChatCore({
       const sendAttempt = Symbol('composer-send')
       pendingSendRef.current = sendAttempt
 
-      const attachments = isLocalStorage && hasAttachments
+      const attachments = hasAttachments
         ? buildAllLocalAttachments(options.chatContext)
         : []
       const messageMetadata = buildContextMessageMetadata(
@@ -591,7 +592,6 @@ export function useStreamingChatCore({
     },
     [
       activeConversationId,
-      isLocalStorage,
       notifyTierRestrictedModel,
       startStream,
       locale,

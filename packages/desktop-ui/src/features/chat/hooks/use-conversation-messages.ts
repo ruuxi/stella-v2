@@ -6,7 +6,6 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { MessageRecord } from "@stella/contracts/local-chat";
-import { useChatStore } from "@/context/chat-store-context";
 import {
   getLocalMessageTimelineSnapshot,
   loadLatestLocalMessages,
@@ -49,20 +48,17 @@ export type ConversationMessagesState = {
 export function useConversationMessages(
   conversationId: string | undefined,
 ): ConversationMessagesState {
-  const { storageMode } = useChatStore();
-  const isLocalMode = storageMode === "local";
-
   const subscribe = useCallback(
     (listener: () => void) => {
-      if (!isLocalMode || !conversationId) return () => {};
+      if (!conversationId) return () => {};
       return subscribeToLocalMessageTimeline(conversationId, listener);
     },
-    [conversationId, isLocalMode],
+    [conversationId],
   );
   const getSnapshot = useCallback(() => {
-    if (!isLocalMode || !conversationId) return EMPTY_LOCAL_SNAPSHOT;
+    if (!conversationId) return EMPTY_LOCAL_SNAPSHOT;
     return getLocalMessageTimelineSnapshot(conversationId);
-  }, [conversationId, isLocalMode]);
+  }, [conversationId]);
   const localSnapshot = useSyncExternalStore(
     subscribe,
     getSnapshot,
@@ -70,14 +66,14 @@ export function useConversationMessages(
   );
 
   const retryAttemptRef = useRef(0);
-  const retryKey = `${isLocalMode ? "local" : "cloud"}:${conversationId ?? ""}`;
+  const retryKey = conversationId ?? "";
   const retryKeyRef = useRef(retryKey);
   retryKeyRef.current = retryKey;
   useEffect(() => {
     retryAttemptRef.current = 0;
   }, [retryKey]);
   useEffect(() => {
-    if (!isLocalMode || !conversationId || !localSnapshot.error) {
+    if (!conversationId || !localSnapshot.error) {
       return;
     }
     const attempt = retryAttemptRef.current++;
@@ -96,11 +92,9 @@ export function useConversationMessages(
       }
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [conversationId, isLocalMode, localSnapshot.error, retryKey]);
+  }, [conversationId, localSnapshot.error, retryKey]);
 
-  const rawMessages = isLocalMode
-    ? localSnapshot.messages
-    : EMPTY_LOCAL_SNAPSHOT.messages;
+  const rawMessages = localSnapshot.messages;
   const stableMessagesRef = useRef<StableMessageListState | null>(null);
   const stableMessagesKeyRef = useRef<string | null>(null);
   const stableMessagesKey = retryKey;
@@ -116,33 +110,31 @@ export function useConversationMessages(
   const messages = stableMessagesState.result;
 
   const loadOlder = useCallback(() => {
-    if (!isLocalMode || !conversationId) return false;
+    if (!conversationId) return false;
     return loadOlderLocalMessages(conversationId);
-  }, [conversationId, isLocalMode]);
+  }, [conversationId]);
   const loadNewer = useCallback(() => {
-    if (!isLocalMode || !conversationId) return false;
+    if (!conversationId) return false;
     return loadNewerLocalMessages(conversationId);
-  }, [conversationId, isLocalMode]);
+  }, [conversationId]);
   const loadLatest = useCallback(() => {
-    if (!isLocalMode || !conversationId) return false;
+    if (!conversationId) return false;
     return loadLatestLocalMessages(conversationId);
-  }, [conversationId, isLocalMode]);
+  }, [conversationId]);
 
   return useMemo(
     () => ({
       messages,
-      hasOlderMessages: isLocalMode ? localSnapshot.hasOlder : false,
-      hasNewerMessages: isLocalMode ? localSnapshot.hasNewer : false,
-      isLoadingOlder: isLocalMode ? localSnapshot.isLoadingOlder : false,
-      isLoadingNewer: isLocalMode ? localSnapshot.isLoadingNewer : false,
-      isInitialLoading:
-        isLocalMode && Boolean(conversationId) && !localSnapshot.hasLoaded,
+      hasOlderMessages: localSnapshot.hasOlder,
+      hasNewerMessages: localSnapshot.hasNewer,
+      isLoadingOlder: localSnapshot.isLoadingOlder,
+      isLoadingNewer: localSnapshot.isLoadingNewer,
+      isInitialLoading: Boolean(conversationId) && !localSnapshot.hasLoaded,
       loadOlder,
       loadNewer,
       loadLatest,
     }),
     [
-      isLocalMode,
       conversationId,
       loadLatest,
       loadNewer,

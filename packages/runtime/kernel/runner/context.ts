@@ -1,10 +1,5 @@
 import path from "path";
 import { createFashionApi } from "./fashion-api.js";
-import {
-  createCloudSpawnDispatcher,
-  createCloudThreadController,
-} from "./cloud-spawn-dispatch.js";
-import { createCloudTranscriptWriter } from "./cloud-transcript-write.js";
 import { createToolHost } from "../tools/host.js";
 import { HookEmitter } from "../extensions/hook-emitter.js";
 import {
@@ -56,7 +51,6 @@ import type {
   AgentModelConfigSnapshot,
   AgentModelReasoningEffort,
   AgentRuntimeEngine,
-  CloudExecutionSelection,
   CodexServiceTier,
   SpawnEngineSelection,
   SpawnReasoningEffort,
@@ -112,7 +106,6 @@ import {
   normalizeCapturedReasoningEffort,
   resolveAgentEngineForRun,
   restoreSpawnEngineFromModelConfig,
-  toCloudExecutionSelection,
 } from "./agent-model-config.js";
 import type { ResolvedLlmRoute } from "../model-routing.js";
 import { getResponseLanguageSystemPrompt } from "./locale-prompt.js";
@@ -533,99 +526,6 @@ export const createRunnerContext = ({
   const convexAction = async (ref: unknown, args: unknown): Promise<unknown> =>
     await convexCall("action", ref, args);
 
-  const cloudDispatch = createCloudSpawnDispatcher({
-    convexApi: anyApi,
-    deviceId,
-    mutation: async (ref, args) => await convexCall("mutation", ref, args),
-    action: async (ref, args) => await convexCall("action", ref, args),
-    query: async (ref, args) => await convexCall("query", ref, args),
-    isSignedIn: () =>
-      Boolean(
-        sanitizeConvexDeploymentUrl(
-          context.state?.convexDeploymentUrl ?? envConvexDeploymentUrl,
-        ) && (context.state?.authToken ?? envAuthToken ?? "").trim(),
-      ),
-  });
-  const cloudThreadController = createCloudThreadController({
-    convexApi: anyApi,
-    deviceId,
-    mutation: async (ref, args) => await convexCall("mutation", ref, args),
-    action: async (ref, args) => await convexCall("action", ref, args),
-    query: async (ref, args) => await convexCall("query", ref, args),
-    isSignedIn: () =>
-      Boolean(
-        sanitizeConvexDeploymentUrl(
-          context.state?.convexDeploymentUrl ?? envConvexDeploymentUrl,
-        ) && (context.state?.authToken ?? envAuthToken ?? "").trim(),
-      ),
-  });
-
-  /**
-   * Where the conversation Durable Objects live. Convex resolves it from
-   * `CLOUD_BUILDER_URL` and hands it out to authenticated callers, so the
-   * origin never has to be a second build-time variable on every client.
-   */
-  let cloudRealtime: { baseUrl: string | null; atMs: number } | null = null;
-  const cloudRealtimeBaseUrl = async (): Promise<string | null> => {
-    const ttlMs = cloudRealtime?.baseUrl ? 5 * 60_000 : 30_000;
-    if (cloudRealtime && Date.now() - cloudRealtime.atMs < ttlMs) {
-      return cloudRealtime.baseUrl;
-    }
-    let baseUrl: string | null = null;
-    try {
-      const config = await convexCall(
-        "query",
-        (anyApi as { cloud_apps: { getCloudRealtimeConfig: unknown } })
-          .cloud_apps.getCloudRealtimeConfig,
-        {},
-      );
-      // `httpOrigin`, not `socketOrigin`: the journal append is a POST.
-      const value = (config as { httpOrigin?: unknown } | null)?.httpOrigin;
-      baseUrl = typeof value === "string" && value ? value : null;
-    } catch {
-      // Signed out, offline, or a deployment without the function. The writer
-      // treats a missing origin as "retry later", never as a failure to show.
-      baseUrl = null;
-    }
-    cloudRealtime = { baseUrl, atMs: Date.now() };
-    return baseUrl;
-  };
-
-  const cloudTranscript = createCloudTranscriptWriter({
-    deviceId,
-    store: runtimeStore,
-    getAuthToken: () =>
-      (context.state?.authToken ?? envAuthToken ?? "").trim() || null,
-    getBaseUrl: cloudRealtimeBaseUrl,
-    ...(appendLocalChatEvent
-      ? {
-          onDurableDeliveryFailure: ({
-            conversationId,
-            localTurnId,
-            userMessageId,
-            message,
-          }: {
-            conversationId: string;
-            localTurnId: string;
-            userMessageId: string;
-            message: string;
-          }) => {
-            appendLocalChatEvent({
-              conversationId,
-              type: "assistant_message",
-              eventId: `cloud-sync-error:${deviceId}:${localTurnId}`,
-              timestamp: Date.now(),
-              payload: {
-                text: message,
-                userMessageId,
-                source: "cloud-sync-error",
-              },
-            });
-          },
-        }
-      : {}),
-  });
-
   const resolvedFashionApi =
     fashionApi ?? createFashionApi({ convexAction, convexApi: anyApi });
 
@@ -725,39 +625,6 @@ export const createRunnerContext = ({
         resolvedLlm,
         reasoningEffort: sampledEngineConfig.reasoningEffort,
       });
-    },
-    resolveCloudExecutionSelection: async ({
-      model: modelOverride,
-      spawnEngine,
-      reasoningEffort,
-    }): Promise<CloudExecutionSelection> => {
-      const agent = resolveAgent(context, AGENT_IDS.GENERAL);
-      const configuredModel = getConfiguredModel(
-        context,
-        AGENT_IDS.GENERAL,
-        agent,
-      );
-      const model = modelOverride ?? configuredModel;
-      const resolvedLlm = await resolveRunnerLlmRouteWithMetadata(
-        context,
-        AGENT_IDS.GENERAL,
-        model,
-        reasoningEffort,
-      );
-      const { modelConfigSnapshot } = resolveEffectiveAgentExecutionConfig(
-        context,
-        {
-          agentType: AGENT_IDS.GENERAL,
-          model,
-          resolvedLlm,
-          ...(spawnEngine ? { spawnEngine } : {}),
-          ...(reasoningEffort ? { spawnReasoningEffort: reasoningEffort } : {}),
-        },
-      );
-      if (!modelConfigSnapshot) {
-        throw new Error("Could not resolve the General agent's cloud model.");
-      }
-      return toCloudExecutionSelection(modelConfigSnapshot);
     },
     scheduleApi,
 
@@ -923,11 +790,6 @@ export const createRunnerContext = ({
       );
     },
     agentApi: {
-      // Cloud placements never touch LocalAgentManager: the subject lives off
-      // this machine, so the spawn leaves the device entirely.
-      cloudDispatch,
-      cloudContinue: cloudThreadController.continueThread,
-      cloudCancel: cloudThreadController.cancelThread,
       createAgent: async (request) => {
         if (!context.state.localAgentManager) {
           throw new Error("Local task manager not initialized");
@@ -1019,7 +881,6 @@ export const createRunnerContext = ({
     appendLocalChatEvent,
     notifyThreadActivityUpdated,
     getDefaultConversationId,
-    cloudTranscript,
     paths: {
       extensionsPath: path.join(stellaDataDir, "extensions"),
     },
@@ -1030,7 +891,6 @@ export const createRunnerContext = ({
       convexClient: null,
       convexClientUrl: null,
       hasConnectedAccount: false,
-      cloudSyncEnabled: true,
       modelCatalogUpdatedAt: null,
       isRunning: false,
       isInitialized: false,
@@ -1067,11 +927,7 @@ export const createRunnerContext = ({
       (await context.state.localAgentManager?.getAgent(agentId))?.status,
     writeExitLog: async (sessionId: string, contents: string) =>
       await writeBackgroundExitLog(stellaDataDir, sessionId, contents),
-    deliver: async ({
-      conversationId,
-      agentId,
-      text,
-    }: Record<string, any>) => {
+    deliver: async ({ conversationId, agentId, text }: Record<string, any>) => {
       const manager = context.state.localAgentManager;
       if (!manager) return false;
       // Same door as `send_input`: rehydrates an evicted or finished thread

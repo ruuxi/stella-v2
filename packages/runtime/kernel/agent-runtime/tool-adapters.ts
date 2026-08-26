@@ -80,7 +80,9 @@ const containsCommandOutput = (
   if (COMMAND_OUTPUT_TOOL_NAMES.has(toolName)) return true;
   if (toolName !== MULTI_TOOL_USE_PARALLEL_TOOL_NAME) return false;
   const results = (
-    toolResult.details as { results?: Array<{ tool_name?: unknown }> } | undefined
+    toolResult.details as
+      | { results?: Array<{ tool_name?: unknown }> }
+      | undefined
   )?.results;
   return (
     Array.isArray(results) &&
@@ -267,10 +269,7 @@ const resolveModelVisibleLimits = (
   return {
     maxBytes,
     maxLines: limits?.maxLines ?? DEFAULT_MAX_LINES,
-    previewMaxBytes: Math.min(
-      maxBytes,
-      limits?.previewMaxBytes ?? maxBytes,
-    ),
+    previewMaxBytes: Math.min(maxBytes, limits?.previewMaxBytes ?? maxBytes),
   };
 };
 
@@ -397,7 +396,8 @@ export const preserveModelVisibleToolText = async (
   const marker = `\n\n[TOOL_OUTPUT_TRUNCATED complete post-sanitization output preserved: artifact=${artifact.path} bytes=${artifact.bytes} sha256=${artifact.sha256} encoding=${artifact.encoding} lines=${artifact.lineCount}. Read more with Read({ file_path: ${JSON.stringify(artifact.path)}, offset: 1, limit: 200 }); offsets are 1-based lines; complete byte range is [0, ${artifact.bytes}).]`;
   const previewBudget = Math.max(
     0,
-    Math.min(resolved.previewMaxBytes, resolved.maxBytes) - utf8ByteLength(marker),
+    Math.min(resolved.previewMaxBytes, resolved.maxBytes) -
+      utf8ByteLength(marker),
   );
   return {
     ...truncated,
@@ -621,11 +621,7 @@ export const getProviderToolMetadata = (opts: {
     }
     return eager;
   }
-  return appendDemotedCatalogToNodeRepl(
-    eager,
-    catalog,
-    opts.connectorProvider,
-  );
+  return appendDemotedCatalogToNodeRepl(eager, catalog, opts.connectorProvider);
 };
 
 export const extractAttachImageBlocks = async (
@@ -794,7 +790,6 @@ type RuntimeToolContextArgs = {
   rootRunId?: string;
   agentId?: string;
   conversationId: string;
-  storageMode?: "cloud" | "local";
   agentType: string;
   deviceId: string;
   stellaAppDir?: string;
@@ -835,7 +830,6 @@ export const buildRuntimeToolContext = (
     ...(args.toolWorkspaceRoot
       ? { toolWorkspaceRoot: args.toolWorkspaceRoot }
       : {}),
-    storageMode: args.storageMode ?? "local",
     ...(args.agentId ? { agentId: args.agentId } : {}),
     ...(args.parentAgentId ? { parentAgentId: args.parentAgentId } : {}),
     ...(typeof args.agentDepth === "number"
@@ -939,7 +933,6 @@ export const createPiTools = (opts: {
   rootRunId?: string;
   agentId?: string;
   conversationId: string;
-  storageMode?: "cloud" | "local";
   agentType: string;
   deviceId: string;
   stellaAppDir?: string;
@@ -1002,7 +995,9 @@ export const createPiTools = (opts: {
   const visibleDemotedTools = hasExplicitAllowlist
     ? collectVisibleDemotedTools([...catalog.values()], connectorProvider)
     : [];
-  const demotedToolNames = new Set(visibleDemotedTools.map((tool) => tool.name));
+  const demotedToolNames = new Set(
+    visibleDemotedTools.map((tool) => tool.name),
+  );
   // Catalog section is generated fresh each turn from the live catalog
   // snapshot; with no demoted tools in scope the node_repl description
   // stays byte-identical and the whole feature is inert.
@@ -1039,7 +1034,6 @@ export const createPiTools = (opts: {
         rootRunId: opts.rootRunId,
         agentId: opts.agentId,
         conversationId: opts.conversationId,
-        storageMode: opts.storageMode,
         agentType: opts.agentType,
         deviceId: opts.deviceId,
         stellaAppDir: opts.stellaAppDir,
@@ -1062,7 +1056,10 @@ export const createPiTools = (opts: {
         signal,
         onUpdate: onUpdate
           ? (partialResult: ToolResult) => {
-              const formattedPartial = formatToolResult(partialResult, toolName);
+              const formattedPartial = formatToolResult(
+                partialResult,
+                toolName,
+              );
               const truncatedPartial = truncateModelVisibleToolText(
                 formattedPartial.text,
                 modelVisibleLimitsFor(toolName, partialResult),

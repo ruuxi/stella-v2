@@ -78,10 +78,6 @@ describe("LocalAgentManager pause_agent cancellation", () => {
         return { runId: args.runId, result: "" };
       },
       toolExecutor: async (): Promise<ToolResult> => ({ result: "ok" }),
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
       onAgentEvent: (event) => {
         lifecycleEvents.push(event);
       },
@@ -92,7 +88,6 @@ describe("LocalAgentManager pause_agent cancellation", () => {
       description: "demo",
       prompt: "demo prompt",
       agentType: "general",
-      storageMode: "local",
     });
 
     await cancelGatePromise;
@@ -157,10 +152,6 @@ describe("LocalAgentManager pause_agent cancellation", () => {
         return { runId: args.runId, result: "" };
       },
       toolExecutor: async (): Promise<ToolResult> => ({ result: "ok" }),
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
       onAgentEvent: (event) => {
         lifecycleEvents.push(event);
       },
@@ -171,7 +162,6 @@ describe("LocalAgentManager pause_agent cancellation", () => {
       description: "demo",
       prompt: "demo prompt",
       agentType: "general",
-      storageMode: "local",
     });
 
     await startedPromise;
@@ -224,10 +214,6 @@ describe("LocalAgentManager pause_agent cancellation", () => {
         return { runId: args.runId, result: `done-${prompts.length}` };
       },
       toolExecutor: async (): Promise<ToolResult> => ({ result: "ok" }),
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
     });
 
     const created = await manager.createAgent({
@@ -235,11 +221,14 @@ describe("LocalAgentManager pause_agent cancellation", () => {
       description: "demo",
       prompt: "initial prompt",
       agentType: "general",
-      storageMode: "local",
     });
 
     await startedFirstPromise;
-    await manager.sendAgentMessage(created.threadId, "follow-up", "orchestrator");
+    await manager.sendAgentMessage(
+      created.threadId,
+      "follow-up",
+      "orchestrator",
+    );
     expect(prompts).toHaveLength(1);
     finishFirst?.();
 
@@ -281,10 +270,6 @@ describe("LocalAgentManager pause_agent cancellation", () => {
         return { runId: args.runId, result: `done-${prompts.length}` };
       },
       toolExecutor: async (): Promise<ToolResult> => ({ result: "ok" }),
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
       onAgentEvent: (event) => {
         lifecycleEvents.push(event);
       },
@@ -295,7 +280,6 @@ describe("LocalAgentManager pause_agent cancellation", () => {
       description: "demo",
       prompt: "initial prompt",
       agentType: "general",
-      storageMode: "local",
     });
 
     await waitForAgentSettled(manager, created.threadId);

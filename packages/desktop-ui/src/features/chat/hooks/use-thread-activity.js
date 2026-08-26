@@ -4,9 +4,8 @@
  * table). One row per background-agent thread — status, description, and
  * timestamps are the runtime's current truth, refreshed on every
  * `localChat:threadActivityUpdated` push. No paging: the list is bounded by
- * thread count, not event history. Not storage-mode gated: `persistTask`
- * writes `runtime_agents` rows regardless of the task's storage mode, so the
- * rows exist (and this hook works) for cloud-mode conversations too.
+ * thread count, not event history. `persistTask` writes `runtime_agents` rows
+ * for locally supervised tasks.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getRetainedThreadActivitySnapshot, subscribeToThreadActivity, } from "@/features/chat/services/thread-activity-store";

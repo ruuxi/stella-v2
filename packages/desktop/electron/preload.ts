@@ -835,7 +835,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
         mimeType?: string;
       }>;
       agentType?: string;
-      storageMode?: "cloud" | "local";
       clientRequestId?: string;
     }) =>
       ipcRenderer.invoke("agent:startChat", payload) as Promise<{
@@ -1017,8 +1016,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       token?: string;
       hasConnectedAccount?: boolean;
     }) => ipcRenderer.invoke(IPC_AUTH_RUNTIME_REFRESH_COMPLETE, payload),
-    setCloudSyncEnabled: (payload: { enabled: boolean }) =>
-      ipcRenderer.invoke("host:setCloudSyncEnabled", payload),
     setModelCatalogUpdatedAt: (payload: { updatedAt: number | null }) =>
       ipcRenderer.invoke(IPC_HOST_SET_MODEL_CATALOG_UPDATED_AT, payload),
     onAuthCallback: onIpc<{ url: string }>("auth:callback"),
@@ -1653,14 +1650,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     hide: () => invokeIpc<BrowserViewState>("browserView:hide"),
     createTab: (
       payload: { url?: string; ownerId?: string; activate?: boolean } = {},
-    ) =>
-      invokeIpc<BrowserViewState>("browserView:createTab", payload),
+    ) => invokeIpc<BrowserViewState>("browserView:createTab", payload),
     selectTab: (payload: {
       tabId: string;
       ownerId?: string;
       activate?: boolean;
-    }) =>
-      invokeIpc<BrowserViewState>("browserView:selectTab", payload),
+    }) => invokeIpc<BrowserViewState>("browserView:selectTab", payload),
     closeTab: (payload: { tabId: string; ownerId?: string }) =>
       invokeIpc<BrowserViewState>("browserView:closeTab", payload),
     navigate: (payload: { tabId: string; url: string; ownerId?: string }) =>

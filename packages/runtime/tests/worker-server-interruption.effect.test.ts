@@ -32,7 +32,6 @@ const harness = vi.hoisted(() => {
     setConvexSiteUrl: () => undefined,
     setAuthToken: () => undefined,
     setHasConnectedAccount: () => undefined,
-    setCloudSyncEnabled: () => undefined,
     setModelCatalogUpdatedAt: () => undefined,
     start: () => undefined,
     stop: async () => {
@@ -81,9 +80,8 @@ vi.mock("../ai/model-runtime.js", () => ({
 
 vi.mock("../kernel/storage/database.js", async () => {
   const { DatabaseSync } = await import("node:sqlite");
-  const { getDesktopDatabasePath, initializeDesktopDatabase } = await import(
-    "../kernel/storage/database-init.js"
-  );
+  const { getDesktopDatabasePath, initializeDesktopDatabase } =
+    await import("../kernel/storage/database-init.js");
   return {
     createDesktopDatabase: (stellaDataDir: string) => {
       const db = new DatabaseSync(getDesktopDatabasePath(stellaDataDir), {
@@ -112,7 +110,6 @@ const initParams = (dataDir: string, appDir: string) =>
     convexUrl: null,
     convexSiteUrl: null,
     hasConnectedAccount: false,
-    cloudSyncEnabled: false,
     modelCatalogUpdatedAt: null,
     localLlmCredentialsUpdatedAt: null,
   }) as unknown as WorkerInitializationState;

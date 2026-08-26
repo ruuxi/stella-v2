@@ -20,24 +20,22 @@ initial sync.
 
 ### UI State (`UiState`)
 
+| Field              | Source of truth         | Written by                                                      | Read by                                                       |
+| ------------------ | ----------------------- | --------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------- |
+| `mode` (`chat`     | `voice`)                | Main (`UiStateService`)                                         | Renderer via `setState`, Main via `activateVoiceRtc()`        | Renderer context, Main (overlay logic) |
+| `window` (`full`   | `mini`)                 | Main (`UiStateService`)                                         | Renderer via `setState` + `window:show`, Main via IPC handler | Renderer context, WindowManager        |
+| `conversationId`   | Main (`UiStateService`) | Renderer via `setState`, Main via `activateVoiceRtc()`          | Renderer context, VoiceRuntimeRoot                            |
+| `isVoiceRtcActive` | Main (`UiStateService`) | Main only — via `activateVoiceRtc()` / `deactivateVoiceModes()` | Renderer context, overlay sync                                |
 
-| Field                                        | Source of truth         | Written by                                                      | Read by                                              |
-| -------------------------------------------- | ----------------------- | --------------------------------------------------------------- | ---------------------------------------------------- |
-| `mode` (`chat` | `voice`)                    | Main (`UiStateService`) | Renderer via `setState`, Main via `activateVoiceRtc()`          | Renderer context, Main (overlay logic)               |
-| `window` (`full` | `mini`)                   | Main (`UiStateService`) | Renderer via `setState` + `window:show`, Main via IPC handler   | Renderer context, WindowManager                      |
-| `conversationId`                             | Main (`UiStateService`) | Renderer via `setState`, Main via `activateVoiceRtc()`          | Renderer context, VoiceRuntimeRoot                    |
-| `isVoiceRtcActive`                           | Main (`UiStateService`) | Main only — via `activateVoiceRtc()` / `deactivateVoiceModes()` | Renderer context, overlay sync                        |
-
-> **Note (TanStack Router migration)**: The active *view* (which app is on
+> **Note (TanStack Router migration)**: The active _view_ (which app is on
 > screen) used to live in `UiState.view`. It now lives in the router. The
 > router uses `createMemoryHistory()`. The full-shell renderer persists its
 > last router location to `localStorage` (key `stella:lastLocation`) so it
-> can restore on the next launch — *not* through `UiState`/IPC, because no
+> can restore on the next launch — _not_ through `UiState`/IPC, because no
 > other window cares. See `desktop/src/shared/lib/last-location.ts` and
 > the restore/persist effects in `desktop/src/routes/__root.tsx`. Adding a
 > new sidebar app is "drop a folder under `desktop/src/app/<id>/`" — see
 > `~/.stella/skills/stella-desktop/SKILL.md`.
-
 
 ### conversationId — detailed flow
 
@@ -70,34 +68,19 @@ Side effects triggered by changes:
 
 ### Theme
 
-
 | Field                                                   | Source of truth           | Sync                                                                  |
 | ------------------------------------------------------- | ------------------------- | --------------------------------------------------------------------- |
 | `themeId`, `colorMode`, `gradientMode`, `gradientColor` | Renderer (`localStorage`) | Renderer persists → broadcasts to Main → Main relays to other windows |
-
 
 Theme is **renderer-owned**. Main never maintains its own theme state — it
 only relays changes between windows. This is intentionally different from
 UiState (which is Main-owned).
 
-### Chat store mode
-
-
-| Field                             | Source of truth                        |
-| --------------------------------- | -------------------------------------- |
-| `storageMode` (`cloud` | `local`) | Renderer (`ChatStoreProvider` context) |
-
-
-Purely renderer-local. Synced to Main only when needed for agent runtime
-configuration.
-
 ### Workspace
-
 
 | Field                                  | Source of truth                        |
 | -------------------------------------- | -------------------------------------- |
 | `activePanel`, `chatWidth`, `chatOpen` | Renderer (`WorkspaceProvider` context) |
-
 
 Purely renderer-local. No IPC sync.
 

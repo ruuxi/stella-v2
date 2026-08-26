@@ -8,8 +8,7 @@
  * surface never auto-renders them.
  *
  * The model-visible surface (name, description, parameters) lives in
- * `web-def.ts` so workerd hosts expose the identical tool; this file adds
- * the executable handler for tool-host consumers.
+ * `web-def.ts`; this file adds the executable handler for tool-host consumers.
  */
 
 import { localWebFetch } from "../local-tool-overrides.js";
@@ -30,7 +29,9 @@ export type WebToolOptions = {
   webSearch?: WebSearchCapability;
 };
 
-export const createWebTool = (options: WebToolOptions = {}): ToolDefinition => ({
+export const createWebTool = (
+  options: WebToolOptions = {},
+): ToolDefinition => ({
   name: WEB_TOOL_NAME,
   description: WEB_TOOL_DESCRIPTION,
   promptSnippet: WEB_TOOL_PROMPT_SNIPPET,

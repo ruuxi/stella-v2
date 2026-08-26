@@ -95,9 +95,9 @@ describe("state tools", () => {
         ],
       },
     });
-    expect(Object.keys((result as { result: Record<string, unknown> }).result)[0]).toBe(
-      "status",
-    );
+    expect(
+      Object.keys((result as { result: Record<string, unknown> }).result)[0],
+    ).toBe("status");
   });
 
   const createSpawnContext = (
@@ -171,7 +171,6 @@ describe("state tools", () => {
         getAgent: async () => null,
         cancelAgent: async () => ({ canceled: false }),
       },
-      undefined,
       undefined,
       undefined,
       async (args) => {

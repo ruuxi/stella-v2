@@ -1,6 +1,5 @@
-// No node builtins here on purpose: workerd imports this module for the cloud
-// `web` tool's secret refusal and page-text redaction. Path helpers that need
-// node live in `home-path.ts`.
+// No node builtins here on purpose: text sanitization stays portable. Path
+// helpers that need node live in `home-path.ts`.
 
 const STRUCTURAL_TAG_RE =
   /<\/?(?:tool_call|function_call|result|response|output|input|system|assistant|user)>/gi;

@@ -162,9 +162,6 @@ export const layer = Layer.effect(
       if (patch.hasConnectedAccount !== undefined) {
         runner?.setHasConnectedAccount(patch.hasConnectedAccount);
       }
-      if (patch.cloudSyncEnabled !== undefined) {
-        runner?.setCloudSyncEnabled(patch.cloudSyncEnabled);
-      }
       if (patch.modelCatalogUpdatedAt !== undefined) {
         runner?.setModelCatalogUpdatedAt(patch.modelCatalogUpdatedAt);
       }
@@ -351,11 +348,11 @@ export const layer = Layer.effect(
       const runner = session?.runnerCell.get() ?? null;
       return Boolean(
         runner?.getActiveOrchestratorRun() ||
-          (runner?.getActiveAgentCount() ?? 0) > 0 ||
-          requestPinned ||
-          socialPinned ||
-          voicePinned ||
-          userAppPinned,
+        (runner?.getActiveAgentCount() ?? 0) > 0 ||
+        requestPinned ||
+        socialPinned ||
+        voicePinned ||
+        userAppPinned,
       );
     };
 

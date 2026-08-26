@@ -1,5 +1,5 @@
 import { AGENT_STREAM_EVENT_TYPES, isTaskLifecycleEventType, isTaskLifecycleTerminalType, } from "@stella/contracts/agent-runtime";
-import { StellaRuntimeHost, } from "@stella/runtime/host";
+import { StellaRuntimeHost } from "@stella/runtime/host";
 import { createRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
 import { readConfiguredStellaSiteUrl } from "@stella/contracts/convex-urls";
 const isRunTerminalEvent = (type) => type === AGENT_STREAM_EVENT_TYPES.RUN_FINISHED;
@@ -105,8 +105,7 @@ export class RuntimeHostAdapter {
                 session.conversationId !== conversationId) {
                 continue;
             }
-            const owned = session.activeRunIds.delete(runId) ||
-                session.knownRunIds.delete(runId);
+            const owned = session.activeRunIds.delete(runId) || session.knownRunIds.delete(runId);
             if (!owned) {
                 continue;
             }
@@ -427,9 +426,6 @@ export class RuntimeHostAdapter {
     }
     setHasConnectedAccount(value) {
         this.queueRuntimeConfigPatch({ hasConnectedAccount: value });
-    }
-    setCloudSyncEnabled(enabled) {
-        this.queueRuntimeConfigPatch({ cloudSyncEnabled: enabled });
     }
     setModelCatalogUpdatedAt(value) {
         this.queueRuntimeConfigPatch({

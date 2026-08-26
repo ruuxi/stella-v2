@@ -747,7 +747,6 @@ export class SocialSessionService {
       const result = await runner.runAutomationTurn({
         conversationId: nextTurn.session.conversationId,
         userPrompt: nextTurn.turn.prompt,
-        storageMode: "local",
         agentType: "social_session",
         toolWorkspaceRoot: sessionRuntime.localFolderPath,
       });

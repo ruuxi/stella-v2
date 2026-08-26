@@ -9,7 +9,7 @@ import type { ManagedImageTerminalResult } from "./managed-image-job.js";
  * Runtime-portable synchronous SQLite driver resolution, module-local so
  * this file stays runnable as raw TS under both plain Node
  * (`--experimental-strip-types`, which cannot resolve cross-file value
- * imports) and Bun — the same reason `prompt-manifest-sync.ts` carries its
+ * imports) and Bun — the same reason storage adapters carry their
  * own copy. The detached worker runs
  * under Bun, which does NOT expose the Node sqlite builtin (the
  * desktop-v0.0.409 outage): a static top-level import of it crashes the

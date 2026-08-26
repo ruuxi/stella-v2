@@ -6,7 +6,7 @@ import {
 } from "./connector-followup";
 
 describe("connector follow-up delivery", () => {
-  test("projects a cloud terminal notice with a stable delivery id", () => {
+  test("projects a terminal notice with a stable delivery id", () => {
     const event = {
       type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
       runId: "run-1",

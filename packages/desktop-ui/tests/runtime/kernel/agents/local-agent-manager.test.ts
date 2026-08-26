@@ -86,10 +86,6 @@ describe("LocalAgentManager lifecycle observability", () => {
           return { runId: args.runId, result: "done" };
         },
         toolExecutor: async (): Promise<ToolResult> => ({ result: "unused" }),
-        createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-        completeCloudAgentRecord: async () => undefined,
-        getCloudAgentRecord: async () => null,
-        cancelCloudAgentRecord: async () => ({ canceled: false }),
         onAgentEvent: (event) => events.push(event),
       });
 
@@ -98,7 +94,6 @@ describe("LocalAgentManager lifecycle observability", () => {
         description: "trace-free task",
         prompt: "run a tool",
         agentType: AGENT_IDS.GENERAL,
-        storageMode: "local",
       });
       await waitForAgentSettled(manager, created.threadId);
 
@@ -141,10 +136,6 @@ describe("LocalAgentManager lifecycle observability", () => {
         };
       },
       toolExecutor: async (): Promise<ToolResult> => ({ result: "unused" }),
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
       saveAgentRecord: (record) => {
         persisted = record;
       },
@@ -157,7 +148,6 @@ describe("LocalAgentManager lifecycle observability", () => {
       description: "large result",
       prompt: "finish",
       agentType: AGENT_IDS.GENERAL,
-      storageMode: "local",
       toolWorkspaceRoot: "/tmp/stella-workspace",
     });
     await waitForAgentSettled(manager, created.threadId);
@@ -217,10 +207,6 @@ describe("LocalAgentManager lifecycle observability", () => {
         return { runId: args.runId, result: "resumed" };
       },
       toolExecutor: async (): Promise<ToolResult> => ({ result: "unused" }),
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
       saveAgentRecord: (record) => {
         persisted.set(record.threadId, record);
       },
@@ -232,7 +218,6 @@ describe("LocalAgentManager lifecycle observability", () => {
       description: "hung task",
       prompt: "wait forever",
       agentType: AGENT_IDS.GENERAL,
-      storageMode: "local",
     });
     await firstRunStartedPromise;
     await manager.cancelAgent(created.threadId, "Canceled for regression test");
@@ -245,7 +230,6 @@ describe("LocalAgentManager lifecycle observability", () => {
       description: "unrelated task",
       prompt: "must not remain blocked",
       agentType: AGENT_IDS.GENERAL,
-      storageMode: "local",
     });
     await waitForAgentSettled(manager, unrelated.threadId);
     expect(runCount).toBe(2);
@@ -293,10 +277,6 @@ describe("LocalAgentManager Exec fs locking", () => {
         result: "unused",
       }),
       toolExecutor: async (): Promise<ToolResult> => ({ result: "unused" }),
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
       listAgentRecordsByStatus: (status) =>
         status === "running"
           ? [
@@ -390,10 +370,6 @@ describe("LocalAgentManager Exec fs locking", () => {
       onAgentEvent: (event) => {
         events.push(event);
       },
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
     });
 
     const task = await manager.createAgent({
@@ -401,7 +377,6 @@ describe("LocalAgentManager Exec fs locking", () => {
       description: "agent task",
       prompt: "do agent work",
       agentType: "general",
-      storageMode: "local",
     });
 
     await waitForAgentSettled(manager, task.threadId);
@@ -446,10 +421,6 @@ describe("LocalAgentManager Exec fs locking", () => {
         result: "done",
       }),
       toolExecutor: async (): Promise<ToolResult> => ({ result: "unused" }),
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
     });
 
     const modelTask = await manager.createAgent({
@@ -460,7 +431,6 @@ describe("LocalAgentManager Exec fs locking", () => {
       model: "stella/light",
       spawnEngine: { engine: "default" },
       spawnReasoningEffort: "high",
-      storageMode: "local",
     });
     await waitForAgentSettled(manager, modelTask.threadId);
 
@@ -470,7 +440,6 @@ describe("LocalAgentManager Exec fs locking", () => {
       prompt: "do work",
       agentType: "general",
       spawnEngine: { engine: "claude_code_local", model: "opus" },
-      storageMode: "local",
     });
     await waitForAgentSettled(manager, engineTask.threadId);
 
@@ -510,10 +479,6 @@ describe("LocalAgentManager Exec fs locking", () => {
         };
       },
       toolExecutor: async (): Promise<ToolResult> => ({ result: "unused" }),
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
     });
 
     const task = await manager.createAgent({
@@ -522,7 +487,6 @@ describe("LocalAgentManager Exec fs locking", () => {
       prompt: "do work",
       agentType: "general",
       rootRunId: "root-run-1",
-      storageMode: "local",
     });
 
     expect(manager.listActiveAgentRuns()).toEqual([
@@ -568,10 +532,6 @@ describe("LocalAgentManager Exec fs locking", () => {
       onAgentEvent: (event) => {
         events.push(event);
       },
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
     });
 
     const task = await manager.createAgent({
@@ -580,7 +540,6 @@ describe("LocalAgentManager Exec fs locking", () => {
       prompt: "Research current Nvidia news",
       agentType: AGENT_IDS.GENERAL,
       rootRunId: "root-original",
-      storageMode: "local",
     });
     await waitForAgentSettled(manager, task.threadId);
 
@@ -736,10 +695,6 @@ describe("LocalAgentManager Exec fs locking", () => {
       onAgentEvent: (event) => {
         events.push(event);
       },
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
     });
 
     const task = await manager.createAgent({
@@ -748,7 +703,6 @@ describe("LocalAgentManager Exec fs locking", () => {
       prompt: "do long research",
       agentType: AGENT_IDS.GENERAL,
       rootRunId: "root-1",
-      storageMode: "local",
     });
     await firstRunStartedPromise;
 
@@ -849,10 +803,6 @@ describe("LocalAgentManager Exec fs locking", () => {
       onAgentEvent: (event) => {
         events.push(event);
       },
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
     });
 
     const task = await manager.createAgent({
@@ -861,7 +811,6 @@ describe("LocalAgentManager Exec fs locking", () => {
       prompt: "do the work",
       agentType: AGENT_IDS.GENERAL,
       rootRunId: "root-1",
-      storageMode: "local",
     });
     await firstRunStartedPromise;
 
@@ -901,10 +850,6 @@ describe("LocalAgentManager Exec fs locking", () => {
       onAgentEvent: (event) => {
         events.push(event);
       },
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
     });
 
     const task = await manager.createAgent({
@@ -912,7 +857,6 @@ describe("LocalAgentManager Exec fs locking", () => {
       description: "broken engine task",
       prompt: "do work",
       agentType: "general",
-      storageMode: "local",
     });
 
     await waitForAgentSettled(manager, task.threadId);
@@ -949,7 +893,6 @@ describe("LocalAgentManager Exec fs locking", () => {
           deviceId: "device-1",
           requestId: `${args.runId}-req`,
           agentType: args.agentType,
-          storageMode: "local",
         };
         await args.toolExecutor(
           "Exec",
@@ -980,10 +923,6 @@ describe("LocalAgentManager Exec fs locking", () => {
         }
         return { result: "ok" };
       },
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
     });
 
     const first = await manager.createAgent({
@@ -991,14 +930,12 @@ describe("LocalAgentManager Exec fs locking", () => {
       description: "first",
       prompt: "first prompt",
       agentType: "general",
-      storageMode: "local",
     });
     const second = await manager.createAgent({
       conversationId: "conv-1",
       description: "second",
       prompt: "second prompt",
       agentType: "general",
-      storageMode: "local",
     });
 
     await Promise.all([
@@ -1041,10 +978,6 @@ describe("LocalAgentManager Exec fs locking", () => {
         };
       },
       toolExecutor: async (): Promise<ToolResult> => ({ result: "unused" }),
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
     });
 
     const first = await manager.createAgent({
@@ -1052,14 +985,12 @@ describe("LocalAgentManager Exec fs locking", () => {
       description: "first",
       prompt: "first prompt",
       agentType: "general",
-      storageMode: "local",
     });
     const second = await manager.createAgent({
       conversationId: "conv-1",
       description: "second",
       prompt: "second prompt",
       agentType: "general",
-      storageMode: "local",
     });
 
     await Promise.all([
@@ -1096,10 +1027,6 @@ describe("LocalAgentManager Exec fs locking", () => {
         };
       },
       toolExecutor: async (): Promise<ToolResult> => ({ result: "unused" }),
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
     });
 
     const first = await manager.createAgent({
@@ -1107,14 +1034,12 @@ describe("LocalAgentManager Exec fs locking", () => {
       description: "first",
       prompt: "first prompt",
       agentType: "general",
-      storageMode: "local",
     });
     const second = await manager.createAgent({
       conversationId: "conv-1",
       description: "second",
       prompt: "second prompt",
       agentType: "general",
-      storageMode: "local",
     });
 
     await Promise.all([
@@ -1212,10 +1137,6 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
       onAgentEvent: (event) => {
         events.push(event);
       },
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
     });
 
     const task = await manager.createAgent({
@@ -1224,7 +1145,6 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
       prompt: "render the demos",
       agentType: AGENT_IDS.GENERAL,
       rootRunId: "root-1",
-      storageMode: "local",
     });
     await firstRunStartedPromise;
 
@@ -1323,10 +1243,6 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
         return { runId: args.runId, result: "done" };
       },
       toolExecutor: async (): Promise<ToolResult> => ({ result: "unused" }),
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
     });
 
     const beforeCreate = Date.now();
@@ -1336,7 +1252,6 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
       prompt: "probe the connector",
       agentType: AGENT_IDS.GENERAL,
       rootRunId: "root-1",
-      storageMode: "local",
     });
     await toolStartedPromise;
 
@@ -1390,10 +1305,6 @@ describe("send_input follow-up description and run rebind", () => {
       onAgentEvent: (event) => {
         events.push(event);
       },
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
     });
 
     const task = await manager.createAgent({
@@ -1402,7 +1313,6 @@ describe("send_input follow-up description and run rebind", () => {
       prompt: "coordinate the research",
       agentType: AGENT_IDS.GENERAL,
       rootRunId: "root-1",
-      storageMode: "local",
     });
     await waitForAgentSettled(manager, task.threadId);
 
@@ -1478,10 +1388,6 @@ describe("send_input follow-up description and run rebind", () => {
       onAgentEvent: (event) => {
         events.push(event);
       },
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
     });
 
     const task = await manager.createAgent({
@@ -1490,7 +1396,6 @@ describe("send_input follow-up description and run rebind", () => {
       prompt: "find the booked itinerary",
       agentType: AGENT_IDS.GENERAL,
       rootRunId: "root-1",
-      storageMode: "local",
     });
     await firstRunStartedPromise;
 

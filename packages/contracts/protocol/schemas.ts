@@ -17,8 +17,9 @@ export const runtimeConfigureParamsSchema = Type.Object({
   convexSiteUrl: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   authToken: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   hasConnectedAccount: Type.Optional(Type.Boolean()),
-  cloudSyncEnabled: Type.Optional(Type.Boolean()),
-  modelCatalogUpdatedAt: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
+  modelCatalogUpdatedAt: Type.Optional(
+    Type.Union([Type.Number(), Type.Null()]),
+  ),
   localLlmCredentialsUpdatedAt: Type.Optional(
     Type.Union([Type.Number(), Type.Null()]),
   ),

@@ -35,7 +35,6 @@ const context = (agentId: string): ToolContext => ({
   agentType: "general",
   stellaAppDir: TEST_WORKSPACE_ROOT,
   toolWorkspaceRoot: TEST_WORKSPACE_ROOT,
-  storageMode: "local",
 });
 
 const rootContext = (runId: string): ToolContext => ({
@@ -46,7 +45,6 @@ const rootContext = (runId: string): ToolContext => ({
   agentType: "orchestrator",
   stellaAppDir: TEST_WORKSPACE_ROOT,
   toolWorkspaceRoot: TEST_WORKSPACE_ROOT,
-  storageMode: "local",
 });
 
 const responseFor = (request: ComputerUseRequest): ComputerUseResponse => {

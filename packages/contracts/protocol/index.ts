@@ -319,7 +319,6 @@ export type RuntimeConfigureParams = {
   convexSiteUrl?: string | null;
   authToken?: string | null;
   hasConnectedAccount?: boolean;
-  cloudSyncEnabled?: boolean;
   modelCatalogUpdatedAt?: number | null;
   localLlmCredentialsUpdatedAt?: number | null;
 };
@@ -441,14 +440,13 @@ export type RuntimeChatPayload = {
   /** Original renderer send time; remains stable while a queued turn waits. */
   userMessageTimestamp?: number;
   agentType?: string;
-  storageMode?: "cloud" | "local";
 };
 
 export type RuntimeVoiceTranscriptPayload = {
   conversationId: string;
-  /** Stable renderer-generated identity for durable cloud append retries. */
+  /** Stable renderer-generated transcript event identity. */
   eventId: string;
-  /** Captured once with eventId so retries serialize the identical journal row. */
+  /** Captured once with eventId so retries serialize the identical row. */
   timestamp: number;
   role: "user" | "assistant";
   text: string;
@@ -555,9 +553,7 @@ export type RuntimeOneShotCompletionResult = {
 export type RuntimeAutomationTurnRequest = {
   conversationId: string;
   userPrompt: string;
-  /** Transcript authority for this automation turn. */
-  storageMode?: "cloud" | "local";
-  /** Stable cloud-journal id used to deduplicate a retried external request. */
+  /** Stable event id used to deduplicate a retried external request. */
   userMessageId?: string;
   agentType?: string;
   modelOverride?: string;

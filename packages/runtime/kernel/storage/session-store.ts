@@ -1,6 +1,5 @@
-// @ts-nocheck -- transitional: this store was v2's unchecked transpiled JS
-// merged with stella-cloud's typed version; the mixed body is being retyped
-// incrementally (tracked in docs/cloud-migration/RECONCILIATION.md).
+// @ts-nocheck -- transitional: this store originated as unchecked transpiled
+// JS and is being retyped incrementally.
 import { Context, Effect, Layer } from "effect";
 import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
 import {
@@ -75,34 +74,6 @@ export type SessionStoreOptions = {
   onThreadAssistantUpdate?: (payload: ThreadActivityUpdatedPayload) => void;
   onThreadTranscriptUpdate?: (payload: ThreadTranscriptUpdatedPayload) => void;
 };
-
-type EphemeralThreadMessage = RuntimeThreadMessage & { entryId: string };
-
-type EphemeralThreadCapture = {
-  captureId: string;
-  seedMessages: EphemeralThreadMessage[];
-  appendedMessages: EphemeralThreadMessage[];
-};
-
-
-export type VoiceToolCallReceipt =
-  | {
-      status: "started";
-      operationId: string;
-      startedAt: number;
-    }
-  | {
-      status: "pending";
-      operationId: string;
-      startedAt: number;
-    }
-  | {
-      status: "completed";
-      operationId: string;
-      startedAt: number;
-      completionJson: string;
-    };
-
 
 type VisibleScanRow = {
   timestamp: number | null;
@@ -333,8 +304,6 @@ type ThreadSessionEntryRow = {
 export type PersistedAgentRecord = {
   threadId: string;
   conversationId: string;
-  /** Transcript ownership for this thread; absent only on pre-migration rows. */
-  storageMode?: "cloud" | "local";
   agentType: string;
   description: string;
   agentDepth: number;
@@ -360,103 +329,6 @@ export type PersistedAgentRecord = {
   error?: string;
   updatedAt: number;
 };
-
-export type CloudTranscriptOutboxKind = "begin" | "finish";
-
-export type CloudTranscriptOutboxRecord = {
-  id: string;
-  kind: CloudTranscriptOutboxKind;
-  conversationId: string;
-  deviceId: string;
-  localTurnId: string;
-  payloadJson: string;
-  recoveryJson: string | null;
-  attempts: number;
-  lastError: string | null;
-  deadLetteredAt: number | null;
-  createdAt: number;
-  updatedAt: number;
-};
-
-export type CloudJournalOutboxRecord = {
-  sequence: number;
-  id: string;
-  conversationId: string;
-  deviceId: string;
-  appendId: string;
-  payloadJson: string;
-  attempts: number;
-  lastError: string | null;
-  deadLetteredAt: number | null;
-  createdAt: number;
-  updatedAt: number;
-};
-
-export type ComputerAgentCloudOutboxKind =
-  | "start"
-  | "terminal"
-  | "cancel";
-
-export type ComputerAgentCloudOutboxRecord = {
-  sequence: number;
-  id: string;
-  kind: ComputerAgentCloudOutboxKind;
-  threadId: string;
-  attemptGeneration: number;
-  ownerScope: string | null;
-  payloadJson: string;
-  attempts: number;
-  nextAttemptAt: number;
-  lastError: string | null;
-  createdAt: number;
-  updatedAt: number;
-};
-
-export type LegacyChatCloudImportCandidate = {
-  conversationId: string;
-  title: string;
-  createdAt: number;
-};
-
-export type LegacyChatCloudImportRecord = {
-  localConversationId: string;
-  cloudConversationId: string | null;
-  nextTurnIndex: number;
-  status: "pending" | "complete" | "skipped";
-  detail: string | null;
-  createdAt: number;
-  updatedAt: number;
-};
-
-export type LegacyChatVisibleMessage = {
-  id: string;
-  type: "user_message" | "assistant_message";
-  timestamp: number;
-  payload: Record<string, unknown>;
-};
-
-type CloudTranscriptOutboxRow = {
-  id: string;
-  kind: CloudTranscriptOutboxKind;
-  conversationId: string;
-  deviceId: string;
-  localTurnId: string;
-  payloadJson: string;
-  recoveryJson: string | null;
-  attempts: number;
-  lastError: string | null;
-  deadLetteredAt: number | null;
-  createdAt: number;
-  updatedAt: number;
-};
-
-type CloudTranscriptOutboxWrite = Omit<
-  CloudTranscriptOutboxRecord,
-  "attempts" | "lastError" | "deadLetteredAt" | "createdAt" | "updatedAt"
->;
-
-type CloudJournalOutboxRow = CloudJournalOutboxRecord;
-type ComputerAgentCloudOutboxRow = ComputerAgentCloudOutboxRecord;
 
 const parseJsonValue = <T>(value: string | null): T | undefined => {
   if (!value) return undefined;
@@ -1539,22 +1411,11 @@ const structuredToolResultObject = (
 
 export class SessionStore {
   private threadSummaryStoreInstance: ThreadSummaryStore | null = null;
-  /**
-   * Cloud turns keep their provider transcript in process memory until the
-   * terminal batch is synchronously admitted to cloud_transcript_outbox.
-   * Nothing in this map is restart recovery state: an orphaned durable begin
-   * is intentionally recovered as an empty canceled finish.
-   */
-  private readonly ephemeralThreadCaptures = new Map<
-    string,
-    EphemeralThreadCapture
-  >();
 
   constructor(
     private readonly db: SqliteDatabase,
     private readonly options: SessionStoreOptions = {},
   ) {}
-
 
   #orderingBySequenceCache: boolean | null = null;
   /**
@@ -1706,782 +1567,6 @@ export class SessionStore {
       .run(key, value, Date.now());
   }
 
-  listLegacyChatCloudImportCandidates(
-    limit = 100,
-  ): LegacyChatCloudImportCandidate[] {
-    const normalizedLimit = Math.max(1, Math.min(Math.floor(limit), 500));
-    return this.db
-      .prepare(
-        `
-      SELECT
-        session.id AS conversationId,
-        session.title AS title,
-        session.created_at AS createdAt
-      FROM session
-      LEFT JOIN legacy_chat_cloud_import AS legacy_import
-        ON legacy_import.local_conversation_id = session.id
-      WHERE session.parent_id IS NULL
-        AND (
-          legacy_import.status IS NULL
-          OR legacy_import.status = 'pending'
-        )
-        AND EXISTS (
-          SELECT 1
-          FROM message
-          WHERE message.session_id = session.id
-            AND message.type IN ('user_message', 'assistant_message')
-        )
-      ORDER BY session.created_at ASC, session.id ASC
-      LIMIT ?
-    `,
-      )
-      .all(normalizedLimit) as LegacyChatCloudImportCandidate[];
-  }
-
-  getLegacyChatCloudImport(
-    localConversationIdInput: string,
-  ): LegacyChatCloudImportRecord | null {
-    const localConversationId = this.sanitizeConversationId(
-      localConversationIdInput,
-    );
-    const row = this.db
-      .prepare(
-        `
-      SELECT
-        local_conversation_id AS localConversationId,
-        cloud_conversation_id AS cloudConversationId,
-        next_turn_index AS nextTurnIndex,
-        status,
-        detail,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM legacy_chat_cloud_import
-      WHERE local_conversation_id = ?
-      LIMIT 1
-    `,
-      )
-      .get(localConversationId) as LegacyChatCloudImportRecord | undefined;
-    return row ?? null;
-  }
-
-  saveLegacyChatCloudImport(args: {
-    localConversationId: string;
-    cloudConversationId?: string | null;
-    nextTurnIndex: number;
-    status: "pending" | "complete" | "skipped";
-    detail?: string | null;
-  }): void {
-    const localConversationId = this.sanitizeConversationId(
-      args.localConversationId,
-    );
-    const cloudConversationId = asTrimmedString(args.cloudConversationId);
-    const nextTurnIndex = Math.max(0, Math.floor(args.nextTurnIndex));
-    const detail = asTrimmedString(args.detail);
-    const now = Date.now();
-    this.db
-      .prepare(
-        `
-      INSERT INTO legacy_chat_cloud_import (
-        local_conversation_id,
-        cloud_conversation_id,
-        next_turn_index,
-        status,
-        detail,
-        created_at,
-        updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(local_conversation_id) DO UPDATE SET
-        cloud_conversation_id = excluded.cloud_conversation_id,
-        next_turn_index = excluded.next_turn_index,
-        status = excluded.status,
-        detail = excluded.detail,
-        updated_at = excluded.updated_at
-    `,
-      )
-      .run(
-        localConversationId,
-        cloudConversationId || null,
-        nextTurnIndex,
-        args.status,
-        detail || null,
-        now,
-        now,
-      );
-  }
-
-  listLegacyChatVisibleMessages(
-    conversationIdInput: string,
-  ): LegacyChatVisibleMessage[] {
-    const conversationId = this.sanitizeConversationId(conversationIdInput);
-    const rows = this.db
-      .prepare(
-        `
-      SELECT
-        message.id,
-        message.type,
-        message.created_at AS timestamp,
-        part.data_json AS payloadJson
-      FROM message
-      LEFT JOIN part
-        ON part.message_id = message.id
-       AND part.ord = 0
-      WHERE message.session_id = ?
-        AND message.type IN ('user_message', 'assistant_message')
-      ORDER BY message.created_at ASC, message.id ASC
-    `,
-      )
-      .all(conversationId) as Array<{
-      id: string;
-      type: "user_message" | "assistant_message";
-      timestamp: number;
-      payloadJson: string | null;
-    }>;
-    return rows.map((row) => ({
-      id: row.id,
-      type: row.type,
-      timestamp: row.timestamp,
-      payload: parseJsonRecord(row.payloadJson) ?? {},
-    }));
-  }
-
-  putCloudTranscriptOutbox(record: CloudTranscriptOutboxWrite): void {
-    const now = Date.now();
-    this.db
-      .prepare(
-        `
-      INSERT INTO cloud_transcript_outbox (
-        id,
-        kind,
-        conversation_id,
-        device_id,
-        local_turn_id,
-        payload_json,
-        recovery_json,
-        attempts,
-        last_error,
-        dead_lettered_at,
-        created_at,
-        updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        payload_json = excluded.payload_json,
-        recovery_json = excluded.recovery_json,
-        last_error = NULL,
-        dead_lettered_at = NULL,
-        updated_at = excluded.updated_at
-    `,
-      )
-      .run(
-        record.id,
-        record.kind,
-        record.conversationId,
-        record.deviceId,
-        record.localTurnId,
-        record.payloadJson,
-        record.recoveryJson,
-        now,
-        now,
-      );
-  }
-
-  listCloudTranscriptOutbox(limit = 256): CloudTranscriptOutboxRecord[] {
-    const normalizedLimit = Math.max(1, Math.floor(limit));
-    return this.db
-      .prepare(
-        `
-      SELECT
-        id,
-        kind,
-        conversation_id AS conversationId,
-        device_id AS deviceId,
-        local_turn_id AS localTurnId,
-        payload_json AS payloadJson,
-        recovery_json AS recoveryJson,
-        attempts,
-        last_error AS lastError,
-        dead_lettered_at AS deadLetteredAt,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM cloud_transcript_outbox
-      WHERE dead_lettered_at IS NULL
-      ORDER BY attempts ASC, updated_at ASC, created_at ASC, id ASC
-      LIMIT ?
-    `,
-      )
-      .all(normalizedLimit) as CloudTranscriptOutboxRow[];
-  }
-
-  countCloudTranscriptOutbox(): number {
-    const row = this.db
-      .prepare(
-        `
-      SELECT COUNT(*) AS count
-      FROM cloud_transcript_outbox
-      WHERE dead_lettered_at IS NULL
-    `,
-      )
-      .get() as { count?: unknown } | undefined;
-    return typeof row?.count === "number" ? row.count : 0;
-  }
-
-  markCloudTranscriptOutboxAttempt(id: string): void {
-    this.db
-      .prepare(
-        `
-      UPDATE cloud_transcript_outbox
-      SET attempts = attempts + 1, updated_at = ?
-      WHERE id = ?
-    `,
-      )
-      .run(Date.now(), id);
-  }
-
-  deleteCloudTranscriptOutbox(id: string): void {
-    this.db.prepare("DELETE FROM cloud_transcript_outbox WHERE id = ?").run(id);
-  }
-
-  deadLetterCloudTranscriptOutbox(id: string, reason: string): void {
-    const now = Date.now();
-    this.db
-      .prepare(
-        `
-      UPDATE cloud_transcript_outbox
-      SET
-        payload_json = '{}',
-        recovery_json = NULL,
-        last_error = ?,
-        dead_lettered_at = ?,
-        updated_at = ?
-      WHERE id = ?
-    `,
-      )
-      .run(reason, now, now, id);
-  }
-
-  /**
-   * Atomically redacts a rejected finish and persists the device-specific
-   * notice that explains the missing cloud output. A crash can therefore
-   * leave either the retryable finish or the notice, never a silent dead
-   * letter with its notification target already erased.
-   */
-  deadLetterCloudTranscriptOutboxWithFailureNotice(args: {
-    id: string;
-    reason: string;
-    conversationId: string;
-    deviceId: string;
-    localTurnId: string;
-    userMessageId: string;
-    message: string;
-  }): void {
-    const now = Date.now();
-    const conversationId = this.sanitizeConversationId(args.conversationId);
-    const eventId = `cloud-sync-error:${args.deviceId}:${args.localTurnId}`;
-    const payload = {
-      text: args.message.slice(0, 500),
-      userMessageId: args.userMessageId,
-      source: "cloud-sync-error",
-    };
-    this.withTransaction(() => {
-      this.db
-        .prepare(
-          `
-          UPDATE cloud_transcript_outbox
-          SET
-            payload_json = '{}',
-            recovery_json = NULL,
-            last_error = ?,
-            dead_lettered_at = ?,
-            updated_at = ?
-          WHERE id = ?
-        `,
-        )
-        .run(args.reason, now, now, args.id);
-      this.upsertSession(conversationId, now);
-      this.upsertEventMessage({
-        sessionId: conversationId,
-        eventId,
-        type: "assistant_message",
-        timestamp: now,
-        deviceId: args.deviceId,
-        requestId: args.userMessageId,
-        payload,
-      });
-    }, "immediate");
-  }
-
-  replaceCloudTranscriptOutbox(
-    acknowledgedId: string,
-    replacement: CloudTranscriptOutboxWrite,
-  ): void {
-    const now = Date.now();
-    this.withTransaction(() => {
-      this.db
-        .prepare(
-          `
-        INSERT INTO cloud_transcript_outbox (
-          id,
-          kind,
-          conversation_id,
-          device_id,
-          local_turn_id,
-          payload_json,
-          recovery_json,
-          attempts,
-          last_error,
-          dead_lettered_at,
-          created_at,
-          updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          payload_json = excluded.payload_json,
-          recovery_json = excluded.recovery_json,
-          last_error = NULL,
-          dead_lettered_at = NULL,
-          updated_at = excluded.updated_at
-      `,
-        )
-        .run(
-          replacement.id,
-          replacement.kind,
-          replacement.conversationId,
-          replacement.deviceId,
-          replacement.localTurnId,
-          replacement.payloadJson,
-          replacement.recoveryJson,
-          now,
-          now,
-        );
-      this.db
-        .prepare("DELETE FROM cloud_transcript_outbox WHERE id = ?")
-        .run(acknowledgedId);
-    }, "immediate");
-  }
-
-  putCloudJournalOutbox(record: {
-    id: string;
-    conversationId: string;
-    deviceId: string;
-    appendId: string;
-    payloadJson: string;
-  }): { replayed: boolean } {
-    return this.withTransaction(() => {
-      const admitted = this.db
-        .prepare(
-          `SELECT payload_json AS payloadJson
-             FROM cloud_journal_admission_receipts WHERE id = ?`,
-        )
-        .get(record.id) as { payloadJson?: unknown } | undefined;
-      if (
-        typeof admitted?.payloadJson === "string" &&
-        admitted.payloadJson !== record.payloadJson
-      ) {
-        throw new Error("Cloud journal append id was reused with new payload.");
-      }
-      if (admitted) return { replayed: true };
-
-      const now = Date.now();
-      this.db
-        .prepare(
-          `INSERT INTO cloud_journal_admission_receipts (
-             id, payload_json, created_at
-           ) VALUES (?, ?, ?)`,
-        )
-        .run(record.id, record.payloadJson, now);
-      this.db
-        .prepare(
-          `INSERT INTO cloud_journal_outbox (
-             id, conversation_id, device_id, append_id, payload_json,
-             attempts, last_error, dead_lettered_at, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)`,
-        )
-        .run(
-          record.id,
-          record.conversationId,
-          record.deviceId,
-          record.appendId,
-          record.payloadJson,
-          now,
-          now,
-        );
-      // One cheap indexed cleanup per admission keeps this operational dedupe
-      // table bounded without coupling it to cloud delivery success.
-      this.db
-        .prepare(
-          `DELETE FROM cloud_journal_admission_receipts
-            WHERE created_at < ?`,
-        )
-        .run(now - 30 * 24 * 60 * 60_000);
-      return { replayed: false };
-    }, "immediate");
-  }
-
-  beginVoiceToolCallReceipt(args: {
-    conversationId: string;
-    callId: string;
-    requestFingerprint: string;
-    operationId: string;
-    startedAt: number;
-  }): VoiceToolCallReceipt {
-    const conversationId = this.sanitizeConversationId(args.conversationId);
-    const callId = asTrimmedString(args.callId);
-    const requestFingerprint = asTrimmedString(args.requestFingerprint);
-    const operationId = asTrimmedString(args.operationId);
-    if (
-      !callId ||
-      !requestFingerprint ||
-      !operationId ||
-      !Number.isSafeInteger(args.startedAt) ||
-      args.startedAt < 0
-    ) {
-      throw new Error("Voice tool receipt identity is invalid.");
-    }
-    return this.withTransaction(() => {
-      const existing = this.db
-        .prepare(
-          `SELECT request_fingerprint AS requestFingerprint,
-                  operation_id AS operationId,
-                  started_at AS startedAt,
-                  completion_json AS completionJson
-             FROM voice_tool_call_receipts
-            WHERE conversation_id = ? AND call_id = ?`,
-        )
-        .get(conversationId, callId) as
-        | {
-            requestFingerprint?: unknown;
-            operationId?: unknown;
-            startedAt?: unknown;
-            completionJson?: unknown;
-          }
-        | undefined;
-      if (existing) {
-        if (existing.requestFingerprint !== requestFingerprint) {
-          throw new Error(
-            "Voice tool call id was reused with different arguments.",
-          );
-        }
-        const existingOperationId = asTrimmedString(existing.operationId);
-        const existingStartedAt = asFiniteNumber(existing.startedAt);
-        if (!existingOperationId || existingStartedAt === null) {
-          throw new Error("Voice tool receipt is malformed.");
-        }
-        return typeof existing.completionJson === "string"
-          ? {
-              status: "completed" as const,
-              operationId: existingOperationId,
-              startedAt: existingStartedAt,
-              completionJson: existing.completionJson,
-            }
-          : {
-              status: "pending" as const,
-              operationId: existingOperationId,
-              startedAt: existingStartedAt,
-            };
-      }
-      this.db
-        .prepare(
-          `INSERT INTO voice_tool_call_receipts (
-             conversation_id, call_id, request_fingerprint, operation_id,
-             started_at, completion_json, completed_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, NULL, NULL, ?)`,
-        )
-        .run(
-          conversationId,
-          callId,
-          requestFingerprint,
-          operationId,
-          args.startedAt,
-          args.startedAt,
-        );
-      return {
-        status: "started" as const,
-        operationId,
-        startedAt: args.startedAt,
-      };
-    }, "immediate");
-  }
-
-  completeVoiceToolCallReceipt(args: {
-    conversationId: string;
-    callId: string;
-    requestFingerprint: string;
-    completionJson: string;
-  }): void {
-    const conversationId = this.sanitizeConversationId(args.conversationId);
-    const callId = asTrimmedString(args.callId);
-    const requestFingerprint = asTrimmedString(args.requestFingerprint);
-    if (!callId || !requestFingerprint || !args.completionJson) {
-      throw new Error("Voice tool completion is invalid.");
-    }
-    this.withTransaction(() => {
-      const existing = this.db
-        .prepare(
-          `SELECT request_fingerprint AS requestFingerprint,
-                  completion_json AS completionJson
-             FROM voice_tool_call_receipts
-            WHERE conversation_id = ? AND call_id = ?`,
-        )
-        .get(conversationId, callId) as
-        | { requestFingerprint?: unknown; completionJson?: unknown }
-        | undefined;
-      if (!existing || existing.requestFingerprint !== requestFingerprint) {
-        throw new Error("Voice tool receipt does not own this completion.");
-      }
-      if (typeof existing.completionJson === "string") {
-        if (existing.completionJson !== args.completionJson) {
-          throw new Error(
-            "Voice tool call was completed with a different result.",
-          );
-        }
-        return;
-      }
-      const now = Date.now();
-      this.db
-        .prepare(
-          `UPDATE voice_tool_call_receipts
-              SET completion_json = ?, completed_at = ?, updated_at = ?
-            WHERE conversation_id = ? AND call_id = ?
-              AND completion_json IS NULL`,
-        )
-        .run(args.completionJson, now, now, conversationId, callId);
-    }, "immediate");
-  }
-
-  listCloudJournalOutbox(limit = 256): CloudJournalOutboxRecord[] {
-    return this.db
-      .prepare(
-        `SELECT
-           sequence,
-           id,
-           conversation_id AS conversationId,
-           device_id AS deviceId,
-           append_id AS appendId,
-           payload_json AS payloadJson,
-           attempts,
-           last_error AS lastError,
-           dead_lettered_at AS deadLetteredAt,
-           created_at AS createdAt,
-           updated_at AS updatedAt
-         FROM cloud_journal_outbox
-         WHERE dead_lettered_at IS NULL
-         ORDER BY sequence ASC
-         LIMIT ?`,
-      )
-      .all(Math.max(1, Math.floor(limit))) as CloudJournalOutboxRow[];
-  }
-
-  countCloudJournalOutbox(): number {
-    const row = this.db
-      .prepare(
-        `SELECT COUNT(*) AS count
-           FROM cloud_journal_outbox
-          WHERE dead_lettered_at IS NULL`,
-      )
-      .get() as { count?: unknown } | undefined;
-    return typeof row?.count === "number" ? row.count : 0;
-  }
-
-  markCloudJournalOutboxAttempt(id: string, error?: string): void {
-    this.db
-      .prepare(
-        `UPDATE cloud_journal_outbox
-            SET attempts = attempts + 1,
-                last_error = ?,
-                updated_at = ?
-          WHERE id = ?`,
-      )
-      .run(error?.slice(0, 500) ?? null, Date.now(), id);
-  }
-
-  deleteCloudJournalOutbox(id: string): void {
-    this.db.prepare("DELETE FROM cloud_journal_outbox WHERE id = ?").run(id);
-  }
-
-  deadLetterCloudJournalOutbox(id: string, reason: string): void {
-    const now = Date.now();
-    this.db
-      .prepare(
-        `UPDATE cloud_journal_outbox
-            SET payload_json = '{}',
-                last_error = ?,
-                dead_lettered_at = ?,
-                updated_at = ?
-          WHERE id = ?`,
-      )
-      .run(reason.slice(0, 500), now, now, id);
-  }
-
-  putComputerAgentCloudOutbox(record: {
-    id: string;
-    kind: ComputerAgentCloudOutboxKind;
-    threadId: string;
-    attemptGeneration: number;
-    ownerScope: string | null;
-    payloadJson: string;
-  }): void {
-    const now = Date.now();
-    this.db
-      .prepare(
-        `INSERT INTO computer_agent_cloud_outbox (
-           id, kind, thread_id, attempt_generation, owner_scope, payload_json,
-           attempts, next_attempt_at, last_error, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, NULL, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           payload_json = excluded.payload_json,
-           next_attempt_at = MIN(
-             computer_agent_cloud_outbox.next_attempt_at,
-             excluded.next_attempt_at
-           ),
-           last_error = NULL,
-           updated_at = excluded.updated_at`,
-      )
-      .run(
-        record.id,
-        record.kind,
-        record.threadId,
-        record.attemptGeneration,
-        record.ownerScope,
-        record.payloadJson,
-        now,
-        now,
-        now,
-      );
-  }
-
-  listComputerAgentCloudOutbox(
-    ownerScope: string,
-    limit = 256,
-  ): ComputerAgentCloudOutboxRecord[] {
-    return this.db
-      .prepare(
-        `SELECT
-           sequence,
-           id,
-           kind,
-           thread_id AS threadId,
-           attempt_generation AS attemptGeneration,
-           owner_scope AS ownerScope,
-           payload_json AS payloadJson,
-           attempts,
-           next_attempt_at AS nextAttemptAt,
-           last_error AS lastError,
-           created_at AS createdAt,
-           updated_at AS updatedAt
-         FROM computer_agent_cloud_outbox
-         WHERE owner_scope = ?
-         ORDER BY sequence ASC
-         LIMIT ?`,
-      )
-      .all(
-        ownerScope,
-        Math.max(1, Math.floor(limit)),
-      ) as ComputerAgentCloudOutboxRow[];
-  }
-
-  countComputerAgentCloudOutbox(): number {
-    const row = this.db
-      .prepare(
-        `SELECT COUNT(*) AS count
-           FROM computer_agent_cloud_outbox`,
-      )
-      .get() as { count?: unknown } | undefined;
-    return typeof row?.count === "number" ? row.count : 0;
-  }
-
-  markComputerAgentCloudOutboxRetry(args: {
-    id: string;
-    error: string;
-    nextAttemptAt: number;
-  }): void {
-    this.db
-      .prepare(
-        `UPDATE computer_agent_cloud_outbox
-            SET attempts = attempts + 1,
-                next_attempt_at = ?,
-                last_error = ?,
-                updated_at = ?
-          WHERE id = ?`,
-      )
-      .run(
-        Math.max(Date.now(), Math.floor(args.nextAttemptAt)),
-        args.error.slice(0, 500),
-        Date.now(),
-        args.id,
-      );
-  }
-
-  resumeComputerAgentCloudOutbox(ownerScope: string): void {
-    const now = Date.now();
-    this.db
-      .prepare(
-        `UPDATE computer_agent_cloud_outbox
-            SET next_attempt_at = MIN(next_attempt_at, ?),
-                updated_at = ?
-          WHERE owner_scope = ? AND next_attempt_at > ?`,
-      )
-      .run(now, now, ownerScope, now);
-  }
-
-  getComputerAgentCloudThreadOwnerScope(threadId: string): string | null {
-    const row = this.db
-      .prepare(
-        `SELECT owner_scope AS ownerScope
-           FROM computer_agent_cloud_thread_owners
-          WHERE thread_id = ?
-          LIMIT 1`,
-      )
-      .get(threadId) as { ownerScope?: unknown } | undefined;
-    return typeof row?.ownerScope === "string" && row.ownerScope.trim()
-      ? row.ownerScope
-      : null;
-  }
-
-  hasUnscopedComputerAgentCloudOutbox(threadId: string): boolean {
-    return Boolean(
-      this.db
-        .prepare(
-          `SELECT 1
-             FROM computer_agent_cloud_outbox
-            WHERE thread_id = ? AND owner_scope IS NULL
-            LIMIT 1`,
-        )
-        .get(threadId),
-    );
-  }
-
-  bindComputerAgentCloudThreadOwnerScope(
-    threadId: string,
-    ownerScope: string,
-  ): string {
-    const now = Date.now();
-    this.db
-      .prepare(
-        `INSERT INTO computer_agent_cloud_thread_owners (
-           thread_id, owner_scope, created_at, updated_at
-         ) VALUES (?, ?, ?, ?)
-         ON CONFLICT(thread_id) DO NOTHING`,
-      )
-      .run(threadId, ownerScope, now, now);
-    return (
-      this.getComputerAgentCloudThreadOwnerScope(threadId) ?? ownerScope
-    );
-  }
-
-  deleteComputerAgentCloudOutbox(id: string): void {
-    this.db
-      .prepare("DELETE FROM computer_agent_cloud_outbox WHERE id = ?")
-      .run(id);
-  }
-
-  private sanitizeConversationId(value: unknown): string {
-    const conversationId = asTrimmedString(value);
-    if (!conversationId) {
-      throw new Error("conversationId is required.");
-    }
-    return conversationId;
-  }
   upsertSession(sessionId, updatedAt) {
     this.db
       .prepare(
@@ -2686,6 +1771,13 @@ export class SessionStore {
         ? { channelEnvelope: asObject(meta?.channelEnvelope) }
         : {}),
     };
+  }
+  private sanitizeConversationId(value: unknown): string {
+    const conversationId = asTrimmedString(value);
+    if (!conversationId) {
+      throw new Error("conversationId is required.");
+    }
+    return conversationId;
   }
   appendEvent(args) {
     const conversationId = this.sanitizeConversationId(args.conversationId);
@@ -4603,8 +3695,7 @@ export class SessionStore {
    * workspace-creation requests in the window don't make pagination
    * state latch against the wrong threshold.
    *
-   * Mirror this in lockstep with `groupEventsIntoMessages` on the
-   * renderer so cloud-mode and local-mode produce identical shapes.
+   * Mirror this in lockstep with `groupEventsIntoMessages` on the renderer.
    */
   assembleMessageWindow(rows) {
     const messages = [];
@@ -5292,20 +4383,6 @@ export class SessionStore {
         storage,
       };
     });
-    const capture = this.ephemeralThreadCaptures.get(threadKey);
-    if (capture) {
-      for (const { message, storage } of prepared) {
-        const payload = storage.data.message;
-        capture.appendedMessages.push({
-          ...message,
-          threadKey,
-          role: payload.role,
-          payload,
-          entryId: `ephemeral:${capture.captureId}:${capture.appendedMessages.length}`,
-        });
-      }
-      return;
-    }
     const conversationId = this.getThreadConversationId(threadKey);
     const appended = [];
     this.withImmediateTransaction(() => {
@@ -5411,8 +4488,7 @@ export class SessionStore {
       });
       this.touchThread(threadKey);
     });
-    // v2 does not emit a transcript update for custom-message appends (only
-    // real messages and compaction); the cloud journal re-reads them.
+    // Custom messages are projected through the local thread entry stream.
   }
   appendThreadLifecycleEvent(message) {
     const threadKey = normalizeRuntimeThreadId(message.threadKey);
@@ -5496,17 +4572,14 @@ export class SessionStore {
     if (!threadKey) {
       throw new Error("threadKey is required.");
     }
-    const capture = this.ephemeralThreadCaptures.get(threadKey);
-    const latestCompaction = capture || limit
+    const latestCompaction = limit
       ? null
       : this.findLatestRangeCompaction(threadKey);
-    const messages = capture
-      ? [...capture.seedMessages, ...capture.appendedMessages]
-      : latestCompaction
-        ? this.loadThreadMessagesAfterCompaction(threadKey, latestCompaction)
-        : buildThreadMessagesFromEntries(
-            this.loadThreadSessionEntries(threadKey, limit),
-          );
+    const messages = latestCompaction
+      ? this.loadThreadMessagesAfterCompaction(threadKey, latestCompaction)
+      : buildThreadMessagesFromEntries(
+          this.loadThreadSessionEntries(threadKey, limit),
+        );
     const normalizedLimit =
       typeof limit === "number" && Number.isFinite(limit)
         ? Math.max(1, Math.floor(limit))
@@ -5544,12 +4617,9 @@ export class SessionStore {
   ): Array<RuntimeThreadMessage & { entryId: string }> {
     const threadKey = normalizeRuntimeThreadId(threadKeyInput);
     if (!threadKey) throw new Error("threadKey is required.");
-    const capture = this.ephemeralThreadCaptures.get(threadKey);
-    const raw = capture
-      ? [...capture.seedMessages, ...capture.appendedMessages]
-      : buildRawThreadMessages(
-          buildThreadPathEntries(this.loadThreadSessionEntries(threadKey)),
-        );
+    const raw = buildRawThreadMessages(
+      buildThreadPathEntries(this.loadThreadSessionEntries(threadKey)),
+    );
     const normalizedLimit =
       typeof limit === "number" && Number.isFinite(limit)
         ? Math.max(1, Math.floor(limit))
@@ -5557,148 +4627,6 @@ export class SessionStore {
     return normalizedLimit ? raw.slice(-normalizedLimit) : raw;
   }
 
-  beginEphemeralThreadCapture(args: {
-    threadKey: string;
-    captureId: string;
-    seedMessages?: Array<{
-      timestamp?: number;
-      role: string;
-      content: string;
-      toolCallId?: string;
-      payload?: RuntimeThreadMessage["payload"];
-      customMessage?: RuntimeThreadMessage["customMessage"];
-    }>;
-  }): void {
-    const threadKey = normalizeRuntimeThreadId(args.threadKey);
-    const captureId = args.captureId.trim();
-    if (!threadKey || !captureId) {
-      throw new Error("threadKey and captureId are required.");
-    }
-    const existing = this.ephemeralThreadCaptures.get(threadKey);
-    if (existing && existing.captureId !== captureId) {
-      throw new Error("A different ephemeral thread capture is active.");
-    }
-    if (existing) return;
-    const seedMessages = (args.seedMessages ?? []).map((message, index) => {
-      if (
-        message.role !== "user" &&
-        message.role !== "assistant" &&
-        message.role !== "toolResult" &&
-        message.role !== "runtimeInternal"
-      ) {
-        throw new Error("Ephemeral thread capture seed has an invalid role.");
-      }
-      const role = message.role as RuntimeThreadMessage["role"];
-      return {
-        threadKey,
-        entryId: `ephemeral:${captureId}:seed:${index}`,
-        timestamp:
-          typeof message.timestamp === "number" &&
-          Number.isFinite(message.timestamp)
-            ? message.timestamp
-            : 0,
-        role,
-        content: message.content,
-        ...(message.toolCallId ? { toolCallId: message.toolCallId } : {}),
-        ...(message.payload ? { payload: message.payload } : {}),
-        ...(message.customMessage
-          ? { customMessage: message.customMessage }
-          : {}),
-      };
-    });
-    this.ephemeralThreadCaptures.set(threadKey, {
-      captureId,
-      seedMessages,
-      appendedMessages: [],
-    });
-  }
-
-  readEphemeralThreadCapture(args: {
-    threadKey: string;
-    captureId: string;
-  }): Array<RuntimeThreadMessage & { entryId: string }> {
-    const threadKey = normalizeRuntimeThreadId(args.threadKey);
-    const capture = threadKey
-      ? this.ephemeralThreadCaptures.get(threadKey)
-      : undefined;
-    if (!capture || capture.captureId !== args.captureId) {
-      throw new Error("Ephemeral thread capture is not active.");
-    }
-    return capture.appendedMessages.map((message) => ({ ...message }));
-  }
-
-  endEphemeralThreadCapture(args: {
-    threadKey: string;
-    captureId: string;
-  }): void {
-    const threadKey = normalizeRuntimeThreadId(args.threadKey);
-    const capture = threadKey
-      ? this.ephemeralThreadCaptures.get(threadKey)
-      : undefined;
-    if (!capture) return;
-    if (capture.captureId !== args.captureId) {
-      throw new Error("Ephemeral thread capture belongs to another run.");
-    }
-    this.ephemeralThreadCaptures.delete(threadKey!);
-  }
-
-  getThreadEntryInsertionSequenceWatermark(threadKeyInput: string): number {
-    const threadKey = normalizeRuntimeThreadId(threadKeyInput);
-    if (!threadKey) throw new Error("threadKey is required.");
-    const row = this.db
-      .prepare(
-        `
-        SELECT MAX(insertion_sequence) AS watermark
-        FROM runtime_thread_entries
-        WHERE thread_key = ?
-      `,
-      )
-      .get(threadKey) as { watermark?: unknown } | undefined;
-    return typeof row?.watermark === "number" ? row.watermark : 0;
-  }
-
-  /**
-   * Reads only entries appended after a durable insertion boundary. Cloud
-   * transcript finalization uses this suffix instead of rescanning and
-   * serializing the entire local thread on every turn.
-   */
-  loadRawThreadMessagesAfterInsertionSequence(
-    threadKeyInput: string,
-    afterInsertionSequence: number,
-  ): Array<RuntimeThreadMessage & { entryId: string }> {
-    const threadKey = normalizeRuntimeThreadId(threadKeyInput);
-    if (!threadKey) throw new Error("threadKey is required.");
-    const normalizedBoundary =
-      Number.isFinite(afterInsertionSequence) && afterInsertionSequence >= 0
-        ? Math.floor(afterInsertionSequence)
-        : 0;
-    const rows = this.db
-      .prepare(
-        `
-        SELECT
-          entry_id AS entryId,
-          parent_entry_id AS parentEntryId,
-          entry_type AS entryType,
-          timestamp_iso AS timestampIso,
-          created_at AS createdAt,
-          data_json AS dataJson
-        FROM runtime_thread_entries
-        WHERE thread_key = ?
-          AND insertion_sequence > ?
-        ORDER BY insertion_sequence ASC, rowid ASC
-      `,
-      )
-      .all(threadKey, normalizedBoundary) as ThreadSessionEntryRow[];
-    const entries = rows
-      .map((row) => parseThreadSessionEntry(row))
-      .filter((entry): entry is RuntimeThreadSessionEntry => entry !== null);
-    return buildRawThreadMessages(entries);
-  }
-
-  /** Exact-thread UI reads the original typed entries, not the compaction
-   * overlay used to rebuild model context. The latter deliberately flattens
-   * tool transport into a text checkpoint, which loses the block semantics
-   * the read-only transcript needs to distinguish authored prose from tools. */
   loadRawThreadMessages(
     threadKey: string,
     limit?: number,
@@ -5987,10 +4915,6 @@ export class SessionStore {
     if (!threadKey) {
       throw new Error("threadKey is required.");
     }
-    // Cloud history is compacted by the Durable Object's bounded canonical
-    // window. A background compaction scheduled during an ephemeral cloud turn
-    // must never persist a summary of that cloud-only history into SQLite.
-    if (this.ephemeralThreadCaptures.has(threadKey)) return;
     const summary = args.summary.trim();
     const fromEntryId = args.fromEntryId?.trim();
     const toEntryId = args.toEntryId?.trim();
@@ -6067,8 +4991,8 @@ export class SessionStore {
       }
       this.touchThread(threadKey);
     });
-    // Single source-tagged transcript update for the cloud journal (nested
-    // `transcriptUpdate` shape); the legacy flat emit is retired.
+    // Emit one source-tagged local transcript update using the nested
+    // `transcriptUpdate` shape.
     if (entryId) {
       this.options.onThreadTranscriptUpdate?.({
         conversationId,
@@ -6956,7 +5880,6 @@ export class SessionStore {
       INSERT INTO runtime_agents (
         thread_id,
         conversation_id,
-        storage_mode,
         agent_type,
         description,
         prompt,
@@ -6980,10 +5903,9 @@ export class SessionStore {
         manager_report_sequence,
         record_revision
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
       ON CONFLICT(thread_id) DO UPDATE SET
         conversation_id = excluded.conversation_id,
-        storage_mode = excluded.storage_mode,
         agent_type = excluded.agent_type,
         description = excluded.description,
         prompt = COALESCE(runtime_agents.prompt, excluded.prompt),
@@ -7013,7 +5935,6 @@ export class SessionStore {
       .get(
         record.threadId,
         record.conversationId,
-        record.storageMode ?? "local",
         record.agentType,
         record.description,
         record.prompt ?? null,
@@ -7224,7 +6145,6 @@ export class SessionStore {
       SELECT
         thread_id,
         conversation_id,
-        storage_mode,
         agent_type,
         description,
         prompt,
@@ -7256,7 +6176,6 @@ export class SessionStore {
       | {
           thread_id: string;
           conversation_id: string;
-          storage_mode: string;
           agent_type: string;
           description: string;
           agent_depth: number;
@@ -7288,7 +6207,6 @@ export class SessionStore {
     return {
       threadId: row.thread_id,
       conversationId: row.conversation_id,
-      storageMode: row.storage_mode === "cloud" ? "cloud" : "local",
       agentType: normalizeRetiredAgentType(row.agent_type),
       description: row.description,
       ...(row.prompt
@@ -7335,7 +6253,6 @@ export class SessionStore {
       SELECT
         thread_id,
         conversation_id,
-        storage_mode,
         agent_type,
         description,
         prompt,
@@ -7366,7 +6283,6 @@ export class SessionStore {
       .all(status) as Array<{
       thread_id: string;
       conversation_id: string;
-      storage_mode: string;
       agent_type: string;
       description: string;
       agent_depth: number;
@@ -7398,7 +6314,6 @@ export class SessionStore {
       return {
         threadId: row.thread_id,
         conversationId: row.conversation_id,
-        storageMode: row.storage_mode === "cloud" ? "cloud" : "local",
         agentType: normalizeRetiredAgentType(row.agent_type),
         description: row.description,
         ...(row.prompt

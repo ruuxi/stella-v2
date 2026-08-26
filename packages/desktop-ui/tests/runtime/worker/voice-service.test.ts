@@ -79,7 +79,6 @@ describe("VoiceRuntimeService direct tool execution", () => {
         conversationId: "conv-1",
         requestId: "call-1",
         agentType: "orchestrator",
-        storageMode: "local",
         allowedToolNames: ["web"],
       }),
     );

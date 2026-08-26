@@ -13,16 +13,11 @@
  * under the preamble row, and the post-tool answer renders as its own
  * row below them.
  *
- * Used by:
- *  - `useFullShellChat` for the cloud-mode chat timeline (no
- *    `listMessages` IPC equivalent on the Convex side yet — phase 2/3
- *    decides whether to add one or drop cloud mode).
- *  - Scheduled-event and optimistic-event overlays merged onto the local
+ * Used by scheduled-event and optimistic-event overlays merged onto the local
  *    messages stream so synthetic user/assistant messages and just-sent
  *    placeholders surface inline without waiting for SQLite to catch up.
  *
- * Keep this in lockstep with the storage-side grouping so cloud-mode
- * and local-mode produce identical shapes.
+ * Keep this in lockstep with the storage-side grouping.
  */
 import type {
   EventRecord,

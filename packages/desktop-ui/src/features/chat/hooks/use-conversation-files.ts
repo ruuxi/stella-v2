@@ -19,7 +19,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { useChatStore } from "@/context/chat-store-context";
 import {
   subscribeToLocalFilesWindow,
   type LocalFilesWindowSnapshot,
@@ -49,10 +48,7 @@ export type ConversationFilesFeed = {
 export const useConversationFiles = (
   conversationId?: string,
 ): ConversationFilesFeed => {
-  const { storageMode } = useChatStore();
-  const isLocalMode = storageMode === "local";
-
-  const visitKey = `${storageMode}:${conversationId ?? ""}`;
+  const visitKey = conversationId ?? "";
   const visitToken = useMemo(() => Symbol(visitKey), [visitKey]);
 
   const [limit, setLimit] = useState(FILES_PAGE_SIZE);
@@ -74,7 +70,7 @@ export const useConversationFiles = (
   const [localRetryTick, setLocalRetryTick] = useState(0);
 
   useEffect(() => {
-    if (!isLocalMode || !conversationId) {
+    if (!conversationId) {
       setSnapshotState({
         visitToken,
         snapshot: {
@@ -127,7 +123,7 @@ export const useConversationFiles = (
       }
       unsubscribe();
     };
-  }, [conversationId, isLocalMode, limit, localRetryTick, visitToken]);
+  }, [conversationId, limit, localRetryTick, visitToken]);
 
   const activeSnapshot =
     snapshotState.visitToken === visitToken
@@ -152,7 +148,7 @@ export const useConversationFiles = (
   }, [activeSnapshot.hasLoaded, files.length, hasOlderFiles, pendingLimit]);
 
   const loadOlder = useCallback(() => {
-    if (!conversationId || !isLocalMode) return;
+    if (!conversationId) return;
     if (!hasOlderFiles) return;
     if (pendingLimit !== null) return;
     const next = limit + FILES_PAGE_SIZE;
@@ -160,13 +156,10 @@ export const useConversationFiles = (
     startTransition(() => {
       setLimit(next);
     });
-  }, [conversationId, hasOlderFiles, isLocalMode, limit, pendingLimit]);
+  }, [conversationId, hasOlderFiles, limit, pendingLimit]);
 
   const isInitialLoading =
-    Boolean(conversationId) &&
-    isLocalMode &&
-    !activeSnapshot.hasLoaded &&
-    files.length === 0;
+    Boolean(conversationId) && !activeSnapshot.hasLoaded && files.length === 0;
 
   return {
     files,

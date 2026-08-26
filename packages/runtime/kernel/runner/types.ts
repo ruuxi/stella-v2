@@ -167,7 +167,6 @@ export type ChatPayload = {
   promptMessages?: RuntimePromptMessage[];
   attachments?: RuntimeAttachmentRef[];
   agentType?: string;
-  storageMode?: "cloud" | "local";
 };
 
 export type RuntimeSendMessageInput = {
@@ -191,7 +190,6 @@ export type RuntimeSendUserMessageInput = RuntimeSendMessageInput & {
 export type ActiveOrchestratorSession = RuntimeExecutionSessionHandle & {
   conversationId: string;
   agentType: string;
-  storageMode?: "cloud" | "local";
   uiVisibility: "visible" | "hidden";
   queueCallbackSwitch: (callbacks: AgentCallbacks) => void;
   queueMessage: (message: AgentMessage, delivery: "steer" | "followUp") => void;
@@ -277,7 +275,6 @@ export type RunnerState = {
   convexClient: ConvexClient | null;
   convexClientUrl: string | null;
   hasConnectedAccount: boolean;
-  cloudSyncEnabled: boolean;
   modelCatalogUpdatedAt: number | null;
   isRunning: boolean;
   isInitialized: boolean;
@@ -390,8 +387,6 @@ export type RunnerContext = {
   appendLocalChatEvent?: StellaHostRunnerOptions["appendLocalChatEvent"];
   notifyThreadActivityUpdated?: StellaHostRunnerOptions["notifyThreadActivityUpdated"];
   getDefaultConversationId?: StellaHostRunnerOptions["getDefaultConversationId"];
-  /** Desktop's writer into a cloud conversation's DO-resident transcript. */
-  cloudTranscript: import("./cloud-transcript-write.js").CloudTranscriptWriter;
   paths: RunnerPaths;
   state: RunnerState;
   hookEmitter: HookEmitter;
@@ -457,7 +452,6 @@ export type RunnerPublicApi = {
   setConvexSiteUrl: (value: string | null) => void;
   setAuthToken: (value: string | null) => void;
   setHasConnectedAccount: (value: boolean) => void;
-  setCloudSyncEnabled: (enabled: boolean) => void;
   setModelCatalogUpdatedAt: (value: number | null) => void;
   start: () => void;
   stop: () => Promise<void>;
@@ -510,13 +504,13 @@ export type RunnerPublicApi = {
     payload: RuntimeAutomationTurnRequest,
   ) => Promise<RuntimeAutomationTurnResult>;
   runBlockingLocalAgent: (
-    request: Omit<AgentToolRequest, "storageMode">,
+    request: AgentToolRequest,
   ) => Promise<
     | { status: "ok"; finalText: string; threadId: string }
     | { status: "error"; finalText: ""; error: string; threadId?: string }
   >;
   createBackgroundAgent: (
-    request: Omit<AgentToolRequest, "storageMode">,
+    request: AgentToolRequest,
   ) => Promise<{ threadId: string }>;
   getActiveAgentCount: () => number;
   listActiveAgentRuns: () => RuntimeActiveRun[];
@@ -553,9 +547,6 @@ export type RunnerPublicApi = {
     decorateUserTimestampTag?: boolean;
     timezone?: string;
   }) => void;
-  appendCloudJournal: import("./cloud-transcript-write.js").CloudTranscriptWriter["append"];
-  beginVoiceToolCallReceipt: RuntimeStore["beginVoiceToolCallReceipt"];
-  completeVoiceToolCallReceipt: RuntimeStore["completeVoiceToolCallReceipt"];
   notifyOrchestratorHistoryChanged: (conversationId: string) => void;
   getVoiceOrchestratorConfig: (
     payload: RuntimeVoiceOrchestratorConfigRequest,

@@ -650,7 +650,6 @@ export function generateShimScript(
       onRuntimeAuthRefreshRequested: function(cb) {
         return subscribe('auth:runtimeRefreshRequested', cb);
       },
-      setCloudSyncEnabled: function() { return resolved(); },
       onAuthCallback: noopSub,
       openFullDiskAccess: noop,
       getPermissionStatus: function() { return invokeCapability('system.getPermissionStatus', 'permissions:getStatus'); },

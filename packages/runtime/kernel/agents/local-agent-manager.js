@@ -37,8 +37,7 @@ import { AGENT_ORCHESTRATION_TOOL_NAMES } from "../tools/defs/task.js";
 import { sanitizeForLogs, truncate } from "../tools/utils.js";
 import { getOrCreateSubagentSession } from "../agent-runtime/subagent-session.js";
 const formatTaskUpdateStatusText = (text) => truncate(text.replace(/\s+/g, " ").trim(), 200);
-const fileRecordKey = (record) =>
-    `${record.kind.type}:${record.path}:${record.kind.type === "update" ? (record.kind.move_path ?? "") : ""}`;
+const fileRecordKey = (record) => `${record.kind.type}:${record.path}:${record.kind.type === "update" ? (record.kind.move_path ?? "") : ""}`;
 /**
  * Append-merge file records, deduped by `(kind, path, move_path)` — the same
  * identity the runner's per-run collectors use. First occurrence wins so a
@@ -46,21 +45,23 @@ const fileRecordKey = (record) =>
  * completing run re-reports the same write.
  */
 const mergeUniqueFileRecords = (existing, incoming) => {
-    if (!incoming?.length) return existing;
-    if (!existing?.length) return [...incoming];
+    if (!incoming?.length)
+        return existing;
+    if (!existing?.length)
+        return [...incoming];
     const out = [];
     const seen = new Set();
     for (const record of [...existing, ...incoming]) {
         const key = fileRecordKey(record);
-        if (seen.has(key)) continue;
+        if (seen.has(key))
+            continue;
         seen.add(key);
         out.push(record);
     }
     return out;
 };
 const ENV_ASSIGNMENT_RE = /\b([A-Za-z_][A-Za-z0-9_]*)=(?:"[^"]*"|'[^']*'|[^\s]+)/g;
-const SECRET_FLAG_RE =
-    /(\s--?(?:api[-_]?key|token|secret|password|passwd|authorization))(?:=|\s+)(?:"[^"]*"|'[^']*'|[^\s]+)/gi;
+const SECRET_FLAG_RE = /(\s--?(?:api[-_]?key|token|secret|password|passwd|authorization))(?:=|\s+)(?:"[^"]*"|'[^']*'|[^\s]+)/gi;
 const TOOL_ACTIVITY_HINT_CHARS = 320;
 const redactEnvironmentValues = (value) => {
     if (Array.isArray(value)) {
@@ -71,7 +72,9 @@ const redactEnvironmentValues = (value) => {
     }
     const output = {};
     for (const [key, entry] of Object.entries(value)) {
-        if (/^(?:env|environment)$/i.test(key) && entry && typeof entry === "object") {
+        if (/^(?:env|environment)$/i.test(key) &&
+            entry &&
+            typeof entry === "object") {
             output[key] = Object.fromEntries(Object.keys(entry).map((envKey) => [envKey, "[REDACTED]"]));
             continue;
         }
@@ -84,16 +87,18 @@ export const sanitizeTaskToolArgsHint = (value) => {
     try {
         const json = JSON.stringify(redactEnvironmentValues(sanitizeForLogs(value)));
         serialized = typeof json === "string" ? json : "";
-    } catch {
+    }
+    catch {
         return "";
     }
-    return truncate(
-        serialized.replace(ENV_ASSIGNMENT_RE, "$1=[REDACTED]").replace(SECRET_FLAG_RE, "$1 [REDACTED]"),
-        TOOL_ACTIVITY_HINT_CHARS,
-    );
+    return truncate(serialized
+        .replace(ENV_ASSIGNMENT_RE, "$1=[REDACTED]")
+        .replace(SECRET_FLAG_RE, "$1 [REDACTED]"), TOOL_ACTIVITY_HINT_CHARS);
 };
 const exitCodeFromToolEnd = (event) => {
-    const details = event.details && typeof event.details === "object" ? event.details : null;
+    const details = event.details && typeof event.details === "object"
+        ? event.details
+        : null;
     const value = details?.exitCode ?? details?.exit_code;
     return typeof value === "number" ? value : undefined;
 };
@@ -113,14 +118,17 @@ const taskToolActivityFromEnd = (event) => {
     return {
         toolCallId: event.toolCallId,
         toolName: event.toolName,
-        label: exitCode === undefined ? `Finished ${event.toolName}` : `${event.toolName} exited ${exitCode}`,
+        label: exitCode === undefined
+            ? `Finished ${event.toolName}`
+            : `${event.toolName} exited ${exitCode}`,
         ...(argsHint ? { argsHint } : {}),
         state: "completed",
         ...(exitCode !== undefined ? { exitCode } : {}),
     };
 };
 const normalizeString = (value) => {
-    if (typeof value !== "string") return undefined;
+    if (typeof value !== "string")
+        return undefined;
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : undefined;
 };
@@ -130,20 +138,18 @@ const normalizeFsPathKey = (candidate, cwd) => {
     return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 };
 const pathsOverlap = (a, b) => {
-    if (a === "*" || b === "*") return true;
-    if (a === b) return true;
+    if (a === "*" || b === "*")
+        return true;
+    if (a === b)
+        return true;
     const sep = path.sep;
     return a.startsWith(`${b}${sep}`) || b.startsWith(`${a}${sep}`);
 };
-const BASH_PATH_PATTERN = String.raw`(?:[A-Za-z]:[\\/]|\\\\|\/|\.\.?[\\/])`;
+const BASH_PATH_PATTERN = String.raw `(?:[A-Za-z]:[\\/]|\\\\|\/|\.\.?[\\/])`;
 const extractBashPath = (command) => {
-    const match = command.match(
-        new RegExp(
-            String.raw`(?:^|\s)(?:"(${BASH_PATH_PATTERN}[^"]+)"|'(${BASH_PATH_PATTERN}[^']+)'|(${BASH_PATH_PATTERN}[^\s"'` +
-                "`" +
-                String.raw`]+))`,
-        ),
-    );
+    const match = command.match(new RegExp(String.raw `(?:^|\s)(?:"(${BASH_PATH_PATTERN}[^"]+)"|'(${BASH_PATH_PATTERN}[^']+)'|(${BASH_PATH_PATTERN}[^\s"'` +
+        "`" +
+        String.raw `]+))`));
     return match?.[1] ?? match?.[2] ?? match?.[3];
 };
 const READ_ONLY_EXEC_TOOLS = new Set([
@@ -190,25 +196,23 @@ const isClearlyReadOnlyExecProgram = (source) => {
 const getFsLockKey = (toolName, args, context) => {
     if (toolName === "Write" || toolName === "Edit") {
         const filePath = normalizeString(args.file_path ?? args.path ?? args.target_path);
-        if (!filePath) return "*";
-        return normalizeFsPathKey(
-            filePath,
-            normalizeString(args.working_directory ?? args.cwd ?? context?.stellaAppDir),
-        );
+        if (!filePath)
+            return "*";
+        return normalizeFsPathKey(filePath, normalizeString(args.working_directory ?? args.cwd ?? context?.stellaAppDir));
     }
     if (toolName === "Bash") {
         const command = normalizeString(args.command);
-        if (!command) return "*";
+        if (!command)
+            return "*";
         const pathFromCommand = extractBashPath(command);
-        if (!pathFromCommand) return "*";
-        return normalizeFsPathKey(
-            pathFromCommand,
-            normalizeString(args.working_directory ?? args.cwd ?? context?.stellaAppDir),
-        );
+        if (!pathFromCommand)
+            return "*";
+        return normalizeFsPathKey(pathFromCommand, normalizeString(args.working_directory ?? args.cwd ?? context?.stellaAppDir));
     }
     if (toolName === "Exec") {
         const source = normalizeString(args.source ?? args.code);
-        if (!source) return "*";
+        if (!source)
+            return "*";
         return isClearlyReadOnlyExecProgram(source) ? null : "*";
     }
     return null;
@@ -326,7 +330,8 @@ export class LocalAgentManager {
             try {
                 this.bootInterruptionEpisodeId =
                     this.opts.persistBootInterruptionSnapshot?.(this.getBootInterruptedThreads()) ?? null;
-            } catch {
+            }
+            catch {
                 // Never let continuation bookkeeping break the boot sweep.
             }
         }
@@ -358,16 +363,6 @@ export class LocalAgentManager {
                 error,
                 audience: "display-only",
             });
-            if (record.storageMode === "cloud") {
-                void this.opts
-                    .completeCloudAgentRecord?.({
-                    agentId: record.threadId,
-                    attemptGeneration: record.attemptGeneration,
-                    status: "canceled",
-                    error,
-                })
-                    .catch(() => undefined);
-            }
         }
     }
     /**
@@ -390,8 +385,11 @@ export class LocalAgentManager {
         }
     }
     consumeTaskMessages(task, recipient) {
-        const queue = recipient === "subagent" ? task.toSubagentQueue : task.toOrchestratorQueue;
-        if (queue.length === 0) return [];
+        const queue = recipient === "subagent"
+            ? task.toSubagentQueue
+            : task.toOrchestratorQueue;
+        if (queue.length === 0)
+            return [];
         const out = [...queue];
         queue.length = 0;
         return out;
@@ -400,11 +398,17 @@ export class LocalAgentManager {
         if (updates.length === 0) {
             return task.prompt;
         }
-        const updateBlock = updates.map((text, index) => `${index + 1}. ${text}`).join("\n");
-        const updateInstruction =
-            "Apply each update per its intent: answer a question or status request and stop; apply new or changed instructions and continue the task. Newer updates override earlier ones.";
+        const updateBlock = updates
+            .map((text, index) => `${index + 1}. ${text}`)
+            .join("\n");
+        const updateInstruction = "Apply each update per its intent: answer a question or status request and stop; apply new or changed instructions and continue the task. Newer updates override earlier ones.";
         if (task.turnCount === 0) {
-            return [task.prompt, "Task updates:", updateBlock, updateInstruction].join("\n\n");
+            return [
+                task.prompt,
+                "Task updates:",
+                updateBlock,
+                updateInstruction,
+            ].join("\n\n");
         }
         return [
             "Task update:",
@@ -516,7 +520,8 @@ export class LocalAgentManager {
                             : {}),
                     };
                 }
-                yield* Number.isFinite(fallbackRecheckMs) && fallbackRecheckMs > 0
+                yield* Number.isFinite(fallbackRecheckMs) &&
+                    fallbackRecheckMs > 0
                     ? Effect.raceFirst(settled, Effect.sleep(fallbackRecheckMs))
                     : settled;
             }
@@ -534,32 +539,42 @@ export class LocalAgentManager {
             this.settleAgentThread(task.threadId);
         }
         const isParked = task.status === "completed" && task.descendantFinalParked;
-        const boundaryState =
-            task.consumedDescendantEventIds.length > 0 || task.descendantWakePending || isParked
-                ? {
-                      consumedEventIds: task.consumedDescendantEventIds.slice(-256),
-                      wakePending: task.descendantWakePending,
-                      ...(isParked ? { finalParked: true } : {}),
-                  }
-                : undefined;
+        const boundaryState = task.consumedDescendantEventIds.length > 0 ||
+            task.descendantWakePending ||
+            isParked
+            ? {
+                consumedEventIds: task.consumedDescendantEventIds.slice(-256),
+                wakePending: task.descendantWakePending,
+                ...(isParked ? { finalParked: true } : {}),
+            }
+            : undefined;
         this.opts.saveAgentRecord?.({
             threadId: task.threadId,
             conversationId: task.conversationId,
-            storageMode: task.storageMode,
             agentType: task.agentType,
             description: task.description,
             ...(task.initialPrompt
                 ? {
-                      prompt: task.initialPrompt,
-                      promptCreatedAt: task.promptCreatedAt,
-                  }
+                    prompt: task.initialPrompt,
+                    promptCreatedAt: task.promptCreatedAt,
+                }
                 : {}),
             agentDepth: task.agentDepth,
-            ...(typeof task.maxAgentDepth === "number" ? { maxAgentDepth: task.maxAgentDepth } : {}),
-            ...(task.parentAgentId ? { parentAgentId: task.parentAgentId } : {}),
-            ...(boundaryState ? { descendantBoundaryState: boundaryState } : {}),
-            ...(task.modelConfigSnapshot ? { modelConfigSnapshot: task.modelConfigSnapshot } : {}),
-            ...(task.toolWorkspaceRoot ? { toolWorkspaceRoot: task.toolWorkspaceRoot } : {}),
+            ...(typeof task.maxAgentDepth === "number"
+                ? { maxAgentDepth: task.maxAgentDepth }
+                : {}),
+            ...(task.parentAgentId
+                ? { parentAgentId: task.parentAgentId }
+                : {}),
+            ...(boundaryState
+                ? { descendantBoundaryState: boundaryState }
+                : {}),
+            ...(task.modelConfigSnapshot
+                ? { modelConfigSnapshot: task.modelConfigSnapshot }
+                : {}),
+            ...(task.toolWorkspaceRoot
+                ? { toolWorkspaceRoot: task.toolWorkspaceRoot }
+                : {}),
             status: task.status === "pending" || isParked ? "running" : task.status,
             attemptGeneration: task.attemptGeneration,
             ...(task.rootRunId ? { rootRunId: task.rootRunId } : {}),
@@ -602,8 +617,10 @@ export class LocalAgentManager {
         const visited = new Set();
         let cursor = this.getAgentState(threadId)?.parentAgentId;
         while (cursor) {
-            if (cursor === ancestorThreadId) return true;
-            if (visited.has(cursor)) return false;
+            if (cursor === ancestorThreadId)
+                return true;
+            if (visited.has(cursor))
+                return false;
             visited.add(cursor);
             cursor = this.getAgentState(cursor)?.parentAgentId;
         }
@@ -611,16 +628,16 @@ export class LocalAgentManager {
     }
     hasActiveDescendants(parentThreadId) {
         for (const task of this.tasks.values()) {
-            if (
-                task.threadId !== parentThreadId &&
+            if (task.threadId !== parentThreadId &&
                 this.isActiveAgentState(task) &&
-                this.isDescendantOf(task.threadId, parentThreadId)
-            ) {
+                this.isDescendantOf(task.threadId, parentThreadId)) {
                 return true;
             }
         }
-        for (const record of this.opts.listAgentRecordsByStatus?.("running") ?? []) {
-            if (!this.tasks.has(record.threadId) && this.isDescendantOf(record.threadId, parentThreadId)) {
+        for (const record of this.opts.listAgentRecordsByStatus?.("running") ??
+            []) {
+            if (!this.tasks.has(record.threadId) &&
+                this.isDescendantOf(record.threadId, parentThreadId)) {
                 return true;
             }
         }
@@ -631,13 +648,11 @@ export class LocalAgentManager {
         // Claude Code, and harnessed Codex share this manager boundary: a
         // General's natural final is not root-facing until every descendant has
         // reached a terminal state.
-        return (
-            task.status === "completed" &&
+        return (task.status === "completed" &&
             task.agentType === AGENT_IDS.GENERAL &&
             (task.modelConfigSnapshot?.engine !== "codex_cli" ||
                 task.modelConfigSnapshot.subscriptionHarnessEnabled === true) &&
-            this.hasActiveDescendants(task.threadId)
-        );
+            this.hasActiveDescendants(task.threadId));
     }
     /**
      * Resolve the thread that owns a subagent's completion routing: its direct
@@ -648,7 +663,8 @@ export class LocalAgentManager {
      */
     resolveOwningParentThread(threadId, parentAgentId) {
         const parent = parentAgentId ?? this.getAgentState(threadId)?.parentAgentId;
-        if (!parent) return undefined;
+        if (!parent)
+            return undefined;
         // The direct parent owns routing, but the whole ancestry still has to be
         // sane: legacy rows can contain multi-node cycles, and attributing a
         // report inside one would route it to a thread that is also its own
@@ -657,30 +673,32 @@ export class LocalAgentManager {
         const visited = new Set([threadId]);
         let cursor = parent;
         while (cursor) {
-            if (visited.has(cursor)) return null;
+            if (visited.has(cursor))
+                return null;
             visited.add(cursor);
             const state = this.getAgentState(cursor);
-            if (!state) return null;
+            if (!state)
+                return null;
             cursor = state.parentAgentId;
         }
         return parent;
     }
     getAgentState(threadId) {
-        return this.tasks.get(threadId) ?? this.opts.getAgentRecord?.(threadId) ?? null;
+        return (this.tasks.get(threadId) ??
+            this.opts.getAgentRecord?.(threadId) ??
+            null);
     }
     evictTerminalTaskIfDurable(task) {
-        if (
-            task.descendantFinalParked ||
-            (task.status !== "completed" && task.status !== "error" && task.status !== "canceled")
-        ) {
+        if (task.descendantFinalParked ||
+            (task.status !== "completed" &&
+                task.status !== "error" &&
+                task.status !== "canceled")) {
             return;
         }
         const persisted = this.opts.getAgentRecord?.(task.threadId);
-        if (
-            !persisted ||
+        if (!persisted ||
             persisted.status !== task.status ||
-            (persisted.attemptGeneration ?? 0) < task.attemptGeneration
-        ) {
+            (persisted.attemptGeneration ?? 0) < task.attemptGeneration) {
             return;
         }
         // The authoritative record, queues, and thread transcript now live in
@@ -689,24 +707,26 @@ export class LocalAgentManager {
         this.tasks.delete(task.threadId);
     }
     isActiveAgentState(task) {
-        return (
-            task?.status === "pending" ||
+        return (task?.status === "pending" ||
             task?.status === "running" ||
-            (task?.status === "completed" && "descendantFinalParked" in task && task.descendantFinalParked)
-        );
+            (task?.status === "completed" &&
+                "descendantFinalParked" in task &&
+                task.descendantFinalParked));
     }
     lifecycleEventId(task, type) {
         return `${task.threadId}:${task.attemptGeneration}:${type}`;
     }
     emitAgentLifecycleEventOnce(event) {
         const eventId = event.eventId?.trim();
-        if (eventId && this.opts.hasAgentLifecycleEvent?.(event.conversationId, eventId, event.type)) {
+        if (eventId &&
+            this.opts.hasAgentLifecycleEvent?.(event.conversationId, eventId, event.type)) {
             return;
         }
         this.opts.onAgentEvent?.(event);
     }
     assertActiveParentChain(request) {
-        if (!request.parentAgentId) return;
+        if (!request.parentAgentId)
+            return;
         const visited = new Set();
         let cursor = request.parentAgentId;
         while (cursor) {
@@ -770,13 +790,16 @@ export class LocalAgentManager {
             // Effect-ratchet pin: fresh attempt seam controller (see
             // resetTaskForNextAttempt above).
             controller: new AbortController(),
-            storageMode: record.storageMode ?? "local",
             parentAgentId: record.parentAgentId,
             descendantFinalParked: false,
-            consumedDescendantEventIds: [...(record.descendantBoundaryState?.consumedEventIds ?? [])],
+            consumedDescendantEventIds: [
+                ...(record.descendantBoundaryState?.consumedEventIds ?? []),
+            ],
             descendantWakePending: record.descendantBoundaryState?.wakePending ?? false,
             modelConfigSnapshot: record.modelConfigSnapshot,
-            ...(record.toolWorkspaceRoot ? { toolWorkspaceRoot: record.toolWorkspaceRoot } : {}),
+            ...(record.toolWorkspaceRoot
+                ? { toolWorkspaceRoot: record.toolWorkspaceRoot }
+                : {}),
             recentActivity: [`Continuing thread: ${truncate(prompt, 200)}`],
             lastActivityAt: Date.now(),
             activeToolCount: 0,
@@ -808,7 +831,8 @@ export class LocalAgentManager {
         this.tasks.set(task.threadId, task);
         if (prioritize) {
             this.pendingQueue.unshift(task.threadId);
-        } else {
+        }
+        else {
             this.pendingQueue.push(task.threadId);
         }
         this.persistTask(task);
@@ -839,7 +863,9 @@ export class LocalAgentManager {
         task.pendingStartAudience = pendingStartAudience;
         // Interjected in-flight work is a `send_input` follow-up, not a spawn.
         task.pendingStartIsFollowUp = true;
-        task.recentActivity = [pendingStartStatusText ?? "Applying task update."];
+        task.recentActivity = [
+            pendingStartStatusText ?? "Applying task update.",
+        ];
         this.pendingQueue.unshift(task.threadId);
         this.persistTask(task);
     }
@@ -880,8 +906,7 @@ export class LocalAgentManager {
                 takeover?.generation !== activeAttempt.generation ||
                 takeover.promise !== activeAttempt.promise ||
                 task.status !== "pending" ||
-                task.attemptGeneration === activeAttempt.generation
-            ) {
+                task.attemptGeneration === activeAttempt.generation) {
                 this.clearAttemptTakeoverTimer(task.threadId, activeAttempt.generation, activeAttempt.promise);
                 return;
             }
@@ -914,8 +939,7 @@ export class LocalAgentManager {
             if (inFlight?.generation !== activeAttempt.generation ||
                 inFlight.promise !== activeAttempt.promise ||
                 pending?.generation !== activeAttempt.generation ||
-                pending.promise !== activeAttempt.promise
-            ) {
+                pending.promise !== activeAttempt.promise) {
                 this.clearAttemptTakeoverTimer(task.threadId, activeAttempt.generation, activeAttempt.promise);
                 return;
             }
@@ -936,10 +960,7 @@ export class LocalAgentManager {
         });
     }
     tryStartNext() {
-        const maxConcurrent = Math.max(
-            1,
-            optsValueOrDefault(this.opts.getMaxConcurrent?.(), this.defaultMaxConcurrent),
-        );
+        const maxConcurrent = Math.max(1, optsValueOrDefault(this.opts.getMaxConcurrent?.(), this.defaultMaxConcurrent));
         // Schedule stale-attempt takeover independently of free global slots.
         // With max concurrency 1, the hung predecessor itself occupies the only
         // slot; waiting until the start loop runs would therefore deadlock before
@@ -952,9 +973,12 @@ export class LocalAgentManager {
             }
         }
         let remainingCandidates = this.pendingQueue.length;
-        while (this.runningCount < maxConcurrent && this.pendingQueue.length > 0 && remainingCandidates > 0) {
+        while (this.runningCount < maxConcurrent &&
+            this.pendingQueue.length > 0 &&
+            remainingCandidates > 0) {
             const threadId = this.pendingQueue.shift();
-            if (!threadId) break;
+            if (!threadId)
+                break;
             remainingCandidates -= 1;
             const task = this.tasks.get(threadId);
             if (!task || task.status !== "pending") {
@@ -980,35 +1004,6 @@ export class LocalAgentManager {
             task.pendingStartIsFollowUp = undefined;
             task.pendingStartAudience = undefined;
             this.persistTask(task);
-            if (task.storageMode === "cloud") {
-                // The local thread id is also the canonical cloud Activity id. Publish
-                // every attempt (including send_input continuations) with its
-                // generation so a late terminal from the prior attempt cannot close
-                // the newly-running row.
-                task.cloudAgentId = task.threadId;
-                task.cloudCreatePromise = this.opts
-                    .createCloudAgentRecord({
-                    agentId: task.threadId,
-                    conversationId: task.conversationId,
-                    description: task.description,
-                    prompt: task.prompt,
-                    agentType: task.agentType,
-                    attemptGeneration: generation,
-                    ...(task.parentAgentId
-                        ? { parentAgentId: task.parentAgentId }
-                        : {}),
-                    ...(typeof task.maxAgentDepth === "number"
-                        ? { maxAgentDepth: task.maxAgentDepth }
-                        : {}),
-                })
-                    .then((created) => {
-                    task.cloudAgentId = created.agentId;
-                })
-                    .catch(() => {
-                    // The agent still runs on this computer. A later attempt republishes
-                    // the row; terminal sync below remains best-effort for this one.
-                });
-            }
             this.opts.onAgentEvent?.({
                 type: "agent-started",
                 conversationId: task.conversationId,
@@ -1026,7 +1021,10 @@ export class LocalAgentManager {
                 generation,
                 controller,
             }).catch(() => undefined);
-            this.inFlightAttempts.set(threadId, { generation, promise: execution });
+            this.inFlightAttempts.set(threadId, {
+                generation,
+                promise: execution,
+            });
             this.opts.superviseAttempt?.({
                 threadId,
                 ...(task.rootRunId ? { rootRunId: task.rootRunId } : {}),
@@ -1046,7 +1044,8 @@ export class LocalAgentManager {
                     this.attemptFibers.delete(threadId);
                 }
                 const activeAttempt = this.inFlightAttempts.get(threadId);
-                if (activeAttempt?.generation === generation && activeAttempt.promise === execution) {
+                if (activeAttempt?.generation === generation &&
+                    activeAttempt.promise === execution) {
                     this.clearAttemptTakeoverTimer(threadId, generation, execution);
                     this.inFlightAttempts.delete(threadId);
                     this.runningCount = Math.max(0, this.runningCount - 1);
@@ -1076,9 +1075,8 @@ export class LocalAgentManager {
     acquireFsLock(threadId, key) {
         return new Promise((resolve) => {
             const attempt = () => {
-                const conflicting = this.activeFsLocks.some(
-                    (lock) => lock.threadId !== threadId && pathsOverlap(lock.key, key),
-                );
+                const conflicting = this.activeFsLocks.some((lock) => lock.threadId !== threadId &&
+                    pathsOverlap(lock.key, key));
                 if (conflicting) {
                     this.fsLockWaiters.push(attempt);
                     return;
@@ -1104,8 +1102,7 @@ export class LocalAgentManager {
         });
     }
     async executeTask(task, attempt) {
-        const isCurrentAttempt = () =>
-            this.tasks.get(task.threadId) === task &&
+        const isCurrentAttempt = () => this.tasks.get(task.threadId) === task &&
             task.attemptGeneration === attempt.generation &&
             task.controller === attempt.controller;
         try {
@@ -1114,12 +1111,7 @@ export class LocalAgentManager {
             // can persist while that async load (or prompt hooks) is in flight;
             // the session then retains `notifyHistoryChanged()` even before its Pi
             // Agent exists and reloads SQLite immediately after creation.
-            const subagentSession = getOrCreateSubagentSession(
-                this.subagentSessions,
-                task.threadId,
-                task.conversationId,
-                task.agentType,
-            );
+            const subagentSession = getOrCreateSubagentSession(this.subagentSessions, task.threadId, task.conversationId, task.agentType);
             const context = await this.opts.fetchAgentContext({
                 conversationId: task.conversationId,
                 agentType: task.agentType,
@@ -1127,11 +1119,18 @@ export class LocalAgentManager {
                 threadId: task.threadId,
                 ...(task.model ? { model: task.model } : {}),
                 ...(task.spawnEngine ? { spawnEngine: task.spawnEngine } : {}),
-                ...(task.spawnReasoningEffort ? { spawnReasoningEffort: task.spawnReasoningEffort } : {}),
-                ...(task.modelConfigSnapshot ? { modelConfigSnapshot: task.modelConfigSnapshot } : {}),
-                ...(task.toolWorkspaceRoot ? { toolWorkspaceRoot: task.toolWorkspaceRoot } : {}),
+                ...(task.spawnReasoningEffort
+                    ? { spawnReasoningEffort: task.spawnReasoningEffort }
+                    : {}),
+                ...(task.modelConfigSnapshot
+                    ? { modelConfigSnapshot: task.modelConfigSnapshot }
+                    : {}),
+                ...(task.toolWorkspaceRoot
+                    ? { toolWorkspaceRoot: task.toolWorkspaceRoot }
+                    : {}),
             });
-            if (!isCurrentAttempt()) return;
+            if (!isCurrentAttempt())
+                return;
             if (context.modelConfigSnapshot) {
                 task.modelConfigSnapshot = context.modelConfigSnapshot;
                 // Persist the exact resolved engine/model after context loading. The
@@ -1151,9 +1150,7 @@ export class LocalAgentManager {
                 // catalog: the allowlist is the authoritative activation list, and a
                 // name on it that is missing from the catalog is still registered
                 // against synthesized metadata rather than dropped.
-                context.toolsAllowlist = context.toolsAllowlist.filter(
-                    (toolName) => !AGENT_ORCHESTRATION_TOOL_NAMES.includes(toolName),
-                );
+                context.toolsAllowlist = context.toolsAllowlist.filter((toolName) => !AGENT_ORCHESTRATION_TOOL_NAMES.includes(toolName));
             }
             context.attemptGeneration = attempt.generation;
             const taskPrompt = this.buildTaskPrompt(task);
@@ -1164,29 +1161,40 @@ export class LocalAgentManager {
                 agentType: task.agentType,
                 agentId: task.threadId,
                 rootRunId: task.rootRunId,
-                ...(task.toolWorkspaceRoot ? { toolWorkspaceRoot: task.toolWorkspaceRoot } : {}),
+                ...(task.toolWorkspaceRoot
+                    ? { toolWorkspaceRoot: task.toolWorkspaceRoot }
+                    : {}),
                 taskDescription: task.description,
                 taskPrompt,
                 agentContext: context,
                 subagentSession,
-                persistToConvex: task.storageMode === "cloud",
                 enableRemoteTools: true,
                 abortSignal: attempt.controller.signal,
                 onProgress: (chunk) => {
-                    if (!isCurrentAttempt() || attempt.controller.signal.aborted || task.status === "canceled") return;
-                    if (typeof chunk !== "string" || !chunk) return;
+                    if (!isCurrentAttempt() ||
+                        attempt.controller.signal.aborted ||
+                        task.status === "canceled")
+                        return;
+                    if (typeof chunk !== "string" || !chunk)
+                        return;
                     task.progressBuffer += chunk;
                     if (task.progressBuffer.length > 4_000) {
                         task.progressBuffer = task.progressBuffer.slice(task.progressBuffer.length - 4_000);
                     }
-                    const compact = task.progressBuffer.replace(/\s+/g, " ").trim();
-                    if (!compact) return;
+                    const compact = task.progressBuffer
+                        .replace(/\s+/g, " ")
+                        .trim();
+                    if (!compact)
+                        return;
                     task.recentActivity = [truncate(compact, 500)];
                     task.lastActivityAt = Date.now();
                 },
                 onStatus: (event) => {
-                    if (event.statusState !== "provider-retry") return;
-                    if (!isCurrentAttempt() || attempt.controller.signal.aborted || task.status === "canceled") {
+                    if (event.statusState !== "provider-retry")
+                        return;
+                    if (!isCurrentAttempt() ||
+                        attempt.controller.signal.aborted ||
+                        task.status === "canceled") {
                         return;
                     }
                     const statusText = event.statusText;
@@ -1215,7 +1223,9 @@ export class LocalAgentManager {
                     // those would otherwise leak `agent-progress` lifecycle events
                     // after `agent-canceled`, leaving a phantom "Working … Task" chip
                     // in the footer that re-adds the task to the live UI state.
-                    if (!isCurrentAttempt() || attempt.controller.signal.aborted || task.status === "canceled") {
+                    if (!isCurrentAttempt() ||
+                        attempt.controller.signal.aborted ||
+                        task.status === "canceled") {
                         return;
                     }
                     const statusText = ev.statusText ?? `Running ${ev.toolName}`;
@@ -1243,7 +1253,9 @@ export class LocalAgentManager {
                     });
                 },
                 onToolEnd: (ev) => {
-                    if (!isCurrentAttempt() || attempt.controller.signal.aborted || task.status === "canceled") {
+                    if (!isCurrentAttempt() ||
+                        attempt.controller.signal.aborted ||
+                        task.status === "canceled") {
                         return;
                     }
                     task.lastActivityAt = Date.now();
@@ -1264,7 +1276,8 @@ export class LocalAgentManager {
                     });
                 },
                 toolExecutor: async (toolName, toolArgs, toolContext, signal) => {
-                    if (!isCurrentAttempt() || attempt.controller.signal.aborted) {
+                    if (!isCurrentAttempt() ||
+                        attempt.controller.signal.aborted) {
                         return { error: "Agent attempt was superseded." };
                     }
                     const scopedContext = {
@@ -1279,11 +1292,13 @@ export class LocalAgentManager {
                     }
                     const release = await this.acquireFsLock(task.threadId, lockKey);
                     try {
-                        if (!isCurrentAttempt() || attempt.controller.signal.aborted) {
+                        if (!isCurrentAttempt() ||
+                            attempt.controller.signal.aborted) {
                             return { error: "Agent attempt was superseded." };
                         }
                         return await this.opts.toolExecutor(toolName, toolArgs, scopedContext, signal);
-                    } finally {
+                    }
+                    finally {
                         release();
                     }
                 },
@@ -1295,28 +1310,34 @@ export class LocalAgentManager {
             // mid-tool without ever emitting a tool-end event.
             try {
                 result = await this.opts.runSubagent(runSubagentArgs);
-            } finally {
+            }
+            finally {
                 if (isCurrentAttempt()) {
                     task.activeToolCount = 0;
                 }
             }
-            if (!isCurrentAttempt()) return;
+            if (!isCurrentAttempt())
+                return;
             task.completedAt = Date.now();
             // Bank this run's collected file records immediately, before any
             // branch below decides the run's fate. A queued follow-up can land
             // too late to steer; banking lets those files survive the boundary.
             task.bankedFileChanges = mergeUniqueFileRecords(task.bankedFileChanges, result.fileChanges);
             task.bankedProducedFiles = mergeUniqueFileRecords(task.bankedProducedFiles, result.producedFiles);
-            if (attempt.controller.signal.aborted || task.status === "canceled") {
+            if (attempt.controller.signal.aborted ||
+                task.status === "canceled") {
                 task.status = "canceled";
                 task.error = task.error ?? "Canceled";
-            } else if (result.interrupted) {
+            }
+            else if (result.interrupted) {
                 task.status = "canceled";
                 task.error = "Canceled";
-            } else if (result.error) {
+            }
+            else if (result.error) {
                 task.status = "error";
                 task.error = result.error;
-            } else {
+            }
+            else {
                 task.status = "completed";
                 task.result = result.result;
                 // Completion rollup = banked records from queued-follow-up
@@ -1327,18 +1348,22 @@ export class LocalAgentManager {
                 task.fileChanges = task.bankedFileChanges;
                 task.producedFiles = task.bankedProducedFiles;
             }
-        } catch (error) {
-            if (!isCurrentAttempt()) return;
+        }
+        catch (error) {
+            if (!isCurrentAttempt())
+                return;
             task.completedAt = Date.now();
             if (attempt.controller.signal.aborted) {
                 task.status = "canceled";
                 task.error = task.error ?? "Canceled";
-            } else {
+            }
+            else {
                 task.status = "error";
                 task.error = error.message ?? "Task failed";
             }
         }
-        if (!isCurrentAttempt()) return;
+        if (!isCurrentAttempt())
+            return;
         if (this.shouldParkFinalForDescendants(task)) {
             // The model is allowed to yield while background descendants continue,
             // but that text is not a root completion. A child terminal report will
@@ -1356,13 +1381,14 @@ export class LocalAgentManager {
         // reclaimed; future tasks for this threadId would build a fresh
         // session if the runtime ever re-enqueues this thread (rare — terminal
         // is sticky). Done before persistTask + lifecycle emit so any
-        // listener-triggered work (e.g. cloud sync) doesn't see stale state.
+        // listener-triggered work doesn't see stale state.
         const session = this.subagentSessions.get(task.threadId);
         if (session && !task.descendantFinalParked) {
             this.subagentSessions.delete(task.threadId);
             try {
                 session.dispose();
-            } catch {
+            }
+            catch {
                 // Best-effort: dispose just aborts the agent and frees the ref.
             }
         }
@@ -1383,8 +1409,12 @@ export class LocalAgentManager {
                         parentAgentId: task.parentAgentId,
                         attemptGeneration: task.attemptGeneration,
                         result: task.result,
-                        ...(task.fileChanges?.length ? { fileChanges: task.fileChanges } : {}),
-                        ...(task.producedFiles?.length ? { producedFiles: task.producedFiles } : {}),
+                        ...(task.fileChanges?.length
+                            ? { fileChanges: task.fileChanges }
+                            : {}),
+                        ...(task.producedFiles?.length
+                            ? { producedFiles: task.producedFiles }
+                            : {}),
                     };
                     // The rollup is now captured on the event — drain the bank so a
                     // send_input re-run's later completion only reveals new files.
@@ -1394,7 +1424,8 @@ export class LocalAgentManager {
                     task.descendantWakePending = false;
                     this.persistTask(task);
                 }
-            } else if (task.status === "error") {
+            }
+            else if (task.status === "error") {
                 this.opts.onAgentEvent?.({
                     type: "agent-failed",
                     conversationId: task.conversationId,
@@ -1407,7 +1438,8 @@ export class LocalAgentManager {
                     attemptGeneration: task.attemptGeneration,
                     error: task.error,
                 });
-            } else if (task.status === "canceled") {
+            }
+            else if (task.status === "canceled") {
                 this.opts.onAgentEvent?.({
                     type: "agent-canceled",
                     conversationId: task.conversationId,
@@ -1423,35 +1455,6 @@ export class LocalAgentManager {
             }
             task.terminalEventEmitted = true;
         }
-        // Sync task completion to Convex in background (non-blocking). A parked
-        // final is not a real terminal — the thread resumes when its descendants
-        // settle, and that later real finish syncs with its own generation.
-        if (task.storageMode === "cloud" && !task.descendantFinalParked) {
-            void (async () => {
-                // Wait for cloud task creation to finish so we have the cloudAgentId
-                if (task.cloudCreatePromise) {
-                    await task.cloudCreatePromise.catch(() => { });
-                }
-                if (!task.cloudAgentId)
-                    return;
-                const status = task.status === "completed"
-                    ? "completed"
-                    : task.status === "canceled"
-                        ? "canceled"
-                        : "error";
-                await this.opts
-                    .completeCloudAgentRecord?.({
-                    agentId: task.cloudAgentId,
-                    attemptGeneration: attempt.generation,
-                    status,
-                    result: task.result ? truncate(task.result, 30_000) : undefined,
-                    error: task.error ? truncate(task.error, 10_000) : undefined,
-                })
-                    .catch(() => {
-                    // Background sync failure — task is still tracked locally
-                });
-            })();
-        }
         this.evictTerminalTaskIfDurable(task);
     }
     async createAgent(request) {
@@ -1460,14 +1463,15 @@ export class LocalAgentManager {
         // (see resetTaskForNextAttempt) — created before the task record so the
         // spawn window is already cancellable.
         const controller = new AbortController();
-        const resolvedThread =
-            this.opts.resolveTaskThread?.({
-                conversationId: request.conversationId,
-                agentType: request.agentType,
-                threadId: request.threadId,
-                nameHint: request.description,
-            }) ?? null;
-        const threadId = resolvedThread?.threadId ?? request.threadId ?? `thread-${++this.nextId}`;
+        const resolvedThread = this.opts.resolveTaskThread?.({
+            conversationId: request.conversationId,
+            agentType: request.agentType,
+            threadId: request.threadId,
+            nameHint: request.description,
+        }) ?? null;
+        const threadId = resolvedThread?.threadId ??
+            request.threadId ??
+            `thread-${++this.nextId}`;
         const createdAt = Date.now();
         const task = {
             threadId,
@@ -1479,18 +1483,26 @@ export class LocalAgentManager {
             promptCreatedAt: createdAt,
             agentType: request.agentType,
             ...(request.model ? { model: request.model } : {}),
-            ...(request.spawnEngine ? { spawnEngine: request.spawnEngine } : {}),
-            ...(request.spawnReasoningEffort ? { spawnReasoningEffort: request.spawnReasoningEffort } : {}),
-            ...(request.modelConfigSnapshot ? { modelConfigSnapshot: request.modelConfigSnapshot } : {}),
-            ...(request.toolWorkspaceRoot ? { toolWorkspaceRoot: request.toolWorkspaceRoot } : {}),
+            ...(request.spawnEngine
+                ? { spawnEngine: request.spawnEngine }
+                : {}),
+            ...(request.spawnReasoningEffort
+                ? { spawnReasoningEffort: request.spawnReasoningEffort }
+                : {}),
+            ...(request.modelConfigSnapshot
+                ? { modelConfigSnapshot: request.modelConfigSnapshot }
+                : {}),
+            ...(request.toolWorkspaceRoot
+                ? { toolWorkspaceRoot: request.toolWorkspaceRoot }
+                : {}),
             agentDepth: Math.max(1, request.agentDepth ?? 1),
-            maxAgentDepth:
-                typeof request.maxAgentDepth === "number" ? Math.max(1, Math.floor(request.maxAgentDepth)) : undefined,
+            maxAgentDepth: typeof request.maxAgentDepth === "number"
+                ? Math.max(1, Math.floor(request.maxAgentDepth))
+                : undefined,
             status: "pending",
             startedAt: createdAt,
             completedAt: null,
             controller,
-            storageMode: request.storageMode ?? "local",
             parentAgentId: request.parentAgentId,
             descendantFinalParked: false,
             consumedDescendantEventIds: [],
@@ -1508,7 +1520,7 @@ export class LocalAgentManager {
         };
         // Re-check immediately before publication. Today the setup above is
         // synchronous, but keeping the invariant at the commit point closes the
-        // spawn-during-pause race if thread/cloud setup later gains an await.
+        // spawn-during-pause race if thread setup later gains an await.
         this.assertActiveParentChain(request);
         this.enqueueTask(task);
         return {
@@ -1544,7 +1556,6 @@ export class LocalAgentManager {
                 taskPrompt: args.prompt,
                 agentContext,
                 subagentSession: session,
-                persistToConvex: false,
                 enableRemoteTools: true,
                 abortSignal: args.signal,
                 toolExecutor: async (toolName, toolArgs, toolContext, signal) => {
@@ -1561,7 +1572,8 @@ export class LocalAgentManager {
                     const release = await this.acquireFsLock(args.agentId, lockKey);
                     try {
                         return await this.opts.toolExecutor(toolName, toolArgs, scopedContext, signal);
-                    } finally {
+                    }
+                    finally {
                         release();
                     }
                 },
@@ -1571,13 +1583,15 @@ export class LocalAgentManager {
                 ...(outcome.error ? { error: outcome.error } : {}),
                 ...(outcome.interrupted ? { interrupted: true } : {}),
             };
-        } finally {
+        }
+        finally {
             const liveSession = this.subagentSessions.get(args.agentId);
             if (liveSession) {
                 this.subagentSessions.delete(args.agentId);
                 try {
                     liveSession.dispose();
-                } catch {
+                }
+                catch {
                     // Best-effort.
                 }
             }
@@ -1592,16 +1606,16 @@ export class LocalAgentManager {
     listActiveDescendantThreadIds(parentThreadId) {
         const threadIds = new Set();
         for (const task of this.tasks.values()) {
-            if (
-                task.threadId !== parentThreadId &&
+            if (task.threadId !== parentThreadId &&
                 this.isDescendantOf(task.threadId, parentThreadId) &&
-                this.isActiveAgentState(task)
-            ) {
+                this.isActiveAgentState(task)) {
                 threadIds.add(task.threadId);
             }
         }
-        for (const record of this.opts.listAgentRecordsByStatus?.("running") ?? []) {
-            if (record.threadId !== parentThreadId && this.isDescendantOf(record.threadId, parentThreadId)) {
+        for (const record of this.opts.listAgentRecordsByStatus?.("running") ??
+            []) {
+            if (record.threadId !== parentThreadId &&
+                this.isDescendantOf(record.threadId, parentThreadId)) {
                 threadIds.add(record.threadId);
             }
         }
@@ -1610,13 +1624,15 @@ export class LocalAgentManager {
     async cascadeCancelChildren(parentThreadId, reason) {
         // Old persisted data may contain parent cycles from before ownership was
         // guarded. Keep pause durable without recursively walking such a cycle.
-        if (this.cancelCascadeInProgress.has(parentThreadId)) return;
+        if (this.cancelCascadeInProgress.has(parentThreadId))
+            return;
         this.cancelCascadeInProgress.add(parentThreadId);
         try {
             for (const childThreadId of this.listActiveDescendantThreadIds(parentThreadId)) {
                 await this.cancelAgent(childThreadId, reason);
             }
-        } finally {
+        }
+        finally {
             this.cancelCascadeInProgress.delete(parentThreadId);
         }
     }
@@ -1629,15 +1645,13 @@ export class LocalAgentManager {
         if (persisted) {
             return this.buildPersistedSnapshot(persisted);
         }
-        // Cloud-owned threads with no local footprint (spawned before this
-        // worker took over, or already pruned locally) still resolve through
-        // the canonical cloud record.
-        return (await this.opts.getCloudAgentRecord?.(agentId)) ?? null;
+        return null;
     }
     getActiveAgentCount() {
         let count = 0;
         for (const task of this.tasks.values()) {
-            if (!this.isActiveAgentState(task)) continue;
+            if (!this.isActiveAgentState(task))
+                continue;
             count++;
         }
         return count;
@@ -1645,9 +1659,11 @@ export class LocalAgentManager {
     listActiveAgentRuns() {
         const byRunId = new Map();
         for (const task of this.tasks.values()) {
-            if (!this.isActiveAgentState(task)) continue;
+            if (!this.isActiveAgentState(task))
+                continue;
             const runId = task.rootRunId ?? task.threadId;
-            if (!runId) continue;
+            if (!runId)
+                continue;
             byRunId.set(runId, {
                 runId,
                 conversationId: task.conversationId,
@@ -1657,7 +1673,7 @@ export class LocalAgentManager {
     }
     /**
      * Cancel every pending/running task and await the cancellation cascades
-     * (descendant fan-out, cloud record updates, session disposal). Joining
+     * (descendant fan-out and session disposal). Joining
      * the in-flight attempt promises themselves is the kernel supervisor's job
      * (`superviseAttempt`), which interrupts and joins them at shutdown.
      */
@@ -1709,11 +1725,9 @@ export class LocalAgentManager {
         const local = this.tasks.get(agentId);
         if (local) {
             const wasParked = local.status === "completed" && local.descendantFinalParked;
-            if (
-                (local.status === "completed" && !wasParked) ||
+            if ((local.status === "completed" && !wasParked) ||
                 local.status === "error" ||
-                local.status === "canceled"
-            ) {
+                local.status === "canceled") {
                 await this.cascadeCancelChildren(agentId, reason);
                 return { canceled: true };
             }
@@ -1759,14 +1773,15 @@ export class LocalAgentManager {
                 this.subagentSessions.delete(agentId);
                 try {
                     session.dispose();
-                } catch {
+                }
+                catch {
                     // Best-effort.
                 }
             }
-            if (
-                (!local.terminalEventEmitted || wasParked) &&
-                (previousStatus === "pending" || previousStatus === "running" || wasParked)
-            ) {
+            if ((!local.terminalEventEmitted || wasParked) &&
+                (previousStatus === "pending" ||
+                    previousStatus === "running" ||
+                    wasParked)) {
                 const cancellationEventId = this.lifecycleEventId(local, "agent-canceled");
                 this.persistTask(local);
                 this.opts.onAgentEvent?.({
@@ -1785,15 +1800,6 @@ export class LocalAgentManager {
             }
             this.persistTask(local);
             await this.cascadeCancelChildren(agentId, local.error);
-            if (local.storageMode === "cloud" && local.cloudAgentId) {
-                // Never mirror a cancel before the running row is published: the
-                // start enqueue and this cancel share the attempt generation, so
-                // ordering is what keeps the canonical row from resurrecting.
-                if (local.cloudCreatePromise) {
-                    await local.cloudCreatePromise.catch(() => undefined);
-                }
-                await this.opts.cancelCloudAgentRecord?.(local.cloudAgentId, local.error, local.attemptGeneration);
-            }
             this.evictTerminalTaskIfDurable(local);
             return { canceled: true };
         }
@@ -1807,8 +1813,9 @@ export class LocalAgentManager {
                     status: "canceled",
                     completedAt: Date.now(),
                     error: reason ?? "Canceled",
-                    descendantBoundaryState:
-                        consumedEventIds.length > 0 ? { consumedEventIds, wakePending: false } : undefined,
+                    descendantBoundaryState: consumedEventIds.length > 0
+                        ? { consumedEventIds, wakePending: false }
+                        : undefined,
                     updatedAt: Date.now(),
                 });
                 // Terminal transition outside `persistTask`: wake settlement
@@ -1816,23 +1823,21 @@ export class LocalAgentManager {
                 this.settleAgentThread(agentId);
             }
             await this.cascadeCancelChildren(agentId, reason ?? "Canceled");
-            if (persisted.storageMode === "cloud" && wasActive) {
-                await this.opts.cancelCloudAgentRecord?.(persisted.threadId, reason ?? "Canceled", persisted.attemptGeneration);
-            }
             return { canceled: true };
         }
-        return (await this.opts.cancelCloudAgentRecord?.(agentId, reason)) ?? {
-            canceled: false,
-        };
+        return { canceled: false };
     }
     async sendAgentMessage(agentId, message, from, options) {
         const text = message.trim();
-        if (!text) return { delivered: false };
+        if (!text)
+            return { delivered: false };
         // A child report is already persisted into this thread by the
         // orchestration layer, so the delivered turn input is a pointer rather
         // than a second copy of the report.
         const isChildReport = options?.deliveryKind === "child-report";
-        const deliveryEventId = isChildReport ? options?.deliveryEventId?.trim() || undefined : undefined;
+        const deliveryEventId = isChildReport
+            ? options?.deliveryEventId?.trim() || undefined
+            : undefined;
         // The parent can be root-spawned, so keep even its internal task status
         // free of child-report contents. The wake lifecycle is hidden from root
         // chat below, while Activity/thread inspection may still read this safe
@@ -1840,8 +1845,8 @@ export class LocalAgentManager {
         const updateStatusSource = isChildReport
             ? "Reviewing a subagent's report"
             : (options?.description?.trim() ?? "").length > 0
-              ? options.description
-              : text;
+                ? options.description
+                : text;
         const updateStatusText = formatTaskUpdateStatusText(updateStatusSource);
         const rootRunId = options?.rootRunId?.trim() || undefined;
         // An orchestrator follow-up re-tasks the thread, so the thread adopts
@@ -1849,7 +1854,9 @@ export class LocalAgentManager {
         // Activity row, snapshots, the persisted record) then reflects the
         // latest instruction instead of the original spawn text — per-occurrence
         // surfaces (the inline chat cards) keep their own titles via statusText.
-        const followUpDescription = from === "orchestrator" ? options?.description?.trim() || undefined : undefined;
+        const followUpDescription = from === "orchestrator"
+            ? options?.description?.trim() || undefined
+            : undefined;
         const deliveredInput = isChildReport
             ? "A subagent you started has finished. Review its newly persisted report in this thread and continue your task."
             : text;
@@ -1862,16 +1869,20 @@ export class LocalAgentManager {
             if (!persisted) {
                 return { delivered: false };
             }
-            if (deliveryEventId && persisted.descendantBoundaryState?.consumedEventIds.includes(deliveryEventId)) {
+            if (deliveryEventId &&
+                persisted.descendantBoundaryState?.consumedEventIds.includes(deliveryEventId)) {
                 return { delivered: true };
             }
-            if (isChildReport && (persisted.status === "error" || persisted.status === "canceled")) {
+            if (isChildReport &&
+                (persisted.status === "error" ||
+                    persisted.status === "canceled")) {
                 // A child report wakes an idle parent, but must never resurrect one
                 // the user paused or that failed. The report is already durable in
                 // the thread, so a later explicit send_input still picks it up.
                 if (deliveryEventId) {
                     const consumedEventIds = [
-                        ...(persisted.descendantBoundaryState?.consumedEventIds ?? []),
+                        ...(persisted.descendantBoundaryState
+                            ?.consumedEventIds ?? []),
                         deliveryEventId,
                     ].slice(-256);
                     this.opts.saveAgentRecord?.({
@@ -1924,7 +1935,8 @@ export class LocalAgentManager {
             // that durable row the only report source; a live session refreshes it
             // at the next turn instead of receiving a duplicate prompt copy.
             this.subagentSessions.get(agentId)?.notifyHistoryChanged();
-            if (deliveryEventId && task.consumedDescendantEventIds.includes(deliveryEventId)) {
+            if (deliveryEventId &&
+                task.consumedDescendantEventIds.includes(deliveryEventId)) {
                 return { delivered: true };
             }
             if (task.status === "error" || task.status === "canceled") {
@@ -1941,7 +1953,9 @@ export class LocalAgentManager {
         if (options?.parentAgentId) {
             task.parentAgentId = options.parentAgentId;
         }
-        if (task.status === "completed" || task.status === "error" || task.status === "canceled") {
+        if (task.status === "completed" ||
+            task.status === "error" ||
+            task.status === "canceled") {
             if (from !== "orchestrator") {
                 return { delivered: false };
             }
@@ -1975,7 +1989,9 @@ export class LocalAgentManager {
             // and would otherwise be replayed twice.
             this.resetTaskForNextAttempt(task, deliveredInput);
             task.pendingStartStatusText = updateStatusText;
-            task.pendingStartAudience = isChildReport ? "orchestrator-only" : undefined;
+            task.pendingStartAudience = isChildReport
+                ? "orchestrator-only"
+                : undefined;
             // Re-activating a terminal thread is a `send_input` follow-up.
             task.pendingStartIsFollowUp = true;
             task.recentActivity = [updateStatusText];
@@ -1994,7 +2010,9 @@ export class LocalAgentManager {
             this.enqueueTask(task);
             return { delivered: true };
         }
-        const targetQueue = from === "orchestrator" ? task.toSubagentQueue : task.toOrchestratorQueue;
+        const targetQueue = from === "orchestrator"
+            ? task.toSubagentQueue
+            : task.toOrchestratorQueue;
         if (deliveryEventId) {
             task.consumedDescendantEventIds.push(deliveryEventId);
             task.descendantWakePending = true;
@@ -2019,7 +2037,9 @@ export class LocalAgentManager {
                 task.description = followUpDescription;
             }
             task.pendingStartStatusText = updateStatusText;
-            task.pendingStartAudience = isChildReport ? "orchestrator-only" : undefined;
+            task.pendingStartAudience = isChildReport
+                ? "orchestrator-only"
+                : undefined;
             task.recentActivity = [updateStatusText];
             this.opts.onAgentEvent?.({
                 type: "agent-progress",
@@ -2053,7 +2073,9 @@ export class LocalAgentManager {
                             attemptGeneration: task.attemptGeneration,
                             statusText: updateStatusText,
                             isFollowUp: true,
-                            ...(isChildReport ? { audience: "orchestrator-only" } : {}),
+                            ...(isChildReport
+                                ? { audience: "orchestrator-only" }
+                                : {}),
                         });
                     }
                 }
@@ -2064,8 +2086,9 @@ export class LocalAgentManager {
     }
     async drainAgentMessages(agentId, recipient) {
         const task = this.tasks.get(agentId);
-        if (!task) return [];
+        if (!task)
+            return [];
         return this.consumeTaskMessages(task, recipient);
     }
 }
-const optsValueOrDefault = (value, fallback) => (Number.isFinite(value) ? Math.floor(value) : fallback);
+const optsValueOrDefault = (value, fallback) => Number.isFinite(value) ? Math.floor(value) : fallback;

@@ -19,9 +19,8 @@ const followupDeliveryId = (parts: readonly unknown[]): string =>
     .digest("hex")}`;
 
 /**
- * Cloud-owned turns do not emit canonical assistant rows through local-chat.
- * A spawned-agent completion instead produces one stable terminal run event;
- * project that event directly into the connector follow-up delivery lane.
+ * Spawned-agent completions produce one stable terminal run event. Project
+ * that event directly into the connector follow-up delivery lane.
  */
 export const resolveConnectorTerminalFollowup = (
   event: RuntimeAgentEventPayload,

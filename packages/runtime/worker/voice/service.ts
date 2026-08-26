@@ -46,7 +46,6 @@ type VoiceRunner = {
       userPrompt: string;
       promptMessages?: RuntimePromptMessage[];
       agentType?: string;
-      storageMode?: "cloud" | "local";
     },
     callbacks: {
       onStream: (event: RuntimeStreamEvent) => void;
@@ -255,7 +254,6 @@ export class VoiceRuntimeService {
         runId,
         rootRunId: runId,
         agentType: "orchestrator",
-        storageMode: "local",
         allowedToolNames,
       });
     }
@@ -478,7 +476,6 @@ export class VoiceRuntimeService {
             userMessageId: `voice-${Date.now()}`,
             userPrompt: payload.message,
             agentType: "orchestrator",
-            storageMode: "local",
           },
           {
             onStream: (event) => {

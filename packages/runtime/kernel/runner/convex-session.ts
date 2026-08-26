@@ -154,12 +154,7 @@ export const createConvexSession = (
     disposeConvexClient();
     if (next) {
       options.onAuthTokenSet?.();
-      context.cloudTranscript.resume();
     }
-  };
-
-  const setCloudSyncEnabled = (enabled: boolean) => {
-    context.state.cloudSyncEnabled = Boolean(enabled);
   };
 
   const setModelCatalogUpdatedAt = (value: number | null) => {
@@ -201,7 +196,6 @@ export const createConvexSession = (
     setConvexSiteUrl,
     setAuthToken,
     setHasConnectedAccount,
-    setCloudSyncEnabled,
     setModelCatalogUpdatedAt,
     subscribeQuery,
     getConvexUrl: () => context.state.convexDeploymentUrl,

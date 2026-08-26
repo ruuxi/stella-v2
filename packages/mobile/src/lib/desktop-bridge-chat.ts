@@ -236,7 +236,6 @@ const buildDesktopBridgeStartChatArgs = (args: {
   deviceId: args.access.mobileDeviceId,
   platform: "mobile",
   mode: "computer",
-  storageMode: "local",
   clientRequestId: args.clientRequestId,
   ...(args.userMessageEventId
     ? { userMessageEventId: args.userMessageEventId }

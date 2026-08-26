@@ -1,12 +1,6 @@
 import { watch as fsWatch, type FSWatcher } from "node:fs";
 import path from "node:path";
-import {
-  Effect,
-  Fiber,
-  Layer,
-  ManagedRuntime,
-  Scope,
-} from "effect";
+import { Effect, Fiber, Layer, ManagedRuntime, Scope } from "effect";
 import {
   loadBundledAgents,
   mergeBundledAndExtensionAgents,
@@ -593,11 +587,6 @@ export const createRuntimeInitialization = (
     // instead of observing the previous generation as already open.
     context.state.initializationStarted.reset();
     deps.disposeConvexClient();
-    // The cloud journal writer holds a retry timer and an in-memory queue.
-    // Stopping it before the Convex client is gone would be pointless (it
-    // needs a token to flush) and leaving it running keeps a timer alive past
-    // shutdown, so it is dropped here alongside the client it depends on.
-    context.cloudTranscript.stop();
     // Cancel every live orchestrator turn cooperatively first (the
     // supervisor fires each run's registered abort), then cancel agent
     // tasks (awaited: lifecycle events + managed-child cascades), then
@@ -676,8 +665,7 @@ export const createRuntimeInitialization = (
     await joinWithTimeout(
       context.state.compactionScheduler.shutdown(),
       10_000,
-      () =>
-        logger.warn("runner.stop.compaction-shutdown-timeout", {}),
+      () => logger.warn("runner.stop.compaction-shutdown-timeout", {}),
     );
   };
 

@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { existsSync, promises as fs, readFileSync, watch, } from "node:fs";
+import { existsSync, promises as fs, readFileSync, watch } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { ConvexClient } from "convex/browser";
@@ -18,13 +18,13 @@ import { connectorLocalFollowupDeliveryId, resolveConnectorFollowupAction, resol
 import { ConnectorFollowupOutbox } from "./connector-followup-outbox.js";
 import { getDesktopDatabasePath, initializeDesktopDatabase, } from "../kernel/storage/database-init.js";
 import { METHOD_NAMES, NOTIFICATION_NAMES, STELLA_RUNTIME_PROTOCOL_VERSION, } from "@stella/contracts/protocol";
-import { createRuntimeUnavailableError, } from "@stella/contracts/protocol/rpc-peer";
-import { RuntimeWorkerLifecycleController, } from "./worker-lifecycle.js";
+import { createRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
+import { RuntimeWorkerLifecycleController } from "./worker-lifecycle.js";
 import { buildUdsConnectionFactory, killDetachedWorker, retireDetachedWorkerRoot, } from "./uds-connection.js";
 import { buildStdioConnectionFactory } from "./stdio-connection.js";
 import { resolveRuntimePaths } from "../worker/runtime-paths.js";
 import { Cause, Effect, Exit, Fiber } from "effect";
-import { forkDelayed, hostRuntime, } from "./effect-runtime.js";
+import { forkDelayed, hostRuntime } from "./effect-runtime.js";
 import { clearPendingWorkerRestartFlag, evaluateWorkerStaleness, persistPendingWorkerRestartFlag, quiescencePollEffect, } from "./staleness.js";
 /*
  * Host-side Effect boundary: the staleness/build-stamp handshake, the
@@ -187,7 +187,8 @@ export class StellaRuntimeHost {
         // stellaAppDir — the desktop topology. "child": a private stdio worker
         // owned by this host process, used by headless/test hosts so they never
         // attach to (or restart) a live desktop's detached worker.
-        this.workerMode = this.options.workerMode === "child" ? "child" : "detached";
+        this.workerMode =
+            this.options.workerMode === "child" ? "child" : "detached";
         const onWorkerRpcError = (error) => {
             console.error("[runtime-host] worker RPC error:", error);
         };
@@ -701,7 +702,9 @@ export class StellaRuntimeHost {
                 return;
             }
         }
-        await this.options.hostHandlers.clearSupersededDeviceId?.().catch(() => undefined);
+        await this.options.hostHandlers
+            .clearSupersededDeviceId?.()
+            .catch(() => undefined);
         if (this.deviceIdentity) {
             delete this.deviceIdentity.supersededDeviceId;
         }
@@ -742,9 +745,7 @@ export class StellaRuntimeHost {
                 };
             },
             runLocalTurn: async ({ requestId, conversationId, userPrompt, agentType, modelOverride, provider, externalMessageId, attachments, }) => {
-                const localConversationId = this.configCache.cloudSyncEnabled
-                    ? conversationId || (await this.getOrCreateDefaultConversationId())
-                    : await this.getActiveLocalConversationId();
+                const localConversationId = await this.getActiveLocalConversationId();
                 // Arm follow-up routing before the orchestrator turn runs so any
                 // assistant message the worker persists during this run already
                 // routes back to the connector. The map entry is cleared by the
@@ -1513,7 +1514,6 @@ export class StellaRuntimeHost {
             convexUrl: this.configCache.convexUrl ?? null,
             convexSiteUrl: this.configCache.convexSiteUrl ?? null,
             hasConnectedAccount: this.configCache.hasConnectedAccount ?? false,
-            cloudSyncEnabled: this.configCache.cloudSyncEnabled ?? false,
             modelCatalogUpdatedAt: this.configCache.modelCatalogUpdatedAt ?? null,
             localLlmCredentialsUpdatedAt: this.configCache.localLlmCredentialsUpdatedAt ?? null,
         };

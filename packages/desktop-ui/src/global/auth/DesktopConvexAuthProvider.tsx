@@ -177,20 +177,6 @@ function DesktopAuthRuntimeEffects({
 
   useEffect(() => {
     const systemApi = window.electronAPI?.system;
-    if (!systemApi?.setCloudSyncEnabled) {
-      return;
-    }
-
-    // Cloud sync stays intentionally disabled; auth sessions are local-only for now.
-    void systemApi.setCloudSyncEnabled({ enabled: false });
-
-    return () => {
-      void systemApi.setCloudSyncEnabled({ enabled: false });
-    };
-  }, []);
-
-  useEffect(() => {
-    const systemApi = window.electronAPI?.system;
     if (
       !systemApi?.onRuntimeAuthRefreshRequested ||
       !systemApi.completeRuntimeAuthRefresh

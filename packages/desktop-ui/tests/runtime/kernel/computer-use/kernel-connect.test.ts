@@ -18,7 +18,6 @@ const context = (agentId: string): ToolContext => ({
   agentType: "general",
   stellaAppDir: TEST_WORKSPACE_ROOT,
   toolWorkspaceRoot: TEST_WORKSPACE_ROOT,
-  storageMode: "local",
 });
 
 const stubSessionFactory: ComputerUseSessionFactory = () => ({

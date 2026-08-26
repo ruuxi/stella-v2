@@ -43,8 +43,7 @@ export type ChatColumnConversation = {
   /**
    * File-carrying events (`tool_result` / `agent-completed` whose
    * payload has a non-empty `fileChanges` or `producedFiles` array)
-   * for the conversation. Fed by `useConversationFiles` in local mode
-   * and a `displayEvents` filter in cloud mode. The Recent Files
+   * for the conversation. Fed by `useConversationFiles`. The Recent Files
    * surfaces and Activity tray search read from this rather than scanning
    * `events`.
    */

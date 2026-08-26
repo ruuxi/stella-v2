@@ -38,7 +38,6 @@ import type { LocalChatEventRecord } from "../storage/shared.js";
 import type { ThreadActivityRecord } from "@stella/contracts/local-chat";
 import { createRunnerImageDescriptionService } from "./model-selection.js";
 import { RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE } from "../storage/shared.js";
-import type { ComputerAgentCloudRecords } from "./computer-agent-cloud-records.js";
 
 const collectFileChanges = (
   target: FileChangeRecord[],
@@ -106,9 +105,6 @@ const hasPersistedThreadCustomEvent = (
   eventId: string | undefined,
 ): boolean =>
   findPersistedThreadCustomEvent(context, threadKey, eventId) !== null;
-
-// stella-cloud-side callers use the shorter name for the same check.
-const hasPersistedThreadEvent = hasPersistedThreadCustomEvent;
 
 const getShellExecutionState = (
   result: ToolResult,
@@ -282,15 +278,6 @@ export const appendAgentLifecycleChatEvent = (
   if (!context.appendLocalChatEvent) {
     return;
   }
-  // runtime_agents remains the local operational ledger for both placements,
-  // but a cloud-owned conversation's lifecycle transcript belongs only to the
-  // canonical cloud journal/agent-thread rows.
-  if (
-    context.runtimeStore.getAgentRecord?.(event.agentId)?.storageMode ===
-    "cloud"
-  ) {
-    return;
-  }
   context.appendLocalChatEvent({
     conversationId: event.conversationId,
     type: event.type,
@@ -352,7 +339,6 @@ export const createAgentOrchestration = (
       display?: boolean;
       timestamp?: number;
     }) => Promise<void>;
-    cloudAgentRecords?: ComputerAgentCloudRecords;
     /** Test/embedding override; production uses the manager's bounded default. */
     attemptTeardownTimeoutMs?: number;
   },
@@ -439,7 +425,11 @@ export const createAgentOrchestration = (
           event.conversationId,
         );
         if (
-          !hasPersistedThreadEvent(context, orchestratorThreadId, event.eventId)
+          !hasPersistedThreadCustomEvent(
+            context,
+            orchestratorThreadId,
+            event.eventId,
+          )
         ) {
           persistThreadCustomMessage(context.runtimeStore, {
             threadKey: orchestratorThreadId,
@@ -596,7 +586,6 @@ export const createAgentOrchestration = (
       agentContext,
       taskDescription,
       taskPrompt,
-      persistToConvex,
       abortSignal,
       subagentSession,
       onProgress,
@@ -711,7 +700,6 @@ export const createAgentOrchestration = (
       };
       const result = await runSubagentTask({
         conversationId,
-        storageMode: persistToConvex ? "cloud" : "local",
         userMessageId,
         runId,
         agentId,
@@ -905,14 +893,6 @@ export const createAgentOrchestration = (
         signal,
         onUpdate,
       ),
-    ...(deps.cloudAgentRecords
-      ? {
-          createCloudAgentRecord: deps.cloudAgentRecords.create,
-          completeCloudAgentRecord: deps.cloudAgentRecords.complete,
-          getCloudAgentRecord: deps.cloudAgentRecords.get,
-          cancelCloudAgentRecord: deps.cloudAgentRecords.cancel,
-        }
-      : {}),
     saveAgentRecord: (record: any) => {
       const recordRevision = context.runtimeStore.saveAgentRecord?.(record);
       if (recordRevision === null) return;
@@ -967,7 +947,7 @@ export const createAgentOrchestration = (
         eventId,
         type,
       );
-      const hasOrchestratorReminder = hasPersistedThreadEvent(
+      const hasOrchestratorReminder = hasPersistedThreadCustomEvent(
         context,
         resolveOrchestratorThreadKey(conversationId),
         eventId,
@@ -986,7 +966,7 @@ export const createAgentOrchestration = (
   });
 
   const runBlockingLocalAgent = async (
-    request: Omit<AgentToolRequest, "storageMode">,
+    request: AgentToolRequest,
   ): Promise<
     | { status: "ok"; finalText: string; threadId: string }
     | { status: "error"; finalText: ""; error: string; threadId?: string }
@@ -1000,7 +980,6 @@ export const createAgentOrchestration = (
     }
     const { threadId } = await context.state.localAgentManager.createAgent({
       ...request,
-      storageMode: "local",
     });
     // Effect-native settlement (replaces the historical poll-until-terminal
     // loop): the manager's settlement latch wakes the wait on terminal
@@ -1035,14 +1014,13 @@ export const createAgentOrchestration = (
   };
 
   const createBackgroundAgent = async (
-    request: Omit<AgentToolRequest, "storageMode">,
+    request: AgentToolRequest,
   ): Promise<{ threadId: string }> => {
     if (!context.state.localAgentManager) {
       throw new Error("Local agent manager is unavailable.");
     }
     const { threadId } = await context.state.localAgentManager.createAgent({
       ...request,
-      storageMode: "local",
     });
     return { threadId };
   };
@@ -1070,7 +1048,7 @@ export const createAgentOrchestration = (
     hasDurableExternalLifecycleEvent: (event: AgentLifecycleEvent) => {
       if (!event.eventId) return false;
       if (event.audience === "orchestrator-only") {
-        return hasPersistedThreadEvent(
+        return hasPersistedThreadCustomEvent(
           context,
           resolveOrchestratorThreadKey(event.conversationId),
           event.eventId,
@@ -1086,7 +1064,7 @@ export const createAgentOrchestration = (
       }
       return (
         hasActivityEvent &&
-        hasPersistedThreadEvent(
+        hasPersistedThreadCustomEvent(
           context,
           resolveOrchestratorThreadKey(event.conversationId),
           event.eventId,

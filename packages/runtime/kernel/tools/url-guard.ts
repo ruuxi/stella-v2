@@ -1,7 +1,7 @@
 /**
  * SSRF guard shared by every host that fetches a model- or user-supplied
- * URL: the desktop runtime, the cloud orchestrator DO (workerd), and the
- * sandbox executor. Pure — no node builtins — so workerd can import it.
+ * URL. Pure and free of node builtins so it can be reused by constrained
+ * runtimes.
  *
  * The WHATWG URL parser already canonicalizes exotic IPv4 spellings
  * (decimal `2130706433`, hex `0x7f000001`, octal `0177.0.0.1`, short forms
@@ -16,10 +16,9 @@
  *
  * KNOWN LIMITS, stated plainly rather than implied by omission:
  *
- * 1. Without `resolveHost` (workerd — no resolver API) this guard classifies
+ * 1. Without `resolveHost` this guard classifies
  *    IP LITERALS ONLY. A hostname whose A record points at 169.254.169.254
- *    or any internal address passes it. The cloud `web` tool is in exactly
- *    that position, and since the model chooses the URL, a prompt injection
+ *    or any internal address passes it. Since the model chooses the URL, a prompt injection
  *    can aim it. The only real control there is network egress policy at the
  *    platform edge — treat this function as defense in depth on that path,
  *    not as the boundary.
@@ -179,7 +178,7 @@ export type NormalizeSafePublicUrlOptions = {
   /**
    * Resolve a hostname to the addresses a fetch would actually dial, so
    * DNS names pointing into blocked space are refused. Hosts without a
-   * resolver (workerd) omit it and rely on literal checks plus platform
+   * resolver omit it and rely on literal checks plus platform
    * egress policy.
    */
   resolveHost?: (hostname: string) => Promise<string[]>;

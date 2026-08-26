@@ -35,7 +35,6 @@ describe("image_gen tool schema", () => {
         requestId: "request-1",
         runId: "run-1",
         agentType: "orchestrator",
-        storageMode: "local",
       },
     );
 

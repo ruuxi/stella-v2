@@ -19,7 +19,6 @@ import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { STELLA_DEFAULT_MODEL } from "@stella/contracts/stella-api";
 import type {
   AgentModelConfigSnapshot,
-  CloudExecutionSelection,
   AgentRuntimeEngine,
   SpawnEngineSelection,
   SpawnReasoningEffort,
@@ -44,11 +43,6 @@ export type StateContext = {
     modelName: string,
     reasoningEffort?: SpawnReasoningEffort,
   ) => Promise<void>;
-  resolveCloudExecutionSelection?: (request: {
-    model?: string;
-    spawnEngine?: SpawnEngineSelection;
-    reasoningEffort?: SpawnReasoningEffort;
-  }) => Promise<CloudExecutionSelection>;
   /** Resolve and freeze a spawn's effective engine/model configuration. */
   captureSpawnModelConfig?: (args: {
     agentType: string;
@@ -252,7 +246,6 @@ export const createStateContext = (
   agentApi?: AgentToolApi,
   validateSpawnModel?: (modelName: string) => void,
   validateSpawnModelWithMetadata?: StateContext["validateSpawnModelWithMetadata"],
-  resolveCloudExecutionSelection?: StateContext["resolveCloudExecutionSelection"],
   captureSpawnModelConfig?: StateContext["captureSpawnModelConfig"],
 ): StateContext => ({
   stateRoot,
@@ -260,7 +253,6 @@ export const createStateContext = (
   agentApi,
   validateSpawnModel,
   validateSpawnModelWithMetadata,
-  resolveCloudExecutionSelection,
   captureSpawnModelConfig,
 });
 
@@ -301,32 +293,6 @@ export const handleSendInput = async (
     },
   );
   if (!delivered.delivered) {
-    if (
-      context.agentType === AGENT_IDS.ORCHESTRATOR &&
-      ctx.agentApi.cloudContinue
-    ) {
-      const continued = await ctx.agentApi.cloudContinue({
-        threadId,
-        description,
-        message,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-      });
-      if (continued.delivered) {
-        return {
-          result: {
-            thread_id: threadId,
-            status: "updated",
-            delivered: true,
-            placement: "cloud",
-            note: "The cloud thread is running again. Its terminal report will return to this conversation, including after a desktop restart.",
-          },
-        };
-      }
-      return {
-        error: continued.reason ?? `Thread not found: ${threadId}`,
-      };
-    }
     return { error: delivered.reason ?? `Thread not found: ${threadId}` };
   }
   return {
@@ -484,30 +450,6 @@ export const handleSpawnAgent = async (
         AGENT_PAUSE_CANCEL_REASON,
       );
       if (!canceled.canceled) {
-        if (
-          context.agentType === AGENT_IDS.ORCHESTRATOR &&
-          ctx.agentApi.cloudCancel
-        ) {
-          const cloudCanceled = await ctx.agentApi.cloudCancel({
-            threadId: explicitThreadId,
-            conversationId: context.conversationId,
-            requestId: context.requestId,
-          });
-          if (cloudCanceled.canceled) {
-            return {
-              result: {
-                thread_id: explicitThreadId,
-                status: "canceled",
-                canceled: true,
-                placement: "cloud",
-              },
-            };
-          }
-          return {
-            error:
-              cloudCanceled.reason ?? `Thread not found: ${explicitThreadId}`,
-          };
-        }
         return { error: `Thread not found: ${explicitThreadId}` };
       }
       return {
@@ -537,7 +479,6 @@ export const handleSpawnAgent = async (
   // to undefined there and the spawn is top-level. A General parent always has
   // one, which is what makes its children route back to it instead of root.
   const parentAgentId = toOptionalString(context.agentId);
-  const storageMode = context.storageMode ?? "local";
   const parentAgentDepth = Math.max(0, context.agentDepth ?? 0);
   const nextAgentDepth = parentAgentDepth + 1;
   const maxAgentDepth = context.maxAgentDepth;
@@ -566,31 +507,10 @@ export const handleSpawnAgent = async (
     };
   }
 
-  const requestedWorkspace = toOptionalString(args.workspace);
-  if (
-    requestedWorkspace &&
-    !/^(computer|cloud|drive|project:[A-Za-z0-9._-]{1,64}|app:[a-z0-9-]{1,64})$/.test(
-      requestedWorkspace,
-    )
-  ) {
+  const workspace = toOptionalString(args.workspace);
+  if (workspace && workspace !== "computer") {
     return {
-      error:
-        "workspace must be one of computer, cloud, project:<name>, app:<slug>.",
-    };
-  }
-  // `drive` is a rolling-client compatibility alias. New calls, dispatch
-  // results, and model-facing text use `cloud`.
-  const workspace =
-    requestedWorkspace === "drive" ? "cloud" : requestedWorkspace;
-  // Non-computer placements name a subject that does not live on this
-  // machine, so they leave the device instead of running through
-  // LocalAgentManager. Without a dispatch capability there is nowhere honest
-  // to put the work — refuse rather than silently run it in the wrong place.
-  const cloudWorkspace =
-    workspace && workspace !== "computer" ? workspace : undefined;
-  if (cloudWorkspace && !ctx.agentApi?.cloudDispatch) {
-    return {
-      error: `The ${cloudWorkspace} workspace runs in Stella's cloud, and this runtime has no cloud connection. Use workspace "computer" to run it on this machine instead.`,
+      error: 'workspace must be "computer".',
     };
   }
   let modelSelection: SpawnModelSelection;
@@ -645,65 +565,6 @@ export const handleSpawnAgent = async (
     return { error: "description is required" };
   }
   const description = deriveAgentDescription(rawDescription, prompt);
-  if (cloudWorkspace) {
-    // Re-read the capability rather than falling through: a cloud placement
-    // that reached the local branch would run off-device work on the user's
-    // machine, which is the one outcome worse than refusing.
-    const cloudDispatch = ctx.agentApi?.cloudDispatch;
-    if (!cloudDispatch) {
-      return {
-        error: `The ${cloudWorkspace} workspace runs in Stella's cloud, and this runtime has no cloud connection. Use workspace "computer" to run it on this machine instead.`,
-      };
-    }
-    const resolveExecution = ctx.resolveCloudExecutionSelection;
-    if (!resolveExecution) {
-      return {
-        error: `The ${cloudWorkspace} workspace cannot resolve this agent's cloud model selection in the current runtime.`,
-      };
-    }
-    let execution: CloudExecutionSelection;
-    try {
-      execution = await resolveExecution({
-        ...(modelSelection.kind === "model"
-          ? {
-              model: modelSelection.model,
-              spawnEngine: { engine: "default" } as const,
-            }
-          : {}),
-        ...(modelSelection.kind === "engine"
-          ? { spawnEngine: modelSelection.engine }
-          : {}),
-        ...(modelSelection.reasoningEffort
-          ? { reasoningEffort: modelSelection.reasoningEffort }
-          : {}),
-      });
-    } catch (error) {
-      return { error: (error as Error).message };
-    }
-    let dispatched: Awaited<ReturnType<typeof cloudDispatch>>;
-    try {
-      dispatched = await cloudDispatch({
-        workspace: cloudWorkspace,
-        conversationId: context.conversationId,
-        description,
-        prompt,
-        execution,
-      });
-    } catch (error) {
-      return { error: (error as Error).message };
-    }
-    return {
-      result: {
-        thread_id: dispatched.threadId,
-        created: true,
-        running_in_background: true,
-        workspace: cloudWorkspace,
-        placement: "cloud",
-        cloud_conversation_id: dispatched.conversationId,
-        note: "Running in Stella's cloud. Its completion will return to this conversation, including after a desktop restart. Use send_input to continue this thread or pause_agent to stop its current turn.",
-      },
-    };
-  }
   if (ctx.agentApi) {
     logWorkingIndicatorTrace("[stella:working-indicator:spawn_agent]", {
       conversationId: context.conversationId,
@@ -770,7 +631,6 @@ export const handleSpawnAgent = async (
         agentDepth: nextAgentDepth,
         ...(typeof maxAgentDepth === "number" ? { maxAgentDepth } : {}),
         parentAgentId,
-        storageMode,
       });
     } catch (error) {
       // Group member caps and thread-resolution failures surface as tool

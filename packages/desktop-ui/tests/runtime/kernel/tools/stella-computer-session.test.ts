@@ -13,7 +13,6 @@ const rootContext = (runId: string): ToolContext => ({
   runId,
   agentType: "orchestrator",
   stellaAppDir: "/tmp/stella",
-  storageMode: "local",
 });
 
 describe("Stella browser session identity", () => {

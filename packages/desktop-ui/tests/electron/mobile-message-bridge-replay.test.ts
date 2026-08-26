@@ -143,7 +143,6 @@ describe("mobile bridge replay end to end", () => {
       userPrompt: "hello",
       clientRequestId: "mobile:send-1",
       userMessageEventId: "mobile:send-1",
-      storageMode: "local",
     };
     const invoke = async () => {
       const response = createResponse();
@@ -253,7 +252,6 @@ describe("mobile bridge replay end to end", () => {
         userPrompt: "steer now",
         clientRequestId: "mobile:send-delayed",
         userMessageEventId: "mobile:send-delayed",
-        storageMode: "local",
       }),
       response,
     );
@@ -360,7 +358,6 @@ describe("mobile bridge replay end to end", () => {
           userPrompt: text,
           clientRequestId: id,
           userMessageEventId: id,
-          storageMode: "local",
         }),
         response,
       );

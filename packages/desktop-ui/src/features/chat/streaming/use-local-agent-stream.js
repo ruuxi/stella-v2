@@ -5,14 +5,14 @@ import { attachmentsForStartChat, initialStoreState, streamStoreReducer, } from 
 import { useReasoningBatcher } from "./use-reasoning-batcher";
 import { clearConversationTaskDecorations, getTaskDecorationsSnapshot, subscribeTaskDecorations, } from "./task-decoration-store";
 import { useStreamTextAnimation } from "./use-stream-text-animation";
-import { DirectAssistantHandoffController, } from "./direct-assistant-handoff";
+import { DirectAssistantHandoffController } from "./direct-assistant-handoff";
 import { useAgentEventHandler } from "./use-agent-event-handler";
 import { useApplyResumeSnapshot } from "./use-resume-snapshot";
 import { assistantScrollFollowKey, linkStreamingAssistantCanonicalMessage, reconcileStreamingAssistantCanonicalMessage, streamingAssistantOverlayId, } from "./streaming-types";
 import { beginAssistantScrollFollow, clearAssistantScrollFollow, notifyAssistantScrollFollowLayoutChange, } from "@/shell/chat-scroll-follow";
 import { resolveAgentNotReadyToast } from "./agent-stream-errors";
 import { isStellaLimitOrAuthReason, resolveStellaProviderErrorToast, } from "./stella-provider-error-toast";
-export function useLocalAgentStream({ activeConversationId, storageMode, onRunStarted, onRunFinished, }) {
+export function useLocalAgentStream({ activeConversationId, onRunStarted, onRunFinished, }) {
     const [storeState, dispatch] = useReducer(streamStoreReducer, initialStoreState);
     const [pendingUserMessageId, setPendingUserMessageId] = useState(null);
     /**
@@ -79,7 +79,8 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
                 commitStreamingAssistants((current) => {
                     let changed = false;
                     const next = current.map((slot) => {
-                        if (hiddenSlotIds.has(slot._id) && slot.textTransition !== "hidden") {
+                        if (hiddenSlotIds.has(slot._id) &&
+                            slot.textTransition !== "hidden") {
                             changed = true;
                             return { ...slot, textTransition: "hidden" };
                         }
@@ -274,19 +275,19 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
             ? streamingAssistantsRef.current.find((slot) => slot._id === previousSlotId)
             : undefined;
         const shouldQueueDirectReplacement = workingModeByRunIdRef.current.get(args.runId) === "direct" &&
-            Boolean(previousSlotId && previousSlot && previousSlot.textTransition !== "hidden");
+            Boolean(previousSlotId &&
+                previousSlot &&
+                previousSlot.textTransition !== "hidden");
         const newSlot = {
-                _id: slotId,
-                userMessageId,
-                indexInTurn: expectedIndex,
-                text: "",
-                ...(args.responseTarget
-                    ? { responseTarget: args.responseTarget }
-                    : {}),
-                timestamp: Date.now(),
-                runId: args.runId,
-                ...(shouldQueueDirectReplacement ? { textTransition: "queued" } : {}),
-            };
+            _id: slotId,
+            userMessageId,
+            indexInTurn: expectedIndex,
+            text: "",
+            ...(args.responseTarget ? { responseTarget: args.responseTarget } : {}),
+            timestamp: Date.now(),
+            runId: args.runId,
+            ...(shouldQueueDirectReplacement ? { textTransition: "queued" } : {}),
+        };
         commitStreamingAssistants((current) => {
             const prepared = shouldQueueDirectReplacement && previousSlotId
                 ? current.map((slot) => slot._id === previousSlotId
@@ -551,7 +552,6 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
                 ...(Number.isFinite(args.userMessageTimestamp)
                     ? { userMessageTimestamp: args.userMessageTimestamp }
                     : {}),
-                storageMode,
             });
             pendingRequestIdsRef.current.add(requestId);
             return true;
@@ -583,7 +583,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
             args.onStartFailed?.();
             return false;
         }
-    }, [activeConversationId, ensureAgentStreamSubscription, storageMode]);
+    }, [activeConversationId, ensureAgentStreamSubscription]);
     const queueStream = useCallback((args) => {
         void startStream(args);
     }, [startStream]);

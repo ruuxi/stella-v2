@@ -3,7 +3,6 @@ import { AuthDeepLinkHandler } from "./global/auth/AuthDeepLinkHandler";
 import { SocialInviteLayer } from "./global/social/SocialInviteLayer";
 import { PhoneAccessBridge } from "./global/mobile/PhoneAccessBridge";
 import { AppBootstrap } from "./bootstrap/AppBootstrap";
-import { ChatStoreProvider } from "@/context/chat-store";
 import { CredentialRequestLayer } from "./global/auth/CredentialRequestLayer";
 import { FullShell } from "./shell/FullShell";
 import {
@@ -43,13 +42,11 @@ function App() {
     <>
       <AuthDeepLinkHandler />
       <div className="app window-full">
-        <ChatStoreProvider>
-          <AppBootstrap />
-          <PhoneAccessBridge />
-          <CredentialRequestLayer />
-          <SocialInviteLayer />
-          <FullShell />
-        </ChatStoreProvider>
+        <AppBootstrap />
+        <PhoneAccessBridge />
+        <CredentialRequestLayer />
+        <SocialInviteLayer />
+        <FullShell />
       </div>
     </>
   );

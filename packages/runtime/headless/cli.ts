@@ -101,7 +101,11 @@ const parseArgs = (argv: string[]): CliOptions => {
         break;
       case "--mode": {
         const mode = next(++i);
-        if (mode !== "chat" && mode !== "completion" && mode !== "list-models") {
+        if (
+          mode !== "chat" &&
+          mode !== "completion" &&
+          mode !== "list-models"
+        ) {
           throw new Error(`Unknown --mode: ${mode}`);
         }
         options.mode = mode;
@@ -180,7 +184,9 @@ const readDesktopUiEnvDefaults = (
   };
   try {
     for (const line of readFileSync(envPath, "utf-8").split("\n")) {
-      const match = line.match(/^\s*(VITE_CONVEX_URL|VITE_CONVEX_SITE_URL)\s*=\s*(\S+)\s*$/);
+      const match = line.match(
+        /^\s*(VITE_CONVEX_URL|VITE_CONVEX_SITE_URL)\s*=\s*(\S+)\s*$/,
+      );
       if (!match) continue;
       if (match[1] === "VITE_CONVEX_URL") result.convexUrl = match[2] ?? null;
       else result.convexSiteUrl = match[2] ?? null;
@@ -213,13 +219,11 @@ const main = async (): Promise<void> => {
     delete process.env.STELLA_APP_RESOURCES_PATH;
   }
 
-  const { resolveHeadlessHostPaths, createHeadlessHostHandlers } = await import(
-    "./host.js"
-  );
+  const { resolveHeadlessHostPaths, createHeadlessHostHandlers } =
+    await import("./host.js");
   const { StellaRuntimeHost } = await import("../host/index.js");
-  const { AGENT_STREAM_EVENT_TYPES, AGENT_RUN_FINISH_OUTCOMES } = await import(
-    "@stella/contracts/agent-runtime"
-  );
+  const { AGENT_STREAM_EVENT_TYPES, AGENT_RUN_FINISH_OUTCOMES } =
+    await import("@stella/contracts/agent-runtime");
 
   const paths = resolveHeadlessHostPaths({
     stellaAppDir,
@@ -306,7 +310,6 @@ const main = async (): Promise<void> => {
     convexSiteUrl,
     authToken,
     hasConnectedAccount: false,
-    cloudSyncEnabled: false,
   });
   await host.start();
   await host.ensureWorkerStarted();
@@ -348,19 +351,23 @@ const main = async (): Promise<void> => {
   let finishOutcome: string | null = null;
   let finishError: string | null = null;
   const finishWaiter = new Promise<void>((resolve) => {
-    host.on("run-event", (event: Record<string, unknown> & { type?: string }) => {
-      if (stopping) return;
-      emit({ kind: "run.event", event });
-      if (
-        event.type === AGENT_STREAM_EVENT_TYPES.RUN_FINISHED &&
-        (rootRunId == null || event.runId === rootRunId)
-      ) {
-        finished = true;
-        finishOutcome = typeof event.outcome === "string" ? event.outcome : null;
-        finishError = typeof event.error === "string" ? event.error : null;
-        resolve();
-      }
-    });
+    host.on(
+      "run-event",
+      (event: Record<string, unknown> & { type?: string }) => {
+        if (stopping) return;
+        emit({ kind: "run.event", event });
+        if (
+          event.type === AGENT_STREAM_EVENT_TYPES.RUN_FINISHED &&
+          (rootRunId == null || event.runId === rootRunId)
+        ) {
+          finished = true;
+          finishOutcome =
+            typeof event.outcome === "string" ? event.outcome : null;
+          finishError = typeof event.error === "string" ? event.error : null;
+          resolve();
+        }
+      },
+    );
   });
 
   if (options.model) {
@@ -370,7 +377,9 @@ const main = async (): Promise<void> => {
       modelOverride: options.model,
       ...(options.agentType ? { agentType: options.agentType } : {}),
     }) as Promise<{ status: string; finalText: string; error?: string }>;
-    log(`automation turn started (conversation=${conversationId} model=${options.model})`);
+    log(
+      `automation turn started (conversation=${conversationId} model=${options.model})`,
+    );
     const result = await resultPromise;
     clearTimeout(timeout);
     const ok = result.status === "ok";
@@ -391,7 +400,6 @@ const main = async (): Promise<void> => {
     requestId: `headless-${Date.now().toString(36)}`,
     platform: process.platform,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    storageMode: "local",
     ...(options.agentType ? { agentType: options.agentType } : {}),
   })) as { runId?: string };
   rootRunId = startResult.runId ?? null;

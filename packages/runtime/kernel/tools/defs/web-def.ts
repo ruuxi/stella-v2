@@ -1,9 +1,8 @@
 /**
  * The `web` tool's model-visible surface — name, description, parameter
  * schema — and the search-capability contract, split from the executable
- * definition so hosts that assemble their own tool list (the cloud
- * orchestrator DO runs in workerd and cannot import the desktop tool host)
- * still expose the byte-identical tool to the model. `web.ts` composes
+ * definition so hosts that assemble their own tool list can still expose the
+ * byte-identical tool to the model. `web.ts` composes
  * this with the executable handler for tool-host consumers.
  */
 

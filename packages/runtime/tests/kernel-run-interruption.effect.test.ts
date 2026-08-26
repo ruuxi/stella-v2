@@ -12,10 +12,7 @@ import {
   executePreparedToolCall,
   type PreparedToolCall,
 } from "../kernel/agent-core/agent-loop.js";
-import type {
-  AgentTool,
-  AgentToolResult,
-} from "../kernel/agent-core/types.js";
+import type { AgentTool, AgentToolResult } from "../kernel/agent-core/types.js";
 import {
   LocalAgentManager,
   type AgentLifecycleEvent,
@@ -372,10 +369,6 @@ describe("LocalAgentManager attempt supervision", () => {
       onAgentEvent: (event) => {
         events.push(event);
       },
-      createCloudAgentRecord: async () => ({ agentId: "cloud-unused" }),
-      completeCloudAgentRecord: async () => undefined,
-      getCloudAgentRecord: async () => null,
-      cancelCloudAgentRecord: async () => ({ canceled: false }),
     });
 
     await manager.createAgent({
@@ -384,12 +377,9 @@ describe("LocalAgentManager attempt supervision", () => {
       prompt: "hold",
       agentType: "exec",
       agentDepth: 1,
-      storageMode: "local",
       rootRunId,
     });
-    await waitFor(() =>
-      events.some((event) => event.type === "agent-started"),
-    );
+    await waitFor(() => events.some((event) => event.type === "agent-started"));
     expect(pidIsAlive(pid)).toBe(true);
 
     await supervisor.cancelRun(rootRunId, "Canceled");

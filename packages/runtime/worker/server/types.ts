@@ -20,7 +20,6 @@ export type WorkerInitializationState = {
   convexUrl: string | null;
   convexSiteUrl: string | null;
   hasConnectedAccount: boolean;
-  cloudSyncEnabled: boolean;
   modelCatalogUpdatedAt: number | null;
   localLlmCredentialsUpdatedAt: number | null;
 };

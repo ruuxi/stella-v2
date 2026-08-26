@@ -1,10 +1,8 @@
 /**
- * Loop-adjacent helpers shared by every host of the agent-core loop: the
- * desktop runtime, the cloud orchestrator DO (workerd), and the sandbox
- * executor. This module must stay importable from workerd — no node
- * builtins, no filesystem, no desktop stores — so that cloud hosts reuse
- * these behaviors instead of forking them. `shared.ts` and
- * `thread-memory.ts` re-export everything here for their existing callers.
+ * Loop-adjacent helpers shared by the desktop runtime and portable sandbox
+ * executors. Keep this module free of Node builtins, filesystems, and desktop
+ * stores. `shared.ts` and `thread-memory.ts` re-export everything here for
+ * their existing callers.
  */
 
 import type { Agent } from "../agent-core/agent.js";

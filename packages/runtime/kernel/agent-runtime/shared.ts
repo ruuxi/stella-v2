@@ -23,9 +23,8 @@ import { resolveAgentThinkingLevel } from "./run-shared.js";
 import { AGENT_RUN_MAX_ATTEMPTS } from "./run-retry.js";
 import { preflightProviderPayload } from "./context-budget.js";
 
-// Loop-adjacent helpers now live in the workerd-safe `run-shared.ts` so the
-// cloud DO and sandbox executor run the same code; re-exported here for the
-// desktop-side callers that always imported them from this module.
+// Loop-adjacent helpers live in the portable `run-shared.ts`; re-export them
+// here for desktop callers that have always imported this module.
 export {
   assistantMessageHasToolCall,
   buildDefaultTransformContext,
@@ -278,8 +277,11 @@ export const createRuntimeAgent = (args: {
   }) => void;
 }): Agent => {
   const resolveLlm = args.resolvedLlmOverride ?? (() => args.resolvedLlm);
-  const toolInactivityRaw = process.env.STELLA_TOOL_INACTIVITY_TIMEOUT_MS?.trim();
-  const toolInactivityParsed = toolInactivityRaw ? Number(toolInactivityRaw) : Number.NaN;
+  const toolInactivityRaw =
+    process.env.STELLA_TOOL_INACTIVITY_TIMEOUT_MS?.trim();
+  const toolInactivityParsed = toolInactivityRaw
+    ? Number(toolInactivityRaw)
+    : Number.NaN;
   return new Agent({
     initialState: {
       systemPrompt: args.systemPrompt,

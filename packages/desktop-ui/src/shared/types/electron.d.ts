@@ -584,7 +584,6 @@ export type ElectronAgentApi = {
     userMessageEventId?: string;
     userMessageTimestamp?: number;
     agentType?: string;
-    storageMode?: "cloud" | "local";
     clientRequestId?: string;
   }) => Promise<{
     requestId: string;
@@ -669,9 +668,6 @@ export type ElectronSystemApi = {
     token?: string;
     hasConnectedAccount?: boolean;
   }) => Promise<{ ok: boolean; accepted?: boolean }>;
-  setCloudSyncEnabled: (payload: {
-    enabled: boolean;
-  }) => Promise<{ ok: boolean }>;
   setModelCatalogUpdatedAt: (payload: {
     updatedAt: number | null;
   }) => Promise<{ ok: boolean }>;
@@ -1217,9 +1213,7 @@ export type ElectronBrowserViewApi = {
   }) => Promise<BrowserViewState>;
   show: (payload: BrowserViewLayout) => Promise<BrowserViewState>;
   setVisibleOwner: (payload: { ownerId: string }) => Promise<BrowserViewState>;
-  setOwnerScope: (payload?: {
-    ownerId?: string;
-  }) => Promise<BrowserViewState>;
+  setOwnerScope: (payload?: { ownerId?: string }) => Promise<BrowserViewState>;
   setLayout: (payload: BrowserViewLayout) => Promise<BrowserViewState>;
   hide: () => Promise<BrowserViewState>;
   createTab: (payload?: {

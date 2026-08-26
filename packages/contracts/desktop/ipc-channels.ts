@@ -192,7 +192,6 @@ export const IPC_AUTH_DELETE_USER = "auth:deleteUser" as const;
 export const IPC_AUTH_VERIFY_CALLBACK_URL = "auth:verifyCallbackUrl" as const;
 export const IPC_AUTH_APPLY_SESSION_COOKIE = "auth:applySessionCookie" as const;
 export const IPC_AUTH_GET_CONVEX_TOKEN = "auth:getConvexToken" as const;
-export const IPC_HOST_SET_CLOUD_SYNC = "host:setCloudSyncEnabled" as const;
 export const IPC_HOST_SET_MODEL_CATALOG_UPDATED_AT =
   "host:setModelCatalogUpdatedAt" as const;
 export const IPC_AUTH_CALLBACK = "auth:callback" as const;
@@ -363,10 +362,8 @@ export const IPC_SCHEDULE_UPDATED = "schedule:updated" as const;
 // Mobile-bridge mutation lanes: the phone's Schedule tab pauses/resumes and
 // removes cron jobs through the same privileged handlers the desktop dialog
 // uses (heartbeats stay read-only on mobile for now).
-export const IPC_SCHEDULE_UPDATE_CRON_JOB =
-  "schedule:updateCronJob" as const;
-export const IPC_SCHEDULE_REMOVE_CRON_JOB =
-  "schedule:removeCronJob" as const;
+export const IPC_SCHEDULE_UPDATE_CRON_JOB = "schedule:updateCronJob" as const;
+export const IPC_SCHEDULE_REMOVE_CRON_JOB = "schedule:removeCronJob" as const;
 
 // ── Store ───────────────────────────────────────────────────────────────────
 

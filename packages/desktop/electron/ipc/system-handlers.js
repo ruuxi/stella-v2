@@ -700,15 +700,6 @@ export const registerSystemHandlers = (options) => {
             hasConnectedAccount: payload?.hasConnectedAccount,
         });
     });
-    ipcMain.handle("host:setCloudSyncEnabled", (event, payload) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "host:setCloudSyncEnabled")) {
-            throw new Error("Blocked untrusted host:setCloudSyncEnabled request.");
-        }
-        options
-            .getStellaHostRunner()
-            ?.setCloudSyncEnabled(Boolean(payload?.enabled));
-        return { ok: true };
-    });
     ipcMain.handle(IPC_HOST_SET_MODEL_CATALOG_UPDATED_AT, (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_HOST_SET_MODEL_CATALOG_UPDATED_AT)) {
             throw new Error("Blocked untrusted host:setModelCatalogUpdatedAt request.");

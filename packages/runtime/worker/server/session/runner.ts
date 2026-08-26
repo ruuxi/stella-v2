@@ -71,7 +71,10 @@ const resolveRuntimeCliPath = (fileName: string) =>
  */
 export interface Interface {
   readonly tryCurrent: () => RuntimeRunner | null;
-  readonly current: Effect.Effect<RuntimeRunner, RunnerUnavailableError | Error>;
+  readonly current: Effect.Effect<
+    RuntimeRunner,
+    RunnerUnavailableError | Error
+  >;
   readonly joined: Effect.Effect<RuntimeRunner, RunnerUnavailableError | Error>;
   readonly initialized: Effect.Effect<
     RuntimeRunner,
@@ -250,9 +253,8 @@ export const layer = Layer.effect(
     // "Runtime worker is not ready." and as the AgentHealth not-ready reason.
     let runnerReadyError: string | null = null;
     const buildPromise: Promise<RuntimeRunner | null> = (async () => {
-      const { createStellaHostRunner } = await import(
-        "../../../kernel/runner.js"
-      );
+      const { createStellaHostRunner } =
+        await import("../../../kernel/runner.js");
       const runner = createStellaHostRunner(runnerOptions);
       // Apply the latest config (config patches that arrived during the
       // import fanned out against an empty RunnerCell, so re-apply).
@@ -261,7 +263,6 @@ export const layer = Layer.effect(
       runner.setConvexSiteUrl(cfg.convexSiteUrl);
       runner.setAuthToken(cfg.authToken);
       runner.setHasConnectedAccount(cfg.hasConnectedAccount);
-      runner.setCloudSyncEnabled(cfg.cloudSyncEnabled);
       runner.setModelCatalogUpdatedAt(cfg.modelCatalogUpdatedAt);
       runnerCell.set(runner);
       runner.start();
@@ -298,7 +299,9 @@ export const layer = Layer.effect(
     // The old `ensureRunner()` throw: the captured build-failure message when
     // the build has failed, else "Runtime worker is not ready.".
     const notReadyError = (): RunnerUnavailableError | Error =>
-      runnerReadyError ? new Error(runnerReadyError) : new RunnerUnavailableError();
+      runnerReadyError
+        ? new Error(runnerReadyError)
+        : new RunnerUnavailableError();
 
     const current = Effect.suspend(() => {
       const runner = runnerCell.get();

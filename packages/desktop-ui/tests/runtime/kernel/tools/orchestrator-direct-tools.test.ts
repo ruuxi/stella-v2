@@ -112,7 +112,6 @@ const makeOrchestratorContext = (): ToolContext => ({
   deviceId: "device-1",
   requestId: "req-1",
   agentType: AGENT_IDS.ORCHESTRATOR,
-  storageMode: "local",
   modelConfigSnapshot: {
     engine: "default",
     routeModel: "stella/openai/gpt-5.6-sol",

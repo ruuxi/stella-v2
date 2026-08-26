@@ -492,19 +492,6 @@ type ProducedFilesOutcome = {
 };
 
 /**
- * Per-command cap on snapshot-detected produced files. Belongs to the host,
- * not to the runtime: the desktop default assumes an over-cap batch reaches
- * the user unfiltered, while a host that re-filters every file downstream can
- * afford a larger deliberate batch.
- */
-const resolveProducedFileLimit = (context?: ToolContext): number => {
-  const requested = context?.maxProducedFilesPerCommand;
-  return typeof requested === "number" && Number.isFinite(requested)
-    ? Math.max(0, Math.floor(requested))
-    : MAX_PRODUCED_FILES_PER_COMMAND;
-};
-
-/**
  * Merge + sanitize snapshot-detected produced files. Every shell
  * `producedFiles` emission (foreground exec, background completion via
  * `takeCompletedProducedFiles`, `write_stdin` / shell-status drains) funnels
@@ -525,8 +512,7 @@ const resolveProducedFileLimit = (context?: ToolContext): number => {
  * The withholding is *reported*, never silent: a genuinely large deliberate
  * batch (a loop writing 31 charts) also trips the guard, and a caller that
  * sees neither files nor a count cannot tell "produced nothing" from
- * "produced 31 and I dropped them". Hosts that can afford the batch raise
- * `limit` via `ToolContext.maxProducedFilesPerCommand` instead.
+ * "produced 31 and I dropped them".
  */
 const mergeProducedFiles = (
   limit: number,
@@ -1936,11 +1922,10 @@ export const shutdownManagedShells = (state: ShellState): Promise<void> =>
         return;
       }
       const joined = yield* Effect.raceFirst(
-        Effect.forEach(
-          pending,
-          (record) => Deferred.await(record.exitLatch),
-          { concurrency: "unbounded", discard: true },
-        ).pipe(Effect.as("joined" as const)),
+        Effect.forEach(pending, (record) => Deferred.await(record.exitLatch), {
+          concurrency: "unbounded",
+          discard: true,
+        }).pipe(Effect.as("joined" as const)),
         Effect.sleep(3_000).pipe(Effect.as("timeout" as const)),
       );
       if (joined === "timeout") {
@@ -2414,7 +2399,7 @@ export const handleExecCommand = async (
     beforeSideEffects.externalCandidateSnapshots,
     emitUpdate,
     prepared.launchOptions,
-    resolveProducedFileLimit(context),
+    MAX_PRODUCED_FILES_PER_COMMAND,
   );
   setShellOwner(record, context);
   const observedVersion = record.outputVersion;
@@ -2626,7 +2611,7 @@ export const handleBash = async (
       beforeSideEffects.externalCandidateSnapshots,
       undefined,
       prepared.launchOptions,
-      resolveProducedFileLimit(context),
+      MAX_PRODUCED_FILES_PER_COMMAND,
     );
     setShellOwner(record, context);
     const extracted = extractOfficePreviewRef(record.output || "");
@@ -2663,7 +2648,7 @@ export const handleBash = async (
   const produced =
     shouldSnapshotSideEffects && snapshotRoot
       ? mergeProducedFiles(
-          resolveProducedFileLimit(context),
+          MAX_PRODUCED_FILES_PER_COMMAND,
           diffFileSnapshots(
             beforeSideEffects.rootSnapshot,
             await snapshotFiles(snapshotRoot),

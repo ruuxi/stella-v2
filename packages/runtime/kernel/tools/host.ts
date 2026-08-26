@@ -190,7 +190,6 @@ export const createToolHost = ({
   validateSpawnModel,
   validateSpawnModelWithMetadata,
   captureSpawnModelConfig,
-  resolveCloudExecutionSelection,
   scheduleApi,
 
   fashionApi,
@@ -228,7 +227,6 @@ export const createToolHost = ({
     agentApi,
     validateSpawnModel,
     validateSpawnModelWithMetadata,
-    resolveCloudExecutionSelection,
     captureSpawnModelConfig,
   );
   let executeTool: (
@@ -590,35 +588,37 @@ export const createToolHost = ({
       model: options?.model,
       agentEngine: options?.agentEngine,
     });
-    return Array.from(toolCatalog.values()).filter((tool) => {
-      // A tool's `agentTypes` is the single audience gate: a tool with no
-      // `agentTypes` is available to every agent, and the per-agent
-      // frontmatter `tools:` allowlist (applied downstream in
-      // tool-adapters) decides what each agent is actually offered.
-      if (!isAgentAllowedForTool(tool, agentType)) return false;
-      if (isOrchestrationToolWithheld(tool.name, options?.parentOwned)) {
-        return false;
-      }
-      // Demoted tools stay in the catalog: the runtime adapter
-      // (`createPiTools`) decides per turn whether they surface directly or
-      // only through node_repl's catalog. Voice and other realtime surfaces
-      // filter them out explicitly.
-      // Swap the file-edit tool family to the agent's engine: Claude Code
-      // wants Write/Edit, Stella wants apply_patch.
-      if (
-        fileEditToolFamily === "write_edit" &&
-        tool.name === APPLY_PATCH_TOOL_NAME
-      ) {
-        return false;
-      }
-      if (
-        fileEditToolFamily === "apply_patch" &&
-        (tool.name === WRITE_TOOL_NAME || tool.name === EDIT_TOOL_NAME)
-      ) {
-        return false;
-      }
-      return true;
-    }).map((tool) => applyDeveloperModeToolGate(tool));
+    return Array.from(toolCatalog.values())
+      .filter((tool) => {
+        // A tool's `agentTypes` is the single audience gate: a tool with no
+        // `agentTypes` is available to every agent, and the per-agent
+        // frontmatter `tools:` allowlist (applied downstream in
+        // tool-adapters) decides what each agent is actually offered.
+        if (!isAgentAllowedForTool(tool, agentType)) return false;
+        if (isOrchestrationToolWithheld(tool.name, options?.parentOwned)) {
+          return false;
+        }
+        // Demoted tools stay in the catalog: the runtime adapter
+        // (`createPiTools`) decides per turn whether they surface directly or
+        // only through node_repl's catalog. Voice and other realtime surfaces
+        // filter them out explicitly.
+        // Swap the file-edit tool family to the agent's engine: Claude Code
+        // wants Write/Edit, Stella wants apply_patch.
+        if (
+          fileEditToolFamily === "write_edit" &&
+          tool.name === APPLY_PATCH_TOOL_NAME
+        ) {
+          return false;
+        }
+        if (
+          fileEditToolFamily === "apply_patch" &&
+          (tool.name === WRITE_TOOL_NAME || tool.name === EDIT_TOOL_NAME)
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .map((tool) => applyDeveloperModeToolGate(tool));
   };
 
   // Track tool names that came from user-installable extensions so a

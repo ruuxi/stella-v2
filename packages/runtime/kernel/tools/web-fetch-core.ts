@@ -1,12 +1,11 @@
 /**
  * The `web` tool's fetch pipeline, shared by every host: readable-text
  * extraction, manual redirect following with per-hop SSRF re-validation,
- * timeout, and truncation. Pure fetch API — no node builtins — so the
- * cloud orchestrator DO (workerd) runs the same pipeline the desktop does.
+ * timeout, and truncation. It uses only the portable fetch API and no node
+ * builtins.
  *
  * The URL guard and text sanitizer are capabilities, not imports: desktop
- * passes its DNS-checking guard and secret-redacting sanitizer; workerd
- * passes the literal-only guard.
+ * passes its DNS-checking guard and secret-redacting sanitizer.
  */
 
 export const MAX_FETCH_BODY_CHARS = 80_000;
@@ -17,7 +16,7 @@ export const MAX_FETCH_REDIRECTS = 5;
  * Hard ceiling on bytes read off the wire. The char cap above can only be
  * applied to a string that already exists, so without this a model-chosen URL
  * serving hundreds of megabytes is fully buffered before it is truncated —
- * an OOM in a 128 MB Durable Object isolate. Generous enough that no real
+ * an OOM in a constrained runtime isolate. Generous enough that no real
  * page is affected: the readable text is capped far below it anyway.
  */
 export const MAX_FETCH_BODY_BYTES = 8 * 1024 * 1024;
@@ -48,7 +47,10 @@ const readCappedText = async (response: Response): Promise<string> => {
   const joined = new Uint8Array(total);
   let offset = 0;
   for (const chunk of chunks) {
-    joined.set(chunk.subarray(0, Math.min(chunk.byteLength, total - offset)), offset);
+    joined.set(
+      chunk.subarray(0, Math.min(chunk.byteLength, total - offset)),
+      offset,
+    );
     offset += chunk.byteLength;
     if (offset >= total) break;
   }
@@ -101,9 +103,8 @@ export const fetchReadableText = async (
     return "Error: URL contains what appears to be an API key or token. Secrets must not be sent in URLs.";
   }
 
-  // Whole-pipeline deadline. This module must stay pure fetch API (the
-  // cloud orchestrator DO runs it in workerd), so the deadline is the
-  // platform's own `AbortSignal.timeout` rather than an Effect fiber; the
+  // Whole-pipeline deadline. This module must stay pure fetch API, so the
+  // deadline is the platform's own `AbortSignal.timeout` rather than an Effect fiber; the
   // catch below maps its `TimeoutError` to the exact legacy timeout string.
   const timeoutSignal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
 

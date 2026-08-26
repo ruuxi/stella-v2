@@ -65,6 +65,13 @@ import type { OfficePreviewRef } from "@stella/contracts/office-preview";
 import { purgeExpiredDeferredDeletes } from "./deferred-delete.js";
 import { resolveToolFallbackCwd } from "./cwd.js";
 
+type PrunedProducedFilesRecovery = {
+  prunedAt: number;
+  owner?: ShellSessionOwner;
+  claimed: boolean;
+  source: ProducedFilesSource;
+};
+
 export type ShellState = {
   shells: Map<string, ManagedShellRecord>;
   /** Changes whenever the runtime worker reconstructs its in-memory state. */
@@ -72,13 +79,7 @@ export type ShellState = {
   /** Compact receipts retained after completed shell records are pruned. */
   prunedSessions: Map<string, PrunedShellSession>;
   /** Produced-file recovery detached from pruned shell output records. */
-  prunedProducedFiles: Map<
-    string,
-    {
-      prunedAt: number;
-      pending: Promise<ProducedFilesOutcome | undefined>;
-    }
-  >;
+  prunedProducedFiles: Map<string, PrunedProducedFilesRecovery>;
   secretStateRoot: string;
   stellaBrowserBinPath?: string;
   stellaOfficeBinPath?: string;
@@ -146,6 +147,12 @@ export type ShellSessionOwner = {
   rootRunId?: string;
 };
 
+/** Authorization key for accessing conversation-scoped shell state. */
+export type ShellSessionAccess = {
+  conversationId: string;
+  agentId?: string;
+};
+
 /** What a caller learns when a background session finally exits. */
 export type ShellExitSnapshot = {
   sessionId: string;
@@ -184,7 +191,7 @@ export type ManagedShellRecord = ShellRecord & {
   startSnapshot?: FileSnapshot | null;
   externalCandidateSnapshots?: ExternalCandidateSnapshot[];
   producedFilesReported?: boolean;
-  producedFilesCollection?: Promise<ProducedFilesOutcome>;
+  producedFilesCollection?: Promise<ProducedFilesCollectionAttempt>;
   /** Cap resolved from the host's ToolContext when the shell was started. */
   producedFileLimit: number;
   /** Total UTF-8 bytes observed since process start. */
@@ -226,6 +233,10 @@ type FileSnapshot = {
 type ExternalCandidateSnapshot =
   | {
       path: string;
+      kind: "unavailable";
+    }
+  | {
+      path: string;
       kind: "missing";
     }
   | {
@@ -257,12 +268,19 @@ export const EXEC_UPDATE_MAX_BYTES = 8 * 1024;
 const MAX_EXEC_UPDATE_CHUNKS = 10_000;
 export const MAX_RETAINED_COMPLETED_SHELLS = 64;
 const MAX_PRUNED_SESSION_RECEIPTS = 16;
+export const MAX_PRUNED_PRODUCED_FILE_RECOVERIES = 64;
 export const COMPLETED_SHELL_TTL_MS = 30 * 60_000;
 export const PRUNED_SHELL_RECEIPT_TTL_MS = 10 * 60_000;
 const PRUNED_PRODUCED_FILES_TTL_MS = 30 * 60_000;
 const MAX_ACCEPTED_WRITE_IDS = 256;
 const ACCEPTED_WRITE_ID_TTL_MS = 10 * 60_000;
+const PRODUCED_FILE_DELIVERY_WAIT_MS = 2_000;
+export const PRODUCED_FILE_COLLECTION_ATTEMPT_MS = 5_000;
 const MAX_SNAPSHOT_FILES = 20_000;
+// Bound traversal independently of file count: a tree with hundreds of
+// thousands of empty directories must not monopolize a tool deadline.
+export const MAX_SNAPSHOT_ENTRIES = 50_000;
+const MAX_EXTERNAL_SNAPSHOT_CANDIDATES = 256;
 const SNAPSHOT_IGNORED_DIRS = new Set([
   ".git",
   ".hg",
@@ -294,15 +312,10 @@ export const approxTokenCount = (text: string): number =>
 const OFFICE_PREVIEW_REF_MARKER = "__STELLA_OFFICE_PREVIEW_REF__";
 const DEFERRED_DELETE_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 
-const normalizeSnapshotRoot = (cwd: string): string | null => {
-  const resolved = path.resolve(cwd);
-  try {
-    if (!existsSync(resolved)) return null;
-  } catch {
-    return null;
-  }
-  return resolved;
-};
+// Snapshot root selection is lexical. Existence/readability is checked by the
+// bounded async walk itself; a synchronous `existsSync` here could block the
+// event loop on a stalled FUSE/network mount and defeat every caller deadline.
+const normalizeSnapshotRoot = (cwd: string): string => path.resolve(cwd);
 
 const shouldSkipSnapshotDir = (relativeDir: string): boolean => {
   const normalized = relativeDir.split(path.sep).join("/");
@@ -312,18 +325,24 @@ const shouldSkipSnapshotDir = (relativeDir: string): boolean => {
   );
 };
 
+const snapshotInterrupted = (
+  signal: AbortSignal | undefined,
+  deadlineAt: number,
+): boolean => Boolean(signal?.aborted) || Date.now() >= deadlineAt;
+
 const snapshotFiles = async (
   cwd: string,
   signal?: AbortSignal,
+  deadlineAt = Number.POSITIVE_INFINITY,
 ): Promise<FileSnapshot | null> => {
   const root = normalizeSnapshotRoot(cwd);
-  if (!root) return null;
 
   const files = new Map<string, FileSnapshotEntry>();
   let complete = true;
+  let visitedEntries = 0;
 
   const walk = async (dir: string): Promise<void> => {
-    if (!complete || signal?.aborted) {
+    if (!complete || snapshotInterrupted(signal, deadlineAt)) {
       complete = false;
       return;
     }
@@ -331,10 +350,20 @@ const snapshotFiles = async (
     try {
       entries = await readdir(dir, { withFileTypes: true });
     } catch {
+      complete = false;
+      return;
+    }
+    if (snapshotInterrupted(signal, deadlineAt)) {
+      complete = false;
       return;
     }
     for (const entry of entries) {
-      if (!complete || signal?.aborted) {
+      if (!complete || snapshotInterrupted(signal, deadlineAt)) {
+        complete = false;
+        return;
+      }
+      visitedEntries += 1;
+      if (visitedEntries > MAX_SNAPSHOT_ENTRIES) {
         complete = false;
         return;
       }
@@ -353,12 +382,19 @@ const snapshotFiles = async (
       }
       try {
         const info = await stat(fullPath);
+        if (snapshotInterrupted(signal, deadlineAt)) {
+          complete = false;
+          return;
+        }
         files.set(fullPath, {
           size: info.size,
           mtimeMs: info.mtimeMs,
         });
       } catch {
-        // File changed while walking; the next snapshot will catch stable state.
+        // An unreadable/transiently changing tree is not a trustworthy diff:
+        // retry the whole completion attempt instead of manufacturing deletes.
+        complete = false;
+        return;
       }
     }
   };
@@ -376,14 +412,13 @@ const resolveShellSnapshotRoot = (
     ? normalizeSnapshotRoot(context.stellaAppDir)
     : null;
   if (
-    resolvedCwd &&
     resolvedStellaAppDir &&
     (resolvedCwd === resolvedStellaAppDir ||
       resolvedCwd.startsWith(`${resolvedStellaAppDir}${path.sep}`))
   ) {
     return resolvedStellaAppDir;
   }
-  return resolvedCwd ?? cwd;
+  return resolvedCwd;
 };
 
 const isSameOrInsidePath = (candidate: string, root: string): boolean => {
@@ -441,14 +476,21 @@ const diffFileSnapshots = (
 const snapshotExternalCandidate = async (
   candidatePath: string,
   signal?: AbortSignal,
+  deadlineAt = Number.POSITIVE_INFINITY,
 ): Promise<ExternalCandidateSnapshot> => {
+  if (snapshotInterrupted(signal, deadlineAt)) {
+    return { path: candidatePath, kind: "unavailable" };
+  }
   try {
     const info = await stat(candidatePath);
+    if (snapshotInterrupted(signal, deadlineAt)) {
+      return { path: candidatePath, kind: "unavailable" };
+    }
     if (info.isDirectory()) {
       return {
         path: candidatePath,
         kind: "directory",
-        snapshot: await snapshotFiles(candidatePath, signal),
+        snapshot: await snapshotFiles(candidatePath, signal, deadlineAt),
       };
     }
     if (info.isFile()) {
@@ -461,17 +503,23 @@ const snapshotExternalCandidate = async (
         },
       };
     }
-  } catch {
-    // Missing or unreadable paths are still useful: if they appear after the
-    // command, we can report them as produced files.
+    return { path: candidatePath, kind: "unavailable" };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
+      return { path: candidatePath, kind: "unavailable" };
+    }
+    // A genuinely missing path is useful: if it appears after the command,
+    // we can report it as a produced file. Other I/O failures are unavailable,
+    // never a synthetic delete.
+    return { path: candidatePath, kind: "missing" };
   }
-  return { path: candidatePath, kind: "missing" };
 };
 
 const snapshotExternalCandidates = async (
   candidatePaths: string[],
   snapshotRoot: string,
   signal?: AbortSignal,
+  deadlineAt = Number.POSITIVE_INFINITY,
 ): Promise<ExternalCandidateSnapshot[] | undefined> => {
   const root = path.resolve(snapshotRoot);
   const paths = [
@@ -482,19 +530,42 @@ const snapshotExternalCandidates = async (
       !isBroadExternalCandidate(candidate),
   );
   if (paths.length === 0) return undefined;
-  return Promise.all(
-    paths.map((candidate) => snapshotExternalCandidate(candidate, signal)),
-  );
+  // An inferred command can mention arbitrarily many paths. Skip the
+  // external slice rather than take a misleading partial baseline, and walk
+  // accepted candidates sequentially so one command cannot fan out an
+  // unbounded number of filesystem operations past cancellation/deadline.
+  if (paths.length > MAX_EXTERNAL_SNAPSHOT_CANDIDATES) return undefined;
+  const snapshots: ExternalCandidateSnapshot[] = [];
+  for (const candidate of paths) {
+    if (snapshotInterrupted(signal, deadlineAt)) return undefined;
+    snapshots.push(
+      await snapshotExternalCandidate(candidate, signal, deadlineAt),
+    );
+  }
+  return snapshots;
 };
 
 const diffExternalCandidateSnapshots = async (
   beforeSnapshots: ExternalCandidateSnapshot[] | undefined,
-): Promise<ProducedFileRecord[] | undefined> => {
-  if (!beforeSnapshots || beforeSnapshots.length === 0) return undefined;
+  signal?: AbortSignal,
+  deadlineAt = Number.POSITIVE_INFINITY,
+): Promise<{
+  files?: ProducedFileRecord[];
+  complete: boolean;
+}> => {
+  if (!beforeSnapshots || beforeSnapshots.length === 0) {
+    return { complete: true };
+  }
   const changes: ProducedFileRecord[] = [];
 
   for (const before of beforeSnapshots) {
-    const after = await snapshotExternalCandidate(before.path);
+    if (before.kind === "unavailable") continue;
+    const after = await snapshotExternalCandidate(
+      before.path,
+      signal,
+      deadlineAt,
+    );
+    if (after.kind === "unavailable") return { complete: false };
     if (after.kind === "missing") {
       if (before.kind !== "missing") {
         changes.push(fileChange(before.path, { type: "delete" }));
@@ -517,19 +588,23 @@ const diffExternalCandidateSnapshots = async (
     }
 
     if (before.kind === "directory") {
+      if (!before.snapshot?.complete) continue;
+      if (!after.snapshot?.complete) return { complete: false };
       changes.push(
         ...(diffFileSnapshots(before.snapshot, after.snapshot) ?? []),
       );
       continue;
     }
-    if (after.snapshot?.complete) {
-      for (const filePath of after.snapshot.files.keys()) {
-        changes.push(fileChange(filePath, { type: "add" }));
-      }
+    if (!after.snapshot?.complete) return { complete: false };
+    for (const filePath of after.snapshot.files.keys()) {
+      changes.push(fileChange(filePath, { type: "add" }));
     }
   }
 
-  return changes.length > 0 ? changes : undefined;
+  return {
+    complete: true,
+    ...(changes.length > 0 ? { files: changes } : {}),
+  };
 };
 
 /**
@@ -539,6 +614,27 @@ const diffExternalCandidateSnapshots = async (
 type ProducedFilesOutcome = {
   producedFiles?: ProducedFileRecord[];
   producedFilesOmitted?: ProducedFilesOmission;
+};
+
+type ProducedFilesCollectionAttempt =
+  | { kind: "ready"; outcome: ProducedFilesOutcome }
+  | { kind: "retryable" };
+
+type ProducedFilesSource = Pick<
+  ManagedShellRecord,
+  | "running"
+  | "startSnapshot"
+  | "externalCandidateSnapshots"
+  | "producedFilesReported"
+  | "producedFilesCollection"
+  | "producedFileLimit"
+  | "child"
+  | "pty"
+>;
+
+type PreparedProducedFilesClaim = {
+  ready: boolean;
+  claim: () => ProducedFilesOutcome;
 };
 
 /**
@@ -608,15 +704,17 @@ const snapshotShellSideEffects = async (
   snapshotRoot: string,
   context?: ToolContext,
   signal?: AbortSignal,
+  deadlineAt = Number.POSITIVE_INFINITY,
 ): Promise<{
   rootSnapshot: FileSnapshot | null;
   externalCandidateSnapshots?: ExternalCandidateSnapshot[];
 }> => {
-  const rootSnapshot = await snapshotFiles(snapshotRoot, signal);
+  const rootSnapshot = await snapshotFiles(snapshotRoot, signal, deadlineAt);
   const externalCandidateSnapshots = await snapshotExternalCandidates(
     inferShellMentionedPaths(args, context),
     snapshotRoot,
     signal,
+    deadlineAt,
   );
   return { rootSnapshot, externalCandidateSnapshots };
 };
@@ -624,53 +722,149 @@ const snapshotShellSideEffects = async (
 const shouldSnapshotShellSideEffects = (command: string): boolean =>
   !isKnownSafeCommand(command);
 
-const takeCompletedProducedFiles = async (
-  record: ManagedShellRecord,
+const hasProducedFileSources = (record: ProducedFilesSource): boolean =>
+  Boolean(record.startSnapshot?.complete) ||
+  Boolean(
+    record.externalCandidateSnapshots &&
+    record.externalCandidateSnapshots.some(
+      (candidate) =>
+        candidate.kind === "missing" ||
+        candidate.kind === "file" ||
+        (candidate.kind === "directory" &&
+          Boolean(candidate.snapshot?.complete)),
+    ),
+  );
+
+/**
+ * Start (or reuse) collection owned by the completed shell record. Individual
+ * callers race this promise with their own signal/deadline below; leaving the
+ * producer independent means one canceled exec/write cannot consume or poison
+ * a result that a later run-finalizer can still deliver.
+ */
+const ensureCompletedProducedFilesCollection = (
+  record: ProducedFilesSource,
+): Promise<ProducedFilesCollectionAttempt> => {
+  if (record.producedFilesCollection) return record.producedFilesCollection;
+
+  const startSnapshot = record.startSnapshot;
+  const externalCandidateSnapshots = record.externalCandidateSnapshots;
+  const attemptDeadlineAt = Date.now() + PRODUCED_FILE_COLLECTION_ATTEMPT_MS;
+  const collection = (async (): Promise<ProducedFilesCollectionAttempt> => {
+    let rootFiles: ProducedFileRecord[] | undefined;
+    // A missing/incomplete start snapshot can never produce a trustworthy
+    // root diff. Known-safe commands deliberately set it to null; do not turn
+    // their completion into an unconditional full-tree walk.
+    if (startSnapshot?.complete) {
+      const after = await snapshotFiles(
+        startSnapshot.root,
+        undefined,
+        attemptDeadlineAt,
+      );
+      if (!after?.complete) return { kind: "retryable" };
+      rootFiles = diffFileSnapshots(startSnapshot, after);
+    }
+    const external = await diffExternalCandidateSnapshots(
+      externalCandidateSnapshots,
+      undefined,
+      attemptDeadlineAt,
+    );
+    if (!external.complete) return { kind: "retryable" };
+    return {
+      kind: "ready",
+      outcome: mergeProducedFiles(
+        record.producedFileLimit,
+        rootFiles,
+        external.files,
+      ),
+    };
+  })();
+  const pending = (async (): Promise<ProducedFilesCollectionAttempt> => {
+    const outcome = await runUntilExecDeadline(
+      () => collection,
+      attemptDeadlineAt,
+    );
+    return outcome.status === "completed"
+      ? outcome.value
+      : { kind: "retryable" };
+  })();
+  record.producedFilesCollection = pending;
+  void pending.then((attempt) => {
+    if (record.producedFilesCollection !== pending) return;
+    if (attempt.kind === "ready") {
+      // A successful collection has everything it needs cached in `pending`.
+      // Release potentially large baselines, but retain the promise until one
+      // authorized caller atomically claims its outcome.
+      record.startSnapshot = null;
+      record.externalCandidateSnapshots = undefined;
+    } else {
+      // A failed, incomplete, or timed-out attempt is retryable. Keep its
+      // baselines and clear only this generation; a stale underlying fs
+      // promise has no path back to mutable record state.
+      record.producedFilesCollection = undefined;
+    }
+    record.child = undefined;
+    record.pty = undefined;
+  });
+  return pending;
+};
+
+const prepareCompletedProducedFilesClaim = async (
+  record: ProducedFilesSource,
   signal?: AbortSignal,
-): Promise<ProducedFilesOutcome> => {
-  if (record.running || record.producedFilesReported) return {};
-  if (
-    !record.startSnapshot &&
-    (!record.externalCandidateSnapshots ||
-      record.externalCandidateSnapshots.length === 0)
-  ) {
+  deadlineAt = Date.now() + PRODUCED_FILE_DELIVERY_WAIT_MS,
+): Promise<PreparedProducedFilesClaim> => {
+  const deferredClaim = {
+    ready: false,
+    claim: (): ProducedFilesOutcome => ({}),
+  };
+  const emptyClaim = {
+    ready: true,
+    claim: (): ProducedFilesOutcome => ({}),
+  };
+  if (record.running) return deferredClaim;
+  if (record.producedFilesReported) return emptyClaim;
+  if (!hasProducedFileSources(record) && !record.producedFilesCollection) {
     record.producedFilesReported = true;
     record.child = undefined;
     record.pty = undefined;
-    return {};
+    return emptyClaim;
   }
-  if (!record.producedFilesCollection) {
-    const startSnapshot = record.startSnapshot;
-    const externalCandidateSnapshots = record.externalCandidateSnapshots;
-    record.producedFilesCollection = (async () =>
-      mergeProducedFiles(
-        record.producedFileLimit,
-        // A missing start snapshot can never produce a root diff. In
-        // particular, known-safe commands deliberately set it to null; do not
-        // turn their completion into an unconditional full-tree walk.
-        startSnapshot
-          ? diffFileSnapshots(
-              startSnapshot,
-              await snapshotFiles(startSnapshot.root),
-            )
-          : undefined,
-        await diffExternalCandidateSnapshots(externalCandidateSnapshots),
-      ))().finally(() => {
-      // The shell is terminated and collection no longer needs its snapshot
-      // maps or child-process handle. Keep the cached promise until a caller
-      // actually consumes it, which lets an exec deadline win without losing
-      // a later produced-file drain.
-      record.startSnapshot = null;
-      record.externalCandidateSnapshots = undefined;
-      record.child = undefined;
-      record.pty = undefined;
-    });
+  const pending = ensureCompletedProducedFilesCollection(record);
+  const outcome = await runUntilExecDeadline(() => pending, deadlineAt, signal);
+  if (outcome.status === "aborted") {
+    throw outcome.error;
   }
-  const produced = await record.producedFilesCollection;
-  if (signal?.aborted || record.producedFilesReported) return {};
-  record.producedFilesReported = true;
-  record.producedFilesCollection = undefined;
-  return produced;
+  if (outcome.status === "failed") {
+    throw outcome.error;
+  }
+  if (outcome.status === "deadline" || outcome.value.kind === "retryable") {
+    return deferredClaim;
+  }
+  const produced = outcome.value.outcome;
+  return {
+    ready: true,
+    claim: () => {
+      if (record.producedFilesReported) return {};
+      record.producedFilesReported = true;
+      if (record.producedFilesCollection === pending) {
+        record.producedFilesCollection = undefined;
+      }
+      return produced;
+    },
+  };
+};
+
+const takeCompletedProducedFiles = async (
+  record: ProducedFilesSource,
+  signal?: AbortSignal,
+  deadlineAt = Date.now() + PRODUCED_FILE_DELIVERY_WAIT_MS,
+): Promise<ProducedFilesOutcome> => {
+  const prepared = await prepareCompletedProducedFilesClaim(
+    record,
+    signal,
+    deadlineAt,
+  );
+  return prepared.claim();
 };
 
 const retainPrunedSessionReceipt = (
@@ -697,10 +891,10 @@ const retainPrunedSessionReceipt = (
 };
 
 /**
- * Keep rich process/output records bounded while detaching produced-file
- * recovery into a much smaller promise map. Running shells and records with
- * queued interactions are never candidates; the release path retries pruning
- * after the interaction completes.
+ * Keep the active-shell map bounded while detaching produced-file recovery
+ * into its own bounded/TTL map. Running shells and records with queued
+ * interactions are never candidates; the release path retries pruning after
+ * the interaction completes.
  */
 const pruneCompletedShellSessions = (
   state: ShellState,
@@ -712,7 +906,10 @@ const pruneCompletedShellSessions = (
     }
   }
   for (const [id, recovery] of state.prunedProducedFiles) {
-    if (now - recovery.prunedAt >= PRUNED_PRODUCED_FILES_TTL_MS) {
+    if (
+      !recovery.claimed &&
+      now - recovery.prunedAt >= PRUNED_PRODUCED_FILES_TTL_MS
+    ) {
       state.prunedProducedFiles.delete(id);
     }
   }
@@ -732,10 +929,47 @@ const pruneCompletedShellSessions = (
     if (!expired && retainedCompleted <= MAX_RETAINED_COMPLETED_SHELLS) break;
     if (record.pendingInteractions > 0) continue;
 
-    if (!record.producedFilesReported) {
-      state.prunedProducedFiles.set(record.id, {
+    if (
+      !record.producedFilesReported &&
+      (hasProducedFileSources(record) || record.producedFilesCollection)
+    ) {
+      while (
+        state.prunedProducedFiles.size >= MAX_PRUNED_PRODUCED_FILE_RECOVERIES
+      ) {
+        const oldestUnclaimed = [...state.prunedProducedFiles.entries()]
+          .filter(([, recovery]) => !recovery.claimed)
+          .sort((left, right) => left[1].prunedAt - right[1].prunedAt)[0];
+        if (!oldestUnclaimed) break;
+        state.prunedProducedFiles.delete(oldestUnclaimed[0]);
+      }
+      // If every bounded slot is actively claimed, retain the rich record and
+      // retry pruning after those drains release instead of dropping recovery.
+      if (
+        state.prunedProducedFiles.size >= MAX_PRUNED_PRODUCED_FILE_RECOVERIES
+      ) {
+        continue;
+      }
+      const recovery = {
         prunedAt: now,
-        pending: takeCompletedProducedFiles(record).catch(() => undefined),
+        ...(record.owner ? { owner: record.owner } : {}),
+        claimed: false,
+        source: record,
+      };
+      state.prunedProducedFiles.set(record.id, recovery);
+      const pending = ensureCompletedProducedFilesCollection(record);
+      void pending.then((attempt) => {
+        const current = state.prunedProducedFiles.get(record.id);
+        if (
+          current === recovery &&
+          !current.claimed &&
+          attempt.kind === "ready" &&
+          !attempt.outcome.producedFiles?.length &&
+          !attempt.outcome.producedFilesOmitted
+        ) {
+          // Empty/failed outcomes carry no recoverable user value and should
+          // not occupy the bounded map until its TTL.
+          state.prunedProducedFiles.delete(record.id);
+        }
       });
     }
     retainPrunedSessionReceipt(state, record, now);
@@ -761,8 +995,10 @@ export const cleanupShellSessions = (
  * never reach the agent-completed rollup. This lets the agent finalizer pull
  * such late deliverables in before the rollup emits.
  *
- * Scope with `sessionIds` to the sessions a run actually touched (omit to
- * sweep every session). Delegates to `takeCompletedProducedFiles`, so the
+ * `access` is the full conversation/agent owner key (`null` is reserved for
+ * likewise-unowned direct harness sessions). Scope with `sessionIds` to the
+ * sessions a run actually touched; omitting ids sweeps only sessions matching
+ * that owner. Uses the same prepared/atomic produced-file claim, so the
  * one-shot `producedFilesReported` flag, `isNoiseProducedPath` guards,
  * per-command dedup, and the per-command cap all still apply, and a session
  * already drained inline yields nothing here.
@@ -776,7 +1012,10 @@ export const cleanupShellSessions = (
  */
 export const drainCompletedProducedFiles = async (
   state: ShellState,
+  access: ShellSessionAccess | null,
   sessionIds?: Iterable<string>,
+  signal?: AbortSignal,
+  deadlineAt = Date.now() + PRODUCED_FILE_DELIVERY_WAIT_MS,
 ): Promise<{
   files: ProducedFileRecord[];
   omitted?: ProducedFilesOmission;
@@ -785,8 +1024,13 @@ export const drainCompletedProducedFiles = async (
   const records = requestedIds
     ? requestedIds
         .map((id) => state.shells.get(id))
-        .filter((record): record is ManagedShellRecord => Boolean(record))
-    : [...state.shells.values()];
+        .filter(
+          (record): record is ManagedShellRecord =>
+            Boolean(record) && shellOwnerMatchesAccess(record?.owner, access),
+        )
+    : [...state.shells.values()].filter((record) =>
+        shellOwnerMatchesAccess(record.owner, access),
+      );
   const files: ProducedFileRecord[] = [];
   let count = 0;
   let limit = 0;
@@ -798,18 +1042,71 @@ export const drainCompletedProducedFiles = async (
       limit = Math.max(limit, produced.producedFilesOmitted.limit);
     }
   };
-  for (const record of records) {
-    collect(await takeCompletedProducedFiles(record));
-  }
   const prunedIds = requestedIds ?? [...state.prunedProducedFiles.keys()];
+  const claims: Array<{ id: string; recovery: PrunedProducedFilesRecovery }> =
+    [];
   for (const id of prunedIds) {
     const recovery = state.prunedProducedFiles.get(id);
-    if (!recovery) continue;
-    // Claim before awaiting so concurrent finalizer drains cannot attach the
-    // same recovered batch twice.
-    state.prunedProducedFiles.delete(id);
-    const produced = await recovery.pending;
-    collect(produced);
+    if (
+      !recovery ||
+      recovery.claimed ||
+      !shellOwnerMatchesAccess(recovery.owner, access)
+    ) {
+      continue;
+    }
+    recovery.claimed = true;
+    claims.push({ id, recovery });
+  }
+  let liveClaims: PreparedProducedFilesClaim[];
+  let claimOutcomes: Array<{
+    id: string;
+    recovery: PrunedProducedFilesRecovery;
+    prepared: PreparedProducedFilesClaim;
+  }>;
+  try {
+    [liveClaims, claimOutcomes] = await Promise.all([
+      Promise.all(
+        records.map((record) =>
+          prepareCompletedProducedFilesClaim(record, signal, deadlineAt),
+        ),
+      ),
+      Promise.all(
+        claims.map(async ({ id, recovery }) => ({
+          id,
+          recovery,
+          prepared: await prepareCompletedProducedFilesClaim(
+            recovery.source,
+            signal,
+            deadlineAt,
+          ),
+        })),
+      ),
+    ]);
+  } catch (error) {
+    for (const { id, recovery } of claims) {
+      const current = state.prunedProducedFiles.get(id);
+      if (current === recovery) current.claimed = false;
+    }
+    throw error;
+  }
+  if (signal?.aborted) {
+    for (const { id, recovery } of claims) {
+      const current = state.prunedProducedFiles.get(id);
+      if (current === recovery) current.claimed = false;
+    }
+    throw signal.reason ?? new Error("Aborted");
+  }
+  for (const prepared of liveClaims) {
+    if (prepared.ready) collect(prepared.claim());
+  }
+  for (const { id, recovery, prepared } of claimOutcomes) {
+    const current = state.prunedProducedFiles.get(id);
+    if (prepared.ready) {
+      if (current === recovery) state.prunedProducedFiles.delete(id);
+      collect(prepared.claim());
+      continue;
+    }
+    if (current === recovery) current.claimed = false;
   }
   return { files, ...(count > 0 ? { omitted: { count, limit } } : {}) };
 };
@@ -881,7 +1178,52 @@ const buildUnixNodeShimScript = (): string =>
     "\n",
   );
 
-const ensureNodeShim = (secretStateRoot: string): string | undefined => {
+const buildUnixCliShimScript = (envVar: string): string =>
+  [
+    "#!/bin/sh",
+    `ELECTRON_RUN_AS_NODE=1 exec "$STELLA_NODE_BIN" "$${envVar}" "$@"`,
+    "",
+  ].join("\n");
+
+const buildUnixGitShimScript = (): string =>
+  [
+    "#!/bin/sh",
+    'if [ -n "$STELLA_GIT_BIN" ]; then',
+    '  __stella_git_bin="$STELLA_GIT_BIN"',
+    "else",
+    '  __stella_git_bin="$STELLA_REAL_GIT_BIN"',
+    "fi",
+    'if [ -z "$__stella_git_bin" ]; then',
+    '  echo "git executable not found" >&2',
+    "  exit 127",
+    "fi",
+    'if [ "$1" = "commit" ]; then',
+    "  __stella_has_feature_tag=0",
+    '  for __stella_arg in "$@"; do',
+    '    case "$__stella_arg" in',
+    '      *"[feature:"*) __stella_has_feature_tag=1 ;;',
+    "    esac",
+    "  done",
+    '  if [ "$__stella_has_feature_tag" -eq 1 ]; then',
+    '    __stella_repo_root="$("$__stella_git_bin" rev-parse --show-toplevel 2>/dev/null || true)"',
+    '    if [ -n "$__stella_repo_root" ]; then',
+    "      for __stella_dep_name in package.json bun.lock bun.lockb package-lock.json pnpm-lock.yaml yarn.lock npm-shrinkwrap.json; do",
+    '        __stella_dep_file="$__stella_repo_root/$__stella_dep_name"',
+    '        if [ -f "$__stella_dep_file" ]; then',
+    '          "$__stella_git_bin" add -- "$__stella_dep_file" >/dev/null 2>&1 || true',
+    "        fi",
+    "      done",
+    "    fi",
+    "  fi",
+    "fi",
+    'exec "$__stella_git_bin" "$@"',
+    "",
+  ].join("\n");
+
+const ensureNodeShim = (
+  secretStateRoot: string,
+  options?: ShellStateOptions,
+): string | undefined => {
   const shimDir = path.join(secretStateRoot, "shell-shims");
   const shimPath = path.join(
     shimDir,
@@ -912,7 +1254,26 @@ const ensureNodeShim = (secretStateRoot: string): string | undefined => {
         );
       }
     }
-    if (process.platform !== "win32") chmodSync(shimPath, 0o700);
+    if (process.platform !== "win32") {
+      const unixShimPaths = [shimPath];
+      const gitShimPath = path.join(shimDir, "git");
+      writeFileSync(gitShimPath, buildUnixGitShimScript(), "utf-8");
+      unixShimPaths.push(gitShimPath);
+      for (const shim of WINDOWS_CLI_SHIMS) {
+        const cliPath = options?.[shim.optionKey];
+        if (typeof cliPath !== "string" || !existsSync(cliPath)) continue;
+        const cliShimPath = path.join(shimDir, shim.command);
+        writeFileSync(
+          cliShimPath,
+          buildUnixCliShimScript(shim.envVar),
+          "utf-8",
+        );
+        unixShimPaths.push(cliShimPath);
+      }
+      for (const unixShimPath of unixShimPaths) {
+        chmodSync(unixShimPath, 0o700);
+      }
+    }
     return shimDir;
   } catch {
     return undefined;
@@ -954,7 +1315,7 @@ export function createShellState(
     throw new Error("createShellState requires a secretStateRoot.");
   }
 
-  const nodeShimDir = ensureNodeShim(secretStateRoot);
+  const nodeShimDir = ensureNodeShim(secretStateRoot, options);
   const windowsCliShimDir =
     process.platform === "win32"
       ? ensureWindowsCliShims(secretStateRoot, options)
@@ -979,167 +1340,12 @@ export function createShellState(
   };
 }
 
-const buildPosixShellCommand = (
-  command: string,
-  options?: {
-    stellaBrowserBinPath?: string;
-    stellaOfficeBinPath?: string;
-    stellaComputerCliPath?: string;
-    stellaMediaCliPath?: string;
-    stellaXApiCliPath?: string;
-  },
-) => {
-  const stellaOfficeBin =
-    options?.stellaOfficeBinPath && existsSync(options.stellaOfficeBinPath)
-      ? options.stellaOfficeBinPath
-      : "";
-  const stellaComputerCli =
-    options?.stellaComputerCliPath && existsSync(options.stellaComputerCliPath)
-      ? options.stellaComputerCliPath
-      : "";
-  const stellaMediaCli =
-    options?.stellaMediaCliPath && existsSync(options.stellaMediaCliPath)
-      ? options.stellaMediaCliPath
-      : "";
-  const stellaXApiCli =
-    options?.stellaXApiCliPath && existsSync(options.stellaXApiCliPath)
-      ? options.stellaXApiCliPath
-      : "";
-
-  const preamble = `
-__stella_git_exec() {
-  if [ -n "$STELLA_GIT_BIN" ]; then
-    "$STELLA_GIT_BIN" "$@"
-  else
-    command git "$@"
-  fi
-}
-__stella_git_stage_feature_dependencies() {
-  __stella_repo_root="$(__stella_git_exec rev-parse --show-toplevel 2>/dev/null || true)"
-  if [ -z "$__stella_repo_root" ]; then
-    return 0
-  fi
-  for __stella_dep_name in package.json bun.lock bun.lockb package-lock.json pnpm-lock.yaml yarn.lock npm-shrinkwrap.json; do
-    __stella_dep_file="$__stella_repo_root/$__stella_dep_name"
-    if [ -f "$__stella_dep_file" ]; then
-      __stella_git_exec add -- "$__stella_dep_file" >/dev/null 2>&1 || true
-    fi
-  done
-}
-git() {
-  if [ "$1" = "commit" ]; then
-    __stella_has_feature_tag=0
-    for __stella_arg in "$@"; do
-      case "$__stella_arg" in
-        *"[feature:"*)
-          __stella_has_feature_tag=1
-          ;;
-      esac
-    done
-    if [ "$__stella_has_feature_tag" -eq 1 ]; then
-      __stella_git_stage_feature_dependencies
-    fi
-  fi
-  __stella_git_exec "$@"
-}
-${stellaOfficeBin ? `stella-office() { ELECTRON_RUN_AS_NODE=1 "$STELLA_NODE_BIN" "$STELLA_OFFICE_BIN" "$@"; }` : ""}
-${stellaComputerCli ? `stella-computer() { ELECTRON_RUN_AS_NODE=1 "$STELLA_NODE_BIN" "$STELLA_COMPUTER_CLI" "$@"; }` : ""}
-${stellaMediaCli ? `stella-media() { ELECTRON_RUN_AS_NODE=1 "$STELLA_NODE_BIN" "$STELLA_MEDIA_CLI" "$@"; }` : ""}
-${stellaXApiCli ? `stella-x-api() { ELECTRON_RUN_AS_NODE=1 "$STELLA_NODE_BIN" "$STELLA_X_API_CLI" "$@"; }` : ""}
-if [ -n "$BASH_VERSION" ]; then
-  export -f __stella_git_exec __stella_git_stage_feature_dependencies git${stellaOfficeBin ? " stella-office" : ""}${stellaComputerCli ? " stella-computer" : ""}${stellaMediaCli ? " stella-media" : ""}${stellaXApiCli ? " stella-x-api" : ""} >/dev/null 2>&1 || true
-fi
-`;
-
-  return `${preamble}\n${command}`;
-};
-
-const buildPowerShellCommand = (
-  command: string,
-  options?: {
-    stellaOfficeBinPath?: string;
-    stellaComputerCliPath?: string;
-    stellaMediaCliPath?: string;
-    stellaXApiCliPath?: string;
-  },
-): string => {
-  const cliFunctions = [
-    options?.stellaOfficeBinPath && existsSync(options.stellaOfficeBinPath)
-      ? "function global:stella-office { Invoke-StellaNodeCli $env:STELLA_OFFICE_BIN $args }"
-      : "",
-    options?.stellaComputerCliPath && existsSync(options.stellaComputerCliPath)
-      ? "function global:stella-computer { Invoke-StellaNodeCli $env:STELLA_COMPUTER_CLI $args }"
-      : "",
-    options?.stellaMediaCliPath && existsSync(options.stellaMediaCliPath)
-      ? "function global:stella-media { Invoke-StellaNodeCli $env:STELLA_MEDIA_CLI $args }"
-      : "",
-    options?.stellaXApiCliPath && existsSync(options.stellaXApiCliPath)
-      ? "function global:stella-x-api { Invoke-StellaNodeCli $env:STELLA_X_API_CLI $args }"
-      : "",
-  ].filter(Boolean);
-  const preamble = `
-$script:StellaGitExecutable = if ($env:STELLA_GIT_BIN) {
-  $env:STELLA_GIT_BIN
-} else {
-  (Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
-}
-function Invoke-StellaGit {
-  if (-not $script:StellaGitExecutable) { throw "git executable not found" }
-  & $script:StellaGitExecutable @args
-}
-function global:git {
-  if ($args.Count -gt 0 -and $args[0] -eq "commit") {
-    $hasFeatureTag = $false
-    foreach ($argument in $args) {
-      if ($argument.ToString().Contains("[feature:")) { $hasFeatureTag = $true }
-    }
-    if ($hasFeatureTag) {
-      $repoRoot = Invoke-StellaGit rev-parse --show-toplevel 2>$null | Select-Object -First 1
-      if ($repoRoot) {
-        foreach ($dependencyName in @("package.json", "bun.lock", "bun.lockb", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "npm-shrinkwrap.json")) {
-          $dependencyPath = Join-Path $repoRoot $dependencyName
-          if (Test-Path -LiteralPath $dependencyPath -PathType Leaf) {
-            Invoke-StellaGit add -- $dependencyPath *> $null
-          }
-        }
-      }
-    }
-  }
-  Invoke-StellaGit @args
-}
-function Invoke-StellaNodeCli {
-  param([string]$CliPath, [object[]]$CliArguments)
-  $previousElectronRunAsNode = $env:ELECTRON_RUN_AS_NODE
-  try {
-    $env:ELECTRON_RUN_AS_NODE = "1"
-    & $env:STELLA_NODE_BIN $CliPath @CliArguments
-  } finally {
-    if ($null -eq $previousElectronRunAsNode) {
-      Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
-    } else {
-      $env:ELECTRON_RUN_AS_NODE = $previousElectronRunAsNode
-    }
-  }
-}
-${cliFunctions.join("\n")}
-`;
-  return `${preamble}\n${command}`;
-};
-
 export const buildShellCommand = (
   command: string,
-  state: ShellState,
-  platform: NodeJS.Platform = process.platform,
-  shell?: string,
-): string => {
-  if (platform === "win32") {
-    return command;
-  }
-  if (shell && shellKind(shell, platform) === "powershell") {
-    return buildPowerShellCommand(command, state);
-  }
-  return buildPosixShellCommand(command, state);
-};
+  _state: ShellState,
+  _platform: NodeJS.Platform = process.platform,
+  _shell?: string,
+): string => command;
 
 const resolveStellaDataDirFromState = (
   state: ShellState,
@@ -1255,6 +1461,17 @@ const buildShellEnv = (
       "PATH";
     const existingPath =
       typeof mergedEnv[pathKey] === "string" ? mergedEnv[pathKey] : "";
+    if (process.platform !== "win32" && options?.nodeShimDir) {
+      const configuredGit = mergedEnv.STELLA_GIT_BIN?.trim();
+      const validConfiguredGit =
+        configuredGit && existsSync(configuredGit) ? configuredGit : undefined;
+      const realGit =
+        validConfiguredGit ??
+        findOnPath("git", process.platform, mergedEnv, existsSync) ??
+        "";
+      if (!validConfiguredGit) delete mergedEnv.STELLA_GIT_BIN;
+      if (realGit) mergedEnv.STELLA_REAL_GIT_BIN = realGit;
+    }
     mergedEnv[pathKey] = [...shellShimDirs, existingPath]
       .filter(Boolean)
       .join(path.delimiter);
@@ -1461,6 +1678,20 @@ const isPowerShell = (shell: string): boolean =>
 const encodePowerShellCommand = (command: string): string =>
   Buffer.from(command, "utf16le").toString("base64");
 
+const withPowerShellExitPropagation = (command: string): string =>
+  [
+    // `pwsh -EncodedCommand` otherwise normalizes some native failures to a
+    // generic process status. Capture the command's own success bit and native
+    // status immediately, before the epilogue itself can overwrite `$?`.
+    "$global:LASTEXITCODE = 0",
+    command,
+    "$__stella_command_succeeded = $?",
+    "$__stella_native_exit = $global:LASTEXITCODE",
+    "if ($__stella_command_succeeded) { exit 0 }",
+    "if ($__stella_native_exit -ne 0) { exit $__stella_native_exit }",
+    "exit 1",
+  ].join("\n");
+
 export const resolveShellLaunch = (
   command: string,
   options: ShellLaunchOptions = {},
@@ -1485,7 +1716,7 @@ export const resolveShellLaunch = (
         "-NoProfile",
         ...(options.tty ? [] : ["-NonInteractive"]),
         "-EncodedCommand",
-        encodePowerShellCommand(command),
+        encodePowerShellCommand(withPowerShellExitPropagation(command)),
       ],
     };
   }
@@ -1503,7 +1734,7 @@ export const resolveShellLaunch = (
         "-NoProfile",
         ...(options.tty ? [] : ["-NonInteractive"]),
         "-EncodedCommand",
-        encodePowerShellCommand(command),
+        encodePowerShellCommand(withPowerShellExitPropagation(command)),
       ],
     };
   }
@@ -1713,11 +1944,13 @@ export const watchShellExit = (
  */
 export const listRunningShellSessionsOwnedBy = (
   state: ShellState,
-  agentId: string,
+  access: ShellSessionAccess,
 ): string[] => {
   const owned: string[] = [];
   for (const shell of state.shells.values()) {
-    if (!shell.running || shell.owner?.agentId !== agentId) continue;
+    if (!shell.running || !shellOwnerMatchesAccess(shell.owner, access)) {
+      continue;
+    }
     owned.push(shell.id);
   }
   return owned;
@@ -1745,17 +1978,31 @@ export const setShellOwner = (
  * Calls without a ToolContext can only address likewise-unowned sessions,
  * preserving direct harness/internal use without opening owned sessions.
  */
+const shellOwnerMatchesAccess = (
+  owner: ShellSessionOwner | undefined,
+  access: ShellSessionAccess | null,
+): boolean => {
+  if (!owner) return access === null;
+  return (
+    access !== null &&
+    owner.conversationId === access.conversationId &&
+    owner.agentId === access.agentId
+  );
+};
+
 const shellOwnerMatchesContext = (
   owner: ShellSessionOwner | undefined,
   context?: ToolContext,
-): boolean => {
-  if (!owner) return !context?.conversationId;
-  if (!context?.conversationId) return false;
-  return (
-    owner.conversationId === context.conversationId &&
-    owner.agentId === context.agentId
+): boolean =>
+  shellOwnerMatchesAccess(
+    owner,
+    context?.conversationId
+      ? {
+          conversationId: context.conversationId,
+          ...(context.agentId ? { agentId: context.agentId } : {}),
+        }
+      : null,
   );
-};
 
 /**
  * Wait for new shell activity (or completion), bounded by `timeoutMs`, as a
@@ -1783,6 +2030,11 @@ const waitForShellActivityEffect = (
         Effect.sync(() => record.waiters.add(finish)),
         () => Effect.sync(() => record.waiters.delete(finish)),
       );
+      // Close the check-then-subscribe race: output or exit can land between
+      // the optimistic check above and waiter registration.
+      if (!record.running || record.outputVersion !== observedVersion) {
+        Deferred.doneUnsafe(activity, Effect.void);
+      }
       const abortLatch = yield* acquireAbortLatch(signal);
       yield* Effect.raceFirst(
         Effect.raceFirst(Deferred.await(activity), Effect.sleep(timeoutMs)),
@@ -1884,22 +2136,17 @@ const settleCompletedShellEffect = (
   record: ManagedShellRecord,
   signal?: AbortSignal,
   hardDeadlineAt = Number.POSITIVE_INFINITY,
-): Effect.Effect<void> =>
+): Effect.Effect<void, unknown> =>
   Effect.gen(function* () {
     const deadline = Math.min(Date.now() + 250, hardDeadlineAt);
     while (record.running && Date.now() < deadline) {
       const observedVersion = record.outputVersion;
-      const attempt = yield* Effect.exit(
-        waitForShellActivityEffect(
-          record,
-          observedVersion,
-          Math.min(25, Math.max(1, deadline - Date.now())),
-          signal,
-        ),
+      yield* waitForShellActivityEffect(
+        record,
+        observedVersion,
+        Math.min(25, Math.max(1, deadline - Date.now())),
+        signal,
       );
-      if (Exit.isFailure(attempt)) {
-        return;
-      }
     }
   });
 
@@ -2740,39 +2987,43 @@ const runUntilExecDeadline = async <T>(
   }
   const remainingMs = deadlineAt - Date.now();
   if (remainingMs <= 0) return { status: "deadline" };
-
-  return await new Promise<ExecDeadlineOutcome<T>>((resolve) => {
-    let settled = false;
-    const finish = (outcome: ExecDeadlineOutcome<T>) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", onAbort);
-      resolve(outcome);
-    };
-    const onAbort = () =>
-      finish({
-        status: "aborted",
-        error: signal?.reason ?? new Error("Aborted"),
-      });
-    const timer = setTimeout(() => finish({ status: "deadline" }), remainingMs);
-    signal?.addEventListener("abort", onAbort, { once: true });
-    if (signal?.aborted) {
-      onAbort();
-      return;
-    }
-    let pending: Promise<T>;
-    try {
-      pending = operation();
-    } catch (error) {
-      finish({ status: "failed", error });
-      return;
-    }
-    void pending.then(
-      (value) => finish({ status: "completed", value }),
-      (error) => finish({ status: "failed", error }),
-    );
-  });
+  return await runToolEffect(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const abortLatch = yield* acquireAbortLatch(signal);
+        const operationOutcome = Effect.tryPromise({
+          try: operation,
+          catch: (error) => error,
+        }).pipe(
+          Effect.match({
+            onFailure: (error): ExecDeadlineOutcome<T> => ({
+              status: "failed",
+              error,
+            }),
+            onSuccess: (value): ExecDeadlineOutcome<T> => ({
+              status: "completed",
+              value,
+            }),
+          }),
+        );
+        const deadlineOutcome = Effect.sleep(remainingMs).pipe(
+          Effect.as<ExecDeadlineOutcome<T>>({ status: "deadline" }),
+        );
+        const abortOutcome = Deferred.await(abortLatch).pipe(
+          Effect.map(
+            (reason): ExecDeadlineOutcome<T> => ({
+              status: "aborted",
+              error: reason ?? new Error("Aborted"),
+            }),
+          ),
+        );
+        return yield* Effect.raceFirst(
+          Effect.raceFirst(operationOutcome, deadlineOutcome),
+          abortOutcome,
+        );
+      }),
+    ),
+  );
 };
 
 const toolErrorMessage = (error: unknown): string =>
@@ -3009,6 +3260,20 @@ const resizeShellPty = (
     throw new Error(`resize requires a running PTY session: ${record.id}.`);
   }
   record.pty.resize(cols, rows);
+  // Bun updates the PTY window size but does not consistently deliver
+  // SIGWINCH to the foreground process group on Unix (notably on macOS).
+  // Notify the detached group explicitly so interactive children observe the
+  // new dimensions just as they do in a native terminal emulator.
+  if (process.platform !== "win32") {
+    const pid = record.pty.process.pid;
+    if (pid) {
+      try {
+        process.kill(-pid, "SIGWINCH");
+      } catch {
+        process.kill(pid, "SIGWINCH");
+      }
+    }
+  }
 };
 
 const resolveWriteStdinOperation = (
@@ -3093,14 +3358,14 @@ export const handleExecCommand = async (
     externalCandidateSnapshots?: ExternalCandidateSnapshot[];
   } = { rootSnapshot: null };
   if (shouldSnapshotShellSideEffects(prepared.command)) {
-    const snapshotAbort = new AbortController();
     const snapshotOutcome = await runUntilExecDeadline(
       () =>
         snapshotShellSideEffects(
           { cmd: prepared.command, workdir: prepared.cwd },
           resolveShellSnapshotRoot(prepared.cwd, context),
           context,
-          snapshotAbort.signal,
+          signal,
+          deadlineAt,
         ),
       deadlineAt,
       signal,
@@ -3108,11 +3373,6 @@ export const handleExecCommand = async (
     if (snapshotOutcome.status === "completed") {
       beforeSideEffects = snapshotOutcome.value;
     } else {
-      snapshotAbort.abort(
-        snapshotOutcome.status === "aborted"
-          ? snapshotOutcome.error
-          : new Error("exec_command pre-snapshot deadline reached"),
-      );
       if (snapshotOutcome.status === "aborted") {
         return { error: toolErrorMessage(snapshotOutcome.error) };
       }
@@ -3213,40 +3473,22 @@ export const handleExecCommand = async (
               }),
             );
             yield* waitForShellUntilDeadlineEffect(record, deadlineAt, signal);
+            yield* settleCompletedShellEffect(record, signal, deadlineAt);
           }),
         ),
       );
     } catch (error) {
       return { error: toolErrorMessage(error) };
     }
-    await runToolEffect(settleCompletedShellEffect(record, signal, deadlineAt));
 
     const drained = drainUnreadOutput(record);
     const payload = buildExecToolPayload(state, record, drained, callStartedAt);
     let produced: ProducedFilesOutcome = {};
     if (!record.running) {
-      const collectionDelivery = new AbortController();
-      const collectionOutcome = await runUntilExecDeadline(
-        () => takeCompletedProducedFiles(record, collectionDelivery.signal),
-        deadlineAt,
-        signal,
-      );
-      if (collectionOutcome.status === "completed") {
-        produced = collectionOutcome.value;
-      } else {
-        collectionDelivery.abort(
-          collectionOutcome.status === "aborted"
-            ? collectionOutcome.error
-            : new Error("exec_command post-snapshot deadline reached"),
-        );
-        if (collectionOutcome.status === "aborted") {
-          return { error: toolErrorMessage(collectionOutcome.error) };
-        }
-        if (collectionOutcome.status === "failed") {
-          throw collectionOutcome.error;
-        }
-        // The cached collection continues without pinning this call. Because
-        // delivery was aborted, it remains available to a later drain.
+      try {
+        produced = await takeCompletedProducedFiles(record, signal, deadlineAt);
+      } catch (error) {
+        return { error: toolErrorMessage(error) };
       }
     }
     // Also expose withholding on the model-visible payload. The agent is the
@@ -3324,6 +3566,15 @@ export const handleWriteStdin = async (
       error: "resize requires integer cols and rows between 1 and 1000.",
     };
   }
+  const interactionYieldTimeMs =
+    operation === "poll"
+      ? resolveExecYieldTime(
+          args.yield_time_ms,
+          DEFAULT_EMPTY_POLL_YIELD_MS,
+          MAX_EMPTY_POLL_YIELD_MS,
+        )
+      : resolveExecYieldTime(args.yield_time_ms, DEFAULT_WRITE_STDIN_YIELD_MS);
+  const passivePollDeadlineAt = callStartedAt + interactionYieldTimeMs;
   cleanupShellSessions(state);
   const record = state.shells.get(sessionId);
   if (!record || !shellOwnerMatchesContext(record.owner, context)) {
@@ -3344,12 +3595,50 @@ export const handleWriteStdin = async (
     };
   }
 
+  // A passive poll must not reserve the mutation queue while it waits for the
+  // very write that can wake it. Retain the record against pruning, wait
+  // outside the FIFO, then acquire the lease only for the atomic drain and
+  // receipt. Writes/resize/close/terminate remain fully serialized.
+  let releasePassivePollRetention: (() => void) | undefined;
+  if (
+    operation === "poll" &&
+    record.outputCursorBytes === record.unreadCursorStart
+  ) {
+    record.pendingInteractions += 1;
+    let released = false;
+    releasePassivePollRetention = () => {
+      if (released) return;
+      released = true;
+      record.pendingInteractions -= 1;
+      pruneCompletedShellSessions(state);
+    };
+    try {
+      await runToolEffect(
+        waitForShellActivityEffect(
+          record,
+          record.outputVersion,
+          Math.max(0, passivePollDeadlineAt - Date.now()),
+          signal,
+        ),
+      );
+    } catch (error) {
+      releasePassivePollRetention();
+      return { error: toolErrorMessage(error) };
+    }
+  }
+
   let interaction: ShellInteractionLease;
   try {
     interaction = await acquireShellInteraction(state, record, signal);
   } catch (error) {
+    releasePassivePollRetention?.();
     return { error: toolErrorMessage(error) };
   }
+  releasePassivePollRetention?.();
+  const interactionDeadlineAt =
+    operation === "poll"
+      ? passivePollDeadlineAt
+      : Date.now() + interactionYieldTimeMs;
   const receipt: ShellInteractionReceipt = {
     operation,
     ...(writeId ? { write_id: writeId } : {}),
@@ -3393,44 +3682,35 @@ export const handleWriteStdin = async (
       }
     }
 
-    const yieldTimeMs =
-      operation !== "poll"
-        ? resolveExecYieldTime(args.yield_time_ms, DEFAULT_WRITE_STDIN_YIELD_MS)
-        : resolveExecYieldTime(
-            args.yield_time_ms,
-            DEFAULT_EMPTY_POLL_YIELD_MS,
-            MAX_EMPTY_POLL_YIELD_MS,
-          );
     try {
-      if (operation === "poll") {
-        // Empty polling is a first-activity wait. Keeping the interaction open
-        // until the full yield deadline after output has already arrived makes
-        // interactive subprocesses feel hung and delays the next write.
-        if (record.outputCursorBytes === record.unreadCursorStart) {
-          await runToolEffect(
-            waitForShellActivityEffect(
-              record,
-              record.outputVersion,
-              yieldTimeMs,
-              signal,
-            ),
-          );
-        }
-      } else {
+      if (operation !== "poll") {
         await runToolEffect(
-          waitForShellUntilDeadlineEffect(
-            record,
-            Date.now() + yieldTimeMs,
-            signal,
-          ),
+          Effect.gen(function* () {
+            yield* waitForShellUntilDeadlineEffect(
+              record,
+              interactionDeadlineAt,
+              signal,
+            );
+            // Preserve the short post-yield settle window: pipe/PTY output can
+            // land just after the advertised wait. The scoped abort latch is
+            // still active here, so cancellation surfaces before any cursor
+            // drain instead of being converted into success.
+            yield* settleCompletedShellEffect(record, signal);
+          }),
         );
+      } else if (signal?.aborted) {
+        throw signal.reason ?? new Error("Aborted");
       }
     } catch (error) {
       // A poll/write never owns the process lifecycle; cancellation releases
       // only this interaction lease and leaves the session addressable.
       return { error: toolErrorMessage(error) };
     }
-    await runToolEffect(settleCompletedShellEffect(record, signal));
+    if (signal?.aborted) {
+      return {
+        error: toolErrorMessage(signal.reason ?? new Error("Aborted")),
+      };
+    }
 
     const drained = drainUnreadOutput(record);
     const payload = buildExecToolPayload(
@@ -3440,7 +3720,16 @@ export const handleWriteStdin = async (
       callStartedAt,
       receipt,
     );
-    const produced = await takeCompletedProducedFiles(record, signal);
+    let produced: ProducedFilesOutcome;
+    try {
+      produced = await takeCompletedProducedFiles(
+        record,
+        signal,
+        interactionDeadlineAt,
+      );
+    } catch (error) {
+      return { error: toolErrorMessage(error) };
+    }
     if (produced.producedFilesOmitted) {
       payload.produced_files_omitted = produced.producedFilesOmitted;
     }
@@ -3460,8 +3749,11 @@ export const handleBash = async (
   state: ShellState,
   args: Record<string, unknown>,
   context?: ToolContext,
-  _signal?: AbortSignal,
+  signal?: AbortSignal,
 ): Promise<ToolResult> => {
+  if (signal?.aborted) {
+    return { error: toolErrorMessage(signal.reason ?? new Error("Aborted")) };
+  }
   const prepared = resolveManagedShellCommand(state, args, context);
   const command = prepared.command;
 
@@ -3477,15 +3769,40 @@ export const handleBash = async (
   const cwd = prepared.cwd;
   const runInBackground = Boolean(args.run_in_background ?? false);
   const envOverrides = prepared.envOverrides;
+  const shouldSnapshotSideEffects = shouldSnapshotShellSideEffects(command);
+  const snapshotRoot = shouldSnapshotSideEffects
+    ? resolveShellSnapshotRoot(cwd, context)
+    : null;
+  let beforeSideEffects: {
+    rootSnapshot: FileSnapshot | null;
+    externalCandidateSnapshots?: ExternalCandidateSnapshot[];
+  } = { rootSnapshot: null };
+  if (snapshotRoot) {
+    const snapshotDeadlineAt =
+      Date.now() +
+      Math.min(PRODUCED_FILE_COLLECTION_ATTEMPT_MS, Math.max(0, timeout));
+    const snapshotOutcome = await runUntilExecDeadline(
+      () =>
+        snapshotShellSideEffects(
+          { cmd: command, workdir: cwd },
+          snapshotRoot,
+          context,
+          signal,
+          snapshotDeadlineAt,
+        ),
+      snapshotDeadlineAt,
+      signal,
+    );
+    if (snapshotOutcome.status === "completed") {
+      beforeSideEffects = snapshotOutcome.value;
+    } else if (snapshotOutcome.status === "aborted") {
+      return { error: toolErrorMessage(snapshotOutcome.error) };
+    } else if (snapshotOutcome.status === "failed") {
+      throw snapshotOutcome.error;
+    }
+  }
 
   if (runInBackground) {
-    const beforeSideEffects = shouldSnapshotShellSideEffects(command)
-      ? await snapshotShellSideEffects(
-          { cmd: command, workdir: cwd },
-          resolveShellSnapshotRoot(cwd, context),
-          context,
-        )
-      : { rootSnapshot: null };
     const record = startShell(
       state,
       command,
@@ -3517,32 +3834,39 @@ export const handleBash = async (
     };
   }
 
-  const shouldSnapshotSideEffects = shouldSnapshotShellSideEffects(command);
-  const snapshotRoot = shouldSnapshotSideEffects
-    ? resolveShellSnapshotRoot(cwd, context)
-    : null;
-  const beforeSideEffects =
-    shouldSnapshotSideEffects && snapshotRoot
-      ? await snapshotShellSideEffects(
-          { cmd: command, workdir: cwd },
-          snapshotRoot,
-          context,
-        )
-      : { rootSnapshot: null };
   const output = await runShell(state, command, cwd, timeout, envOverrides);
-  const produced =
-    shouldSnapshotSideEffects && snapshotRoot
-      ? mergeProducedFiles(
+  let produced: ProducedFilesOutcome = {};
+  if (shouldSnapshotSideEffects && snapshotRoot) {
+    const snapshotDeadlineAt = Date.now() + PRODUCED_FILE_COLLECTION_ATTEMPT_MS;
+    const snapshotOutcome = await runUntilExecDeadline(
+      async () => {
+        const external = await diffExternalCandidateSnapshots(
+          beforeSideEffects.externalCandidateSnapshots,
+          signal,
+          snapshotDeadlineAt,
+        );
+        const afterRoot = await snapshotFiles(
+          snapshotRoot,
+          signal,
+          snapshotDeadlineAt,
+        );
+        return mergeProducedFiles(
           resolveProducedFileLimit(context),
-          diffFileSnapshots(
-            beforeSideEffects.rootSnapshot,
-            await snapshotFiles(snapshotRoot),
-          ),
-          await diffExternalCandidateSnapshots(
-            beforeSideEffects.externalCandidateSnapshots,
-          ),
-        )
-      : {};
+          diffFileSnapshots(beforeSideEffects.rootSnapshot, afterRoot),
+          external.complete ? external.files : undefined,
+        );
+      },
+      snapshotDeadlineAt,
+      signal,
+    );
+    if (snapshotOutcome.status === "completed") {
+      produced = snapshotOutcome.value;
+    } else if (snapshotOutcome.status === "aborted") {
+      return { error: toolErrorMessage(snapshotOutcome.error) };
+    } else if (snapshotOutcome.status === "failed") {
+      throw snapshotOutcome.error;
+    }
+  }
   const extracted = extractOfficePreviewRef(sanitizeToolVisibleText(output));
   const text = produced.producedFilesOmitted
     ? `${truncate(extracted.cleanedOutput)}\n\n${producedFilesOmittedNotice(produced.producedFilesOmitted)}`
@@ -3565,6 +3889,7 @@ export const handleShellStatus = async (
   state: ShellState,
   args: Record<string, unknown>,
   context?: ToolContext,
+  signal?: AbortSignal,
 ): Promise<ToolResult> => {
   cleanupShellSessions(state);
   const shellId = String(args.shell_id ?? "");
@@ -3608,7 +3933,12 @@ export const handleShellStatus = async (
   result += `\nCommand: ${record.command.slice(0, 200)}`;
   result += `\n\n--- Output (last ${Math.min(tail_lines, lines.length)} lines) ---\n${tail}`;
 
-  const produced = await takeCompletedProducedFiles(record);
+  let produced: ProducedFilesOutcome;
+  try {
+    produced = await takeCompletedProducedFiles(record, signal);
+  } catch (error) {
+    return { error: toolErrorMessage(error) };
+  }
   if (produced.producedFilesOmitted) {
     result += `\n\n${producedFilesOmittedNotice(produced.producedFilesOmitted)}`;
   }

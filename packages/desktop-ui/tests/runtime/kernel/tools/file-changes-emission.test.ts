@@ -6,10 +6,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { handleEdit, handleWrite } from "@stella/runtime/kernel/tools/file";
 import { handleApplyPatch } from "@stella/runtime/kernel/tools/apply-patch";
 import {
+  cleanupShellSessions,
+  COMPLETED_SHELL_TTL_MS,
   createShellState,
   drainCompletedProducedFiles,
   handleExecCommand,
   handleWriteStdin,
+  MAX_PRUNED_PRODUCED_FILE_RECOVERIES,
 } from "@stella/runtime/kernel/tools/shell";
 import { createAsyncTempDirTracker } from "../../../helpers/temp.js";
 
@@ -468,21 +471,33 @@ describe("fileChanges emission", () => {
 
     // A drain scoped to an unrelated session recovers nothing.
     expect(
-      (await drainCompletedProducedFiles(shellState, ["no-such-session"]))
-        .files,
+      (
+        await drainCompletedProducedFiles(
+          shellState,
+          { conversationId: context.conversationId },
+          ["no-such-session"],
+        )
+      ).files,
     ).toEqual([]);
 
     // The finalize sweep pulls the late deliverable in for the rollup.
-    const drained = await drainCompletedProducedFiles(shellState, [
-      sessionId as string,
-    ]);
+    const drained = await drainCompletedProducedFiles(
+      shellState,
+      { conversationId: context.conversationId },
+      [sessionId as string],
+    );
     expect(drained.files).toEqual([{ path: filePath, kind: { type: "add" } }]);
 
     // One-shot: a second sweep (or any later poll) reveals nothing, so the
     // completion rollup never double-reports.
     expect(
-      (await drainCompletedProducedFiles(shellState, [sessionId as string]))
-        .files,
+      (
+        await drainCompletedProducedFiles(
+          shellState,
+          { conversationId: context.conversationId },
+          [sessionId as string],
+        )
+      ).files,
     ).toEqual([]);
     const polled = await handleWriteStdin(
       shellState,
@@ -490,6 +505,236 @@ describe("fileChanges emission", () => {
       context,
     );
     expect(polled.producedFiles).toBeUndefined();
+  });
+
+  it("keeps pruned produced-file recovery private to the full conversation and agent owner", async () => {
+    const root = await createTempDir();
+    const shellState = createShellState(root);
+    const owner = {
+      conversationId: "owner-conversation",
+      deviceId: "owner-device",
+      requestId: "owner-request",
+      agentId: "owner-agent",
+      stellaAppDir: root,
+    };
+    const filePath = path.join(root, "private-recovery.txt");
+    const started = await handleExecCommand(
+      shellState,
+      {
+        cmd: "sleep 0.2; printf private > private-recovery.txt",
+        workdir: root,
+        yield_time_ms: 50,
+      },
+      owner,
+    );
+    const sessionId = (started.details as { session_id: string }).session_id;
+    const record = shellState.shells.get(sessionId);
+    expect(record).toBeDefined();
+    const exitDeadline = Date.now() + 5_000;
+    while (record?.running && Date.now() < exitDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(record?.running).toBe(false);
+
+    cleanupShellSessions(
+      shellState,
+      (record?.completedAt ?? Date.now()) + COMPLETED_SHELL_TTL_MS + 1,
+    );
+    expect(shellState.shells.has(sessionId)).toBe(false);
+    expect(shellState.prunedProducedFiles.has(sessionId)).toBe(true);
+
+    for (const access of [
+      { conversationId: "foreign-conversation", agentId: "owner-agent" },
+      { conversationId: owner.conversationId, agentId: "foreign-agent" },
+    ]) {
+      const foreign = await drainCompletedProducedFiles(shellState, access, [
+        sessionId,
+      ]);
+      expect(foreign.files).toEqual([]);
+      expect(shellState.prunedProducedFiles.get(sessionId)?.claimed).toBe(
+        false,
+      );
+    }
+
+    const recovered = await drainCompletedProducedFiles(
+      shellState,
+      { conversationId: owner.conversationId, agentId: owner.agentId },
+      [sessionId],
+    );
+    expect(recovered.files).toEqual([
+      { path: filePath, kind: { type: "add" } },
+    ]);
+    expect(shellState.prunedProducedFiles.has(sessionId)).toBe(false);
+  });
+
+  it("releases an aborted pruned-recovery claim without consuming it", async () => {
+    const root = await createTempDir();
+    const shellState = createShellState(root);
+    const access = { conversationId: "c-retry", agentId: "a-retry" };
+    const sessionId = "pruned-retry";
+    const filePath = path.join(root, "retry.txt");
+    shellState.prunedProducedFiles.set(sessionId, {
+      prunedAt: Date.now(),
+      owner: access,
+      claimed: false,
+      source: {
+        running: false,
+        producedFileLimit: 12,
+        producedFilesCollection: new Promise(() => {}),
+      },
+    });
+
+    const controller = new AbortController();
+    const pendingDrain = drainCompletedProducedFiles(
+      shellState,
+      access,
+      [sessionId],
+      controller.signal,
+      Date.now() + 5_000,
+    );
+    controller.abort(new Error("cancel recovery"));
+    await expect(pendingDrain).rejects.toThrow("cancel recovery");
+    expect(shellState.prunedProducedFiles.get(sessionId)?.claimed).toBe(false);
+
+    const recovery = shellState.prunedProducedFiles.get(sessionId);
+    if (!recovery) throw new Error("missing retryable recovery");
+    recovery.source.producedFilesCollection = Promise.resolve({
+      kind: "ready",
+      outcome: {
+        producedFiles: [{ path: filePath, kind: { type: "add" } }],
+      },
+    });
+    const retried = await drainCompletedProducedFiles(shellState, access, [
+      sessionId,
+    ]);
+    expect(retried.files).toEqual([{ path: filePath, kind: { type: "add" } }]);
+    expect(
+      (await drainCompletedProducedFiles(shellState, access, [sessionId]))
+        .files,
+    ).toEqual([]);
+  });
+
+  it("bounds a hung pruned recovery without starving a ready sibling", async () => {
+    const root = await createTempDir();
+    const shellState = createShellState(root);
+    const access = { conversationId: "c-bounded", agentId: "a-bounded" };
+    const readyPath = path.join(root, "ready.txt");
+    shellState.prunedProducedFiles.set("hung", {
+      prunedAt: Date.now(),
+      owner: access,
+      claimed: false,
+      source: {
+        running: false,
+        producedFileLimit: 12,
+        producedFilesCollection: new Promise(() => {}),
+      },
+    });
+    shellState.prunedProducedFiles.set("ready", {
+      prunedAt: Date.now(),
+      owner: access,
+      claimed: false,
+      source: {
+        running: false,
+        producedFileLimit: 12,
+        producedFilesCollection: Promise.resolve({
+          kind: "ready",
+          outcome: {
+            producedFiles: [{ path: readyPath, kind: { type: "add" } }],
+          },
+        }),
+      },
+    });
+
+    const startedAt = Date.now();
+    const drained = await drainCompletedProducedFiles(
+      shellState,
+      access,
+      ["hung", "ready"],
+      undefined,
+      Date.now() + 25,
+    );
+    expect(Date.now() - startedAt).toBeLessThan(500);
+    expect(drained.files).toEqual([{ path: readyPath, kind: { type: "add" } }]);
+    expect(shellState.prunedProducedFiles.get("hung")?.claimed).toBe(false);
+    expect(shellState.prunedProducedFiles.has("ready")).toBe(false);
+  });
+
+  it("bounds pruned produced-file recovery and removes empty outcomes", async () => {
+    const root = await createTempDir();
+    const shellState = createShellState(root);
+    const context = execContext(root);
+    const started = await handleExecCommand(
+      shellState,
+      {
+        cmd: "sleep 0.2; printf bounded > bounded.txt",
+        workdir: root,
+        yield_time_ms: 50,
+      },
+      context,
+    );
+    const sessionId = (started.details as { session_id: string }).session_id;
+    const record = shellState.shells.get(sessionId);
+    const exitDeadline = Date.now() + 5_000;
+    while (record?.running && Date.now() < exitDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(record?.running).toBe(false);
+    const pruneAt =
+      (record?.completedAt ?? Date.now()) + COMPLETED_SHELL_TTL_MS + 1;
+
+    for (
+      let index = 0;
+      index < MAX_PRUNED_PRODUCED_FILE_RECOVERIES;
+      index += 1
+    ) {
+      shellState.prunedProducedFiles.set(`existing-${index}`, {
+        prunedAt: pruneAt,
+        claimed: false,
+        source: {
+          running: false,
+          producedFileLimit: 12,
+          producedFilesCollection: Promise.resolve({
+            kind: "ready",
+            outcome: {
+              producedFiles: [
+                {
+                  path: path.join(root, `existing-${index}.txt`),
+                  kind: { type: "add" },
+                },
+              ],
+            },
+          }),
+        },
+      });
+    }
+    cleanupShellSessions(shellState, pruneAt);
+    expect(shellState.prunedProducedFiles.size).toBe(
+      MAX_PRUNED_PRODUCED_FILE_RECOVERIES,
+    );
+    expect(shellState.prunedProducedFiles.has("existing-0")).toBe(false);
+    expect(shellState.prunedProducedFiles.has(sessionId)).toBe(true);
+
+    const emptyStarted = await handleExecCommand(
+      shellState,
+      {
+        cmd: "sleep 0.2; printf ignored > /dev/null",
+        workdir: root,
+        yield_time_ms: 50,
+      },
+      context,
+    );
+    const emptyId = (emptyStarted.details as { session_id: string }).session_id;
+    const emptyRecord = shellState.shells.get(emptyId);
+    while (emptyRecord?.running && Date.now() < exitDeadline + 5_000) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    cleanupShellSessions(
+      shellState,
+      (emptyRecord?.completedAt ?? Date.now()) + COMPLETED_SHELL_TTL_MS + 1,
+    );
+    await expect
+      .poll(() => shellState.prunedProducedFiles.has(emptyId))
+      .toBe(false);
   });
 
   const execContext = (root: string) => ({

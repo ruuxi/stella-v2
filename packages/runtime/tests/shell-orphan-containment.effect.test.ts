@@ -117,4 +117,83 @@ describe("shell ownership on abort", () => {
     record?.kill();
     await waitFor(() => !pidIsAlive(pid!));
   });
+
+  it("surfaces an abort during write settle without consuming unread output", async () => {
+    const root = await makeRoot();
+    const state = createShellState(root);
+    const context = {
+      conversationId: "conv-settle-abort",
+      workingDirectory: root,
+    } as never;
+    const started = await handleExecCommand(
+      state,
+      {
+        cmd: `node -e 'process.stdin.on("data", () => process.stdout.write("settle-visible\\n")); setInterval(() => {}, 1000)'`,
+        yield_time_ms: 100,
+      },
+      context,
+    );
+    expect(started.error).toBeUndefined();
+    const sessionId = (started.details as { session_id?: string }).session_id;
+    expect(sessionId).toBeTruthy();
+    const record = state.shells.get(sessionId!);
+    if (!record) throw new Error("missing settle-abort shell record");
+    await waitFor(() => Boolean(record.child?.pid));
+    const pid = record.child!.pid!;
+
+    try {
+      const unreadCursorBefore = record.unreadCursorStart;
+      const abort = new AbortController();
+      const write = handleWriteStdin(
+        state,
+        {
+          session_id: sessionId,
+          chars: "go\n",
+          yield_time_ms: 0,
+        },
+        context,
+        abort.signal,
+      );
+
+      // Seeing the marker while the call is still pending proves the write has
+      // reached its post-yield settle window rather than aborting before I/O.
+      await waitFor(() => record.unreadOutput.includes("settle-visible"));
+      const unreadCursorAfterOutput = record.outputCursorBytes;
+      abort.abort(new Error("abort during settle"));
+      const aborted = await write;
+
+      expect(aborted.error).toBe("abort during settle");
+      expect(record.running).toBe(true);
+      expect(pidIsAlive(pid)).toBe(true);
+      expect(record.unreadCursorStart).toBe(unreadCursorBefore);
+      expect(record.outputCursorBytes).toBe(unreadCursorAfterOutput);
+      expect(record.unreadOutput).toContain("settle-visible");
+      expect(record.waiters.size).toBe(0);
+
+      const recovered = await handleWriteStdin(
+        state,
+        { session_id: sessionId, operation: "poll", yield_time_ms: 0 },
+        context,
+      );
+      expect(recovered.error).toBeUndefined();
+      expect(recovered.result).toContain("settle-visible");
+      expect(recovered.details).toMatchObject({
+        chunk_receipt: {
+          start_byte: unreadCursorBefore,
+          end_byte: unreadCursorAfterOutput,
+        },
+      });
+      expect(record.unreadOutput).toBe("");
+
+      const duplicate = await handleWriteStdin(
+        state,
+        { session_id: sessionId, operation: "poll", yield_time_ms: 0 },
+        context,
+      );
+      expect(duplicate.result).not.toContain("settle-visible");
+    } finally {
+      record.kill();
+      await waitFor(() => !pidIsAlive(pid));
+    }
+  });
 });

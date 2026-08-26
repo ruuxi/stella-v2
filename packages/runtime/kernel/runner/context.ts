@@ -944,6 +944,17 @@ export const createRunnerContext = ({
         if (!context.state.localAgentManager) {
           return { canceled: false };
         }
+        const record = context.runtimeStore.getAgentRecord?.(agentId);
+        if (record?.conversationId) {
+          context.state.backgroundExitWake?.disarm({
+            conversationId: record.conversationId,
+            agentId,
+          });
+        } else {
+          // Defensive fallback for a still-in-memory attempt whose durable row
+          // could not be read. LocalAgentManager itself keys these ids globally.
+          context.state.backgroundExitWake?.disarm(agentId);
+        }
         return await context.state.localAgentManager.cancelAgent(
           agentId,
           reason,
@@ -1063,17 +1074,37 @@ export const createRunnerContext = ({
   context.state.backgroundExitWake = createBackgroundExitWake({
     watchShellExit: toolHost.watchShellExit,
     readShellExitSnapshot: toolHost.readShellExitSnapshot,
-    getThreadStatus: async (agentId: string) =>
-      (await context.state.localAgentManager?.getAgent(agentId))?.status,
+    getThreadStatus: async (agentId: string, conversationId: string) => {
+      const snapshot = await context.state.localAgentManager?.getAgent(agentId);
+      // The wake registry is owner-scoped even though LocalAgentManager's
+      // historical lookup key is only the globally-minted thread id. Fail
+      // closed if an explicit/reused id resolves in another conversation.
+      if (!snapshot || snapshot.conversationId !== conversationId) {
+        return "canceled";
+      }
+      return snapshot.status;
+    },
     writeExitLog: async (sessionId: string, contents: string) =>
       await writeBackgroundExitLog(stellaDataDir, sessionId, contents),
     deliver: async ({
       conversationId,
       agentId,
+      eventId,
+      isCurrent,
       text,
     }: Record<string, any>) => {
       const manager = context.state.localAgentManager;
       if (!manager) return false;
+      const snapshot = await manager.getAgent(agentId);
+      if (!snapshot || snapshot.conversationId !== conversationId) {
+        return false;
+      }
+      // getAgent may cross storage I/O. A new run/cancel/runner teardown can
+      // disarm this batch while that await is pending; close that window before
+      // the synchronous manager enqueue/resume boundary performs any effect.
+      if (typeof isCurrent === "function" && !isCurrent()) {
+        return false;
+      }
       // Same door as `send_input`: rehydrates an evicted or finished thread
       // with its own history instead of starting a stranger.
       const result = await manager.sendAgentMessage(
@@ -1082,6 +1113,7 @@ export const createRunnerContext = ({
         "orchestrator",
         {
           deliveryKind: "external-input",
+          deliveryEventId: eventId,
         },
       );
       if (result.delivered) {

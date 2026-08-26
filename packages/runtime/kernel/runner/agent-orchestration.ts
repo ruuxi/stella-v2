@@ -113,18 +113,23 @@ const hasPersistedThreadEvent = hasPersistedThreadCustomEvent;
 const getShellExecutionState = (
   result: ToolResult,
 ): { sessionId: string | null; running: boolean } | null => {
-  const payload = result.details ?? result.result;
-  if (typeof payload === "string") {
-    const match = payload.match(/\bShell ID:\s*([^\s]+)/);
-    if (match) {
-      return { sessionId: match[1] ?? null, running: true };
-    }
-  }
+  if (result.error !== undefined) return null;
+  const payload = result.details;
   if (!payload || typeof payload !== "object") return null;
-  const record = payload as { session_id?: unknown; running?: unknown };
+  const record = payload as {
+    shell_session_id?: unknown;
+    session_id?: unknown;
+    running?: unknown;
+  };
   if (typeof record.running !== "boolean") return null;
+  const stableSessionId =
+    typeof record.shell_session_id === "string"
+      ? record.shell_session_id.trim()
+      : "";
+  const liveSessionId =
+    typeof record.session_id === "string" ? record.session_id.trim() : "";
   return {
-    sessionId: typeof record.session_id === "string" ? record.session_id : null,
+    sessionId: stableSessionId || liveSessionId || null,
     running: record.running,
   };
 };
@@ -170,11 +175,13 @@ const getParallelRunningShellSessions = (result: ToolResult): string[] => {
     if (!entry || typeof entry !== "object") continue;
     const record = entry as {
       tool_name?: unknown;
+      error?: unknown;
       result?: unknown;
       details?: unknown;
     };
     if (record.tool_name !== "exec_command") continue;
     const shellState = getShellExecutionState({
+      ...(typeof record.error === "string" ? { error: record.error } : {}),
       result: record.result,
       details: record.details,
     });
@@ -193,6 +200,65 @@ const parallelToolResultContainsShellCommand = (details: unknown): boolean => {
     if (!entry || typeof entry !== "object") return false;
     return (entry as { tool_name?: unknown }).tool_name === "exec_command";
   });
+};
+
+/**
+ * Keep automatic background-shell wakes aligned with the manager's actual
+ * attempt lifecycle. A start means the thread can poll its own leftovers;
+ * a true terminal event means it is safe to sleep on any owned sessions.
+ */
+const reconcileBackgroundExitWake = (
+  context: RunnerContext,
+  event: AgentLifecycleEvent,
+): void => {
+  const wake = context.state.backgroundExitWake;
+  if (!wake) return;
+  const identity = {
+    conversationId: event.conversationId,
+    agentId: event.agentId,
+  };
+  try {
+    if (event.type === "agent-started") {
+      // Invalidate pending timers and a flush that may currently be awaiting
+      // status/log I/O; a live attempt must never receive its predecessor's
+      // stale wake.
+      wake.disarm(identity);
+      return;
+    }
+    if (event.type === "agent-canceled") {
+      // User/runtime interruption is authoritative. Calling arm with the
+      // interruption marker also replaces any prior arm for this owner.
+      wake.arm({
+        ...identity,
+        runningSessionIds: [],
+        interrupted: true,
+      });
+      return;
+    }
+    if (event.type !== "agent-completed" && event.type !== "agent-failed") {
+      return;
+    }
+    if (!context.state.isRunning) {
+      wake.disarm(identity);
+      return;
+    }
+    // The complete authorization key finds work deliberately left running by
+    // an older turn without trusting raw session ids from model-visible data.
+    const runningSessionIds =
+      context.toolHost.listRunningShellSessionsOwnedBy(identity);
+    wake.arm({
+      ...identity,
+      runningSessionIds,
+      interrupted: false,
+    });
+  } catch (error) {
+    // Best-effort wake bookkeeping must never change the attempt's terminal
+    // result or block the ordinary lifecycle handler below.
+    console.warn(
+      `[background-wake] failed to reconcile ${event.type} for ${event.agentId}:`,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 };
 
 const buildLifecycleEventPayload = (
@@ -575,6 +641,7 @@ export const createAgentOrchestration = (
     listActiveThreads: (conversationId: string) =>
       context.runtimeStore.listActiveThreads(conversationId),
     onAgentEvent: (event: AgentLifecycleEvent) => {
+      reconcileBackgroundExitWake(context, event);
       void handleAgentLifecycleEvent(event).catch(() => undefined);
     },
     fetchAgentContext: deps.buildAgentContext,
@@ -686,8 +753,6 @@ export const createAgentOrchestration = (
         const isParallelWithShellCommands =
           toolName === "multi_tool_use_parallel" &&
           parallelContainsShellCommand(args);
-        const shellSessionId =
-          typeof args.session_id === "string" ? args.session_id : null;
         const result = await toolExecutor(
           toolName,
           args,
@@ -699,7 +764,6 @@ export const createAgentOrchestration = (
         // Remember every shell session this run touched so finalize can
         // sweep background/long-running commands that completed after their
         // last poll for undrained produced files.
-        if (shellSessionId) touchedShellSessions.add(shellSessionId);
         if (shellState?.sessionId)
           touchedShellSessions.add(shellState.sessionId);
         if (isParallelWithShellCommands) {
@@ -861,9 +925,14 @@ export const createAgentOrchestration = (
       // rollup assembles off `result.producedFiles`.
       if (touchedShellSessions.size > 0) {
         try {
-          const late = await context.toolHost.drainCompletedShellProducedFiles([
-            ...touchedShellSessions,
-          ]);
+          const late = await context.toolHost.drainCompletedShellProducedFiles(
+            {
+              conversationId,
+              ...(agentId ? { agentId } : {}),
+            },
+            [...touchedShellSessions],
+            abortSignal,
+          );
           if (late.files.length > 0) {
             collectProducedFiles(
               subagentProducedFiles,
@@ -1053,6 +1122,15 @@ export const createAgentOrchestration = (
   ): Promise<{ canceled: boolean }> => {
     if (!context.state.localAgentManager) {
       return { canceled: false };
+    }
+    const record = context.runtimeStore.getAgentRecord?.(agentId);
+    if (record?.conversationId) {
+      context.state.backgroundExitWake?.disarm({
+        conversationId: record.conversationId,
+        agentId,
+      });
+    } else {
+      context.state.backgroundExitWake?.disarm(agentId);
     }
     return await context.state.localAgentManager.cancelAgent(agentId, reason);
   };

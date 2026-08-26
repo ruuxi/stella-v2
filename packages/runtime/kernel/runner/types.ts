@@ -427,10 +427,19 @@ export type RunnerContext = {
      * `omitted` is set when the per-command cap withheld a session's whole
      * batch: the files are absent, and only this says so.
      */
-    drainCompletedShellProducedFiles: (sessionIds?: string[]) => Promise<{
+    drainCompletedShellProducedFiles: (
+      access: import("../tools/shell.js").ShellSessionAccess | null,
+      sessionIds?: string[],
+      signal?: AbortSignal,
+      deadlineAt?: number,
+    ) => Promise<{
       files: import("@stella/contracts/file-changes").ProducedFileRecord[];
       omitted?: import("../tools/types").ProducedFilesOmission;
     }>;
+    /** Running sessions owned by one conversation/thread across its runs. */
+    listRunningShellSessionsOwnedBy: (
+      access: import("../tools/shell.js").ShellSessionAccess,
+    ) => string[];
     killAllShells: () => void;
     killShell: (sessionId: string) => Promise<void> | void;
     killShellsByPort: (port: number) => void;

@@ -29,6 +29,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 const EXIT_LOG_DIRNAME = "background-exits";
 /** Spilled logs are a debugging aid for one wake, not an archive. */
 const EXIT_LOG_TTL_MS = 24 * 60 * 60 * 1000;
@@ -44,6 +45,9 @@ const COALESCE_WINDOW_MS = 2_000;
  * 1.9s could defer the wake indefinitely.
  */
 const MAX_COALESCE_MS = 15_000;
+/** Transient delivery failures retain the exit batch and retry out of band. */
+const DELIVERY_RETRY_BASE_MS = 1_000;
+const DELIVERY_RETRY_MAX_MS = 30_000;
 /** Inline output budget per exited command, before the log file takes over. */
 const INLINE_OUTPUT_CHARS = 2_000;
 /**
@@ -113,6 +117,25 @@ const buildWakeText = (exits, logPaths) => {
     ].join("\n");
 };
 /**
+ * Stable delivery identity for one exact exit batch. The hash keeps owner and
+ * command/session metadata out of the durable receipt while making retries
+ * after an ambiguous acknowledgement collapse at LocalAgentManager's durable
+ * input boundary. Sorting makes callback arrival order irrelevant.
+ */
+const buildWakeEventId = (entry, exits) => {
+    const completionIdentity = exits
+        .map((exit) => [exit.sessionId, exit.completedAt, exit.exitCode])
+        .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+    const digest = createHash("sha256")
+        .update(JSON.stringify([
+        entry.conversationId,
+        entry.agentId,
+        completionIdentity,
+    ]))
+        .digest("hex");
+    return `background-exit:${digest}`;
+};
+/**
  * Spill a command's captured output so the wake can cite a path instead of
  * inlining tens of kilobytes. Unlike a tool result, a wake is a one-shot
  * injection — the agent can't ask for the rest — so the rest has to live
@@ -145,38 +168,94 @@ export const writeBackgroundExitLog = (stellaDataDir, sessionId, contents) => {
 };
 export const createBackgroundExitWake = (deps) => {
     const now = deps.now ?? (() => Date.now());
+    let disposed = false;
     const armed = new Map();
-    const disarm = (agentId) => {
-        const entry = armed.get(agentId);
-        if (!entry)
+    const ownerKey = (conversationId, agentId) => JSON.stringify([conversationId, agentId]);
+    const ownerMatches = (entry, owner) => owner?.conversationId === entry.conversationId &&
+        owner?.agentId === entry.agentId;
+    const keysFor = (identity) => {
+        if (typeof identity !== "string") {
+            return [ownerKey(identity.conversationId, identity.agentId)];
+        }
+        // Backward-compatible diagnostic/test seam. Production callers always
+        // pass the full owner so one conversation cannot disarm another.
+        return [...armed.entries()]
+            .filter(([, entry]) => entry.agentId === identity)
+            .map(([key]) => key);
+    };
+    const clearEntry = (key, entry) => {
+        if (armed.get(key) !== entry)
             return;
         for (const dispose of entry.disposers.values())
             dispose();
         entry.disposers.clear();
         if (entry.timer)
             clearTimeout(entry.timer);
-        armed.delete(agentId);
+        entry.timer = null;
+        armed.delete(key);
     };
-    const flush = async (agentId) => {
-        const entry = armed.get(agentId);
-        if (!entry)
+    const disarm = (identity) => {
+        for (const key of keysFor(identity)) {
+            const entry = armed.get(key);
+            if (entry)
+                clearEntry(key, entry);
+        }
+    };
+    const scheduleTimer = (key, entry, delay) => {
+        if (entry.timer)
+            clearTimeout(entry.timer);
+        entry.timer = setTimeout(() => {
+            void flush(key);
+        }, delay);
+        entry.timer.unref?.();
+    };
+    const scheduleRetry = (key, entry) => {
+        if (armed.get(key) !== entry || disposed)
             return;
-        const exits = entry.collected.splice(0);
+        const exponent = Math.min(Math.max(0, entry.deliveryFailures - 1), 10);
+        const delay = Math.min(DELIVERY_RETRY_BASE_MS * 2 ** exponent, DELIVERY_RETRY_MAX_MS);
+        scheduleTimer(key, entry, delay);
+    };
+    const flushEntry = async (key, entry) => {
+        if (armed.get(key) !== entry)
+            return;
+        // Once delivery starts, freeze this exact batch and its event id until
+        // acknowledgement. New exits remain in `collected` for a later batch;
+        // otherwise an ack-loss retry that absorbed a sibling exit would get a
+        // different id and could inject the already-committed wake twice.
+        const batch = entry.pendingDelivery ?? (() => {
+            const exits = entry.collected.splice(0);
+            if (exits.length === 0)
+                return null;
+            return {
+                exits,
+                eventId: buildWakeEventId(entry, exits),
+            };
+        })();
+        if (batch && !entry.pendingDelivery)
+            entry.pendingDelivery = batch;
+        const exits = batch?.exits ?? [];
         // Sessions still running keep their watchers; the arm survives until
         // every one of them has reported or the thread runs again.
+        if (entry.timer)
+            clearTimeout(entry.timer);
         entry.timer = null;
         entry.firstExitAt = null;
-        if (entry.disposers.size === 0)
-            armed.delete(agentId);
-        if (exits.length === 0)
+        if (exits.length === 0) {
+            if (entry.disposers.size === 0)
+                clearEntry(key, entry);
             return;
+        }
+        const isCurrent = () => !disposed && armed.get(key) === entry;
         if (deps.getThreadStatus) {
             try {
-                const status = await deps.getThreadStatus(agentId);
+                const status = await deps.getThreadStatus(entry.agentId, entry.conversationId);
+                if (!isCurrent())
+                    return;
                 if (status === "canceled") {
                     // The user stopped this thread on purpose. Its leftovers finishing
                     // is not a reason to start it up again.
-                    disarm(agentId);
+                    clearEntry(key, entry);
                     return;
                 }
             }
@@ -184,6 +263,8 @@ export const createBackgroundExitWake = (deps) => {
                 // Status is an optimization; deliver rather than drop the wake.
             }
         }
+        if (!isCurrent())
+            return;
         const logPaths = new Map();
         for (const exit of exits) {
             if (exit.output.length <= INLINE_OUTPUT_CHARS || !deps.writeExitLog) {
@@ -195,36 +276,70 @@ export const createBackgroundExitWake = (deps) => {
             catch {
                 logPaths.set(exit.sessionId, null);
             }
+            if (!isCurrent())
+                return;
         }
+        if (!isCurrent())
+            return;
         try {
             const delivered = await deps.deliver({
                 conversationId: entry.conversationId,
-                agentId,
+                agentId: entry.agentId,
+                eventId: batch.eventId,
+                isCurrent,
                 text: buildWakeText(exits, logPaths),
             });
-            if (!delivered)
-                disarm(agentId);
+            if (!isCurrent())
+                return;
+            if (!delivered) {
+                entry.deliveryFailures += 1;
+                scheduleRetry(key, entry);
+                return;
+            }
+            entry.pendingDelivery = null;
+            entry.deliveryFailures = 0;
+            if (entry.collected.length > 0) {
+                scheduleFlush(key);
+                return;
+            }
+            if (entry.disposers.size === 0 &&
+                entry.collected.length === 0 &&
+                entry.timer === null) {
+                clearEntry(key, entry);
+            }
         }
         catch (error) {
-            console.warn(`[background-wake] failed to deliver exit wake to ${agentId}:`, error.message);
+            if (isCurrent()) {
+                entry.deliveryFailures += 1;
+                scheduleRetry(key, entry);
+            }
+            console.warn(`[background-wake] failed to deliver exit wake to ${entry.agentId}:`, error instanceof Error ? error.message : String(error));
         }
     };
-    const scheduleFlush = (agentId) => {
-        const entry = armed.get(agentId);
+    const flush = (key) => {
+        const entry = armed.get(key);
+        if (!entry)
+            return Promise.resolve();
+        if (entry.flushPromise)
+            return entry.flushPromise;
+        const attempt = flushEntry(key, entry).finally(() => {
+            if (entry.flushPromise === attempt)
+                entry.flushPromise = null;
+        });
+        entry.flushPromise = attempt;
+        return attempt;
+    };
+    const scheduleFlush = (key) => {
+        const entry = armed.get(key);
         if (!entry)
             return;
         const startedAt = entry.firstExitAt ?? now();
         entry.firstExitAt = startedAt;
-        if (entry.timer)
-            clearTimeout(entry.timer);
         // Extend for late siblings, but never past the ceiling measured from
         // the first exit.
         const remaining = Math.max(0, startedAt + MAX_COALESCE_MS - now());
         const delay = Math.min(COALESCE_WINDOW_MS, remaining);
-        entry.timer = setTimeout(() => {
-            void flush(agentId);
-        }, delay);
-        entry.timer.unref?.();
+        scheduleTimer(key, entry, delay);
     };
     return {
         /**
@@ -236,12 +351,17 @@ export const createBackgroundExitWake = (deps) => {
          */
         arm: (args) => {
             const { agentId } = args;
-            if (!agentId) {
+            if (!agentId || disposed) {
                 // No durable thread to resume — an orchestrator or one-shot caller.
                 // Nothing to arm; the caller logs this case.
                 return [];
             }
-            disarm(agentId);
+            const identity = {
+                conversationId: args.conversationId,
+                agentId,
+            };
+            const key = ownerKey(identity.conversationId, identity.agentId);
+            disarm(identity);
             if (args.interrupted || args.runningSessionIds.length === 0)
                 return [];
             const entry = {
@@ -251,32 +371,56 @@ export const createBackgroundExitWake = (deps) => {
                 collected: [],
                 timer: null,
                 firstExitAt: null,
+                deliveryFailures: 0,
+                flushPromise: null,
+                pendingDelivery: null,
             };
-            armed.set(agentId, entry);
-            for (const sessionId of args.runningSessionIds) {
-                const dispose = deps.watchShellExit(sessionId, () => {
-                    const live = armed.get(agentId);
-                    if (live !== entry)
-                        return;
-                    entry.disposers.delete(sessionId);
-                    const snapshot = deps.readShellExitSnapshot(sessionId);
-                    if (snapshot)
-                        entry.collected.push(snapshot);
-                    scheduleFlush(agentId);
-                });
-                entry.disposers.set(sessionId, dispose);
+            armed.set(key, entry);
+            for (const sessionId of new Set(args.runningSessionIds)) {
+                try {
+                    const dispose = deps.watchShellExit(sessionId, () => {
+                        const live = armed.get(key);
+                        if (live !== entry)
+                            return;
+                        entry.disposers.delete(sessionId);
+                        const snapshot = deps.readShellExitSnapshot(sessionId);
+                        if (snapshot && ownerMatches(entry, snapshot.owner))
+                            entry.collected.push(snapshot);
+                        if (entry.collected.length > 0) {
+                            scheduleFlush(key);
+                        }
+                        else if (entry.disposers.size === 0) {
+                            clearEntry(key, entry);
+                        }
+                    });
+                    entry.disposers.set(sessionId, dispose);
+                }
+                catch {
+                    // One malformed/stale session must not keep the remaining
+                    // owner-scoped watchers from being armed.
+                }
             }
+            if (entry.disposers.size === 0)
+                clearEntry(key, entry);
             return [...entry.disposers.keys()];
         },
         /** Drop a thread's arm — it is running again, so it can poll for itself. */
         disarm,
         /** Test seam: force any buffered exits out without waiting on the timer. */
-        flushNow: flush,
+        flushNow: async (identity) => {
+            await Promise.all(keysFor(identity).map((key) => flush(key)));
+        },
         /** Test/diagnostic: threads currently waiting on a background exit. */
-        armedThreadIds: () => [...armed.keys()],
+        armedThreadIds: () => [...armed.values()].map((entry) => entry.agentId),
+        /** Full owner identities, so duplicate agent ids remain distinguishable. */
+        armedOwners: () => [...armed.values()].map((entry) => ({
+            conversationId: entry.conversationId,
+            agentId: entry.agentId,
+        })),
         dispose: () => {
-            for (const agentId of [...armed.keys()])
-                disarm(agentId);
+            disposed = true;
+            for (const [key, entry] of [...armed.entries()])
+                clearEntry(key, entry);
         },
     };
 };

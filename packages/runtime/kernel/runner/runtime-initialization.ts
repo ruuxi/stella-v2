@@ -1,12 +1,6 @@
 import { mkdirSync, watch as fsWatch, type FSWatcher } from "node:fs";
 import path from "node:path";
-import {
-  Effect,
-  Fiber,
-  Layer,
-  ManagedRuntime,
-  Scope,
-} from "effect";
+import { Effect, Fiber, Layer, ManagedRuntime, Scope } from "effect";
 import {
   loadBundledAgents,
   mergeBundledAndExtensionAgents,
@@ -617,6 +611,11 @@ export const createRuntimeInitialization = (
     // subagent attempt fibers — and join their teardown before any shared
     // resource (tool host, store) is torn down beneath them.
     context.state.supervisor.abortAllRuns();
+    // Disarm before task cancellation or tool-host shutdown can terminate a
+    // watched shell. Those exits are teardown noise and must not resurrect a
+    // thread while the runner itself is stopping. dispose() is synchronous;
+    // it cancels timers/watchers without joining background processes.
+    context.state.backgroundExitWake?.dispose();
     const tasksShutdown = Promise.resolve(deps.shutdownTasks()).catch(
       (error) => {
         logger.warn("runner.stop.task-shutdown-failed", {
@@ -688,8 +687,7 @@ export const createRuntimeInitialization = (
     await joinWithTimeout(
       context.state.compactionScheduler.shutdown(),
       10_000,
-      () =>
-        logger.warn("runner.stop.compaction-shutdown-timeout", {}),
+      () => logger.warn("runner.stop.compaction-shutdown-timeout", {}),
     );
   };
 

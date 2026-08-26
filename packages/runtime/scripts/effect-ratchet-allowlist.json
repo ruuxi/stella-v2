@@ -38,7 +38,7 @@
   "kernel/tools/media-artifact-store.js": 3,
   "kernel/tools/media-artifact-store.ts": 1,
   "kernel/tools/search.ts": 1,
-  "kernel/tools/shell.ts": 5,
+  "kernel/tools/shell.ts": 2,
   "worker/backend-connector-action-broker.ts": 1,
   "worker/cli-bridge-server.ts": 1,
   "worker/user-apps/project-service.ts": 7

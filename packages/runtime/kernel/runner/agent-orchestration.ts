@@ -40,6 +40,8 @@ import { createRunnerImageDescriptionService } from "./model-selection.js";
 import { RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE } from "../storage/shared.js";
 import type { ComputerAgentCloudRecords } from "./computer-agent-cloud-records.js";
 
+const LATE_SHELL_PRODUCED_FILES_DRAIN_MS = 2_000;
+
 const collectFileChanges = (
   target: FileChangeRecord[],
   seen: Set<string>,
@@ -925,6 +927,8 @@ export const createAgentOrchestration = (
       // rollup assembles off `result.producedFiles`.
       if (touchedShellSessions.size > 0) {
         try {
+          const drainDeadlineAt =
+            Date.now() + LATE_SHELL_PRODUCED_FILES_DRAIN_MS;
           const late = await context.toolHost.drainCompletedShellProducedFiles(
             {
               conversationId,
@@ -932,6 +936,7 @@ export const createAgentOrchestration = (
             },
             [...touchedShellSessions],
             abortSignal,
+            drainDeadlineAt,
           );
           if (late.files.length > 0) {
             collectProducedFiles(

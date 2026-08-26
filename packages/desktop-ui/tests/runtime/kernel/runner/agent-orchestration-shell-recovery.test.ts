@@ -158,7 +158,11 @@ describe("subagent shell recovery scope", () => {
       },
       ["stable-session", "legacy-session"],
       abortController.signal,
+      expect.any(Number),
     );
+    const drainDeadlineAt = drainCompletedShellProducedFiles.mock.calls[0]?.[3];
+    expect(drainDeadlineAt).toBeGreaterThan(Date.now());
+    expect(drainDeadlineAt).toBeLessThanOrEqual(Date.now() + 2_000);
     expect(endBrowserTurn).toHaveBeenCalledOnce();
   });
 

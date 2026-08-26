@@ -4,7 +4,7 @@ import { configureLinuxGraphics } from "./linux-graphics.js";
 import { configureLinuxProtectedStorage } from "./linux-protected-storage.js";
 
 configureLinuxGraphics({
-  disableHardwareAcceleration: () => app.disableHardwareAcceleration(),
+  commandLine: app.commandLine,
 });
 configureLinuxProtectedStorage({ commandLine: app.commandLine });
 

@@ -81,16 +81,36 @@ export const ensureBrowserAuthBootstrapCookie = (): void => {
   );
 };
 
+export const assertBetterAuthSessionCookie = (sessionCookie: string): void => {
+  try {
+    const returnedCookie = getCookie(getSetCookie(sessionCookie));
+    const hasSessionToken = returnedCookie.split(/;\s*/).some((entry) => {
+      const separator = entry.indexOf("=");
+      if (separator <= 0 || separator === entry.length - 1) return false;
+      const name = entry.slice(0, separator);
+      return (
+        name === "better-auth.session_token" ||
+        name === "__Secure-better-auth.session_token"
+      );
+    });
+    if (hasSessionToken) return;
+  } catch {
+    // Normalize parser failures to the same credential-free error below.
+  }
+  throw new Error("The auth service did not return a session cookie.");
+};
+
 export const applyBrowserAuthSessionCookie = (sessionCookie: string): void => {
   if (window.electronAPI) {
     throw new Error("Browser auth storage is unavailable in Electron.");
   }
+  // Validate the returned header in isolation. Validating only after merging
+  // with the previous jar would let an old anonymous session token mask a
+  // malformed account-link response.
+  assertBetterAuthSessionCookie(sessionCookie);
   const key = "better-auth_cookie";
   const previous = desktopAuthStorage.getItem(key) ?? undefined;
   const next = getSetCookie(sessionCookie, previous);
-  if (!getCookie(next).includes("session_token=")) {
-    throw new Error("The auth service did not return a session cookie.");
-  }
   desktopAuthStorage.setItem(key, next);
   desktopAuthStorage.removeItem("better-auth_session_data");
 };

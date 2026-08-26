@@ -52,6 +52,26 @@ describe("consumeBrowserAuthHandoffToken", () => {
     }
   });
 
+  test("erases the whole fragment instead of retaining adjacent auth material", () => {
+    let cleanUrl: string | URL | null | undefined;
+    const token = consumeBrowserAuthHandoffToken(
+      makeLocation(
+        "#ott=valid_token-123&access_token=must-disappear&state=also-disappear",
+      ),
+      {
+        state: null,
+        replaceState: (_data, _unused, url) => {
+          cleanUrl = url;
+        },
+      },
+    );
+
+    expect(token).toBe("valid_token-123");
+    expect(cleanUrl).toBe("/stella/sr_example/?theme=dark");
+    expect(String(cleanUrl)).not.toContain("access_token");
+    expect(String(cleanUrl)).not.toContain("state=");
+  });
+
   test("leaves unrelated fragments and query parameters untouched", () => {
     let replaced = false;
     const token = consumeBrowserAuthHandoffToken(

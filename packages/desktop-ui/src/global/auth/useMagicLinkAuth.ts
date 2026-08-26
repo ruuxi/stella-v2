@@ -9,7 +9,10 @@ import {
   type ReactNode,
   type SetStateAction,
 } from "react";
-import { refreshAuthSession } from "@/global/auth/services/auth-session";
+import {
+  applyAndVerifyAccountSessionCookie,
+  buildMagicLinkSendRequest,
+} from "@/global/auth/services/account-connection";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 import { useT, useTPlural } from "@/shared/i18n";
 
@@ -106,10 +109,16 @@ function useMagicLinkAuthState(): MagicLinkAuthState {
 
     try {
       const convexSiteUrl = getConvexSiteUrl();
+      const sendRequest = await buildMagicLinkSendRequest(targetEmail);
+      if (!sendRequest) {
+        // Do not start an unbound sign-in. The backend must be able to prove
+        // which anonymous owner is being upgraded before it emails a link.
+        throw new MagicLinkKeyError("global.auth.signInIncomplete");
+      }
       const response = await fetch(`${convexSiteUrl}/api/auth/link/send`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: targetEmail }),
+        headers: sendRequest.headers,
+        body: JSON.stringify(sendRequest.body),
       });
 
       if (response.status === 429) {
@@ -207,7 +216,6 @@ function useMagicLinkAuthState(): MagicLinkAuthState {
           if (!res.ok) continue;
           const data = (await res.json()) as {
             status: string;
-            ott?: string;
             sessionCookie?: string;
           };
 
@@ -215,10 +223,7 @@ function useMagicLinkAuthState(): MagicLinkAuthState {
             if (cancelled) return;
             setStatus("verifying");
             try {
-              await window.electronAPI?.system.applyAuthSessionCookie?.(
-                data.sessionCookie,
-              );
-              await refreshAuthSession();
+              await applyAndVerifyAccountSessionCookie(data.sessionCookie);
             } catch {
               setStatus("error");
               setError({ kind: "key", key: "global.auth.finishFailed" });

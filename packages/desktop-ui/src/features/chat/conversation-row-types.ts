@@ -150,10 +150,9 @@ export type AssistantRowViewModel = {
     /** Per-thread work description (the spawn's user-friendly summary),
      *  used as the card title — mirrors the sidebar Activity surface. */
     descriptions: Record<string, string>;
-    /** Per-thread follow-up text for threads re-activated via `send_input` on
-     *  this turn. A `send_input` reuses the thread's original `description`, so
-     *  this carries the follow-up's own message/description for the card title;
-     *  absent for plain spawns. See `getBackgroundWork`. */
+    /** Per-thread durable spawn description for threads re-activated via
+     *  `send_input` on this turn; absent for plain spawns. See
+     *  `getBackgroundWork`. */
     statusTexts?: Record<string, string>;
     /** Raw run-scoped progress narration retained for event/history fidelity;
      * summary cards intentionally do not present it. */

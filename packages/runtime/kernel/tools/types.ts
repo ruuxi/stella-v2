@@ -257,7 +257,6 @@ export type AgentToolApi = {
     message: string,
     from: "orchestrator" | "subagent",
     options?: {
-      description?: string;
       rootRunId?: string;
       /** Parent agent thread that owns this thread's completion routing. */
       parentAgentId?: string;

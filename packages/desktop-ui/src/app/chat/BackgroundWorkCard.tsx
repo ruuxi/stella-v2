@@ -22,9 +22,8 @@
  *     background work)
  *   - follow-up ("update sent to X" — `send_input` advanced an already-
  *     spawned thread). A follow-up reuses the thread's original description,
- *     so the runtime carries the follow-up's own message on `statusText`;
- *     the row surfaces THAT (not the stale spawn description) and reads as a
- *     distinct update breadcrumb. See `getBackgroundWork`.
+ *     including on `statusText`, and reads as a distinct update breadcrumb.
+ *     See `getBackgroundWork`.
  *
  * Presence/identity and the captured descriptions come from the spawning
  * turn's tool events (`useEventRows`). Current status comes from the durable
@@ -95,7 +94,7 @@ export function BackgroundWorkCard({
   /** Per-thread spawn/last-advanced time (ms) for the stale-spawn fallback. */
   spawnedAtMs?: Record<string, number>;
   descriptions?: Record<string, string>;
-  /** Per-thread follow-up text for `send_input` re-activations. */
+  /** Per-thread durable spawn description for `send_input` re-activations. */
   statusTexts?: Record<string, string>;
   /** Threads on this card that are `send_input` follow-ups, not fresh spawns. */
   followUpThreadIds?: string[];

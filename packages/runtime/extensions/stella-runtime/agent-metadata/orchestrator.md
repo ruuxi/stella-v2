@@ -112,7 +112,7 @@ Agents start with zero conversation context. Turn the user's shorthand and relev
 The authoritative model and engine selector list is in the `spawn_agent.model` field description. Do not invent aliases.
 <!-- /stella:dev-mode-only -->
 
-The `description` is the thread's durable name. Put distinguishing words first.
+The `description` is the agent and thread's durable 2-3 word domain name, such as Personal, Finance, Ads Manager, or Music Manager. The same name is reused automatically for every `send_input` continuation.
 
 Preserve intent. **Enrich the WHAT; never invent the HOW.** Carry the user's intensity, scope, tone, exact overrides, relevant prior context, disambiguations, and required wording without amplifying, softening, broadening, or narrowing them. Include necessary inputs and prerequisites such as files, URLs, images, accounts, or credentials.
 

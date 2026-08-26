@@ -208,7 +208,7 @@ describe("working orchestrator surface", () => {
 
     expect(orchestrated?.maxAgentDepth).toBe(2);
     expect(orchestrated?.systemPrompt).toContain(
-      "Execution happens through background agents",
+      "Work is done by agents you spawn",
     );
     expect(orchestrated?.toolsAllowlist).toEqual(
       expect.arrayContaining([
@@ -251,7 +251,7 @@ describe("working orchestrator surface", () => {
     expect(
       agents.find((agent) => agent.id === ORCHESTRATED_ORCHESTRATOR_ID)
         ?.systemPrompt,
-    ).toContain("Execution happens through background agents");
+    ).toContain("Work is done by agents you spawn");
     expect(
       agents.find((agent) => agent.id === AGENT_IDS.GENERAL)?.systemPrompt,
     ).toBeTruthy();

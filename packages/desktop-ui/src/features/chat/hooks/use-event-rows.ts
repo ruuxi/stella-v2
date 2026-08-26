@@ -108,9 +108,9 @@ export const getBackgroundWork = (
       threadIds: string[];
       descriptions: Record<string, string>;
       spawnedAtMs: Record<string, number>;
-      /** Per-thread follow-up message/description for threads re-activated via
-       *  `send_input` on this turn (the card title for a follow-up), lifted
-       *  from the `agent-started` `statusText`. Absent for plain spawns. */
+      /** Per-thread durable spawn description for threads re-activated via
+       *  `send_input` on this turn, lifted from the `agent-started`
+       *  `statusText`. Absent for plain spawns. */
       statusTexts: Record<string, string>;
       /** Threads on this card whose `agent-started` was flagged a `send_input`
        *  follow-up (re-activation) rather than a fresh spawn — the explicit

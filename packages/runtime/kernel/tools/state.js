@@ -13,22 +13,6 @@ const toOptionalString = (value) => {
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : undefined;
 };
-const isGenericAgentDescription = (value) => /^(task|agent|work|help|do this|follow up)$/i.test(value.trim());
-const deriveAgentDescription = (description, prompt) => {
-    if (description && !isGenericAgentDescription(description)) {
-        return description;
-    }
-    const firstLine = prompt
-        .replace(/\s+/g, " ")
-        .trim()
-        .replace(/^task\s*:\s*/i, "");
-    if (!firstLine) {
-        return description;
-    }
-    return firstLine.length > 80
-        ? `${firstLine.slice(0, 77).trimEnd()}...`
-        : firstLine;
-};
 const logWorkingIndicatorTrace = (label, payload) => {
     process.stderr.write(`${JSON.stringify({ label, ...payload })}\n`);
 };
@@ -158,13 +142,7 @@ export const handleSendInput = async (ctx, args, context) => {
     if (!message) {
         return { error: "message is required" };
     }
-    const rawDescription = toOptionalString(args.description);
-    if (!rawDescription) {
-        return { error: "description is required" };
-    }
-    const description = deriveAgentDescription(rawDescription, message);
     const delivered = await ctx.agentApi.sendAgentMessage(threadId, message, "orchestrator", {
-        description,
         ...(context.rootRunId ? { rootRunId: context.rootRunId } : {}),
         ...(context.agentType === AGENT_IDS.ORCHESTRATOR &&
             context.modelConfigSnapshot
@@ -397,7 +375,7 @@ export const handleSpawnAgent = async (ctx, args, context) => {
     if (!rawDescription) {
         return { error: "description is required" };
     }
-    const description = deriveAgentDescription(rawDescription, prompt);
+    const description = rawDescription;
     if (ctx.agentApi) {
         logWorkingIndicatorTrace("[stella:working-indicator:spawn_agent]", {
             conversationId: context.conversationId,

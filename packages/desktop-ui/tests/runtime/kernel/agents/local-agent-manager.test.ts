@@ -589,7 +589,6 @@ describe("LocalAgentManager Exec fs locking", () => {
         {
           thread_id: task.threadId,
           message: "resume the web research with the new requirement",
-          description: "Resume current Nvidia web research",
         },
         {
           conversationId: "conv-1",
@@ -626,15 +625,15 @@ describe("LocalAgentManager Exec fs locking", () => {
     expect(spawnStarted?.isFollowUp).toBeUndefined();
 
     const resumedEvents = events.slice(eventOffset);
-    // The send_input re-activation IS explicitly flagged a follow-up, and
-    // carries the follow-up's own message on `statusText`.
+    // The send_input re-activation IS explicitly flagged a follow-up and
+    // reuses the durable spawn description on `statusText`.
     expect(resumedEvents).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           type: "agent-started",
           rootRunId: "root-current",
           agentId: task.threadId,
-          statusText: "Resume current Nvidia web research",
+          statusText: "Research current Nvidia news",
           isFollowUp: true,
         }),
         expect.objectContaining({
@@ -763,7 +762,7 @@ describe("LocalAgentManager Exec fs locking", () => {
     expect(startedEvents[1]).toMatchObject({
       rootRunId: "root-2",
       agentId: task.threadId,
-      statusText: "how is it going?",
+      statusText: "long research task",
       isFollowUp: true,
       // A steering receipt is a new UI occurrence on the same live attempt,
       // not evidence of an engine restart.
@@ -1360,7 +1359,7 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
   });
 });
 
-describe("send_input follow-up description and run rebind", () => {
+describe("send_input durable description and run rebind", () => {
   it("keeps an internal child-report wake-up out of root-chat lifecycle cards", async () => {
     const events: AgentLifecycleEvent[] = [];
     let runCount = 0;
@@ -1432,11 +1431,7 @@ describe("send_input follow-up description and run rebind", () => {
     ).toBeUndefined();
   });
 
-  it("adopts the orchestrator follow-up description onto the thread", async () => {
-    // The folded Activity row is keyed per thread and titled by
-    // `description`. A follow-up re-tasks the thread, so every lifecycle
-    // event after the send_input must carry the follow-up's description —
-    // not the original spawn text frozen forever.
+  it("keeps the spawn description on the thread across follow-ups", async () => {
     const events: AgentLifecycleEvent[] = [];
     let runCount = 0;
     let releaseFirstRun: (() => void) | null = null;
@@ -1488,7 +1483,6 @@ describe("send_input follow-up description and run rebind", () => {
       "search specifically for the forwarded itinerary email",
       "orchestrator",
       {
-        description: "search for the itinerary email",
         rootRunId: "root-2",
       },
     );
@@ -1500,16 +1494,15 @@ describe("send_input follow-up description and run rebind", () => {
     );
     expect(followUpStarted).toMatchObject({
       rootRunId: "root-2",
-      description: "search for the itinerary email",
+      description: "find the booked itinerary",
     });
     const completion = events.find((event) => event.type === "agent-completed");
     expect(completion).toMatchObject({
       rootRunId: "root-2",
-      description: "search for the itinerary email",
+      description: "find the booked itinerary",
     });
-    // The updated description sticks on the thread snapshot too.
     const snapshot = await manager.getAgent(task.threadId);
-    expect(snapshot?.description).toBe("search for the itinerary email");
+    expect(snapshot?.description).toBe("find the booked itinerary");
   });
 
   it("rebinds a thread's decoration to the follow-up's run without leaking per-run copies", () => {

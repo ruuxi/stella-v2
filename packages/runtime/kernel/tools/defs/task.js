@@ -64,13 +64,13 @@ export const createAgentTools = (stateContext) => [
     {
         name: "spawn_agent",
         agentTypes: AGENT_SPAWNERS,
-        description: "Spawn a sub-agent for a well-scoped background task. Returns immediately with a durable `thread_id`; the agent is NOT finished yet. After it returns, wait for the [Agent completed] event before reporting results — do not narrate the task as if it never started, and do not immediately call send_input to check on it.",
+        description: "Spawn a sub-agent for a well-scoped background task. Returns immediately with a durable `thread_id` - marking that the agent has started work. After it returns, wait for the [Agent completed] event before reporting results — do not narrate the task as if it never started, and do not immediately call send_input to check on it.",
         parameters: {
             type: "object",
             properties: {
                 description: {
                     type: "string",
-                    description: "One short, user-friendly sentence summarizing what this work is about. It becomes the thread's name — put the distinguishing words first.",
+                    description: "A 2-3 word domain name for this agent and its durable thread, such as Personal, Finance, Ads Manager, or Music Manager.",
                 },
                 prompt: {
                     type: "string",
@@ -96,16 +96,12 @@ export const createAgentTools = (stateContext) => [
                     type: "string",
                     description: "Durable thread id to continue or revise.",
                 },
-                description: {
-                    type: "string",
-                    description: "One short, user-friendly sentence summarizing what this work is about.",
-                },
                 message: {
                     type: "string",
                     description: "Follow-up instruction to deliver to the agent.",
                 },
             },
-            required: ["thread_id", "description", "message"],
+            required: ["thread_id", "message"],
         },
         execute: async (args, context) => handleSendInput(stateContext, args, context),
     },

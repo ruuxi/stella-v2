@@ -11,6 +11,7 @@ import {
   parseSpawnAgentModel,
 } from "@stella/runtime/kernel/tools/state";
 import { AGENT_PAUSE_CANCEL_REASON } from "@stella/runtime/kernel/agents/local-agent-manager";
+import { createAgentTools } from "@stella/runtime/kernel/tools/defs/task.js";
 import type {
   AgentThreadStatusMessage,
   AgentThreadStatusRead,
@@ -25,6 +26,23 @@ const COLON_BEARING_REGISTRY_REFERENCES = Object.entries(MODELS).flatMap(
 );
 
 describe("state tools", () => {
+  it("uses one spawn-time domain description for the durable thread", () => {
+    const ctx = createStateContext("/tmp", {
+      createAgent: async () => ({ threadId: "thread-1" }),
+      getAgent: async () => null,
+      cancelAgent: async () => ({ canceled: false }),
+    });
+    const tools = createAgentTools(ctx);
+    const spawnAgent = tools.find((tool) => tool.name === "spawn_agent");
+    const sendInput = tools.find((tool) => tool.name === "send_input");
+
+    expect(spawnAgent?.parameters.properties?.description?.description).toContain(
+      "2-3 word domain name",
+    );
+    expect(sendInput?.parameters.properties).not.toHaveProperty("description");
+    expect(sendInput?.parameters.required).toEqual(["thread_id", "message"]);
+  });
+
   it("defaults spawn_agent to the general agent", async () => {
     const now = Date.now();
     let createdRequest: AgentToolRequest | null = null;
@@ -719,7 +737,7 @@ describe("state tools", () => {
     expect(created).toHaveLength(0);
   });
 
-  it("replaces generic descriptions with prompt context", async () => {
+  it("uses the exact spawn description as the durable thread name", async () => {
     let createdRequest: AgentToolRequest | null = null;
     const ctx = createStateContext("/tmp", {
       createAgent: async (request) => {
@@ -745,9 +763,7 @@ describe("state tools", () => {
       },
     );
 
-    expect(createdRequest?.description).toBe(
-      "Inspect the working indicator behavior and fix the stale footer text.",
-    );
+    expect(createdRequest?.description).toBe("Task");
   });
 
   it("forwards pause_agent to cancelAgent with the pause sentinel reason", async () => {
@@ -796,7 +812,6 @@ describe("state tools", () => {
       from: string;
       options:
         | {
-            description?: string;
             rootRunId?: string;
             deliveryKind?: "manager-event" | "external-input";
           }
@@ -817,7 +832,6 @@ describe("state tools", () => {
       {
         thread_id: "thread-7",
         message: "continue with the latest requirement",
-        description: "Apply latest requirement",
       },
       {
         conversationId: "conversation-1",
@@ -843,7 +857,6 @@ describe("state tools", () => {
         from: "orchestrator",
         options: {
           deliveryKind: "external-input",
-          description: "Apply latest requirement",
           rootRunId: "root-current",
         },
       },
@@ -867,7 +880,6 @@ describe("state tools", () => {
         ctx,
         {
           thread_id: "existing-thread",
-          description: "Continue existing build",
           message: "Continue the build.",
         },
         {
@@ -887,7 +899,6 @@ describe("state tools", () => {
     expect(sendCalls).toEqual([
       {
         deliveryKind: "external-input",
-        description: "Continue existing build",
       },
     ]);
   });

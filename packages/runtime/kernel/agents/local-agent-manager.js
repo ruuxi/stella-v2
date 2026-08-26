@@ -1775,34 +1775,24 @@ export class LocalAgentManager {
         const deliveryEventId = isChildReport
             ? options?.deliveryEventId?.trim() || undefined
             : undefined;
+        const task = this.tasks.get(agentId);
+        const persisted = task ? undefined : this.opts.getAgentRecord?.(agentId);
         // The parent can be root-spawned, so keep even its internal task status
         // free of child-report contents. The wake lifecycle is hidden from root
         // chat below, while Activity/thread inspection may still read this safe
         // boundary label from the durable task row.
         const updateStatusSource = isChildReport
             ? "Reviewing a subagent's report"
-            : (options?.description?.trim() ?? "").length > 0
-                ? options.description
-                : text;
+            : task?.description ?? persisted?.description ?? text;
         const updateStatusText = formatTaskUpdateStatusText(updateStatusSource);
         const rootRunId = options?.rootRunId?.trim() || undefined;
-        // An orchestrator follow-up re-tasks the thread, so the thread adopts
-        // the follow-up's description. Everything keyed per-thread (the folded
-        // Activity row, snapshots, the persisted record) then reflects the
-        // latest instruction instead of the original spawn text — per-occurrence
-        // surfaces (the inline chat cards) keep their own titles via statusText.
-        const followUpDescription = from === "orchestrator"
-            ? options?.description?.trim() || undefined
-            : undefined;
         const deliveredInput = isChildReport
             ? "A subagent you started has finished. Review its newly persisted report in this thread and continue your task."
             : text;
-        const task = this.tasks.get(agentId);
         if (!task) {
             if (from !== "orchestrator") {
                 return { delivered: false };
             }
-            const persisted = this.opts.getAgentRecord?.(agentId);
             if (!persisted) {
                 return { delivered: false };
             }
@@ -1846,9 +1836,6 @@ export class LocalAgentManager {
             }
             if (options?.parentAgentId) {
                 resumedTask.parentAgentId = options.parentAgentId;
-            }
-            if (followUpDescription) {
-                resumedTask.description = followUpDescription;
             }
             if (deliveryEventId) {
                 resumedTask.consumedDescendantEventIds.push(deliveryEventId);
@@ -1904,9 +1891,6 @@ export class LocalAgentManager {
             }
             if (rootRunId) {
                 task.rootRunId = rootRunId;
-            }
-            if (followUpDescription) {
-                task.description = followUpDescription;
             }
             if (deliveryEventId) {
                 task.consumedDescendantEventIds.push(deliveryEventId);
@@ -1965,9 +1949,6 @@ export class LocalAgentManager {
         if (from === "orchestrator") {
             if (rootRunId) {
                 task.rootRunId = rootRunId;
-            }
-            if (followUpDescription) {
-                task.description = followUpDescription;
             }
             task.pendingStartStatusText = updateStatusText;
             task.pendingStartAudience = isChildReport

@@ -9,11 +9,10 @@ import type { EventRecord } from "@/features/chat/lib/event-transforms";
 /**
  * `agent-started` lifecycle event as persisted into a turn's `toolEvents`.
  * A fresh `spawn_agent` leaves `isFollowUp` unset; a `send_input` re-activation
- * carries the thread's ORIGINAL `description` but stamps `isFollowUp: true` and
- * puts the follow-up's own message on `statusText`. The card keys its follow-up
- * variant off the explicit `isFollowUp` flag (not a description/statusText
- * mismatch), so the follow-up's text becomes the title while the spawn card
- * stays put.
+ * carries the thread's durable spawn `description`, stamps `isFollowUp: true`,
+ * and reuses that domain name on `statusText`. The card keys its follow-up
+ * variant off the explicit `isFollowUp` flag, so the original spawn card stays
+ * put while the continuation gets its own update row.
  */
 const started = (
   agentId: string,
@@ -53,24 +52,17 @@ describe("getBackgroundWork spawn vs send_input follow-up", () => {
     expect(work?.statusTexts["thread-a"]).toBeUndefined();
   });
 
-  it("reads a send_input re-activation as a follow-up carrying the follow-up text, not the stale spawn description", () => {
-    // send_input to the SAME thread: description is the original spawn summary,
-    // statusText is the follow-up's own message, and isFollowUp is set.
+  it("reads a send_input re-activation as a follow-up carrying the spawn-time domain name", () => {
     const work = getBackgroundWork([
       started("thread-a", "Research flights to Tokyo", {
-        statusText: "Also check return flights on the 14th",
+        statusText: "Research flights to Tokyo",
         isFollowUp: true,
         timestamp: 200,
       }),
     ]);
     expect(work).toBeDefined();
     expect(work?.followUpThreadIds).toEqual(["thread-a"]);
-    // The follow-up's own message surfaces (NOT the original spawn description).
-    expect(work?.statusTexts["thread-a"]).toBe(
-      "Also check return flights on the 14th",
-    );
-    // Original description is still captured for fallback, but is no longer the
-    // title the card shows for a follow-up.
+    expect(work?.statusTexts["thread-a"]).toBe("Research flights to Tokyo");
     expect(work?.descriptions["thread-a"]).toBe("Research flights to Tokyo");
   });
 

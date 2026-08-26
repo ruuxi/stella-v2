@@ -36,13 +36,19 @@ describe("resetStellaCustomizations", () => {
       "override",
     );
     await writeFile(path.join(home, "PERSONALITY.md"), "custom personality");
-    await mkdir(path.join(home, "system", "skills", "pdf"), {
-      recursive: true,
-    });
     await mkdir(path.join(home, "skills", "pdf"), { recursive: true });
     await writeFile(path.join(home, "skills", "pdf", "SKILL.md"), "fork");
     await mkdir(path.join(home, "skills", "my-skill"), { recursive: true });
     await writeFile(path.join(home, "skills", "my-skill", "SKILL.md"), "mine");
+    await mkdir(path.join(home, "cache"), { recursive: true });
+    await writeFile(
+      path.join(home, "cache", "bundled-skills.json"),
+      JSON.stringify({
+        version: 1,
+        seedKey: "test-seed",
+        skills: { pdf: { lastSyncedHash: null } },
+      }),
+    );
 
     const result = await resetStellaCustomizations(home);
 

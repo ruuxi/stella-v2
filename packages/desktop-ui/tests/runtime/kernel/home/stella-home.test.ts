@@ -25,7 +25,7 @@ afterEach(async () => {
 });
 
 describe("ensureStellaDataDirSeeded", () => {
-  it("seeds one-shot entries and mirrors bundled skills into system/", async () => {
+  it("seeds one-shot entries and installs bundled skills into the canonical root", async () => {
     const stellaAppDir = await createTempDir("stella-seed-root-");
     const stellaDataDir = await createTempDir("stella-home-");
     const seedRoot = path.join(stellaAppDir, "packages", "home-seed");
@@ -45,7 +45,7 @@ describe("ensureStellaDataDirSeeded", () => {
     await writeFile(path.join(seedRoot, "memories", "MEMORY.md"), "old memory");
 
     const result = await ensureStellaDataDirSeeded(stellaAppDir, stellaDataDir);
-    expect(result.mirrored).toBe(true);
+    expect(result.synced).toBe(true);
 
     // One-shot seeds land in the user space…
     await expect(
@@ -59,33 +59,21 @@ describe("ensureStellaDataDirSeeded", () => {
       readFile(path.join(stellaDataDir, "memories", "MEMORY.md"), "utf-8"),
     ).rejects.toThrow();
 
-    // Bundled skills mirror under system/, never into the user dirs.
-    await expect(
-      readFile(
-        path.join(
-          stellaDataDir,
-          "system",
-          "skills",
-          "stella-desktop",
-          "SKILL.md",
-        ),
-        "utf-8",
-      ),
-    ).resolves.toBe("desktop skill");
+    // Bundled and user-created skills share the one canonical root.
     await expect(
       readFile(
         path.join(stellaDataDir, "skills", "stella-desktop", "SKILL.md"),
         "utf-8",
       ),
-    ).rejects.toThrow();
+    ).resolves.toBe("desktop skill");
     // System prompts live in the app bundle; nothing materializes here.
     await expect(
-      readFile(path.join(stellaDataDir, "system", "agents"), "utf-8"),
+      readFile(path.join(stellaDataDir, "agents"), "utf-8"),
     ).rejects.toThrow();
 
-    // A second run with unchanged sources is a no-op mirror.
+    // A second run with unchanged sources is an idempotent no-op.
     const again = await ensureStellaDataDirSeeded(stellaAppDir, stellaDataDir);
-    expect(again.mirrored).toBe(false);
+    expect(again.synced).toBe(false);
   });
 });
 

@@ -248,6 +248,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         getStellaHostRunner: lifecycle.getRunner,
         onStellaHostRunnerChanged: lifecycle.onRunnerChanged,
         getStellaAppDir: lifecycle.getStellaDataDir,
+        getStellaInstallDir: lifecycle.getStellaAppDir,
         externalLinkService: services.externalLinkService,
         ensurePrivilegedActionApproval: (action, message, detail, event) => services.securityPolicyService.ensureApproval(action, message, detail, event),
         hardResetLocalState: resetFlows.hardResetLocalState,

@@ -3,10 +3,9 @@ import { promises as fs } from "fs";
 import type { App } from "electron";
 import { ensurePrivateDir } from "../shared/private-fs.js";
 import {
-  buildSystemSnapshot,
-  cleanupAbandonedSystemDirs,
-  mirrorSystemDir,
-} from "./system-mirror.js";
+  buildBundledSkillsSnapshot,
+  syncBundledSkills,
+} from "./bundled-skills.js";
 import { migrateLegacyHomeLayout } from "./legacy-migration.js";
 import {
   resolveBundledAgentMetadataDir,
@@ -66,9 +65,9 @@ const copyPathIfMissing = async (sourcePath: string, targetPath: string) => {
   await fs.copyFile(sourcePath, targetPath);
 };
 
-// One-shot copies into the user's space. Bundled skills are mirrored into
-// `system/` instead; system prompts live in the app bundle and never
-// materialize into the data dir at all.
+// One-shot copies into the user's space. Bundled skills are reconciled into
+// the canonical `skills/` directory below; system prompts live in the app
+// bundle and never materialize into the data dir at all.
 const STELLA_DATA_SEED_ENTRIES = [
   "DREAM.md",
   path.join("outputs", "README.md"),
@@ -77,7 +76,7 @@ const STELLA_DATA_SEED_ENTRIES = [
 export const ensureStellaDataDirSeeded = async (
   stellaAppDir: string,
   stellaDataDir: string,
-): Promise<{ mirrored: boolean }> => {
+): Promise<{ synced: boolean }> => {
   await ensureDir(stellaDataDir);
   const seedPath = resolveStellaDataSeedDir(stellaAppDir);
   for (const entry of STELLA_DATA_SEED_ENTRIES) {
@@ -90,16 +89,15 @@ export const ensureStellaDataDirSeeded = async (
 
   await migrateLegacyHomeLayout(stellaDataDir);
 
-  await cleanupAbandonedSystemDirs(stellaDataDir);
-  const snapshot = await buildSystemSnapshot({
+  const snapshot = await buildBundledSkillsSnapshot({
     seedSkillsDir: path.join(seedPath, "skills"),
   });
-  const { applied } = await mirrorSystemDir(stellaDataDir, snapshot);
+  const { applied } = await syncBundledSkills(stellaDataDir, snapshot);
   if (applied) {
-    console.log("[stella-home] system skills mirror applied");
+    console.log("[stella-home] bundled skills synchronized");
   }
 
-  return { mirrored: applied };
+  return { synced: applied };
 };
 
 export const resolveStellaDataDir = async (

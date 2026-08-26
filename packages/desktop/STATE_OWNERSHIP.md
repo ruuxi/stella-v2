@@ -18,6 +18,17 @@ initial sync.
 
 ## State domains
 
+### Installed skills
+
+`~/.stella/skills/<skill-name>/` is the only installed and discovered skills
+root. User-created skills and defaults shipped from `packages/home-seed/skills/`
+share that directory. Bootstrap tracks only the last synchronized content hash
+for shipped skills in `~/.stella/cache/bundled-skills.json`: unchanged shipped
+skills can be updated atomically, while a pre-existing collision or an edited
+shipped skill is treated as user-owned and never overwritten. Legacy
+`~/.stella/system/skills/` content is migrated once into the canonical root
+without replacing collisions, then archived under `~/.stella/.trash/`.
+
 ### UI State (`UiState`)
 
 

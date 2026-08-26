@@ -50,6 +50,7 @@ type Props = {
   className?: string;
   contentContainerStyle?: CSSProperties;
   estimatedItemSize?: number;
+  extraTail?: React.ReactNode;
 };
 
 /**
@@ -121,6 +122,7 @@ export const ConversationEvents = memo(function ConversationEvents({
   className,
   contentContainerStyle,
   estimatedItemSize,
+  extraTail,
 }: Props) {
   const { rows: projectedRows } = useEventRows({
     messages,
@@ -163,6 +165,7 @@ export const ConversationEvents = memo(function ConversationEvents({
       className={className}
       contentContainerStyle={contentContainerStyle}
       estimatedItemSize={estimatedItemSize}
+      extraTail={extraTail}
     />
   );
 });

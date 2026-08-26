@@ -49,20 +49,20 @@ export type ConversationMessagesState = {
 export function useConversationMessages(
   conversationId: string | undefined,
 ): ConversationMessagesState {
-  const { storageMode } = useChatStore();
-  const isLocalMode = storageMode === "local";
+  const { isLocalStorage } = useChatStore();
+  const hasLocalCache = isLocalStorage;
 
   const subscribe = useCallback(
     (listener: () => void) => {
-      if (!isLocalMode || !conversationId) return () => {};
+      if (!hasLocalCache || !conversationId) return () => {};
       return subscribeToLocalMessageTimeline(conversationId, listener);
     },
-    [conversationId, isLocalMode],
+    [conversationId, hasLocalCache],
   );
   const getSnapshot = useCallback(() => {
-    if (!isLocalMode || !conversationId) return EMPTY_LOCAL_SNAPSHOT;
+    if (!hasLocalCache || !conversationId) return EMPTY_LOCAL_SNAPSHOT;
     return getLocalMessageTimelineSnapshot(conversationId);
-  }, [conversationId, isLocalMode]);
+  }, [conversationId, hasLocalCache]);
   const localSnapshot = useSyncExternalStore(
     subscribe,
     getSnapshot,
@@ -70,14 +70,14 @@ export function useConversationMessages(
   );
 
   const retryAttemptRef = useRef(0);
-  const retryKey = `${isLocalMode ? "local" : "cloud"}:${conversationId ?? ""}`;
+  const retryKey = `${hasLocalCache ? "local-cache" : "no-cache"}:${conversationId ?? ""}`;
   const retryKeyRef = useRef(retryKey);
   retryKeyRef.current = retryKey;
   useEffect(() => {
     retryAttemptRef.current = 0;
   }, [retryKey]);
   useEffect(() => {
-    if (!isLocalMode || !conversationId || !localSnapshot.error) {
+    if (!hasLocalCache || !conversationId || !localSnapshot.error) {
       return;
     }
     const attempt = retryAttemptRef.current++;
@@ -96,9 +96,9 @@ export function useConversationMessages(
       }
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [conversationId, isLocalMode, localSnapshot.error, retryKey]);
+  }, [conversationId, hasLocalCache, localSnapshot.error, retryKey]);
 
-  const rawMessages = isLocalMode
+  const rawMessages = hasLocalCache
     ? localSnapshot.messages
     : EMPTY_LOCAL_SNAPSHOT.messages;
   const stableMessagesRef = useRef<StableMessageListState | null>(null);
@@ -116,33 +116,33 @@ export function useConversationMessages(
   const messages = stableMessagesState.result;
 
   const loadOlder = useCallback(() => {
-    if (!isLocalMode || !conversationId) return false;
+    if (!hasLocalCache || !conversationId) return false;
     return loadOlderLocalMessages(conversationId);
-  }, [conversationId, isLocalMode]);
+  }, [conversationId, hasLocalCache]);
   const loadNewer = useCallback(() => {
-    if (!isLocalMode || !conversationId) return false;
+    if (!hasLocalCache || !conversationId) return false;
     return loadNewerLocalMessages(conversationId);
-  }, [conversationId, isLocalMode]);
+  }, [conversationId, hasLocalCache]);
   const loadLatest = useCallback(() => {
-    if (!isLocalMode || !conversationId) return false;
+    if (!hasLocalCache || !conversationId) return false;
     return loadLatestLocalMessages(conversationId);
-  }, [conversationId, isLocalMode]);
+  }, [conversationId, hasLocalCache]);
 
   return useMemo(
     () => ({
       messages,
-      hasOlderMessages: isLocalMode ? localSnapshot.hasOlder : false,
-      hasNewerMessages: isLocalMode ? localSnapshot.hasNewer : false,
-      isLoadingOlder: isLocalMode ? localSnapshot.isLoadingOlder : false,
-      isLoadingNewer: isLocalMode ? localSnapshot.isLoadingNewer : false,
+      hasOlderMessages: hasLocalCache ? localSnapshot.hasOlder : false,
+      hasNewerMessages: hasLocalCache ? localSnapshot.hasNewer : false,
+      isLoadingOlder: hasLocalCache ? localSnapshot.isLoadingOlder : false,
+      isLoadingNewer: hasLocalCache ? localSnapshot.isLoadingNewer : false,
       isInitialLoading:
-        isLocalMode && Boolean(conversationId) && !localSnapshot.hasLoaded,
+        hasLocalCache && Boolean(conversationId) && !localSnapshot.hasLoaded,
       loadOlder,
       loadNewer,
       loadLatest,
     }),
     [
-      isLocalMode,
+      hasLocalCache,
       conversationId,
       loadLatest,
       loadNewer,

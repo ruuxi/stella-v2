@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { CloudConversation } from "../../../src/features/cloud/cloud-api";
 import {
+  cloudConversationsForAccountScope,
   markCloudConversationCreated,
   resolveCloudConversationForShell,
   resolveCloudConversationRoute,
@@ -11,7 +12,7 @@ const conversation = (
   updatedAt: number,
 ): CloudConversation => ({
   conversationId,
-  ownerId: "owner",
+  ownerId: "a",
   title: conversationId,
   createdAt: updatedAt,
   updatedAt,
@@ -102,6 +103,18 @@ describe("resolveCloudConversationRoute", () => {
         accountScope: "anonymous:session-b",
       }),
     ).toBe("newest");
+  });
+
+  test("filters a cached prior-owner query snapshot before routing or history", () => {
+    expect(
+      cloudConversationsForAccountScope(
+        [
+          conversation("current", 2),
+          { ...conversation("prior", 3), ownerId: "b" },
+        ],
+        "account:a",
+      ).map((item) => item.conversationId),
+    ).toEqual(["current"]);
   });
 });
 

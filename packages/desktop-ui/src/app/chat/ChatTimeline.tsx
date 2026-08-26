@@ -54,10 +54,7 @@ import {
   type LegendListRef,
   type LegendListRenderItemProps,
 } from "@legendapp/list/react";
-import {
-  AssistantMessageRow,
-  UserMessageRow,
-} from "@/app/chat/MessageRow";
+import { AssistantMessageRow, UserMessageRow } from "@/app/chat/MessageRow";
 import { ComposerQueuedMessages } from "./ComposerQueuedMessages";
 import {
   InlineWorkingIndicator,
@@ -194,11 +191,11 @@ const isCardRow = (row: EventRowViewModel): boolean =>
   row.text.trim().length === 0 &&
   Boolean(
     row.resourcePayload ||
-    row.sourceDiffPayloads?.length ||
-    row.inlineImagePayloads?.length ||
-    row.officePreviewRef ||
-    row.backgroundWork ||
-    row.customSlot,
+      row.sourceDiffPayloads?.length ||
+      row.inlineImagePayloads?.length ||
+      row.officePreviewRef ||
+      row.backgroundWork ||
+      row.customSlot,
   );
 
 const gapAfterRow = (
@@ -440,6 +437,9 @@ export const ChatTimeline = memo(function ChatTimeline({
         {emptyState ?? (
           <div className="event-empty">{t("app.chat.timeline.empty")}</div>
         )}
+        {extraTail ? (
+          <div className="event-list-extra-tail">{extraTail}</div>
+        ) : null}
       </div>
     );
   }

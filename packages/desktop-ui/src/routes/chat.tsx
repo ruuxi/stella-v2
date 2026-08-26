@@ -1,7 +1,6 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 import { ChatApp } from "@/app/chat/App";
-import { readActiveConversationIdCache } from "@/features/chat/services/active-conversation-cache";
 
 /**
  * `?c=<conversationId>` is the canonical chat-route search param and the
@@ -15,41 +14,9 @@ const ChatSearch = z.object({
 
 export const Route = createFileRoute("/chat")({
   validateSearch: ChatSearch,
-  // Self-heal a missing `?c=`. The router uses memory history, so a renderer
-  // hard reload resets `/chat?c=<id>` back to plain `/chat`; other call sites
-  // also navigate to `/chat` without preserving the search. Rather than patch
-  // every caller, the route backfills the conversation from the active
-  // conversation pointer. This makes the route incapable of "losing" the
-  // conversation — `?c=` is always re-derived from the source of truth.
-  //
-  // Fast path: a synchronous shared-UI-state cache lets us redirect on the same
-  // tick on reload, so the chat surface keeps the previous conversation
-  // mounted instead of flashing the empty/home state while an IPC round-trip
-  // resolves. The durable SQLite pointer is the cold-start fallback (fresh
-  // install, or a cleared cache) and remains the source of truth.
-  beforeLoad: async ({ search }) => {
-    if (search.c) return;
-
-    const cached = readActiveConversationIdCache();
-    if (cached) {
-      throw redirect({ to: "/chat", search: { c: cached }, replace: true });
-    }
-
-    const api = window.electronAPI?.localChat;
-    if (!api) return;
-    let activeConversationId: string | null = null;
-    try {
-      activeConversationId = await api.getOrCreateDefaultConversationId();
-    } catch {
-      activeConversationId = null;
-    }
-    if (activeConversationId) {
-      throw redirect({
-        to: "/chat",
-        search: { c: activeConversationId },
-        replace: true,
-      });
-    }
-  },
+  // RootLayout repairs a missing or foreign `?c=` only after Better Auth and
+  // the ownership-migration gate prove which server-owned conversation is
+  // safe for the current account. Route loaders must never consult SQLite or
+  // an unscoped renderer cache: either can still name the previous owner.
   component: ChatApp,
 });

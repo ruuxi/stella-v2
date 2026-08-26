@@ -1,4 +1,4 @@
-import type { Dispatch, RefObject, SetStateAction } from "react";
+import type { Dispatch, ReactNode, RefObject, SetStateAction } from "react";
 import type { LegendListRef } from "@legendapp/list/react";
 import type { QueuedUserMessage } from "@/features/chat/hooks/use-streaming-chat";
 import type {
@@ -19,6 +19,8 @@ import type { ChatContext } from "@/shared/types/electron";
  * (shell chrome, left sidebar) don't re-render per token.
  */
 export type ChatColumnConversation = {
+  /** Canonical cloud connection/send failures appended inside the timeline. */
+  extraTail?: ReactNode;
   /**
    * The conversation's background-agent tasks: authoritative thread rows
    * (runtime `runtime_agents` table via `useThreadActivity`) overlaid with

@@ -1,4 +1,10 @@
-import { useRouter, useRouterState } from "@tanstack/react-router";
+import { useRouter } from "@tanstack/react-router";
+import {
+  useAction,
+  useMutation,
+  usePaginatedQuery,
+  useQuery,
+} from "convex/react";
 import {
   LegendList,
   type LegendListRenderItemProps,
@@ -7,6 +13,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentType,
@@ -14,28 +21,23 @@ import {
 } from "react";
 import type {
   ConversationSummary,
-  ConversationSummaryCursor,
   LocalChatUpdatedPayload,
 } from "@stella/contracts/local-chat";
 import {
-  coerceAssistantWorkingMode,
-  DEFAULT_ASSISTANT_WORKING_MODE,
-  type AssistantWorkingMode,
-} from "@stella/contracts/local-preferences";
-import {
-  compareConversationTitleCursors,
   conversationTabs,
   type ConversationTitleCursor,
   useConversationTabs,
 } from "@/features/chat/services/conversation-tabs-store";
 import { conversationModelSelections } from "@/features/chat/services/conversation-model-selection";
+import { cloudApi, type CloudConversation } from "@/features/cloud/cloud-api";
 import {
-  conversationTitleFromUpdate,
-  createNewLocalConversationId,
-  deleteLocalConversation,
-  listLocalConversations,
-  subscribeToLocalChatUpdates,
-} from "@/features/chat/services/local-chat-store";
+  cloudConversationBelongsToAccountScope,
+  cloudConversationsForAccountScope,
+  markCloudConversationCreated,
+} from "@/features/cloud/cloud-conversation-selection";
+import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useChatRuntime } from "@/context/use-chat-runtime";
+import { showToast } from "@/ui/toast";
 import { Popover } from "@/ui/popover";
 import {
   Check,
@@ -84,15 +86,11 @@ export const shouldRenderConversationHomeLauncher = (tabCount: number) =>
 
 export const shouldRenderNewChatLabel = (tabCount: number) => tabCount <= 1;
 
-export const shouldRenderNewChatControl = (
-  workingMode: AssistantWorkingMode,
-): boolean => workingMode === "direct";
+export const shouldRenderNewChatControl = (): boolean => true;
 
-// In orchestrated mode there are no tabs and no standalone new-chat control,
-// so the History menu owns the only affordance for starting a fresh chat.
-export const shouldRenderHistoryNewChat = (
-  workingMode: AssistantWorkingMode,
-): boolean => workingMode === "orchestrated";
+// The tab strip owns New Chat. History remains an in-place conversation
+// selector so it cannot accidentally append a second tab for the same action.
+export const shouldRenderHistoryNewChat = (): boolean => false;
 
 export const resolveHistoryDeleteActivation = (
   armedConversationId: string | null,
@@ -121,6 +119,17 @@ const isKeyboardClick = (event: React.MouseEvent<HTMLElement>) =>
 
 const historyKeyExtractor = (summary: ConversationSummary) =>
   summary.conversationId;
+
+export const cloudConversationToSummary = (
+  conversation: CloudConversation,
+): ConversationSummary => ({
+  conversationId: conversation.conversationId,
+  title: conversation.title,
+  createdAt: conversation.createdAt,
+  updatedAt: conversation.updatedAt,
+  latestMessageAt: conversation.updatedAt,
+  latestMessageId: `cloud:${conversation.updatedAt}:${conversation.conversationId}`,
+});
 
 /**
  * A background tab earns its unread dot from a persisted assistant message
@@ -209,26 +218,72 @@ type ConversationTabPointerDrag = {
 export function ConversationTopBar() {
   const t = useT();
   const router = useRouter();
-  const { tabs } = useConversationTabs();
-  const [assistantWorkingMode, setAssistantWorkingMode] =
-    useState<AssistantWorkingMode>(DEFAULT_ASSISTANT_WORKING_MODE);
-  const showNewChatControl = shouldRenderNewChatControl(assistantWorkingMode);
-  const showHistoryNewChat = shouldRenderHistoryNewChat(assistantWorkingMode);
+  const chat = useChatRuntime();
+  const { cloudMode, accountScope } = useCloudMode();
+  const tabSnapshot = useConversationTabs();
+  // A scope change clears the backing store in RootLayout's layout effect.
+  // Filter during the transition too so a previous owner's ids cannot enter
+  // this render tree for even one frame.
+  const tabs =
+    tabSnapshot.accountScope === accountScope ? tabSnapshot.tabs : [];
+  const recentCloudConversations = useQuery(
+    cloudApi.listMyConversations,
+    cloudMode ? {} : "skip",
+  );
+  const paginatedHistory = usePaginatedQuery(
+    cloudApi.listMyConversationsPage,
+    cloudMode ? {} : "skip",
+    { initialNumItems: HISTORY_PAGE_SIZE },
+  );
+  const scopedRecentCloudConversations = useMemo(
+    () =>
+      cloudConversationsForAccountScope(
+        recentCloudConversations ?? [],
+        accountScope,
+      ),
+    [accountScope, recentCloudConversations],
+  );
+  const createCloudConversation = useMutation(cloudApi.createMyConversation);
+  const deleteCloudConversation = useAction(cloudApi.deleteMyConversation);
+  const showNewChatControl = shouldRenderNewChatControl();
+  const showHistoryNewChat = shouldRenderHistoryNewChat();
   const showNewChatLabel =
     showNewChatControl && shouldRenderNewChatLabel(tabs.length);
-  const activeConversationId = useRouterState({
-    select: (state) =>
-      state.location.pathname === "/chat"
-        ? ((state.location.search as { c?: string }).c ?? null)
-        : null,
-  });
+  const activeConversationId = chat.conversation.conversationId;
+  const activeConversationIsRecent = Boolean(
+    activeConversationId &&
+      scopedRecentCloudConversations.some(
+        (conversation) => conversation.conversationId === activeConversationId,
+      ),
+  );
+  const activeCloudConversation = useQuery(
+    cloudApi.getMyConversation,
+    cloudMode && activeConversationId && !activeConversationIsRecent
+      ? { conversationId: activeConversationId }
+      : "skip",
+  );
+  const scopedActiveCloudConversation =
+    activeCloudConversation &&
+    cloudConversationBelongsToAccountScope(
+      activeCloudConversation,
+      accountScope,
+    )
+      ? activeCloudConversation
+      : null;
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [history, setHistory] = useState<ConversationSummary[]>([]);
-  const [historyCursor, setHistoryCursor] =
-    useState<ConversationSummaryCursor | null>(null);
-  const [historyHasMore, setHistoryHasMore] = useState(false);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyError, setHistoryError] = useState(false);
+  const [historyState, setHistoryState] = useState<{
+    accountScope: string;
+    items: ConversationSummary[];
+  }>(() => ({ accountScope, items: [] }));
+  const history =
+    historyState.accountScope === accountScope ? historyState.items : [];
+  const historyHasMore =
+    paginatedHistory.status === "CanLoadMore" ||
+    paginatedHistory.status === "LoadingMore";
+  const historyLoading =
+    paginatedHistory.status === "LoadingFirstPage" ||
+    paginatedHistory.status === "LoadingMore";
+  const historyError = false;
   const [historyDeleteArmedId, setHistoryDeleteArmedId] = useState<
     string | null
   >(null);
@@ -239,8 +294,14 @@ export function ConversationTopBar() {
     string | null
   >(null);
   const [historyNewChatArmed, setHistoryNewChatArmed] = useState(false);
-  const historyRequestRef = useRef(0);
-  const historyLoadingRef = useRef(false);
+  const createRequestIdRef = useRef<string | null>(null);
+  const createInFlightRef = useRef(false);
+  const activeAccountScopeRef = useRef(accountScope);
+  activeAccountScopeRef.current = accountScope;
+  const cloudUpdatedAtRef = useRef<{
+    accountScope: string;
+    values: Map<string, number>;
+  }>({ accountScope: "", values: new Map() });
   const historyDeleteTimerRef = useRef<number | null>(null);
   const historyNewChatTimerRef = useRef<number | null>(null);
   const historyHoverCloseTimerRef = useRef<number | null>(null);
@@ -259,38 +320,6 @@ export function ConversationTopBar() {
   const [overflowingTitleIds, setOverflowingTitleIds] = useState<
     ReadonlySet<string>
   >(new Set());
-
-  useEffect(() => {
-    let disposed = false;
-    const loadWorkingMode = async () => {
-      try {
-        const preferences =
-          await window.electronAPI?.system?.getLocalModelPreferences?.();
-        if (!disposed) {
-          setAssistantWorkingMode(
-            coerceAssistantWorkingMode(preferences?.assistantWorkingMode),
-          );
-        }
-      } catch {
-        // Keep the product default when preferences are temporarily unavailable.
-      }
-    };
-    const handlePreferencesChanged = () => {
-      void loadWorkingMode();
-    };
-    void loadWorkingMode();
-    window.addEventListener(
-      "stella:local-model-preferences-changed",
-      handlePreferencesChanged,
-    );
-    return () => {
-      disposed = true;
-      window.removeEventListener(
-        "stella:local-model-preferences-changed",
-        handlePreferencesChanged,
-      );
-    };
-  }, []);
 
   const navigateToConversation = useCallback(
     (
@@ -332,148 +361,153 @@ export function ConversationTopBar() {
   );
 
   const createConversation = useCallback(async () => {
-    const conversationId = await createNewLocalConversationId();
-    navigateToConversation(
-      conversationId,
-      t("shell.topbar.conversation.newChat"),
-    );
-  }, [navigateToConversation, t]);
+    if (!cloudMode || createInFlightRef.current) return;
+    const clientCreateId = createRequestIdRef.current ?? crypto.randomUUID();
+    createRequestIdRef.current = clientCreateId;
+    createInFlightRef.current = true;
+    try {
+      const created = await createCloudConversation({ clientCreateId });
+      if (
+        activeAccountScopeRef.current !== accountScope ||
+        createRequestIdRef.current !== clientCreateId
+      ) {
+        return;
+      }
+      createInFlightRef.current = false;
+      createRequestIdRef.current = null;
+      markCloudConversationCreated(created.conversationId, accountScope);
+      navigateToConversation(created.conversationId, created.title);
+    } catch (error) {
+      if (
+        activeAccountScopeRef.current !== accountScope ||
+        createRequestIdRef.current !== clientCreateId
+      ) {
+        return;
+      }
+      // Retain the idempotency key. A retry must converge on the conversation
+      // even when the first response was lost after the server committed it.
+      showToast({
+        title: "Couldn’t create a new chat",
+        description:
+          error instanceof Error && error.message.trim()
+            ? error.message
+            : "Try again in a moment.",
+        variant: "error",
+      });
+    } finally {
+      if (
+        activeAccountScopeRef.current === accountScope &&
+        createRequestIdRef.current === clientCreateId
+      ) {
+        createInFlightRef.current = false;
+      }
+    }
+  }, [
+    accountScope,
+    cloudMode,
+    createCloudConversation,
+    navigateToConversation,
+  ]);
 
   const loadHistory = useCallback(
-    async (cursor: ConversationSummaryCursor | null, replace: boolean) => {
-      if (historyLoadingRef.current) return;
-      const requestId = historyRequestRef.current + 1;
-      historyRequestRef.current = requestId;
-      historyLoadingRef.current = true;
-      setHistoryLoading(true);
-      setHistoryError(false);
-      try {
-        const page = await listLocalConversations({
-          limit: HISTORY_PAGE_SIZE,
-          cursor,
-        });
-        if (historyRequestRef.current !== requestId) return;
-        conversationTabs.mergeSummaries(page.conversations);
-        setHistory((current) => {
-          if (replace) return page.conversations;
-          const byId = new Map(
-            current.map((summary) => [summary.conversationId, summary]),
-          );
-          for (const summary of page.conversations) {
-            byId.set(summary.conversationId, summary);
-          }
-          return [...byId.values()];
-        });
-        setHistoryCursor(page.nextCursor ?? null);
-        setHistoryHasMore(page.hasMore);
-      } catch {
-        if (historyRequestRef.current === requestId) setHistoryError(true);
-      } finally {
-        if (historyRequestRef.current === requestId) {
-          historyLoadingRef.current = false;
-          setHistoryLoading(false);
-        }
+    async (_cursor: unknown, replace: boolean) => {
+      if (!replace && paginatedHistory.status === "CanLoadMore") {
+        paginatedHistory.loadMore(HISTORY_PAGE_SIZE);
       }
     },
-    [],
+    [paginatedHistory],
   );
 
-  // The update subscription below is mounted once; it reads the active
-  // conversation through this ref so it never resubscribes on navigation.
-  const activeConversationIdRef = useRef(activeConversationId);
-  activeConversationIdRef.current = activeConversationId;
+  const historyFromServer = useMemo(
+    () =>
+      cloudConversationsForAccountScope(
+        paginatedHistory.results as CloudConversation[],
+        accountScope,
+      ).map(cloudConversationToSummary),
+    [accountScope, paginatedHistory.results],
+  );
+
+  useEffect(() => {
+    for (const timerRef of [
+      historyDeleteTimerRef,
+      historyNewChatTimerRef,
+      historyHoverCloseTimerRef,
+    ]) {
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    createRequestIdRef.current = null;
+    createInFlightRef.current = false;
+    cloudUpdatedAtRef.current = { accountScope, values: new Map() };
+    setHistoryState({ accountScope, items: [] });
+    setHistoryDeleteArmedId(null);
+    setHistoryDeletingId(null);
+    setHistoryDeleteErrorId(null);
+    setHistoryNewChatArmed(false);
+    setHistoryOpen(false);
+  }, [accountScope]);
+
+  useEffect(() => {
+    setHistoryState({ accountScope, items: historyFromServer });
+    conversationTabs.mergeSummaries(historyFromServer);
+  }, [accountScope, historyFromServer]);
 
   useEffect(() => {
     if (!activeConversationId) return;
-    conversationTabs.openConversation(activeConversationId);
+    const summary = [
+      ...(scopedActiveCloudConversation ? [scopedActiveCloudConversation] : []),
+      ...scopedRecentCloudConversations,
+    ].find(
+      (conversation) => conversation.conversationId === activeConversationId,
+    );
+    conversationTabs.openConversation(
+      activeConversationId,
+      summary?.title,
+      summary
+        ? {
+            latestMessageAt: summary.updatedAt,
+            latestMessageId: `cloud:${summary.updatedAt}:${summary.conversationId}`,
+          }
+        : undefined,
+    );
     conversationTabs.markRead(activeConversationId);
-  }, [activeConversationId]);
+  }, [
+    activeConversationId,
+    scopedActiveCloudConversation,
+    scopedRecentCloudConversations,
+  ]);
 
-  // Hydrate cached tab titles from one bounded history page. Inactive tabs
-  // remain metadata only; this never subscribes them to message timelines.
+  // Background unread and title changes come from the server-owned index, not
+  // desktop SQLite. The first snapshot only seeds cursors; later monotonic
+  // `updatedAt` advances may mark an inactive open tab unread.
   useEffect(() => {
-    let disposed = false;
-    void listLocalConversations({ limit: HISTORY_PAGE_SIZE })
-      .then((page) => {
-        if (!disposed) conversationTabs.mergeSummaries(page.conversations);
-      })
-      .catch(() => {});
-    return () => {
-      disposed = true;
-    };
-  }, []);
-
-  // Persisted local-chat updates are the title boundary. Streaming token
-  // chunks deliberately do not touch this lightweight store.
-  useEffect(
-    () =>
-      subscribeToLocalChatUpdates((payload: LocalChatUpdatedPayload | null) => {
-        const update = conversationTitleFromUpdate(payload);
-        if (!update) return;
-        const incomingCursor = {
-          latestMessageAt: update.latestMessageAt,
-          latestMessageId: update.latestMessageId,
-        };
-        conversationTabs.updateTitle(
-          update.conversationId,
-          update.title,
-          incomingCursor,
-        );
-        if (
-          shouldMarkConversationUnread(
-            payload,
-            update.conversationId,
-            activeConversationIdRef.current,
-          )
-        ) {
-          conversationTabs.markUnread(update.conversationId);
-        }
-        setHistory((current) => {
-          const index = current.findIndex(
-            (item) => item.conversationId === update.conversationId,
-          );
-          if (index < 0) return current;
-          const existing = current[index]!;
-          const existingCursor =
-            typeof existing.latestMessageAt === "number" &&
-            existing.latestMessageId
-              ? {
-                  latestMessageAt: existing.latestMessageAt,
-                  latestMessageId: existing.latestMessageId,
-                }
-              : null;
-          const sameMessage =
-            existingCursor?.latestMessageId === incomingCursor.latestMessageId;
-          if (
-            existingCursor &&
-            !sameMessage &&
-            compareConversationTitleCursors(incomingCursor, existingCursor) <= 0
-          ) {
-            return current;
-          }
-          const next = {
-            ...existing,
-            title: update.title,
-            ...incomingCursor,
-            updatedAt: Math.max(existing.updatedAt, update.latestMessageAt),
-          };
-          if (sameMessage) {
-            return current.map((item, itemIndex) =>
-              itemIndex === index ? next : item,
-            );
-          }
-          return [
-            next,
-            ...current.filter((_, itemIndex) => itemIndex !== index),
-          ];
-        });
-      }),
-    [],
-  );
-
-  useEffect(() => {
-    if (historyOpen) void loadHistory(null, true);
-  }, [historyOpen, loadHistory]);
+    if (!recentCloudConversations) return;
+    let tracker = cloudUpdatedAtRef.current;
+    if (tracker.accountScope !== accountScope) {
+      tracker = { accountScope, values: new Map() };
+      cloudUpdatedAtRef.current = tracker;
+    }
+    const summaries = scopedRecentCloudConversations.map(
+      cloudConversationToSummary,
+    );
+    conversationTabs.mergeSummaries(summaries);
+    for (const conversation of scopedRecentCloudConversations) {
+      const previous = tracker.values.get(conversation.conversationId);
+      if (
+        previous !== undefined &&
+        conversation.updatedAt > previous &&
+        conversation.conversationId !== activeConversationId
+      ) {
+        conversationTabs.markUnread(conversation.conversationId);
+      }
+      tracker.values.set(conversation.conversationId, conversation.updatedAt);
+    }
+  }, [
+    accountScope,
+    activeConversationId,
+    recentCloudConversations,
+    scopedRecentCloudConversations,
+  ]);
 
   const scheduleOverflowMeasurement = useCallback(() => {
     if (measureFrameRef.current !== null) return;
@@ -638,27 +672,47 @@ export function ConversationTopBar() {
 
       setHistoryDeleteArmedId(null);
       setHistoryDeletingId(summary.conversationId);
+      const operationAccountScope = accountScope;
       try {
-        const deleted = await deleteLocalConversation(summary.conversationId);
-        if (!deleted) return;
+        const deleted = await deleteCloudConversation({
+          conversationId: summary.conversationId,
+        });
+        if (activeAccountScopeRef.current !== operationAccountScope) return;
+        if (!deleted.ok) {
+          throw new Error("The cloud conversation was not deleted.");
+        }
         conversationModelSelections.delete(summary.conversationId);
-        setHistory((current) =>
-          current.filter(
-            (item) => item.conversationId !== summary.conversationId,
-          ),
+        setHistoryState((current) =>
+          current.accountScope === operationAccountScope
+            ? {
+                ...current,
+                items: current.items.filter(
+                  (item) => item.conversationId !== summary.conversationId,
+                ),
+              }
+            : current,
         );
         await closeConversation(summary.conversationId);
       } catch {
+        if (activeAccountScopeRef.current !== operationAccountScope) return;
         setHistoryDeleteErrorId(summary.conversationId);
         historyDeleteTimerRef.current = window.setTimeout(() => {
           setHistoryDeleteErrorId(null);
           historyDeleteTimerRef.current = null;
         }, HISTORY_DELETE_CONFIRM_TIMEOUT_MS);
       } finally {
-        setHistoryDeletingId(null);
+        if (activeAccountScopeRef.current === operationAccountScope) {
+          setHistoryDeletingId(null);
+        }
       }
     },
-    [clearHistoryDeleteTimer, closeConversation, historyDeleteArmedId],
+    [
+      clearHistoryDeleteTimer,
+      closeConversation,
+      deleteCloudConversation,
+      historyDeleteArmedId,
+      accountScope,
+    ],
   );
 
   useEffect(
@@ -910,11 +964,7 @@ export function ConversationTopBar() {
   const showHomeLauncher = shouldRenderConversationHomeLauncher(tabs.length);
 
   return (
-    <div
-      className="conversation-topbar"
-      data-testid="conversation-topbar"
-      data-working-mode={assistantWorkingMode}
-    >
+    <div className="conversation-topbar" data-testid="conversation-topbar">
       <Popover
         open={historyOpen}
         onOpenChange={(open) => {
@@ -1013,7 +1063,7 @@ export function ConversationTopBar() {
             recycleItems
             onEndReached={() => {
               if (historyHasMore && !historyLoading) {
-                void loadHistory(historyCursor, false);
+                void loadHistory(null, false);
               }
             }}
             onEndReachedThreshold={0.25}

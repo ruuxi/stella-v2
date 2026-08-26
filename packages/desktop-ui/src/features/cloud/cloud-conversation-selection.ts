@@ -17,6 +17,27 @@ const pendingCreatedConversations = new Map<
   PendingCreatedConversation
 >();
 
+/**
+ * Convex returns the immutable owner id with every conversation summary.
+ * Checking it against the renderer's immutable auth scope prevents a cached
+ * query snapshot from the previous identity from ever entering routing,
+ * history, or tab state while Convex re-subscribes after an account switch.
+ */
+export const cloudConversationBelongsToAccountScope = (
+  conversation: Pick<CloudConversation, "ownerId">,
+  accountScope: string,
+): boolean =>
+  accountScope === `anonymous:${conversation.ownerId}` ||
+  accountScope === `account:${conversation.ownerId}`;
+
+export const cloudConversationsForAccountScope = (
+  conversations: readonly CloudConversation[],
+  accountScope: string,
+): CloudConversation[] =>
+  conversations.filter((conversation) =>
+    cloudConversationBelongsToAccountScope(conversation, accountScope),
+  );
+
 const prune = (now = Date.now()): void => {
   for (const [conversationId, pending] of pendingCreatedConversations) {
     if (pending.expiresAt <= now) {
@@ -59,7 +80,9 @@ export const isOwnedCloudConversation = (
   Boolean(
     conversationId &&
       (conversations.some(
-        (conversation) => conversation.conversationId === conversationId,
+        (conversation) =>
+          conversation.conversationId === conversationId &&
+          cloudConversationBelongsToAccountScope(conversation, accountScope),
       ) ||
         isPendingCloudConversation(conversationId, accountScope)),
   );

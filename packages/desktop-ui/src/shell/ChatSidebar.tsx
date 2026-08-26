@@ -110,6 +110,7 @@ interface ChatPanelTabProps {
   isLoadingOlder: boolean;
   isLoadingNewer: boolean;
   isInitialLoading: boolean;
+  extraTail?: React.ReactNode;
   onLoadOlder: () => boolean | void | Promise<boolean>;
   onLoadNewer: () => boolean | void | Promise<boolean>;
   onLoadLatest: () => boolean | void | Promise<boolean>;
@@ -150,6 +151,7 @@ export function ChatPanelTab({
   isLoadingOlder,
   isLoadingNewer,
   isInitialLoading,
+  extraTail,
   onLoadOlder,
   onLoadNewer,
   onLoadLatest,
@@ -331,7 +333,6 @@ export function ChatPanelTab({
     },
     [removeQueuedUserMessage, setInputText],
   );
-
 
   const dictation = useDictation({
     message: inputText,
@@ -516,6 +517,7 @@ export function ChatPanelTab({
                 wideLayout ? WIDE_PANEL_CONTENT_STYLE : SIDEBAR_CONTENT_STYLE
               }
               estimatedItemSize={wideLayout ? 140 : undefined}
+              extraTail={extraTail}
             />
 
             <div className="chat-sidebar-composer">

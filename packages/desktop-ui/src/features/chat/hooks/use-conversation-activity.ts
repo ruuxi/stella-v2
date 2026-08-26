@@ -54,10 +54,10 @@ export type ConversationActivityFeed = {
 export const useConversationActivity = (
   conversationId?: string,
 ): ConversationActivityFeed => {
-  const { storageMode } = useChatStore();
-  const isLocalMode = storageMode === "local";
+  const { isLocalStorage } = useChatStore();
+  const hasLocalCache = isLocalStorage;
 
-  const visitKey = `${storageMode}:${conversationId ?? ""}`;
+  const visitKey = `${hasLocalCache ? "local-cache" : "no-cache"}:${conversationId ?? ""}`;
   const visitToken = useMemo(() => Symbol(visitKey), [visitKey]);
 
   const [limit, setLimit] = useState(ACTIVITY_PAGE_SIZE);
@@ -79,7 +79,7 @@ export const useConversationActivity = (
   const [localRetryTick, setLocalRetryTick] = useState(0);
 
   useEffect(() => {
-    if (!isLocalMode || !conversationId) {
+    if (!hasLocalCache || !conversationId) {
       setSnapshotState({
         visitToken,
         snapshot: {
@@ -134,7 +134,7 @@ export const useConversationActivity = (
       }
       unsubscribe();
     };
-  }, [conversationId, isLocalMode, limit, localRetryTick, visitToken]);
+  }, [conversationId, hasLocalCache, limit, localRetryTick, visitToken]);
 
   const activeSnapshot =
     snapshotState.visitToken === visitToken
@@ -166,7 +166,7 @@ export const useConversationActivity = (
   ]);
 
   const loadOlder = useCallback(() => {
-    if (!conversationId || !isLocalMode) return;
+    if (!conversationId || !hasLocalCache) return;
     if (!hasOlderActivity) return;
     if (pendingLimit !== null) return;
     const next = limit + ACTIVITY_PAGE_SIZE;
@@ -174,11 +174,11 @@ export const useConversationActivity = (
     startTransition(() => {
       setLimit(next);
     });
-  }, [conversationId, hasOlderActivity, isLocalMode, limit, pendingLimit]);
+  }, [conversationId, hasLocalCache, hasOlderActivity, limit, pendingLimit]);
 
   const isInitialLoading =
     Boolean(conversationId) &&
-    isLocalMode &&
+    hasLocalCache &&
     !activeSnapshot.hasLoaded &&
     activities.length === 0;
 

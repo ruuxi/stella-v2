@@ -12,8 +12,9 @@
  *   - Produced files return as a strip of PILL-shaped chips directly under
  *     the row — no card surface around them. Same behavior as the old card:
  *     at most `PILL_CAP` pills, then an animated "+N more" expand/collapse;
- *     the pill body opens the file (`openDisplayPayloadTab`) and the "+"
- *     affordance opens the shared `OpenWithMenu`.
+ *     the pill body uses the authority-aware file opener (signed Drive URL
+ *     for cloud files, display payload for local files); local files retain
+ *     the shared `OpenWithMenu` affordance.
  *   - Several agents completing at the same point stack as sibling
  *     row+pills groups, never merged into one flat line.
  */
@@ -35,13 +36,21 @@ import type { ConversationFileEntry } from "@/features/workspace-display/derive-
 import type { AgentCompletionSection } from "@/features/chat/lib/agent-completion";
 import { OpenWithMenu } from "./OpenWithMenu";
 import { useT, useTPlural } from "@/shared/i18n";
+import { useOpenConversationFile } from "@/features/cloud/use-cloud-drive-open";
 import "./agent-activity-row.css";
 
 /** Pills shown before the "+N more" control kicks in. */
 const PILL_CAP = 5;
 
-const FilePill = ({ entry }: { entry: ConversationFileEntry }) => {
-  const localFilePath = localFilePathForPayload(entry.payload);
+const FilePillView = ({
+  entry,
+  onOpen,
+  localFilePath,
+}: {
+  entry: ConversationFileEntry;
+  onOpen: () => void;
+  localFilePath?: string | null;
+}) => {
   return (
     <span
       className="agent-activity-files__pill"
@@ -51,7 +60,7 @@ const FilePill = ({ entry }: { entry: ConversationFileEntry }) => {
       <button
         type="button"
         className="agent-activity-files__pill-open"
-        onClick={() => openDisplayPayloadTab(entry.payload)}
+        onClick={onOpen}
       >
         <span className="agent-activity-files__pill-icon" aria-hidden="true">
           <DisplayTabIcon
@@ -69,6 +78,22 @@ const FilePill = ({ entry }: { entry: ConversationFileEntry }) => {
     </span>
   );
 };
+
+const CloudFilePill = ({ entry }: { entry: ConversationFileEntry }) => {
+  const openFile = useOpenConversationFile();
+  return <FilePillView entry={entry} onOpen={() => void openFile(entry)} />;
+};
+
+const FilePill = ({ entry }: { entry: ConversationFileEntry }) =>
+  entry.cloudDriveFile ? (
+    <CloudFilePill entry={entry} />
+  ) : (
+    <FilePillView
+      entry={entry}
+      onOpen={() => openDisplayPayloadTab(entry.payload)}
+      localFilePath={localFilePathForPayload(entry.payload)}
+    />
+  );
 
 /** The chip strip under a completed row — old card's cap + "+N more"
  *  expand/collapse (grid-rows 0fr -> 1fr, no JS measurement), minus the

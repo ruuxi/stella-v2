@@ -2,10 +2,13 @@ import { useSyncExternalStore } from "react";
 import type { ConversationSummary } from "@stella/contracts/local-chat";
 import { uiState } from "@/platform/ui-state";
 
-export const CONVERSATION_TABS_STORAGE_KEY = "stella.conversationTabs.v1";
+export const CONVERSATION_TABS_STORAGE_KEY = "stella.conversationTabs.v2";
 const MAX_PERSISTED_TABS = 100;
 const MAX_TITLE_CHARS = 240;
-const LOCAL_CONVERSATION_ID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
+const CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+export const conversationTabsStorageKey = (accountScope: string): string =>
+  `${CONVERSATION_TABS_STORAGE_KEY}:${encodeURIComponent(accountScope)}`;
 
 export type ConversationTab = {
   conversationId: string;
@@ -25,6 +28,8 @@ export type ConversationTitleCursor = {
 };
 
 export type ConversationTabsSnapshot = {
+  /** Immutable Better Auth subject scope that owns every id in `tabs`. */
+  accountScope: string | null;
   tabs: readonly ConversationTab[];
 };
 
@@ -36,7 +41,7 @@ type PersistedConversationTabs = {
 type Listener = () => void;
 
 const normalizeId = (value: unknown): string =>
-  typeof value === "string" && LOCAL_CONVERSATION_ID_RE.test(value.trim())
+  typeof value === "string" && CONVERSATION_ID_RE.test(value.trim())
     ? value.trim()
     : "";
 
@@ -83,8 +88,8 @@ export const normalizeConversationTabTitle = (value: unknown): string => {
   return title || "New chat";
 };
 
-const readPersistedTabs = (): ConversationTab[] => {
-  const raw = uiState.getItem(CONVERSATION_TABS_STORAGE_KEY);
+const readPersistedTabs = (accountScope: string): ConversationTab[] => {
+  const raw = uiState.getItem(conversationTabsStorageKey(accountScope));
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw) as Partial<PersistedConversationTabs>;
@@ -110,19 +115,28 @@ const readPersistedTabs = (): ConversationTab[] => {
   }
 };
 
-let snapshot: ConversationTabsSnapshot = { tabs: readPersistedTabs() };
+let currentAccountScope: string | null = null;
+let snapshot: ConversationTabsSnapshot = {
+  accountScope: null,
+  tabs: [],
+};
 const listeners = new Set<Listener>();
 
 const persist = (tabs: readonly ConversationTab[]) => {
+  if (!currentAccountScope) return;
   const payload: PersistedConversationTabs = {
     version: 1,
     tabs: tabs.slice(0, MAX_PERSISTED_TABS).map((tab) => ({ ...tab })),
   };
-  uiState.setItem(CONVERSATION_TABS_STORAGE_KEY, JSON.stringify(payload));
+  uiState.setItem(
+    conversationTabsStorageKey(currentAccountScope),
+    JSON.stringify(payload),
+  );
 };
 
 const emit = (tabs: readonly ConversationTab[]) => {
-  snapshot = { tabs };
+  if (!currentAccountScope) return;
+  snapshot = { accountScope: currentAccountScope, tabs };
   persist(tabs);
   for (const listener of listeners) listener();
 };
@@ -137,6 +151,21 @@ export const conversationTabs = {
   },
   getSnapshot(): ConversationTabsSnapshot {
     return snapshot;
+  },
+  /**
+   * Switches the whole tab store as one account-scoped unit. No legacy,
+   * unscoped payload is migrated: its ids have no provable owner and must
+   * never flash while a new identity is bootstrapping.
+   */
+  setAccountScope(accountScopeInput: string | null): void {
+    const accountScope = accountScopeInput?.trim() || null;
+    if (accountScope === currentAccountScope) return;
+    currentAccountScope = accountScope;
+    snapshot = {
+      accountScope,
+      tabs: accountScope ? readPersistedTabs(accountScope) : [],
+    };
+    for (const listener of listeners) listener();
   },
   openConversation(
     conversationIdInput: string,
@@ -344,12 +373,17 @@ export const conversationTabs = {
     emit(tabs);
   },
   reloadPersisted(): void {
-    snapshot = { tabs: readPersistedTabs() };
+    snapshot = {
+      accountScope: currentAccountScope,
+      tabs: currentAccountScope ? readPersistedTabs(currentAccountScope) : [],
+    };
     for (const listener of listeners) listener();
   },
   reset(): void {
-    snapshot = { tabs: [] };
-    uiState.removeItem(CONVERSATION_TABS_STORAGE_KEY);
+    snapshot = { accountScope: currentAccountScope, tabs: [] };
+    if (currentAccountScope) {
+      uiState.removeItem(conversationTabsStorageKey(currentAccountScope));
+    }
     for (const listener of listeners) listener();
   },
 };

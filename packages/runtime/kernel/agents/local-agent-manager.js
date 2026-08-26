@@ -526,6 +526,14 @@ export class LocalAgentManager {
     awaitAgentSettled(threadId, fallbackRecheckMs = 2_000) {
         return managerRuntime.runPromise(this.awaitAgentSettledEffect(threadId, fallbackRecheckMs));
     }
+    rememberDeliveryEventId(task, eventId) {
+        if (!eventId || task.consumedDescendantEventIds.includes(eventId))
+            return;
+        task.consumedDescendantEventIds.push(eventId);
+        if (task.consumedDescendantEventIds.length > 256) {
+            task.consumedDescendantEventIds.splice(0, task.consumedDescendantEventIds.length - 256);
+        }
+    }
     persistTask(task) {
         this.notifyAgentUpdated(task.threadId);
         if (task.status === "completed" ||
@@ -1832,7 +1840,11 @@ export class LocalAgentManager {
         // orchestration layer, so the delivered turn input is a pointer rather
         // than a second copy of the report.
         const isChildReport = options?.deliveryKind === "child-report";
-        const deliveryEventId = isChildReport ? options?.deliveryEventId?.trim() || undefined : undefined;
+        // Every retryable orchestrator delivery may carry a stable receipt id.
+        // Child reports and background-exit wakes share the same bounded,
+        // durable ledger so an acknowledgement lost after enqueue/resume does
+        // not inject the same input twice.
+        const deliveryEventId = options?.deliveryEventId?.trim() || undefined;
         // The parent can be root-spawned, so keep even its internal task status
         // free of child-report contents. The wake lifecycle is hidden from root
         // chat below, while Activity/thread inspection may still read this safe
@@ -1905,7 +1917,7 @@ export class LocalAgentManager {
                 resumedTask.description = followUpDescription;
             }
             if (deliveryEventId) {
-                resumedTask.consumedDescendantEventIds.push(deliveryEventId);
+                this.rememberDeliveryEventId(resumedTask, deliveryEventId);
                 resumedTask.descendantWakePending = true;
             }
             if (isChildReport) {
@@ -1924,14 +1936,16 @@ export class LocalAgentManager {
             // that durable row the only report source; a live session refreshes it
             // at the next turn instead of receiving a duplicate prompt copy.
             this.subagentSessions.get(agentId)?.notifyHistoryChanged();
-            if (deliveryEventId && task.consumedDescendantEventIds.includes(deliveryEventId)) {
-                return { delivered: true };
-            }
+        }
+        if (deliveryEventId && task.consumedDescendantEventIds.includes(deliveryEventId)) {
+            return { delivered: true };
+        }
+        if (isChildReport) {
             if (task.status === "error" || task.status === "canceled") {
                 // Same rule as the persisted-record path: never resurrect a parent
                 // the user paused or that failed.
                 if (deliveryEventId) {
-                    task.consumedDescendantEventIds.push(deliveryEventId);
+                    this.rememberDeliveryEventId(task, deliveryEventId);
                     task.descendantWakePending = false;
                     this.persistTask(task);
                 }
@@ -1960,7 +1974,7 @@ export class LocalAgentManager {
                 task.description = followUpDescription;
             }
             if (deliveryEventId) {
-                task.consumedDescendantEventIds.push(deliveryEventId);
+                this.rememberDeliveryEventId(task, deliveryEventId);
                 task.descendantWakePending = true;
             }
             // Same re-activation as the persisted-record path above: the thread
@@ -1996,7 +2010,7 @@ export class LocalAgentManager {
         }
         const targetQueue = from === "orchestrator" ? task.toSubagentQueue : task.toOrchestratorQueue;
         if (deliveryEventId) {
-            task.consumedDescendantEventIds.push(deliveryEventId);
+            this.rememberDeliveryEventId(task, deliveryEventId);
             task.descendantWakePending = true;
         }
         targetQueue.push(deliveredInput);

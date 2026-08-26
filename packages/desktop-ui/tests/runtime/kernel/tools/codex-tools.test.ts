@@ -13,17 +13,39 @@ import { createToolHost } from "@stella/runtime/kernel/tools/host";
 import { createExecCommandTool } from "@stella/runtime/kernel/tools/defs/exec-command";
 import { createWriteStdinTool } from "@stella/runtime/kernel/tools/defs/write-stdin";
 import {
+  buildShellCommand,
   createShellState,
   handleExecCommand,
   handleWriteStdin,
   resolveDefaultShell,
   resolveShellLaunch,
+  runShell,
 } from "@stella/runtime/kernel/tools/shell";
 import { createAsyncTempDirTracker } from "../../../helpers/temp.js";
 
 const tempDirs = createAsyncTempDirTracker();
 const repoRoot = path.resolve(import.meta.dirname, "../../../../../..");
 const execFileAsync = promisify(execFile);
+
+const findUnixExecutable = (binary: string): string | undefined => {
+  if (process.platform === "win32") return undefined;
+  const directories = [
+    ...(process.env.PATH ?? "").split(path.delimiter),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+  ];
+  return directories
+    .filter(Boolean)
+    .map((directory) => path.join(directory, binary))
+    .find(existsSync);
+};
+
+const unixFishPath = findUnixExecutable("fish");
+const unixPowerShellPath = findUnixExecutable("pwsh");
+const runIfUnixFish = unixFishPath ? it : it.skip;
+const runIfUnixPowerShell = unixPowerShellPath ? it : it.skip;
 
 afterEach(() => tempDirs.cleanup());
 
@@ -258,6 +280,132 @@ describe("general agent tools", () => {
     ).toBe("/bin/sh");
   });
 
+  it("exec_command preserves native syntax for an explicitly selected fish shell", async () => {
+    const root = await createTempDir();
+    const state = createShellState(root);
+    const command = "set stella_marker ready; printf '%s' $stella_marker";
+
+    expect(buildShellCommand(command, state, "linux", "/usr/bin/fish")).toBe(
+      command,
+    );
+    expect(
+      resolveShellLaunch(
+        command,
+        { shell: "/usr/bin/fish", login: false },
+        "linux",
+        {},
+      ),
+    ).toEqual({
+      shell: "/usr/bin/fish",
+      args: ["-c", command],
+    });
+  });
+
+  runIfUnixFish(
+    "exec_command runs real fish syntax without a POSIX compatibility preamble",
+    async () => {
+      const root = await createTempDir();
+      const output = await runShell(
+        createShellState(root),
+        "set stella_marker ready; printf '%s' $stella_marker",
+        root,
+        5_000,
+        undefined,
+        { shell: unixFishPath, login: false },
+      );
+
+      expect(output).toBe("ready");
+    },
+  );
+
+  it("PowerShell launch source preserves a native process exit-code epilogue", () => {
+    const command = "git stella-definitely-missing-subcommand";
+    const launch = resolveShellLaunch(
+      command,
+      { shell: "/usr/bin/pwsh", login: false },
+      "linux",
+      {},
+    );
+    if ("error" in launch) throw new Error(launch.error);
+
+    const source = Buffer.from(launch.args.at(-1)!, "base64").toString(
+      "utf16le",
+    );
+    expect(source).toContain(command);
+    expect(source).toMatch(/\$[A-Za-z_][A-Za-z0-9_]*\s*=\s*\$\?/u);
+    expect(source).toMatch(
+      /\$[A-Za-z_][A-Za-z0-9_]*\s*=\s*\$global:LASTEXITCODE/u,
+    );
+    expect(source).toMatch(/\bexit\s+\$[A-Za-z_][A-Za-z0-9_]*/u);
+  });
+
+  runIfUnixPowerShell(
+    "exec_command preserves native failures through real Unix PowerShell shims",
+    async () => {
+      const root = await createTempDir();
+      const state = createShellState(root);
+      const launchOptions = {
+        shell: unixPowerShellPath,
+        login: false,
+      } as const;
+
+      const missingGitSubcommand = await runShell(
+        state,
+        "git stella-definitely-missing-subcommand",
+        root,
+        5_000,
+        undefined,
+        launchOptions,
+      );
+      expect(missingGitSubcommand).toMatch(
+        /Command exited with code [1-9]\d*\./u,
+      );
+      expect(missingGitSubcommand).toContain(
+        "stella-definitely-missing-subcommand",
+      );
+
+      const falseNodeRuntime = await runShell(
+        state,
+        "node --version",
+        root,
+        5_000,
+        { STELLA_NODE_BIN: "/usr/bin/false" },
+        launchOptions,
+      );
+      expect(falseNodeRuntime).toMatch(/Command exited with code [1-9]\d*\./u);
+
+      const exactNativeExit = await handleExecCommand(
+        state,
+        {
+          cmd: "/bin/sh -c 'exit 37'",
+          shell: unixPowerShellPath,
+          login: false,
+          yield_time_ms: 5_000,
+        },
+        {
+          conversationId: "c-pwsh-native-exit",
+          deviceId: "d-pwsh-native-exit",
+          requestId: "r-pwsh-native-exit",
+          stellaAppDir: root,
+        },
+      );
+      expect(exactNativeExit.details).toMatchObject({
+        running: false,
+        exit_code: 37,
+      });
+
+      const recovered = await runShell(
+        state,
+        "/bin/sh -c 'exit 37'; Write-Output recovered",
+        root,
+        5_000,
+        undefined,
+        launchOptions,
+      );
+      expect(recovered).toBe("recovered\n");
+    },
+  );
+
   it("exec_command defaults Windows to pwsh, then Windows PowerShell, then cmd", () => {
     const pwshPath = "C:\\Program Files\\PowerShell\\7\\pwsh.exe";
     const windowsPowerShellPath =
@@ -303,9 +451,11 @@ describe("general agent tools", () => {
     );
     if ("error" in launch) throw new Error(launch.error);
     expect(launch.shell).toBe(windowsPowerShellPath);
-    expect(Buffer.from(launch.args.at(-1)!, "base64").toString("utf16le")).toBe(
-      command,
+    const source = Buffer.from(launch.args.at(-1)!, "base64").toString(
+      "utf16le",
     );
+    expect(source).toContain(command);
+    expect(source).toContain("$global:LASTEXITCODE");
   });
 
   it("exec_command uses PowerShell-native arguments on Windows", () => {
@@ -327,9 +477,11 @@ describe("general agent tools", () => {
       "-NonInteractive",
       "-EncodedCommand",
     ]);
-    expect(Buffer.from(launch.args.at(-1)!, "base64").toString("utf16le")).toBe(
-      command,
+    const source = Buffer.from(launch.args.at(-1)!, "base64").toString(
+      "utf16le",
     );
+    expect(source).toContain(command);
+    expect(source).toContain("$global:LASTEXITCODE");
     expect(launch.args).not.toContain("/d");
     expect(launch.args).not.toContain("/s");
     expect(launch.args).not.toContain("/c");
@@ -460,18 +612,20 @@ describe("general agent tools", () => {
         process.platform === "win32" ? "bun.exe" : "bun",
       ),
     ),
-  )("exec_command uses a real PTY and keeps write_stdin session semantics", async () => {
-    const root = await createTempDir();
-    const bunExecutable = path.join(
-      repoRoot,
-      "packages/desktop/resources/bun/current",
-      process.platform === "win32" ? "bun.exe" : "bun",
-    );
-    await access(bunExecutable);
-    const shellModuleUrl = pathToFileURL(
-      path.join(repoRoot, "packages/runtime/kernel/tools/shell.ts"),
-    ).href;
-    const source = `
+  )(
+    "exec_command uses a real PTY and keeps write_stdin session semantics",
+    async () => {
+      const root = await createTempDir();
+      const bunExecutable = path.join(
+        repoRoot,
+        "packages/desktop/resources/bun/current",
+        process.platform === "win32" ? "bun.exe" : "bun",
+      );
+      await access(bunExecutable);
+      const shellModuleUrl = pathToFileURL(
+        path.join(repoRoot, "packages/runtime/kernel/tools/shell.ts"),
+      ).href;
+      const source = `
       import {
         createShellState,
         handleExecCommand,
@@ -539,44 +693,45 @@ describe("general agent tools", () => {
         "STELLA_PTY_RESULT=" + JSON.stringify({ probe, started, resized, writes }),
       );
     `;
-    const { stdout } = await execFileAsync(bunExecutable, ["-e", source], {
-      cwd: repoRoot,
-      timeout: 10_000,
-      maxBuffer: 1024 * 1024,
-    });
-    const marker = "STELLA_PTY_RESULT=";
-    const markerIndex = stdout.lastIndexOf(marker);
-    expect(markerIndex).toBeGreaterThanOrEqual(0);
-    const fixture = JSON.parse(
-      stdout.slice(markerIndex + marker.length).trim(),
-    );
-    expect(fixture.probe.error).toBeUndefined();
-    expect(fixture.probe.details).toMatchObject({
-      running: false,
-      exit_code: 0,
-    });
-    expect(fixture.probe.result).toContain("tty-ready");
-    expect(fixture.resized.error).toBeUndefined();
-    expect(fixture.resized.details).toMatchObject({
-      operation: "resize",
-      terminal_size: { cols: 100, rows: 40 },
-      chunk_receipt: {
+      const { stdout } = await execFileAsync(bunExecutable, ["-e", source], {
+        cwd: repoRoot,
+        timeout: 10_000,
+        maxBuffer: 1024 * 1024,
+      });
+      const marker = "STELLA_PTY_RESULT=";
+      const markerIndex = stdout.lastIndexOf(marker);
+      expect(markerIndex).toBeGreaterThanOrEqual(0);
+      const fixture = JSON.parse(
+        stdout.slice(markerIndex + marker.length).trim(),
+      );
+      expect(fixture.probe.error).toBeUndefined();
+      expect(fixture.probe.details).toMatchObject({
+        running: false,
+        exit_code: 0,
+      });
+      expect(fixture.probe.result).toContain("tty-ready");
+      expect(fixture.resized.error).toBeUndefined();
+      expect(fixture.resized.details).toMatchObject({
         operation: "resize",
         terminal_size: { cols: 100, rows: 40 },
-      },
-    });
-    const interactionOutput = [
-      fixture.started?.result,
-      ...fixture.writes.map((write: { result?: string }) => write.result),
-    ]
-      .filter(Boolean)
-      .join("");
-    expect(interactionOutput).toContain("got:hello");
-    expect(fixture.writes.at(-1)?.details).toMatchObject({
-      running: false,
-      exit_code: 0,
-    });
-  });
+        chunk_receipt: {
+          operation: "resize",
+          terminal_size: { cols: 100, rows: 40 },
+        },
+      });
+      const interactionOutput = [
+        fixture.started?.result,
+        ...fixture.writes.map((write: { result?: string }) => write.result),
+      ]
+        .filter(Boolean)
+        .join("");
+      expect(interactionOutput).toContain("got:hello");
+      expect(fixture.writes.at(-1)?.details).toMatchObject({
+        running: false,
+        exit_code: 0,
+      });
+    },
+  );
 
   it("exec_command exposes the bundled Node.js runtime", async () => {
     const root = await createTempDir();

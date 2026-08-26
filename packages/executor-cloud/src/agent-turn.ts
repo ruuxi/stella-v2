@@ -792,7 +792,11 @@ export const runAgentTurn = (
       // Background commands that finished after their last poll still hold
       // their deliverables; pull those in before reporting.
       const drained = yield* Effect.tryPromise({
-        try: () => toolHost.drainCompletedShellProducedFiles(),
+        try: () =>
+          toolHost.drainCompletedShellProducedFiles({
+            conversationId: context.conversationId,
+            ...(context.agentId ? { agentId: context.agentId } : {}),
+          }),
         catch: asError,
       });
       // Already merged across however many background commands finished late,

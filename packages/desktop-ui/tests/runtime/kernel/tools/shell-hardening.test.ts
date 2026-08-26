@@ -29,13 +29,18 @@ import {
   COMPLETED_SHELL_TTL_MS,
   EXEC_UPDATE_MAX_BYTES,
   MAX_RETAINED_COMPLETED_SHELLS,
+  MAX_SNAPSHOT_ENTRIES,
   PRUNED_SHELL_RECEIPT_TTL_MS,
+  PRODUCED_FILE_COLLECTION_ATTEMPT_MS,
   cleanupShellSessions,
   createShellState,
+  drainCompletedProducedFiles,
+  handleBash,
   handleExecCommand,
   handleKillShell,
   handleShellStatus,
   handleWriteStdin,
+  listRunningShellSessionsOwnedBy,
   runShell,
   startShell,
 } from "@stella/runtime/kernel/tools/shell";
@@ -189,6 +194,66 @@ describe("shell hardening", () => {
     state.shells.get(sessionId)?.kill();
   });
 
+  it("lets a concurrent write wake a passive poll without reserving the interaction gate", async () => {
+    const root = createTempDir();
+    const state = createShellState(root);
+    const started = await handleExecCommand(state, {
+      cmd: `node -e 'process.stdin.on("data", chunk => process.stdout.write("got:" + chunk)); setInterval(() => {}, 1000)'`,
+      workdir: root,
+      yield_time_ms: 100,
+    });
+    const sessionId = (started.details as { session_id: string }).session_id;
+    const record = state.shells.get(sessionId);
+    if (!record) throw new Error("missing passive-poll shell record");
+
+    try {
+      const poll = handleWriteStdin(state, {
+        session_id: sessionId,
+        operation: "poll",
+        yield_time_ms: 3_000,
+      });
+      const waiterDeadline = Date.now() + 1_000;
+      while (record.waiters.size === 0 && Date.now() < waiterDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      expect(record.waiters.size).toBeGreaterThan(0);
+
+      const writeStartedAt = Date.now();
+      const write = await handleWriteStdin(state, {
+        session_id: sessionId,
+        chars: "hello\n",
+        yield_time_ms: 500,
+      });
+      const writeElapsedMs = Date.now() - writeStartedAt;
+      const polled = await poll;
+
+      expect(write.error).toBeUndefined();
+      expect(polled.error).toBeUndefined();
+      expect(writeElapsedMs).toBeLessThan(1_500);
+      expect(write.result).toContain("got:hello");
+      expect(polled.result).not.toContain("got:hello");
+
+      const writeDetails = write.details as {
+        interaction_sequence: number;
+        chunk_receipt: { start_byte: number; end_byte: number };
+      };
+      const pollDetails = polled.details as {
+        interaction_sequence: number;
+        chunk_receipt: { start_byte: number; end_byte: number };
+      };
+      expect(writeDetails.interaction_sequence).toBe(2);
+      expect(pollDetails.interaction_sequence).toBe(3);
+      expect(pollDetails.chunk_receipt.start_byte).toBe(
+        writeDetails.chunk_receipt.end_byte,
+      );
+      expect(pollDetails.chunk_receipt.end_byte).toBe(
+        writeDetails.chunk_receipt.end_byte,
+      );
+    } finally {
+      record.kill();
+    }
+  });
+
   it("scopes session lookup, diagnostics, listing, and termination to the owning thread", async () => {
     const root = createTempDir();
     const state = createShellState(root);
@@ -248,6 +313,16 @@ describe("shell hardening", () => {
     expect(foreignStatus.error).toBe(`Shell not found: ${sessionId}`);
     expect(foreignKill.error).toBe(`Shell not found: ${sessionId}`);
     expect(state.shells.get(sessionId)?.running).toBe(true);
+    expect(
+      listRunningShellSessionsOwnedBy(state, {
+        conversationId: ownerAtStart.conversationId,
+      }),
+    ).toEqual([sessionId]);
+    expect(
+      listRunningShellSessionsOwnedBy(state, {
+        conversationId: foreign.conversationId,
+      }),
+    ).toEqual([]);
 
     const sameOwnerWrite = await handleWriteStdin(
       state,
@@ -288,6 +363,19 @@ describe("shell hardening", () => {
       agentA,
     );
     const sessionId = (started.details as { session_id: string }).session_id;
+
+    expect(
+      listRunningShellSessionsOwnedBy(state, {
+        conversationId: agentA.conversationId,
+        agentId: agentA.agentId,
+      }),
+    ).toEqual([sessionId]);
+    expect(
+      listRunningShellSessionsOwnedBy(state, {
+        conversationId: agentB.conversationId,
+        agentId: agentB.agentId,
+      }),
+    ).toEqual([]);
 
     const foreign = await handleWriteStdin(
       state,
@@ -623,6 +711,59 @@ describe("shell hardening", () => {
     state.shells.get(sessionId)?.kill();
   });
 
+  it("bounds snapshot traversal even when a tree contains no files", async () => {
+    const root = createTempDir();
+    const entries = Array.from(
+      { length: MAX_SNAPSHOT_ENTRIES + 1 },
+      (_, index) => ({
+        name: `socket-${index}`,
+        isDirectory: () => false,
+        isFile: () => false,
+      }),
+    );
+    mocks.readdir.mockImplementationOnce(async () => entries as never);
+
+    const result = await handleExecCommand(createShellState(root), {
+      cmd: `node -e 'process.stdout.write("bounded")'`,
+      workdir: root,
+      yield_time_ms: 30_000,
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.result).toContain("bounded");
+    expect(mocks.readdir).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts a stalled legacy Bash snapshot before spawning", async () => {
+    const root = createTempDir();
+    let markSnapshotStarted!: () => void;
+    const snapshotStarted = new Promise<void>((resolve) => {
+      markSnapshotStarted = resolve;
+    });
+    mocks.readdir.mockImplementationOnce(() => {
+      markSnapshotStarted();
+      return new Promise<never>(() => undefined);
+    });
+    const controller = new AbortController();
+    const pending = handleBash(
+      createShellState(root),
+      {
+        cmd: `node -e 'process.stdout.write("must-not-run")'`,
+        workdir: root,
+      },
+      toolContext("c-bash-snapshot-abort"),
+      controller.signal,
+    );
+    await snapshotStarted;
+    const abortedAt = Date.now();
+    controller.abort(new Error("cancel Bash snapshot"));
+
+    const result = await pending;
+    expect(Date.now() - abortedAt).toBeLessThan(500);
+    expect(result.error).toContain("cancel Bash snapshot");
+    expect(mocks.spawn).not.toHaveBeenCalled();
+  });
+
   it("does not run a completion walk when the start snapshot is null", async () => {
     const root = createTempDir();
     mocks.readdir.mockClear();
@@ -643,30 +784,241 @@ describe("shell hardening", () => {
     expect(mocks.readdir).not.toHaveBeenCalled();
   });
 
-  it("does not let a stalled completion snapshot exceed the original yield deadline", async () => {
+  it("keeps a slow completion snapshot recoverable after the original caller times out", async () => {
     const root = createTempDir();
+    const artifactPath = path.join(root, "completed.txt");
+    let releaseCompletion!: (entries: unknown[]) => void;
+    const completionWalk = new Promise<unknown[]>((resolve) => {
+      releaseCompletion = resolve;
+    });
     mocks.readdir
       .mockImplementationOnce(async () => [])
-      .mockImplementationOnce(() => new Promise<never>(() => undefined));
+      .mockImplementationOnce(() => completionWalk as never);
+    const state = createShellState(root);
+    const context = {
+      conversationId: "c-slow-post-snapshot",
+      deviceId: "d-slow-post-snapshot",
+      requestId: "r-slow-post-snapshot",
+      stellaAppDir: root,
+    };
     const startedAt = Date.now();
 
     const result = await handleExecCommand(
-      createShellState(root),
+      state,
       {
         cmd: "printf artifact > completed.txt",
         workdir: root,
         yield_time_ms: 50,
       },
-      {
-        conversationId: "c-slow-post-snapshot",
-        deviceId: "d-slow-post-snapshot",
-        requestId: "r-slow-post-snapshot",
-        stellaAppDir: root,
-      },
+      context,
     );
 
     expect(Date.now() - startedAt).toBeLessThan(500);
     expect(result.error).toBeUndefined();
     expect(result.details).toMatchObject({ running: false, exit_code: 0 });
+    expect(result.producedFiles).toBeUndefined();
+    const sessionId = (result.details as { shell_session_id: string })
+      .shell_session_id;
+    const record = state.shells.get(sessionId);
+    expect(record?.producedFilesCollection).toBeDefined();
+
+    releaseCompletion([
+      {
+        name: "completed.txt",
+        isDirectory: () => false,
+        isFile: () => true,
+      },
+    ]);
+    const recovered = await drainCompletedProducedFiles(
+      state,
+      { conversationId: context.conversationId },
+      [sessionId],
+    );
+    expect(recovered.files).toEqual([
+      { path: artifactPath, kind: { type: "add" } },
+    ]);
+    expect(
+      (
+        await drainCompletedProducedFiles(
+          state,
+          { conversationId: context.conversationId },
+          [sessionId],
+        )
+      ).files,
+    ).toEqual([]);
+  });
+
+  it(
+    "resets a permanently stuck completion attempt and retries from its baseline",
+    async () => {
+      const root = createTempDir();
+      const artifactPath = path.join(root, "retry-after-stall.txt");
+      mocks.readdir
+        .mockImplementationOnce(async () => [])
+        .mockImplementationOnce(() => new Promise<never>(() => undefined));
+      const state = createShellState(root);
+      const result = await handleExecCommand(state, {
+        cmd: "printf artifact > retry-after-stall.txt",
+        workdir: root,
+        yield_time_ms: 50,
+      });
+      const sessionId = (result.details as { shell_session_id: string })
+        .shell_session_id;
+      const record = state.shells.get(sessionId);
+      if (!record) throw new Error("missing permanently-stalled shell record");
+      expect(result.error).toBeUndefined();
+      expect(result.producedFiles).toBeUndefined();
+      expect(record.producedFilesCollection).toBeDefined();
+
+      await expect
+        .poll(() => record.producedFilesCollection, {
+          timeout: PRODUCED_FILE_COLLECTION_ATTEMPT_MS + 2_000,
+          interval: 25,
+        })
+        .toBeUndefined();
+      expect(record.startSnapshot?.complete).toBe(true);
+
+      const recovered = await drainCompletedProducedFiles(state, null, [
+        sessionId,
+      ]);
+      expect(recovered.files).toContainEqual({
+        path: artifactPath,
+        kind: { type: "add" },
+      });
+      expect(
+        recovered.files.filter((file) => file.path === artifactPath),
+      ).toHaveLength(1);
+      expect(
+        (await drainCompletedProducedFiles(state, null, [sessionId])).files,
+      ).toEqual([]);
+    },
+    PRODUCED_FILE_COLLECTION_ATTEMPT_MS + 5_000,
+  );
+
+  it("bounds a stalled write completion snapshot by the interaction deadline", async () => {
+    const root = createTempDir();
+    const artifactPath = path.join(root, "deadline.txt");
+    let markCompletionStarted!: () => void;
+    const completionStarted = new Promise<void>((resolve) => {
+      markCompletionStarted = resolve;
+    });
+    let releaseCompletion!: (entries: unknown[]) => void;
+    const completionWalk = new Promise<unknown[]>((resolve) => {
+      releaseCompletion = resolve;
+    });
+    mocks.readdir
+      .mockImplementationOnce(async () => [])
+      .mockImplementationOnce(() => {
+        markCompletionStarted();
+        return completionWalk as never;
+      });
+    const state = createShellState(root);
+    const started = await handleExecCommand(state, {
+      cmd: "read line; printf artifact > deadline.txt",
+      workdir: root,
+      yield_time_ms: 50,
+    });
+    const sessionId = (started.details as { session_id: string }).session_id;
+    const record = state.shells.get(sessionId);
+    if (!record) throw new Error("missing deadline-bounded shell record");
+
+    const writeStartedAt = Date.now();
+    const pendingWrite = handleWriteStdin(state, {
+      session_id: sessionId,
+      chars: "go\n",
+      yield_time_ms: 250,
+    });
+    await completionStarted;
+    const result = await pendingWrite;
+
+    expect(Date.now() - writeStartedAt).toBeLessThan(1_000);
+    expect(result.error).toBeUndefined();
+    expect(record.pendingInteractions).toBe(0);
+    expect(record.producedFilesReported).not.toBe(true);
+
+    releaseCompletion([
+      {
+        name: "deadline.txt",
+        isDirectory: () => false,
+        isFile: () => true,
+      },
+    ]);
+    const recovered = await drainCompletedProducedFiles(state, null, [
+      sessionId,
+    ]);
+    expect(recovered.files).toEqual([
+      { path: artifactPath, kind: { type: "add" } },
+    ]);
+    expect(
+      (await drainCompletedProducedFiles(state, null, [sessionId])).files,
+    ).toEqual([]);
+  });
+
+  it("aborts a stalled write completion snapshot, releases its lease, and preserves later delivery", async () => {
+    const root = createTempDir();
+    const artifactPath = path.join(root, "interactive.txt");
+    let markCompletionStarted!: () => void;
+    const completionStarted = new Promise<void>((resolve) => {
+      markCompletionStarted = resolve;
+    });
+    let releaseCompletion!: (entries: unknown[]) => void;
+    const completionWalk = new Promise<unknown[]>((resolve) => {
+      releaseCompletion = resolve;
+    });
+    mocks.readdir
+      .mockImplementationOnce(async () => [])
+      .mockImplementationOnce(() => {
+        markCompletionStarted();
+        return completionWalk as never;
+      });
+    const state = createShellState(root);
+    const started = await handleExecCommand(state, {
+      cmd: "read line; printf artifact > interactive.txt",
+      workdir: root,
+      yield_time_ms: 50,
+    });
+    const sessionId = (started.details as { session_id: string }).session_id;
+    const record = state.shells.get(sessionId);
+    if (!record) throw new Error("missing completion-snapshot shell record");
+
+    const controller = new AbortController();
+    const pendingWrite = handleWriteStdin(
+      state,
+      {
+        session_id: sessionId,
+        chars: "go\n",
+        yield_time_ms: 1_000,
+      },
+      undefined,
+      controller.signal,
+    );
+    await completionStarted;
+    const abortedAt = Date.now();
+    controller.abort(new Error("cancel completion snapshot"));
+    const aborted = await pendingWrite;
+
+    expect(Date.now() - abortedAt).toBeLessThan(500);
+    expect(aborted.error).toContain("cancel completion snapshot");
+    expect(record.pendingInteractions).toBe(0);
+    expect(record.activeInteractionSequence).toBeNull();
+    expect(record.activeInteractionReceipt).toBeUndefined();
+    expect(record.producedFilesReported).not.toBe(true);
+
+    releaseCompletion([
+      {
+        name: "interactive.txt",
+        isDirectory: () => false,
+        isFile: () => true,
+      },
+    ]);
+    const recovered = await drainCompletedProducedFiles(state, null, [
+      sessionId,
+    ]);
+    expect(recovered.files).toEqual([
+      { path: artifactPath, kind: { type: "add" } },
+    ]);
+    expect(
+      (await drainCompletedProducedFiles(state, null, [sessionId])).files,
+    ).toEqual([]);
   });
 });

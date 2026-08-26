@@ -50,6 +50,7 @@ import {
 import { useAssistantReplyPeek } from "@/features/chat/hooks/use-assistant-reply-peek";
 import { useAgentModelConfigs } from "@/features/chat/hooks/use-agent-model-configs";
 import { ChatRuntimeContext } from "@/context/chat-runtime-context";
+import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
 import { useT } from "@/shared/i18n";
 import "./chat-sidebar.css";
 
@@ -130,7 +131,37 @@ interface ChatPanelTabProps {
   isolated?: boolean;
 }
 
-export function ChatPanelTab({
+/**
+ * Keep every independent composer field inside the authenticated account
+ * boundary. The wrapper remains mounted while the keyed surface is replaced,
+ * so an owner change cannot paint (or later replay) the previous owner's
+ * draft text, captured context, or selected text.
+ */
+export function ChatPanelTab(props: ChatPanelTabProps) {
+  const { accountScope } = useCloudMode();
+  const previousAccountScopeRef = useRef(accountScope);
+  const ignoredOpenRequestIdRef = useRef<number | null>(null);
+
+  if (previousAccountScopeRef.current !== accountScope) {
+    previousAccountScopeRef.current = accountScope;
+    ignoredOpenRequestIdRef.current = props.openRequest?.id ?? null;
+  }
+
+  const openRequest =
+    props.openRequest?.id === ignoredOpenRequestIdRef.current
+      ? null
+      : props.openRequest;
+
+  return (
+    <AccountScopedChatPanelTab
+      key={accountScope}
+      {...props}
+      openRequest={openRequest}
+    />
+  );
+}
+
+function AccountScopedChatPanelTab({
   openRequest,
   wideLayout = false,
   messages,

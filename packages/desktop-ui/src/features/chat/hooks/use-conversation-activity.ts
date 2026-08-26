@@ -31,9 +31,9 @@ import {
 } from "@/features/chat/services/local-activity-store";
 import { showToast } from "@/ui/toast";
 import type { EventRecord } from "@stella/contracts/local-chat";
+import { localCacheRetryDelayMs } from "./local-cache-retry";
 
 export const ACTIVITY_PAGE_SIZE = 500;
-const LOCAL_ACTIVITY_LOAD_RETRY_MS = 300;
 
 const EMPTY_ACTIVITIES: EventRecord[] = [];
 
@@ -77,6 +77,11 @@ export const useConversationActivity = (
   });
   const lastLocalLoadToastAtRef = useRef(0);
   const [localRetryTick, setLocalRetryTick] = useState(0);
+  const localRetryAttemptRef = useRef(0);
+
+  useEffect(() => {
+    localRetryAttemptRef.current = 0;
+  }, [limit, visitToken]);
 
   useEffect(() => {
     if (!hasLocalCache || !conversationId) {
@@ -95,14 +100,19 @@ export const useConversationActivity = (
 
     let cancelled = false;
     let retryTimer: number | null = null;
-    const scheduleRetry = () => {
-      if (cancelled || retryTimer !== null) return;
+    const scheduleRetry = (): boolean => {
+      if (cancelled) return false;
+      if (retryTimer !== null) return true;
+      const retryDelayMs = localCacheRetryDelayMs(localRetryAttemptRef.current);
+      if (retryDelayMs === null) return false;
+      localRetryAttemptRef.current += 1;
       retryTimer = window.setTimeout(() => {
         retryTimer = null;
         if (!cancelled) {
           setLocalRetryTick((current) => current + 1);
         }
-      }, LOCAL_ACTIVITY_LOAD_RETRY_MS);
+      }, retryDelayMs);
+      return true;
     };
     const unsubscribe = subscribeToLocalActivityWindow(
       { conversationId, limit },
@@ -113,18 +123,22 @@ export const useConversationActivity = (
           retryTimer = null;
         }
         setSnapshotState({ visitToken, snapshot });
-        if (!snapshot.error) return;
+        if (!snapshot.error) {
+          if (snapshot.hasLoaded) localRetryAttemptRef.current = 0;
+          return;
+        }
+        const willRetry = scheduleRetry();
         const now = Date.now();
-        if (now - lastLocalLoadToastAtRef.current > 10_000) {
+        if (!willRetry || now - lastLocalLoadToastAtRef.current > 10_000) {
           lastLocalLoadToastAtRef.current = now;
           showToast({
             title: "Couldn’t load chat activity",
-            description:
-              snapshot.error.message || "Stella will retry in a moment.",
+            description: willRetry
+              ? snapshot.error.message || "Stella will retry in a moment."
+              : "Automatic retries stopped. Reopen this conversation to try again.",
             variant: "error",
           });
         }
-        scheduleRetry();
       },
     );
     return () => {

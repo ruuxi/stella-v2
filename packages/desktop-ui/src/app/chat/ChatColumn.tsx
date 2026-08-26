@@ -414,6 +414,14 @@ export const ChatColumn = memo(function ChatColumn({
           {...dropHandlers}
         >
           <HomeContent>
+            {conversation.extraTail ? (
+              <div
+                className="full-body-home-status"
+                inert={showHomeContent ? undefined : true}
+              >
+                {conversation.extraTail}
+              </div>
+            ) : null}
             <div
               className="composer-wrap"
               inert={showHomeContent ? undefined : true}

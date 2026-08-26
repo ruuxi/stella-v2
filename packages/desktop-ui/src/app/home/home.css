@@ -25,6 +25,18 @@
   margin-bottom: 0;
 }
 
+/* The canonical cloud retry/disconnect controls normally live at the end of
+   the transcript. Empty conversations show Home above that inert transcript,
+   so mirror the same status surface beside the active Home composer. */
+.full-body-home-status {
+  width: 100%;
+  margin: 0 0 12px;
+}
+
+.full-body-home-status .cloud-chat-status-tail {
+  margin-top: 0;
+}
+
 /* Fade-in for home content elements */
 .home-stella-title,
 .home-sidebar-hint {
@@ -49,6 +61,7 @@
 /* Fade-out when leaving home → chat */
 .full-body-main--home-leaving .home-stella-title,
 .full-body-main--home-leaving .home-sidebar-hint,
+.full-body-main--home-leaving .full-body-home-status,
 .full-body-main--home-leaving .composer-wrap {
   animation: homeContentFadeOut 280ms ease both;
 }

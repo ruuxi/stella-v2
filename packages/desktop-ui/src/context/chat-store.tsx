@@ -5,18 +5,25 @@ import {
   ChatStoreContextProvider,
   LocalChatStoreProvider,
   useChatStore,
-  type ChatStorageMode,
   type ChatStoreContextValue,
 } from './chat-store-context'
+import { resolveChatStorageModeFromImportEnv } from './resolve-chat-storage-mode'
 
 export { LocalChatStoreProvider, useChatStore }
 
 export const ChatStoreProvider = ({ children }: { children: ReactNode }) => {
   const { hasConnectedAccount } = useAuthSessionState()
 
-  const cloudFeaturesEnabled = false
-  const storageMode: ChatStorageMode = 'local'
-  const isLocalStorage = true
+  // Invisible activation wiring (no UI toggle): ordinary conversations are
+  // cloud-canonical when cloud conversations are explicitly enabled AND the
+  // desktop's Convex issuer is aligned with the cloud journal worker; otherwise
+  // they stay in the explicit local mode. Misconfiguration throws here rather
+  // than silently creating a local-canonical conversation.
+  const { storageMode, cloudFeaturesEnabled } = useMemo(
+    () => resolveChatStorageModeFromImportEnv(import.meta.env),
+    [],
+  )
+  const isLocalStorage = storageMode === 'local'
 
   const value = useMemo<ChatStoreContextValue>(
     () => ({

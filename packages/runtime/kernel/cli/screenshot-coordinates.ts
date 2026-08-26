@@ -67,14 +67,14 @@ const resolveScreenshotGeometry = (
   if (!snapshot) {
     return {
       error:
-        "Screenshot-coordinate actions require an existing snapshot state. Run `stella-computer snapshot` first.",
+        'Screenshot-coordinate actions require fresh visual state. Call sky.get_app_state({ app, screenshot_policy: "always", disable_diff: true }) and retry with that state\'s state_id.',
     };
   }
 
   if (!isValidRect(snapshot.windowFrame)) {
     return {
       error:
-        "The current snapshot is missing a valid `windowFrame`, so screenshot pixels cannot be mapped to screen coordinates. Take a fresh snapshot.",
+        'The current computer state has no valid window geometry. Call sky.get_app_state({ app, screenshot_policy: "always", disable_diff: true }) and retry with that state\'s state_id.',
     };
   }
 
@@ -106,7 +106,7 @@ const resolveScreenshotGeometry = (
   ) {
     return {
       error:
-        "The current snapshot is missing screenshot dimensions. Take a fresh snapshot without `--no-screenshot`.",
+        'The current computer state has no screenshot dimensions. Call sky.get_app_state({ app, screenshot_policy: "always", disable_diff: true }) and retry with that state\'s state_id.',
     };
   }
 

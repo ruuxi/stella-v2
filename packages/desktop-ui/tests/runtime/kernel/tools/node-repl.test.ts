@@ -17,11 +17,7 @@ const context: ToolContext = {
   agentId: "agent-1",
   agentType: AGENT_IDS.GENERAL,
   stellaAppDir: "/workspace",
-  allowedToolNames: [
-    "node_repl",
-    "multi_tool_use_parallel",
-    "fake_tool",
-  ],
+  allowedToolNames: ["node_repl", "multi_tool_use_parallel", "fake_tool"],
 };
 
 describe("node_repl tool", () => {
@@ -63,7 +59,8 @@ describe("node_repl tool", () => {
         AGENT_IDS.GENERAL,
       ]);
       expect(tool.description).toContain("bindings persist");
-      expect(tool.description).toContain("fresh element IDs");
+      expect(tool.description).toContain("pass state_id");
+      expect(tool.description).toContain("sky.wait_for_change");
       await expect(
         tool.execute({ code: "const value = 9" }, context),
       ).resolves.toEqual({
@@ -151,8 +148,7 @@ describe("node_repl tool", () => {
   });
 
   it("reaches demoted tools that are absent from the model's direct list via tools.<name> and tools.$search", async () => {
-    const executed: Array<{ name: string; args: Record<string, unknown> }> =
-      [];
+    const executed: Array<{ name: string; args: Record<string, unknown> }> = [];
     const registry = new NodeReplKernelRegistry({
       sessionFactory: () => ({ request: async () => ({}) }),
       executeTool: async (name, args) => {
@@ -199,6 +195,295 @@ describe("node_repl tool", () => {
       expect(executed).toEqual([
         { name: "connector_status", args: { connector: "gmail" } },
       ]);
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("discovers and calls tool names that require JavaScript bracket notation", async () => {
+    const executed: string[] = [];
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: () => ({ request: async () => ({}) }),
+      executeTool: async (name) => {
+        executed.push(name);
+        return { result: "called" };
+      },
+      searchTools: () => [
+        {
+          name: "mcp.server/tool",
+          signature: "tools.mcp.server/tool(input: {}): Promise<unknown>",
+        },
+      ],
+    });
+    const bracketContext = {
+      ...context,
+      allowedToolNames: ["node_repl", "mcp.server/tool"],
+    };
+    try {
+      const output = await registry.evaluate(
+        [
+          "const listed = tools.$list().find((entry) => entry.name === 'mcp.server/tool');",
+          "const searched = (await tools.$search({ query: 'mcp tool' }))[0];",
+          "const value = await tools[listed.name]({});",
+          "({ listed, searched, value })",
+        ].join("\n"),
+        bracketContext,
+      );
+      expect(output).toContain(`access: 'tools["mcp.server/tool"]'`);
+      expect(output).toContain("dotNotation: false");
+      expect(output).toContain("value: 'called'");
+      expect(executed).toEqual(["mcp.server/tool"]);
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("yields long cells, waits by generation-tagged id, and preserves bindings", async () => {
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: () => ({ request: async () => ({}) }),
+    });
+    const tool = createNodeReplTool({ registry });
+    try {
+      await registry.evaluate("0", context);
+      const started = await tool.execute(
+        {
+          code: "await new Promise((resolve) => setTimeout(resolve, 50)); var yieldedValue = 41; 'finished'",
+          yield_time_ms: 0,
+        },
+        context,
+      );
+      expect(started.result).toContain("[node_repl running:");
+      const cellId = (started.details as { nodeRepl: { cellId: string } })
+        .nodeRepl.cellId;
+      expect(cellId).toMatch(/^g1:/);
+
+      const completed = await tool.execute(
+        { cell_id: cellId, wait_ms: 2_000 },
+        context,
+      );
+      expect(completed).toMatchObject({ result: "'finished'" });
+      await expect(
+        registry.evaluate("yieldedValue + 1", context),
+      ).resolves.toBe("42");
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("terminates a yielded cell with reset provenance and advances generation", async () => {
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: () => ({ request: async () => ({}) }),
+    });
+    const tool = createNodeReplTool({ registry });
+    try {
+      await registry.evaluate("0", context);
+      const started = await tool.execute(
+        { code: "await new Promise(() => {})", yield_time_ms: 0 },
+        context,
+      );
+      const cellId = (started.details as { nodeRepl: { cellId: string } })
+        .nodeRepl.cellId;
+      const terminated = await tool.execute(
+        { cell_id: cellId, terminate: true, wait_ms: 2_000 },
+        context,
+      );
+      expect(terminated.error).toContain("reason=terminated");
+      expect(terminated.details).toMatchObject({
+        nodeRepl: {
+          status: "failed",
+          reset: {
+            reason: "terminated",
+            previousGeneration: 1,
+            nextGeneration: 2,
+            bindingsDiscarded: true,
+          },
+        },
+      });
+      await expect(
+        registry.evaluate("nodeRepl.status()", context),
+      ).resolves.toContain("generation: 2");
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("returns reset provenance when code resets and then throws", async () => {
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: () => ({ request: async () => ({}) }),
+    });
+    const tool = createNodeReplTool({ registry });
+    try {
+      const failed = await tool.execute(
+        {
+          code: "var discardedAfterToolResetError = 1; nodeRepl.reset(); throw new Error('tool reset failure')",
+          yield_time_ms: 2_000,
+        },
+        context,
+      );
+      expect(failed.error).toContain("tool reset failure");
+      expect(failed.details).toMatchObject({
+        nodeRepl: {
+          generation: 1,
+          status: "failed",
+          reset: {
+            reason: "explicit",
+            previousGeneration: 1,
+            nextGeneration: 2,
+            bindingsDiscarded: true,
+          },
+        },
+      });
+      await expect(
+        registry.evaluate("nodeRepl.status()", context),
+      ).resolves.toContain("generation: 2");
+      await expect(
+        registry.evaluate("typeof discardedAfterToolResetError", context),
+      ).resolves.toBe("'undefined'");
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("streams new-only content with monotonic cursors across waits", async () => {
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: () => ({ request: async () => ({}) }),
+    });
+    const tool = createNodeReplTool({ registry });
+    try {
+      await registry.evaluate("0", context);
+      const started = await tool.execute(
+        {
+          code: [
+            "nodeRepl.write('first')",
+            "await new Promise((resolve) => setTimeout(resolve, 100))",
+            "nodeRepl.write('second')",
+            "await new Promise((resolve) => setTimeout(resolve, 100))",
+            "'done'",
+          ].join("; "),
+          yield_time_ms: 20,
+        },
+        context,
+      );
+      expect(started.result).toContain("first");
+      expect(started.result).not.toContain("second");
+      const first = started.details as {
+        nodeRepl: { cellId: string; cursor: number };
+      };
+      expect(first.nodeRepl.cursor).toBe(1);
+
+      const second = await tool.execute(
+        {
+          cell_id: first.nodeRepl.cellId,
+          wait_ms: 500,
+        },
+        context,
+      );
+      expect(second.result).toContain("second");
+      expect(second.result).not.toContain("first");
+      const secondDetails = second.details as {
+        nodeRepl: { cursor: number; status: string };
+      };
+      expect(secondDetails.nodeRepl).toMatchObject({
+        cursor: 2,
+        status: "running",
+      });
+
+      const terminal = await tool.execute(
+        {
+          cell_id: first.nodeRepl.cellId,
+          wait_ms: 500,
+        },
+        context,
+      );
+      expect(terminal.result).toBe("'done'");
+      expect(terminal.result).not.toContain("first");
+      expect(terminal.result).not.toContain("second");
+      expect(terminal.details).toMatchObject({
+        nodeRepl: { fromCursor: 2, cursor: 3, status: "completed" },
+      });
+
+      const replay = await tool.execute(
+        { cell_id: first.nodeRepl.cellId, cursor: 0, wait_ms: 0 },
+        context,
+      );
+      expect(replay.result).toContain("first");
+      expect(replay.result).toContain("second");
+      expect(replay.result).toContain("'done'");
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("does not consume streamed output when an outer wait is aborted", async () => {
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: () => ({ request: async () => ({}) }),
+    });
+    try {
+      await registry.evaluate("0", context);
+      const started = await registry.startCell(
+        [
+          "nodeRepl.write('before-abort')",
+          "await new Promise((resolve) => setTimeout(resolve, 100))",
+          "nodeRepl.write('after-abort')",
+          "await new Promise((resolve) => setTimeout(resolve, 50))",
+          "'terminal'",
+        ].join("; "),
+        context,
+        { yieldTimeMs: 20 },
+      );
+      expect(started.cursor).toBe(1);
+      const controller = new AbortController();
+      const waiting = registry.waitCell(started.cellId, context, {
+        waitMs: 500,
+        afterCursor: started.cursor,
+        signal: controller.signal,
+      });
+      setTimeout(() => controller.abort(new Error("cancel only the wait")), 20);
+      await expect(waiting).rejects.toThrow("cancel only the wait");
+
+      const resumed = await registry.waitCell(started.cellId, context, {
+        waitMs: 500,
+        afterCursor: started.cursor,
+      });
+      expect(resumed.output).toContain("after-abort");
+      expect(resumed.output).not.toContain("before-abort");
+      const terminal = await registry.waitCell(started.cellId, context, {
+        waitMs: 500,
+        afterCursor: resumed.cursor,
+      });
+      expect(terminal.output).toBe("'terminal'");
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("bounds completed yielded-cell retention by LRU and TTL", async () => {
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: () => ({ request: async () => ({}) }),
+      maxRetainedCells: 1,
+      cellRetentionMs: 40,
+    });
+    try {
+      const first = await registry.startCell("'first'", context, {
+        yieldTimeMs: 500,
+      });
+      const second = await registry.startCell("'second'", context, {
+        yieldTimeMs: 500,
+      });
+      await expect(
+        registry.waitCell(first.cellId, context, { waitMs: 0 }),
+      ).rejects.toThrow("Unknown or stale Node REPL cell id");
+      expect(
+        await registry.waitCell(second.cellId, context, {
+          afterCursor: 0,
+          waitMs: 0,
+        }),
+      ).toMatchObject({ status: "completed", output: "'second'" });
+
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      await expect(
+        registry.waitCell(second.cellId, context, { waitMs: 0 }),
+      ).rejects.toThrow("Unknown or stale Node REPL cell id");
     } finally {
       await registry.dispose();
     }
@@ -311,11 +596,9 @@ describe("node_repl tool", () => {
         nestedSignal = signal;
         markNestedStarted();
         await new Promise<void>((_resolve, reject) => {
-          signal?.addEventListener(
-            "abort",
-            () => reject(signal.reason),
-            { once: true },
-          );
+          signal?.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
         });
         return { result: "unreachable" };
       },
@@ -329,9 +612,7 @@ describe("node_repl tool", () => {
       );
       await nestedStarted;
       controller.abort(new Error("cancel nested tools"));
-      await expect(
-        evaluation,
-      ).rejects.toThrow("cancel nested tools");
+      await expect(evaluation).rejects.toThrow("cancel nested tools");
       expect(nestedSignal?.aborted).toBe(true);
     } finally {
       await registry.dispose();
@@ -352,14 +633,10 @@ describe("node_repl tool", () => {
           `var probe = 41; tools.fake_tool({}); "cell done"`,
           context,
         ),
-      ).rejects.toThrow(
-        /never settled within 250ms: tools\.fake_tool/,
-      );
+      ).rejects.toThrow(/never settled within 250ms: tools\.fake_tool/);
       expect(Date.now() - startedAt).toBeLessThan(5_000);
       // The drain timeout must not kill the kernel: REPL state survives.
-      await expect(registry.evaluate(`probe + 1`, context)).resolves.toBe(
-        "42",
-      );
+      await expect(registry.evaluate(`probe + 1`, context)).resolves.toBe("42");
     } finally {
       await registry.dispose();
     }
@@ -401,7 +678,9 @@ describe("node_repl tool", () => {
       executeTool: async () => ({
         result: "edited",
         fileChanges: [{ path: "/workspace/app.ts", kind: { type: "update" } }],
-        producedFiles: [{ path: "/workspace/report.pdf", kind: { type: "add" } }],
+        producedFiles: [
+          { path: "/workspace/report.pdf", kind: { type: "add" } },
+        ],
       }),
     });
     const tool = createNodeReplTool({ registry });
@@ -410,9 +689,7 @@ describe("node_repl tool", () => {
         tool.execute({ code: `await tools.fake_tool({})` }, context),
       ).resolves.toEqual({
         result: "'edited'",
-        fileChanges: [
-          { path: "/workspace/app.ts", kind: { type: "update" } },
-        ],
+        fileChanges: [{ path: "/workspace/app.ts", kind: { type: "update" } }],
         producedFiles: [
           { path: "/workspace/report.pdf", kind: { type: "add" } },
         ],

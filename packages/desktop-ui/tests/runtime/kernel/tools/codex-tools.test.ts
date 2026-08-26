@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { handleApplyPatch } from "@stella/runtime/kernel/tools/apply-patch";
 import { createToolHost } from "@stella/runtime/kernel/tools/host";
 import { createExecCommandTool } from "@stella/runtime/kernel/tools/defs/exec-command";
+import { createWriteStdinTool } from "@stella/runtime/kernel/tools/defs/write-stdin";
 import {
   createShellState,
   handleExecCommand,
@@ -47,6 +48,22 @@ const execTextOf = (result: { result?: unknown }): string =>
   result.result as string;
 
 describe("general agent tools", () => {
+  it("write_stdin advertises idempotent writes and explicit controls", async () => {
+    const root = await createTempDir();
+    const definition = createWriteStdinTool(createShellState(root));
+    const properties = definition.parameters.properties as Record<
+      string,
+      Record<string, unknown>
+    >;
+
+    expect(properties.write_id).toMatchObject({ type: "string" });
+    expect(properties.operation).toMatchObject({
+      enum: ["write", "poll", "terminate", "close_stdin", "resize"],
+    });
+    expect(properties.cols).toMatchObject({ minimum: 1, maximum: 1000 });
+    expect(properties.rows).toMatchObject({ minimum: 1, maximum: 1000 });
+  });
+
   it("exec_command advertises pipes by default and a cross-platform opt-in PTY", async () => {
     const root = await createTempDir();
     const definition = createExecCommandTool(createShellState(root));
@@ -351,6 +368,17 @@ describe("general agent tools", () => {
       );
       const sessionId = started.details?.session_id;
       if (!sessionId) throw new Error("interactive PTY did not stay running");
+      const resized = await handleWriteStdin(
+        state,
+        {
+          session_id: sessionId,
+          operation: "resize",
+          cols: 100,
+          rows: 40,
+          yield_time_ms: 0,
+        },
+        context,
+      );
       const writes = [];
       writes.push(
         await handleWriteStdin(
@@ -368,7 +396,9 @@ describe("general agent tools", () => {
           ),
         );
       }
-      console.log("STELLA_PTY_RESULT=" + JSON.stringify({ probe, started, writes }));
+      console.log(
+        "STELLA_PTY_RESULT=" + JSON.stringify({ probe, started, resized, writes }),
+      );
     `;
     const { stdout } = await execFileAsync(bunExecutable, ["-e", source], {
       cwd: repoRoot,
@@ -387,6 +417,15 @@ describe("general agent tools", () => {
       exit_code: 0,
     });
     expect(fixture.probe.result).toContain("tty-ready");
+    expect(fixture.resized.error).toBeUndefined();
+    expect(fixture.resized.details).toMatchObject({
+      operation: "resize",
+      terminal_size: { cols: 100, rows: 40 },
+      chunk_receipt: {
+        operation: "resize",
+        terminal_size: { cols: 100, rows: 40 },
+      },
+    });
     const interactionOutput = [
       fixture.started?.result,
       ...fixture.writes.map((write: { result?: string }) => write.result),

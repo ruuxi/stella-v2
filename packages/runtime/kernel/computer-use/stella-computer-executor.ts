@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawn, type StdioOptions } from "node:child_process";
@@ -14,7 +15,10 @@ import {
   runNativeHelper,
 } from "../cli/native-helper.js";
 import { screenshotPixelToScreenPoint } from "../cli/screenshot-coordinates.js";
-import { runWindowsStellaComputer } from "../cli/stella-computer-windows.js";
+import {
+  cleanupWindowsStellaComputerSessionDaemon,
+  runWindowsStellaComputer,
+} from "../cli/stella-computer-windows.js";
 import { sanitizeStellaComputerSessionId } from "../tools/stella-computer-session.js";
 import {
   requestAutomationDaemonSpawnFromBridge,
@@ -49,10 +53,12 @@ import {
   assertComputerUseRequest,
   type ComputerUseAction,
   type ComputerUseActionCommand,
+  type ComputerUseAppState,
   type ComputerUseAppPolicy,
   type ComputerUseRequest,
   type ComputerUseResponse,
   type ComputerUseTarget,
+  type ComputerUseWaitProvenance,
   type JsonObject,
 } from "./contract.js";
 import type { ComputerUseSession } from "./session.js";
@@ -284,11 +290,27 @@ type TypedAutomationAction = {
   };
 };
 
+type TypedAutomationObservationPrecondition = {
+  observedStateId: string;
+  observedVisualStateId?: string;
+  targetPid: number;
+  targetBundleId?: string;
+  windowId?: number;
+  windowTitle?: string;
+  windowFrame?: Rect;
+  observerRevision?: number;
+  materializedRevision?: number;
+  visualTreeRevision?: number;
+  screenshotWidthPx?: number;
+  screenshotHeightPx?: number;
+};
+
 type TypedAutomationOperation = {
   type: string;
   target?: TypedAutomationTarget;
   state?: TypedAutomationState;
   action?: TypedAutomationAction;
+  precondition?: TypedAutomationObservationPrecondition;
   operations?: TypedAutomationOperation[];
   durationMs?: number;
 };
@@ -300,8 +322,11 @@ type TypedAutomationDaemonResponsePayload = {
   ok: boolean;
   status: number;
   result?: unknown;
-  error?: { code: string; message: string };
+  error?: { code: string; message: string; details?: JsonObject };
 };
+
+const TYPED_AUTOMATION_SCHEMA_VERSION = 2;
+const TYPED_AUTOMATION_PROTOCOL_VERSION = 2;
 
 type TypedAutomationBatchPayload = {
   completed: number;
@@ -444,6 +469,7 @@ Usage:
   stella-computer [--session ID] drag-screenshot <from_x_px> <from_y_px> <to_x_px> <to_y_px> [--allow-hid] [--raise] [--no-screenshot] [--no-inline-screenshot]
   stella-computer [--session ID] type <text> [--allow-hid] [--raise] [--no-screenshot] [--no-inline-screenshot]
   stella-computer [--session ID] press <key> [--allow-hid] [--raise] [--no-screenshot] [--no-inline-screenshot]
+  stella-computer [--session ID] shutdown-session [--json]
   stella-computer locked-use status|enable|disable|install|uninstall [--json]
 
 Notes:
@@ -1338,8 +1364,8 @@ const runAutomationDaemonTypedOperation = async (
 
   const seq = Date.now() * 1000 + Math.floor(Math.random() * 1000);
   const payload = JSON.stringify({
-    schemaVersion: 1,
-    protocolVersion: 1,
+    schemaVersion: TYPED_AUTOMATION_SCHEMA_VERSION,
+    protocolVersion: TYPED_AUTOMATION_PROTOCOL_VERSION,
     seq,
     operation,
   });
@@ -1389,8 +1415,8 @@ const runAutomationDaemonTypedOperation = async (
           Buffer.concat(responseChunks).toString("utf8"),
         );
         if (
-          response.schemaVersion !== 1 ||
-          response.protocolVersion !== 1 ||
+          response.schemaVersion !== TYPED_AUTOMATION_SCHEMA_VERSION ||
+          response.protocolVersion !== TYPED_AUTOMATION_PROTOCOL_VERSION ||
           response.seq !== seq
         ) {
           const pid = readPidFile(automationPidPath(sessionPaths));
@@ -1404,6 +1430,43 @@ const runAutomationDaemonTypedOperation = async (
           return;
         }
         if (!response.ok || response.status !== 0) {
+          if (response.error?.code === "stale_observation") {
+            const details = response.error.details;
+            const observed = details?.observed;
+            const current = details?.current;
+            const observedObject =
+              observed &&
+              typeof observed === "object" &&
+              !Array.isArray(observed)
+                ? (observed as JsonObject)
+                : undefined;
+            const currentObject =
+              current && typeof current === "object" && !Array.isArray(current)
+                ? (current as JsonObject)
+                : undefined;
+            const observedStateId =
+              typeof observedObject?.state_id === "string"
+                ? observedObject.state_id
+                : "state_observed";
+            const currentStateId =
+              typeof currentObject?.state_id === "string"
+                ? currentObject.state_id
+                : "native_state_changed";
+            settle(
+              new ComputerUseResourceStaleError(
+                observedStateId,
+                currentStateId,
+                {
+                  ...(observedObject ? { nativeObserved: observedObject } : {}),
+                  ...(currentObject ? { nativeCurrent: currentObject } : {}),
+                  ...(typeof details?.reason === "string"
+                    ? { nativeReason: details.reason }
+                    : {}),
+                },
+              ),
+            );
+            return;
+          }
           settle(
             new Error(
               response.error?.message ||
@@ -1959,23 +2022,21 @@ const formatBundleSpecificStateNote = (snapshot: SnapshotDocument) => {
   );
 };
 
-const appStateLines = (snapshot: SnapshotDocument) => {
+/** Stable, capture-independent state used for freshness and diffs. */
+const appSemanticStateLines = (snapshot: SnapshotDocument) => {
   const lines: string[] = ["<app_state>"];
-  const appLabel = snapshot.bundleId
-    ? `App=${snapshot.bundleId} (pid ${snapshot.pid})`
-    : `App=${snapshot.appName} (pid ${snapshot.pid})`;
-  lines.push(appLabel);
+  lines.push(
+    snapshot.bundleId
+      ? `App=${snapshot.bundleId} (pid ${snapshot.pid})`
+      : `App=${snapshot.appName} (pid ${snapshot.pid})`,
+  );
   if (snapshot.windowTitle) {
     lines.push(`Window: "${snapshot.windowTitle}", App: ${snapshot.appName}.`);
   }
-  if (snapshot.revision != null) {
+  if (snapshot.windowFrame) {
+    const frame = snapshot.windowFrame;
     lines.push(
-      `State revision: ${snapshot.revision} (materialized ${snapshot.materializedRevision ?? snapshot.revision}, cache_hit=${snapshot.cacheHit === true ? "true" : "false"}, pending_actions=${snapshot.pendingActionCount ?? 0}).`,
-    );
-  }
-  if (snapshot.screenshot) {
-    lines.push(
-      `Screenshot context: method=${snapshot.screenshot.captureMethod ?? "unknown"}, reliable_final_frame=${snapshot.screenshot.reliableFinalFrame === false ? "false" : "true"}, exact_window=${snapshot.screenshot.exactWindowMatch === true ? "true" : "false"}.`,
+      `Window frame: x=${frame.x}, y=${frame.y}, width=${frame.width}, height=${frame.height}.`,
     );
   }
   for (const node of snapshot.nodes) {
@@ -1995,11 +2056,53 @@ const appStateLines = (snapshot: SnapshotDocument) => {
     }
   }
   const bundleNote = formatBundleSpecificStateNote(snapshot);
-  if (bundleNote) {
-    lines.push("", bundleNote);
-  }
+  if (bundleNote) lines.push("", bundleNote);
   lines.push("</app_state>");
   return lines;
+};
+
+const appStateLines = (snapshot: SnapshotDocument) => {
+  const semanticLines = appSemanticStateLines(snapshot);
+  const headerLineCount =
+    2 + (snapshot.windowTitle ? 1 : 0) + (snapshot.windowFrame ? 1 : 0);
+  const lines = semanticLines.slice(0, headerLineCount);
+  if (snapshot.revision != null) {
+    lines.push(
+      `State revision: ${snapshot.revision} (materialized ${snapshot.materializedRevision ?? snapshot.revision}, cache_hit=${snapshot.cacheHit === true ? "true" : "false"}, pending_actions=${snapshot.pendingActionCount ?? 0}).`,
+    );
+  }
+  if (snapshot.screenshot) {
+    lines.push(
+      `Screenshot context: method=${snapshot.screenshot.captureMethod ?? "unknown"}, reliable_final_frame=${snapshot.screenshot.reliableFinalFrame === false ? "false" : "true"}, exact_window=${snapshot.screenshot.exactWindowMatch === true ? "true" : "false"}.`,
+    );
+  }
+  lines.push(...semanticLines.slice(headerLineCount));
+  return lines;
+};
+
+const snapshotStateId = (snapshot: SnapshotDocument): string =>
+  `state_${createHash("sha256")
+    .update(appSemanticStateLines(snapshot).join("\n"))
+    .digest("hex")
+    .slice(0, 20)}`;
+
+const snapshotVisualStateId = (
+  snapshot: SnapshotDocument,
+): string | undefined => {
+  const imagePath = snapshot.screenshot?.path ?? snapshot.screenshotPath;
+  let bytes: Buffer | string | undefined;
+  if (imagePath && path.isAbsolute(imagePath)) {
+    try {
+      bytes = fs.readFileSync(imagePath);
+    } catch {
+      // A missing image is represented as no visual identity, not a semantic
+      // state change.
+    }
+  }
+  if (!bytes && snapshot.screenshot?.data) bytes = snapshot.screenshot.data;
+  return bytes
+    ? `visual_${createHash("sha256").update(bytes).digest("hex").slice(0, 20)}`
+    : undefined;
 };
 
 const formatAppStateBlock = (snapshot: SnapshotDocument) => {
@@ -2024,8 +2127,8 @@ const snapshotDiff = (
   previous: SnapshotDocument | null,
   current: SnapshotDocument,
 ): StateDiff => {
-  const previousLines = previous ? appStateLines(previous) : null;
-  const currentLines = appStateLines(current);
+  const previousLines = previous ? appSemanticStateLines(previous) : null;
+  const currentLines = appSemanticStateLines(current);
   return computeStateDiff({
     previousLines,
     currentLines,
@@ -2354,6 +2457,19 @@ const consumeActionTargetSelector = (args: string[]) => {
       bundleResult.missingValue ||
       appResult.missingValue,
     invalidPid,
+  };
+};
+
+const consumeActionObservationProvenance = (args: string[]) => {
+  let nextArgs = args;
+  const stateResult = stripOptionValue(nextArgs, "--observed-state-id");
+  nextArgs = stateResult.args;
+  const visualResult = stripOptionValue(nextArgs, "--observed-visual-state-id");
+  return {
+    args: visualResult.args,
+    observedStateId: stateResult.value,
+    observedVisualStateId: visualResult.value,
+    missingValue: stateResult.missingValue || visualResult.missingValue,
   };
 };
 
@@ -3079,9 +3195,34 @@ const runCommand = async (
   let effectiveCommand = command === "get-state" ? "snapshot" : command;
   let effectiveArgs = args;
   let selectedStatePath = sessionPaths.statePath;
+  let actionObservation:
+    | {
+        observedStateId: string | null;
+        observedVisualStateId: string | null;
+      }
+    | undefined;
   const isListCommand =
     effectiveCommand === "list-apps" || effectiveCommand === "list-windows";
   if (!isListCommand && effectiveCommand !== "snapshot") {
+    const observation = consumeActionObservationProvenance(effectiveArgs);
+    if (observation.missingValue) {
+      emitError(
+        {
+          ok: false,
+          error:
+            "Observation provenance flags require a value. Use --observed-state-id ID and --observed-visual-state-id ID.",
+          warnings: [],
+          screenshotPath: null,
+        },
+        jsonMode,
+      );
+      return 1;
+    }
+    effectiveArgs = observation.args;
+    actionObservation = {
+      observedStateId: observation.observedStateId,
+      observedVisualStateId: observation.observedVisualStateId,
+    };
     const selection = consumeActionTargetSelector(effectiveArgs);
     if (selection.missingValue) {
       emitError(
@@ -3200,6 +3341,14 @@ const runCommand = async (
 
   let lockedUseLeaseOpened = false;
   try {
+    if (actionObservation?.observedStateId) {
+      await validateCliActionObservation(
+        sessionPaths,
+        selectedStatePath,
+        actionObservation.observedStateId,
+        actionObservation.observedVisualStateId ?? undefined,
+      );
+    }
     if (!isListCommand) {
       lockedUseLeaseOpened = await maybeBeginLockedUseLease(sessionPaths);
     }
@@ -3340,6 +3489,24 @@ const typedResponseEnvelope = (request: ComputerUseRequest) => ({
   sessionId: request.sessionId,
 });
 
+class ComputerUseWaitTimeoutError extends Error {
+  readonly code = "wait_timeout";
+  readonly retryable = true;
+
+  constructor(
+    readonly timeoutMs: number,
+    readonly elapsedMs: number,
+    readonly pollCount: number,
+    readonly afterStateId: string,
+    readonly afterVisualStateId?: string,
+  ) {
+    super(
+      `Computer state did not change within ${timeoutMs}ms (after_state_id=${afterStateId}, polls=${pollCount}, elapsed_ms=${elapsedMs}).`,
+    );
+    this.name = "ComputerUseWaitTimeoutError";
+  }
+}
+
 const computerUseErrorResponse = (
   request: ComputerUseRequest,
   error: unknown,
@@ -3350,10 +3517,54 @@ const computerUseErrorResponse = (
     code:
       error instanceof ComputerUseResourceStaleError
         ? error.code
-        : "native_request_failed",
+        : error instanceof ComputerUseWaitTimeoutError
+          ? error.code
+          : "native_request_failed",
     message: error instanceof Error ? error.message : String(error),
     retryable:
-      error instanceof ComputerUseResourceStaleError ? error.retryable : false,
+      error instanceof ComputerUseResourceStaleError ||
+      error instanceof ComputerUseWaitTimeoutError
+        ? error.retryable
+        : false,
+    ...(error instanceof ComputerUseResourceStaleError
+      ? {
+          details: {
+            observedStateId: error.observedStateId,
+            currentStateId: error.currentStateId,
+            ...(error.resourceKeys
+              ? { resourceKeys: [...error.resourceKeys] }
+              : {}),
+            ...(error.observedResourceGeneration !== undefined
+              ? {
+                  observedResourceGeneration: error.observedResourceGeneration,
+                }
+              : {}),
+            ...(error.currentResourceGeneration !== undefined
+              ? { currentResourceGeneration: error.currentResourceGeneration }
+              : {}),
+            ...(error.nativeObserved
+              ? { nativeObserved: error.nativeObserved }
+              : {}),
+            ...(error.nativeCurrent
+              ? { nativeCurrent: error.nativeCurrent }
+              : {}),
+            ...(error.nativeReason ? { nativeReason: error.nativeReason } : {}),
+          },
+        }
+      : {}),
+    ...(error instanceof ComputerUseWaitTimeoutError
+      ? {
+          details: {
+            timeoutMs: error.timeoutMs,
+            elapsedMs: error.elapsedMs,
+            pollCount: error.pollCount,
+            afterStateId: error.afterStateId,
+            ...(error.afterVisualStateId
+              ? { afterVisualStateId: error.afterVisualStateId }
+              : {}),
+          },
+        }
+      : {}),
   },
 });
 
@@ -3593,8 +3804,69 @@ const typedActionOperation = async (
   sessionPaths: SessionPaths,
   command: ComputerUseActionCommand,
 ): Promise<TypedAutomationOperation> => {
+  if (!command.observedStateId) {
+    throw new Error(
+      `${command.action.type} requires observedStateId before native dispatch.`,
+    );
+  }
   const resolved = await resolveMacTypedTarget(sessionPaths, command.target);
   const state = actionState(sessionPaths, resolved.target);
+  const validationPath = `${state.path}.validation`;
+  let precondition: TypedAutomationObservationPrecondition;
+  try {
+    const current = await captureMacState(
+      sessionPaths,
+      resolved.target,
+      validationPath,
+      command.observedVisualStateId ? "always" : "never",
+    );
+    const currentStateId = snapshotStateId(current);
+    if (currentStateId !== command.observedStateId) {
+      throw new ComputerUseResourceStaleError(
+        command.observedStateId,
+        currentStateId,
+      );
+    }
+    if (command.observedVisualStateId) {
+      const currentVisualStateId =
+        snapshotVisualStateId(current) ?? "visual_state_missing";
+      if (currentVisualStateId !== command.observedVisualStateId) {
+        throw new ComputerUseResourceStaleError(
+          command.observedVisualStateId,
+          currentVisualStateId,
+        );
+      }
+    }
+    precondition = {
+      observedStateId: command.observedStateId,
+      ...(command.observedVisualStateId
+        ? { observedVisualStateId: command.observedVisualStateId }
+        : {}),
+      targetPid: current.pid,
+      ...(current.bundleId ? { targetBundleId: current.bundleId } : {}),
+      ...(current.windowId != null ? { windowId: current.windowId } : {}),
+      ...(current.windowTitle ? { windowTitle: current.windowTitle } : {}),
+      ...(current.windowFrame ? { windowFrame: current.windowFrame } : {}),
+      ...(current.revision != null
+        ? { observerRevision: current.revision }
+        : {}),
+      ...(current.materializedRevision != null &&
+      current.materializedRevision === current.revision
+        ? { materializedRevision: current.materializedRevision }
+        : {}),
+      ...(current.screenshot?.treeRevision != null
+        ? { visualTreeRevision: current.screenshot.treeRevision }
+        : {}),
+      ...(current.screenshot?.widthPx != null
+        ? { screenshotWidthPx: current.screenshot.widthPx }
+        : {}),
+      ...(current.screenshot?.heightPx != null
+        ? { screenshotHeightPx: current.screenshot.heightPx }
+        : {}),
+    };
+  } finally {
+    removeWaitArtifacts(validationPath);
+  }
   const stableTarget: TypedAutomationTarget = resolved.target.bundleId
     ? { bundleId: resolved.target.bundleId }
     : resolved.target.appName
@@ -3605,6 +3877,7 @@ const typedActionOperation = async (
     target: stableTarget,
     state,
     action: typedNativeAction(command.action, state.path),
+    precondition,
   };
 };
 
@@ -3620,6 +3893,136 @@ const actionReceiptFromNative = (
   deferred: payload.deferred !== false,
   details: payload as unknown as JsonObject,
 });
+
+const macStatePath = (
+  sessionPaths: SessionPaths,
+  target: TypedAutomationTarget,
+) => targetStatePathForKey(sessionPaths, typedTargetKey(target));
+
+const captureMacState = async (
+  sessionPaths: SessionPaths,
+  target: TypedAutomationTarget,
+  statePath: string,
+  screenshotPolicy: "auto" | "always" | "never",
+) =>
+  (await runAutomationDaemonTypedOperation(sessionPaths, {
+    type: "get_app_state",
+    target,
+    state: {
+      path: statePath,
+      sessionId: sessionPaths.sessionId,
+      screenshotPath:
+        screenshotPolicy === "never"
+          ? undefined
+          : deriveScreenshotPath(statePath),
+      screenshotPolicy,
+      inlineScreenshot: false,
+    },
+  })) as SnapshotDocument;
+
+const validateCliActionObservation = async (
+  sessionPaths: SessionPaths,
+  statePath: string,
+  observedStateId: string,
+  observedVisualStateId?: string,
+) => {
+  const baseline = readSnapshotDocument(statePath);
+  if (!baseline?.ok) {
+    throw new Error(
+      "No cached state exists for the supplied observation. Call get-state before acting.",
+    );
+  }
+  const target: TypedAutomationTarget = {
+    pid: baseline.pid,
+    appName: baseline.appName,
+    ...(baseline.bundleId ? { bundleId: baseline.bundleId } : {}),
+  };
+  const validationPath = `${statePath}.provenance-${randomUUID()}`;
+  try {
+    const current = await captureMacState(
+      sessionPaths,
+      target,
+      validationPath,
+      observedVisualStateId ? "always" : "never",
+    );
+    const currentStateId = snapshotStateId(current);
+    if (currentStateId !== observedStateId) {
+      throw new ComputerUseResourceStaleError(observedStateId, currentStateId);
+    }
+    if (observedVisualStateId) {
+      const currentVisualStateId =
+        snapshotVisualStateId(current) ?? "visual_state_missing";
+      if (currentVisualStateId !== observedVisualStateId) {
+        throw new ComputerUseResourceStaleError(
+          observedVisualStateId,
+          currentVisualStateId,
+        );
+      }
+    }
+  } finally {
+    removeWaitArtifacts(validationPath);
+  }
+};
+
+const renderMacState = (input: {
+  snapshot: SnapshotDocument;
+  previous?: SnapshotDocument | null;
+  app: string;
+  disableDiff: boolean;
+  wait?: ComputerUseWaitProvenance;
+}): ComputerUseAppState => {
+  const { snapshot, previous = null } = input;
+  const diff = previous ? snapshotDiff(previous, snapshot) : null;
+  const useDiff =
+    !input.disableDiff && Boolean(diff && shouldUseDiffOnly(diff));
+  const stateId = snapshotStateId(snapshot);
+  const visualStateId = snapshotVisualStateId(snapshot);
+  const baseStateId =
+    useDiff && previous ? snapshotStateId(previous) : undefined;
+  const baseVisualStateId =
+    useDiff && previous ? snapshotVisualStateId(previous) : undefined;
+  const imagePath = snapshot.screenshot?.path ?? snapshot.screenshotPath;
+  return {
+    app: input.app,
+    text: useDiff
+      ? formatStateDiffBlock(diff!).trim()
+      : appStateLines(snapshot).join("\n"),
+    stateId,
+    semanticStateId: stateId,
+    ...(visualStateId ? { visualStateId } : {}),
+    ...(baseStateId ? { baseStateId } : {}),
+    ...(baseVisualStateId ? { baseVisualStateId } : {}),
+    representation: useDiff ? "diff" : "full",
+    ...(input.wait ? { wait: input.wait } : {}),
+    screenshot:
+      imagePath && path.isAbsolute(imagePath)
+        ? {
+            type: "image",
+            url: pathToFileURL(imagePath).href,
+            ...(snapshot.screenshot?.mimeType
+              ? { mimeType: snapshot.screenshot.mimeType }
+              : {}),
+            ...(snapshot.screenshot?.widthPx
+              ? { width: snapshot.screenshot.widthPx }
+              : {}),
+            ...(snapshot.screenshot?.heightPx
+              ? { height: snapshot.screenshot.heightPx }
+              : {}),
+          }
+        : null,
+    ...(snapshot.appInstructions
+      ? { instructions: snapshot.appInstructions }
+      : {}),
+  };
+};
+
+const waitStatePath = (canonicalPath: string, requestId: string) =>
+  `${canonicalPath}.wait-${requestId.replaceAll(/[^a-zA-Z0-9_-]/g, "_")}`;
+
+const removeWaitArtifacts = (statePath: string) => {
+  fs.rmSync(statePath, { force: true });
+  fs.rmSync(deriveScreenshotPath(statePath), { force: true });
+};
 
 const executeMacComputerUseRequest = async (
   request: ComputerUseRequest,
@@ -3662,59 +4065,142 @@ const executeMacComputerUseRequest = async (
   }
   if (request.type === "get_app_state") {
     const resolved = await resolveMacTypedTarget(sessionPaths, request.target);
-    const statePath = targetStatePathForKey(
-      sessionPaths,
-      typedTargetKey(resolved.target),
-    );
+    const statePath = macStatePath(sessionPaths, resolved.target);
     const previous = readSnapshotDocument(statePath);
-    const screenshotPath = deriveScreenshotPath(statePath);
-    const snapshot = (await runAutomationDaemonTypedOperation(sessionPaths, {
-      type: "get_app_state",
-      target: resolved.target,
-      state: {
-        path: statePath,
-        sessionId: sessionPaths.sessionId,
-        screenshotPath:
-          request.screenshotPolicy === "never" ? undefined : screenshotPath,
-        screenshotPolicy: request.screenshotPolicy,
-        inlineScreenshot: false,
-      },
-    })) as SnapshotDocument;
+    const snapshot = await captureMacState(
+      sessionPaths,
+      resolved.target,
+      statePath,
+      request.screenshotPolicy,
+    );
     syncSessionTargetSnapshot(sessionPaths, statePath);
-    const diff = previous ? snapshotDiff(previous, snapshot) : null;
-    const fullText = appStateLines(snapshot).join("\n");
-    const text =
-      !request.disableDiff && diff && shouldUseDiffOnly(diff)
-        ? formatStateDiffBlock(diff).trim()
-        : fullText;
-    const imagePath = snapshot.screenshot?.path ?? snapshot.screenshotPath;
     return {
       ...envelope,
       type: "app_state",
-      state: {
+      state: renderMacState({
+        snapshot,
+        previous,
         app: resolved.policy.bundleIdentifier,
-        text,
-        screenshot:
-          imagePath && path.isAbsolute(imagePath)
-            ? {
-                type: "image",
-                url: pathToFileURL(imagePath).href,
-                ...(snapshot.screenshot?.mimeType
-                  ? { mimeType: snapshot.screenshot.mimeType }
-                  : {}),
-                ...(snapshot.screenshot?.widthPx
-                  ? { width: snapshot.screenshot.widthPx }
-                  : {}),
-                ...(snapshot.screenshot?.heightPx
-                  ? { height: snapshot.screenshot.heightPx }
-                  : {}),
-              }
-            : null,
-        ...(snapshot.appInstructions
-          ? { instructions: snapshot.appInstructions }
-          : {}),
-      },
+        disableDiff: request.disableDiff,
+      }),
     };
+  }
+  if (request.type === "wait_for_change") {
+    const resolved = await resolveMacTypedTarget(sessionPaths, request.target);
+    const statePath = macStatePath(sessionPaths, resolved.target);
+    const baseline = readSnapshotDocument(statePath);
+    if (!baseline) {
+      throw new Error(
+        `No baseline state is available for ${resolved.policy.displayName}. Call get_app_state before wait_for_change.`,
+      );
+    }
+    const baselineStateId = snapshotStateId(baseline);
+    if (baselineStateId !== request.afterStateId) {
+      throw new ComputerUseResourceStaleError(
+        request.afterStateId,
+        baselineStateId,
+      );
+    }
+    const baselineVisualStateId = snapshotVisualStateId(baseline);
+    if (
+      request.afterVisualStateId &&
+      baselineVisualStateId !== request.afterVisualStateId
+    ) {
+      throw new ComputerUseResourceStaleError(
+        request.afterVisualStateId,
+        baselineVisualStateId ?? "visual_state_missing",
+      );
+    }
+
+    const temporaryStatePath = waitStatePath(statePath, request.requestId);
+    const startedAt = Date.now();
+    let pollCount = 0;
+    try {
+      for (;;) {
+        throwIfComputerExecutionAborted();
+        pollCount += 1;
+        const poll = await captureMacState(
+          sessionPaths,
+          resolved.target,
+          temporaryStatePath,
+          request.afterVisualStateId ? "always" : "never",
+        );
+        const pollStateId = snapshotStateId(poll);
+        const pollVisualStateId = snapshotVisualStateId(poll);
+        const semanticChanged = pollStateId !== request.afterStateId;
+        const visualChanged = Boolean(
+          request.afterVisualStateId &&
+          pollVisualStateId &&
+          pollVisualStateId !== request.afterVisualStateId,
+        );
+        if (semanticChanged || visualChanged) {
+          const finalSnapshot = await captureMacState(
+            sessionPaths,
+            resolved.target,
+            temporaryStatePath,
+            request.afterVisualStateId && request.screenshotPolicy === "auto"
+              ? "always"
+              : request.screenshotPolicy,
+          );
+          const finalStateId = snapshotStateId(finalSnapshot);
+          const finalVisualStateId = snapshotVisualStateId(finalSnapshot);
+          const changeKinds: ComputerUseWaitProvenance["changeKinds"] = [
+            ...(finalStateId !== request.afterStateId
+              ? (["semantic"] as const)
+              : []),
+            ...(request.afterVisualStateId &&
+            finalVisualStateId &&
+            finalVisualStateId !== request.afterVisualStateId
+              ? (["visual"] as const)
+              : []),
+          ];
+          if (changeKinds.length > 0) {
+            mirrorSnapshotToPath(
+              finalSnapshot,
+              statePath,
+              deriveScreenshotPath(statePath),
+            );
+            const committedSnapshot =
+              readSnapshotDocument(statePath) ?? finalSnapshot;
+            syncSessionTargetSnapshot(sessionPaths, statePath);
+            return {
+              ...envelope,
+              type: "wait_for_change",
+              state: renderMacState({
+                snapshot: committedSnapshot,
+                previous: baseline,
+                app: resolved.policy.bundleIdentifier,
+                disableDiff: request.disableDiff,
+                wait: {
+                  afterStateId: request.afterStateId,
+                  ...(request.afterVisualStateId
+                    ? { afterVisualStateId: request.afterVisualStateId }
+                    : {}),
+                  timeoutMs: request.timeoutMs,
+                  elapsedMs: Date.now() - startedAt,
+                  pollCount,
+                  changeKinds,
+                },
+              }),
+            };
+          }
+        }
+        const elapsedMs = Date.now() - startedAt;
+        const remainingMs = request.timeoutMs - elapsedMs;
+        if (remainingMs <= 0) {
+          throw new ComputerUseWaitTimeoutError(
+            request.timeoutMs,
+            elapsedMs,
+            pollCount,
+            request.afterStateId,
+            request.afterVisualStateId,
+          );
+        }
+        await abortableComputerDelay(Math.min(150, remainingMs));
+      }
+    } finally {
+      removeWaitArtifacts(temporaryStatePath);
+    }
   }
   if (request.type === "action") {
     const operation = await typedActionOperation(sessionPaths, request.command);
@@ -3729,11 +4215,10 @@ const executeMacComputerUseRequest = async (
     };
   }
 
-  const operations = await Promise.all(
-    request.commands.map((command) =>
-      typedActionOperation(sessionPaths, command),
-    ),
-  );
+  const operations: TypedAutomationOperation[] = [];
+  for (const command of request.commands) {
+    operations.push(await typedActionOperation(sessionPaths, command));
+  }
   const batchPayload = (await runAutomationDaemonTypedOperation(sessionPaths, {
     type: "batch",
     operations,
@@ -3764,6 +4249,9 @@ const requestDeadlineMs = (
   request: ComputerUseRequest,
   configuredMs: number,
 ): number => {
+  if (request.type === "wait_for_change") {
+    return Math.max(1, Math.min(125_000, request.timeoutMs + 5_000));
+  }
   const operationLimit =
     request.type === "get_app_state"
       ? 25_000
@@ -3864,6 +4352,7 @@ const SUPPORTED_COMMANDS = new Set([
   "drag-screenshot",
   "type",
   "press",
+  "shutdown-session",
 ]);
 
 const executeArgv = async (rawArgv: string[]): Promise<number> => {
@@ -3876,6 +4365,23 @@ const executeArgv = async (rawArgv: string[]): Promise<number> => {
   if (missingSessionValue) {
     writeComputerStderr("--session requires a value.\n");
     return 1;
+  }
+
+  if (process.platform === "win32" && argv[0] === "shutdown-session") {
+    const sessionId =
+      sanitizeStellaComputerSessionId(sessionOverride) ?? defaultSessionId;
+    const stopped = await cleanupWindowsStellaComputerSessionDaemon(sessionId);
+    const { found: jsonMode } = stripFlag(argv.slice(1), "--json");
+    if (jsonMode) {
+      writeComputerStdout(
+        `${JSON.stringify({ ok: true, sessionId, stopped })}\n`,
+      );
+    } else {
+      writeComputerStdout(
+        `Computer session ${sessionId} ${stopped ? "stopped" : "was already stopped"}.\n`,
+      );
+    }
+    return 0;
   }
 
   if (process.platform === "win32") {
@@ -3901,6 +4407,22 @@ const executeArgv = async (rawArgv: string[]): Promise<number> => {
   const command = argv[0]!;
   const restArgs = argv.slice(1);
   const { found: jsonMode, args: plainArgs } = stripFlag(restArgs, "--json");
+
+  if (command === "shutdown-session") {
+    const sessionId =
+      sanitizeStellaComputerSessionId(sessionOverride) ?? defaultSessionId;
+    const stopped = shutdownMacStellaComputerSession(sessionId);
+    if (jsonMode) {
+      writeComputerStdout(
+        `${JSON.stringify({ ok: true, sessionId, stopped })}\n`,
+      );
+    } else {
+      writeComputerStdout(
+        `Computer session ${sessionId} ${stopped ? "stopped" : "was already stopped"}.\n`,
+      );
+    }
+    return 0;
+  }
 
   if (command === "locked-use") {
     return await runLockedUseManagementCommand(plainArgs[0], jsonMode);

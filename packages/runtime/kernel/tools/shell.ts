@@ -5,6 +5,8 @@
 import { spawn } from "child_process";
 import path from "path";
 import os from "os";
+import { StringDecoder } from "node:string_decoder";
+import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "fs";
 import { readdir, stat } from "fs/promises";
 import {
@@ -25,6 +27,7 @@ import { getTerminalRecoveryHint } from "./terminal-hints.js";
 import {
   HeadTailOutputBuffer,
   RAW_SHELL_OUTPUT_MAX_BYTES,
+  splitUtf8TextByBytes,
 } from "./head-tail-output-buffer.js";
 import { isDangerousCommand } from "./command-safety.js";
 import { getStellaComputerSessionId } from "./stella-computer-session.js";
@@ -37,6 +40,18 @@ import { resolveToolFallbackCwd } from "./cwd.js";
 
 export type ShellState = {
   shells: Map<string, ManagedShellRecord>;
+  /** Changes whenever the runtime worker reconstructs its in-memory state. */
+  workerGeneration: string;
+  /** Compact receipts retained after completed shell records are pruned. */
+  prunedSessions: Map<string, PrunedShellSession>;
+  /** Produced-file recovery detached from pruned shell output records. */
+  prunedProducedFiles: Map<
+    string,
+    {
+      prunedAt: number;
+      pending: Promise<ProducedFileRecord[] | undefined>;
+    }
+  >;
   secretStateRoot: string;
   stellaBrowserBinPath?: string;
   stellaOfficeBinPath?: string;
@@ -99,6 +114,9 @@ export type ShellSessionOwner = {
   /** Durable agent thread id. Absent for non-subagent callers. */
   agentId?: string;
   agentType?: string;
+  /** Origin-run provenance only; later runs in the same thread retain access. */
+  runId?: string;
+  rootRunId?: string;
 };
 
 /** What a caller learns when a background session finally exits. */
@@ -133,6 +151,29 @@ type ManagedShellRecord = ShellRecord & {
   externalCandidateSnapshots?: ExternalCandidateSnapshot[];
   producedFilesReported?: boolean;
   producedFilesCollection?: Promise<ProducedFileRecord[] | undefined>;
+  /** Total UTF-8 bytes observed since process start. */
+  outputCursorBytes: number;
+  /** Cursor at which the next interaction-result drain begins. */
+  unreadCursorStart: number;
+  /** Monotonic receipt sequence shared by stream updates and final drains. */
+  chunkSequence: number;
+  /** Monotonic exec/write interaction number for this shell. */
+  interactionSequence: number;
+  activeInteractionSequence: number | null;
+  activeInteractionReceipt?: ShellInteractionReceipt;
+  pendingInteractions: number;
+  interactionTail: Promise<void>;
+  acceptedWriteIds: Map<string, { fingerprint: string; acceptedAt: number }>;
+};
+
+type PrunedShellSession = {
+  id: string;
+  command: string;
+  cwd: string;
+  exitCode: number | null;
+  completedAt: number;
+  prunedAt: number;
+  owner?: ShellSessionOwner;
 };
 
 type FileSnapshotEntry = {
@@ -176,6 +217,15 @@ const MAX_EXEC_YIELD_MS = 30_000;
 export const DEFAULT_EMPTY_POLL_YIELD_MS = 5_000;
 const MAX_EMPTY_POLL_YIELD_MS = 5 * 60_000;
 export const DEFAULT_EXEC_OUTPUT_TOKENS = 10_000;
+export const EXEC_UPDATE_MAX_BYTES = 8 * 1024;
+const MAX_EXEC_UPDATE_CHUNKS = 10_000;
+export const MAX_RETAINED_COMPLETED_SHELLS = 64;
+const MAX_PRUNED_SESSION_RECEIPTS = 16;
+export const COMPLETED_SHELL_TTL_MS = 30 * 60_000;
+export const PRUNED_SHELL_RECEIPT_TTL_MS = 10 * 60_000;
+const PRUNED_PRODUCED_FILES_TTL_MS = 30 * 60_000;
+const MAX_ACCEPTED_WRITE_IDS = 256;
+const ACCEPTED_WRITE_ID_TTL_MS = 10 * 60_000;
 const MAX_SNAPSHOT_FILES = 20_000;
 const SNAPSHOT_IGNORED_DIRS = new Set([
   ".git",
@@ -551,6 +601,83 @@ const takeCompletedProducedFiles = async (
   return produced;
 };
 
+const retainPrunedSessionReceipt = (
+  state: ShellState,
+  record: ManagedShellRecord,
+  prunedAt: number,
+): void => {
+  state.prunedSessions.set(record.id, {
+    id: record.id,
+    command: record.command,
+    cwd: record.cwd,
+    exitCode: record.exitCode,
+    completedAt: record.completedAt ?? Date.now(),
+    prunedAt,
+    ...(record.owner ? { owner: record.owner } : {}),
+  });
+  while (state.prunedSessions.size > MAX_PRUNED_SESSION_RECEIPTS) {
+    const oldestId = state.prunedSessions.keys().next().value as
+      | string
+      | undefined;
+    if (!oldestId) break;
+    state.prunedSessions.delete(oldestId);
+  }
+};
+
+/**
+ * Keep rich process/output records bounded while detaching produced-file
+ * recovery into a much smaller promise map. Running shells and records with
+ * queued interactions are never candidates; the release path retries pruning
+ * after the interaction completes.
+ */
+const pruneCompletedShellSessions = (
+  state: ShellState,
+  now = Date.now(),
+): void => {
+  for (const [id, receipt] of state.prunedSessions) {
+    if (now - receipt.prunedAt >= PRUNED_SHELL_RECEIPT_TTL_MS) {
+      state.prunedSessions.delete(id);
+    }
+  }
+  for (const [id, recovery] of state.prunedProducedFiles) {
+    if (now - recovery.prunedAt >= PRUNED_PRODUCED_FILES_TTL_MS) {
+      state.prunedProducedFiles.delete(id);
+    }
+  }
+
+  const completed = [...state.shells.values()]
+    .filter((record) => !record.running)
+    .sort(
+      (left, right) =>
+        (left.completedAt ?? left.startedAt) -
+        (right.completedAt ?? right.startedAt),
+    );
+  let retainedCompleted = completed.length;
+
+  for (const record of completed) {
+    const completedAt = record.completedAt ?? record.startedAt;
+    const expired = now - completedAt >= COMPLETED_SHELL_TTL_MS;
+    if (!expired && retainedCompleted <= MAX_RETAINED_COMPLETED_SHELLS) break;
+    if (record.pendingInteractions > 0) continue;
+
+    if (!record.producedFilesReported) {
+      state.prunedProducedFiles.set(record.id, {
+        prunedAt: now,
+        pending: takeCompletedProducedFiles(record).catch(() => undefined),
+      });
+    }
+    retainPrunedSessionReceipt(state, record, now);
+    state.shells.delete(record.id);
+    retainedCompleted -= 1;
+  }
+};
+
+/** Opportunistic TTL/count cleanup for hosts and focused harness checks. */
+export const cleanupShellSessions = (
+  state: ShellState,
+  now = Date.now(),
+): void => pruneCompletedShellSessions(state, now);
+
 /**
  * Drain completed-but-unreported produced files from managed shell sessions.
  *
@@ -572,14 +699,23 @@ export const drainCompletedProducedFiles = async (
   state: ShellState,
   sessionIds?: Iterable<string>,
 ): Promise<ProducedFileRecord[]> => {
-  const records = sessionIds
-    ? [...new Set(sessionIds)]
+  const requestedIds = sessionIds ? [...new Set(sessionIds)] : undefined;
+  const records = requestedIds
+    ? requestedIds
         .map((id) => state.shells.get(id))
         .filter((record): record is ManagedShellRecord => Boolean(record))
     : [...state.shells.values()];
   const drained: ProducedFileRecord[] = [];
   for (const record of records) {
     const produced = await takeCompletedProducedFiles(record);
+    if (produced) drained.push(...produced);
+  }
+  const prunedIds = requestedIds ?? [...state.prunedProducedFiles.keys()];
+  for (const id of prunedIds) {
+    const recovery = state.prunedProducedFiles.get(id);
+    if (!recovery) continue;
+    const produced = await recovery.pending;
+    state.prunedProducedFiles.delete(id);
     if (produced) drained.push(...produced);
   }
   return drained;
@@ -733,6 +869,9 @@ export function createShellState(
 
   return {
     shells: new Map(),
+    workerGeneration: crypto.randomUUID().slice(0, 8),
+    prunedSessions: new Map(),
+    prunedProducedFiles: new Map(),
     secretStateRoot,
     stellaBrowserBinPath: options?.stellaBrowserBinPath,
     stellaOfficeBinPath: options?.stellaOfficeBinPath,
@@ -898,9 +1037,27 @@ const buildShellEnv = (
     windowsCliShimDir?: string;
     cliBridgeSocketPath?: string;
   },
+  tty = false,
 ) => {
+  const deterministicPipeEnv: NodeJS.ProcessEnv = tty
+    ? {}
+    : {
+        NO_COLOR: "1",
+        CLICOLOR: "0",
+        FORCE_COLOR: "0",
+        TERM: "dumb",
+        COLORTERM: "",
+        LANG: "C.UTF-8",
+        LC_ALL: "C.UTF-8",
+        LC_CTYPE: "C.UTF-8",
+        PAGER: "cat",
+        GIT_PAGER: "cat",
+        GH_PAGER: "cat",
+      };
   const mergedEnv: NodeJS.ProcessEnv = {
-    ...(envOverrides ? { ...process.env, ...envOverrides } : process.env),
+    ...process.env,
+    ...deterministicPipeEnv,
+    ...(envOverrides ?? {}),
     STELLA_NODE_BIN: resolveShellNodeBinary(
       envOverrides ? { ...process.env, ...envOverrides } : process.env,
     ),
@@ -1088,7 +1245,14 @@ type SpawnedPtyShell = {
   process: Bun.Subprocess;
   terminal: Bun.Terminal;
   write: (chars: string) => Promise<void>;
+  resize: (cols: number, rows: number) => void;
   close: () => void;
+};
+
+type ShellOutputDelta = {
+  text: string;
+  cursorStart: number;
+  cursorEnd: number;
 };
 
 export const resolveExecOutputTokens = (value: unknown): number =>
@@ -1104,16 +1268,27 @@ const invalidExecOutputTokens = (value: unknown): boolean =>
 type DrainedOutput = {
   text: string;
   originalLength: number;
-  truncated: boolean;
+  rawOmittedBytes: number;
+  presentationOmittedBytes: number;
+  cursorStart: number;
+  cursorEnd: number;
+  receiptKind: "stream_delta" | "terminal" | "interaction_result";
 };
 
 const drainUnreadOutput = (record: ManagedShellRecord): DrainedOutput => {
   const unread = record.unreadOutputBuffer.drain();
+  const cursorStart = record.unreadCursorStart;
+  const cursorEnd = record.outputCursorBytes;
+  record.unreadCursorStart = cursorEnd;
   record.unreadOutput = "";
   return {
     text: unread.text,
     originalLength: unread.totalBytes,
-    truncated: unread.omittedBytes > 0,
+    rawOmittedBytes: unread.omittedBytes,
+    presentationOmittedBytes: 0,
+    cursorStart,
+    cursorEnd,
+    receiptKind: "interaction_result",
   };
 };
 
@@ -1122,10 +1297,19 @@ const refreshShellOutputText = (record: ManagedShellRecord): void => {
   record.unreadOutput = record.unreadOutputBuffer.snapshot().text;
 };
 
-const appendShellOutput = (record: ManagedShellRecord, text: string): void => {
+const appendShellOutput = (
+  record: ManagedShellRecord,
+  text: string,
+): { text: string; cursorStart: number; cursorEnd: number } | undefined => {
+  if (!text) return undefined;
+  const cursorStart = record.outputCursorBytes;
+  const byteLength = Buffer.byteLength(text, "utf8");
+  const cursorEnd = cursorStart + byteLength;
   record.outputBuffer.pushText(text);
   record.unreadOutputBuffer.pushText(text);
+  record.outputCursorBytes = cursorEnd;
   refreshShellOutputText(record);
+  return { text, cursorStart, cursorEnd };
 };
 
 const notifyShellActivity = (record: ManagedShellRecord) => {
@@ -1153,6 +1337,7 @@ export const readShellExitSnapshot = (
   state: ShellState,
   sessionId: string,
 ): ShellExitSnapshot | null => {
+  cleanupShellSessions(state);
   const record = state.shells.get(sessionId);
   if (!record || record.running) return null;
   return {
@@ -1223,7 +1408,28 @@ export const setShellOwner = (
     conversationId: context.conversationId,
     ...(context.agentId ? { agentId: context.agentId } : {}),
     ...(context.agentType ? { agentType: context.agentType } : {}),
+    ...(context.runId ? { runId: context.runId } : {}),
+    ...(context.rootRunId ? { rootRunId: context.rootRunId } : {}),
   };
+};
+
+/**
+ * Model-addressable shell sessions are private to the thread that created
+ * them. Run ids are deliberately not part of the access key: a background
+ * process commonly outlives one turn/run and must remain usable on the next.
+ * Calls without a ToolContext can only address likewise-unowned sessions,
+ * preserving direct harness/internal use without opening owned sessions.
+ */
+const shellOwnerMatchesContext = (
+  owner: ShellSessionOwner | undefined,
+  context?: ToolContext,
+): boolean => {
+  if (!owner) return !context?.conversationId;
+  if (!context?.conversationId) return false;
+  return (
+    owner.conversationId === context.conversationId &&
+    owner.agentId === context.agentId
+  );
 };
 
 const waitForShellActivity = async (
@@ -1259,6 +1465,100 @@ const waitForShellActivity = async (
       signal.addEventListener("abort", onAbort, { once: true });
     }
   });
+};
+
+const waitForShellUntilDeadline = async (
+  record: ManagedShellRecord,
+  deadlineAt: number,
+  signal?: AbortSignal,
+): Promise<void> => {
+  while (record.running && Date.now() < deadlineAt) {
+    const observedVersion = record.outputVersion;
+    await waitForShellActivity(
+      record,
+      observedVersion,
+      Math.max(0, deadlineAt - Date.now()),
+      signal,
+    );
+  }
+};
+
+type ShellInteractionLease = {
+  sequence: number;
+  release: () => void;
+};
+
+const waitForInteractionTurn = async (
+  previous: Promise<void>,
+  signal?: AbortSignal,
+): Promise<void> => {
+  if (!signal) {
+    await previous;
+    return;
+  }
+  if (signal.aborted) {
+    throw signal.reason ?? new Error("Aborted");
+  }
+  await new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      cleanup();
+      reject(signal.reason ?? new Error("Aborted"));
+    };
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+    signal.addEventListener("abort", onAbort, { once: true });
+    void previous.then(
+      () => {
+        cleanup();
+        resolve();
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
+};
+
+/** Serialize write/poll/drain interactions for one session, not all shells. */
+const acquireShellInteraction = async (
+  state: ShellState,
+  record: ManagedShellRecord,
+  signal?: AbortSignal,
+): Promise<ShellInteractionLease> => {
+  const previous = record.interactionTail;
+  let releaseGate = () => {};
+  const gate = new Promise<void>((resolve) => {
+    releaseGate = resolve;
+  });
+  record.pendingInteractions += 1;
+  record.interactionTail = previous.catch(() => undefined).then(() => gate);
+
+  try {
+    await waitForInteractionTurn(previous, signal);
+  } catch (error) {
+    record.pendingInteractions -= 1;
+    releaseGate();
+    pruneCompletedShellSessions(state);
+    throw error;
+  }
+
+  const sequence = record.interactionSequence + 1;
+  record.interactionSequence = sequence;
+  record.activeInteractionSequence = sequence;
+  let released = false;
+  return {
+    sequence,
+    release: () => {
+      if (released) return;
+      released = true;
+      if (record.activeInteractionSequence === sequence) {
+        record.activeInteractionSequence = null;
+      }
+      record.pendingInteractions -= 1;
+      releaseGate();
+      pruneCompletedShellSessions(state);
+    },
+  };
 };
 
 const settleCompletedShell = async (
@@ -1424,7 +1724,9 @@ const spawnPtyShellProcess = (
     }
   };
 
-  return { process: subprocess, terminal, write, close };
+  const resize = (cols: number, rows: number) => terminal.resize(cols, rows);
+
+  return { process: subprocess, terminal, write, resize, close };
 };
 
 const killShellProcess = (
@@ -1553,7 +1855,7 @@ export const startShell = (
   onClose?: () => void,
   startSnapshot?: FileSnapshot | null,
   externalCandidateSnapshots?: ExternalCandidateSnapshot[],
-  onActivity?: (record: ManagedShellRecord) => void,
+  onActivity?: (record: ManagedShellRecord, delta?: ShellOutputDelta) => void,
   launchOptions: ShellLaunchOptions = {},
 ) => {
   maybeSweepDeferredDeletes(state);
@@ -1582,10 +1884,19 @@ export const startShell = (
       startSnapshot,
       externalCandidateSnapshots,
       kill: () => {},
+      outputCursorBytes: Buffer.byteLength(safeLaunchError, "utf8"),
+      unreadCursorStart: 0,
+      chunkSequence: 0,
+      interactionSequence: 0,
+      activeInteractionSequence: null,
+      pendingInteractions: 0,
+      interactionTail: Promise.resolve(),
+      acceptedWriteIds: new Map(),
     };
     record.outputBuffer.pushText(safeLaunchError);
     record.unreadOutputBuffer.pushText(safeLaunchError);
     state.shells.set(id, record);
+    pruneCompletedShellSessions(state);
     return record;
   };
 
@@ -1612,18 +1923,27 @@ export const startShell = (
     startSnapshot,
     externalCandidateSnapshots,
     kill: () => {},
+    outputCursorBytes: 0,
+    unreadCursorStart: 0,
+    chunkSequence: 0,
+    interactionSequence: 0,
+    activeInteractionSequence: null,
+    pendingInteractions: 0,
+    interactionTail: Promise.resolve(),
+    acceptedWriteIds: new Map(),
   };
 
   const append = (chunk: string, sanitizeImmediately: boolean) => {
     // Pipe output is sanitized chunk-by-chunk for compatibility. PTY escape
     // sequences can straddle native read boundaries, so retain those chunks
     // until the existing payload-level sanitizer sees the complete drain.
-    appendShellOutput(
+    const delta = appendShellOutput(
       record,
       sanitizeImmediately ? sanitizeToolVisibleText(chunk) : chunk,
     );
+    if (!delta) return;
     notifyShellActivity(record);
-    onActivity?.(record);
+    onActivity?.(record, delta);
   };
 
   const finish = (exitCode: number | null) => {
@@ -1637,9 +1957,14 @@ export const startShell = (
     onActivity?.(record);
     record.pty?.close();
     onClose?.();
+    pruneCompletedShellSessions(state);
   };
 
-  const shellEnv = buildShellEnv(envOverrides, state);
+  const shellEnv = buildShellEnv(
+    envOverrides,
+    state,
+    launchOptions.tty === true,
+  );
   if (launchOptions.tty) {
     let pendingExit: { exitCode: number | null; error?: Error } | undefined;
     let settleDeadlineAt = 0;
@@ -1744,9 +2069,17 @@ export const startShell = (
     record.stdinOpen = Boolean(child.stdin);
     record.kill = () => terminateShellProcess(child);
 
-    const appendPipe = (data: Buffer) => append(data.toString(), true);
-    child.stdout.on("data", appendPipe);
-    child.stderr.on("data", appendPipe);
+    // stdout/stderr are decoded independently because their byte chunks can
+    // end in the middle of a UTF-8 scalar. StringDecoder retains that suffix
+    // for the next chunk instead of emitting U+FFFD into output and cursors.
+    const stdoutDecoder = new StringDecoder("utf8");
+    const stderrDecoder = new StringDecoder("utf8");
+    const appendPipe = (decoder: StringDecoder, data: Buffer) =>
+      append(decoder.write(data), true);
+    child.stdout.on("data", (data: Buffer) => appendPipe(stdoutDecoder, data));
+    child.stderr.on("data", (data: Buffer) => appendPipe(stderrDecoder, data));
+    child.stdout.on("end", () => append(stdoutDecoder.end(), true));
+    child.stderr.on("end", () => append(stderrDecoder.end(), true));
     child.stdin?.on("close", () => {
       record.stdinOpen = false;
       notifyShellActivity(record);
@@ -1788,7 +2121,7 @@ export const runShell = async (
         launch.shell,
         launch.args,
         cwd,
-        buildShellEnv(envOverrides, state),
+        buildShellEnv(envOverrides, state, launchOptions.tty === true),
         launch.windowsVerbatimArguments,
       );
     } catch (error) {
@@ -1988,8 +2321,34 @@ const runUntilExecDeadline = async <T>(
 const toolErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+type ShellInteractionOperation =
+  | "exec"
+  | "write"
+  | "poll"
+  | "terminate"
+  | "close_stdin"
+  | "resize";
+
+type ShellInteractionReceipt = {
+  operation: ShellInteractionOperation;
+  write_id?: string;
+  write_deduplicated?: boolean;
+  terminal_size?: { cols: number; rows: number };
+};
+
 type ExecToolPayload = {
   session_id: string | null;
+  /** Stable provenance even after `session_id` becomes non-pollable/null. */
+  shell_session_id: string;
+  worker_generation: string;
+  session_owner?: ShellSessionOwner;
+  interaction_sequence: number;
+  chunk_id: string;
+  output_cursor: number;
+  operation: ShellInteractionOperation;
+  write_id?: string;
+  write_deduplicated?: boolean;
+  terminal_size?: { cols: number; rows: number };
   running: boolean;
   exit_code: number | null;
   output: string;
@@ -2001,15 +2360,29 @@ type ExecToolPayload = {
 };
 
 const buildExecToolPayload = (
+  state: ShellState,
   record: ManagedShellRecord,
   drained: DrainedOutput,
   callStartedAt: number,
+  interactionReceipt?: ShellInteractionReceipt,
 ): ExecToolPayload => {
   const wallTimeSeconds = (Date.now() - callStartedAt) / 1000;
+  const chunkSequence = record.chunkSequence + 1;
+  record.chunkSequence = chunkSequence;
+  const receipt = interactionReceipt ??
+    record.activeInteractionReceipt ?? { operation: "exec" };
   // Includes wall_time_seconds and original_token_count so the model can
   // detect output omitted by the raw one-MiB collector and react.
   const payload: ExecToolPayload = {
     session_id: record.running ? record.id : null,
+    shell_session_id: record.id,
+    worker_generation: state.workerGeneration,
+    ...(record.owner ? { session_owner: record.owner } : {}),
+    interaction_sequence:
+      record.activeInteractionSequence ?? record.interactionSequence,
+    chunk_id: `${state.workerGeneration}:${record.id}:${chunkSequence}`,
+    output_cursor: drained.cursorEnd,
+    ...receipt,
     running: record.running,
     exit_code: record.running ? null : record.exitCode,
     output: sanitizeToolVisibleText(drained.text),
@@ -2041,7 +2414,24 @@ const buildExecToolDetails = (
   return {
     ...metadata,
     original_output_bytes: drained.originalLength,
-    raw_output_truncated: drained.truncated,
+    raw_output_omitted_bytes: drained.rawOmittedBytes,
+    raw_output_truncated: drained.rawOmittedBytes > 0,
+    presentation_output_omitted_bytes: drained.presentationOmittedBytes,
+    presentation_output_truncated: drained.presentationOmittedBytes > 0,
+    chunk_receipt: {
+      kind: drained.receiptKind,
+      start_byte: drained.cursorStart,
+      end_byte: drained.cursorEnd,
+      next_cursor: drained.cursorEnd,
+      operation: payload.operation,
+      ...(payload.write_id ? { write_id: payload.write_id } : {}),
+      ...(payload.write_deduplicated !== undefined
+        ? { write_deduplicated: payload.write_deduplicated }
+        : {}),
+      ...(payload.terminal_size
+        ? { terminal_size: payload.terminal_size }
+        : {}),
+    },
   };
 };
 
@@ -2053,12 +2443,17 @@ const formatExecToolResult = (
     ? `Process running with session ID ${payload.session_id}`
     : `Process exited with code ${payload.exit_code ?? "unknown"}`;
   return [
-    `Wall time: ${payload.wall_time_seconds} seconds`,
+    `Wall time: ${payload.wall_time_seconds.toFixed(4)} seconds`,
     status,
     `Original token count: ${payload.original_token_count}`,
-    ...(drained.truncated
+    ...(drained.rawOmittedBytes > 0
       ? [
-          "Raw process output exceeded the 1 MiB collection cap; omitted bytes remain marked in Output.",
+          `Raw process output exceeded the 1 MiB collection cap; ${drained.rawOmittedBytes} omitted bytes remain marked in Output.`,
+        ]
+      : []),
+    ...(drained.presentationOmittedBytes > 0
+      ? [
+          `This update was limited to ${EXEC_UPDATE_MAX_BYTES} presentation bytes; ${drained.presentationOmittedBytes} bytes remain available in the final interaction result.`,
         ]
       : []),
     "Output:",
@@ -2066,6 +2461,31 @@ const formatExecToolResult = (
     ...(payload.hint ? [`Hint: ${payload.hint}`] : []),
   ].join("\n");
 };
+
+const boundedUpdateOutput = (delta: ShellOutputDelta): DrainedOutput => {
+  const buffer = new HeadTailOutputBuffer(EXEC_UPDATE_MAX_BYTES);
+  buffer.pushText(delta.text);
+  const bounded = buffer.snapshot();
+  return {
+    text: bounded.text,
+    originalLength: delta.cursorEnd - delta.cursorStart,
+    rawOmittedBytes: 0,
+    presentationOmittedBytes: bounded.omittedBytes,
+    cursorStart: delta.cursorStart,
+    cursorEnd: delta.cursorEnd,
+    receiptKind: "stream_delta",
+  };
+};
+
+const terminalUpdateOutput = (record: ManagedShellRecord): DrainedOutput => ({
+  text: "",
+  originalLength: 0,
+  rawOmittedBytes: 0,
+  presentationOmittedBytes: 0,
+  cursorStart: record.outputCursorBytes,
+  cursorEnd: record.outputCursorBytes,
+  receiptKind: "terminal",
+});
 
 const writeToShellStdin = async (
   record: ManagedShellRecord,
@@ -2094,6 +2514,92 @@ const writeToShellStdin = async (
   });
 };
 
+const closeShellStdin = async (record: ManagedShellRecord): Promise<void> => {
+  if (record.pty) {
+    throw new Error(
+      `close_stdin is not independently supported for PTY session ${record.id}; use terminate or send the program's EOF/control sequence.`,
+    );
+  }
+  if (!record.running || !record.stdinOpen) return;
+  const stdin = record.child?.stdin;
+  if (!stdin || stdin.destroyed) {
+    record.stdinOpen = false;
+    return;
+  }
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const cleanup = () => stdin.removeListener("error", onError);
+    stdin.once("error", onError);
+    stdin.end(() => {
+      cleanup();
+      resolve();
+    });
+  });
+  record.stdinOpen = false;
+  notifyShellActivity(record);
+};
+
+const resizeShellPty = (
+  record: ManagedShellRecord,
+  cols: number,
+  rows: number,
+): void => {
+  if (!record.running || !record.pty || record.pty.terminal.closed) {
+    throw new Error(`resize requires a running PTY session: ${record.id}.`);
+  }
+  record.pty.resize(cols, rows);
+};
+
+const resolveWriteStdinOperation = (
+  value: unknown,
+  chars: string,
+): ShellInteractionOperation | undefined => {
+  if (value === undefined || value === null || value === "") {
+    return chars ? "write" : "poll";
+  }
+  return typeof value === "string" &&
+    ["write", "poll", "terminate", "close_stdin", "resize"].includes(value)
+    ? (value as ShellInteractionOperation)
+    : undefined;
+};
+
+const writeFingerprint = (chars: string): string =>
+  createHash("sha256").update(chars, "utf8").digest("hex");
+
+const pruneAcceptedWriteIds = (
+  record: ManagedShellRecord,
+  now = Date.now(),
+): void => {
+  for (const [id, receipt] of record.acceptedWriteIds) {
+    if (now - receipt.acceptedAt >= ACCEPTED_WRITE_ID_TTL_MS) {
+      record.acceptedWriteIds.delete(id);
+    }
+  }
+  while (record.acceptedWriteIds.size > MAX_ACCEPTED_WRITE_IDS) {
+    const oldestId = record.acceptedWriteIds.keys().next().value as
+      | string
+      | undefined;
+    if (!oldestId) break;
+    record.acceptedWriteIds.delete(oldestId);
+  }
+};
+
+const recordAcceptedWriteId = (
+  record: ManagedShellRecord,
+  writeId: string,
+  fingerprint: string,
+): void => {
+  record.acceptedWriteIds.delete(writeId);
+  record.acceptedWriteIds.set(writeId, {
+    fingerprint,
+    acceptedAt: Date.now(),
+  });
+  pruneAcceptedWriteIds(record);
+};
+
 export const handleExecCommand = async (
   state: ShellState,
   args: Record<string, unknown>,
@@ -2115,7 +2621,7 @@ export const handleExecCommand = async (
     return { error: toolErrorMessage(signal.reason ?? new Error("Aborted")) };
   }
   const prepared = resolveManagedShellCommand(state, args, context);
-  const dangerReason = isDangerousCommand(prepared.command);
+  const dangerReason = isDangerousCommand(prepared.command, prepared.cwd);
   if (dangerReason) {
     return {
       error: `Command blocked: this operation is potentially destructive and has been denied for safety. (${dangerReason})`,
@@ -2160,24 +2666,43 @@ export const handleExecCommand = async (
       // a session id by the advertised yield deadline.
     }
   }
-  let lastUpdateAt = 0;
-  const emitUpdate = (record: ManagedShellRecord) => {
+  let emittedUpdateChunks = 0;
+  const emitOneUpdate = (
+    record: ManagedShellRecord,
+    drained: DrainedOutput,
+  ) => {
     if (!onUpdate) return;
-    const now = Date.now();
-    if (record.running && now - lastUpdateAt < 250) return;
-    lastUpdateAt = now;
-    const unread = record.unreadOutputBuffer.snapshot();
-    const drained = {
-      text: unread.text,
-      originalLength: unread.totalBytes,
-      truncated: unread.omittedBytes > 0,
-    };
-    const payload = buildExecToolPayload(record, drained, callStartedAt);
-    onUpdate({
-      result: formatExecToolResult(payload, drained),
-      details: buildExecToolDetails(payload, drained),
-      modelOutputTokens,
-    });
+    if (emittedUpdateChunks >= MAX_EXEC_UPDATE_CHUNKS) return;
+    emittedUpdateChunks += 1;
+    const payload = buildExecToolPayload(state, record, drained, callStartedAt);
+    try {
+      onUpdate({
+        result: formatExecToolResult(payload, drained),
+        details: buildExecToolDetails(payload, drained),
+        modelOutputTokens,
+      });
+    } catch {
+      // Progress consumers must not break process I/O or teardown.
+    }
+  };
+  const emitUpdate = (record: ManagedShellRecord, delta?: ShellOutputDelta) => {
+    if (!onUpdate) return;
+    if (!delta) {
+      if (!record.running) emitOneUpdate(record, terminalUpdateOutput(record));
+      return;
+    }
+    let cursorStart = delta.cursorStart;
+    for (const text of splitUtf8TextByBytes(
+      delta.text,
+      EXEC_UPDATE_MAX_BYTES,
+    )) {
+      const cursorEnd = cursorStart + Buffer.byteLength(text, "utf8");
+      emitOneUpdate(
+        record,
+        boundedUpdateOutput({ text, cursorStart, cursorEnd }),
+      );
+      cursorStart = cursorEnd;
+    }
   };
   const record = startShell(
     state,
@@ -2191,23 +2716,10 @@ export const handleExecCommand = async (
     prepared.launchOptions,
   );
   setShellOwner(record, context);
-  const observedVersion = record.outputVersion;
+  let interaction: ShellInteractionLease;
   try {
-    await waitForShellActivity(
-      record,
-      observedVersion,
-      Math.max(0, deadlineAt - Date.now()),
-      signal,
-    );
+    interaction = await acquireShellInteraction(state, record, signal);
   } catch (error) {
-    // Ownership classification (run-owned vs conversation-scoped): this
-    // call STARTED the shell and is aborting before the session id ever
-    // reaches the model — nothing can address the shell later, so it is
-    // run-owned and would otherwise orphan until toolHost shutdown. Kill
-    // it through the TERM→1s→KILL ladder as the aborted call's finalizer.
-    // Session shells whose id was already delivered (later write_stdin
-    // polls) are conversation-scoped and deliberately exempt: aborting a
-    // poll never kills the shell.
     if (record.running) {
       try {
         record.kill();
@@ -2217,42 +2729,63 @@ export const handleExecCommand = async (
     }
     return { error: toolErrorMessage(error) };
   }
-  await settleCompletedShell(record, signal, deadlineAt);
-
-  const drained = drainUnreadOutput(record);
-  const payload = buildExecToolPayload(record, drained, callStartedAt);
-  let producedFiles: ProducedFileRecord[] | undefined;
-  if (!record.running) {
-    const collectionDelivery = new AbortController();
-    const collectionOutcome = await runUntilExecDeadline(
-      () => takeCompletedProducedFiles(record, collectionDelivery.signal),
-      deadlineAt,
-      signal,
-    );
-    if (collectionOutcome.status === "completed") {
-      producedFiles = collectionOutcome.value;
-    } else {
-      collectionDelivery.abort(
-        collectionOutcome.status === "aborted"
-          ? collectionOutcome.error
-          : new Error("exec_command post-snapshot deadline reached"),
-      );
-      if (collectionOutcome.status === "aborted") {
-        return { error: toolErrorMessage(collectionOutcome.error) };
+  try {
+    try {
+      // Keep collecting until exit or the advertised deadline. Progress is
+      // delivered as deltas meanwhile, so chatty jobs do not force repeated
+      // model-driven polls merely because their first byte arrived quickly.
+      await waitForShellUntilDeadline(record, deadlineAt, signal);
+    } catch (error) {
+      // This call started the shell and is aborting before its id safely
+      // reaches the model. Preserve Stella's no-hidden-orphan policy.
+      if (record.running) {
+        try {
+          record.kill();
+        } catch {
+          // Best effort; the process may already be exiting.
+        }
       }
-      if (collectionOutcome.status === "failed") {
-        throw collectionOutcome.error;
-      }
-      // The cached collection continues without pinning this call. Because the
-      // delivery signal is aborted, it remains available to a later drain.
+      return { error: toolErrorMessage(error) };
     }
+    await settleCompletedShell(record, signal, deadlineAt);
+
+    const drained = drainUnreadOutput(record);
+    const payload = buildExecToolPayload(state, record, drained, callStartedAt);
+    let producedFiles: ProducedFileRecord[] | undefined;
+    if (!record.running) {
+      const collectionDelivery = new AbortController();
+      const collectionOutcome = await runUntilExecDeadline(
+        () => takeCompletedProducedFiles(record, collectionDelivery.signal),
+        deadlineAt,
+        signal,
+      );
+      if (collectionOutcome.status === "completed") {
+        producedFiles = collectionOutcome.value;
+      } else {
+        collectionDelivery.abort(
+          collectionOutcome.status === "aborted"
+            ? collectionOutcome.error
+            : new Error("exec_command post-snapshot deadline reached"),
+        );
+        if (collectionOutcome.status === "aborted") {
+          return { error: toolErrorMessage(collectionOutcome.error) };
+        }
+        if (collectionOutcome.status === "failed") {
+          throw collectionOutcome.error;
+        }
+        // The cached collection continues without pinning this call. Because
+        // delivery was aborted, it remains available to a later drain.
+      }
+    }
+    return {
+      result: formatExecToolResult(payload, drained),
+      details: buildExecToolDetails(payload, drained),
+      modelOutputTokens,
+      ...(producedFiles ? { producedFiles } : {}),
+    };
+  } finally {
+    interaction.release();
   }
-  return {
-    result: formatExecToolResult(payload, drained),
-    details: buildExecToolDetails(payload, drained),
-    modelOutputTokens,
-    ...(producedFiles ? { producedFiles } : {}),
-  };
 };
 
 export const handleWriteStdin = async (
@@ -2270,54 +2803,173 @@ export const handleWriteStdin = async (
   if (!sessionId) {
     return { error: "session_id is required." };
   }
-  const record = state.shells.get(sessionId);
-  if (!record) {
-    return { error: `Session not found: ${sessionId}` };
+  if (
+    args.write_id !== undefined &&
+    args.write_id !== null &&
+    typeof args.write_id !== "string"
+  ) {
+    return { error: "write_id must be a string when provided." };
   }
-
+  const writeId =
+    typeof args.write_id === "string" ? args.write_id.trim() : undefined;
+  if (typeof args.write_id === "string" && !writeId) {
+    return { error: "write_id must not be empty." };
+  }
+  if (writeId && writeId.length > 256) {
+    return { error: "write_id must be at most 256 characters." };
+  }
   const chars = typeof args.chars === "string" ? args.chars : "";
-  const observedVersion = record.outputVersion;
-  try {
-    await writeToShellStdin(record, chars);
-  } catch (error) {
-    if (record.running) {
-      return { error: (error as Error).message };
-    }
+  const operation = resolveWriteStdinOperation(args.operation, chars);
+  if (!operation || operation === "exec") {
+    return {
+      error:
+        "operation must be one of write, poll, terminate, close_stdin, or resize.",
+    };
+  }
+  if (operation !== "write" && chars) {
+    return { error: `chars is only valid with the write operation.` };
+  }
+  if (writeId && operation !== "write") {
+    return { error: "write_id is only valid with the write operation." };
+  }
+  const cols = Number(args.cols);
+  const rows = Number(args.rows);
+  if (
+    operation === "resize" &&
+    (!Number.isSafeInteger(cols) ||
+      !Number.isSafeInteger(rows) ||
+      cols < 1 ||
+      rows < 1 ||
+      cols > 1_000 ||
+      rows > 1_000)
+  ) {
+    return {
+      error: "resize requires integer cols and rows between 1 and 1000.",
+    };
+  }
+  cleanupShellSessions(state);
+  const record = state.shells.get(sessionId);
+  if (!record || !shellOwnerMatchesContext(record.owner, context)) {
+    const pruned = state.prunedSessions.get(sessionId);
+    const known = [...state.shells.values()]
+      .filter((entry) => shellOwnerMatchesContext(entry.owner, context))
+      .sort((a, b) => b.startedAt - a.startedAt)
+      .slice(0, 5)
+      .map(
+        (entry) =>
+          `${entry.id}${entry.running ? " (running)" : " (completed)"}`,
+      );
+    return {
+      error:
+        pruned && shellOwnerMatchesContext(pruned.owner, context)
+          ? `Session ${sessionId} completed with exit code ${pruned.exitCode ?? "unknown"} and was pruned from runtime worker generation ${state.workerGeneration}.`
+          : `Session not found in runtime worker generation ${state.workerGeneration} (runtime_pid=${process.pid}): ${sessionId}.${known.length > 0 ? ` Recent sessions: ${known.join(", ")}.` : " No sessions are registered; the runtime may have restarted or the id may belong to an earlier worker generation."}`,
+    };
   }
 
+  let interaction: ShellInteractionLease;
   try {
-    await waitForShellActivity(
-      record,
-      observedVersion,
-      chars
+    interaction = await acquireShellInteraction(state, record, signal);
+  } catch (error) {
+    return { error: toolErrorMessage(error) };
+  }
+  const receipt: ShellInteractionReceipt = {
+    operation,
+    ...(writeId ? { write_id: writeId } : {}),
+    ...(operation === "resize" ? { terminal_size: { cols, rows } } : {}),
+  };
+  record.activeInteractionReceipt = receipt;
+  try {
+    let deduplicated = false;
+    if (operation === "write" && writeId) {
+      pruneAcceptedWriteIds(record);
+      const fingerprint = writeFingerprint(chars);
+      const accepted = record.acceptedWriteIds.get(writeId);
+      if (accepted && accepted.fingerprint !== fingerprint) {
+        return {
+          error: `write_id ${JSON.stringify(writeId)} was already accepted with different characters for session ${sessionId}.`,
+        };
+      }
+      deduplicated = Boolean(accepted);
+      receipt.write_deduplicated = deduplicated;
+      if (accepted) {
+        recordAcceptedWriteId(record, writeId, accepted.fingerprint);
+      }
+    }
+
+    try {
+      if (operation === "write" && !deduplicated) {
+        await writeToShellStdin(record, chars);
+        if (writeId) {
+          recordAcceptedWriteId(record, writeId, writeFingerprint(chars));
+        }
+      } else if (operation === "terminate" && record.running) {
+        record.kill();
+      } else if (operation === "close_stdin") {
+        await closeShellStdin(record);
+      } else if (operation === "resize") {
+        resizeShellPty(record, cols, rows);
+      }
+    } catch (error) {
+      if (record.running || operation !== "write") {
+        return { error: toolErrorMessage(error) };
+      }
+    }
+
+    const yieldTimeMs =
+      operation !== "poll"
         ? resolveExecYieldTime(args.yield_time_ms, DEFAULT_WRITE_STDIN_YIELD_MS)
-        : // An empty write is a pure poll on a silent process, so it gets a
-          // far higher ceiling than an interactive write — matching Codex,
-          // whose background-terminal poll budget is 5 minutes. The wait
-          // still returns the instant the process emits anything or exits,
-          // so a chatty build is unaffected; this only stops a quiet
-          // 10-minute job from costing twenty round-trips.
-          resolveExecYieldTime(
+        : resolveExecYieldTime(
             args.yield_time_ms,
             DEFAULT_EMPTY_POLL_YIELD_MS,
             MAX_EMPTY_POLL_YIELD_MS,
-          ),
-      signal,
-    );
-  } catch (error) {
-    return { error: (error as Error).message };
-  }
-  await settleCompletedShell(record, signal);
+          );
+    try {
+      if (operation === "poll") {
+        // Empty polling is a first-activity wait. Keeping the interaction open
+        // until the full yield deadline after output has already arrived makes
+        // interactive subprocesses feel hung and delays the next write.
+        if (record.outputCursorBytes === record.unreadCursorStart) {
+          await waitForShellActivity(
+            record,
+            record.outputVersion,
+            yieldTimeMs,
+            signal,
+          );
+        }
+      } else {
+        await waitForShellUntilDeadline(
+          record,
+          Date.now() + yieldTimeMs,
+          signal,
+        );
+      }
+    } catch (error) {
+      // A poll/write never owns the process lifecycle; cancellation releases
+      // only this interaction lease and leaves the session addressable.
+      return { error: toolErrorMessage(error) };
+    }
+    await settleCompletedShell(record, signal);
 
-  const drained = drainUnreadOutput(record);
-  const payload = buildExecToolPayload(record, drained, callStartedAt);
-  const producedFiles = await takeCompletedProducedFiles(record);
-  return {
-    result: formatExecToolResult(payload, drained),
-    details: buildExecToolDetails(payload, drained),
-    modelOutputTokens,
-    ...(producedFiles ? { producedFiles } : {}),
-  };
+    const drained = drainUnreadOutput(record);
+    const payload = buildExecToolPayload(
+      state,
+      record,
+      drained,
+      callStartedAt,
+      receipt,
+    );
+    const producedFiles = await takeCompletedProducedFiles(record, signal);
+    return {
+      result: formatExecToolResult(payload, drained),
+      details: buildExecToolDetails(payload, drained),
+      modelOutputTokens,
+      ...(producedFiles ? { producedFiles } : {}),
+    };
+  } finally {
+    record.activeInteractionReceipt = undefined;
+    interaction.release();
+  }
 };
 
 export const handleBash = async (
@@ -2330,7 +2982,7 @@ export const handleBash = async (
   const command = prepared.command;
 
   // Safety check: reject dangerous commands
-  const dangerReason = isDangerousCommand(command);
+  const dangerReason = isDangerousCommand(command, prepared.cwd);
   if (dangerReason) {
     return {
       error: `Command blocked: this operation is potentially destructive and has been denied for safety. (${dangerReason})`,
@@ -2421,26 +3073,32 @@ export const handleBash = async (
 export const handleShellStatus = async (
   state: ShellState,
   args: Record<string, unknown>,
+  context?: ToolContext,
 ): Promise<ToolResult> => {
+  cleanupShellSessions(state);
   const shellId = String(args.shell_id ?? "");
 
   // If no shell_id provided, list all active shells
   if (!shellId) {
-    const shells = [...state.shells.entries()].map(([id, r]) => ({
-      id,
-      command: r.command.slice(0, 100),
-      running: r.running,
-      exitCode: r.exitCode,
-      elapsed: r.running
-        ? `${Math.round((Date.now() - r.startedAt) / 1000)}s`
-        : undefined,
-    }));
+    const shells = [...state.shells.entries()]
+      .filter(([, record]) => shellOwnerMatchesContext(record.owner, context))
+      .map(([id, r]) => ({
+        id,
+        command: r.command.slice(0, 100),
+        running: r.running,
+        exitCode: r.exitCode,
+        elapsed: r.running
+          ? `${Math.round((Date.now() - r.startedAt) / 1000)}s`
+          : undefined,
+      }));
     if (shells.length === 0) return { result: "No active shells." };
     return { result: JSON.stringify(shells, null, 2) };
   }
 
   const record = state.shells.get(shellId);
-  if (!record) return { error: `Shell not found: ${shellId}` };
+  if (!record || !shellOwnerMatchesContext(record.owner, context)) {
+    return { error: `Shell not found: ${shellId}` };
+  }
 
   const tail_lines = Number(args.tail_lines ?? 50);
   const output = sanitizeToolVisibleText(record.output || "(no output yet)");
@@ -2469,10 +3127,11 @@ export const handleShellStatus = async (
 export const handleKillShell = async (
   state: ShellState,
   args: Record<string, unknown>,
+  context?: ToolContext,
 ): Promise<ToolResult> => {
   const shellId = String(args.shell_id ?? "");
   const record = state.shells.get(shellId);
-  if (!record) {
+  if (!record || !shellOwnerMatchesContext(record.owner, context)) {
     return { error: `Shell not found: ${shellId}` };
   }
   if (!record.running) {

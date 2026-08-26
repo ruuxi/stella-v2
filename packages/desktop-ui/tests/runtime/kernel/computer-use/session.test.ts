@@ -9,14 +9,15 @@ import {
 } from "@stella/runtime/kernel/computer-use/session";
 
 const request = {
-  schemaVersion: 1,
-  protocolVersion: "1.0",
+  schemaVersion: 2,
+  protocolVersion: "2.0",
   requestId: "request-1",
   sessionId: "session-1",
   type: "action",
   execution: "background",
   command: {
     target: { type: "app", app: "Notes" },
+    observedStateId: "state_observed",
     action: { type: "press_key", key: "ENTER" },
   },
 } as const satisfies ComputerUseRequest;
@@ -24,8 +25,8 @@ const request = {
 describe("ComputerUseSession", () => {
   it("accepts an injected session and validates matching receipts", async () => {
     const handler = vi.fn(async () => ({
-      schemaVersion: 1,
-      protocolVersion: "1.0",
+      schemaVersion: 2,
+      protocolVersion: "2.0",
       requestId: "request-1",
       sessionId: "session-1",
       type: "action",
@@ -46,8 +47,8 @@ describe("ComputerUseSession", () => {
 
   it("rejects correlation and receipt mismatches", async () => {
     const mismatch = createComputerUseSession(async () => ({
-      schemaVersion: 1,
-      protocolVersion: "1.0",
+      schemaVersion: 2,
+      protocolVersion: "2.0",
       requestId: "wrong-request",
       sessionId: "session-1",
       type: "action",
@@ -67,8 +68,8 @@ describe("ComputerUseSession", () => {
 
   it("turns typed error responses into stable session errors", async () => {
     const failed = createComputerUseSession(async () => ({
-      schemaVersion: 1,
-      protocolVersion: "1.0",
+      schemaVersion: 2,
+      protocolVersion: "2.0",
       requestId: "request-1",
       sessionId: "session-1",
       type: "error",

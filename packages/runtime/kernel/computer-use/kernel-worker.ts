@@ -5,6 +5,7 @@ import { installConnectWorkerApi } from "../connectors/connect-worker-api.js";
 import type {
   BrowserMethod,
   ConnectMethod,
+  NodeReplContentItem,
   NodeReplWorkerData,
   ParentToNodeReplWorkerMessage,
   SerializedError,
@@ -168,6 +169,7 @@ const nodeReplWorkerMain = async (
     "list_apps",
     "list_windows",
     "get_app_state",
+    "wait_for_change",
     "click",
     "drag",
     "perform_secondary_action",
@@ -208,8 +210,9 @@ const nodeReplWorkerMain = async (
     parentPort.postMessage(message);
 
   let activeEvaluationId: number | null = null;
-  let writes: string[] | null = null;
-  let writeBytes = 0;
+  let content: NodeReplContentItem[] | null = null;
+  let contentBytes = 0;
+  let contentCursor = 0;
   let outputBuffer = "";
   let outputErrorReject: ((error: Error) => void) | undefined;
   let outputErrorTimer: ReturnType<typeof setTimeout> | undefined;
@@ -470,12 +473,28 @@ const nodeReplWorkerMain = async (
   const searchTool = Object.freeze((args: Record<string, unknown> = {}) =>
     callTool("$search", args),
   );
+  const IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+  const toolAccess = (name: string) =>
+    IDENTIFIER_RE.test(name)
+      ? `tools.${name}`
+      : `tools[${JSON.stringify(name)}]`;
+  const listTools = Object.freeze(() =>
+    [...toolFunctions.keys()].sort().map((name) =>
+      Object.freeze({
+        name,
+        access: toolAccess(name),
+        dotNotation: IDENTIFIER_RE.test(name),
+      }),
+    ),
+  );
   const lookupTool = (property: PropertyKey) =>
     property === "$search"
       ? searchTool
-      : typeof property === "string"
-        ? toolFunctions.get(property)
-        : undefined;
+      : property === "$list"
+        ? listTools
+        : typeof property === "string"
+          ? toolFunctions.get(property)
+          : undefined;
   // The Proxy target stays EXTENSIBLE on purpose: JS Proxy invariants forbid
   // a non-extensible target from reporting own keys it does not have, which
   // would break dynamic key refresh. Immutability from REPL code is enforced
@@ -486,7 +505,7 @@ const nodeReplWorkerMain = async (
   const tools = new Proxy(Object.create(null) as Record<string, unknown>, {
     get: (_target, property) => lookupTool(property),
     has: (_target, property) => lookupTool(property) !== undefined,
-    ownKeys: () => ["$search", ...toolFunctions.keys()],
+    ownKeys: () => ["$search", "$list", ...toolFunctions.keys()],
     getOwnPropertyDescriptor: (_target, property) => {
       const value = lookupTool(property);
       if (value === undefined) return undefined;
@@ -499,44 +518,179 @@ const nodeReplWorkerMain = async (
     preventExtensions: () => false,
   });
 
-  const write = (...values: unknown[]) => {
-    if (!writes) {
+  const appendContent = (item: NodeReplContentItem) => {
+    if (!content) {
       throw new Error("nodeRepl.write may only be called during evaluation.");
     }
-    const rendered = formatWithOptions({ colors: false, depth: 6 }, ...values);
-    const separatorBytes = writes.length > 0 ? 1 : 0;
+    const separatorBytes = content.length > 0 ? 1 : 0;
+    if (item.type !== "text") {
+      const itemBytes = serializedSize(item);
+      if (
+        !Number.isFinite(itemBytes) ||
+        itemBytes + contentBytes + separatorBytes >
+          workerData.maxEvalOutputBytes
+      ) {
+        throw new Error("Node REPL media output exceeds the evaluation limit.");
+      }
+      content.push(Object.freeze(item));
+      contentBytes += separatorBytes + itemBytes;
+      contentCursor += 1;
+      post({
+        type: "evaluation-content",
+        evaluationId: activeEvaluationId!,
+        cursor: contentCursor,
+        item,
+      });
+      return;
+    }
     const remaining =
-      workerData.maxEvalOutputBytes - writeBytes - separatorBytes;
+      workerData.maxEvalOutputBytes - contentBytes - separatorBytes;
     if (remaining <= 0) return;
-    const bounded = truncateUtf8(rendered, remaining);
-    writes.push(bounded);
-    writeBytes += separatorBytes + byteLength(bounded);
+    const bounded = truncateUtf8(item.text, remaining);
+    const boundedItem = Object.freeze({ type: "text" as const, text: bounded });
+    content.push(boundedItem);
+    contentBytes += separatorBytes + byteLength(bounded);
+    contentCursor += 1;
+    post({
+      type: "evaluation-content",
+      evaluationId: activeEvaluationId!,
+      cursor: contentCursor,
+      item: boundedItem,
+    });
   };
-  const emitImage = (filePath: string) => {
-    if (typeof filePath !== "string") {
+  const write = (...values: unknown[]) => {
+    const rendered = formatWithOptions({ colors: false, depth: 6 }, ...values);
+    appendContent({ type: "text", text: rendered });
+  };
+  const mediaPath = (value: unknown, helper: "emitImage" | "emitAudio") => {
+    if (typeof value !== "string") {
       throw new Error(
-        "nodeRepl.emitImage requires an absolute file path or file:// URL.",
+        `nodeRepl.${helper} requires an absolute file path or file:// URL.`,
       );
     }
     let absolutePath: string;
     try {
-      absolutePath = filePath.startsWith("file://")
-        ? fileURLToPath(filePath)
-        : filePath;
+      absolutePath = value.startsWith("file://") ? fileURLToPath(value) : value;
     } catch {
-      throw new Error("nodeRepl.emitImage received an invalid file:// URL.");
+      throw new Error(`nodeRepl.${helper} received an invalid file:// URL.`);
     }
     if (!path.isAbsolute(absolutePath)) {
       throw new Error(
-        "nodeRepl.emitImage requires an absolute file path or file:// URL.",
+        `nodeRepl.${helper} requires an absolute file path or file:// URL.`,
       );
     }
-    const marker = `[stella-attach-image] path=${JSON.stringify(absolutePath)}`;
-    write(marker);
-    return marker;
+    return absolutePath;
+  };
+  const emitImage = (
+    value: unknown,
+    options: { mimeType?: unknown; detail?: unknown } = {},
+  ) => {
+    if (
+      value &&
+      typeof value === "object" &&
+      (value as { attached?: unknown }).attached === true &&
+      typeof (value as { path?: unknown }).path === "string"
+    ) {
+      const receiptPath = (value as { path: string }).path;
+      if (!path.isAbsolute(receiptPath)) {
+        throw new Error(
+          "An attached image receipt must contain an absolute path.",
+        );
+      }
+      return Object.freeze({
+        type: "image" as const,
+        path: receiptPath,
+        attached: true as const,
+      });
+    }
+    const absolutePath = mediaPath(value, "emitImage");
+    const mimeType =
+      options.mimeType === "image/jpeg" ||
+      options.mimeType === "image/png" ||
+      options.mimeType === "image/gif" ||
+      options.mimeType === "image/webp"
+        ? options.mimeType
+        : undefined;
+    const detail =
+      options.detail === "auto" ||
+      options.detail === "low" ||
+      options.detail === "high" ||
+      options.detail === "original"
+        ? options.detail
+        : undefined;
+    appendContent({
+      type: "image",
+      path: absolutePath,
+      ...(mimeType ? { mimeType } : {}),
+      ...(detail ? { detail } : {}),
+    });
+    return undefined;
+  };
+  const emitAudio = (value: unknown, options: { mimeType?: unknown } = {}) => {
+    const absolutePath = mediaPath(value, "emitAudio");
+    appendContent({
+      type: "audio",
+      path: absolutePath,
+      ...(typeof options.mimeType === "string" &&
+      options.mimeType.startsWith("audio/")
+        ? { mimeType: options.mimeType }
+        : {}),
+    });
+    return undefined;
   };
   const home = os.homedir();
   const tmp = os.tmpdir();
+  const status = () =>
+    Object.freeze({
+      generation: workerData.generation,
+      generationStartedAt: workerData.generationStartedAt,
+      persistentBindings: true as const,
+      state:
+        activeEvaluationId === null
+          ? ("ready" as const)
+          : ("evaluating" as const),
+      activeEvaluationId,
+    });
+  const reset = () => {
+    if (activeEvaluationId === null) {
+      throw new Error("nodeRepl.reset may only be called during evaluation.");
+    }
+    const requestedAt = Date.now();
+    post({
+      type: "reset-request",
+      evaluationId: activeEvaluationId,
+      requestedAt,
+    });
+    return Object.freeze({
+      reset: true as const,
+      reason: "explicit" as const,
+      previousGeneration: workerData.generation,
+      nextGeneration: workerData.generation + 1,
+      bindingsDiscarded: true as const,
+      requestedAt,
+    });
+  };
+  const help = (topic?: string) => {
+    const entries = {
+      bindings:
+        "Bindings persist within one kernel generation. Use var for names you may redeclare. let and const cannot be redeclared in a later cell.",
+      images:
+        "Browser screenshots attach automatically and return a receipt. Call nodeRepl.emitImage(path, { mimeType, detail }) only for an absolute local path or file:// URL you created yourself; emitAudio(path, { mimeType }) records typed audio output.",
+      reset:
+        "nodeRepl.reset() ends the current generation after this cell and discards all bindings. nodeRepl.status() reports the current generation.",
+      tools:
+        "Use tools.$list() for exact callable names and access expressions, including bracket notation for names that are not valid JavaScript identifiers. Use await tools.$search({ query }) for scoped discovery. Browser and computer APIs are documented by their installed skills.",
+    } as const;
+    if (topic === undefined) {
+      return "nodeRepl help topics: bindings, images, reset, tools";
+    }
+    if (!(topic in entries)) {
+      throw new Error(
+        "nodeRepl.help topic must be bindings, images, reset, or tools.",
+      );
+    }
+    return entries[topic as keyof typeof entries];
+  };
   const nodeRepl = Object.freeze({
     cwd: workerData.cwd,
     home,
@@ -545,6 +699,10 @@ const nodeReplWorkerMain = async (
     tmpDir: tmp,
     write,
     emitImage,
+    emitAudio,
+    status,
+    reset,
+    help,
   });
 
   const input = new PassThrough();
@@ -651,8 +809,9 @@ const nodeReplWorkerMain = async (
     pendingConnectCalls.clear();
     pendingToolCalls.clear();
     pendingToolSettlements.clear();
-    writes = null;
-    writeBytes = 0;
+    content = null;
+    contentBytes = 0;
+    contentCursor = 0;
     outputBuffer = "";
     clearTimeout(outputErrorTimer);
     outputErrorTimer = undefined;
@@ -733,8 +892,9 @@ const nodeReplWorkerMain = async (
     }
 
     activeEvaluationId = evaluationId;
-    writes = [];
-    writeBytes = 0;
+    content = [];
+    contentBytes = 0;
+    contentCursor = 0;
     outputBuffer = "";
     try {
       const rendered = await new Promise<string>((resolve, reject) => {
@@ -760,18 +920,18 @@ const nodeReplWorkerMain = async (
         });
       });
       await drainPendingToolCalls();
-      const lines = writes ?? [];
-      if (rendered) lines.push(rendered);
+      if (rendered) appendContent({ type: "text", text: rendered });
       post({
         type: "evaluation-result",
         evaluationId,
-        output: truncateUtf8(lines.join("\n"), workerData.maxEvalOutputBytes),
+        finalCursor: contentCursor,
       });
     } catch (error) {
       post({
         type: "evaluation-error",
         evaluationId,
         error: serializeError(error),
+        finalCursor: contentCursor,
       });
     } finally {
       finishEvaluation();

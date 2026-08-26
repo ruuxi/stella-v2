@@ -880,6 +880,115 @@ describe("InAppBrowserService", () => {
     expect(harness.drawableHost.destroy).toHaveBeenCalledOnce();
   });
 
+  it("gives hidden agent Runtime and Input commands a drawable viewport without stealing the manual view", async () => {
+    const harness = createHarness(async () => true);
+    await harness.service.createTab({ url: "https://manual.example" });
+    await harness.service.show({
+      surfaceBounds: { x: 0, y: 0, width: 800, height: 600 },
+      pageBounds: { x: 20, y: 40, width: 640, height: 480 },
+    });
+    const target = await harness.service.createDebuggerTarget(
+      "https://agent.example",
+      "agent-owner",
+    );
+    const agentView = harness.views[1]!;
+    const observed: Array<{
+      method: string;
+      bounds: unknown;
+      hiddenMounts: number;
+      hiddenUnmounts: number;
+    }> = [];
+    agentView.webContents.debugger.sendCommand.mockImplementation(
+      async (method: string) => {
+        const bounds = agentView.setBounds.mock.calls.at(-1)?.[0] as
+          | { width: number; height: number }
+          | undefined;
+        observed.push({
+          method,
+          bounds,
+          hiddenMounts: harness.drawableHost.addChildView.mock.calls.length,
+          hiddenUnmounts:
+            harness.drawableHost.removeChildView.mock.calls.length,
+        });
+        return method === "Runtime.evaluate"
+          ? {
+              result: {
+                value: {
+                  width: bounds?.width ?? 0,
+                  height: bounds?.height ?? 0,
+                },
+              },
+            }
+          : {};
+      },
+    );
+    harness.wait.mockClear();
+
+    await expect(
+      harness.service.sendDebuggerCommand(
+        target.id,
+        "Runtime.evaluate",
+        {
+          expression:
+            "({ width: window.innerWidth, height: window.innerHeight })",
+          returnByValue: true,
+        },
+        "agent-owner",
+      ),
+    ).resolves.toEqual({
+      result: { value: { width: 640, height: 480 } },
+    });
+    await expect(
+      harness.service.sendDebuggerCommand(
+        target.id,
+        "Input.dispatchMouseEvent",
+        { type: "mousePressed", x: 100, y: 100, button: "left" },
+        "agent-owner",
+      ),
+    ).resolves.toEqual({});
+
+    agentView.webContents.debugger.sendCommand.mockRejectedValueOnce(
+      new Error("renderer command failed"),
+    );
+    await expect(
+      harness.service.sendDebuggerCommand(
+        target.id,
+        "Runtime.evaluate",
+        { expression: "throw new Error('failed')" },
+        "agent-owner",
+      ),
+    ).rejects.toThrow("renderer command failed");
+
+    expect(observed).toEqual([
+      {
+        method: "Runtime.evaluate",
+        bounds: { x: 0, y: 0, width: 640, height: 480 },
+        hiddenMounts: 1,
+        hiddenUnmounts: 0,
+      },
+      {
+        method: "Input.dispatchMouseEvent",
+        bounds: { x: 0, y: 0, width: 640, height: 480 },
+        hiddenMounts: 2,
+        hiddenUnmounts: 1,
+      },
+    ]);
+    expect(harness.drawableHost.addChildView).toHaveBeenCalledTimes(3);
+    expect(harness.drawableHost.removeChildView).toHaveBeenCalledTimes(3);
+    expect(harness.wait.mock.calls).toEqual([[16], [16], [16]]);
+    expect(harness.addChildView).toHaveBeenCalledTimes(1);
+    expect(harness.addChildView).toHaveBeenCalledWith(harness.views[0]);
+    expect(harness.removeChildView).not.toHaveBeenCalled();
+    expect(harness.service.listDebuggerTargets("agent-owner")).toEqual([
+      expect.objectContaining({ id: target.id }),
+    ]);
+    await expect(
+      harness.service.closeDebuggerTarget(target.id, "agent-owner"),
+    ).resolves.toBe(true);
+    expect(harness.service.listDebuggerTargets("agent-owner")).toEqual([]);
+    expect(harness.addChildView).toHaveBeenCalledTimes(1);
+  });
+
   it("remounts an active drawable lease if the hidden host is destroyed", async () => {
     const harness = createHarness(async () => true);
     const target = await harness.service.createDebuggerTarget(

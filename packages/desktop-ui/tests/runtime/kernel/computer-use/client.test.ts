@@ -6,6 +6,7 @@ import {
   type SkyAction,
 } from "@stella/runtime/kernel/computer-use/client";
 import type {
+  ComputerUseAppState,
   ComputerUseAppPolicy,
   ComputerUseRequest,
   ComputerUseTarget,
@@ -41,12 +42,10 @@ const createInjectedSession = (
     policy?: (target: ComputerUseTarget) => ComputerUseAppPolicy;
     state?: (
       request: Extract<ComputerUseRequest, { type: "get_app_state" }>,
-    ) => {
-      app: string;
-      text: string;
-      screenshot: { type: "image"; url: string } | null;
-      instructions?: string;
-    };
+    ) => ComputerUseAppState;
+    waitState?: (
+      request: Extract<ComputerUseRequest, { type: "wait_for_change" }>,
+    ) => ComputerUseAppState;
   } = {},
 ) => {
   const requests: ComputerUseRequest[] = [];
@@ -76,7 +75,31 @@ const createInjectedSession = (
             ({
               app: targetLabel(typedRequest.target),
               text: "<app_state>fresh ids</app_state>",
+              screenshot: { type: "image", url: "file:///tmp/state.png" },
+              semanticStateId: "state_test",
+              visualStateId: "visual_test",
+              resourceGeneration: 0,
+            } as const),
+        };
+      case "wait_for_change":
+        return {
+          ...envelope(typedRequest),
+          type: "wait_for_change",
+          state:
+            options.waitState?.(typedRequest) ??
+            ({
+              app: targetLabel(typedRequest.target),
+              text: "<app_state>changed</app_state>",
               screenshot: null,
+              semanticStateId: "state_changed",
+              representation: "full",
+              wait: {
+                afterStateId: typedRequest.afterStateId,
+                timeoutMs: typedRequest.timeoutMs,
+                elapsedMs: 25,
+                pollCount: 1,
+                changeKinds: ["semantic"],
+              },
             } as const),
         };
       case "action":
@@ -130,14 +153,21 @@ describe("typed Sky computer-use client", () => {
         element_index: 12,
         mouse_button: "right",
         click_count: 2,
+        state_id: "state_observed",
       },
       {
         type: "set_value",
         app: "Notes",
         element_index: 8,
         value: "hello world",
+        state_id: "state_observed",
       },
-      { type: "type_text", app: "Notes", text: "more text" },
+      {
+        type: "type_text",
+        app: "Notes",
+        text: "more text",
+        state_id: "state_observed",
+      },
     ];
 
     await expect(sky.batch(actions)).resolves.toHaveLength(3);
@@ -150,8 +180,8 @@ describe("typed Sky computer-use client", () => {
     expect(batch).toMatchObject({
       type: "batch",
       execution: "background",
-      schemaVersion: 1,
-      protocolVersion: "1.0",
+      schemaVersion: 2,
+      protocolVersion: "2.0",
       sessionId: "general-task-agent-1",
       commands: [
         {
@@ -187,7 +217,18 @@ describe("typed Sky computer-use client", () => {
       authorizeApp: async () => true,
     });
 
-    await sky.click({ app: "Notes", x: 10, y: 20 });
+    const observed = await sky.get_app_state({
+      app: "Notes",
+      screenshot_policy: "always",
+    });
+
+    await sky.click({
+      app: "Notes",
+      x: 10,
+      y: 20,
+      state_id: observed.state_id,
+      observation_id: observed.observation_id,
+    });
     await sky.drag({
       app: "Notes",
       path: [
@@ -195,18 +236,26 @@ describe("typed Sky computer-use client", () => {
         { x: 3, y: 4 },
         { x: 5, y: 6 },
       ],
+      state_id: observed.state_id,
+      observation_id: observed.observation_id,
     });
     await sky.perform_secondary_action({
       app: "Notes",
       element_index: 7,
       action: "showMenu",
+      state_id: observed.state_id,
     });
-    await sky.press_key({ app: "Notes", key: "ENTER" });
+    await sky.press_key({
+      app: "Notes",
+      key: "ENTER",
+      state_id: observed.state_id,
+    });
     await sky.scroll({
       app: "Notes",
       element_index: 9,
       scroll_y: -500,
       pages: 2,
+      state_id: observed.state_id,
     });
     await sky.select_text({
       app: "Notes",
@@ -215,6 +264,7 @@ describe("typed Sky computer-use client", () => {
       prefix: "before",
       suffix: "after",
       selection_type: "cursor-after",
+      state_id: observed.state_id,
     });
 
     const actionRequests = requests.filter(
@@ -303,13 +353,17 @@ describe("typed Sky computer-use client", () => {
       sky.get_app_state({ app: "Finder", screenshot_policy: "always" }),
     ).resolves.toMatchObject({ app: "Finder" });
     await expect(
-      sky.click({ app: "Dock", element_index: 1 }),
+      sky.click({ app: "Dock", element_index: 1, state_id: "state_observed" }),
     ).resolves.toMatchObject({ status: "accepted" });
     await expect(
       sky.get_app_state({ app: "Mystery App" }),
     ).resolves.toMatchObject({ app: "Mystery App" });
     await expect(
-      sky.type_text({ app: "explorer.exe", text: "docs" }),
+      sky.type_text({
+        app: "explorer.exe",
+        text: "docs",
+        state_id: "state_observed",
+      }),
     ).resolves.toMatchObject({ status: "accepted" });
 
     expect(
@@ -333,9 +387,17 @@ describe("typed Sky computer-use client", () => {
       authorizeApp,
     });
 
-    await sky.click({ app: "Notes", element_index: 1 });
+    await sky.click({
+      app: "Notes",
+      element_index: 1,
+      state_id: "state_observed",
+    });
     await sky.get_app_state({ app: "com.apple.Notes" });
-    await sky.type_text({ app: "Calculator", text: "1+1" });
+    await sky.type_text({
+      app: "Calculator",
+      text: "1+1",
+      state_id: "state_observed",
+    });
 
     expect(
       requests.filter((request) => request.type === "resolve_target"),
@@ -353,14 +415,25 @@ describe("typed Sky computer-use client", () => {
     });
 
     await sky.batch([
-      { type: "click", app: "Notes", element_index: 1 },
+      {
+        type: "click",
+        app: "Notes",
+        element_index: 1,
+        state_id: "state_observed",
+      },
       {
         type: "set_value",
         app: "com.apple.Notes",
         element_index: 2,
         value: "x",
+        state_id: "state_observed",
       },
-      { type: "press_key", app: "Calculator", key: "ENTER" },
+      {
+        type: "press_key",
+        app: "Calculator",
+        key: "ENTER",
+        state_id: "state_observed",
+      },
     ]);
 
     expect(
@@ -398,10 +471,13 @@ describe("typed Sky computer-use client", () => {
     });
     const second = await sky.get_app_state({ app: "com.apple.Notes" });
 
-    expect(first).toEqual({
+    expect(first).toMatchObject({
       app: "Notes",
       screenshot: { url: "file:///tmp/state%20image.png" },
       text: expect.stringContaining("<app_specific_instructions>"),
+      state_id: expect.stringMatching(/^state_[a-f0-9]{20}$/),
+      observation_id: expect.stringMatching(/^observation_[a-f0-9]{20}$/),
+      is_diff: false,
     });
     expect(first.text).toContain("Use the app's Save button.");
     expect(first.text).toContain("fresh ids");
@@ -414,7 +490,12 @@ describe("typed Sky computer-use client", () => {
 
     await expect(sky.list_apps()).resolves.toBe("Notes");
     await expect(sky.list_windows()).resolves.toBe("Notes [window-id=44]");
-    await sky.click({ app: "Notes", window_id: 44, element_index: 3 });
+    await sky.click({
+      app: "Notes",
+      window_id: 44,
+      element_index: 3,
+      state_id: "state_observed",
+    });
 
     expect(requests.map((request) => request.type)).toEqual([
       "list_apps",
@@ -426,6 +507,179 @@ describe("typed Sky computer-use client", () => {
       type: "resolve_target",
       selector: { type: "window", app: "Notes", windowId: "44" },
     });
+  });
+
+  it("passes explicit state ids into actions", async () => {
+    const { requests, session } = createInjectedSession();
+    const sky = createSkyClient({ sessionId: "session-state-id", session });
+
+    await sky.click({
+      app: "Notes",
+      element_index: 3,
+      state_id: "state_observed",
+    });
+
+    expect(requests.find((request) => request.type === "action")).toMatchObject(
+      {
+        command: { observedStateId: "state_observed" },
+      },
+    );
+  });
+
+  it("binds coordinate actions to an immutable visual observation", async () => {
+    let reads = 0;
+    const { requests, session } = createInjectedSession({
+      state: () => {
+        reads += 1;
+        return {
+          app: "Notes",
+          text: "same semantic state",
+          screenshot: {
+            type: "image",
+            url: `file:///tmp/visual-${reads}.png`,
+          },
+          semanticStateId: "state_same",
+          visualStateId: reads === 1 ? "visual_first" : "visual_second",
+          resourceGeneration: 4,
+        };
+      },
+    });
+    const sky = createSkyClient({ sessionId: "session-visual", session });
+    const first = await sky.get_app_state({
+      app: "Notes",
+      screenshot_policy: "always",
+    });
+    const second = await sky.get_app_state({
+      app: "Notes",
+      screenshot_policy: "always",
+    });
+
+    expect(first.state_id).toBe(second.state_id);
+    expect(first.observation_id).not.toBe(second.observation_id);
+    await sky.click({
+      app: "Notes",
+      x: 10,
+      y: 20,
+      state_id: first.state_id,
+      observation_id: first.observation_id,
+    });
+
+    expect(requests.at(-1)).toMatchObject({
+      type: "action",
+      command: {
+        observedObservationId: first.observation_id,
+        observedStateId: "state_same",
+        observedVisualStateId: "visual_first",
+        observedResourceGeneration: 4,
+      },
+    });
+    await expect(
+      sky.click({
+        app: "Notes",
+        x: 10,
+        y: 20,
+        state_id: first.state_id,
+      }),
+    ).rejects.toThrow("immutable observation_id");
+  });
+
+  it("waits inside the runtime until app state changes", async () => {
+    const { requests, session } = createInjectedSession({
+      waitState: (request) =>
+        ({
+          app: "Notes",
+          text: "changed",
+          screenshot: null,
+          semanticStateId: "state_after",
+          representation: "full" as const,
+          wait: {
+            afterStateId: request.afterStateId,
+            timeoutMs: request.timeoutMs,
+            elapsedMs: 40,
+            pollCount: 2,
+            changeKinds: ["semantic"],
+          },
+        }) as const,
+    });
+    const sky = createSkyClient({ sessionId: "session-wait", session });
+
+    await expect(
+      sky.wait_for_change({
+        app: "Notes",
+        after_state_id: "state_before",
+        timeout_ms: 2_000,
+        screenshot_policy: "never",
+      }),
+    ).resolves.toMatchObject({
+      state_id: "state_after",
+      text: "changed",
+      is_diff: false,
+      provenance: {
+        wait: {
+          after_state_id: "state_before",
+          timeout_ms: 2_000,
+          elapsed_ms: 40,
+          poll_count: 2,
+          change_kinds: ["semantic"],
+        },
+      },
+    });
+    expect(requests.at(-1)).toMatchObject({
+      type: "wait_for_change",
+      afterStateId: "state_before",
+      timeoutMs: 2_000,
+      screenshotPolicy: "never",
+    });
+  });
+
+  it("requires fresh state provenance for every action before dispatch", async () => {
+    const { requests, session } = createInjectedSession();
+    const sky = createSkyClient({ sessionId: "session-freshness", session });
+    const missingStateActions = [
+      () => sky.click({ app: "Notes", element_index: 1 }),
+      () =>
+        sky.perform_secondary_action({
+          app: "Notes",
+          element_index: 1,
+          action: "Show Menu",
+        }),
+      () => sky.scroll({ app: "Notes", element_index: 1, direction: "down" }),
+      () => sky.select_text({ app: "Notes", element_index: 1, text: "needle" }),
+      () => sky.set_value({ app: "Notes", element_index: 1, value: "value" }),
+      () => sky.press_key({ app: "Notes", key: "ENTER" }),
+      () => sky.type_text({ app: "Notes", text: "text" }),
+      () => sky.click({ app: "Notes", x: 10, y: 20 }),
+      () =>
+        sky.drag({
+          app: "Notes",
+          from_x: 1,
+          from_y: 2,
+          to_x: 3,
+          to_y: 4,
+        }),
+    ];
+
+    for (const action of missingStateActions) {
+      await expect(action()).rejects.toThrow(
+        "requires state_id from a fresh get_app_state result",
+      );
+    }
+    await expect(
+      sky.batch([
+        {
+          type: "click",
+          app: "Notes",
+          element_index: 1,
+          state_id: "state_observed",
+        },
+        { type: "set_value", app: "Notes", element_index: 2, value: "x" },
+      ]),
+    ).rejects.toThrow(
+      "set_value requires state_id from a fresh get_app_state result",
+    );
+
+    expect(requests.some((request) => request.type === "action")).toBe(false);
+    expect(requests.some((request) => request.type === "batch")).toBe(false);
   });
 
   it("rejects forbidden, denied, and ambiguous operations before dispatch", async () => {

@@ -4,6 +4,7 @@ import type {
   ComputerUseRequest,
   ComputerUseResponse,
   ComputerUseTarget,
+  JsonObject,
 } from "./contract.js";
 
 const GLOBAL_HID_RESOURCE = "global-hid";
@@ -82,24 +83,73 @@ export class ComputerUseResourceArbiter {
       return response;
     }
 
+    const stateKeys = this.stateKeysForRequest(request);
+    if (request.type === "wait_for_change") {
+      const initialGeneration = await this.run(stateKeys, signal, async () => {
+        this.assertSessionGenerationFresh(
+          request.sessionId,
+          stateKeys,
+          request.afterStateId,
+        );
+        return this.currentGeneration(stateKeys);
+      });
+      const response = await operation();
+      if (response.type === "wait_for_change") {
+        return await this.run(stateKeys, signal, async () => {
+          const generation = this.currentGeneration(stateKeys);
+          if (generation !== initialGeneration) {
+            throw new ComputerUseResourceStaleError(
+              request.afterStateId,
+              `resource_generation_${generation}`,
+              {
+                resourceKeys: stateKeys,
+                observedResourceGeneration: initialGeneration,
+                currentResourceGeneration: generation,
+              },
+            );
+          }
+          this.observe(request.sessionId, stateKeys);
+          return this.withResourceGeneration(response, generation);
+        });
+      }
+      return response;
+    }
+
     const keys = this.keysForRequest(request);
     if (keys.length === 0) return await operation();
     return await this.run(keys, signal, async () => {
-      const stateKeys = this.stateKeysForRequest(request);
+      const mutatingRequest =
+        request.type === "action" || request.type === "batch";
+      let mutationAttempted = false;
+      let mutationSucceeded = false;
       if (request.type === "action" || request.type === "batch") {
-        this.assertFreshObservation(request.sessionId, stateKeys);
+        this.assertFreshObservation(request, stateKeys);
       }
-
-      const response = await operation();
-      if (request.type === "get_app_state" && response.type === "app_state") {
-        this.observe(request.sessionId, stateKeys);
-      } else if (
-        (request.type === "action" && response.type === "action") ||
-        (request.type === "batch" && response.type === "batch")
-      ) {
-        this.advanceAndObserve(request.sessionId, stateKeys);
+      try {
+        // Once a mutating operation crosses this boundary its dispatch outcome
+        // can be unknown (transport loss) or partial (batch failure). Fail
+        // closed by invalidating every prior observation even when no success
+        // receipt reaches this layer.
+        mutationAttempted = mutatingRequest;
+        const response = await operation();
+        mutationSucceeded =
+          (request.type === "action" && response.type === "action") ||
+          (request.type === "batch" && response.type === "batch");
+        if (request.type === "get_app_state" && response.type === "app_state") {
+          const generation = this.currentGeneration(stateKeys);
+          this.observe(request.sessionId, stateKeys);
+          return this.withResourceGeneration(response, generation);
+        }
+        return response;
+      } finally {
+        if (mutationAttempted) {
+          this.advance(stateKeys);
+          // A complete receipt lets this session use wait_for_change against
+          // the pre-action state ID. Commands still carry the old explicit
+          // resource generation and must be re-derived from a fresh state.
+          if (mutationSucceeded) this.observe(request.sessionId, stateKeys);
+        }
       }
-      return response;
     });
   }
 
@@ -132,7 +182,10 @@ export class ComputerUseResourceArbiter {
     ) {
       return [];
     }
-    if (request.type === "get_app_state") {
+    if (
+      request.type === "get_app_state" ||
+      request.type === "wait_for_change"
+    ) {
       return this.keysForTarget(request.target);
     }
     if (request.type === "action") {
@@ -154,7 +207,10 @@ export class ComputerUseResourceArbiter {
   }
 
   private stateKeysForRequest(request: ComputerUseRequest): string[] {
-    if (request.type === "get_app_state") {
+    if (
+      request.type === "get_app_state" ||
+      request.type === "wait_for_change"
+    ) {
       return this.keysForTarget(request.target);
     }
     if (request.type === "action") {
@@ -170,17 +226,81 @@ export class ComputerUseResourceArbiter {
     return [];
   }
 
-  private assertFreshObservation(
+  private currentGeneration(resourceKeys: readonly string[]): number {
+    return resourceKeys.reduce(
+      (highest, key) =>
+        Math.max(highest, this.resourceGenerations.get(key) ?? 0),
+      0,
+    );
+  }
+
+  private assertSessionGenerationFresh(
     sessionId: string,
     resourceKeys: readonly string[],
+    observedStateId: string,
   ): void {
     const observations = this.sessionObservations.get(sessionId);
-    const staleKeys = resourceKeys.filter(
-      (key) =>
-        observations?.get(key) !== (this.resourceGenerations.get(key) ?? 0),
+    const staleKeys = resourceKeys.filter((key) => {
+      const current = this.resourceGenerations.get(key) ?? 0;
+      const observed = observations?.get(key);
+      return observed === undefined ? current > 0 : observed !== current;
+    });
+    if (staleKeys.length === 0) return;
+    const currentGeneration = this.currentGeneration(resourceKeys);
+    throw new ComputerUseResourceStaleError(
+      observedStateId,
+      `resource_generation_${currentGeneration}`,
+      {
+        resourceKeys: staleKeys,
+        currentResourceGeneration: currentGeneration,
+      },
     );
-    if (staleKeys.length > 0) {
-      throw new ComputerUseResourceStaleError(staleKeys);
+  }
+
+  private assertFreshObservation(
+    request: Extract<ComputerUseRequest, { type: "action" | "batch" }>,
+    resourceKeys: readonly string[],
+  ): void {
+    const commands =
+      request.type === "action" ? [request.command] : request.commands;
+    const currentGeneration = this.currentGeneration(resourceKeys);
+    const observations = this.sessionObservations.get(request.sessionId);
+    for (const command of commands) {
+      if (command.observedResourceGeneration !== undefined) {
+        const observedGeneration = command.observedResourceGeneration!;
+        const commandKeys = this.keysForTarget(command.target);
+        const commandGeneration = this.currentGeneration(commandKeys);
+        if (observedGeneration !== commandGeneration) {
+          throw new ComputerUseResourceStaleError(
+            command.observedStateId ??
+              `resource_generation_${observedGeneration}`,
+            `resource_generation_${commandGeneration}`,
+            {
+              resourceKeys: commandKeys,
+              observedResourceGeneration: observedGeneration,
+              currentResourceGeneration: commandGeneration,
+            },
+          );
+        }
+        continue;
+      }
+
+      const commandKeys = this.keysForTarget(command.target);
+      const staleKeys = commandKeys.filter((key) => {
+        const current = this.resourceGenerations.get(key) ?? 0;
+        const observed = observations?.get(key);
+        return observed === undefined ? current > 0 : observed !== current;
+      });
+      if (staleKeys.length > 0) {
+        throw new ComputerUseResourceStaleError(
+          command.observedStateId ?? "state_unobserved",
+          `resource_generation_${currentGeneration}`,
+          {
+            resourceKeys: staleKeys,
+            currentResourceGeneration: currentGeneration,
+          },
+        );
+      }
     }
   }
 
@@ -193,17 +313,26 @@ export class ComputerUseResourceArbiter {
     }
   }
 
-  private advanceAndObserve(
-    sessionId: string,
-    resourceKeys: readonly string[],
-  ): void {
+  private advance(resourceKeys: readonly string[]): void {
     for (const key of resourceKeys) {
       this.resourceGenerations.set(
         key,
         (this.resourceGenerations.get(key) ?? 0) + 1,
       );
     }
-    this.observe(sessionId, resourceKeys);
+  }
+
+  private withResourceGeneration<TResponse extends ComputerUseResponse>(
+    response: TResponse,
+    resourceGeneration: number,
+  ): TResponse {
+    if (response.type !== "app_state" && response.type !== "wait_for_change") {
+      return response;
+    }
+    return {
+      ...response,
+      state: { ...response.state, resourceGeneration },
+    } as TResponse;
   }
 
   private keysForTarget(target: ComputerUseTarget): string[] {
@@ -282,12 +411,36 @@ export class ComputerUseResourceStaleError extends Error {
   readonly code = "stale_observation";
   readonly retryable = true;
 
-  constructor(readonly resourceKeys: readonly string[]) {
+  constructor(
+    readonly observedStateId: string,
+    readonly currentStateId: string,
+    details: {
+      resourceKeys?: readonly string[];
+      observedResourceGeneration?: number;
+      currentResourceGeneration?: number;
+      nativeObserved?: JsonObject;
+      nativeCurrent?: JsonObject;
+      nativeReason?: string;
+    } = {},
+  ) {
     super(
-      "Computer state changed after this session observed it. Call get_app_state for the target, then retry the action.",
+      `Computer state changed after the supplied snapshot (observed_state_id=${observedStateId}, current_state_id=${currentStateId}). Call get_app_state for the target, then retry with its new state_id.`,
     );
     this.name = "ComputerUseResourceStaleError";
+    this.resourceKeys = details.resourceKeys;
+    this.observedResourceGeneration = details.observedResourceGeneration;
+    this.currentResourceGeneration = details.currentResourceGeneration;
+    this.nativeObserved = details.nativeObserved;
+    this.nativeCurrent = details.nativeCurrent;
+    this.nativeReason = details.nativeReason;
   }
+
+  readonly resourceKeys?: readonly string[];
+  readonly observedResourceGeneration?: number;
+  readonly currentResourceGeneration?: number;
+  readonly nativeObserved?: JsonObject;
+  readonly nativeCurrent?: JsonObject;
+  readonly nativeReason?: string;
 }
 
 export const macComputerUseResourceArbiter = new ComputerUseResourceArbiter();

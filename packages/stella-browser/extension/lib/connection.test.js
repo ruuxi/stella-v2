@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
-import test from 'node:test';
+import assert from "node:assert/strict";
+import test from "node:test";
 
 function createEvent() {
   const listeners = [];
@@ -37,7 +37,7 @@ globalThis.chrome = {
   runtime: {
     lastError: null,
     getManifest() {
-      return { version: '1.2.6' };
+      return { version: "1.2.12" };
     },
     connectNative() {
       const port = createPort();
@@ -47,16 +47,12 @@ globalThis.chrome = {
   },
 };
 
-const {
-  connect,
-  disconnect,
-  isConnected,
-  onCommand,
-} = await import('./connection.js');
+const { connect, disconnect, isConnected, onCommand } =
+  await import("./connection.js");
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-test('stale disconnect cannot clear a newer native port', async () => {
+test("stale disconnect cannot clear a newer native port", async () => {
   connect();
   await flush();
   const first = ports.at(-1);
@@ -75,45 +71,48 @@ test('stale disconnect cannot clear a newer native port', async () => {
   disconnect();
 });
 
-test('hello advertises the manifest and protocol versions', async () => {
+test("hello advertises the manifest and protocol versions", async () => {
   connect();
   await flush();
   assert.deepEqual(ports.at(-1).messages[0], {
-    type: 'hello',
-    version: '1.2.6',
-    extensionVersion: '1.2.6',
-    protocolVersion: '2.0',
-    token: '',
+    type: "hello",
+    version: "1.2.12",
+    extensionVersion: "1.2.12",
+    protocolVersion: "2.1",
+    token: "",
   });
   disconnect();
 });
 
-test('stale async command completion is not sent over a newer port', async () => {
+test("stale async command completion is not sent over a newer port", async () => {
   let resolveCommand;
-  onCommand(() => new Promise((resolve) => {
-    resolveCommand = resolve;
-  }));
+  onCommand(
+    () =>
+      new Promise((resolve) => {
+        resolveCommand = resolve;
+      }),
+  );
 
   connect();
   await flush();
   const first = ports.at(-1);
-  first.onMessage.emit({ type: 'command', id: 'old-command' });
+  first.onMessage.emit({ type: "command", id: "old-command" });
   await flush();
 
   disconnect();
   connect();
   await flush();
   const second = ports.at(-1);
-  resolveCommand({ type: 'response', id: 'old-command', success: true });
+  resolveCommand({ type: "response", id: "old-command", success: true });
   await flush();
 
   assert.deepEqual(
     first.messages.map((message) => message.type),
-    ['hello'],
+    ["hello"],
   );
   assert.deepEqual(
     second.messages.map((message) => message.type),
-    ['hello'],
+    ["hello"],
   );
   disconnect();
 });

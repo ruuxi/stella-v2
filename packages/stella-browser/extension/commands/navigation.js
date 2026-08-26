@@ -1,8 +1,14 @@
 /**
  * Navigation command handlers.
  */
-import { getActiveTab } from './tabs.js';
-import { ensureDebugger } from '../lib/debugger.js';
+import { getActiveTab } from "./tabs.js";
+import { ensureDebugger } from "../lib/debugger.js";
+import {
+  abortableCommandDelay,
+  markCommandMutationDispatched,
+  markCommandMutationOutcomeKnown,
+  throwIfCommandAborted,
+} from "./cancellation.js";
 
 /**
  * Wait for a tab to finish loading.
@@ -10,43 +16,67 @@ import { ensureDebugger } from '../lib/debugger.js';
  * @param {number} [timeout=30000]
  * @returns {Promise<void>}
  */
-function waitForLoad(tabId, timeout = 30000) {
+function waitForLoad(tabId, timeout = 30000, signal) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
+    if (signal?.aborted) {
+      reject(signal.reason || new Error("Navigation aborted"));
+      return;
+    }
+    let settled = false;
+    const finish = (callback) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       chrome.tabs.onUpdated.removeListener(listener);
-      reject(new Error('Navigation timeout after ' + timeout + 'ms'));
+      signal?.removeEventListener("abort", onAbort);
+      callback();
+    };
+    const timer = setTimeout(() => {
+      finish(() =>
+        reject(new Error("Navigation timeout after " + timeout + "ms")),
+      );
     }, timeout);
 
+    const onAbort = () =>
+      finish(() => {
+        reject(signal.reason || new Error("Navigation aborted"));
+      });
+
     function listener(updatedTabId, changeInfo) {
-      if (updatedTabId === tabId && changeInfo.status === 'complete') {
-        clearTimeout(timer);
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
+      if (updatedTabId === tabId && changeInfo.status === "complete") {
+        finish(resolve);
       }
     }
 
     chrome.tabs.onUpdated.addListener(listener);
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
 
 export async function handleNavigate(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const url = command.url;
 
-  if (!url) throw new Error('URL is required for navigate');
+  if (!url) throw new Error("URL is required for navigate");
 
   // Start navigation
+  markCommandMutationDispatched(command);
   await chrome.tabs.update(tab.id, { url });
 
   // Wait for load unless explicitly told not to
-  if (command.waitUntil !== 'none') {
-    await waitForLoad(tab.id, command.timeout || 30000);
+  if (command.waitUntil !== "none") {
+    await waitForLoad(tab.id, command.timeout || 30000, command.signal);
   }
 
+  throwIfCommandAborted(command);
   const updated = await chrome.tabs.get(tab.id);
+  markCommandMutationOutcomeKnown(command);
 
   // Pre-warm debugger for subsequent commands (click, fill, eval, etc.)
-  try { await ensureDebugger(updated.id); } catch {}
+  try {
+    await ensureDebugger(updated.id);
+  } catch {}
 
   return {
     id: command.id,
@@ -56,11 +86,15 @@ export async function handleNavigate(command) {
 }
 
 export async function handleBack(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
+  markCommandMutationDispatched(command);
   await chrome.tabs.goBack(tab.id);
   // Small delay for navigation to start
-  await new Promise(r => setTimeout(r, 500));
+  await abortableCommandDelay(command, 500);
+  throwIfCommandAborted(command);
   const updated = await chrome.tabs.get(tab.id);
+  markCommandMutationOutcomeKnown(command);
   return {
     id: command.id,
     success: true,
@@ -69,10 +103,14 @@ export async function handleBack(command) {
 }
 
 export async function handleForward(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
+  markCommandMutationDispatched(command);
   await chrome.tabs.goForward(tab.id);
-  await new Promise(r => setTimeout(r, 500));
+  await abortableCommandDelay(command, 500);
+  throwIfCommandAborted(command);
   const updated = await chrome.tabs.get(tab.id);
+  markCommandMutationOutcomeKnown(command);
   return {
     id: command.id,
     success: true,
@@ -81,13 +119,19 @@ export async function handleForward(command) {
 }
 
 export async function handleReload(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
+  markCommandMutationDispatched(command);
   await chrome.tabs.reload(tab.id);
-  await waitForLoad(tab.id, command.timeout || 30000);
+  await waitForLoad(tab.id, command.timeout || 30000, command.signal);
+  throwIfCommandAborted(command);
   const updated = await chrome.tabs.get(tab.id);
+  markCommandMutationOutcomeKnown(command);
 
   // Pre-warm debugger for subsequent commands
-  try { await ensureDebugger(updated.id); } catch {}
+  try {
+    await ensureDebugger(updated.id);
+  } catch {}
 
   return {
     id: command.id,
@@ -97,19 +141,21 @@ export async function handleReload(command) {
 }
 
 export async function handleUrl(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   return {
     id: command.id,
     success: true,
-    data: { url: tab.url || '' },
+    data: { url: tab.url || "" },
   };
 }
 
 export async function handleTitle(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   return {
     id: command.id,
     success: true,
-    data: { title: tab.title || '' },
+    data: { title: tab.title || "" },
   };
 }

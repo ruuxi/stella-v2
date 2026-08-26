@@ -12,6 +12,7 @@ import {
   findUndeclaredIdentifiers,
 } from "../verify-packaged-identifiers.mjs";
 import { collectRootAbsoluteRendererAssetReferences } from "../verify-renderer-asset-paths.mjs";
+import { smokeTestNodeCliEntry } from "../dev-electron-build.mjs";
 
 test("renderer asset gate catches file-root paths without rejecting relative or remote assets", () => {
   const tempDir = mkdtempSync(
@@ -217,4 +218,21 @@ test("source plus packaged CLI mode catches an emitted-only identifier failure",
   assert.equal(result.status, 1);
   assert.match(result.stderr, /emittedOnlyMissingIdentifier/);
   assert.doesNotMatch(result.stderr, /Converted Stella application source/);
+});
+
+test("Node CLI smoke gate rejects duplicate bundle-banner bindings", () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "stella-cli-smoke-"));
+  const validCli = path.join(tempDir, "valid.mjs");
+  const invalidCli = path.join(tempDir, "invalid.mjs");
+  writeFileSync(validCli, 'console.log("stella-computer - control");\n');
+  writeFileSync(
+    invalidCli,
+    "const __dirname = '/banner';\nvar __dirname = import.meta.dirname;\n",
+  );
+
+  assert.match(smokeTestNodeCliEntry(validCli), /stella-computer - control/);
+  assert.throws(
+    () => smokeTestNodeCliEntry(invalidCli),
+    /Node CLI smoke test failed[\s\S]*__dirname/,
+  );
 });

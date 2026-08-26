@@ -1,6 +1,20 @@
-import { timingSafeEqual } from "node:crypto";
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { createServer, type Server, type Socket } from "node:net";
+import { randomUUID, timingSafeEqual } from "node:crypto";
+import {
+  chmodSync,
+  linkSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import {
+  createConnection,
+  createServer,
+  type Server,
+  type Socket,
+} from "node:net";
 import path from "node:path";
 import { z } from "zod";
 
@@ -11,6 +25,113 @@ import {
 } from "@stella/runtime/kernel/tools/stella-browser-bridge-config";
 
 const MAX_REQUEST_BYTES = 16 * 1024;
+const DISCOVERY_LOCK_TIMEOUT_MS = 5_000;
+const DISCOVERY_LOCK_RETRY_MS = 10;
+const ENDPOINT_PROBE_TIMEOUT_MS = 250;
+
+type FileIdentity = Readonly<{ device: number; inode: number }>;
+
+const delay = (durationMs: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, durationMs));
+
+const processIsAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+};
+
+const acquireDiscoveryLock = async (
+  lockPath: string,
+  ownerId: string,
+): Promise<() => void> => {
+  const lockValue = JSON.stringify({ ownerId, pid: process.pid });
+  const deadline = Date.now() + DISCOVERY_LOCK_TIMEOUT_MS;
+  while (true) {
+    try {
+      writeFileSync(lockPath, lockValue, {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 0o600,
+      });
+      return () => {
+        try {
+          if (readFileSync(lockPath, "utf8") === lockValue) {
+            rmSync(lockPath, { force: true });
+          }
+        } catch {
+          // A missing/replaced lock is no longer ours to release.
+        }
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+
+    try {
+      const existing = JSON.parse(readFileSync(lockPath, "utf8")) as {
+        pid?: unknown;
+      };
+      if (
+        typeof existing.pid !== "number" ||
+        !Number.isSafeInteger(existing.pid) ||
+        existing.pid <= 0 ||
+        !processIsAlive(existing.pid)
+      ) {
+        rmSync(lockPath, { force: true });
+        continue;
+      }
+    } catch {
+      // A creator can briefly exist before its contents are observable. Wait
+      // for it unless the bounded acquisition deadline is exhausted.
+    }
+
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Timed out acquiring browser bootstrap discovery lock: ${lockPath}`,
+      );
+    }
+    await delay(DISCOVERY_LOCK_RETRY_MS);
+  }
+};
+
+const readFileIdentity = (filePath: string): FileIdentity | null => {
+  try {
+    const stat = lstatSync(filePath);
+    return { device: stat.dev, inode: stat.ino };
+  } catch {
+    return null;
+  }
+};
+
+const sameFileIdentity = (
+  left: FileIdentity | null,
+  right: FileIdentity | null,
+): boolean =>
+  left !== null &&
+  right !== null &&
+  left.device === right.device &&
+  left.inode === right.inode;
+
+const endpointIsLive = (socketPath: string): Promise<boolean> =>
+  new Promise((resolve) => {
+    const socket = createConnection(socketPath);
+    let settled = false;
+    const finish = (live: boolean) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(live);
+    };
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+    socket.setTimeout(ENDPOINT_PROBE_TIMEOUT_MS, () => {
+      // A timeout is ambiguous, so preserve the endpoint rather than stealing
+      // a potentially busy owner from another Stella instance.
+      finish(true);
+    });
+  });
 
 export type InAppBrowserBootstrapServerOptions = {
   token: string;
@@ -68,6 +189,9 @@ export class InAppBrowserBootstrapServer {
   private readonly endpoint: StellaInAppBrowserInitEndpoint;
   private readonly tokenPath: string;
   private readonly sockets = new Set<Socket>();
+  private readonly ownerId = randomUUID();
+  private readonly discoveryLockPath: string;
+  private endpointIdentity: FileIdentity | null = null;
   private server: Server | null = null;
   private startPromise: Promise<void> | null = null;
 
@@ -75,6 +199,7 @@ export class InAppBrowserBootstrapServer {
     this.options = options;
     this.endpoint = options.endpoint ?? getStellaInAppBrowserInitEndpoint();
     this.tokenPath = options.tokenPath ?? getStellaInAppBrowserInitTokenPath();
+    this.discoveryLockPath = `${this.tokenPath}.lock`;
   }
 
   start(): Promise<void> {
@@ -93,23 +218,56 @@ export class InAppBrowserBootstrapServer {
     this.server = null;
     for (const socket of this.sockets) socket.destroy();
     this.sockets.clear();
-    if (server?.listening) {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+    const releaseDiscoveryLock = await acquireDiscoveryLock(
+      this.discoveryLockPath,
+      this.ownerId,
+    );
+    try {
+      if (server?.listening) {
+        await this.closeServerPreservingForeignEndpoint(server);
+      }
+      this.removeOwnedDiscoveryFilesLocked();
+    } finally {
+      releaseDiscoveryLock();
     }
-    this.removeDiscoveryFiles();
   }
 
   private async startInternal(): Promise<void> {
-    if ("path" in this.endpoint) {
-      mkdirSync(path.dirname(this.endpoint.path), { recursive: true });
-      rmSync(this.endpoint.path, { force: true });
-    }
     mkdirSync(path.dirname(this.tokenPath), { recursive: true });
-    writeFileSync(this.tokenPath, this.options.token);
-    if (process.platform !== "win32") chmodSync(this.tokenPath, 0o600);
-    const server = createServer((socket) => this.handleSocket(socket));
-    this.server = server;
+    const releaseDiscoveryLock = await acquireDiscoveryLock(
+      this.discoveryLockPath,
+      this.ownerId,
+    );
     try {
+      const filesystemEndpointPath = this.filesystemEndpointPath();
+      if (filesystemEndpointPath) {
+        mkdirSync(path.dirname(filesystemEndpointPath), { recursive: true });
+        const existingIdentity = readFileIdentity(filesystemEndpointPath);
+        if (existingIdentity) {
+          if (await endpointIsLive(filesystemEndpointPath)) {
+            const error = new Error(
+              `Browser bootstrap endpoint is already in use: ${filesystemEndpointPath}`,
+            ) as NodeJS.ErrnoException;
+            error.code = "EADDRINUSE";
+            throw error;
+          }
+          if (
+            !sameFileIdentity(
+              readFileIdentity(filesystemEndpointPath),
+              existingIdentity,
+            )
+          ) {
+            const error = new Error(
+              `Browser bootstrap endpoint changed during stale probe: ${filesystemEndpointPath}`,
+            ) as NodeJS.ErrnoException;
+            error.code = "EADDRINUSE";
+            throw error;
+          }
+        }
+        rmSync(filesystemEndpointPath, { force: true });
+      }
+      const server = createServer((socket) => this.handleSocket(socket));
+      this.server = server;
       await new Promise<void>((resolve, reject) => {
         const onError = (error: Error) => {
           server.off("listening", onListening);
@@ -123,11 +281,49 @@ export class InAppBrowserBootstrapServer {
         server.once("listening", onListening);
         server.listen(this.endpoint);
       });
+      this.endpointIdentity = filesystemEndpointPath
+        ? readFileIdentity(filesystemEndpointPath)
+        : null;
+      this.publishToken();
     } catch (error) {
-      if (this.server === server) this.server = null;
-      server.close();
-      this.removeDiscoveryFiles();
+      const server = this.server;
+      this.server = null;
+      if (server) {
+        if (server.listening) {
+          await new Promise<void>((resolve) => server.close(() => resolve()));
+        } else {
+          try {
+            server.close();
+          } catch {
+            // The listen error may have left the server unopened.
+          }
+        }
+      }
+      this.removeOwnedEndpoint();
       throw error;
+    } finally {
+      releaseDiscoveryLock();
+    }
+  }
+
+  private filesystemEndpointPath(): string | null {
+    return "path" in this.endpoint && process.platform !== "win32"
+      ? this.endpoint.path
+      : null;
+  }
+
+  private publishToken() {
+    const temporaryPath = `${this.tokenPath}.${this.ownerId}.tmp`;
+    try {
+      writeFileSync(temporaryPath, this.options.token, {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 0o600,
+      });
+      if (process.platform !== "win32") chmodSync(temporaryPath, 0o600);
+      renameSync(temporaryPath, this.tokenPath);
+    } finally {
+      rmSync(temporaryPath, { force: true });
     }
   }
 
@@ -200,8 +396,68 @@ export class InAppBrowserBootstrapServer {
     );
   }
 
-  private removeDiscoveryFiles() {
-    if ("path" in this.endpoint) rmSync(this.endpoint.path, { force: true });
+  private ownsPublishedToken(): boolean {
+    try {
+      return sameToken(
+        readFileSync(this.tokenPath, "utf8"),
+        this.options.token,
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private removeOwnedEndpoint() {
+    const filesystemEndpointPath = this.filesystemEndpointPath();
+    if (
+      filesystemEndpointPath &&
+      sameFileIdentity(
+        readFileIdentity(filesystemEndpointPath),
+        this.endpointIdentity,
+      )
+    ) {
+      rmSync(filesystemEndpointPath, { force: true });
+    }
+    this.endpointIdentity = null;
+  }
+
+  private async closeServerPreservingForeignEndpoint(server: Server) {
+    let preservedPath: string | null = null;
+    const filesystemEndpointPath = this.filesystemEndpointPath();
+    if (
+      filesystemEndpointPath &&
+      this.endpointIdentity &&
+      !sameFileIdentity(
+        readFileIdentity(filesystemEndpointPath),
+        this.endpointIdentity,
+      )
+    ) {
+      preservedPath = `${filesystemEndpointPath}.${this.ownerId}.preserved`;
+      rmSync(preservedPath, { force: true });
+      linkSync(filesystemEndpointPath, preservedPath);
+    }
+    try {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    } finally {
+      if (preservedPath) {
+        try {
+          linkSync(preservedPath, filesystemEndpointPath!);
+          rmSync(preservedPath, { force: true });
+        } catch {
+          // linkSync never replaces a path that appeared while closing.
+          // Retaining the preserved endpoint is safer than unlinking either
+          // foreign owner.
+        }
+      }
+    }
+  }
+
+  private removeOwnedDiscoveryFilesLocked() {
+    if (!this.ownsPublishedToken()) {
+      this.endpointIdentity = null;
+      return;
+    }
+    this.removeOwnedEndpoint();
     rmSync(this.tokenPath, { force: true });
   }
 }

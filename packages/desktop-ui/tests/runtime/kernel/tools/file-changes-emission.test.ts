@@ -3,10 +3,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  handleEdit,
-  handleWrite,
-} from "@stella/runtime/kernel/tools/file";
+import { handleEdit, handleWrite } from "@stella/runtime/kernel/tools/file";
 import { handleApplyPatch } from "@stella/runtime/kernel/tools/apply-patch";
 import {
   createShellState,
@@ -253,7 +250,7 @@ describe("fileChanges emission", () => {
     );
 
     expect(started.error).toBeUndefined();
-    const sessionId = (started.result as { session_id: string | null })
+    const sessionId = (started.details as { session_id: string | null })
       .session_id;
     expect(typeof sessionId).toBe("string");
 
@@ -389,7 +386,7 @@ describe("fileChanges emission", () => {
       context,
     );
 
-    const sessionId = (started.result as { session_id: string | null })
+    const sessionId = (started.details as { session_id: string | null })
       .session_id;
     expect(typeof sessionId).toBe("string");
 
@@ -404,6 +401,12 @@ describe("fileChanges emission", () => {
     );
 
     expect(finished.error).toBeUndefined();
+    expect(finished.details).toMatchObject({
+      session_id: null,
+      shell_session_id: sessionId,
+      worker_generation: shellState.workerGeneration,
+      interaction_sequence: 2,
+    });
     expect(finished.producedFiles).toEqual([
       { path: filePath, kind: { type: "add" } },
     ]);
@@ -445,7 +448,7 @@ describe("fileChanges emission", () => {
       },
       context,
     );
-    const sessionId = (started.result as { session_id: string | null })
+    const sessionId = (started.details as { session_id: string | null })
       .session_id;
     expect(typeof sessionId).toBe("string");
     // Still running: nothing produced inline yet.
@@ -613,7 +616,7 @@ describe("fileChanges emission", () => {
       },
       context,
     );
-    const sessionId = (started.result as { session_id: string | null })
+    const sessionId = (started.details as { session_id: string | null })
       .session_id;
     expect(typeof sessionId).toBe("string");
 

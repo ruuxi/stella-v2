@@ -2882,8 +2882,176 @@ static std::string operationScreenshotPolicy(const Json& operation) {
     return policy;
 }
 
+static bool isAtomicActionTool(const std::string& tool) {
+    return tool == "click" || tool == "perform_secondary_action" ||
+        tool == "scroll" || tool == "drag" || tool == "type_text" ||
+        tool == "press_key" || tool == "set_value" || tool == "select_text";
+}
+
+static std::string staleObservationJson(
+    const Json& precondition,
+    unsigned long long currentRevision,
+    const std::string& reason) {
+    std::ostringstream out;
+    out << "{\"ok\":false,\"code\":\"stale_observation\",\"error\":"
+        << jsonString(reason)
+        << ",\"observed_state_id\":" << jsonString(precondition.str("state_id"))
+        << ",\"current_revision\":" << currentRevision << "}";
+    return out.str();
+}
+
+// Returns an empty string when the target still matches the observation. The
+// daemon handles one request at a time, so a successful check is adjacent to
+// dispatch and cannot be interleaved by another Stella session.
+static std::string validateAtomicPrecondition(
+    IUIAutomation* uia,
+    const Json& command,
+    const Json& precondition) {
+    const Json* expectedPidValue = precondition.get("target_pid");
+    const Json* expectedRevisionValue = precondition.get("revision");
+    const Json* expectedMaterializedValue = precondition.get("materialized_revision");
+    if (precondition.str("state_id").empty() ||
+        !expectedPidValue || expectedPidValue->type != Json::Number ||
+        !expectedRevisionValue || expectedRevisionValue->type != Json::Number ||
+        !expectedMaterializedValue || expectedMaterializedValue->type != Json::Number) {
+        throw std::runtime_error(
+            "atomic action precondition requires state_id, target_pid, revision, and materialized_revision");
+    }
+
+    std::wstring app = toWide(command.str("app"));
+    long long windowId = operationWindowId(command);
+    WindowProcess process = resolveApp(uia, app, windowId);
+    TargetState& targetState = targetStateFor(uia, process);
+    unsigned long long currentRevision = targetState.tracker
+        ? targetState.tracker->revision.load()
+        : 0;
+    unsigned long long expectedPid = (unsigned long long)expectedPidValue->numberValue;
+    unsigned long long expectedRevision =
+        (unsigned long long)expectedRevisionValue->numberValue;
+    unsigned long long expectedMaterialized =
+        (unsigned long long)expectedMaterializedValue->numberValue;
+    if ((unsigned long long)process.pid != expectedPid) {
+        return staleObservationJson(
+            precondition,
+            currentRevision,
+            "Observed Windows target process changed before dispatch.");
+    }
+    const Json* expectedWindowValue = precondition.get("window_id");
+    if (expectedWindowValue) {
+        if (expectedWindowValue->type != Json::Number) {
+            throw std::runtime_error("atomic action window_id precondition must be a number");
+        }
+        if ((unsigned long long)hwndValue(process.hwnd) !=
+            (unsigned long long)expectedWindowValue->numberValue) {
+            return staleObservationJson(
+                precondition,
+                currentRevision,
+                "Observed Windows target window changed before dispatch.");
+        }
+    }
+    if (currentRevision != expectedRevision ||
+        targetState.materializedRevision != expectedMaterialized) {
+        return staleObservationJson(
+            precondition,
+            currentRevision,
+            "Observed Windows app state changed before dispatch.");
+    }
+    return "";
+}
+
+static std::string executeAtomicActionOperation(IUIAutomation* uia, const Json& operation) {
+    const Json* command = operation.get("command");
+    const Json* precondition = operation.get("precondition");
+    if (!command || command->type != Json::Object ||
+        !precondition || precondition->type != Json::Object) {
+        throw std::runtime_error("atomic_action requires command and precondition objects");
+    }
+    if (!isAtomicActionTool(command->str("tool"))) {
+        throw std::runtime_error("atomic_action requires one supported mutating command");
+    }
+    std::string stale = validateAtomicPrecondition(uia, *command, *precondition);
+    if (!stale.empty()) return stale;
+    return executeOperation(uia, *command);
+}
+
+static std::string executeAtomicBatchOperation(IUIAutomation* uia, const Json& operation) {
+    const Json* commands = operation.get("commands");
+    if (!commands || commands->type != Json::Array) {
+        throw std::runtime_error("atomic_batch commands must be an array");
+    }
+    if (commands->arrayValue.empty() || commands->arrayValue.size() > 64) {
+        throw std::runtime_error("atomic_batch commands must contain between 1 and 64 operations");
+    }
+
+    // Validate every member before dispatching any member. This prevents a
+    // stale command later in a batch from causing a partial mutation.
+    for (size_t index = 0; index < commands->arrayValue.size(); index++) {
+        const Json& item = commands->arrayValue[index];
+        const Json* command = item.get("command");
+        const Json* precondition = item.get("precondition");
+        if (item.type != Json::Object || !command || command->type != Json::Object ||
+            !precondition || precondition->type != Json::Object) {
+            throw std::runtime_error(
+                "atomic_batch command " + std::to_string(index) +
+                " requires command and precondition objects");
+        }
+        if (!isAtomicActionTool(command->str("tool"))) {
+            throw std::runtime_error(
+                "atomic_batch command " + std::to_string(index) +
+                " is not a supported mutating command");
+        }
+        std::string stale = validateAtomicPrecondition(uia, *command, *precondition);
+        if (!stale.empty()) return stale;
+    }
+
+    std::ostringstream results;
+    size_t completed = 0;
+    std::string failure;
+    for (size_t index = 0; index < commands->arrayValue.size(); index++) {
+        const Json& command = *commands->arrayValue[index].get("command");
+        std::string result;
+        try {
+            result = executeOperation(uia, command);
+            JsonParser parser(result);
+            Json parsed = parser.parseValue();
+            const Json* ok = parsed.get("ok");
+            if (!ok || ok->type != Json::Bool || !ok->boolValue) {
+                const Json* error = parsed.get("error");
+                failure = error && error->type == Json::String
+                    ? error->stringValue
+                    : "atomic_batch command " + std::to_string(index) + " failed";
+            }
+        } catch (const std::exception& error) {
+            failure = error.what();
+        }
+
+        if (index) results << ",";
+        results << "{\"index\":" << index;
+        if (failure.empty()) {
+            results << ",\"ok\":true,\"result\":" << result << "}";
+            completed += 1;
+            continue;
+        }
+        results << ",\"ok\":false,\"error\":" << jsonString(failure) << "}";
+        break;
+    }
+    std::ostringstream out;
+    out << "{\"ok\":" << (failure.empty() ? "true" : "false")
+        << ",\"completed\":" << completed
+        << ",\"results\":[" << results.str() << "]";
+    if (!failure.empty()) out << ",\"error\":" << jsonString(failure);
+    out << "}";
+    return out.str();
+}
+
 static std::string executeOperation(IUIAutomation* uia, const Json& operation) {
     std::string tool = operation.str("tool");
+    if (tool == "atomic_action") {
+        return executeAtomicActionOperation(uia, operation);
+    }
+    if (tool == "atomic_batch") {
+        return executeAtomicBatchOperation(uia, operation);
+    }
     if (tool == "batch") {
         return executeBatchOperation(uia, operation);
     }

@@ -3,6 +3,43 @@ type RuntimeLogLevel = "debug" | "info" | "warn" | "error";
 const SENSITIVE_KEY_RE =
   /(authorization|proxy-authorization|cookie|set-cookie|token|secret|password|passwd|api[-_]?key|client[-_]?secret|session|csrf|x[-_]api[-_]key)/i;
 
+// Numeric token-usage metrics are observability data, not bearer credentials.
+// Keep this allowlist deliberately exact so fields such as `accessToken` remain
+// redacted even if a caller accidentally represents the credential as a number.
+const NUMERIC_TOKEN_METRIC_KEYS = new Set([
+  "cachedTokens",
+  "cacheReadTokens",
+  "cacheWriteTokens",
+  "completionTokens",
+  "estimatedTokens",
+  "imageTokens",
+  "inputTokens",
+  "keepRecentTokens",
+  "maxTokens",
+  "measuredTokens",
+  "middleTokens",
+  "modelOutputTokens",
+  "orchestratorTokenEstimate",
+  "outputTokens",
+  "promptTokens",
+  "queryTokens",
+  "reasoningTokens",
+  "reminderTokensSinceLastInjection",
+  "tokenCount",
+  "tokenEstimate",
+  "tokensAfter",
+  "tokensBefore",
+  "totalTokens",
+]);
+
+const shouldRedactLogField = (key: string, value: unknown): boolean =>
+  SENSITIVE_KEY_RE.test(key) &&
+  !(
+    NUMERIC_TOKEN_METRIC_KEYS.has(key) &&
+    typeof value === "number" &&
+    Number.isFinite(value)
+  );
+
 const sanitizeLogValue = (
   value: unknown,
   depth = 0,
@@ -28,7 +65,7 @@ const sanitizeLogValue = (
 
   const output: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    output[key] = SENSITIVE_KEY_RE.test(key)
+    output[key] = shouldRedactLogField(key, entry)
       ? "[REDACTED]"
       : sanitizeLogValue(entry, depth + 1, seen);
   }
@@ -46,10 +83,16 @@ const shouldEmitDebug = (scope: string): boolean => {
   if (selectors.length === 0) {
     return false;
   }
-  if (selectors.includes("*") || selectors.includes("1") || selectors.includes("true")) {
+  if (
+    selectors.includes("*") ||
+    selectors.includes("1") ||
+    selectors.includes("true")
+  ) {
     return true;
   }
-  return selectors.some((selector) => scope === selector || scope.startsWith(`${selector}.`));
+  return selectors.some(
+    (selector) => scope === selector || scope.startsWith(`${selector}.`),
+  );
 };
 
 const emitLog = (
@@ -88,4 +131,3 @@ export const createRuntimeLogger = (scope: string) => ({
   error: (message: string, fields?: unknown) =>
     emitLog("error", scope, message, fields),
 });
-

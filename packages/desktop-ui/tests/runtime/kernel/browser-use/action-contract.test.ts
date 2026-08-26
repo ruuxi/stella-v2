@@ -97,6 +97,7 @@ const WORKER_EMITTED_COMMANDS: Record<string, readonly string[]> = {
   tab_list: [],
   tab_new: ["url"],
   tab_close: [],
+  mark_tab: ["status"], // tab.markDeliverable / tab.markHandoff
   finalize_tabs: ["keep"], // browser.tabs.finalize (top-level only)
   snapshot: ["interactive", "cursor", "compact", "maxDepth", "selector"],
   screenshot: ["fullPage", "annotate", "selector", "format", "quality"],
@@ -193,6 +194,7 @@ describe("browser action contract (manifest <-> JS layers)", () => {
       "close_owner",
       "evaluate_detached",
       "finalize_tabs",
+      "mark_tab",
       "release_owner_lease",
       "rewrite_request",
       "unrewrite_request",

@@ -8,6 +8,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -18,6 +19,10 @@ import {
 } from "@stella/runtime/kernel/home/bundled-skills";
 
 const roots = new Set<string>();
+const REPO_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../../../..",
+);
 
 const tempDir = async (prefix: string) => {
   const root = await mkdtemp(path.join(os.tmpdir(), prefix));
@@ -65,6 +70,16 @@ describe("buildBundledSkillsSnapshot", () => {
     });
     expect([...win.skills.keys()]).toEqual(["pdf", "stella-computer-windows"]);
     expect(darwin.key).not.toBe(win.key);
+  });
+
+  it("excludes removed defaults from the product seed", async () => {
+    const snapshot = await buildBundledSkillsSnapshot({
+      seedSkillsDir: path.join(REPO_ROOT, "packages", "home-seed", "skills"),
+      platform: "darwin",
+    });
+
+    expect(snapshot.skills.has("crates-io-client")).toBe(false);
+    expect(snapshot.skills.has("hackernews-client")).toBe(false);
   });
 });
 
@@ -163,15 +178,29 @@ describe("syncBundledSkills", () => {
     });
   });
 
-  it("retires only an unchanged shipped skill removed from a later seed", async () => {
+  it("retires removed defaults while preserving a user-modified copy", async () => {
     const seedSkillsDir = await createSeed();
     const home = await tempDir("bundled-skills-retired-");
+    for (const id of ["crates-io-client", "hackernews-client"]) {
+      await mkdir(path.join(seedSkillsDir, id), { recursive: true });
+      await writeFile(
+        path.join(seedSkillsDir, id, "SKILL.md"),
+        `${id} shipped`,
+      );
+    }
     const first = await buildBundledSkillsSnapshot({
       seedSkillsDir,
       platform: "darwin",
     });
     await syncBundledSkills(home, first);
-    await rm(path.join(seedSkillsDir, "pdf"), { recursive: true });
+    await writeFile(
+      path.join(home, "skills", "hackernews-client", "SKILL.md"),
+      "user-modified Hacker News skill",
+    );
+    await rm(path.join(seedSkillsDir, "crates-io-client"), { recursive: true });
+    await rm(path.join(seedSkillsDir, "hackernews-client"), {
+      recursive: true,
+    });
     const second = await buildBundledSkillsSnapshot({
       seedSkillsDir,
       platform: "darwin",
@@ -180,8 +209,19 @@ describe("syncBundledSkills", () => {
     await expect(syncBundledSkills(home, second)).resolves.toEqual({
       applied: true,
     });
-    await expect(readdir(path.join(home, "skills", "pdf"))).rejects.toThrow();
-    expect((await readBundledSkillsState(home))?.skills).toEqual({});
+    await expect(
+      readdir(path.join(home, "skills", "crates-io-client")),
+    ).rejects.toThrow();
+    await expect(
+      readFile(
+        path.join(home, "skills", "hackernews-client", "SKILL.md"),
+        "utf-8",
+      ),
+    ).resolves.toBe("user-modified Hacker News skill");
+    const state = await readBundledSkillsState(home);
+    expect(state?.skills).not.toHaveProperty("crates-io-client");
+    expect(state?.skills).not.toHaveProperty("hackernews-client");
+    expect(state?.skills).toHaveProperty("pdf");
     expect(await readdir(path.join(home, ".trash"))).toHaveLength(1);
   });
 

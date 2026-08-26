@@ -7,6 +7,7 @@ import {
   RpcError,
   type JsonRpcPeer as JsonRpcPeerInstance,
 } from "@stella/contracts/protocol/rpc-peer";
+import { forkDelayed } from "./effect-runtime.js";
 
 type RequestHandler = (params: unknown) => Promise<unknown> | unknown;
 type NotificationHandler = (params: unknown) => Promise<void> | void;
@@ -15,7 +16,7 @@ type NotificationHandler = (params: unknown) => Promise<void> | void;
  * Minimal surface shared by `JsonRpcPeer` and `WorkerPeerBroker`. All
  * server-side helpers (notifyLocalChatUpdated, dispatchApplyBatch, etc.)
  * type their `peer` param against this so both single-peer (legacy
- * stdio embed, tests) and multi-peer (detached UDS) wiring work
+ * stdio embed) and multi-peer (detached UDS) wiring work
  * without any code-site changes.
  */
 export type WorkerPeerLike = {
@@ -225,16 +226,18 @@ export class WorkerPeerBroker {
   private waitForPeer(timeoutMs: number): Promise<JsonRpcPeer> {
     return new Promise<JsonRpcPeer>((resolve, reject) => {
       const onAttach = () => {
-        clearTimeout(timer);
+        deadline.cancel();
         const peer = this.pickPeer();
         if (peer) {
           resolve(peer);
         } else {
           // Race: someone detached before we resolved. Re-queue.
+          // (Parity quirk preserved: the deadline is cancelled on the first
+          // attach even when we re-queue, exactly like the old clearTimeout.)
           this.waitForPeerResolvers.push(onAttach);
         }
       };
-      const timer = setTimeout(() => {
+      const deadline = forkDelayed(timeoutMs, () => {
         const idx = this.waitForPeerResolvers.indexOf(onAttach);
         if (idx >= 0) this.waitForPeerResolvers.splice(idx, 1);
         reject(
@@ -243,8 +246,7 @@ export class WorkerPeerBroker {
             "No host connected to receive RPC request.",
           ),
         );
-      }, timeoutMs);
-      timer.unref?.();
+      });
       this.waitForPeerResolvers.push(onAttach);
     });
   }

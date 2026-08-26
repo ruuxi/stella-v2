@@ -1,9 +1,6 @@
 import { ConvexClient } from "convex/browser";
 import type { RunnerContext } from "./types.js";
-import {
-  sanitizeConvexDeploymentUrl,
-  sanitizeStellaBase,
-} from "./shared.js";
+import { sanitizeConvexDeploymentUrl, sanitizeStellaBase } from "./shared.js";
 
 export const createConvexSession = (
   context: RunnerContext,
@@ -157,6 +154,7 @@ export const createConvexSession = (
     disposeConvexClient();
     if (next) {
       options.onAuthTokenSet?.();
+      context.cloudTranscript.resume();
     }
   };
 

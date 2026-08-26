@@ -26,7 +26,7 @@ const sessionRowSchema = z.object({
   sessionId: z.string().catch(""),
   localFolderPath: z.string().catch(""),
   localFolderName: z.string().catch(""),
-  role: z.literal("host").catch("follower"),
+  role: z.enum(["host", "follower"]).catch("follower"),
   lastAppliedFileOpOrdinal: z.number().catch(0),
   lastObservedTurnOrdinal: z.number().catch(0),
   updatedAt: z.number().catch(0),

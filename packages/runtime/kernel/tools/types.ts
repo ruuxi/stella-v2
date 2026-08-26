@@ -5,6 +5,7 @@
 import type { TaskLifecycleStatus } from "@stella/contracts/agent-runtime";
 import type {
   AgentModelConfigSnapshot,
+  CloudExecutionSelection,
   SpawnEngineSelection,
   SpawnReasoningEffort,
 } from "@stella/contracts/agent-engine";
@@ -32,7 +33,11 @@ export type ToolContext = {
   requestId: string;
   runId?: string;
   rootRunId?: string;
+  /** Fences tool side effects to the active execution attempt for an agent. */
+  attemptGeneration?: number;
   agentType?: string;
+  /** Agent execution root. Kept separate from install and durable-data paths. */
+  workingDirectory?: string;
   stellaAppDir?: string;
   stellaDataDir?: string;
   toolWorkspaceRoot?: string;
@@ -50,6 +55,15 @@ export type ToolContext = {
   allowedToolNames?: string[];
   /** External adapters acknowledge image delivery after transcript storage. */
   deferImageDeliveryAck?: boolean;
+  /**
+   * Per-command ceiling on snapshot-detected `producedFiles`. The default
+   * (`MAX_PRODUCED_FILES_PER_COMMAND`) is tuned for the desktop, where a batch
+   * over the cap is almost always environment churn and reaches the user
+   * unfiltered. Hosts that re-filter every produced file downstream — the
+   * cloud drive re-checks path, size and quota per file — can raise it so a
+   * deliberate large batch survives collection.
+   */
+  maxProducedFilesPerCommand?: number;
   connectorDeliveryTarget?: {
     requestId: string;
     conversationId: string;
@@ -86,6 +100,21 @@ export type ToolResult = {
    * shell/CLI work rather than an explicit file-edit tool.
    */
   producedFiles?: ProducedFileRecord[];
+  /**
+   * Set when the per-command cap withheld a snapshot-detected batch instead
+   * of delivering it. `producedFiles` is then absent, and this says how much
+   * was withheld — so a surface can report "31 files produced, none shown"
+   * rather than showing nothing and implying the command produced nothing.
+   */
+  producedFilesOmitted?: ProducedFilesOmission;
+};
+
+/** See `ToolResult.producedFilesOmitted`. */
+export type ProducedFilesOmission = {
+  /** Files withheld, counted after noise filtering and dedup. */
+  count: number;
+  /** The per-command cap that withheld them. */
+  limit: number;
 };
 
 export type ToolUpdateCallback = (update: ToolResult) => void;
@@ -177,6 +206,13 @@ export type AgentToolRequest = {
   spawnEngine?: SpawnEngineSelection;
   /** Per-spawn reasoning override parsed from model's `:<effort>` suffix. */
   spawnReasoningEffort?: SpawnReasoningEffort;
+  /**
+   * Subject-shaped placement: `computer`, `cloud`, `project:<name>`, or
+   * `app:<slug>`. Not exposed on the spawn schema — the placement router
+   * (or a cloud AgentToolApi implementation) sets it. The local runtime
+   * only ever forwards `computer` (or nothing).
+   */
+  workspace?: string;
   /** Durable effective route inherited by a subagent from its Orchestrator. */
   modelConfigSnapshot?: AgentModelConfigSnapshot;
   toolWorkspaceRoot?: string;
@@ -185,13 +221,37 @@ export type AgentToolRequest = {
   maxAgentDepth?: number;
   parentAgentId?: string;
   threadId?: string;
-  storageMode: "local";
+  storageMode: "cloud" | "local";
+};
+
+/**
+ * A spawn whose subject lives off this device. `computer` and an omitted
+ * workspace never produce one of these: those stay local by construction.
+ */
+export type CloudDispatchRequest = {
+  /** `cloud`, `stella`, `project:<name>`, or `app:<slug>`. */
+  workspace: string;
+  /** Local conversation the spawn came from, used to keep cloud threads together. */
+  conversationId: string;
+  description: string;
+  prompt: string;
+  /** Exact route selected on desktop; the cloud validates it without fallback. */
+  execution: CloudExecutionSelection;
+};
+
+export type CloudDispatchResult = {
+  /** Cloud thread id, addressable by desktop send_input and pause_agent. */
+  threadId: string;
+  /** Cloud conversation the agent reports into. */
+  conversationId: string;
 };
 
 export type AgentToolSnapshot = {
   id: string;
   status: TaskLifecycleStatus;
   description: string;
+  /** Durable engine/model evidence for this agent thread. */
+  modelConfigSnapshot?: AgentModelConfigSnapshot;
   startedAt: number;
   completedAt: number | null;
   result?: string;
@@ -282,6 +342,42 @@ export type AgentToolApi = {
     threadId: string,
     recipient: "orchestrator" | "subagent",
   ) => Promise<string[]>;
+  /**
+   * Hands a cloud-placed spawn to Stella's cloud runtime and returns the
+   * cloud thread it created. Injected only by hosts that can reach the
+   * backend as the signed-in user; when it is missing, `spawn_agent` refuses
+   * cloud placements outright rather than running cloud-subject work on this
+   * machine.
+   */
+  cloudDispatch?: (
+    request: CloudDispatchRequest,
+  ) => Promise<CloudDispatchResult>;
+  /** Continue an owned cloud thread from the current desktop conversation. */
+  cloudContinue?: (request: {
+    threadId: string;
+    description: string;
+    message: string;
+    conversationId: string;
+    requestId: string;
+  }) => Promise<{ delivered: boolean; reason?: string }>;
+  /** Stop the current turn of an owned cloud thread. */
+  cloudCancel?: (request: {
+    threadId: string;
+    conversationId: string;
+    requestId: string;
+  }) => Promise<{ canceled: boolean; reason?: string }>;
+  /** Manager-only upward reporting channel. */
+  reportManager?: (request: {
+    threadId: string;
+    message: string;
+    final: boolean;
+    attemptGeneration: number;
+    reportId: string;
+  }) => Promise<{
+    accepted: boolean;
+    final: boolean;
+    reason?: string;
+  }>;
 };
 
 export type ToolHostOptions = {
@@ -312,6 +408,16 @@ export type ToolHostOptions = {
     model?: string;
     spawnReasoningEffort?: SpawnReasoningEffort;
   }) => Promise<AgentModelConfigSnapshot | undefined>;
+  /**
+   * Resolves a cloud spawn against the current General-agent preferences.
+   * Explicit spawn pins are applied before serialization. Local-only routes
+   * throw instead of being mapped to a different cloud credential.
+   */
+  resolveCloudExecutionSelection?: (request: {
+    model?: string;
+    spawnEngine?: SpawnEngineSelection;
+    reasoningEffort?: SpawnReasoningEffort;
+  }) => Promise<CloudExecutionSelection>;
   scheduleApi?: ScheduleToolApi;
   fashionApi?: FashionToolApi;
   extensionTools?: import("../extensions/types.js").ToolDefinition[];

@@ -15,6 +15,7 @@ import { runExplore } from "../agent-runtime/explore.js";
 import { resolveOrchestratorThreadKey } from "../thread-runtime.js";
 import { shouldUseAutomaticSkillExplore } from "../shared/skill-catalog.js";
 import { LocalAgentManager } from "../agents/local-agent-manager.js";
+import { writeRestartInterruptedSnapshot } from "../restart-continuation.js";
 import type {
   AgentToolRequest,
   ToolContext,
@@ -36,6 +37,8 @@ import { buildAgentEventPrompt } from "./shared.js";
 import type { LocalChatEventRecord } from "../storage/shared.js";
 import type { ThreadActivityRecord } from "@stella/contracts/local-chat";
 import { createRunnerImageDescriptionService } from "./model-selection.js";
+import { RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE } from "../storage/shared.js";
+import type { ComputerAgentCloudRecords } from "./computer-agent-cloud-records.js";
 
 const collectFileChanges = (
   target: FileChangeRecord[],
@@ -103,6 +106,9 @@ const hasPersistedThreadCustomEvent = (
   eventId: string | undefined,
 ): boolean =>
   findPersistedThreadCustomEvent(context, threadKey, eventId) !== null;
+
+// stella-cloud-side callers use the shorter name for the same check.
+const hasPersistedThreadEvent = hasPersistedThreadCustomEvent;
 
 const getShellExecutionState = (
   result: ToolResult,
@@ -193,6 +199,10 @@ const buildLifecycleEventPayload = (
   event: AgentLifecycleEvent,
 ): Record<string, unknown> => {
   const runFields = event.rootRunId ? { rootRunId: event.rootRunId } : {};
+  const attemptFields =
+    typeof event.attemptGeneration === "number"
+      ? { attemptGeneration: event.attemptGeneration }
+      : {};
   const groupFields = event.groupKey
     ? {
         groupKey: event.groupKey,
@@ -204,6 +214,7 @@ const buildLifecycleEventPayload = (
       return {
         agentId: event.agentId,
         ...runFields,
+        ...attemptFields,
         description: event.description,
         agentType: event.agentType,
         ...(event.parentAgentId ? { parentAgentId: event.parentAgentId } : {}),
@@ -222,6 +233,7 @@ const buildLifecycleEventPayload = (
       return {
         agentId: event.agentId,
         ...runFields,
+        ...attemptFields,
         result: event.result ?? "",
         ...(event.fileChanges?.length
           ? { fileChanges: event.fileChanges }
@@ -235,6 +247,7 @@ const buildLifecycleEventPayload = (
       return {
         agentId: event.agentId,
         ...runFields,
+        ...attemptFields,
         result: event.result ?? "",
         ...(event.description ? { description: event.description } : {}),
       };
@@ -243,6 +256,7 @@ const buildLifecycleEventPayload = (
       return {
         agentId: event.agentId,
         ...runFields,
+        ...attemptFields,
         ...(event.error ? { error: event.error } : {}),
         ...groupFields,
       };
@@ -250,6 +264,7 @@ const buildLifecycleEventPayload = (
       return {
         agentId: event.agentId,
         ...runFields,
+        ...attemptFields,
         statusText: event.statusText,
         ...(event.toolActivity ? { toolActivity: event.toolActivity } : {}),
         ...(event.description ? { description: event.description } : {}),
@@ -257,19 +272,30 @@ const buildLifecycleEventPayload = (
         ...groupFields,
       };
   }
+  return {};
 };
 
-const appendAgentLifecycleChatEvent = (
+export const appendAgentLifecycleChatEvent = (
   context: RunnerContext,
   event: AgentLifecycleEvent,
 ) => {
   if (!context.appendLocalChatEvent) {
     return;
   }
+  // runtime_agents remains the local operational ledger for both placements,
+  // but a cloud-owned conversation's lifecycle transcript belongs only to the
+  // canonical cloud journal/agent-thread rows.
+  if (
+    context.runtimeStore.getAgentRecord?.(event.agentId)?.storageMode ===
+    "cloud"
+  ) {
+    return;
+  }
   context.appendLocalChatEvent({
     conversationId: event.conversationId,
     type: event.type,
     payload: buildLifecycleEventPayload(event),
+    ...(event.eventId ? { eventId: event.eventId } : {}),
   });
 };
 
@@ -307,6 +333,12 @@ export const createAgentOrchestration = (
       /** Per-spawn reasoning override from spawn_agent's model suffix. */
       spawnReasoningEffort?: AgentToolRequest["spawnReasoningEffort"];
     }) => Promise<LocalAgentContext>;
+    resolveAgentModelConfig?: (args: {
+      agentType: string;
+      model?: string;
+      spawnEngine?: AgentToolRequest["spawnEngine"];
+      spawnReasoningEffort?: AgentToolRequest["spawnReasoningEffort"];
+    }) => Promise<NonNullable<LocalAgentContext["modelConfigSnapshot"]>>;
     sendMessage: (input: {
       conversationId: string;
       text: string;
@@ -320,12 +352,13 @@ export const createAgentOrchestration = (
       display?: boolean;
       timestamp?: number;
     }) => Promise<void>;
+    cloudAgentRecords?: ComputerAgentCloudRecords;
     /** Test/embedding override; production uses the manager's bounded default. */
     attemptTeardownTimeoutMs?: number;
   },
 ) => {
   const inFlightLifecycleEventIds = new Set<string>();
-  const handleAgentLifecycleEvent = async (event) => {
+  const handleAgentLifecycleEvent = async (event: AgentLifecycleEvent) => {
     const installedManager = context.state.localAgentManager;
     const parentOwner = installedManager
       ? installedManager.resolveOwningParentThread(
@@ -392,6 +425,36 @@ export const createAgentOrchestration = (
       recipient: isParentOwned ? "parent_agent" : "orchestrator",
     });
     if (!userPrompt) {
+      // Desktop-originated cloud pauses deliberately suppress a synthetic
+      // orchestrator follow-up so it cannot overwrite the user's visible
+      // pause response. The Convex lifecycle monitor still needs a durable
+      // event marker before it may ACK the terminal row; otherwise that row
+      // remains subscribed forever and is replayed on every restart.
+      if (
+        event.type === "agent-canceled" &&
+        event.audience === "orchestrator-only" &&
+        event.eventId
+      ) {
+        const orchestratorThreadId = resolveOrchestratorThreadKey(
+          event.conversationId,
+        );
+        if (
+          !hasPersistedThreadEvent(context, orchestratorThreadId, event.eventId)
+        ) {
+          persistThreadCustomMessage(context.runtimeStore, {
+            threadKey: orchestratorThreadId,
+            customType: "runtime.task_lifecycle",
+            content: [],
+            display: false,
+            timestamp: Date.now(),
+            eventId: event.eventId,
+            lifecycleEvent: {
+              type: event.type,
+              payload: buildLifecycleEventPayload(event),
+            },
+          });
+        }
+      }
       return;
     }
     const deliveryEventId = event.eventId?.trim();
@@ -493,7 +556,12 @@ export const createAgentOrchestration = (
       ? { attemptTeardownTimeoutMs: deps.attemptTeardownTimeoutMs }
       : {}),
     getMaxConcurrent: () => getMaxAgentConcurrency(context.stellaDataDir),
-    resolveTaskThread: ({ conversationId, agentType, threadId, nameHint }) => {
+    resolveTaskThread: ({
+      conversationId,
+      agentType,
+      threadId,
+      nameHint,
+    }: Record<string, any>) => {
       if (!isLocalCliAgentId(agentType)) {
         return null;
       }
@@ -504,12 +572,20 @@ export const createAgentOrchestration = (
         ...(nameHint ? { nameHint } : {}),
       });
     },
-    listActiveThreads: (conversationId) =>
+    listActiveThreads: (conversationId: string) =>
       context.runtimeStore.listActiveThreads(conversationId),
-    onAgentEvent: (event) => {
+    onAgentEvent: (event: AgentLifecycleEvent) => {
       void handleAgentLifecycleEvent(event).catch(() => undefined);
     },
     fetchAgentContext: deps.buildAgentContext,
+    ...(deps.resolveAgentModelConfig
+      ? { resolveAgentModelConfig: deps.resolveAgentModelConfig }
+      : {}),
+    superviseAttempt: (attempt: any) =>
+      context.state.supervisor.adoptChild(attempt.rootRunId, attempt.threadId, {
+        abort: attempt.abort,
+        settled: attempt.settled,
+      }),
     runSubagent: async ({
       conversationId,
       userMessageId,
@@ -520,13 +596,15 @@ export const createAgentOrchestration = (
       agentContext,
       taskDescription,
       taskPrompt,
+      persistToConvex,
       abortSignal,
       subagentSession,
       onProgress,
+      onStatus,
       onToolStart,
       onToolEnd,
       toolExecutor,
-    }) => {
+    }: Record<string, any>) => {
       const runId = `local:sub:${crypto.randomUUID()}`;
       const site = {
         baseUrl: context.state.convexSiteUrl,
@@ -633,6 +711,7 @@ export const createAgentOrchestration = (
       };
       const result = await runSubagentTask({
         conversationId,
+        storageMode: persistToConvex ? "cloud" : "local",
         userMessageId,
         runId,
         agentId,
@@ -655,6 +734,14 @@ export const createAgentOrchestration = (
         store: context.runtimeStore,
         abortSignal,
         stellaAppDir: context.stellaAppDir,
+        // Subagent provider streams / tool calls supervise under the root
+        // run's scope (or detached when the child has no live root), same
+        // structure as the attempt fiber itself.
+        superviseRunResource: (resource) =>
+          context.state.supervisor.adoptResource(rootRunId, resource.label, {
+            abort: resource.abort,
+            settled: resource.settled,
+          }),
         ...(toolWorkspaceRoot ? { toolWorkspaceRoot } : {}),
         ...(subagentSession ? { subagentSession } : {}),
         compactionScheduler: context.state.compactionScheduler,
@@ -716,6 +803,12 @@ export const createAgentOrchestration = (
             onToolStart?.(event);
             runnerCallbacks?.onToolStart(event);
           },
+          onStatus: (event) => {
+            onStatus?.(event.statusText);
+            if (event.statusState !== "provider-retry") {
+              runnerCallbacks?.onStatus?.(event);
+            }
+          },
           onToolEnd: (event) => {
             onToolEnd?.(event);
             collectFileChanges(
@@ -728,11 +821,32 @@ export const createAgentOrchestration = (
               subagentProducedFileKeys,
               event.producedFiles?.length ? event : event.details,
             );
-            // Stamp the spawned agent's thread id onto the tool-end event
-            // so the persisted `tool_result` payload carries `agentId` —
-            // that's what lets the left sidebar attribute files to this
-            // agent's Activity row live, before the completion rollup.
-            runnerCallbacks?.onToolEnd(agentId ? { ...event, agentId } : event);
+            // Stamp durable thread + attempt provenance onto live tool-file
+            // events. `details` is flattened into the persisted tool_result
+            // payload by the worker, so the renderer can fence a write to the
+            // exact Activity attempt instead of replaying it on every later
+            // follow-up that reuses this agent id.
+            const eventDetails =
+              event.details &&
+              typeof event.details === "object" &&
+              !Array.isArray(event.details)
+                ? event.details
+                : event.details === undefined
+                  ? {}
+                  : { result: event.details };
+            runnerCallbacks?.onToolEnd(
+              agentId
+                ? {
+                    ...event,
+                    agentId,
+                    details: {
+                      ...eventDetails,
+                      attemptGeneration: agentContext.attemptGeneration,
+                      ...(rootRunId ? { rootRunId } : {}),
+                    },
+                  }
+                : event,
+            );
           },
         },
         hookEmitter: context.hookEmitter,
@@ -747,16 +861,20 @@ export const createAgentOrchestration = (
       // rollup assembles off `result.producedFiles`.
       if (touchedShellSessions.size > 0) {
         try {
-          const lateProducedFiles =
-            await context.toolHost.drainCompletedShellProducedFiles([
-              ...touchedShellSessions,
-            ]);
-          if (lateProducedFiles.length > 0) {
+          const late = await context.toolHost.drainCompletedShellProducedFiles([
+            ...touchedShellSessions,
+          ]);
+          if (late.files.length > 0) {
             collectProducedFiles(
               subagentProducedFiles,
               subagentProducedFileKeys,
-              { producedFiles: lateProducedFiles },
+              { producedFiles: late.files },
             );
+          }
+          // The cap withheld a background batch. It reaches the rollup as a
+          // count rather than as files, because there is nothing to attach.
+          if (late.omitted) {
+            result.producedFilesOmitted = late.omitted;
           }
         } catch (error) {
           console.warn(
@@ -773,7 +891,13 @@ export const createAgentOrchestration = (
       }
       return result;
     },
-    toolExecutor: (toolName, args, toolContext, signal, onUpdate) =>
+    toolExecutor: (
+      toolName: any,
+      args: any,
+      toolContext: any,
+      signal: any,
+      onUpdate: any,
+    ) =>
       context.toolHost.executeTool(
         toolName,
         args,
@@ -781,7 +905,15 @@ export const createAgentOrchestration = (
         signal,
         onUpdate,
       ),
-    saveAgentRecord: (record) => {
+    ...(deps.cloudAgentRecords
+      ? {
+          createCloudAgentRecord: deps.cloudAgentRecords.create,
+          completeCloudAgentRecord: deps.cloudAgentRecords.complete,
+          getCloudAgentRecord: deps.cloudAgentRecords.get,
+          cancelCloudAgentRecord: deps.cloudAgentRecords.cancel,
+        }
+      : {}),
+    saveAgentRecord: (record: any) => {
       const recordRevision = context.runtimeStore.saveAgentRecord?.(record);
       if (recordRevision === null) return;
       // Project the just-persisted row so consumers patch one keyed record
@@ -819,10 +951,38 @@ export const createAgentOrchestration = (
         record: activityRecord,
       });
     },
-    getAgentRecord: (threadId) =>
+    getAgentRecord: (threadId: string) =>
       context.runtimeStore.getAgentRecord?.(threadId) ?? null,
-    listAgentRecordsByStatus: (status) =>
+    listAgentRecordsByStatus: (status: any) =>
       context.runtimeStore.listAgentRecordsByStatus?.(status) ?? [],
+    persistBootInterruptionSnapshot: (threads: any) =>
+      writeRestartInterruptedSnapshot(context.stellaDataDir, threads),
+    hasAgentLifecycleEvent: (
+      conversationId: string,
+      eventId: string,
+      type: string,
+    ) => {
+      const hasActivityEvent = context.runtimeStore.hasEvent(
+        conversationId,
+        eventId,
+        type,
+      );
+      const hasOrchestratorReminder = hasPersistedThreadEvent(
+        context,
+        resolveOrchestratorThreadKey(conversationId),
+        eventId,
+      );
+      if (type === "agent-completed") {
+        // A Manager completion is delivered only when both durable artifacts
+        // exist. Recovery re-enters the idempotent lifecycle handler to repair
+        // either half of an interrupted two-write completion.
+        return hasActivityEvent && hasOrchestratorReminder;
+      }
+      return (
+        hasActivityEvent ||
+        (type === "agent-message" && hasOrchestratorReminder)
+      );
+    },
   });
 
   const runBlockingLocalAgent = async (
@@ -842,33 +1002,36 @@ export const createAgentOrchestration = (
       ...request,
       storageMode: "local",
     });
-    while (true) {
-      const snapshot = await context.state.localAgentManager.getAgent(threadId);
-      if (!snapshot) {
-        return {
-          status: "error",
-          finalText: "",
-          error: "Agent record disappeared before completion.",
-          threadId,
-        };
-      }
-      if (snapshot.status === "completed") {
-        return {
-          status: "ok",
-          finalText: snapshot.result ?? "",
-          threadId,
-        };
-      }
-      if (snapshot.status === "error" || snapshot.status === "canceled") {
-        return {
-          status: "error",
-          finalText: "",
-          error: snapshot.error ?? "Agent run failed",
-          threadId,
-        };
-      }
-      await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    // Effect-native settlement (replaces the historical poll-until-terminal
+    // loop): the manager's settlement latch wakes the wait on terminal
+    // transitions, with the same 2s fallback re-read for rehydrated records
+    // and out-of-band writers — SQLite stays the only truth. Cancellation
+    // pairing: abandoning this wait never cancels the child; the parent
+    // run's supervisor scope owns that (adoptChild's abort → cancelAgent,
+    // joined on cancelRun/shutdown).
+    const settlement =
+      await context.state.localAgentManager.awaitAgentSettled(threadId);
+    if (!settlement) {
+      return {
+        status: "error",
+        finalText: "",
+        error: "Agent record disappeared before completion.",
+        threadId,
+      };
     }
+    if (settlement.status === "completed") {
+      return {
+        status: "ok",
+        finalText: settlement.result ?? "",
+        threadId,
+      };
+    }
+    return {
+      status: "error",
+      finalText: "",
+      error: settlement.error ?? "Agent run failed",
+      threadId,
+    };
   };
 
   const createBackgroundAgent = async (
@@ -894,8 +1057,8 @@ export const createAgentOrchestration = (
     return await context.state.localAgentManager.cancelAgent(agentId, reason);
   };
 
-  const shutdown = () => {
-    context.state.localAgentManager?.shutdown();
+  const shutdown = async (): Promise<void> => {
+    await context.state.localAgentManager?.shutdown();
     shutdownSubagentRuntimes();
   };
 
@@ -903,6 +1066,33 @@ export const createAgentOrchestration = (
     runBlockingLocalAgent,
     createBackgroundAgent,
     cancelLocalAgent,
+    handleExternalAgentLifecycleEvent: handleAgentLifecycleEvent,
+    hasDurableExternalLifecycleEvent: (event: AgentLifecycleEvent) => {
+      if (!event.eventId) return false;
+      if (event.audience === "orchestrator-only") {
+        return hasPersistedThreadEvent(
+          context,
+          resolveOrchestratorThreadKey(event.conversationId),
+          event.eventId,
+        );
+      }
+      const hasActivityEvent = context.runtimeStore.hasEvent(
+        event.conversationId,
+        event.eventId,
+        event.type,
+      );
+      if (event.type === "agent-started") {
+        return hasActivityEvent;
+      }
+      return (
+        hasActivityEvent &&
+        hasPersistedThreadEvent(
+          context,
+          resolveOrchestratorThreadKey(event.conversationId),
+          event.eventId,
+        )
+      );
+    },
     shutdown,
   };
 };

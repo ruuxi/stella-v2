@@ -1,6 +1,9 @@
 import { promises as fs } from "fs";
 import path from "path";
-import { generateKeyPairSync } from "crypto";
+import { createPrivateKey, generateKeyPairSync, sign } from "crypto";
+
+import { Effect } from "effect";
+
 import {
   deleteProtectedValue,
   protectValue,
@@ -8,6 +11,7 @@ import {
 } from "../shared/protected-storage.js";
 import { ensurePrivateDir, writePrivateFile } from "../shared/private-fs.js";
 import { getFileLogger } from "../../observability/file-logger.js";
+import { withHome } from "./home-runtime.js";
 
 type DeviceRecord = {
   deviceId: string;
@@ -73,6 +77,10 @@ const logDeviceIdentityRegeneration = (
   );
 };
 
+/** Adapt a leaf Promise IO call, failing with the raw thrown value. */
+const tryIO = <A>(f: () => Promise<A>): Effect.Effect<A, unknown> =>
+  Effect.tryPromise({ try: f, catch: (error) => error });
+
 export const getDeviceRecordPath = (statePath: string) =>
   path.join(statePath, DEVICE_FILE);
 
@@ -108,72 +116,118 @@ const toStoredDeviceRecord = (identity: DeviceIdentity): DeviceRecord => ({
     : {}),
 });
 
-const createAndStoreDeviceIdentity = async (
+const createAndStoreDeviceIdentityEffect = (
   recordPath: string,
   previousPrivateKeyProtected?: string,
   supersededDeviceId?: string,
-): Promise<DeviceIdentity> => {
-  const payload: DeviceIdentity = {
-    deviceId: crypto.randomUUID(),
-    ...generateDeviceKeyPair(),
-    ...(supersededDeviceId ? { supersededDeviceId } : {}),
-  };
-  const record = toStoredDeviceRecord(payload);
-  await ensurePrivateDir(path.dirname(recordPath));
-  await writePrivateFile(recordPath, JSON.stringify(record, null, 2));
-  if (
-    previousPrivateKeyProtected &&
-    previousPrivateKeyProtected !== record.privateKeyProtected
-  ) {
-    deleteProtectedValue(DEVICE_PRIVATE_KEY_SCOPE, previousPrivateKeyProtected);
-  }
-  return payload;
-};
-
-export const getOrCreateDeviceIdentity = async (
-  statePath: string,
-): Promise<DeviceIdentity> => {
-  const recordPath = getDeviceRecordPath(statePath);
-  let previousPrivateKeyProtected: string | undefined;
-  // Carried into the replacement identity so the backend can move this
-  // machine's pairings, bridge registration and tunnel onto the new id. The
-  // id itself is not a secret, and the replacement is an ordinary device with
-  // its own keypair, so nothing about the key binding is relaxed by this.
-  let supersededDeviceId: string | undefined;
-  let reason: DeviceIdentityRegenerationReason = "no-record";
-
-  let raw: string | undefined;
-  try {
-    raw = await fs.readFile(recordPath, "utf-8");
-  } catch (error) {
-    reason =
-      (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT"
-        ? "no-record"
-        : "unreadable-record";
-  }
-
-  if (raw !== undefined) {
-    let parsed: DeviceRecord | null = null;
-    try {
-      parsed = JSON.parse(raw) as DeviceRecord;
-    } catch {
-      reason = "malformed-record";
-    }
-
-    if (parsed) {
-      previousPrivateKeyProtected = parsed.privateKeyProtected;
-      // Captured before the decrypt attempt, which is precisely the case whose
-      // predecessor we need to keep.
-      if (parsed.deviceId) {
-        supersededDeviceId = parsed.deviceId;
-      }
-
-      if (parsed.deviceId && parsed.publicKey && parsed.privateKeyProtected) {
-        const decryptedPrivateKey = unprotectValue(
+): Effect.Effect<DeviceIdentity, unknown> =>
+  Effect.gen(function* () {
+    const payload = yield* Effect.sync(
+      (): DeviceIdentity => ({
+        deviceId: crypto.randomUUID(),
+        ...generateDeviceKeyPair(),
+        ...(supersededDeviceId ? { supersededDeviceId } : {}),
+      }),
+    );
+    const record = yield* Effect.sync(() => toStoredDeviceRecord(payload));
+    yield* tryIO(() => ensurePrivateDir(path.dirname(recordPath)));
+    yield* tryIO(() =>
+      writePrivateFile(recordPath, JSON.stringify(record, null, 2)),
+    );
+    if (
+      previousPrivateKeyProtected &&
+      previousPrivateKeyProtected !== record.privateKeyProtected
+    ) {
+      yield* Effect.sync(() =>
+        deleteProtectedValue(
           DEVICE_PRIVATE_KEY_SCOPE,
-          parsed.privateKeyProtected,
-        );
-        if (decryptedPrivateKey) {
+          previousPrivateKeyProtected,
+        ),
+      );
+    }
+    return payload;
+  });
+
+/**
+ * Read the persisted device record, tracking why it is unusable so a
+ * regeneration can be logged with its cause. Captures `privateKeyProtected`
+ * even when the rest of the record is unusable, so a re-key can clean up the
+ * superseded protected value. `reason` is only meaningful when `parsed` is
+ * undefined; later stages refine it for records that parse but cannot be
+ * reused.
+ */
+const readPersistedDeviceRecord = (
+  recordPath: string,
+): Effect.Effect<{
+  parsed: DeviceRecord | undefined;
+  reason: DeviceIdentityRegenerationReason;
+}> =>
+  tryIO(
+    async (): Promise<{
+      parsed: DeviceRecord | undefined;
+      reason: DeviceIdentityRegenerationReason;
+    }> => {
+      let raw: string;
+      try {
+        raw = await fs.readFile(recordPath, "utf-8");
+      } catch (error) {
+        return {
+          parsed: undefined,
+          reason:
+            (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT"
+              ? "no-record"
+              : "unreadable-record",
+        };
+      }
+      try {
+        return { parsed: JSON.parse(raw) as DeviceRecord, reason: "no-record" };
+      } catch {
+        return { parsed: undefined, reason: "malformed-record" };
+      }
+    },
+  ).pipe(
+    Effect.catch(() =>
+      Effect.succeed({
+        parsed: undefined,
+        reason: "unreadable-record" as DeviceIdentityRegenerationReason,
+      }),
+    ),
+  );
+
+export const getOrCreateDeviceIdentityEffect = (
+  statePath: string,
+): Effect.Effect<DeviceIdentity, unknown> =>
+  Effect.gen(function* () {
+    const recordPath = getDeviceRecordPath(statePath);
+    const { parsed, reason: readReason } =
+      yield* readPersistedDeviceRecord(recordPath);
+    const previousPrivateKeyProtected = parsed?.privateKeyProtected;
+    // Carried into the replacement identity so the backend can move this
+    // machine's pairings, bridge registration and tunnel onto the new id. The
+    // id itself is not a secret, and the replacement is an ordinary device with
+    // its own keypair, so nothing about the key binding is relaxed by this.
+    // Captured before the decrypt attempt, which is precisely the case whose
+    // predecessor we need to keep.
+    const supersededDeviceId = parsed?.deviceId ? parsed.deviceId : undefined;
+    let reason = readReason;
+    const existing = yield* Effect.try({
+      try: (): DeviceIdentity | null => {
+        if (
+          parsed?.deviceId &&
+          parsed.publicKey &&
+          parsed.privateKeyProtected
+        ) {
+          const decryptedPrivateKey = unprotectValue(
+            DEVICE_PRIVATE_KEY_SCOPE,
+            parsed.privateKeyProtected,
+          );
+          // A record that cannot be decrypted is unusable: fall through to
+          // create a fresh identity (the pre-Effect code threw here and was
+          // caught by the same fall-through).
+          if (!decryptedPrivateKey) {
+            reason = "undecryptable-private-key";
+            return null;
+          }
           return {
             deviceId: parsed.deviceId,
             publicKey: parsed.publicKey,
@@ -183,48 +237,53 @@ export const getOrCreateDeviceIdentity = async (
               : {}),
           };
         }
-        reason = "undecryptable-private-key";
-      } else {
-        reason = "incomplete-record";
-      }
-    }
-  }
+        if (parsed) {
+          reason = "incomplete-record";
+        }
+        return null;
+      },
+      catch: (error) => error,
+    }).pipe(Effect.catch(() => Effect.succeed(null)));
+    if (existing) return existing;
+    yield* Effect.sync(() =>
+      logDeviceIdentityRegeneration(reason, supersededDeviceId),
+    );
+    return yield* createAndStoreDeviceIdentityEffect(
+      recordPath,
+      previousPrivateKeyProtected,
+      supersededDeviceId,
+    );
+  });
 
-  logDeviceIdentityRegeneration(reason, supersededDeviceId);
+export const getOrCreateDeviceIdentity = (
+  statePath: string,
+): Promise<DeviceIdentity> =>
+  withHome((home) => home.getOrCreateDeviceIdentity(statePath));
 
-  return await createAndStoreDeviceIdentity(
-    recordPath,
-    previousPrivateKeyProtected,
-    supersededDeviceId,
-  );
-};
-
-export const resetDeviceIdentity = async (
+export const resetDeviceIdentityEffect = (
   statePath: string,
   options: { preservePairings?: boolean } = {},
-): Promise<DeviceIdentity> => {
-  const recordPath = getDeviceRecordPath(statePath);
-  let previousPrivateKeyProtected: string | undefined;
-  let supersededDeviceId: string | undefined;
-  try {
-    const raw = await fs.readFile(recordPath, "utf-8");
-    const parsed = JSON.parse(raw) as DeviceRecord;
-    previousPrivateKeyProtected = parsed.privateKeyProtected;
+): Effect.Effect<DeviceIdentity, unknown> =>
+  Effect.gen(function* () {
+    const recordPath = getDeviceRecordPath(statePath);
+    const { parsed } = yield* readPersistedDeviceRecord(recordPath);
     // Only an involuntary rotation (recovering from a key mismatch) carries the
     // old identity forward. A user-initiated reset is meant to cut ties, so it
     // must not drag the previous machine's pairings onto the new id.
-    if (options.preservePairings && parsed.deviceId) {
-      supersededDeviceId = parsed.deviceId;
-    }
-  } catch {
-    // No usable previous record to clean up.
-  }
-  return await createAndStoreDeviceIdentity(
-    recordPath,
-    previousPrivateKeyProtected,
-    supersededDeviceId,
-  );
-};
+    const supersededDeviceId =
+      options.preservePairings && parsed?.deviceId ? parsed.deviceId : undefined;
+    return yield* createAndStoreDeviceIdentityEffect(
+      recordPath,
+      parsed?.privateKeyProtected,
+      supersededDeviceId,
+    );
+  });
+
+export const resetDeviceIdentity = (
+  statePath: string,
+  options: { preservePairings?: boolean } = {},
+): Promise<DeviceIdentity> =>
+  withHome((home) => home.resetDeviceIdentity(statePath, options));
 
 /**
  * Drop the retained predecessor once the backend has accepted the succession,

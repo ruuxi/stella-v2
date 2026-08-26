@@ -291,6 +291,7 @@ export const NOTIFICATION_NAMES = {
   VOICE_AGENT_EVENT: "voice.agentEvent",
   LOCAL_CHAT_UPDATED: "localChat.updated",
   THREAD_ACTIVITY_UPDATED: "localChat.threadActivityUpdated",
+  THREAD_TRANSCRIPT_UPDATED: "localChat.threadTranscriptUpdated",
   SCHEDULE_UPDATED: "schedule.updated",
   MODEL_CATALOG_UPDATED: "modelCatalog.updated",
   PROJECTS_UPDATED: "projects.updated",
@@ -445,6 +446,10 @@ export type RuntimeChatPayload = {
 
 export type RuntimeVoiceTranscriptPayload = {
   conversationId: string;
+  /** Stable renderer-generated identity for durable cloud append retries. */
+  eventId: string;
+  /** Captured once with eventId so retries serialize the identical journal row. */
+  timestamp: number;
   role: "user" | "assistant";
   text: string;
   uiVisibility?: "visible" | "hidden";
@@ -550,6 +555,10 @@ export type RuntimeOneShotCompletionResult = {
 export type RuntimeAutomationTurnRequest = {
   conversationId: string;
   userPrompt: string;
+  /** Transcript authority for this automation turn. */
+  storageMode?: "cloud" | "local";
+  /** Stable cloud-journal id used to deduplicate a retried external request. */
+  userMessageId?: string;
   agentType?: string;
   modelOverride?: string;
   toolWorkspaceRoot?: string;

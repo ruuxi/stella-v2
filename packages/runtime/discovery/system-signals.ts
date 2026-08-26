@@ -14,6 +14,14 @@ import os from "os";
 import { exec } from "child_process";
 import { promises as fs } from "fs";
 import { pathToFileURL } from "node:url";
+import { Effect } from "effect";
+import {
+  acquireCloseable,
+  runDiscovery,
+  timeoutFallback,
+  tryDiscovery,
+  tryDiscoverySync,
+} from "./effect-io.js";
 import type {
   SystemSignals,
   DockPin,
@@ -27,9 +35,6 @@ const log = (...args: unknown[]) => console.error("[system-signals]", ...args);
 // ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
-
-const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> =>
-  Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
 
 const execAsync = (command: string): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -138,26 +143,30 @@ async function collectDockPins(): Promise<DockPin[]> {
 // App Usage
 // ---------------------------------------------------------------------------
 
-async function collectAppUsageMacOS(): Promise<AppUsageSummary[]> {
-  try {
-    const sourceDb = path.join(
-      os.homedir(),
-      "Library/Application Support/Knowledge/knowledgeC.db"
-    );
+// Access denial on open is a distinct, quieter outcome than any other
+// failure — mirrored from the pre-Effect nested try/catch.
+type AppUsageOpenDenied = { readonly _tag: "openDenied" };
 
-    let db: SqliteDatabase;
-    try {
-      db = await openDatabase(sourceDb);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "EPERM" || code === "EACCES") {
-        log("knowledgeC.db access denied - grant Full Disk Access");
-        return [];
-      }
-      throw error;
-    }
+const collectAppUsageMacOSEffect: Effect.Effect<AppUsageSummary[]> =
+  Effect.scoped(
+    Effect.gen(function* () {
+      const sourceDb = path.join(
+        os.homedir(),
+        "Library/Application Support/Knowledge/knowledgeC.db"
+      );
 
-    const query = `
+      const db = yield* acquireCloseable(() => openDatabase(sourceDb)).pipe(
+        Effect.catch((error) => {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === "EPERM" || code === "EACCES") {
+            log("knowledgeC.db access denied - grant Full Disk Access");
+            return Effect.fail<AppUsageOpenDenied>({ _tag: "openDenied" });
+          }
+          return Effect.fail(error);
+        }),
+      );
+
+      const query = `
       SELECT
         ZVALUESTRING as app,
         SUM(ZENDDATE - ZSTARTDATE) as total_seconds
@@ -171,9 +180,31 @@ async function collectAppUsageMacOS(): Promise<AppUsageSummary[]> {
       LIMIT 30
     `;
 
-    const rows = db.prepare(query).all() as Array<{ app: string; total_seconds: number }>;
-    db.close();
+      const rows = yield* tryDiscoverySync(
+        () => db.prepare(query).all() as Array<{ app: string; total_seconds: number }>,
+      );
+      return processMacAppUsageRows(rows);
+    }),
+  ).pipe(
+    Effect.catch((error) =>
+      Effect.sync(() => {
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          (error as AppUsageOpenDenied)._tag === "openDenied"
+        ) {
+          return [];
+        }
+        log("Failed to read macOS app usage:", error);
+        return [];
+      }),
+    ),
+  );
 
+const processMacAppUsageRows = (
+  rows: Array<{ app: string; total_seconds: number }>,
+): AppUsageSummary[] => {
+  {
     // Process results
     const appUsage: AppUsageSummary[] = rows.map((row) => {
       let appName = row.app;
@@ -201,43 +232,43 @@ async function collectAppUsageMacOS(): Promise<AppUsageSummary[]> {
     });
 
     return appUsage.filter((a) => a.durationMinutes > 0);
-  } catch (error) {
-    log("Failed to read macOS app usage:", error);
-    return [];
   }
-}
+};
 
-async function collectAppUsageWindows(): Promise<AppUsageSummary[]> {
-  try {
-    const cdpBase = path.join(
-      os.homedir(),
-      "AppData/Local/ConnectedDevicesPlatform"
-    );
+const findWindowsActivitiesCacheDb = async (): Promise<string | null> => {
+  const cdpBase = path.join(
+    os.homedir(),
+    "AppData/Local/ConnectedDevicesPlatform"
+  );
 
-    // Find ActivitiesCache.db (check all subdirs in parallel)
-    const dirs = await fs.readdir(cdpBase);
-    const dbResults = await Promise.all(
-      dirs.map(async (dir) => {
-        const candidate = path.join(cdpBase, dir, "ActivitiesCache.db");
-        try {
-          await fs.access(candidate);
-          return candidate;
-        } catch {
-          return null;
-        }
-      })
-    );
-    const dbPath = dbResults.find((p) => p !== null) ?? null;
+  // Find ActivitiesCache.db (check all subdirs in parallel)
+  const dirs = await fs.readdir(cdpBase);
+  const dbResults = await Promise.all(
+    dirs.map(async (dir) => {
+      const candidate = path.join(cdpBase, dir, "ActivitiesCache.db");
+      try {
+        await fs.access(candidate);
+        return candidate;
+      } catch {
+        return null;
+      }
+    })
+  );
+  return dbResults.find((p) => p !== null) ?? null;
+};
 
-    if (!dbPath) {
-      log("ActivitiesCache.db not found");
-      return [];
-    }
+const collectAppUsageWindowsEffect: Effect.Effect<AppUsageSummary[]> =
+  Effect.scoped(
+    Effect.gen(function* () {
+      const dbPath = yield* tryDiscovery(() => findWindowsActivitiesCacheDb());
 
-    const db = await openDatabase(dbPath);
+      if (!dbPath) {
+        log("ActivitiesCache.db not found");
+        return [];
+      }
 
-    let rows: Array<{ AppId: string; total_seconds: number }>;
-    try {
+      const db = yield* acquireCloseable(() => openDatabase(dbPath));
+
       // Preferred query when ActiveDurationSeconds is available.
       const query = `
         SELECT
@@ -249,8 +280,6 @@ async function collectAppUsageWindows(): Promise<AppUsageSummary[]> {
         ORDER BY total_seconds DESC
         LIMIT 30
       `;
-      rows = db.prepare(query).all() as Array<{ AppId: string; total_seconds: number }>;
-    } catch {
       // Fallback for schema variants where duration columns differ.
       const fallbackQuery = `
         SELECT
@@ -262,52 +291,68 @@ async function collectAppUsageWindows(): Promise<AppUsageSummary[]> {
         ORDER BY total_seconds DESC
         LIMIT 30
       `;
-      rows = db.prepare(fallbackQuery).all() as Array<{ AppId: string; total_seconds: number }>;
-    }
-    db.close();
+      const rows = yield* tryDiscoverySync(
+        () => db.prepare(query).all() as Array<{ AppId: string; total_seconds: number }>,
+      ).pipe(
+        Effect.catch(() =>
+          tryDiscoverySync(
+            () =>
+              db.prepare(fallbackQuery).all() as Array<{
+                AppId: string;
+                total_seconds: number;
+              }>,
+          ),
+        ),
+      );
 
-    // Process results
-    const appUsage: AppUsageSummary[] = rows
-      .map((row) => {
-        let appName = row.AppId;
+      // Process results
+      const appUsage: AppUsageSummary[] = rows
+        .map((row) => {
+          let appName = row.AppId;
 
-        // Try to parse as JSON
-        try {
-          const parsed = JSON.parse(appName);
-          if (parsed.application) {
-            appName = parsed.application;
+          // Try to parse as JSON
+          try {
+            const parsed = JSON.parse(appName);
+            if (parsed.application) {
+              appName = parsed.application;
+            }
+          } catch {
+            // Not JSON, use as-is
           }
-        } catch {
-          // Not JSON, use as-is
-        }
 
-        // Clean up app names
-        if (appName.startsWith("Microsoft.")) {
-          appName = appName.replace("Microsoft.", "");
-        }
+          // Clean up app names
+          if (appName.startsWith("Microsoft.")) {
+            appName = appName.replace("Microsoft.", "");
+          }
 
-        return {
-          app: appName,
-          durationMinutes: Math.round((row.total_seconds || 0) / 60),
-        };
-      })
-      .filter((a) => a.durationMinutes > 0);
+          return {
+            app: appName,
+            durationMinutes: Math.round((row.total_seconds || 0) / 60),
+          };
+        })
+        .filter((a) => a.durationMinutes > 0);
 
-    return appUsage;
-  } catch (error) {
-    log("Failed to read Windows app usage:", error);
-    return [];
-  }
-}
+      return appUsage;
+    }),
+  ).pipe(
+    Effect.catch((error) =>
+      Effect.sync(() => {
+        log("Failed to read Windows app usage:", error);
+        return [];
+      }),
+    ),
+  );
 
-async function collectAppUsage(): Promise<AppUsageSummary[]> {
-  if (os.platform() === "darwin") {
-    return collectAppUsageMacOS();
-  } else if (os.platform() === "win32") {
-    return collectAppUsageWindows();
-  }
-  return [];
-}
+const collectAppUsageEffect: Effect.Effect<AppUsageSummary[]> = Effect.suspend(
+  () => {
+    if (os.platform() === "darwin") {
+      return collectAppUsageMacOSEffect;
+    } else if (os.platform() === "win32") {
+      return collectAppUsageWindowsEffect;
+    }
+    return Effect.succeed([]);
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Device / Hardware
@@ -377,15 +422,28 @@ async function collectDevice(): Promise<DeviceSignals> {
 // Main Collector
 // ---------------------------------------------------------------------------
 
-export async function collectSystemSignals(): Promise<SystemSignals> {
-  const [userIdentity, dockPins, appUsage, device] = await Promise.all([
-    withTimeout(collectUserIdentity(), 2000, null),
-    withTimeout(collectDockPins(), 3000, []),
-    withTimeout(collectAppUsage(), 10000, []),
-    withTimeout(collectDevice(), 4000, null),
-  ]);
+// All four probes race their timeouts in parallel — the pre-Effect
+// `Promise.all` of `withTimeout(...)` calls, with the same budgets.
+const collectSystemSignalsEffect: Effect.Effect<SystemSignals, unknown> =
+  Effect.all(
+    [
+      timeoutFallback(tryDiscovery(() => collectUserIdentity()), 2000, null),
+      timeoutFallback(tryDiscovery(() => collectDockPins()), 3000, []),
+      timeoutFallback(collectAppUsageEffect, 10000, []),
+      timeoutFallback(tryDiscovery(() => collectDevice()), 4000, null),
+    ],
+    { concurrency: "unbounded" },
+  ).pipe(
+    Effect.map(([userIdentity, dockPins, appUsage, device]) => ({
+      userIdentity,
+      dockPins,
+      appUsage,
+      device,
+    })),
+  );
 
-  return { userIdentity, dockPins, appUsage, device };
+export async function collectSystemSignals(): Promise<SystemSignals> {
+  return runDiscovery(collectSystemSignalsEffect);
 }
 
 // ---------------------------------------------------------------------------

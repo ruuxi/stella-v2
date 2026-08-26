@@ -1,16 +1,48 @@
 import { watch as fsWatch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import {
+  Effect,
+  Fiber,
+  Layer,
+  ManagedRuntime,
+  Scope,
+} from "effect";
+import {
   loadBundledAgents,
   mergeBundledAndExtensionAgents,
 } from "../agents/agents.js";
 import { loadExtensions } from "../extensions/loader.js";
 import type { ExtensionServices } from "../extensions/services.js";
+import { createExtensionRuntimeApi } from "../extensions/runtime-api.js";
 import { modelRuntime } from "../../ai/model-runtime.js";
 import { createRuntimeLogger } from "../debug.js";
 import type { RunnerContext } from "./types.js";
+import { joinWithTimeout } from "../shared/supervised-scope.js";
 
 const logger = createRuntimeLogger("runtime-init");
+
+/**
+ * Requirements-free runtime + scope for this module's timer fibers (watch
+ * debounces, busy-retry, the compaction drain bound). House convention:
+ * one module-level ManagedRuntime, work carries its context via closures.
+ * The fibers are short-lived sleeps; `stopExtensionWatcher` interrupts any
+ * pending one, so nothing outlives `stop()`.
+ */
+const initRuntime = ManagedRuntime.make(Layer.empty);
+const initTimersScope = Scope.makeUnsafe();
+
+/**
+ * Fork `fn` to run after `ms` on the shared timer scope. The returned
+ * fiber's `interruptUnsafe` is the Effect replacement for `clearTimeout`.
+ */
+const forkAfter = (ms: number, fn: () => void): Fiber.Fiber<void> =>
+  initRuntime.runSync(
+    Effect.forkIn(
+      Effect.andThen(Effect.sleep(ms), Effect.sync(fn)),
+      initTimersScope,
+      { startImmediately: true },
+    ),
+  );
 
 type ExtensionReloadResult = {
   status: "reloaded" | "busy" | "not-initialized" | "load-failed";
@@ -48,18 +80,18 @@ export const createExtensionReloadScheduler = (
 ) => {
   const debounceMs = options.debounceMs ?? 500;
   const busyRetryMs = options.busyRetryMs ?? 2_000;
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  let timer: Fiber.Fiber<void> | null = null;
   let generation = 0;
   let pending = false;
   let inFlight = false;
   let busyLogged = false;
 
   const queueAttempt = (delayMs: number) => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
+    timer?.interruptUnsafe();
+    timer = forkAfter(delayMs, () => {
       timer = null;
       void attemptReload();
-    }, delayMs);
+    });
   };
 
   const attemptReload = async (): Promise<void> => {
@@ -126,7 +158,7 @@ export const createExtensionReloadScheduler = (
       generation += 1;
       pending = false;
       busyLogged = false;
-      if (timer) clearTimeout(timer);
+      timer?.interruptUnsafe();
       timer = null;
     },
   };
@@ -136,7 +168,7 @@ export const createRuntimeInitialization = (
   context: RunnerContext,
   deps: {
     disposeConvexClient: () => void;
-    shutdownTasks: () => void;
+    shutdownTasks: () => void | Promise<void>;
   },
 ) => {
   /**
@@ -183,10 +215,16 @@ export const createRuntimeInitialization = (
    * factory invocation (initial load + every F1 reload) so factories can
    * close over the services they need at registration time.
    */
+  const extensionRuntimeApi = createExtensionRuntimeApi({
+    stellaDataDir: context.stellaDataDir,
+    stellaAppDir: context.stellaAppDir,
+    store: context.runtimeStore,
+  });
   const buildExtensionServices = (): ExtensionServices => ({
     stellaDataDir: context.stellaDataDir,
     stellaAppDir: context.stellaAppDir,
     store: context.runtimeStore,
+    runtime: extensionRuntimeApi,
   });
 
   /**
@@ -213,11 +251,8 @@ export const createRuntimeInitialization = (
 
   const initializeRuntime = () => {
     // Stella's lifecycle hooks (memory, scheduling, and others) live in the
-    // stella-runtime extension and register through the same loader path
-    // as user extensions. There's no separate "bundled" registration
-    // step — the loader is the one place hooks/tools/providers/agents
-    // get installed. Stella-runtime is just an extension that ships in
-    // the source tree.
+    // home-loaded stella-runtime extension and register through the same path
+    // as any other user extension. The engine has no bundled extension tier.
     const extensionsLoad = loadAndRegisterExtensions();
     const modelsLoad = modelRuntime.initialize({
       stellaDataDir: context.stellaDataDir,
@@ -242,6 +277,8 @@ export const createRuntimeInitialization = (
     ]).then(() => {
       context.state.isInitialized = true;
     });
+    // Wake boot-window waiters parked on the readiness latch.
+    context.state.initializationStarted.open();
 
     return context.state.initializationPromise;
   };
@@ -344,7 +381,7 @@ export const createRuntimeInitialization = (
    */
   let resourceWatchers: FSWatcher[] = [];
   let modelConfigWatcher: FSWatcher | null = null;
-  let modelConfigDebounce: NodeJS.Timeout | null = null;
+  let modelConfigDebounce: Fiber.Fiber<void> | null = null;
   const FILE_WATCH_DEBOUNCE_MS = 500;
   const RELOAD_BUSY_RETRY_MS = 2_000;
   const extensionReloadScheduler = createExtensionReloadScheduler(
@@ -410,8 +447,8 @@ export const createRuntimeInitialization = (
   };
 
   const scheduleModelConfigReload = () => {
-    if (modelConfigDebounce) clearTimeout(modelConfigDebounce);
-    modelConfigDebounce = setTimeout(() => {
+    modelConfigDebounce?.interruptUnsafe();
+    modelConfigDebounce = forkAfter(FILE_WATCH_DEBOUNCE_MS, () => {
       modelConfigDebounce = null;
       void modelRuntime
         .reloadConfig()
@@ -428,7 +465,7 @@ export const createRuntimeInitialization = (
             error: error instanceof Error ? error.message : String(error),
           });
         });
-    }, FILE_WATCH_DEBOUNCE_MS);
+    });
   };
 
   const startModelConfigWatcher = () => {
@@ -462,10 +499,8 @@ export const createRuntimeInitialization = (
 
   const stopExtensionWatcher = () => {
     extensionReloadScheduler.cancel();
-    if (modelConfigDebounce) {
-      clearTimeout(modelConfigDebounce);
-      modelConfigDebounce = null;
-    }
+    modelConfigDebounce?.interruptUnsafe();
+    modelConfigDebounce = null;
     try {
       modelConfigWatcher?.close();
     } catch {
@@ -505,16 +540,22 @@ export const createRuntimeInitialization = (
   const COMPACTION_DRAIN_TIMEOUT_MS = 5_000;
 
   const drainCompactionsWithTimeout = async (): Promise<void> => {
-    const drain = context.state.compactionScheduler.drain();
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const timeout = new Promise<"timeout">((resolve) => {
-      timer = setTimeout(() => resolve("timeout"), COMPACTION_DRAIN_TIMEOUT_MS);
-    });
     try {
-      const result = await Promise.race([
-        drain.then(() => "drained" as const),
-        timeout,
-      ]);
+      // Effect-bounded drain: the losing sleep arm is fiber-interrupted
+      // (the old `clearTimeout`), and a timeout leaves the abandoned drain
+      // promise to the scheduler's own shutdown join below.
+      const result = await initRuntime.runPromise(
+        Effect.raceFirst(
+          Effect.map(
+            Effect.promise(() => context.state.compactionScheduler.drain()),
+            () => "drained" as const,
+          ),
+          Effect.map(
+            Effect.sleep(COMPACTION_DRAIN_TIMEOUT_MS),
+            () => "timeout" as const,
+          ),
+        ),
+      );
       if (result === "timeout") {
         logger.warn("compaction-scheduler.drain-timeout", {
           timeoutMs: COMPACTION_DRAIN_TIMEOUT_MS,
@@ -524,15 +565,23 @@ export const createRuntimeInitialization = (
       logger.warn("compaction-scheduler.drain-failed", {
         error: error instanceof Error ? error.message : String(error),
       });
-    } finally {
-      if (timer !== null) clearTimeout(timer);
     }
   };
+
+  /**
+   * Hard cap on joining the supervised run-fiber tree after interruption
+   * has been delivered. Interruption aborts every unit cooperatively; this
+   * only bounds a wedged native promise (which no JavaScript runtime can
+   * force-kill) so worker exit cannot pin indefinitely. The external
+   * resources such a promise might hold are still reaped: the tool host
+   * shutdown below kills tool/shell child processes unconditionally.
+   */
+  const SUPERVISOR_JOIN_TIMEOUT_MS = 15_000;
 
   const stop = async (): Promise<void> => {
     logger.warn("runner.stop", {
       activeOrchestratorRunId: context.state.activeOrchestratorRunId,
-      activeAbortControllers: context.state.activeRunAbortControllers.size,
+      activeSupervisedRuns: context.state.supervisor.activeRunCount(),
       conversationCallbacks: context.state.conversationCallbacks.size,
       runCallbacksByRunId: context.state.runCallbacksByRunId.size,
     });
@@ -540,8 +589,57 @@ export const createRuntimeInitialization = (
     context.state.isRunning = false;
     context.state.isInitialized = false;
     context.state.initializationPromise = null;
+    // Re-arm the boot latch so a restarted runner's waiters park again
+    // instead of observing the previous generation as already open.
+    context.state.initializationStarted.reset();
     deps.disposeConvexClient();
-    deps.shutdownTasks();
+    // The cloud journal writer holds a retry timer and an in-memory queue.
+    // Stopping it before the Convex client is gone would be pointless (it
+    // needs a token to flush) and leaving it running keeps a timer alive past
+    // shutdown, so it is dropped here alongside the client it depends on.
+    context.cloudTranscript.stop();
+    // Cancel every live orchestrator turn cooperatively first (the
+    // supervisor fires each run's registered abort), then cancel agent
+    // tasks (awaited: lifecycle events + managed-child cascades), then
+    // interrupt the whole supervised fiber tree — root turn fibers and
+    // subagent attempt fibers — and join their teardown before any shared
+    // resource (tool host, store) is torn down beneath them.
+    context.state.supervisor.abortAllRuns();
+    const tasksShutdown = Promise.resolve(deps.shutdownTasks()).catch(
+      (error) => {
+        logger.warn("runner.stop.task-shutdown-failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+    );
+    // Kill tool-owned child processes (shells, CLIs) now: every turn is
+    // already aborted, and reaping accelerates their unwind so the join
+    // below is short.
+    await context.toolHost.shutdown();
+    await tasksShutdown;
+    await joinWithTimeout(
+      context.state.supervisor.shutdown(),
+      SUPERVISOR_JOIN_TIMEOUT_MS,
+      () => {
+        logger.warn("runner.stop.supervisor-join-timeout", {
+          timeoutMs: SUPERVISOR_JOIN_TIMEOUT_MS,
+          liveFibers: context.state.supervisor.liveFiberCount(),
+        });
+      },
+    );
+    // Interrupt the run coordinator's drain fiber and join any in-flight
+    // queued-turn admission before the lane state is torn down beneath it.
+    // The runner is not restarted on this instance, so coordinator shutdown
+    // is terminal (a fresh runner builds a fresh coordinator).
+    await joinWithTimeout(
+      context.state.runCoordinator?.shutdown() ?? Promise.resolve(),
+      SUPERVISOR_JOIN_TIMEOUT_MS,
+      () => {
+        logger.warn("runner.stop.run-coordinator-join-timeout", {
+          timeoutMs: SUPERVISOR_JOIN_TIMEOUT_MS,
+        });
+      },
+    );
     context.state.activeOrchestratorRunId = null;
     context.state.activeOrchestratorConversationId = null;
     context.state.activeOrchestratorUiVisibility = "visible";
@@ -565,17 +663,22 @@ export const createRuntimeInitialization = (
       turn.cancel?.(shutdownError);
     }
     context.state.queuedOrchestratorTurns.length = 0;
-    for (const controller of context.state.activeRunAbortControllers.values()) {
-      controller.abort();
-    }
-    context.state.activeRunAbortControllers.clear();
     context.state.conversationCallbacks.clear();
     context.state.runCallbacksByRunId.clear();
-    await context.toolHost.shutdown();
-    // Drain any in-flight background compactions so SQLite writes
-    // complete before the worker tears down its store handle. Bounded
-    // timeout ensures shutdown doesn't pin on a stalled LLM call.
+    // Give in-flight background compactions their historical 5s grace to
+    // finish SQLite writes, then interrupt whatever remains and join it —
+    // an interrupted compaction aborts its LLM call and skips its store
+    // write, so nothing races the store handle teardown. The join is bounded:
+    // a wedged LLM promise that ignores its abort must not hang worker stop;
+    // past the bound its store writes are already fenced off by the abort
+    // signal.
     await drainCompactionsWithTimeout();
+    await joinWithTimeout(
+      context.state.compactionScheduler.shutdown(),
+      10_000,
+      () =>
+        logger.warn("runner.stop.compaction-shutdown-timeout", {}),
+    );
   };
 
   return {

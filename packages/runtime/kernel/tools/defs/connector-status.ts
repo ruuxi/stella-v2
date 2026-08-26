@@ -67,7 +67,6 @@ export type ConnectorStatusToolOptions = {
   getStellaSiteAuth?: () => { baseUrl: string; authToken: string } | null;
   /** Desktop hop that renders the inline connect card. */
   requestConnectorConnection?: ConnectorConnectionRequester;
-  fetchImpl?: typeof fetch;
 };
 
 const SERVER_CATALOG_TTL_MS = 5 * 60 * 1000;

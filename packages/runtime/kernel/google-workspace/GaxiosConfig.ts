@@ -6,7 +6,7 @@
 
 import type { Auth } from 'googleapis';
 import type { GlobalOptions } from 'googleapis-common';
-import { GaxiosOptions } from 'gaxios';
+import type { GaxiosOptions } from 'gaxios';
 import { logToFile } from './logger.js';
 
 export const gaxiosOptions: GaxiosOptions = {

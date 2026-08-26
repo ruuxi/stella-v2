@@ -1,6 +1,7 @@
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { canResolveRunnerLlmRoute } from "./model-selection.js";
 import { sanitizeStellaBase } from "./shared.js";
+import { resolveConversationStorageMode } from "./conversation-storage-mode.js";
 import type { AgentHealth, ChatPayload, RunnerContext } from "./types.js";
 import type {
   RuntimeAttachmentRef,
@@ -21,6 +22,8 @@ export type NormalizedOrchestratorRunInput = {
   promptMessages?: RuntimePromptMessage[];
   attachments: RuntimeAttachmentRef[];
   agentType: string;
+  storageMode?: "cloud" | "local";
+  userMessageId?: string;
   modelOverride?: string;
   toolWorkspaceRoot?: string;
   connectorDeliveryTarget?: {
@@ -130,11 +133,14 @@ export const normalizeChatRunInput = (
     : undefined,
   attachments: normalizeAttachments(payload.attachments),
   agentType: payload.agentType ?? AGENT_IDS.ORCHESTRATOR,
+  storageMode: resolveConversationStorageMode(payload.storageMode),
 });
 
 export const normalizeAutomationRunInput = (payload: {
   conversationId: string;
   userPrompt: string;
+  storageMode?: "cloud" | "local";
+  userMessageId?: string;
   agentType?: string;
   modelOverride?: string;
   toolWorkspaceRoot?: string;
@@ -150,6 +156,10 @@ export const normalizeAutomationRunInput = (payload: {
   userPrompt: payload.userPrompt.trim(),
   attachments: normalizeAttachments(payload.attachments),
   agentType: payload.agentType ?? AGENT_IDS.ORCHESTRATOR,
+  storageMode: resolveConversationStorageMode(payload.storageMode),
+  ...(payload.userMessageId?.trim()
+    ? { userMessageId: payload.userMessageId.trim() }
+    : {}),
   ...(payload.modelOverride?.trim()
     ? { modelOverride: payload.modelOverride.trim() }
     : {}),

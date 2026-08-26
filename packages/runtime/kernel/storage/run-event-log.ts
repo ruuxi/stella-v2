@@ -1,3 +1,4 @@
+import { forkFixedRateFiber } from "./effect-runtime.js";
 import type { SqliteDatabase, SqliteStatement } from "./shared.js";
 
 /**
@@ -50,7 +51,8 @@ type Statements = {
 
 export class RunEventLog {
   private readonly statements: Statements;
-  private sweepTimer: ReturnType<typeof setInterval> | null = null;
+  /** Cancel thunk for the fixed-rate sweep fiber (the old `clearInterval`). */
+  private cancelSweep: (() => void) | null = null;
   private disposed = false;
 
   constructor(
@@ -92,23 +94,22 @@ export class RunEventLog {
   }
 
   startBackgroundSweep() {
-    if (this.sweepTimer || this.disposed) return;
+    if (this.cancelSweep || this.disposed) return;
     const intervalMs = this.options.sweepIntervalMs ?? 60_000;
-    this.sweepTimer = setInterval(() => {
+    this.cancelSweep = forkFixedRateFiber(intervalMs, () => {
       try {
         this.sweepExpired();
       } catch {
         // Best-effort retention; do not crash the worker on sweep failure.
       }
-    }, intervalMs);
-    this.sweepTimer.unref?.();
+    });
   }
 
   stop() {
     this.disposed = true;
-    if (this.sweepTimer) {
-      clearInterval(this.sweepTimer);
-      this.sweepTimer = null;
+    if (this.cancelSweep) {
+      this.cancelSweep();
+      this.cancelSweep = null;
     }
   }
 

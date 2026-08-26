@@ -9,14 +9,13 @@ import { hashStellaAppDir, resolveLogDir } from "../worker/runtime-paths.js";
  * interleave their diagnostics. Colocated with the worker's raw
  * `runtime.log` (see `resolveLogDir` in runtime-paths.ts).
  *
- * Layout:
- *   ~/.stella/logs/<rootHash>/
+ * Layout under Electron's ephemeral userData root:
+ *   logs/<rootHash>/
  *     ├── runtime.log              <- worker stdout/stderr (rotating)
  *     ├── error-YYYY-MM-DD.txt     <- crashes, uncaught errors (daily)
  *     └── process-YYYY-MM-DD.txt   <- worker / native lifecycle (daily)
  *
- * The entire `~/.stella` tree is outside any git checkout, so these files
- * are never committed. Logs are local-only and never uploaded anywhere.
+ * Logs are local-only and never uploaded anywhere.
  */
 
 export type LogPaths = {
@@ -26,7 +25,7 @@ export type LogPaths = {
 
 export const resolveLogPaths = (
   stellaAppDir: string,
-  options?: { homeDir?: string },
+  options?: { homeDir?: string; runtimeStateDir?: string },
 ): LogPaths => ({
   rootHash: hashStellaAppDir(stellaAppDir),
   logDir: resolveLogDir(stellaAppDir, options),

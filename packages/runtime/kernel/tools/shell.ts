@@ -1,7 +1,31 @@
 /**
  * Shell tools: platform shell plus `exec_command` / `write_stdin` handlers.
+ *
+ * Effect-native concurrency spine (M5 kernel/tools pass), behind the exact
+ * pre-Effect exported names/signatures/strings:
+ *
+ * - Every spawned shell is a scoped resource. `runShell`'s child is acquired
+ *   via `Effect.acquireRelease` whose release runs the TERM→1s→KILL ladder
+ *   when the process is still alive at scope close (the timeout path);
+ *   managed session shells register a `Deferred` exit latch completed by
+ *   their close/error events, which the kill ladder, `waitForShellExit`, and
+ *   the joined shutdown all await instead of polling.
+ * - The kill ladder's 1s TERM→KILL escalation is a forked fiber racing the
+ *   child's exit (replacing the unref'd `setTimeout`).
+ * - `waitForShellActivity` and the exec/write_stdin settle windows are scoped
+ *   effects: the activity waiter is an `acquireRelease` resource and the
+ *   caller's `AbortSignal` crosses in through the agent loop's
+ *   `acquireAbortLatch` bridge (cooperative cancel; identical "Aborted"
+ *   rejection reasons).
+ * - Run-owned shell classification is a scope finalizer: the exec window that
+ *   STARTED a shell kills it when the window fails (abort) before the session
+ *   id ever reached the model; session shells whose id was delivered stay
+ *   conversation-scoped and die only at `shutdownManagedShells`.
+ * - `shutdownManagedShells` is the joined, bounded teardown: start every
+ *   ladder, then await every exit latch in parallel under a single 3s bound.
  */
 
+import { Deferred, Effect, Exit } from "effect";
 import { spawn } from "child_process";
 import path from "path";
 import os from "os";
@@ -15,6 +39,7 @@ import {
   type ProducedFileRecord,
 } from "@stella/contracts/file-changes";
 import type {
+  ProducedFilesOmission,
   ToolContext,
   ToolResult,
   ShellRecord,
@@ -26,6 +51,8 @@ import {
   HeadTailOutputBuffer,
   RAW_SHELL_OUTPUT_MAX_BYTES,
 } from "./head-tail-output-buffer.js";
+import { runToolEffect, toolsRuntime } from "./effect-runtime.js";
+import { acquireAbortLatch } from "../agent-core/abort-bridge.js";
 import { isDangerousCommand } from "./command-safety.js";
 import { getStellaComputerSessionId } from "./stella-computer-session.js";
 import { inferShellMentionedPaths } from "./path-inference.js";
@@ -114,7 +141,7 @@ export type ShellExitSnapshot = {
   owner?: ShellSessionOwner;
 };
 
-type ManagedShellRecord = ShellRecord & {
+export type ManagedShellRecord = ShellRecord & {
   unreadOutput: string;
   outputBuffer: HeadTailOutputBuffer;
   unreadOutputBuffer: HeadTailOutputBuffer;
@@ -129,10 +156,19 @@ type ManagedShellRecord = ShellRecord & {
   pty?: SpawnedPtyShell;
   stdinOpen: boolean;
   owner?: ShellSessionOwner;
+  /**
+   * Completed exactly once, when the child's `close`/`error` event fires
+   * (pre-completed for records that never spawned). The kill ladder,
+   * `waitForShellExit`, and the joined shutdown await this instead of
+   * polling `running`.
+   */
+  exitLatch: Deferred.Deferred<void>;
   startSnapshot?: FileSnapshot | null;
   externalCandidateSnapshots?: ExternalCandidateSnapshot[];
   producedFilesReported?: boolean;
-  producedFilesCollection?: Promise<ProducedFileRecord[] | undefined>;
+  producedFilesCollection?: Promise<ProducedFilesOutcome>;
+  /** Cap resolved from the host's ToolContext when the shell was started. */
+  producedFileLimit: number;
 };
 
 type FileSnapshotEntry = {
@@ -447,6 +483,28 @@ const diffExternalCandidateSnapshots = async (
 };
 
 /**
+ * The `producedFiles` / `producedFilesOmitted` slice of a `ToolResult`, so
+ * every shell handler can spread one object instead of rebuilding the pair.
+ */
+type ProducedFilesOutcome = {
+  producedFiles?: ProducedFileRecord[];
+  producedFilesOmitted?: ProducedFilesOmission;
+};
+
+/**
+ * Per-command cap on snapshot-detected produced files. Belongs to the host,
+ * not to the runtime: the desktop default assumes an over-cap batch reaches
+ * the user unfiltered, while a host that re-filters every file downstream can
+ * afford a larger deliberate batch.
+ */
+const resolveProducedFileLimit = (context?: ToolContext): number => {
+  const requested = context?.maxProducedFilesPerCommand;
+  return typeof requested === "number" && Number.isFinite(requested)
+    ? Math.max(0, Math.floor(requested))
+    : MAX_PRODUCED_FILES_PER_COMMAND;
+};
+
+/**
  * Merge + sanitize snapshot-detected produced files. Every shell
  * `producedFiles` emission (foreground exec, background completion via
  * `takeCompletedProducedFiles`, `write_stdin` / shell-status drains) funnels
@@ -456,16 +514,24 @@ const diffExternalCandidateSnapshots = async (
  *  2. Drop noise paths (`isNoiseProducedPath`: hidden/profile/cache dirs,
  *     logs, locks) so they never persist into `tool_result` payloads.
  *  3. Bulk-churn guard: if a single command still "produced" more than
- *     `MAX_PRODUCED_FILES_PER_COMMAND` files, the diff is environment churn
- *     (spawned app bootstrap seeding its data dir, git checkout/worktree
- *     mtime rewrites, dependency installs) — not deliverables. Drop the
- *     whole batch; deliberate writes still surface via explicit
+ *     `limit` files, the diff is most likely environment churn (spawned app
+ *     bootstrap seeding its data dir, git checkout/worktree mtime rewrites,
+ *     dependency installs) — not deliverables. Withhold the whole batch,
+ *     since no per-path signal separates the churn from the three files the
+ *     user asked for; deliberate writes still surface via explicit
  *     `fileChanges` from Write/Edit/apply_patch, which never pass through
  *     snapshot detection.
+ *
+ * The withholding is *reported*, never silent: a genuinely large deliberate
+ * batch (a loop writing 31 charts) also trips the guard, and a caller that
+ * sees neither files nor a count cannot tell "produced nothing" from
+ * "produced 31 and I dropped them". Hosts that can afford the batch raise
+ * `limit` via `ToolContext.maxProducedFilesPerCommand` instead.
  */
 const mergeProducedFiles = (
+  limit: number,
   ...groups: Array<ProducedFileRecord[] | undefined>
-): ProducedFileRecord[] | undefined => {
+): ProducedFilesOutcome => {
   const out: ProducedFileRecord[] = [];
   const seen = new Set<string>();
   for (const group of groups) {
@@ -478,9 +544,14 @@ const mergeProducedFiles = (
       out.push(file);
     }
   }
-  if (out.length > MAX_PRODUCED_FILES_PER_COMMAND) return undefined;
-  return out.length > 0 ? out : undefined;
+  if (out.length > limit) {
+    return { producedFilesOmitted: { count: out.length, limit } };
+  }
+  return out.length > 0 ? { producedFiles: out } : {};
 };
+
+const producedFilesOmittedNotice = (omission: ProducedFilesOmission): string =>
+  `Note: ${omission.count} produced files were detected for this command, above the per-command delivery limit of ${omission.limit}, so none were attached to this result.`;
 
 const snapshotShellSideEffects = async (
   args: Record<string, unknown>,
@@ -506,8 +577,8 @@ const shouldSnapshotShellSideEffects = (command: string): boolean =>
 const takeCompletedProducedFiles = async (
   record: ManagedShellRecord,
   signal?: AbortSignal,
-): Promise<ProducedFileRecord[] | undefined> => {
-  if (record.running || record.producedFilesReported) return undefined;
+): Promise<ProducedFilesOutcome> => {
+  if (record.running || record.producedFilesReported) return {};
   if (
     !record.startSnapshot &&
     (!record.externalCandidateSnapshots ||
@@ -516,13 +587,14 @@ const takeCompletedProducedFiles = async (
     record.producedFilesReported = true;
     record.child = undefined;
     record.pty = undefined;
-    return undefined;
+    return {};
   }
   if (!record.producedFilesCollection) {
     const startSnapshot = record.startSnapshot;
     const externalCandidateSnapshots = record.externalCandidateSnapshots;
     record.producedFilesCollection = (async () =>
       mergeProducedFiles(
+        record.producedFileLimit,
         // A missing start snapshot can never produce a root diff. In
         // particular, known-safe commands deliberately set it to null; do not
         // turn their completion into an unconditional full-tree walk.
@@ -545,7 +617,7 @@ const takeCompletedProducedFiles = async (
     });
   }
   const produced = await record.producedFilesCollection;
-  if (signal?.aborted || record.producedFilesReported) return undefined;
+  if (signal?.aborted || record.producedFilesReported) return {};
   record.producedFilesReported = true;
   record.producedFilesCollection = undefined;
   return produced;
@@ -565,24 +637,40 @@ const takeCompletedProducedFiles = async (
  * Scope with `sessionIds` to the sessions a run actually touched (omit to
  * sweep every session). Delegates to `takeCompletedProducedFiles`, so the
  * one-shot `producedFilesReported` flag, `isNoiseProducedPath` guards,
- * per-command dedup, and the `MAX_PRODUCED_FILES_PER_COMMAND` cap all still
- * apply, and a session already drained inline yields nothing here.
+ * per-command dedup, and the per-command cap all still apply, and a session
+ * already drained inline yields nothing here.
+ *
+ * The withholding travels with the files, for the same reason it does on the
+ * inline drains: a session whose batch the cap held back contributes no files
+ * at all, and a rollup that sees an empty list cannot tell that from a
+ * background command that wrote nothing. `omitted` sums the withheld counts
+ * across the swept sessions and carries the largest limit that did the
+ * withholding, so the rollup can say how many files are still on disk.
  */
 export const drainCompletedProducedFiles = async (
   state: ShellState,
   sessionIds?: Iterable<string>,
-): Promise<ProducedFileRecord[]> => {
+): Promise<{
+  files: ProducedFileRecord[];
+  omitted?: ProducedFilesOmission;
+}> => {
   const records = sessionIds
     ? [...new Set(sessionIds)]
         .map((id) => state.shells.get(id))
         .filter((record): record is ManagedShellRecord => Boolean(record))
     : [...state.shells.values()];
-  const drained: ProducedFileRecord[] = [];
+  const files: ProducedFileRecord[] = [];
+  let count = 0;
+  let limit = 0;
   for (const record of records) {
     const produced = await takeCompletedProducedFiles(record);
-    if (produced) drained.push(...produced);
+    if (produced.producedFiles) files.push(...produced.producedFiles);
+    if (produced.producedFilesOmitted) {
+      count += produced.producedFilesOmitted.count;
+      limit = Math.max(limit, produced.producedFilesOmitted.limit);
+    }
   }
-  return drained;
+  return { files, ...(count > 0 ? { omitted: { count, limit } } : {}) };
 };
 
 export const extractOfficePreviewRef = (
@@ -881,7 +969,7 @@ export const resolveShellNodeBinary = (
   const hostExecutable = env.STELLA_HOST_EXECUTABLE_PATH?.trim();
   if (hostExecutable && existsSync(hostExecutable)) return hostExecutable;
 
-  // Tests and non-Electron embeddings commonly run the kernel under Node.
+  // Non-Electron embeddings commonly run the kernel under Node.
   return process.execPath;
 };
 
@@ -960,7 +1048,7 @@ const buildShellEnv = (
 // hand the runtime a `process.env` whose PATH does not include /bin, so
 // spawning bare "bash" fails with `ENOENT: posix_spawn 'bash'`. Probe for
 // /bin/bash first; fall back to PATH-resolved "bash" only if it isn't there
-// (e.g. a stripped-down BSD jail), which keeps test environments working.
+// (e.g. a stripped-down BSD jail), which keeps constrained environments working.
 const UNIX_BASH_CANDIDATES = [
   "/bin/bash",
   "/usr/bin/bash",
@@ -1226,61 +1314,66 @@ export const setShellOwner = (
   };
 };
 
-const waitForShellActivity = async (
+/**
+ * Wait for new shell activity (or completion), bounded by `timeoutMs`, as a
+ * scoped effect. The activity waiter is an `acquireRelease` resource (always
+ * removed from `record.waiters` on success, timeout, and abort alike) and
+ * the caller's signal crosses in through `acquireAbortLatch`; an abort fails
+ * the effect with the legacy reason (`signal.reason ?? new Error("Aborted")`).
+ */
+const waitForShellActivityEffect = (
   record: ManagedShellRecord,
   observedVersion: number,
   timeoutMs: number,
   signal?: AbortSignal,
-) => {
-  if (!record.running || record.outputVersion !== observedVersion) {
-    return;
-  }
-  await new Promise<void>((resolve, reject) => {
-    const finish = () => {
-      cleanup();
-      resolve();
-    };
-    const onAbort = () => {
-      cleanup();
-      reject(signal?.reason ?? new Error("Aborted"));
-    };
-    const cleanup = () => {
-      clearTimeout(timer);
-      record.waiters.delete(finish);
-      signal?.removeEventListener("abort", onAbort);
-    };
-    const timer = setTimeout(finish, timeoutMs);
-    record.waiters.add(finish);
-    if (signal) {
-      if (signal.aborted) {
-        onAbort();
+): Effect.Effect<void, unknown> =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      if (!record.running || record.outputVersion !== observedVersion) {
         return;
       }
-      signal.addEventListener("abort", onAbort, { once: true });
-    }
-  });
-};
+      const activity = yield* Deferred.make<void>();
+      const finish = () => {
+        Deferred.doneUnsafe(activity, Effect.void);
+      };
+      yield* Effect.acquireRelease(
+        Effect.sync(() => record.waiters.add(finish)),
+        () => Effect.sync(() => record.waiters.delete(finish)),
+      );
+      const abortLatch = yield* acquireAbortLatch(signal);
+      yield* Effect.raceFirst(
+        Effect.raceFirst(Deferred.await(activity), Effect.sleep(timeoutMs)),
+        Deferred.await(abortLatch).pipe(
+          Effect.flatMap((reason) =>
+            Effect.fail(reason ?? new Error("Aborted")),
+          ),
+        ),
+      );
+    }),
+  );
 
-const settleCompletedShell = async (
+const settleCompletedShellEffect = (
   record: ManagedShellRecord,
   signal?: AbortSignal,
   hardDeadlineAt = Number.POSITIVE_INFINITY,
-) => {
-  const deadline = Math.min(Date.now() + 250, hardDeadlineAt);
-  while (record.running && Date.now() < deadline) {
-    const observedVersion = record.outputVersion;
-    try {
-      await waitForShellActivity(
-        record,
-        observedVersion,
-        Math.min(25, Math.max(1, deadline - Date.now())),
-        signal,
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const deadline = Math.min(Date.now() + 250, hardDeadlineAt);
+    while (record.running && Date.now() < deadline) {
+      const observedVersion = record.outputVersion;
+      const attempt = yield* Effect.exit(
+        waitForShellActivityEffect(
+          record,
+          observedVersion,
+          Math.min(25, Math.max(1, deadline - Date.now())),
+          signal,
+        ),
       );
-    } catch {
-      return;
+      if (Exit.isFailure(attempt)) {
+        return;
+      }
     }
-  }
-};
+  });
 
 const spawnShellProcess = (
   shell: string,
@@ -1469,6 +1562,14 @@ const killShellProcess = (
   }
 };
 
+/**
+ * TERM→1s→KILL ladder. The escalation is a forked fiber racing the child's
+ * `exit` event against a 1s sleep (replacing the unref'd `setTimeout`): if
+ * the child is still alive at the deadline it is SIGKILLed; if it exits
+ * first the fiber ends immediately. Bounded to 1s of fiber lifetime per
+ * invocation, so repeated kills stay cheap and shutdown never inherits an
+ * unbounded timer set.
+ */
 const terminateShellProcess = (child: SpawnedShell) => {
   if (child.exitCode !== null) {
     return;
@@ -1476,13 +1577,24 @@ const terminateShellProcess = (child: SpawnedShell) => {
 
   killShellProcess(child, "SIGTERM");
 
-  const forceKillTimer = setTimeout(() => {
-    if (child.exitCode !== null) {
-      return;
-    }
-    killShellProcess(child, "SIGKILL");
-  }, 1_000);
-  forceKillTimer.unref?.();
+  toolsRuntime.runFork(
+    Effect.gen(function* () {
+      const exited = yield* Deferred.make<void>();
+      const onExit = () => {
+        Deferred.doneUnsafe(exited, Effect.void);
+      };
+      child.once("exit", onExit);
+      yield* Effect.ensuring(
+        Effect.raceFirst(Effect.sleep(1_000), Deferred.await(exited)),
+        Effect.sync(() => {
+          child.removeListener("exit", onExit);
+        }),
+      );
+      if (child.exitCode === null) {
+        killShellProcess(child, "SIGKILL");
+      }
+    }),
+  );
 };
 
 const killPtyShellProcess = (
@@ -1555,6 +1667,7 @@ export const startShell = (
   externalCandidateSnapshots?: ExternalCandidateSnapshot[],
   onActivity?: (record: ManagedShellRecord) => void,
   launchOptions: ShellLaunchOptions = {},
+  producedFileLimit: number = MAX_PRODUCED_FILES_PER_COMMAND,
 ) => {
   maybeSweepDeferredDeletes(state);
   const id = crypto.randomUUID();
@@ -1563,6 +1676,9 @@ export const startShell = (
 
   const failedRecord = (message: string, exitCode: number) => {
     const safeLaunchError = sanitizeToolVisibleText(message);
+    // Never spawned: the exit latch is born completed so joins are no-ops.
+    const exitLatch = Deferred.makeUnsafe<void>();
+    Deferred.doneUnsafe(exitLatch, Effect.void);
     const record: ManagedShellRecord = {
       id,
       command,
@@ -1579,8 +1695,10 @@ export const startShell = (
       waiters: new Set(),
       exitWatchers: new Set(),
       stdinOpen: false,
+      exitLatch,
       startSnapshot,
       externalCandidateSnapshots,
+      producedFileLimit,
       kill: () => {},
     };
     record.outputBuffer.pushText(safeLaunchError);
@@ -1609,8 +1727,10 @@ export const startShell = (
     waiters: new Set(),
     exitWatchers: new Set(),
     stdinOpen: false,
+    exitLatch: Deferred.makeUnsafe<void>(),
     startSnapshot,
     externalCandidateSnapshots,
+    producedFileLimit,
     kill: () => {},
   };
 
@@ -1632,6 +1752,7 @@ export const startShell = (
     record.exitCode = exitCode;
     record.completedAt = Date.now();
     record.stdinOpen = false;
+    Deferred.doneUnsafe(record.exitLatch, Effect.void);
     notifyShellActivity(record);
     notifyShellExit(record);
     onActivity?.(record);
@@ -1745,8 +1866,8 @@ export const startShell = (
     record.kill = () => terminateShellProcess(child);
 
     const appendPipe = (data: Buffer) => append(data.toString(), true);
-    child.stdout.on("data", appendPipe);
-    child.stderr.on("data", appendPipe);
+    child.stdout?.on("data", appendPipe);
+    child.stderr?.on("data", appendPipe);
     child.stdin?.on("close", () => {
       record.stdinOpen = false;
       notifyShellActivity(record);
@@ -1765,6 +1886,72 @@ export const startShell = (
   return record;
 };
 
+/**
+ * Await a managed shell's exit (close/error already reflected in
+ * `record.running`), bounded by `timeoutMs`. Resolves either way — the
+ * bound exists so a wedged process can never hang a caller; the kill
+ * ladder's SIGKILL has already been dispatched by then.
+ */
+export const waitForShellExit = (
+  record: ManagedShellRecord,
+  timeoutMs: number,
+): Promise<void> =>
+  runToolEffect(
+    Effect.gen(function* () {
+      if (!record.running) {
+        return;
+      }
+      yield* Effect.raceFirst(
+        Deferred.await(record.exitLatch),
+        Effect.sleep(timeoutMs),
+      );
+    }),
+  );
+
+/**
+ * Joined, bounded teardown of every managed shell. `kill()` alone only
+ * *starts* the TERM→1s→KILL ladders — a worker that exits right after would
+ * strand TERM-ignoring children as orphans. This joins every running
+ * shell's actual exit latch in parallel under a single 3s bound
+ * (comfortably past the ladder); anything still alive at the bound is
+ * logged and left to the OS, as the ladder's KILL already fired.
+ * Conversation-scoped shells are deliberately worker-lifetime resources:
+ * they die here, never earlier.
+ */
+export const shutdownManagedShells = (state: ShellState): Promise<void> =>
+  runToolEffect(
+    Effect.gen(function* () {
+      const pending: ManagedShellRecord[] = [];
+      for (const record of state.shells.values()) {
+        if (record.running && record.child && record.child.exitCode === null) {
+          pending.push(record);
+        }
+      }
+      for (const record of state.shells.values()) {
+        if (record.running) {
+          record.kill();
+        }
+      }
+      if (pending.length === 0) {
+        return;
+      }
+      const joined = yield* Effect.raceFirst(
+        Effect.forEach(
+          pending,
+          (record) => Deferred.await(record.exitLatch),
+          { concurrency: "unbounded", discard: true },
+        ).pipe(Effect.as("joined" as const)),
+        Effect.sleep(3_000).pipe(Effect.as("timeout" as const)),
+      );
+      if (joined === "timeout") {
+        // eslint-disable-next-line no-console
+        console.warn(
+          "[tool-host] shell teardown exceeded the shutdown bound; SIGKILL was already dispatched",
+        );
+      }
+    }),
+  );
+
 export const runShell = async (
   state: ShellState,
   command: string,
@@ -1781,67 +1968,104 @@ export const runShell = async (
     return launch.error;
   }
 
-  return new Promise<string>((resolve) => {
-    let child: SpawnedShell;
-    try {
-      child = spawnShellProcess(
-        launch.shell,
-        launch.args,
-        cwd,
-        buildShellEnv(envOverrides, state),
-        launch.windowsVerbatimArguments,
-      );
-    } catch (error) {
-      resolve(
-        describeShellSpawnFailure(
-          error instanceof Error ? error : new Error(String(error)),
-          launch,
-          cwd,
-          launchOptions,
-        ),
-      );
-      return;
-    }
+  type RunShellSettled =
+    | { type: "close"; code: number | null }
+    | { type: "error"; error: Error }
+    | { type: "timeout" };
 
-    let output = "";
-    let finished = false;
-
-    const timer = setTimeout(() => {
-      if (finished) return;
-      finished = true;
-      terminateShellProcess(child);
-      resolve(`Command timed out after ${timeoutMs}ms.\n\n${truncate(output)}`);
-    }, timeoutMs);
-
-    const append = (data: Buffer) => {
-      output = truncate(`${output}${data.toString()}`);
-    };
-
-    child.stdout.on("data", append);
-    child.stderr.on("data", append);
-    child.on("close", (code) => {
-      if (finished) return;
-      finished = true;
-      clearTimeout(timer);
-      // Clean Windows console noise (chcp output) that confuses LLMs
-      const cleanedOutput = sanitizeToolVisibleText(output)
-        .replace(/^Active code page: \d+\s*/gm, "")
-        .replace(/^\s+/, ""); // Trim leading whitespace after removal
-      if (code === 0) {
-        resolve(cleanedOutput || "Command completed successfully (no output).");
-      } else {
-        resolve(
-          `Command exited with code ${code}.\n\n${truncate(cleanedOutput)}`,
+  return runToolEffect(
+    Effect.scoped(
+      Effect.gen(function* () {
+        let output = "";
+        let processSettled = false;
+        const settledLatch = yield* Deferred.make<RunShellSettled>();
+        // The spawned shell is a scoped resource: if the process has not
+        // settled (close/error) when the scope closes — the timeout path,
+        // or an interruption — the release finalizer runs the TERM→1s→KILL
+        // ladder, exactly where the legacy timeout branch killed it.
+        // A synchronous spawn throw (e.g. posix_spawn failure) must route
+        // through the same diagnostic as the managed path rather than escaping
+        // as an unhandled defect. Spawn eagerly so a throw returns the
+        // diagnostic output; hand the live child to acquireRelease so the
+        // scoped TERM->1s->KILL finalizer still owns its lifecycle.
+        let spawnedChild: ReturnType<typeof spawnShellProcess>;
+        try {
+          spawnedChild = spawnShellProcess(
+            launch.shell,
+            launch.args,
+            cwd,
+            buildShellEnv(envOverrides, state),
+            launch.windowsVerbatimArguments,
+          );
+        } catch (error) {
+          return describeShellSpawnFailure(
+            error instanceof Error ? error : new Error(String(error)),
+            launch,
+            cwd,
+            launchOptions,
+          );
+        }
+        const child = yield* Effect.acquireRelease(
+          Effect.sync(() => spawnedChild),
+          (spawned) =>
+            Effect.sync(() => {
+              if (!processSettled) {
+                terminateShellProcess(spawned);
+              }
+            }),
         );
-      }
-    });
-    child.on("error", (error) => {
-      if (finished) return;
-      finished = true;
-      clearTimeout(timer);
-      resolve(describeShellSpawnFailure(error, launch, cwd, launchOptions));
-    });
-  });
+
+        const append = (data: Buffer) => {
+          output = truncate(`${output}${data.toString()}`);
+        };
+        child.stdout.on("data", append);
+        child.stderr.on("data", append);
+        child.on("close", (code) => {
+          processSettled = true;
+          Deferred.doneUnsafe(
+            settledLatch,
+            Effect.succeed<RunShellSettled>({
+              type: "close",
+              code: code ?? null,
+            }),
+          );
+        });
+        child.on("error", (error) => {
+          processSettled = true;
+          Deferred.doneUnsafe(
+            settledLatch,
+            Effect.succeed<RunShellSettled>({ type: "error", error }),
+          );
+        });
+
+        const settled = yield* Effect.raceFirst(
+          Deferred.await(settledLatch),
+          Effect.sleep(timeoutMs).pipe(
+            Effect.as<RunShellSettled>({ type: "timeout" }),
+          ),
+        );
+        if (settled.type === "timeout") {
+          return `Command timed out after ${timeoutMs}ms.\n\n${truncate(output)}`;
+        }
+        if (settled.type === "error") {
+          return describeShellSpawnFailure(
+            settled.error,
+            launch,
+            cwd,
+            launchOptions,
+          );
+        }
+        // Clean Windows console noise (chcp output) that confuses LLMs
+        const cleanedOutput = sanitizeToolVisibleText(output)
+          .replace(/^Active code page: \d+\s*/gm, "")
+          .replace(/^\s+/, ""); // Trim leading whitespace after removal
+        if (settled.code === 0) {
+          return cleanedOutput || "Command completed successfully (no output).";
+        }
+        return `Command exited with code ${settled.code}.\n\n${truncate(cleanedOutput)}`;
+      }),
+    ),
+  );
 };
 
 const resolveManagedShellCommand = (
@@ -1998,6 +2222,7 @@ type ExecToolPayload = {
   cwd: string;
   command: string;
   hint?: string;
+  produced_files_omitted?: ProducedFilesOmission;
 };
 
 const buildExecToolPayload = (
@@ -2189,15 +2414,42 @@ export const handleExecCommand = async (
     beforeSideEffects.externalCandidateSnapshots,
     emitUpdate,
     prepared.launchOptions,
+    resolveProducedFileLimit(context),
   );
   setShellOwner(record, context);
   const observedVersion = record.outputVersion;
   try {
-    await waitForShellActivity(
-      record,
-      observedVersion,
-      Math.max(0, deadlineAt - Date.now()),
-      signal,
+    await runToolEffect(
+      Effect.scoped(
+        Effect.gen(function* () {
+          // Ownership classification (run-owned vs conversation-scoped):
+          // this call STARTED the shell, so until the session id reaches
+          // the model the shell is run-owned — an abort before then would
+          // otherwise orphan it until toolHost shutdown. The window's
+          // exit-aware scope finalizer kills it through the TERM→1s→KILL
+          // ladder on any failing exit (abort). Session shells whose id
+          // was already delivered (later write_stdin polls) are
+          // conversation-scoped and deliberately exempt: aborting a poll
+          // never kills the shell.
+          yield* Effect.acquireRelease(Effect.void, (_, exit) =>
+            Effect.sync(() => {
+              if (Exit.isFailure(exit) && record.running) {
+                try {
+                  record.kill();
+                } catch {
+                  // Best effort; the process may already be exiting.
+                }
+              }
+            }),
+          );
+          yield* waitForShellActivityEffect(
+            record,
+            observedVersion,
+            Math.max(0, deadlineAt - Date.now()),
+            signal,
+          );
+        }),
+      ),
     );
   } catch (error) {
     // Ownership classification (run-owned vs conversation-scoped): this
@@ -2217,11 +2469,11 @@ export const handleExecCommand = async (
     }
     return { error: toolErrorMessage(error) };
   }
-  await settleCompletedShell(record, signal, deadlineAt);
+  await runToolEffect(settleCompletedShellEffect(record, signal, deadlineAt));
 
   const drained = drainUnreadOutput(record);
   const payload = buildExecToolPayload(record, drained, callStartedAt);
-  let producedFiles: ProducedFileRecord[] | undefined;
+  let produced: ProducedFilesOutcome = {};
   if (!record.running) {
     const collectionDelivery = new AbortController();
     const collectionOutcome = await runUntilExecDeadline(
@@ -2230,7 +2482,7 @@ export const handleExecCommand = async (
       signal,
     );
     if (collectionOutcome.status === "completed") {
-      producedFiles = collectionOutcome.value;
+      produced = collectionOutcome.value;
     } else {
       collectionDelivery.abort(
         collectionOutcome.status === "aborted"
@@ -2247,11 +2499,17 @@ export const handleExecCommand = async (
       // delivery signal is aborted, it remains available to a later drain.
     }
   }
+  // Also on the model-visible payload, not just the structured side channel:
+  // the agent is the one that can tell the user its 31 charts are sitting in
+  // the workspace undelivered.
+  if (produced.producedFilesOmitted) {
+    payload.produced_files_omitted = produced.producedFilesOmitted;
+  }
   return {
     result: formatExecToolResult(payload, drained),
     details: buildExecToolDetails(payload, drained),
     modelOutputTokens,
-    ...(producedFiles ? { producedFiles } : {}),
+    ...produced,
   };
 };
 
@@ -2286,37 +2544,45 @@ export const handleWriteStdin = async (
   }
 
   try {
-    await waitForShellActivity(
-      record,
-      observedVersion,
-      chars
-        ? resolveExecYieldTime(args.yield_time_ms, DEFAULT_WRITE_STDIN_YIELD_MS)
-        : // An empty write is a pure poll on a silent process, so it gets a
-          // far higher ceiling than an interactive write — matching Codex,
-          // whose background-terminal poll budget is 5 minutes. The wait
-          // still returns the instant the process emits anything or exits,
-          // so a chatty build is unaffected; this only stops a quiet
-          // 10-minute job from costing twenty round-trips.
-          resolveExecYieldTime(
-            args.yield_time_ms,
-            DEFAULT_EMPTY_POLL_YIELD_MS,
-            MAX_EMPTY_POLL_YIELD_MS,
-          ),
-      signal,
+    await runToolEffect(
+      waitForShellActivityEffect(
+        record,
+        observedVersion,
+        chars
+          ? resolveExecYieldTime(
+              args.yield_time_ms,
+              DEFAULT_WRITE_STDIN_YIELD_MS,
+            )
+          : // An empty write is a pure poll on a silent process, so it gets a
+            // far higher ceiling than an interactive write — matching Codex,
+            // whose background-terminal poll budget is 5 minutes. The wait
+            // still returns the instant the process emits anything or exits,
+            // so a chatty build is unaffected; this only stops a quiet
+            // 10-minute job from costing twenty round-trips.
+            resolveExecYieldTime(
+              args.yield_time_ms,
+              DEFAULT_EMPTY_POLL_YIELD_MS,
+              MAX_EMPTY_POLL_YIELD_MS,
+            ),
+        signal,
+      ),
     );
   } catch (error) {
     return { error: (error as Error).message };
   }
-  await settleCompletedShell(record, signal);
+  await runToolEffect(settleCompletedShellEffect(record, signal));
 
   const drained = drainUnreadOutput(record);
   const payload = buildExecToolPayload(record, drained, callStartedAt);
-  const producedFiles = await takeCompletedProducedFiles(record);
+  const produced = await takeCompletedProducedFiles(record);
+  if (produced.producedFilesOmitted) {
+    payload.produced_files_omitted = produced.producedFilesOmitted;
+  }
   return {
     result: formatExecToolResult(payload, drained),
     details: buildExecToolDetails(payload, drained),
     modelOutputTokens,
-    ...(producedFiles ? { producedFiles } : {}),
+    ...produced,
   };
 };
 
@@ -2358,6 +2624,9 @@ export const handleBash = async (
       undefined,
       beforeSideEffects.rootSnapshot,
       beforeSideEffects.externalCandidateSnapshots,
+      undefined,
+      prepared.launchOptions,
+      resolveProducedFileLimit(context),
     );
     setShellOwner(record, context);
     const extracted = extractOfficePreviewRef(record.output || "");
@@ -2391,9 +2660,10 @@ export const handleBash = async (
         )
       : { rootSnapshot: null };
   const output = await runShell(state, command, cwd, timeout, envOverrides);
-  const producedFiles =
+  const produced =
     shouldSnapshotSideEffects && snapshotRoot
       ? mergeProducedFiles(
+          resolveProducedFileLimit(context),
           diffFileSnapshots(
             beforeSideEffects.rootSnapshot,
             await snapshotFiles(snapshotRoot),
@@ -2402,15 +2672,18 @@ export const handleBash = async (
             beforeSideEffects.externalCandidateSnapshots,
           ),
         )
-      : undefined;
+      : {};
   const extracted = extractOfficePreviewRef(sanitizeToolVisibleText(output));
+  const text = produced.producedFilesOmitted
+    ? `${truncate(extracted.cleanedOutput)}\n\n${producedFilesOmittedNotice(produced.producedFilesOmitted)}`
+    : truncate(extracted.cleanedOutput);
   return {
-    result: truncate(extracted.cleanedOutput),
-    ...(producedFiles ? { producedFiles } : {}),
+    result: text,
+    ...produced,
     ...(extracted.officePreviewRef
       ? {
           details: {
-            text: truncate(extracted.cleanedOutput),
+            text,
             officePreviewRef: extracted.officePreviewRef,
           },
         }
@@ -2459,10 +2732,13 @@ export const handleShellStatus = async (
   result += `\nCommand: ${record.command.slice(0, 200)}`;
   result += `\n\n--- Output (last ${Math.min(tail_lines, lines.length)} lines) ---\n${tail}`;
 
-  const producedFiles = await takeCompletedProducedFiles(record);
+  const produced = await takeCompletedProducedFiles(record);
+  if (produced.producedFilesOmitted) {
+    result += `\n\n${producedFilesOmittedNotice(produced.producedFilesOmitted)}`;
+  }
   return {
     result,
-    ...(producedFiles ? { producedFiles } : {}),
+    ...produced,
   };
 };
 

@@ -77,8 +77,8 @@ describe("executeRuntimeAgentPrompt", () => {
     const onThreadPersistenceError = vi.fn();
     const onThreadPersistenceRecovered = vi.fn();
     const appendThreadMessages = vi.fn().mockImplementationOnce(() => {
-        throw new Error("injected SQLite failure");
-      });
+      throw new Error("injected SQLite failure");
+    });
     const assistant = createAssistantMessage("done");
     const agent = createTurnEndingAgent(assistant);
 
@@ -144,8 +144,8 @@ describe("executeRuntimeAgentPrompt", () => {
     });
     const abort = vi.spyOn(agent, "abort");
     const appendThreadMessages = vi.fn().mockImplementationOnce(() => {
-        throw new Error("injected SQLite failure");
-      });
+      throw new Error("injected SQLite failure");
+    });
     const recorder = {
       recordQueuedUserMessageStart: vi.fn(() => null),
       recordAssistantMessageEnd: vi.fn(() => null),
@@ -284,9 +284,9 @@ describe("executeRuntimeAgentPrompt", () => {
       agent,
       promptMessages: [
         {
-        text: "Hidden reminder",
-        uiVisibility: "hidden",
-        messageType: "message",
+          text: "Hidden reminder",
+          uiVisibility: "hidden",
+          messageType: "message",
         },
       ],
       runId: "run-1",
@@ -349,13 +349,13 @@ describe("executeRuntimeAgentPrompt", () => {
       agent,
       promptMessages: [
         {
-        text: "[Agent completed]",
-        uiVisibility: "hidden",
-        messageType: "message",
-        customType: "runtime.task_lifecycle",
+          text: "[Agent completed]",
+          uiVisibility: "hidden",
+          messageType: "message",
+          customType: "runtime.task_lifecycle",
           eventId: durableLifecycleMessage.eventId,
-        display: false,
-        timestamp: 123,
+          display: false,
+          timestamp: 123,
         },
       ],
       runId: "run-task-lifecycle",
@@ -374,6 +374,69 @@ describe("executeRuntimeAgentPrompt", () => {
         eventId: durableLifecycleMessage.eventId,
       }),
     );
+    expect(agent.prompt).toHaveBeenCalledWith([durableLifecycleMessage]);
+    expect(
+      agent.state.messages.filter(
+        (message) => message.role === "runtimeInternal",
+      ),
+    ).toEqual([durableLifecycleMessage]);
+  });
+
+  it("does not duplicate a pre-persisted task lifecycle prompt", async () => {
+    const appendThreadCustomMessage = vi.fn();
+    const priorAssistant = createAssistantMessage("previous turn");
+    const durableLifecycleMessage = {
+      role: "runtimeInternal" as const,
+      content: [{ type: "text" as const, text: "[Agent completed]" }],
+      timestamp: 123,
+      customType: "runtime.task_lifecycle",
+      eventId: "task-1:1:agent-completed",
+      display: false,
+    };
+    const agent = {
+      state: {
+        messages: [priorAssistant, durableLifecycleMessage] as Array<
+          | ReturnType<typeof createAssistantMessage>
+          | typeof durableLifecycleMessage
+        >,
+      },
+      subscribe: () => () => {},
+      prompt: vi.fn(async (messages: Array<typeof durableLifecycleMessage>) => {
+        expect(agent.state.messages).toEqual([priorAssistant]);
+        agent.state.messages = [
+          priorAssistant,
+          ...messages,
+          createAssistantMessage("done"),
+        ];
+      }),
+      followUp: vi.fn(),
+      continue: vi.fn(),
+      abort: vi.fn(),
+    };
+
+    await executeRuntimeAgentPrompt({
+      agent,
+      promptMessages: [
+        {
+          text: "[Agent completed]",
+          uiVisibility: "hidden",
+          messageType: "message",
+          customType: "runtime.task_lifecycle",
+          eventId: durableLifecycleMessage.eventId,
+          display: false,
+          timestamp: 123,
+        },
+      ],
+      runId: "run-task-lifecycle",
+      agentType: "orchestrator",
+      userMessageId: "msg-task-lifecycle",
+      recorder: {} as never,
+      callbacks: {},
+      threadStore: { appendThreadCustomMessage } as never,
+      threadKey: "thread-task-lifecycle",
+    });
+
+    expect(appendThreadCustomMessage).not.toHaveBeenCalled();
     expect(agent.prompt).toHaveBeenCalledWith([durableLifecycleMessage]);
     expect(
       agent.state.messages.filter(
@@ -494,8 +557,8 @@ describe("executeRuntimeAgentPrompt", () => {
       agent,
       promptMessages: [
         {
-        text: "Visible user message",
-        uiVisibility: "visible",
+          text: "Visible user message",
+          uiVisibility: "visible",
         },
       ],
       runId: "run-2",
@@ -699,8 +762,8 @@ describe("executeRuntimeAgentPrompt", () => {
       prompt: vi.fn(
         () =>
           new Promise<void>((resolve) => {
-          finishPrompt = resolve;
-        }),
+            finishPrompt = resolve;
+          }),
       ),
       followUp: vi.fn(),
       continue: vi.fn(),

@@ -16,6 +16,8 @@
 
 import { connect, type Socket } from "node:net";
 import { z } from "zod";
+
+import { forkTimeoutFiber } from "./effect-runtime.js";
 import type { ConnectorTokenPayload } from "./oauth.js";
 
 /**
@@ -27,6 +29,10 @@ export type ConnectorTokenStoreRequest =
   | { operation: "load"; tokenKey: string }
   | { operation: "save"; tokenKey: string; payload: ConnectorTokenPayload }
   | { operation: "delete"; tokenKeys: string[] };
+
+export type ConnectorTokenStoreResult =
+  | { ok: true; payload?: ConnectorTokenPayload | null }
+  | { ok: false; reason: string };
 
 export type ConnectorCredentialResult =
   | { ok: true }
@@ -90,17 +96,19 @@ const sendRequest = (
     let settled = false;
 
     const socket: Socket = connect(socketPath);
-    const timer = setTimeout(() => {
+    // Effect timer fiber instead of setTimeout; the cancel thunk below is
+    // the old clearTimeout.
+    const cancelTimeout = forkTimeoutFiber(timeoutMs, () => {
       if (settled) return;
       settled = true;
       socket.destroy();
       reject(new Error(`cli-bridge: timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
+    });
 
     const fail = (error: Error) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      cancelTimeout();
       socket.destroy();
       reject(error);
     };
@@ -127,7 +135,7 @@ const sendRequest = (
         }
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        cancelTimeout();
         socket.end();
         resolve(message.result);
       } catch (error) {

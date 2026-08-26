@@ -19,7 +19,7 @@ import type {
   AgentRuntimeEngine,
 } from "@stella/contracts/agent-engine";
 import {
-  resolveLocalCliCwd,
+  resolveAgentWorkingDirectory,
   textFromUnknown,
 } from "../agent-runtime/shared.js";
 import type { ToolMetadata, ToolResult } from "../tools/types.js";
@@ -102,7 +102,7 @@ export const getClaudeCodeAgentModelId = (
  * Claude Code has no "minimal" tier, so it folds into "low".
  */
 const CLAUDE_CODE_EFFORT_BY_REASONING: Record<
-  Exclude<AgentModelReasoningEffort, "none">,
+  Exclude<AgentModelReasoningEffort, "default" | "none">,
   string
 > = {
   minimal: "low",
@@ -118,6 +118,7 @@ export const getClaudeCodeRuntimeEffortLevel = (
 ): string | undefined => {
   // A spawn suffix is authoritative for this run only and never writes the
   // engine-wide preference or environment configuration.
+  if (spawnOverride === "default") return undefined;
   if (spawnOverride === "none") return undefined;
   if (spawnOverride) return CLAUDE_CODE_EFFORT_BY_REASONING[spawnOverride];
   const envOverride = process.env.CLAUDE_CODE_EFFORT_LEVEL?.trim();
@@ -194,7 +195,7 @@ export const runClaudeCodeAgentTextCompletion = async (args: {
   /**
    * Explicit CLI working directory. Callers whose data dir differs from the
    * agent workspace should pass this; otherwise the cwd falls back to
-   * `resolveLocalCliCwd` over `stellaAppDir`.
+   * `resolveAgentWorkingDirectory` (home by default).
    */
   cwd?: string;
   executeTool?: (
@@ -225,16 +226,20 @@ export const runClaudeCodeAgentTextCompletion = async (args: {
       ...(effortLevel ? { effortLevel } : {}),
       prompt: buildPromptFromMessages(args.context.messages),
       systemPrompt: args.context.systemPrompt,
-      cwd:
-        args.cwd?.trim() ||
-        resolveLocalCliCwd({
-          agentType: args.agentType,
-          stellaAppDir: args.stellaAppDir,
-        }),
+      cwd: resolveAgentWorkingDirectory({
+        agentType: args.agentType,
+        stellaAppDir: args.stellaAppDir,
+        workingDirectory: args.cwd,
+      }),
       tools: toolsToMetadata(args.context.tools),
       abortSignal: args.abortSignal,
       ...(args.onModelRound ? { onModelRound: args.onModelRound } : {}),
-      executeTool: async (toolCallId, toolName, toolArgs, signal) => {
+      executeTool: async (
+        toolCallId: any,
+        toolName: any,
+        toolArgs: any,
+        signal: any,
+      ) => {
         if (!args.executeTool) {
           return { error: `Tool ${toolName} is not available in this run.` };
         }

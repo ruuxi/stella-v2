@@ -1,9 +1,19 @@
 /**
  * Proxy stream function for apps that route LLM calls through a server.
  * The server manages auth and proxies requests to LLM providers.
+ *
+ * Effect-native internals (M5 surface 3): the SSE consumption runs as a
+ * scoped effect on a module-level ManagedRuntime. The caller-owned
+ * `AbortSignal` is bridged once into a Deferred latch (`abort-bridge.ts`):
+ * a scoped watcher fiber cancels the body reader when the latch completes,
+ * and the read loop consults the latch instead of polling `signal.aborted`.
+ * The public surface (`streamProxy` returning a `ProxyMessageEventStream`
+ * synchronously) and every terminal event payload — including the exact
+ * `"Proxy error: …"` / `"Request aborted by user"` strings and the
+ * aborted-vs-error reason split — are unchanged.
  */
 
-// Internal import for JSON parsing utility
+import { Cause, Deferred, Effect, Layer, ManagedRuntime } from "effect";
 import type {
 	Api,
 	AssistantMessage,
@@ -16,6 +26,7 @@ import type {
 } from "../../ai/types.js";
 import { EventStream } from "../../ai/utils/event-stream.js";
 import { parseStreamingJson } from "../../ai/utils/json-parse.js";
+import { acquireAbortLatch } from "./abort-bridge.js";
 
 type StreamingToolCall = ToolCall & { partialJson?: string };
 
@@ -67,6 +78,12 @@ export interface ProxyStreamOptions extends SimpleStreamOptions {
 }
 
 /**
+ * Requirements-free runtime for the proxy delivery pipelines (same
+ * convention as `ai/stream.ts`: context rides in closures).
+ */
+const proxyStreamRuntime = ManagedRuntime.make(Layer.empty);
+
+/**
  * Stream function that proxies through a server instead of calling LLM providers directly.
  * The server strips the partial field from delta events to reduce bandwidth.
  * We reconstruct the partial message client-side.
@@ -88,122 +105,160 @@ export interface ProxyStreamOptions extends SimpleStreamOptions {
 export function streamProxy(model: Model<Api>, context: Context, options: ProxyStreamOptions): ProxyMessageEventStream {
 	const stream = new ProxyMessageEventStream();
 
-	(async () => {
-		// Initialize the partial message that we'll build up from events
-		const partial: AssistantMessage = {
-			role: "assistant",
-			stopReason: "stop",
-			content: [],
-			api: model.api,
-			provider: model.provider,
-			model: model.id,
-			usage: {
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 0,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
-			timestamp: Date.now(),
-		};
+	// Initialize the partial message that we'll build up from events
+	const partial: AssistantMessage = {
+		role: "assistant",
+		stopReason: "stop",
+		content: [],
+		api: model.api,
+		provider: model.provider,
+		model: model.id,
+		usage: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		timestamp: Date.now(),
+	};
 
-		let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+	void proxyStreamRuntime.runPromise(
+		Effect.scoped(
+			Effect.gen(function* () {
+				const abortLatch = yield* acquireAbortLatch(options.signal);
+				let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 
-		const abortHandler = () => {
-			if (reader) {
-				reader.cancel("Request aborted by user").catch(() => {});
-			}
-		};
+				// Latch watcher (legacy `abortHandler`): once the caller aborts,
+				// cancel the body reader so the read loop drains and settles. The
+				// fiber is scoped — interrupted automatically when the pipeline
+				// finishes first.
+				yield* Effect.forkScoped(
+					Deferred.await(abortLatch).pipe(
+						Effect.flatMap(() =>
+							Effect.sync(() => {
+								if (reader) {
+									reader.cancel("Request aborted by user").catch(() => {});
+								}
+							}),
+						),
+					),
+					{ startImmediately: true },
+				);
 
-		if (options.signal) {
-			options.signal.addEventListener("abort", abortHandler);
-		}
+				const consume = Effect.gen(function* () {
+					// The raw caller signal still rides on fetch itself (seam
+					// pass-through), so an abort during connection surfaces as
+					// fetch's own rejection — exactly the legacy error text.
+					const response = yield* Effect.tryPromise({
+						try: () =>
+							fetch(`${options.proxyUrl}/api/stream`, {
+								method: "POST",
+								headers: {
+									Authorization: `Bearer ${options.authToken}`,
+									"Content-Type": "application/json",
+								},
+								body: JSON.stringify({
+									model,
+									context,
+									options: {
+										temperature: options.temperature,
+										maxTokens: options.maxTokens,
+										reasoning: options.reasoning,
+									},
+								}),
+								signal: options.signal,
+							}),
+						catch: (error) => error,
+					});
 
-		try {
-			const response = await fetch(`${options.proxyUrl}/api/stream`, {
-				method: "POST",
-				headers: {
-					Authorization: `Bearer ${options.authToken}`,
-					"Content-Type": "application/json",
-				},
-				body: JSON.stringify({
-					model,
-					context,
-					options: {
-						temperature: options.temperature,
-						maxTokens: options.maxTokens,
-						reasoning: options.reasoning,
-					},
-				}),
-				signal: options.signal,
-			});
-
-			if (!response.ok) {
-				let errorMessage = `Proxy error: ${response.status} ${response.statusText}`;
-				try {
-					const errorData = (await response.json()) as { error?: string };
-					if (errorData.error) {
-						errorMessage = `Proxy error: ${errorData.error}`;
-					}
-				} catch {
-					// Couldn't parse error response
-				}
-				throw new Error(errorMessage);
-			}
-
-			reader = response.body!.getReader() as ReadableStreamDefaultReader<Uint8Array>;
-			const decoder = new TextDecoder();
-			let buffer = "";
-
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) break;
-
-				if (options.signal?.aborted) {
-					throw new Error("Request aborted by user");
-				}
-
-				buffer += decoder.decode(value, { stream: true });
-				const lines = buffer.split("\n");
-				buffer = lines.pop() || "";
-
-				for (const line of lines) {
-					if (line.startsWith("data: ")) {
-						const data = line.slice(6).trim();
-						if (data) {
-							const proxyEvent = JSON.parse(data) as ProxyAssistantMessageEvent;
-							const event = processProxyEvent(proxyEvent, partial);
-							if (event) {
-								stream.push(event);
+					if (!response.ok) {
+						let errorMessage = `Proxy error: ${response.status} ${response.statusText}`;
+						const errorData = yield* Effect.promise(async () => {
+							try {
+								return (await response.json()) as { error?: string };
+							} catch {
+								// Couldn't parse error response
+								return undefined;
 							}
+						});
+						if (errorData?.error) {
+							errorMessage = `Proxy error: ${errorData.error}`;
 						}
+						return yield* Effect.fail(new Error(errorMessage));
 					}
-				}
-			}
 
-			if (options.signal?.aborted) {
-				throw new Error("Request aborted by user");
-			}
+					reader = response.body!.getReader() as ReadableStreamDefaultReader<Uint8Array>;
+					const decoder = new TextDecoder();
+					let buffer = "";
 
-			stream.end();
-		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
-			const reason = options.signal?.aborted ? "aborted" : "error";
-			partial.stopReason = reason;
-			partial.errorMessage = errorMessage;
-			stream.push({
-				type: "error",
-				reason,
-				error: partial,
-			});
-			stream.end();
-		} finally {
-			if (options.signal) {
-				options.signal.removeEventListener("abort", abortHandler);
-			}
-		}
-	})();
+					for (;;) {
+						const boundReader = reader;
+						const { done, value } = yield* Effect.tryPromise({
+							try: () => boundReader.read(),
+							catch: (error) => error,
+						});
+						if (done) break;
+
+						if (Deferred.isDoneUnsafe(abortLatch)) {
+							return yield* Effect.fail(new Error("Request aborted by user"));
+						}
+
+						// SSE parse + event projection; JSON/protocol failures fail
+						// the pipeline and map to the terminal error event below.
+						yield* Effect.try({
+							try: () => {
+								buffer += decoder.decode(value, { stream: true });
+								const lines = buffer.split("\n");
+								buffer = lines.pop() || "";
+
+								for (const line of lines) {
+									if (line.startsWith("data: ")) {
+										const data = line.slice(6).trim();
+										if (data) {
+											const proxyEvent = JSON.parse(data) as ProxyAssistantMessageEvent;
+											const event = processProxyEvent(proxyEvent, partial);
+											if (event) {
+												stream.push(event);
+											}
+										}
+									}
+								}
+							},
+							catch: (error) => error,
+						});
+					}
+
+					if (Deferred.isDoneUnsafe(abortLatch)) {
+						return yield* Effect.fail(new Error("Request aborted by user"));
+					}
+				});
+
+				yield* consume.pipe(
+					Effect.catchCause((cause) =>
+						Effect.sync(() => {
+							const error = Cause.squash(cause);
+							const errorMessage = error instanceof Error ? error.message : String(error);
+							const reason = Deferred.isDoneUnsafe(abortLatch) ? "aborted" : "error";
+							partial.stopReason = reason;
+							partial.errorMessage = errorMessage;
+							stream.push({
+								type: "error",
+								reason,
+								error: partial,
+							});
+						}),
+					),
+					Effect.ensuring(
+						Effect.sync(() => {
+							stream.end();
+						}),
+					),
+				);
+			}),
+		),
+	);
 
 	return stream;
 }

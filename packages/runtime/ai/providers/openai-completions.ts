@@ -36,6 +36,7 @@ import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { readRetryAfterMs } from "../utils/retry.js";
 import { headersToRecord } from "../utils/headers.js";
 import { parseStreamingJson } from "../utils/json-parse.js";
+import { anomalousStreamStopError } from "../utils/provider-stop.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
 import { normalizeProviderToolInputSchema } from "../utils/tool-schema.js";
 import {
@@ -163,7 +164,8 @@ export const streamOpenAICompletions: StreamFunction<
         totalTokens: 0,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
       },
-      stopReason: "stop",
+      // A response is successful only after finish_reason arrives.
+      stopReason: "error",
       timestamp: Date.now(),
     };
 
@@ -477,9 +479,7 @@ export const streamOpenAICompletions: StreamFunction<
         throw new Error("Request was aborted");
       }
       if (output.stopReason === "error") {
-        throw new Error(
-          output.errorMessage || "Provider returned an error stop reason",
-        );
+        throw anomalousStreamStopError(output);
       }
 
       stream.push({ type: "done", reason: output.stopReason, message: output });
@@ -1283,7 +1283,9 @@ function mapStopReason(
   stopReason: StopReason;
   errorMessage?: string;
 } {
-  if (reason === null) return { stopReason: "stop" };
+  if (reason === null) {
+    return { stopReason: "error", errorMessage: "Provider finish_reason was null" };
+  }
   switch (reason) {
     case "stop":
     case "end":

@@ -255,7 +255,13 @@ export const handleGrep = async (
     ? path.resolve(context.toolWorkspaceRoot)
     : null;
   const rawPath = expandHomePath(
-    String(args.path ?? scopedRoot ?? context?.stellaAppDir ?? process.cwd()),
+    String(
+      args.path ??
+        scopedRoot ??
+        context?.workingDirectory ??
+        context?.stellaAppDir ??
+        process.cwd(),
+    ),
   );
   const basePath =
     scopedRoot && !path.isAbsolute(rawPath)

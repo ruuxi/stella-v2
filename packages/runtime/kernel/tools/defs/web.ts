@@ -7,78 +7,33 @@
  * structured `details.results` for the model to summarize — the chat
  * surface never auto-renders them.
  *
- * One file owns everything for this tool: name, description, parameters,
- * prompt snippet, and the executable handler. Agents don't reach for tool
- * names through a central catalog — the host imports this file and the
- * registry exposes the resulting `ToolDefinition` directly.
+ * The model-visible surface (name, description, parameters) lives in
+ * `web-def.ts` so workerd hosts expose the identical tool; this file adds
+ * the executable handler for tool-host consumers.
  */
 
 import { localWebFetch } from "../local-tool-overrides.js";
 import type { ToolDefinition } from "../types.js";
+import {
+  WEB_TOOL_DESCRIPTION,
+  WEB_TOOL_NAME,
+  WEB_TOOL_PARAMETERS,
+  WEB_TOOL_PROMPT_SNIPPET,
+  type WebSearchCapability,
+} from "./web-def.js";
+
+// Re-export the model-visible schema so tool-host consumers (and tests) can
+// import the canonical parameters from the executable tool module too.
+export { WEB_TOOL_PARAMETERS } from "./web-def.js";
 
 export type WebToolOptions = {
-  webSearch?: (
-    query: string,
-    options?: { category?: string },
-  ) => Promise<{
-    text: string;
-    results?: Array<{
-      title: string;
-      url: string;
-      snippet: string;
-      image?: string;
-      favicon?: string;
-    }>;
-  }>;
+  webSearch?: WebSearchCapability;
 };
 
-export const WEB_TOOL_PARAMETERS: Record<string, unknown> = {
-  type: "object",
-  additionalProperties: false,
-  description:
-    "Either search the live web (provide query) or fetch a known URL (provide url). Pass exactly one of query or url.",
-  properties: {
-    query: {
-      type: "string",
-      description:
-        "Web search query. Returns ranked results with title, URL, and snippet.",
-    },
-    url: {
-      type: "string",
-      description:
-        "URL to fetch. Returns the page rendered as readable text with HTML stripped.",
-    },
-    category: {
-      type: "string",
-      enum: ["company", "people", "research paper"],
-      description:
-        "Optional Exa category hint when using query. Most searches should omit it.",
-    },
-    prompt: {
-      type: "string",
-      description:
-        "Optional follow-up prompt used by the local fetcher to extract just the relevant slice of a long page.",
-    },
-    format: {
-      type: "string",
-      enum: ["text", "markdown", "html"],
-      description:
-        "Fetch output format. Defaults to text. Only applies when url is provided.",
-    },
-  },
-  oneOf: [
-    { required: ["query"], not: { required: ["url"] } },
-    { required: ["url"], not: { required: ["query"] } },
-  ],
-};
-
-export const createWebTool = (
-  options: WebToolOptions = {},
-): ToolDefinition => ({
-  name: "web",
-  description:
-    "Search the live web (provide query) or fetch a known URL (provide url). Pass exactly one of query or url. Use this for facts that change over time, recent news, current documentation, or any specific page you need to read.",
-  promptSnippet: "Search the web or fetch a URL",
+export const createWebTool = (options: WebToolOptions = {}): ToolDefinition => ({
+  name: WEB_TOOL_NAME,
+  description: WEB_TOOL_DESCRIPTION,
+  promptSnippet: WEB_TOOL_PROMPT_SNIPPET,
   parameters: WEB_TOOL_PARAMETERS,
   execute: async (args) => {
     const query = typeof args.query === "string" ? args.query.trim() : "";

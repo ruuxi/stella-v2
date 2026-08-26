@@ -4,9 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { Effect } from 'effect';
 import { google, gmail_v1 } from 'googleapis';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import {
+  runGoogleWorkspaceEffect,
+  tryGoogleWorkspaceOp,
+} from './effect-runtime.js';
 import { AuthManager } from './AuthManager.js';
 import { logToFile } from './logger.js';
 import { MimeHelper } from './MimeHelper.js';
@@ -231,12 +236,19 @@ export class GmailService {
         throw new Error('Attachment data is empty');
       }
 
-      // Ensure directory exists
-      await fs.mkdir(path.dirname(localPath), { recursive: true });
-
-      // Write file
+      // Ensure directory exists, then write — one Effect pipeline on the
+      // shared google-workspace runtime; failures rethrow the original
+      // fs error object (M5 attachment-IO seam).
       const buffer = Buffer.from(data, 'base64url');
-      await fs.writeFile(localPath, buffer);
+      await runGoogleWorkspaceEffect(
+        tryGoogleWorkspaceOp(() =>
+          fs.mkdir(path.dirname(localPath), { recursive: true }),
+        ).pipe(
+          Effect.flatMap(() =>
+            tryGoogleWorkspaceOp(() => fs.writeFile(localPath, buffer)),
+          ),
+        ),
+      );
 
       logToFile(`Attachment downloaded successfully to ${localPath}`);
 

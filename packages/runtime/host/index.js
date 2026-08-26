@@ -1,25 +1,55 @@
 import { EventEmitter } from "node:events";
 import { existsSync, promises as fs, readFileSync, watch, } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { ConvexClient } from "convex/browser";
 import { anyApi } from "convex/server";
 import { readConfiguredConvexUrl } from "@stella/contracts/convex-urls";
 import { resolveBundledRuntimeFile } from "../kernel/shared/runtime-paths.js";
 import { getFileLogger } from "../observability/file-logger.js";
+import { isRestartContinuationEnabled, recordRestartShutdown, } from "../kernel/restart-continuation.js";
 import { LocalSchedulerService } from "../kernel/local-scheduler-service.js";
 import { createScheduleScriptAuthEnv } from "../kernel/shared/schedule-scripts.js";
 import { createRemoteTurnBridge } from "../kernel/remote-turn-bridge.js";
 import { getConvexErrorCode, isConvexUnauthenticatedError, shouldStopRemoteTurnForAuthFailure, } from "../kernel/runner/remote-turn-auth.js";
 import { createEmptySocialSessionServiceSnapshot } from "@stella/contracts";
 import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
-import { resolveConnectorFollowupAction } from "./connector-followup.js";
+import { connectorLocalFollowupDeliveryId, resolveConnectorFollowupAction, resolveConnectorTerminalFollowup, } from "./connector-followup.js";
+import { ConnectorFollowupOutbox } from "./connector-followup-outbox.js";
+import { getDesktopDatabasePath, initializeDesktopDatabase, } from "../kernel/storage/database-init.js";
 import { METHOD_NAMES, NOTIFICATION_NAMES, STELLA_RUNTIME_PROTOCOL_VERSION, } from "@stella/contracts/protocol";
 import { createRuntimeUnavailableError, } from "@stella/contracts/protocol/rpc-peer";
 import { RuntimeWorkerLifecycleController, } from "./worker-lifecycle.js";
 import { buildUdsConnectionFactory, killDetachedWorker, retireDetachedWorkerRoot, } from "./uds-connection.js";
 import { buildStdioConnectionFactory } from "./stdio-connection.js";
 import { resolveRuntimePaths } from "../worker/runtime-paths.js";
-import { computeRuntimeBuildStamp, RUNTIME_BUILD_STAMP_UNAVAILABLE, } from "../worker/runtime-build-stamp.js";
+import { Cause, Effect, Exit, Fiber } from "effect";
+import { forkDelayed, hostRuntime, } from "./effect-runtime.js";
+import { clearPendingWorkerRestartFlag, evaluateWorkerStaleness, persistPendingWorkerRestartFlag, quiescencePollEffect, } from "./staleness.js";
+/*
+ * Host-side Effect boundary: the staleness/build-stamp handshake, the
+ * quiescence poll, and every host timer (reload debounce and ack/flush
+ * debounces) run on the shared `hostRuntime`
+ * (host/effect-runtime.ts) as fibers cancelled through HostTimerHandle.
+ * The StellaRuntimeHost API below stays plain Promise/data — no Effect type
+ * escapes this file (check-boundary.mjs enforces the package fence, this
+ * comment enforces the signature fence).
+ */
+const requireRuntime = createRequire(import.meta.url);
+const loadSqliteDatabaseCtorSync = () => {
+    if (process.versions.bun) {
+        const bunSqlite = requireRuntime("bun:sqlite");
+        if (typeof bunSqlite.Database === "function")
+            return bunSqlite.Database;
+    }
+    else {
+        const nodeSqlite = requireRuntime("node:sqlite");
+        if (typeof nodeSqlite.DatabaseSync === "function") {
+            return nodeSqlite.DatabaseSync;
+        }
+    }
+    throw new Error("No compatible SQLite builtin is available.");
+};
 const AGENT_EVENT_BUFFER_LIMIT = 1_000;
 const AGENT_EVENT_BUFFER_TTL_MS = 10 * 60 * 1_000;
 export { retireDetachedWorkerRoot };
@@ -103,7 +133,7 @@ export class StellaRuntimeHost {
      * connects (fresh worker == current code).
      */
     pendingStaleWorkerRestart = null;
-    staleWorkerQuiescencePollTimer = null;
+    staleWorkerQuiescencePollFiber = null;
     // Serializes the single gated flush (`flushWorkerRestart`) so concurrent
     // triggers/hooks don't stack overlapping health probes or restarts.
     workerRestartCheckInFlight = false;
@@ -141,6 +171,8 @@ export class StellaRuntimeHost {
      * primary map: any write here happens immediately after a write there.
      */
     localConversationByRequestId = new Map();
+    connectorFollowupOutbox = null;
+    connectorFollowupDatabase = null;
     /**
      * Tracks requestIds we've already actioned a cancel for, so reconnects
      * to `subscribeRemoteTurnCancelsForDevice` (which keeps returning
@@ -273,13 +305,11 @@ export class StellaRuntimeHost {
      */
     scheduleRuntimeReload() {
         this.deferredRuntimeReload = true;
-        if (this.reloadTimer) {
-            clearTimeout(this.reloadTimer);
-        }
-        this.reloadTimer = setTimeout(() => {
+        this.reloadTimer?.cancel();
+        this.reloadTimer = forkDelayed(150, () => {
             this.reloadTimer = null;
             void this.flushWorkerRestart();
-        }, 150);
+        });
     }
     /*
      * ---- Stale-worker detection + idle/deferred restart -------------------
@@ -300,17 +330,28 @@ export class StellaRuntimeHost {
     getRuntimeControlPaths() {
         return resolveRuntimePaths(this.options.initializeParams.stellaAppDir);
     }
-    readWorkerReportedBuildStamp() {
+    /**
+     * Authorize one graceful worker-replacement episode before sending the
+     * signal that starts Effect teardown. The worker snapshots its active rows
+     * against this episode before cancellation, and the replacement worker only
+     * accepts exact episode matches. Synchronous/best-effort by design: failure
+     * must never hold the process open or turn a crash into false continuation.
+     */
+    writeRestartContinuationRecord(reason) {
+        if (!isRestartContinuationEnabled(process.env))
+            return;
         try {
-            const raw = readFileSync(this.getRuntimeControlPaths().buildStampFile, "utf-8").trim();
-            return raw || null;
+            if (recordRestartShutdown(this.options.initializeParams.stellaDataDirPath, {
+                reason,
+            })) {
+                getFileLogger()?.process("host.restart-continuation-record", {
+                    reason,
+                });
+            }
         }
         catch {
-            return null;
+            // Best-effort shutdown bookkeeping.
         }
-    }
-    hasPersistedPendingWorkerRestart() {
-        return existsSync(this.getRuntimeControlPaths().pendingWorkerRestartFile);
     }
     getPendingWorkerRestart() {
         return this.pendingStaleWorkerRestart;
@@ -319,25 +360,22 @@ export class StellaRuntimeHost {
         if (!this.pendingStaleWorkerRestart) {
             this.pendingStaleWorkerRestart = { reason, detectedAtMs: Date.now() };
         }
+        const record = this.pendingStaleWorkerRestart;
         getFileLogger()?.process("host.worker-restart-pending", { reason });
         console.warn(`[runtime-host] Runtime update pending (${reason}); the worker restarts when current work finishes.`);
-        try {
-            const paths = this.getRuntimeControlPaths();
-            await fs.mkdir(paths.rootDir, { recursive: true });
-            await fs.writeFile(paths.pendingWorkerRestartFile, JSON.stringify(this.pendingStaleWorkerRestart, null, 2), "utf-8");
-        }
-        catch (error) {
-            console.warn("[runtime-host] Failed to persist pending worker restart flag:", error.message);
+        const persistExit = await hostRuntime.runPromiseExit(persistPendingWorkerRestartFlag(this.getRuntimeControlPaths(), record));
+        if (Exit.isFailure(persistExit)) {
+            console.warn("[runtime-host] Failed to persist pending worker restart flag:", Cause.squash(persistExit.cause).message);
         }
         this.startStaleWorkerQuiescencePoll();
         // Nudge the unified gate soon: restart now if already quiescent, otherwise
         // an unblock hook (pause release, morph settle, worker idle) or the poll
-        // retries. Off this call stack so a caller still inside the startup /
-        // apply sequence isn't restarted from under itself.
-        const nudge = setTimeout(() => {
+        // retries. Forked as a 1s fiber so it stays off this call stack — a
+        // caller still inside the startup / apply sequence isn't restarted from
+        // under itself.
+        forkDelayed(1_000, () => {
             void this.flushWorkerRestart();
-        }, 1_000);
-        nudge.unref?.();
+        });
         if (this.started) {
             this.events.emit("runtime-ready", await this.health());
         }
@@ -345,25 +383,23 @@ export class StellaRuntimeHost {
     async clearPendingWorkerRestart() {
         this.stopStaleWorkerQuiescencePoll();
         this.pendingStaleWorkerRestart = null;
-        await fs
-            .unlink(this.getRuntimeControlPaths().pendingWorkerRestartFile)
-            .catch(() => undefined);
+        await hostRuntime.runPromise(clearPendingWorkerRestartFlag(this.getRuntimeControlPaths()));
     }
     startStaleWorkerQuiescencePoll() {
-        if (this.staleWorkerQuiescencePollTimer)
+        if (this.staleWorkerQuiescencePollFiber)
             return;
         // Safety net for busy signals that don't end in a RUN_FINISHED event
-        // (e.g. voice-only activity) or a missed event during churn.
-        this.staleWorkerQuiescencePollTimer = setInterval(() => {
-            void this.flushWorkerRestart();
-        }, 30_000);
-        this.staleWorkerQuiescencePollTimer.unref?.();
+        // (e.g. voice-only activity) or a missed event during churn. Fixed-rate
+        // 30s ticks with a leading delay, matching the old setInterval cadence
+        // (see quiescencePollEffect).
+        this.staleWorkerQuiescencePollFiber = hostRuntime.runFork(quiescencePollEffect(() => this.flushWorkerRestart()));
     }
     stopStaleWorkerQuiescencePoll() {
-        if (!this.staleWorkerQuiescencePollTimer)
+        const fiber = this.staleWorkerQuiescencePollFiber;
+        if (!fiber)
             return;
-        clearInterval(this.staleWorkerQuiescencePollTimer);
-        this.staleWorkerQuiescencePollTimer = null;
+        this.staleWorkerQuiescencePollFiber = null;
+        hostRuntime.runFork(Fiber.interrupt(fiber));
     }
     /**
      * Reconnect handshake: decide whether the worker we just connected to is
@@ -384,28 +420,16 @@ export class StellaRuntimeHost {
             await this.clearPendingWorkerRestart();
             return;
         }
-        let reason = null;
-        if (this.hasPersistedPendingWorkerRestart()) {
-            reason = "pending-restart-flag";
-        }
-        else {
-            const workerStamp = this.readWorkerReportedBuildStamp();
-            if (!workerStamp) {
-                // Pre-stamp worker (older build) — by definition running old code.
-                reason = "worker-stamp-missing";
-            }
-            else {
-                const onDiskStamp = computeRuntimeBuildStamp(resolveDefaultWorkerEntryPath(this.options));
-                if (onDiskStamp !== RUNTIME_BUILD_STAMP_UNAVAILABLE &&
-                    workerStamp !== onDiskStamp) {
-                    reason = "build-stamp-mismatch";
-                }
-            }
-        }
-        if (!reason) {
+        const verdict = await hostRuntime.runPromise(evaluateWorkerStaleness({
+            attachedToExistingWorker: true,
+            paths: this.getRuntimeControlPaths(),
+            workerEntryPath: resolveDefaultWorkerEntryPath(this.options),
+        }));
+        if (!verdict.stale) {
             await this.clearPendingWorkerRestart();
             return;
         }
+        const reason = verdict.reason;
         getFileLogger()?.process("host.worker-stale-detected", {
             reason,
             pid: connection.pid,
@@ -492,7 +516,7 @@ export class StellaRuntimeHost {
                 getFileLogger()?.process("host.worker-restart", { reason });
                 console.warn(`[runtime-host] Restarting runtime worker (${reason}).`);
                 try {
-                    await this.restartWorker();
+                    await this.restartWorker(reason);
                 }
                 catch (error) {
                     // A failed restart did not satisfy the watcher request. Preserve it
@@ -507,9 +531,9 @@ export class StellaRuntimeHost {
                 this.restartInProgress = false;
                 if (this.restartRequestedDuringRestart) {
                     this.restartRequestedDuringRestart = false;
-                    setTimeout(() => {
+                    forkDelayed(0, () => {
                         void this.flushWorkerRestart();
-                    }, 0);
+                    });
                 }
                 // `restartWorker()` emits readiness while restartInProgress is still
                 // true, so that snapshot intentionally remains send-blocked. Publish
@@ -726,11 +750,20 @@ export class StellaRuntimeHost {
                 // routes back to the connector. The map entry is cleared by the
                 // local-chat listener as soon as the user sends a non-connector
                 // message in this conversation.
-                this.connectorTargetsByLocalConversation.set(localConversationId, {
+                const previousConnectorTarget = this.resolveConnectorFollowupTarget(localConversationId);
+                const connectorTarget = this.connectorFollowupOutbox?.armTarget({
+                    conversationId: localConversationId,
+                    requestId,
+                    backendConversationId: conversationId,
+                });
+                if (previousConnectorTarget &&
+                    previousConnectorTarget.requestId !== requestId) {
+                    this.localConversationByRequestId.delete(previousConnectorTarget.requestId);
+                }
+                this.connectorTargetsByLocalConversation.set(localConversationId, connectorTarget ?? {
                     requestId,
                     backendConversationId: conversationId,
                     initialTurnCompleted: false,
-                    pendingFollowupTexts: [],
                 });
                 this.localConversationByRequestId.set(requestId, localConversationId);
                 // Stable event id shared with the worker turn so the runtime
@@ -788,10 +821,6 @@ export class StellaRuntimeHost {
                     throw new Error("Missing Convex client configuration.");
                 }
                 await client.mutation(anyApi.channels.connector_delivery.completeRemoteTurn, { requestId, conversationId, text });
-                this.markConnectorInitialTurnCompleted({
-                    requestId,
-                    backendConversationId: conversationId,
-                });
             },
             log: (level, message, error) => {
                 const logger = level === "error" ? console.error : console.warn;
@@ -805,51 +834,56 @@ export class StellaRuntimeHost {
     }
     async sendConnectorFollowup(args) {
         const client = this.ensureHostConvexClient();
-        if (!client) {
-            return;
-        }
-        try {
-            await client.mutation(anyApi.channels.connector_delivery.sendConnectorFollowup, {
-                requestId: args.requestId,
-                conversationId: args.backendConversationId,
-                text: args.text,
-            });
-        }
-        catch (error) {
-            console.warn("[runtime-host] sendConnectorFollowup failed:", error instanceof Error ? error.message : String(error));
-        }
-    }
-    markConnectorInitialTurnCompleted(args) {
-        const localConversationId = this.localConversationByRequestId.get(args.requestId);
-        if (!localConversationId) {
-            return;
-        }
-        const target = this.connectorTargetsByLocalConversation.get(localConversationId);
-        if (!target ||
-            target.requestId !== args.requestId ||
-            target.backendConversationId !== args.backendConversationId) {
-            return;
-        }
-        target.initialTurnCompleted = true;
-        const pendingTexts = target.pendingFollowupTexts.splice(0);
-        for (const text of pendingTexts) {
-            void this.sendConnectorFollowup({
-                requestId: target.requestId,
-                backendConversationId: target.backendConversationId,
-                text,
-            });
-        }
-    }
-    queueOrSendConnectorFollowup(args) {
-        if (!args.target.initialTurnCompleted) {
-            args.target.pendingFollowupTexts.push(args.text);
-            return;
-        }
-        void this.sendConnectorFollowup({
-            requestId: args.target.requestId,
-            backendConversationId: args.target.backendConversationId,
+        if (!client)
+            throw new Error("Missing Convex client configuration.");
+        // `args.deliveryId` keys the durable outbox row; dedup stays host-side
+        // because the deployed connector_delivery.sendConnectorFollowup
+        // mutation does not accept a deliveryId argument yet.
+        await client.mutation(anyApi.channels.connector_delivery.sendConnectorFollowup, {
+            requestId: args.requestId,
+            conversationId: args.backendConversationId,
             text: args.text,
         });
+    }
+    resolveConnectorFollowupTarget(conversationId) {
+        const cached = this.connectorTargetsByLocalConversation.get(conversationId) ?? null;
+        if (cached)
+            return cached;
+        const durable = this.connectorFollowupOutbox?.targetForConversation(conversationId) ??
+            null;
+        if (durable) {
+            this.connectorTargetsByLocalConversation.set(conversationId, durable);
+        }
+        return durable;
+    }
+    resolveConnectorConversationForRequest(requestId) {
+        const cached = this.localConversationByRequestId.get(requestId) ?? null;
+        if (cached)
+            return cached;
+        const route = this.connectorFollowupOutbox?.routeForRequest(requestId);
+        if (!route)
+            return null;
+        this.localConversationByRequestId.set(requestId, route.conversationId);
+        this.connectorTargetsByLocalConversation.set(route.conversationId, route);
+        return route.conversationId;
+    }
+    enqueueConnectorFollowup(args) {
+        if (!this.connectorFollowupOutbox) {
+            throw new Error("Connector follow-up outbox is unavailable.");
+        }
+        this.connectorFollowupOutbox.enqueue(args.target, args.followup);
+    }
+    handleConnectorTerminalRunEvent(event) {
+        const conversationId = event.conversationId?.trim();
+        if (!conversationId)
+            return;
+        const target = this.resolveConnectorFollowupTarget(conversationId);
+        if (!target)
+            return;
+        const followup = resolveConnectorTerminalFollowup(event, target.requestId);
+        if (!followup)
+            return;
+        this.enqueueConnectorFollowup({ target, followup });
     }
     handleLocalChatUpdateForConnectorFollowup(payload) {
         if (!payload)
@@ -857,7 +891,7 @@ export class StellaRuntimeHost {
         const conversationId = payload.conversationId;
         if (!conversationId || !payload.event)
             return;
-        const target = this.connectorTargetsByLocalConversation.get(conversationId);
+        const target = this.resolveConnectorFollowupTarget(conversationId);
         if (!target)
             return;
         const action = resolveConnectorFollowupAction(payload);
@@ -868,15 +902,19 @@ export class StellaRuntimeHost {
                 // by `runLocalTurn` above) keep the target alive.
                 const cleared = this.connectorTargetsByLocalConversation.get(conversationId);
                 this.connectorTargetsByLocalConversation.delete(conversationId);
+                this.connectorFollowupOutbox?.clearTarget(conversationId);
                 if (cleared) {
                     this.localConversationByRequestId.delete(cleared.requestId);
                 }
                 return;
             }
             case "send":
-                this.queueOrSendConnectorFollowup({
+                this.enqueueConnectorFollowup({
                     target,
-                    text: action.text,
+                    followup: {
+                        deliveryId: connectorLocalFollowupDeliveryId(target.requestId, payload.event._id, action.text),
+                        text: action.text,
+                    },
                 });
                 return;
             case "ignore":
@@ -950,9 +988,12 @@ export class StellaRuntimeHost {
                 if (!requestId || this.cancelledRequestIds.has(requestId))
                     continue;
                 this.cancelledRequestIds.add(requestId);
-                const localConversationId = this.localConversationByRequestId.get(requestId);
+                const localConversationId = this.resolveConnectorConversationForRequest(requestId);
                 if (!localConversationId)
                     continue;
+                this.connectorTargetsByLocalConversation.delete(localConversationId);
+                this.localConversationByRequestId.delete(requestId);
+                this.connectorFollowupOutbox?.clearTarget(localConversationId);
                 void this.cancelChatByConversation(localConversationId).catch((error) => {
                     console.warn("[runtime-host] cancelChatByConversation failed:", error instanceof Error ? error.message : String(error));
                 });
@@ -992,14 +1033,16 @@ export class StellaRuntimeHost {
         this.startDevWatcher(resolveDefaultWorkerEntryPath(this.options));
     }
     async stop(options) {
+        if (options?.killWorker) {
+            this.writeRestartContinuationRecord(this.pendingStaleWorkerRestart?.reason ?? "app-shutdown");
+        }
         this.started = false;
         this.hostReady = false;
         this.workerHealthCache = null;
         this.workerGeneration = 0;
         this.agentEventBuffers.clear();
         this.pendingRunEventAcks.clear();
-        if (this.runEventAckTimer)
-            clearTimeout(this.runEventAckTimer);
+        this.runEventAckTimer?.cancel();
         this.runEventAckTimer = null;
         this.deferredRuntimeReload = false;
         this.restartInProgress = false;
@@ -1008,8 +1051,7 @@ export class StellaRuntimeHost {
         // the next host's reconnect handshake picks the deferral back up.
         this.pendingStaleWorkerRestart = null;
         this.stopStaleWorkerQuiescencePoll();
-        if (this.reloadTimer)
-            clearTimeout(this.reloadTimer);
+        this.reloadTimer?.cancel();
         this.reloadTimer = null;
         this.watcher?.close();
         this.watcher = null;
@@ -1021,6 +1063,9 @@ export class StellaRuntimeHost {
     }
     async configure(params) {
         this.configCache = { ...this.configCache, ...params };
+        // Configuration/auth changes are a recovery edge: retry eligible durable
+        // connector rows now instead of waiting out an old offline backoff.
+        this.connectorFollowupOutbox?.resume(true);
         this.syncHostRemoteTurnBridge();
         const connection = this.workerController.getConnection();
         if (!connection?.peer) {
@@ -1031,9 +1076,10 @@ export class StellaRuntimeHost {
     async health() {
         return await this.buildHealthSnapshot();
     }
-    async restartWorker() {
+    async restartWorker(reason = "runtime-reload") {
         const startedAt = Date.now();
         this.events.emit("runtime-reloading", { reason: "worker-restart" });
+        this.writeRestartContinuationRecord(reason);
         await this.workerController.stop("restart");
         const stoppedAt = Date.now();
         await this.workerController.ensureStarted();
@@ -1079,6 +1125,12 @@ export class StellaRuntimeHost {
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_LIST_MODELS, request, { ensureWorker: true, recordActivity: false });
     }
     async startChat(payload) {
+        const priorConnectorTarget = this.resolveConnectorFollowupTarget(payload.conversationId);
+        if (priorConnectorTarget) {
+            this.connectorTargetsByLocalConversation.delete(payload.conversationId);
+            this.connectorFollowupOutbox?.clearTarget(payload.conversationId);
+            this.localConversationByRequestId.delete(priorConnectorTarget.requestId);
+        }
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_START_CHAT, payload, {
             ensureWorker: true,
             recordActivity: true,
@@ -1129,7 +1181,7 @@ export class StellaRuntimeHost {
      */
     flushRunEventAcks() {
         if (this.runEventAckTimer) {
-            clearTimeout(this.runEventAckTimer);
+            this.runEventAckTimer.cancel();
             this.runEventAckTimer = null;
         }
         const pending = this.pendingRunEventAcks;
@@ -1147,10 +1199,9 @@ export class StellaRuntimeHost {
         this.pendingRunEventAcks.set(runId, Math.max(previous, lastSeq));
         if (this.runEventAckTimer)
             return;
-        this.runEventAckTimer = setTimeout(() => {
+        this.runEventAckTimer = forkDelayed(150, () => {
             this.flushRunEventAcks();
-        }, 150);
-        this.runEventAckTimer.unref?.();
+        });
     }
     async runAutomationTurn(payload) {
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_RUN_AUTOMATION, payload, {
@@ -1366,6 +1417,15 @@ export class StellaRuntimeHost {
     async initializeHostServices() {
         await this.stopHostServices();
         this.deviceIdentity = await this.options.hostHandlers.getDeviceIdentity();
+        const ConnectorDatabase = loadSqliteDatabaseCtorSync();
+        const connectorDatabase = new ConnectorDatabase(getDesktopDatabasePath(this.options.initializeParams.stellaDataDirPath));
+        initializeDesktopDatabase(connectorDatabase);
+        this.connectorFollowupDatabase = connectorDatabase;
+        this.connectorFollowupOutbox = new ConnectorFollowupOutbox({
+            database: connectorDatabase,
+            deliver: async (entry) => await this.sendConnectorFollowup(entry),
+        });
+        this.connectorFollowupOutbox.resume(true);
         this.ensureHostRemoteTurnBridge();
         if (this.options.disableLocalScheduler) {
             // Ephemeral hosts (headless CLI, tests) must not run a second
@@ -1409,6 +1469,12 @@ export class StellaRuntimeHost {
         this.hostReady = true;
     }
     async stopHostServices() {
+        await this.connectorFollowupOutbox?.stop();
+        this.connectorFollowupOutbox = null;
+        this.connectorFollowupDatabase?.close();
+        this.connectorFollowupDatabase = null;
+        this.connectorTargetsByLocalConversation.clear();
+        this.localConversationByRequestId.clear();
         this.stopHostRemoteTurnCancelSubscription();
         this.hostRemoteTurnBridge?.stop();
         this.hostRemoteTurnBridge = null;
@@ -1630,6 +1696,7 @@ export class StellaRuntimeHost {
             const payload = params;
             bufferAgentEvent(this.agentEventBuffers, payload);
             pruneAgentEventBuffers(this.agentEventBuffers);
+            this.handleConnectorTerminalRunEvent(payload);
             this.events.emit("run-event", payload);
             // Ack only ordinary recorder events. Terminal events must remain
             // replayable until the retention sweep, otherwise an Electron
@@ -1644,10 +1711,9 @@ export class StellaRuntimeHost {
                     // A deferred worker restart is waiting for the worker to go idle;
                     // give immediate follow-up runs a moment to register before the
                     // unified gate re-checks.
-                    const timer = setTimeout(() => {
+                    forkDelayed(500, () => {
                         void this.flushWorkerRestart();
-                    }, 500);
-                    timer.unref?.();
+                    });
                 }
             }
         });
@@ -1661,6 +1727,9 @@ export class StellaRuntimeHost {
         });
         peer.registerNotificationHandler(NOTIFICATION_NAMES.THREAD_ACTIVITY_UPDATED, (params) => {
             this.events.emit("thread-activity-updated", params);
+        });
+        peer.registerNotificationHandler(NOTIFICATION_NAMES.THREAD_TRANSCRIPT_UPDATED, (params) => {
+            this.events.emit("thread-transcript-updated", params);
         });
         peer.registerNotificationHandler(NOTIFICATION_NAMES.SCHEDULE_UPDATED, () => {
             this.events.emit("schedule-updated", undefined);

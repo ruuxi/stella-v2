@@ -1283,7 +1283,7 @@ const readDurableMemoryDoc = (filePath: string): string | undefined => {
  * durable user profile, so the
  * summarizer can skip restating facts the assistant sees on every turn.
  */
-const buildDurableMemoryReference = (
+export const buildDurableMemoryReference = (
   stellaDataDir: string | undefined,
 ): string | undefined => {
   if (!stellaDataDir?.trim()) {
@@ -1632,14 +1632,16 @@ export const maybeCompactRuntimeThread = async (args: {
   );
   const effectiveToolResultKeys = new Set(
     storedMessages
-      .filter((message) => message.payload?.role === "toolResult")
-      .map((message) => toolResultQuarantineKey(message)),
+      .filter((message: any) => message.payload?.role === "toolResult")
+      .map((message: any) => toolResultQuarantineKey(message)),
   );
   const checkpointQuarantineKeys =
     latestCheckpointQuarantineKeys(storedMessages);
   const rebuildUnsafeCheckpoint =
     quarantineKeys.size > 0 &&
-    storedMessages.some((message) => parseThreadCheckpoint(message.content)) &&
+    storedMessages.some((message: any) =>
+      parseThreadCheckpoint(message.content),
+    ) &&
     [...quarantineKeys].some(
       (key) =>
         !effectiveToolResultKeys.has(key) && !checkpointQuarantineKeys.has(key),

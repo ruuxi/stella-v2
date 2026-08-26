@@ -211,6 +211,10 @@ const withTimeout = async <T>(
   timeoutMs: number,
   controller: AbortController,
 ): Promise<T> => {
+  // Effect-ratchet pin (1 setTimeout): the explore deadline fires the seam
+  // controller and is cleared in the finally — a self-contained timer/abort
+  // pair inside a promise pipeline whose cancellation is entirely
+  // signal-driven (see the controller pins below).
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await promise;
@@ -287,6 +291,9 @@ export const runExplore = async (args: RunExploreArgs): Promise<string> => {
         timestamp: Date.now(),
       },
     ];
+    // Effect-ratchet pin (1 new AbortController): seam controller composing
+    // the caller's cooperative signal with the explore deadline; the
+    // claude-code completion takes a REAL AbortSignal.
     const abortController = new AbortController();
     const handleAbort = () => abortController.abort(signal?.reason);
     signal?.addEventListener("abort", handleAbort, { once: true });
@@ -378,6 +385,9 @@ export const runExplore = async (args: RunExploreArgs): Promise<string> => {
     },
   ];
 
+  // Effect-ratchet pin (1 new AbortController): seam controller composing
+  // the caller's cooperative signal with the explore deadline; the
+  // `completeSimple` LLM calls and tool dispatch take a REAL AbortSignal.
   const abortController = new AbortController();
   const handleAbort = () => abortController.abort(signal?.reason);
   signal?.addEventListener("abort", handleAbort, { once: true });

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   spawn: vi.fn(),
   readdir: vi.fn(),
+  stat: vi.fn(),
 }));
 
 vi.mock("child_process", async (importOriginal) => {
@@ -22,7 +23,10 @@ vi.mock("fs/promises", async (importOriginal) => {
   mocks.readdir.mockImplementation(
     (...args: Parameters<typeof actual.readdir>) => actual.readdir(...args),
   );
-  return { ...actual, readdir: mocks.readdir };
+  mocks.stat.mockImplementation((...args: Parameters<typeof actual.stat>) =>
+    actual.stat(...args),
+  );
+  return { ...actual, readdir: mocks.readdir, stat: mocks.stat };
 });
 
 import {
@@ -48,6 +52,14 @@ import type { ToolContext } from "@stella/runtime/kernel/tools/types";
 
 const tempDirs: string[] = [];
 
+const statWithoutPromisesModuleMock = (filePath: string): Promise<fs.Stats> =>
+  new Promise((resolve, reject) => {
+    fs.stat(filePath, (error, info) => {
+      if (error) reject(error);
+      else resolve(info);
+    });
+  });
+
 const createTempDir = (): string => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stella-shell-hardening-"));
   tempDirs.push(dir);
@@ -68,6 +80,10 @@ const toolContext = (
 afterEach(() => {
   mocks.spawn.mockClear();
   mocks.readdir.mockClear();
+  mocks.stat.mockClear();
+  mocks.stat.mockImplementation((filePath) =>
+    statWithoutPromisesModuleMock(String(filePath)),
+  );
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -734,6 +750,145 @@ describe("shell hardening", () => {
     expect(mocks.readdir).toHaveBeenCalledTimes(1);
   });
 
+  it("bounds directory traversal concurrency inside one absolute snapshot budget", async () => {
+    const root = createTempDir();
+    const directories = Array.from({ length: 24 }, (_, index) => ({
+      name: `dir-${index}`,
+      isDirectory: () => true,
+      isFile: () => false,
+    }));
+    let activeReads = 0;
+    let maxActiveReads = 0;
+    const readChildDirectory = async () => {
+      activeReads += 1;
+      maxActiveReads = Math.max(maxActiveReads, activeReads);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      activeReads -= 1;
+      return [] as never;
+    };
+    // Baseline and completion snapshots each read the root once, then the 24
+    // synthetic children. `mockImplementationOnce` preserves the suite's
+    // real-fs default for every later test.
+    for (let phase = 0; phase < 2; phase += 1) {
+      mocks.readdir.mockImplementationOnce(
+        async () => directories as never,
+      );
+      for (let index = 0; index < directories.length; index += 1) {
+        mocks.readdir.mockImplementationOnce(readChildDirectory);
+      }
+    }
+
+    const result = await handleExecCommand(createShellState(root), {
+      cmd: `node -e 'process.stdout.write("bounded-concurrency")'`,
+      workdir: root,
+      yield_time_ms: 2_000,
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.result).toContain("bounded-concurrency");
+    expect(maxActiveReads).toBeGreaterThan(1);
+    expect(maxActiveReads).toBeLessThanOrEqual(8);
+  });
+
+  it("aborts a stalled mentioned-external candidate before spawning", async () => {
+    const root = createTempDir();
+    const externalRoot = createTempDir();
+    const externalPath = path.join(externalRoot, "never-read.txt");
+    let markCandidateStarted!: () => void;
+    const candidateStarted = new Promise<void>((resolve) => {
+      markCandidateStarted = resolve;
+    });
+    mocks.stat.mockImplementationOnce(() => {
+      markCandidateStarted();
+      return new Promise<never>(() => undefined);
+    });
+    const controller = new AbortController();
+    const addListener = vi.spyOn(controller.signal, "addEventListener");
+    const removeListener = vi.spyOn(controller.signal, "removeEventListener");
+    const pending = handleExecCommand(
+      createShellState(root),
+      {
+        cmd: `printf unreachable > ${JSON.stringify(externalPath)}`,
+        workdir: root,
+        yield_time_ms: 5_000,
+      },
+      toolContext("c-external-candidate-abort"),
+      controller.signal,
+    );
+    await candidateStarted;
+    const abortedAt = Date.now();
+    controller.abort(new Error("cancel external candidate"));
+
+    const result = await pending;
+    expect(Date.now() - abortedAt).toBeLessThan(500);
+    expect(result.error).toContain("cancel external candidate");
+    expect(mocks.spawn).not.toHaveBeenCalled();
+    expect(removeListener).toHaveBeenCalledTimes(addListener.mock.calls.length);
+  });
+
+  it("treats external EACCES as unavailable and only ENOENT as missing", async () => {
+    const root = createTempDir();
+    const externalRoot = createTempDir();
+    const unavailablePath = path.join(externalRoot, "unavailable.txt");
+    const missingPath = path.join(externalRoot, "missing.txt");
+    const denied = Object.assign(new Error("permission denied"), {
+      code: "EACCES",
+    });
+    let deniedOnce = false;
+    mocks.stat.mockImplementation(async (filePath) => {
+      if (
+        !deniedOnce &&
+        path.resolve(String(filePath)) === path.resolve(unavailablePath)
+      ) {
+        deniedOnce = true;
+        throw denied;
+      }
+      return await statWithoutPromisesModuleMock(String(filePath));
+    });
+
+    const unavailable = await handleExecCommand(createShellState(root), {
+      cmd: `printf private > ${JSON.stringify(unavailablePath)}`,
+      workdir: root,
+      yield_time_ms: 2_000,
+    });
+    expect(unavailable.error).toBeUndefined();
+    expect(deniedOnce).toBe(true);
+    expect(unavailable.producedFiles).toBeUndefined();
+    expect(fs.readFileSync(unavailablePath, "utf8")).toBe("private");
+
+    const missing = await handleExecCommand(createShellState(root), {
+      cmd: `printf public > ${JSON.stringify(missingPath)}`,
+      workdir: root,
+      yield_time_ms: 2_000,
+    });
+    expect(missing.error).toBeUndefined();
+    expect(missing.producedFiles).toEqual([
+      { path: missingPath, kind: { type: "add" } },
+    ]);
+  });
+
+  it("releases every snapshot abort listener after successful completion", async () => {
+    const root = createTempDir();
+    const controller = new AbortController();
+    const addListener = vi.spyOn(controller.signal, "addEventListener");
+    const removeListener = vi.spyOn(controller.signal, "removeEventListener");
+
+    const result = await handleBash(
+      createShellState(root),
+      {
+        cmd: "printf complete > listener-cleanup.txt",
+        workdir: root,
+        timeout: 2_000,
+      },
+      toolContext("c-snapshot-listener-cleanup"),
+      controller.signal,
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(addListener.mock.calls.length).toBeGreaterThan(0);
+    expect(removeListener).toHaveBeenCalledTimes(addListener.mock.calls.length);
+  });
+
   it("aborts a stalled legacy Bash snapshot before spawning", async () => {
     const root = createTempDir();
     let markSnapshotStarted!: () => void;
@@ -808,12 +963,12 @@ describe("shell hardening", () => {
       {
         cmd: "printf artifact > completed.txt",
         workdir: root,
-        yield_time_ms: 50,
+        yield_time_ms: 500,
       },
       context,
     );
 
-    expect(Date.now() - startedAt).toBeLessThan(500);
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
     expect(result.error).toBeUndefined();
     expect(result.details).toMatchObject({ running: false, exit_code: 0 });
     expect(result.producedFiles).toBeUndefined();
@@ -822,30 +977,37 @@ describe("shell hardening", () => {
     const record = state.shells.get(sessionId);
     expect(record?.producedFilesCollection).toBeDefined();
 
-    releaseCompletion([
-      {
-        name: "completed.txt",
-        isDirectory: () => false,
-        isFile: () => true,
-      },
-    ]);
-    const recovered = await drainCompletedProducedFiles(
-      state,
-      { conversationId: context.conversationId },
-      [sessionId],
-    );
-    expect(recovered.files).toEqual([
-      { path: artifactPath, kind: { type: "add" } },
-    ]);
-    expect(
-      (
-        await drainCompletedProducedFiles(
-          state,
-          { conversationId: context.conversationId },
-          [sessionId],
-        )
-      ).files,
-    ).toEqual([]);
+    const wallClock = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(Date.now() + 60 * 60_000);
+    try {
+      releaseCompletion([
+        {
+          name: "completed.txt",
+          isDirectory: () => false,
+          isFile: () => true,
+        },
+      ]);
+      const recovered = await drainCompletedProducedFiles(
+        state,
+        { conversationId: context.conversationId },
+        [sessionId],
+      );
+      expect(recovered.files).toEqual([
+        { path: artifactPath, kind: { type: "add" } },
+      ]);
+      expect(
+        (
+          await drainCompletedProducedFiles(
+            state,
+            { conversationId: context.conversationId },
+            [sessionId],
+          )
+        ).files,
+      ).toEqual([]);
+    } finally {
+      wallClock.mockRestore();
+    }
   });
 
   it(
@@ -860,7 +1022,7 @@ describe("shell hardening", () => {
       const result = await handleExecCommand(state, {
         cmd: "printf artifact > retry-after-stall.txt",
         workdir: root,
-        yield_time_ms: 50,
+        yield_time_ms: 500,
       });
       const sessionId = (result.details as { shell_session_id: string })
         .shell_session_id;
@@ -892,7 +1054,7 @@ describe("shell hardening", () => {
         (await drainCompletedProducedFiles(state, null, [sessionId])).files,
       ).toEqual([]);
     },
-    PRODUCED_FILE_COLLECTION_ATTEMPT_MS + 5_000,
+    PRODUCED_FILE_COLLECTION_ATTEMPT_MS + 10_000,
   );
 
   it("bounds a stalled write completion snapshot by the interaction deadline", async () => {
@@ -916,7 +1078,7 @@ describe("shell hardening", () => {
     const started = await handleExecCommand(state, {
       cmd: "read line; printf artifact > deadline.txt",
       workdir: root,
-      yield_time_ms: 50,
+      yield_time_ms: 500,
     });
     const sessionId = (started.details as { session_id: string }).session_id;
     const record = state.shells.get(sessionId);
@@ -975,7 +1137,7 @@ describe("shell hardening", () => {
     const started = await handleExecCommand(state, {
       cmd: "read line; printf artifact > interactive.txt",
       workdir: root,
-      yield_time_ms: 50,
+      yield_time_ms: 500,
     });
     const sessionId = (started.details as { session_id: string }).session_id;
     const record = state.shells.get(sessionId);

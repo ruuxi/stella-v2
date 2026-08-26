@@ -580,7 +580,10 @@ describe("fileChanges emission", () => {
       source: {
         running: false,
         producedFileLimit: 12,
-        producedFilesCollection: new Promise(() => {}),
+        producedFilesCollection: {
+          phase: "producing",
+          promise: new Promise(() => {}),
+        },
       },
     });
 
@@ -598,12 +601,18 @@ describe("fileChanges emission", () => {
 
     const recovery = shellState.prunedProducedFiles.get(sessionId);
     if (!recovery) throw new Error("missing retryable recovery");
-    recovery.source.producedFilesCollection = Promise.resolve({
-      kind: "ready",
+    recovery.source.producedFilesCollection = {
+      phase: "ready",
       outcome: {
         producedFiles: [{ path: filePath, kind: { type: "add" } }],
       },
-    });
+      promise: Promise.resolve({
+        kind: "ready",
+        outcome: {
+          producedFiles: [{ path: filePath, kind: { type: "add" } }],
+        },
+      }),
+    };
     const retried = await drainCompletedProducedFiles(shellState, access, [
       sessionId,
     ]);
@@ -626,7 +635,10 @@ describe("fileChanges emission", () => {
       source: {
         running: false,
         producedFileLimit: 12,
-        producedFilesCollection: new Promise(() => {}),
+        producedFilesCollection: {
+          phase: "producing",
+          promise: new Promise(() => {}),
+        },
       },
     });
     shellState.prunedProducedFiles.set("ready", {
@@ -636,12 +648,18 @@ describe("fileChanges emission", () => {
       source: {
         running: false,
         producedFileLimit: 12,
-        producedFilesCollection: Promise.resolve({
-          kind: "ready",
+        producedFilesCollection: {
+          phase: "ready",
           outcome: {
             producedFiles: [{ path: readyPath, kind: { type: "add" } }],
           },
-        }),
+          promise: Promise.resolve({
+            kind: "ready",
+            outcome: {
+              producedFiles: [{ path: readyPath, kind: { type: "add" } }],
+            },
+          }),
+        },
       },
     });
 
@@ -657,6 +675,36 @@ describe("fileChanges emission", () => {
     expect(drained.files).toEqual([{ path: readyPath, kind: { type: "add" } }]);
     expect(shellState.prunedProducedFiles.get("hung")?.claimed).toBe(false);
     expect(shellState.prunedProducedFiles.has("ready")).toBe(false);
+  });
+
+  it("bounds the default run-finalizer drain and releases its pruned claim", async () => {
+    const root = await createTempDir();
+    const shellState = createShellState(root);
+    const access = { conversationId: "c-finalizer", agentId: "a-finalizer" };
+    shellState.prunedProducedFiles.set("hung-finalizer", {
+      prunedAt: Date.now(),
+      owner: access,
+      claimed: false,
+      source: {
+        running: false,
+        producedFileLimit: 12,
+        producedFilesCollection: {
+          phase: "producing",
+          promise: new Promise(() => {}),
+        },
+      },
+    });
+
+    const startedAt = Date.now();
+    const drained = await drainCompletedProducedFiles(shellState, access, [
+      "hung-finalizer",
+    ]);
+
+    expect(Date.now() - startedAt).toBeLessThan(3_000);
+    expect(drained.files).toEqual([]);
+    expect(shellState.prunedProducedFiles.get("hung-finalizer")?.claimed).toBe(
+      false,
+    );
   });
 
   it("bounds pruned produced-file recovery and removes empty outcomes", async () => {
@@ -693,8 +741,8 @@ describe("fileChanges emission", () => {
         source: {
           running: false,
           producedFileLimit: 12,
-          producedFilesCollection: Promise.resolve({
-            kind: "ready",
+          producedFilesCollection: {
+            phase: "ready",
             outcome: {
               producedFiles: [
                 {
@@ -703,7 +751,18 @@ describe("fileChanges emission", () => {
                 },
               ],
             },
-          }),
+            promise: Promise.resolve({
+              kind: "ready",
+              outcome: {
+                producedFiles: [
+                  {
+                    path: path.join(root, `existing-${index}.txt`),
+                    kind: { type: "add" },
+                  },
+                ],
+              },
+            }),
+          },
         },
       });
     }

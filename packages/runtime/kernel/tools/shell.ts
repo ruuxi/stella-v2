@@ -191,7 +191,8 @@ export type ManagedShellRecord = ShellRecord & {
   startSnapshot?: FileSnapshot | null;
   externalCandidateSnapshots?: ExternalCandidateSnapshot[];
   producedFilesReported?: boolean;
-  producedFilesCollection?: Promise<ProducedFilesCollectionAttempt>;
+  /** One bounded producer generation, retained as ready until atomically claimed. */
+  producedFilesCollection?: ProducedFilesCollectionState;
   /** Cap resolved from the host's ToolContext when the shell was started. */
   producedFileLimit: number;
   /** Total UTF-8 bytes observed since process start. */
@@ -281,6 +282,9 @@ const MAX_SNAPSHOT_FILES = 20_000;
 // thousands of empty directories must not monopolize a tool deadline.
 export const MAX_SNAPSHOT_ENTRIES = 50_000;
 const MAX_EXTERNAL_SNAPSHOT_CANDIDATES = 256;
+const MAX_SNAPSHOT_DIRECTORY_CONCURRENCY = 8;
+const MAX_SNAPSHOT_STAT_CONCURRENCY = 32;
+const MAX_EXTERNAL_SNAPSHOT_CONCURRENCY = 8;
 const SNAPSHOT_IGNORED_DIRS = new Set([
   ".git",
   ".hg",
@@ -325,81 +329,218 @@ const shouldSkipSnapshotDir = (relativeDir: string): boolean => {
   );
 };
 
-const snapshotInterrupted = (
-  signal: AbortSignal | undefined,
+type SnapshotBudgetInterruption =
+  | { kind: "deadline" }
+  | { kind: "aborted"; error: unknown };
+
+/**
+ * One absolute budget shared by every read in a snapshot phase. Nothing in
+ * the walk gets to restart a relative timeout: directory traversal, stats,
+ * and mentioned external candidates all consume the same wall-clock bound.
+ */
+type SnapshotBudget = {
+  readonly deadlineAtMonotonic: number;
+  readonly signal?: AbortSignal;
+  interruption?: SnapshotBudgetInterruption;
+};
+
+const createSnapshotBudget = (
   deadlineAt: number,
-): boolean => Boolean(signal?.aborted) || Date.now() >= deadlineAt;
+  signal?: AbortSignal,
+): SnapshotBudget => ({
+  // Convert the caller's public wall-clock deadline exactly once. Snapshot
+  // progress thereafter uses the monotonic clock, so a wall-clock adjustment
+  // cannot prematurely expire or indefinitely extend a filesystem walk.
+  deadlineAtMonotonic:
+    performance.now() + Math.max(0, deadlineAt - Date.now()),
+  ...(signal ? { signal } : {}),
+});
+
+const readSnapshotBudgetInterruption = (
+  budget: SnapshotBudget,
+): SnapshotBudgetInterruption | undefined => {
+  // A caller abort is stronger than a coincident best-effort deadline. Check
+  // it first and let it replace a deadline observed by a sibling batch.
+  if (budget.signal?.aborted) {
+    budget.interruption = {
+      kind: "aborted",
+      error: budget.signal.reason ?? new Error("Aborted"),
+    };
+  } else if (
+    !budget.interruption &&
+    performance.now() >= budget.deadlineAtMonotonic
+  ) {
+    budget.interruption = { kind: "deadline" };
+  }
+  return budget.interruption;
+};
+
+/**
+ * Bound one filesystem batch with the tools tree's Effect runtime. The raw
+ * fs promise may be uninterruptible at the Node boundary, but once the race
+ * loses it is detached from all returned snapshot state: it cannot hold a
+ * caller, mutate a cached collection, or manufacture a partial diff later.
+ */
+const runSnapshotBudgetOperation = async <T>(
+  budget: SnapshotBudget,
+  operation: () => Promise<T>,
+): Promise<ExecDeadlineOutcome<T>> => {
+  const interrupted = readSnapshotBudgetInterruption(budget);
+  if (interrupted?.kind === "aborted") {
+    return { status: "aborted", error: interrupted.error };
+  }
+  if (interrupted?.kind === "deadline") return { status: "deadline" };
+
+  const outcome = await runUntilDuration(
+    operation,
+    budget.deadlineAtMonotonic - performance.now(),
+    budget.signal,
+  );
+  if (outcome.status === "aborted") {
+    budget.interruption = { kind: "aborted", error: outcome.error };
+    return outcome;
+  }
+  if (outcome.status === "deadline") {
+    // Prefer an abort that raced the timer but became observable immediately
+    // after Effect selected its winner.
+    const afterRace = readSnapshotBudgetInterruption(budget);
+    if (afterRace?.kind === "aborted") {
+      return { status: "aborted", error: afterRace.error };
+    }
+    budget.interruption = { kind: "deadline" };
+    return outcome;
+  }
+  if (outcome.status === "completed") {
+    const afterOperation = readSnapshotBudgetInterruption(budget);
+    if (afterOperation?.kind === "aborted") {
+      return { status: "aborted", error: afterOperation.error };
+    }
+    if (afterOperation?.kind === "deadline") {
+      return { status: "deadline" };
+    }
+  }
+  return outcome;
+};
+
+const chunksOf = <T>(items: T[], size: number): T[][] => {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+};
 
 const snapshotFiles = async (
   cwd: string,
-  signal?: AbortSignal,
-  deadlineAt = Number.POSITIVE_INFINITY,
+  budget: SnapshotBudget,
 ): Promise<FileSnapshot | null> => {
   const root = normalizeSnapshotRoot(cwd);
-
   const files = new Map<string, FileSnapshotEntry>();
-  let complete = true;
+  const pendingDirectories = [root];
   let visitedEntries = 0;
+  let complete = true;
 
-  const walk = async (dir: string): Promise<void> => {
-    if (!complete || snapshotInterrupted(signal, deadlineAt)) {
+  while (pendingDirectories.length > 0 && complete) {
+    if (readSnapshotBudgetInterruption(budget)) {
       complete = false;
-      return;
+      break;
     }
-    let entries;
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
+    const directories = pendingDirectories.splice(
+      0,
+      MAX_SNAPSHOT_DIRECTORY_CONCURRENCY,
+    );
+    const directoryOutcome = await runSnapshotBudgetOperation(budget, () =>
+      Promise.all(
+        directories.map(async (directory) => {
+          try {
+            return {
+              kind: "ready" as const,
+              directory,
+              entries: await readdir(directory, { withFileTypes: true }),
+            };
+          } catch (error) {
+            return { kind: "failed" as const, directory, error };
+          }
+        }),
+      ),
+    );
+    if (directoryOutcome.status !== "completed") {
       complete = false;
-      return;
+      break;
     }
-    if (snapshotInterrupted(signal, deadlineAt)) {
-      complete = false;
-      return;
-    }
-    for (const entry of entries) {
-      if (!complete || snapshotInterrupted(signal, deadlineAt)) {
+
+    const filePaths: string[] = [];
+    for (const directoryRead of directoryOutcome.value) {
+      if (directoryRead.kind === "failed") {
+        // Missing, unreadable, or transiently changing roots all make this
+        // snapshot unusable. Consumers reject every incomplete diff.
         complete = false;
-        return;
+        break;
       }
-      visitedEntries += 1;
-      if (visitedEntries > MAX_SNAPSHOT_ENTRIES) {
-        complete = false;
-        return;
-      }
-      const fullPath = path.join(dir, entry.name);
-      const relativePath = path.relative(root, fullPath);
-      if (entry.isDirectory()) {
-        if (!shouldSkipSnapshotDir(relativePath)) {
-          await walk(fullPath);
-        }
-        continue;
-      }
-      if (!entry.isFile()) continue;
-      if (files.size >= MAX_SNAPSHOT_FILES) {
-        complete = false;
-        return;
-      }
-      try {
-        const info = await stat(fullPath);
-        if (snapshotInterrupted(signal, deadlineAt)) {
+      for (const entry of directoryRead.entries) {
+        visitedEntries += 1;
+        if (visitedEntries > MAX_SNAPSHOT_ENTRIES) {
           complete = false;
-          return;
+          break;
         }
-        files.set(fullPath, {
-          size: info.size,
-          mtimeMs: info.mtimeMs,
-        });
-      } catch {
-        // An unreadable/transiently changing tree is not a trustworthy diff:
-        // retry the whole completion attempt instead of manufacturing deletes.
+        const fullPath = path.join(directoryRead.directory, entry.name);
+        const relativePath = path.relative(root, fullPath);
+        if (entry.isDirectory()) {
+          if (!shouldSkipSnapshotDir(relativePath)) {
+            pendingDirectories.push(fullPath);
+          }
+          continue;
+        }
+        if (!entry.isFile()) continue;
+        if (files.size + filePaths.length >= MAX_SNAPSHOT_FILES) {
+          complete = false;
+          break;
+        }
+        filePaths.push(fullPath);
+      }
+      if (!complete) break;
+    }
+    if (!complete) break;
+
+    for (const fileBatch of chunksOf(
+      filePaths,
+      MAX_SNAPSHOT_STAT_CONCURRENCY,
+    )) {
+      const statOutcome = await runSnapshotBudgetOperation(budget, () =>
+        Promise.all(
+          fileBatch.map(async (filePath) => {
+            try {
+              return {
+                kind: "ready" as const,
+                filePath,
+                info: await stat(filePath),
+              };
+            } catch (error) {
+              return { kind: "failed" as const, filePath, error };
+            }
+          }),
+        ),
+      );
+      if (statOutcome.status !== "completed") {
         complete = false;
-        return;
+        break;
+      }
+      if (statOutcome.value.some((entry) => entry.kind === "failed")) {
+        // Never turn an EACCES/transient stat failure into a delete. The map
+        // can be partial internally, but `complete: false` makes it unusable.
+        complete = false;
+        break;
+      }
+      for (const entry of statOutcome.value) {
+        if (entry.kind !== "ready") continue;
+        files.set(entry.filePath, {
+          size: entry.info.size,
+          mtimeMs: entry.info.mtimeMs,
+        });
       }
     }
-  };
+  }
 
-  await walk(root);
   return { root, files, complete };
 };
 
@@ -475,51 +616,51 @@ const diffFileSnapshots = (
 
 const snapshotExternalCandidate = async (
   candidatePath: string,
-  signal?: AbortSignal,
-  deadlineAt = Number.POSITIVE_INFINITY,
+  budget: SnapshotBudget,
 ): Promise<ExternalCandidateSnapshot> => {
-  if (snapshotInterrupted(signal, deadlineAt)) {
+  if (readSnapshotBudgetInterruption(budget)) {
     return { path: candidatePath, kind: "unavailable" };
   }
-  try {
-    const info = await stat(candidatePath);
-    if (snapshotInterrupted(signal, deadlineAt)) {
-      return { path: candidatePath, kind: "unavailable" };
-    }
-    if (info.isDirectory()) {
-      return {
-        path: candidatePath,
-        kind: "directory",
-        snapshot: await snapshotFiles(candidatePath, signal, deadlineAt),
-      };
-    }
-    if (info.isFile()) {
-      return {
-        path: candidatePath,
-        kind: "file",
-        entry: {
-          size: info.size,
-          mtimeMs: info.mtimeMs,
-        },
-      };
+  const statOutcome = await runSnapshotBudgetOperation(budget, () =>
+    stat(candidatePath),
+  );
+  if (statOutcome.status === "failed") {
+    if ((statOutcome.error as NodeJS.ErrnoException)?.code === "ENOENT") {
+      // A genuinely missing path is useful: if it appears after the command,
+      // we can report it as a produced file. Other I/O failures are
+      // unavailable, never a synthetic delete.
+      return { path: candidatePath, kind: "missing" };
     }
     return { path: candidatePath, kind: "unavailable" };
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
-      return { path: candidatePath, kind: "unavailable" };
-    }
-    // A genuinely missing path is useful: if it appears after the command,
-    // we can report it as a produced file. Other I/O failures are unavailable,
-    // never a synthetic delete.
-    return { path: candidatePath, kind: "missing" };
   }
+  if (statOutcome.status !== "completed") {
+    return { path: candidatePath, kind: "unavailable" };
+  }
+  const info = statOutcome.value;
+  if (info.isDirectory()) {
+    return {
+      path: candidatePath,
+      kind: "directory",
+      snapshot: await snapshotFiles(candidatePath, budget),
+    };
+  }
+  if (info.isFile()) {
+    return {
+      path: candidatePath,
+      kind: "file",
+      entry: {
+        size: info.size,
+        mtimeMs: info.mtimeMs,
+      },
+    };
+  }
+  return { path: candidatePath, kind: "unavailable" };
 };
 
 const snapshotExternalCandidates = async (
   candidatePaths: string[],
   snapshotRoot: string,
-  signal?: AbortSignal,
-  deadlineAt = Number.POSITIVE_INFINITY,
+  budget: SnapshotBudget,
 ): Promise<ExternalCandidateSnapshot[] | undefined> => {
   const root = path.resolve(snapshotRoot);
   const paths = [
@@ -531,24 +672,26 @@ const snapshotExternalCandidates = async (
   );
   if (paths.length === 0) return undefined;
   // An inferred command can mention arbitrarily many paths. Skip the
-  // external slice rather than take a misleading partial baseline, and walk
-  // accepted candidates sequentially so one command cannot fan out an
-  // unbounded number of filesystem operations past cancellation/deadline.
+  // external slice rather than take a misleading partial baseline.
   if (paths.length > MAX_EXTERNAL_SNAPSHOT_CANDIDATES) return undefined;
   const snapshots: ExternalCandidateSnapshot[] = [];
-  for (const candidate of paths) {
-    if (snapshotInterrupted(signal, deadlineAt)) return undefined;
+  for (const candidates of chunksOf(paths, MAX_EXTERNAL_SNAPSHOT_CONCURRENCY)) {
+    if (readSnapshotBudgetInterruption(budget)) return undefined;
     snapshots.push(
-      await snapshotExternalCandidate(candidate, signal, deadlineAt),
+      ...(await Promise.all(
+        candidates.map((candidate) =>
+          snapshotExternalCandidate(candidate, budget),
+        ),
+      )),
     );
+    if (readSnapshotBudgetInterruption(budget)) return undefined;
   }
   return snapshots;
 };
 
 const diffExternalCandidateSnapshots = async (
   beforeSnapshots: ExternalCandidateSnapshot[] | undefined,
-  signal?: AbortSignal,
-  deadlineAt = Number.POSITIVE_INFINITY,
+  budget: SnapshotBudget,
 ): Promise<{
   files?: ProducedFileRecord[];
   complete: boolean;
@@ -558,46 +701,62 @@ const diffExternalCandidateSnapshots = async (
   }
   const changes: ProducedFileRecord[] = [];
 
-  for (const before of beforeSnapshots) {
-    if (before.kind === "unavailable") continue;
-    const after = await snapshotExternalCandidate(
-      before.path,
-      signal,
-      deadlineAt,
+  const comparable = beforeSnapshots.filter(
+    (before) => before.kind !== "unavailable",
+  );
+  for (const beforeBatch of chunksOf(
+    comparable,
+    MAX_EXTERNAL_SNAPSHOT_CONCURRENCY,
+  )) {
+    if (readSnapshotBudgetInterruption(budget)) return { complete: false };
+    const afterBatch = await Promise.all(
+      beforeBatch.map((before) =>
+        snapshotExternalCandidate(before.path, budget),
+      ),
     );
-    if (after.kind === "unavailable") return { complete: false };
-    if (after.kind === "missing") {
-      if (before.kind !== "missing") {
-        changes.push(fileChange(before.path, { type: "delete" }));
-      }
-      continue;
-    }
+    if (readSnapshotBudgetInterruption(budget)) return { complete: false };
 
-    if (after.kind === "file") {
-      if (before.kind !== "file") {
-        changes.push(fileChange(after.path, { type: "add" }));
+    for (let index = 0; index < beforeBatch.length; index += 1) {
+      const before = beforeBatch[index];
+      const after = afterBatch[index];
+      if (!before || !after || after.kind === "unavailable") {
+        // Discard the whole external diff on any unavailable after-state so a
+        // partial batch can never manufacture deletes.
+        return { complete: false };
+      }
+      if (after.kind === "missing") {
+        if (before.kind !== "missing") {
+          changes.push(fileChange(before.path, { type: "delete" }));
+        }
         continue;
       }
-      if (
-        before.entry.size !== after.entry.size ||
-        before.entry.mtimeMs !== after.entry.mtimeMs
-      ) {
-        changes.push(fileChange(after.path, { type: "update" }));
-      }
-      continue;
-    }
 
-    if (before.kind === "directory") {
-      if (!before.snapshot?.complete) continue;
+      if (after.kind === "file") {
+        if (before.kind !== "file") {
+          changes.push(fileChange(after.path, { type: "add" }));
+          continue;
+        }
+        if (
+          before.entry.size !== after.entry.size ||
+          before.entry.mtimeMs !== after.entry.mtimeMs
+        ) {
+          changes.push(fileChange(after.path, { type: "update" }));
+        }
+        continue;
+      }
+
+      if (before.kind === "directory") {
+        if (!before.snapshot?.complete) continue;
+        if (!after.snapshot?.complete) return { complete: false };
+        changes.push(
+          ...(diffFileSnapshots(before.snapshot, after.snapshot) ?? []),
+        );
+        continue;
+      }
       if (!after.snapshot?.complete) return { complete: false };
-      changes.push(
-        ...(diffFileSnapshots(before.snapshot, after.snapshot) ?? []),
-      );
-      continue;
-    }
-    if (!after.snapshot?.complete) return { complete: false };
-    for (const filePath of after.snapshot.files.keys()) {
-      changes.push(fileChange(filePath, { type: "add" }));
+      for (const filePath of after.snapshot.files.keys()) {
+        changes.push(fileChange(filePath, { type: "add" }));
+      }
     }
   }
 
@@ -620,6 +779,18 @@ type ProducedFilesCollectionAttempt =
   | { kind: "ready"; outcome: ProducedFilesOutcome }
   | { kind: "retryable" };
 
+/**
+ * Identity-stable producer state. A caller only waits on `promise`; timing
+ * out or aborting that wait never replaces the producer. The producer itself
+ * either publishes `ready` on this exact object or clears the record back to
+ * retryable/idle, preserving the original baselines for a later drain.
+ */
+type ProducedFilesCollectionState = {
+  phase: "producing" | "ready";
+  promise: Promise<ProducedFilesCollectionAttempt>;
+  outcome?: ProducedFilesOutcome;
+};
+
 type ProducedFilesSource = Pick<
   ManagedShellRecord,
   | "running"
@@ -635,6 +806,28 @@ type ProducedFilesSource = Pick<
 type PreparedProducedFilesClaim = {
   ready: boolean;
   claim: () => ProducedFilesOutcome;
+};
+
+const publishProducedFilesCollectionAttempt = (
+  record: ProducedFilesSource,
+  state: ProducedFilesCollectionState,
+  attempt: ProducedFilesCollectionAttempt,
+): void => {
+  if (record.producedFilesCollection !== state) return;
+  if (attempt.kind === "ready") {
+    state.phase = "ready";
+    state.outcome = attempt.outcome;
+    // Release potentially large baselines, but retain this ready state until
+    // one authorized caller atomically claims its outcome.
+    record.startSnapshot = null;
+    record.externalCandidateSnapshots = undefined;
+  } else {
+    // A failed, incomplete, or timed-out attempt is retryable. Keep its
+    // baselines and clear only this generation.
+    record.producedFilesCollection = undefined;
+  }
+  record.child = undefined;
+  record.pty = undefined;
 };
 
 /**
@@ -702,19 +895,17 @@ const producedFilesOmittedNotice = (omission: ProducedFilesOmission): string =>
 const snapshotShellSideEffects = async (
   args: Record<string, unknown>,
   snapshotRoot: string,
-  context?: ToolContext,
-  signal?: AbortSignal,
-  deadlineAt = Number.POSITIVE_INFINITY,
+  context: ToolContext | undefined,
+  budget: SnapshotBudget,
 ): Promise<{
   rootSnapshot: FileSnapshot | null;
   externalCandidateSnapshots?: ExternalCandidateSnapshot[];
 }> => {
-  const rootSnapshot = await snapshotFiles(snapshotRoot, signal, deadlineAt);
+  const rootSnapshot = await snapshotFiles(snapshotRoot, budget);
   const externalCandidateSnapshots = await snapshotExternalCandidates(
     inferShellMentionedPaths(args, context),
     snapshotRoot,
-    signal,
-    deadlineAt,
+    budget,
   );
   return { rootSnapshot, externalCandidateSnapshots };
 };
@@ -726,13 +917,13 @@ const hasProducedFileSources = (record: ProducedFilesSource): boolean =>
   Boolean(record.startSnapshot?.complete) ||
   Boolean(
     record.externalCandidateSnapshots &&
-    record.externalCandidateSnapshots.some(
-      (candidate) =>
-        candidate.kind === "missing" ||
-        candidate.kind === "file" ||
-        (candidate.kind === "directory" &&
-          Boolean(candidate.snapshot?.complete)),
-    ),
+      record.externalCandidateSnapshots.some(
+        (candidate) =>
+          candidate.kind === "missing" ||
+          candidate.kind === "file" ||
+          (candidate.kind === "directory" &&
+            Boolean(candidate.snapshot?.complete)),
+      ),
   );
 
 /**
@@ -743,30 +934,27 @@ const hasProducedFileSources = (record: ProducedFilesSource): boolean =>
  */
 const ensureCompletedProducedFilesCollection = (
   record: ProducedFilesSource,
-): Promise<ProducedFilesCollectionAttempt> => {
+): ProducedFilesCollectionState => {
   if (record.producedFilesCollection) return record.producedFilesCollection;
 
   const startSnapshot = record.startSnapshot;
   const externalCandidateSnapshots = record.externalCandidateSnapshots;
-  const attemptDeadlineAt = Date.now() + PRODUCED_FILE_COLLECTION_ATTEMPT_MS;
-  const collection = (async (): Promise<ProducedFilesCollectionAttempt> => {
+  const budget = createSnapshotBudget(
+    Date.now() + PRODUCED_FILE_COLLECTION_ATTEMPT_MS,
+  );
+  const promise = (async (): Promise<ProducedFilesCollectionAttempt> => {
     let rootFiles: ProducedFileRecord[] | undefined;
     // A missing/incomplete start snapshot can never produce a trustworthy
     // root diff. Known-safe commands deliberately set it to null; do not turn
     // their completion into an unconditional full-tree walk.
     if (startSnapshot?.complete) {
-      const after = await snapshotFiles(
-        startSnapshot.root,
-        undefined,
-        attemptDeadlineAt,
-      );
+      const after = await snapshotFiles(startSnapshot.root, budget);
       if (!after?.complete) return { kind: "retryable" };
       rootFiles = diffFileSnapshots(startSnapshot, after);
     }
     const external = await diffExternalCandidateSnapshots(
       externalCandidateSnapshots,
-      undefined,
-      attemptDeadlineAt,
+      budget,
     );
     if (!external.complete) return { kind: "retryable" };
     return {
@@ -777,35 +965,16 @@ const ensureCompletedProducedFilesCollection = (
         external.files,
       ),
     };
-  })();
-  const pending = (async (): Promise<ProducedFilesCollectionAttempt> => {
-    const outcome = await runUntilExecDeadline(
-      () => collection,
-      attemptDeadlineAt,
-    );
-    return outcome.status === "completed"
-      ? outcome.value
-      : { kind: "retryable" };
-  })();
-  record.producedFilesCollection = pending;
-  void pending.then((attempt) => {
-    if (record.producedFilesCollection !== pending) return;
-    if (attempt.kind === "ready") {
-      // A successful collection has everything it needs cached in `pending`.
-      // Release potentially large baselines, but retain the promise until one
-      // authorized caller atomically claims its outcome.
-      record.startSnapshot = null;
-      record.externalCandidateSnapshots = undefined;
-    } else {
-      // A failed, incomplete, or timed-out attempt is retryable. Keep its
-      // baselines and clear only this generation; a stale underlying fs
-      // promise has no path back to mutable record state.
-      record.producedFilesCollection = undefined;
-    }
-    record.child = undefined;
-    record.pty = undefined;
+  })().catch((): ProducedFilesCollectionAttempt => ({ kind: "retryable" }));
+  const state: ProducedFilesCollectionState = {
+    phase: "producing",
+    promise,
+  };
+  record.producedFilesCollection = state;
+  void promise.then((attempt) => {
+    publishProducedFilesCollectionAttempt(record, state, attempt);
   });
-  return pending;
+  return state;
 };
 
 const prepareCompletedProducedFilesClaim = async (
@@ -821,6 +990,10 @@ const prepareCompletedProducedFilesClaim = async (
     ready: true,
     claim: (): ProducedFilesOutcome => ({}),
   };
+  if (signal?.aborted) {
+    throw signal.reason ?? new Error("Aborted");
+  }
+  if (Date.now() >= deadlineAt) return deferredClaim;
   if (record.running) return deferredClaim;
   if (record.producedFilesReported) return emptyClaim;
   if (!hasProducedFileSources(record) && !record.producedFilesCollection) {
@@ -829,26 +1002,45 @@ const prepareCompletedProducedFilesClaim = async (
     record.pty = undefined;
     return emptyClaim;
   }
-  const pending = ensureCompletedProducedFilesCollection(record);
-  const outcome = await runUntilExecDeadline(() => pending, deadlineAt, signal);
-  if (outcome.status === "aborted") {
-    throw outcome.error;
+  const state = ensureCompletedProducedFilesCollection(record);
+  let produced = state.outcome;
+  if (state.phase === "producing") {
+    const outcome = await runUntilExecDeadline(
+      () => state.promise,
+      deadlineAt,
+      signal,
+    );
+    if (outcome.status === "aborted") {
+      throw outcome.error;
+    }
+    if (outcome.status === "failed") {
+      throw outcome.error;
+    }
+    if (outcome.status === "deadline") {
+      return deferredClaim;
+    }
+    if (outcome.value.kind === "retryable") {
+      publishProducedFilesCollectionAttempt(record, state, outcome.value);
+      return deferredClaim;
+    }
+    publishProducedFilesCollectionAttempt(record, state, outcome.value);
+    if (signal?.aborted) {
+      throw signal.reason ?? new Error("Aborted");
+    }
+    produced = outcome.value.outcome;
   }
-  if (outcome.status === "failed") {
-    throw outcome.error;
-  }
-  if (outcome.status === "deadline" || outcome.value.kind === "retryable") {
+  if (!produced || record.producedFilesCollection !== state) {
     return deferredClaim;
   }
-  const produced = outcome.value.outcome;
   return {
     ready: true,
     claim: () => {
       if (record.producedFilesReported) return {};
-      record.producedFilesReported = true;
-      if (record.producedFilesCollection === pending) {
-        record.producedFilesCollection = undefined;
+      if (record.producedFilesCollection !== state || state.phase !== "ready") {
+        return {};
       }
+      record.producedFilesReported = true;
+      record.producedFilesCollection = undefined;
       return produced;
     },
   };
@@ -956,8 +1148,8 @@ const pruneCompletedShellSessions = (
         source: record,
       };
       state.prunedProducedFiles.set(record.id, recovery);
-      const pending = ensureCompletedProducedFilesCollection(record);
-      void pending.then((attempt) => {
+      const collection = ensureCompletedProducedFilesCollection(record);
+      void collection.promise.then((attempt) => {
         const current = state.prunedProducedFiles.get(record.id);
         if (
           current === recovery &&
@@ -2977,15 +3169,14 @@ type ExecDeadlineOutcome<T> =
   | { status: "deadline" }
   | { status: "aborted"; error: unknown };
 
-const runUntilExecDeadline = async <T>(
+const runUntilDuration = async <T>(
   operation: () => Promise<T>,
-  deadlineAt: number,
+  remainingMs: number,
   signal?: AbortSignal,
 ): Promise<ExecDeadlineOutcome<T>> => {
   if (signal?.aborted) {
     return { status: "aborted", error: signal.reason ?? new Error("Aborted") };
   }
-  const remainingMs = deadlineAt - Date.now();
   if (remainingMs <= 0) return { status: "deadline" };
   return await runToolEffect(
     Effect.scoped(
@@ -3025,6 +3216,13 @@ const runUntilExecDeadline = async <T>(
     ),
   );
 };
+
+const runUntilExecDeadline = async <T>(
+  operation: () => Promise<T>,
+  deadlineAt: number,
+  signal?: AbortSignal,
+): Promise<ExecDeadlineOutcome<T>> =>
+  runUntilDuration(operation, deadlineAt - Date.now(), signal);
 
 const toolErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -3358,27 +3556,18 @@ export const handleExecCommand = async (
     externalCandidateSnapshots?: ExternalCandidateSnapshot[];
   } = { rootSnapshot: null };
   if (shouldSnapshotShellSideEffects(prepared.command)) {
-    const snapshotOutcome = await runUntilExecDeadline(
-      () =>
-        snapshotShellSideEffects(
-          { cmd: prepared.command, workdir: prepared.cwd },
-          resolveShellSnapshotRoot(prepared.cwd, context),
-          context,
-          signal,
-          deadlineAt,
-        ),
-      deadlineAt,
-      signal,
+    const snapshotBudget = createSnapshotBudget(deadlineAt, signal);
+    beforeSideEffects = await snapshotShellSideEffects(
+      { cmd: prepared.command, workdir: prepared.cwd },
+      resolveShellSnapshotRoot(prepared.cwd, context),
+      context,
+      snapshotBudget,
     );
-    if (snapshotOutcome.status === "completed") {
-      beforeSideEffects = snapshotOutcome.value;
-    } else {
-      if (snapshotOutcome.status === "aborted") {
-        return { error: toolErrorMessage(snapshotOutcome.error) };
-      }
-      if (snapshotOutcome.status === "failed") {
-        throw snapshotOutcome.error;
-      }
+    const interruption = readSnapshotBudgetInterruption(snapshotBudget);
+    if (interruption?.kind === "aborted") {
+      return { error: toolErrorMessage(interruption.error) };
+    }
+    if (interruption?.kind === "deadline") {
       // Produced-file tracking is best effort. Once its budget is exhausted,
       // start the requested process immediately so the caller still receives
       // a session id by the advertised yield deadline.
@@ -3781,24 +3970,16 @@ export const handleBash = async (
     const snapshotDeadlineAt =
       Date.now() +
       Math.min(PRODUCED_FILE_COLLECTION_ATTEMPT_MS, Math.max(0, timeout));
-    const snapshotOutcome = await runUntilExecDeadline(
-      () =>
-        snapshotShellSideEffects(
-          { cmd: command, workdir: cwd },
-          snapshotRoot,
-          context,
-          signal,
-          snapshotDeadlineAt,
-        ),
-      snapshotDeadlineAt,
-      signal,
+    const snapshotBudget = createSnapshotBudget(snapshotDeadlineAt, signal);
+    beforeSideEffects = await snapshotShellSideEffects(
+      { cmd: command, workdir: cwd },
+      snapshotRoot,
+      context,
+      snapshotBudget,
     );
-    if (snapshotOutcome.status === "completed") {
-      beforeSideEffects = snapshotOutcome.value;
-    } else if (snapshotOutcome.status === "aborted") {
-      return { error: toolErrorMessage(snapshotOutcome.error) };
-    } else if (snapshotOutcome.status === "failed") {
-      throw snapshotOutcome.error;
+    const interruption = readSnapshotBudgetInterruption(snapshotBudget);
+    if (interruption?.kind === "aborted") {
+      return { error: toolErrorMessage(interruption.error) };
     }
   }
 
@@ -3838,34 +4019,21 @@ export const handleBash = async (
   let produced: ProducedFilesOutcome = {};
   if (shouldSnapshotSideEffects && snapshotRoot) {
     const snapshotDeadlineAt = Date.now() + PRODUCED_FILE_COLLECTION_ATTEMPT_MS;
-    const snapshotOutcome = await runUntilExecDeadline(
-      async () => {
-        const external = await diffExternalCandidateSnapshots(
-          beforeSideEffects.externalCandidateSnapshots,
-          signal,
-          snapshotDeadlineAt,
-        );
-        const afterRoot = await snapshotFiles(
-          snapshotRoot,
-          signal,
-          snapshotDeadlineAt,
-        );
-        return mergeProducedFiles(
-          resolveProducedFileLimit(context),
-          diffFileSnapshots(beforeSideEffects.rootSnapshot, afterRoot),
-          external.complete ? external.files : undefined,
-        );
-      },
-      snapshotDeadlineAt,
-      signal,
+    const snapshotBudget = createSnapshotBudget(snapshotDeadlineAt, signal);
+    const afterRoot = await snapshotFiles(snapshotRoot, snapshotBudget);
+    const external = await diffExternalCandidateSnapshots(
+      beforeSideEffects.externalCandidateSnapshots,
+      snapshotBudget,
     );
-    if (snapshotOutcome.status === "completed") {
-      produced = snapshotOutcome.value;
-    } else if (snapshotOutcome.status === "aborted") {
-      return { error: toolErrorMessage(snapshotOutcome.error) };
-    } else if (snapshotOutcome.status === "failed") {
-      throw snapshotOutcome.error;
+    const interruption = readSnapshotBudgetInterruption(snapshotBudget);
+    if (interruption?.kind === "aborted") {
+      return { error: toolErrorMessage(interruption.error) };
     }
+    produced = mergeProducedFiles(
+      resolveProducedFileLimit(context),
+      diffFileSnapshots(beforeSideEffects.rootSnapshot, afterRoot),
+      external.complete ? external.files : undefined,
+    );
   }
   const extracted = extractOfficePreviewRef(sanitizeToolVisibleText(output));
   const text = produced.producedFilesOmitted
@@ -3891,6 +4059,7 @@ export const handleShellStatus = async (
   context?: ToolContext,
   signal?: AbortSignal,
 ): Promise<ToolResult> => {
+  const snapshotDeadlineAt = Date.now() + PRODUCED_FILE_DELIVERY_WAIT_MS;
   cleanupShellSessions(state);
   const shellId = String(args.shell_id ?? "");
 
@@ -3935,7 +4104,11 @@ export const handleShellStatus = async (
 
   let produced: ProducedFilesOutcome;
   try {
-    produced = await takeCompletedProducedFiles(record, signal);
+    produced = await takeCompletedProducedFiles(
+      record,
+      signal,
+      snapshotDeadlineAt,
+    );
   } catch (error) {
     return { error: toolErrorMessage(error) };
   }

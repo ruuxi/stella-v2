@@ -194,10 +194,6 @@ const DRAWABLE_HOST_BOUNDS: Rectangle = {
   width: 1280,
   height: 720,
 };
-const DRAWABLE_CDP_METHODS = new Set([
-  "Page.captureScreenshot",
-  "Page.printToPDF",
-]);
 const DEFAULT_CONNECTION_TIMEOUT_MS = 10_000;
 const DEFAULT_CONNECTION_POLL_MS = 250;
 const DEFAULT_DEBUGGER_RECOVERY_TIMEOUT_MS = 1_000;
@@ -776,9 +772,12 @@ export class InAppBrowserService {
     const tab = this.requireTab(tabId, resolvedOwnerId);
     const tabDebugger = tab.view.webContents.debugger;
     if (!tabDebugger.isAttached()) tabDebugger.attach();
-    if (!DRAWABLE_CDP_METHODS.has(method)) {
-      return await tabDebugger.sendCommand(method, params);
-    }
+    // Electron gives an unattached WebContentsView a 0x0 layout viewport. CDP
+    // Runtime queries and Input commands need the same drawable mount as
+    // screenshots; otherwise discovery succeeds but actionability/scrolling
+    // fails against viewport=0x0. The hidden host never replaces the visible
+    // manual view, and the scoped lease restores the prior mount after every
+    // command (including failures).
     const lease = this.acquireDrawableHost(tabId, resolvedOwnerId);
     try {
       await this.settleDrawableHost(tabId);

@@ -3,83 +3,109 @@
  * Uses chrome.scripting.executeScript for most interactions,
  * chrome.debugger for keyboard input when more reliable handling is needed.
  */
-import { getActiveTab } from './tabs.js';
-import { resolveSelector, buildRoleMatcherScript } from '../lib/selector.js';
-import { ensureDebugger, evaluateRuntime } from '../lib/debugger.js';
+import { getActiveTab } from "./tabs.js";
+import {
+  resolveSelector,
+  buildResolvedElementMatcherScript,
+  buildRoleMatcherScript,
+  buildComposedCssMatcherScript,
+  buildTopLevelRectSource,
+} from "../lib/selector.js";
+import { ensureDebugger, evaluateRuntime } from "../lib/debugger.js";
+import {
+  abortableCommandDelay,
+  markCommandMutationDispatched,
+  throwIfCommandAborted,
+} from "./cancellation.js";
 
 /**
  * Inject a script that finds an element and runs code on it.
  * Uses CDP Runtime.evaluate to bypass CSP restrictions (no new Function/eval).
  */
 async function injectScript(tabId, resolved, actionScript, options) {
-  let script;
-  if (resolved.isRef) {
-    const finderScript = buildRoleMatcherScript(resolved.role, resolved.name, resolved.nth);
-    script = `
-      (() => {
-        const el = ${finderScript.trim()};
-        if (!el) throw new Error('Element not found');
-        ${actionScript}
-      })()
-    `;
-  } else {
-    script = `
-      (() => {
-        const el = document.querySelector(${JSON.stringify(resolved.css)});
-        if (!el) throw new Error('Element not found: ${resolved.css}');
-        ${actionScript}
-      })()
-    `;
-  }
+  const finderScript = buildResolvedElementMatcherScript(resolved);
+  const missingMessage = resolved.isRef
+    ? "Element not found"
+    : `Element not found: ${resolved.css}`;
+  const script = `
+    (() => {
+      const el = ${finderScript.trim()};
+      if (!el) throw new Error(${JSON.stringify(missingMessage)});
+      ${actionScript}
+    })()
+  `;
 
   return evaluateRuntime(tabId, script, options);
 }
-
 async function getClickablePoint(tabId, resolved) {
-  const point = await injectScript(tabId, resolved, `
+  const point = await injectScript(
+    tabId,
+    resolved,
+    `
+    const ancestorFrames = [];
+    let ancestorWindow = el.ownerDocument?.defaultView;
+    while (ancestorWindow && ancestorWindow !== ancestorWindow.top) {
+      let frameElement;
+      try { frameElement = ancestorWindow.frameElement; } catch (_) { frameElement = null; }
+      if (!frameElement) throw new Error('Cannot resolve clickable point through ancestor frame');
+      ancestorFrames.push(frameElement);
+      ancestorWindow = frameElement.ownerDocument?.defaultView;
+    }
+    for (const frameElement of ancestorFrames.reverse()) {
+      frameElement.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+    }
     el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     const rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) {
       throw new Error('Element has no clickable area');
     }
-    const x = Math.max(0, Math.min(innerWidth - 1, rect.left + rect.width / 2));
-    const y = Math.max(0, Math.min(innerHeight - 1, rect.top + rect.height / 2));
-    const hit = document.elementFromPoint(x, y);
+    const elementWindow = el.ownerDocument?.defaultView || window;
+    const localX = Math.max(0, Math.min(elementWindow.innerWidth - 1, rect.left + rect.width / 2));
+    const localY = Math.max(0, Math.min(elementWindow.innerHeight - 1, rect.top + rect.height / 2));
+    const elementRoot = el.getRootNode ? el.getRootNode() : el.ownerDocument;
+    const hitSource = typeof elementRoot?.elementFromPoint === 'function'
+      ? elementRoot
+      : el.ownerDocument;
+    const hit = hitSource.elementFromPoint(localX, localY);
     if (!hit || (hit !== el && !el.contains(hit))) {
       throw new Error('Element is not clickable at its center point');
     }
-    return { x, y };
-  `);
-  if (
-    !point ||
-    !Number.isFinite(point.x) ||
-    !Number.isFinite(point.y)
-  ) {
-    throw new Error('Failed to resolve a clickable point');
+    ${buildTopLevelRectSource("el")}
+    return {
+      x: topX + (localX - rect.left),
+      y: topY + (localY - rect.top),
+    };
+  `,
+  );
+  if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+    throw new Error("Failed to resolve a clickable point");
   }
   return point;
 }
 
-async function dispatchPointerClick(tabId, point, clickCount) {
+async function dispatchPointerClick(command, tabId, point, clickCount) {
   await ensureDebugger(tabId);
-  await chrome.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', {
-    type: 'mouseMoved',
+  markCommandMutationDispatched(command);
+  await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
+    type: "mouseMoved",
     x: point.x,
     y: point.y,
   });
   for (let count = 1; count <= clickCount; count += 1) {
-    await chrome.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', {
-      type: 'mousePressed',
+    throwIfCommandAborted(command);
+    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
+      type: "mousePressed",
       x: point.x,
       y: point.y,
-      button: 'left',
+      button: "left",
       clickCount: count,
     });
-    await chrome.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', {
-      type: 'mouseReleased',
+    throwIfCommandAborted(command);
+    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
+      type: "mouseReleased",
       x: point.x,
       y: point.y,
-      button: 'left',
+      button: "left",
       clickCount: count,
     });
   }
@@ -88,27 +114,36 @@ async function dispatchPointerClick(tabId, point, clickCount) {
 // --- Command Handlers ---
 
 export async function handleClick(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
-  if (!selector) throw new Error('Selector is required for click');
+  if (!selector) throw new Error("Selector is required for click");
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
-  await injectScript(tab.id, resolved, `
+  markCommandMutationDispatched(command);
+  await injectScript(
+    tab.id,
+    resolved,
+    `
     el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     el.click();
     return true;
-  `, { userGesture: true });
+  `,
+    { userGesture: true },
+  );
 
   return { id: command.id, success: true, data: { clicked: true } };
 }
 
 export async function handleFill(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
-  const value = command.value ?? '';
-  if (!selector) throw new Error('Selector is required for fill');
+  const value = command.value ?? "";
+  if (!selector) throw new Error("Selector is required for fill");
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
+  markCommandMutationDispatched(command);
   const outcome = await injectScript(
     tab.id,
     resolved,
@@ -163,9 +198,9 @@ export async function handleFill(command) {
 
   if (!outcome?.ok) {
     throw new Error(
-      `Fill did not replace the element value (reason=${outcome?.reason || 'unknown'}, ` +
-        `tag=${outcome?.tag || 'unknown'}, input_type=${outcome?.inputType || 'n/a'}, ` +
-        `expected_chars=${[...String(value)].length}, actual_chars=${outcome?.actualLength ?? 'unknown'}): ${selector}`,
+      `Fill did not replace the element value (reason=${outcome?.reason || "unknown"}, ` +
+        `tag=${outcome?.tag || "unknown"}, input_type=${outcome?.inputType || "n/a"}, ` +
+        `expected_chars=${[...String(value)].length}, actual_chars=${outcome?.actualLength ?? "unknown"}): ${selector}`,
     );
   }
 
@@ -173,22 +208,33 @@ export async function handleFill(command) {
 }
 
 export async function handleType(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
-  const text = command.text || '';
+  const text = command.text || "";
 
   // If there's a selector, focus that element first
   if (command.selector || command.ref) {
-    const resolved = resolveSelector(command.selector || command.ref, command.ownerId, tab.id);
-    await injectScript(tab.id, resolved, `
+    const resolved = resolveSelector(
+      command.selector || command.ref,
+      command.ownerId,
+      tab.id,
+    );
+    markCommandMutationDispatched(command);
+    await injectScript(
+      tab.id,
+      resolved,
+      `
       el.focus();
       return true;
-    `);
+    `,
+    );
   }
 
   // CDP inserts the full string as one native text operation. Per-character
   // key dispatch is much slower and can outlive a batched command deadline.
   await ensureDebugger(tab.id);
-  await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.insertText', {
+  markCommandMutationDispatched(command);
+  await chrome.debugger.sendCommand({ tabId: tab.id }, "Input.insertText", {
     text,
   });
 
@@ -196,109 +242,161 @@ export async function handleType(command) {
 }
 
 export async function handleHover(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
-  if (!selector) throw new Error('Selector is required for hover');
+  if (!selector) throw new Error("Selector is required for hover");
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
-  await injectScript(tab.id, resolved, `
+  markCommandMutationDispatched(command);
+  await injectScript(
+    tab.id,
+    resolved,
+    `
     el.scrollIntoView({ block: 'center', behavior: 'instant' });
     el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
     el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
     el.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
     return true;
-  `);
+  `,
+  );
 
   return { id: command.id, success: true, data: { hovered: true } };
 }
 
 export async function handleSelect(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
   const values = command.values || [command.value];
-  if (!selector) throw new Error('Selector is required for select');
+  if (!selector) throw new Error("Selector is required for select");
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
-  await injectScript(tab.id, resolved, `
+  markCommandMutationDispatched(command);
+  await injectScript(
+    tab.id,
+    resolved,
+    `
     const values = ${JSON.stringify(values)};
     for (const option of el.options) {
       option.selected = values.includes(option.value) || values.includes(option.textContent.trim());
     }
     el.dispatchEvent(new Event('change', { bubbles: true }));
     return Array.from(el.selectedOptions).map(o => o.value);
-  `);
+  `,
+  );
 
   return { id: command.id, success: true, data: { selected: values } };
 }
 
 export async function handlePress(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const key = command.key;
-  if (!key) throw new Error('Key is required for press');
+  if (!key) throw new Error("Key is required for press");
 
   // If there's a selector, focus that element first
   if (command.selector || command.ref) {
-    const resolved = resolveSelector(command.selector || command.ref, command.ownerId, tab.id);
-    await injectScript(tab.id, resolved, 'el.focus(); return true;');
+    const resolved = resolveSelector(
+      command.selector || command.ref,
+      command.ownerId,
+      tab.id,
+    );
+    markCommandMutationDispatched(command);
+    await injectScript(tab.id, resolved, "el.focus(); return true;");
   }
 
   await ensureDebugger(tab.id);
 
   // Parse modifier+key combos like "Control+a"
-  const parts = key.split('+');
+  const parts = key.split("+");
   const mainKey = parts.pop();
-  const modifiers = parts.map(m => m.toLowerCase());
+  const modifiers = parts.map((m) => m.toLowerCase());
 
   let modifierFlags = 0;
-  if (modifiers.includes('alt') || modifiers.includes('meta')) modifierFlags |= 1;
-  if (modifiers.includes('control') || modifiers.includes('ctrl')) modifierFlags |= 2;
-  if (modifiers.includes('meta') || modifiers.includes('command')) modifierFlags |= 4;
-  if (modifiers.includes('shift')) modifierFlags |= 8;
+  if (modifiers.includes("alt") || modifiers.includes("meta"))
+    modifierFlags |= 1;
+  if (modifiers.includes("control") || modifiers.includes("ctrl"))
+    modifierFlags |= 2;
+  if (modifiers.includes("meta") || modifiers.includes("command"))
+    modifierFlags |= 4;
+  if (modifiers.includes("shift")) modifierFlags |= 8;
 
   // Key down for modifiers
   for (const mod of modifiers) {
-    await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchKeyEvent', {
-      type: 'rawKeyDown',
-      key: mod.charAt(0).toUpperCase() + mod.slice(1),
-      modifiers: modifierFlags,
-    });
+    markCommandMutationDispatched(command);
+    await chrome.debugger.sendCommand(
+      { tabId: tab.id },
+      "Input.dispatchKeyEvent",
+      {
+        type: "rawKeyDown",
+        key: mod.charAt(0).toUpperCase() + mod.slice(1),
+        modifiers: modifierFlags,
+      },
+    );
   }
 
   // Main key
-  await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchKeyEvent', {
-    type: 'rawKeyDown',
-    key: mainKey,
-    modifiers: modifierFlags,
-  });
-  await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchKeyEvent', {
-    type: 'keyUp',
-    key: mainKey,
-    modifiers: modifierFlags,
-  });
+  markCommandMutationDispatched(command);
+  await chrome.debugger.sendCommand(
+    { tabId: tab.id },
+    "Input.dispatchKeyEvent",
+    {
+      type: "rawKeyDown",
+      key: mainKey,
+      modifiers: modifierFlags,
+    },
+  );
+  throwIfCommandAborted(command);
+  await chrome.debugger.sendCommand(
+    { tabId: tab.id },
+    "Input.dispatchKeyEvent",
+    {
+      type: "keyUp",
+      key: mainKey,
+      modifiers: modifierFlags,
+    },
+  );
 
   // Key up for modifiers (reverse order)
   for (const mod of [...modifiers].reverse()) {
-    await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchKeyEvent', {
-      type: 'keyUp',
-      key: mod.charAt(0).toUpperCase() + mod.slice(1),
-    });
+    throwIfCommandAborted(command);
+    await chrome.debugger.sendCommand(
+      { tabId: tab.id },
+      "Input.dispatchKeyEvent",
+      {
+        type: "keyUp",
+        key: mod.charAt(0).toUpperCase() + mod.slice(1),
+      },
+    );
   }
 
   return { id: command.id, success: true, data: { pressed: key } };
 }
 
 export async function handleScroll(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const x = command.x ?? 0;
   const y = command.y ?? 0;
 
   if (command.selector || command.ref) {
-    const resolved = resolveSelector(command.selector || command.ref, command.ownerId, tab.id);
-    await injectScript(tab.id, resolved, `
+    const resolved = resolveSelector(
+      command.selector || command.ref,
+      command.ownerId,
+      tab.id,
+    );
+    markCommandMutationDispatched(command);
+    await injectScript(
+      tab.id,
+      resolved,
+      `
       el.scrollBy(${x}, ${y});
       return { scrollLeft: el.scrollLeft, scrollTop: el.scrollTop };
-    `);
+    `,
+    );
   } else {
+    markCommandMutationDispatched(command);
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: (dx, dy) => {
@@ -313,84 +411,111 @@ export async function handleScroll(command) {
 }
 
 export async function handleClear(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
-  if (!selector) throw new Error('Selector is required for clear');
+  if (!selector) throw new Error("Selector is required for clear");
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
-  await injectScript(tab.id, resolved, `
+  markCommandMutationDispatched(command);
+  await injectScript(
+    tab.id,
+    resolved,
+    `
     el.focus();
     el.value = '';
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
     return true;
-  `);
+  `,
+  );
 
   return { id: command.id, success: true, data: { cleared: true } };
 }
 
 export async function handleCheck(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
-  if (!selector) throw new Error('Selector is required for check');
+  if (!selector) throw new Error("Selector is required for check");
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
-  await injectScript(tab.id, resolved, `
+  markCommandMutationDispatched(command);
+  await injectScript(
+    tab.id,
+    resolved,
+    `
     if (!el.checked) el.click();
     return el.checked;
-  `);
+  `,
+  );
 
   return { id: command.id, success: true, data: { checked: true } };
 }
 
 export async function handleUncheck(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
-  if (!selector) throw new Error('Selector is required for uncheck');
+  if (!selector) throw new Error("Selector is required for uncheck");
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
-  await injectScript(tab.id, resolved, `
+  markCommandMutationDispatched(command);
+  await injectScript(
+    tab.id,
+    resolved,
+    `
     if (el.checked) el.click();
     return !el.checked;
-  `);
+  `,
+  );
 
   return { id: command.id, success: true, data: { unchecked: true } };
 }
 
 export async function handleFocus(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
-  if (!selector) throw new Error('Selector is required for focus');
+  if (!selector) throw new Error("Selector is required for focus");
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
-  await injectScript(tab.id, resolved, `
+  markCommandMutationDispatched(command);
+  await injectScript(
+    tab.id,
+    resolved,
+    `
     el.focus();
     return true;
-  `);
+  `,
+  );
 
   return { id: command.id, success: true, data: { focused: true } };
 }
 
 export async function handleDblclick(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
-  if (!selector) throw new Error('Selector is required for dblclick');
+  if (!selector) throw new Error("Selector is required for dblclick");
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
+  markCommandMutationDispatched(command);
   const point = await getClickablePoint(tab.id, resolved);
-  await dispatchPointerClick(tab.id, point, 2);
+  await dispatchPointerClick(command, tab.id, point, 2);
 
   return { id: command.id, success: true, data: { dblclicked: true } };
 }
 
 export async function handleWait(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
   const timeout = command.timeout || 30000;
 
   if (!selector) {
     // Just wait for a duration
-    await new Promise(r => setTimeout(r, timeout));
+    await abortableCommandDelay(command, timeout);
     return { id: command.id, success: true, data: { waited: true } };
   }
 
@@ -401,28 +526,38 @@ export async function handleWait(command) {
   const pollInterval = 200;
 
   while (Date.now() - startTime < timeout) {
+    throwIfCommandAborted(command);
     try {
       if (resolved.isRef) {
-        const script = buildRoleMatcherScript(resolved.role, resolved.name, resolved.nth);
+        const script = buildRoleMatcherScript(
+          resolved.role,
+          resolved.name,
+          resolved.nth,
+        );
         const found = await evaluateRuntime(tab.id, `!!(${script.trim()})`);
         if (found) {
-          return { id: command.id, success: true, data: { waited: true, found: true } };
+          return {
+            id: command.id,
+            success: true,
+            data: { waited: true, found: true },
+          };
         }
       } else {
-        const [result] = await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: (sel) => !!document.querySelector(sel),
-          args: [resolved.css],
-        });
-        if (result?.result) {
-          return { id: command.id, success: true, data: { waited: true, found: true } };
+        const finder = buildComposedCssMatcherScript(resolved.css);
+        const found = await evaluateRuntime(tab.id, `!!(${finder.trim()})`);
+        if (found) {
+          return {
+            id: command.id,
+            success: true,
+            data: { waited: true, found: true },
+          };
         }
       }
     } catch {
       // Page might be navigating
     }
 
-    await new Promise(r => setTimeout(r, pollInterval));
+    await abortableCommandDelay(command, pollInterval);
   }
 
   throw new Error(`Timeout waiting for selector: ${selector}`);
@@ -431,50 +566,107 @@ export async function handleWait(command) {
 // --- Clipboard ---
 
 export async function handleClipboard(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const operation = command.operation;
-  if (!operation) throw new Error('Operation is required for clipboard (copy/paste/read)');
+  if (!operation)
+    throw new Error("Operation is required for clipboard (copy/paste/read)");
   const platformInfo = await chrome.runtime.getPlatformInfo();
-  const useMeta = platformInfo.os === 'mac';
-  const modifierKey = useMeta ? 'Meta' : 'Control';
+  const useMeta = platformInfo.os === "mac";
+  const modifierKey = useMeta ? "Meta" : "Control";
   const modifierMask = useMeta ? 4 : 2;
 
   switch (operation) {
-    case 'copy': {
+    case "copy": {
       await ensureDebugger(tab.id);
+      markCommandMutationDispatched(command);
       // Use Command on macOS, Control elsewhere.
-      await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchKeyEvent', {
-        type: 'rawKeyDown', key: modifierKey, modifiers: modifierMask,
-      });
-      await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchKeyEvent', {
-        type: 'rawKeyDown', key: 'c', modifiers: modifierMask,
-      });
-      await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchKeyEvent', {
-        type: 'keyUp', key: 'c', modifiers: modifierMask,
-      });
-      await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchKeyEvent', {
-        type: 'keyUp', key: modifierKey,
-      });
+      await chrome.debugger.sendCommand(
+        { tabId: tab.id },
+        "Input.dispatchKeyEvent",
+        {
+          type: "rawKeyDown",
+          key: modifierKey,
+          modifiers: modifierMask,
+        },
+      );
+      throwIfCommandAborted(command);
+      await chrome.debugger.sendCommand(
+        { tabId: tab.id },
+        "Input.dispatchKeyEvent",
+        {
+          type: "rawKeyDown",
+          key: "c",
+          modifiers: modifierMask,
+        },
+      );
+      throwIfCommandAborted(command);
+      await chrome.debugger.sendCommand(
+        { tabId: tab.id },
+        "Input.dispatchKeyEvent",
+        {
+          type: "keyUp",
+          key: "c",
+          modifiers: modifierMask,
+        },
+      );
+      throwIfCommandAborted(command);
+      await chrome.debugger.sendCommand(
+        { tabId: tab.id },
+        "Input.dispatchKeyEvent",
+        {
+          type: "keyUp",
+          key: modifierKey,
+        },
+      );
       return { id: command.id, success: true, data: { copied: true } };
     }
-    case 'paste': {
+    case "paste": {
       await ensureDebugger(tab.id);
+      markCommandMutationDispatched(command);
       // Use Command on macOS, Control elsewhere.
-      await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchKeyEvent', {
-        type: 'rawKeyDown', key: modifierKey, modifiers: modifierMask,
-      });
-      await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchKeyEvent', {
-        type: 'rawKeyDown', key: 'v', modifiers: modifierMask,
-      });
-      await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchKeyEvent', {
-        type: 'keyUp', key: 'v', modifiers: modifierMask,
-      });
-      await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchKeyEvent', {
-        type: 'keyUp', key: modifierKey,
-      });
+      await chrome.debugger.sendCommand(
+        { tabId: tab.id },
+        "Input.dispatchKeyEvent",
+        {
+          type: "rawKeyDown",
+          key: modifierKey,
+          modifiers: modifierMask,
+        },
+      );
+      throwIfCommandAborted(command);
+      await chrome.debugger.sendCommand(
+        { tabId: tab.id },
+        "Input.dispatchKeyEvent",
+        {
+          type: "rawKeyDown",
+          key: "v",
+          modifiers: modifierMask,
+        },
+      );
+      throwIfCommandAborted(command);
+      await chrome.debugger.sendCommand(
+        { tabId: tab.id },
+        "Input.dispatchKeyEvent",
+        {
+          type: "keyUp",
+          key: "v",
+          modifiers: modifierMask,
+        },
+      );
+      throwIfCommandAborted(command);
+      await chrome.debugger.sendCommand(
+        { tabId: tab.id },
+        "Input.dispatchKeyEvent",
+        {
+          type: "keyUp",
+          key: modifierKey,
+        },
+      );
       return { id: command.id, success: true, data: { pasted: true } };
     }
-    case 'read': {
+    case "read": {
+      throwIfCommandAborted(command);
       const [result] = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         func: async () => {
@@ -484,9 +676,13 @@ export async function handleClipboard(command) {
             return null;
           }
         },
-        world: 'MAIN',
+        world: "MAIN",
       });
-      return { id: command.id, success: true, data: { text: result?.result ?? '' } };
+      return {
+        id: command.id,
+        success: true,
+        data: { text: result?.result ?? "" },
+      };
     }
     default:
       throw new Error(`Unknown clipboard operation: ${operation}`);
@@ -496,81 +692,129 @@ export async function handleClipboard(command) {
 // --- Advanced Mouse Input (CDP) ---
 
 export async function handleMouseMove(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const x = command.x ?? 0;
   const y = command.y ?? 0;
 
   await ensureDebugger(tab.id);
-  await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
-    type: 'mouseMoved',
-    x, y,
-  });
+  markCommandMutationDispatched(command);
+  await chrome.debugger.sendCommand(
+    { tabId: tab.id },
+    "Input.dispatchMouseEvent",
+    {
+      type: "mouseMoved",
+      x,
+      y,
+    },
+  );
 
   return { id: command.id, success: true, data: { moved: true, x, y } };
 }
 
 export async function handleMouseDown(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const x = command.x ?? 0;
   const y = command.y ?? 0;
-  const button = command.button || 'left';
+  const button = command.button || "left";
 
   await ensureDebugger(tab.id);
-  await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
-    type: 'mousePressed',
-    x, y,
-    button,
-    clickCount: 1,
-  });
+  markCommandMutationDispatched(command);
+  await chrome.debugger.sendCommand(
+    { tabId: tab.id },
+    "Input.dispatchMouseEvent",
+    {
+      type: "mousePressed",
+      x,
+      y,
+      button,
+      clickCount: 1,
+    },
+  );
 
   return { id: command.id, success: true, data: { pressed: true, x, y } };
 }
 
 export async function handleMouseUp(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const x = command.x ?? 0;
   const y = command.y ?? 0;
-  const button = command.button || 'left';
+  const button = command.button || "left";
 
   await ensureDebugger(tab.id);
-  await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
-    type: 'mouseReleased',
-    x, y,
-    button,
-    clickCount: 1,
-  });
+  markCommandMutationDispatched(command);
+  await chrome.debugger.sendCommand(
+    { tabId: tab.id },
+    "Input.dispatchMouseEvent",
+    {
+      type: "mouseReleased",
+      x,
+      y,
+      button,
+      clickCount: 1,
+    },
+  );
 
   return { id: command.id, success: true, data: { released: true, x, y } };
 }
 
 export async function handleDrag(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const { startX, startY, endX, endY } = command;
   if (startX == null || startY == null || endX == null || endY == null) {
-    throw new Error('startX, startY, endX, endY are required for drag');
+    throw new Error("startX, startY, endX, endY are required for drag");
   }
 
   await ensureDebugger(tab.id);
 
   // Mouse down at start
-  await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
-    type: 'mousePressed', x: startX, y: startY, button: 'left', clickCount: 1,
-  });
+  markCommandMutationDispatched(command);
+  await chrome.debugger.sendCommand(
+    { tabId: tab.id },
+    "Input.dispatchMouseEvent",
+    {
+      type: "mousePressed",
+      x: startX,
+      y: startY,
+      button: "left",
+      clickCount: 1,
+    },
+  );
 
   // Move in steps
   const steps = command.steps || 10;
   for (let i = 1; i <= steps; i++) {
+    throwIfCommandAborted(command);
     const x = startX + (endX - startX) * (i / steps);
     const y = startY + (endY - startY) * (i / steps);
-    await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
-      type: 'mouseMoved', x, y, button: 'left',
-    });
+    await chrome.debugger.sendCommand(
+      { tabId: tab.id },
+      "Input.dispatchMouseEvent",
+      {
+        type: "mouseMoved",
+        x,
+        y,
+        button: "left",
+      },
+    );
   }
 
   // Mouse up at end
-  await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchMouseEvent', {
-    type: 'mouseReleased', x: endX, y: endY, button: 'left', clickCount: 1,
-  });
+  throwIfCommandAborted(command);
+  await chrome.debugger.sendCommand(
+    { tabId: tab.id },
+    "Input.dispatchMouseEvent",
+    {
+      type: "mouseReleased",
+      x: endX,
+      y: endY,
+      button: "left",
+      clickCount: 1,
+    },
+  );
 
   return { id: command.id, success: true, data: { dragged: true } };
 }
@@ -578,40 +822,54 @@ export async function handleDrag(command) {
 // --- Advanced Keyboard Input (CDP) ---
 
 export async function handleKeyDown(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const key = command.key;
-  if (!key) throw new Error('Key is required for keydown');
+  if (!key) throw new Error("Key is required for keydown");
 
   await ensureDebugger(tab.id);
-  await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchKeyEvent', {
-    type: 'rawKeyDown',
-    key,
-  });
+  markCommandMutationDispatched(command);
+  await chrome.debugger.sendCommand(
+    { tabId: tab.id },
+    "Input.dispatchKeyEvent",
+    {
+      type: "rawKeyDown",
+      key,
+    },
+  );
 
   return { id: command.id, success: true, data: { keydown: key } };
 }
 
 export async function handleKeyUp(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const key = command.key;
-  if (!key) throw new Error('Key is required for keyup');
+  if (!key) throw new Error("Key is required for keyup");
 
   await ensureDebugger(tab.id);
-  await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.dispatchKeyEvent', {
-    type: 'keyUp',
-    key,
-  });
+  markCommandMutationDispatched(command);
+  await chrome.debugger.sendCommand(
+    { tabId: tab.id },
+    "Input.dispatchKeyEvent",
+    {
+      type: "keyUp",
+      key,
+    },
+  );
 
   return { id: command.id, success: true, data: { keyup: key } };
 }
 
 export async function handleInsertText(command) {
+  throwIfCommandAborted(command);
   const tab = await getActiveTab(command);
   const text = command.text;
-  if (text == null) throw new Error('Text is required for inserttext');
+  if (text == null) throw new Error("Text is required for inserttext");
 
   await ensureDebugger(tab.id);
-  await chrome.debugger.sendCommand({ tabId: tab.id }, 'Input.insertText', {
+  markCommandMutationDispatched(command);
+  await chrome.debugger.sendCommand({ tabId: tab.id }, "Input.insertText", {
     text,
   });
 

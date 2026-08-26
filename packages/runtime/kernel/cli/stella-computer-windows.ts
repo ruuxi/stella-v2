@@ -87,6 +87,19 @@ export type WinSnapshot = {
 
 export type ScreenshotPolicy = "auto" | "always" | "never";
 
+export type WinHelperObservationPrecondition = {
+  state_id: string;
+  target_pid: number;
+  window_id?: number;
+  revision: number;
+  materialized_revision: number;
+};
+
+export type WinHelperAtomicCommand = {
+  command: WinHelperRequest;
+  precondition: WinHelperObservationPrecondition;
+};
+
 export type WinHelperRequest = {
   tool: string;
   app?: string;
@@ -120,6 +133,9 @@ export type WinHelperRequest = {
 
 export type WinHelperResponse = {
   ok: boolean;
+  code?: string;
+  observed_state_id?: string;
+  current_revision?: number;
   text?: string;
   error?: string;
   snapshot?: WinSnapshot;
@@ -237,6 +253,7 @@ Usage:
   stella-computer [--session ID] drag-screenshot <from_x_px> <from_y_px> <to_x_px> <to_y_px> [--app NAME|--window-id HWND] [--dispatch background|foreground|auto]
   stella-computer [--session ID] type <text> [--app NAME|--window-id HWND] [--dispatch background|foreground|auto]
   stella-computer [--session ID] press <key> [--app NAME|--window-id HWND] [--dispatch background|foreground|auto]
+  stella-computer [--session ID] shutdown-session [--json]
 
 Notes:
   - snapshot writes element state under ~/.stella/stella-computer/sessions/<session>/windows-targets/

@@ -3,6 +3,7 @@ import ApplicationServices
 import Carbon.HIToolbox
 import CoreGraphics
 import CoreServices
+import CryptoKit
 import Darwin
 import Foundation
 import ImageIO
@@ -10,7 +11,7 @@ import OSAKit
 import QuartzCore
 import ScreenCaptureKit
 
-struct Rect: Codable {
+struct Rect: Codable, Equatable {
     let x: Double
     let y: Double
     let width: Double
@@ -261,8 +262,8 @@ struct AutomationDaemonResponse: Codable {
     let stderr: String
 }
 
-let typedDaemonSchemaVersion = 1
-let typedDaemonProtocolVersion = 1
+let typedDaemonSchemaVersion = 2
+let typedDaemonProtocolVersion = 2
 
 enum JSONValue: Codable, Equatable {
     case object([String: JSONValue])
@@ -402,11 +403,27 @@ struct TypedDaemonAction: Codable, Equatable {
     let options: TypedDaemonActionOptions?
 }
 
+struct TypedDaemonObservationPrecondition: Codable, Equatable {
+    let observedStateId: String
+    let observedVisualStateId: String?
+    let targetPid: Int32
+    let targetBundleId: String?
+    let windowId: UInt32?
+    let windowTitle: String?
+    let windowFrame: Rect?
+    let observerRevision: UInt64?
+    let materializedRevision: UInt64?
+    let visualTreeRevision: UInt64?
+    let screenshotWidthPx: Int?
+    let screenshotHeightPx: Int?
+}
+
 struct TypedDaemonOperation: Codable, Equatable {
     let type: String
     let target: TypedDaemonTarget?
     let state: TypedDaemonState?
     let action: TypedDaemonAction?
+    let precondition: TypedDaemonObservationPrecondition?
     let operations: [TypedDaemonOperation]?
     let durationMs: Int64?
 }
@@ -421,6 +438,13 @@ struct TypedAutomationDaemonRequest: Codable, Equatable {
 struct TypedDaemonError: Codable, Equatable {
     let code: String
     let message: String
+    let details: JSONValue?
+
+    init(code: String, message: String, details: JSONValue? = nil) {
+        self.code = code
+        self.message = message
+        self.details = details
+    }
 }
 
 struct TypedAutomationDaemonResponse: Codable, Equatable {
@@ -436,6 +460,13 @@ struct TypedAutomationDaemonResponse: Codable, Equatable {
 struct TypedDaemonProtocolFailure: LocalizedError {
     let code: String
     let message: String
+    let details: JSONValue?
+
+    init(code: String, message: String, details: JSONValue? = nil) {
+        self.code = code
+        self.message = message
+        self.details = details
+    }
 
     var errorDescription: String? { message }
 }
@@ -9095,8 +9126,8 @@ func nativeSelfTestCommand() -> NativeSelfTestPayload {
 
     let typedActionJson = """
     {
-      "schemaVersion": 1,
-      "protocolVersion": 1,
+      "schemaVersion": 2,
+      "protocolVersion": 2,
       "seq": 42,
       "operation": {
         "type": "action",
@@ -9104,6 +9135,13 @@ func nativeSelfTestCommand() -> NativeSelfTestPayload {
         "state": {
           "path": "/tmp/stella-typed-self-test.json",
           "sessionId": "typed-self-test"
+        },
+        "precondition": {
+          "observedStateId": "state_observed",
+          "targetPid": 123,
+          "targetBundleId": "com.example.Target",
+          "observerRevision": 7,
+          "materializedRevision": 7
         },
         "action": {
           "kind": "click",
@@ -9122,6 +9160,7 @@ func nativeSelfTestCommand() -> NativeSelfTestPayload {
             request.seq == 42
                 && request.operation.type == "action"
                 && request.operation.action?.ref == "@b1"
+                && request.operation.precondition?.observerRevision == 7
         )
         let invocation = try typedDaemonInvocation(for: request.operation)
         check(
@@ -9135,12 +9174,86 @@ func nativeSelfTestCommand() -> NativeSelfTestPayload {
             ]
                 && invocation.env == ["STELLA_COMPUTER_SESSION": "typed-self-test"]
         )
+
+        let twoActionBatch = TypedDaemonOperation(
+            type: "batch",
+            target: nil,
+            state: nil,
+            action: nil,
+            precondition: nil,
+            operations: [request.operation, request.operation],
+            durationMs: nil
+        )
+        try validateTypedDaemonOperation(twoActionBatch, insideBatch: false)
+        check(
+            "typed-daemon-two-action-batch-validates",
+            twoActionBatch.operations?.count == 2
+        )
+
+        let missingPrecondition = TypedDaemonOperation(
+            type: request.operation.type,
+            target: request.operation.target,
+            state: request.operation.state,
+            action: request.operation.action,
+            precondition: nil,
+            operations: nil,
+            durationMs: nil
+        )
+        do {
+            try validateTypedDaemonOperation(missingPrecondition, insideBatch: false)
+            warnings.append("failed: typed-daemon-action-requires-precondition")
+        } catch let failure as TypedDaemonProtocolFailure {
+            check(
+                "typed-daemon-action-requires-precondition",
+                failure.code == "invalid_precondition"
+            )
+        }
+
+        var orderedPhases: [String] = []
+        let phaseOutputs = executeAtomicBatchPhases(
+            [1, 2],
+            validate: { orderedPhases.append("validate-\($0)") },
+            execute: { item in
+                orderedPhases.append("execute-\(item)")
+                return AtomicBatchStepResult(output: item, shouldContinue: true)
+            }
+        )
+        check(
+            "typed-daemon-batch-preflights-before-dispatch",
+            phaseOutputs == [1, 2]
+                && orderedPhases == ["validate-1", "validate-2", "execute-1", "execute-2"]
+        )
+
+        var rejectedBatchMutationCount = 0
+        do {
+            _ = try executeAtomicBatchPhases(
+                [1, 2],
+                validate: { item in
+                    if item == 2 {
+                        throw typedProtocolFailure(
+                            "stale_observation",
+                            "Synthetic stale second action."
+                        )
+                    }
+                },
+                execute: { item in
+                    rejectedBatchMutationCount += 1
+                    return AtomicBatchStepResult(output: item, shouldContinue: true)
+                }
+            )
+            warnings.append("failed: typed-daemon-rejected-batch-does-not-dispatch")
+        } catch let failure as TypedDaemonProtocolFailure {
+            check(
+                "typed-daemon-rejected-batch-does-not-dispatch",
+                failure.code == "stale_observation" && rejectedBatchMutationCount == 0
+            )
+        }
     } catch {
         warnings.append("typed request mapping threw: \(error.localizedDescription)")
     }
 
     let unsupportedVersionJson = typedActionJson.replacingOccurrences(
-        of: "\"protocolVersion\": 1",
+        of: "\"protocolVersion\": 2",
         with: "\"protocolVersion\": 99"
     )
     do {
@@ -9184,10 +9297,28 @@ func nativeSelfTestCommand() -> NativeSelfTestPayload {
         warnings.append("failed: typed-daemon-response-is-structured")
     }
 
+    let staleResponse = typedFailureResponse(
+        seq: 42,
+        failure: typedProtocolFailure(
+            "stale_observation",
+            "Observation changed.",
+            details: .object([
+                "reason": .string("observer_revision_changed"),
+                "observed": .object(["observer_revision": .integer(7)]),
+                "current": .object(["observer_revision": .integer(8)]),
+            ])
+        )
+    )
+    check(
+        "typed-daemon-stale-provenance-is-structured",
+        staleResponse.error?.code == "stale_observation"
+            && staleResponse.error?.details != nil
+    )
+
     let typedListAppsJson = """
     {
-      "schemaVersion": 1,
-      "protocolVersion": 1,
+      "schemaVersion": 2,
+      "protocolVersion": 2,
       "seq": 43,
       "operation": { "type": "list_apps" }
     }
@@ -10710,8 +10841,12 @@ func writeTextAtomic(_ text: String, to path: String) throws {
     try data.write(to: url, options: .atomic)
 }
 
-func typedProtocolFailure(_ code: String, _ message: String) -> TypedDaemonProtocolFailure {
-    TypedDaemonProtocolFailure(code: code, message: message)
+func typedProtocolFailure(
+    _ code: String,
+    _ message: String,
+    details: JSONValue? = nil
+) -> TypedDaemonProtocolFailure {
+    TypedDaemonProtocolFailure(code: code, message: message, details: details)
 }
 
 func jsonObject(from data: Data) -> [String: Any]? {
@@ -10761,7 +10896,7 @@ func validateTypedOperationWireShape(
 ) throws {
     try validateTypedObjectKeys(
         operation,
-        allowed: ["type", "target", "state", "action", "operations", "durationMs"],
+        allowed: ["type", "target", "state", "action", "precondition", "operations", "durationMs"],
         path: path
     )
     if let target = operation["target"] as? [String: Any] {
@@ -10800,6 +10935,25 @@ func validateTypedOperationWireShape(
                     "deferObservation",
                 ],
                 path: "\(path).action.options"
+            )
+        }
+    }
+    if let precondition = operation["precondition"] as? [String: Any] {
+        try validateTypedObjectKeys(
+            precondition,
+            allowed: [
+                "observedStateId", "observedVisualStateId", "targetPid",
+                "targetBundleId", "windowId", "windowTitle", "windowFrame",
+                "observerRevision", "materializedRevision", "visualTreeRevision",
+                "screenshotWidthPx", "screenshotHeightPx",
+            ],
+            path: "\(path).precondition"
+        )
+        if let frame = precondition["windowFrame"] as? [String: Any] {
+            try validateTypedObjectKeys(
+                frame,
+                allowed: ["x", "y", "width", "height"],
+                path: "\(path).precondition.windowFrame"
             )
         }
     }
@@ -11013,6 +11167,48 @@ func validateTypedAction(_ action: TypedDaemonAction) throws {
     }
 }
 
+func validateTypedObservationPrecondition(
+    _ precondition: TypedDaemonObservationPrecondition,
+    action: TypedDaemonAction
+) throws {
+    guard trimmed(precondition.observedStateId) != nil else {
+        throw typedProtocolFailure(
+            "invalid_precondition",
+            "precondition.observedStateId is required."
+        )
+    }
+    guard precondition.targetPid > 0 else {
+        throw typedProtocolFailure(
+            "invalid_precondition",
+            "precondition.targetPid must be positive."
+        )
+    }
+    if let width = precondition.screenshotWidthPx, width < 1 {
+        throw typedProtocolFailure(
+            "invalid_precondition",
+            "precondition.screenshotWidthPx must be positive."
+        )
+    }
+    if let height = precondition.screenshotHeightPx, height < 1 {
+        throw typedProtocolFailure(
+            "invalid_precondition",
+            "precondition.screenshotHeightPx must be positive."
+        )
+    }
+    let actionKind = normalized(action.kind).replacingOccurrences(of: "-", with: "_")
+    if ["click_point", "drag"].contains(actionKind) {
+        guard trimmed(precondition.observedVisualStateId) != nil,
+              precondition.visualTreeRevision != nil,
+              precondition.screenshotWidthPx != nil,
+              precondition.screenshotHeightPx != nil else {
+            throw typedProtocolFailure(
+                "invalid_precondition",
+                "Coordinate actions require visual identity, visual revision, and screenshot dimensions."
+            )
+        }
+    }
+}
+
 func validateTypedDaemonOperation(
     _ operation: TypedDaemonOperation,
     insideBatch: Bool
@@ -11023,6 +11219,7 @@ func validateTypedDaemonOperation(
         guard operation.target == nil,
               operation.state == nil,
               operation.action == nil,
+              operation.precondition == nil,
               operation.operations == nil,
               operation.durationMs == nil else {
             throw typedProtocolFailure("invalid_operation", "\(type) does not accept additional fields.")
@@ -11031,7 +11228,10 @@ func validateTypedDaemonOperation(
         guard let target = operation.target, let state = operation.state else {
             throw typedProtocolFailure("invalid_operation", "\(type) requires target and state fields.")
         }
-        guard operation.action == nil, operation.operations == nil, operation.durationMs == nil else {
+        guard operation.action == nil,
+              operation.precondition == nil,
+              operation.operations == nil,
+              operation.durationMs == nil else {
             throw typedProtocolFailure("invalid_operation", "\(type) contains fields that do not apply.")
         }
         try validateTypedTarget(target)
@@ -11039,8 +11239,12 @@ func validateTypedDaemonOperation(
     case "action":
         guard let target = operation.target,
               let state = operation.state,
-              let action = operation.action else {
-            throw typedProtocolFailure("invalid_operation", "action requires target, state, and action fields.")
+              let action = operation.action,
+              let precondition = operation.precondition else {
+            throw typedProtocolFailure(
+                "invalid_precondition",
+                "action requires target, state, action, and precondition fields."
+            )
         }
         guard operation.operations == nil, operation.durationMs == nil else {
             throw typedProtocolFailure("invalid_operation", "action contains fields that do not apply.")
@@ -11054,6 +11258,7 @@ func validateTypedDaemonOperation(
             )
         }
         try validateTypedAction(action)
+        try validateTypedObservationPrecondition(precondition, action: action)
     case "batch":
         guard !insideBatch else {
             throw typedProtocolFailure("invalid_batch", "Nested batch operations are not supported.")
@@ -11066,16 +11271,24 @@ func validateTypedDaemonOperation(
         guard operation.target == nil,
               operation.state == nil,
               operation.action == nil,
+              operation.precondition == nil,
               operation.durationMs == nil else {
             throw typedProtocolFailure("invalid_batch", "batch accepts only its operations field.")
         }
         for child in operations {
+            guard normalized(child.type).replacingOccurrences(of: "-", with: "_") == "action" else {
+                throw typedProtocolFailure(
+                    "invalid_batch",
+                    "batch.operations may contain only action operations."
+                )
+            }
             try validateTypedDaemonOperation(child, insideBatch: true)
         }
     case "locked_use_begin":
         guard operation.target == nil,
               operation.state == nil,
               operation.action == nil,
+              operation.precondition == nil,
               operation.operations == nil else {
             throw typedProtocolFailure("invalid_operation", "locked_use_begin accepts only durationMs.")
         }
@@ -11090,6 +11303,7 @@ func validateTypedDaemonOperation(
         guard operation.target == nil,
               operation.state == nil,
               operation.action == nil,
+              operation.precondition == nil,
               operation.operations == nil,
               operation.durationMs == nil else {
             throw typedProtocolFailure("invalid_operation", "locked_use_end does not accept additional fields.")
@@ -11250,6 +11464,175 @@ func validateTypedActionTarget(_ target: TypedDaemonTarget, statePath: String) t
     }
 }
 
+func visualStateId(for screenshot: Screenshot?) -> String? {
+    guard let encoded = screenshot?.data,
+          !encoded.isEmpty,
+          let data = Data(base64Encoded: encoded) else {
+        return nil
+    }
+    let digest = SHA256.hash(data: data)
+    let prefix = digest.prefix(10).map { String(format: "%02x", $0) }.joined()
+    return "visual_\(prefix)"
+}
+
+func rectMatches(_ observed: Rect?, _ current: Rect?, tolerance: Double = 0.5) -> Bool {
+    switch (observed, current) {
+    case (nil, nil):
+        return true
+    case let (lhs?, rhs?):
+        return abs(lhs.x - rhs.x) <= tolerance
+            && abs(lhs.y - rhs.y) <= tolerance
+            && abs(lhs.width - rhs.width) <= tolerance
+            && abs(lhs.height - rhs.height) <= tolerance
+    default:
+        return false
+    }
+}
+
+func preconditionRectValue(_ rect: Rect?) -> JSONValue {
+    guard let rect else { return .null }
+    return .object([
+        "x": .number(rect.x),
+        "y": .number(rect.y),
+        "width": .number(rect.width),
+        "height": .number(rect.height),
+    ])
+}
+
+func validateTypedActionPrecondition(
+    _ precondition: TypedDaemonObservationPrecondition,
+    target selector: TypedDaemonTarget,
+    statePath: String
+) throws {
+    let target = try resolveTarget(
+        pid: selector.pid,
+        appName: selector.appName,
+        bundleId: selector.bundleId
+    )
+    configureMessagingTimeout(for: target)
+    AutomationObserverManager.shared.ensureObserved(target)
+
+    let currentPid = target.app.processIdentifier
+    let currentBundleId = target.app.bundleIdentifier
+    let currentWindowTitle = currentWindowTitle(for: target)
+    let currentWindowFrame = currentWindowFrame(for: target)
+    let currentWindowId = resolveOnScreenWindowID(
+        pid: currentPid,
+        expectedTitle: currentWindowTitle,
+        expectedFrame: currentWindowFrame
+    )
+    let observer = AutomationObserverManager.shared
+    let revisionBeforeCapture = observer.currentRevision(pid: currentPid)
+
+    func provenance(
+        revision: UInt64,
+        visualStateId: String? = nil,
+        screenshot: Screenshot? = nil
+    ) -> JSONValue {
+        .object([
+            "state_id": .string("native_revision_\(revision)"),
+            "visual_state_id": visualStateId.map(JSONValue.string) ?? .null,
+            "target_pid": .integer(Int64(currentPid)),
+            "target_bundle_id": currentBundleId.map(JSONValue.string) ?? .null,
+            "window_id": currentWindowId.map { .integer(Int64($0)) } ?? .null,
+            "window_title": currentWindowTitle.map(JSONValue.string) ?? .null,
+            "window_frame": preconditionRectValue(currentWindowFrame),
+            "observer_revision": .integer(Int64(revision)),
+            "screenshot_width_px": screenshot?.widthPx.map { .integer(Int64($0)) } ?? .null,
+            "screenshot_height_px": screenshot?.heightPx.map { .integer(Int64($0)) } ?? .null,
+        ])
+    }
+
+    func stale(_ reason: String, current: JSONValue? = nil) throws -> Never {
+        let observed = JSONValue.object([
+            "state_id": .string(precondition.observedStateId),
+            "visual_state_id": precondition.observedVisualStateId.map(JSONValue.string) ?? .null,
+            "target_pid": .integer(Int64(precondition.targetPid)),
+            "target_bundle_id": precondition.targetBundleId.map(JSONValue.string) ?? .null,
+            "window_id": precondition.windowId.map { .integer(Int64($0)) } ?? .null,
+            "window_title": precondition.windowTitle.map(JSONValue.string) ?? .null,
+            "window_frame": preconditionRectValue(precondition.windowFrame),
+            "observer_revision": precondition.observerRevision.map { .integer(Int64($0)) } ?? .null,
+            "materialized_revision": precondition.materializedRevision.map { .integer(Int64($0)) } ?? .null,
+            "visual_tree_revision": precondition.visualTreeRevision.map { .integer(Int64($0)) } ?? .null,
+            "screenshot_width_px": precondition.screenshotWidthPx.map { .integer(Int64($0)) } ?? .null,
+            "screenshot_height_px": precondition.screenshotHeightPx.map { .integer(Int64($0)) } ?? .null,
+        ])
+        throw typedProtocolFailure(
+            "stale_observation",
+            "Native action precondition failed (\(reason)); refresh app state and retry.",
+            details: .object([
+                "reason": .string(reason),
+                "observed": observed,
+                "current": current ?? provenance(revision: revisionBeforeCapture),
+            ])
+        )
+    }
+
+    guard currentPid == precondition.targetPid else {
+        try stale("target_pid_changed")
+    }
+    if normalized(currentBundleId) != normalized(precondition.targetBundleId) {
+        try stale("target_bundle_changed")
+    }
+    if currentWindowId != precondition.windowId {
+        try stale("window_id_changed")
+    }
+    if normalized(currentWindowTitle) != normalized(precondition.windowTitle) {
+        try stale("window_title_changed")
+    }
+    if !rectMatches(precondition.windowFrame, currentWindowFrame) {
+        try stale("window_geometry_changed")
+    }
+    if let expectedRevision = precondition.observerRevision,
+       revisionBeforeCapture != expectedRevision {
+        try stale("observer_revision_changed")
+    }
+    if let expectedMaterializedRevision = precondition.materializedRevision,
+       revisionBeforeCapture != expectedMaterializedRevision {
+        try stale("materialized_revision_changed")
+    }
+
+    if let expectedVisualStateId = precondition.observedVisualStateId {
+        let temporaryPath = URL(fileURLWithPath: statePath)
+            .deletingPathExtension()
+            .appendingPathExtension("precondition-\(UUID().uuidString.lowercased()).png")
+            .path
+        defer { try? FileManager.default.removeItem(atPath: temporaryPath) }
+        let (screenshot, warning) = captureScreenshot(
+            to: temporaryPath,
+            rect: currentWindowFrame,
+            pid: currentPid,
+            expectedTitle: currentWindowTitle,
+            includeBase64: true
+        )
+        guard let screenshot, warning == nil,
+              let currentVisualStateId = visualStateId(for: screenshot) else {
+            try stale("visual_capture_failed")
+        }
+        let revisionAfterCapture = observer.currentRevision(pid: currentPid)
+        let current = provenance(
+            revision: revisionAfterCapture,
+            visualStateId: currentVisualStateId,
+            screenshot: screenshot
+        )
+        if revisionAfterCapture != revisionBeforeCapture {
+            try stale("observer_revision_changed_during_visual_validation", current: current)
+        }
+        if let expectedTreeRevision = precondition.visualTreeRevision,
+           revisionAfterCapture != expectedTreeRevision {
+            try stale("visual_tree_revision_changed", current: current)
+        }
+        if screenshot.widthPx != precondition.screenshotWidthPx
+            || screenshot.heightPx != precondition.screenshotHeightPx {
+            try stale("screenshot_geometry_changed", current: current)
+        }
+        if currentVisualStateId != expectedVisualStateId {
+            try stale("visual_hash_changed", current: current)
+        }
+    }
+}
+
 func jsonValue(from result: CommandExecutionResult) throws -> JSONValue {
     guard let data = result.stdout.data(using: .utf8) else {
         throw typedProtocolFailure("invalid_result", "Internal command returned non-UTF-8 output.")
@@ -11294,25 +11677,83 @@ struct TypedOperationExecution {
     let result: JSONValue
 }
 
-func executeTypedDaemonOperation(_ operation: TypedDaemonOperation) throws -> TypedOperationExecution {
+struct AtomicBatchStepResult<Output> {
+    let output: Output
+    let shouldContinue: Bool
+}
+
+// Every validation completes before the first execute callback can run. This
+// is the native batch transaction boundary: stale/invalid observations fail
+// the whole batch without partially mutating the target application.
+func executeAtomicBatchPhases<Item, Output>(
+    _ items: [Item],
+    validate: (Item) throws -> Void,
+    execute: (Item) throws -> AtomicBatchStepResult<Output>
+) rethrows -> [Output] {
+    for item in items {
+        try validate(item)
+    }
+    var outputs: [Output] = []
+    for item in items {
+        let step = try execute(item)
+        outputs.append(step.output)
+        if !step.shouldContinue { break }
+    }
+    return outputs
+}
+
+func validateTypedActionForDispatch(_ operation: TypedDaemonOperation) throws {
+    let invocation = try typedDaemonInvocation(for: operation)
+    guard let target = invocation.target,
+          let statePath = invocation.statePath,
+          let precondition = operation.precondition else {
+        throw typedProtocolFailure(
+            "invalid_precondition",
+            "Native action dispatch requires an observation precondition."
+        )
+    }
+    try validateTypedActionTarget(target, statePath: statePath)
+    try validateTypedActionPrecondition(
+        precondition,
+        target: target,
+        statePath: statePath
+    )
+}
+
+private func executeTypedDaemonOperation(
+    _ operation: TypedDaemonOperation,
+    actionPreconditionAlreadyValidated: Bool
+) throws -> TypedOperationExecution {
     let type = normalized(operation.type).replacingOccurrences(of: "-", with: "_")
     if type == "batch" {
         try validateTypedDaemonOperation(operation, insideBatch: false)
-        var results: [JSONValue] = []
+        let operations = operation.operations!
         var finalStatus: Int32 = 0
-        for (index, child) in operation.operations!.enumerated() {
-            let execution = try executeTypedDaemonOperation(child)
-            results.append(.object([
-                "index": .integer(Int64(index)),
-                "ok": .bool(execution.status == 0),
-                "status": .integer(Int64(execution.status)),
-                "result": execution.result,
-            ]))
-            if execution.status != 0 {
-                finalStatus = execution.status
-                break
+        var index = 0
+        let results = try executeAtomicBatchPhases(
+            operations,
+            validate: { child in
+                try validateTypedActionForDispatch(child)
+            },
+            execute: { child in
+                let currentIndex = index
+                index += 1
+                let execution = try executeTypedDaemonOperation(
+                    child,
+                    actionPreconditionAlreadyValidated: true
+                )
+                if execution.status != 0 { finalStatus = execution.status }
+                return AtomicBatchStepResult(
+                    output: JSONValue.object([
+                        "index": .integer(Int64(currentIndex)),
+                        "ok": .bool(execution.status == 0),
+                        "status": .integer(Int64(execution.status)),
+                        "result": execution.result,
+                    ]),
+                    shouldContinue: execution.status == 0
+                )
             }
-        }
+        )
         return TypedOperationExecution(
             status: finalStatus,
             result: .object([
@@ -11324,9 +11765,8 @@ func executeTypedDaemonOperation(_ operation: TypedDaemonOperation) throws -> Ty
 
     let invocation = try typedDaemonInvocation(for: operation)
     if type == "action",
-       let target = invocation.target,
-       let statePath = invocation.statePath {
-        try validateTypedActionTarget(target, statePath: statePath)
+       !actionPreconditionAlreadyValidated {
+        try validateTypedActionForDispatch(operation)
     }
     let command = withDaemonRequestEnvironment(invocation.env) {
         executeCommand(args: invocation.argv)
@@ -11334,6 +11774,13 @@ func executeTypedDaemonOperation(_ operation: TypedDaemonOperation) throws -> Ty
     return TypedOperationExecution(
         status: command.status,
         result: try jsonValue(from: command)
+    )
+}
+
+func executeTypedDaemonOperation(_ operation: TypedDaemonOperation) throws -> TypedOperationExecution {
+    try executeTypedDaemonOperation(
+        operation,
+        actionPreconditionAlreadyValidated: false
     )
 }
 
@@ -11360,7 +11807,11 @@ func typedFailureResponse(
         ok: false,
         status: 1,
         result: nil,
-        error: TypedDaemonError(code: failure.code, message: failure.message)
+        error: TypedDaemonError(
+            code: failure.code,
+            message: failure.message,
+            details: failure.details
+        )
     )
 }
 

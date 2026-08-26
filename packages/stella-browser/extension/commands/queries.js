@@ -3,13 +3,15 @@
  * boundingbox, waitforurl, scrollintoview, isvisible, isenabled,
  * ischecked, count, styles.
  */
-import { getActiveTab } from './tabs.js';
+import { getActiveTab } from "./tabs.js";
 import {
   resolveSelector,
+  buildComposedCssMatcherAllScript,
   buildRoleMatcherAllScript,
-  buildRoleMatcherScript,
-} from '../lib/selector.js';
-import { evaluateRuntime } from '../lib/debugger.js';
+  buildResolvedElementMatcherScript,
+  buildTopLevelRectSource,
+} from "../lib/selector.js";
+import { evaluateRuntime } from "../lib/debugger.js";
 
 /**
  * Inject a script that finds an element and runs code on it.
@@ -17,14 +19,15 @@ import { evaluateRuntime } from '../lib/debugger.js';
  */
 async function queryElement(tabId, ownerId, selector, scriptBody) {
   const resolved = resolveSelector(selector, ownerId, tabId);
-  let script;
-
-  if (resolved.isRef) {
-    const finder = buildRoleMatcherScript(resolved.role, resolved.name, resolved.nth);
-    script = `(() => { const el = ${finder.trim()}; if (!el) throw new Error('Element not found'); ${scriptBody} })()`;
-  } else {
-    script = `(() => { const el = document.querySelector(${JSON.stringify(resolved.css)}); if (!el) throw new Error('Element not found: ${resolved.css}'); ${scriptBody} })()`;
-  }
+  const finder = buildResolvedElementMatcherScript(resolved);
+  const missingMessage = resolved.isRef
+    ? "Element not found"
+    : `Element not found: ${resolved.css}`;
+  const script = `(() => {
+    const el = ${finder.trim()};
+    if (!el) throw new Error(${JSON.stringify(missingMessage)});
+    ${scriptBody}
+  })()`;
 
   return evaluateRuntime(tabId, script);
 }
@@ -32,76 +35,114 @@ async function queryElement(tabId, ownerId, selector, scriptBody) {
 export async function handleInnerText(command) {
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
-  if (!selector) throw new Error('Selector is required for innertext');
+  if (!selector) throw new Error("Selector is required for innertext");
 
-  const text = await queryElement(tab.id, command.ownerId, selector, 'return el.innerText;');
+  const text = await queryElement(
+    tab.id,
+    command.ownerId,
+    selector,
+    "return el.innerText;",
+  );
   return { id: command.id, success: true, data: { text } };
 }
 
 export async function handleInnerHtml(command) {
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
-  if (!selector) throw new Error('Selector is required for innerhtml');
+  if (!selector) throw new Error("Selector is required for innerhtml");
 
-  const html = await queryElement(tab.id, command.ownerId, selector, 'return el.innerHTML;');
+  const html = await queryElement(
+    tab.id,
+    command.ownerId,
+    selector,
+    "return el.innerHTML;",
+  );
   return { id: command.id, success: true, data: { html } };
 }
 
 export async function handleInputValue(command) {
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
-  if (!selector) throw new Error('Selector is required for inputvalue');
+  if (!selector) throw new Error("Selector is required for inputvalue");
 
-  const value = await queryElement(tab.id, command.ownerId, selector, 'return el.value ?? "";');
+  const value = await queryElement(
+    tab.id,
+    command.ownerId,
+    selector,
+    'return el.value ?? "";',
+  );
   return { id: command.id, success: true, data: { value } };
 }
 
 export async function handleBoundingBox(command) {
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
-  if (!selector) throw new Error('Selector is required for boundingbox');
+  if (!selector) throw new Error("Selector is required for boundingbox");
 
-  const box = await queryElement(tab.id, command.ownerId, selector, `
-    const r = el.getBoundingClientRect();
-    return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
-  `);
+  const box = await queryElement(
+    tab.id,
+    command.ownerId,
+    selector,
+    `
+    ${buildTopLevelRectSource("el")}
+    return {
+      x: Math.round(topX),
+      y: Math.round(topY),
+      width: Math.round(localRect.width),
+      height: Math.round(localRect.height),
+    };
+  `,
+  );
   return { id: command.id, success: true, data: { box } };
 }
 
 export async function handleScrollIntoView(command) {
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
-  if (!selector) throw new Error('Selector is required for scrollintoview');
+  if (!selector) throw new Error("Selector is required for scrollintoview");
 
-  await queryElement(tab.id, command.ownerId, selector, `
+  await queryElement(
+    tab.id,
+    command.ownerId,
+    selector,
+    `
     el.scrollIntoView({ block: 'center', behavior: 'instant' });
     return true;
-  `);
+  `,
+  );
   return { id: command.id, success: true, data: { scrolled: true } };
 }
 
 export async function handleIsVisible(command) {
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
-  if (!selector) throw new Error('Selector is required for isvisible');
+  if (!selector) throw new Error("Selector is required for isvisible");
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
-  let script;
-
   const visibilityCheck = `
-    const style = getComputedStyle(el);
-    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
-    const rect = el.getBoundingClientRect();
-    if (rect.width === 0 && rect.height === 0) return false;
+    const composedParent = node => {
+      if (node.parentElement) return node.parentElement;
+      const root = node.getRootNode ? node.getRootNode() : null;
+      if (root && root.host) return root.host;
+      try { return root && root.defaultView ? root.defaultView.frameElement : null; }
+      catch (_) { return null; }
+    };
+    if (!el.isConnected || el.getClientRects().length === 0) return false;
+    for (let node = el, depth = 0; node && depth < 64; node = composedParent(node), depth += 1) {
+      if (node.hidden || node.inert || node.getAttribute?.('aria-hidden')?.toLowerCase() === 'true') return false;
+      const nodeWindow = node.ownerDocument?.defaultView;
+      const style = nodeWindow?.getComputedStyle(node);
+      if (style && (
+        style.display === 'none' ||
+        style.visibility === 'hidden' ||
+        style.visibility === 'collapse' ||
+        parseFloat(style.opacity) === 0
+      )) return false;
+    }
     return true;
   `;
-
-  if (resolved.isRef) {
-    const finder = buildRoleMatcherScript(resolved.role, resolved.name, resolved.nth);
-    script = `(() => { const el = ${finder.trim()}; if (!el) return false; ${visibilityCheck} })()`;
-  } else {
-    script = `(() => { const el = document.querySelector(${JSON.stringify(resolved.css)}); if (!el) return false; ${visibilityCheck} })()`;
-  }
+  const finder = buildResolvedElementMatcherScript(resolved);
+  const script = `(() => { const el = ${finder.trim()}; if (!el) return false; ${visibilityCheck} })()`;
 
   const visible = await evaluateRuntime(tab.id, script);
 
@@ -111,60 +152,68 @@ export async function handleIsVisible(command) {
 export async function handleIsEnabled(command) {
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
-  if (!selector) throw new Error('Selector is required for isenabled');
+  if (!selector) throw new Error("Selector is required for isenabled");
 
-  const enabled = await queryElement(tab.id, command.ownerId, selector, 'return !el.disabled;');
+  const enabled = await queryElement(
+    tab.id,
+    command.ownerId,
+    selector,
+    "return !el.disabled;",
+  );
   return { id: command.id, success: true, data: { enabled } };
 }
 
 export async function handleIsChecked(command) {
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
-  if (!selector) throw new Error('Selector is required for ischecked');
+  if (!selector) throw new Error("Selector is required for ischecked");
 
-  const checked = await queryElement(tab.id, command.ownerId, selector, 'return !!el.checked;');
+  const checked = await queryElement(
+    tab.id,
+    command.ownerId,
+    selector,
+    "return !!el.checked;",
+  );
   return { id: command.id, success: true, data: { checked } };
 }
 
 export async function handleCount(command) {
   const tab = await getActiveTab(command);
   const selector = command.selector;
-  if (!selector) throw new Error('Selector is required for count');
+  if (!selector) throw new Error("Selector is required for count");
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
   if (resolved.isSemantic) {
     const allMatches = buildRoleMatcherAllScript(resolved.role, resolved.name);
-    const count = await evaluateRuntime(tab.id, `(${allMatches.trim()}).length`);
+    const count = await evaluateRuntime(
+      tab.id,
+      `(${allMatches.trim()}).length`,
+    );
     return { id: command.id, success: true, data: { count: count ?? 0 } };
   }
 
-  const [result] = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    func: (sel) => document.querySelectorAll(sel).length,
-    args: [resolved.css],
-    world: 'MAIN',
-  });
-
-  return { id: command.id, success: true, data: { count: result?.result ?? 0 } };
+  const allMatches = buildComposedCssMatcherAllScript(resolved.css);
+  const count = await evaluateRuntime(tab.id, `(${allMatches.trim()}).length`);
+  return { id: command.id, success: true, data: { count: count ?? 0 } };
 }
 
 export async function handleStyles(command) {
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
-  if (!selector) throw new Error('Selector is required for styles');
+  if (!selector) throw new Error("Selector is required for styles");
 
   const resolved = resolveSelector(selector, command.ownerId, tab.id);
   const extractScript = `
-    const s = getComputedStyle(el);
-    const r = el.getBoundingClientRect();
+    const s = el.ownerDocument.defaultView.getComputedStyle(el);
+    ${buildTopLevelRectSource("el")}
     return {
       tag: el.tagName.toLowerCase(),
       text: el.innerText?.trim().slice(0, 80) || null,
       box: {
-        x: Math.round(r.x),
-        y: Math.round(r.y),
-        width: Math.round(r.width),
-        height: Math.round(r.height),
+        x: Math.round(topX),
+        y: Math.round(topY),
+        width: Math.round(localRect.width),
+        height: Math.round(localRect.height),
       },
       styles: {
         fontSize: s.fontSize,
@@ -182,20 +231,30 @@ export async function handleStyles(command) {
 
   // For CSS selectors, support multiple elements via CDP Runtime.evaluate
   if (!resolved.isRef) {
+    const allMatches = buildComposedCssMatcherAllScript(resolved.css);
     const script = `(() => {
-      const els = document.querySelectorAll(${JSON.stringify(resolved.css)});
-      return Array.from(els).map(el => {
+      const els = ${allMatches.trim()};
+      return els.map(el => {
         ${extractScript}
       });
     })()`;
 
     const elements = await evaluateRuntime(tab.id, script);
 
-    return { id: command.id, success: true, data: { elements: elements || [] } };
+    return {
+      id: command.id,
+      success: true,
+      data: { elements: elements || [] },
+    };
   }
 
   // For refs, single element
-  const element = await queryElement(tab.id, command.ownerId, selector, extractScript);
+  const element = await queryElement(
+    tab.id,
+    command.ownerId,
+    selector,
+    extractScript,
+  );
   return { id: command.id, success: true, data: { elements: [element] } };
 }
 
@@ -209,8 +268,8 @@ function urlMatches(url, pattern) {
   if (url === pattern) return true;
 
   // Convert glob to regex: * matches anything except nothing
-  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-  const regex = new RegExp('^' + escaped.replace(/\*/g, '.*') + '$');
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp("^" + escaped.replace(/\*/g, ".*") + "$");
   return regex.test(url);
 }
 
@@ -219,7 +278,7 @@ export async function handleWaitForUrl(command) {
   const pattern = command.url;
   const timeout = command.timeout || 30000;
 
-  if (!pattern) throw new Error('URL pattern is required for waitforurl');
+  if (!pattern) throw new Error("URL pattern is required for waitforurl");
 
   const start = Date.now();
   while (Date.now() - start < timeout) {
@@ -227,7 +286,7 @@ export async function handleWaitForUrl(command) {
     if (urlMatches(current.url, pattern)) {
       return { id: command.id, success: true, data: { url: current.url } };
     }
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 200));
   }
   throw new Error(`Timeout waiting for URL matching: ${pattern}`);
 }

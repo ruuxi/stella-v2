@@ -15,7 +15,10 @@ import {
   getComputerExecutionSignal,
 } from "../computer-use/execution-context.js";
 
-const __dirname = import.meta.dirname;
+// The Electron bundle injects a top-level `__dirname` compatibility binding in
+// its banner. Keep this module-local path distinct so esbuild cannot emit a
+// duplicate top-level declaration in the standalone stella-computer CLI.
+const nativeHelperModuleDir = import.meta.dirname;
 
 const platformDir =
   process.platform === "win32"
@@ -36,24 +39,24 @@ export const resolveNativeHelperPath = (baseName: string): string | null => {
       ? path.join(process.resourcesPath, "native", "out", platformDir, fileName)
       : null,
     cliDir
-      ? path.resolve(
-          cliDir,
-          "../../../native/out",
-          platformDir,
-          fileName,
-        )
+      ? path.resolve(cliDir, "../../../native/out", platformDir, fileName)
       : null,
     cliDir
       ? path.resolve(cliDir, "../../../../native/out", platformDir, fileName)
       : null,
     path.resolve(process.cwd(), "packages/native/out", platformDir, fileName),
     path.resolve(
-      __dirname,
+      nativeHelperModuleDir,
       "../../../native/out",
       platformDir,
       fileName,
     ),
-    path.resolve(__dirname, "../../../../native/out", platformDir, fileName),
+    path.resolve(
+      nativeHelperModuleDir,
+      "../../../../native/out",
+      platformDir,
+      fileName,
+    ),
   ];
 
   for (const candidate of candidates) {

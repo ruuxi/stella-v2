@@ -1,4 +1,4 @@
-import { watch as fsWatch, type FSWatcher } from "node:fs";
+import { mkdirSync, watch as fsWatch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import {
   loadBundledAgents,
@@ -362,6 +362,18 @@ export const createRuntimeInitialization = (
     // which re-registers agents with fresh prompt body AND frontmatter
     // (tools / model / maxAgentDepth) — so prompt edits apply without a
     // restart, mirroring pi's watch→reload model.
+    const agentsPath = path.join(context.stellaDataDir, "agents");
+    // A brand-new/private harness data directory may not have user agents yet.
+    // Create the watched directory so startup is quiet and later agent-file
+    // creation is observed without requiring a runtime restart.
+    try {
+      mkdirSync(agentsPath, { recursive: true });
+    } catch (error) {
+      logger.warn("extensions.watch.prepare-failed", {
+        error: error instanceof Error ? error.message : String(error),
+        path: agentsPath,
+      });
+    }
     const watchPaths = [
       {
         path: context.paths.extensionsPath,
@@ -369,7 +381,7 @@ export const createRuntimeInitialization = (
         scope: "resource-tree" as const,
       },
       {
-        path: path.join(context.stellaDataDir, "agents"),
+        path: agentsPath,
         recursive: true,
         scope: "resource-tree" as const,
       },

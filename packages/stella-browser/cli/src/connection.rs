@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -17,6 +17,15 @@ pub struct Response {
     pub success: bool,
     pub data: Option<Value>,
     pub error: Option<String>,
+    #[serde(rename = "outcomeUnknown", skip_serializing_if = "Option::is_none")]
+    pub outcome_unknown: Option<bool>,
+    #[serde(
+        rename = "outcomeUnknownReason",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub outcome_unknown_reason: Option<String>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
 }
 
 #[allow(dead_code)]
@@ -463,6 +472,40 @@ fn send_command_once(cmd: &Value, session: &str, timeout: Duration) -> Result<Re
 mod tests {
     use super::*;
     use crate::test_utils::EnvGuard;
+
+    #[test]
+    fn test_response_preserves_failure_receipt_and_unknown_outcome_metadata() {
+        let response: Response = serde_json::from_value(serde_json::json!({
+            "id": "daemon-response-id",
+            "success": false,
+            "error": "Browser chain timed out",
+            "data": {
+                "results": [{
+                    "index": 0,
+                    "action": "click",
+                    "success": false,
+                    "outcomeUnknown": true
+                }]
+            },
+            "outcomeUnknown": true,
+            "outcomeUnknownReason": "The dispatched click may still complete",
+            "deadline": { "timeoutMs": 25 }
+        }))
+        .expect("response should deserialize");
+
+        assert!(!response.success);
+        assert_eq!(
+            response.data.as_ref().unwrap()["results"][0]["action"],
+            "click"
+        );
+        assert_eq!(response.outcome_unknown, Some(true));
+        assert_eq!(
+            response.outcome_unknown_reason.as_deref(),
+            Some("The dispatched click may still complete")
+        );
+        assert_eq!(response.extra["id"], "daemon-response-id");
+        assert_eq!(response.extra["deadline"]["timeoutMs"], 25);
+    }
 
     #[test]
     fn test_get_socket_dir_explicit_override() {

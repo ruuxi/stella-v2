@@ -6,6 +6,10 @@ import os from "node:os";
 import { Worker } from "node:worker_threads";
 
 import type { BrowserUseResponseMeta } from "@stella/contracts/local-chat";
+import type {
+  FileChangeRecord,
+  ProducedFileRecord,
+} from "@stella/contracts/file-changes";
 
 import type {
   ToolContext,
@@ -22,6 +26,7 @@ import {
 } from "../tools/browser-extension-offer.js";
 import {
   createBrowserSession,
+  WORKER_BOUND_BACKEND_PARAM,
   type BrowserBackend,
   type BrowserChainOptions,
   type BrowserChainStep,
@@ -49,6 +54,10 @@ import {
   MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES,
   NODE_REPL_TOOL_SEARCH_NAME,
   type ConnectMethod,
+  type NodeReplContentItem,
+  type NodeReplImageDetail,
+  type NodeReplResetReason,
+  type NodeReplResetReceipt,
   type NodeReplWorkerData,
   type ParentToNodeReplWorkerMessage,
   type SerializedError,
@@ -74,6 +83,8 @@ const DEFAULT_IDLE_TIMEOUT_MS = 4 * 60 * 60_000;
  * Teardown keeps running in the background past this bound.
  */
 const DEFAULT_KERNEL_DISPOSE_TIMEOUT_MS = 10_000;
+const DEFAULT_COMPLETED_CELL_RETENTION_MS = 5 * 60_000;
+const DEFAULT_MAX_RETAINED_CELLS = 128;
 
 export type NodeReplMetadata = Readonly<{
   cwd: string;
@@ -82,14 +93,64 @@ export type NodeReplMetadata = Readonly<{
   homeDir: string;
   tmpDir: string;
   write: (...values: unknown[]) => void;
-  emitImage: (filePath: string) => string;
+  emitImage: (
+    value: string | Readonly<{ attached: true; path: string }>,
+    options?: Readonly<{
+      mimeType?: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+      detail?: NodeReplImageDetail;
+    }>,
+  ) => Readonly<{ type: "image"; path: string; attached: true }> | undefined;
+  emitAudio: (
+    value: string,
+    options?: Readonly<{ mimeType?: string }>,
+  ) => undefined;
+  status: () => Readonly<{
+    generation: number;
+    generationStartedAt: number;
+    persistentBindings: true;
+    state: "ready" | "evaluating";
+    activeEvaluationId: number | null;
+  }>;
+  reset: () => NodeReplResetReceipt;
+  help: (topic?: "bindings" | "images" | "reset" | "tools") => string;
 }>;
 
 export type NodeReplToolSearchResult = {
   name: string;
   signature: string;
   description?: string;
+  /** Exact JavaScript expression for this tool; uses brackets when needed. */
+  access?: string;
+  dotNotation?: boolean;
 };
+
+export type NodeReplEvaluationResult = Readonly<{
+  output: string;
+  content: readonly NodeReplContentItem[];
+  generation: number;
+  reset?: NodeReplResetReceipt;
+  fileChanges?: readonly FileChangeRecord[];
+  producedFiles?: readonly ProducedFileRecord[];
+  responseMeta?: BrowserUseResponseMeta;
+}>;
+
+export type NodeReplCellObservation = Readonly<{
+  cellId: string;
+  generation: number;
+  status: "running" | "completed" | "failed";
+  elapsedMs: number;
+  /** Exclusive cursor used for this observation's first content item. */
+  fromCursor: number;
+  /** Monotonic cursor after the last returned content item. */
+  cursor: number;
+  output?: string;
+  content?: readonly NodeReplContentItem[];
+  reset?: NodeReplResetReceipt;
+  error?: string;
+  fileChanges?: readonly FileChangeRecord[];
+  producedFiles?: readonly ProducedFileRecord[];
+  responseMeta?: BrowserUseResponseMeta;
+}>;
 
 export type NodeReplKernelManagerOptions = {
   browserBinPath?: string;
@@ -110,6 +171,10 @@ export type NodeReplKernelManagerOptions = {
   toolDrainTimeoutMs?: number;
   /** Bound on teardown awaited in the evaluate error path (tests only). */
   disposeTimeoutMs?: number;
+  /** TTL for completed yielded cells retained for repeatable cursor reads. */
+  cellRetentionMs?: number;
+  /** LRU bound for completed yielded cells retained by this registry. */
+  maxRetainedCells?: number;
   executeTool?: (
     toolName: string,
     args: Record<string, unknown>,
@@ -156,9 +221,24 @@ export type EvaluateOptions = {
   onToolUpdate?: ToolUpdateCallback;
   /** UI-only response metadata; excluded from model-facing REPL output. */
   onResponseMeta?: (meta: BrowserUseResponseMeta) => void;
+  /** Ordered typed output as the worker emits it. Cursor starts at one. */
+  onContent?: (item: NodeReplContentItem, cursor: number) => void;
 };
 
-class KernelTerminatedError extends Error {}
+class KernelTerminatedError extends Error {
+  readonly requestedAt: number;
+
+  constructor(
+    message: string,
+    readonly resetReason: NodeReplResetReason,
+    requestedAt = Date.now(),
+    readonly resetReceipt?: NodeReplResetReceipt,
+  ) {
+    super(message);
+    this.name = "KernelTerminatedError";
+    this.requestedAt = requestedAt;
+  }
+}
 
 /**
  * Error name the worker assigns to uncaught async throws surfaced through the
@@ -184,6 +264,7 @@ const SKY_METHODS = new Set<SkyMethod>([
   "list_apps",
   "list_windows",
   "get_app_state",
+  "wait_for_change",
   "click",
   "drag",
   "perform_secondary_action",
@@ -260,21 +341,30 @@ type ActiveEvaluation = {
   timeout: NodeJS.Timeout;
   signal?: AbortSignal;
   onAbort?: () => void;
-  resolve: (output: string) => void;
+  resolve: (result: NodeReplEvaluationResult) => void;
   reject: (error: Error) => void;
   context: ToolContext;
   onToolResult?: (result: ToolResult) => void;
   onToolUpdate?: ToolUpdateCallback;
   onResponseMeta?: (meta: BrowserUseResponseMeta) => void;
+  resetRequestedAt?: number;
+  fileChanges: FileChangeRecord[];
+  producedFiles: ProducedFileRecord[];
+  responseMeta?: BrowserUseResponseMeta;
+  content: NodeReplContentItem[];
+  nextContentCursor: number;
+  onContent?: (item: NodeReplContentItem, cursor: number) => void;
   browserActivity: {
     callCount: number;
     mutated: boolean;
     screenshotAttachments: BrowserScreenshotAttachment[];
     terminalLifecycle: boolean;
     lastAction?: string;
+    lastBackend?: BrowserBackend;
     presentationAction?: {
       action: string;
       tabId?: number;
+      backend: BrowserBackend;
     };
   };
 };
@@ -282,6 +372,7 @@ type ActiveEvaluation = {
 type BrowserScreenshotAttachment = Readonly<{
   path: string;
   mimeType: "image/jpeg" | "image/png";
+  deleteAfterAttach: boolean;
 }>;
 
 type BrowserPresentationTab = Readonly<{
@@ -373,6 +464,82 @@ const replToolNamesForContext = (context: ToolContext): string[] =>
   [...new Set(context.allowedToolNames ?? [])].filter(
     (name) => !NODE_REPL_EXCLUDED_TOOL_NAMES.has(name) && !name.startsWith("$"),
   );
+
+const JAVASCRIPT_IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+const replToolAccess = (name: string): string =>
+  JAVASCRIPT_IDENTIFIER_RE.test(name)
+    ? `tools.${name}`
+    : `tools[${JSON.stringify(name)}]`;
+
+const enrichToolSearchResults = (
+  results: readonly NodeReplToolSearchResult[],
+): NodeReplToolSearchResult[] =>
+  results.map((result) => {
+    const access = replToolAccess(result.name);
+    const legacyPrefix = `tools.${result.name}`;
+    const signature = result.signature.startsWith(legacyPrefix)
+      ? `${access}${result.signature.slice(legacyPrefix.length)}`
+      : result.signature;
+    return {
+      ...result,
+      signature,
+      access,
+      dotNotation: JAVASCRIPT_IDENTIFIER_RE.test(result.name),
+    };
+  });
+
+const formatNodeReplContent = (
+  content: readonly NodeReplContentItem[],
+): string =>
+  content
+    .map((item) => {
+      if (item.type === "text") return item.text;
+      if (item.type === "image") {
+        if (item.alreadyAttached) {
+          return `[stella-image-already-attached] path=${JSON.stringify(item.path)}`;
+        }
+        const mimeType = item.mimeType ? ` inline=${item.mimeType}` : "";
+        const detail = item.detail ? ` detail=${item.detail}` : "";
+        return `[stella-attach-image]${mimeType}${detail} path=${JSON.stringify(item.path)}`;
+      }
+      const mimeType = item.mimeType ? ` mime=${item.mimeType}` : "";
+      return `[node-repl-audio]${mimeType} path=${JSON.stringify(item.path)}`;
+    })
+    .filter(Boolean)
+    .join("\n");
+
+const isNodeReplContentItem = (
+  value: unknown,
+): value is NodeReplContentItem => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const item = value as Record<string, unknown>;
+  if (item.type === "text") return typeof item.text === "string";
+  if (item.type === "image") {
+    return typeof item.path === "string" && path.isAbsolute(item.path);
+  }
+  return (
+    item.type === "audio" &&
+    typeof item.path === "string" &&
+    path.isAbsolute(item.path)
+  );
+};
+
+const resetReceipt = (
+  generation: number,
+  reason: NodeReplResetReason,
+  requestedAt = Date.now(),
+): NodeReplResetReceipt => ({
+  reset: true,
+  reason,
+  previousGeneration: generation,
+  nextGeneration: generation + 1,
+  bindingsDiscarded: true,
+  requestedAt,
+});
+
+const formatResetReceipt = (receipt: NodeReplResetReceipt): string =>
+  `[node_repl reset: reason=${receipt.reason} generation=${receipt.previousGeneration} previousGeneration=${receipt.previousGeneration} nextGeneration=${receipt.nextGeneration} bindingsDiscarded=true requestedAt=${receipt.requestedAt}]`;
 
 export type NodeReplTransport = {
   on(event: "message", listener: (message: unknown) => void): unknown;
@@ -524,9 +691,11 @@ class NodeReplKernel {
   private closed = false;
   private closePromise?: Promise<void>;
   private readonly browserScreenshotPaths = new Set<string>();
+  readonly generationStartedAt = Date.now();
 
   constructor(
     readonly id: string,
+    readonly generation: number,
     cwd: string,
     options: Required<
       Pick<
@@ -551,6 +720,7 @@ class NodeReplKernel {
       browserSessionId: string;
       ownerLeaseId: string;
       ownerLeaseIssuedAt: number;
+      generation: number;
       onIdle: (kernel: NodeReplKernel) => void;
     },
   ) {
@@ -584,6 +754,8 @@ class NodeReplKernel {
     });
     const workerData: NodeReplWorkerData = {
       cwd,
+      generation: options.generation,
+      generationStartedAt: this.generationStartedAt,
       moduleUrl: import.meta.url,
       maxCodeBytes: MAX_NODE_REPL_CODE_BYTES,
       maxEvalOutputBytes: MAX_NODE_REPL_OUTPUT_BYTES,
@@ -629,7 +801,7 @@ class NodeReplKernel {
       active.controller.abort(new Error("Node REPL kernel closed."));
       this.settleActive(
         active,
-        new KernelTerminatedError("Node REPL kernel closed."),
+        new KernelTerminatedError("Node REPL kernel closed.", "closed"),
       );
     }
     this.closePromise = Promise.allSettled([
@@ -653,9 +825,11 @@ class NodeReplKernel {
     options: EvaluateOptions,
     defaults: { evalTimeoutMs: number; idleTimeoutMs: number },
     onIdle: (kernel: NodeReplKernel) => void,
-  ): Promise<string> {
+  ): Promise<NodeReplEvaluationResult> {
     if (this.closed) {
-      return Promise.reject(new KernelTerminatedError("Kernel closed."));
+      return Promise.reject(
+        new KernelTerminatedError("Kernel closed.", "closed"),
+      );
     }
     if (byteLength(code) > MAX_NODE_REPL_CODE_BYTES) {
       return Promise.reject(
@@ -669,7 +843,9 @@ class NodeReplKernel {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = null;
     const run = async () => {
-      if (this.closed) throw new KernelTerminatedError("Kernel closed.");
+      if (this.closed) {
+        throw new KernelTerminatedError("Kernel closed.", "closed");
+      }
       return await this.evaluate(
         code,
         context,
@@ -678,6 +854,7 @@ class NodeReplKernel {
         options.onToolResult,
         options.onToolUpdate,
         options.onResponseMeta,
+        options.onContent,
       );
     };
     const task = this.tail.then(run, run);
@@ -712,10 +889,11 @@ class NodeReplKernel {
     onToolResult?: (result: ToolResult) => void,
     onToolUpdate?: ToolUpdateCallback,
     onResponseMeta?: (meta: BrowserUseResponseMeta) => void,
-  ): Promise<string> {
+    onContent?: (item: NodeReplContentItem, cursor: number) => void,
+  ): Promise<NodeReplEvaluationResult> {
     if (signal?.aborted) {
       return Promise.reject(
-        new KernelTerminatedError(abortError(signal).message),
+        new KernelTerminatedError(abortError(signal).message, "cancelled"),
       );
     }
     if (BLOCKED_NODE_MODULE_RE.test(code)) {
@@ -726,13 +904,14 @@ class NodeReplKernel {
       );
     }
 
-    return new Promise<string>((resolve, reject) => {
+    return new Promise<NodeReplEvaluationResult>((resolve, reject) => {
       const id = this.nextEvaluationId++;
       const controller = new AbortController();
       const timeout = setTimeout(() => {
         this.terminateActive(
           new KernelTerminatedError(
             `Node REPL timed out after ${timeoutMs}ms.`,
+            "timeout",
           ),
         );
       }, timeoutMs);
@@ -747,6 +926,11 @@ class NodeReplKernel {
         onToolResult,
         onToolUpdate,
         onResponseMeta,
+        onContent,
+        content: [],
+        nextContentCursor: 1,
+        fileChanges: [],
+        producedFiles: [],
         browserActivity: {
           callCount: 0,
           mutated: false,
@@ -758,7 +942,7 @@ class NodeReplKernel {
       if (signal) {
         active.onAbort = () => {
           this.terminateActive(
-            new KernelTerminatedError(abortError(signal).message),
+            new KernelTerminatedError(abortError(signal).message, "cancelled"),
           );
         };
         signal.addEventListener("abort", active.onAbort, { once: true });
@@ -781,6 +965,7 @@ class NodeReplKernel {
         this.terminateActive(
           new KernelTerminatedError(
             `Failed to send Node REPL evaluation: ${error instanceof Error ? error.message : String(error)}`,
+            "transport_error",
           ),
         );
       }
@@ -795,6 +980,17 @@ class NodeReplKernel {
     if (!message || typeof message !== "object" || !("type" in message)) return;
     const typed = message as WorkerToNodeReplParentMessage;
     if (typed.type === "ready") return;
+    if (typed.type === "reset-request") {
+      const active = this.active;
+      if (
+        active &&
+        typed.evaluationId === active.id &&
+        Number.isFinite(typed.requestedAt)
+      ) {
+        active.resetRequestedAt = typed.requestedAt;
+      }
+      return;
+    }
     if (typed.type === "sky-call") {
       const run = () => this.handleSkyCall(typed);
       const task = this.skyTail.then(run, run);
@@ -829,23 +1025,84 @@ class NodeReplKernel {
 
     const active = this.active;
     if (!active || typed.evaluationId !== active.id) return;
-    if (typed.type === "evaluation-result") {
+    if (typed.type === "evaluation-content") {
       if (
-        typeof typed.output !== "string" ||
-        byteLength(typed.output) > MAX_NODE_REPL_OUTPUT_BYTES
+        typed.cursor !== active.nextContentCursor ||
+        !isNodeReplContentItem(typed.item) ||
+        serializedSize(typed.item) > MAX_NODE_REPL_OUTPUT_BYTES
       ) {
         this.terminateActive(
           new KernelTerminatedError(
-            "Node REPL worker returned oversized output.",
+            "Node REPL worker returned invalid or out-of-order content.",
+            "protocol_error",
           ),
         );
         return;
       }
-      void this.completeEvaluation(active, typed.output);
+      active.content.push(typed.item);
+      active.nextContentCursor += 1;
+      try {
+        active.onContent?.(typed.item, typed.cursor);
+      } catch {
+        // Streaming observers are diagnostic only and cannot change execution.
+      }
+      return;
+    }
+    if (typed.type === "evaluation-result") {
+      if (
+        typed.finalCursor !== active.content.length ||
+        serializedSize(active.content) > MAX_NODE_REPL_OUTPUT_BYTES
+      ) {
+        this.terminateActive(
+          new KernelTerminatedError(
+            "Node REPL worker returned invalid or oversized output.",
+            "protocol_error",
+          ),
+        );
+        return;
+      }
+      const explicitReset =
+        active.resetRequestedAt === undefined
+          ? undefined
+          : resetReceipt(this.generation, "explicit", active.resetRequestedAt);
+      void this.completeEvaluation(
+        active,
+        active.content,
+        undefined,
+        explicitReset,
+      );
       return;
     }
     if (typed.type === "evaluation-error") {
+      if (typed.finalCursor !== active.content.length) {
+        this.terminateActive(
+          new KernelTerminatedError(
+            "Node REPL worker returned an invalid terminal content cursor.",
+            "protocol_error",
+          ),
+        );
+        return;
+      }
       const error = deserializeError(typed.error);
+      if (active.resetRequestedAt !== undefined) {
+        const receipt = resetReceipt(
+          this.generation,
+          "explicit",
+          active.resetRequestedAt,
+        );
+        void this.completeEvaluation(
+          active,
+          active.content,
+          new KernelTerminatedError(
+            error.message,
+            "explicit",
+            active.resetRequestedAt,
+            receipt,
+          ),
+          receipt,
+        );
+        return;
+      }
       if (error.name === NODE_REPL_UNCAUGHT_ERROR_NAME) {
         // The worker's REPL caught an uncaught async throw via its domain and
         // abandoned the in-flight evaluation; the REPL cannot be safely
@@ -853,13 +1110,13 @@ class NodeReplKernel {
         // and the next evaluate starts a fresh kernel.
         void this.completeEvaluation(
           active,
-          undefined,
-          new KernelTerminatedError(error.message),
-          true,
+          active.content,
+          new KernelTerminatedError(error.message, "uncaught_error"),
+          resetReceipt(this.generation, "uncaught_error"),
         );
         return;
       }
-      void this.completeEvaluation(active, undefined, error);
+      void this.completeEvaluation(active, active.content, error);
     }
   }
 
@@ -1183,6 +1440,7 @@ class NodeReplKernel {
     const attachment = {
       path: screenshotPath,
       mimeType: format === "png" ? "image/png" : "image/jpeg",
+      deleteAfterAttach: this.browserScreenshotPaths.has(screenshotPath),
     } as const;
     if (
       !active.browserActivity.screenshotAttachments.some(
@@ -1265,6 +1523,14 @@ class NodeReplKernel {
       wireOptions.delay && typeof wireOptions.delay === "object"
         ? (wireOptions.delay as Record<string, unknown>)
         : undefined;
+    const boundBackend = wireOptions[WORKER_BOUND_BACKEND_PARAM];
+    if (
+      boundBackend !== undefined &&
+      boundBackend !== "in-app" &&
+      boundBackend !== "external"
+    ) {
+      throw new Error("Invalid bound browser backend.");
+    }
     const chainOptions: BrowserChainOptions = {
       signal: active.controller.signal,
       ...(wireOptions.timeout === undefined
@@ -1293,6 +1559,9 @@ class NodeReplKernel {
       ...(wireOptions.returnScreenshot === undefined
         ? {}
         : { returnScreenshot: wireOptions.returnScreenshot as boolean }),
+      ...(boundBackend === undefined
+        ? {}
+        : { [WORKER_BOUND_BACKEND_PARAM]: boundBackend }),
     };
     return await this.browser.chain(
       message.args[0] as readonly BrowserChainStep[],
@@ -1356,7 +1625,9 @@ class NodeReplKernel {
           typeof rawLimit === "number" && Number.isFinite(rawLimit)
             ? rawLimit
             : undefined;
-        const results = await this.searchTools(query, active.context, limit);
+        const results = enrichToolSearchResults(
+          await this.searchTools(query, active.context, limit),
+        );
         if (serializedSize(results) > MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES) {
           throw new Error(
             "Tool search result exceeds the Node REPL protocol limit.",
@@ -1404,6 +1675,10 @@ class NodeReplKernel {
         },
       );
       if (!this.closed && this.active === active) {
+        if (result.fileChanges) active.fileChanges.push(...result.fileChanges);
+        if (result.producedFiles) {
+          active.producedFiles.push(...result.producedFiles);
+        }
         active.onToolResult?.(result);
       }
       if (result.error) throw new Error(result.error);
@@ -1465,6 +1740,17 @@ class NodeReplKernel {
         ? id
         : undefined;
     };
+    const routingParams =
+      message.method === "command"
+        ? this.recordValue(message.args[1])
+        : message.method === "chain"
+          ? this.recordValue(message.args[1])
+          : undefined;
+    const boundBackend = routingParams?.[WORKER_BOUND_BACKEND_PARAM];
+    const actionBackend: BrowserBackend =
+      boundBackend === "in-app" || boundBackend === "external"
+        ? boundBackend
+        : this.browserBackend;
     if (message.method === "command") {
       if (typeof message.args[0] === "string") {
         const returnedTabId = resultTabId(data);
@@ -1494,6 +1780,7 @@ class NodeReplKernel {
     active.browserActivity.callCount += 1;
     for (const { action, params } of actions) {
       active.browserActivity.lastAction = action;
+      active.browserActivity.lastBackend = actionBackend;
       if (action === "finalize_tabs" || action === "close_owner") {
         active.browserActivity.terminalLifecycle = true;
       }
@@ -1504,6 +1791,7 @@ class NodeReplKernel {
         const tabId = params?.tabId ?? params?.resultTabId;
         active.browserActivity.presentationAction = {
           action,
+          backend: actionBackend,
           ...(typeof tabId === "number" && Number.isInteger(tabId) && tabId > 0
             ? { tabId }
             : {}),
@@ -1547,10 +1835,15 @@ class NodeReplKernel {
 
   private async readBrowserPresentationTabs(
     signal: AbortSignal,
+    backend: BrowserBackend,
   ): Promise<BrowserPresentationTabs> {
+    const backendParams =
+      backend === this.browserBackend
+        ? {}
+        : { [WORKER_BOUND_BACKEND_PARAM]: backend };
     const tabsReceipt = await this.browser.command<Record<string, unknown>>(
       "tab_list",
-      {},
+      backendParams,
       { signal },
     );
     const tabsData = tabsReceipt.result.data ?? {};
@@ -1585,6 +1878,7 @@ class NodeReplKernel {
     active: ActiveEvaluation,
     meta: BrowserUseResponseMeta,
   ) {
+    active.responseMeta = meta;
     try {
       active.onResponseMeta?.(meta);
     } catch {
@@ -1600,11 +1894,12 @@ class NodeReplKernel {
     const activity = active.browserActivity;
     if (!active.onResponseMeta) return;
     if (activity.terminalLifecycle) {
+      const backend = activity.lastBackend ?? this.browserBackend;
       this.deliverBrowserResponseMeta(active, {
         "stella/browserUse": true,
         "stella/toolSurface": {
           kind: "browserUse",
-          backend: this.browserBackend === "external" ? "extension" : "iab",
+          backend: backend === "external" ? "extension" : "iab",
           browserId: this.browserSessionId,
           openTabIds: [],
           sessionEnded: true,
@@ -1632,12 +1927,20 @@ class NodeReplKernel {
       | undefined;
     if (screenshotTab) {
       try {
+        const backendParams =
+          presentation.backend === this.browserBackend
+            ? {}
+            : { [WORKER_BOUND_BACKEND_PARAM]: presentation.backend };
         const receipt = await this.browser.command<{
           base64?: string;
           format?: string;
         }>(
           "screenshot",
-          { tabId: screenshotTab.tabId, format: "jpeg" },
+          {
+            tabId: screenshotTab.tabId,
+            format: "jpeg",
+            ...backendParams,
+          },
           { signal },
         );
         const encoded = receipt.result.data?.base64;
@@ -1662,7 +1965,7 @@ class NodeReplKernel {
       "stella/browserUse": true,
       "stella/toolSurface": {
         kind: "browserUse",
-        backend: this.browserBackend === "external" ? "extension" : "iab",
+        backend: presentation.backend === "external" ? "extension" : "iab",
         browserId: this.browserSessionId,
         openTabIds: tabs.map((tab) => String(tab.tabId)),
         sessionEnded: false,
@@ -1674,9 +1977,9 @@ class NodeReplKernel {
 
   private async completeEvaluation(
     active: ActiveEvaluation,
-    output: string | undefined,
+    workerContent: readonly NodeReplContentItem[] | undefined,
     error?: Error,
-    terminateAfter = false,
+    terminalReset?: NodeReplResetReceipt,
   ) {
     if (this.active !== active) return;
     const activity = active.browserActivity;
@@ -1687,10 +1990,21 @@ class NodeReplKernel {
     // UI-only presentation hook its own ten-second budget rather than racing
     // it against whatever remained of the REPL evaluation deadline.
     if (needsPresentation) clearTimeout(active.timeout);
-    let finalOutput = output ?? "";
+    const content: NodeReplContentItem[] = [...(workerContent ?? [])];
     if (!error) {
       for (const attachment of activity.screenshotAttachments) {
-        finalOutput += `${finalOutput ? "\n" : ""}[stella-attach-image] inline=${attachment.mimeType} path=${JSON.stringify(attachment.path)}`;
+        // Ownership of kernel-created screenshot files transfers to the outer
+        // tool adapter before reset/close starts. The adapter acknowledges the
+        // transfer by deleting the file only after it has read the bytes.
+        if (attachment.deleteAfterAttach) {
+          this.browserScreenshotPaths.delete(attachment.path);
+        }
+        content.push({
+          type: "image",
+          path: attachment.path,
+          mimeType: attachment.mimeType,
+          ...(attachment.deleteAfterAttach ? { deleteAfterAttach: true } : {}),
+        });
       }
     }
 
@@ -1707,6 +2021,9 @@ class NodeReplKernel {
       try {
         tabState = await this.readBrowserPresentationTabs(
           presentation?.signal ?? active.controller.signal,
+          activity.presentationAction?.backend ??
+            activity.lastBackend ??
+            this.browserBackend,
         );
         if (needsPresentation && presentation) {
           await this.captureBrowserResponseMeta(
@@ -1740,27 +2057,39 @@ class NodeReplKernel {
         const receipt = `[browser-receipt] calls=${activity.callCount} mutated=${activity.mutated}${
           activity.lastAction ? ` last=${activity.lastAction}` : ""
         }`;
-        finalOutput = finalOutput ? `${finalOutput}\n${receipt}` : receipt;
+        content.push({ type: "text", text: receipt });
       } else if (tabState) {
         const receipt = `[browser-receipt] calls=${activity.callCount} mutated=${activity.mutated} tabs=${tabState.tabs.length}${
           tabState.activeTabId === undefined
             ? ""
             : ` activeTabId=${tabState.activeTabId}`
         }${activity.lastAction ? ` last=${activity.lastAction}` : ""}`;
-        finalOutput = finalOutput ? `${finalOutput}\n${receipt}` : receipt;
+        content.push({ type: "text", text: receipt });
       } else if (tabStateUnavailable) {
         const receipt = `[browser-receipt] calls=${activity.callCount} mutated=${activity.mutated}${
           activity.lastAction ? ` last=${activity.lastAction}` : ""
         } settled_state=unavailable`;
-        finalOutput = finalOutput ? `${finalOutput}\n${receipt}` : receipt;
+        content.push({ type: "text", text: receipt });
       }
     }
     if (this.active !== active) return;
-    if (terminateAfter && error && !active.controller.signal.aborted) {
+    if (terminalReset && error && !active.controller.signal.aborted) {
       active.controller.abort(error);
     }
-    this.settleActive(active, error ?? null, finalOutput);
-    if (terminateAfter) {
+    this.settleActive(active, error ?? null, {
+      output: formatNodeReplContent(content),
+      content,
+      generation: this.generation,
+      ...(terminalReset ? { reset: terminalReset } : {}),
+      ...(active.fileChanges.length > 0
+        ? { fileChanges: active.fileChanges }
+        : {}),
+      ...(active.producedFiles.length > 0
+        ? { producedFiles: active.producedFiles }
+        : {}),
+      ...(active.responseMeta ? { responseMeta: active.responseMeta } : {}),
+    });
+    if (terminalReset) {
       void this.close();
       this.onTerminated(this);
     }
@@ -1782,10 +2111,26 @@ class NodeReplKernel {
     void this.close();
   }
 
+  terminate(reason = "Node REPL cell terminated by caller."): void {
+    const active = this.active;
+    if (!active) {
+      void this.close();
+      this.onTerminated(this);
+      return;
+    }
+    const terminated = new KernelTerminatedError(reason, "terminated");
+    this.terminateActive(terminated);
+    this.onTerminated(this);
+  }
+
   private settleActive(
     active: ActiveEvaluation,
     error: Error | null,
-    output = "",
+    result: NodeReplEvaluationResult = {
+      output: "",
+      content: [],
+      generation: this.generation,
+    },
   ) {
     if (this.active !== active) return;
     this.active = null;
@@ -1799,13 +2144,14 @@ class NodeReplKernel {
       );
     }
     if (error) active.reject(error);
-    else active.resolve(output);
+    else active.resolve(result);
   }
 
   private handleWorkerFailure(error: Error) {
     if (this.closed) return;
     const terminated = new KernelTerminatedError(
       `Node REPL worker failed: ${error.message}`,
+      "worker_error",
     );
     const active = this.active;
     if (active) {
@@ -1817,14 +2163,104 @@ class NodeReplKernel {
   }
 }
 
+type NodeReplCellOutcome =
+  | { ok: true; value: NodeReplEvaluationResult }
+  | { ok: false; error: Error };
+
+type NodeReplCellRecord = {
+  cellId: string;
+  ownerId: string;
+  kernel: NodeReplKernel;
+  generation: number;
+  startedAt: number;
+  content: NodeReplContentItem[];
+  cursor: number;
+  deliveredCursor: number;
+  listeners: Set<() => void>;
+  completedAt?: number;
+  lastObservedAt: number;
+  outcome?: NodeReplCellOutcome;
+  settled: Promise<void>;
+};
+
+const notifyCellObservers = (cell: NodeReplCellRecord): void => {
+  for (const listener of [...cell.listeners]) listener();
+};
+
+const waitForCellChange = async (
+  cell: NodeReplCellRecord,
+  afterCursor: number,
+  waitMs: number,
+  signal?: AbortSignal,
+  wakeOnContent = true,
+): Promise<void> => {
+  if (
+    cell.outcome ||
+    (wakeOnContent && cell.cursor > afterCursor) ||
+    waitMs <= 0
+  ) {
+    return;
+  }
+  if (signal?.aborted) throw abortError(signal);
+  let timer: NodeJS.Timeout | undefined;
+  let contentImmediate: NodeJS.Immediate | undefined;
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      cell.listeners.delete(onChange);
+      if (timer) clearTimeout(timer);
+      if (contentImmediate) clearImmediate(contentImmediate);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const settle = () => {
+      cleanup();
+      resolve();
+    };
+    const onChange = () => {
+      if (cell.outcome) {
+        settle();
+      } else if (
+        wakeOnContent &&
+        cell.cursor > afterCursor &&
+        !contentImmediate
+      ) {
+        // A return value is immediately followed by its terminal message on
+        // the worker channel. Give that next message one event-loop turn so a
+        // completed cell is not spuriously reported as running.
+        contentImmediate = setImmediate(settle);
+        contentImmediate.unref?.();
+      }
+    };
+    const onAbort = () => {
+      cleanup();
+      reject(
+        signal ? abortError(signal) : new Error("Node REPL wait aborted."),
+      );
+    };
+    cell.listeners.add(onChange);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    timer = setTimeout(settle, waitMs);
+    timer.unref?.();
+  });
+};
+
 export class NodeReplKernelRegistry {
   private readonly kernels = new Map<string, NodeReplKernel>();
+  private readonly generations = new Map<string, number>();
   private readonly disposedKernels = new WeakSet<NodeReplKernel>();
+  private readonly cells = new Map<string, NodeReplCellRecord>();
+  private readonly runningCellByOwner = new Map<string, string>();
+  private cellCleanupTimer?: NodeJS.Timeout;
   private readonly evalTimeoutMs: number;
   private readonly commandTimeoutMs: number;
   private readonly idleTimeoutMs: number;
   private readonly toolDrainTimeoutMs: number;
   private readonly disposeTimeoutMs: number;
+  private readonly cellRetentionMs: number;
+  private readonly maxRetainedCells: number;
   private readonly browserSessionFactory: (
     options: BrowserSessionOptions,
   ) => BrowserSessionClient;
@@ -1839,6 +2275,16 @@ export class NodeReplKernelRegistry {
       options.toolDrainTimeoutMs ?? DEFAULT_NODE_REPL_TOOL_DRAIN_TIMEOUT_MS;
     this.disposeTimeoutMs =
       options.disposeTimeoutMs ?? DEFAULT_KERNEL_DISPOSE_TIMEOUT_MS;
+    this.cellRetentionMs = Math.max(
+      1,
+      Math.floor(
+        options.cellRetentionMs ?? DEFAULT_COMPLETED_CELL_RETENTION_MS,
+      ),
+    );
+    this.maxRetainedCells = Math.max(
+      1,
+      Math.floor(options.maxRetainedCells ?? DEFAULT_MAX_RETAINED_CELLS),
+    );
     this.browserSessionFactory =
       options.browserSessionFactory ?? createBrowserSession;
   }
@@ -1848,6 +2294,131 @@ export class NodeReplKernelRegistry {
     context: ToolContext,
     options: EvaluateOptions = {},
   ): Promise<string> {
+    return (await this.evaluateDetailed(code, context, options)).output;
+  }
+
+  async evaluateDetailed(
+    code: string,
+    context: ToolContext,
+    options: EvaluateOptions = {},
+  ): Promise<NodeReplEvaluationResult> {
+    const { id, kernel } = this.resolveKernel(context);
+    return await this.runKernelEvaluation(id, kernel, code, context, options);
+  }
+
+  async startCell(
+    code: string,
+    context: ToolContext,
+    options: EvaluateOptions & { yieldTimeMs?: number } = {},
+  ): Promise<NodeReplCellObservation> {
+    this.pruneCells();
+    const { id, kernel } = this.resolveKernel(context);
+    const existingCellId = this.runningCellByOwner.get(id);
+    if (existingCellId) {
+      throw new Error(
+        `Node REPL already has a running cell for this session: ${existingCellId}. Wait for or terminate that cell before starting another.`,
+      );
+    }
+    const cellId = `g${kernel.generation}:${randomUUID()}`;
+    const cell: NodeReplCellRecord = {
+      cellId,
+      ownerId: id,
+      kernel,
+      generation: kernel.generation,
+      startedAt: Date.now(),
+      content: [],
+      cursor: 0,
+      deliveredCursor: 0,
+      listeners: new Set(),
+      lastObservedAt: Date.now(),
+      settled: Promise.resolve(),
+    };
+    const callerOnContent = options.onContent;
+    const evaluation = this.runKernelEvaluation(id, kernel, code, context, {
+      ...options,
+      onContent: (item, cursor) => {
+        cell.content.push(item);
+        cell.cursor = cursor;
+        try {
+          callerOnContent?.(item, cursor);
+        } finally {
+          notifyCellObservers(cell);
+        }
+      },
+    });
+    cell.settled = evaluation.then(
+      (value) => {
+        if (value.content.length > cell.content.length) {
+          cell.content.push(...value.content.slice(cell.content.length));
+          cell.cursor = cell.content.length;
+        }
+        cell.outcome = { ok: true, value };
+        cell.completedAt = Date.now();
+        notifyCellObservers(cell);
+        this.pruneCells();
+      },
+      (error) => {
+        cell.outcome = {
+          ok: false,
+          error: error instanceof Error ? error : new Error(String(error)),
+        };
+        cell.completedAt = Date.now();
+        notifyCellObservers(cell);
+        this.pruneCells();
+      },
+    );
+    this.cells.set(cellId, cell);
+    this.runningCellByOwner.set(id, cellId);
+    void cell.settled.finally(() => {
+      if (this.runningCellByOwner.get(id) === cellId) {
+        this.runningCellByOwner.delete(id);
+      }
+    });
+    return await this.observeCell(
+      cell,
+      options.yieldTimeMs ?? 30_000,
+      options.signal,
+      undefined,
+      false,
+    );
+  }
+
+  async waitCell(
+    cellId: string,
+    context: ToolContext,
+    options: {
+      waitMs?: number;
+      terminate?: boolean;
+      afterCursor?: number;
+      signal?: AbortSignal;
+    } = {},
+  ): Promise<NodeReplCellObservation> {
+    this.pruneCells();
+    const id = getStellaComputerSessionId(context);
+    if (!id) {
+      throw new Error(
+        "node_repl requires a stable Stella agent/session identity.",
+      );
+    }
+    const cell = this.cells.get(cellId);
+    if (!cell || cell.ownerId !== id) {
+      throw new Error(`Unknown or stale Node REPL cell id: ${cellId}.`);
+    }
+    if (options.terminate && !cell.outcome) {
+      cell.kernel.terminate(`Node REPL cell ${cellId} terminated by caller.`);
+    }
+    return await this.observeCell(
+      cell,
+      options.waitMs ?? 10_000,
+      options.signal,
+      options.afterCursor,
+    );
+  }
+
+  private resolveKernel(context: ToolContext): {
+    id: string;
+    kernel: NodeReplKernel;
+  } {
     const id = getStellaComputerSessionId(context);
     const browserSessionId = getStellaBrowserSessionId(context);
     if (!id || !browserSessionId) {
@@ -1871,7 +2442,9 @@ export class NodeReplKernelRegistry {
         this.lastOwnerLeaseIssuedAt + 1,
       );
       this.lastOwnerLeaseIssuedAt = ownerLeaseIssuedAt;
-      kernel = new NodeReplKernel(id, cwd, {
+      const generation = (this.generations.get(id) ?? 0) + 1;
+      this.generations.set(id, generation);
+      kernel = new NodeReplKernel(id, generation, cwd, {
         sessionFactory,
         authorizeApp: this.options.authorizeApp,
         browserBinPath: this.options.browserBinPath,
@@ -1885,6 +2458,7 @@ export class NodeReplKernelRegistry {
         browserSessionId,
         ownerLeaseId: randomUUID(),
         ownerLeaseIssuedAt,
+        generation,
         evalTimeoutMs: this.evalTimeoutMs,
         commandTimeoutMs: this.commandTimeoutMs,
         idleTimeoutMs: this.idleTimeoutMs,
@@ -1894,6 +2468,16 @@ export class NodeReplKernelRegistry {
       this.kernels.set(id, kernel);
     }
 
+    return { id, kernel };
+  }
+
+  private async runKernelEvaluation(
+    id: string,
+    kernel: NodeReplKernel,
+    code: string,
+    context: ToolContext,
+    options: EvaluateOptions,
+  ): Promise<NodeReplEvaluationResult> {
     try {
       return await kernel.enqueue(
         code,
@@ -1908,17 +2492,167 @@ export class NodeReplKernelRegistry {
     } catch (error) {
       if (error instanceof KernelTerminatedError) {
         await this.disposeKernel(id, kernel);
+        const receipt = resetReceipt(
+          kernel.generation,
+          error.resetReason,
+          error.requestedAt,
+        );
+        throw new KernelTerminatedError(
+          `${error.message} ${formatResetReceipt(receipt)}`,
+          error.resetReason,
+          error.requestedAt,
+          receipt,
+        );
       }
       throw error;
     }
   }
 
+  private async observeCell(
+    cell: NodeReplCellRecord,
+    waitMs: number,
+    signal?: AbortSignal,
+    requestedAfterCursor?: number,
+    wakeOnContent = true,
+  ): Promise<NodeReplCellObservation> {
+    const boundedWaitMs = Number.isFinite(waitMs)
+      ? Math.max(0, Math.floor(waitMs))
+      : 0;
+    const fromCursor =
+      requestedAfterCursor === undefined
+        ? cell.deliveredCursor
+        : requestedAfterCursor;
+    if (
+      !Number.isSafeInteger(fromCursor) ||
+      fromCursor < 0 ||
+      fromCursor > cell.cursor
+    ) {
+      throw new Error(
+        `Invalid Node REPL content cursor ${String(requestedAfterCursor)} for cell ${cell.cellId}; current cursor is ${cell.cursor}.`,
+      );
+    }
+    await waitForCellChange(
+      cell,
+      fromCursor,
+      boundedWaitMs,
+      signal,
+      wakeOnContent,
+    );
+    if (signal?.aborted) throw abortError(signal);
+    const cursor = cell.cursor;
+    const content = cell.content.slice(fromCursor, cursor);
+    cell.deliveredCursor = Math.max(cell.deliveredCursor, cursor);
+    cell.lastObservedAt = Date.now();
+    const elapsedMs = Date.now() - cell.startedAt;
+    if (!cell.outcome) {
+      return {
+        cellId: cell.cellId,
+        generation: cell.generation,
+        status: "running",
+        elapsedMs,
+        fromCursor,
+        cursor,
+        ...(content.length > 0
+          ? { output: formatNodeReplContent(content), content }
+          : {}),
+      };
+    }
+    if (cell.outcome.ok) {
+      return {
+        cellId: cell.cellId,
+        generation: cell.generation,
+        status: "completed",
+        elapsedMs,
+        fromCursor,
+        cursor,
+        output: formatNodeReplContent(content),
+        ...(content.length > 0 ? { content } : {}),
+        ...(cell.outcome.value.reset
+          ? { reset: cell.outcome.value.reset }
+          : {}),
+        ...(cell.outcome.value.fileChanges
+          ? { fileChanges: cell.outcome.value.fileChanges }
+          : {}),
+        ...(cell.outcome.value.producedFiles
+          ? { producedFiles: cell.outcome.value.producedFiles }
+          : {}),
+        ...(cell.outcome.value.responseMeta
+          ? { responseMeta: cell.outcome.value.responseMeta }
+          : {}),
+      };
+    }
+    return {
+      cellId: cell.cellId,
+      generation: cell.generation,
+      status: "failed",
+      elapsedMs,
+      fromCursor,
+      cursor,
+      ...(content.length > 0
+        ? { output: formatNodeReplContent(content), content }
+        : {}),
+      error: cell.outcome.error.message,
+      ...(cell.outcome.error instanceof KernelTerminatedError &&
+      cell.outcome.error.resetReceipt
+        ? { reset: cell.outcome.error.resetReceipt }
+        : {}),
+    };
+  }
+
+  private pruneCells(now = Date.now()): void {
+    for (const [cellId, cell] of this.cells) {
+      if (
+        cell.completedAt !== undefined &&
+        now - cell.completedAt >= this.cellRetentionMs
+      ) {
+        this.cells.delete(cellId);
+      }
+    }
+    const completed = [...this.cells.values()].filter(
+      (cell) => cell.completedAt !== undefined,
+    );
+    if (completed.length > this.maxRetainedCells) {
+      completed
+        .sort(
+          (left, right) =>
+            left.lastObservedAt - right.lastObservedAt ||
+            (left.completedAt ?? 0) - (right.completedAt ?? 0),
+        )
+        .slice(0, completed.length - this.maxRetainedCells)
+        .forEach((cell) => this.cells.delete(cell.cellId));
+    }
+    if (this.cellCleanupTimer) clearTimeout(this.cellCleanupTimer);
+    this.cellCleanupTimer = undefined;
+    const nextExpiry = Math.min(
+      ...[...this.cells.values()]
+        .filter(
+          (cell): cell is NodeReplCellRecord & { completedAt: number } =>
+            cell.completedAt !== undefined,
+        )
+        .map((cell) => cell.completedAt + this.cellRetentionMs),
+    );
+    if (Number.isFinite(nextExpiry)) {
+      this.cellCleanupTimer = setTimeout(
+        () => {
+          this.cellCleanupTimer = undefined;
+          this.pruneCells();
+        },
+        Math.max(1, nextExpiry - now),
+      );
+      this.cellCleanupTimer.unref?.();
+    }
+  }
+
   async dispose(): Promise<void> {
+    if (this.cellCleanupTimer) clearTimeout(this.cellCleanupTimer);
+    this.cellCleanupTimer = undefined;
     const pending: Promise<void>[] = [];
     for (const [id, kernel] of [...this.kernels]) {
       pending.push(this.disposeKernel(id, kernel));
     }
     await Promise.all(pending);
+    this.cells.clear();
+    this.runningCellByOwner.clear();
   }
 
   async endBrowserTurn(

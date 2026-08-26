@@ -5,73 +5,104 @@
 
 // Snapshot refs are scoped to the logical command owner and tab.
 const refMaps = new Map();
-const SEMANTIC_SELECTOR_PREFIX = 'aria=';
+const SEMANTIC_SELECTOR_PREFIX = "aria=";
 const MAX_SEMANTIC_SELECTOR_LENGTH = 8192;
 const MAX_SEMANTIC_VALUE_LENGTH = 1024;
 const MAX_SEMANTIC_ROLE_LENGTH = 128;
 const MAX_SEMANTIC_NTH = 10000;
-const SEMANTIC_KINDS = new Set(['role', 'text', 'label', 'placeholder', 'testid']);
+const SEMANTIC_KINDS = new Set([
+  "role",
+  "text",
+  "label",
+  "placeholder",
+  "testid",
+]);
 
 function isPlainObject(value) {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    return false;
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
 }
 
-function requireBoundedString(value, field, maxLength, { optional = false } = {}) {
+function requireBoundedString(
+  value,
+  field,
+  maxLength,
+  { optional = false } = {},
+) {
   if (value === undefined && optional) return undefined;
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`Semantic selector field '${field}' must be a non-empty string`);
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(
+      `Semantic selector field '${field}' must be a non-empty string`,
+    );
   }
   if (value.length > maxLength) {
-    throw new Error(`Semantic selector field '${field}' exceeds ${maxLength} characters`);
+    throw new Error(
+      `Semantic selector field '${field}' exceeds ${maxLength} characters`,
+    );
   }
   return value;
 }
 
 function normalizeSemanticSelector(value) {
   if (!isPlainObject(value)) {
-    throw new Error('Semantic selector payload must be a JSON object');
+    throw new Error("Semantic selector payload must be a JSON object");
   }
 
-  const kind = requireBoundedString(value.kind, 'kind', 32);
+  const kind = requireBoundedString(value.kind, "kind", 32);
   if (!SEMANTIC_KINDS.has(kind)) {
     throw new Error(`Unsupported semantic selector kind: ${kind}`);
   }
 
   const allowedKeys = new Set(
-    kind === 'role'
-      ? ['kind', 'role', 'name', 'nth', 'exact']
-      : ['kind', 'value', 'nth', 'exact'],
+    kind === "role"
+      ? ["kind", "role", "name", "nth", "exact"]
+      : ["kind", "value", "nth", "exact"],
   );
   for (const key of Object.keys(value)) {
     if (!allowedKeys.has(key)) {
-      throw new Error(`Unknown semantic selector field '${key}' for kind '${kind}'`);
+      throw new Error(
+        `Unknown semantic selector field '${key}' for kind '${kind}'`,
+      );
     }
   }
 
   if (value.nth !== undefined) {
-    if (!Number.isInteger(value.nth) || value.nth < 0 || value.nth > MAX_SEMANTIC_NTH) {
+    if (
+      !Number.isInteger(value.nth) ||
+      value.nth < 0 ||
+      value.nth > MAX_SEMANTIC_NTH
+    ) {
       throw new Error(
         `Semantic selector field 'nth' must be an integer from 0 to ${MAX_SEMANTIC_NTH}`,
       );
     }
   }
-  if (value.exact !== undefined && typeof value.exact !== 'boolean') {
+  if (value.exact !== undefined && typeof value.exact !== "boolean") {
     throw new Error("Semantic selector field 'exact' must be a boolean");
   }
 
-  if (kind === 'role') {
-    const role = requireBoundedString(value.role, 'role', MAX_SEMANTIC_ROLE_LENGTH);
+  if (kind === "role") {
+    const role = requireBoundedString(
+      value.role,
+      "role",
+      MAX_SEMANTIC_ROLE_LENGTH,
+    );
     if (!/^[a-z][a-z0-9-]*$/.test(role)) {
       throw new Error("Semantic selector field 'role' has an invalid format");
     }
     return {
       kind,
       role,
-      name: requireBoundedString(value.name, 'name', MAX_SEMANTIC_VALUE_LENGTH, {
-        optional: true,
-      }),
+      name: requireBoundedString(
+        value.name,
+        "name",
+        MAX_SEMANTIC_VALUE_LENGTH,
+        {
+          optional: true,
+        },
+      ),
       nth: value.nth,
       exact: value.exact === true,
     };
@@ -79,7 +110,11 @@ function normalizeSemanticSelector(value) {
 
   return {
     kind,
-    value: requireBoundedString(value.value, 'value', MAX_SEMANTIC_VALUE_LENGTH),
+    value: requireBoundedString(
+      value.value,
+      "value",
+      MAX_SEMANTIC_VALUE_LENGTH,
+    ),
     nth: value.nth,
     exact: value.exact === true,
   };
@@ -97,7 +132,10 @@ export function encodeSemanticSelector(value) {
 }
 
 export function parseSemanticSelector(selector) {
-  if (typeof selector !== 'string' || !selector.startsWith(SEMANTIC_SELECTOR_PREFIX)) {
+  if (
+    typeof selector !== "string" ||
+    !selector.startsWith(SEMANTIC_SELECTOR_PREFIX)
+  ) {
     return null;
   }
   if (selector.length > MAX_SEMANTIC_SELECTOR_LENGTH) {
@@ -107,28 +145,28 @@ export function parseSemanticSelector(selector) {
   }
 
   const encoded = selector.slice(SEMANTIC_SELECTOR_PREFIX.length);
-  if (!encoded) throw new Error('Semantic selector payload is empty');
+  if (!encoded) throw new Error("Semantic selector payload is empty");
 
   let decoded;
   try {
     decoded = decodeURIComponent(encoded);
   } catch {
-    throw new Error('Semantic selector payload is not valid percent-encoding');
+    throw new Error("Semantic selector payload is not valid percent-encoding");
   }
 
   let parsed;
   try {
     parsed = JSON.parse(decoded);
   } catch {
-    throw new Error('Semantic selector payload is not valid JSON');
+    throw new Error("Semantic selector payload is not valid JSON");
   }
   return normalizeSemanticSelector(parsed);
 }
 
 function normalizeOwnerId(ownerId) {
-  if (typeof ownerId !== 'string') return 'default';
+  if (typeof ownerId !== "string") return "default";
   const trimmed = ownerId.trim();
-  return trimmed || 'default';
+  return trimmed || "default";
 }
 
 function getOwnerRefMap(ownerId, createIfMissing = false) {
@@ -189,9 +227,9 @@ export function clearTabRefMap(ownerId, tabId) {
  * @returns {boolean}
  */
 export function isRef(selector) {
-  if (typeof selector !== 'string') return false;
-  if (selector.startsWith('@')) return true;
-  if (selector.startsWith('ref=')) return true;
+  if (typeof selector !== "string") return false;
+  if (selector.startsWith("@")) return true;
+  if (selector.startsWith("ref=")) return true;
   if (/^e\d+$/.test(selector)) return true;
   return false;
 }
@@ -202,9 +240,9 @@ export function isRef(selector) {
  * @returns {string|null}
  */
 export function parseRef(selector) {
-  if (typeof selector !== 'string') return null;
-  if (selector.startsWith('@')) return selector.slice(1);
-  if (selector.startsWith('ref=')) return selector.slice(4);
+  if (typeof selector !== "string") return null;
+  if (selector.startsWith("@")) return selector.slice(1);
+  if (selector.startsWith("ref=")) return selector.slice(4);
   if (/^e\d+$/.test(selector)) return selector;
   return null;
 }
@@ -219,8 +257,8 @@ export function parseRef(selector) {
  * @returns {{ css: string|null, role?: string, name?: string, nth?: number, isRef: boolean }}
  */
 export function resolveSelector(selector, ownerId, tabId) {
-  if (typeof selector !== 'string' || selector.length === 0) {
-    throw new Error('Selector must be a non-empty string');
+  if (typeof selector !== "string" || selector.length === 0) {
+    throw new Error("Selector must be a non-empty string");
   }
 
   const semantic = parseSemanticSelector(selector);
@@ -240,7 +278,9 @@ export function resolveSelector(selector, ownerId, tabId) {
     const refMap = getRefMap(ownerId, tabId);
     const data = refMap[ref];
     if (!data) {
-      throw new Error(`Unknown ref: ${ref}. Run 'snapshot' first to generate refs.`);
+      throw new Error(
+        `Unknown ref: ${ref}. Run 'snapshot' first to generate refs.`,
+      );
     }
     return {
       css: null, // Use role-based matching instead
@@ -256,6 +296,94 @@ export function resolveSelector(selector, ownerId, tabId) {
 }
 
 /**
+ * Build page-context JS that returns every element matching a CSS selector in
+ * composed document order. Unlike querySelectorAll(), this crosses open shadow
+ * roots and same-origin frame documents while leaving closed/cross-origin roots
+ * opaque.
+ */
+export function buildComposedCssMatcherAllScript(selector) {
+  if (typeof selector !== "string" || selector.length === 0) {
+    throw new Error("CSS selector must be a non-empty string");
+  }
+
+  return `
+    (() => {
+      const selector = ${JSON.stringify(selector)};
+      // Validate once so an invalid selector fails even when the document is empty.
+      document.querySelectorAll(selector);
+      const matches = [];
+      const seen = new Set();
+      const childElements = el => {
+        const children = [...(el.children || [])];
+        if (el.shadowRoot) children.push(...(el.shadowRoot.children || []));
+        if (el.tagName === 'IFRAME' || el.tagName === 'FRAME') {
+          try {
+            const frameRoot = el.contentDocument && el.contentDocument.documentElement;
+            if (frameRoot) children.push(frameRoot);
+          } catch (_) {
+            // Cross-origin frames are intentionally opaque.
+          }
+        }
+        return children;
+      };
+      const visit = el => {
+        if (!el || seen.has(el)) return;
+        seen.add(el);
+        if (el.matches(selector)) matches.push(el);
+        for (const child of childElements(el)) visit(child);
+      };
+      visit(document.documentElement || document.body);
+      return matches;
+    })()
+  `;
+}
+
+/** Build page-context JS that returns the first composed CSS match or null. */
+export function buildComposedCssMatcherScript(selector) {
+  const allMatches = buildComposedCssMatcherAllScript(selector);
+  return `
+    (() => {
+      const matches = ${allMatches.trim()};
+      return matches[0] || null;
+    })()
+  `;
+}
+
+/** Build page-context JS for either a semantic/ref locator or composed CSS. */
+export function buildResolvedElementMatcherScript(resolved) {
+  return resolved.isRef
+    ? buildRoleMatcherScript(resolved.role, resolved.name, resolved.nth)
+    : buildComposedCssMatcherScript(resolved.css);
+}
+
+/**
+ * Page-context statements that calculate an element box in top-frame viewport
+ * coordinates. Frame client borders are included because child viewport (0,0)
+ * begins inside the frame element's border box.
+ */
+export function buildTopLevelRectSource(elementName = "el") {
+  return `
+    const localRect = ${elementName}.getBoundingClientRect();
+    let topX = localRect.left;
+    let topY = localRect.top;
+    let currentWindow = ${elementName}.ownerDocument?.defaultView || window;
+    const visitedWindows = new Set();
+    while (currentWindow && currentWindow !== currentWindow.top) {
+      if (visitedWindows.has(currentWindow)) throw new Error('Cyclic frame ancestry');
+      visitedWindows.add(currentWindow);
+      let frameElement;
+      try { frameElement = currentWindow.frameElement; }
+      catch (_) { throw new Error('Cannot resolve coordinates through a cross-origin frame'); }
+      if (!frameElement) throw new Error('Cannot resolve the ancestor frame element');
+      const frameRect = frameElement.getBoundingClientRect();
+      topX += frameRect.left + (frameElement.clientLeft || 0);
+      topY += frameRect.top + (frameElement.clientTop || 0);
+      currentWindow = frameElement.ownerDocument?.defaultView;
+    }
+  `;
+}
+
+/**
  * Build an injectable script that finds an element by role+name (like Playwright's getByRole).
  * Returns a function body string to be used with chrome.scripting.executeScript.
  *
@@ -267,15 +395,14 @@ export function resolveSelector(selector, ownerId, tabId) {
 function normalizeRoleMatcher(role, name, nth) {
   return isPlainObject(role) && SEMANTIC_KINDS.has(role.kind)
     ? normalizeSemanticSelector(role)
-    : { kind: 'role', role, name, nth, exact: true };
+    : { kind: "role", role, name, nth, exact: true };
 }
 
 /**
  * Build page-context JS that returns every element matching a semantic locator.
  */
 export function buildRoleMatcherAllScript(role, name) {
-  const matcher =
-    normalizeRoleMatcher(role, name, undefined);
+  const matcher = normalizeRoleMatcher(role, name, undefined);
 
   // This script runs in the page context
   return `
@@ -317,6 +444,30 @@ export function buildRoleMatcherAllScript(role, name) {
           ? actualValue === expectedValue
           : actualValue.toLocaleLowerCase().includes(expectedValue.toLocaleLowerCase());
       };
+      const childElements = el => {
+        const children = [...(el.children || [])];
+        if (el.shadowRoot) {
+          children.push(...(el.shadowRoot.children || []));
+        }
+        if (el.tagName === 'IFRAME' || el.tagName === 'FRAME') {
+          try {
+            const frameBody = el.contentDocument && el.contentDocument.body;
+            if (frameBody) children.push(frameBody);
+          } catch (_) {
+            // Cross-origin frames are intentionally opaque.
+          }
+        }
+        return children;
+      };
+      const composedElements = [];
+      const seenElements = new Set();
+      const visitElement = el => {
+        if (!el || seenElements.has(el)) return;
+        seenElements.add(el);
+        composedElements.push(el);
+        for (const child of childElements(el)) visitElement(child);
+      };
+      visitElement(document.documentElement || document.body);
       const composedParent = el => {
         if (el.parentElement) return el.parentElement;
         const root = el.getRootNode ? el.getRootNode() : null;
@@ -344,12 +495,31 @@ export function buildRoleMatcherAllScript(role, name) {
       };
       const uniqueVisible = elements =>
         [...new Set(elements)].filter(isVisible);
+      const queryComposedAny = selectors =>
+        composedElements.filter(el => {
+          for (const selector of selectors) {
+            try {
+              if (el.matches(selector)) return true;
+            } catch (_) {
+              // Ignore an invalid selector and continue checking the remainder.
+            }
+          }
+          return false;
+        });
+      const queryComposed = selector => queryComposedAny([selector]);
+      const elementRoot = el =>
+        (el.getRootNode && el.getRootNode()) || el.ownerDocument || document;
+      const findIdReference = (el, id) => {
+        const root = elementRoot(el);
+        const localMatch = root && root.getElementById ? root.getElementById(id) : null;
+        return localMatch || el.ownerDocument?.getElementById(id) || null;
+      };
       const labelledText = el => {
         const labelledBy = el.getAttribute('aria-labelledby');
         if (!labelledBy) return '';
         return labelledBy
           .split(/\\s+/)
-          .map(id => document.getElementById(id)?.textContent || '')
+          .map(id => findIdReference(el, id)?.textContent || '')
           .join(' ');
       };
       const accessibleName = el => {
@@ -358,7 +528,9 @@ export function buildRoleMatcherAllScript(role, name) {
         const labelled = labelledText(el);
         if (labelled) return labelled;
         if (el.id) {
-          const label = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
+          const root = elementRoot(el);
+          const labels = root && root.querySelectorAll ? root.querySelectorAll('label') : [];
+          const label = [...labels].find(candidate => candidate.htmlFor === el.id);
           if (label) return label.textContent || '';
         }
         return el.alt || el.value || el.title || el.placeholder || el.textContent || '';
@@ -367,36 +539,36 @@ export function buildRoleMatcherAllScript(role, name) {
       let matches = [];
       if (matcher.kind === 'role') {
         const selectors = ROLE_TAG_MAP[matcher.role] || ['[role="' + matcher.role + '"]'];
-        const candidates = uniqueVisible(
-          selectors.flatMap(sel => [...document.querySelectorAll(sel)]),
-        );
+        const candidates = uniqueVisible(queryComposedAny(selectors));
         matches = matcher.name === undefined
           ? candidates
           : candidates.filter(el => stringMatches(accessibleName(el), matcher.name));
       } else if (matcher.kind === 'text') {
-        const candidates = uniqueVisible(document.querySelectorAll('body *'));
+        const candidates = uniqueVisible(
+          composedElements.filter(el => el.tagName !== 'HTML' && el.tagName !== 'BODY'),
+        );
         matches = candidates.filter(el => {
           if (!stringMatches(el.textContent, matcher.value)) return false;
-          return ![...el.children].some(
+          return !childElements(el).some(
             child => isVisible(child) && stringMatches(child.textContent, matcher.value),
           );
         });
       } else if (matcher.kind === 'label') {
         const controls = [];
-        for (const label of document.querySelectorAll('label')) {
+        for (const label of queryComposed('label')) {
           if (!stringMatches(label.textContent, matcher.value)) continue;
           const control = label.control || label.querySelector('input, textarea, select, button');
           if (control) controls.push(control);
         }
-        for (const el of document.querySelectorAll('[aria-label], [aria-labelledby]')) {
+        for (const el of queryComposed('[aria-label], [aria-labelledby]')) {
           if (stringMatches(accessibleName(el), matcher.value)) controls.push(el);
         }
         matches = uniqueVisible(controls);
       } else if (matcher.kind === 'placeholder') {
-        matches = uniqueVisible(document.querySelectorAll('[placeholder]'))
+        matches = uniqueVisible(queryComposed('[placeholder]'))
           .filter(el => stringMatches(el.getAttribute('placeholder'), matcher.value));
       } else if (matcher.kind === 'testid') {
-        matches = uniqueVisible(document.querySelectorAll('[data-testid]'))
+        matches = uniqueVisible(queryComposed('[data-testid]'))
           .filter(el => stringMatches(el.getAttribute('data-testid'), matcher.value));
       }
 
@@ -412,9 +584,11 @@ export function buildRoleMatcherScript(role, name, nth) {
   const matcher = normalizeRoleMatcher(role, name, nth);
   const allMatches = buildRoleMatcherAllScript(matcher);
   const description =
-    matcher.kind === 'role'
+    matcher.kind === "role"
       ? `role=${JSON.stringify(matcher.role)}${
-          matcher.name !== undefined ? ` name=${JSON.stringify(matcher.name)}` : ''
+          matcher.name !== undefined
+            ? ` name=${JSON.stringify(matcher.name)}`
+            : ""
         }`
       : `${matcher.kind}=${JSON.stringify(matcher.value)}`;
 

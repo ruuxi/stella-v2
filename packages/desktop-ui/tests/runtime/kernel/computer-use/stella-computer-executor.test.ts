@@ -29,8 +29,8 @@ describe("shared Stella computer executor", () => {
 
   it("bounds silent observation operations well below the historical 600-second watchdog", () => {
     const base = {
-      schemaVersion: 1,
-      protocolVersion: 1,
+      schemaVersion: 2,
+      protocolVersion: "2.0",
       requestId: "request-1",
       sessionId: "session-1",
     } as const;
@@ -113,6 +113,46 @@ describe("shared Stella computer executor", () => {
         poll();
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it("shuts down an isolated CLI session through the generated command surface", async () => {
+    const root = path.join(
+      os.tmpdir(),
+      `stella-computer-shutdown-${process.pid}-${Date.now()}`,
+    );
+    temporaryRoots.push(root);
+    process.env.STELLA_DATA_DIR = path.join(root, "data");
+    process.env.HOME = path.join(root, "home");
+    const sessionId = "diagnostics-poll-session";
+    const sessionDir = path.join(
+      process.env.STELLA_DATA_DIR,
+      "stella-computer",
+      "sessions",
+      sessionId,
+    );
+    mkdirSync(sessionDir, { recursive: true });
+    const child = spawn(
+      process.execPath,
+      ["-e", "setInterval(() => {}, 1000)"],
+      { detached: true, stdio: "ignore" },
+    );
+    child.unref();
+    writeFileSync(path.join(sessionDir, "automation.pid"), String(child.pid));
+
+    const result = await executeStellaComputerCommand([
+      "--session",
+      sessionId,
+      "shutdown-session",
+      "--json",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: true,
+      sessionId,
+      stopped: true,
+    });
+    expect(existsSync(path.join(sessionDir, "automation.pid"))).toBe(false);
   });
 
   it("keeps command validation and session option errors in the shared path", async () => {

@@ -35,8 +35,8 @@ const DISCONNECT_SHUTDOWN_MS: u64 = 30_000;
 
 /// Reconnect wait after a dead connection is detected.
 const RECONNECT_WAIT_MS: u64 = 10_000;
-const EXTENSION_PROTOCOL_VERSION: &str = "2.0";
-const MIN_EXTENSION_VERSION: (u64, u64, u64) = (1, 2, 6);
+const EXTENSION_PROTOCOL_VERSION: &str = "2.1";
+const MIN_EXTENSION_VERSION: (u64, u64, u64) = (1, 2, 12);
 
 fn parse_extension_version(value: &str) -> Option<(u64, u64, u64)> {
     let mut parts = value.split('.');
@@ -59,19 +59,19 @@ fn validate_extension_hello(parsed: &Value) -> Result<String, String> {
 
     if protocol_version != EXTENSION_PROTOCOL_VERSION {
         return Err(format!(
-            "Stella Browser extension protocol mismatch: extension {} advertises protocol {}, but this Stella runtime requires protocol {} and extension 1.2.6 or newer. Update the Stella Browser extension.",
+            "Stella Browser extension protocol mismatch: extension {} advertises protocol {}, but this Stella runtime requires protocol {} and extension 1.2.12 or newer. Update the Stella Browser extension.",
             extension_version, protocol_version, EXTENSION_PROTOCOL_VERSION
         ));
     }
     let parsed_version = parse_extension_version(extension_version).ok_or_else(|| {
         format!(
-            "Stella Browser extension reported invalid version '{}'. Update the Stella Browser extension to 1.2.6 or newer.",
+            "Stella Browser extension reported invalid version '{}'. Update the Stella Browser extension to 1.2.12 or newer.",
             extension_version
         )
     })?;
     if parsed_version < MIN_EXTENSION_VERSION {
         return Err(format!(
-            "Stella Browser extension {} is too old; this Stella runtime requires 1.2.6 or newer. Update the Stella Browser extension.",
+            "Stella Browser extension {} is too old; this Stella runtime requires 1.2.12 or newer. Update the Stella Browser extension.",
             extension_version
         ));
     }
@@ -748,11 +748,6 @@ async fn handle_extension_connection(
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let success = parsed
-                    .get("success")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-
                 let mut guard = inner.lock().await;
                 let Some(generation) = connection_generation else {
                     continue;
@@ -760,19 +755,7 @@ async fn handle_extension_connection(
                 if let Some(pending) = remove_pending_for_generation(&mut guard, &id, generation) {
                     guard.last_health_check = Instant::now();
 
-                    let response = if success {
-                        json!({
-                            "id": id,
-                            "success": true,
-                            "data": parsed.get("data").cloned().unwrap_or(Value::Null),
-                        })
-                    } else {
-                        json!({
-                            "id": id,
-                            "success": false,
-                            "error": parsed.get("error").and_then(|v| v.as_str()).unwrap_or("Extension command failed without an error message"),
-                        })
-                    };
+                    let response = normalize_extension_command_response(&id, &parsed);
 
                     let _ = pending.tx.send(response);
                 }
@@ -807,6 +790,39 @@ async fn handle_extension_connection(
     }
 
     write_handle.abort();
+}
+
+fn normalize_extension_command_response(id: &str, parsed: &Value) -> Value {
+    // The extension owns the complete command receipt. Preserve failure data,
+    // mutation uncertainty, deadline metadata, and future fields instead of
+    // reducing failures to an error string at the native-message boundary.
+    let Some(source) = parsed.as_object() else {
+        return json!({
+            "id": id,
+            "success": false,
+            "error": "Extension command returned an invalid response",
+        });
+    };
+    let success = source
+        .get("success")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let mut response = source.clone();
+    response.remove("type");
+    response.insert("id".to_string(), json!(id));
+    response.insert("success".to_string(), json!(success));
+    if !success
+        && response
+            .get("error")
+            .and_then(Value::as_str)
+            .is_none_or(str::is_empty)
+    {
+        response.insert(
+            "error".to_string(),
+            json!("Extension command failed without an error message"),
+        );
+    }
+    Value::Object(response)
 }
 
 fn is_local_socket(addr: SocketAddr) -> bool {
@@ -925,6 +941,39 @@ mod tests {
     }
 
     #[test]
+    fn inbound_failure_preserves_complete_unknown_outcome_receipt() {
+        let parsed = json!({
+            "type": "response",
+            "id": "extension-id",
+            "success": false,
+            "error": "Browser chain timed out",
+            "data": {
+                "results": [{
+                    "step": 0,
+                    "action": "click",
+                    "success": false,
+                    "outcomeUnknown": true,
+                }],
+            },
+            "outcomeUnknown": true,
+            "outcomeUnknownReason": "The dispatched click may still complete",
+            "deadline": { "timeoutMs": 25 },
+        });
+
+        let normalized = normalize_extension_command_response("request-id", &parsed);
+        assert_eq!(normalized["id"], "request-id");
+        assert_eq!(normalized["success"], false);
+        assert_eq!(normalized["data"]["results"][0]["outcomeUnknown"], true);
+        assert_eq!(normalized["outcomeUnknown"], true);
+        assert_eq!(
+            normalized["outcomeUnknownReason"],
+            "The dispatched click may still complete"
+        );
+        assert_eq!(normalized["deadline"]["timeoutMs"], 25);
+        assert!(normalized.get("type").is_none());
+    }
+
+    #[test]
     fn extension_handshake_rejects_legacy_or_incompatible_protocols() {
         let legacy = json!({ "type": "hello", "version": "1.0.0" });
         assert!(validate_extension_hello(&legacy)
@@ -933,7 +982,7 @@ mod tests {
 
         let old = json!({
             "type": "hello",
-            "extensionVersion": "1.2.5",
+            "extensionVersion": "1.2.11",
             "protocolVersion": EXTENSION_PROTOCOL_VERSION,
         });
         assert!(validate_extension_hello(&old)
@@ -942,10 +991,79 @@ mod tests {
 
         let current = json!({
             "type": "hello",
-            "extensionVersion": "1.2.6",
+            "extensionVersion": "1.2.12",
             "protocolVersion": EXTENSION_PROTOCOL_VERSION,
         });
-        assert_eq!(validate_extension_hello(&current).unwrap(), "1.2.6");
+        assert_eq!(validate_extension_hello(&current).unwrap(), "1.2.12");
+
+        let pre_marking_peer = json!({
+            "type": "hello",
+            "extensionVersion": "1.2.11",
+            "protocolVersion": "2.0",
+        });
+        assert!(validate_extension_hello(&pre_marking_peer)
+            .unwrap_err()
+            .contains("protocol mismatch"));
+    }
+
+    #[tokio::test]
+    async fn pre_marking_extension_fails_closed_before_events_are_accepted() {
+        use tokio::io::AsyncWriteExt;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind loopback");
+        let addr = listener.local_addr().expect("local addr");
+
+        let inner = test_inner();
+        let notify = Arc::new(Notify::new());
+        let (disconnect_tx, _disconnect_rx) = mpsc::channel::<()>(1);
+        let (events_tx, mut events_rx) = broadcast::channel::<String>(16);
+        let _events_guard = events_tx.clone();
+
+        let server = {
+            let inner = inner.clone();
+            let notify = notify.clone();
+            tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.expect("accept");
+                handle_extension_connection(
+                    stream,
+                    inner,
+                    notify,
+                    String::new(),
+                    "test-session".to_string(),
+                    disconnect_tx,
+                    events_tx,
+                )
+                .await;
+            })
+        };
+
+        let mut client = tokio::net::TcpStream::connect(addr).await.expect("connect");
+        client
+            .write_all(
+                b"{\"type\":\"hello\",\"extensionVersion\":\"1.2.11\",\"protocolVersion\":\"2.0\"}\n{\"type\":\"event\",\"event\":\"cookies_changed\"}\n",
+            )
+            .await
+            .expect("send incompatible hello and event");
+
+        tokio::time::timeout(Duration::from_secs(2), server)
+            .await
+            .expect("incompatible connection should be closed")
+            .expect("server task");
+
+        let guard = inner.lock().await;
+        assert!(!guard.connected);
+        assert_eq!(guard.next_generation, 0);
+        assert!(guard
+            .last_connection_error
+            .as_deref()
+            .is_some_and(|error| error.contains("protocol mismatch")));
+        drop(guard);
+        assert!(matches!(
+            events_rx.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty)
+        ));
     }
 
     #[tokio::test]
@@ -985,12 +1103,10 @@ mod tests {
             })
         };
 
-        let mut client = tokio::net::TcpStream::connect(addr)
-            .await
-            .expect("connect");
+        let mut client = tokio::net::TcpStream::connect(addr).await.expect("connect");
         client
             .write_all(
-                b"{\"type\":\"hello\",\"extensionVersion\":\"1.2.11\",\"protocolVersion\":\"2.0\"}\n",
+                b"{\"type\":\"hello\",\"extensionVersion\":\"1.2.12\",\"protocolVersion\":\"2.1\"}\n",
             )
             .await
             .expect("send hello");

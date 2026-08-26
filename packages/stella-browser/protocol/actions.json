@@ -18,34 +18,19 @@
   "actions": {
     "addinitscript": {
       "chain": false,
-      "params": [
-        "content",
-        "script",
-        "source"
-      ]
+      "params": ["content", "script", "source"]
     },
     "addscript": {
       "chain": false,
-      "params": [
-        "content",
-        "script",
-        "source",
-        "url"
-      ]
+      "params": ["content", "script", "source", "url"]
     },
     "addstyle": {
       "chain": false,
-      "params": [
-        "content",
-        "css",
-        "url"
-      ]
+      "params": ["content", "css", "url"]
     },
     "auth_delete": {
       "chain": false,
-      "params": [
-        "name"
-      ]
+      "params": ["name"]
     },
     "auth_list": {
       "chain": false,
@@ -74,22 +59,16 @@
     },
     "auth_show": {
       "chain": false,
-      "params": [
-        "name"
-      ]
+      "params": ["name"]
     },
     "back": {
       "chain": true,
-      "params": [
-        "timeout"
-      ],
+      "params": ["timeout"],
       "note": "timeout is accepted for caller compatibility; ignored by the CDP handler."
     },
     "boundingbox": {
       "chain": true,
-      "params": [
-        "selector"
-      ]
+      "params": ["selector"]
     },
     "bringtofront": {
       "chain": true,
@@ -115,33 +94,19 @@
     },
     "check": {
       "chain": true,
-      "params": [
-        "selector"
-      ]
+      "params": ["selector"]
     },
     "clear": {
       "chain": true,
-      "params": [
-        "selector"
-      ]
+      "params": ["selector"]
     },
     "click": {
       "chain": true,
-      "params": [
-        "button",
-        "clickCount",
-        "newTab",
-        "selector"
-      ]
+      "params": ["button", "clickCount", "newTab", "selector"]
     },
     "clipboard": {
       "chain": true,
-      "params": [
-        "operation",
-        "subAction",
-        "text",
-        "value"
-      ]
+      "params": ["operation", "subAction", "text", "value"]
     },
     "close": {
       "chain": false,
@@ -175,48 +140,32 @@
     },
     "cookies_export_for_urls": {
       "chain": false,
-      "params": [
-        "urls"
-      ],
+      "params": ["urls"],
       "note": "Extension transport only: exports cookies from the user's real browser. The CDP backend rejects it with an explicit error."
     },
     "cookies_get": {
       "chain": true,
-      "params": [
-        "url",
-        "urls"
-      ]
+      "params": ["url", "urls"]
     },
     "cookies_set": {
       "chain": true,
-      "params": [
-        "cookies"
-      ]
+      "params": ["cookies"]
     },
     "count": {
       "chain": true,
-      "params": [
-        "selector"
-      ]
+      "params": ["selector"]
     },
     "credentials": {
       "chain": false,
-      "params": [
-        "password",
-        "username"
-      ]
+      "params": ["password", "username"]
     },
     "credentials_delete": {
       "chain": false,
-      "params": [
-        "name"
-      ]
+      "params": ["name"]
     },
     "credentials_get": {
       "chain": false,
-      "params": [
-        "name"
-      ]
+      "params": ["name"]
     },
     "credentials_list": {
       "chain": false,
@@ -224,18 +173,11 @@
     },
     "credentials_set": {
       "chain": false,
-      "params": [
-        "name",
-        "password",
-        "url",
-        "username"
-      ]
+      "params": ["name", "password", "url", "username"]
     },
     "dblclick": {
       "chain": true,
-      "params": [
-        "selector"
-      ]
+      "params": ["selector"]
     },
     "deny": {
       "chain": false,
@@ -243,10 +185,7 @@
     },
     "device": {
       "chain": false,
-      "params": [
-        "device",
-        "name"
-      ]
+      "params": ["device", "name"]
     },
     "device_list": {
       "chain": false,
@@ -254,66 +193,36 @@
     },
     "dialog": {
       "chain": false,
-      "params": [
-        "accept",
-        "promptText",
-        "response"
-      ]
+      "params": ["accept", "promptText", "response"]
     },
     "diff_screenshot": {
       "chain": false,
-      "params": [
-        "baseline",
-        "fullPage",
-        "output",
-        "selector",
-        "threshold"
-      ]
+      "params": ["baseline", "fullPage", "output", "selector", "threshold"]
     },
     "diff_snapshot": {
       "chain": false,
-      "params": [
-        "baseline",
-        "compact",
-        "maxDepth",
-        "selector"
-      ]
+      "params": ["baseline", "compact", "maxDepth", "selector"]
     },
     "diff_url": {
       "chain": false,
-      "params": [
-        "waitUntil"
-      ]
+      "params": ["waitUntil"]
     },
     "dispatch": {
       "chain": false,
-      "params": [
-        "event",
-        "eventInit",
-        "eventType",
-        "selector"
-      ]
+      "params": ["event", "eventInit", "eventType", "selector"]
     },
     "download": {
       "chain": false,
-      "params": [
-        "path"
-      ]
+      "params": ["path"]
     },
     "drag": {
       "chain": true,
-      "params": [
-        "source",
-        "target"
-      ],
+      "params": ["source", "target"],
       "note": "Attempts an HTML5 drag via Input.setInterceptDrags/dispatchDragEvent and falls back to raw mouse events; the result reports which path ran (html5: true|false)."
     },
     "emulatemedia": {
       "chain": false,
-      "params": [
-        "features",
-        "media"
-      ]
+      "params": ["features", "media"]
     },
     "errors": {
       "chain": false,
@@ -321,28 +230,20 @@
     },
     "evalhandle": {
       "chain": false,
-      "params": [
-        "script"
-      ]
+      "params": ["script"]
     },
     "evaluate": {
       "chain": true,
-      "params": [
-        "script"
-      ]
+      "params": ["script"]
     },
     "evaluate_detached": {
       "chain": false,
-      "params": [
-        "script"
-      ],
+      "params": ["script"],
       "note": "Schedules page work with Runtime.evaluate awaitPromise=false and returns immediately."
     },
     "expose": {
       "chain": false,
-      "params": [
-        "name"
-      ]
+      "params": ["name"]
     },
     "extension_status": {
       "chain": false,
@@ -350,122 +251,69 @@
     },
     "fill": {
       "chain": true,
-      "params": [
-        "selector",
-        "value"
-      ]
+      "params": ["selector", "value"]
     },
     "finalize_tabs": {
       "chain": false,
-      "params": [
-        "keep"
-      ],
-      "note": "Top-level only. Requires ownerId; closes every owner-tracked tab not listed in keep."
+      "params": ["keep", "preserveMarked"],
+      "note": "Top-level only. Requires ownerId; closes every owner-tracked tab not listed in keep. preserveMarked merges mark_tab dispositions from the current turn for automatic cleanup."
     },
     "find": {
       "chain": false,
-      "params": [
-        "selector"
-      ]
+      "params": ["selector"]
     },
     "focus": {
       "chain": true,
-      "params": [
-        "selector"
-      ]
+      "params": ["selector"]
     },
     "forward": {
       "chain": true,
-      "params": [
-        "timeout"
-      ],
+      "params": ["timeout"],
       "note": "timeout is accepted for caller compatibility; ignored by the CDP handler."
     },
     "frame": {
       "chain": false,
-      "params": [
-        "name",
-        "selector",
-        "url"
-      ]
+      "params": ["name", "selector", "url"]
     },
     "geolocation": {
       "chain": false,
-      "params": [
-        "accuracy",
-        "latitude",
-        "longitude"
-      ]
+      "params": ["accuracy", "latitude", "longitude"]
     },
     "getattribute": {
       "chain": true,
-      "params": [
-        "attribute",
-        "selector"
-      ]
+      "params": ["attribute", "selector"]
     },
     "getbyalttext": {
       "chain": false,
-      "params": [
-        "alt",
-        "exact",
-        "subaction"
-      ]
+      "params": ["alt", "exact", "subaction"]
     },
     "getbylabel": {
       "chain": false,
-      "params": [
-        "label",
-        "exact",
-        "subaction"
-      ]
+      "params": ["label", "exact", "subaction"]
     },
     "getbyplaceholder": {
       "chain": false,
-      "params": [
-        "placeholder",
-        "exact",
-        "subaction"
-      ]
+      "params": ["placeholder", "exact", "subaction"]
     },
     "getbyrole": {
       "chain": false,
-      "params": [
-        "role",
-        "name",
-        "exact",
-        "subaction"
-      ]
+      "params": ["role", "name", "exact", "subaction"]
     },
     "getbytestid": {
       "chain": false,
-      "params": [
-        "testid",
-        "exact",
-        "subaction"
-      ]
+      "params": ["testid", "exact", "subaction"]
     },
     "getbytext": {
       "chain": false,
-      "params": [
-        "text",
-        "exact",
-        "subaction"
-      ]
+      "params": ["text", "exact", "subaction"]
     },
     "getbytitle": {
       "chain": false,
-      "params": [
-        "title",
-        "exact",
-        "subaction"
-      ]
+      "params": ["title", "exact", "subaction"]
     },
     "gettext": {
       "chain": true,
-      "params": [
-        "selector"
-      ]
+      "params": ["selector"]
     },
     "har_start": {
       "chain": true,
@@ -473,15 +321,11 @@
     },
     "har_stop": {
       "chain": true,
-      "params": [
-        "path"
-      ]
+      "params": ["path"]
     },
     "headers": {
       "chain": false,
-      "params": [
-        "headers"
-      ]
+      "params": ["headers"]
     },
     "healthcheck": {
       "chain": true,
@@ -489,64 +333,39 @@
     },
     "highlight": {
       "chain": false,
-      "params": [
-        "selector"
-      ]
+      "params": ["selector"]
     },
     "hover": {
       "chain": true,
-      "params": [
-        "selector"
-      ]
+      "params": ["selector"]
     },
     "innerhtml": {
       "chain": true,
-      "params": [
-        "selector"
-      ]
+      "params": ["selector"]
     },
     "innertext": {
       "chain": true,
-      "params": [
-        "selector"
-      ]
+      "params": ["selector"]
     },
     "input_keyboard": {
       "chain": false,
-      "params": [
-        "type"
-      ]
+      "params": ["type"]
     },
     "input_mouse": {
       "chain": false,
-      "params": [
-        "button",
-        "clickCount",
-        "deltaX",
-        "deltaY",
-        "type",
-        "x",
-        "y"
-      ]
+      "params": ["button", "clickCount", "deltaX", "deltaY", "type", "x", "y"]
     },
     "input_touch": {
       "chain": false,
-      "params": [
-        "touchPoints",
-        "type"
-      ]
+      "params": ["touchPoints", "type"]
     },
     "inputvalue": {
       "chain": true,
-      "params": [
-        "selector"
-      ]
+      "params": ["selector"]
     },
     "inserttext": {
       "chain": true,
-      "params": [
-        "text"
-      ]
+      "params": ["text"]
     },
     "inspect": {
       "chain": false,
@@ -554,42 +373,27 @@
     },
     "ischecked": {
       "chain": true,
-      "params": [
-        "selector"
-      ]
+      "params": ["selector"]
     },
     "isenabled": {
       "chain": true,
-      "params": [
-        "selector"
-      ]
+      "params": ["selector"]
     },
     "isvisible": {
       "chain": true,
-      "params": [
-        "selector"
-      ]
+      "params": ["selector"]
     },
     "keyboard": {
       "chain": false,
-      "params": [
-        "code",
-        "eventType",
-        "key",
-        "text"
-      ]
+      "params": ["code", "eventType", "key", "text"]
     },
     "keydown": {
       "chain": true,
-      "params": [
-        "key"
-      ]
+      "params": ["key"]
     },
     "keyup": {
       "chain": true,
-      "params": [
-        "key"
-      ]
+      "params": ["key"]
     },
     "launch": {
       "chain": false,
@@ -615,72 +419,49 @@
     },
     "locale": {
       "chain": false,
-      "params": [
-        "locale"
-      ]
+      "params": ["locale"]
     },
     "mainframe": {
       "chain": false,
       "params": []
     },
+    "mark_tab": {
+      "chain": false,
+      "params": ["status"],
+      "note": "Top-level only. Records a deliverable or handoff disposition for this owner lease; automatic finalization may preserve it."
+    },
     "mouse": {
       "chain": false,
-      "params": [
-        "button",
-        "clickCount",
-        "eventType",
-        "x",
-        "y"
-      ]
+      "params": ["button", "clickCount", "eventType", "x", "y"]
     },
     "mousedown": {
       "chain": true,
-      "params": [
-        "button"
-      ]
+      "params": ["button"]
     },
     "mousemove": {
       "chain": true,
-      "params": [
-        "x",
-        "y"
-      ]
+      "params": ["x", "y"]
     },
     "mouseup": {
       "chain": true,
-      "params": [
-        "button"
-      ]
+      "params": ["button"]
     },
     "multiselect": {
       "chain": false,
-      "params": [
-        "selector",
-        "values"
-      ]
+      "params": ["selector", "values"]
     },
     "navigate": {
       "chain": true,
-      "params": [
-        "url",
-        "waitUntil",
-        "headers",
-        "timeout"
-      ],
+      "params": ["url", "waitUntil", "headers", "timeout"],
       "note": "timeout is accepted for caller compatibility; the CDP handler uses its own navigation timeout."
     },
     "nth": {
       "chain": false,
-      "params": [
-        "index",
-        "selector"
-      ]
+      "params": ["index", "selector"]
     },
     "offline": {
       "chain": false,
-      "params": [
-        "offline"
-      ]
+      "params": ["offline"]
     },
     "pause": {
       "chain": false,
@@ -688,50 +469,31 @@
     },
     "pdf": {
       "chain": false,
-      "params": [
-        "landscape",
-        "path",
-        "preferCSSPageSize",
-        "printBackground"
-      ]
+      "params": ["landscape", "path", "preferCSSPageSize", "printBackground"]
     },
     "permissions": {
       "chain": false,
-      "params": [
-        "permissions"
-      ]
+      "params": ["permissions"]
     },
     "press": {
       "chain": true,
-      "params": [
-        "key",
-        "selector"
-      ]
+      "params": ["key", "selector"]
     },
     "profiler_start": {
       "chain": false,
-      "params": [
-        "categories"
-      ]
+      "params": ["categories"]
     },
     "profiler_stop": {
       "chain": false,
-      "params": [
-        "path"
-      ]
+      "params": ["path"]
     },
     "recording_restart": {
       "chain": false,
-      "params": [
-        "path"
-      ]
+      "params": ["path"]
     },
     "recording_start": {
       "chain": false,
-      "params": [
-        "path",
-        "url"
-      ]
+      "params": ["path", "url"]
     },
     "recording_stop": {
       "chain": false,
@@ -744,82 +506,43 @@
     },
     "reload": {
       "chain": true,
-      "params": [
-        "timeout"
-      ],
+      "params": ["timeout"],
       "note": "timeout is accepted for caller compatibility; ignored by the CDP handler."
     },
     "requests": {
       "chain": true,
-      "params": [
-        "after",
-        "clear",
-        "filter",
-        "limit"
-      ]
+      "params": ["after", "clear", "filter", "limit"]
     },
     "responsebody": {
       "chain": true,
-      "params": [
-        "after",
-        "timeout",
-        "url"
-      ]
+      "params": ["after", "timeout", "url"]
     },
     "authenticated_request": {
       "chain": false,
-      "params": [
-        "body",
-        "headers",
-        "maxBodyBytes",
-        "method",
-        "timeout",
-        "url"
-      ],
+      "params": ["body", "headers", "maxBodyBytes", "method", "timeout", "url"],
       "note": "Runs a bounded same-origin fetch in the addressed tab so its authenticated browser session is used without exporting cookies."
     },
     "authenticated_request_batch": {
       "chain": false,
-      "params": [
-        "concurrency",
-        "requests",
-        "timeout"
-      ],
+      "params": ["concurrency", "requests", "timeout"],
       "note": "Runs bounded same-origin authenticated requests concurrently in the daemon."
     },
     "route": {
       "chain": true,
-      "params": [
-        "abort",
-        "response",
-        "url"
-      ]
+      "params": ["abort", "response", "url"]
     },
     "rewrite_request": {
       "chain": false,
-      "params": [
-        "headers",
-        "jsonPatch",
-        "method",
-        "postData",
-        "url"
-      ],
+      "params": ["headers", "jsonPatch", "method", "postData", "url"],
       "note": "Rewrites matching requests at the Fetch/CDP protocol boundary before they are sent."
     },
     "unrewrite_request": {
       "chain": false,
-      "params": [
-        "url"
-      ]
+      "params": ["url"]
     },
     "screencast_start": {
       "chain": false,
-      "params": [
-        "format",
-        "maxHeight",
-        "maxWidth",
-        "quality"
-      ]
+      "params": ["format", "maxHeight", "maxWidth", "quality"]
     },
     "screencast_stop": {
       "chain": false,
@@ -840,75 +563,43 @@
     },
     "scroll": {
       "chain": true,
-      "params": [
-        "amount",
-        "direction",
-        "selector",
-        "x",
-        "y"
-      ]
+      "params": ["amount", "direction", "selector", "x", "y"]
     },
     "scrollintoview": {
       "chain": true,
-      "params": [
-        "selector"
-      ]
+      "params": ["selector"]
     },
     "select": {
       "chain": true,
-      "params": [
-        "selector",
-        "value",
-        "values"
-      ]
+      "params": ["selector", "value", "values"]
     },
     "selectall": {
       "chain": false,
-      "params": [
-        "selector"
-      ]
+      "params": ["selector"]
     },
     "set_media": {
       "chain": false,
-      "params": [
-        "features",
-        "media"
-      ]
+      "params": ["features", "media"]
     },
     "setcontent": {
       "chain": false,
-      "params": [
-        "html"
-      ]
+      "params": ["html"]
     },
     "setvalue": {
       "chain": false,
-      "params": [
-        "selector",
-        "value"
-      ]
+      "params": ["selector", "value"]
     },
     "snapshot": {
       "chain": true,
-      "params": [
-        "compact",
-        "cursor",
-        "interactive",
-        "maxDepth",
-        "selector"
-      ]
+      "params": ["compact", "cursor", "interactive", "maxDepth", "selector"]
     },
     "state_clean": {
       "chain": false,
-      "params": [
-        "days"
-      ]
+      "params": ["days"]
     },
     "state_clear": {
       "chain": false,
-      "params": [
-        "path"
-      ]
+      "params": ["path"]
     },
     "state_list": {
       "chain": false,
@@ -916,56 +607,35 @@
     },
     "state_load": {
       "chain": false,
-      "params": [
-        "path"
-      ]
+      "params": ["path"]
     },
     "state_rename": {
       "chain": false,
-      "params": [
-        "name",
-        "path"
-      ]
+      "params": ["name", "path"]
     },
     "state_save": {
       "chain": false,
-      "params": [
-        "path"
-      ]
+      "params": ["path"]
     },
     "state_show": {
       "chain": false,
-      "params": [
-        "path"
-      ]
+      "params": ["path"]
     },
     "storage_clear": {
       "chain": false,
-      "params": [
-        "type"
-      ]
+      "params": ["type"]
     },
     "storage_get": {
       "chain": false,
-      "params": [
-        "key",
-        "type"
-      ]
+      "params": ["key", "type"]
     },
     "storage_set": {
       "chain": false,
-      "params": [
-        "key",
-        "type",
-        "value"
-      ]
+      "params": ["key", "type", "value"]
     },
     "styles": {
       "chain": true,
-      "params": [
-        "properties",
-        "selector"
-      ]
+      "params": ["properties", "selector"]
     },
     "swipe": {
       "chain": false,
@@ -981,9 +651,7 @@
     },
     "tab_close": {
       "chain": true,
-      "params": [
-        "index"
-      ],
+      "params": ["index"],
       "note": "index is the legacy positional address; prefer the global tabId parameter."
     },
     "tab_list": {
@@ -992,31 +660,20 @@
     },
     "tab_new": {
       "chain": true,
-      "params": [
-        "url"
-      ]
+      "params": ["url"]
     },
     "tab_switch": {
       "chain": true,
-      "params": [
-        "index"
-      ],
+      "params": ["index"],
       "note": "index is the legacy positional address; prefer the global tabId parameter."
     },
     "tap": {
       "chain": false,
-      "params": [
-        "selector",
-        "x",
-        "y"
-      ]
+      "params": ["selector", "x", "y"]
     },
     "timezone": {
       "chain": false,
-      "params": [
-        "timezone",
-        "timezoneId"
-      ]
+      "params": ["timezone", "timezoneId"]
     },
     "title": {
       "chain": true,
@@ -1028,38 +685,23 @@
     },
     "trace_stop": {
       "chain": false,
-      "params": [
-        "path"
-      ]
+      "params": ["path"]
     },
     "type": {
       "chain": true,
-      "params": [
-        "clear",
-        "delay",
-        "selector",
-        "text"
-      ]
+      "params": ["clear", "delay", "selector", "text"]
     },
     "uncheck": {
       "chain": true,
-      "params": [
-        "selector"
-      ]
+      "params": ["selector"]
     },
     "unroute": {
       "chain": true,
-      "params": [
-        "url"
-      ]
+      "params": ["url"]
     },
     "upload": {
       "chain": true,
-      "params": [
-        "file",
-        "files",
-        "selector"
-      ],
+      "params": ["file", "files", "selector"],
       "note": "files must be absolute paths; file is a legacy single-path alias."
     },
     "url": {
@@ -1068,21 +710,15 @@
     },
     "user_agent": {
       "chain": false,
-      "params": [
-        "userAgent"
-      ]
+      "params": ["userAgent"]
     },
     "useragent": {
       "chain": false,
-      "params": [
-        "userAgent"
-      ]
+      "params": ["userAgent"]
     },
     "video_start": {
       "chain": false,
-      "params": [
-        "path"
-      ]
+      "params": ["path"]
     },
     "video_stop": {
       "chain": false,
@@ -1090,12 +726,7 @@
     },
     "viewport": {
       "chain": false,
-      "params": [
-        "deviceScaleFactor",
-        "height",
-        "mobile",
-        "width"
-      ]
+      "params": ["deviceScaleFactor", "height", "mobile", "width"]
     },
     "wait": {
       "chain": true,
@@ -1111,47 +742,28 @@
     },
     "waitfordownload": {
       "chain": false,
-      "params": [
-        "path",
-        "timeout"
-      ],
+      "params": ["path", "timeout"],
       "note": "Resolves with the real on-disk path when it can be verified from CDP download events; otherwise returns the requested path with verified: false."
     },
     "waitforfunction": {
       "chain": true,
-      "params": [
-        "expression",
-        "timeout"
-      ]
+      "params": ["expression", "timeout"]
     },
     "waitforloadstate": {
       "chain": false,
-      "params": [
-        "state",
-        "timeout"
-      ]
+      "params": ["state", "timeout"]
     },
     "waitforurl": {
       "chain": true,
-      "params": [
-        "timeout",
-        "url"
-      ]
+      "params": ["timeout", "url"]
     },
     "wheel": {
       "chain": false,
-      "params": [
-        "deltaX",
-        "deltaY",
-        "x",
-        "y"
-      ]
+      "params": ["deltaX", "deltaY", "x", "y"]
     },
     "window_new": {
       "chain": false,
-      "params": [
-        "viewport"
-      ]
+      "params": ["viewport"]
     }
   },
   "paramsPolicy": "params lists the keys each handler reads or deliberately tolerates; the daemon ignores unknown keys. \"chain\": true means the action may also run as a chain step (is_chain_allowed_action / BROWSER_CHAIN_ACTIONS); every action is accepted top-level unless its note says the backend rejects it.",

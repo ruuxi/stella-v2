@@ -1,0 +1,36 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  // Isolated development/staging journal worker. Deliberately separate from
+  // stella-v2-cloud-builder-dev so this proof cannot disturb the shared dev
+  // worker other work depends on. Real SQLite-backed Durable Object + real R2.
+  "name": "stella-v2-journal-realstaging",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-22",
+  "observability": {
+    "enabled": true
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "JOURNAL_DO",
+        "class_name": "JournalDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      // SQLite-backed Durable Object. Available on Workers Free (with daily
+      // limits) — no paid plan required.
+      "tag": "v1",
+      "new_sqlite_classes": ["JournalDO"]
+    }
+  ],
+  "r2_buckets": [
+    {
+      // Isolated archive for rolled-over conversation segments. Separate from
+      // the shared stella-v2-conversation-archive-dev bucket.
+      "binding": "CONVERSATION_ARCHIVE",
+      "bucket_name": "stella-v2-journal-realstaging-archive"
+    }
+  ]
+}

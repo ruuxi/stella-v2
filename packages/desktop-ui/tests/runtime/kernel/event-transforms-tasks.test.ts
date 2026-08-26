@@ -46,8 +46,10 @@ describe("internal helper agent exclusion", () => {
 describe("fallbackTaskDescription", () => {
   it("de-slugs descriptive thread ids into a readable label", () => {
     expect(
-      fallbackTaskDescription("morph-animation-test-rig-in-harness-hmr-reload"),
-    ).toBe("Morph animation test rig in harness hmr reload");
+      fallbackTaskDescription(
+        "sprite-animation-test-rig-in-harness-hmr-reload",
+      ),
+    ).toBe("Sprite animation test rig in harness hmr reload");
   });
 
   it("keeps 'Task' for ordinal/namespace/opaque ids with no real words", () => {

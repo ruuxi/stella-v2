@@ -13,7 +13,7 @@
  * Calling it with a connector name/id is pure lookup + card trigger —
  * no LLM inside:
  *  - connected → reports that, nothing else happens;
- *  - previously declined → reports that with Store-later guidance, no card;
+ *  - previously declined → reports that with connect-later guidance, no card;
  *  - otherwise → shows the inline connect card (the same
  *    ConnectorConnectService flow the CLI path uses), blocks until the
  *    user resolves it, and reports the outcome. A decline is persisted
@@ -176,11 +176,11 @@ export const createConnectorStatusTool = (
       "oauth",
       "account",
       "service",
-      "store",
+      "connections",
     ],
   },
   description:
-    "Check whether a Stella Store connector (Gmail, Outlook, Notion, Slack, and hundreds more) is connected, and if not, show the user an inline connect card in the chat. Deterministic — pure lookup plus the card; the card itself is the user's consent, so don't ask permission before calling. Blocks until the user connects, declines, or the card times out, then reports the outcome so you can proceed.",
+    "Check whether a Stella connector (Gmail, Outlook, Notion, Slack, and hundreds more) is connected, and if not, show the user an inline connect card in the chat. Deterministic — pure lookup plus the card; the card itself is the user's consent, so don't ask permission before calling. Blocks until the user connects, declines, or the card times out, then reports the outcome so you can proceed.",
   parameters: {
     type: "object",
     properties: {
@@ -219,7 +219,7 @@ export const createConnectorStatusTool = (
               .join(", ")}.`
           : "";
       return {
-        error: `No Store connector matched "${query}".${hint} If no connector fits, proceed via the browser/computer fallback.`,
+        error: `No Stella connector matched "${query}".${hint} If no connector fits, proceed via the browser/computer fallback.`,
       };
     }
 
@@ -252,7 +252,7 @@ export const createConnectorStatusTool = (
         entry.localExecution !== "production-ready";
       return {
         result: incompleteLocal
-          ? `${entry.name} ${state.enabled ? "is locally enabled, but its authoritative Store catalog is unavailable" : "is present only as bundled metadata"}. The bundled OAuth implementation is incomplete/deprecated and is not an execution fallback. It is not ready to use.`
+          ? `${entry.name} ${state.enabled ? "is locally enabled, but its authoritative connector catalog is unavailable" : "is present only as bundled metadata"}. The bundled OAuth implementation is incomplete/deprecated and is not an execution fallback. It is not ready to use.`
           : `${entry.name} ${state.enabled ? "is locally enabled, but" : "exists, but"} the resolved ${entry.provider} catalog entry exposes no executable tools. It is not ready to use.`,
         details: { ...diagnostics, status: "not_executable" },
       };
@@ -264,7 +264,7 @@ export const createConnectorStatusTool = (
     );
     if (priorDecline) {
       return {
-        result: `The user previously declined connecting ${entry.name}, so no connect card was shown. If it comes up, mention once — concisely — that they can connect ${entry.name} from the Store whenever they like, then proceed by other means (agents fall back to the browser). Do not offer again.`,
+        result: `The user previously declined connecting ${entry.name}, so no connect card was shown. If it comes up, mention once — concisely — that they can connect ${entry.name} from Connections whenever they like, then proceed by other means (agents fall back to the browser). Do not offer again.`,
         details: {
           id: entry.id,
           status: "declined",
@@ -275,7 +275,7 @@ export const createConnectorStatusTool = (
 
     if (!entry.connectable || !options.requestConnectorConnection) {
       return {
-        result: `${entry.name} ${state.enabled ? "is locally enabled but does not have a verified provider credential" : "exists in the catalog"} and cannot be connected from here${entry.connectable ? "" : " (its connect flow isn't available in this build)"}. It is not ready to use; proceed via the browser/computer fallback or the Store.`,
+        result: `${entry.name} ${state.enabled ? "is locally enabled but does not have a verified provider credential" : "exists in the catalog"} and cannot be connected from here${entry.connectable ? "" : " (its connect flow isn't available in this build)"}. It is not ready to use; proceed via the browser/computer fallback or Connections.`,
         details: {
           ...diagnostics,
           status: "not_connected",
@@ -310,7 +310,7 @@ export const createConnectorStatusTool = (
         () => undefined,
       );
       return {
-        result: `The user declined connecting ${entry.name}. Tell them once — concisely — that they can always connect it from the Store later, then proceed with the task by other means (the executing agent can use the browser). Do not offer ${entry.name} again.`,
+        result: `The user declined connecting ${entry.name}. Tell them once — concisely — that they can always connect it from Connections later, then proceed with the task by other means (the executing agent can use the browser). Do not offer ${entry.name} again.`,
         details: { id: entry.id, status: "declined" },
       };
     }
@@ -332,7 +332,7 @@ export const createConnectorStatusTool = (
       // gate), so the honest phrasing is "for now", not "ever" or even
       // "this conversation".
       return {
-        result: `The connect card for ${entry.name} was ${outcome.reason === "timeout" ? "not answered in time" : "dismissed"} — the user neither connected nor declined. Don't re-offer it for now; mention once that ${entry.name} is available in the Store, and proceed via other means (browser fallback).`,
+        result: `The connect card for ${entry.name} was ${outcome.reason === "timeout" ? "not answered in time" : "dismissed"} — the user neither connected nor declined. Don't re-offer it for now; mention once that ${entry.name} is available in Connections, and proceed via other means (browser fallback).`,
         details: {
           id: entry.id,
           status: "not_connected",

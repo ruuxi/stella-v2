@@ -541,8 +541,6 @@ export function generateShimScript(
       setAppReady: function(ready) { fire('app:setReady', ready); },
       reload: noop,
       hardReset: function() { return invoke('app:hardResetLocalState'); },
-      morphStart: function() { return resolved({ ok: false }); },
-      morphComplete: function() { return resolved({ ok: false }); },
     },
 
     // ── Screen capture (mostly no-ops on mobile) ────────────────────────
@@ -570,9 +568,6 @@ export function generateShimScript(
       onStartRegionCapture: noopSub, onEndRegionCapture: noopSub,
       onShowMini: noopSub, onHideMini: noopSub, onRestoreMini: noopSub,
       onShowVoice: noopSub, onHideVoice: noopSub, onDisplayChange: noopSub,
-      onMorphForward: noopSub, onMorphReverse: noopSub, onMorphEnd: noopSub,       onMorphBounds: noopSub,
-      onMorphState: noopSub,
-      morphReady: noop, morphDone: noop,
     },
 
     // ── Mini bridge ─────────────────────────────────────────────────────
@@ -592,6 +587,12 @@ export function generateShimScript(
       },
       broadcast: noop,
       listInstalled: function() { return invoke('theme:listInstalled'); },
+    },
+
+    // ── Website ─────────────────────────────────────────────────────────
+
+    website: {
+      getBaseUrl: function() { return invoke('website:getBaseUrl'); },
     },
 
     // ── Voice ───────────────────────────────────────────────────────────
@@ -795,22 +796,6 @@ export function generateShimScript(
       removeCronJob: function(p) { return invoke('schedule:removeCronJob', p); },
     },
 
-    // ── Store / self-mod ────────────────────────────────────────────────
-
-    store: {
-      listSelfModFeatures: function(l) { return invoke('store:listLocalFeatures', { limit: l }); },
-      listFeatureBatches: function(fid) { return invoke('store:listFeatureBatches', { featureId: fid }); },
-      getReleaseDraft: function(p) { return invoke('store:createReleaseDraft', p); },
-      publishRelease: function(p) { return invoke('store:publishRelease', p); },
-      listPackages: function() { return invoke('store:listPackages'); },
-      getPackage: function(pid) { return invoke('store:getPackage', { packageId: pid }); },
-      listPackageReleases: function(pid) { return invoke('store:listReleases', { packageId: pid }); },
-      getPackageRelease: function(p) { return invoke('store:getRelease', p); },
-      listInstalledMods: function() { return invoke('store:listInstalledMods'); },
-      installRelease: function(p) { return invokeCapability('store.installRelease', 'store:installFromBlueprint', p); },
-      uninstallPackage: function(pid) { return invoke('store:uninstallMod', { packageId: pid }); },
-    },
-
     // ── Local chat ──────────────────────────────────────────────────────
 
     localChat: {
@@ -830,15 +815,6 @@ export function generateShimScript(
       onUpdated: function(cb) { return subscribe('localChat:updated', cb); },
       onThreadActivityUpdated: function(cb) { return subscribe('localChat:threadActivityUpdated', cb); },
       onTaskDecorationUpdated: function(cb) { return subscribe('localChat:taskDecorationUpdated', cb); },
-    },
-
-    // ── Social sessions ─────────────────────────────────────────────────
-
-    socialSessions: {
-      create: function(p) { return invoke('socialSessions:create', p); },
-      updateStatus: function(p) { return invoke('socialSessions:updateStatus', p); },
-      queueTurn: function(p) { return invoke('socialSessions:queueTurn', p); },
-      getStatus: function() { return invoke('socialSessions:getStatus'); },
     },
   };
 

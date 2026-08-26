@@ -123,7 +123,7 @@ class OverlayWindow {
         this.window.setTitle(STELLA_CAPTURE_EXCLUDED_TITLE_PREFIXES[0]);
         this.window.setAlwaysOnTop(true, 'screen-saver');
         // The overlay is a transparent, screen-spanning utility layer (region
-        // capture, dictation, morph transitions, and window highlights). It
+        // capture, dictation, and window highlights). It
         // must never show up in Stella's own screen captures — otherwise a capture
         // taken while the overlay is up records the overlay window itself. On
         // Windows the region-capture suspend (`fadeOut`) races DWM compositing, so
@@ -391,13 +391,6 @@ const OVERLAY_IDLE_DESTROY_DELAY_MS = 5 * 60 * 1000;
 export class OverlayWindowController {
     overlayWindow;
     destroyed = false;
-    morphTrackedWindow = null;
-    activeMorphTransitionId = null;
-    morphFlavor = 'hmr';
-    morphTiming = null;
-    handleMorphWindowBoundsChanged = () => {
-        this.syncMorphBounds();
-    };
     // Active component tracking — overlay stays visible when any component is active.
     activeRegionCapture = false;
     activeDictation = false;
@@ -468,11 +461,6 @@ export class OverlayWindowController {
     create() {
         return this.overlayWindow.create();
     }
-    ensureReadyForMorph(timeoutMs) {
-        // A morph is an active surface; cancel any pending idle-reclaim so the
-        // window we just (re)built doesn't get torn out from under the transition.
-        return this.ensureReady(timeoutMs);
-    }
     ensureReadyForDictation(timeoutMs) {
         // Dictation can start recording before the pill is revealed (push-to-talk
         // delay), so callers need a ready renderer without forcing the overlay
@@ -525,8 +513,7 @@ export class OverlayWindowController {
         return (this.activeRegionCapture ||
             this.activeDictation ||
             this.activeScreenGuide ||
-            this.activeWindowHighlight ||
-            this.activeMorph);
+            this.activeWindowHighlight);
     }
     async setWindowHighlight(bounds, tone = 'default') {
         if (!bounds) {
@@ -696,111 +683,6 @@ export class OverlayWindowController {
         this.overlayWindow.send('overlay:hideScreenGuide');
         this.hideOverlayIfIdle();
     }
-    // ─── Morph Transition (HMR Resume) ───────────────────────────────────
-    activeMorph = false;
-    currentMorphBounds = null;
-    stopTrackingMorphWindow() {
-        if (!this.morphTrackedWindow)
-            return;
-        this.morphTrackedWindow.removeListener('move', this.handleMorphWindowBoundsChanged);
-        this.morphTrackedWindow.removeListener('resize', this.handleMorphWindowBoundsChanged);
-        this.morphTrackedWindow = null;
-    }
-    syncMorphBounds() {
-        if (!this.activeMorph || !this.activeMorphTransitionId)
-            return;
-        const trackedBounds = this.morphTrackedWindow && !this.morphTrackedWindow.isDestroyed()
-            ? this.morphTrackedWindow.getBounds()
-            : this.currentMorphBounds;
-        if (!trackedBounds)
-            return;
-        this.currentMorphBounds = trackedBounds;
-        const origin = this.overlayWindow.getOverlayOrigin();
-        this.overlayWindow.send('overlay:morphBounds', {
-            transitionId: this.activeMorphTransitionId,
-            x: trackedBounds.x - origin.x,
-            y: trackedBounds.y - origin.y,
-            width: trackedBounds.width,
-            height: trackedBounds.height,
-        });
-    }
-    getActiveMorphTransitionId() {
-        return this.activeMorphTransitionId;
-    }
-    async startMorphForward(transitionId, screenshotDataUrl, bounds, trackedWindow, flavor = 'hmr', timing) {
-        this.activeMorph = true;
-        this.activeMorphTransitionId = transitionId;
-        this.morphFlavor = flavor;
-        this.morphTiming = timing ?? null;
-        this.currentMorphBounds = bounds;
-        this.stopTrackingMorphWindow();
-        if (trackedWindow && !trackedWindow.isDestroyed()) {
-            this.morphTrackedWindow = trackedWindow;
-            trackedWindow.on('move', this.handleMorphWindowBoundsChanged);
-            trackedWindow.on('resize', this.handleMorphWindowBoundsChanged);
-        }
-        // Perf: self-create on demand so a morph still works after an idle reclaim
-        // even on the onboarding path, which (unlike the HMR path) does not call
-        // `ensureReadyForMorph()` first. For an already-warm overlay this resolves
-        // immediately. Morph state is set synchronously above so callers that read
-        // `getActiveMorphTransitionId()` right after still observe this transition.
-        if (!(await this.ensureReady()))
-            return;
-        this.overlayWindow.show({ inactive: true });
-        const origin = this.overlayWindow.getOverlayOrigin();
-        this.overlayWindow.send('overlay:morphForward', {
-            transitionId,
-            screenshotDataUrl,
-            x: bounds.x - origin.x,
-            y: bounds.y - origin.y,
-            width: bounds.width,
-            height: bounds.height,
-            flavor,
-            timing: this.morphTiming,
-        });
-    }
-    startMorphHandoff(transitionId, screenshotDataUrl, requiresFullReload) {
-        if (this.activeMorphTransitionId !== transitionId) {
-            return false;
-        }
-        this.overlayWindow.send('overlay:morphHandoff', {
-            transitionId,
-            screenshotDataUrl,
-            requiresFullReload,
-            flavor: this.morphFlavor,
-            timing: this.morphTiming,
-        });
-        return true;
-    }
-    setMorphState(transitionId, state) {
-        if (this.activeMorphTransitionId !== transitionId) {
-            return false;
-        }
-        this.overlayWindow.send('overlay:morphState', { transitionId, state });
-        return true;
-    }
-    endMorph(transitionId) {
-        if (this.activeMorphTransitionId !== transitionId) {
-            return false;
-        }
-        this.activeMorph = false;
-        this.activeMorphTransitionId = null;
-        this.morphFlavor = 'hmr';
-        this.morphTiming = null;
-        this.currentMorphBounds = null;
-        this.stopTrackingMorphWindow();
-        this.overlayWindow.send('overlay:morphState', {
-            transitionId,
-            state: {
-                phase: 'idle',
-                paused: false,
-                requiresFullReload: false,
-            },
-        });
-        this.overlayWindow.send('overlay:morphEnd', { transitionId });
-        this.hideOverlayIfIdle();
-        return true;
-    }
     // ─── Cleanup ──────────────────────────────────────────────────────────
     /** Idempotent — calling more than once is a no-op after the first.
      *  Detaches every IPC listener this controller registered in its
@@ -810,7 +692,6 @@ export class OverlayWindowController {
         if (this.destroyed)
             return;
         this.destroyed = true;
-        this.stopTrackingMorphWindow();
         ipcMain.removeListener('overlay:setInteractive', this.handleOverlaySetInteractive);
         ipcMain.removeListener('overlay:showWindowHighlight', this.handleOverlayShowWindowHighlight);
         ipcMain.removeListener('overlay:hideWindowHighlight', this.handleOverlayHideWindowHighlight);

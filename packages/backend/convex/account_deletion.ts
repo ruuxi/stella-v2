@@ -167,9 +167,7 @@ const drainMobileTable = async (
  * Owner-keyed tables not covered by `reset._deleteOwnerTableBatch` (whose
  * list doubles as the user-facing "reset my data" scope). Account deletion
  * must additionally wipe private/user-content tables: secrets, integrations,
- * media, channel links, billing receipts, fashion, pets, store content, and
- * the user's social footprint. The two `social_relationships_*` entries are
- * the same table drained via its requester/addressee indexes.
+ * media, channel links, billing receipts, and fashion.
  */
 const EXTRA_TABLES = [
   "secrets",
@@ -189,16 +187,7 @@ const EXTRA_TABLES = [
   "fashion_likes",
   "fashion_cart_items",
   "fashion_checkout_sessions",
-  "user_pets",
-  "store_packages",
-  "store_package_releases",
   "backup_key_escrows",
-  "social_profiles",
-  "social_relationships_as_requester",
-  "social_relationships_as_addressee",
-  "social_room_members",
-  "social_messages",
-  "stella_session_members",
 ] as const;
 
 type ExtraTable = (typeof EXTRA_TABLES)[number];
@@ -520,92 +509,10 @@ async function deleteOneExtraTableBatch(
       ids = rows.map((r) => r._id);
       break;
     }
-    case "user_pets": {
-      batch = 50;
-      const rows = await ctx.db
-        .query("user_pets")
-        .withIndex("by_ownerId_and_updatedAt", (q) => q.eq("ownerId", ownerId))
-        .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
-    }
-    case "store_packages": {
-      batch = 50;
-      const rows = await ctx.db
-        .query("store_packages")
-        .withIndex("by_ownerId_and_updatedAt", (q) => q.eq("ownerId", ownerId))
-        .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
-    }
-    case "store_package_releases": {
-      // Releases can carry blueprints of up to 750 KB each.
-      batch = 8;
-      const rows = await ctx.db
-        .query("store_package_releases")
-        .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", ownerId))
-        .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
-    }
     case "backup_key_escrows": {
       const rows = await ctx.db
         .query("backup_key_escrows")
         .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-        .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
-    }
-    case "social_profiles": {
-      const rows = await ctx.db
-        .query("social_profiles")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-        .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
-    }
-    case "social_relationships_as_requester": {
-      const rows = await ctx.db
-        .query("social_relationships")
-        .withIndex("by_requesterOwnerId_and_status", (q) =>
-          q.eq("requesterOwnerId", ownerId),
-        )
-        .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
-    }
-    case "social_relationships_as_addressee": {
-      const rows = await ctx.db
-        .query("social_relationships")
-        .withIndex("by_addresseeOwnerId_and_status", (q) =>
-          q.eq("addresseeOwnerId", ownerId),
-        )
-        .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
-    }
-    case "social_room_members": {
-      const rows = await ctx.db
-        .query("social_room_members")
-        .withIndex("by_ownerId_and_updatedAt", (q) => q.eq("ownerId", ownerId))
-        .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
-    }
-    case "social_messages": {
-      const rows = await ctx.db
-        .query("social_messages")
-        .withIndex("by_senderOwnerId_and_createdAt", (q) =>
-          q.eq("senderOwnerId", ownerId),
-        )
-        .take(batch);
-      ids = rows.map((r) => r._id);
-      break;
-    }
-    case "stella_session_members": {
-      const rows = await ctx.db
-        .query("stella_session_members")
-        .withIndex("by_ownerId_and_updatedAt", (q) => q.eq("ownerId", ownerId))
         .take(batch);
       ids = rows.map((r) => r._id);
       break;
@@ -770,123 +677,6 @@ const drainBackups = async (ctx: ActionCtx, ownerId: string) => {
   }
 };
 
-// ─── Hosted stella_sessions (phased child-table teardown) ───────────────────
-
-const SESSION_CHILD_BATCH = 200;
-
-export const _listHostedSessionIds = internalQuery({
-  args: { ownerId: v.string() },
-  returns: v.array(v.id("stella_sessions")),
-  handler: async (ctx, { ownerId }) => {
-    const rows = await ctx.db
-      .query("stella_sessions")
-      .withIndex("by_hostOwnerId_and_status", (q) =>
-        q.eq("hostOwnerId", ownerId),
-      )
-      .take(50);
-    return rows.map((row) => row._id);
-  },
-});
-
-export const _deleteHostedSessionBatch = internalMutation({
-  args: { sessionId: v.id("stella_sessions") },
-  returns: v.object({ hasMore: v.boolean() }),
-  handler: async (ctx, { sessionId }) => {
-    const turns = await ctx.db
-      .query("stella_session_turns")
-      .withIndex("by_sessionId_and_ordinal", (q) =>
-        q.eq("sessionId", sessionId),
-      )
-      .take(SESSION_CHILD_BATCH);
-    if (turns.length > 0) {
-      await Promise.all(turns.map((row) => ctx.db.delete(row._id)));
-      return { hasMore: true };
-    }
-
-    const fileOps = await ctx.db
-      .query("stella_session_file_ops")
-      .withIndex("by_sessionId_and_ordinal", (q) =>
-        q.eq("sessionId", sessionId),
-      )
-      .take(SESSION_CHILD_BATCH);
-    if (fileOps.length > 0) {
-      await Promise.all(fileOps.map((row) => ctx.db.delete(row._id)));
-      return { hasMore: true };
-    }
-
-    const files = await ctx.db
-      .query("stella_session_files")
-      .withIndex("by_sessionId_and_updatedAt", (q) =>
-        q.eq("sessionId", sessionId),
-      )
-      .take(SESSION_CHILD_BATCH);
-    if (files.length > 0) {
-      await Promise.all(files.map((row) => ctx.db.delete(row._id)));
-      return { hasMore: true };
-    }
-
-    // Blobs are the canonical content-addressed storage layer (file rows
-    // reference the same storage ids), so storage cleanup happens here.
-    const blobs = await ctx.db
-      .query("stella_session_file_blobs")
-      .withIndex("by_sessionId_and_createdAt", (q) =>
-        q.eq("sessionId", sessionId),
-      )
-      .take(100);
-    if (blobs.length > 0) {
-      await Promise.all(
-        blobs.map(async (row) => {
-          await ctx.storage.delete(row.storageId);
-          await ctx.db.delete(row._id);
-        }),
-      );
-      return { hasMore: true };
-    }
-
-    const members = await ctx.db
-      .query("stella_session_members")
-      .withIndex("by_sessionId_and_updatedAt", (q) =>
-        q.eq("sessionId", sessionId),
-      )
-      .take(SESSION_CHILD_BATCH);
-    if (members.length > 0) {
-      await Promise.all(members.map((row) => ctx.db.delete(row._id)));
-      return { hasMore: true };
-    }
-
-    const session = await ctx.db.get(sessionId);
-    if (session) {
-      // Unlink the room pointer if it still references this session.
-      const room = await ctx.db.get(session.roomId);
-      if (room?.stellaSessionId === sessionId) {
-        await ctx.db.patch(room._id, { stellaSessionId: undefined });
-      }
-      await ctx.db.delete(sessionId);
-    }
-    return { hasMore: false };
-  },
-});
-
-const drainHostedSessions = async (ctx: ActionCtx, ownerId: string) => {
-  while (true) {
-    const sessionIds: Id<"stella_sessions">[] = await ctx.runQuery(
-      internal.account_deletion._listHostedSessionIds,
-      { ownerId },
-    );
-    if (sessionIds.length === 0) break;
-    for (const sessionId of sessionIds) {
-      let hasMore = true;
-      while (hasMore) {
-        const result: { hasMore: boolean } = await ctx.runMutation(
-          internal.account_deletion._deleteHostedSessionBatch,
-          { sessionId },
-        );
-        hasMore = result.hasMore;
-      }
-    }
-  }
-};
-
 /**
  * Drain a single owner-scoped table by repeatedly invoking
  * `_deleteOwnerTableBatch` until `hasMore: false`. Each invocation is its
@@ -944,10 +734,6 @@ export const purgeOwnerCloudData = internalAction({
       if (page.nextCursor === null) break;
       cursor = page.nextCursor;
     }
-
-    // Hosted social sessions need per-session child teardown before their
-    // member/message rows are swept by the generic drains below.
-    await drainHostedSessions(ctx, ownerId);
 
     // Owner-scoped tables are independent — drain them concurrently.
     await Promise.all([

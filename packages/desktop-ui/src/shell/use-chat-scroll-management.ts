@@ -283,7 +283,7 @@ export function useChatScrollManagement({
    * writing straight to the DOM node so a scroll frame never triggers a
    * React render (see the module header). `thumbElRef` is the node the
    * surface attaches via the returned `thumbRef` callback; surfaces that
-   * don't render a custom thumb (sidebar, social) simply never attach it
+   * don't render a custom thumb (e.g. the sidebar) simply never attach it
    * and every thumb write below short-circuits.
    */
   const thumbElRef = useRef<HTMLDivElement | null>(null);

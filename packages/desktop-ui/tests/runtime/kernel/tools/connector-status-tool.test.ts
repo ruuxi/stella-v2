@@ -72,7 +72,7 @@ describe("connector_status tool", () => {
   it("short-circuits when the connector is already connected", async () => {
     const root = makeRoot();
     await writeCachedServerCatalog(root, [notionEntry]);
-    await enableNativeConnector(root, "notion", "store", {}, [notionEntry]);
+    await enableNativeConnector(root, "notion", "desktop", {}, [notionEntry]);
     const requester = vi.fn();
     const tool = makeTool(root, requester as never);
     const result = await tool.execute({ connector: "notion" }, context);
@@ -116,7 +116,7 @@ describe("connector_status tool", () => {
     expect(result.details).toMatchObject({ id: "notion", status: "connected" });
   });
 
-  it("persists a decline and instructs the Store-later fallback", async () => {
+  it("persists a decline and instructs the connect-later fallback", async () => {
     const root = makeRoot();
     await writeCachedServerCatalog(root, [notionEntry]);
     const requester = vi.fn(async () => ({
@@ -126,7 +126,7 @@ describe("connector_status tool", () => {
     const tool = makeTool(root, requester);
     const first = await tool.execute({ connector: "notion" }, context);
     expect(resultText(first)).toContain("declined");
-    expect(resultText(first)).toContain("Store");
+    expect(resultText(first)).toContain("Connections");
     expect(resultText(first)).toContain("Do not offer");
     expect(first.details).toMatchObject({ id: "notion", status: "declined" });
     expect(await getConnectorDecline(root, "notion")).not.toBeNull();
@@ -161,7 +161,7 @@ describe("connector_status tool", () => {
       { connector: "zzzqqq blorptron" },
       context,
     );
-    expect(result.error).toContain("No Store connector matched");
+    expect(result.error).toContain("No Stella connector matched");
   });
 
   it("reports timeout/dismiss outcomes without persisting a decline", async () => {

@@ -68,7 +68,7 @@ export const buildOfferReminderText = (
 ): string =>
   [
     `This request may involve ${entry.name}. Stella has a ${entry.name} connector, but it is not connected yet.`,
-    `If using ${entry.name} would genuinely help, call the \`connector_status\` tool with connector "${entry.id}" (if it is not in your direct tool list, call it inside node_repl as tools.connector_status({ connector: "${entry.id}" })). That shows the user an inline connect card (the card is the consent — don't ask first) and returns the outcome: connected → delegate the task using it; declined → tell the user once they can connect it from the Store later, then proceed by other means (agents fall back to the browser).`,
+    `If using ${entry.name} would genuinely help, call the \`connector_status\` tool with connector "${entry.id}" (if it is not in your direct tool list, call it inside node_repl as tools.connector_status({ connector: "${entry.id}" })). That shows the user an inline connect card (the card is the consent — don't ask first) and returns the outcome: connected → delegate the task using it; declined → tell the user once they can connect it from Connections later, then proceed by other means (agents fall back to the browser).`,
     `If ${entry.name} isn't actually relevant, ignore this note.`,
   ].join(" ");
 

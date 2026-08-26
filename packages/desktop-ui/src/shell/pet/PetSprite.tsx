@@ -26,7 +26,7 @@ const usePrefersReducedMotion = (): boolean => {
 };
 
 export type PetSpriteProps = {
-  /** Spritesheet URL from the built-in manifest or remote pet catalog. */
+  /** Spritesheet URL of the bundled mascot sprite sheet. */
   spritesheetUrl: string;
   /** Which animation row to play. Falls back to "idle". */
   state: PetAnimationState;
@@ -44,8 +44,8 @@ export type PetSpriteProps = {
  *
  * Why direct DOM mutation? React re-renders are unnecessary work on
  * every frame and would invalidate the sprite-sheet's loaded texture
- * across hot-paths (the overlay window also hosts voice / capture /
- * morph surfaces).
+ * across hot-paths (the overlay window also hosts voice / capture
+ * surfaces).
  */
 export const PetSprite = ({
   spritesheetUrl,

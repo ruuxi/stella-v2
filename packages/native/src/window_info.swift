@@ -57,26 +57,6 @@ func parseSetBounds(_ args: ArraySlice<String>) -> CGRect? {
     return nil
 }
 
-func parsePoints(_ args: ArraySlice<String>) -> [CGPoint]? {
-    let prefix = "--points="
-    for arg in args {
-        guard arg.hasPrefix(prefix) else { continue }
-        let payload = String(arg.dropFirst(prefix.count))
-        var points: [CGPoint] = []
-        for pair in payload.split(separator: ";") {
-            let comps = pair.split(separator: ",")
-            guard comps.count == 2,
-                  let px = Double(comps[0].trimmingCharacters(in: .whitespacesAndNewlines)),
-                  let py = Double(comps[1].trimmingCharacters(in: .whitespacesAndNewlines)) else {
-                continue
-            }
-            points.append(CGPoint(x: px, y: py))
-        }
-        return points
-    }
-    return nil
-}
-
 func escapeJson(_ s: String) -> String {
     var out = ""
     for ch in s {
@@ -94,9 +74,8 @@ func escapeJson(_ s: String) -> String {
 
 /// Topmost on-screen window containing `point`, as a JSON object string
 /// (`{title,process,pid,bounds}`) or nil. Shares the same layer-0 / area /
-/// exclude-pid filtering as the single-point path; used by the batch
-/// `--points` mode so a single `CGWindowListCopyWindowInfo` answers many
-/// points instead of one process spawn per point.
+/// exclude-pid filtering as the CLI path, and is shared by the one-shot and
+/// `--serve` daemon entrypoints.
 func windowJson(at point: CGPoint, in windowList: [[String: Any]], excludedPids: Set<Int>) -> String? {
     for window in windowList {
         guard let boundsDict = window[kCGWindowBounds as String] as? [String: CGFloat],
@@ -244,9 +223,9 @@ func setAXWindowBounds(pid: Int, title: String, oldBounds: CGRect, newBounds: CG
     return (moved, axFrame(window))
 }
 
-// Persistent daemon: `window_info --serve` answers point/batch queries over
+// Persistent daemon: `window_info --serve` answers point queries over
 // stdin/stdout so the desktop avoids a process spawn (Swift + framework load,
-// ~40ms each) per hover/morph probe. Read-only only — screenshots and
+// ~40ms each) per hover probe. Read-only only — screenshots and
 // --set-bounds stay one-shot (they need ScreenCaptureKit / AX side effects).
 // Protocol mirrors the Windows daemon:
 //   request:  <id>\t<token>\t<token>...   (tokens mirror the one-shot CLI)
@@ -254,19 +233,6 @@ func setAXWindowBounds(pid: Int, title: String, oldBounds: CGRect, newBounds: CG
 func serveResponse(forTokens tokens: [String]) -> String {
     let slice = tokens[...]
     let excludedPids = parseExcludedPids(slice)
-
-    if let batchPoints = parsePoints(slice) {
-        guard let windowList = CGWindowListCopyWindowInfo(
-            [.optionOnScreenOnly, .excludeDesktopElements],
-            kCGNullWindowID
-        ) as? [[String: Any]] else {
-            return "[]"
-        }
-        let items = batchPoints.map { point in
-            windowJson(at: point, in: windowList, excludedPids: excludedPids) ?? "null"
-        }
-        return "[" + items.joined(separator: ",") + "]"
-    }
 
     var coords: [Double] = []
     for token in tokens {
@@ -305,26 +271,6 @@ if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--serve" {
             .map(String.init)
         print("\(id)\t\(serveResponse(forTokens: tokens))")
     }
-    exit(0)
-}
-
-// Batch mode: `window_info --points=x1,y1;x2,y2;...` answers many points from
-// a single window-list copy and prints a JSON array (one entry per point, in
-// order; null when no window is found). Used by the morph-visibility gate so a
-// transition probes N sample points with one process spawn instead of N.
-if let batchPoints = parsePoints(CommandLine.arguments.dropFirst()) {
-    let excludedPids = parseExcludedPids(CommandLine.arguments.dropFirst())
-    guard let windowList = CGWindowListCopyWindowInfo(
-        [.optionOnScreenOnly, .excludeDesktopElements],
-        kCGNullWindowID
-    ) as? [[String: Any]] else {
-        print("[]")
-        exit(0)
-    }
-    let items = batchPoints.map { point in
-        windowJson(at: point, in: windowList, excludedPids: excludedPids) ?? "null"
-    }
-    print("[" + items.joined(separator: ",") + "]")
     exit(0)
 }
 

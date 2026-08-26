@@ -3,7 +3,7 @@
  * request-connection`) to use an integration that isn't connected yet.
  * Rendered in the flow of the chat surfaces, pinned above the composer
  * while the agent's turn is blocked on the answer. Connect launches the
- * same Composio/OAuth flow as the Store (browser hand-off, no modal);
+ * same Composio/OAuth flow as Connections (browser hand-off, no modal);
  * Not now resolves a decline that the runtime persists so the offer is
  * never repeated.
  */

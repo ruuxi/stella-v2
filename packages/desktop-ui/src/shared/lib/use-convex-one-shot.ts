@@ -114,7 +114,7 @@ const sharedPersistentQuery = <T>(
  * across renders and cannot be used directly as a `useEffect` dep —
  * doing so causes an infinite render loop. We key the effect off
  * `getFunctionName(query)` (a stable string like
- * `"data/pets:listTagFacets"`) and read the live query/args via refs.
+ * `"billing:getStatus"`) and read the live query/args via refs.
  */
 export function useConvexOneShot<Query extends FunctionReference<"query">>(
   query: Query,
@@ -122,7 +122,7 @@ export function useConvexOneShot<Query extends FunctionReference<"query">>(
   refreshKey?: string | number,
 ): FunctionReturnType<Query> | undefined {
   const convex = useConvex();
-  // Args are usually constructed inline (`{ packageId }`), so we key off
+  // Args are usually constructed inline (`{ conversationId }`), so we key off
   // a serialized form to match `useQuery`'s deep-equality semantics
   // instead of refiring on every fresh object reference.
   const argsKey = args === "skip" ? "__skip__" : JSON.stringify(args);

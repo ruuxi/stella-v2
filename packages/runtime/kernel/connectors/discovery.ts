@@ -5,7 +5,7 @@
  * only enabled connectors surface (as skills). When a user request
  * implies an external service ("check my Gmail…"), the agent calls
  * `connect.discover("<keywords>")` in node_repl and gets back a handful of
- * compact matches spanning the WHOLE catalog (native Store integrations
+ * compact matches spanning the WHOLE catalog (native integrations
  * — Google Workspace, backend Composio toolkits, recovered OAuth
  * providers — plus imported MCP/API connectors), each annotated with
  * enabled/declined state so the agent knows whether to just use it,
@@ -36,7 +36,7 @@ export type ConnectorDiscoveryMatch = {
   description: string;
   category?: string;
   provider?: NativeConnectorCatalogEntry["provider"];
-  /** Native integrations: enabled in the Store. Imported MCP/API: always true. */
+  /** Native integrations: enabled in Connections. Imported MCP/API: always true. */
   enabled: boolean;
   /** Whether Stella can currently run a connect flow for this entry. */
   connectable: boolean;
@@ -116,7 +116,7 @@ export const discoverConnectors = async (
   query: string,
   options: {
     catalogOverride?: NativeConnectorCatalogOverride;
-    /** Native connectors that are enabled in the Store (by id). */
+    /** Native connectors that are currently enabled (by id). */
     enabledNativeIds: ReadonlySet<string>;
     limit?: number;
   },

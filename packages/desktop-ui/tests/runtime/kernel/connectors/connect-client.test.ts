@@ -846,13 +846,13 @@ rl.on("line", (line) => {
     ).resolves.toContain("my own notes");
   });
 
-  it("refuses to remove unknown ids and native Store integrations", async () => {
+  it("refuses to remove unknown ids and native integrations", async () => {
     const root = await makeRoot();
     await writeCachedServerCatalog(root, [backendEntry("outlook", "Outlook")]);
     const client = createReplConnectClient({ stellaAppDir: root });
     await expect(client.remove("missing-connector")).rejects.toThrow(
       /not installed/,
     );
-    await expect(client.remove("outlook")).rejects.toThrow(/Store/);
+    await expect(client.remove("outlook")).rejects.toThrow(/Connections/);
   });
 });

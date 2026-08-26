@@ -303,55 +303,6 @@ static bool parsePidArg(const char* arg, DWORD& outPid)
     return true;
 }
 
-static bool parsePointsArg(const char* arg, std::vector<POINT>& outPoints)
-{
-    const char* prefix = "--points=";
-    const size_t prefixLen = strlen(prefix);
-    if (strncmp(arg, prefix, prefixLen) != 0)
-    {
-        return false;
-    }
-
-    const char* p = arg + prefixLen;
-    while (*p)
-    {
-        char* end = nullptr;
-        long x = strtol(p, &end, 10);
-        if (end == p)
-        {
-            break;
-        }
-        p = end;
-        if (*p != ',')
-        {
-            break;
-        }
-        ++p;
-
-        long y = strtol(p, &end, 10);
-        if (end == p)
-        {
-            break;
-        }
-        p = end;
-
-        POINT pt;
-        pt.x = x;
-        pt.y = y;
-        outPoints.push_back(pt);
-
-        while (*p && *p != ';')
-        {
-            ++p;
-        }
-        if (*p == ';')
-        {
-            ++p;
-        }
-    }
-    return true;
-}
-
 static HWND findTopLevelWindowAtPoint(POINT pt, const WindowExclusions& excluded)
 {
     for (HWND hwnd = GetTopWindow(NULL); hwnd; hwnd = GetWindow(hwnd, GW_HWNDNEXT))
@@ -392,9 +343,8 @@ static HWND findTopLevelWindowAtPoint(POINT pt, const WindowExclusions& excluded
 
 // Topmost top-level window at `pt` as a JSON object string
 // (`{title,process,pid,bounds}`) or "null". Reuses the same
-// findTopLevelWindowAtPoint z-order walk as the single-point path; used by
-// the batch `--points` mode so one process invocation answers many points
-// (instead of one CreateProcess per point — the costly part on Windows).
+// findTopLevelWindowAtPoint z-order walk, and is shared by the one-shot CLI
+// and the `--serve` daemon entrypoints.
 static std::string windowInfoJsonAtPoint(POINT pt, const WindowExclusions& excluded)
 {
     HWND hwnd = findTopLevelWindowAtPoint(pt, excluded);
@@ -942,14 +892,13 @@ static bool captureWindowToFile(HWND hwnd, const wchar_t* filePath)
 
 // ── Persistent daemon mode ──────────────────────────────────────────────
 // `window_info.exe --serve` keeps the process alive and answers many
-// read-only point / batch queries over stdin/stdout, so the desktop avoids a
-// CreateProcess (and its per-spawn Defender scan) for every hover/morph probe
+// read-only point queries over stdin/stdout, so the desktop avoids a
+// CreateProcess (and its per-spawn Defender scan) for every hover probe
 // on Windows. Protocol is line-delimited:
 //   request:  <id>\t<token>\t<token>...   (tokens mirror the one-shot CLI:
-//                                           "<x> <y> [--exclude-pids=..]" or
-//                                           "--points=x,y;.. [--exclude-pids=..]")
-//   response: <id>\t<json>\n              (object, "null", or array — the same
-//                                           shapes the one-shot helper prints)
+//                                           "<x> <y> [--exclude-pids=..]")
+//   response: <id>\t<json>\n              (object or "null" — the same shapes
+//                                           the one-shot helper prints)
 // Read-only captures are also served: `--shot <x> <y>` returns the window at a
 // point with an inline base64 JPEG, and `--region=x,y,w,h` returns a base64
 // JPEG of a screen rect — both as single-line JSON (base64 has no tab/newline),
@@ -958,8 +907,6 @@ static bool captureWindowToFile(HWND hwnd, const wchar_t* filePath)
 static std::string serveHandleTokens(const std::vector<std::string>& tokens)
 {
     WindowExclusions excluded;
-    std::vector<POINT> points;
-    bool hasPoints = false;
     bool wantShot = false;
     DWORD shotPid = 0;
     long coords[2] = {0, 0};
@@ -988,12 +935,6 @@ static std::string serveHandleTokens(const std::vector<std::string>& tokens)
         }
         if (parsePidArg(arg, shotPid))
         {
-            continue;
-        }
-        if (strncmp(arg, "--points=", 9) == 0)
-        {
-            parsePointsArg(arg, points);
-            hasPoints = true;
             continue;
         }
         if (strncmp(arg, "--exclude-pids=", 15) == 0)
@@ -1031,21 +972,6 @@ static std::string serveHandleTokens(const std::vector<std::string>& tokens)
         pt.x = coords[0];
         pt.y = coords[1];
         return windowShotJsonAtPoint(pt, excluded);
-    }
-
-    if (hasPoints)
-    {
-        std::string out = "[";
-        for (size_t i = 0; i < points.size(); ++i)
-        {
-            if (i)
-            {
-                out += ",";
-            }
-            out += windowInfoJsonAtPoint(points[i], excluded);
-        }
-        out += "]";
-        return out;
     }
 
     if (coordCount == 2)
@@ -1108,7 +1034,7 @@ int main(int argc, char* argv[])
     // HiDPI; no-op at 100% scale.
     enableDpiAwareness();
 
-    // Persistent daemon: serve point/batch queries over stdin/stdout instead
+    // Persistent daemon: serve point queries over stdin/stdout instead
     // of one CreateProcess per call (Windows spawn + AV scan is the hot cost).
     if (argc >= 2 && strcmp(argv[1], "--serve") == 0)
     {
@@ -1172,41 +1098,6 @@ int main(int argc, char* argv[])
         pt.y = coords[1];
         printf("%s\n", windowShotJsonAtPoint(pt, shotExcluded).c_str());
         return 0;
-    }
-
-    // Batch mode: `window_info.exe --points=x1,y1;x2,y2;...` answers many
-    // points from a single process invocation, printing a JSON array (one
-    // entry per point in order; null when no window is found). Mirrors the
-    // macOS helper's batch mode; used by the morph-visibility gate so a
-    // transition probes N sample points with one spawn instead of N.
-    {
-        WindowExclusions batchExcluded;
-        std::vector<POINT> batchPoints;
-        bool hasPoints = false;
-        for (int i = 1; i < argc; ++i)
-        {
-            parseExcludePidsArg(argv[i], batchExcluded.pids);
-            parseExcludeTitlePrefixesArg(argv[i], batchExcluded.titlePrefixes);
-            if (parsePointsArg(argv[i], batchPoints))
-            {
-                hasPoints = true;
-            }
-        }
-        if (hasPoints)
-        {
-            std::string out = "[";
-            for (size_t i = 0; i < batchPoints.size(); ++i)
-            {
-                if (i)
-                {
-                    out += ",";
-                }
-                out += windowInfoJsonAtPoint(batchPoints[i], batchExcluded);
-            }
-            out += "]";
-            printf("%s\n", out.c_str());
-            return 0;
-        }
     }
 
     if (argc < 3)

@@ -247,7 +247,7 @@ export const upsertPublicIntegration = internalMutation({
     ) {
       throw new ConvexError({
         code: "INVALID_ARGUMENT",
-        message: "Only matching Composio Store integrations can be published.",
+        message: "Only matching Composio integrations can be published.",
       });
     }
     if (args.actions.length === 0) {

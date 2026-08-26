@@ -413,7 +413,7 @@ const assistantRowEqual = (
   (a.voiceSession?.durationMs ?? null) ===
     (b.voiceSession?.durationMs ?? null) &&
   // Compare a stable key for the custom slot (the ReactNode itself
-  // changes identity on each render of the Store thread). Surfaces
+  // changes identity on each render of the host surface). Surfaces
   // that mount a custom slot must supply a key derived from the
   // payload, not from the rendered node.
   (a.customSlotKey ?? null) === (b.customSlotKey ?? null);

@@ -42,9 +42,6 @@ const broadcastToWindowsAndMobile = (context, channel, payload, mobilePayload = 
 export const broadcastAuthCallback = (context, url) => {
     broadcastToWindowsAndMobile(context, "auth:callback", { url });
 };
-export const broadcastSocialInvite = (context, url) => {
-    broadcastToWindows(context, "social:invite", { url });
-};
 export const broadcastLocalChatUpdated = (context, payload) => {
     broadcastToWindowsAndMobile(context, "localChat:updated", payload ?? null);
 };
@@ -105,9 +102,6 @@ export const createBootstrapContext = (config) => {
         getMobileBroadcast: () => getMobileBroadcast(context),
         onAuthCallback: (url) => {
             broadcastAuthCallback(context, url);
-        },
-        onSocialInvite: (url) => {
-            broadcastSocialInvite(context, url);
         },
     });
     registerBootstrapProcessCleanups(context);

@@ -10,9 +10,7 @@
  */
 import { Check, X } from "@/ui/icons";
 import { getPlatform } from "@/platform/electron/platform";
-import { DEFAULT_PET_ID } from "@/shell/pet/built-in-pets";
-import { useSelectedPet } from "@/shell/pet/pet-catalog-context";
-import { useSelectedPetId } from "@/shell/pet/pet-preferences";
+import { BUILT_IN_PET } from "@/shell/pet/built-in-pet";
 import { PetSprite } from "@/shell/pet/PetSprite";
 import { Keychord } from "./Keychord";
 import { useChoreography, useTypedText, } from "./demo/use-choreography";
@@ -50,8 +48,6 @@ const TALK_CUES = [
 export function OnboardingVoicePhase({ splitTransitionActive, onContinue, }) {
     const platform = getPlatform();
     const dictateKey = DICTATE_KEY_BY_PLATFORM[platform] ?? DICTATE_KEY_BY_PLATFORM.darwin;
-    const [selectedPetId] = useSelectedPetId(DEFAULT_PET_ID);
-    const pet = useSelectedPet(selectedPetId);
     const talk = useChoreography({ cues: TALK_CUES, active: true }).has;
     const dictate = useChoreography({ cues: DICTATE_CUES, active: true }).has;
     const typed = useTypedText(DICTATED_SENTENCE, dictate("type"), {
@@ -77,7 +73,7 @@ export function OnboardingVoicePhase({ splitTransitionActive, onContinue, }) {
               <div className="ovoice-talk__sprite" data-listening={listening || undefined}>
                 <span className="ovoice-talk__ring"/>
                 <span className="ovoice-talk__ring" data-late=""/>
-                {pet ? (<PetSprite spritesheetUrl={pet.spritesheetUrl} state="waving" size={128}/>) : null}
+                <PetSprite spritesheetUrl={BUILT_IN_PET.spritesheetUrl} state="waving" size={128}/>
               </div>
 
               <div className="ovoice-talk__exchange">

@@ -24,7 +24,6 @@ import type {
   HostRuntimeAuthRefreshResult,
   RuntimeAuthRefreshSource,
 } from "@stella/contracts/protocol";
-import { isSocialInviteDeepLink } from "./social-deep-links.js";
 
 const AUTH_CALLBACK_TOKEN_PATTERN = /^[A-Za-z0-9._~-]{8,2048}$/;
 const RUNTIME_AUTH_REFRESH_TIMEOUT_MS = 12_000;
@@ -58,19 +57,11 @@ type AuthServiceOptions = {
   sessionPartition: string;
   runnerTarget: PiRunnerTarget;
   onAuthCallback: (url: string) => void;
-  /**
-   * Social invite deep link (`stella://join/<code>`,
-   * `stella://add-friend/<username>`) arrived while the app was running.
-   * Cold-boot links sit in the pending buffer until the renderer pulls
-   * `social:consumePendingInvite`.
-   */
-  onSocialInvite?: (url: string) => void;
   onSecondInstanceFocus: () => void;
 };
 
 export class AuthService {
   private pendingAuthCallback: string | null = null;
-  private pendingSocialInvite: string | null = null;
   private pendingConvexUrl: string | null = null;
   private pendingConvexSiteUrl: string | null = null;
   private hostAuthAuthenticated = false;
@@ -597,31 +588,6 @@ export class AuthService {
     }
   }
 
-  /**
-   * `stella://join/<inviteCode>`, `stella://add-friend/<username>`, or
-   * `stella://store/<handle>/<packageId>` — the social/store deep links.
-   * Classification lives in `social-deep-links.ts` so the shapes are unit
-   * tested; anything unrecognized stays untrusted.
-   */
-  private isSocialInviteUrl(value: string) {
-    return isSocialInviteDeepLink(value, this.options.authProtocol);
-  }
-
-  private handleSocialInvite(url: string) {
-    // Same buffer-always semantics as the auth callback: the renderer-side
-    // handler pulls on mount (cold boot) and also listens live.
-    this.pendingSocialInvite = url;
-    if (app.isReady()) {
-      this.options.onSocialInvite?.(url);
-    }
-  }
-
-  consumePendingSocialInvite() {
-    const invite = this.pendingSocialInvite;
-    this.pendingSocialInvite = null;
-    return invite;
-  }
-
   stopAuthRefreshLoop() {
     const runner = this.options.runnerTarget.getRunner();
     this.hostHasConnectedAccount = false;
@@ -665,13 +631,6 @@ export class AuthService {
     if (!initialAuthUrl) {
       return;
     }
-    // Social invites get their own buffer: the auth and social renderer
-    // handlers pull independently, so a cold-boot invite must not be
-    // consumed (and dropped) by the auth pull.
-    if (this.isSocialInviteUrl(initialAuthUrl)) {
-      this.pendingSocialInvite = initialAuthUrl;
-      return;
-    }
     this.pendingAuthCallback = initialAuthUrl;
   }
 
@@ -683,10 +642,6 @@ export class AuthService {
 
   handleAuthCallback(url: string) {
     if (!url) {
-      return;
-    }
-    if (this.isSocialInviteUrl(url)) {
-      this.handleSocialInvite(url);
       return;
     }
     if (!this.isTrustedAuthCallbackUrl(url)) {

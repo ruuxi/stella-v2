@@ -10,11 +10,8 @@ import {
   enforceActionRateLimit,
 } from "../lib/rate_limits";
 import { requireBoundedString } from "../shared_validators";
+import { resolveEmojiPackR2Destination } from "../lib/emoji_pack_r2";
 
-const DEFAULT_BUCKET = "stella-emotes";
-const DEFAULT_PREFIX = "emoji-packs";
-const DEFAULT_PUBLIC_BASE =
-  "https://pub-58708621bfa94e3bb92de37cde354c0d.r2.dev";
 const CACHE_CONTROL = "public, max-age=31536000, immutable";
 const MAX_PACK_ID = 64;
 const SHEET_COUNT = 3;
@@ -62,9 +59,6 @@ const normalizeSha256 = (value: string, fieldName: string): string => {
   return normalized;
 };
 
-const normalizePrefix = (value: string | undefined): string =>
-  (value?.trim() || DEFAULT_PREFIX).replace(/^\/+|\/+$/g, "");
-
 const sha256Hex = (data: string): string =>
   createHash("sha256").update(data).digest("hex");
 
@@ -103,14 +97,7 @@ export const createUploadUrl = action({
     const accessKeyId = requireEnv("R2_ACCESS_KEY_ID");
     const secretAccessKey = requireEnv("R2_SECRET_ACCESS_KEY");
     const endpoint = requireEnv("R2_ENDPOINT");
-    const bucket =
-      process.env.R2_EMOJI_BUCKET?.trim() ||
-      process.env.R2_PETS_BUCKET?.trim() ||
-      DEFAULT_BUCKET;
-    const prefix = normalizePrefix(process.env.R2_EMOJI_PREFIX);
-    const publicBase = (
-      process.env.R2_PUBLIC_BASE_URL?.trim() || DEFAULT_PUBLIC_BASE
-    ).replace(/\/+$/, "");
+    const { bucket, publicBase, prefix } = resolveEmojiPackR2Destination();
     const uploadId = randomUUID();
     const ownerKey = sha256Hex(ownerId).slice(0, 24);
     const baseKey = `${prefix}/${ownerKey}/${packId}/${uploadId}`;

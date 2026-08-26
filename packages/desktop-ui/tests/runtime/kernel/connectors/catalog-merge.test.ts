@@ -28,7 +28,7 @@ const composioEntry = (
 describe("buildNativeConnectorCatalog server-catalog overlay", () => {
   it("keeps bundled entries when the server catalog only carries backend integrations", () => {
     // Regression: a server catalog with only a Composio entry must not
-    // evict Gmail — discovery could offer it while the Store/connect
+    // evict Gmail — discovery could offer it while the catalog/connect
     // paths (which pass the server catalog through) failed to resolve it.
     const catalog = buildNativeConnectorCatalog([
       composioEntry("notion", "Notion"),

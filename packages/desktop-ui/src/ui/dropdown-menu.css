@@ -31,7 +31,7 @@
   /* Contain momentum/overscroll so a rubber-band at the list edge doesn't
      bleed into the page behind the menu. */
   overscroll-behavior: contain;
-  /* Thin, app-consistent scrollbar (matches the sidebar/store lists). */
+  /* Thin, app-consistent scrollbar (matches the sidebar lists). */
   scrollbar-width: thin;
   scrollbar-color: var(--border-weak) transparent;
 }

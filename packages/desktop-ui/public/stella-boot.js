@@ -30,16 +30,6 @@
     root.setAttribute("data-platform", "mobile");
   }
 
-  try {
-    if (
-      window.sessionStorage &&
-      sessionStorage.getItem("stella:morph-reload") === "1"
-    ) {
-      root.dataset.stellaMorphReload = "true";
-      sessionStorage.removeItem("stella:morph-reload");
-    }
-  } catch (_error) {}
-
   var themeId = readStorage("stella-theme-id") || "pearl";
   var colorMode = readStorage("stella-color-mode") || "light";
   var resolvedColorMode = "light";

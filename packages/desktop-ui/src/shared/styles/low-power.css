@@ -113,9 +113,9 @@ html[data-low-power]
   animation: none !important;
 }
 
-/* NOTE: the store / social / display-sidebar empty-state illustrations
-   (CanvasIllustration, AppCreationIllustration, CollaborationIllustration,
-   Store/Media/Trash) are intentionally NOT throttled here. They're a handful
+/* NOTE: the display-sidebar empty-state illustrations
+   (CanvasIllustration, AppCreationIllustration, Media/Trash) are
+   intentionally NOT throttled here. They're a handful
    of GPU-composited transform/opacity keyframes inside one small bounded SVG —
    negligible cost even on the machines that trip this flag — and they already
    self-pause when off-screen / the tab is hidden (`svg[data-running="false"]`).

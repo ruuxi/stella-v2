@@ -7,7 +7,7 @@
  * propagating up through the shell to `__root.tsx`. The HMR accept handler
  * below catches the invalidation, recomputes the snapshot, and notifies
  * subscribers via `useSyncExternalStore` -- no full renderer reload, no
- * lost React state, no morph cover needed for the create-app case.
+ * lost React state for the create-app case.
  *
  * `ShellTopBarNav.tsx` reads via `useSyncExternalStore(subscribe, getSnapshot)`.
  *

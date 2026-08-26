@@ -28,7 +28,6 @@ import {
 } from "@/features/dictation/services/inworld-dictation";
 import { DOWNLOAD_LOCAL_DICTATION_ACTION } from "@/features/dictation/services/local-dictation-download";
 import { appendRollingLevel } from "@/features/dictation/rolling-levels";
-import { getClaimedDictationComposer } from "@/features/dictation/active-composer";
 import { showToast } from "@/ui/toast";
 import { SIGN_IN_TOAST_ACTION } from "@/shared/lib/auth-cta";
 import { useT } from "@/shared/i18n";
@@ -59,15 +58,6 @@ interface UseDictationOptions {
    * via ref so it always sees the post-transcript value.
    */
   onCommit?: () => void;
-  /**
-   * Optional claim id, used to multiplex dictation between the default
-   * chat composer (no `claimId`) and secondary composers (the Store
-   * side-panel composer, etc.). See `active-composer.ts` for the rule —
-   * a hook with a `claimId` only responds to toggle events when it
-   * currently holds the claim; a hook without one only responds when
-   * nobody holds it.
-   */
-  claimId?: string;
 }
 
 interface UseDictationResult {
@@ -107,7 +97,6 @@ export const useDictation = ({
   onError,
   onTranscriptCommitted,
   onCommit,
-  claimId,
 }: UseDictationOptions): UseDictationResult => {
   const t = useT();
   const [state, setState] = useState<DictationSessionState>("idle");
@@ -391,22 +380,6 @@ export const useDictation = ({
       const canHandle =
         !disabled || current === "listening" || current === "transcribing";
       if (!canHandle) return;
-      // Composer multiplexing: a secondary composer (e.g. Store side
-      // panel) claims dictation while its textarea is focused. The
-      // default chat composer (no `claimId`) gets the event only when
-      // nobody holds the claim. The claiming composer only responds
-      // while it holds the claim. While `listening`/`transcribing` we
-      // always finish on the SAME hook that started — otherwise a
-      // late blur would orphan the recording.
-      const claimedComposer = getClaimedDictationComposer();
-      const inFlight = current === "listening" || current === "transcribing";
-      if (!inFlight) {
-        if (claimId) {
-          if (claimedComposer !== claimId) return;
-        } else if (claimedComposer !== null) {
-          return;
-        }
-      }
       window.electronAPI?.dictation?.inAppStarted({ startId });
       if (action === "start") {
         if (current !== "listening" && current !== "transcribing") {
@@ -443,7 +416,7 @@ export const useDictation = ({
     };
     window.addEventListener(DICTATION_TOGGLE_EVENT, handler);
     return () => window.removeEventListener(DICTATION_TOGGLE_EVENT, handler);
-  }, [cancel, claimId, disabled, start, stop]);
+  }, [cancel, disabled, start, stop]);
 
   useEffect(() => {
     return () => {

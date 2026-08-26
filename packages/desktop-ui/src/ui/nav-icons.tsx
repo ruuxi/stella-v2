@@ -11,15 +11,6 @@ export const CustomHouse = ({ size = 18, className = "", ...props }: IconProps) 
   </svg>
 );
 
-export const CustomUsers = ({ size = 18, className = "", ...props }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`custom-icon icon-users ${className}`} {...props}>
-    <path className="users-p1" d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2" />
-    <circle className="users-p1" cx="9" cy="7" r="4" />
-    <path className="users-p2" d="M22 21v-2a4 4 0 00-3-3.87" />
-    <path className="users-p2" d="M16 3.13a4 4 0 010 7.75" />
-  </svg>
-);
-
 export const CustomLayout = ({ size = 18, className = "", ...props }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`custom-icon icon-layout ${className}`} {...props}>
     <rect className="layout-r1" x="3" y="3" width="18" height="18" rx="2" ry="2" />
@@ -55,25 +46,6 @@ export const CustomSettings = ({ size = 18, className = "", ...props }: IconProp
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`custom-icon icon-settings ${className}`} {...props}>
     <circle className="set-c" cx="12" cy="12" r="3" />
     <path className="set-p" d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
-  </svg>
-);
-
-export const CustomStore = ({ size = 18, className = "", ...props }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`custom-icon icon-store ${className}`} {...props}>
-    <path className="store-bag" d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" />
-    <line className="store-line" x1="3" y1="6" x2="21" y2="6" />
-    <path className="store-handle" d="M16 10a4 4 0 01-8 0" />
-  </svg>
-);
-
-export const CustomPet = ({ size = 18, className = "", ...props }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`custom-icon icon-pet ${className}`} {...props}>
-    <circle className="pet-paw1" cx="11" cy="4.5" r="1.6" />
-    <circle className="pet-paw2" cx="17.5" cy="7.5" r="1.6" />
-    <circle className="pet-paw3" cx="20" cy="13" r="1.6" />
-    <circle className="pet-paw4" cx="6.5" cy="7.5" r="1.6" />
-    <circle className="pet-paw5" cx="4" cy="13" r="1.6" />
-    <path className="pet-pad" d="M12 21c-3.3 0-6-2-6-4.6 0-2.6 2.7-4.4 6-4.4s6 1.8 6 4.4c0 2.6-2.7 4.6-6 4.6z" />
   </svg>
 );
 

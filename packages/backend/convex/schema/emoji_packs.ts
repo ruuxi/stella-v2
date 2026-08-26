@@ -15,13 +15,12 @@ const emojiPackFields = {
   tags: v.array(v.string()),
   prompt: v.optional(v.string()),
   coverEmoji: v.string(),
-  /** Tiny single-emoji cover used by the Store grid so we don't need to
-   *  fetch the full sheet just to render a card. */
+  /** Tiny single-emoji cover used by pack grids so we don't need to fetch
+   *  the full sheet just to render a card. */
   coverUrl: v.optional(v.string()),
   sheetUrls: v.array(v.string()),
   visibility: emoji_pack_visibility_validator,
   searchText: v.string(),
-  authorUsername: v.optional(v.string()),
   installCount: v.optional(v.number()),
   createdAt: v.number(),
   updatedAt: v.number(),

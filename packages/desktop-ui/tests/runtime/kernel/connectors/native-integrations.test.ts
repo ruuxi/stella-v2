@@ -35,7 +35,7 @@ const backendEntry = (
   catalogToolCount: 12,
   availability: "ready",
   provider: "backend-composio",
-  description: `${name} Store integration.`,
+  description: `${name} native integration.`,
   connectable: true,
   backendConnector: { type: "composio", toolkit: id.toUpperCase() },
 });
@@ -143,7 +143,7 @@ describe("native integration execution policy", () => {
     ]);
   });
 
-  it("keeps backend-only Store connectors enableable and writes their action skill", async () => {
+  it("keeps backend-only connectors enableable and writes their action skill", async () => {
     const root = createRoot();
     const entry = backendEntry("backend_only", "Backend Only");
     const enabled = await enableNativeConnector(root, entry.id, "store", {}, [

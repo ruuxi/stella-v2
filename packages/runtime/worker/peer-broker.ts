@@ -180,9 +180,8 @@ export class WorkerPeerBroker {
    * Outgoing request to "the host." We pick the most-recently attached
    * peer as authoritative; if no peer is attached, wait briefly for one.
    * Mid-call disconnect retries are opt-in because most host callbacks
-   * should fail quickly during bootstrap or tool work. Morph transitions
-   * opt in because they are specifically meant to bridge an Electron
-   * restart gap.
+   * should fail quickly during bootstrap or tool work. Callers that are
+   * specifically meant to bridge an Electron restart gap opt in.
    */
   async request<TResult = unknown>(
     method: string,

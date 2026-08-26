@@ -90,12 +90,6 @@ export const createBootstrapServices = (options) => {
             state.windowManager?.showWindow();
             options.onAuthCallback(url);
         },
-        onSocialInvite: (url) => {
-            // An invite click means the user is heading for the app — surface it
-            // before broadcasting so the confirm dialog is actually visible.
-            state.windowManager?.showWindow();
-            options.onSocialInvite(url);
-        },
         onSecondInstanceFocus: () => {
             state.windowManager?.getFullWindow()?.focus();
         },

@@ -29,7 +29,7 @@ const baseCatalog: ToolMetadata[] = [
   },
   {
     name: "connector_status",
-    description: "Check whether a Stella Store connector is connected.",
+    description: "Check whether a Stella connector is connected.",
     parameters: {
       type: "object",
       properties: { connector: { type: "string" } },
@@ -113,7 +113,7 @@ describe("demoted tool catalog (createPiTools)", () => {
       (tool) => tool.name === "connector_status",
     );
     expect(connectorStatus?.description).toBe(
-      "Check whether a Stella Store connector is connected.",
+      "Check whether a Stella connector is connected.",
     );
     expect(connectorStatus?.parameters).toMatchObject({
       required: ["connector"],

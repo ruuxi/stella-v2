@@ -130,15 +130,8 @@ const buildSearchText = (args: {
   description?: string;
   tags: string[];
   prompt?: string;
-  authorUsername?: string;
 }): string =>
-  [
-    args.displayName,
-    args.description ?? "",
-    ...args.tags,
-    args.prompt ?? "",
-    args.authorUsername ?? "",
-  ]
+  [args.displayName, args.description ?? "", ...args.tags, args.prompt ?? ""]
     .map((part) => part.trim())
     .filter(Boolean)
     .join(" ")
@@ -326,10 +319,6 @@ export const createGeneratedPack = internalMutation({
         message: "An emoji pack with this ID already exists.",
       });
     }
-    const profile: { username: string } = await ctx.runMutation(
-      internal.social.profiles.ensureProfileForOwnerInternal,
-      { ownerId },
-    );
     const displayName = normalizeRequiredText(
       args.displayName,
       "displayName",
@@ -346,7 +335,6 @@ export const createGeneratedPack = internalMutation({
       ? normalizeUrl(args.coverUrl, "coverUrl")
       : undefined;
     const sheetUrls = normalizeSheetUrls(args.sheetUrls);
-    const authorUsername = profile.username.trim().toLowerCase();
     const now = Date.now();
     const id: Id<"emoji_packs"> = await ctx.db.insert("emoji_packs", {
       ownerId,
@@ -364,16 +352,14 @@ export const createGeneratedPack = internalMutation({
         description,
         tags: [],
         prompt,
-        authorUsername,
       }),
-      ...(authorUsername ? { authorUsername } : {}),
       installCount: 0,
       createdAt: now,
       updatedAt: now,
     });
     await ctx.scheduler.runAfter(
       0,
-      internal.data.store_asset_metadata.enrichEmojiPack,
+      internal.data.asset_metadata.enrichEmojiPack,
       { packId: id },
     );
     const row: Doc<"emoji_packs"> | null = await ctx.db.get(id);

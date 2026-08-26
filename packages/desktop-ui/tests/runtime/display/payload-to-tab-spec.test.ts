@@ -113,14 +113,14 @@ describe("payloadToTabSpec", () => {
     const payload: DisplayPayload = {
       kind: "url",
       url: "http://127.0.0.1:53121/",
-      title: "Social",
-      tabId: "social:abc123",
+      title: "Demo",
+      tabId: "userApp:abc123",
       tooltip: "http://127.0.0.1:53121/",
     };
     const spec = payloadToTabSpec(payload);
-    expect(spec.id).toBe("social:abc123");
+    expect(spec.id).toBe("userApp:abc123");
     expect(spec.kind).toBe("url");
-    expect(spec.title).toBe("Social");
+    expect(spec.title).toBe("Demo");
     expect(spec.tooltip).toBe("http://127.0.0.1:53121/");
   });
 

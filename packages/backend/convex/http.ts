@@ -10,7 +10,6 @@ import { registerDesktopReleaseRoutes } from "./http_routes/desktop_releases";
 import { registerMediaRoutes } from "./http_routes/media";
 import { registerMobileRoutes } from "./http_routes/mobile";
 import { registerNativeOAuthRoutes } from "./http_routes/native_oauth";
-import { registerPetRoutes } from "./http_routes/pets";
 
 import { registerMusicRoutes } from "./http_routes/music";
 import { registerStripeRoutes } from "./http_routes/stripe";
@@ -63,7 +62,6 @@ registerMusicRoutes(http);
 registerMediaRoutes(http);
 registerMobileRoutes(http);
 registerNativeOAuthRoutes(http);
-registerPetRoutes(http);
 registerVoiceRoutes(http);
 registerDictationRoutes(http);
 registerXRoutes(http);

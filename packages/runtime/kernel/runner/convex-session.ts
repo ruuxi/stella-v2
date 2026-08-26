@@ -117,16 +117,6 @@ export const createConvexSession = (
     }
   };
 
-  const ensureStoreClient = (): ConvexClient => {
-    const client = ensureConvexClient();
-    if (!client) {
-      throw new Error(
-        "Not connected to Convex. Sign in or set STELLA_CONVEX_URL.",
-      );
-    }
-    return client;
-  };
-
   const setConvexUrl = (value: string | null) => {
     if (!process.env.STELLA_CONVEX_URL) {
       const nextConvexDeploymentUrl = sanitizeConvexDeploymentUrl(value);
@@ -208,7 +198,6 @@ export const createConvexSession = (
   return {
     disposeConvexClient,
     ensureConvexClient,
-    ensureStoreClient,
     ensureStellaSiteReady,
     setConvexUrl,
     setConvexSiteUrl,

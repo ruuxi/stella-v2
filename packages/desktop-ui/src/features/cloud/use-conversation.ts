@@ -137,6 +137,21 @@ const newClientMsgId = (): string =>
     ? crypto.randomUUID()
     : `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 
+export const cloudTurnStartArgs = (
+  clientMsgId: string,
+  conversationId: string | null,
+  submission: PendingCloudTurnSubmission,
+) => ({
+  prompt: submission.prompt,
+  clientMsgId,
+  ...(conversationId ? { conversationId } : {}),
+  ...(submission.locale ? { locale: submission.locale } : {}),
+  ...(submission.imagePaths.length
+    ? { attachments: [...submission.imagePaths] }
+    : {}),
+  ...(submission.execution ? { execution: submission.execution } : {}),
+});
+
 export const useConversation = (
   conversationId: string | null,
   /** Applied to the prompt before it is sent (drive attachments, etc.). */
@@ -223,22 +238,10 @@ export const useConversation = (
       // the first mutation so an idempotent retry cannot change its payload.
       // The extension filter is only a hint — the server re-checks the stored
       // content type before signing anything.
-      const selectedExecution =
-        getCloudExecutionSelectionSnapshot() ?? cloudEngine?.execution;
       try {
-        const result = await startTurn({
-          prompt: submission.prompt,
-          clientMsgId,
-          ...(conversationId ? { conversationId } : {}),
-          // The reply-language hint; English sends nothing (default behavior).
-          ...(locale !== "en" ? { locale } : {}),
-          ...(submission.imagePaths.length
-            ? { attachments: [...submission.imagePaths] }
-            : {}),
-          // An explicit selection makes a picker change apply to the next
-          // message even when this conversation already has a durable route.
-          ...(selectedExecution ? { execution: selectedExecution } : {}),
-        });
+        const result = await startTurn(
+          cloudTurnStartArgs(clientMsgId, conversationId, submission),
+        );
         pendingPrompts.bind(
           accountScope,
           clientMsgId,
@@ -256,14 +259,7 @@ export const useConversation = (
         );
       }
     },
-    [
-      accountScope,
-      startTurn,
-      conversationId,
-      onSent,
-      locale,
-      cloudEngine?.execution,
-    ],
+    [accountScope, startTurn, conversationId, onSent],
   );
 
   const send = useCallback(
@@ -272,6 +268,8 @@ export const useConversation = (
       if (!text) return;
       const clientMsgId = newClientMsgId();
       const attachments = cloudAttachmentsStore.getSnapshot();
+      const selectedExecution =
+        getCloudExecutionSelectionSnapshot() ?? cloudEngine?.execution ?? null;
       const submission: PendingCloudTurnSubmission = {
         prompt: decoratePrompt(text, attachments),
         imagePaths: attachments
@@ -279,6 +277,8 @@ export const useConversation = (
           .slice(0, 4)
           .map((entry) => entry.path),
         attachments,
+        locale: locale !== "en" ? locale : null,
+        execution: selectedExecution ? { ...selectedExecution } : null,
       };
       pendingPrompts.add(
         accountScope,
@@ -289,7 +289,14 @@ export const useConversation = (
       );
       await dispatch(clientMsgId, submission);
     },
-    [accountScope, conversationId, decoratePrompt, dispatch],
+    [
+      accountScope,
+      cloudEngine?.execution,
+      conversationId,
+      decoratePrompt,
+      dispatch,
+      locale,
+    ],
   );
 
   const retrySend = useCallback(

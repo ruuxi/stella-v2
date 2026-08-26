@@ -12,6 +12,11 @@ import {
   localCloudTaskOverlay,
   shouldUseLocalCloudOverlay,
 } from "../../../src/features/cloud/use-cloud-chat-bridge";
+import { cloudTurnStartArgs } from "../../../src/features/cloud/use-conversation";
+import {
+  publishCloudExecutionSelection,
+  resetCloudExecutionSelectionForTests,
+} from "../../../src/features/cloud/cloud-execution-store";
 
 const userRecord = (
   seq: number,
@@ -33,6 +38,8 @@ const emptySubmission = (prompt: string) => ({
   prompt,
   imagePaths: [] as string[],
   attachments: [],
+  locale: null,
+  execution: null,
 });
 const SOURCE_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -42,6 +49,7 @@ const SOURCE_ROOT = path.resolve(
 afterEach(() => {
   for (const id of pendingIds) pendingPrompts.drop(TEST_ACCOUNT_SCOPE, id);
   pendingIds.clear();
+  resetCloudExecutionSelectionForTests();
 });
 
 describe("cloud chat bridge authority", () => {
@@ -125,6 +133,13 @@ describe("cloud chat bridge authority", () => {
       attachments: [
         { path: "images/input.png", name: "input.png", sizeBytes: 42 },
       ],
+      locale: "fr",
+      execution: {
+        engine: "openai-codex",
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "high",
+      } as const,
     };
     pendingPrompts.add(
       TEST_ACCOUNT_SCOPE,
@@ -156,6 +171,46 @@ describe("cloud chat bridge authority", () => {
       .find((entry) => entry.clientMsgId === clientMsgId);
     expect(retained?.error).toBeNull();
     expect(retained?.submission).toBe(submission);
+  });
+
+  test("retries the same client message with frozen locale and execution", () => {
+    const submission = {
+      prompt: "frozen prompt",
+      imagePaths: ["images/input.png"],
+      attachments: [
+        { path: "images/input.png", name: "input.png", sizeBytes: 42 },
+      ],
+      locale: "fr",
+      execution: {
+        engine: "openai-codex",
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "high",
+      } as const,
+    };
+    const firstAttempt = cloudTurnStartArgs(
+      "client-frozen",
+      "conversation-1",
+      submission,
+    );
+
+    publishCloudExecutionSelection({
+      engine: "stella",
+      provider: "stella",
+      model: "stella/standard",
+      reasoningEffort: "default",
+    });
+
+    expect(
+      cloudTurnStartArgs("client-frozen", "conversation-1", submission),
+    ).toEqual(firstAttempt);
+    expect(firstAttempt).toMatchObject({
+      clientMsgId: "client-frozen",
+      conversationId: "conversation-1",
+      locale: "fr",
+      execution: submission.execution,
+      attachments: ["images/input.png"],
+    });
   });
 
   test("projects pending prompts and live deltas without a second durable transcript", () => {
@@ -239,6 +294,10 @@ describe("cloud chat bridge authority", () => {
     expect(root).toContain("activeRouteIntentRef.current !== routeIntent");
     expect(root).toContain(
       "retireCloudConversationClientAuthority(accountScope)",
+    );
+    expect(root).toContain("retireCloudExecutionClientAuthority(accountScope)");
+    expect(root).toContain(
+      "ownershipMigrationRetryRef.current !== operation",
     );
     expect(topbar).toContain("activeAccountScopeRef.current !== accountScope");
   });

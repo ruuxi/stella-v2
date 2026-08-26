@@ -27,6 +27,7 @@ import {
   type ConversationSocketEvent,
   type SocketStatus,
 } from "./conversation-socket";
+import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { CloudAttachment } from "./cloud-composer-store";
 
 export type PendingCloudTurnSubmission = {
@@ -36,6 +37,10 @@ export type PendingCloudTurnSubmission = {
   imagePaths: readonly string[];
   /** Immutable composer snapshot used for guarded post-success clearing. */
   attachments: readonly CloudAttachment[];
+  /** Frozen reply-language hint; null preserves the API's default behavior. */
+  locale: string | null;
+  /** Frozen explicit provider/model route for idempotent retries. */
+  execution: CloudExecutionSelection | null;
 };
 
 export type PendingPrompt = {

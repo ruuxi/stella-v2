@@ -30,6 +30,14 @@ const __dirname = import.meta.dirname;
 // app.isPackaged is the authority. Inherited environment variables must never
 // turn a signed build back into a Vite client.
 const isDev = !app.isPackaged;
+// The dev/harness-only cloud-builder staging override must never survive into a
+// signed build. Publish the packaging state for the runtime's override guard and
+// scrub any inherited override so a packaged app can never route conversations
+// through a development staging worker.
+process.env.STELLA_PACKAGED = app.isPackaged ? "1" : "0";
+if (app.isPackaged) {
+  delete process.env.STELLA_DEV_CLOUD_BUILDER_URL;
+}
 // macOS derives safeStorage's Keychain service from app.name. Keep unpackaged
 // v2 development in its own namespace while v1 remains installed under
 // "Stella Safe Storage". Signed production builds retain the clean name.

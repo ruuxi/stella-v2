@@ -8,6 +8,13 @@ import {
 
 const DEV_SERVER_URL =
   process.env.STELLA_DEV_SERVER_URL?.trim() || "http://127.0.0.1:57314";
+// Standard development is cloud-canonical: route the conversation journal to the
+// isolated dev/staging cloud-builder Durable Object, rather than letting shared
+// dev Convex send it to cloud-builder-dev. Development-only and overridable; the
+// Electron bootstrap scrubs this in packaged builds so it can never ship.
+const DEV_CLOUD_BUILDER_URL =
+  process.env.STELLA_DEV_CLOUD_BUILDER_URL?.trim() ||
+  "https://stella-v2-cloud-builder-staging.lolruuxi.workers.dev";
 const START_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 100;
 
@@ -61,6 +68,8 @@ const child = spawn(
       ...devEnvironment,
       NODE_ENV: "development",
       STELLA_DEV_SERVER_URL: DEV_SERVER_URL,
+      STELLA_DEV_CLOUD_BUILDER_URL: DEV_CLOUD_BUILDER_URL,
+      STELLA_PACKAGED: "0",
     },
     stdio: "inherit",
     windowsHide: true,

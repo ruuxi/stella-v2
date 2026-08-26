@@ -5,6 +5,7 @@ import {
   createCloudThreadController,
 } from "./cloud-spawn-dispatch.js";
 import { createCloudTranscriptWriter } from "./cloud-transcript-write.js";
+import { resolveCloudBuilderOverride } from "./cloud-builder-override.js";
 import { createToolHost } from "../tools/host.js";
 import { HookEmitter } from "../extensions/hook-emitter.js";
 import {
@@ -485,6 +486,12 @@ export const createRunnerContext = ({
   const envConvexDeploymentUrl = sanitizeConvexDeploymentUrl(
     process.env.STELLA_CONVEX_URL ?? null,
   );
+  // Development/harness-only cloud-builder origin override. Throws early (fail
+  // visible) if present in a packaged build or malformed; null otherwise.
+  const cloudBuilderOverrideOrigin = resolveCloudBuilderOverride({
+    overrideUrl: process.env.STELLA_DEV_CLOUD_BUILDER_URL,
+    packaged: process.env.STELLA_PACKAGED,
+  });
 
   const context = {} as RunnerContext;
   const hookEmitter = new HookEmitter();
@@ -567,6 +574,9 @@ export const createRunnerContext = ({
    */
   let cloudRealtime: { baseUrl: string | null; atMs: number } | null = null;
   const cloudRealtimeBaseUrl = async (): Promise<string | null> => {
+    // A dev/harness override routes the conversation journal to an isolated
+    // staging cloud-builder without repointing shared dev Convex.
+    if (cloudBuilderOverrideOrigin) return cloudBuilderOverrideOrigin;
     const ttlMs = cloudRealtime?.baseUrl ? 5 * 60_000 : 30_000;
     if (cloudRealtime && Date.now() - cloudRealtime.atMs < ttlMs) {
       return cloudRealtime.baseUrl;

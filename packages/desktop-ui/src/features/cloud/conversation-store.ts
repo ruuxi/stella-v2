@@ -8,9 +8,11 @@
  * second copy would be a second authority.
  *
  * Two stores, on purpose:
- *  - `conversationStore(id)` is per conversation and owns its socket.
- *  - `pendingPrompts` is global, because the very first prompt of a session is
- *    sent before any conversation exists to file it under.
+ *  - `conversationStore(id, accountScope)` is per owner + conversation and
+ *    owns its socket.
+ *  - `pendingPrompts` is account-scoped global state, because the very first
+ *    prompt of a session is sent before any conversation exists to file it
+ *    under.
  */
 
 import { getConvexToken } from "@/global/auth/services/auth-token";
@@ -25,8 +27,20 @@ import {
   type ConversationSocketEvent,
   type SocketStatus,
 } from "./conversation-socket";
+import type { CloudAttachment } from "./cloud-composer-store";
+
+export type PendingCloudTurnSubmission = {
+  /** Exact model-visible prompt; retries must not redecorate it. */
+  prompt: string;
+  /** Exact image paths sent with the idempotent mutation. */
+  imagePaths: readonly string[];
+  /** Immutable composer snapshot used for guarded post-success clearing. */
+  attachments: readonly CloudAttachment[];
+};
 
 export type PendingPrompt = {
+  /** Immutable auth subject scope that owns this optimistic row. */
+  accountScope: string;
   clientMsgId: string;
   text: string;
   createdAtMs: number;
@@ -36,6 +50,8 @@ export type PendingPrompt = {
   turnId: string | null;
   /** Set when the send failed; the row stays visible with a readable reason. */
   error: string | null;
+  /** Frozen wire payload reused byte-for-byte by Retry. */
+  submission: PendingCloudTurnSubmission;
 };
 
 export type LiveStream = {
@@ -54,6 +70,10 @@ export type ConversationState = {
   status: SocketStatus;
   statusMessage: string | null;
   statusRetryable: boolean;
+  /** Durable journal generation reported by the DO; null before `ready`. */
+  epoch: number | null;
+  /** DO head observed by the socket, including opaque/skipped records. */
+  headSeq: number;
   /** Ascending by `seq`, contiguous. */
   records: readonly JournalRecord[];
   live: LiveStream | null;
@@ -74,6 +94,8 @@ const initialState = (conversationId: string): ConversationState => ({
   status: "idle",
   statusMessage: null,
   statusRetryable: true,
+  epoch: null,
+  headSeq: -1,
   records: EMPTY_RECORDS,
   live: null,
   title: "",
@@ -109,57 +131,77 @@ export const pendingPrompts = {
   getSnapshot(): readonly PendingPrompt[] {
     return pending;
   },
-  add(clientMsgId: string, text: string, conversationId: string | null): void {
+  add(
+    accountScope: string,
+    clientMsgId: string,
+    text: string,
+    conversationId: string | null,
+    submission: PendingCloudTurnSubmission,
+  ): void {
     emitPending([
       ...pending,
       {
+        accountScope,
         clientMsgId,
         text,
         createdAtMs: Date.now(),
         conversationId,
         turnId: null,
         error: null,
+        submission,
       },
     ]);
   },
   /** The mutation answered: we now know where the prompt landed. */
-  bind(clientMsgId: string, conversationId: string, turnId: string): void {
+  bind(
+    accountScope: string,
+    clientMsgId: string,
+    conversationId: string,
+    turnId: string,
+  ): void {
     emitPending(
       pending.map((entry) =>
-        entry.clientMsgId === clientMsgId
+        entry.accountScope === accountScope && entry.clientMsgId === clientMsgId
           ? { ...entry, conversationId, turnId }
           : entry,
       ),
     );
   },
-  fail(clientMsgId: string, message: string): void {
+  fail(accountScope: string, clientMsgId: string, message: string): void {
     emitPending(
       pending.map((entry) =>
-        entry.clientMsgId === clientMsgId
+        entry.accountScope === accountScope && entry.clientMsgId === clientMsgId
           ? { ...entry, error: message }
           : entry,
       ),
     );
   },
-  drop(clientMsgId: string): void {
-    const next = pending.filter((entry) => entry.clientMsgId !== clientMsgId);
+  drop(accountScope: string, clientMsgId: string): void {
+    const next = pending.filter(
+      (entry) =>
+        entry.accountScope !== accountScope ||
+        entry.clientMsgId !== clientMsgId,
+    );
     if (next.length !== pending.length) emitPending(next);
   },
   /** Re-arms a failed echo for another attempt. */
-  clearError(clientMsgId: string): void {
+  clearError(accountScope: string, clientMsgId: string): void {
     emitPending(
       pending.map((entry) =>
-        entry.clientMsgId === clientMsgId ? { ...entry, error: null } : entry,
+        entry.accountScope === accountScope && entry.clientMsgId === clientMsgId
+          ? { ...entry, error: null }
+          : entry,
       ),
     );
   },
   /** Retires any echo the given canonical record supersedes. */
-  resolve(record: JournalRecord): void {
+  resolve(accountScope: string, record: JournalRecord): void {
     if (!pending.length) return;
     const clientMsgId =
       record.kind === "message" ? record.clientMsgId : undefined;
     const next = pending.filter(
       (entry) =>
+        entry.accountScope !== accountScope ||
         !(
           (clientMsgId !== undefined && entry.clientMsgId === clientMsgId) ||
           (entry.turnId !== null && entry.turnId === record.turnId)
@@ -169,6 +211,10 @@ export const pendingPrompts = {
   },
   getServerSnapshot(): readonly PendingPrompt[] {
     return EMPTY_PENDING;
+  },
+  retainAccountScope(accountScope: string): void {
+    const next = pending.filter((entry) => entry.accountScope === accountScope);
+    if (next.length !== pending.length) emitPending(next);
   },
 };
 
@@ -181,6 +227,7 @@ const TEARDOWN_GRACE_MS = 5_000;
 
 class ConversationStore {
   readonly conversationId: string;
+  readonly accountScope: string;
   private state: ConversationState;
   private readonly listeners = new Set<() => void>();
   private socket: ConversationSocket | null = null;
@@ -189,8 +236,9 @@ class ConversationStore {
   private olderTimer: ReturnType<typeof setTimeout> | null = null;
   private teardownTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(conversationId: string) {
+  constructor(conversationId: string, accountScope: string) {
     this.conversationId = conversationId;
+    this.accountScope = accountScope;
     this.state = initialState(conversationId);
   }
 
@@ -251,6 +299,40 @@ class ConversationStore {
 
   retry(): void {
     this.socket?.retryNow();
+  }
+
+  /**
+   * Drops the renderer projection after a successful epoch-changing mutation.
+   * Reconnect from an empty cursor so the next paint can only come from the
+   * new canonical generation; stale rows are never kept as a local fallback.
+   */
+  refreshAfterCanonicalMutation(): void {
+    this.socket?.stop();
+    this.socket = null;
+    this.patch({
+      status: "idle",
+      statusMessage: null,
+      statusRetryable: true,
+      epoch: null,
+      headSeq: -1,
+      records: EMPTY_RECORDS,
+      live: null,
+      hasOlder: false,
+      loadingOlder: false,
+      olderNotice: null,
+    });
+    this.ensureSocket();
+  }
+
+  /** Immediately retires an old auth subject's socket and rendered state. */
+  retireAuthority(): void {
+    this.socket?.stop();
+    this.socket = null;
+    this.baseUrl = null;
+    if (this.olderTimer) clearTimeout(this.olderTimer);
+    this.olderTimer = null;
+    this.state = initialState(this.conversationId);
+    this.emit();
   }
 
   /** False when there is no live socket to carry the stop through. */
@@ -345,20 +427,20 @@ class ConversationStore {
         const oldest = this.state.records[0]?.seq ?? event.ready.windowStartSeq;
         this.patch({
           title: event.ready.title,
+          epoch: event.ready.epoch,
+          headSeq: event.ready.headSeq,
           floorSeq: event.ready.floorSeq,
           hasOlder: oldest > event.ready.floorSeq,
-          ...(live
+          live: live
             ? {
-                live: {
-                  turnId: live.turnId,
-                  streamId: live.streamId,
-                  text: live.partialText,
-                  toolName: live.tools.at(-1)?.name ?? null,
-                  toolLabel: live.tools.at(-1)?.label ?? null,
-                  dropped: false,
-                },
+                turnId: live.turnId,
+                streamId: live.streamId,
+                text: live.partialText,
+                toolName: live.tools.at(-1)?.name ?? null,
+                toolLabel: live.tools.at(-1)?.label ?? null,
+                dropped: false,
               }
-            : {}),
+            : null,
         });
         return;
       }
@@ -372,6 +454,8 @@ class ConversationStore {
         this.patch({
           records: EMPTY_RECORDS,
           live: null,
+          epoch: null,
+          headSeq: -1,
           hasOlder: false,
           loadingOlder: false,
           olderNotice: null,
@@ -415,7 +499,7 @@ class ConversationStore {
     }
     let live = this.state.live;
     for (const record of fresh) {
-      pendingPrompts.resolve(record);
+      pendingPrompts.resolve(this.accountScope, record);
       if (!live) continue;
       // The committed row replaces its provisional bubble wholesale. Matching
       // on `turnId` as well as `streamId` is deliberate: a committed assistant
@@ -438,7 +522,12 @@ class ConversationStore {
       }
     }
     if (records[0] && records[0].seq > this.state.floorSeq) hasOlder = true;
-    this.patch({ records, hasOlder, live });
+    this.patch({
+      records,
+      hasOlder,
+      live,
+      headSeq: Math.max(this.state.headSeq, records.at(-1)?.seq ?? -1),
+    });
   }
 
   private prependRecords(incoming: readonly JournalRecord[]): void {
@@ -536,21 +625,39 @@ const stores = new Map<string, ConversationStore>();
 
 export const conversationStore = (
   conversationId: string,
+  accountScope: string,
 ): ConversationStore => {
-  const existing = stores.get(conversationId);
+  const storeKey = `${accountScope}\u0000${conversationId}`;
+  const existing = stores.get(storeKey);
   if (existing) return existing;
-  const created = new ConversationStore(conversationId);
-  stores.set(conversationId, created);
+  const created = new ConversationStore(conversationId, accountScope);
+  stores.set(storeKey, created);
   // Bounded: a session that hops conversations must not accumulate stores.
   // Only unwatched ones are forgotten — evicting a watched store would strand
   // its socket with no owner left to close it.
   if (stores.size > MAX_RETAINED_STORES) {
     for (const [id, store] of stores) {
       if (stores.size <= MAX_RETAINED_STORES) break;
-      if (id !== conversationId && store.idle) stores.delete(id);
+      if (id !== storeKey && store.idle) stores.delete(id);
     }
   }
   return created;
+};
+
+/**
+ * Called synchronously at the auth boundary. A socket authenticated for a
+ * previous subject must not remain warm or be reused when the same durable
+ * conversation id is transferred during anonymous account linking.
+ */
+export const retireCloudConversationClientAuthority = (
+  accountScope: string,
+): void => {
+  for (const [key, store] of stores) {
+    if (store.accountScope === accountScope) continue;
+    store.retireAuthority();
+    stores.delete(key);
+  }
+  pendingPrompts.retainAccountScope(accountScope);
 };
 
 export type { ConversationStore };

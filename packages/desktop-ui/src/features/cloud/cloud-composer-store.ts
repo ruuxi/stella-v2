@@ -47,6 +47,16 @@ export const cloudAttachmentsStore = {
   clear(): void {
     if (attachments.length) emitAttachments([]);
   },
+  /**
+   * Clears only the exact immutable attachment snapshot submitted with a
+   * completed mutation. A slow response must not erase files the user added
+   * to another tab or account while that request was in flight.
+   */
+  clearIfCurrent(expected: readonly CloudAttachment[]): boolean {
+    if (attachments !== expected) return false;
+    if (attachments.length) emitAttachments([]);
+    return true;
+  },
 };
 
 const EMPTY_ATTACHMENTS: readonly CloudAttachment[] = [];

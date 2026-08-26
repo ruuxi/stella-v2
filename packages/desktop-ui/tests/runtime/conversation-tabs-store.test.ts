@@ -1,18 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  CONVERSATION_TABS_STORAGE_KEY,
   conversationTabs,
+  conversationTabsStorageKey,
 } from "@/features/chat/services/conversation-tabs-store";
 import { uiState } from "@/platform/ui-state";
 
 const conversationId = (suffix: string): string => `${"0".repeat(25)}${suffix}`;
+const TEST_ACCOUNT_SCOPE = "better-auth:test-owner";
+const SECOND_ACCOUNT_SCOPE = "better-auth:second-owner";
 
 beforeEach(() => {
+  conversationTabs.setAccountScope(null);
+  conversationTabs.setAccountScope(TEST_ACCOUNT_SCOPE);
   conversationTabs.reset();
 });
 
 afterEach(() => {
   conversationTabs.reset();
+  conversationTabs.setAccountScope(SECOND_ACCOUNT_SCOPE);
+  conversationTabs.reset();
+  conversationTabs.setAccountScope(null);
   vi.restoreAllMocks();
 });
 
@@ -98,24 +105,26 @@ describe("conversationTabs", () => {
     conversationTabs.openConversation(first, "Hello");
 
     expect(conversationTabs.getSnapshot().tabs).toHaveLength(1);
-    expect(JSON.parse(uiState.getItem(CONVERSATION_TABS_STORAGE_KEY)!)).toEqual(
-      {
-        version: 1,
-        tabs: [{ conversationId: first, title: "Hello" }],
-      },
-    );
+    expect(
+      JSON.parse(
+        uiState.getItem(conversationTabsStorageKey(TEST_ACCOUNT_SCOPE))!,
+      ),
+    ).toEqual({
+      version: 1,
+      tabs: [{ conversationId: first, title: "Hello" }],
+    });
   });
 
   it("restores valid persisted tabs and rejects malformed entries", () => {
     const first = conversationId("A");
     uiState.setItem(
-      CONVERSATION_TABS_STORAGE_KEY,
+      conversationTabsStorageKey(TEST_ACCOUNT_SCOPE),
       JSON.stringify({
         version: 1,
         tabs: [
           { conversationId: first, title: " Restored  title " },
           { conversationId: first, title: "Duplicate" },
-          { conversationId: "not-a-conversation", title: "Invalid" },
+          { conversationId: "not:a:conversation", title: "Invalid" },
         ],
       }),
     );
@@ -125,9 +134,36 @@ describe("conversationTabs", () => {
       { conversationId: first, title: "Restored title" },
     ]);
 
-    uiState.setItem(CONVERSATION_TABS_STORAGE_KEY, "{bad json");
+    uiState.setItem(
+      conversationTabsStorageKey(TEST_ACCOUNT_SCOPE),
+      "{bad json",
+    );
     conversationTabs.reloadPersisted();
     expect(conversationTabs.getSnapshot().tabs).toEqual([]);
+  });
+
+  it("switches account snapshots atomically without exposing another owner's ids", () => {
+    const firstOwnerConversation = conversationId("A");
+    const secondOwnerConversation = conversationId("B");
+    conversationTabs.openConversation(firstOwnerConversation, "Owner one");
+
+    conversationTabs.setAccountScope(SECOND_ACCOUNT_SCOPE);
+    expect(conversationTabs.getSnapshot()).toEqual({
+      accountScope: SECOND_ACCOUNT_SCOPE,
+      tabs: [],
+    });
+    conversationTabs.openConversation(secondOwnerConversation, "Owner two");
+
+    conversationTabs.setAccountScope(TEST_ACCOUNT_SCOPE);
+    expect(conversationTabs.getSnapshot()).toEqual({
+      accountScope: TEST_ACCOUNT_SCOPE,
+      tabs: [
+        {
+          conversationId: firstOwnerConversation,
+          title: "Owner one",
+        },
+      ],
+    });
   });
 
   it("merges summary titles without opening inactive history rows", () => {
@@ -177,9 +213,9 @@ describe("conversationTabs", () => {
     ]);
 
     conversationTabs.replaceConversation(third, first, "Already open");
-    expect(conversationTabs.getSnapshot().tabs.map((tab) => tab.conversationId)).toEqual(
-      [first, third],
-    );
+    expect(
+      conversationTabs.getSnapshot().tabs.map((tab) => tab.conversationId),
+    ).toEqual([first, third]);
 
     conversationTabs.reset();
     conversationTabs.replaceConversation(null, first, "Fresh");
@@ -188,4 +224,3 @@ describe("conversationTabs", () => {
     ]);
   });
 });
-

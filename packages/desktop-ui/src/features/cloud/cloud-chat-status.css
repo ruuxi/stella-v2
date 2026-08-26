@@ -1,0 +1,44 @@
+.cloud-chat-status-tail {
+  display: grid;
+  gap: 8px;
+  width: min(100%, 42rem);
+  margin: 4px auto 0;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.68));
+  font-size: 12px;
+}
+
+.cloud-chat-status-tail__notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  border-radius: 10px;
+  background: var(--surface-secondary, rgba(255, 255, 255, 0.035));
+}
+
+.cloud-chat-status-tail__notice--error {
+  border-color: color-mix(in srgb, var(--danger, #ef6b6b) 35%, transparent);
+}
+
+.cloud-chat-status-tail__actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.cloud-chat-status-tail button {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cloud-chat-status-tail button:hover {
+  color: var(--text-primary, #fff);
+}

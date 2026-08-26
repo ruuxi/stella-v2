@@ -5,7 +5,10 @@ import { useChatMessages } from "@/context/use-chat-messages";
 import { StoreSidePanel } from "@/features/store/StoreSidePanel";
 import { TrashTabContent } from "./TrashTabContent";
 import { HomeLauncherTab } from "./HomeLauncherTab";
-import { displayTabs, useDisplayPanelExpanded } from "@/features/workspace-display/tab-store";
+import {
+  displayTabs,
+  useDisplayPanelExpanded,
+} from "@/features/workspace-display/tab-store";
 import { engineOverlay } from "./engine-overlay-store";
 import {
   CHAT_DISPLAY_TAB_ID,
@@ -62,6 +65,7 @@ function ChatDisplayTab({
       isLoadingOlder={chat.conversation.isLoadingOlder}
       isLoadingNewer={chat.conversation.isLoadingNewer}
       isInitialLoading={chat.conversation.isInitialLoading}
+      extraTail={chat.conversation.extraTail}
       onLoadOlder={chat.conversation.loadOlderMessages}
       onLoadNewer={chat.conversation.loadNewerMessages}
       onLoadLatest={chat.conversation.loadLatestMessages}

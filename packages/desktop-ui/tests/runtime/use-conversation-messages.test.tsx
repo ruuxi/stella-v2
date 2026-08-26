@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MessageRecord } from "@stella/contracts/local-chat";
 
 vi.mock("@/context/chat-store-context", () => ({
-  useChatStore: () => ({ storageMode: "local" }),
+  useChatStore: () => ({ isLocalStorage: true }),
 }));
 
 import {

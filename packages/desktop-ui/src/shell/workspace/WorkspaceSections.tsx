@@ -78,10 +78,8 @@ import {
   mergeAgentFileEvents,
 } from "@/features/workspace-display/agent-files";
 import { DisplayTabIcon } from "@/features/workspace-display/icons";
-import {
-  openAgentThreadTab,
-  openDisplayPayloadTab,
-} from "@/features/workspace-display/open-payload";
+import { openAgentThreadTab } from "@/features/workspace-display/open-payload";
+import { useOpenConversationFile } from "@/features/cloud/use-cloud-drive-open";
 import { displayTabKindForPayload } from "@/features/workspace-display/payload-kind";
 import { basenameOf } from "@/features/workspace-display/path-to-viewer";
 import { ScheduleDetailsDialog } from "@/global/schedule/ScheduleDetailsDialog";
@@ -946,9 +944,7 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     // Search reaches older roster entries too (paged in by the effect above);
     // the default view only lists the newest snapshot window.
     const source =
-      searching && !quickSearch
-        ? [...base, ...storeState.olderEntries]
-        : base;
+      searching && !quickSearch ? [...base, ...storeState.olderEntries] : base;
     if (!query) return source;
     return source.filter((item) => matchesQuery(item.name, query));
   }, [
@@ -990,13 +986,10 @@ export const WorkspaceSections = memo(function WorkspaceSections({
           ),
     [doneRows, caps.activity, runningRows.length, searching, nowMs],
   );
-  const visibleActivityRows = useMemo(
-    () => {
-      const rows = [...runningRows, ...visibleDoneRows];
-      return quickSearch ? rows.slice(0, caps.activity) : rows;
-    },
-    [caps.activity, quickSearch, runningRows, visibleDoneRows],
-  );
+  const visibleActivityRows = useMemo(() => {
+    const rows = [...runningRows, ...visibleDoneRows];
+    return quickSearch ? rows.slice(0, caps.activity) : rows;
+  }, [caps.activity, quickSearch, runningRows, visibleDoneRows]);
   const visibleFiles = useMemo(
     () => filteredFiles.slice(0, caps.files),
     [caps.files, filteredFiles],
@@ -1018,12 +1011,12 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     return [scheduleEntryToAffectedRef(openScheduleEntry, conversationId)];
   }, [conversationId, openScheduleEntry]);
 
+  const openConversationFile = useOpenConversationFile(onNavigate);
   const handleOpenFile = useCallback(
     (entry: ConversationFileEntry) => {
-      openDisplayPayloadTab(entry.payload);
-      onNavigate?.();
+      void openConversationFile(entry);
     },
-    [onNavigate],
+    [openConversationFile],
   );
 
   // Exact thread identity is the durable viewer key. Opening Activity chat
@@ -1047,13 +1040,7 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     [conversationId, onNavigate],
   );
 
-  if (
-    !hasActivity &&
-    !hasFiles &&
-    !hasSchedule &&
-    !hasStore &&
-    !hasUserApps
-  ) {
+  if (!hasActivity && !hasFiles && !hasSchedule && !hasStore && !hasUserApps) {
     return renderEmpty ? <>{renderEmpty()}</> : null;
   }
 
@@ -1061,11 +1048,7 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     <>
       <div className="chat-workspace-strip__panel">
         {hasActivity && (
-          <WorkspaceSection
-            title="Activity"
-            sectionId="activity"
-            hideHeader
-          >
+          <WorkspaceSection title="Activity" sectionId="activity" hideHeader>
             <TasksList
               rows={visibleActivityRows}
               isTaskExpanded={isTaskExpanded}

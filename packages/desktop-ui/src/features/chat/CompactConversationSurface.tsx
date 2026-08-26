@@ -45,6 +45,7 @@ type CompactConversationSurfaceProps = {
   showConversation?: boolean;
   /** Estimated row height for first-render layout. Defaults to 96 for compact surfaces. */
   estimatedItemSize?: number;
+  extraTail?: React.ReactNode;
 };
 
 export function CompactConversationSurface({
@@ -65,6 +66,7 @@ export function CompactConversationSurface({
   isLoadingHistory,
   showConversation = true,
   estimatedItemSize = 96,
+  extraTail,
 }: CompactConversationSurfaceProps) {
   const paintedMessages = useDeferredChatMessages(
     messages,
@@ -102,6 +104,7 @@ export function CompactConversationSurface({
             className={className}
             contentContainerStyle={contentContainerStyle}
             estimatedItemSize={estimatedItemSize}
+            extraTail={extraTail}
           />
         </div>
       ) : null}

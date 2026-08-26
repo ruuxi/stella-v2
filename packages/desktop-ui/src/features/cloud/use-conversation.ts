@@ -11,7 +11,13 @@
  * be a way around all three.
  */
 
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 import {
   useMutation,
   useQueries,
@@ -26,12 +32,16 @@ import {
   subscribeCloudExecutionSelection,
 } from "./cloud-execution-store";
 import { useI18n } from "../../shared/i18n/I18nProvider";
-import { cloudAttachmentsStore } from "./cloud-composer-store";
+import {
+  cloudAttachmentsStore,
+  type CloudAttachment,
+} from "./cloud-composer-store";
 import { PROTOCOL_VERSION } from "./conversation-protocol";
 import type { ConversationState } from "./conversation-store";
 import {
   conversationStore,
   pendingPrompts,
+  type PendingCloudTurnSubmission,
   type PendingPrompt,
 } from "./conversation-store";
 import type { SocketStatus } from "./conversation-socket";
@@ -93,6 +103,8 @@ const IDLE_STATE: ConversationState = {
   status: "idle",
   statusMessage: null,
   statusRetryable: true,
+  epoch: null,
+  headSeq: -1,
   records: [],
   live: null,
   title: "",
@@ -128,13 +140,18 @@ const newClientMsgId = (): string =>
 export const useConversation = (
   conversationId: string | null,
   /** Applied to the prompt before it is sent (drive attachments, etc.). */
-  decoratePrompt: (prompt: string) => string = (prompt) => prompt,
-  onSent: () => void = () => {},
+  decoratePrompt: (
+    prompt: string,
+    attachments: readonly CloudAttachment[],
+  ) => string = (prompt) => prompt,
+  onSent: (submittedAttachments: readonly CloudAttachment[]) => void = () => {},
 ): CloudConversationView => {
   const config = useCloudRealtimeConfig();
   const { locale } = useI18n();
   const startTurn = useMutation(cloudApi.startCloudChat);
-  const { cloudMode } = useCloudMode();
+  const { cloudMode, accountScope } = useCloudMode();
+  const activeAccountScopeRef = useRef(accountScope);
+  activeAccountScopeRef.current = accountScope;
   const cloudEngine = useQuery(
     cloudApi.listMyEngineConnections,
     cloudMode ? {} : "skip",
@@ -144,7 +161,10 @@ export const useConversation = (
     getCloudExecutionSelectionSnapshot,
     noLocalExecution,
   );
-  const store = conversationId ? conversationStore(conversationId) : null;
+  const store =
+    cloudMode && conversationId
+      ? conversationStore(conversationId, accountScope)
+      : null;
 
   useEffect(() => {
     reconcileCloudExecutionSelection(cloudEngine?.execution);
@@ -186,45 +206,64 @@ export const useConversation = (
     () =>
       allPending.filter(
         (entry) =>
-          entry.conversationId === null ||
-          entry.conversationId === conversationId,
+          entry.accountScope === accountScope &&
+          (entry.conversationId === null ||
+            entry.conversationId === conversationId),
       ),
-    [allPending, conversationId],
+    [accountScope, allPending, conversationId],
   );
 
   const dispatch = useCallback(
-    async (clientMsgId: string, prompt: string): Promise<void> => {
+    async (
+      clientMsgId: string,
+      submission: PendingCloudTurnSubmission,
+    ): Promise<void> => {
       // Attached drive images ride as model-visible image blocks in addition
-      // to the path list in the prompt text. Read at dispatch time: the store
-      // is cleared only on success, so a retry re-sends the same set. The
-      // extension filter is a hint — the server re-checks the stored
+      // to the path list in the prompt text. The submission was frozen before
+      // the first mutation so an idempotent retry cannot change its payload.
+      // The extension filter is only a hint — the server re-checks the stored
       // content type before signing anything.
-      const imagePaths = cloudAttachmentsStore
-        .getSnapshot()
-        .filter((entry) => /\.(png|jpe?g|gif|webp)$/i.test(entry.path))
-        .slice(0, 4)
-        .map((entry) => entry.path);
       const selectedExecution =
         getCloudExecutionSelectionSnapshot() ?? cloudEngine?.execution;
       try {
         const result = await startTurn({
-          prompt,
+          prompt: submission.prompt,
           clientMsgId,
           ...(conversationId ? { conversationId } : {}),
           // The reply-language hint; English sends nothing (default behavior).
           ...(locale !== "en" ? { locale } : {}),
-          ...(imagePaths.length ? { attachments: imagePaths } : {}),
+          ...(submission.imagePaths.length
+            ? { attachments: [...submission.imagePaths] }
+            : {}),
           // An explicit selection makes a picker change apply to the next
           // message even when this conversation already has a durable route.
           ...(selectedExecution ? { execution: selectedExecution } : {}),
         });
-        pendingPrompts.bind(clientMsgId, result.conversationId, result.turnId);
-        onSent();
+        pendingPrompts.bind(
+          accountScope,
+          clientMsgId,
+          result.conversationId,
+          result.turnId,
+        );
+        if (activeAccountScopeRef.current === accountScope) {
+          onSent(submission.attachments);
+        }
       } catch (error) {
-        pendingPrompts.fail(clientMsgId, friendlySendError(error));
+        pendingPrompts.fail(
+          accountScope,
+          clientMsgId,
+          friendlySendError(error),
+        );
       }
     },
-    [startTurn, conversationId, onSent, locale, cloudEngine?.execution],
+    [
+      accountScope,
+      startTurn,
+      conversationId,
+      onSent,
+      locale,
+      cloudEngine?.execution,
+    ],
   );
 
   const send = useCallback(
@@ -232,25 +271,50 @@ export const useConversation = (
       const text = prompt.trim();
       if (!text) return;
       const clientMsgId = newClientMsgId();
-      pendingPrompts.add(clientMsgId, text, conversationId);
-      await dispatch(clientMsgId, decoratePrompt(text));
+      const attachments = cloudAttachmentsStore.getSnapshot();
+      const submission: PendingCloudTurnSubmission = {
+        prompt: decoratePrompt(text, attachments),
+        imagePaths: attachments
+          .filter((entry) => /\.(png|jpe?g|gif|webp)$/i.test(entry.path))
+          .slice(0, 4)
+          .map((entry) => entry.path),
+        attachments,
+      };
+      pendingPrompts.add(
+        accountScope,
+        clientMsgId,
+        text,
+        conversationId,
+        submission,
+      );
+      await dispatch(clientMsgId, submission);
     },
-    [conversationId, decoratePrompt, dispatch],
+    [accountScope, conversationId, decoratePrompt, dispatch],
   );
 
   const retrySend = useCallback(
     async (clientMsgId: string): Promise<void> => {
-      const entry = allPending.find(
+      const entry = pending.find(
         (candidate) => candidate.clientMsgId === clientMsgId,
       );
       if (!entry) return;
-      pendingPrompts.clearError(clientMsgId);
+      pendingPrompts.clearError(accountScope, clientMsgId);
       // Same `clientMsgId`: if the first attempt actually landed, the server
       // dedupes it instead of starting a second turn.
-      await dispatch(clientMsgId, decoratePrompt(entry.text));
+      await dispatch(clientMsgId, entry.submission);
     },
-    [allPending, decoratePrompt, dispatch],
+    [accountScope, dispatch, pending],
   );
+  const dismissSend = useCallback(
+    (clientMsgId: string) => pendingPrompts.drop(accountScope, clientMsgId),
+    [accountScope],
+  );
+  const cancelTurn = useCallback(
+    (turnId: string) => store?.cancelTurn(turnId) ?? false,
+    [store],
+  );
+  const loadOlder = useCallback(() => store?.loadOlder(), [store]);
+  const retryConnection = useCallback(() => store?.retry(), [store]);
 
   return {
     state,
@@ -258,13 +322,10 @@ export const useConversation = (
     pending,
     send,
     retrySend,
-    dismissSend: pendingPrompts.drop,
-    cancelTurn: useCallback(
-      (turnId: string) => store?.cancelTurn(turnId) ?? false,
-      [store],
-    ),
-    loadOlder: useCallback(() => store?.loadOlder(), [store]),
-    retryConnection: useCallback(() => store?.retry(), [store]),
+    dismissSend,
+    cancelTurn,
+    loadOlder,
+    retryConnection,
   };
 };
 

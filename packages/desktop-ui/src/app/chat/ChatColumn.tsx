@@ -363,6 +363,7 @@ export const ChatColumn = memo(function ChatColumn({
               className="session-content"
               contentContainerStyle={FULL_CHAT_CONTENT_STYLE}
               estimatedItemSize={140}
+              extraTail={conversation.extraTail}
             />
 
             {showScrollButton && !assistantReplyPeek.visible && (

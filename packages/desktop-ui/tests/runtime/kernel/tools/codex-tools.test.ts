@@ -15,6 +15,7 @@ import {
   createShellState,
   handleExecCommand,
   handleWriteStdin,
+  resolveDefaultShell,
   resolveShellLaunch,
 } from "@stella/runtime/kernel/tools/shell";
 import { createAsyncTempDirTracker } from "../../../helpers/temp.js";
@@ -182,6 +183,130 @@ describe("general agent tools", () => {
     expect(execTextOf(result).split("\nOutput:\n").at(-1)).not.toContain("l");
   });
 
+  it("exec_command follows the Unix login shell with Codex-style fallbacks", () => {
+    const macFiles = new Set(["/bin/zsh", "/bin/bash", "/bin/sh"]);
+    const macExists = (candidate: string) => macFiles.has(candidate);
+    expect(
+      resolveDefaultShell(
+        "darwin",
+        {},
+        {
+          userShell: "/bin/bash",
+          executableExists: macExists,
+        },
+      ),
+    ).toBe("/bin/bash");
+    expect(
+      resolveDefaultShell(
+        "darwin",
+        {},
+        {
+          userShell: "/usr/local/bin/fish",
+          executableExists: macExists,
+        },
+      ),
+    ).toBe("/bin/zsh");
+
+    const linuxFiles = new Set(["/bin/bash", "/bin/zsh", "/bin/sh"]);
+    const linuxExists = (candidate: string) => linuxFiles.has(candidate);
+    expect(
+      resolveDefaultShell(
+        "linux",
+        {},
+        {
+          userShell: "/bin/zsh",
+          executableExists: linuxExists,
+        },
+      ),
+    ).toBe("/bin/zsh");
+    const pwsh = "/usr/local/bin/pwsh";
+    const powerShellLaunch = resolveShellLaunch(
+      "Get-ChildItem Env:",
+      {},
+      "linux",
+      {},
+      {
+        userShell: pwsh,
+        executableExists: (candidate) => candidate === pwsh,
+      },
+    );
+    if ("error" in powerShellLaunch) {
+      throw new Error(powerShellLaunch.error);
+    }
+    expect(powerShellLaunch.shell).toBe(pwsh);
+    expect(powerShellLaunch.args).toContain("-EncodedCommand");
+    expect(
+      resolveDefaultShell(
+        "linux",
+        {},
+        {
+          userShell: "/usr/bin/fish",
+          executableExists: linuxExists,
+        },
+      ),
+    ).toBe("/bin/bash");
+    expect(
+      resolveDefaultShell(
+        "linux",
+        {},
+        {
+          userShell: null,
+          executableExists: () => false,
+        },
+      ),
+    ).toBe("/bin/sh");
+  });
+
+  it("exec_command defaults Windows to pwsh, then Windows PowerShell, then cmd", () => {
+    const pwshPath = "C:\\Program Files\\PowerShell\\7\\pwsh.exe";
+    const windowsPowerShellPath =
+      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+
+    expect(
+      resolveDefaultShell(
+        "win32",
+        {},
+        {
+          executableExists: (candidate) => candidate === pwshPath,
+        },
+      ),
+    ).toBe(pwshPath);
+    expect(
+      resolveDefaultShell(
+        "win32",
+        {},
+        {
+          executableExists: (candidate) => candidate === windowsPowerShellPath,
+        },
+      ),
+    ).toBe(windowsPowerShellPath);
+    expect(
+      resolveDefaultShell(
+        "win32",
+        {},
+        {
+          executableExists: () => false,
+        },
+      ),
+    ).toBe("cmd.exe");
+
+    const command = "Get-ChildItem Env:";
+    const launch = resolveShellLaunch(
+      command,
+      {},
+      "win32",
+      {},
+      {
+        executableExists: (candidate) => candidate === windowsPowerShellPath,
+      },
+    );
+    if ("error" in launch) throw new Error(launch.error);
+    expect(launch.shell).toBe(windowsPowerShellPath);
+    expect(Buffer.from(launch.args.at(-1)!, "base64").toString("utf16le")).toBe(
+      command,
+    );
+  });
+
   it("exec_command uses PowerShell-native arguments on Windows", () => {
     const command =
       'git --version; & "C:\\Program Files\\GitHub CLI\\gh.exe" --version';
@@ -222,12 +347,15 @@ describe("general agent tools", () => {
     expect(interactiveLaunch.args).toContain("-EncodedCommand");
   });
 
-  it("exec_command preserves quoted cmd.exe source verbatim on Windows", () => {
+  it("exec_command preserves quoted source for an explicit cmd.exe shell", () => {
     const command =
       '"C:\\Program Files\\GitHub CLI\\gh.exe" --version & cd /d "C:\\Program Files\\Git"';
-    const launch = resolveShellLaunch(command, {}, "win32", {
-      ComSpec: "C:\\Windows\\System32\\cmd.exe",
-    });
+    const launch = resolveShellLaunch(
+      command,
+      { shell: "C:\\Windows\\System32\\cmd.exe" },
+      "win32",
+      {},
+    );
     if ("error" in launch) throw new Error(launch.error);
 
     expect(launch).toEqual({

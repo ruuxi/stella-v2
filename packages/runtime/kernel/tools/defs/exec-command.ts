@@ -43,7 +43,7 @@ export const createExecCommandTool = (
       shell: {
         type: "string",
         description:
-          "Shell binary to launch. Defaults to Stella's platform shell. On Windows, cmd.exe, PowerShell/pwsh, and Unix-style shells use their native command syntax.",
+          "Shell binary to launch. Defaults to the user's detected login shell on macOS/Linux (with platform fallbacks), and to pwsh then Windows PowerShell on Windows with cmd.exe as the final fallback. Explicit shells use their native command syntax.",
       },
       tty: {
         type: "boolean",

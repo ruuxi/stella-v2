@@ -1111,26 +1111,161 @@ const buildShellEnv = (
   return mergedEnv;
 };
 
-// macOS ships /bin/bash on every install. Linux's FHS guarantees /bin/bash
-// for any system that has bash at all. Some Stella launch contexts (notably
-// the Electron app launched via Finder/Dock with a stripped GUI environment)
-// hand the runtime a `process.env` whose PATH does not include /bin, so
-// spawning bare "bash" fails with `ENOENT: posix_spawn 'bash'`. Probe for
-// /bin/bash first; fall back to PATH-resolved "bash" only if it isn't there
-// (e.g. a stripped-down BSD jail), which keeps test environments working.
-const UNIX_BASH_CANDIDATES = [
-  "/bin/bash",
-  "/usr/bin/bash",
-  "/usr/local/bin/bash",
-];
+type DetectedShellKind = "zsh" | "bash" | "sh" | "powershell" | "cmd";
 
-const resolveUnixBash = (): string => {
-  for (const candidate of UNIX_BASH_CANDIDATES) {
-    if (existsSync(candidate)) {
-      return candidate;
+export type ShellDetectionOptions = {
+  /** Unix login shell from the system account database. Null disables it. */
+  userShell?: string | null;
+  /** Test seam for platform-specific executable discovery. */
+  executableExists?: (candidate: string) => boolean;
+};
+
+const resolveUserLoginShell = (): string | null => {
+  try {
+    return os.userInfo().shell?.trim() || null;
+  } catch {
+    return null;
+  }
+};
+
+const shellKind = (
+  shell: string,
+  platform: NodeJS.Platform,
+): DetectedShellKind | undefined => {
+  const basename =
+    platform === "win32"
+      ? path.win32.basename(shell.trim()).toLowerCase()
+      : path.posix.basename(shell.trim()).toLowerCase();
+  switch (basename.replace(/\.exe$/u, "")) {
+    case "zsh":
+      return "zsh";
+    case "bash":
+      return "bash";
+    case "sh":
+      return "sh";
+    case "pwsh":
+    case "powershell":
+      return "powershell";
+    case "cmd":
+      return "cmd";
+    default:
+      return undefined;
+  }
+};
+
+const pathEnvironmentValue = (
+  environment: NodeJS.ProcessEnv,
+): string | undefined =>
+  Object.entries(environment).find(
+    ([key]) => key.toLowerCase() === "path",
+  )?.[1];
+
+const findOnPath = (
+  binary: string,
+  platform: NodeJS.Platform,
+  environment: NodeJS.ProcessEnv,
+  executableExists: (candidate: string) => boolean,
+): string | undefined => {
+  const pathValue = pathEnvironmentValue(environment);
+  if (!pathValue) return undefined;
+  const pathApi = platform === "win32" ? path.win32 : path.posix;
+  const names =
+    platform === "win32" && !path.win32.extname(binary)
+      ? [binary, `${binary}.exe`]
+      : [binary];
+  for (const directory of pathValue.split(pathApi.delimiter).filter(Boolean)) {
+    for (const name of names) {
+      const candidate = pathApi.join(directory, name);
+      if (executableExists(candidate)) return candidate;
     }
   }
-  return "bash";
+  return undefined;
+};
+
+const resolveUnixShellKind = (
+  kind: "zsh" | "bash" | "sh" | "powershell",
+  preferredPath: string | undefined,
+  platform: NodeJS.Platform,
+  environment: NodeJS.ProcessEnv,
+  executableExists: (candidate: string) => boolean,
+): string | undefined => {
+  if (preferredPath && executableExists(preferredPath)) return preferredPath;
+  const binary = kind === "powershell" ? "pwsh" : kind;
+  const fromPath = findOnPath(binary, platform, environment, executableExists);
+  if (fromPath) return fromPath;
+  const fallbacks =
+    kind === "zsh"
+      ? ["/bin/zsh"]
+      : kind === "bash"
+        ? ["/bin/bash", "/usr/bin/bash"]
+        : kind === "sh"
+          ? ["/bin/sh"]
+          : ["/usr/local/bin/pwsh"];
+  return fallbacks.find(executableExists);
+};
+
+export const resolveDefaultShell = (
+  platform: NodeJS.Platform = process.platform,
+  environment: NodeJS.ProcessEnv = process.env,
+  detection: ShellDetectionOptions = {},
+): string => {
+  const executableExists = detection.executableExists ?? existsSync;
+  if (platform === "win32") {
+    const programFiles =
+      environment.ProgramFiles?.trim() || "C:\\Program Files";
+    const systemRoot = environment.SystemRoot?.trim() || "C:\\Windows";
+    const pwsh =
+      findOnPath("pwsh", platform, environment, executableExists) ??
+      [path.win32.join(programFiles, "PowerShell", "7", "pwsh.exe")].find(
+        executableExists,
+      );
+    if (pwsh) return pwsh;
+    const windowsPowerShell =
+      findOnPath("powershell", platform, environment, executableExists) ??
+      [
+        path.win32.join(
+          systemRoot,
+          "System32",
+          "WindowsPowerShell",
+          "v1.0",
+          "powershell.exe",
+        ),
+      ].find(executableExists);
+    return windowsPowerShell ?? "cmd.exe";
+  }
+
+  const hasInjectedUserShell = Object.prototype.hasOwnProperty.call(
+    detection,
+    "userShell",
+  );
+  const userShell = hasInjectedUserShell
+    ? detection.userShell?.trim() || null
+    : resolveUserLoginShell();
+  const userKind = userShell ? shellKind(userShell, platform) : undefined;
+  if (userKind && userKind !== "cmd") {
+    const resolved = resolveUnixShellKind(
+      userKind,
+      userShell ?? undefined,
+      platform,
+      environment,
+      executableExists,
+    );
+    if (resolved) return resolved;
+  }
+
+  const fallbackKinds: Array<"zsh" | "bash"> =
+    platform === "darwin" ? ["zsh", "bash"] : ["bash", "zsh"];
+  for (const kind of fallbackKinds) {
+    const resolved = resolveUnixShellKind(
+      kind,
+      undefined,
+      platform,
+      environment,
+      executableExists,
+    );
+    if (resolved) return resolved;
+  }
+  return "/bin/sh";
 };
 
 export type ShellLaunchOptions = {
@@ -1160,7 +1295,7 @@ const windowsShellName = (shell: string): string =>
 const isWindowsCmdShell = (shell: string): boolean =>
   ["cmd", "cmd.exe"].includes(windowsShellName(shell));
 
-const isWindowsPowerShell = (shell: string): boolean =>
+const isPowerShell = (shell: string): boolean =>
   ["powershell", "powershell.exe", "pwsh", "pwsh.exe"].includes(
     windowsShellName(shell),
   );
@@ -1173,21 +1308,34 @@ export const resolveShellLaunch = (
   options: ShellLaunchOptions = {},
   platform: NodeJS.Platform = process.platform,
   environment: NodeJS.ProcessEnv = process.env,
+  detection: ShellDetectionOptions = {},
 ): ResolvedShellLaunch | { error: string } => {
   if (platform !== "win32") {
     const requestedShell = options.shell?.trim();
+    const shell =
+      requestedShell || resolveDefaultShell(platform, environment, detection);
+    if (!isPowerShell(shell)) {
+      return {
+        shell,
+        args: [options.login === false ? "-c" : "-lc", command],
+      };
+    }
     return {
-      shell: requestedShell || resolveUnixBash(),
-      args: [options.login === false ? "-c" : "-lc", command],
+      shell,
+      args: [
+        "-NoLogo",
+        "-NoProfile",
+        ...(options.tty ? [] : ["-NonInteractive"]),
+        "-EncodedCommand",
+        encodePowerShellCommand(command),
+      ],
     };
   }
 
   const shell =
     options.shell?.trim() ||
-    environment.ComSpec ||
-    environment.COMSPEC ||
-    "cmd.exe";
-  if (isWindowsPowerShell(shell)) {
+    resolveDefaultShell(platform, environment, detection);
+  if (isPowerShell(shell)) {
     // `-EncodedCommand` avoids routing PowerShell source through the native
     // Windows argv quoting rules at all. PowerShell requires UTF-16LE here.
     return {

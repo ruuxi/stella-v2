@@ -9,16 +9,6 @@
   -webkit-app-region: no-drag;
 }
 
-/*
- * Orchestrated (single-chat) mode has no tab strip and no standalone new-chat
- * control, so the 140px floor reserved for tabs would leave phantom empty space
- * to the right of the History/Home controls. Collapse the reservation so the
- * bar hugs its actual content. Direct mode keeps the tab-strip floor untouched.
- */
-.conversation-topbar[data-working-mode="orchestrated"] {
-  min-width: 0;
-}
-
 .conversation-topbar__history,
 .conversation-topbar__home {
   flex: 0 0 28px;
@@ -318,59 +308,6 @@
   width: min(320px, calc(100vw - 24px));
   max-width: min(320px, calc(100vw - 24px));
   overflow: hidden;
-}
-
-.conversation-history-popover__new-chat-row {
-  padding: 5px 5px 0;
-  border-bottom: 1px solid var(--border-base);
-  margin-bottom: 4px;
-}
-
-.conversation-history-popover__new-chat {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 34px;
-  margin-bottom: 5px;
-  padding: 0 8px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  color: var(--text-base);
-  background: transparent;
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: default;
-  transition:
-    color 100ms ease,
-    background-color 100ms ease,
-    border-color 100ms ease;
-}
-
-.conversation-history-popover__new-chat:hover,
-.conversation-history-popover__new-chat:focus-visible {
-  outline: none;
-  color: var(--text-strong);
-  background: color-mix(in oklch, var(--foreground) 6%, transparent);
-}
-
-.conversation-history-popover__new-chat:focus-visible {
-  box-shadow: inset var(--focus-ring);
-}
-
-.conversation-history-popover__new-chat[data-armed="true"] {
-  color: var(--text-strong);
-  border-color: var(--border-base);
-  background: color-mix(in oklch, var(--foreground) 8%, transparent);
-}
-
-.conversation-history-popover__new-chat-label {
-  min-width: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .conversation-history-popover__list {

@@ -9,7 +9,6 @@ import {
   resolveHistoryDeleteActivation,
   resolveConversationTabShortcut,
   shouldMarkConversationUnread,
-  shouldRenderNewChatControl,
   shouldRenderNewChatLabel,
   shouldRenderConversationHomeLauncher,
 } from "@/shell/topbar/ConversationTopBar";
@@ -77,18 +76,20 @@ describe("conversation top-bar contracts", () => {
     expect(shouldRenderNewChatLabel(12)).toBe(false);
   });
 
-  it("offers New chat only in direct mode", () => {
+  it("always offers New chat in the top bar and never in History", () => {
     const source = fs.readFileSync(
       path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
       "utf8",
     );
 
-    expect(shouldRenderNewChatControl("orchestrated")).toBe(false);
-    expect(shouldRenderNewChatControl("direct")).toBe(true);
-    expect(source).toContain("{showNewChatControl ? (");
-    expect(source).toMatch(
-      /resolveConversationTabShortcut\(\s*event,\s*tabs,\s*activeConversationId,\s*showNewChatControl,/,
+    expect(source).not.toContain("shouldRenderNewChatControl");
+    expect(source).not.toContain("shouldRenderHistoryNewChat");
+    expect(source).not.toContain("showNewChatControl");
+    expect(source).not.toContain("showHistoryNewChat");
+    expect(source).toContain(
+      'className="shell-topbar-icon-btn conversation-topbar__plus"',
     );
+    expect(source).not.toContain("conversation-history-popover__new-chat");
     expect(
       resolveConversationTabShortcut(
         {
@@ -101,9 +102,8 @@ describe("conversation top-bar contracts", () => {
         },
         tabs,
         "second",
-        false,
       ),
-    ).toBeNull();
+    ).toEqual({ type: "new" });
   });
 
   it("maps the OpenCode tab shortcuts and wraps cycling", () => {
@@ -293,7 +293,7 @@ describe("conversation top-bar contracts", () => {
       'className="conversation-history-popover__header"',
     );
     expect(source).not.toContain(
-      'className="conversation-history-popover__new"',
+      'className="conversation-history-popover__new-chat"',
     );
     expect(source).toContain(
       'className="conversation-history-popover__delete"',
@@ -382,7 +382,7 @@ describe("conversation top-bar contracts", () => {
     );
 
     expect(source).toContain("const HISTORY_PAGE_SIZE = 50");
-    expect(source).toContain("conversationTabs.updateTitle");
+    expect(source).toContain("conversationTabs.mergeSummaries(");
     expect(source).not.toContain("ChatMessagesContext");
     expect(source).not.toContain("useConversationMessages");
     expect(source).toContain("<LegendList<ConversationSummary>");
@@ -400,20 +400,19 @@ describe("conversation top-bar contracts", () => {
       path.join(SOURCE_ROOT, "shell/use-full-shell-chat.js"),
       "utf8",
     );
-    const localChatStore = fs.readFileSync(
-      path.join(SOURCE_ROOT, "features/chat/services/local-chat-store.js"),
-      "utf8",
+    expect(topBar).toContain(
+      "useMutation(cloudApi.createMyConversation)",
     );
-
-    expect(topBar).toContain("await createNewLocalConversationId()");
+    expect(topBar).toContain(
+      "await createCloudConversation({ clientCreateId })",
+    );
+    expect(topBar).toContain("markCloudConversationCreated(");
+    expect(topBar).not.toContain("createNewLocalConversationId");
     expect(fullChat).not.toContain("createNewLocalConversationId");
     expect(fullChat).not.toContain("startNewChat");
     expect(fullChat).not.toContain("onNewChat");
     expect(topBar).not.toContain("createNewDefaultConversationId");
     expect(fullChat).not.toContain("createNewDefaultConversationId");
-    expect(localChatStore).toContain(
-      "getLocalChatApi().createNewDefaultConversationId()",
-    );
   });
 
   it("opens history in the current tab and only appends from New chat", () => {

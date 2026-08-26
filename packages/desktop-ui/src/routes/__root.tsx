@@ -42,6 +42,7 @@ import {
 } from "@/features/cloud/cloud-conversation-cache";
 import { retireCloudConversationClientAuthority } from "@/features/cloud/conversation-store";
 import { cloudAttachmentsStore } from "@/features/cloud/cloud-composer-store";
+import { retireCloudExecutionClientAuthority } from "@/features/cloud/cloud-execution-store";
 import type { RightSidebarHandle } from "@/shell/RightSidebar";
 // The workspace panel is a ~410-line surface not needed for first
 // interaction, so it is lazy-loaded to keep it out of the always-eager
@@ -219,6 +220,10 @@ function RootLayout() {
     attempt: number;
     inFlight: boolean;
   } | null>(null);
+  const ownershipMigrationRetryRef = useRef<{
+    accountScope: string;
+    requestId: string;
+  } | null>(null);
   const activeAccountScopeRef = useRef(accountScope);
   activeAccountScopeRef.current = accountScope;
   const cloudCreateRetryTimerRef = useRef<number | null>(null);
@@ -346,9 +351,11 @@ function RootLayout() {
   useLayoutEffect(() => {
     clearCloudCreateRetryTimer();
     cloudCreateRequestRef.current = null;
+    ownershipMigrationRetryRef.current = null;
     setCloudCreateFailure(null);
     setOwnershipMigrationRetryFailure(null);
     retireCloudConversationClientAuthority(accountScope);
+    retireCloudExecutionClientAuthority(accountScope);
     cloudAttachmentsStore.clear();
     conversationTabs.setAccountScope(cloudMode ? accountScope : null);
     setConversationId(null);
@@ -378,23 +385,45 @@ function RootLayout() {
   }, [accountScope, clearCloudCreateRetryTimer, routeIntent]);
 
   const retryOwnershipMigration = useCallback(() => {
+    const operation = {
+      accountScope,
+      requestId: crypto.randomUUID(),
+    };
+    ownershipMigrationRetryRef.current = operation;
     setOwnershipMigrationRetryFailure(null);
-    void retryOwnershipMigrationMutation({})
-      .then(({ scheduled }) => {
+    void (async () => {
+      try {
+        const { scheduled } = await retryOwnershipMigrationMutation({});
+        if (
+          activeAccountScopeRef.current !== operation.accountScope ||
+          ownershipMigrationRetryRef.current !== operation
+        ) {
+          return;
+        }
         if (!scheduled) {
           setOwnershipMigrationRetryFailure(
             "Stella couldn't find the failed account-link transfer to retry.",
           );
         }
-      })
-      .catch((error: unknown) => {
+      } catch (error: unknown) {
+        if (
+          activeAccountScopeRef.current !== operation.accountScope ||
+          ownershipMigrationRetryRef.current !== operation
+        ) {
+          return;
+        }
         setOwnershipMigrationRetryFailure(
           error instanceof Error && error.message.trim()
             ? error.message
             : "Stella couldn't retry the account-link transfer.",
         );
-      });
-  }, [retryOwnershipMigrationMutation]);
+      } finally {
+        if (ownershipMigrationRetryRef.current === operation) {
+          ownershipMigrationRetryRef.current = null;
+        }
+      }
+    })();
+  }, [accountScope, retryOwnershipMigrationMutation]);
 
   useEffect(() => {
     const priorRequest = cloudCreateRequestRef.current;

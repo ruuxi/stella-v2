@@ -4,6 +4,7 @@ import {
   getCloudExecutionSelectionSnapshot,
   publishCloudExecutionSelection,
   reconcileCloudExecutionSelection,
+  retireCloudExecutionClientAuthority,
   resetCloudExecutionSelectionForTests,
   subscribeCloudExecutionSelection,
 } from "../../../src/features/cloud/cloud-execution-store";
@@ -46,5 +47,16 @@ describe("cloud execution selection bridge", () => {
     expect(calls).toBe(1);
     expect(getCloudExecutionSelectionSnapshot()).toEqual(SELECTED);
     unsubscribe();
+  });
+
+  test("retires a picker override exactly when the auth owner changes", () => {
+    retireCloudExecutionClientAuthority("account:owner-a");
+    publishCloudExecutionSelection(SELECTED);
+
+    retireCloudExecutionClientAuthority("account:owner-a");
+    expect(getCloudExecutionSelectionSnapshot()).toEqual(SELECTED);
+
+    retireCloudExecutionClientAuthority("account:owner-b");
+    expect(getCloudExecutionSelectionSnapshot()).toBeNull();
   });
 });

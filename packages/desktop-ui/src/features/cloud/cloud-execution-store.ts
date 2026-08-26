@@ -3,6 +3,7 @@ import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 export const CLOUD_EXECUTION_CHANGED_EVENT = "stella:cloud-execution-changed";
 
 let localSelection: CloudExecutionSelection | null = null;
+let authorityAccountScope: string | null = null;
 const listeners = new Set<() => void>();
 
 const sameExecution = (
@@ -61,7 +62,25 @@ export const subscribeCloudExecutionSelection = (
   return () => listeners.delete(listener);
 };
 
+/**
+ * Establishes the auth subject that owns the renderer-local picker override.
+ * A successful settings mutation can outpace its reactive query, so the
+ * override intentionally survives ordinary renders. It must not survive an
+ * owner handoff: otherwise the next owner's first turn can inherit the prior
+ * owner's explicit provider/model route.
+ */
+export const retireCloudExecutionClientAuthority = (
+  accountScope: string,
+): void => {
+  if (authorityAccountScope === accountScope) return;
+  authorityAccountScope = accountScope;
+  if (localSelection === null) return;
+  localSelection = null;
+  emit();
+};
+
 export const resetCloudExecutionSelectionForTests = (): void => {
+  authorityAccountScope = null;
   localSelection = null;
   emit();
 };

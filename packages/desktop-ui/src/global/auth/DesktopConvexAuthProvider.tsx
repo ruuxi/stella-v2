@@ -15,11 +15,14 @@ import {
   clearCachedToken,
 } from "@/global/auth/services/auth-token";
 import {
+  getAuthSessionSnapshot,
   signInAnonymous,
   useDesktopAuthSession,
+  waitForBrowserAuthHandoff,
 } from "@/global/auth/services/auth-session";
 import { convexClient } from "@/platform/convex/convex-client";
 import { getJwtExpMs } from "@/shared/lib/jwt";
+import { decideAutomaticAnonymousBootstrap } from "./browser-auth-handoff";
 
 const TOKEN_BOOTSTRAP_RETRY_BASE_MS = 3_000;
 const TOKEN_BOOTSTRAP_RETRY_MAX_MS = 60_000;
@@ -50,12 +53,14 @@ type AuthBootstrapState = {
 
 type AuthBootstrapContextValue = AuthBootstrapState & {
   runtimeAuthReady: boolean;
+  retryAuthBootstrap: () => void;
 };
 
 const AuthBootstrapContext = createContext<AuthBootstrapContextValue>({
   status: "loading_session",
   error: null,
   runtimeAuthReady: false,
+  retryAuthBootstrap: () => {},
 });
 
 export function useAuthBootstrapState() {
@@ -93,6 +98,9 @@ export function useDesktopConvexAuth() {
         | null
         | undefined
     )?.user?.isAnonymous === true;
+  const hasValidSessionIdentity = Boolean(
+    session.data && sessionUserId?.trim(),
+  );
 
   useEffect(() => {
     clearCachedToken();
@@ -114,20 +122,23 @@ export function useDesktopConvexAuth() {
   return useMemo(
     () => ({
       isLoading: Boolean(session.isPending),
-      isAuthenticated: Boolean(session.data),
+      isAuthenticated: hasValidSessionIdentity,
       fetchAccessToken,
     }),
-    [fetchAccessToken, session.data, session.isPending],
+    [fetchAccessToken, hasValidSessionIdentity, session.isPending],
   );
 }
 
 function DesktopAuthRuntimeEffects({
+  retryAttempt,
   setAuthBootstrapState,
 }: {
+  retryAttempt: number;
   setAuthBootstrapState: (state: AuthBootstrapState) => void;
 }) {
   const session = useDesktopAuthSession();
   const attemptedAnonAuthRef = useRef(false);
+  const lastRetryAttemptRef = useRef(retryAttempt);
   const runtimeIdentityKeyRef = useRef<string | null>(null);
   const runtimeAuthRefreshHandlerRef = useRef<
     | ((args?: {
@@ -149,31 +160,77 @@ function DesktopAuthRuntimeEffects({
   const isSessionPending = Boolean(session.isPending);
 
   useEffect(() => {
-    if (session.isPending) {
-      setAuthBootstrapState({ status: "loading_session", error: null });
-      return;
+    if (lastRetryAttemptRef.current !== retryAttempt) {
+      lastRetryAttemptRef.current = retryAttempt;
+      attemptedAnonAuthRef.current = false;
     }
 
-    if (session.data) {
-      attemptedAnonAuthRef.current = false;
-      return;
-    }
+    let cancelled = false;
+    void decideAutomaticAnonymousBootstrap(waitForBrowserAuthHandoff(), () =>
+      Boolean(getAuthSessionSnapshot().data),
+    ).then(async (decision) => {
+      if (cancelled) return;
+      if (decision === "handoff_failed") {
+        setAuthBootstrapState({
+          status: "failed",
+          error: "Stella could not finish browser sign-in. Please try again.",
+        });
+        return;
+      }
 
-    if (attemptedAnonAuthRef.current) return;
-    attemptedAnonAuthRef.current = true;
-    setAuthBootstrapState({
-      status: "creating_anonymous_session",
-      error: null,
-    });
+      // Re-read after the handoff barrier instead of trusting the render-time
+      // snapshot. The OTT exchange and the cold-start revalidation can both
+      // finish while this effect is waiting.
+      const snapshot = getAuthSessionSnapshot();
+      if (snapshot.isPending) {
+        setAuthBootstrapState({ status: "loading_session", error: null });
+        return;
+      }
+      if (snapshot.data) {
+        const snapshotUserId = (
+          snapshot.data as { user?: { id?: string | null } }
+        ).user?.id?.trim();
+        if (!snapshotUserId) {
+          setAuthBootstrapState({
+            status: "failed",
+            error: "Stella could not verify the signed-in identity.",
+          });
+          return;
+        }
+        attemptedAnonAuthRef.current = false;
+        // Browser shells have no desktop runtime token to synchronize. Their
+        // ConvexProviderWithAuth exchange is the remaining authority barrier.
+        if (!window.electronAPI) {
+          setAuthBootstrapState({ status: "ready", error: null });
+        }
+        return;
+      }
 
-    void signInAnonymous().catch(() => {
-      attemptedAnonAuthRef.current = false;
+      if (attemptedAnonAuthRef.current) return;
+      attemptedAnonAuthRef.current = true;
       setAuthBootstrapState({
-        status: "failed",
-        error: "Stella could not create a local sign-in session.",
+        status: "creating_anonymous_session",
+        error: null,
       });
+      try {
+        await signInAnonymous();
+      } catch (error) {
+        if (cancelled) return;
+        attemptedAnonAuthRef.current = false;
+        setAuthBootstrapState({
+          status: "failed",
+          error:
+            error instanceof Error
+              ? error.message
+              : "Stella could not create an anonymous cloud session.",
+        });
+      }
     });
-  }, [session.data, session.isPending, setAuthBootstrapState]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [retryAttempt, session.data, session.isPending, setAuthBootstrapState]);
 
   useEffect(() => {
     const systemApi = window.electronAPI?.system;
@@ -181,12 +238,9 @@ function DesktopAuthRuntimeEffects({
       return;
     }
 
-    // Cloud sync stays intentionally disabled; auth sessions are local-only for now.
-    void systemApi.setCloudSyncEnabled({ enabled: false });
-
-    return () => {
-      void systemApi.setCloudSyncEnabled({ enabled: false });
-    };
+    // Conversations are cloud-owned for anonymous and connected identities.
+    // Older desktop hosts still consume this compatibility flag.
+    void systemApi.setCloudSyncEnabled({ enabled: true });
   }, []);
 
   useEffect(() => {
@@ -216,6 +270,10 @@ function DesktopAuthRuntimeEffects({
     const systemApi = window.electronAPI?.system;
     if (!systemApi?.setAuthState) {
       runtimeAuthRefreshHandlerRef.current = null;
+      // Browser shells authenticate Convex directly. They have no desktop
+      // runtime process to synchronize, so absence of this IPC method is
+      // expected rather than an auth bootstrap failure.
+      if (!window.electronAPI) return;
       setAuthBootstrapState({
         status: "failed",
         error: "Stella could not connect auth to the desktop runtime.",
@@ -238,6 +296,19 @@ function DesktopAuthRuntimeEffects({
       void systemApi.setAuthState({
         authenticated: false,
         hasConnectedAccount: false,
+      });
+      return;
+    }
+
+    if (!sessionUserId?.trim()) {
+      runtimeAuthRefreshHandlerRef.current = null;
+      void systemApi.setAuthState({
+        authenticated: false,
+        hasConnectedAccount: false,
+      });
+      setAuthBootstrapState({
+        status: "failed",
+        error: "Stella could not verify the signed-in identity.",
       });
       return;
     }
@@ -378,6 +449,7 @@ function DesktopAuthRuntimeEffects({
     sessionIsAnonymous,
     sessionUserId,
     setAuthBootstrapState,
+    retryAttempt,
   ]);
 
   useEffect(() => {
@@ -416,12 +488,19 @@ export function DesktopConvexAuthProvider({
             error: null,
           },
     );
+  const [retryAttempt, setRetryAttempt] = useState(0);
+  const retryAuthBootstrap = useCallback(() => {
+    clearCachedToken();
+    setAuthBootstrapState({ status: "loading_session", error: null });
+    setRetryAttempt((attempt) => attempt + 1);
+  }, []);
   const authBootstrapValue = useMemo(
     () => ({
       ...authBootstrapState,
       runtimeAuthReady: authBootstrapState.status === "ready",
+      retryAuthBootstrap,
     }),
-    [authBootstrapState],
+    [authBootstrapState, retryAuthBootstrap],
   );
 
   return (
@@ -433,6 +512,7 @@ export function DesktopConvexAuthProvider({
         <MagicLinkAuthProvider>
           {enableRuntimeEffects ? (
             <DesktopAuthRuntimeEffects
+              retryAttempt={retryAttempt}
               setAuthBootstrapState={setAuthBootstrapState}
             />
           ) : null}

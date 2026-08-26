@@ -27,8 +27,9 @@ describe("desktop auth session revalidation", () => {
   let nowMs: number;
 
   beforeEach(async () => {
-    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
-      true;
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
     vi.resetModules();
     nowMs = 10_000_000;
     vi.spyOn(Date, "now").mockImplementation(() => nowMs);
@@ -106,5 +107,32 @@ describe("desktop auth session revalidation", () => {
     });
     await flush();
     expect(getAuthSession.mock.calls.length).toBeGreaterThan(afterFirst);
+  });
+
+  it("rotates the identity revision only when the immutable owner changes", async () => {
+    await mountHook();
+    const firstRevision = mod.getAuthSessionSnapshot().identityRevision;
+    expect(firstRevision).toBeGreaterThan(0);
+
+    getAuthSession.mockResolvedValue({
+      user: { id: "u1" },
+      session: { id: "rotated-session" },
+    });
+    nowMs += 120_000;
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    await flush();
+    expect(mod.getAuthSessionSnapshot().identityRevision).toBe(firstRevision);
+
+    getAuthSession.mockResolvedValue({ user: { id: "u2" } });
+    nowMs += 120_000;
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await flush();
+    expect(mod.getAuthSessionSnapshot().identityRevision).toBe(
+      firstRevision + 1,
+    );
   });
 });

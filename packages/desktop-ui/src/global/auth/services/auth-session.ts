@@ -1,22 +1,51 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { configurePiRuntime } from "@/platform/electron/device";
+import { authClient } from "@/global/auth/lib/auth-client";
+import { ensureBrowserAuthBootstrapCookie } from "./auth-storage";
+import {
+  consumeBrowserAuthHandoffToken,
+  type BrowserAuthHandoffResult,
+} from "../browser-auth-handoff";
+import {
+  advanceAuthIdentityRevision,
+  resolveAuthSessionCacheScope,
+  type AuthSessionScopeData,
+} from "../lib/auth-session-scope";
 
 type AuthSessionResult = {
   data: unknown | null;
   isPending: boolean;
   error: Error | null;
+  /** Monotonic nonce that changes whenever the durable owner identity changes. */
+  identityRevision: number;
 };
 
+let identityRevision = 0;
+let currentIdentityScope = resolveAuthSessionCacheScope(null);
 let currentSession: AuthSessionResult = {
   data: null,
   isPending: true,
   error: null,
+  identityRevision,
 };
 const listeners = new Set<() => void>();
 let inFlightRefresh: Promise<void> | null = null;
 // Monotonic guard so a slow optimistic-then-revalidate sequence can never
 // clobber the result of a newer refresh (e.g. a sign-in fired mid-revalidation).
 let refreshVersion = 0;
+
+const setCurrentSession = (
+  next: Omit<AuthSessionResult, "identityRevision">,
+): void => {
+  const nextIdentity = advanceAuthIdentityRevision({
+    currentScope: currentIdentityScope,
+    currentRevision: identityRevision,
+    nextSessionData: next.data as AuthSessionScopeData,
+  });
+  currentIdentityScope = nextIdentity.scope;
+  identityRevision = nextIdentity.revision;
+  currentSession = { ...next, identityRevision };
+};
 
 const emit = () => {
   for (const listener of listeners) {
@@ -51,19 +80,46 @@ export const refreshAuthSession = async (options: RefreshOptions = {}) => {
     await inFlightRefresh.catch(() => {});
   }
   const systemApi = window.electronAPI?.system;
-  if (!systemApi?.getAuthSession) {
-    currentSession = {
-      data: null,
-      isPending: false,
-      error: new Error("Desktop auth API is unavailable."),
-    };
-    emit();
-    return;
-  }
   const version = ++refreshVersion;
   if (!options.silent) {
-    currentSession = { ...currentSession, isPending: true, error: null };
+    setCurrentSession({
+      data: currentSession.data,
+      isPending: true,
+      error: null,
+    });
     emit();
+  }
+  if (!systemApi?.getAuthSession) {
+    inFlightRefresh = Promise.resolve()
+      .then(async () => {
+        const result = await authClient.getSession();
+        if (version !== refreshVersion) return;
+        setCurrentSession({
+          data: result.data ?? null,
+          isPending: false,
+          error: result.error
+            ? new Error(
+                result.error.message ?? "Could not read the browser session.",
+              )
+            : null,
+        });
+      })
+      .catch((error) => {
+        if (version !== refreshVersion) return;
+        setCurrentSession({
+          data: null,
+          isPending: false,
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
+      })
+      .finally(() => {
+        inFlightRefresh = null;
+        if (version === refreshVersion) {
+          emit();
+        }
+      });
+    await inFlightRefresh;
+    return;
   }
   inFlightRefresh = configurePiRuntime()
     .then(async () => {
@@ -77,7 +133,7 @@ export const refreshAuthSession = async (options: RefreshOptions = {}) => {
         // Surface the cached session right away (isPending:false) so Convex sees
         // isAuthenticated && !isLoading and starts fetching the access token /
         // running authenticated queries before get-session revalidation settles.
-        currentSession = { data: first, isPending: false, error: null };
+        setCurrentSession({ data: first, isPending: false, error: null });
         emit();
       }
       // Authoritative follow-up read. The host returns the revalidated session
@@ -90,17 +146,21 @@ export const refreshAuthSession = async (options: RefreshOptions = {}) => {
       if (version !== refreshVersion) {
         return;
       }
-      currentSession = { data: revalidated, isPending: false, error: null };
+      setCurrentSession({
+        data: revalidated,
+        isPending: false,
+        error: null,
+      });
     })
     .catch((error) => {
       if (version !== refreshVersion) {
         return;
       }
-      currentSession = {
+      setCurrentSession({
         data: null,
         isPending: false,
         error: error instanceof Error ? error : new Error(String(error)),
-      };
+      });
     })
     .finally(() => {
       inFlightRefresh = null;
@@ -111,25 +171,138 @@ export const refreshAuthSession = async (options: RefreshOptions = {}) => {
   await inFlightRefresh;
 };
 
+type PendingBrowserAuthHandoff =
+  | { kind: "none" }
+  | { kind: "invalid" }
+  | { kind: "token"; token: string };
+
+const consumePendingBrowserAuthHandoff = (): PendingBrowserAuthHandoff => {
+  if (typeof window === "undefined" || window.electronAPI) {
+    return { kind: "none" };
+  }
+  const query = new URLSearchParams(window.location.search);
+  if (
+    window.location.pathname === "/auth/callback" &&
+    query.get("client") === "desktop"
+  ) {
+    return { kind: "none" };
+  }
+
+  const rawFragment = window.location.hash.replace(/^#\??/, "");
+  const hasHandoffCredential =
+    rawFragment.length > 0 && new URLSearchParams(rawFragment).has("ott");
+  const token = consumeBrowserAuthHandoffToken(window.location, window.history);
+  if (token) {
+    return { kind: "token", token };
+  }
+  return hasHandoffCredential ? { kind: "invalid" } : { kind: "none" };
+};
+
+const redeemPendingBrowserAuthHandoff =
+  async (): Promise<BrowserAuthHandoffResult> => {
+    const handoff = consumePendingBrowserAuthHandoff();
+    if (handoff.kind === "none") {
+      return "none";
+    }
+    if (handoff.kind === "invalid") {
+      // The malformed credential was already erased. Treat it as a terminal
+      // handoff failure so anonymous bootstrap cannot overwrite the intended
+      // account transition.
+      console.error("Failed to finish browser sign-in.");
+      return "failed";
+    }
+
+    try {
+      ensureBrowserAuthBootstrapCookie();
+      const result = await authClient.crossDomain.oneTimeToken.verify({
+        token: handoff.token,
+      });
+      if (result.error) {
+        throw new Error("Browser auth handoff verification failed.");
+      }
+      if (!authClient.getCookie().includes("session_token=")) {
+        throw new Error("Browser auth handoff did not establish a session.");
+      }
+      authClient.updateSession();
+      await refreshAuthSession();
+      if (!currentSession.data) {
+        throw new Error("Browser auth handoff session could not be verified.");
+      }
+      return "redeemed";
+    } catch {
+      // The credential has already been removed from the URL. Do not log it,
+      // retry it implicitly, or fall through to anonymous-session creation:
+      // an ambiguous POST failure may still have redeemed it server-side.
+      console.error("Failed to finish browser sign-in.");
+      return "failed";
+    }
+  };
+
+// Module initialization starts this before React mounts. Automatic anonymous
+// bootstrap awaits the same promise, so it cannot race or overwrite a valid
+// cross-domain session handoff.
+const browserAuthHandoffPromise = redeemPendingBrowserAuthHandoff();
+
+export const waitForBrowserAuthHandoff =
+  (): Promise<BrowserAuthHandoffResult> => browserAuthHandoffPromise;
+
 export const signInAnonymous = async () => {
+  if (!window.electronAPI) {
+    ensureBrowserAuthBootstrapCookie();
+    const result = await authClient.signIn.anonymous();
+    if (result.error) {
+      throw new Error(
+        result.error.message ?? "Could not start a browser session.",
+      );
+    }
+    if (!authClient.getCookie().includes("session_token=")) {
+      throw new Error(
+        "The browser session cookie was not mirrored by the auth service.",
+      );
+    }
+    await refreshAuthSession();
+    if (!currentSession.data) {
+      throw new Error(
+        "The browser session could not be verified after sign-in.",
+      );
+    }
+    return;
+  }
+  if (!window.electronAPI.system.signInAnonymous) {
+    throw new Error("Desktop anonymous sign-in is unavailable.");
+  }
   await configurePiRuntime();
-  await window.electronAPI?.system.signInAnonymous?.();
+  await window.electronAPI.system.signInAnonymous();
   await refreshAuthSession();
 };
 
 export const signOutAuthSession = async () => {
-  await window.electronAPI?.system.signOutAuth?.();
+  if (!window.electronAPI) {
+    await authClient.signOut();
+  } else {
+    if (!window.electronAPI.system.signOutAuth) {
+      throw new Error("Desktop sign-out is unavailable.");
+    }
+    await window.electronAPI.system.signOutAuth();
+  }
   // Invalidate any in-flight optimistic refresh so a late revalidated emit
   // can't resurrect the signed-out session.
   refreshVersion += 1;
-  currentSession = { data: null, isPending: false, error: null };
+  setCurrentSession({ data: null, isPending: false, error: null });
   emit();
 };
 
 export const deleteAuthUser = async () => {
-  await window.electronAPI?.system.deleteAuthUser?.();
+  if (!window.electronAPI) {
+    await authClient.deleteUser();
+  } else {
+    if (!window.electronAPI.system.deleteAuthUser) {
+      throw new Error("Desktop account deletion is unavailable.");
+    }
+    await window.electronAPI.system.deleteAuthUser();
+  }
   refreshVersion += 1;
-  currentSession = { data: null, isPending: false, error: null };
+  setCurrentSession({ data: null, isPending: false, error: null });
   emit();
 };
 
@@ -212,11 +385,20 @@ export function useDesktopAuthSession() {
   );
 
   // Kick off a cold-start refresh when we mount still pending. The guard keeps
-  // this from stacking on an in-flight refresh; behavior matches the old
-  // mount-effect fallback.
+  // this from stacking on an in-flight refresh. Browser session discovery also
+  // waits for an OTT handoff to settle so an older cached/anonymous identity is
+  // never surfaced while the intended account exchange is still in flight.
   useEffect(() => {
     if (currentSession.isPending && !inFlightRefresh) {
-      void refreshAuthSession({ allowCached: true });
+      void waitForBrowserAuthHandoff().then((handoff) => {
+        if (
+          handoff !== "failed" &&
+          currentSession.isPending &&
+          !inFlightRefresh
+        ) {
+          void refreshAuthSession({ allowCached: true });
+        }
+      });
     }
     ensureAuthSessionRevalidationListeners();
   }, []);

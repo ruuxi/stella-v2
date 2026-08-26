@@ -22,6 +22,12 @@ import {
   parseOfflineImages,
   type OfflineChatImage,
 } from "../mobile_chat_images";
+import {
+  assistantMessageHasMobileOutput,
+  MOBILE_CHAT_TOOLS,
+  parseMobileChatToolMessages,
+  type MobileChatToolMessage,
+} from "../mobile_chat_tools";
 import { OFFLINE_RESPONDER_SYSTEM_PROMPT } from "../prompts/offline_responder";
 import { getResponseLanguageSystemPrompt } from "../prompts/system_assembly";
 import {
@@ -62,7 +68,10 @@ import {
   verifyPairedMobileProof,
   verifyPairedMobileSecret,
 } from "../mobile_access";
-import type { AssistantMessage } from "../runtime_ai/types";
+import type {
+  AssistantMessage,
+  AssistantMessageEvent,
+} from "../runtime_ai/types";
 
 const OFFLINE_CHAT_RATE_LIMIT = 12;
 const OFFLINE_CHAT_RATE_WINDOW_MS = 60_000;
@@ -95,6 +104,7 @@ const MAX_BRIDGE_PUBLIC_KEY_LENGTH = 128;
 const MOBILE_BRIDGE_PAIR_PROOF_MAX_SKEW_MS = 5 * 60_000;
 const MAX_OFFLINE_HISTORY_ITEMS = 40;
 const MAX_OFFLINE_MESSAGE_CHARS = 12_000;
+const MAX_OFFLINE_CONTEXT_CHARS = 30_000;
 
 /** Per-owner cap for the desktop bridge endpoints (cheap reads/writes). */
 const MOBILE_BRIDGE_RATE_LIMIT = 60;
@@ -566,6 +576,9 @@ const streamOfflineReply = async (args: {
   isAnonymous: boolean;
   history: Array<{ role: "user" | "assistant"; text: string }>;
   images: OfflineChatImage[];
+  clientContext: string;
+  enableTools: boolean;
+  toolMessages: MobileChatToolMessage[];
   model?: string | null;
   origin: string | null;
 }): Promise<Response> => {
@@ -583,6 +596,18 @@ const streamOfflineReply = async (args: {
     args.ownerId,
     { access: modelAccess, modelOverride: args.model },
   );
+  const fallbackConfig = await resolveFallbackConfig(
+    args.ctx,
+    AGENT_IDS.OFFLINE_RESPONDER,
+    args.ownerId,
+    { access: modelAccess },
+  );
+  const usableFallback =
+    fallbackConfig &&
+    fallbackConfig.model !== config.model &&
+    (args.images.length === 0 || modelSupportsOfflineImages(fallbackConfig))
+      ? fallbackConfig
+      : null;
   const capabilityError = offlineImageCapabilityError(config, args.images);
   if (capabilityError) {
     return errorResponse(422, capabilityError, args.origin);
@@ -597,8 +622,12 @@ const streamOfflineReply = async (args: {
   const systemPrompt = [
     OFFLINE_RESPONDER_SYSTEM_PROMPT,
     "You are replying inside Stella's mobile offline chat.",
-    "Answer in plain text and keep the response practical and concise.",
+    "Keep responses practical and concise.",
     "Use prior messages in this conversation for context when relevant.",
+    args.enableTools
+      ? "Use the provided native tools whenever they are needed. After receiving tool results, answer the user naturally and do not claim that tool execution is unavailable."
+      : null,
+    args.clientContext || null,
     responderLocaleDirective || null,
     args.userName ? `The user's name is ${args.userName}.` : null,
   ]
@@ -610,28 +639,101 @@ const streamOfflineReply = async (args: {
     history: args.history,
     message: args.message,
     images: args.images,
+    tools: args.enableTools ? MOBILE_CHAT_TOOLS : undefined,
+    toolMessages: args.toolMessages,
+    assistantModel: config.model,
   });
 
   const startedAt = Date.now();
-  const eventStream = streamManagedChat({ config, context });
 
   const readable = new ReadableStream({
     async start(controller) {
+      let finalMessage: AssistantMessage | null = null;
+      let activeModel = config.model;
+      let success = false;
       try {
-        let finalMessage: AssistantMessage | null = null;
-        for await (const event of eventStream) {
-          if (event.type === "text_delta") {
-            controller.enqueue(encodeSseData({ t: event.delta }));
-          } else if (event.type === "done") {
-            finalMessage = event.message;
-          } else if (event.type === "error") {
-            finalMessage = event.error;
+        const consume = async (
+          stream: AsyncIterable<AssistantMessageEvent>,
+          onOutput: () => void,
+        ): Promise<AssistantMessage> => {
+          let completed: AssistantMessage | null = null;
+          for await (const event of stream) {
+            if (event.type === "text_delta") {
+              if (event.delta.trim()) onOutput();
+              controller.enqueue(encodeSseData({ t: event.delta }));
+            } else if (event.type === "toolcall_end") {
+              onOutput();
+              controller.enqueue(
+                encodeSseData({
+                  toolCall: {
+                    id: event.toolCall.id,
+                    name: event.toolCall.name,
+                    arguments: event.toolCall.arguments,
+                    ...(event.toolCall.thoughtSignature
+                      ? { thoughtSignature: event.toolCall.thoughtSignature }
+                      : {}),
+                    source: {
+                      api: event.partial.api,
+                      provider: event.partial.provider,
+                      model: event.partial.model,
+                    },
+                  },
+                }),
+              );
+            } else if (event.type === "done") {
+              completed = event.message;
+            } else if (event.type === "error") {
+              throw new Error(
+                event.error.errorMessage || "Model response failed",
+              );
+            }
+          }
+          if (!completed)
+            throw new Error("Model stream ended without a result");
+          return completed;
+        };
+
+        let usedFallback = false;
+        let primaryEmittedOutput = false;
+        try {
+          finalMessage = await consume(
+            streamManagedChat({ config, context }),
+            () => {
+              primaryEmittedOutput = true;
+            },
+          );
+        } catch (error) {
+          if (!usableFallback || primaryEmittedOutput) throw error;
+          usedFallback = true;
+          activeModel = usableFallback.model;
+          finalMessage = await consume(
+            streamManagedChat({ config: usableFallback, context }),
+            () => undefined,
+          );
+        }
+
+        const hasOutput = assistantMessageHasMobileOutput(finalMessage);
+        if (!hasOutput) {
+          if (usableFallback && !usedFallback) {
+            usedFallback = true;
+            activeModel = usableFallback.model;
+            finalMessage = await consume(
+              streamManagedChat({ config: usableFallback, context }),
+              () => undefined,
+            );
+          }
+          const fallbackHasOutput =
+            assistantMessageHasMobileOutput(finalMessage);
+          if (!fallbackHasOutput) {
+            throw new Error("Model returned an empty response");
           }
         }
+
+        success = true;
         await scheduleManagedUsage(args.ctx, {
           ownerId: args.ownerId,
           agentType: "service:offline_chat",
-          model: config.model,
+          model: activeModel,
           durationMs: Date.now() - startedAt,
           success: true,
           usage: usageSummaryFromAssistant(finalMessage),
@@ -644,7 +746,24 @@ const streamOfflineReply = async (args: {
         controller.close();
       } catch (error) {
         console.error("[mobile/offline-chat-stream] Error:", error);
-        controller.enqueue(encodeSseData({ error: "Stream failed" }));
+        if (!success) {
+          await scheduleManagedUsage(args.ctx, {
+            ownerId: args.ownerId,
+            agentType: "service:offline_chat",
+            model: activeModel,
+            durationMs: Date.now() - startedAt,
+            success: false,
+            usage: usageSummaryFromAssistant(finalMessage),
+          }).catch((usageError) => {
+            console.error(
+              "[mobile/offline-chat-stream] Failed to meter error:",
+              usageError,
+            );
+          });
+        }
+        controller.enqueue(
+          encodeSseData({ error: "The model response failed. Try again." }),
+        );
         controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
         controller.close();
       }
@@ -812,6 +931,9 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           history?: unknown;
           images?: unknown;
           model?: unknown;
+          context?: unknown;
+          enableTools?: unknown;
+          toolMessages?: unknown;
         }>(request, origin, "Invalid request body");
         if (!bodyResult.ok) return bodyResult.response;
         const body = bodyResult.body;
@@ -827,6 +949,12 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         }
         const images = imageResult.images;
         const model = typeof body.model === "string" ? body.model : null;
+        const clientContext =
+          typeof body.context === "string"
+            ? body.context.slice(0, MAX_OFFLINE_CONTEXT_CHARS).trim()
+            : "";
+        const enableTools = body.enableTools === true;
+        const toolMessages = parseMobileChatToolMessages(body.toolMessages);
 
         if (!message && images.length === 0) {
           return errorResponse(400, "Message or image required", origin);
@@ -840,6 +968,9 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           isAnonymous: owner.isAnonymous,
           history,
           images,
+          clientContext,
+          enableTools,
+          toolMessages,
           model,
           origin,
         });
@@ -1883,7 +2014,10 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             blockMs: MAGIC_LINK_RATE_WINDOW_MS,
           });
           if (!ipRateLimit.allowed) {
-            return withCors(rateLimitResponse(ipRateLimit.retryAfterMs), origin);
+            return withCors(
+              rateLimitResponse(ipRateLimit.retryAfterMs),
+              origin,
+            );
           }
         }
 

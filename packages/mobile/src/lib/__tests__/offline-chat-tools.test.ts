@@ -25,11 +25,8 @@ import {
   type MessageRow,
 } from "../chat-recall";
 import {
-  parseToolBlock,
-  createToolBlockFilter,
-  buildToolPreamble,
-  TOOL_BLOCK_OPEN,
-  TOOL_BLOCK_CLOSE,
+  buildMobileModelContext,
+  normalizeMobileToolCall,
 } from "../chat-tools";
 import { formatMemoryForContext, type MemoryFact } from "../chat-memory";
 import {
@@ -108,84 +105,48 @@ describe("chat-recall FTS helpers", () => {
   });
 });
 
-describe("chat-tools.parseToolBlock", () => {
-  test("passes through a reply with no tool block", () => {
-    const { visibleText, calls } = parseToolBlock("Hello there.");
-    expect(visibleText).toBe("Hello there.");
-    expect(calls).toEqual([]);
-  });
-
-  test("strips the block and parses calls", () => {
-    const raw = [
-      "Saved that for you.",
-      TOOL_BLOCK_OPEN,
-      '{"tool":"remember","key":"home city","value":"Austin"}',
-      '{"tool":"map","places":["Blue Bottle SF"]}',
-      TOOL_BLOCK_CLOSE,
-    ].join("\n");
-    const { visibleText, calls } = parseToolBlock(raw);
-    expect(visibleText).toBe("Saved that for you.");
-    expect(calls).toHaveLength(2);
-    expect(calls[0]).toEqual({
-      tool: "remember",
-      key: "home city",
-      value: "Austin",
+describe("native mobile tool calls", () => {
+  test("normalizes structured provider tool calls", () => {
+    expect(
+      normalizeMobileToolCall({
+        id: "call_web",
+        name: "web",
+        arguments: { query: "latest news", category: "news" },
+      }),
+    ).toEqual({
+      id: "call_web",
+      tool: "web",
+      query: "latest news",
+      category: "news",
     });
-    expect(calls[1]).toMatchObject({ tool: "map", places: ["Blue Bottle SF"] });
+    expect(
+      normalizeMobileToolCall({
+        id: "call_map",
+        name: "map",
+        arguments: { places: ["Blue Bottle SF"] },
+      }),
+    ).toEqual({
+      id: "call_map",
+      tool: "map",
+      places: ["Blue Bottle SF"],
+    });
   });
 
-  test("parses unified web search and fetch calls", () => {
-    const raw = [
-      TOOL_BLOCK_OPEN,
-      '{"tool":"web","query":"latest news","category":"news"}',
-      '{"tool":"web","url":"https://example.test","prompt":"pricing","format":"markdown"}',
-      TOOL_BLOCK_CLOSE,
-    ].join("\n");
-    expect(parseToolBlock(raw).calls).toEqual([
-      { tool: "web", query: "latest news", category: "news" },
-      {
-        tool: "web",
-        url: "https://example.test",
-        prompt: "pricing",
-        format: "markdown",
-      },
-    ]);
-  });
-
-  test("drops malformed / invalid tool lines", () => {
-    const raw = [
-      "ok",
-      TOOL_BLOCK_OPEN,
-      "not json",
-      '{"tool":"remember","key":""}',
-      '{"tool":"web"}',
-      '{"tool":"web","query":"news","url":"https://example.test"}',
-      '{"tool":"nope"}',
-      TOOL_BLOCK_CLOSE,
-    ].join("\n");
-    expect(parseToolBlock(raw).calls).toEqual([]);
+  test("rejects unknown tools and invalid arguments", () => {
+    expect(
+      normalizeMobileToolCall({ id: "x", name: "unknown", arguments: {} }),
+    ).toBeNull();
+    expect(
+      normalizeMobileToolCall({
+        id: "x",
+        name: "web",
+        arguments: { query: "news", url: "https://example.test" },
+      }),
+    ).toBeNull();
   });
 });
 
-describe("chat-tools.createToolBlockFilter", () => {
-  test("hides the tool block even when split across chunks", () => {
-    const raw =
-      `Here you go.${TOOL_BLOCK_OPEN}\n` +
-      `{"tool":"forget","key":"x"}\n${TOOL_BLOCK_CLOSE}`;
-    const filter = createToolBlockFilter();
-    let shown = "";
-    // Feed one character at a time to stress the hold-back logic.
-    for (const ch of raw) shown += filter.feed(ch);
-    shown += filter.finalize();
-    expect(shown).toBe("Here you go.");
-    expect(filter.raw()).toBe(raw);
-    expect(parseToolBlock(filter.raw()).calls).toEqual([
-      { tool: "forget", key: "x" },
-    ]);
-  });
-});
-
-describe("memory + preamble injection", () => {
+describe("memory + model context", () => {
   const facts: MemoryFact[] = [
     { key: "name", value: "Ruuxi", updatedAt: 2 },
     { key: "home city", value: "Austin, TX", updatedAt: 1 },
@@ -197,16 +158,14 @@ describe("memory + preamble injection", () => {
     expect(text).toContain("home city: Austin, TX");
   });
 
-  test("preamble carries memory, summary, and tool docs", () => {
-    const preamble = buildToolPreamble({
+  test("context carries only memory and the compacted summary", () => {
+    const modelContext = buildMobileModelContext({
       memoryFacts: facts,
       summary: "They are planning a trip.",
     });
-    expect(preamble).toContain("Ruuxi");
-    expect(preamble).toContain("planning a trip");
-    expect(preamble).toContain("remember");
-    expect(preamble).toContain("recall");
-    expect(preamble).toContain(TOOL_BLOCK_OPEN);
+    expect(modelContext).toContain("Ruuxi");
+    expect(modelContext).toContain("planning a trip");
+    expect(modelContext.includes("Available tools")).toBe(false);
   });
 
   test("empty memory yields no memory block", () => {

@@ -11,9 +11,9 @@ import { artifactId, isMobileDisplayPayload } from "./mobile-artifacts";
  * renders inline via `MapRouteCard`, so a resolved map just rides the assistant
  * message's `artifacts` and shows up as an interactive card.
  *
- * The offline responder is a plain text model with no native tool channel, so
- * the model requests a map through the `chat-tools.ts` text protocol and this
- * resolver runs the lookup on-device.
+ * The offline responder requests this resolver through a native tool call; the
+ * lookup still runs on-device because the resulting artifact belongs to the
+ * local mobile conversation.
  */
 
 const MAPS_RESOLVE_URL = "https://stella.sh/api/maps/resolve";
@@ -152,9 +152,7 @@ export async function resolveMap(
       // Non-JSON error body; fall through to the status message.
     }
     const record =
-      body && typeof body === "object"
-        ? (body as Record<string, unknown>)
-        : {};
+      body && typeof body === "object" ? (body as Record<string, unknown>) : {};
     if (!response.ok) {
       const message =
         asTrimmed(record.error) || `map service returned ${response.status}`;

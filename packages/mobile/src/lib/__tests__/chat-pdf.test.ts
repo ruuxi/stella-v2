@@ -6,8 +6,11 @@ import {
   renderPdfHtml,
   summarizePdf,
 } from "../chat-pdf";
-import { parseToolBlock, TOOL_BLOCK_CLOSE, TOOL_BLOCK_OPEN } from "../chat-tools";
-import { isMobileDisplayPayload, parseChatArtifacts } from "../mobile-artifacts";
+import { normalizeMobileToolCall } from "../chat-tools";
+import {
+  isMobileDisplayPayload,
+  parseChatArtifacts,
+} from "../mobile-artifacts";
 
 describe("pdfFileName", () => {
   test("slugifies a title into a safe .pdf name", () => {
@@ -40,7 +43,9 @@ describe("renderMarkdownBody", () => {
   });
 
   test("renders ordered lists and fenced code without transforming it", () => {
-    const html = renderMarkdownBody("1. first\n2. second\n\n```\na = **b**\n```");
+    const html = renderMarkdownBody(
+      "1. first\n2. second\n\n```\na = **b**\n```",
+    );
     expect(html).toContain("<ol><li>first</li><li>second</li></ol>");
     expect(html).toContain("<pre><code>a = **b**</code></pre>");
   });
@@ -111,13 +116,16 @@ describe("pdf artifact + summary", () => {
   });
 });
 
-describe("pdf tool block parsing", () => {
-  test("parses a pdf tool call with string content and hides the block", () => {
-    const raw = `Here is your PDF.\n${TOOL_BLOCK_OPEN}\n{"tool":"pdf","title":"Notes","content":"# Notes\\n\\nBody"}\n${TOOL_BLOCK_CLOSE}`;
-    const parsed = parseToolBlock(raw);
-    expect(parsed.visibleText).toBe("Here is your PDF.");
-    expect(parsed.calls).toHaveLength(1);
-    expect(parsed.calls[0]).toMatchObject({
+describe("native PDF tool calls", () => {
+  test("normalizes a structured PDF call", () => {
+    expect(
+      normalizeMobileToolCall({
+        id: "call_pdf",
+        name: "pdf",
+        arguments: { title: "Notes", content: "# Notes\n\nBody" },
+      }),
+    ).toMatchObject({
+      id: "call_pdf",
       tool: "pdf",
       title: "Notes",
       content: "# Notes\n\nBody",
@@ -125,16 +133,25 @@ describe("pdf tool block parsing", () => {
   });
 
   test("accepts array-of-lines content", () => {
-    const raw = `${TOOL_BLOCK_OPEN}\n{"tool":"pdf","content":["# H","","para"]}\n${TOOL_BLOCK_CLOSE}`;
-    const parsed = parseToolBlock(raw);
-    expect(parsed.calls[0]).toMatchObject({
+    expect(
+      normalizeMobileToolCall({
+        id: "call_pdf",
+        name: "pdf",
+        arguments: { content: ["# H", "", "para"] },
+      }),
+    ).toMatchObject({
       tool: "pdf",
       content: "# H\n\npara",
     });
   });
 
   test("drops a pdf call with no content", () => {
-    const raw = `${TOOL_BLOCK_OPEN}\n{"tool":"pdf","title":"Empty"}\n${TOOL_BLOCK_CLOSE}`;
-    expect(parseToolBlock(raw).calls).toHaveLength(0);
+    expect(
+      normalizeMobileToolCall({
+        id: "call_pdf",
+        name: "pdf",
+        arguments: { title: "Empty" },
+      }),
+    ).toBeNull();
   });
 });

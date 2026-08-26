@@ -5,9 +5,13 @@ import type {
   ImageContent,
   Message,
   TextContent,
+  Tool,
+  ToolCall,
+  ToolResultMessage,
   Usage,
   UserMessage,
 } from "./runtime_ai/types";
+import type { MobileChatToolMessage } from "./mobile_chat_tools";
 
 export const MAX_OFFLINE_IMAGES = 5;
 export const MAX_IMAGE_BASE64_CHARS = 6_000_000;
@@ -77,7 +81,8 @@ export const parseOfflineImages = (
     if (totalBase64Chars > MAX_TOTAL_IMAGE_BASE64_CHARS) {
       return {
         ok: false,
-        error: "The attached images are too large. Try fewer or smaller images.",
+        error:
+          "The attached images are too large. Try fewer or smaller images.",
       };
     }
     images.push({ base64, mimeType });
@@ -123,6 +128,9 @@ export const buildOfflineChatContext = (args: {
   history: Array<{ role: "user" | "assistant"; text: string }>;
   message: string;
   images: OfflineChatImage[];
+  tools?: Tool[];
+  toolMessages?: MobileChatToolMessage[];
+  assistantModel?: string;
 }): Context => {
   const messages: Message[] = [];
   for (const turn of args.history) {
@@ -163,5 +171,53 @@ export const buildOfflineChatContext = (args: {
     timestamp: Date.now(),
   });
 
-  return { systemPrompt: args.systemPrompt, messages };
+  for (const toolMessage of args.toolMessages ?? []) {
+    if (toolMessage.role === "assistant") {
+      const content: Array<TextContent | ToolCall> = [];
+      if (toolMessage.text.trim()) {
+        content.push({ type: "text", text: toolMessage.text });
+      }
+      content.push(
+        ...toolMessage.toolCalls.map(
+          (call): ToolCall => ({
+            type: "toolCall",
+            id: call.id,
+            name: call.name,
+            arguments: call.arguments,
+            ...(call.thoughtSignature
+              ? { thoughtSignature: call.thoughtSignature }
+              : {}),
+          }),
+        ),
+      );
+      messages.push({
+        role: "assistant",
+        content,
+        api: toolMessage.source?.api ?? "openai-completions",
+        provider: toolMessage.source?.provider ?? "managed",
+        model:
+          toolMessage.source?.model ?? args.assistantModel ?? "offline-history",
+        usage: EMPTY_USAGE,
+        stopReason: "toolUse",
+        timestamp: Date.now(),
+      });
+      continue;
+    }
+
+    const result: ToolResultMessage = {
+      role: "toolResult",
+      toolCallId: toolMessage.toolCallId,
+      toolName: toolMessage.toolName,
+      content: [{ type: "text", text: toolMessage.text }],
+      isError: toolMessage.isError,
+      timestamp: Date.now(),
+    };
+    messages.push(result);
+  }
+
+  return {
+    systemPrompt: args.systemPrompt,
+    messages,
+    ...(args.tools ? { tools: args.tools } : {}),
+  };
 };

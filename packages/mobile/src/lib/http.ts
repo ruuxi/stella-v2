@@ -1,6 +1,10 @@
 import { env } from "../config/env";
 import { assert } from "./assert";
 import { getConvexToken } from "./auth-token";
+import {
+  parseMobileChatStreamPayload,
+  type MobileChatStreamToolCall,
+} from "./mobile-chat-stream";
 
 type JsonRequest =
   | {
@@ -17,6 +21,7 @@ type StreamRequestOptions = {
   headers?: Record<string, string>;
   /** Aborts the in-flight XHR. Callers receive an `AbortError` rejection. */
   signal?: AbortSignal;
+  onToolCall?: (toolCall: MobileChatStreamToolCall) => void;
 };
 
 export class StreamAbortError extends Error {
@@ -189,18 +194,15 @@ function executeStream(
     const handleLine = (line: string): boolean => {
       if (!line.startsWith("data: ")) return true;
       const payload = line.slice(6);
-      if (payload === "[DONE]") return false;
-      try {
-        const parsed = JSON.parse(payload) as { t?: string; error?: string };
-        if (parsed.error) {
-          reject(new Error(parsed.error));
-          xhr.abort();
-          return false;
-        }
-        if (parsed.t) onDelta(parsed.t);
-      } catch {
-        // skip malformed lines
+      const frame = parseMobileChatStreamPayload(payload);
+      if (frame.type === "done") return false;
+      if (frame.type === "error") {
+        reject(new Error(frame.error));
+        xhr.abort();
+        return false;
       }
+      if (frame.type === "text") onDelta(frame.text);
+      if (frame.type === "toolCall") options?.onToolCall?.(frame.toolCall);
       return true;
     };
 
@@ -242,10 +244,15 @@ function executeStream(
       } else {
         let msg = "Could not complete that request. Try again.";
         try {
-          const parsed = JSON.parse(xhr.responseText) as Record<string, unknown>;
+          const parsed = JSON.parse(xhr.responseText) as Record<
+            string,
+            unknown
+          >;
           if (typeof parsed.error === "string") msg = parsed.error;
           else if (typeof parsed.message === "string") msg = parsed.message;
-        } catch { /* use default */ }
+        } catch {
+          /* use default */
+        }
         reject(new Error(msg));
       }
     };

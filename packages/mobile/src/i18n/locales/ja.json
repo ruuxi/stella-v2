@@ -446,7 +446,9 @@
       },
       "steps": {
         "download": "アプリをダウンロード",
-        "downloadQrAlt": "スキャンして App Store から Stella をダウンロード",
+        "platformSelectorLabel": "モバイルプラットフォームを選択",
+        "appStoreQrAlt": "スキャンして App Store から Stella をダウンロード",
+        "playStoreQrAlt": "スキャンして Google Play から Stella をダウンロード",
         "connect": "スマートフォンを接続"
       },
       "toasts": {

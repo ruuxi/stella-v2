@@ -446,7 +446,9 @@
       },
       "steps": {
         "download": "Last ned appen",
-        "downloadQrAlt": "Skann for å laste ned Stella fra App Store",
+        "platformSelectorLabel": "Velg en mobilplattform",
+        "appStoreQrAlt": "Skann for å laste ned Stella fra App Store",
+        "playStoreQrAlt": "Skann for å laste ned Stella fra Google Play",
         "connect": "Koble til telefonen"
       },
       "toasts": {

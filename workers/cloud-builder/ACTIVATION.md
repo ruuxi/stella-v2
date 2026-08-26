@@ -91,21 +91,45 @@ Stripe keys used by billing, and `BUILDER_SERVICE_SECRET` matching the worker.
 Without these a disposable dev user cannot sign in and no JWT can be minted, so
 the authenticated conversation surface cannot be exercised.
 
-## Status / blocker (honest)
+## Status (updated — staging deployed)
 
-- Verified this activation direction against the merged code (references above).
-- Deploy pipeline confirmed reachable: `bun install` + `wrangler` bundle the
-  worker; Docker is available for the container image; the account already runs
-  SQLite DOs + Containers under the existing plan.
-- **Open blocker for the end-to-end signed-in proof:** an isolated Convex
-  staging that can mint sign-in JWTs needs the external Better-Auth/OAuth/Stripe
-  secret set (not held here; cannot be fabricated), *or* explicit authorization
-  to pair staging with the existing dev Convex (`flexible-panther-999`) using its
-  `BUILDER_SERVICE_SECRET` — which shares dev data and so is not isolated.
-- The `stella-dev-harness` runtime (scripts + worktrees) is currently deleted
-  (skill marked STALE) and must be rebuilt to drive the real Electron UI.
+**Infrastructure step 1 — DONE and verified.** The real `cloud-builder` is
+deployed to isolated staging, paired with the existing **development** Convex
+`flexible-panther-999` (authorized dev use; not production):
 
-The redundant standalone `workers/journal-realstaging` proof worker has been
-removed; its journal invariants (gapless seq, idempotent receipts, fencing,
-R2 rollover) are already covered by the real implementation in `src/journal.ts`
-and `tests/journal-append-*.test.ts`.
+- Worker: `https://stella-v2-cloud-builder-staging.lolruuxi.workers.dev`
+  (`wrangler.staging.jsonc`).
+- Real container Sandbox images built + pushed to
+  `registry.cloudflare.com/<account>/stella-v2-cloud-builder-staging-sandbox*`
+  (standard-4 / standard-2), i.e. the actual cloud-execution container path.
+- Bindings: 4 Durable Objects (incl. `OrchestratorSession` = the journal),
+  isolated R2 (`stella-v2-*-staging`) incl. `CONVERSATION_ARCHIVE`, isolated KV.
+- Secrets `BUILDER_SERVICE_SECRET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
+  set from the paired dev Convex (recovered via the authenticated CLI, uploaded
+  as Worker secrets, never printed or committed).
+- Verified live + **fail-visible**: the authenticated conversation surface
+  returns `401 {"error":"Unauthorized."}` without a valid Convex JWT.
+
+**Merge inconsistency fixed.** The cloud-builder image references
+`packages/app-template` and `packages/apps-sdk`, which had been dropped from main
+(a merge lost them) while the reference remained — so the container image could
+not build from main. Both packages are restored from history (commit
+`568018d7b`, an ancestor of main), and `image:prepare` + `wrangler --dry-run`
+now succeed.
+
+**Remaining work for the full signed-in Electron proof (step 2):**
+1. Runtime seam: route normal dev conversations through the cloud-canonical
+   conversation surface in `session-store.ts` (local SQLite demoted to cache,
+   fail-visible on missing cloud config). Load-bearing — must be verified against
+   the running staging stack.
+2. Rebuild `stella-dev-harness` (scripts + worktrees are deleted/STALE) and seed
+   a disposable signed-in profile via the Keychain-decrypt path, pointed at
+   `flexible-panther-999` + the staging worker.
+3. Drive two disposable Electron profiles: A create/send, B clean
+   discover/hydrate/continue; prove desktop vs container execution into the same
+   DO journal.
+
+The redundant standalone `workers/journal-realstaging` proof worker was removed;
+its journal invariants (gapless seq, idempotent receipts, fencing, R2 rollover)
+are already covered by the real implementation in `src/journal.ts` and
+`tests/journal-append-*.test.ts`.

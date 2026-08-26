@@ -227,7 +227,11 @@ type LocalTurnFinishReceipt = {
 
 const OWNER_TRANSFER_KEY = "conversationOwnerTransfer";
 
-const DEFAULT_CLOUD_EXECUTION: CloudExecutionSelection = {
+// Current Convex dispatches always include an execution selection that was
+// persisted with the turn token. Missing execution is rolling-deploy
+// compatibility for old queued turns only; those legacy tokens are bound to
+// the original concrete model and cannot authorize the new opaque default.
+const LEGACY_UNBOUND_CLOUD_EXECUTION: CloudExecutionSelection = {
   engine: "stella",
   provider: "stella",
   model: "stella/anthropic/claude-sonnet-4.6",
@@ -1840,13 +1844,14 @@ export class OrchestratorSession extends DurableObject<Env> {
         return json({ ok: false, canceled: true });
       }
 
+      const executionSelection =
+        turn.execution ?? LEGACY_UNBOUND_CLOUD_EXECUTION;
       const model = await createCloudRelayModel({
         siteUrl: base,
         turnToken: turn.turnToken,
         agentType: "orchestrator",
-        execution: turn.execution ?? DEFAULT_CLOUD_EXECUTION,
+        execution: executionSelection,
       });
-      const executionSelection = turn.execution ?? DEFAULT_CLOUD_EXECUTION;
       const agent: Agent = new Agent({
         initialState: {
           systemPrompt: buildCloudSystemPrompt({

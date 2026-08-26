@@ -19,6 +19,45 @@ const create = (execution: CloudExecutionSelection) =>
   });
 
 describe("cloud relay model selection", () => {
+  test("resolves the opaque managed default with the exact turn token", async () => {
+    const originalFetch = globalThis.fetch;
+    let capturedUrl = "";
+    let capturedInit: RequestInit | undefined;
+    globalThis.fetch = (async (input, init) => {
+      capturedUrl = String(input);
+      capturedInit = init;
+      return Response.json({
+        resolvedModel: "meta/muse-spark-1.2-contributor",
+        relayProvider: "openrouter",
+      });
+    }) as typeof fetch;
+
+    try {
+      const model = await create({
+        engine: "stella",
+        provider: "stella",
+        model: "stella/default",
+        reasoningEffort: "default",
+      });
+
+      expect(capturedUrl).toBe(
+        "https://example.convex.site/api/stella/cloud-model",
+      );
+      expect(
+        new Headers(capturedInit?.headers).get(CLOUD_TURN_TOKEN_HEADER),
+      ).toBe("opaque-turn-token");
+      expect(JSON.parse(String(capturedInit?.body))).toEqual({
+        model: "stella/default",
+      });
+      expect(model.id).toBe("stella/default");
+      expect(
+        (model as Model<Api> & { upstreamModelId?: string }).upstreamModelId,
+      ).toBe("meta/muse-spark-1.2-contributor");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("uses server-resolved provider metadata for arbitrary Stella pins", () => {
     const openaiExecution = {
       engine: "stella",

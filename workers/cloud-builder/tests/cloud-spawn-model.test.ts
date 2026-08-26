@@ -11,9 +11,7 @@ describe("isValidCloudSpawnModel", () => {
 
   test("accepts Codex and Stella routes", () => {
     expect(isValidCloudSpawnModel("codex/gpt-5.6-sol:xhigh")).toBe(true);
-    expect(
-      isValidCloudSpawnModel("stella/anthropic/claude-sonnet-4.6:medium"),
-    ).toBe(true);
+    expect(isValidCloudSpawnModel("stella/default:medium")).toBe(true);
   });
 
   test("rejects malformed or overlong model ids", () => {

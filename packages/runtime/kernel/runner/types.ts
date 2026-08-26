@@ -5,6 +5,8 @@ import type { AgentMessage } from "../agent-core/types.js";
 import type { OrchestratorSession } from "../agent-runtime/orchestrator-session.js";
 import type { BackgroundCompactionScheduler } from "../agent-runtime/compaction-scheduler.js";
 import type { BackgroundExitWake } from "./background-exit-wake.js";
+import type { KernelRunSupervisor } from "./supervision/run-supervisor.js";
+import type { RunCoordinator } from "./run-coordinator.js";
 import type {
   RuntimeAssistantMessageEvent,
   RuntimeEndEvent,
@@ -189,6 +191,7 @@ export type RuntimeSendUserMessageInput = RuntimeSendMessageInput & {
 export type ActiveOrchestratorSession = RuntimeExecutionSessionHandle & {
   conversationId: string;
   agentType: string;
+  storageMode?: "cloud" | "local";
   uiVisibility: "visible" | "hidden";
   queueCallbackSwitch: (callbacks: AgentCallbacks) => void;
   queueMessage: (message: AgentMessage, delivery: "steer" | "followUp") => void;
@@ -279,6 +282,12 @@ export type RunnerState = {
   isRunning: boolean;
   isInitialized: boolean;
   initializationPromise: Promise<void> | null;
+  /**
+   * Opens when `initializationPromise` is assigned at boot; reset when the
+   * runner stops. Boot-window waiters (restart continuation) park here
+   * instead of polling for the assignment.
+   */
+  initializationStarted: import("../shared/readiness-latch.js").ReadinessLatch;
   localAgentManager: LocalAgentManager | null;
   /**
    * Watches `exec_command` sessions a finished run left running and wakes
@@ -309,6 +318,16 @@ export type RunnerState = {
   compactionScheduler: BackgroundCompactionScheduler;
   queuedOrchestratorTurns: QueuedOrchestratorTurn[];
   /**
+   * Effect-owned run coordinator for the orchestrator lane: single writer
+   * for run admission (`activeOrchestrator*` fields) and sole consumer of
+   * `queuedOrchestratorTurns`, with a structurally single-flight,
+   * interruptible drain. Installed on first use via `ensureRunCoordinator`
+   * and shut down (drain fiber interrupted and joined) in
+   * `runtime-initialization.ts:stop`. See
+   * `runtime/kernel/runner/run-coordinator.ts`.
+   */
+  runCoordinator: RunCoordinator | null;
+  /**
    * Per-conversation buffer of user chat messages that were injected into an
    * active run as steering. Populated when a user message lands on a live
    * streaming session; cleared when that run completes normally (the agent
@@ -316,15 +335,27 @@ export type RunnerState = {
    * fresh reply turn when the run is interrupted or fails before draining.
    */
   pendingFollowUpReplies: Map<string, PendingFollowUpReply[]>;
-  activeRunAbortControllers: Map<string, AbortController>;
+  /**
+   * Fiber supervision tree for orchestrator turns and subagent attempts.
+   * Every run registers its cooperative abort at admission (`registerRun`)
+   * and its root fiber at launch (`startRun`); subagent attempts spawned
+   * with a `rootRunId` join that run's cancellation scope. This keyed
+   * structure replaced the `activeRunAbortControllers` map:
+   * `cancelLocalChat` and worker shutdown look up, abort, interrupt, and
+   * join through the run scopes, so teardown of child processes, streams,
+   * and pending tool calls is joined rather than fire-and-forget. See
+   * `runtime/kernel/runner/supervision/run-supervisor.ts`.
+   */
+  supervisor: KernelRunSupervisor;
   conversationCallbacks: Map<string, AgentCallbacks>;
   runCallbacksByRunId: Map<string, AgentCallbacks>;
   loadedAgents: ParsedAgentLike[];
   /**
    * Late-bound web search handler. Wired by `createStellaHostRunner` after the
    * Convex session is created so the toolHost (built earlier in startup) can
-   * reach Exa via the same convex-session call path that the rest of the
-   * runtime uses. Stored on state so the toolHost can read it lazily.
+   * reach the managed search provider via the same convex-session call path
+   * that the rest of the runtime uses. Stored on state so the toolHost can
+   * read it lazily.
    */
   webSearch:
     | ((
@@ -359,6 +390,8 @@ export type RunnerContext = {
   appendLocalChatEvent?: StellaHostRunnerOptions["appendLocalChatEvent"];
   notifyThreadActivityUpdated?: StellaHostRunnerOptions["notifyThreadActivityUpdated"];
   getDefaultConversationId?: StellaHostRunnerOptions["getDefaultConversationId"];
+  /** Desktop's writer into a cloud conversation's DO-resident transcript. */
+  cloudTranscript: import("./cloud-transcript-write.js").CloudTranscriptWriter;
   paths: RunnerPaths;
   state: RunnerState;
   hookEmitter: HookEmitter;
@@ -390,10 +423,14 @@ export type RunnerContext = {
      * Drain completed-but-unreported produced files from background/
      * long-running shell sessions so late deliverables reach the
      * agent-completed rollup. Optionally scoped to specific session ids.
+     *
+     * `omitted` is set when the per-command cap withheld a session's whole
+     * batch: the files are absent, and only this says so.
      */
-    drainCompletedShellProducedFiles: (
-      sessionIds?: string[],
-    ) => Promise<import("@stella/contracts/file-changes").ProducedFileRecord[]>;
+    drainCompletedShellProducedFiles: (sessionIds?: string[]) => Promise<{
+      files: import("@stella/contracts/file-changes").ProducedFileRecord[];
+      omitted?: import("../tools/types").ProducedFilesOmission;
+    }>;
     killAllShells: () => void;
     killShell: (sessionId: string) => Promise<void> | void;
     killShellsByPort: (port: number) => void;
@@ -488,13 +525,21 @@ export type RunnerPublicApi = {
     agentId: string,
     reason?: string,
   ) => Promise<{ canceled: boolean }>;
-  cancelLocalChat: (runId: string) => void;
+  /**
+   * The single joining cancel path: interrupts the run's fiber tree and
+   * resolves only after every owned resource (provider streams, tools,
+   * engine turns, subagent attempts) has torn down and the run's one
+   * truthful terminal was emitted. Bounded by the per-resource abandonment
+   * graces, so it can never hang.
+   */
+  cancelLocalChat: (runId: string) => Promise<void>;
   /**
    * Cancel the active orchestrator run for the given local conversation,
-   * if one exists. Returns `true` if a run was cancelled. Used by the
-   * remote-turn cancel path so callers don't need to track runIds.
+   * if one exists. Resolves `true` (after the joining cancel) if a run was
+   * cancelled. Used by the remote-turn cancel path so callers don't need
+   * to track runIds.
    */
-  cancelLocalChatByConversation: (conversationId: string) => boolean;
+  cancelLocalChatByConversation: (conversationId: string) => Promise<boolean>;
   getActiveOrchestratorRun: () => RuntimeActiveRun | null;
   appendThreadMessage: (args: {
     threadKey: string;
@@ -508,6 +553,9 @@ export type RunnerPublicApi = {
     decorateUserTimestampTag?: boolean;
     timezone?: string;
   }) => void;
+  appendCloudJournal: import("./cloud-transcript-write.js").CloudTranscriptWriter["append"];
+  beginVoiceToolCallReceipt: RuntimeStore["beginVoiceToolCallReceipt"];
+  completeVoiceToolCallReceipt: RuntimeStore["completeVoiceToolCallReceipt"];
   notifyOrchestratorHistoryChanged: (conversationId: string) => void;
   getVoiceOrchestratorConfig: (
     payload: RuntimeVoiceOrchestratorConfigRequest,

@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { sleepMs } from "./effect-runtime.js";
 import { getConnectorStateRoot } from "./state.js";
 
 const execFileAsync = promisify(execFile);
@@ -42,7 +43,9 @@ const isPidAlive = (pid: number) => {
   }
 };
 
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+// Effect-backed sleep (kernel/connectors/effect-runtime.ts); the exit-grace
+// poll below stays a deadline-computed loop with identical 50ms pacing.
+const delay = (ms: number) => sleepMs(ms);
 
 const waitForPidExit = async (
   pid: number,

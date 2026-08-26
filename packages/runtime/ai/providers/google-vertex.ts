@@ -21,7 +21,7 @@ import type {
 	ToolCall,
 } from "../types.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
-import { anomalousStreamStopError, providerAbortedStopMessage } from "../utils/provider-stop.js";
+import { anomalousStreamStopError, promptBlockedStopMessage, providerAbortedStopMessage } from "../utils/provider-stop.js";
 import { retryWithBackoff } from "../utils/retry.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
 import type { GoogleThinkingLevel } from "./google-shared.js";
@@ -81,7 +81,8 @@ export const streamGoogleVertex: StreamFunction<"google-vertex", GoogleVertexOpt
 				totalTokens: 0,
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 			},
-			stopReason: "stop",
+			// A response is successful only after a candidate terminal reason.
+			stopReason: "error",
 			timestamp: Date.now(),
 		};
 
@@ -102,12 +103,18 @@ export const streamGoogleVertex: StreamFunction<"google-vertex", GoogleVertexOpt
 
 			stream.push({ type: "start", partial: output });
 			let currentBlock: TextContent | ThinkingContent | null = null;
+			let promptBlockReason: string | undefined;
+			let promptBlockMessage: string | undefined;
 			const blocks = output.content;
 			const blockIndex = () => blocks.length - 1;
 			for await (const chunk of googleStream) {
 				// Vertex uses the same @google/genai GenerateContentResponse type as Gemini.
 				// responseId is documented there as an output-only identifier for each response.
 				output.responseId ||= chunk.responseId;
+				if (chunk.promptFeedback?.blockReason) {
+					promptBlockReason = String(chunk.promptFeedback.blockReason);
+					promptBlockMessage = chunk.promptFeedback.blockReasonMessage;
+				}
 				const candidate = chunk.candidates?.[0];
 				if (candidate?.content?.parts) {
 					for (const part of candidate.content.parts) {
@@ -274,6 +281,13 @@ export const streamGoogleVertex: StreamFunction<"google-vertex", GoogleVertexOpt
 
 			if (options?.signal?.aborted) {
 				throw new Error("Request was aborted");
+			}
+
+			if (promptBlockReason && promptBlockReason !== "BLOCKED_REASON_UNSPECIFIED") {
+				output.stopReason = "error";
+				if (!output.errorMessage) {
+					output.errorMessage = promptBlockedStopMessage(promptBlockReason, promptBlockMessage);
+				}
 			}
 
 			if (output.stopReason === "aborted" || output.stopReason === "error") {

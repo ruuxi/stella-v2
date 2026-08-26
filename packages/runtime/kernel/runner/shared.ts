@@ -1,5 +1,3 @@
-import fs from "fs";
-import path from "path";
 import {
   AGENT_PAUSE_CANCEL_REASON,
   AGENT_SHUTDOWN_CANCEL_REASON,
@@ -12,8 +10,6 @@ import {
 } from "@stella/contracts/convex-urls";
 import { isOrchestratorAgentType } from "@stella/contracts/agent-runtime";
 import { formatAgentTerminalStateSystemReminder } from "@stella/contracts/system-reminders";
-import { redactMemoryText } from "../memory/redaction.js";
-import { USER_PROFILE_INJECT_MAX_CHARS } from "../memory/user-profile-store.js";
 import { readRuntimePrompt } from "../prompts/home-prompts.js";
 import { boundParentAgentReport } from "./agent-report-bounds.js";
 
@@ -36,51 +32,10 @@ export const defaultPromptForAgentType = (
       : "fallback-subagent",
   ) ?? "";
 
-export const readCoreMemory = (stellaDataDir: string): string | undefined => {
-  const candidatePaths = [
-    path.join(stellaDataDir, "core-memory.md"),
-    path.join(stellaDataDir, "CORE_MEMORY.MD"),
-  ];
-  for (const filePath of candidatePaths) {
-    try {
-      const content = fs.readFileSync(filePath, "utf-8").trim();
-      if (content) {
-        return redactMemoryText(content);
-      }
-    } catch {
-      continue;
-    }
-  }
-  return undefined;
-};
-
-const readResidentMemoryDoc = (
-  filePath: string,
-  maxChars?: number,
-): string | undefined => {
-  try {
-    const content = fs.readFileSync(filePath, "utf-8").trim();
-    return content
-      ? maxChars
-        ? redactMemoryText(content).slice(0, maxChars)
-        : redactMemoryText(content)
-      : undefined;
-  } catch {
-    return undefined;
-  }
-};
-
-/**
- * The durable user-profile facts written by the `Remember` tool, read
- * synchronously for resident injection.
- */
-export const readUserProfileDoc = (stellaDataDir: string): string | undefined =>
-  readResidentMemoryDoc(
-    path.join(stellaDataDir, "memories", "profile.md"),
-    // Coupled to the write cap: bound the always-resident block so a
-    // hand-edited or over-cap profile.md can never blow the context budget.
-    USER_PROFILE_INJECT_MAX_CHARS,
-  );
+// Kept as runner/shared re-exports for existing context builders. The
+// dependency-light module is also used by thread-runtime at compaction
+// boundaries without creating a runner/session import cycle.
+export { readCoreMemory, readUserProfileDoc } from "../memory/resident-docs.js";
 
 const MAX_AGENT_EVENT_FIELD_CHARS = 30_000;
 

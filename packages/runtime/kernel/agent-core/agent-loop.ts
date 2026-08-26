@@ -1,13 +1,61 @@
 /**
  * Agent loop that works with AgentMessage throughout.
  * Transforms to Message[] only at the LLM call boundary.
+ *
+ * Effect-native core (M5 surface 3): the turn loop itself runs as Effect
+ * fibers on one module-level ManagedRuntime. The public surface is a plain
+ * TS/Promise facade with the exact pre-Effect names, signatures, event
+ * ordering, and error strings:
+ *
+ * - The turn loop body is `Effect.gen`; provider streaming is consumed as an
+ *   Effect `Stream` (`Stream.fromAsyncIterable` over the `streamFn` seam,
+ *   which still yields AsyncIterables).
+ * - The caller-owned `AbortSignal` is bridged ONCE into a `Deferred` latch
+ *   (`abort-bridge.ts`); cancellation of tool windows and the post-abort
+ *   abandonment grace race that latch instead of listener/`finally`
+ *   plumbing. The raw signal object still flows unchanged through the
+ *   caller-facing seams (`streamFn` options, hook callbacks), because the
+ *   cancel path is deliberately cooperative: the provider terminates with an
+ *   "aborted" assistant message and the loop emits its normal terminal
+ *   events (`turn_end` → `agent_end`) — interrupting the loop fiber itself
+ *   would break that observable ordering.
+ * - Tool-call execution windows are scoped effects: the inactivity watchdog
+ *   and abort-grace timers are fibers forked into the window's scope, so
+ *   scope close (any exit path) replaces the old `clearTimeout` + `finally`
+ *   bookkeeping, and losing race arms are fiber-interrupted.
+ * - Failures escape the facades via `Cause.squash`, so callers observe the
+ *   byte-identical original errors; loop-owned errors are
+ *   `Schema.TaggedErrorClass`es carrying the exact legacy strings
+ *   (`errors.ts`).
  */
 
-import type { AssistantMessage, Context, ToolResultMessage } from "../../ai/types.js";
+import {
+	Cause,
+	Deferred,
+	Effect,
+	Exit,
+	Fiber,
+	Layer,
+	ManagedRuntime,
+	Stream,
+} from "effect";
+import type {
+	AssistantMessage,
+	AssistantMessageEvent,
+	Context,
+	ToolResultMessage,
+} from "../../ai/types.js";
 import { streamSimple } from "../../ai/stream.js";
 import { EventStream } from "../../ai/utils/event-stream.js";
 import { isContextOverflow } from "../../ai/utils/overflow.js";
 import { validateToolArguments } from "../../ai/utils/validation.js";
+import { acquireAbortLatch } from "./abort-bridge.js";
+import {
+	AgentContinueEmptyContextError,
+	AgentContinueFromAssistantError,
+	ToolAbortAbandonedError,
+	ToolInactivityTimeoutError,
+} from "./errors.js";
 import type {
 	AgentContext,
 	AgentEvent,
@@ -57,6 +105,54 @@ const isDegenerateAssistantMessage = (
 };
 
 /**
+ * Requirements-free runtime for the loop fibers (house convention: one
+ * module-level ManagedRuntime, context rides in closures — never a
+ * per-call `Effect.runPromise`).
+ */
+const agentLoopRuntime = ManagedRuntime.make(Layer.empty);
+
+/**
+ * Run a loop Effect on the shared runtime, rejecting with the ORIGINAL
+ * failure object. `Cause.squash` recovers the error the effect failed or
+ * died with, so callbacks that throw (emit sinks, `afterToolCall`, a
+ * misbehaving `streamFn`) surface to callers byte-identically to the
+ * pre-Effect loop.
+ */
+const runLoopPromise = async <A>(
+	effect: Effect.Effect<A, unknown>,
+): Promise<A> => {
+	const exit = await agentLoopRuntime.runPromiseExit(effect);
+	if (Exit.isSuccess(exit)) {
+		return exit.value;
+	}
+	throw Cause.squash(exit.cause);
+};
+
+/** Emit one agent event through the caller's sink, awaited in order. */
+const emitEvent = (
+	emit: AgentEventSink,
+	event: AgentEvent,
+): Effect.Effect<void> =>
+	Effect.promise(() => Promise.resolve(emit(event)));
+
+/**
+ * Everything one loop run carries. The mutable `currentContext.messages` /
+ * `newMessages` arrays are shared with the facade caller exactly as before —
+ * the loop is the single writer while it runs.
+ */
+type LoopEnv = {
+	currentContext: AgentContext;
+	newMessages: AgentMessage[];
+	config: AgentLoopConfig;
+	/** Caller-owned signal; passed through to caller-facing seams verbatim. */
+	signal: AbortSignal | undefined;
+	/** The one Effect-side view of `signal` (see abort-bridge.ts). */
+	abortLatch: Deferred.Deferred<unknown>;
+	emit: AgentEventSink;
+	streamFn?: StreamFn;
+};
+
+/**
  * Start an agent loop with new prompt messages and expose emitted events as a stream.
  */
 export function agentLoop(
@@ -94,11 +190,11 @@ export function agentLoopContinue(
 	streamFn?: StreamFn,
 ): EventStream<AgentEvent, AgentMessage[]> {
 	if (context.messages.length === 0) {
-		throw new Error("Cannot continue: no messages in context");
+		throw new AgentContinueEmptyContextError();
 	}
 
 	if (context.messages[context.messages.length - 1]?.role === "assistant") {
-		throw new Error("Cannot continue from message role: assistant");
+		throw new AgentContinueFromAssistantError();
 	}
 
 	const stream = createAgentStream();
@@ -126,21 +222,36 @@ export async function runAgentLoop(
 	signal?: AbortSignal,
 	streamFn?: StreamFn,
 ): Promise<AgentMessage[]> {
-	const newMessages: AgentMessage[] = [...prompts];
-	// Reuse the caller's context object so a later boundary replacement releases
-	// its pre-compaction history reference during a normal prompt run too.
-	const currentContext = context;
-	currentContext.messages = [...currentContext.messages, ...prompts];
+	return runLoopPromise(
+		Effect.scoped(
+			Effect.gen(function* () {
+					const abortLatch = yield* acquireAbortLatch(signal);
+					const newMessages: AgentMessage[] = [...prompts];
+					// Reuse the caller's context object so a later boundary replacement releases
+					// its pre-compaction history reference during a normal prompt run too.
+					const currentContext = context;
+					currentContext.messages = [...currentContext.messages, ...prompts];
 
-	await emit({ type: "agent_start" });
-	await emit({ type: "turn_start" });
-	for (const prompt of prompts) {
-		await emit({ type: "message_start", message: prompt });
-		await emit({ type: "message_end", message: prompt });
-	}
+				yield* emitEvent(emit, { type: "agent_start" });
+				yield* emitEvent(emit, { type: "turn_start" });
+				for (const prompt of prompts) {
+					yield* emitEvent(emit, { type: "message_start", message: prompt });
+					yield* emitEvent(emit, { type: "message_end", message: prompt });
+				}
 
-	await runLoop(currentContext, newMessages, config, signal, emit, streamFn);
-	return newMessages;
+				yield* runLoop({
+					currentContext,
+					newMessages,
+					config,
+					signal,
+					abortLatch,
+					emit,
+					streamFn,
+				});
+				return newMessages;
+			}),
+		),
+	);
 }
 
 export async function runAgentLoopContinue(
@@ -151,23 +262,38 @@ export async function runAgentLoopContinue(
 	streamFn?: StreamFn,
 ): Promise<AgentMessage[]> {
 	if (context.messages.length === 0) {
-		throw new Error("Cannot continue: no messages in context");
+		throw new AgentContinueEmptyContextError();
 	}
 
 	if (context.messages[context.messages.length - 1]?.role === "assistant") {
-		throw new Error("Cannot continue from message role: assistant");
+		throw new AgentContinueFromAssistantError();
 	}
 
-	const newMessages: AgentMessage[] = [];
-	// Keep one context object so a boundary replacement also releases the
-	// caller's reference to the pre-compaction message array.
-	const currentContext = context;
+	return runLoopPromise(
+		Effect.scoped(
+			Effect.gen(function* () {
+					const abortLatch = yield* acquireAbortLatch(signal);
+					const newMessages: AgentMessage[] = [];
+					// Keep one context object so a boundary replacement also releases the
+					// caller's reference to the pre-compaction message array.
+					const currentContext = context;
 
-	await emit({ type: "agent_start" });
-	await emit({ type: "turn_start" });
+				yield* emitEvent(emit, { type: "agent_start" });
+				yield* emitEvent(emit, { type: "turn_start" });
 
-	await runLoop(currentContext, newMessages, config, signal, emit, streamFn);
-	return newMessages;
+				yield* runLoop({
+					currentContext,
+					newMessages,
+					config,
+					signal,
+					abortLatch,
+					emit,
+					streamFn,
+				});
+				return newMessages;
+			}),
+		),
+	);
 }
 
 function createAgentStream(): EventStream<AgentEvent, AgentMessage[]> {
@@ -177,304 +303,362 @@ function createAgentStream(): EventStream<AgentEvent, AgentMessage[]> {
 	);
 }
 
+/** Poll the steering seam; `[]` when absent or empty (legacy `|| []`). */
+const pollSteeringMessages = (
+	config: AgentLoopConfig,
+): Effect.Effect<AgentMessage[]> =>
+	Effect.promise(async () => (await config.getSteeringMessages?.()) || []);
+
+/** Poll the follow-up seam; `[]` when absent or empty (legacy `|| []`). */
+const pollFollowUpMessages = (
+	config: AgentLoopConfig,
+): Effect.Effect<AgentMessage[]> =>
+	Effect.promise(async () => (await config.getFollowUpMessages?.()) || []);
+
 /**
  * Main loop logic shared by the agent loop entrypoints.
+ *
+ * Emission order is observable by the desktop UI and preserved exactly:
+ * turn_start → [steering message_start/message_end]* → assistant streaming →
+ * tool events → turn_end → (steering | follow-up | agent_end).
  */
-async function runLoop(
-	currentContext: AgentContext,
-	newMessages: AgentMessage[],
-	config: AgentLoopConfig,
-	signal: AbortSignal | undefined,
-	emit: AgentEventSink,
-	streamFn?: StreamFn,
-): Promise<void> {
-	let firstTurn = true;
-	let pendingMessages: AgentMessage[] = (await config.getSteeringMessages?.()) || [];
-	let completedTurnMessages: AgentMessage[] = [];
+const runLoop = (env: LoopEnv): Effect.Effect<void, unknown> =>
+		Effect.gen(function* () {
+			const { currentContext, newMessages, config, emit } = env;
+			let firstTurn = true;
+			let pendingMessages: AgentMessage[] = yield* pollSteeringMessages(config);
+			let completedTurnMessages: AgentMessage[] = [];
 
-	const refreshAtTurnBoundary = async (
-		nextMessages: AgentMessage[] = pendingMessages,
-	): Promise<void> => {
-		if (!config.onTurnBoundary || completedTurnMessages.length === 0) return;
-		const replacement = await config.onTurnBoundary(
-			{
-				context: currentContext,
-				completedMessages: completedTurnMessages.slice(),
-				pendingMessages: nextMessages.slice(),
-			},
-			signal,
-		);
-		completedTurnMessages = [];
-		if (!replacement) return;
-		currentContext.messages = replacement.slice();
-		// The replacement durably represents everything completed before this
-		// boundary, so do not retain those messages in the loop result as well.
-		newMessages.length = 0;
-	};
+			const refreshAtTurnBoundary = (
+				nextMessages: AgentMessage[] = pendingMessages,
+			): Effect.Effect<void, unknown> =>
+				Effect.gen(function* () {
+					if (!config.onTurnBoundary || completedTurnMessages.length === 0) return;
+					const replacement = yield* Effect.promise(() =>
+						config.onTurnBoundary!(
+							{
+								context: currentContext,
+								completedMessages: completedTurnMessages.slice(),
+								pendingMessages: nextMessages.slice(),
+							},
+							env.signal,
+						),
+					);
+					completedTurnMessages = [];
+					if (!replacement) return;
+					currentContext.messages = replacement.slice();
+					// The replacement durably represents everything completed before this
+					// boundary, so do not retain those messages in the loop result as well.
+					newMessages.length = 0;
+				});
 
-	while (true) {
-		let hasMoreToolCalls = true;
-		let steeringAfterTools: AgentMessage[] | null = null;
+		for (;;) {
+			let hasMoreToolCalls = true;
+			let steeringAfterTools: AgentMessage[] | null = null;
 
-		while (hasMoreToolCalls || pendingMessages.length > 0) {
-			if (!firstTurn) {
-				await emit({ type: "turn_start" });
-			} else {
-				firstTurn = false;
-			}
-
-			if (pendingMessages.length > 0) {
-				for (const message of pendingMessages) {
-					await emit({ type: "message_start", message });
-					await emit({ type: "message_end", message });
-					currentContext.messages.push(message);
-					newMessages.push(message);
+			while (hasMoreToolCalls || pendingMessages.length > 0) {
+				if (!firstTurn) {
+					yield* emitEvent(emit, { type: "turn_start" });
+				} else {
+					firstTurn = false;
 				}
-				pendingMessages = [];
-			}
 
-			const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFn);
-			newMessages.push(message);
-
-			if (message.stopReason === "error" || message.stopReason === "aborted") {
-				await emit({ type: "turn_end", message, toolResults: [] });
-				await emit({ type: "agent_end", messages: newMessages });
-				return;
-			}
-
-			const toolCalls = message.content.filter((c) => c.type === "toolCall");
-			hasMoreToolCalls = toolCalls.length > 0;
-
-			const toolResults: ToolResultMessage[] = [];
-			if (hasMoreToolCalls) {
-				const toolExecution = await executeToolCalls(currentContext, message, config, signal, emit);
-				toolResults.push(...toolExecution.toolResults);
-				steeringAfterTools = toolExecution.steeringMessages ?? null;
-
-				for (const result of toolResults) {
-					currentContext.messages.push(result);
-					newMessages.push(result);
+				if (pendingMessages.length > 0) {
+					for (const message of pendingMessages) {
+						yield* emitEvent(emit, { type: "message_start", message });
+						yield* emitEvent(emit, { type: "message_end", message });
+						currentContext.messages.push(message);
+						newMessages.push(message);
+					}
+					pendingMessages = [];
 				}
-			}
-			completedTurnMessages = [message, ...toolResults];
 
-			await emit({ type: "turn_end", message, toolResults });
+				const message = yield* streamAssistantResponse(env);
+				newMessages.push(message);
 
-			if (steeringAfterTools && steeringAfterTools.length > 0) {
-				pendingMessages = steeringAfterTools;
-				steeringAfterTools = null;
-			} else {
-				pendingMessages = (await config.getSteeringMessages?.()) || [];
+				if (message.stopReason === "error" || message.stopReason === "aborted") {
+					yield* emitEvent(emit, { type: "turn_end", message, toolResults: [] });
+					yield* emitEvent(emit, { type: "agent_end", messages: newMessages });
+					return;
+				}
+
+				const toolCalls = message.content.filter((c) => c.type === "toolCall");
+				hasMoreToolCalls = toolCalls.length > 0;
+
+				const toolResults: ToolResultMessage[] = [];
+				if (hasMoreToolCalls) {
+					const toolExecution = yield* executeToolCalls(env, message);
+					toolResults.push(...toolExecution.toolResults);
+					steeringAfterTools = toolExecution.steeringMessages ?? null;
+
+						for (const result of toolResults) {
+							currentContext.messages.push(result);
+							newMessages.push(result);
+						}
+					}
+					completedTurnMessages = [message, ...toolResults];
+
+					yield* emitEvent(emit, { type: "turn_end", message, toolResults });
+
+				if (steeringAfterTools && steeringAfterTools.length > 0) {
+					pendingMessages = steeringAfterTools;
+					steeringAfterTools = null;
+					} else {
+						pendingMessages = yield* pollSteeringMessages(config);
+					}
+
+					if (hasMoreToolCalls || pendingMessages.length > 0) {
+						yield* refreshAtTurnBoundary();
+					}
+				}
+
+				const followUpMessages = yield* pollFollowUpMessages(config);
+				if (followUpMessages.length > 0) {
+					yield* refreshAtTurnBoundary(followUpMessages);
+					pendingMessages = followUpMessages;
+					continue;
 			}
 
-			if (hasMoreToolCalls || pendingMessages.length > 0) {
-				await refreshAtTurnBoundary();
-			}
+			break;
 		}
 
-		const followUpMessages = (await config.getFollowUpMessages?.()) || [];
-		if (followUpMessages.length > 0) {
-			await refreshAtTurnBoundary(followUpMessages);
-			pendingMessages = followUpMessages;
-			continue;
-		}
-
-		break;
-	}
-
-	await emit({ type: "agent_end", messages: newMessages });
-}
+		yield* emitEvent(emit, { type: "agent_end", messages: newMessages });
+	});
 
 /**
  * Stream an assistant response from the LLM.
  * This is where AgentMessage[] gets transformed to Message[] for the LLM.
+ *
+ * The provider stream — still an AsyncIterable at the `streamFn` seam — is
+ * consumed as an Effect Stream: `Stream.takeUntil` stops at the terminal
+ * `done`/`error` event (the legacy early `return` out of `for await`), and
+ * every event is handled sequentially so `message_start`/`message_update`
+ * ordering is unchanged.
  */
-async function streamAssistantResponse(
-	context: AgentContext,
-	config: AgentLoopConfig,
-	signal: AbortSignal | undefined,
-	emit: AgentEventSink,
-	streamFn?: StreamFn,
-): Promise<AssistantMessage> {
-	const throwIfAbortedBeforeDispatch = (): void => {
-		if (!signal?.aborted) return;
-		if (signal.reason instanceof Error) throw signal.reason;
-		const error = new Error(
-			typeof signal.reason === "string" ? signal.reason : "Operation aborted before provider dispatch",
-		);
-		error.name = "AbortError";
-		throw error;
-	};
+const streamAssistantResponse = (
+	env: LoopEnv,
+	): Effect.Effect<AssistantMessage, unknown> =>
+		Effect.gen(function* () {
+			const { currentContext: context, config, signal, emit, streamFn } = env;
+			const throwIfAbortedBeforeDispatch = (): void => {
+				if (!signal?.aborted) return;
+				if (signal.reason instanceof Error) throw signal.reason;
+				const error = new Error(
+					typeof signal.reason === "string"
+						? signal.reason
+						: "Operation aborted before provider dispatch",
+				);
+				error.name = "AbortError";
+				throw error;
+			};
 
-	throwIfAbortedBeforeDispatch();
-	let messages = context.messages;
-	if (config.transformContext) {
-		messages = await config.transformContext(messages, signal);
-		throwIfAbortedBeforeDispatch();
-	}
-
-	const llmMessages = await config.convertToLlm(messages);
-	throwIfAbortedBeforeDispatch();
-
-	const llmContext: Context = {
-		systemPrompt: context.systemPrompt,
-		messages: llmMessages,
-		tools: context.tools,
-	};
-
-	const streamFunction = streamFn || streamSimple;
-	const resolvedApiKey =
-		(config.getApiKey ? await config.getApiKey(config.model.provider) : undefined) || config.apiKey;
-	throwIfAbortedBeforeDispatch();
-
-	// Intentionally do NOT inject a `maxTokens` cap here. Setting a
-	// hard cap truncates mid-sentence / mid-tool-call when hit, and
-	// for reasoning models can leave zero budget for the visible
-	// answer (cap exhausted by thinking). Trust the model to
-	// self-terminate; the degenerate-response retry below handles
-	// pathological terminations, and `Model.maxTokens` is reserved
-	// for explicit per-call overrides via `config.maxTokens`.
-	const streamOptions = {
-		...config,
-		apiKey: resolvedApiKey,
-		refreshApiKey: config.refreshApiKey
-			? async () => {
-					try {
-						return await config.refreshApiKey?.();
-					} catch {
-						return undefined;
-					}
-				}
-			: undefined,
-		signal,
-	};
-
-	const normalizeFinalMessage = (message: AssistantMessage): AssistantMessage => {
-		const detectsSilentOverflow = [config.model.provider, message.provider].some(
-			(provider) => provider.toLowerCase().replace(/[^a-z0-9]/g, "") === "zai",
-		);
-		if (
-			!isContextOverflow(
-				message,
-				detectsSilentOverflow ? config.model.contextWindow : undefined,
-			)
-		) {
-			return message;
+			throwIfAbortedBeforeDispatch();
+			const requestBudget = config.requestBudget;
+		if (requestBudget && !requestBudget.active) {
+			requestBudget.used = 0;
+			requestBudget.active = true;
+			delete requestBudget.exhaustionReason;
 		}
-		return {
-			...message,
-			stopReason: "error",
-			errorMessage:
-				message.errorMessage?.trim() ||
-				`Context overflow: model context window is ${config.model.contextWindow} tokens.`,
-		};
-	};
-
-	const runOnce = async (): Promise<{ message: AssistantMessage }> => {
-		const response = await streamFunction(config.model, llmContext, streamOptions);
-		let partialMessage: AssistantMessage | null = null;
-		let addedPartial = false;
-		let finalMessage: AssistantMessage | null = null;
-
-		const finalize = async (): Promise<AssistantMessage> => {
-			if (finalMessage) return finalMessage;
-			const next = normalizeFinalMessage(await response.result());
-			if (addedPartial) {
-				context.messages[context.messages.length - 1] = next;
-			} else {
-				context.messages.push(next);
-				await emit({ type: "message_start", message: { ...next } });
+		let messages = context.messages;
+			if (config.transformContext) {
+				const transformContext = config.transformContext;
+				messages = yield* Effect.promise(() => transformContext(messages, signal));
+				throwIfAbortedBeforeDispatch();
 			}
-			finalMessage = next;
-			return next;
+
+			const llmMessages = yield* Effect.promise(async () =>
+				config.convertToLlm(messages),
+			);
+			throwIfAbortedBeforeDispatch();
+
+		const llmContext: Context = {
+			systemPrompt: context.systemPrompt,
+			messages: llmMessages,
+			tools: context.tools,
 		};
 
-		for await (const event of response) {
-			switch (event.type) {
-				case "start":
-					partialMessage = event.partial;
-					context.messages.push(partialMessage);
-					addedPartial = true;
-					await emit({ type: "message_start", message: { ...partialMessage } });
-					break;
+		const streamFunction = streamFn || streamSimple;
+		const getApiKey = config.getApiKey;
+			const resolvedApiKey =
+				(getApiKey
+					? yield* Effect.promise(async () => getApiKey(config.model.provider))
+					: undefined) || config.apiKey;
+			throwIfAbortedBeforeDispatch();
 
-				case "text_start":
-				case "text_delta":
-				case "text_end":
-				case "thinking_start":
-				case "thinking_delta":
-				case "thinking_end":
-				case "toolcall_start":
-				case "toolcall_delta":
-				case "toolcall_end":
-					if (partialMessage) {
-						partialMessage = event.partial;
-						context.messages[context.messages.length - 1] = partialMessage;
-						await emit({
-							type: "message_update",
-							assistantMessageEvent: event,
-							message: { ...partialMessage },
-						});
+		// Intentionally do NOT inject a `maxTokens` cap here. Setting a
+		// hard cap truncates mid-sentence / mid-tool-call when hit, and
+		// for reasoning models can leave zero budget for the visible
+		// answer (cap exhausted by thinking). Trust the model to
+		// self-terminate; the degenerate-response retry below handles
+		// pathological terminations, and `Model.maxTokens` is reserved
+		// for explicit per-call overrides via `config.maxTokens`.
+		const streamOptions = {
+			...config,
+			apiKey: resolvedApiKey,
+			refreshApiKey: config.refreshApiKey
+				? async () => {
+						try {
+							return await config.refreshApiKey?.();
+						} catch {
+							return undefined;
+						}
 					}
-					break;
+				: undefined,
+			signal,
+		};
 
-				case "done":
-				case "error":
-					return { message: await finalize() };
+		const normalizeFinalMessage = (message: AssistantMessage): AssistantMessage => {
+			const detectsSilentOverflow = [config.model.provider, message.provider].some(
+				(provider) => provider.toLowerCase().replace(/[^a-z0-9]/g, "") === "zai",
+			);
+			if (
+				!isContextOverflow(
+					message,
+					detectsSilentOverflow ? config.model.contextWindow : undefined,
+				)
+			) {
+				return message;
 			}
-		}
-
-		return { message: await finalize() };
-	};
-
-	let finalMessage: AssistantMessage = (await runOnce()).message;
-
-	// Defensive degenerate-response retry: when the upstream returns
-	// a clean `stop` with neither text nor tool calls (e.g. Kimi K2
-	// burning its reasoning budget without producing output), pop the
-	// dud from history and try once more with the same context. Cap
-	// at one retry — if the model is genuinely stuck, the sentinel
-	// downstream (finalizeSubagentSuccess) will surface a clear
-	// message to the orchestrator instead of an empty result.
-	if (isDegenerateAssistantMessage(finalMessage)) {
-		if (context.messages[context.messages.length - 1] === finalMessage) {
-			context.messages.pop();
-		}
-		// Close and durably classify the discarded attempt as non-replayable
-		// before retrying. Persistence and compaction filter error assistants, so
-		// this diagnostic row cannot return through a later SQLite page-in.
-		await emit({
-			type: "message_end",
-			message: {
-				...finalMessage,
+			return {
+				...message,
 				stopReason: "error",
-				errorMessage: "Provider returned no usable assistant output; retrying once.",
+				errorMessage:
+					message.errorMessage?.trim() ||
+					`Context overflow: model context window is ${config.model.contextWindow} tokens.`,
+			};
+		};
+
+		const runOnce: Effect.Effect<AssistantMessage, unknown> = Effect.gen(
+			function* () {
+				const response = yield* Effect.promise(async () =>
+					streamFunction(config.model, llmContext, streamOptions),
+				);
+				let partialMessage: AssistantMessage | null = null;
+				let addedPartial = false;
+
+				yield* Stream.fromAsyncIterable(
+					response as AsyncIterable<AssistantMessageEvent>,
+					(error) => error,
+				).pipe(
+					// Stop at the terminal event: parity with the legacy loop's
+					// early `return` on done/error, including for foreign
+					// StreamFn implementations that could keep yielding.
+					Stream.takeUntil(
+						(event) => event.type === "done" || event.type === "error",
+					),
+					Stream.runForEach((event) =>
+						Effect.gen(function* () {
+							switch (event.type) {
+								case "start":
+									partialMessage = event.partial;
+									context.messages.push(partialMessage);
+									addedPartial = true;
+									yield* emitEvent(emit, {
+										type: "message_start",
+										message: { ...partialMessage },
+									});
+									break;
+
+								case "text_start":
+								case "text_delta":
+								case "text_end":
+								case "thinking_start":
+								case "thinking_delta":
+								case "thinking_end":
+								case "toolcall_start":
+								case "toolcall_delta":
+								case "toolcall_end":
+									if (partialMessage) {
+										partialMessage = event.partial;
+										context.messages[context.messages.length - 1] = partialMessage;
+										yield* emitEvent(emit, {
+											type: "message_update",
+											assistantMessageEvent: event,
+											message: { ...partialMessage },
+										});
+									}
+									break;
+
+								case "done":
+								case "error":
+									// Terminal: takeUntil ends the stream; the
+									// finalize step below settles the message.
+									break;
+							}
+						}),
+					),
+				);
+
+				const next = normalizeFinalMessage(
+					yield* Effect.promise(() => response.result()),
+				);
+				if (requestBudget && next.stopReason !== "error" && next.stopReason !== "aborted") {
+					requestBudget.used = 0;
+					requestBudget.active = false;
+					delete requestBudget.exhaustionReason;
+				}
+				if (addedPartial) {
+					context.messages[context.messages.length - 1] = next;
+					} else {
+						context.messages.push(next);
+						yield* emitEvent(emit, { type: "message_start", message: { ...next } });
+					}
+					return next;
 			},
-		});
-		finalMessage = (await runOnce()).message;
-	}
+		);
 
-	await emit({ type: "message_end", message: finalMessage });
+		let finalMessage = yield* runOnce;
 
-	return finalMessage;
-}
+		// Standalone Agent users retain the defensive one-shot retry. Runtime
+		// sessions disable it so one visible run-level policy owns the provider
+		// attempt budget instead of multiplying inner and outer retries. The
+		// retry is deliberately immediate (no Schedule backoff): it papers over
+		// a degenerate termination, not a transport failure — provider
+		// retry/backoff timing lives in the provider adapters.
+		const maxDegenerateRetries = Math.max(0, Math.floor(config.degenerateResponseRetries ?? 1));
+		for (
+			let retry = 0;
+			retry < maxDegenerateRetries && isDegenerateAssistantMessage(finalMessage);
+			retry += 1
+		) {
+				if (context.messages[context.messages.length - 1] === finalMessage) {
+					context.messages.pop();
+				}
+				yield* emitEvent(emit, {
+					type: "message_end",
+					message: {
+						...finalMessage,
+						stopReason: "error",
+						errorMessage: "Provider returned no usable assistant output; retrying once.",
+					},
+				});
+				finalMessage = yield* runOnce;
+			}
+
+			yield* emitEvent(emit, { type: "message_end", message: finalMessage });
+
+			return finalMessage;
+	});
 
 /**
  * Execute tool calls from an assistant message.
  */
-async function executeToolCalls(
-	currentContext: AgentContext,
+const executeToolCalls = (
+	env: LoopEnv,
 	assistantMessage: AssistantMessage,
-	config: AgentLoopConfig,
-	signal: AbortSignal | undefined,
-	emit: AgentEventSink,
-): Promise<{ toolResults: ToolResultMessage[]; steeringMessages?: AgentMessage[] }> {
-	const toolCalls = assistantMessage.content.filter((c): c is AgentToolCall => c.type === "toolCall");
-	if (config.toolExecution === "sequential") {
-		return executeToolCallsSequential(currentContext, assistantMessage, toolCalls, config, signal, emit);
+): Effect.Effect<
+	{ toolResults: ToolResultMessage[]; steeringMessages?: AgentMessage[] },
+	unknown
+> => {
+	const toolCalls = assistantMessage.content.filter(
+		(c): c is AgentToolCall => c.type === "toolCall",
+	);
+	if (env.config.toolExecution === "sequential") {
+		return executeToolCallsSequential(env, assistantMessage, toolCalls);
 	}
-	return executeToolCallsParallel(currentContext, assistantMessage, toolCalls, config, signal, emit);
-}
+	return executeToolCallsParallel(env, assistantMessage, toolCalls);
+};
+
 
 const canonicalizeToolCallValue = (value: unknown): unknown => {
 	if (Array.isArray(value)) return value.map(canonicalizeToolCallValue);
@@ -501,164 +685,193 @@ const createDuplicateToolCallResult = (original: ToolResultMessage): AgentToolRe
 	details: { deduplicated: true, reusedToolCallId: original.toolCallId },
 });
 
-async function executeToolCallsSequential(
-	currentContext: AgentContext,
+const executeToolCallsSequential = (
+	env: LoopEnv,
 	assistantMessage: AssistantMessage,
 	toolCalls: AgentToolCall[],
-	config: AgentLoopConfig,
-	signal: AbortSignal | undefined,
-	emit: AgentEventSink,
-): Promise<{ toolResults: ToolResultMessage[]; steeringMessages?: AgentMessage[] }> {
-	const results: ToolResultMessage[] = [];
-	const resultByExecutionKey = new Map<string, ToolResultMessage>();
-	let steeringMessages: AgentMessage[] | undefined;
+): Effect.Effect<
+	{ toolResults: ToolResultMessage[]; steeringMessages?: AgentMessage[] },
+	unknown
+> =>
+	Effect.gen(function* () {
+		const { currentContext, config, emit } = env;
+		const results: ToolResultMessage[] = [];
+		const resultByExecutionKey = new Map<string, ToolResultMessage>();
+		let steeringMessages: AgentMessage[] | undefined;
 
-	for (let index = 0; index < toolCalls.length; index++) {
-		const toolCall = toolCalls[index];
-		const executionKey = toolCallExecutionKey(toolCall);
-		const tool = currentContext.tools?.find((t) => t.name === toolCall.name);
-		await emit({
-			type: "tool_execution_start",
-			toolCallId: toolCall.id,
-			toolName: toolCall.name,
-			...(tool?.workingText ? { statusText: tool.workingText } : {}),
-			args: toolCall.arguments,
-		});
+		for (const toolCall of toolCalls) {
+			const tool = currentContext.tools?.find((t) => t.name === toolCall.name);
+			yield* emitEvent(emit, {
+				type: "tool_execution_start",
+				toolCallId: toolCall.id,
+				toolName: toolCall.name,
+				...(tool?.workingText ? { statusText: tool.workingText } : {}),
+				args: toolCall.arguments,
+			});
 
-		const originalResult = resultByExecutionKey.get(executionKey);
-		if (originalResult) {
+			const executionKey = toolCallExecutionKey(toolCall);
+			const originalResult = resultByExecutionKey.get(executionKey);
+			if (originalResult) {
+				results.push(
+					yield* emitToolCallOutcome(
+						emit,
+						toolCall,
+						createDuplicateToolCallResult(originalResult),
+						originalResult.isError,
+					),
+				);
+				continue;
+			}
+
+			const preparation = yield* prepareToolCall(env, assistantMessage, toolCall);
+			if (preparation.kind === "immediate") {
+				const result = yield* emitToolCallOutcome(
+					emit,
+					toolCall,
+					preparation.result,
+					preparation.isError,
+				);
+				results.push(result);
+				resultByExecutionKey.set(executionKey, result);
+			} else {
+				const executed = yield* executeToolWindow({
+					prepared: preparation,
+					signal: env.signal,
+					abortLatch: env.abortLatch,
+					emit,
+					inactivityTimeoutMs: config.toolInactivityTimeoutMs,
+				});
+				const result = yield* finalizeExecutedToolCall(
+					env,
+					assistantMessage,
+					preparation,
+					executed,
+				);
+				results.push(result);
+				resultByExecutionKey.set(executionKey, result);
+			}
+		}
+
+		if (config.getSteeringMessages) {
+			const getSteeringMessages = config.getSteeringMessages;
+			const steering = yield* Effect.promise(() => getSteeringMessages());
+			if (steering.length > 0) {
+				steeringMessages = steering;
+			}
+		}
+
+		return { toolResults: results, steeringMessages };
+	});
+
+const executeToolCallsParallel = (
+	env: LoopEnv,
+	assistantMessage: AssistantMessage,
+	toolCalls: AgentToolCall[],
+): Effect.Effect<
+	{ toolResults: ToolResultMessage[]; steeringMessages?: AgentMessage[] },
+	unknown
+> =>
+	Effect.gen(function* () {
+		const { currentContext, config, emit } = env;
+		const results: ToolResultMessage[] = [];
+		const runnableCalls: PreparedToolCall[] = [];
+		const originalCallByExecutionKey = new Map<string, AgentToolCall>();
+		const duplicateOriginalByCall = new Map<AgentToolCall, AgentToolCall>();
+		const resultByCall = new Map<AgentToolCall, ToolResultMessage>();
+		let steeringMessages: AgentMessage[] | undefined;
+
+		for (const toolCall of toolCalls) {
+			const tool = currentContext.tools?.find((t) => t.name === toolCall.name);
+			yield* emitEvent(emit, {
+				type: "tool_execution_start",
+				toolCallId: toolCall.id,
+				toolName: toolCall.name,
+				...(tool?.workingText ? { statusText: tool.workingText } : {}),
+				args: toolCall.arguments,
+			});
+
+			const executionKey = toolCallExecutionKey(toolCall);
+			const originalCall = originalCallByExecutionKey.get(executionKey);
+			if (originalCall) {
+				duplicateOriginalByCall.set(toolCall, originalCall);
+				continue;
+			}
+			originalCallByExecutionKey.set(executionKey, toolCall);
+
+			const preparation = yield* prepareToolCall(env, assistantMessage, toolCall);
+			if (preparation.kind === "immediate") {
+				const result = yield* emitToolCallOutcome(
+					emit,
+					toolCall,
+					preparation.result,
+					preparation.isError,
+				);
+				results.push(result);
+				resultByCall.set(toolCall, result);
+			} else {
+				runnableCalls.push(preparation);
+			}
+		}
+
+		// Fork every runnable window eagerly (the legacy `.map(execute)` start
+		// order), then join in assistant source order so final tool events are
+		// emitted in-order while executions overlap. The children are fibers of
+		// this turn's fiber: joins settle before the turn continues.
+		const runningCalls: Array<{
+			prepared: PreparedToolCall;
+			fiber: Fiber.Fiber<ExecutedToolCallOutcome>;
+		}> = [];
+		for (const prepared of runnableCalls) {
+			const fiber = yield* Effect.forkChild(
+				executeToolWindow({
+					prepared,
+					signal: env.signal,
+					abortLatch: env.abortLatch,
+					emit,
+					inactivityTimeoutMs: config.toolInactivityTimeoutMs,
+				}),
+				{ startImmediately: true },
+			);
+			runningCalls.push({ prepared, fiber });
+		}
+
+		for (const running of runningCalls) {
+			const executed = yield* Fiber.join(running.fiber);
+			const result = yield* finalizeExecutedToolCall(
+				env,
+				assistantMessage,
+				running.prepared,
+				executed,
+			);
+			results.push(result);
+			resultByCall.set(running.prepared.toolCall, result);
+		}
+
+		for (const toolCall of toolCalls) {
+			const originalCall = duplicateOriginalByCall.get(toolCall);
+			if (!originalCall) continue;
+			const originalResult = resultByCall.get(originalCall);
+			if (!originalResult) continue;
 			results.push(
-				await emitToolCallOutcome(
+				yield* emitToolCallOutcome(
+					emit,
 					toolCall,
 					createDuplicateToolCallResult(originalResult),
 					originalResult.isError,
-					emit,
 				),
 			);
-			continue;
 		}
 
-		const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);
-		if (preparation.kind === "immediate") {
-			const result = await emitToolCallOutcome(toolCall, preparation.result, preparation.isError, emit);
-			results.push(result);
-			resultByExecutionKey.set(executionKey, result);
-		} else {
-			const executed = await executePreparedToolCall(preparation, signal, emit, config.toolInactivityTimeoutMs);
-			const result = await finalizeExecutedToolCall(
-				currentContext,
-				assistantMessage,
-				preparation,
-				executed,
-				config,
-				signal,
-				emit,
-			);
-			results.push(result);
-			resultByExecutionKey.set(executionKey, result);
+		if (!steeringMessages && config.getSteeringMessages) {
+			const getSteeringMessages = config.getSteeringMessages;
+			const steering = yield* Effect.promise(() => getSteeringMessages());
+			if (steering.length > 0) {
+				steeringMessages = steering;
+			}
 		}
-	}
 
-	if (config.getSteeringMessages) {
-		const steering = await config.getSteeringMessages();
-		if (steering.length > 0) {
-			steeringMessages = steering;
-		}
-	}
-
-	return { toolResults: results, steeringMessages };
-}
-
-async function executeToolCallsParallel(
-	currentContext: AgentContext,
-	assistantMessage: AssistantMessage,
-	toolCalls: AgentToolCall[],
-	config: AgentLoopConfig,
-	signal: AbortSignal | undefined,
-	emit: AgentEventSink,
-): Promise<{ toolResults: ToolResultMessage[]; steeringMessages?: AgentMessage[] }> {
-	const runnableCalls: PreparedToolCall[] = [];
-	const originalCallByExecutionKey = new Map<string, AgentToolCall>();
-	const duplicateOriginalByCall = new Map<AgentToolCall, AgentToolCall>();
-	const resultByCall = new Map<AgentToolCall, ToolResultMessage>();
-	let steeringMessages: AgentMessage[] | undefined;
-
-	for (let index = 0; index < toolCalls.length; index++) {
-		const toolCall = toolCalls[index];
-		const executionKey = toolCallExecutionKey(toolCall);
-		const tool = currentContext.tools?.find((t) => t.name === toolCall.name);
-		await emit({
-			type: "tool_execution_start",
-			toolCallId: toolCall.id,
-			toolName: toolCall.name,
-			...(tool?.workingText ? { statusText: tool.workingText } : {}),
-			args: toolCall.arguments,
-		});
-
-		const originalCall = originalCallByExecutionKey.get(executionKey);
-		if (originalCall) {
-			duplicateOriginalByCall.set(toolCall, originalCall);
-			continue;
-		}
-		originalCallByExecutionKey.set(executionKey, toolCall);
-
-		const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);
-		if (preparation.kind === "immediate") {
-			const result = await emitToolCallOutcome(toolCall, preparation.result, preparation.isError, emit);
-			resultByCall.set(toolCall, result);
-		} else {
-			runnableCalls.push(preparation);
-		}
-	}
-
-	const runningCalls = runnableCalls.map((prepared) => ({
-		prepared,
-		execution: executePreparedToolCall(prepared, signal, emit, config.toolInactivityTimeoutMs),
-	}));
-
-	for (const running of runningCalls) {
-		const executed = await running.execution;
-		const result = await finalizeExecutedToolCall(
-			currentContext,
-			assistantMessage,
-			running.prepared,
-			executed,
-			config,
-			signal,
-			emit,
-		);
-		resultByCall.set(running.prepared.toolCall, result);
-	}
-
-	for (const toolCall of toolCalls) {
-		const originalCall = duplicateOriginalByCall.get(toolCall);
-		if (!originalCall) continue;
-		const originalResult = resultByCall.get(originalCall);
-		if (!originalResult) continue;
-		const result = await emitToolCallOutcome(
-			toolCall,
-			createDuplicateToolCallResult(originalResult),
-			originalResult.isError,
-			emit,
-		);
-		resultByCall.set(toolCall, result);
-	}
-
-	if (!steeringMessages && config.getSteeringMessages) {
-		const steering = await config.getSteeringMessages();
-		if (steering.length > 0) {
-			steeringMessages = steering;
-		}
-	}
-
-	return {
-		toolResults: toolCalls.flatMap((toolCall) => {
-			const result = resultByCall.get(toolCall);
-			return result ? [result] : [];
-		}),
-		steeringMessages,
-	};
-}
+		return { toolResults: results, steeringMessages };
+	});
 
 export type PreparedToolCall = {
 	kind: "prepared";
@@ -678,56 +891,62 @@ type ExecutedToolCallOutcome = {
 	isError: boolean;
 };
 
-async function prepareToolCall(
-	currentContext: AgentContext,
+const prepareToolCall = (
+	env: LoopEnv,
 	assistantMessage: AssistantMessage,
 	toolCall: AgentToolCall,
-	config: AgentLoopConfig,
-	signal: AbortSignal | undefined,
-): Promise<PreparedToolCall | ImmediateToolCallOutcome> {
+): Effect.Effect<PreparedToolCall | ImmediateToolCallOutcome> => {
+	const { currentContext, config, signal } = env;
 	const tool = currentContext.tools?.find((t) => t.name === toolCall.name);
 	if (!tool) {
-		return {
+		return Effect.succeed<ImmediateToolCallOutcome>({
 			kind: "immediate",
 			result: createErrorToolResult(`Tool ${toolCall.name} not found`),
 			isError: true,
-		};
+		});
 	}
 
-	try {
-		const validatedArgs = validateToolArguments(tool, toolCall);
-		if (config.beforeToolCall) {
-			const beforeResult = await config.beforeToolCall(
-				{
-					assistantMessage,
-					toolCall,
-					args: validatedArgs,
-					context: currentContext,
-				},
-				signal,
-			);
-			if (beforeResult?.block) {
-				return {
-					kind: "immediate",
-					result: createErrorToolResult(beforeResult.reason || "Tool execution was blocked"),
-					isError: true,
-				};
+	return Effect.tryPromise({
+		try: async (): Promise<PreparedToolCall | ImmediateToolCallOutcome> => {
+			const validatedArgs = validateToolArguments(tool, toolCall);
+			if (config.beforeToolCall) {
+				const beforeResult = await config.beforeToolCall(
+					{
+						assistantMessage,
+						toolCall,
+						args: validatedArgs,
+						context: currentContext,
+					},
+					signal,
+				);
+				if (beforeResult?.block) {
+					return {
+						kind: "immediate",
+						result: createErrorToolResult(beforeResult.reason || "Tool execution was blocked"),
+						isError: true,
+					};
+				}
 			}
-		}
-		return {
-			kind: "prepared",
-			toolCall,
-			tool,
-			args: validatedArgs,
-		};
-	} catch (error) {
-		return {
-			kind: "immediate",
-			result: createErrorToolResult(error instanceof Error ? error.message : String(error)),
-			isError: true,
-		};
-	}
-}
+			return {
+				kind: "prepared",
+				toolCall,
+				tool,
+				args: validatedArgs,
+			};
+		},
+		catch: (error) => error,
+	}).pipe(
+		Effect.catch((error) =>
+			Effect.succeed<ImmediateToolCallOutcome>({
+				kind: "immediate",
+				result: createErrorToolResult(
+					error instanceof Error ? error.message : String(error),
+				),
+				isError: true,
+			}),
+		),
+	);
+};
 
 /**
  * Tools that emit no `onUpdate` progress for this long are cancelled and
@@ -742,118 +961,237 @@ async function prepareToolCall(
  */
 export const DEFAULT_TOOL_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
 
+/**
+ * How long a cancelled tool may keep running before it is abandoned. Once
+ * the outer signal aborts, a cooperative tool settles almost immediately;
+ * one that ignores its abort signal previously held the pending tool call
+ * (and the turn) hostage until the full inactivity bound. Cancellation is
+ * an explicit teardown request, so the grace errs short: after it expires
+ * the call is settled with an error result and the tool's external work is
+ * left to the tool host's own reaping (shell kill-all on shutdown).
+ */
+export const DEFAULT_TOOL_ABORT_GRACE_MS = 5_000;
+
+type ToolWindowArgs = {
+	prepared: PreparedToolCall;
+	/** Caller-owned signal: only read for the composed tool-abort reason. */
+	signal: AbortSignal | undefined;
+	/** Effect-side cancellation latch bridged from the caller's signal. */
+	abortLatch: Deferred.Deferred<unknown>;
+	emit: AgentEventSink;
+	inactivityTimeoutMs?: number;
+	abortGraceMs?: number;
+};
+
+/**
+ * One tool-call execution window as a scoped effect.
+ *
+ * Topology: the tool's promise (raced first against a failure latch) plus
+ * two supervisory fibers forked into the window's scope —
+ *
+ * - **Inactivity watchdog:** sleeps toward `lastActivityAt + timeoutMs`
+ *   (each `onUpdate` pushes the deadline), then aborts the tool's composed
+ *   signal and fails the latch with the exact legacy cancellation message.
+ * - **Abort grace:** awaits the run's abort latch, forwards the caller's
+ *   abort reason into the tool's own AbortController (a cooperative tool
+ *   that still settles in time wins the race with its real result), then
+ *   after the grace fails the latch with the exact legacy abandonment
+ *   message.
+ *
+ * Scope close interrupts both fibers on every exit path — the Effect
+ * replacement for the legacy `clearTimeout`/`removeEventListener` `finally`
+ * block. Pending `tool_execution_update` emissions are awaited before the
+ * outcome is returned, on the success and failure paths alike (legacy
+ * `Promise.all(updateEvents)` ordering).
+ */
+const executeToolWindow = (
+	args: ToolWindowArgs,
+): Effect.Effect<ExecutedToolCallOutcome> =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			const { prepared, signal, abortLatch, emit } = args;
+			const timeoutMs = args.inactivityTimeoutMs ?? DEFAULT_TOOL_INACTIVITY_TIMEOUT_MS;
+			const graceMs = args.abortGraceMs ?? DEFAULT_TOOL_ABORT_GRACE_MS;
+
+			// Bound the tool, not the agent. The tool gets a composed abort
+			// controller so a cooperative implementation can clean up; a tool
+			// that ignores it is abandoned via the race below so the loop still
+			// gets its error result. (Effect-ratchet pin: tool `execute`
+			// implementations are plain TS taking a REAL AbortSignal, so the
+			// seam controller stays even though the window itself is a scoped
+			// effect.)
+			const toolAbort = new AbortController();
+			const updateEvents: Promise<void>[] = [];
+			let timedOut = false;
+			let lastActivityAt = Date.now();
+
+			// Failure latch: the watchdog and the post-abort grace fail it; the
+			// execution race below loses to it (legacy `rejectOnInactivity`).
+			const failure = yield* Deferred.make<never, unknown>();
+
+			// A signal already aborted at window entry must be visible to the
+			// tool synchronously, before `execute` is invoked (legacy
+			// `if (signal?.aborted) onOuterAbort()`).
+			if (signal?.aborted) {
+				toolAbort.abort(signal.reason);
+			}
+
+			const onUpdate = (partialResult: AgentToolResult<unknown>) => {
+				if (timedOut) return;
+				lastActivityAt = Date.now();
+				updateEvents.push(
+					Promise.resolve(
+						emit({
+							type: "tool_execution_update",
+							toolCallId: prepared.toolCall.id,
+							toolName: prepared.toolCall.name,
+							args: prepared.toolCall.arguments,
+							partialResult,
+						}),
+					),
+				);
+			};
+
+			if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+				yield* Effect.forkScoped(
+					Effect.gen(function* () {
+						for (;;) {
+							const remainingMs = timeoutMs - (Date.now() - lastActivityAt);
+							if (remainingMs <= 0) break;
+							yield* Effect.sleep(remainingMs);
+						}
+						timedOut = true;
+						const error = new ToolInactivityTimeoutError({
+							toolName: prepared.toolCall.name,
+							timeoutMs,
+						});
+						toolAbort.abort(error);
+						yield* Deferred.fail(failure, error);
+					}),
+					{ startImmediately: true },
+				);
+			}
+
+			// Abandonment after cancellation is bounded: don't let an
+			// abort-ignoring tool hold the pending call for the full
+			// inactivity window.
+			yield* Effect.forkScoped(
+				Effect.gen(function* () {
+					const reason = yield* Deferred.await(abortLatch);
+					toolAbort.abort(reason);
+					if (!Number.isFinite(graceMs) || graceMs <= 0) return;
+					yield* Effect.sleep(graceMs);
+					timedOut = true;
+					yield* Deferred.fail(
+						failure,
+						new ToolAbortAbandonedError({
+							toolName: prepared.toolCall.name,
+							graceMs,
+						}),
+					);
+				}),
+				{ startImmediately: true },
+			);
+
+			const outcome = yield* Effect.tryPromise({
+				try: () =>
+					prepared.tool.execute(
+						prepared.toolCall.id,
+						prepared.args as never,
+						toolAbort.signal,
+						onUpdate,
+					),
+				catch: (error) => error,
+			}).pipe(
+				Effect.raceFirst(Deferred.await(failure)),
+				Effect.map(
+					(result): ExecutedToolCallOutcome => ({
+						result,
+						isError: result.isError === true,
+					}),
+				),
+				Effect.catch((error) =>
+					Effect.succeed<ExecutedToolCallOutcome>({
+						result: createErrorToolResult(
+							error instanceof Error ? error.message : String(error),
+						),
+						isError: true,
+					}),
+				),
+			);
+
+			yield* Effect.promise(() => Promise.all(updateEvents));
+			return outcome;
+		}),
+	);
+
+/**
+ * Execute a prepared tool call with the loop's inactivity/abandonment
+ * bounds. Public seam kept for external hosts of the loop: the provided
+ * `signal` is bridged into a per-call abort latch whose listener is removed
+ * when the call settles.
+ */
 export async function executePreparedToolCall(
 	prepared: PreparedToolCall,
 	signal: AbortSignal | undefined,
 	emit: AgentEventSink,
 	inactivityTimeoutMs?: number,
+	abortGraceMs?: number,
 ): Promise<ExecutedToolCallOutcome> {
-	const updateEvents: Promise<void>[] = [];
-	const timeoutMs = inactivityTimeoutMs ?? DEFAULT_TOOL_INACTIVITY_TIMEOUT_MS;
-
-	// Bound the tool, not the agent. The tool gets a composed abort signal so
-	// a cooperative implementation can clean up; a tool that ignores it is
-	// abandoned via the race below so the loop still gets its error result.
-	const toolAbort = new AbortController();
-	const onOuterAbort = () => toolAbort.abort(signal?.reason);
-	if (signal?.aborted) onOuterAbort();
-	signal?.addEventListener("abort", onOuterAbort);
-	let inactivityTimer: ReturnType<typeof setTimeout> | undefined;
-	let timedOut = false;
-	let rejectOnInactivity: (error: Error) => void = () => {};
-	const inactivityFailure = new Promise<never>((_, reject) => {
-		rejectOnInactivity = reject;
-	});
-	inactivityFailure.catch(() => undefined);
-	const armInactivityTimer = () => {
-		if (inactivityTimer) clearTimeout(inactivityTimer);
-		if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return;
-		inactivityTimer = setTimeout(() => {
-			timedOut = true;
-			const error = new Error(
-				`Tool ${prepared.toolCall.name} produced no output for ${Math.round(timeoutMs / 1000)}s and was cancelled. The agent may retry or continue without it.`,
-			);
-			toolAbort.abort(error);
-			rejectOnInactivity(error);
-		}, timeoutMs);
-		inactivityTimer.unref?.();
-	};
-	armInactivityTimer();
-
-	try {
-		const result = await Promise.race([
-			prepared.tool.execute(
-				prepared.toolCall.id,
-				prepared.args as never,
-				toolAbort.signal,
-				(partialResult) => {
-					if (timedOut) return;
-					armInactivityTimer();
-					updateEvents.push(
-						Promise.resolve(
-							emit({
-								type: "tool_execution_update",
-								toolCallId: prepared.toolCall.id,
-								toolName: prepared.toolCall.name,
-								args: prepared.toolCall.arguments,
-								partialResult,
-							}),
-						),
-					);
-				},
-			),
-			inactivityFailure,
-		]);
-		await Promise.all(updateEvents);
-		return { result, isError: result.isError === true };
-	} catch (error) {
-		await Promise.all(updateEvents);
-		return {
-			result: createErrorToolResult(error instanceof Error ? error.message : String(error)),
-			isError: true,
-		};
-	} finally {
-		if (inactivityTimer) clearTimeout(inactivityTimer);
-		signal?.removeEventListener("abort", onOuterAbort);
-	}
+	return runLoopPromise(
+		Effect.scoped(
+			Effect.gen(function* () {
+				const abortLatch = yield* acquireAbortLatch(signal);
+				return yield* executeToolWindow({
+					prepared,
+					signal,
+					abortLatch,
+					emit,
+					inactivityTimeoutMs,
+					abortGraceMs,
+				});
+			}),
+		),
+	);
 }
 
-async function finalizeExecutedToolCall(
-	currentContext: AgentContext,
+const finalizeExecutedToolCall = (
+	env: LoopEnv,
 	assistantMessage: AssistantMessage,
 	prepared: PreparedToolCall,
 	executed: ExecutedToolCallOutcome,
-	config: AgentLoopConfig,
-	signal: AbortSignal | undefined,
-	emit: AgentEventSink,
-): Promise<ToolResultMessage> {
-	let result = executed.result;
-	let isError = executed.isError;
+): Effect.Effect<ToolResultMessage> =>
+	Effect.gen(function* () {
+		const { currentContext, config, signal, emit } = env;
+		let result = executed.result;
+		let isError = executed.isError;
 
-	if (config.afterToolCall) {
-		const afterResult = await config.afterToolCall(
-			{
-				assistantMessage,
-				toolCall: prepared.toolCall,
-				args: prepared.args,
-				result,
-				isError,
-				context: currentContext,
-			},
-			signal,
-		);
-		if (afterResult) {
-			result = {
-				...result,
-				content: afterResult.content ?? result.content,
-				details: afterResult.details ?? result.details,
-			};
-			isError = afterResult.isError ?? isError;
+		if (config.afterToolCall) {
+			const afterToolCall = config.afterToolCall;
+			const afterResult = yield* Effect.promise(() =>
+				afterToolCall(
+					{
+						assistantMessage,
+						toolCall: prepared.toolCall,
+						args: prepared.args,
+						result,
+						isError,
+						context: currentContext,
+					},
+					signal,
+				),
+			);
+			if (afterResult) {
+				result = {
+					content: afterResult.content ?? result.content,
+					details: afterResult.details ?? result.details,
+				};
+				isError = afterResult.isError ?? isError;
+			}
 		}
-	}
 
-	return emitToolCallOutcome(prepared.toolCall, result, isError, emit);
-}
+		return yield* emitToolCallOutcome(emit, prepared.toolCall, result, isError);
+	});
 
 function createErrorToolResult(message: string): AgentToolResult<unknown> {
 	return {
@@ -862,32 +1200,32 @@ function createErrorToolResult(message: string): AgentToolResult<unknown> {
 	};
 }
 
-async function emitToolCallOutcome(
+const emitToolCallOutcome = (
+	emit: AgentEventSink,
 	toolCall: AgentToolCall,
 	result: AgentToolResult<unknown>,
 	isError: boolean,
-	emit: AgentEventSink,
-): Promise<ToolResultMessage> {
-	await emit({
-		type: "tool_execution_end",
-		toolCallId: toolCall.id,
-		toolName: toolCall.name,
-		result,
-		isError,
+): Effect.Effect<ToolResultMessage> =>
+	Effect.gen(function* () {
+		yield* emitEvent(emit, {
+			type: "tool_execution_end",
+			toolCallId: toolCall.id,
+			toolName: toolCall.name,
+			result,
+			isError,
+		});
+
+		const toolResultMessage: ToolResultMessage = {
+			role: "toolResult",
+			toolCallId: toolCall.id,
+			toolName: toolCall.name,
+			content: result.content,
+			details: result.details,
+			isError,
+			timestamp: Date.now(),
+		};
+
+		yield* emitEvent(emit, { type: "message_start", message: toolResultMessage });
+		yield* emitEvent(emit, { type: "message_end", message: toolResultMessage });
+		return toolResultMessage;
 	});
-
-	const toolResultMessage: ToolResultMessage = {
-		role: "toolResult",
-		toolCallId: toolCall.id,
-		toolName: toolCall.name,
-		content: result.content,
-		details: result.details,
-		...(typeof result.modelOutputTokens === "number" ? { modelOutputTokens: result.modelOutputTokens } : {}),
-		isError,
-		timestamp: Date.now(),
-	};
-
-	await emit({ type: "message_start", message: toolResultMessage });
-	await emit({ type: "message_end", message: toolResultMessage });
-	return toolResultMessage;
-}

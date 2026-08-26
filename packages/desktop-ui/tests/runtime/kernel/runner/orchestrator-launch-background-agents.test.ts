@@ -70,6 +70,20 @@ const createContext = () =>
         ],
       },
       compactionScheduler: {},
+      // Minimal run-coordinator stub: the supervised turn work is an
+      // already-started promise, so these registration hooks are no-ops here.
+      supervisor: {
+        registerRun: vi.fn(),
+        discardRun: vi.fn(),
+        adoptResource: vi.fn(),
+        adoptChild: vi.fn(),
+        startRun: vi.fn(),
+        hasRun: vi.fn(() => false),
+        abortRun: vi.fn(),
+        abortAllRuns: vi.fn(),
+        activeRunCount: vi.fn(() => 0),
+        cancelRun: vi.fn(async () => undefined),
+      },
     },
     toolHost: {
       getToolCatalog: () => [],

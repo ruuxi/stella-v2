@@ -32,6 +32,7 @@ import {
   type StateDiff,
   type StateDiffTarget,
 } from "../cli/stella-computer-state-diff.js";
+import { forkCancelableTimeout } from "./effect-runtime.js";
 import {
   abortableComputerDelay,
   getComputerExecutionEnv,
@@ -1235,7 +1236,7 @@ const runAutomationDaemonCommand = async (
     const settle = (result: AutomationHelperResult) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      cancelTimer();
       signal?.removeEventListener("abort", onAbort);
       socket.destroy();
       resolve(result);
@@ -1259,7 +1260,9 @@ const runAutomationDaemonCommand = async (
             : new Error("Computer command aborted."),
       });
     };
-    const timer = setTimeout(() => {
+    // The request deadline is a forked timeout fiber interrupted by settle
+    // (the clearTimeout analogue); duration and daemon-reset path unchanged.
+    const cancelTimer = forkCancelableTimeout(timeoutMs, () => {
       recoverAutomationDaemon(sessionPaths);
       settle({
         status: 1,
@@ -1267,7 +1270,7 @@ const runAutomationDaemonCommand = async (
         stderr: `desktop_automation daemon timed out after ${timeoutMs}ms`,
         timedOut: true,
       });
-    }, timeoutMs);
+    });
 
     socket.on("connect", () => {
       socket.write(`${payload}\n`);
@@ -1354,7 +1357,7 @@ const runAutomationDaemonTypedOperation = async (
     const settle = (error?: Error, value?: unknown) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      cancelTimer();
       signal?.removeEventListener("abort", onAbort);
       socket.destroy();
       if (error) reject(error);
@@ -1372,12 +1375,14 @@ const runAutomationDaemonTypedOperation = async (
           : new Error("Computer request aborted."),
       );
     };
-    const timer = setTimeout(() => {
+    // The request deadline is a forked timeout fiber interrupted by settle
+    // (the clearTimeout analogue); duration and daemon-reset path unchanged.
+    const cancelTimer = forkCancelableTimeout(timeoutMs, () => {
       recoverAutomationDaemon(sessionPaths);
       settle(
         new Error(`desktop_automation daemon timed out after ${timeoutMs}ms`),
       );
-    }, timeoutMs);
+    });
 
     socket.on("connect", () => socket.write(`${payload}\n`));
     socket.on("data", (chunk) => {
@@ -2689,7 +2694,6 @@ const runProcessCapture = async (
 ): Promise<AutomationHelperResult> =>
   await new Promise((resolve) => {
     let settled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
     const child = spawn(command, args, {
@@ -2699,10 +2703,12 @@ const runProcessCapture = async (
     const settle = (result: AutomationHelperResult) => {
       if (settled) return;
       settled = true;
-      if (timer) clearTimeout(timer);
+      cancelTimer();
       resolve(result);
     };
-    timer = setTimeout(() => {
+    // The capture deadline is a forked timeout fiber interrupted by settle
+    // (the clearTimeout analogue); duration and kill path unchanged.
+    const cancelTimer = forkCancelableTimeout(timeoutMs, () => {
       killDetachedProcess(child.pid);
       settle({
         status: 1,
@@ -2712,7 +2718,7 @@ const runProcessCapture = async (
           `${command} timed out after ${timeoutMs}ms`,
         timedOut: true,
       });
-    }, timeoutMs);
+    });
     child.stdout?.on("data", (chunk) => stdoutChunks.push(Buffer.from(chunk)));
     child.stderr?.on("data", (chunk) => stderrChunks.push(Buffer.from(chunk)));
     child.once("error", (error) => {
@@ -3916,6 +3922,10 @@ export const executeStellaComputerCommand = async (
   argv: string[],
   options: StellaComputerExecutionOptions = {},
 ): Promise<StellaComputerExecutionResult> => {
+  // Effect-ratchet pin (1 new AbortController): this is the seam controller
+  // whose real AbortSignal rides the execution context into native helper
+  // children, daemon sockets, and bridge requests — non-Effect consumers
+  // that need a genuine AbortSignal.
   const controller = new AbortController();
   const onAbort = () =>
     controller.abort(
@@ -3925,19 +3935,20 @@ export const executeStellaComputerCommand = async (
     );
   options.signal?.addEventListener("abort", onAbort, { once: true });
   if (options.signal?.aborted) onAbort();
-  const timeout =
+  // The execution deadline is a forked timeout fiber aborting the seam
+  // controller, interrupted in the finally block on every exit path (the
+  // cleared, unref'd setTimeout analogue — cancellation in finally keeps
+  // CLI process liveness identical).
+  const cancelTimeout =
     options.timeoutMs && options.timeoutMs > 0
-      ? setTimeout(
-          () =>
-            controller.abort(
-              new Error(
-                `Computer command timed out after ${options.timeoutMs}ms.`,
-              ),
+      ? forkCancelableTimeout(options.timeoutMs, () =>
+          controller.abort(
+            new Error(
+              `Computer command timed out after ${options.timeoutMs}ms.`,
             ),
-          options.timeoutMs,
+          ),
         )
       : null;
-  timeout?.unref();
 
   try {
     return await runWithComputerExecutionContext(
@@ -3959,7 +3970,7 @@ export const executeStellaComputerCommand = async (
       stderr,
     }));
   } finally {
-    if (timeout) clearTimeout(timeout);
+    cancelTimeout?.();
     options.signal?.removeEventListener("abort", onAbort);
   }
 };

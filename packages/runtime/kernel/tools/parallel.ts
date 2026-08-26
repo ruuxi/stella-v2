@@ -2,7 +2,13 @@ import type {
   FileChangeRecord,
   ProducedFileRecord,
 } from "@stella/contracts/file-changes";
-import type { ToolContext, ToolHandlerExtras, ToolResult } from "./types.js";
+import type {
+  ProducedFilesOmission,
+  ToolContext,
+  ToolHandlerExtras,
+  ToolResult,
+} from "./types.js";
+import { mergeProducedFilesOmissions } from "./utils.js";
 
 export const MULTI_TOOL_USE_PARALLEL_TOOL_NAME = "multi_tool_use_parallel";
 const COMMAND_OUTPUT_TOOL_NAMES = new Set(["exec_command", "write_stdin"]);
@@ -58,6 +64,7 @@ type ParallelEntryResult = {
   details?: unknown;
   fileChanges?: FileChangeRecord[];
   producedFiles?: ProducedFileRecord[];
+  producedFilesOmitted?: ProducedFilesOmission;
   modelOutputTokens?: number;
 };
 
@@ -182,6 +189,9 @@ export const handleMultiToolUseParallel = async (
         ...(nested.producedFiles
           ? { producedFiles: nested.producedFiles }
           : {}),
+        ...(nested.producedFilesOmitted
+          ? { producedFilesOmitted: nested.producedFilesOmitted }
+          : {}),
         ...(typeof nested.modelOutputTokens === "number"
           ? { modelOutputTokens: nested.modelOutputTokens }
           : {}),
@@ -191,12 +201,19 @@ export const handleMultiToolUseParallel = async (
 
   const fileChanges: FileChangeRecord[] = [];
   const producedFiles: ProducedFileRecord[] = [];
+  let producedFilesOmitted: ProducedFilesOmission | undefined;
   for (const result of results) {
     if ("fileChanges" in result && Array.isArray(result.fileChanges)) {
       fileChanges.push(...result.fileChanges);
     }
     if ("producedFiles" in result && Array.isArray(result.producedFiles)) {
       producedFiles.push(...result.producedFiles);
+    }
+    if ("producedFilesOmitted" in result) {
+      producedFilesOmitted = mergeProducedFilesOmissions(
+        producedFilesOmitted,
+        result.producedFilesOmitted,
+      );
     }
   }
 
@@ -233,5 +250,6 @@ export const handleMultiToolUseParallel = async (
     ...(modelOutputTokens !== undefined ? { modelOutputTokens } : {}),
     ...(fileChanges.length > 0 ? { fileChanges } : {}),
     ...(producedFiles.length > 0 ? { producedFiles } : {}),
+    ...(producedFilesOmitted ? { producedFilesOmitted } : {}),
   };
 };

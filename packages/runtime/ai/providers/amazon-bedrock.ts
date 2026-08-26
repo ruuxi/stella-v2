@@ -109,7 +109,8 @@ export const streamBedrock: StreamFunction<"bedrock-converse-stream", BedrockOpt
 				totalTokens: 0,
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 			},
-			stopReason: "stop",
+			// Fail closed until an explicit provider terminal event classifies the response.
+			stopReason: "error",
 			timestamp: Date.now(),
 		};
 

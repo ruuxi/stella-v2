@@ -1,3 +1,4 @@
+import { promises as fs } from "node:fs";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 
@@ -658,7 +659,7 @@ const formatDurableThreadSummaryResults = (
   limit = MAX_THREAD_SEARCH_RESULTS,
 ): string => {
   const rows = store.threadSummaryStore.searchThreadSummaries(
-    tokenizeSearchQuery(query),
+    tokenizeSearchQuery(query ?? ""),
     { limit: Math.max(1, Math.min(MAX_THREAD_SEARCH_RESULTS, limit)) },
   );
   if (rows.length === 0) return "No durable thread summaries matched.";
@@ -745,7 +746,7 @@ export const formatTranscriptSearchResults = (
   ) => TranscriptSearchHit[][],
 ): string => {
   const cappedLimit = Math.max(1, Math.min(25, Math.floor(limit ?? 12)));
-  const tokens = tokenizeSearchQuery(query);
+  const tokens = tokenizeSearchQuery(query ?? "");
   if (tokens.length === 0) {
     return "No usable search terms — pass concrete nouns (names, places, file paths, slugs, error text).";
   }
@@ -1408,7 +1409,7 @@ const runArchitecturalRecall = async (args: {
           },
           abortSignal: args.signal,
         })
-      ).text.trim();
+      ).trim();
     } else {
       const resolvedLlm = recallRoute.resolvedLlm;
       if (!resolvedLlm)

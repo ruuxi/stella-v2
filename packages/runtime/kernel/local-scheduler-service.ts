@@ -4,6 +4,15 @@ import path from 'path'
 import { Cron } from 'croner'
 import { z } from 'zod'
 import {
+  Cause,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  ManagedRuntime,
+  Scope,
+} from 'effect'
+import {
   ensurePrivateDirSync,
   writePrivateFileSync,
 } from './shared/private-fs.js'
@@ -36,6 +45,24 @@ const MAX_TIMER_DELAY_MS = 60_000
 const ACTIVE_HOURS_TIME_PATTERN = /^([01]\d|2[0-3]|24):([0-5]\d)$/
 const STATE_VERSION = 1
 
+/**
+ * The one module-level ManagedRuntime for the scheduler (M5 kernel pass,
+ * house convention: one requirements-free runtime per facade module family;
+ * context rides in closures). Croner stays the cron parser — Effect owns
+ * only the timing/supervision layer.
+ */
+const schedulerRuntime = ManagedRuntime.make(Layer.empty)
+
+/**
+ * Bound on how long `stop()` waits (in the background) for an in-flight
+ * tick before closing the service scope anyway. Past the bound the tick's
+ * supervising fiber is interrupted at its promise seam; the underlying job
+ * keeps running to completion in promise land and persists its own
+ * bookkeeping, exactly as pre-Effect `stop()` behaved (which never waited
+ * at all).
+ */
+const STOP_JOIN_TIMEOUT_MS = 30_000
+
 type LocalSchedulerState = {
   version: number
   cronJobs: LocalCronJobRecord[]
@@ -46,7 +73,7 @@ type LocalSchedulerState = {
 /**
  * Optional OS-notification surface. The runtime client wires this to the
  * Electron-side `showStellaNotification` so each delivered scheduled
- * message also pops a native banner. Headless contexts (tests, the
+ * message also pops a native banner. Headless contexts (the
  * mobile/social runtime if it ever embeds the scheduler) leave it
  * undefined and silently skip notifications.
  */
@@ -193,10 +220,7 @@ const assertValidSchedule = (schedule: unknown): LocalCronSchedule => {
   throw new Error('schedule.kind must be "at", "every", or "cron".')
 }
 
-const assertValidScriptPath = (
-  value: unknown,
-  scriptsDir: string,
-): string => {
+const assertValidScriptPath = (value: unknown, scriptsDir: string): string => {
   const raw = asTrimmedString(value)
   if (!raw) {
     throw new Error('payload.kind="script" requires scriptPath.')
@@ -536,7 +560,8 @@ const cronJobRecordShapeSchema = z.object({
   updatedAt: z.number(),
 })
 
-const buildCronJobRecordValidator = (scriptsDir: string) =>
+const buildCronJobRecordValidator =
+  (scriptsDir: string) =>
   (value: unknown): value is LocalCronJobRecord => {
     if (!value || typeof value !== 'object') {
       return false
@@ -618,7 +643,17 @@ export class LocalSchedulerService {
   private readonly scriptsDir: string
   private readonly listeners = new Set<() => void>()
   private state = createEmptyState()
-  private timer: NodeJS.Timeout | null = null
+  /**
+   * Service scope for one start()..stop() lifetime. Every timing fiber —
+   * the pending tick-delay fiber and the tick (job execution) fiber — is
+   * forked into it, so stop() can account for in-flight work structurally
+   * instead of abandoning it.
+   */
+  private serviceScope: Scope.Closeable | null = null
+  /** Pending delay fiber (the old `setTimeout` handle). */
+  private timerFiber: Fiber.Fiber<void, unknown> | null = null
+  /** Fiber currently draining due items, when a tick is in flight. */
+  private tickFiber: Fiber.Fiber<void, unknown> | null = null
   private started = false
   private tickInFlight = false
 
@@ -641,6 +676,7 @@ export class LocalSchedulerService {
       return
     }
     this.started = true
+    this.serviceScope = Scope.makeUnsafe()
     this.state = this.readState()
     if (!fs.existsSync(this.statePath)) {
       this.persistState()
@@ -654,10 +690,33 @@ export class LocalSchedulerService {
 
   stop() {
     this.started = false
-    if (this.timer) {
-      clearTimeout(this.timer)
-      this.timer = null
+    const scope = this.serviceScope
+    this.serviceScope = null
+    this.timerFiber = null
+    const inFlightTick = this.tickFiber
+    if (!scope) {
+      return
     }
+    // stop() stays synchronous (signature parity), but the service scope
+    // now accounts for in-flight work: an in-flight tick is joined with a
+    // bound before the scope is closed. Closing interrupts the pending
+    // delay fiber immediately and any tick fiber that outlived the bound
+    // at its promise seam — the underlying job keeps running to completion
+    // and persists its own bookkeeping, exactly as the pre-Effect stop()
+    // (which cleared the timer and abandoned the tick) behaved.
+    void schedulerRuntime
+      .runPromise(
+        Effect.gen(function* () {
+          if (inFlightTick) {
+            yield* Fiber.await(inFlightTick).pipe(
+              Effect.timeout(STOP_JOIN_TIMEOUT_MS),
+              Effect.ignore,
+            )
+          }
+          yield* Scope.close(scope, Exit.failCause(Cause.interrupt()))
+        }),
+      )
+      .catch(() => undefined)
   }
 
   subscribe(listener: () => void) {
@@ -1029,11 +1088,16 @@ export class LocalSchedulerService {
   }
 
   private scheduleNextTick(overrideDelayMs?: number) {
-    if (this.timer) {
-      clearTimeout(this.timer)
-      this.timer = null
+    const previous = this.timerFiber
+    this.timerFiber = null
+    if (previous) {
+      // clearTimeout parity: interrupt the stale delay fiber in the
+      // background. The identity check inside the fork below guarantees a
+      // superseded fiber can never fire its tick even if it wins the race
+      // against this interrupt.
+      schedulerRuntime.runFork(Fiber.interrupt(previous))
     }
-    if (!this.started) {
+    if (!this.started || !this.serviceScope) {
       return
     }
 
@@ -1046,13 +1110,36 @@ export class LocalSchedulerService {
       delayMs = Math.max(250, Math.min(dueAt - Date.now(), MAX_TIMER_DELAY_MS))
     }
 
-    this.timer = setTimeout(
-      () => {
-        this.timer = null
-        void this.runDueItems()
-      },
-      Math.max(0, delayMs),
+    // Identical timing to the old `setTimeout(..., Math.max(0, delayMs))`:
+    // one delay, then a single tick that drains every due item.
+    const fiber: Fiber.Fiber<void, unknown> = schedulerRuntime.runSync(
+      Effect.forkIn(
+        Effect.sleep(Math.max(0, delayMs)).pipe(
+          Effect.flatMap(() =>
+            Effect.suspend(() => {
+              if (this.timerFiber !== fiber) {
+                // Superseded while sleeping (clearTimeout parity).
+                return Effect.void
+              }
+              this.timerFiber = null
+              this.tickFiber = fiber
+              return this.runDueItemsEffect().pipe(
+                Effect.ensuring(
+                  Effect.sync(() => {
+                    if (this.tickFiber === fiber) {
+                      this.tickFiber = null
+                    }
+                  }),
+                ),
+              )
+            }),
+          ),
+        ),
+        this.serviceScope,
+        { startImmediately: true },
+      ),
     )
+    this.timerFiber = fiber
   }
 
   private getNextDueAt(): number | null {
@@ -1124,43 +1211,69 @@ export class LocalSchedulerService {
     )
   }
 
-  private async runDueItems() {
-    if (!this.started || this.tickInFlight) {
-      return
-    }
-    this.tickInFlight = true
-    let nextDelayOverride: number | undefined
+  /**
+   * One tick: drain every due item sequentially (jobs never overlap — same
+   * as the old promise loop). Runs on a fiber forked into the service
+   * scope; job execution crosses into promise land through a single
+   * `Effect.tryPromise` seam per item so failures carry the original error
+   * object. The `Effect.onExit` finalizer is the old `finally` block — it
+   * reschedules on success, failure, AND interruption (rescheduling is a
+   * no-op once stop() flipped `started`).
+   */
+  private runDueItemsEffect(): Effect.Effect<void, unknown> {
+    return Effect.suspend(() => {
+      if (!this.started || this.tickInFlight) {
+        return Effect.void
+      }
+      this.tickInFlight = true
+      let nextDelayOverride: number | undefined
 
-    try {
-      while (this.started) {
+      const drainLoop: Effect.Effect<void, unknown> = Effect.suspend(() => {
+        if (!this.started) {
+          return Effect.void
+        }
         const dueItem = this.getNextDueItem(Date.now())
         if (!dueItem) {
-          break
+          return Effect.void
         }
 
         const needsRunner = this.requiresRunner(dueItem)
-        const runner = needsRunner ? this.options.runnerTarget.getRunner() : null
+        const runner = needsRunner
+          ? this.options.runnerTarget.getRunner()
+          : null
         if (needsRunner && !runner) {
           // Worker isn't ready yet; back off and retry. notify/script
           // fires don't need the runner so they continue to drain.
           nextDelayOverride = 5_000
-          break
+          return Effect.void
         }
 
-        const result =
-          dueItem.kind === 'cron'
-            ? await this.executeCronJob(dueItem.record, runner)
-            : await this.executeHeartbeat(dueItem.record, runner!)
+        return Effect.tryPromise({
+          try: () =>
+            dueItem.kind === 'cron'
+              ? this.executeCronJob(dueItem.record, runner)
+              : this.executeHeartbeat(dueItem.record, runner!),
+          catch: (error) => error,
+        }).pipe(
+          Effect.flatMap((result) => {
+            if (result === 'busy') {
+              nextDelayOverride = 5_000
+              return Effect.void
+            }
+            return drainLoop
+          }),
+        )
+      })
 
-        if (result === 'busy') {
-          nextDelayOverride = 5_000
-          break
-        }
-      }
-    } finally {
-      this.tickInFlight = false
-      this.scheduleNextTick(nextDelayOverride)
-    }
+      return drainLoop.pipe(
+        Effect.onExit(() =>
+          Effect.sync(() => {
+            this.tickInFlight = false
+            this.scheduleNextTick(nextDelayOverride)
+          }),
+        ),
+      )
+    })
   }
 
   private appendGeneratedAssistantMessage(
@@ -1619,6 +1732,7 @@ export class LocalSchedulerService {
     const runResult = await runner.runAutomationTurn({
       conversationId: active.conversationId,
       userPrompt: active.payload.prompt,
+      storageMode: 'local',
       agentType: active.payload.agentType ?? 'general',
     })
 
@@ -1650,7 +1764,9 @@ export class LocalSchedulerService {
     const deliver = active.deliver !== false
     active.lastStatus = finalText ? 'ok' : 'no-response'
     active.lastError = undefined
-    active.lastOutputPreview = finalText ? truncatePreview(finalText) : undefined
+    active.lastOutputPreview = finalText
+      ? truncatePreview(finalText)
+      : undefined
 
     if (deliver && finalText) {
       this.appendGeneratedAssistantMessage(active.conversationId, {
@@ -1721,6 +1837,7 @@ export class LocalSchedulerService {
         prompt: active.prompt,
         checklist: active.checklist,
       }),
+      storageMode: 'local',
       agentType: active.agentType ?? 'orchestrator',
     })
 

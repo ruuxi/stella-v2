@@ -6,6 +6,7 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 
 import { resolveStatePath } from "./shared.js";
+import { sleepMs } from "./effect-runtime.js";
 
 type MediaJobStatus =
   | "queued"
@@ -233,8 +234,9 @@ const getJob = async (jobId: string): Promise<MediaJob> => {
   });
 };
 
-const sleep = async (ms: number): Promise<void> =>
-  await new Promise((resolve) => setTimeout(resolve, ms));
+// Effect-backed sleep (kernel/cli/effect-runtime.ts); poll pacing timing
+// is unchanged.
+const sleep = async (ms: number): Promise<void> => await sleepMs(ms);
 
 const waitForJob = async (
   jobId: string,

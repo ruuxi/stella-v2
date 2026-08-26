@@ -168,7 +168,7 @@ export type ToolRequestPayload = {
 
 /**
  * One web search hit as surfaced to the chat UI. Mirrors the backend
- * `SearchHit` (Exa) shape; `image`/`favicon` are only present when the
+ * `SearchHit` shape; `image`/`favicon` are only present when the
  * source provided them.
  */
 export type WebSearchResultHit = {

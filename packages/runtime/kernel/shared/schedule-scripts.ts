@@ -129,6 +129,10 @@ export const runScheduleScript = (
       }
     })
 
+    // Effect-ratchet pin (1 setTimeout): SIGKILL deadline for a one-shot,
+    // per-call awaited script child (a retained imperative seam — see
+    // EFFECT_OWNERSHIP.md "one-shot utility spawns"). Unref'd so a stuck
+    // script can never keep the process alive; cleared on exit/error.
     const timer = setTimeout(() => {
       timedOut = true
       child.kill('SIGKILL')

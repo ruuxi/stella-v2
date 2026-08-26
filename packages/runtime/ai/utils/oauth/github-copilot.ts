@@ -2,6 +2,7 @@
  * GitHub Copilot OAuth flow
  */
 
+import { sleepWithAbort } from "../../effect-runtime.js";
 import { getModels } from "../../models.js";
 import type { Api, Model } from "../../types.js";
 import type { OAuthCredentials, OAuthLoginCallbacks, OAuthProviderInterface } from "./types.js";
@@ -145,27 +146,12 @@ async function startDeviceFlow(domain: string): Promise<DeviceCodeResponse> {
 }
 
 /**
- * Sleep that can be interrupted by an AbortSignal
+ * Sleep that can be interrupted by an AbortSignal. Poll intervals stay data
+ * (interval/slow_down math above); only the timer rides the ai/ fiber
+ * substrate. The abort error message is the exact legacy string.
  */
 function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
-	return new Promise((resolve, reject) => {
-		if (signal?.aborted) {
-			reject(new Error("Login cancelled"));
-			return;
-		}
-
-		const onAbort = () => {
-			clearTimeout(timeout);
-			reject(new Error("Login cancelled"));
-		};
-
-		const timeout = setTimeout(() => {
-			signal?.removeEventListener("abort", onAbort);
-			resolve();
-		}, ms);
-
-		signal?.addEventListener("abort", onAbort, { once: true });
-	});
+	return sleepWithAbort(ms, signal, () => new Error("Login cancelled"));
 }
 
 async function pollForGitHubAccessToken(

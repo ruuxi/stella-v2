@@ -47,6 +47,7 @@ import {
   normalizeAutomationRunInput,
   normalizeChatRunInput,
 } from "./orchestrator-policy.js";
+import { shouldPersistLocalChatTranscript } from "./conversation-storage-mode.js";
 
 const logger = createRuntimeLogger("runner.orchestrator");
 const UI_VISIBILITY_HIDDEN = "hidden" as const;
@@ -146,6 +147,7 @@ export const createOrchestratorController = (
     alreadyRunningError: string;
     conversationId: string;
     agentType: string;
+    storageMode?: "cloud" | "local";
     userPrompt: string;
     uiVisibility?: "visible" | "hidden";
     promptMessages?: ChatPayload["promptMessages"];
@@ -189,6 +191,7 @@ export const createOrchestratorController = (
         runId,
         conversationId: args.conversationId,
         agentType: args.agentType,
+        ...(args.storageMode ? { storageMode: args.storageMode } : {}),
         userPrompt: args.userPrompt,
         ...(args.uiVisibility ? { uiVisibility: args.uiVisibility } : {}),
         ...(args.promptMessages?.length
@@ -211,6 +214,7 @@ export const createOrchestratorController = (
             ...session,
             conversationId: args.conversationId,
             agentType: args.agentType,
+            ...(args.storageMode ? { storageMode: args.storageMode } : {}),
             uiVisibility: args.uiVisibility ?? UI_VISIBILITY_VISIBLE,
             queueCallbackSwitch: (callbacks) => {
               steerableCallbacks.switchTo(callbacks);
@@ -262,6 +266,7 @@ export const createOrchestratorController = (
       userPrompt: string;
       promptMessages?: ChatPayload["promptMessages"];
       agentType: string;
+      storageMode?: "cloud" | "local";
       userMessageId: string;
       uiVisibility?: "visible" | "hidden";
       responseTarget?: StartPreparedRunArgs["responseTarget"];
@@ -283,6 +288,7 @@ export const createOrchestratorController = (
       alreadyRunningError: "The orchestrator is already running.",
       conversationId,
       agentType,
+      ...(startArgs.storageMode ? { storageMode: startArgs.storageMode } : {}),
       userPrompt,
       ...(startArgs.uiVisibility
         ? { uiVisibility: startArgs.uiVisibility }
@@ -627,7 +633,14 @@ export const createOrchestratorController = (
             },
           }
         : undefined;
-    if (uiVisibility !== UI_VISIBILITY_HIDDEN) {
+    const liveSession = getLiveOrchestratorSession(
+      input.conversationId,
+      input.agentType,
+    );
+    if (
+      shouldPersistLocalChatTranscript(liveSession?.storageMode) &&
+      uiVisibility !== UI_VISIBILITY_HIDDEN
+    ) {
       context.appendLocalChatEvent?.({
         conversationId: input.conversationId,
         type: "user_message",
@@ -639,10 +652,6 @@ export const createOrchestratorController = (
         },
       });
     }
-    const liveSession = getLiveOrchestratorSession(
-      input.conversationId,
-      input.agentType,
-    );
     if (liveSession) {
       if (uiVisibility === UI_VISIBILITY_VISIBLE) {
         liveSession.uiVisibility = UI_VISIBILITY_VISIBLE;
@@ -703,6 +712,7 @@ export const createOrchestratorController = (
       userPrompt,
       promptMessages,
       attachments,
+      storageMode,
     } = normalizeChatRunInput(payload);
     const hasPromptMessages = Boolean(
       promptMessages?.some((message) => message.text.trim().length > 0),
@@ -712,7 +722,7 @@ export const createOrchestratorController = (
     }
 
     const liveSession = getLiveOrchestratorSession(conversationId, agentType);
-    if (liveSession) {
+    if (liveSession && storageMode !== "cloud") {
       await persistAndQueueLiveChatMessages({
         session: liveSession,
         userMessageId: payload.userMessageId,
@@ -729,6 +739,7 @@ export const createOrchestratorController = (
         "The orchestrator is already running. Wait for it to finish before starting another run.",
       conversationId,
       agentType,
+      ...(storageMode ? { storageMode } : {}),
       userPrompt,
       ...(promptMessages?.length ? { promptMessages } : {}),
       attachments,
@@ -764,7 +775,7 @@ export const createOrchestratorController = (
       payload.conversationId,
       payload.agentType,
     );
-    if (liveSession) {
+    if (liveSession && payload.storageMode !== "cloud") {
       return await startLocalChatTurn(payload, callbacks);
     }
 
@@ -779,6 +790,8 @@ export const createOrchestratorController = (
     payload: {
       conversationId: string;
       userPrompt: string;
+      storageMode?: "cloud" | "local";
+      userMessageId?: string;
       agentType?: string;
       modelOverride?: string;
       toolWorkspaceRoot?: string;
@@ -801,6 +814,8 @@ export const createOrchestratorController = (
         toolWorkspaceRoot,
         attachments,
         connectorDeliveryTarget,
+        storageMode,
+        userMessageId,
       } = normalizeAutomationRunInput(payload);
       if (!conversationId) {
         resolveResult(createAutomationErrorResult("Missing conversationId"));
@@ -831,7 +846,7 @@ export const createOrchestratorController = (
           })
         : userPrompt;
       const appendConnectorTerminalNotice = (event: RuntimeEndEvent) => {
-        if (!connectorDeliveryTarget) {
+        if (!connectorDeliveryTarget || storageMode !== "local") {
           return;
         }
         if (event.responseTarget?.type !== "agent_terminal_notice") {
@@ -856,6 +871,7 @@ export const createOrchestratorController = (
         userPrompt: modelUserPrompt,
         ...(modelOverride ? { modelOverride } : {}),
         ...(toolWorkspaceRoot ? { toolWorkspaceRoot } : {}),
+        storageMode,
         uiVisibility: "hidden",
         attachments,
         ...(connectorDeliveryTarget ? { connectorDeliveryTarget } : {}),
@@ -891,6 +907,8 @@ export const createOrchestratorController = (
   const runAutomationTurn = async (payload: {
     conversationId: string;
     userPrompt: string;
+    storageMode?: "cloud" | "local";
+    userMessageId?: string;
     agentType?: string;
     modelOverride?: string;
     toolWorkspaceRoot?: string;
@@ -918,13 +936,18 @@ export const createOrchestratorController = (
     });
   };
 
-  const cancelLocalChat = (runId: string) => {
-    const controller = context.state.activeRunAbortControllers.get(runId);
-    if (!controller) return;
+  const cancelLocalChat = async (runId: string): Promise<void> => {
+    // Run lookup is the supervisor's keyed scope registry (the replacement
+    // for the old `activeRunAbortControllers` map): a run is cancellable
+    // from the moment admission registers its cooperative abort until its
+    // fiber tree has fully settled.
+    if (!context.state.supervisor.hasRun(runId)) return;
     const wasPreExecution = preparingRunIds.has(runId);
     const uiVisibility = context.state.activeOrchestratorUiVisibility;
     const callbacks = context.state.runCallbacksByRunId.get(runId);
-    controller.abort();
+    // Cooperative abort first (synchronous, reason-less — the loop's latch
+    // observes the default AbortError exactly as before), join after.
+    context.state.supervisor.abortRun(runId);
     if (wasPreExecution) {
       preExecutionCanceledRunIds.add(runId);
       cleanupRun(runId);
@@ -936,7 +959,18 @@ export const createOrchestratorController = (
       });
       return;
     }
-    context.state.activeRunAbortControllers.delete(runId);
+    // ONE joining cancel path: interrupt the run's fiber tree (root turn
+    // fiber plus every adopted subagent attempt, provider stream, tool
+    // call, and engine turn) and wait until each unit's teardown has
+    // settled. The run's own finalizeInterrupted emits the single truthful
+    // terminal and releases the lane via its terminal callback
+    // (`cleanupRun`); the joins are bounded by the per-resource abandonment
+    // graces, so cancel can never hang. Only after the join do the
+    // idempotent fallback releases run — a run whose terminal callback
+    // already cleaned up makes them no-ops (releaseRun is stale-id safe),
+    // and a queued turn can no longer start while the old turn is still
+    // tearing down.
+    await context.state.supervisor.cancelRun(runId, "Canceled");
     clearActiveOrchestratorRun(runId);
   };
 
@@ -949,13 +983,15 @@ export const createOrchestratorController = (
    *
    * Returns `true` if a run was cancelled, `false` if none matched.
    */
-  const cancelLocalChatByConversation = (conversationId: string): boolean => {
+  const cancelLocalChatByConversation = async (
+    conversationId: string,
+  ): Promise<boolean> => {
     const activeConversationId = context.state.activeOrchestratorConversationId;
     const activeRunId = context.state.activeOrchestratorRunId;
     if (!activeRunId || activeConversationId !== conversationId) {
       return false;
     }
-    cancelLocalChat(activeRunId);
+    await cancelLocalChat(activeRunId);
     return true;
   };
 

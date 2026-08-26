@@ -71,9 +71,9 @@ type ScoreFields = {
 };
 
 /**
- * Exported for tests. Exact id/name hits dominate so `discover gmail`
- * always puts the Gmail integration first even though "mail" appears in
- * dozens of descriptions.
+ * Shared by connector discovery and direct connector-status resolution.
+ * Exact id/name hits dominate so `discover gmail` always puts the Gmail
+ * integration first even though "mail" appears in dozens of descriptions.
  */
 export const scoreConnectorMatch = (
   tokens: readonly string[],

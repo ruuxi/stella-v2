@@ -1,4 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { Deferred, Effect } from "effect";
+import { acquireAbortLatch } from "../agent-core/abort-bridge.js";
+import { runComputerUseEffect } from "./effect-runtime.js";
 
 type ComputerExecutionContext = {
   cwd: string;
@@ -60,24 +63,33 @@ export const throwIfComputerExecutionAborted = () => {
   if (signal?.aborted) throw abortError(signal);
 };
 
+/**
+ * Abortable delay for computer-use polling loops. The wait is an Effect:
+ * `Effect.sleep(ms)` raced against the caller's abort latch
+ * (`acquireAbortLatch` — a scoped listener registration removed on every
+ * exit path), replacing the hand-rolled setTimeout/abort-listener pair.
+ * Rejection reasons are byte-identical: `signal.reason` when it is an
+ * Error, otherwise `new Error("Computer command aborted.")`.
+ */
 export const abortableComputerDelay = async (ms: number) => {
   const signal = getComputerExecutionSignal();
   if (signal?.aborted) throw abortError(signal);
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(finish, ms);
-    function finish() {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }
-    function onAbort() {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", onAbort);
-      reject(
-        signal ? abortError(signal) : new Error("Computer command aborted."),
-      );
-    }
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
+  await runComputerUseEffect(
+    Effect.scoped(
+      Effect.gen(function* () {
+        if (!signal) {
+          return yield* Effect.sleep(ms);
+        }
+        const abortLatch = yield* acquireAbortLatch(signal);
+        yield* Effect.raceFirst(
+          Effect.sleep(ms),
+          Deferred.await(abortLatch).pipe(
+            Effect.flatMap(() => Effect.fail(abortError(signal))),
+          ),
+        );
+      }),
+    ),
+  );
 };
 
 export const runWithComputerExecutionContext = async <T>(

@@ -2,6 +2,7 @@
 // This module handles xAI device authorization and refresh tokens. Do not log
 // token responses, expose credentials, or weaken verification URL validation.
 
+import { sleepWithAbort } from "../../effect-runtime.js";
 import type {
   OAuthCredentials,
   OAuthLoginCallbacks,
@@ -139,22 +140,10 @@ const requestDeviceCode = async (signal?: AbortSignal): Promise<DeviceCode> => {
   };
 };
 
+// Poll intervals stay data (device-flow interval/slow_down values); only the
+// timer rides the ai/ fiber substrate. Exact legacy abort message.
 const wait = (milliseconds: number, signal?: AbortSignal): Promise<void> =>
-  new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(new Error("Login canceled"));
-      return;
-    }
-    const onAbort = () => {
-      clearTimeout(timeout);
-      reject(new Error("Login canceled"));
-    };
-    const timeout = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, milliseconds);
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
+  sleepWithAbort(milliseconds, signal, () => new Error("Login canceled"));
 
 const pollForTokens = async (
   device: DeviceCode,

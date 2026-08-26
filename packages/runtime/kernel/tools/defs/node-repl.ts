@@ -12,7 +12,8 @@ import {
   isMapRouteArtifact,
   type MapRouteArtifact,
 } from "@stella/contracts/map-artifact";
-import type { ToolDefinition } from "../types.js";
+import type { ProducedFilesOmission, ToolDefinition } from "../types.js";
+import { mergeProducedFilesOmissions } from "../utils.js";
 
 export type NodeReplToolOptions = NodeReplKernelManagerOptions & {
   registry?: NodeReplKernelRegistry;
@@ -58,6 +59,7 @@ export const createNodeReplTool = (
         const fileChanges: FileChangeRecord[] = [];
         const producedFiles: ProducedFileRecord[] = [];
         const maps: MapRouteArtifact[] = [];
+        let producedFilesOmitted: ProducedFilesOmission | undefined;
         const result = await registry.evaluate(args.code, context, {
           ...(timeoutMs !== undefined ? { timeoutMs } : {}),
           ...(extras?.signal ? { signal: extras.signal } : {}),
@@ -76,6 +78,10 @@ export const createNodeReplTool = (
                 ? (nested.details as Record<string, unknown>)
                 : undefined;
             if (isMapRouteArtifact(details?.map)) maps.push(details.map);
+            producedFilesOmitted = mergeProducedFilesOmissions(
+              producedFilesOmitted,
+              nested.producedFilesOmitted,
+            );
           },
         });
         const details = {
@@ -88,6 +94,7 @@ export const createNodeReplTool = (
           ...(Object.keys(details).length > 0 ? { details } : {}),
           ...(fileChanges.length > 0 ? { fileChanges } : {}),
           ...(producedFiles.length > 0 ? { producedFiles } : {}),
+          ...(producedFilesOmitted ? { producedFilesOmitted } : {}),
         };
       } catch (error) {
         return {

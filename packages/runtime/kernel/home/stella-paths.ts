@@ -16,16 +16,41 @@ import type { App } from "electron";
  * Capability-bearing agent metadata stays in the install tree. Prompt bodies
  * are backend-owned and are joined with this frontmatter during remote sync.
  */
-export const resolveBundledAgentMetadataDir = (stellaAppDir: string): string => {
+export const resolveBundledAgentMetadataDir = (
+  stellaAppDir: string,
+): string => {
   const resourcesPath = process.env.STELLA_APP_RESOURCES_PATH?.trim();
   const candidates = [
     ...(resourcesPath
-      ? [path.join(resourcesPath, "runtime", "extensions", "stella-runtime", "agent-metadata")]
+      ? [
+          path.join(
+            resourcesPath,
+            "runtime",
+            "extensions",
+            "stella-runtime",
+            "agent-metadata",
+          ),
+        ]
       : []),
-    path.join(stellaAppDir, "packages", "runtime", "extensions", "stella-runtime", "agent-metadata"),
-    path.join(stellaAppDir, "runtime", "extensions", "stella-runtime", "agent-metadata"),
+    path.join(
+      stellaAppDir,
+      "packages",
+      "runtime",
+      "extensions",
+      "stella-runtime",
+      "agent-metadata",
+    ),
+    path.join(
+      stellaAppDir,
+      "runtime",
+      "extensions",
+      "stella-runtime",
+      "agent-metadata",
+    ),
   ];
-  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
+  return (
+    candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!
+  );
 };
 
 const __dirname = import.meta.dirname;
@@ -53,7 +78,9 @@ export const resolveStellaDataSeedDir = (stellaAppDir: string): string => {
     path.join(stellaAppDir, "packages", "home-seed"),
     path.join(stellaAppDir, "home-seed"),
   ];
-  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
+  return (
+    candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!
+  );
 };
 
 export const resolveRuntimeStatePath = (

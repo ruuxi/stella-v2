@@ -1,3 +1,7 @@
+/**
+ * Transitional type surface for TS importers of this evolved JS module.
+ * @typedef {any} ImageDescriptionService
+ */
 import { completeSimple, readAssistantText } from "../../ai/stream.js";
 import { getResolvedLlmApiKey, } from "../model-routing.js";
 import { createRuntimeLogger } from "../debug.js";

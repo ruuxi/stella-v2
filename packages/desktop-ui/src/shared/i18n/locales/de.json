@@ -39,11 +39,7 @@
       "title": "Sprache",
       "description": "Wähle die Sprache, die Stella in der App und in Antworten verwendet."
     },
-    "workingMode": {
-      "title": "Orchestrator-Modus",
-      "directDescription": "Stella bearbeitet Aufgaben selbst und delegiert nur, wenn es sinnvoll ist.",
-      "orchestratedDescription": "Stella koordiniert einen General-Agenten, der größere Arbeiten auf Subagenten aufteilen kann."
-    },
+
     "memory": {
       "title": "Erinnerung",
       "description": "Gespeicherte Erinnerungen und dein Profil in Stellas Modellkontext einbeziehen. Wenn du das deaktivierst, bleiben die Erinnerungsdateien auf deinem Gerät, werden aber aus künftigen Antworten ausgeschlossen."
@@ -382,9 +378,6 @@
       "loadVoice": "Spracheinstellung konnte nicht geladen werden.",
       "saveVoice": "Spracheinstellung konnte nicht aktualisiert werden.",
       "voiceUnavailable": "Spracheinstellungen sind in diesem Fenster nicht verfügbar.",
-      "loadWorkingMode": "Orchestrator-Modus konnte nicht geladen werden.",
-      "saveWorkingMode": "Orchestrator-Modus konnte nicht aktualisiert werden.",
-      "workingModeUnavailable": "Der Orchestrator-Modus ist in diesem Fenster nicht verfügbar.",
       "loadMemory": "Erinnerungseinstellung konnte nicht geladen werden.",
       "saveMemory": "Erinnerungseinstellung konnte nicht aktualisiert werden.",
       "saveDeveloperMode": "Entwicklermodus konnte nicht aktualisiert werden.",

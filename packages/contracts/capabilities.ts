@@ -12,7 +12,7 @@
  * follow. Nothing downstream is allowed to hardcode a plan name.
  *
  * Every row here is enforced. Anything Pro is merely *marketed* with —
- * orchestrator mode, for instance, which any plan may use but which burns
+ * orchestration, for instance, which any plan may use but which burns
  * enough usage that Pro is the sensible home for it — belongs in the
  * billing screen's presentational copy, not in this table. A matrix where
  * some rows gate and others are decorative is a trap: the next person to

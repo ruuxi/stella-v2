@@ -12,10 +12,7 @@ import type {
 import type { MorphTimingSettings } from "@stella/contracts/desktop/morph-timing";
 import type { DesktopUpdateSnapshot } from "@stella/contracts/desktop/update";
 import type { OfficePreviewSnapshot } from "@stella/contracts/office-preview";
-import type {
-  AssistantWorkingMode,
-  RealtimeVoicePreferences,
-} from "@stella/contracts/local-preferences";
+import type { RealtimeVoicePreferences } from "@stella/contracts/local-preferences";
 import {
   IPC_BROWSER_FETCH_JSON,
   IPC_BROWSER_FETCH_TEXT,
@@ -1293,7 +1290,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
           model?: string;
         };
         realtimeVoice: RealtimeVoicePreferences;
-        assistantWorkingMode: AssistantWorkingMode;
         memoryEnabled: boolean;
         developerModeEnabled: boolean;
       } | null>,
@@ -1334,7 +1330,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
         model?: string;
       };
       realtimeVoice?: RealtimeVoicePreferences;
-      assistantWorkingMode?: AssistantWorkingMode;
       memoryEnabled?: boolean;
       developerModeEnabled?: boolean;
     }) =>
@@ -1375,7 +1370,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
           model?: string;
         };
         realtimeVoice: RealtimeVoicePreferences;
-        assistantWorkingMode: AssistantWorkingMode;
         memoryEnabled: boolean;
         developerModeEnabled: boolean;
       } | null>,

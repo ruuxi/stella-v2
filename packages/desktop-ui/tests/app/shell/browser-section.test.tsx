@@ -37,7 +37,6 @@ const mocks = vi.hoisted(() => ({
   activeSection: "browser",
   panelOpen: true,
   uiState: new Map<string, string>(),
-  assistantWorkingMode: "orchestrated" as "direct" | "orchestrated",
   tasks: [] as Array<{ id: string; description: string; agentType: string }>,
 }));
 
@@ -133,7 +132,6 @@ describe("BrowserSection", () => {
     ).IS_REACT_ACT_ENVIRONMENT = true;
     mocks.activeSection = "browser";
     mocks.panelOpen = true;
-    mocks.assistantWorkingMode = "orchestrated";
     mocks.uiState.clear();
     mocks.tasks = [];
     mocks.uiState.set(BROWSER_SELECTION_KEY, "brave");
@@ -165,11 +163,6 @@ describe("BrowserSection", () => {
       configurable: true,
       value: {
         browserView: api,
-        system: {
-          getLocalModelPreferences: vi.fn(async () => ({
-            assistantWorkingMode: mocks.assistantWorkingMode,
-          })),
-        },
       },
     });
     vi.stubGlobal(
@@ -293,7 +286,7 @@ describe("BrowserSection", () => {
     });
   });
 
-  it("shows every owner tab in orchestrator mode without a session header", async () => {
+  it("shows every owner tab without a session header", async () => {
     const rootOwnerId = "orchestrator-conversation-conversation-1";
     const agentOwnerId = "general-task-agent-1";
     const agentState: BrowserState = {
@@ -357,51 +350,6 @@ describe("BrowserSection", () => {
       tabId: "agent-tab",
       ownerId: agentOwnerId,
     });
-  });
-
-  it("automatically scopes direct mode to the active conversation", async () => {
-    mocks.assistantWorkingMode = "direct";
-    const currentOwnerId = "orchestrator-conversation-conversation-1";
-    const currentState: BrowserState = {
-      ...activeState,
-      visibleOwnerId: currentOwnerId,
-      owners: [
-        ...activeState.owners,
-        {
-          id: currentOwnerId,
-          kind: "agent",
-          tabCount: 1,
-          activeTabId: "current-tab",
-          latest: true,
-        },
-      ],
-      activeTabId: "current-tab",
-      tabs: [
-        {
-          id: "current-tab",
-          ownerId: currentOwnerId,
-          url: "https://current.example",
-          title: "Current chat tab",
-          loading: false,
-          canGoBack: false,
-          canGoForward: false,
-        },
-      ],
-    };
-    api.setOwnerScope.mockImplementation(async (scope) => {
-      if (scope.ownerId === currentOwnerId) state = currentState;
-      return state;
-    });
-
-    await render();
-    await vi.waitFor(() =>
-      expect(api.setOwnerScope).toHaveBeenCalledWith({
-        ownerId: currentOwnerId,
-      }),
-    );
-
-    expect(container.textContent).toContain("Current chat tab");
-    expect(container.textContent).not.toContain("Viewing");
   });
 
   it("uses the full page width when the resize handle is hidden", async () => {

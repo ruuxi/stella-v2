@@ -11,7 +11,6 @@ import {
   getAgentRuntimeEngine,
   getDeveloperModeEnabled,
   loadLocalPreferences,
-  getAssistantWorkingMode,
   getMaxAgentConcurrency,
   getModelOverride,
   getReasoningEffort,
@@ -61,7 +60,6 @@ import type {
   SpawnEngineSelection,
   SpawnReasoningEffort,
 } from "@stella/contracts/agent-engine";
-import type { AssistantWorkingMode } from "@stella/contracts/local-preferences";
 import { getCodexRuntimePreferences } from "../integrations/codex-agent-runtime.js";
 import {
   getClaudeCodeAgentModelId,
@@ -1128,41 +1126,15 @@ export const createRunnerContext = ({
   return context;
 };
 
-export const ORCHESTRATED_ORCHESTRATOR_ID = "orchestrator-orchestrated";
-
-export const resolveAgentForWorkingMode = (
-  loadedAgents: ParsedAgentLike[],
-  agentType: string,
-  workingMode: AssistantWorkingMode,
-): ParsedAgentLike | undefined => {
-  if (agentType === AGENT_IDS.ORCHESTRATOR) {
-    const orchestratorId =
-      workingMode === "orchestrated"
-        ? ORCHESTRATED_ORCHESTRATOR_ID
-        : AGENT_IDS.ORCHESTRATOR;
-    const selectedOrchestrator = loadedAgents.find(
-      (entry) => entry.id === orchestratorId,
-    );
-    if (selectedOrchestrator) {
-      return selectedOrchestrator;
-    }
-  }
-
-  return (
-    loadedAgents.find((entry) => entry.agentTypes.includes(agentType)) ??
-    loadedAgents.find((entry) => entry.id === agentType)
-  );
-};
-
 export const resolveAgent = (
   context: RunnerContext,
   agentType: string,
 ): ParsedAgentLike | undefined =>
-  resolveAgentForWorkingMode(
-    context.state.loadedAgents,
-    agentType,
-    getAssistantWorkingMode(context.stellaDataDir),
-  ) ?? getBundledCoreAgentFallback(agentType);
+  context.state.loadedAgents.find((entry) =>
+    entry.agentTypes.includes(agentType),
+  ) ??
+  context.state.loadedAgents.find((entry) => entry.id === agentType) ??
+  getBundledCoreAgentFallback(agentType);
 
 export const getConfiguredModel = (
   context: RunnerContext,

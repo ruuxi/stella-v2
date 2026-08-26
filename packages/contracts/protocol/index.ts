@@ -645,7 +645,6 @@ export type RuntimeAgentEventPayload = {
         agentId: string;
         terminalState: "completed" | "failed" | "canceled";
       };
-  workingMode?: "direct" | "orchestrated";
   assistantMessageEventId?: string;
   assistantMessageText?: string;
 };

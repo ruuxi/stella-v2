@@ -25,7 +25,6 @@ import type { AgentCompletionSection } from "@/features/chat/lib/agent-completio
 import { deriveTurnWebSearchResults } from "@/features/chat/lib/derive-turn-web-search";
 import { deriveTurnMapArtifacts } from "@/features/chat/lib/derive-turn-map-artifacts";
 import { filterMessagesForUiDisplay } from "@/features/chat/lib/message-display";
-import { suppressCompletedDirectPreambleText } from "@/features/chat/lib/completed-direct-preambles";
 import {
   stabilizeTurnRows,
   type StableTurnRowsState,
@@ -489,7 +488,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
   const { messages, maxItems } = opts;
 
   const displayMessages = useMemo(
-    () => suppressCompletedDirectPreambleText(filterMessagesForUiDisplay(messages)),
+    () => filterMessagesForUiDisplay(messages),
     [messages],
   );
 
@@ -757,11 +756,6 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
                   responseTarget?: AgentResponseTarget;
                   followedByToolCall?: boolean;
                   turnComplete?: boolean;
-                  assistantTextTransition?:
-                    | "holding"
-                    | "queued"
-                    | "fading"
-                    | "hidden";
                 };
               }
             | undefined
@@ -802,17 +796,6 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           message._id.startsWith(STREAMING_OVERLAY_ID_PREFIX) &&
           runtimeMetadata?.isStreaming !== false;
         const isIntraTurn = isIntraTurnAssistantRuntime(runtimeMetadata);
-        const isFadingOut =
-          runtimeMetadata?.assistantTextTransition === "fading";
-        // A direct-mode slot the handoff controller already replaced. Its
-        // overlay stays unlocked (so it keeps masking the persisted preamble
-        // row), but it must not read as "streaming" to the timeline:
-        // `eventRowRendersContent` keeps every streaming row as a placeholder
-        // item, so each replaced slot would otherwise stack 1px + the
-        // assistant-run gap of blank space above the live message — one line
-        // per replacement across a tool-heavy turn.
-        const isHiddenTransition =
-          runtimeMetadata?.assistantTextTransition === "hidden";
         // Inline artifact cards (generated images, html/canvas + tool-output
         // resource previews, office files, source diffs, and the web-search
         // image strip) only render once their owning
@@ -822,9 +805,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
         // row once the overlay locks or clears, so the cards appear there.
         // Non-artifact receipts (voice-session summary, schedule receipt,
         // self-mod notice, background-work card) keep rendering live.
-        const showInlineArtifacts =
-          !isStreamingOverlay &&
-          runtimeMetadata?.assistantTextTransition !== "queued";
+        const showInlineArtifacts = !isStreamingOverlay;
         const row: AssistantRowViewModel = {
           kind: "assistant",
           id: stableKey,
@@ -841,10 +822,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           ...(message.toolEventSummary
             ? { toolEventSummary: message.toolEventSummary }
             : {}),
-          ...(isStreamingOverlay && !isHiddenTransition
-            ? { isStreaming: true }
-            : {}),
-          ...(isFadingOut ? { isFadingOut: true } : {}),
+          ...(isStreamingOverlay ? { isStreaming: true } : {}),
           ...(isIntraTurn ? { isIntraTurn: true } : {}),
           ...(responseTarget ? { responseTarget } : {}),
           ...(replyToUserMessageId ? { replyToUserMessageId } : {}),

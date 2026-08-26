@@ -37,7 +37,6 @@ describe("conversationModelSelections", () => {
     expect(
       pickModelSelection({
         ...codexSelection,
-        assistantWorkingMode: "direct",
         memoryEnabled: true,
         maxAgentConcurrency: 8,
       }),

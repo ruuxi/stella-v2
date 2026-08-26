@@ -39,11 +39,7 @@
       "title": "Språk",
       "description": "Velg språket Stella bruker i appen og når den svarer deg."
     },
-    "workingMode": {
-      "title": "Orkestratormodus",
-      "directDescription": "Stella jobber med oppgaver selv og delegerer bare når det er nyttig.",
-      "orchestratedDescription": "Stella koordinerer en General-agent som kan fordele større arbeid på underagenter."
-    },
+
     "memory": {
       "title": "Minne",
       "description": "Ta med lagrede minner og profilen din i Stellas modellkontekst. Slår du av dette, blir minnefilene liggende på enheten din, men utelates fra videre svar."
@@ -382,9 +378,6 @@
       "loadVoice": "Kunne ikke laste inn stemmeinnstillingen.",
       "saveVoice": "Kunne ikke oppdatere stemmeinnstillingen.",
       "voiceUnavailable": "Stemmeinnstillinger er ikke tilgjengelige i dette vinduet.",
-      "loadWorkingMode": "Kunne ikke laste inn orkestratormodus.",
-      "saveWorkingMode": "Kunne ikke oppdatere orkestratormodus.",
-      "workingModeUnavailable": "Orkestratormodus er ikke tilgjengelig i dette vinduet.",
       "loadMemory": "Kunne ikke laste inn minneinnstillingen.",
       "saveMemory": "Kunne ikke oppdatere minneinnstillingen.",
       "saveDeveloperMode": "Kunne ikke oppdatere utviklermodus.",

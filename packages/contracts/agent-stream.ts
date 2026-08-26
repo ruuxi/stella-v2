@@ -4,7 +4,6 @@ import type {
   AgentStreamEventType,
   TaskToolActivity,
 } from "./agent-runtime.js";
-import type { AssistantWorkingMode } from "./local-preferences.js";
 
 export type AgentResponseTarget =
   | { type: "user_turn" }
@@ -52,8 +51,6 @@ export type AgentStreamEvent = {
   reason?: string;
   replacedByRunId?: string;
   responseTarget?: AgentResponseTarget;
-  /** Working mode captured when the run began; stable for the whole turn. */
-  workingMode?: AssistantWorkingMode;
   /** Canonical SQLite row persisted for an `ASSISTANT_MESSAGE` boundary. */
   assistantMessageEventId?: string;
   /** Canonical text for the finalized message; provider deltas are optimistic. */

@@ -39,14 +39,13 @@ describe("loadParsedAgentsFromDir", () => {
         "fashion",
         "general",
         "orchestrator",
-        "orchestrator-orchestrated",
         "social_session",
       ].sort(),
     );
     expect(agents.every((agent) => agent.systemPrompt.length > 0)).toBe(true);
   });
 
-  it("loads distinct direct and orchestrated capability records", () => {
+  it("loads the sole orchestrator as a delegation-only coordinator", () => {
     const agents = loadParsedAgentsFromDir(
       path.resolve(
         process.cwd(),
@@ -57,18 +56,13 @@ describe("loadParsedAgentsFromDir", () => {
         "agent-metadata",
       ),
     );
-    const direct = agents.find((agent) => agent.id === "orchestrator");
-    const orchestrated = agents.find(
-      (agent) => agent.id === "orchestrator-orchestrated",
-    );
+    const orchestrator = agents.find((agent) => agent.id === "orchestrator");
 
-    expect(direct?.toolsAllowlist).toContain("exec_command");
-    expect(direct?.maxAgentDepth).toBe(1);
-    expect(orchestrated?.toolsAllowlist).not.toContain("exec_command");
-    expect(orchestrated?.toolsAllowlist).toEqual(
-      expect.arrayContaining(["spawn_agent", "send_input", "pause_agent"]),
+    expect(orchestrator?.toolsAllowlist).not.toContain("exec_command");
+    expect(orchestrator?.toolsAllowlist).toEqual(
+      expect.arrayContaining(["code", "spawn_agent", "send_input", "pause_agent"]),
     );
-    expect(orchestrated?.maxAgentDepth).toBe(2);
+    expect(orchestrator?.maxAgentDepth).toBe(2);
   });
 
   it("loads agents when given a directory string path", () => {

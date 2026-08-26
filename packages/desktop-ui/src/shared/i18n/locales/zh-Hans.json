@@ -39,11 +39,7 @@
       "title": "语言",
       "description": "选择 Stella 在应用内和回复中使用的语言。"
     },
-    "workingMode": {
-      "title": "编排器模式",
-      "directDescription": "Stella 自行处理任务，仅在有需要时才进行委派。",
-      "orchestratedDescription": "Stella 会协调一个 General 智能体，将较大的工作拆分给子智能体。"
-    },
+
     "memory": {
       "title": "记忆",
       "description": "将已保存的记忆和你的个人资料纳入 Stella 的模型上下文。关闭后，记忆文件仍保留在你的设备上，但不会用于后续对话。"
@@ -382,9 +378,6 @@
       "loadVoice": "加载语音设置失败。",
       "saveVoice": "更新语音设置失败。",
       "voiceUnavailable": "此窗口中无法使用语音设置。",
-      "loadWorkingMode": "加载编排器模式失败。",
-      "saveWorkingMode": "更新编排器模式失败。",
-      "workingModeUnavailable": "此窗口中无法使用编排器模式。",
       "loadMemory": "加载记忆设置失败。",
       "saveMemory": "更新记忆设置失败。",
       "saveDeveloperMode": "无法更新开发者模式。",

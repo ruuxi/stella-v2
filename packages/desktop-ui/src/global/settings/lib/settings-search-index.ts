@@ -80,20 +80,6 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
   },
   {
     tab: "general",
-    titleKey: "settings.workingMode.title",
-    descriptionKey: "settings.workingMode.orchestratedDescription",
-    keywords: [
-      "direct",
-      "orchestrated",
-      "orchestrator",
-      "general agent",
-      "subagent",
-      "delegation",
-      "working mode",
-    ],
-  },
-  {
-    tab: "general",
     titleKey: "settings.memory.title",
     descriptionKey: "settings.memory.description",
     keywords: [

@@ -39,11 +39,6 @@
       "title": "Nyelv",
       "description": "Válaszd ki a Stella által az alkalmazásban és a válaszokban használt nyelvet."
     },
-    "workingMode": {
-      "title": "Orkesztrátor mód",
-      "directDescription": "A Stella maga dolgozik a feladatokon, és csak akkor delegál, ha az hasznos.",
-      "orchestratedDescription": "A Stella egy General ügynököt koordinál, amely a nagyobb munkát alügynökök között tudja szétosztani."
-    },
     "memory": {
       "title": "Memória",
       "description": "A mentett emlékek és a profilod belefoglalása a Stella modellkontextusába. Kikapcsolva a memóriafájlok a készülékeden maradnak, de kimaradnak a további válaszokból."
@@ -382,9 +377,6 @@
       "loadVoice": "Nem sikerült betölteni a hangbeállítást.",
       "saveVoice": "Nem sikerült frissíteni a hangbeállítást.",
       "voiceUnavailable": "A hangbeállítások nem érhetők el ebben az ablakban.",
-      "loadWorkingMode": "Az orkesztrátor mód betöltése sikertelen.",
-      "saveWorkingMode": "Az orkesztrátor mód frissítése sikertelen.",
-      "workingModeUnavailable": "Az orkesztrátor mód nem érhető el ebben az ablakban.",
       "loadMemory": "Nem sikerült betölteni a memóriabeállítást.",
       "saveMemory": "Nem sikerült frissíteni a memóriabeállítást.",
       "saveDeveloperMode": "Nem sikerült frissíteni a fejlesztői módot.",

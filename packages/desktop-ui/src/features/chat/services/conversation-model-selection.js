@@ -18,7 +18,7 @@
  * delete, or the bounded LRU, drops a snapshot.
  *
  * Only the model-routing subset is captured. Everything else in local
- * preferences (agent concurrency, image/voice providers, working mode, memory,
+ * preferences (agent concurrency, image/voice providers, memory,
  * backend catalog defaults, native-runtime toggles) stays global and is never
  * scoped per tab.
  */

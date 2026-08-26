@@ -5,7 +5,7 @@ import { ProviderModelPanel } from "@/global/settings/ProviderModelPanel";
 import { EngineScopedModelList } from "@/global/settings/EngineScopedModelList";
 import { ProviderOnlyPicker, type ProviderOption, } from "@/global/settings/ProviderOnlyPicker";
 import { VoiceCatalogPicker } from "@/global/settings/VoiceCatalogPicker";
-import { coerceRealtimeVoiceProvider, type AssistantWorkingMode, type ReadAloudVoiceProvider, type RealtimeVoicePreferences, type RealtimeVoiceUnderlyingProvider, } from "@stella/contracts/local-preferences";
+import { coerceRealtimeVoiceProvider, type ReadAloudVoiceProvider, type RealtimeVoicePreferences, type RealtimeVoiceUnderlyingProvider, } from "@stella/contracts/local-preferences";
 import {
   isDeepSeekV4FlashModel,
   isMuseSpark12ContributorModel,
@@ -50,7 +50,6 @@ type LocalModelPreferences = {
     maxAgentConcurrency: number;
     imageGeneration: ImageGenerationPreferences;
     realtimeVoice: RealtimeVoicePreferences;
-    assistantWorkingMode: AssistantWorkingMode;
 };
 
 interface AgentModelPickerProps {

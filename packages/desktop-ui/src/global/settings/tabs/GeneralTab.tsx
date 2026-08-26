@@ -26,11 +26,6 @@ import { openExternalUrl } from "@/platform/electron/open-external";
 import { useT } from "@/shared/i18n";
 import type { LockedComputerUseStatus } from "@/shared/types/electron";
 import {
-  coerceAssistantWorkingMode,
-  DEFAULT_ASSISTANT_WORKING_MODE,
-  type AssistantWorkingMode,
-} from "@stella/contracts/local-preferences";
-import {
   DEFAULT_PERSONALITY_ID,
   PERSONALITY_OPTIONS,
   isKnownPersonalityId,
@@ -98,15 +93,6 @@ export function GeneralTab() {
     kind: "done" | "none" | "error";
     message: string;
   } | null>(null);
-  const [assistantWorkingMode, setAssistantWorkingMode] =
-    useState<AssistantWorkingMode>(DEFAULT_ASSISTANT_WORKING_MODE);
-  const [assistantWorkingModeLoaded, setAssistantWorkingModeLoaded] =
-    useState(false);
-  const [isSavingAssistantWorkingMode, setIsSavingAssistantWorkingMode] =
-    useState(false);
-  const [assistantWorkingModeError, setAssistantWorkingModeError] = useState<
-    string | null
-  >(null);
   const [memoryEnabled, setMemoryEnabled] = useState(true);
   const [memoryEnabledLoaded, setMemoryEnabledLoaded] = useState(false);
   const [isSavingMemoryEnabled, setIsSavingMemoryEnabled] = useState(false);
@@ -135,32 +121,22 @@ export function GeneralTab() {
       try {
         const preferencesApi = window.electronAPI?.system;
         if (!preferencesApi?.getLocalModelPreferences) {
-          throw new Error(t("settings.errors.workingModeUnavailable"));
+          throw new Error(t("settings.errors.memoryUnavailable"));
         }
         const preferences = await preferencesApi.getLocalModelPreferences();
         if (!cancelled) {
-          setAssistantWorkingMode(
-            coerceAssistantWorkingMode(preferences?.assistantWorkingMode),
-          );
           setMemoryEnabled(preferences?.memoryEnabled !== false);
           setDeveloperModeEnabled(preferences?.developerModeEnabled === true);
-          setAssistantWorkingModeError(null);
           setMemoryEnabledError(null);
           setDeveloperModeError(null);
         }
       } catch (error) {
         if (!cancelled) {
-          const message = getSettingsErrorMessage(
-            error,
-            t("settings.errors.loadWorkingMode"),
-          );
-          setAssistantWorkingModeError(message);
           setMemoryEnabledError(
             getSettingsErrorMessage(error, t("settings.errors.loadMemory")),
           );
         }
       } finally {
-        if (!cancelled) setAssistantWorkingModeLoaded(true);
         if (!cancelled) setMemoryEnabledLoaded(true);
         if (!cancelled) setDeveloperModeLoaded(true);
       }
@@ -426,47 +402,6 @@ export function GeneralTab() {
       setIsResettingCustomizations(false);
     }
   }, [t]);
-
-  const handleAssistantWorkingModeChange = useCallback(
-    async (enabled: boolean) => {
-      const preferencesApi = window.electronAPI?.system;
-      if (!preferencesApi?.setLocalModelPreferences) {
-        setAssistantWorkingModeError(
-          t("settings.errors.workingModeUnavailable"),
-        );
-        return;
-      }
-      const previous = assistantWorkingMode;
-      const nextMode: AssistantWorkingMode = enabled
-        ? "orchestrated"
-        : "direct";
-      setAssistantWorkingMode(nextMode);
-      setAssistantWorkingModeError(null);
-      setIsSavingAssistantWorkingMode(true);
-      try {
-        const preferences = await preferencesApi.setLocalModelPreferences({
-          assistantWorkingMode: nextMode,
-        });
-        setAssistantWorkingMode(
-          coerceAssistantWorkingMode(preferences?.assistantWorkingMode),
-        );
-        window.dispatchEvent(
-          new CustomEvent("stella:local-model-preferences-changed"),
-        );
-      } catch (error) {
-        setAssistantWorkingMode(previous);
-        setAssistantWorkingModeError(
-          getSettingsErrorMessage(
-            error,
-            t("settings.errors.saveWorkingMode"),
-          ),
-        );
-      } finally {
-        setIsSavingAssistantWorkingMode(false);
-      }
-    },
-    [assistantWorkingMode, t],
-  );
 
   const handleSoundNotificationsChange = useCallback(
     async (checked: boolean) => {
@@ -1010,40 +945,6 @@ export function GeneralTab() {
           disabled: !memoryEnabledLoaded || isSavingMemoryEnabled,
           onChange: (checked) => void handleMemoryEnabledChange(checked),
         })}
-        <div className="settings-card">
-          <div className="settings-card-header">
-            <h3 className="settings-card-title">
-              {t("settings.workingMode.title")}
-            </h3>
-            {/* Open to every plan. Orchestrator mode costs more usage
-                than a single agent, which is why the Pro card lists it,
-                but it is not gated and must not be nagged about here. */}
-            <Switch
-              checked={assistantWorkingMode === "orchestrated"}
-              disabled={
-                !assistantWorkingModeLoaded || isSavingAssistantWorkingMode
-              }
-              aria-label={t("settings.workingMode.title")}
-              onCheckedChange={(checked) =>
-                void handleAssistantWorkingModeChange(Boolean(checked))
-              }
-              hideLabel
-            />
-          </div>
-          <p className="settings-card-desc">
-            {assistantWorkingMode === "orchestrated"
-              ? t("settings.workingMode.orchestratedDescription")
-              : t("settings.workingMode.directDescription")}
-          </p>
-          {assistantWorkingModeError ? (
-            <p
-              className="settings-card-desc settings-card-desc--error"
-              role="alert"
-            >
-              {assistantWorkingModeError}
-            </p>
-          ) : null}
-        </div>
         {permissionsCard}
         <div className="settings-card">
           <h3 className="settings-card-title">

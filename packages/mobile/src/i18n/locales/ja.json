@@ -39,11 +39,6 @@
       "title": "言語",
       "description": "Stella がアプリ内および応答で使う言語を選びます。"
     },
-    "workingMode": {
-      "title": "オーケストレーターモード",
-      "directDescription": "Stella がタスクを自分で処理し、必要な場合にのみ委任します。",
-      "orchestratedDescription": "Stella が General エージェントを調整し、大きな作業をサブエージェントに分割できます。"
-    },
     "memory": {
       "title": "メモリ",
       "description": "保存されたメモリとプロフィールを Stella のモデルコンテキストに含めます。オフにすると、メモリファイルはデバイスに残りますが、以降のやり取りでは使用されません。"
@@ -382,9 +377,6 @@
       "loadVoice": "音声設定を読み込めませんでした。",
       "saveVoice": "音声設定を更新できませんでした。",
       "voiceUnavailable": "このウィンドウでは音声設定を利用できません。",
-      "loadWorkingMode": "オーケストレーターモードを読み込めませんでした。",
-      "saveWorkingMode": "オーケストレーターモードを更新できませんでした。",
-      "workingModeUnavailable": "このウィンドウではオーケストレーターモードを利用できません。",
       "loadMemory": "メモリ設定を読み込めませんでした。",
       "saveMemory": "メモリ設定を更新できませんでした。",
       "saveDeveloperMode": "開発者モードを更新できませんでした。",

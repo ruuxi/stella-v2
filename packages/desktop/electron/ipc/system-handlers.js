@@ -1386,9 +1386,6 @@ export const registerSystemHandlers = (options) => {
         if (payload?.realtimeVoice !== undefined) {
             patch.realtimeVoice = normalizeRealtimeVoicePreferences(payload.realtimeVoice);
         }
-        if (payload?.assistantWorkingMode !== undefined) {
-            patch.assistantWorkingMode = payload.assistantWorkingMode;
-        }
         if (payload?.memoryEnabled !== undefined) {
             patch.memoryEnabled = payload.memoryEnabled === true;
         }

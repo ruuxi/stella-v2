@@ -287,8 +287,8 @@ describe("media capability gating", () => {
   });
 });
 
-describe("orchestrator mode is not a capability", () => {
-  // The owner decided orchestrator mode stays open to every plan: it costs
+describe("orchestration is not a capability", () => {
+  // The owner decided orchestration stays open to every plan: it costs
   // more usage, which is why Pro suits it, but usage is the billing axis and
   // this table is the entitlement one. Pro lists it as marketing copy only.
   //

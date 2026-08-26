@@ -39,11 +39,6 @@
       "title": "Limbă",
       "description": "Alege limba pe care o folosește Stella în aplicație și în răspunsuri."
     },
-    "workingMode": {
-      "title": "Mod orchestrator",
-      "directDescription": "Stella lucrează singură la sarcini și deleagă doar când este util.",
-      "orchestratedDescription": "Stella coordonează un agent General care poate împărți lucrările mai mari între subagenți."
-    },
     "memory": {
       "title": "Memorie",
       "description": "Include amintirile salvate și profilul tău în contextul modelului Stella. Dezactivarea păstrează fișierele de memorie pe dispozitiv, dar le exclude din răspunsurile următoare."
@@ -382,9 +377,6 @@
       "loadVoice": "Nu s-a putut încărca setarea de voce.",
       "saveVoice": "Nu s-a putut actualiza setarea de voce.",
       "voiceUnavailable": "Setările de voce nu sunt disponibile în această fereastră.",
-      "loadWorkingMode": "Încărcarea modului orchestrator a eșuat.",
-      "saveWorkingMode": "Actualizarea modului orchestrator a eșuat.",
-      "workingModeUnavailable": "Modul orchestrator nu este disponibil în această fereastră.",
       "loadMemory": "Nu s-a putut încărca setarea de memorie.",
       "saveMemory": "Nu s-a putut actualiza setarea de memorie.",
       "saveDeveloperMode": "Actualizarea modului dezvoltator a eșuat.",

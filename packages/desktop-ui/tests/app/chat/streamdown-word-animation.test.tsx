@@ -185,33 +185,25 @@ describe("live Streamdown word animation", () => {
     expect(container.querySelector("[data-sd-animate]")).toBeNull();
   });
 
-  it("animates the live assistant owner but not its fading handoff", async () => {
-    const renderRow = async (isFadingOut: boolean) => {
-      await act(async () => {
-        root.render(
-          withI18n(
-            <AssistantMessageRow
-              row={{
-                kind: "assistant",
-                id: "assistant-user-1-1",
-                cacheKey: "assistant-user-1-1",
-                text: "Live assistant words",
-                isStreaming: true,
-                ...(isFadingOut ? { isFadingOut: true } : {}),
-              }}
-              conversationId="conversation-1"
-            />,
-          ),
-        );
-      });
-    };
+  it("animates the live assistant owner", async () => {
+    await act(async () => {
+      root.render(
+        withI18n(
+          <AssistantMessageRow
+            row={{
+              kind: "assistant",
+              id: "assistant-user-1-1",
+              cacheKey: "assistant-user-1-1",
+              text: "Live assistant words",
+              isStreaming: true,
+            }}
+            conversationId="conversation-1"
+          />,
+        ),
+      );
+    });
 
-    await renderRow(false);
     expect(animatedWord(container, "Live")).not.toBeUndefined();
-
-    await renderRow(true);
-    expect(container.querySelector("[data-sd-animate]")).toBeNull();
-    expect(container.textContent).toContain("Live assistant words");
   });
 
   it("keeps a very large active stream on the existing plaintext fast path", async () => {

@@ -39,11 +39,7 @@
       "title": "Język",
       "description": "Wybierz język, którego Stella używa w aplikacji i w odpowiedziach."
     },
-    "workingMode": {
-      "title": "Tryb orkiestratora",
-      "directDescription": "Stella sama wykonuje zadania i deleguje je tylko wtedy, gdy to przydatne.",
-      "orchestratedDescription": "Stella koordynuje agenta General, który może dzielić większe zadania między subagentów."
-    },
+
     "memory": {
       "title": "Pamięć",
       "description": "Uwzględniaj zapisane wspomnienia i Twój profil w kontekście modelu Stelli. Po wyłączeniu pliki pamięci pozostaną na urządzeniu, ale nie będą używane w kolejnych odpowiedziach."
@@ -382,9 +378,6 @@
       "loadVoice": "Nie udało się wczytać ustawienia głosu.",
       "saveVoice": "Nie udało się zaktualizować ustawienia głosu.",
       "voiceUnavailable": "Ustawienia głosu są niedostępne w tym oknie.",
-      "loadWorkingMode": "Nie udało się wczytać trybu orkiestratora.",
-      "saveWorkingMode": "Nie udało się zaktualizować trybu orkiestratora.",
-      "workingModeUnavailable": "Tryb orkiestratora jest niedostępny w tym oknie.",
       "loadMemory": "Nie udało się wczytać ustawienia pamięci.",
       "saveMemory": "Nie udało się zaktualizować ustawienia pamięci.",
       "saveDeveloperMode": "Nie udało się zaktualizować trybu programisty.",

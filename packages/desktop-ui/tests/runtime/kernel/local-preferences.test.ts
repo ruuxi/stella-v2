@@ -61,36 +61,30 @@ describe("loadLocalPreferences", () => {
     expect(loadLocalPreferences(stellaDataDir).wakeWordEnabled).toBe(false);
   });
 
-  it("defaults to orchestrator mode and persists a direct-mode opt-out", () => {
+  it("drops retired working-mode fields on load and the next preference save", () => {
     const stellaDataDir = makeStellaDataDir();
-    writePreferences(stellaDataDir, {});
-
-    expect(loadLocalPreferences(stellaDataDir).assistantWorkingMode).toBe(
-      "orchestrated",
-    );
-
-    writePreferences(stellaDataDir, { assistantWorkingMode: "direct" });
-    expect(loadLocalPreferences(stellaDataDir).assistantWorkingMode).toBe(
-      "orchestrated",
-    );
-
-    const saved = updateLocalModelPreferences(stellaDataDir, {
+    writePreferences(stellaDataDir, {
       assistantWorkingMode: "direct",
+      assistantWorkingModeDefaultVersion: 1,
+      memoryEnabled: true,
     });
-    expect(saved.assistantWorkingMode).toBe("direct");
-    expect(loadLocalPreferences(stellaDataDir).assistantWorkingMode).toBe(
-      "direct",
-    );
-    expect(
-      JSON.parse(
-        fs.readFileSync(path.join(stellaDataDir, "preferences.json"), "utf8"),
-      ).assistantWorkingModeDefaultVersion,
-    ).toBe(1);
 
-    writePreferences(stellaDataDir, { assistantWorkingMode: "invalid" });
-    expect(loadLocalPreferences(stellaDataDir).assistantWorkingMode).toBe(
-      "orchestrated",
+    expect(loadLocalPreferences(stellaDataDir)).not.toHaveProperty(
+      "assistantWorkingMode",
     );
+    expect(loadLocalPreferences(stellaDataDir)).not.toHaveProperty(
+      "assistantWorkingModeDefaultVersion",
+    );
+    const saved = updateLocalModelPreferences(stellaDataDir, {
+      memoryEnabled: false,
+    });
+    expect(saved).not.toHaveProperty("assistantWorkingMode");
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(stellaDataDir, "preferences.json"), "utf8"),
+    );
+    expect(persisted).not.toHaveProperty("assistantWorkingMode");
+    expect(persisted).not.toHaveProperty("assistantWorkingModeDefaultVersion");
+    expect(persisted.memoryEnabled).toBe(false);
   });
 
   it("enables memory by default and persists an explicit opt-out", () => {

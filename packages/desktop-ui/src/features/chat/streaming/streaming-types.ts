@@ -50,12 +50,6 @@ export type StreamingAssistantOverlay = {
    * `RUN_FINISHED`).
    */
   locked?: boolean;
-  /**
-   * Direct-mode intra-turn text handoff. Queued text is buffered until the
-   * previous segment has painted and dwelled; hidden text keeps masking its
-   * persisted twin while preserving that row's tool artifacts.
-   */
-  textTransition?: "holding" | "queued" | "fading" | "hidden";
 };
 
 export const linkStreamingAssistantCanonicalMessage = (

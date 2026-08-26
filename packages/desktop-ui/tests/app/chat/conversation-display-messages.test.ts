@@ -98,40 +98,6 @@ describe("conversation display message merge", () => {
     });
   });
 
-  it("masks queued and retired direct-mode text while retaining transition metadata", () => {
-    const persisted = message({
-      payload: {
-        userMessageId: "u1",
-        text: "persisted preamble",
-        metadata: { runtime: { workingMode: "direct" } },
-      },
-    });
-
-    const queued = overlayToMessageRecord(
-      overlay({ textTransition: "queued", text: "buffered replacement" }),
-      persisted,
-    );
-    const hidden = overlayToMessageRecord(
-      overlay({ textTransition: "hidden", text: "old preamble", locked: true }),
-      persisted,
-    );
-    const fading = overlayToMessageRecord(
-      overlay({ textTransition: "fading", text: "old preamble", locked: true }),
-      persisted,
-    );
-
-    expect(queued.payload?.text).toBe("");
-    expect(hidden.payload?.text).toBe("");
-    expect(fading.payload?.text).toBe("persisted preamble");
-    expect(queued.payload?.metadata).toMatchObject({
-      runtime: {
-        assistantTextTransition: "queued",
-        isStreaming: false,
-        workingMode: "direct",
-      },
-    });
-  });
-
   it("deduplicates a live assistant against its exact canonical row even if slot indexing drifted", () => {
     const canonical = message({
       _id: "assistant-msg-run-1-10",

@@ -39,11 +39,7 @@
       "title": "Ngôn ngữ",
       "description": "Chọn ngôn ngữ Stella sử dụng trong ứng dụng và khi phản hồi bạn."
     },
-    "workingMode": {
-      "title": "Chế độ điều phối",
-      "directDescription": "Stella tự thực hiện các tác vụ và chỉ ủy quyền khi cần thiết.",
-      "orchestratedDescription": "Stella điều phối một tác nhân General có thể chia công việc lớn cho các tác nhân phụ."
-    },
+
     "memory": {
       "title": "Bộ nhớ",
       "description": "Đưa các ký ức đã lưu và hồ sơ của bạn vào ngữ cảnh mô hình của Stella. Khi tắt, các tệp bộ nhớ vẫn nằm trên thiết bị của bạn nhưng sẽ không được dùng trong các lượt sau."
@@ -382,9 +378,6 @@
       "loadVoice": "Không tải được cài đặt giọng nói.",
       "saveVoice": "Không cập nhật được cài đặt giọng nói.",
       "voiceUnavailable": "Cài đặt giọng nói không khả dụng trong cửa sổ này.",
-      "loadWorkingMode": "Không tải được chế độ điều phối.",
-      "saveWorkingMode": "Không cập nhật được chế độ điều phối.",
-      "workingModeUnavailable": "Chế độ điều phối không khả dụng trong cửa sổ này.",
       "loadMemory": "Không tải được cài đặt bộ nhớ.",
       "saveMemory": "Không cập nhật được cài đặt bộ nhớ.",
       "saveDeveloperMode": "Không thể cập nhật chế độ nhà phát triển.",

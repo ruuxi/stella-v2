@@ -195,6 +195,6 @@ describe("native shell deletion", () => {
     expect(built).not.toMatch(
       /(?:rm|rmdir|unlink|powershell|pwsh|python)\(\)/u,
     );
-    expect(built.endsWith(`\n${command}`)).toBe(true);
+    expect(built).toBe(command);
   });
 });

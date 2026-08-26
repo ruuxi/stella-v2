@@ -27,13 +27,6 @@ describe("isIntraTurnAssistantRuntime", () => {
   it("flags a segment that handed off to a tool call", () => {
     expect(
       isIntraTurnAssistantRuntime({
-        workingMode: "direct",
-        followedByToolCall: true,
-      }),
-    ).toBe(true);
-    expect(
-      isIntraTurnAssistantRuntime({
-        workingMode: "orchestrated",
         followedByToolCall: true,
       }),
     ).toBe(true);
@@ -54,7 +47,7 @@ describe("isIntraTurnAssistantRuntime", () => {
   it("never flags legacy metadata or plain answers", () => {
     expect(isIntraTurnAssistantRuntime(undefined)).toBe(false);
     expect(isIntraTurnAssistantRuntime({})).toBe(false);
-    expect(isIntraTurnAssistantRuntime({ workingMode: "direct" })).toBe(false);
+    expect(isIntraTurnAssistantRuntime({})).toBe(false);
   });
 });
 

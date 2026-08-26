@@ -39,11 +39,6 @@
       "title": "Bahasa",
       "description": "Pilih bahasa yang digunakan Stella di aplikasi dan saat menjawab Anda."
     },
-    "workingMode": {
-      "title": "Mode orkestrator",
-      "directDescription": "Stella mengerjakan tugas sendiri dan hanya mendelegasikan bila bermanfaat.",
-      "orchestratedDescription": "Stella mengoordinasikan agen General yang dapat membagi pekerjaan besar ke subagen."
-    },
     "memory": {
       "title": "Memori",
       "description": "Sertakan memori tersimpan dan profil Anda dalam konteks model Stella. Menonaktifkan ini akan membiarkan berkas memori tetap di perangkat Anda tetapi mengecualikannya dari giliran berikutnya."
@@ -382,9 +377,6 @@
       "loadVoice": "Gagal memuat pengaturan suara.",
       "saveVoice": "Gagal memperbarui pengaturan suara.",
       "voiceUnavailable": "Pengaturan suara tidak tersedia di jendela ini.",
-      "loadWorkingMode": "Gagal memuat mode orkestrator.",
-      "saveWorkingMode": "Gagal memperbarui mode orkestrator.",
-      "workingModeUnavailable": "Mode orkestrator tidak tersedia di jendela ini.",
       "loadMemory": "Gagal memuat pengaturan memori.",
       "saveMemory": "Gagal memperbarui pengaturan memori.",
       "saveDeveloperMode": "Gagal memperbarui mode pengembang.",

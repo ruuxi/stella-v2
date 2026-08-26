@@ -39,11 +39,6 @@
       "title": "Jazyk",
       "description": "Vyberte jazyk, který Stella používá v aplikaci a ve svých odpovědích."
     },
-    "workingMode": {
-      "title": "Režim orchestrátoru",
-      "directDescription": "Stella pracuje na úkolech sama a deleguje jen tehdy, když je to užitečné.",
-      "orchestratedDescription": "Stella koordinuje agenta General, který dokáže rozdělit větší práci mezi subagenty."
-    },
     "memory": {
       "title": "Paměť",
       "description": "Zahrnout uložené vzpomínky a váš profil do kontextu modelu Stelly. Po vypnutí zůstanou soubory paměti ve vašem zařízení, ale nebudou se používat v dalších odpovědích."
@@ -382,9 +377,6 @@
       "loadVoice": "Nepodařilo se načíst nastavení hlasu.",
       "saveVoice": "Nepodařilo se aktualizovat nastavení hlasu.",
       "voiceUnavailable": "Nastavení hlasu nejsou v tomto okně dostupná.",
-      "loadWorkingMode": "Nepodařilo se načíst režim orchestrátoru.",
-      "saveWorkingMode": "Nepodařilo se aktualizovat režim orchestrátoru.",
-      "workingModeUnavailable": "Režim orchestrátoru není v tomto okně k dispozici.",
       "loadMemory": "Nepodařilo se načíst nastavení paměti.",
       "saveMemory": "Nepodařilo se aktualizovat nastavení paměti.",
       "saveDeveloperMode": "Nepodařilo se aktualizovat režim pro vývojáře.",

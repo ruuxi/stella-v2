@@ -39,11 +39,7 @@
       "title": "Lingua",
       "description": "Scegli la lingua che Stella userà nell'app e quando ti risponde."
     },
-    "workingMode": {
-      "title": "Modalità orchestratore",
-      "directDescription": "Stella svolge le attività da sola e delega solo quando è utile.",
-      "orchestratedDescription": "Stella coordina un agente Generale che può suddividere i lavori più grandi tra i subagenti."
-    },
+
     "memory": {
       "title": "Memoria",
       "description": "Includi i ricordi salvati e il tuo profilo nel contesto del modello di Stella. Disattivandolo, i file di memoria restano sul tuo dispositivo ma vengono esclusi dai turni successivi."
@@ -382,9 +378,6 @@
       "loadVoice": "Impossibile caricare l'impostazione della voce.",
       "saveVoice": "Impossibile aggiornare l'impostazione della voce.",
       "voiceUnavailable": "Le impostazioni della voce non sono disponibili in questa finestra.",
-      "loadWorkingMode": "Impossibile caricare la modalità orchestratore.",
-      "saveWorkingMode": "Impossibile aggiornare la modalità orchestratore.",
-      "workingModeUnavailable": "La modalità orchestratore non è disponibile in questa finestra.",
       "loadMemory": "Impossibile caricare l'impostazione di memoria.",
       "saveMemory": "Impossibile aggiornare l'impostazione di memoria.",
       "saveDeveloperMode": "Impossibile aggiornare la modalità sviluppatore.",

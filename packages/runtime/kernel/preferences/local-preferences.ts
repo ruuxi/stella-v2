@@ -27,10 +27,7 @@ import {
   writePrivateFileSync,
 } from "../shared/private-fs.js";
 import {
-  coerceAssistantWorkingMode,
   coerceRealtimeVoiceProvider,
-  DEFAULT_ASSISTANT_WORKING_MODE,
-  type AssistantWorkingMode,
   type RealtimeVoicePreferences,
   type RealtimeVoiceSelections,
   type RealtimeVoiceUnderlyingProvider,
@@ -132,10 +129,6 @@ export type LocalPreferences = {
   imageGeneration: ImageGenerationPreferences;
   /** Realtime voice provider/model. Stella is the managed default. */
   realtimeVoice: RealtimeVoicePreferences;
-  /** Assistant working mode: direct chat vs orchestrated agents. */
-  assistantWorkingMode: AssistantWorkingMode;
-  /** Version of the default that seeded `assistantWorkingMode`. */
-  assistantWorkingModeDefaultVersion: number;
   /** Master toggle for memory injection into agent context. */
   memoryEnabled: boolean;
   /** Sync mode: "on" | "off". Defaults to off so cloud persistence is opt-in. */
@@ -218,7 +211,6 @@ export type LocalModelPreferencesSnapshot = Pick<
   | "maxAgentConcurrency"
   | "imageGeneration"
   | "realtimeVoice"
-  | "assistantWorkingMode"
   | "memoryEnabled"
 > & {
   /** Effective developer-mode state (explicit choice or derived signals). */
@@ -227,7 +219,6 @@ export type LocalModelPreferencesSnapshot = Pick<
 
 const DEFAULT_MAX_AGENT_CONCURRENCY = 24;
 const MAX_AGENT_CONCURRENCY_CEILING = 48;
-const ASSISTANT_WORKING_MODE_DEFAULT_VERSION = 1;
 
 const DEFAULT_PREFERENCES: LocalPreferences = {
   defaultModels: {},
@@ -249,8 +240,6 @@ const DEFAULT_PREFERENCES: LocalPreferences = {
   maxAgentConcurrency: DEFAULT_MAX_AGENT_CONCURRENCY,
   imageGeneration: { provider: "stella" },
   realtimeVoice: { provider: "stella" },
-  assistantWorkingMode: DEFAULT_ASSISTANT_WORKING_MODE,
-  assistantWorkingModeDefaultVersion: ASSISTANT_WORKING_MODE_DEFAULT_VERSION,
   memoryEnabled: true,
   syncMode: "off",
   dictationShortcut: "Alt",
@@ -360,11 +349,6 @@ const normalizeStoredPreferences = (
   maxAgentConcurrency: normalizeConcurrency(parsed.maxAgentConcurrency),
   imageGeneration: normalizeImageGenerationPreferences(parsed.imageGeneration),
   realtimeVoice: normalizeRealtimeVoicePreferences(parsed.realtimeVoice),
-  assistantWorkingMode:
-    parsed.assistantWorkingModeDefaultVersion ===
-    ASSISTANT_WORKING_MODE_DEFAULT_VERSION
-      ? coerceAssistantWorkingMode(parsed.assistantWorkingMode)
-      : DEFAULT_ASSISTANT_WORKING_MODE,
   memoryEnabled: parsed.memoryEnabled !== false,
   syncMode: parsed.syncMode === "on" ? "on" : "off",
   dictationShortcut:
@@ -593,14 +577,6 @@ export const getRealtimeVoicePreferences = (
   );
 };
 
-export const getAssistantWorkingMode = (
-  stellaDataDir: string,
-): AssistantWorkingMode => {
-  return coerceAssistantWorkingMode(
-    loadLocalPreferences(stellaDataDir).assistantWorkingMode,
-  );
-};
-
 export const getLocalModelPreferences = (
   stellaDataDir: string,
 ): LocalModelPreferencesSnapshot => {
@@ -628,7 +604,6 @@ export const getLocalModelPreferences = (
     maxAgentConcurrency: prefs.maxAgentConcurrency,
     imageGeneration: { ...prefs.imageGeneration },
     realtimeVoice: { ...prefs.realtimeVoice },
-    assistantWorkingMode: prefs.assistantWorkingMode,
     memoryEnabled: prefs.memoryEnabled,
     developerModeEnabled: getDeveloperModeEnabled(stellaDataDir),
   };
@@ -716,10 +691,6 @@ export const updateLocalModelPreferences = (
       patch.realtimeVoice === undefined
         ? prefs.realtimeVoice
         : normalizeRealtimeVoicePreferences(patch.realtimeVoice),
-    assistantWorkingMode:
-      patch.assistantWorkingMode === undefined
-        ? prefs.assistantWorkingMode
-        : coerceAssistantWorkingMode(patch.assistantWorkingMode),
     memoryEnabled:
       patch.memoryEnabled === undefined
         ? prefs.memoryEnabled

@@ -178,9 +178,8 @@ describe("developer-mode prompt gate", () => {
     "packages/runtime/extensions/stella-runtime/agent-metadata",
   );
 
-  it.each(["orchestrator", "orchestrator-orchestrated"])(
-    "fences the routing guidance in the shipped %s prompt",
-    async (agentId) => {
+  it("fences the routing guidance in the shipped orchestrator prompt", async () => {
+      const agentId = "orchestrator";
       process.env.STELLA_AGENT_METADATA_DIR = metadataDir;
       try {
         const shipped = await loadAgentSystemPrompt(agentId);
@@ -214,8 +213,7 @@ describe("developer-mode prompt gate", () => {
       } finally {
         delete process.env.STELLA_AGENT_METADATA_DIR;
       }
-    },
-  );
+    });
 
   it("passes marker-free prompts through untouched", () => {
     const body = "Line one.\n\nLine two.";

@@ -39,11 +39,6 @@
       "title": "Dil",
       "description": "Stella'nın uygulamada ve yanıtlarında kullanacağı dili seçin."
     },
-    "workingMode": {
-      "title": "Orkestratör modu",
-      "directDescription": "Stella görevleri kendisi yürütür ve yalnızca yararlı olduğunda devreder.",
-      "orchestratedDescription": "Stella, daha büyük işleri alt aracılara bölebilen bir General aracısını koordine eder."
-    },
     "memory": {
       "title": "Bellek",
       "description": "Kaydedilmiş anıları ve profilinizi Stella'nın model bağlamına dahil edin. Bunu kapattığınızda bellek dosyaları cihazınızda kalır ancak sonraki yanıtlara dahil edilmez."
@@ -382,9 +377,6 @@
       "loadVoice": "Ses ayarı yüklenemedi.",
       "saveVoice": "Ses ayarı güncellenemedi.",
       "voiceUnavailable": "Ses ayarları bu pencerede kullanılamıyor.",
-      "loadWorkingMode": "Orkestratör modu yüklenemedi.",
-      "saveWorkingMode": "Orkestratör modu güncellenemedi.",
-      "workingModeUnavailable": "Orkestratör modu bu pencerede kullanılamıyor.",
       "loadMemory": "Bellek ayarı yüklenemedi.",
       "saveMemory": "Bellek ayarı güncellenemedi.",
       "saveDeveloperMode": "Geliştirici modu güncellenemedi.",

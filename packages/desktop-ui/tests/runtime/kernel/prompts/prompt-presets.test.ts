@@ -37,10 +37,6 @@ const tempBundle = async () => {
       `---\nname: ${id}\ntools: Read\n---\nshipped ${id} prompt\n`,
     );
   }
-  await writeFile(
-    path.join(dir, "orchestrator-orchestrated.md"),
-    "---\nname: orchestrator\ntools: Read\n---\nshipped coordinator prompt\n",
-  );
   return dir;
 };
 
@@ -144,10 +140,6 @@ describe("prompt preset store", () => {
 
   it("maps agent types to a selection owner", () => {
     expect(promptSelectionAgentId("orchestrator")).toBe("orchestrator");
-    // Both working-mode variants share one selection.
-    expect(promptSelectionAgentId("orchestrator-orchestrated")).toBe(
-      "orchestrator",
-    );
     expect(promptSelectionAgentId("general")).toBe("general");
     expect(promptSelectionAgentId("fashion")).toBeNull();
     expect(isCustomizablePromptAgentId("explore")).toBe(false);
@@ -179,11 +171,7 @@ describe("prompt resolution", () => {
       "my custom prompt",
     );
 
-    // The selection also applies to the orchestrated working-mode variant…
-    await expect(
-      loadAgentSystemPrompt("orchestrator-orchestrated", home),
-    ).resolves.toBe("my custom prompt");
-    // …but never to an agent that isn't customizable.
+    // The selection never applies to an agent that isn't customizable.
     await expect(loadAgentSystemPrompt("general", home)).resolves.toBe(
       "shipped general prompt",
     );

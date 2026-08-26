@@ -689,7 +689,7 @@ describe("InAppBrowserService", () => {
     expect(harness.service.listDebuggerTargets("owner-b")).toHaveLength(1);
   });
 
-  it("aggregates every owner for orchestrator mode and pins direct mode to one owner", async () => {
+  it("supports aggregate and explicitly pinned owner scopes", async () => {
     const harness = createHarness(async () => true);
     const manual = await harness.service.createTab({
       url: "https://manual.example",

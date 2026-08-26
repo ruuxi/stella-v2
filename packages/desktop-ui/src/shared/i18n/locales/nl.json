@@ -39,11 +39,7 @@
       "title": "Taal",
       "description": "Kies de taal die Stella gebruikt in de app en in antwoorden."
     },
-    "workingMode": {
-      "title": "Orkestratormodus",
-      "directDescription": "Stella werkt zelf aan taken en delegeert alleen wanneer dat nuttig is.",
-      "orchestratedDescription": "Stella coördineert een Algemene agent die groter werk over subagents kan verdelen."
-    },
+
     "memory": {
       "title": "Geheugen",
       "description": "Neem opgeslagen herinneringen en je profiel op in Stella's modelcontext. Als je dit uitschakelt, blijven de geheugenbestanden op je apparaat staan maar worden ze uitgesloten van volgende beurten."
@@ -382,9 +378,6 @@
       "loadVoice": "Steminstelling laden mislukt.",
       "saveVoice": "Steminstelling bijwerken mislukt.",
       "voiceUnavailable": "Steminstellingen zijn niet beschikbaar in dit venster.",
-      "loadWorkingMode": "Laden van de orkestratormodus is mislukt.",
-      "saveWorkingMode": "Bijwerken van de orkestratormodus is mislukt.",
-      "workingModeUnavailable": "De orkestratormodus is niet beschikbaar in dit venster.",
       "loadMemory": "Geheugeninstelling laden mislukt.",
       "saveMemory": "Geheugeninstelling bijwerken mislukt.",
       "saveDeveloperMode": "Ontwikkelaarsmodus kon niet worden bijgewerkt.",

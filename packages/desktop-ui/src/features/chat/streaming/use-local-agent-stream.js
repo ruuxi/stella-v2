@@ -5,7 +5,6 @@ import { attachmentsForStartChat, initialStoreState, streamStoreReducer, } from 
 import { useReasoningBatcher } from "./use-reasoning-batcher";
 import { clearConversationTaskDecorations, getTaskDecorationsSnapshot, subscribeTaskDecorations, } from "./task-decoration-store";
 import { useStreamTextAnimation } from "./use-stream-text-animation";
-import { DirectAssistantHandoffController, } from "./direct-assistant-handoff";
 import { useAgentEventHandler } from "./use-agent-event-handler";
 import { useApplyResumeSnapshot } from "./use-resume-snapshot";
 import { assistantScrollFollowKey, linkStreamingAssistantCanonicalMessage, reconcileStreamingAssistantCanonicalMessage, streamingAssistantOverlayId, } from "./streaming-types";
@@ -48,60 +47,8 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
      * pushes overlay slot N at the new index.
      */
     const nextSlotIndexByUserMessageIdRef = useRef(new Map());
-    const workingModeByRunIdRef = useRef(new Map());
     const receivedSlotIdsRef = useRef(new Set());
-    const queuedStreamChunksBySlotIdRef = useRef(new Map());
-    const queuedSlotsAwaitingFinishRef = useRef(new Set());
     const pendingCanonicalBySlotIdRef = useRef(new Map());
-    const paintScheduledSlotIdsRef = useRef(new Set());
-    const pendingPaintFrameIdsRef = useRef(new Set());
-    const startQueuedSlotRef = useRef(() => { });
-    const directHandoffControllerRef = useRef(null);
-    if (directHandoffControllerRef.current === null) {
-        directHandoffControllerRef.current = new DirectAssistantHandoffController({
-            onFadeStart: (previousSlotId) => {
-                commitStreamingAssistants((current) => {
-                    const index = current.findIndex((slot) => slot._id === previousSlotId);
-                    const slot = index >= 0 ? current[index] : undefined;
-                    if (!slot || slot.textTransition === "fading")
-                        return current;
-                    const next = current.slice();
-                    next[index] = { ...slot, textTransition: "fading" };
-                    return next;
-                });
-            },
-            onSwap: (previousSlotId, nextSlotId, skippedSlotIds = []) => {
-                // The previous slot and every skipped intermediate segment are
-                // stale progress updates: hide them all so only the newest
-                // (nextSlotId) is revealed. "hidden" keeps each masking its
-                // persisted twin, so no discarded preamble text flashes in.
-                const hiddenSlotIds = new Set([previousSlotId, ...skippedSlotIds]);
-                commitStreamingAssistants((current) => {
-                    let changed = false;
-                    const next = current.map((slot) => {
-                        if (hiddenSlotIds.has(slot._id) && slot.textTransition !== "hidden") {
-                            changed = true;
-                            return { ...slot, textTransition: "hidden" };
-                        }
-                        if (slot._id === nextSlotId && slot.textTransition === "queued") {
-                            changed = true;
-                            const { textTransition: _omit, ...visibleSlot } = slot;
-                            return visibleSlot;
-                        }
-                        return slot;
-                    });
-                    return changed ? next : current;
-                });
-                // Skipped segments never start animating, so drop their buffered
-                // chunks + awaiting-finish flags to keep the ephemeral queues tidy.
-                for (const skippedSlotId of skippedSlotIds) {
-                    queuedStreamChunksBySlotIdRef.current.delete(skippedSlotId);
-                    queuedSlotsAwaitingFinishRef.current.delete(skippedSlotId);
-                }
-                startQueuedSlotRef.current(nextSlotId);
-            },
-        });
-    }
     const startAttemptRef = useRef(0);
     const agentStreamCleanupRef = useRef(null);
     const activeRunId = activeConversationId
@@ -136,8 +83,6 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
     const { enqueue: animateStreamText, finish: finishStreamText, discard: discardStreamText, } = useStreamTextAnimation({ onReveal: revealStreamText });
     /**
      * Lock one exact slot only after the frame-driven playout has drained.
-     * The handoff clock starts after two requestAnimationFrame turns so the
-     * fully revealed React/Markdown state has reached a browser paint.
      */
     const lockStreamSlot = useCallback((slotId) => {
         const canonical = pendingCanonicalBySlotIdRef.current.get(slotId);
@@ -169,33 +114,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
             locked[index] = { ...slot, locked: true };
             return locked;
         });
-        if (paintScheduledSlotIdsRef.current.has(slotId))
-            return;
-        paintScheduledSlotIdsRef.current.add(slotId);
-        const firstFrameId = window.requestAnimationFrame(() => {
-            pendingPaintFrameIdsRef.current.delete(firstFrameId);
-            const secondFrameId = window.requestAnimationFrame(() => {
-                pendingPaintFrameIdsRef.current.delete(secondFrameId);
-                paintScheduledSlotIdsRef.current.delete(slotId);
-                directHandoffControllerRef.current?.markPainted(slotId);
-            });
-            pendingPaintFrameIdsRef.current.add(secondFrameId);
-        });
-        pendingPaintFrameIdsRef.current.add(firstFrameId);
     }, [commitStreamingAssistants]);
-    startQueuedSlotRef.current = (slotId) => {
-        const queued = queuedStreamChunksBySlotIdRef.current.get(slotId);
-        const slot = streamingAssistantsRef.current.find((entry) => entry._id === slotId);
-        if (!queued || !slot)
-            return;
-        queuedStreamChunksBySlotIdRef.current.delete(slotId);
-        beginAssistantScrollFollow(assistantScrollFollowKey(slot.userMessageId, slot.indexInTurn));
-        animateStreamText(slotId, queued.runId, queued.chunks.join(""));
-        if (queuedSlotsAwaitingFinishRef.current.delete(slotId)) {
-            finishStreamText((entry) => entry.slotId === slotId, lockStreamSlot);
-        }
-        notifyAssistantScrollFollowLayoutChange();
-    };
     const lockAndDiscardStreamSlot = useCallback((slotId) => {
         lockStreamSlot(slotId);
         discardStreamText((entry) => entry.slotId === slotId);
@@ -209,9 +128,6 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
     const beginStreamingRun = useCallback((args) => {
         clearAssistantScrollFollow();
         finishStreamText((entry) => entry.runId !== args.runId, lockAndDiscardStreamSlot);
-        if (args.workingMode) {
-            workingModeByRunIdRef.current.set(args.runId, args.workingMode);
-        }
         if (args.userMessageId) {
             nextSlotIndexByUserMessageIdRef.current.set(args.userMessageId, 1);
         }
@@ -230,30 +146,13 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
             return;
         }
         const userMessageId = args.userMessageId;
-        if (args.workingMode) {
-            workingModeByRunIdRef.current.set(args.runId, args.workingMode);
-        }
         const expectedIndex = nextSlotIndexByUserMessageIdRef.current.get(userMessageId) ?? 1;
         nextSlotIndexByUserMessageIdRef.current.set(userMessageId, expectedIndex);
         const slotId = streamingAssistantOverlayId(userMessageId, expectedIndex);
         receivedSlotIdsRef.current.add(slotId);
         const existing = streamingAssistantsRef.current.find((slot) => slot._id === slotId);
-        if (existing?.textTransition === "queued") {
-            const queued = queuedStreamChunksBySlotIdRef.current.get(slotId);
-            if (queued) {
-                queued.chunks.push(args.chunk);
-            }
-            else {
-                queuedStreamChunksBySlotIdRef.current.set(slotId, {
-                    runId: args.runId,
-                    chunks: [args.chunk],
-                });
-            }
-            return;
-        }
         if (existing) {
             if (existing.locked) {
-                directHandoffControllerRef.current?.markUnpainted(slotId);
                 commitStreamingAssistants((current) => {
                     const index = current.findIndex((slot) => slot._id === slotId);
                     const slot = index >= 0 ? current[index] : undefined;
@@ -267,14 +166,6 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
             animateStreamText(slotId, args.runId, args.chunk);
             return;
         }
-        const previousSlotId = expectedIndex > 1
-            ? streamingAssistantOverlayId(userMessageId, expectedIndex - 1)
-            : null;
-        const previousSlot = previousSlotId
-            ? streamingAssistantsRef.current.find((slot) => slot._id === previousSlotId)
-            : undefined;
-        const shouldQueueDirectReplacement = workingModeByRunIdRef.current.get(args.runId) === "direct" &&
-            Boolean(previousSlotId && previousSlot && previousSlot.textTransition !== "hidden");
         const newSlot = {
                 _id: slotId,
                 userMessageId,
@@ -285,37 +176,17 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
                     : {}),
                 timestamp: Date.now(),
                 runId: args.runId,
-                ...(shouldQueueDirectReplacement ? { textTransition: "queued" } : {}),
             };
-        commitStreamingAssistants((current) => {
-            const prepared = shouldQueueDirectReplacement && previousSlotId
-                ? current.map((slot) => slot._id === previousSlotId
-                    ? { ...slot, textTransition: "holding" }
-                    : slot)
-                : current;
-            return [...prepared, newSlot];
-        });
-        if (shouldQueueDirectReplacement && previousSlotId) {
-            queuedStreamChunksBySlotIdRef.current.set(slotId, {
-                runId: args.runId,
-                chunks: [args.chunk],
-            });
-            directHandoffControllerRef.current?.queue(previousSlotId, slotId);
-        }
-        else {
-            beginAssistantScrollFollow(assistantScrollFollowKey(userMessageId, expectedIndex));
-            animateStreamText(slotId, args.runId, args.chunk);
-            notifyAssistantScrollFollowLayoutChange();
-        }
+        commitStreamingAssistants((current) => [...current, newSlot]);
+        beginAssistantScrollFollow(assistantScrollFollowKey(userMessageId, expectedIndex));
+        animateStreamText(slotId, args.runId, args.chunk);
+        notifyAssistantScrollFollowLayoutChange();
     }, [animateStreamText, commitStreamingAssistants]);
     /**
      * `ASSISTANT_MESSAGE` boundary: lock the current slot, increment the
      * slot index, and let the next chunk create the next slot.
      */
     const finalizeMessageBoundary = useCallback((args) => {
-        if (args.workingMode) {
-            workingModeByRunIdRef.current.set(args.runId, args.workingMode);
-        }
         const currentIndex = args.userMessageId
             ? (nextSlotIndexByUserMessageIdRef.current.get(args.userMessageId) ?? 1)
             : null;
@@ -331,11 +202,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
                     ? { canonicalText: args.canonicalText }
                     : {}),
             });
-            const slot = streamingAssistantsRef.current.find((entry) => entry._id === slotId);
-            if (slot?.textTransition === "queued") {
-                queuedSlotsAwaitingFinishRef.current.add(slotId);
-            }
-            else if (receivedSlotIdsRef.current.has(slotId)) {
+            if (receivedSlotIdsRef.current.has(slotId)) {
                 finishStreamText((entry) => entry.slotId === slotId, lockStreamSlot);
             }
             else {
@@ -355,11 +222,6 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
      * just because persistence completed.
      */
     const finalizeRunOnFinish = useCallback((args) => {
-        for (const [slotId, queued] of queuedStreamChunksBySlotIdRef.current) {
-            if (queued.runId === args.runId) {
-                queuedSlotsAwaitingFinishRef.current.add(slotId);
-            }
-        }
         finishStreamText((entry) => entry.runId === args.runId, lockStreamSlot);
     }, [finishStreamText, lockStreamSlot]);
     /**
@@ -388,25 +250,11 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
             agentStreamCleanupRef.current();
             agentStreamCleanupRef.current = null;
         }
-        directHandoffControllerRef.current?.reset();
-        for (const frameId of pendingPaintFrameIdsRef.current) {
-            window.cancelAnimationFrame(frameId);
-        }
-        pendingPaintFrameIdsRef.current.clear();
     }, []);
     const resetStreamingState = useCallback(() => {
         clearAssistantScrollFollow();
         discardStreamText();
-        directHandoffControllerRef.current?.reset();
-        for (const frameId of pendingPaintFrameIdsRef.current) {
-            window.cancelAnimationFrame(frameId);
-        }
-        pendingPaintFrameIdsRef.current.clear();
-        paintScheduledSlotIdsRef.current.clear();
-        workingModeByRunIdRef.current.clear();
         receivedSlotIdsRef.current.clear();
-        queuedStreamChunksBySlotIdRef.current.clear();
-        queuedSlotsAwaitingFinishRef.current.clear();
         pendingCanonicalBySlotIdRef.current.clear();
         setPendingUserMessageId(null);
         commitStreamingAssistants([]);
@@ -478,16 +326,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
     useEffect(() => {
         clearAssistantScrollFollow();
         discardStreamText();
-        directHandoffControllerRef.current?.reset();
-        for (const frameId of pendingPaintFrameIdsRef.current) {
-            window.cancelAnimationFrame(frameId);
-        }
-        pendingPaintFrameIdsRef.current.clear();
-        paintScheduledSlotIdsRef.current.clear();
-        workingModeByRunIdRef.current.clear();
         receivedSlotIdsRef.current.clear();
-        queuedStreamChunksBySlotIdRef.current.clear();
-        queuedSlotsAwaitingFinishRef.current.clear();
         pendingCanonicalBySlotIdRef.current.clear();
         commitStreamingAssistants([]);
         nextSlotIndexByUserMessageIdRef.current.clear();

@@ -10,9 +10,7 @@ import type { UserRowViewModel } from "@/features/chat/conversation-row-types";
  *    it and everything after) and loads it back into this chat's composer.
  *  - `fork` branches the history *before* that message into a brand-new
  *    conversation and drops the message into the new chat's composer,
- *    leaving the original conversation untouched. Present ONLY in the
- *    multi-tab (orchestrator-off) experience where new tabs exist; omitted
- *    entirely in orchestrated mode, so the Fork button never renders there.
+ *    leaving the original conversation untouched.
  *
  * The value is a STABLE object (its callbacks read live state through refs)
  * so every user row can consume it without re-rendering when conversation

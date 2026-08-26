@@ -14,9 +14,7 @@ import {
   AGENT_RUN_FINISH_OUTCOMES,
   AGENT_STREAM_EVENT_TYPES,
 } from "@stella/contracts/agent-runtime";
-import type { AssistantWorkingMode } from "@stella/contracts/local-preferences";
 import type { ImageCapTarget } from "../../../ai/utils/image-caps.js";
-import { getAssistantWorkingMode } from "../../../kernel/preferences/local-preferences.js";
 import { prepareStoredLocalChatPayload } from "../../../kernel/storage/local-chat-payload.js";
 import type { LocalChatEventRecord } from "../../../kernel/storage/shared.js";
 import {
@@ -138,7 +136,6 @@ export const layer = Layer.effect(
       timezone?: string;
       responseTarget?: RuntimeAgentEventPayload["responseTarget"];
       streamStartedAtMs?: number;
-      workingMode: AssistantWorkingMode;
       followedByToolCall?: boolean;
     }): LocalChatEventRecord | null => {
       const trimmedText = args.text.trim();
@@ -148,7 +145,6 @@ export const layer = Layer.effect(
 
       const runtimeMetadata = {
         runtime: {
-          workingMode: args.workingMode,
           ...(args.followedByToolCall ? { followedByToolCall: true } : {}),
           ...(args.responseTarget ? { responseTarget: args.responseTarget } : {}),
           ...(Number.isFinite(args.streamStartedAtMs)
@@ -213,9 +209,6 @@ export const layer = Layer.effect(
       const storageMode = resolveConversationStorageMode(payload.storageMode);
       const persistLocalTranscript =
         shouldPersistLocalChatTranscript(storageMode);
-      const assistantWorkingMode: AssistantWorkingMode = getAssistantWorkingMode(
-        config.get().stellaDataDirPath,
-      );
       const requestId =
         asTrimmedString(
           (payload as RuntimeChatPayload & { requestId?: string }).requestId,
@@ -445,7 +438,8 @@ export const layer = Layer.effect(
       /**
        * Tracks the most-recently persisted orchestrator assistant message for
        * this run. Successful completion patches this final segment with the
-       * durable turn-complete receipt used to retire direct-mode preambles.
+       * durable turn-complete receipt used to distinguish the run's final
+       * segment from an interim assistant segment that handed off to a tool.
        */
       let lastAssistantMessageEvent: LocalChatEventRecord | null = null;
       /**
@@ -517,7 +511,6 @@ export const layer = Layer.effect(
                   runId: ev.runId,
                   seq: ev.seq,
                   timezone: payload.timezone,
-                  workingMode: assistantWorkingMode,
                   ...(ev.followedByToolCall ? { followedByToolCall: true } : {}),
                   responseTarget: ev.responseTarget,
                   ...(streamStartedAtMs !== undefined
@@ -561,7 +554,6 @@ export const layer = Layer.effect(
                 ...(targetRequestId ? { requestId: targetRequestId } : {}),
                 userMessageId: ev.userMessageId,
                 agentType: ev.agentType,
-                workingMode: assistantWorkingMode,
                 ...(assistantEvent
                   ? { assistantMessageEventId: assistantEvent._id }
                   : {}),
@@ -592,7 +584,6 @@ export const layer = Layer.effect(
                   type: AGENT_STREAM_EVENT_TYPES.RUN_STARTED,
                   conversationId: payload.conversationId,
                   uiVisibility: "visible",
-                  workingMode: assistantWorkingMode,
                   ...(lastVisibleRequestId
                     ? { requestId: lastVisibleRequestId }
                     : {}),
@@ -606,7 +597,6 @@ export const layer = Layer.effect(
               ...ev,
               type: AGENT_STREAM_EVENT_TYPES.RUN_STARTED,
               conversationId: payload.conversationId,
-              workingMode: assistantWorkingMode,
               ...(requestId ? { requestId } : {}),
             });
           },
@@ -646,7 +636,6 @@ export const layer = Layer.effect(
                   seq: nextSyntheticSeq(),
                   type: AGENT_STREAM_EVENT_TYPES.STREAM,
                   conversationId: payload.conversationId,
-                  workingMode: assistantWorkingMode,
                   ...(lastVisibleRequestId
                     ? { requestId: lastVisibleRequestId }
                     : {}),
@@ -658,7 +647,6 @@ export const layer = Layer.effect(
               ...ev,
               type: AGENT_STREAM_EVENT_TYPES.STREAM,
               conversationId: payload.conversationId,
-              workingMode: assistantWorkingMode,
               ...(requestId ? { requestId } : {}),
             });
           },
@@ -868,9 +856,8 @@ export const layer = Layer.effect(
               // by `onAssistantMessage` as its own row, so end-of-run no
               // longer writes a new row from `finalText` (doing so would
               // append a duplicate of the last message).
-              // Mark only the last segment terminal. In direct mode the
-              // renderer uses that receipt to remove earlier preamble text
-              // after the successful turn has actually finished.
+              // Mark only the last segment terminal so the renderer can
+              // distinguish it from an interim segment followed by a tool.
               lastAssistantMessageEvent = markAssistantTurnComplete({
                 conversationId: payload.conversationId,
                 event: lastAssistantMessageEvent,

@@ -39,11 +39,6 @@
       "title": "Kieli",
       "description": "Valitse kieli, jota Stella käyttää sovelluksessa ja vastauksissa."
     },
-    "workingMode": {
-      "title": "Orkestraattoritila",
-      "directDescription": "Stella tekee tehtävät itse ja delegoi vain, kun siitä on hyötyä.",
-      "orchestratedDescription": "Stella koordinoi General-agenttia, joka voi jakaa suuremmat työt aliagenteille."
-    },
     "memory": {
       "title": "Muisti",
       "description": "Sisällytä tallennetut muistot ja profiilisi Stellan mallikontekstiin. Kun tämä on pois päältä, muistitiedostot säilyvät laitteellasi mutta jätetään pois tulevista vastauksista."
@@ -382,9 +377,6 @@
       "loadVoice": "Ääniasetuksen lataaminen epäonnistui.",
       "saveVoice": "Ääniasetuksen päivitys epäonnistui.",
       "voiceUnavailable": "Ääniasetukset eivät ole käytettävissä tässä ikkunassa.",
-      "loadWorkingMode": "Orkestraattoritilan lataaminen epäonnistui.",
-      "saveWorkingMode": "Orkestraattoritilan päivittäminen epäonnistui.",
-      "workingModeUnavailable": "Orkestraattoritila ei ole käytettävissä tässä ikkunassa.",
       "loadMemory": "Muistiasetuksen lataaminen epäonnistui.",
       "saveMemory": "Muistiasetuksen päivitys epäonnistui.",
       "saveDeveloperMode": "Kehittäjätilan päivitys epäonnistui.",

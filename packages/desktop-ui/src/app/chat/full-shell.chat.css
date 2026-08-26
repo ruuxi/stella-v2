@@ -84,23 +84,6 @@
   min-height: 1px;
 }
 
-/* Direct-mode interim messages leave with a fade only. The replacement has no
-   entrance transition; its buffered stream begins once this finite exit ends. */
-.assistant-message-text {
-  opacity: 1;
-}
-
-.assistant-message-text--fading {
-  opacity: 0;
-  transition: opacity 180ms ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .assistant-message-text--fading {
-    transition-duration: 0ms;
-  }
-}
-
 /*
  * Trailing region: renders as the LegendList footer underneath every
  * virtualized row. Hosts any surface-specific `extraTail` node and a

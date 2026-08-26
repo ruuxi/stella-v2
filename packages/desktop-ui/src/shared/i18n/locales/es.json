@@ -39,11 +39,7 @@
       "title": "Idioma",
       "description": "Elige el idioma que Stella usará en toda la app y al responderte."
     },
-    "workingMode": {
-      "title": "Modo orquestador",
-      "directDescription": "Stella trabaja en las tareas por sí misma y delega solo cuando resulta útil.",
-      "orchestratedDescription": "Stella coordina un agente General que puede repartir el trabajo más grande entre subagentes."
-    },
+
     "memory": {
       "title": "Memoria",
       "description": "Incluir las memorias guardadas y tu perfil en el contexto del modelo de Stella. Si lo desactivas, los archivos de memoria seguirán en tu dispositivo pero se excluirán de los próximos turnos."
@@ -382,9 +378,6 @@
       "loadVoice": "No se pudo cargar el ajuste de voz.",
       "saveVoice": "No se pudo actualizar el ajuste de voz.",
       "voiceUnavailable": "Los ajustes de voz no están disponibles en esta ventana.",
-      "loadWorkingMode": "No se pudo cargar el modo orquestador.",
-      "saveWorkingMode": "No se pudo actualizar el modo orquestador.",
-      "workingModeUnavailable": "El modo orquestador no está disponible en esta ventana.",
       "loadMemory": "No se pudo cargar el ajuste de memoria.",
       "saveMemory": "No se pudo actualizar el ajuste de memoria.",
       "saveDeveloperMode": "No se pudo actualizar el modo desarrollador.",

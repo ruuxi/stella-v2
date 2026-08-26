@@ -39,11 +39,7 @@
       "title": "Language",
       "description": "Choose the language Stella uses across the app and when responding to you."
     },
-    "workingMode": {
-      "title": "Orchestrator mode",
-      "directDescription": "Stella works on tasks itself and delegates only when useful.",
-      "orchestratedDescription": "Stella coordinates a General agent that can split larger work across subagents."
-    },
+
     "memory": {
       "title": "Memory",
       "description": "Include saved memories and your profile in Stella's model context. Turning this off keeps memory files on your device but excludes them from future turns."
@@ -382,9 +378,6 @@
       "loadVoice": "Failed to load voice setting.",
       "saveVoice": "Failed to update voice setting.",
       "voiceUnavailable": "Voice settings are unavailable in this window.",
-      "loadWorkingMode": "Failed to load orchestrator mode.",
-      "saveWorkingMode": "Failed to update orchestrator mode.",
-      "workingModeUnavailable": "Orchestrator mode is unavailable in this window.",
       "loadMemory": "Failed to load memory setting.",
       "saveMemory": "Failed to update memory setting.",
       "saveDeveloperMode": "Failed to update developer mode.",

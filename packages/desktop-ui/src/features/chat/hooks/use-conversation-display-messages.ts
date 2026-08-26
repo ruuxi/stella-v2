@@ -304,9 +304,6 @@ export const overlayToMessageRecord = (
   overlay: StreamingAssistantOverlay,
   persisted?: MessageRecord,
 ): MessageRecord => {
-  const hidesText =
-    overlay.textTransition === "queued" ||
-    overlay.textTransition === "hidden";
   return {
     ...(persisted ?? {}),
     _id: overlay._id,
@@ -314,9 +311,8 @@ export const overlayToMessageRecord = (
     type: "assistant_message",
     payload: {
       ...(persisted?.payload ?? {}),
-      text: hidesText
-        ? ""
-        : overlay.locked && typeof persisted?.payload?.text === "string"
+      text:
+        overlay.locked && typeof persisted?.payload?.text === "string"
           ? persisted.payload.text
           : overlay.text,
       userMessageId: overlay.userMessageId,
@@ -332,11 +328,7 @@ export const overlayToMessageRecord = (
               | { metadata?: { runtime?: Record<string, unknown> } }
               | undefined
           )?.metadata?.runtime ?? {}),
-          isStreaming:
-            !overlay.locked && overlay.textTransition !== "queued",
-          ...(overlay.textTransition
-            ? { assistantTextTransition: overlay.textTransition }
-            : {}),
+          isStreaming: !overlay.locked,
           ...(overlay.responseTarget
             ? { responseTarget: overlay.responseTarget }
             : {}),

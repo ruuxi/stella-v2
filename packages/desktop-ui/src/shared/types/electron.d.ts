@@ -21,10 +21,7 @@ import type {
   LocalChatMessageWindow,
   LocalChatToolEventPage,
 } from "@stella/contracts/local-chat";
-import type {
-  AssistantWorkingMode,
-  RealtimeVoicePreferences,
-} from "@stella/contracts/local-preferences";
+import type { RealtimeVoicePreferences } from "@stella/contracts/local-preferences";
 import type { MorphVisualTiming } from "@stella/contracts/morph-timing";
 import type {
   ChatContext as SharedChatContext,
@@ -855,7 +852,6 @@ export type ElectronSystemApi = {
       model?: string;
     };
     realtimeVoice: RealtimeVoicePreferences;
-    assistantWorkingMode: AssistantWorkingMode;
     memoryEnabled: boolean;
     developerModeEnabled: boolean;
   } | null>;
@@ -897,7 +893,6 @@ export type ElectronSystemApi = {
       model?: string;
     };
     realtimeVoice?: RealtimeVoicePreferences;
-    assistantWorkingMode?: AssistantWorkingMode;
     memoryEnabled?: boolean;
     developerModeEnabled?: boolean;
   }) => Promise<{
@@ -938,7 +933,6 @@ export type ElectronSystemApi = {
       model?: string;
     };
     realtimeVoice: RealtimeVoicePreferences;
-    assistantWorkingMode: AssistantWorkingMode;
     memoryEnabled: boolean;
     developerModeEnabled: boolean;
   } | null>;

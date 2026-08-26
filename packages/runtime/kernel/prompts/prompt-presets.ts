@@ -47,16 +47,10 @@ export const isCustomizablePromptAgentId = (
   typeof value === "string" &&
   (CUSTOMIZABLE_PROMPT_AGENT_IDS as readonly string[]).includes(value);
 
-/**
- * The orchestrator's two working-mode variants share one selection: a user
- * writing "my Stella prompt" means it for whichever mode is active.
- */
 export const promptSelectionAgentId = (
   agentType: string,
-): CustomizablePromptAgentId | null => {
-  if (agentType.startsWith("orchestrator")) return "orchestrator";
-  return isCustomizablePromptAgentId(agentType) ? agentType : null;
-};
+): CustomizablePromptAgentId | null =>
+  isCustomizablePromptAgentId(agentType) ? agentType : null;
 
 export const slugifyPresetName = (name: string): string => {
   const slug = name

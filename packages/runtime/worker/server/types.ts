@@ -4,7 +4,6 @@ import type {
   AgentStreamEventType,
 } from "@stella/contracts/agent-runtime";
 import type { RuntimeAgentEventPayload } from "@stella/contracts/protocol";
-import type { AssistantWorkingMode } from "@stella/contracts/local-preferences";
 import type { createStellaHostRunner } from "../../kernel/runner.js";
 
 /**
@@ -57,7 +56,6 @@ export type AgentEventPayload = {
   reason?: string;
   replacedByRunId?: string;
   responseTarget?: RuntimeAgentEventPayload["responseTarget"];
-  workingMode?: AssistantWorkingMode;
   assistantMessageEventId?: string;
   assistantMessageText?: string;
 };

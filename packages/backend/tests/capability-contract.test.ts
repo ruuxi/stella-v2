@@ -96,7 +96,7 @@ describe("capability contract parity", () => {
 
 describe("capability matrix", () => {
   it("holds only the four enforced generative surfaces", () => {
-    // Orchestrator mode is deliberately absent: any plan may use it, and it
+    // Orchestration is deliberately absent: any plan may use it, and it
     // is sold on Pro through marketing copy alone. A matrix that mixes
     // enforced rows with decorative ones invites the next reader to gate the
     // wrong thing, so the decorative ones simply do not live here.

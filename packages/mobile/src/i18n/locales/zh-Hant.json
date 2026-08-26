@@ -39,11 +39,6 @@
       "title": "語言",
       "description": "選擇 Stella 在應用程式中與回覆時使用的語言。"
     },
-    "workingMode": {
-      "title": "協調器模式",
-      "directDescription": "Stella 會自行處理工作，只在有需要時才委派。",
-      "orchestratedDescription": "Stella 會協調一個 General 代理，將較大的工作拆分給子代理。"
-    },
     "memory": {
       "title": "記憶",
       "description": "將已儲存的記憶和你的個人資料納入 Stella 的模型脈絡。關閉後，記憶檔案仍會保留在你的裝置上，但不會用於後續對話。"
@@ -382,9 +377,6 @@
       "loadVoice": "載入語音設定失敗。",
       "saveVoice": "更新語音設定失敗。",
       "voiceUnavailable": "此視窗中無法使用語音設定。",
-      "loadWorkingMode": "載入協調器模式失敗。",
-      "saveWorkingMode": "更新協調器模式失敗。",
-      "workingModeUnavailable": "此視窗無法使用協調器模式。",
       "loadMemory": "載入記憶設定失敗。",
       "saveMemory": "更新記憶設定失敗。",
       "saveDeveloperMode": "無法更新開發者模式。",

@@ -4,11 +4,6 @@ import {
   BROWSER_PROFILE_KEY,
   BROWSER_SELECTION_KEY,
 } from "@stella/contracts/discovery";
-import {
-  coerceAssistantWorkingMode,
-  DEFAULT_ASSISTANT_WORKING_MODE,
-  type AssistantWorkingMode,
-} from "@stella/contracts/local-preferences";
 import { uiState } from "@/platform/ui-state";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useT } from "@/shared/i18n";
@@ -367,10 +362,6 @@ export function BrowserSection() {
   const [state, setState] = useState<BrowserViewState>(EMPTY_STATE);
   const [preparing, setPreparing] = useState(false);
   const [connectingExtension, setConnectingExtension] = useState(false);
-  const [assistantWorkingMode, setAssistantWorkingMode] =
-    useState<AssistantWorkingMode>(DEFAULT_ASSISTANT_WORKING_MODE);
-  const [assistantWorkingModeLoaded, setAssistantWorkingModeLoaded] =
-    useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [address, setAddress] = useState("");
   const surfaceRef = useRef<HTMLElement | null>(null);
@@ -433,47 +424,10 @@ export function BrowserSection() {
   }, []);
 
   useEffect(() => {
-    let disposed = false;
-    const loadWorkingMode = async () => {
-      try {
-        const preferences =
-          await window.electronAPI?.system?.getLocalModelPreferences?.();
-        if (!disposed) {
-          setAssistantWorkingMode(
-            coerceAssistantWorkingMode(preferences?.assistantWorkingMode),
-          );
-        }
-      } catch {
-        // Keep the product default when preferences are unavailable.
-      } finally {
-        if (!disposed) setAssistantWorkingModeLoaded(true);
-      }
-    };
-    const handlePreferencesChanged = () => void loadWorkingMode();
-    void loadWorkingMode();
-    window.addEventListener(
-      "stella:local-model-preferences-changed",
-      handlePreferencesChanged,
-    );
-    return () => {
-      disposed = true;
-      window.removeEventListener(
-        "stella:local-model-preferences-changed",
-        handlePreferencesChanged,
-      );
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!assistantWorkingModeLoaded) return;
     const api = browserViewApi();
     if (!api) return;
-    const scope =
-      assistantWorkingMode === "orchestrated"
-        ? {}
-        : { ownerId: scopedOwnerId };
     void api
-      .setOwnerScope(scope)
+      .setOwnerScope({})
       .then((next) => {
         if (mountedRef.current && isBrowserViewState(next)) setState(next);
       })
@@ -485,7 +439,7 @@ export function BrowserSection() {
             : "Couldn’t select this chat’s browser tabs.",
         );
       });
-  }, [assistantWorkingMode, assistantWorkingModeLoaded, scopedOwnerId]);
+  }, []);
 
   const connect = useCallback(async () => {
     const api = browserViewApi();

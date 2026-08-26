@@ -12,16 +12,6 @@
 
 export type RealtimeVoiceProvider = "stella" | "openai" | "xai" | "inworld";
 
-export type AssistantWorkingMode = "direct" | "orchestrated";
-
-export const DEFAULT_ASSISTANT_WORKING_MODE: AssistantWorkingMode =
-  "orchestrated";
-
-export const coerceAssistantWorkingMode = (
-  value: unknown,
-): AssistantWorkingMode =>
-  value === "direct" ? "direct" : DEFAULT_ASSISTANT_WORKING_MODE;
-
 /**
  * Subset of the providers that can actually mint a voice — Stella mode
  * routes through one of these under the hood (`stellaSubProvider`).

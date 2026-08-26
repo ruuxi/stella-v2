@@ -620,20 +620,29 @@ describe("claude-code-session-runtime", () => {
     }
   });
 
-  it("uses private native MCP and returns one clean natural final by default", async () => {
+  it("waits for private native MCP before sending the first prompt", async () => {
     const dir = fs.mkdtempSync(
       path.join(os.tmpdir(), "stella-fake-claude-native-mcp-"),
     );
     const binDir = path.join(dir, "bin");
+    const helperPath = path.join(dir, "fake-claude.mjs");
     const logPath = path.join(dir, "prompts.log");
     fs.mkdirSync(binDir, { recursive: true });
+    fs.symlinkSync(
+      path.resolve(process.cwd(), "../../node_modules"),
+      path.join(dir, "node_modules"),
+      "dir",
+    );
     const fakeClaude = path.join(binDir, "claude");
     fs.writeFileSync(
-      fakeClaude,
+      helperPath,
       [
-        "#!/usr/bin/env node",
-        "const fs = require('node:fs');",
+        "import fs from 'node:fs';",
+        "import { Client } from '@modelcontextprotocol/sdk/client/index.js';",
+        "import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';",
         "let buffer = '';",
+        "let catalogRequested = false;",
+        "const argv = process.argv.slice(2);",
         "function emit(payload) { process.stdout.write(JSON.stringify(payload) + '\\n'); }",
         "function handle(line) {",
         "  const parsed = JSON.parse(line);",
@@ -648,6 +657,11 @@ describe("claude-code-session-runtime", () => {
         "}",
         "process.stdin.on('data', chunk => {",
         "  buffer += chunk.toString('utf8');",
+        "  if (!catalogRequested) {",
+        "    buffer = '';",
+        "    emit({ type: 'result', session_id: 'native-session', is_error: false, result: 'Prompt arrived before MCP catalog.' });",
+        "    return;",
+        "  }",
         "  for (;;) {",
         "    const idx = buffer.indexOf('\\n');",
         "    if (idx === -1) break;",
@@ -656,12 +670,26 @@ describe("claude-code-session-runtime", () => {
         "    if (line) handle(line);",
         "  }",
         "});",
+        "await new Promise(resolve => setTimeout(resolve, 100));",
+        "const configPath = argv[argv.indexOf('--mcp-config') + 1];",
+        "const config = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.stella;",
+        "const client = new Client({ name: 'fake-claude', version: '1.0.0' }, { capabilities: {} });",
+        "const transport = new StreamableHTTPClientTransport(new URL(config.url), { requestInit: { headers: config.headers } });",
+        "await client.connect(transport);",
+        "catalogRequested = true;",
+        "await client.listTools();",
       ].join("\n"),
+    );
+    fs.writeFileSync(
+      fakeClaude,
+      '#!/bin/sh\nexec node "$STELLA_FAKE_CLAUDE_HELPER" "$@"\n',
     );
     fs.chmodSync(fakeClaude, 0o755);
     const previousPath = process.env.PATH;
+    const previousHelper = process.env.STELLA_FAKE_CLAUDE_HELPER;
     const previousLogPath = process.env.STELLA_FAKE_CLAUDE_LOG;
     process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+    process.env.STELLA_FAKE_CLAUDE_HELPER = helperPath;
     process.env.STELLA_FAKE_CLAUDE_LOG = logPath;
     try {
       const chunks: string[] = [];
@@ -682,13 +710,13 @@ describe("claude-code-session-runtime", () => {
         executeTool,
       });
 
+      expect(result.text).toBe("Clean answer.");
       const records = fs
         .readFileSync(logPath, "utf8")
         .trim()
         .split("\n")
         .map((line) => JSON.parse(line) as { argv: string[]; content: string });
       expect(records).toHaveLength(1);
-      expect(result.text).toBe("Clean answer.");
       expect(chunks.join("")).toBe("Clean answer.");
       expect(`${result.text}${chunks.join("")}`).not.toContain("court");
       expect(executeTool).not.toHaveBeenCalled();
@@ -732,6 +760,11 @@ describe("claude-code-session-runtime", () => {
     } finally {
       shutdownClaudeCodeRuntime();
       process.env.PATH = previousPath;
+      if (previousHelper === undefined) {
+        delete process.env.STELLA_FAKE_CLAUDE_HELPER;
+      } else {
+        process.env.STELLA_FAKE_CLAUDE_HELPER = previousHelper;
+      }
       if (previousLogPath === undefined) {
         delete process.env.STELLA_FAKE_CLAUDE_LOG;
       } else {
@@ -761,12 +794,13 @@ describe("claude-code-session-runtime", () => {
         "import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';",
         "let buffer = '';",
         "const argv = process.argv.slice(2);",
+        "const configPath = argv[argv.indexOf('--mcp-config') + 1];",
+        "const config = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.stella;",
+        "const client = new Client({ name: 'fake-claude', version: '1.0.0' }, { capabilities: {} });",
+        "const transport = new StreamableHTTPClientTransport(new URL(config.url), { requestInit: { headers: config.headers } });",
+        "await client.connect(transport);",
+        "await client.listTools();",
         "async function handle() {",
-        "  const configPath = argv[argv.indexOf('--mcp-config') + 1];",
-        "  const config = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.stella;",
-        "  const client = new Client({ name: 'fake-claude', version: '1.0.0' }, { capabilities: {} });",
-        "  const transport = new StreamableHTTPClientTransport(new URL(config.url), { requestInit: { headers: config.headers } });",
-        "  await client.connect(transport);",
         "  const toolResult = await client.callTool({ name: 'NoResponse', arguments: {} });",
         "  if (toolResult.isError) throw new Error('NoResponse failed');",
         "  await client.close();",
@@ -843,15 +877,16 @@ describe("claude-code-session-runtime", () => {
         "const argv = process.argv.slice(2);",
         "const logPath = process.env.STELLA_FAKE_CLAUDE_LOG;",
         "const spawnCount = (fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8').trim().split('\\n').filter(Boolean).length : 0) + 1;",
+        "const configPath = argv[argv.indexOf('--mcp-config') + 1];",
+        "const config = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.stella;",
+        "const client = new Client({ name: 'fake-claude', version: '1.0.0' }, { capabilities: {} });",
+        "const transport = new StreamableHTTPClientTransport(new URL(config.url), { requestInit: { headers: config.headers } });",
+        "await client.connect(transport);",
+        "await client.listTools();",
         "async function handle(line) {",
         "  const parsed = JSON.parse(line);",
         "  fs.appendFileSync(logPath, JSON.stringify({ spawnCount, content: parsed.message.content }) + '\\n');",
         "  if (spawnCount === 1) {",
-        "    const configPath = argv[argv.indexOf('--mcp-config') + 1];",
-        "    const config = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.stella;",
-        "    const client = new Client({ name: 'fake-claude', version: '1.0.0' }, { capabilities: {} });",
-        "    const transport = new StreamableHTTPClientTransport(new URL(config.url), { requestInit: { headers: config.headers } });",
-        "    await client.connect(transport);",
         "    const toolResult = await client.callTool({ name: 'mutate_once', arguments: { value: 1 } });",
         "    if (toolResult.isError) throw new Error('mutation failed');",
         "    await client.close();",
@@ -953,16 +988,17 @@ describe("claude-code-session-runtime", () => {
         "let buffer = '';",
         "let promptCount = 0;",
         "const argv = process.argv.slice(2);",
+        "const configPath = argv[argv.indexOf('--mcp-config') + 1];",
+        "const config = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.stella;",
+        "const client = new Client({ name: 'fake-claude', version: '1.0.0' }, { capabilities: {} });",
+        "const transport = new StreamableHTTPClientTransport(new URL(config.url), { requestInit: { headers: config.headers } });",
+        "await client.connect(transport);",
+        "await client.listTools();",
         "async function handle(line) {",
         "  promptCount += 1;",
         "  const parsed = JSON.parse(line);",
         "  fs.appendFileSync(process.env.STELLA_FAKE_CLAUDE_LOG, JSON.stringify({ promptCount, content: parsed.message.content }) + '\\n');",
         "  if (promptCount === 1) {",
-        "    const configPath = argv[argv.indexOf('--mcp-config') + 1];",
-        "    const config = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.stella;",
-        "    const client = new Client({ name: 'fake-claude', version: '1.0.0' }, { capabilities: {} });",
-        "    const transport = new StreamableHTTPClientTransport(new URL(config.url), { requestInit: { headers: config.headers } });",
-        "    await client.connect(transport);",
         "    const toolResult = await client.callTool({ name: 'charge_once', arguments: { cents: 25 } });",
         "    if (toolResult.isError) throw new Error('charge failed');",
         "    await client.close();",

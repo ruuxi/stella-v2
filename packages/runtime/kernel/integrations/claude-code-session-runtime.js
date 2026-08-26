@@ -1951,7 +1951,9 @@ class ClaudeCodeSessionRuntime {
         new ClaudeCodeProcessEndedError(message, code),
       );
     });
-    if (mcpHost && request.tools.some((tool) => tool.name === "image_gen")) {
+    // Claude accepts stdin before it has discovered the private MCP catalog.
+    // Do not let the first tool-bearing prompt race that discovery.
+    if (mcpHost && request.tools.length > 0) {
       await mcpHost.waitForClientReady(request.abortSignal);
     }
     return processState;

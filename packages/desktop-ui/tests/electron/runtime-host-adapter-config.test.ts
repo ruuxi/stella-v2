@@ -47,6 +47,19 @@ describe("RuntimeHostAdapter config batching", () => {
     });
   });
 
+  it("keeps cloud sync enabled when an older renderer requests local mode", async () => {
+    const adapter = createAdapter();
+    const anyAdapter = adapter as any;
+    anyAdapter.started = true;
+    const configure = vi.fn().mockResolvedValue({ ok: true });
+    anyAdapter.host.configure = configure;
+
+    adapter.setCloudSyncEnabled(false);
+    await Promise.resolve();
+
+    expect(configure).toHaveBeenCalledWith({ cloudSyncEnabled: true });
+  });
+
   it("does not mark a completed startChat result as the active run", async () => {
     const adapter = createAdapter();
     const anyAdapter = adapter as any;
@@ -65,6 +78,12 @@ describe("RuntimeHostAdapter config batching", () => {
     );
 
     expect(anyAdapter.activeRun).toBeNull();
+    expect(anyAdapter.host.startChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: "conversation-1",
+        storageMode: "cloud",
+      }),
+    );
   });
 });
 

@@ -27,6 +27,49 @@ export type ConversationFileEntry = {
   path: string;
   timestamp: number;
   payload: DisplayTabPayload;
+  /** Canonical cloud-drive identity. Opening resolves a signed drive URL. */
+  cloudDriveFile?: CloudDriveConversationFile;
+};
+
+export type CloudDriveConversationFile = {
+  path: string;
+  name: string;
+  sizeBytes: number;
+  contentType: string;
+  stored?: boolean;
+};
+
+const cloudDriveFilesFrom = (value: unknown): CloudDriveConversationFile[] => {
+  if (!Array.isArray(value)) return [];
+  const files: CloudDriveConversationFile[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const file = entry as {
+      path?: unknown;
+      name?: unknown;
+      sizeBytes?: unknown;
+      contentType?: unknown;
+      stored?: unknown;
+    };
+    if (typeof file.path !== "string" || !file.path) continue;
+    files.push({
+      path: file.path,
+      name:
+        typeof file.name === "string" && file.name
+          ? file.name
+          : (file.path.split("/").pop() ?? file.path),
+      sizeBytes:
+        typeof file.sizeBytes === "number" && Number.isFinite(file.sizeBytes)
+          ? file.sizeBytes
+          : 0,
+      contentType:
+        typeof file.contentType === "string" && file.contentType
+          ? file.contentType
+          : "application/octet-stream",
+      ...(file.stored === false ? { stored: false } : {}),
+    });
+  }
+  return files;
 };
 
 const resolvedPathForChange = (record: FileChangeRecord): string | null => {
@@ -56,9 +99,28 @@ export function deriveConversationFiles(
           createdAt?: unknown;
           fileChanges?: unknown;
           producedFiles?: unknown;
+          cloudDriveFiles?: unknown;
         }
       | undefined;
     if (!payload || typeof payload !== "object") continue;
+
+    for (const file of cloudDriveFilesFrom(payload.cloudDriveFiles)) {
+      const iconPath = file.path.startsWith("/") ? file.path : `/${file.path}`;
+      seen.set(`cloud:${file.path}`, {
+        path: file.path,
+        timestamp: event.timestamp,
+        payload: {
+          kind: "media",
+          asset: {
+            kind: "download",
+            filePath: iconPath,
+            label: file.name,
+          },
+          createdAt: event.timestamp,
+        },
+        cloudDriveFile: file,
+      });
+    }
 
     if (
       payload.toolName === "html" &&

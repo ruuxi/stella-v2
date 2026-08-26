@@ -85,6 +85,17 @@ export const WriteStdinSchema = z.object({
     .string()
     .optional()
     .describe("Characters to write to stdin. May be empty to poll."),
+  write_id: z
+    .string()
+    .min(1)
+    .max(256)
+    .optional()
+    .describe("Optional idempotency key for a write operation."),
+  operation: z
+    .enum(["write", "poll", "terminate", "close_stdin", "resize"])
+    .optional(),
+  cols: z.number().int().min(1).max(1000).optional(),
+  rows: z.number().int().min(1).max(1000).optional(),
   yield_time_ms: z.number().optional(),
   max_output_tokens: z.number().optional(),
 });

@@ -503,6 +503,16 @@ type ImageBlock = {
   mimeType: string;
   data: string;
   sourcePath: string;
+  width?: number;
+  height?: number;
+};
+
+type NodeReplImageRequest = {
+  type: "image";
+  path: string;
+  detail?: unknown;
+  alreadyAttached?: unknown;
+  deleteAfterAttach?: unknown;
 };
 
 const base64Length = (binaryBytes: number) => Math.ceil(binaryBytes / 3) * 4;
@@ -786,6 +796,93 @@ export const extractAttachImageBlocks = async (
   }
   stripped = stripped.replace(/[ \t]+\n/g, "\n").trim();
   return { text: stripped, images };
+};
+
+/**
+ * Materialize typed node_repl image items without converting them back into
+ * model-visible marker strings. Audio remains in structured details because
+ * the current ToolResultMessage content union supports text and images only.
+ */
+export const extractNodeReplImageBlocks = async (
+  details: unknown,
+  target: ImageCapTarget = {},
+): Promise<ImageBlock[]> => {
+  const nodeRepl =
+    details && typeof details === "object" && !Array.isArray(details)
+      ? (details as Record<string, unknown>).nodeRepl
+      : undefined;
+  const content =
+    nodeRepl && typeof nodeRepl === "object" && !Array.isArray(nodeRepl)
+      ? (nodeRepl as Record<string, unknown>).content
+      : undefined;
+  if (!Array.isArray(content)) return [];
+
+  const requests = content.filter(
+    (item: unknown): item is NodeReplImageRequest =>
+      Boolean(item) &&
+      typeof item === "object" &&
+      !Array.isArray(item) &&
+      (item as Record<string, unknown>).type === "image" &&
+      (item as Record<string, unknown>).alreadyAttached !== true &&
+      typeof (item as Record<string, unknown>).path === "string" &&
+      ABSOLUTE_IMAGE_PATH_RE.test(
+        (item as Record<string, unknown>).path as string,
+      ) &&
+      ATTACH_IMAGE_EXTENSION_RE.test(
+        (item as Record<string, unknown>).path as string,
+      ),
+  );
+  const images: ImageBlock[] = [];
+  for (const item of requests) {
+    try {
+      const buf = await readImageFileSettled(item.path);
+      const mimeType = resolveImageMimeType(item.path, buf);
+      if (!mimeType) continue;
+      const caps = resolveImageCaps({
+        ...target,
+        imageCount: requests.length,
+        detailOriginal: item.detail === "original",
+      });
+      const resized = await resizeImage(buf, mimeType, caps);
+      if (resized) {
+        images.push({
+          type: "image",
+          mimeType: resized.mimeType,
+          data: resized.data,
+          sourcePath: item.path,
+          width: resized.width,
+          height: resized.height,
+        });
+        continue;
+      }
+      const detected = detectImageMediaType(buf);
+      if (
+        !detected ||
+        !isCompleteImage(buf, detected) ||
+        base64Length(buf.length) > MAX_IMAGE_BASE64_BYTES
+      ) {
+        continue;
+      }
+      images.push({
+        type: "image",
+        mimeType,
+        data: buf.toString("base64"),
+        sourcePath: item.path,
+      });
+    } catch {
+      // A vanished or invalid typed image is omitted without degrading
+      // sibling items; its path remains available in tool details.
+    } finally {
+      // Browser screenshots created by the Node kernel transfer ownership
+      // here before a reset closes that kernel. Reading the bytes is the
+      // acknowledgement boundary; only kernel-marked temporary files are
+      // removed, never user-provided nodeRepl.emitImage paths.
+      if (item.deleteAfterAttach === true) {
+        await fs.rm(item.path, { force: true }).catch(() => undefined);
+      }
+    }
+  }
+  return images;
 };
 
 type RuntimeToolContextArgs = {
@@ -1080,6 +1177,10 @@ export const createPiTools = (opts: {
       // the screenshot on the very next turn with no extra Read step.
       const { text: forwardedText, images: legacyImages } =
         await extractAttachImageBlocks(formatted.text, opts.imageCapTarget);
+      const nodeReplImages = await extractNodeReplImageBlocks(
+        formatted.details,
+        opts.imageCapTarget,
+      );
       const preservedText = await preserveModelVisibleToolText(
         forwardedText,
         {
@@ -1091,11 +1192,12 @@ export const createPiTools = (opts: {
       );
       const truncatedText = preservedText.text;
       const content: Array<TextContent | ImageBlock> = [];
+      const attachedImages = [...nodeReplImages, ...legacyImages];
       const screenshotNote =
-        legacyImages.length > 0
+        attachedImages.length > 0
           ? "\n\n[Image attached below. Inspect it directly. If it is a UI screenshot and the accessibility tree is sparse or missing a visible control, use screenshot x/y coordinates.]"
           : "";
-      if (truncatedText || legacyImages.length === 0) {
+      if (truncatedText || attachedImages.length === 0) {
         content.push({
           type: "text" as const,
           text: `${truncatedText}${screenshotNote}`,
@@ -1106,7 +1208,7 @@ export const createPiTools = (opts: {
           text: screenshotNote.trim(),
         });
       }
-      content.push(...legacyImages);
+      content.push(...attachedImages);
       return {
         content,
         details: preservedText.artifact

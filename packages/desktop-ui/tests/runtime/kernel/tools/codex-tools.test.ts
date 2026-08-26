@@ -11,10 +11,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { handleApplyPatch } from "@stella/runtime/kernel/tools/apply-patch";
 import { createToolHost } from "@stella/runtime/kernel/tools/host";
 import { createExecCommandTool } from "@stella/runtime/kernel/tools/defs/exec-command";
+import { createWriteStdinTool } from "@stella/runtime/kernel/tools/defs/write-stdin";
 import {
   createShellState,
   handleExecCommand,
   handleWriteStdin,
+  resolveDefaultShell,
   resolveShellLaunch,
 } from "@stella/runtime/kernel/tools/shell";
 import { createAsyncTempDirTracker } from "../../../helpers/temp.js";
@@ -48,6 +50,22 @@ const execTextOf = (result: { result?: unknown }): string =>
   result.result as string;
 
 describe("general agent tools", () => {
+  it("write_stdin advertises idempotent writes and explicit controls", async () => {
+    const root = await createTempDir();
+    const definition = createWriteStdinTool(createShellState(root));
+    const properties = definition.parameters.properties as Record<
+      string,
+      Record<string, unknown>
+    >;
+
+    expect(properties.write_id).toMatchObject({ type: "string" });
+    expect(properties.operation).toMatchObject({
+      enum: ["write", "poll", "terminate", "close_stdin", "resize"],
+    });
+    expect(properties.cols).toMatchObject({ minimum: 1, maximum: 1000 });
+    expect(properties.rows).toMatchObject({ minimum: 1, maximum: 1000 });
+  });
+
   it("exec_command advertises pipes by default and a cross-platform opt-in PTY", async () => {
     const root = await createTempDir();
     const definition = createExecCommandTool(createShellState(root));
@@ -166,6 +184,130 @@ describe("general agent tools", () => {
     expect(execTextOf(result).split("\nOutput:\n").at(-1)).not.toContain("l");
   });
 
+  it("exec_command follows the Unix login shell with Codex-style fallbacks", () => {
+    const macFiles = new Set(["/bin/zsh", "/bin/bash", "/bin/sh"]);
+    const macExists = (candidate: string) => macFiles.has(candidate);
+    expect(
+      resolveDefaultShell(
+        "darwin",
+        {},
+        {
+          userShell: "/bin/bash",
+          executableExists: macExists,
+        },
+      ),
+    ).toBe("/bin/bash");
+    expect(
+      resolveDefaultShell(
+        "darwin",
+        {},
+        {
+          userShell: "/usr/local/bin/fish",
+          executableExists: macExists,
+        },
+      ),
+    ).toBe("/bin/zsh");
+
+    const linuxFiles = new Set(["/bin/bash", "/bin/zsh", "/bin/sh"]);
+    const linuxExists = (candidate: string) => linuxFiles.has(candidate);
+    expect(
+      resolveDefaultShell(
+        "linux",
+        {},
+        {
+          userShell: "/bin/zsh",
+          executableExists: linuxExists,
+        },
+      ),
+    ).toBe("/bin/zsh");
+    const pwsh = "/usr/local/bin/pwsh";
+    const powerShellLaunch = resolveShellLaunch(
+      "Get-ChildItem Env:",
+      {},
+      "linux",
+      {},
+      {
+        userShell: pwsh,
+        executableExists: (candidate) => candidate === pwsh,
+      },
+    );
+    if ("error" in powerShellLaunch) {
+      throw new Error(powerShellLaunch.error);
+    }
+    expect(powerShellLaunch.shell).toBe(pwsh);
+    expect(powerShellLaunch.args).toContain("-EncodedCommand");
+    expect(
+      resolveDefaultShell(
+        "linux",
+        {},
+        {
+          userShell: "/usr/bin/fish",
+          executableExists: linuxExists,
+        },
+      ),
+    ).toBe("/bin/bash");
+    expect(
+      resolveDefaultShell(
+        "linux",
+        {},
+        {
+          userShell: null,
+          executableExists: () => false,
+        },
+      ),
+    ).toBe("/bin/sh");
+  });
+
+  it("exec_command defaults Windows to pwsh, then Windows PowerShell, then cmd", () => {
+    const pwshPath = "C:\\Program Files\\PowerShell\\7\\pwsh.exe";
+    const windowsPowerShellPath =
+      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+
+    expect(
+      resolveDefaultShell(
+        "win32",
+        {},
+        {
+          executableExists: (candidate) => candidate === pwshPath,
+        },
+      ),
+    ).toBe(pwshPath);
+    expect(
+      resolveDefaultShell(
+        "win32",
+        {},
+        {
+          executableExists: (candidate) => candidate === windowsPowerShellPath,
+        },
+      ),
+    ).toBe(windowsPowerShellPath);
+    expect(
+      resolveDefaultShell(
+        "win32",
+        {},
+        {
+          executableExists: () => false,
+        },
+      ),
+    ).toBe("cmd.exe");
+
+    const command = "Get-ChildItem Env:";
+    const launch = resolveShellLaunch(
+      command,
+      {},
+      "win32",
+      {},
+      {
+        executableExists: (candidate) => candidate === windowsPowerShellPath,
+      },
+    );
+    if ("error" in launch) throw new Error(launch.error);
+    expect(launch.shell).toBe(windowsPowerShellPath);
+    expect(Buffer.from(launch.args.at(-1)!, "base64").toString("utf16le")).toBe(
+      command,
+    );
+  });
+
   it("exec_command uses PowerShell-native arguments on Windows", () => {
     const command =
       'git --version; & "C:\\Program Files\\GitHub CLI\\gh.exe" --version';
@@ -206,12 +348,15 @@ describe("general agent tools", () => {
     expect(interactiveLaunch.args).toContain("-EncodedCommand");
   });
 
-  it("exec_command preserves quoted cmd.exe source verbatim on Windows", () => {
+  it("exec_command preserves quoted source for an explicit cmd.exe shell", () => {
     const command =
       '"C:\\Program Files\\GitHub CLI\\gh.exe" --version & cd /d "C:\\Program Files\\Git"';
-    const launch = resolveShellLaunch(command, {}, "win32", {
-      ComSpec: "C:\\Windows\\System32\\cmd.exe",
-    });
+    const launch = resolveShellLaunch(
+      command,
+      { shell: "C:\\Windows\\System32\\cmd.exe" },
+      "win32",
+      {},
+    );
     if ("error" in launch) throw new Error(launch.error);
 
     expect(launch).toEqual({
@@ -362,6 +507,17 @@ describe("general agent tools", () => {
       );
       const sessionId = started.details?.session_id;
       if (!sessionId) throw new Error("interactive PTY did not stay running");
+      const resized = await handleWriteStdin(
+        state,
+        {
+          session_id: sessionId,
+          operation: "resize",
+          cols: 100,
+          rows: 40,
+          yield_time_ms: 0,
+        },
+        context,
+      );
       const writes = [];
       writes.push(
         await handleWriteStdin(
@@ -379,7 +535,9 @@ describe("general agent tools", () => {
           ),
         );
       }
-      console.log("STELLA_PTY_RESULT=" + JSON.stringify({ probe, started, writes }));
+      console.log(
+        "STELLA_PTY_RESULT=" + JSON.stringify({ probe, started, resized, writes }),
+      );
     `;
     const { stdout } = await execFileAsync(bunExecutable, ["-e", source], {
       cwd: repoRoot,
@@ -398,6 +556,15 @@ describe("general agent tools", () => {
       exit_code: 0,
     });
     expect(fixture.probe.result).toContain("tty-ready");
+    expect(fixture.resized.error).toBeUndefined();
+    expect(fixture.resized.details).toMatchObject({
+      operation: "resize",
+      terminal_size: { cols: 100, rows: 40 },
+      chunk_receipt: {
+        operation: "resize",
+        terminal_size: { cols: 100, rows: 40 },
+      },
+    });
     const interactionOutput = [
       fixture.started?.result,
       ...fixture.writes.map((write: { result?: string }) => write.result),

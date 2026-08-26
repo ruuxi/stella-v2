@@ -109,6 +109,7 @@ export const BROWSER_PROTOCOL_ACTIONS = [
   "evaluate_detached",
   "rewrite_request",
   "unrewrite_request",
+  "mark_tab",
   "finalize_tabs",
   "close_owner",
   "release_owner_lease",
@@ -196,6 +197,8 @@ export type BrowserChainOptions = BrowserCommandOptions &
     waitTimeoutMs?: number;
     returnSnapshot?: boolean;
     returnScreenshot?: boolean;
+    /** @internal Routes a worker handle without changing the session default. */
+    __stellaBrowserBackend?: BrowserBackend;
   }>;
 
 export type BrowserChainStepResult<TData = unknown> = Readonly<{
@@ -204,6 +207,7 @@ export type BrowserChainStepResult<TData = unknown> = Readonly<{
   success: boolean;
   data?: TData;
   error?: string;
+  outcomeUnknown?: boolean;
   durationMs: number;
 }>;
 
@@ -265,13 +269,22 @@ export interface BrowserSessionClient {
 }
 
 export type BrowserSessionCommandErrorCode =
-  "command_failed" | "execution_failed";
+  | "command_failed"
+  | "execution_failed";
+
+export type BrowserCommandTimeoutSource = "caller" | "runtime-default";
+
+export const WORKER_BOUND_BACKEND_PARAM = "__stellaBrowserBackend";
 
 export class BrowserSessionCommandError extends Error {
   readonly code: BrowserSessionCommandErrorCode;
   readonly requestId: string;
   readonly action: string;
   readonly receipt?: BrowserCommandAttemptReceipt;
+  readonly timeoutMs?: number;
+  readonly timeoutSource?: BrowserCommandTimeoutSource;
+  readonly requestDispatched?: boolean;
+  readonly outcomeUnknown?: boolean;
 
   constructor(
     code: BrowserSessionCommandErrorCode,
@@ -280,6 +293,10 @@ export class BrowserSessionCommandError extends Error {
       requestId: string;
       action: string;
       receipt?: BrowserCommandAttemptReceipt;
+      timeoutMs?: number;
+      timeoutSource?: BrowserCommandTimeoutSource;
+      requestDispatched?: boolean;
+      outcomeUnknown?: boolean;
       cause?: unknown;
     },
   ) {
@@ -289,6 +306,10 @@ export class BrowserSessionCommandError extends Error {
     this.requestId = options.requestId;
     this.action = options.action;
     this.receipt = options.receipt;
+    this.timeoutMs = options.timeoutMs;
+    this.timeoutSource = options.timeoutSource;
+    this.requestDispatched = options.requestDispatched;
+    this.outcomeUnknown = options.outcomeUnknown;
   }
 }
 
@@ -330,7 +351,8 @@ type ResolvedExecutionConfig = Readonly<{
   bridgeSessionId: string;
   env: NodeJS.ProcessEnv;
   endpoint:
-    Readonly<{ path: string }> | Readonly<{ host: string; port: number }>;
+    | Readonly<{ path: string }>
+    | Readonly<{ host: string; port: number }>;
 }>;
 
 type PendingResponse = {
@@ -695,6 +717,16 @@ const validateParams = (
   );
 };
 
+const validateBrowserBackend = (
+  value: unknown,
+  name: string,
+): BrowserBackend => {
+  if (value !== "in-app" && value !== "external") {
+    throw new TypeError(`${name} must be 'in-app' or 'external'.`);
+  }
+  return value;
+};
+
 const validateAction = (
   value: unknown,
   name = "action",
@@ -824,6 +856,13 @@ const validateChainOptions = (
     waitTimeoutMs,
     returnSnapshot: value.returnSnapshot,
     returnScreenshot: value.returnScreenshot,
+    __stellaBrowserBackend:
+      value.__stellaBrowserBackend === undefined
+        ? undefined
+        : validateBrowserBackend(
+            value.__stellaBrowserBackend,
+            WORKER_BOUND_BACKEND_PARAM,
+          ),
   });
 };
 
@@ -957,27 +996,37 @@ const getChainTimeoutMs = (
 const leaseFingerprint = (leaseId: string): string =>
   createHash("sha256").update(leaseId).digest("hex").slice(0, 12);
 
-const getCommandTimeoutMs = (
+const getCommandDeadline = (
   commandTimeoutMs: number,
   params: BrowserCommandParams,
-): number => {
+): Readonly<{
+  timeoutMs: number;
+  source: BrowserCommandTimeoutSource;
+}> => {
   const requestedTimeout = params.timeout;
   if (
     typeof requestedTimeout !== "number" ||
     !Number.isSafeInteger(requestedTimeout) ||
     requestedTimeout < 0
   ) {
-    return commandTimeoutMs;
+    return Object.freeze({
+      timeoutMs: commandTimeoutMs,
+      source: "runtime-default",
+    });
   }
 
   // The daemon/action timeout is an inner deadline. Leave a small transport
   // grace period so a caller asking waitForURL(..., { timeout: 120_000 }) does
   // not get cut off by the client's historical 30-second default (or race the
   // response at exactly 120 seconds).
-  return Math.max(
+  const timeoutMs = Math.max(
     commandTimeoutMs,
     requestedTimeout + BROWSER_COMMAND_TIMEOUT_GRACE_MS,
   );
+  return Object.freeze({
+    timeoutMs,
+    source: timeoutMs > commandTimeoutMs ? "caller" : "runtime-default",
+  });
 };
 
 export class BrowserSession implements BrowserSessionClient {
@@ -1139,12 +1188,14 @@ export class BrowserSession implements BrowserSessionClient {
     const validatedParams = validateParams(params);
     const validatedOptions = validateCommandOptions(options);
     this.assertOpen();
+    const deadline = getCommandDeadline(this.commandTimeoutMs, validatedParams);
     return await this.enqueue(async () =>
       this.execute<TData>(
         validatedAction,
         validatedParams,
         combineSignals(this.signal, validatedOptions.signal),
-        getCommandTimeoutMs(this.commandTimeoutMs, validatedParams),
+        deadline.timeoutMs,
+        deadline.source,
       ),
     );
   }
@@ -1191,6 +1242,12 @@ export class BrowserSession implements BrowserSessionClient {
       ...(validatedOptions.returnScreenshot === undefined
         ? {}
         : { returnScreenshot: validatedOptions.returnScreenshot }),
+      ...(validatedOptions.__stellaBrowserBackend === undefined
+        ? {}
+        : {
+            [WORKER_BOUND_BACKEND_PARAM]:
+              validatedOptions.__stellaBrowserBackend,
+          }),
     });
 
     return await this.enqueue(async () =>
@@ -1199,6 +1256,7 @@ export class BrowserSession implements BrowserSessionClient {
         params,
         combineSignals(this.signal, validatedOptions.signal),
         chainTimeoutMs + BROWSER_COMMAND_TIMEOUT_GRACE_MS,
+        validatedOptions.timeoutMs === undefined ? "runtime-default" : "caller",
       ),
     );
   }
@@ -1351,7 +1409,9 @@ export class BrowserSession implements BrowserSessionClient {
         {
           id: requestId,
           action,
-          ...(action === "finalize_tabs" ? { keep: [] } : {}),
+          ...(action === "finalize_tabs"
+            ? { keep: [], preserveMarked: true }
+            : {}),
           ownerId: this.sessionId,
           sessionId: this.sessionId,
           turnId: turn.turnId,
@@ -1507,18 +1567,38 @@ export class BrowserSession implements BrowserSessionClient {
     params: BrowserCommandParams,
     signal: AbortSignal | undefined,
     timeoutMs = this.commandTimeoutMs,
+    timeoutSource: BrowserCommandTimeoutSource = "runtime-default",
   ): Promise<BrowserCommandReceipt<TData>> {
     this.assertOpen();
     throwIfAborted(signal);
     const turn = this.ensureTurn();
-    const backend = this.selectedBackend;
+    const requestedBackend = params[WORKER_BOUND_BACKEND_PARAM];
+    if (
+      requestedBackend !== undefined &&
+      requestedBackend !== "in-app" &&
+      requestedBackend !== "external"
+    ) {
+      throw new TypeError(
+        `${WORKER_BOUND_BACKEND_PARAM} must be 'in-app' or 'external'.`,
+      );
+    }
+    const backend = (requestedBackend ??
+      this.selectedBackend) as BrowserBackend;
+    const requestParams =
+      requestedBackend === undefined
+        ? params
+        : Object.fromEntries(
+            Object.entries(params).filter(
+              ([key]) => key !== WORKER_BOUND_BACKEND_PARAM,
+            ),
+          );
     this.activeTurnBackends.add(backend);
     let config = this.ownerRoute?.config ?? this.resolveExecutionConfig();
     const requestId = randomUUID();
     const request = {
       id: requestId,
       action,
-      ...params,
+      ...requestParams,
       ownerId: this.sessionId,
       sessionId: this.sessionId,
       turnId: turn.turnId,
@@ -1566,7 +1646,10 @@ export class BrowserSession implements BrowserSessionClient {
               { retryable: true },
             );
           }
-          if (!response.success && isAuthorizationHandoffError(response.error)) {
+          if (
+            !response.success &&
+            isAuthorizationHandoffError(response.error)
+          ) {
             throw new BrowserTransportError(
               "authorization_handoff",
               response.error,
@@ -1617,12 +1700,26 @@ export class BrowserSession implements BrowserSessionClient {
           : String(signal.reason ?? "AbortSignal")
         : undefined;
       const provenance = `owner=${this.sessionId} turn=${turn.turnId} lease#=${leaseFingerprint(turn.ownerLeaseId)} request=${requestId} action=${action}`;
+      const timedOut =
+        (cause instanceof BrowserTransportError && cause.code === "timeout") ||
+        /timed out/i.test(message);
+      const timeoutProvenance = timedOut
+        ? ` [browser deadline: timeoutMs=${timeoutMs} source=${timeoutSource} dispatched=${requestDispatched} outcome=${requestDispatched ? "unknown" : "not-started"}]`
+        : "";
       throw new BrowserSessionCommandError(
         "execution_failed",
-        `${message}${abortSource ? ` (abort source: ${abortSource})` : ""} [browser provenance: ${provenance}]`,
+        `${message}${abortSource ? ` (abort source: ${abortSource})` : ""}${timeoutProvenance} [browser provenance: ${provenance}]`,
         {
           requestId,
           action,
+          ...(timedOut
+            ? {
+                timeoutMs,
+                timeoutSource,
+                requestDispatched,
+                outcomeUnknown: requestDispatched,
+              }
+            : {}),
           cause,
         },
       );
@@ -1639,10 +1736,44 @@ export class BrowserSession implements BrowserSessionClient {
       durationMs: Date.now() - startedAt,
     });
     if (!response.success) {
-      throw new BrowserSessionCommandError("command_failed", response.error, {
+      const timedOut = /(?:tim(?:ed)?\s*out|timeout|execution budget)/i.test(
+        response.error,
+      );
+      const requestedTimeout = params.timeout;
+      const reportedTimeoutMs =
+        timedOut &&
+        typeof requestedTimeout === "number" &&
+        Number.isSafeInteger(requestedTimeout) &&
+        requestedTimeout >= 0
+          ? requestedTimeout
+          : timeoutMs;
+      const reportedTimeoutSource: BrowserCommandTimeoutSource =
+        timedOut && reportedTimeoutMs === requestedTimeout
+          ? "caller"
+          : timeoutSource;
+      const reportedOutcomeUnknown =
+        timedOut && response.outcomeUnknown === true;
+      const outcomeUnknownReason =
+        reportedOutcomeUnknown &&
+        typeof response.outcomeUnknownReason === "string" &&
+        response.outcomeUnknownReason.trim()
+          ? response.outcomeUnknownReason
+          : undefined;
+      const message = timedOut
+        ? `${response.error} [browser deadline: timeoutMs=${reportedTimeoutMs} source=${reportedTimeoutSource} dispatched=true outcome=${reportedOutcomeUnknown ? "unknown" : "failed"}]${outcomeUnknownReason ? ` ${outcomeUnknownReason}` : ""}`
+        : response.error;
+      throw new BrowserSessionCommandError("command_failed", message, {
         requestId,
         action,
         receipt,
+        ...(timedOut
+          ? {
+              timeoutMs: reportedTimeoutMs,
+              timeoutSource: reportedTimeoutSource,
+              requestDispatched: true,
+              outcomeUnknown: reportedOutcomeUnknown,
+            }
+          : {}),
       });
     }
     return receipt as BrowserCommandReceipt<TData>;
@@ -1744,9 +1875,7 @@ export class BrowserSession implements BrowserSessionClient {
       return;
     } catch (initialError) {
       throwIfAborted(signal);
-      if (
-        this.isManagedBridge()
-      ) {
+      if (this.isManagedBridge()) {
         throw initialError;
       }
       if (this.fallbackAttempted) throw initialError;

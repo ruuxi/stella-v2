@@ -690,6 +690,43 @@ const smokeTestWorkerChunksUnderBun = () => {
   );
 };
 
+export const smokeTestNodeCliEntry = (
+  entryPath,
+  args = ["--help"],
+  { cwd = repoRootDir } = {},
+) => {
+  const result = spawnSync(process.execPath, [entryPath, ...args], {
+    cwd,
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `Node CLI smoke test failed for ${entryPath}:\n` +
+        `${result.stderr || result.stdout || result.error?.message || "unknown error"}`,
+    );
+  }
+  return result.stdout;
+};
+
+const smokeTestNodeCliBundles = () => {
+  const computerCliPath = path.join(
+    desktopDir,
+    outdir,
+    "runtime",
+    "kernel",
+    "cli",
+    "stella-computer.js",
+  );
+  const stdout = smokeTestNodeCliEntry(computerCliPath);
+  if (!stdout.includes("stella-computer - control")) {
+    throw new Error(
+      "Node CLI smoke test did not return the stella-computer help contract.",
+    );
+  }
+  console.log("[electron-build] stella-computer CLI runs cleanly under Node.");
+};
+
 const verifyApplicationIdentifiersInChild = () => {
   const verifierPath = path.join(scriptDir, "verify-packaged-identifiers.mjs");
   const result = spawnSync(
@@ -735,6 +772,7 @@ if (isRunDirectly) {
       verifyApplicationIdentifiersInChild();
     }
     smokeTestWorkerChunksUnderBun();
+    smokeTestNodeCliBundles();
     writeBundleFingerprint(computeBundleInputsFingerprint());
     process.exit(0);
   } catch (error) {

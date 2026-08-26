@@ -24,7 +24,15 @@ export type BrowserWorkerApiOptions = Readonly<{
   maxExpectNewTabTimeoutMs?: number;
 }>;
 
+export type BrowserWorkerScreenshotReceipt = Readonly<{
+  attached: true;
+  path: string;
+  format: "png" | "jpeg";
+  mimeType: "image/png" | "image/jpeg";
+}>;
+
 export interface BrowserWorkerLocator {
+  readonly backend: BrowserWorkerBackend;
   locator(selector: string): BrowserWorkerLocator;
   filter(options: Record<string, unknown>): BrowserWorkerLocator;
   nth(index: number): BrowserWorkerLocator;
@@ -161,6 +169,7 @@ export interface BrowserWorkerKeyboard {
 }
 
 export interface BrowserWorkerTab {
+  readonly backend: BrowserWorkerBackend;
   readonly id: number;
   readonly generation: string;
   readonly playwright: BrowserWorkerPlaywright;
@@ -172,10 +181,14 @@ export interface BrowserWorkerTab {
   forward(options?: Record<string, unknown>): Promise<unknown>;
   reload(options?: Record<string, unknown>): Promise<unknown>;
   close(): Promise<unknown>;
+  markDeliverable(): Promise<unknown>;
+  markHandoff(): Promise<unknown>;
   url(): Promise<string>;
   title(): Promise<string>;
   snapshot(options?: Record<string, unknown>): Promise<unknown>;
-  screenshot(options?: Record<string, unknown>): Promise<unknown>;
+  screenshot(
+    options?: Record<string, unknown>,
+  ): Promise<BrowserWorkerScreenshotReceipt>;
   scroll(options?: Record<string, unknown>): Promise<unknown>;
   expectNewTab(
     action: () => unknown | Promise<unknown>,
@@ -196,7 +209,11 @@ export interface BrowserWorkerApi {
   use(
     backend: BrowserWorkerBackend,
   ): Promise<Readonly<{ backend: BrowserWorkerBackend }>>;
-  documentation(): string;
+  readonly capabilities: Readonly<{
+    observations: readonly string[];
+    actions: readonly string[];
+    notes: readonly string[];
+  }>;
   chain(
     steps: readonly BrowserWorkerChainStep[],
     options?: BrowserWorkerChainOptions,
@@ -239,38 +256,6 @@ export function installBrowserWorkerApi(
       `maxExpectNewTabTimeoutMs must be an integer from 1 to ${ABSOLUTE_EXPECT_NEW_TAB_TIMEOUT_MS}.`,
     );
   }
-
-  const DOCUMENTATION = `BrowserSession worker API
-
-Run multiple awaited browser actions in one REPL cell. Keep the Tab and Locator objects you create and reuse them instead of looking them up again. The objects are frozen but introspectable: Object.keys(tab), Object.keys(locator), etc. list their methods.
-
-Backend: browser.backend starts as "in-app". Keep the in-app browser for ordinary browsing. When a task specifically needs the user's real signed-in Chromium browser, call await browser.use("external") to route subsequent browser calls through the installed Stella Browser extension. Call await browser.use("in-app") to switch back. External mode depends on the extension's currently supported command set.
-
-Tabs: browser.tabs.list()/new(url)/selected()/get(id). On a tab: goto, back, forward, reload, url(), title(), close(), snapshot(), screenshot(). tab.expectNewTab(() => action) awaits a click that opens a new tab and returns it. Keep one task-owned tab and drive every navigation through tab.goto() on that same handle — never open a new tab per page. Open an extra tab only when the task genuinely needs two pages at once, and close() throwaway tabs as soon as they are done; leftover tabs pile up in the user's browser, especially in external mode.
-
-Locators: tab.playwright.locator(css) and getByRole/getByText/getByLabel/getByPlaceholder/getByTestId, refined with .filter/.nth/.first/.last. Selectors search the top document plus same-origin iframes and open shadow roots; cross-origin frames cannot be searched and not-found errors say how many were skipped. Actions: click, dblclick, fill, type, press, hover, focus, check, uncheck, setChecked, selectOption, setInputFiles (absolute file paths for <input type=file>), scrollIntoViewIfNeeded. Reads: innerText, textContent, inputValue, getAttribute, count, isVisible, isEnabled, isChecked, boundingBox, allTextContents, evaluate. Use playwright.waitForFunction(fn, { timeout }) for minute-scale page waits; playwright.schedule(fn) starts page work without awaiting its promise.
-
-Network: tab.network.requests() returns a bounded protocol-level request/response history. waitForResponse(pattern, () => action, { timeout }) arms observation before the action and returns status, headers, and a bounded body. rewriteRequest(pattern, { jsonPatch }) merges fields into matching JSON request bodies at the CDP Fetch boundary; clearRequestRewrite() removes it. network.fetch(url, options) makes a same-origin request from the daemon with the tab's applicable cookies and never returns cookie values. fetchAll(requests, { concurrency: 1..4 }) runs true concurrent daemon HTTP work while preserving result order.
-
-Use the cheapest state check that answers the question: url(), title(), count(), isVisible(), isEnabled(), or isChecked(). Use snapshot/domSnapshot only when page structure is needed, and screenshots only when pixels matter.
-
-Use waitFor(), waitForURL(), or expectNewTab() for browser-driven changes. Do not add sleeps between deterministic actions. Observe after an action only when the next action genuinely branches on what changed.
-
-Keyboard: tab.press(key) sends a page-level key press to whatever holds focus — use it for Enter, Escape, Tab, and shortcuts like "Control+a" or "Meta+Shift+P". locator.press(key) focuses its element first, then presses. tab.keyboard.type(text) inserts raw text at the current focus without per-character key events (works for emoji/CJK).
-
-Scrolling: tab.scroll({ y: 600 }) scrolls the page by pixel deltas (negative scrolls up/left); tab.scroll({ selector: ".list", direction: "down", amount: 300 }) scrolls an element. Prefer scrollIntoViewIfNeeded() before acting on an element.
-
-Batching: browser.chain([{ action, params }, ...], options) runs allowlisted steps in one round-trip with implicit selector waits — useful for long fixed sequences. Every params needs tabId except tab_list/tab_new.
-
-Cleanup: when a task ends, await browser.tabs.finalize([{ tab, status: "handoff" | "deliverable" }]) to keep the listed tabs and close every other tab this session opened; finalize() with no arguments closes them all.
-
-Example:
-const tab = await browser.tabs.new("https://example.com");
-const submit = tab.playwright.getByRole("button", { name: "Submit", exact: true });
-await submit.click();
-await tab.playwright.waitForURL("**/complete");
-const title = await tab.title();
-await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
 
   const isPlainObject = (value: unknown): value is Record<string, unknown> => {
     if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -371,7 +356,12 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     }
     return new Error(String(value ?? "Browser command failed."));
   };
-  const currentTabGeneration = new Map<number, string>();
+  let selectedBackend: BrowserWorkerBackend = "in-app";
+  const currentTabGeneration = new Map<string, string>();
+  const generationKey = (
+    backend: BrowserWorkerBackend,
+    tabId: number,
+  ): string => `${backend}:${tabId}`;
   const isLegacyTabGeneration = (generation: string): boolean =>
     generation.startsWith("legacy:");
   const tabGenerationParams = (
@@ -381,8 +371,9 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
   const assertCurrentTabGeneration = (
     tabId: number,
     generation: string,
+    backend: BrowserWorkerBackend = selectedBackend,
   ): void => {
-    const current = currentTabGeneration.get(tabId);
+    const current = currentTabGeneration.get(generationKey(backend, tabId));
     if (current !== undefined && current !== generation) {
       throw new Error(
         `Stale browser tab handle ${tabId} generation ${generation}; the numeric tab id now refers to generation ${current}. Call browser.tabs.list() and use the current handle.`,
@@ -391,6 +382,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
   };
   const stampTabGeneration = (
     params: Record<string, unknown>,
+    backend: BrowserWorkerBackend = selectedBackend,
   ): Record<string, unknown> => {
     const tabId = params.tabId;
     if (
@@ -400,7 +392,9 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     ) {
       return params;
     }
-    const generation = currentTabGeneration.get(tabId as number);
+    const generation = currentTabGeneration.get(
+      generationKey(backend, tabId as number),
+    );
     if (generation === undefined || isLegacyTabGeneration(generation)) {
       return params;
     }
@@ -436,15 +430,31 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
   const command = async (
     action: string,
     params: Record<string, unknown>,
+    backend?: BrowserWorkerBackend,
   ): Promise<unknown> =>
     unwrapResponse(
-      await callBrowser("command", [action, stampTabGeneration(params)]),
+      await callBrowser("command", [
+        action,
+        {
+          ...stampTabGeneration(params, backend),
+          ...(backend ? { __stellaBrowserBackend: backend } : {}),
+        },
+      ]),
     );
   const sendChain = async (
     steps: readonly BrowserWorkerChainStep[],
     chainOptions: BrowserWorkerChainOptions,
+    backend?: BrowserWorkerBackend,
   ): Promise<unknown> =>
-    unwrapResponse(await callBrowser("chain", [steps, chainOptions]));
+    unwrapResponse(
+      await callBrowser("chain", [
+        steps,
+        {
+          ...chainOptions,
+          ...(backend ? { __stellaBrowserBackend: backend } : {}),
+        },
+      ]),
+    );
   const field = (value: unknown, key: string): unknown =>
     isPlainObject(value) && Object.prototype.hasOwnProperty.call(value, key)
       ? value[key]
@@ -655,6 +665,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
   };
 
   type LocatorState = {
+    backend: BrowserWorkerBackend;
     tabId: number;
     tabGeneration: string;
     selector: string;
@@ -667,6 +678,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     marker: string;
   };
   type TabState = {
+    backend: BrowserWorkerBackend;
     id: number;
     generation: string;
     url: string;
@@ -677,7 +689,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     network?: BrowserWorkerNetwork;
   };
   const currentTabId = (state: TabState): number => {
-    assertCurrentTabGeneration(state.id, state.generation);
+    assertCurrentTabGeneration(state.id, state.generation, state.backend);
     return state.id;
   };
 
@@ -700,6 +712,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
   let nextMarker = 1;
 
   const locatorKey = (
+    backend: BrowserWorkerBackend,
     tabId: number,
     tabGeneration: string,
     selector: string,
@@ -707,6 +720,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     textFilters: LocatorState["textFilters"],
   ): string =>
     JSON.stringify([
+      backend,
       tabId,
       tabGeneration,
       selector,
@@ -934,6 +948,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
           }),
         ],
         Object.freeze({ abortOnError: false, waitForSelector: false }),
+        state.backend,
       );
       chainStepData(result, 0);
       return chainStepData(result, 1);
@@ -942,11 +957,15 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       throw error;
     } finally {
       try {
-        await command("evaluate", {
-          tabId: state.tabId,
-          ...tabGenerationParams(state.tabGeneration),
-          script: cleanupScript,
-        });
+        await command(
+          "evaluate",
+          {
+            tabId: state.tabId,
+            ...tabGenerationParams(state.tabGeneration),
+            script: cleanupScript,
+          },
+          state.backend,
+        );
       } catch (cleanupError) {
         if (actionError === undefined) throw cleanupError;
       }
@@ -960,6 +979,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
   // properties (same functions/getters, so behavior and identity are
   // unchanged) before the instance is frozen.
   const TAB_PUBLIC_API = Object.freeze([
+    "backend",
     "id",
     "generation",
     "playwright",
@@ -971,6 +991,8 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     "forward",
     "reload",
     "close",
+    "markDeliverable",
+    "markHandoff",
     "url",
     "title",
     "snapshot",
@@ -979,6 +1001,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     "expectNewTab",
   ] as const);
   const LOCATOR_PUBLIC_API = Object.freeze([
+    "backend",
     "locator",
     "filter",
     "nth",
@@ -1047,8 +1070,16 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     private state(): LocatorState {
       const state = locatorState.get(this);
       if (!state) throw new Error("Invalid Locator object.");
-      assertCurrentTabGeneration(state.tabId, state.tabGeneration);
+      assertCurrentTabGeneration(
+        state.tabId,
+        state.tabGeneration,
+        state.backend,
+      );
       return state;
+    }
+
+    get backend(): BrowserWorkerBackend {
+      return this.state().backend;
     }
 
     locator(selector: string): BrowserWorkerLocator {
@@ -1064,6 +1095,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
         );
       }
       return getLocator({
+        backend: state.backend,
         tabId: state.tabId,
         tabGeneration: state.tabGeneration,
         selector: `${state.selector} ${child}`,
@@ -1121,6 +1153,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
           : `:has(${nested.selector})`;
       }
       return getLocator({
+        backend: state.backend,
         tabId: state.tabId,
         tabGeneration: state.tabGeneration,
         selector,
@@ -1134,6 +1167,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       const nth = requireNonNegativeInteger(index, "index");
       const semantic = parseSemanticSelector(state.selector);
       return getLocator({
+        backend: state.backend,
         tabId: state.tabId,
         tabGeneration: state.tabGeneration,
         selector: semantic
@@ -1151,6 +1185,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     last(): BrowserWorkerLocator {
       const state = this.state();
       return getLocator({
+        backend: state.backend,
         tabId: state.tabId,
         tabGeneration: state.tabGeneration,
         selector: state.selector,
@@ -1173,10 +1208,14 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       ) {
         return state;
       }
-      const data = await command("count", {
-        tabId: state.tabId,
-        selector: state.selector,
-      });
+      const data = await command(
+        "count",
+        {
+          tabId: state.tabId,
+          selector: state.selector,
+        },
+        state.backend,
+      );
       const count = Math.max(0, Math.trunc(numberField(data, "count")));
       if (count === 0) {
         throw new Error("Locator did not match an element.");
@@ -1193,29 +1232,94 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       extra: Record<string, unknown> = {},
     ): Promise<unknown> {
       const state = await this.resolveSemanticLast(this.state());
-      if (this.isDirect(state)) {
-        return await command(action, {
-          tabId: state.tabId,
-          selector: state.selector,
-          ...extra,
-        });
+      const deadline = Date.now() + 3_000;
+      let lastError: unknown;
+      for (;;) {
+        try {
+          if (this.isDirect(state)) {
+            return await command(
+              action,
+              {
+                tabId: state.tabId,
+                selector: state.selector,
+                ...extra,
+              },
+              state.backend,
+            );
+          }
+          return await makeMarkerChain(state, action, extra);
+        } catch (error) {
+          lastError = error;
+          const message =
+            error instanceof Error ? error.message : String(error);
+          const retryable =
+            !/outcome=unknown|strict|matched multiple|protocol mismatch/i.test(
+              message,
+            ) &&
+            /not match|not found|no clickable|not clickable|detached|not visible|no clickable area/i.test(
+              message,
+            );
+          const remaining = deadline - Date.now();
+          if (!retryable || remaining <= 0) break;
+          await delay(Math.min(100, remaining));
+        }
       }
-      return await makeMarkerChain(state, action, extra);
+      let diagnostic = "";
+      try {
+        const data = await command(
+          "evaluate",
+          {
+            tabId: state.tabId,
+            script: `(() => {
+              const all = ${queryExpression(state)};
+              const matches = all.slice(0, 5).map(el => {
+                const rect = el.getBoundingClientRect();
+                const style = getComputedStyle(el);
+                return {
+                  tag: String(el.tagName || "").toLowerCase(),
+                  role: el.getAttribute("role"),
+                  type: el.getAttribute("type"),
+                  ariaLabel: el.getAttribute("aria-label"),
+                  text: String(el.innerText || el.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 120),
+                  visible: rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none",
+                  disabled: Boolean(el.disabled || el.getAttribute("aria-disabled") === "true"),
+                };
+              });
+              return { action: ${JSON.stringify(action)}, locator: ${JSON.stringify(state.selector)}, matchCount: all.length, matches, truncated: all.length > matches.length };
+            })()`,
+          },
+          state.backend,
+        );
+        diagnostic = ` Diagnostics: ${JSON.stringify(fieldOrSelf(data, "result"))}`;
+      } catch {
+        // Keep the original action failure if diagnostics cannot be collected.
+      }
+      const message =
+        lastError instanceof Error ? lastError.message : String(lastError);
+      throw new Error(`${message}${diagnostic}`);
     }
 
     async count(): Promise<number> {
       const state = this.state();
       if (this.isDirect(state)) {
-        const data = await command("count", {
-          tabId: state.tabId,
-          selector: state.selector,
-        });
+        const data = await command(
+          "count",
+          {
+            tabId: state.tabId,
+            selector: state.selector,
+          },
+          state.backend,
+        );
         return Math.max(0, Math.trunc(numberField(data, "count")));
       }
-      const data = await command("evaluate", {
-        tabId: state.tabId,
-        script: `${queryExpression(state)}.length`,
-      });
+      const data = await command(
+        "evaluate",
+        {
+          tabId: state.tabId,
+          script: `${queryExpression(state)}.length`,
+        },
+        state.backend,
+      );
       const result = fieldOrSelf(data, "result");
       const number = typeof result === "number" ? result : Number(result);
       return Number.isFinite(number) ? Math.max(0, Math.trunc(number)) : 0;
@@ -1362,7 +1466,11 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
         if (!element) throw new Error("Locator did not match an element");
         return (${source})(element${hasArgument ? `, ${serializeArgument(arg)}` : ""});
       })()`;
-      const data = await command("evaluate", { tabId: state.tabId, script });
+      const data = await command(
+        "evaluate",
+        { tabId: state.tabId, script },
+        state.backend,
+      );
       return fieldOrSelf(data, "result");
     }
 
@@ -1382,11 +1490,15 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       const timeout = timeoutParam(value.timeout ?? 30_000, "timeout");
       const state = this.state();
       if (desired === "attached" && this.isDirect(state)) {
-        await command("wait", {
-          tabId: state.tabId,
-          selector: state.selector,
-          timeout,
-        });
+        await command(
+          "wait",
+          {
+            tabId: state.tabId,
+            selector: state.selector,
+            timeout,
+          },
+          state.backend,
+        );
         return;
       }
       const startedAt = Date.now();
@@ -1412,10 +1524,14 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
 
     async allTextContents(): Promise<string[]> {
       const state = this.state();
-      const data = await command("evaluate", {
-        tabId: state.tabId,
-        script: `${queryExpression(state)}.map(element => element.textContent ?? "")`,
-      });
+      const data = await command(
+        "evaluate",
+        {
+          tabId: state.tabId,
+          script: `${queryExpression(state)}.map(element => element.textContent ?? "")`,
+        },
+        state.backend,
+      );
       const result = fieldOrSelf(data, "result");
       return Array.isArray(result)
         ? result.map((entry) =>
@@ -1429,6 +1545,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     state: Omit<LocatorState, "marker">,
   ): BrowserWorkerLocator => {
     const key = locatorKey(
+      state.backend,
       state.tabId,
       state.tabGeneration,
       state.selector,
@@ -1448,33 +1565,43 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
   };
 
   const locatorFor = (
+    backend: BrowserWorkerBackend,
     tabId: number,
     tabGeneration: string,
     selector: string,
   ): BrowserWorkerLocator =>
     getLocator({
+      backend,
       tabId,
       tabGeneration,
       selector: requireSelectorText(selector, "selector"),
       textFilters: Object.freeze([]),
     });
 
-  const locatorBuilders = (tabId: number, tabGeneration: string) => ({
-    locator: (selector: string) => locatorFor(tabId, tabGeneration, selector),
+  const locatorBuilders = (
+    backend: BrowserWorkerBackend,
+    tabId: number,
+    tabGeneration: string,
+  ) => ({
+    locator: (selector: string) =>
+      locatorFor(backend, tabId, tabGeneration, selector),
     getByRole: (role: string, locatorOptions?: Record<string, unknown>) =>
       locatorFor(
+        backend,
         tabId,
         tabGeneration,
         semanticSelector("role", role, locatorOptions),
       ),
     getByText: (text: string, locatorOptions?: Record<string, unknown>) =>
       locatorFor(
+        backend,
         tabId,
         tabGeneration,
         semanticSelector("text", text, locatorOptions),
       ),
     getByLabel: (text: string, locatorOptions?: Record<string, unknown>) =>
       locatorFor(
+        backend,
         tabId,
         tabGeneration,
         semanticSelector("label", text, locatorOptions),
@@ -1484,12 +1611,14 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       locatorOptions?: Record<string, unknown>,
     ) =>
       locatorFor(
+        backend,
         tabId,
         tabGeneration,
         semanticSelector("placeholder", text, locatorOptions),
       ),
     getByTestId: (testId: string, locatorOptions?: Record<string, unknown>) =>
       locatorFor(
+        backend,
         tabId,
         tabGeneration,
         semanticSelector("testid", testId, locatorOptions),
@@ -1527,9 +1656,13 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     value: unknown,
     tabId: number,
     name: string,
+    backend: BrowserWorkerBackend = selectedBackend,
   ): string => {
     if (value === undefined || value === null) {
-      return currentTabGeneration.get(tabId) ?? `legacy:${tabId}`;
+      return (
+        currentTabGeneration.get(generationKey(backend, tabId)) ??
+        `legacy:${backend}:${tabId}`
+      );
     }
     if (typeof value !== "string" || value.trim().length === 0) {
       throw new TypeError(`${name} must be a non-empty string.`);
@@ -1539,21 +1672,24 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
   const getTab = (
     idValue: unknown,
     metadata: Record<string, unknown> = {},
+    backend: BrowserWorkerBackend = selectedBackend,
   ): BrowserWorkerTab => {
     const id = normalizeTabId(idValue, "tab id");
     const generation = normalizeTabGeneration(
       metadata.tabGeneration,
       id,
       "tab generation",
+      backend,
     );
-    currentTabGeneration.set(id, generation);
-    const key = `${id}:${generation}`;
+    currentTabGeneration.set(generationKey(backend, id), generation);
+    const key = `${backend}:${id}:${generation}`;
     const existing = tabCache.get(key)?.deref();
     if (existing) {
       updateTabMetadata(existing, metadata);
       return existing;
     }
     const tab = new Tab({
+      backend,
       id,
       generation,
       url: typeof metadata.url === "string" ? metadata.url : "",
@@ -1566,8 +1702,10 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     return tab;
   };
 
-  const listTabsInternal = async (): Promise<NormalizedTabList> => {
-    const data = await command("tab_list", {});
+  const listTabsInternal = async (
+    backend: BrowserWorkerBackend = selectedBackend,
+  ): Promise<NormalizedTabList> => {
+    const data = await command("tab_list", {}, backend);
     const rawTabs = Array.isArray(data)
       ? data
       : Array.isArray(field(data, "tabs"))
@@ -1595,7 +1733,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
           item.selected === true ||
           index === activeIndex ||
           Number(activeRaw) === id;
-        const tab = getTab(id, { ...item, active });
+        const tab = getTab(id, { ...item, active }, backend);
         tabs.push(tab);
         if (active) activeTabId = id;
       } catch (error) {
@@ -1615,6 +1753,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
   const expectNewTab = async (
     action: () => unknown | Promise<unknown>,
     rawOptions: Readonly<{ timeoutMs?: number }> = {},
+    backend: BrowserWorkerBackend = selectedBackend,
   ): Promise<BrowserWorkerTab> => {
     if (typeof action !== "function") {
       throw new TypeError("expectNewTab action must be a function.");
@@ -1626,14 +1765,14 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       "timeoutMs",
       expectNewTabLimit as number,
     );
-    const before = await listTabsInternal();
+    const before = await listTabsInternal(backend);
     const previousHandles = new Set(
       before.tabs.map((tab) => `${tab.id}:${tab.generation}`),
     );
     await action();
     const startedAt = Date.now();
     while (Date.now() - startedAt <= timeoutMs) {
-      const current = await listTabsInternal();
+      const current = await listTabsInternal(backend);
       const added = current.tabs.filter(
         (tab) => !previousHandles.has(`${tab.id}:${tab.generation}`),
       );
@@ -1660,7 +1799,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     private state(): TabState {
       const state = tabState.get(this);
       if (!state) throw new Error("Invalid Tab object.");
-      assertCurrentTabGeneration(state.id, state.generation);
+      assertCurrentTabGeneration(state.id, state.generation, state.backend);
       return state;
     }
 
@@ -1668,17 +1807,34 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       return this.state().id;
     }
 
+    get backend(): BrowserWorkerBackend {
+      return this.state().backend;
+    }
+
     get generation(): string {
       return this.state().generation;
+    }
+
+    private async run(
+      action: string,
+      params: Record<string, unknown>,
+    ): Promise<unknown> {
+      return await command(action, params, this.state().backend);
     }
 
     get playwright(): BrowserWorkerPlaywright {
       const state = this.state();
       if (state.playwright) return state.playwright;
-      const builders = locatorBuilders(currentTabId(state), state.generation);
+      const boundCommand = (action: string, params: Record<string, unknown>) =>
+        command(action, params, state.backend);
+      const builders = locatorBuilders(
+        state.backend,
+        currentTabId(state),
+        state.generation,
+      );
       state.playwright = Object.freeze({
         domSnapshot: async (rawOptions?: Record<string, unknown>) => {
-          const data = await command(
+          const data = await boundCommand(
             "snapshot",
             snapshotParams(currentTabId(state), rawOptions),
           );
@@ -1693,7 +1849,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
             arg,
             arguments.length >= 2,
           );
-          const data = await command("evaluate", {
+          const data = await boundCommand("evaluate", {
             tabId: currentTabId(state),
             ...tabGenerationParams(state.generation),
             script,
@@ -1715,7 +1871,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
           if (value.timeout !== undefined) {
             params.timeout = timeoutParam(value.timeout, "timeout");
           }
-          const data = await command("waitforurl", params);
+          const data = await boundCommand("waitforurl", params);
           return stringField(data, "url", typeof data === "string" ? data : "");
         },
         waitForFunction: async (
@@ -1739,10 +1895,10 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
             expression,
             timeout,
           };
-          if (selectedBackend === "external") {
+          if (state.backend === "external") {
             const startedAt = Date.now();
             while (Date.now() - startedAt <= timeout) {
-              const data = await command("evaluate", {
+              const data = await boundCommand("evaluate", {
                 tabId: currentTabId(state),
                 ...tabGenerationParams(state.generation),
                 script: `Boolean(${expression})`,
@@ -1754,7 +1910,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
             }
             throw new Error(`Timeout waiting ${timeout}ms for page function.`);
           }
-          const data = await command("waitforfunction", params);
+          const data = await boundCommand("waitforfunction", params);
           return fieldOrSelf(data, "result");
         },
         schedule: async function (
@@ -1766,26 +1922,29 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
             arg,
             arguments.length >= 2,
           );
-          await command(
-            selectedBackend === "external" ? "evaluate" : "evaluate_detached",
+          await boundCommand(
+            state.backend === "external" ? "evaluate" : "evaluate_detached",
             {
               tabId: currentTabId(state),
               ...tabGenerationParams(state.generation),
               script:
-                selectedBackend === "external"
+                state.backend === "external"
                   ? `(() => { void Promise.resolve().then(() => (${script})); return true; })()`
                   : script,
             },
           );
         },
         waitForTimeout: async (ms: number) => {
-          await command("wait", {
+          await boundCommand("wait", {
             tabId: currentTabId(state),
             ...tabGenerationParams(state.generation),
             timeout: timeoutParam(ms, "ms"),
           });
         },
-        expectNewTab,
+        expectNewTab: async (
+          action: () => unknown | Promise<unknown>,
+          rawOptions?: Readonly<{ timeoutMs?: number }>,
+        ) => await expectNewTab(action, rawOptions, state.backend),
       });
       return state.playwright;
     }
@@ -1793,6 +1952,8 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     get network(): BrowserWorkerNetwork {
       const state = this.state();
       if (state.network) return state.network;
+      const boundCommand = (action: string, params: Record<string, unknown>) =>
+        command(action, params, state.backend);
       const tabParams = () => ({
         tabId: currentTabId(state),
         ...tabGenerationParams(state.generation),
@@ -1825,7 +1986,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
             }
             params.clear = value.clear;
           }
-          const data = await command("requests", params);
+          const data = await boundCommand("requests", params);
           const requests = field(data, "requests");
           return Object.freeze(Array.isArray(requests) ? [...requests] : []);
         },
@@ -1845,10 +2006,10 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
             600_000,
           );
           const pattern = requireString(url, "url", { maxLength: 16_384 });
-          await command("requests", { ...tabParams(), limit: 1 });
+          await boundCommand("requests", { ...tabParams(), limit: 1 });
           const after = Date.now();
           if (action) await action();
-          return await command("responsebody", {
+          return await boundCommand("responsebody", {
             ...tabParams(),
             url: pattern,
             after,
@@ -1900,14 +2061,14 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
             }
             params.headers = headers;
           }
-          return await command("rewrite_request", params);
+          return await boundCommand("rewrite_request", params);
         },
         clearRequestRewrite: async (url?: string) => {
           const params: Record<string, unknown> = tabParams();
           if (url !== undefined) {
             params.url = requireString(url, "url", { maxLength: 16_384 });
           }
-          return await command("unrewrite_request", params);
+          return await boundCommand("unrewrite_request", params);
         },
         fetch: async (
           url: string,
@@ -1953,7 +2114,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
             }
             params.headers = safeJsonValue(value.headers, "headers");
           }
-          return await command("authenticated_request", params);
+          return await boundCommand("authenticated_request", params);
         },
         fetchAll: async (
           rawRequests: readonly Record<string, unknown>[],
@@ -1999,7 +2160,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
             });
             return clean;
           });
-          const data = await command("authenticated_request_batch", {
+          const data = await boundCommand("authenticated_request_batch", {
             ...tabParams(),
             requests,
             concurrency,
@@ -2015,11 +2176,13 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     get keyboard(): BrowserWorkerKeyboard {
       const state = this.state();
       if (state.keyboard) return state.keyboard;
+      const boundCommand = (action: string, params: Record<string, unknown>) =>
+        command(action, params, state.backend);
       state.keyboard = Object.freeze({
         // Page-level key press (no selector): the key goes to whatever holds
         // focus, or the document. Supports combos like "Control+a".
         press: async (key: string) =>
-          await command("press", {
+          await boundCommand("press", {
             tabId: currentTabId(state),
             ...tabGenerationParams(state.generation),
             key: requireString(key, "key", { maxLength: 64 }),
@@ -2027,7 +2190,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
         // Raw text insertion at the current focus (Input.insertText): no
         // per-character key events, works for emoji/CJK.
         type: async (text: string) =>
-          await command("inserttext", {
+          await boundCommand("inserttext", {
             tabId: currentTabId(state),
             ...tabGenerationParams(state.generation),
             text: requireString(text, "text", { allowEmpty: true }),
@@ -2056,7 +2219,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       if (value.timeout !== undefined) {
         params.timeout = timeoutParam(value.timeout, "timeout");
       }
-      const data = await command("navigate", params);
+      const data = await this.run("navigate", params);
       if (isPlainObject(data)) updateTabMetadata(this, data);
       return data;
     }
@@ -2071,7 +2234,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       if (value.timeout !== undefined) {
         params.timeout = timeoutParam(value.timeout, "timeout");
       }
-      const data = await command(action, params);
+      const data = await this.run(action, params);
       if (isPlainObject(data)) updateTabMetadata(this, data);
       return data;
     }
@@ -2089,11 +2252,25 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     }
 
     async close(): Promise<unknown> {
-      return await command("tab_close", { tabId: this.id });
+      return await this.run("tab_close", { tabId: this.id });
+    }
+
+    async markDeliverable(): Promise<unknown> {
+      return await this.run("mark_tab", {
+        tabId: this.id,
+        status: "deliverable",
+      });
+    }
+
+    async markHandoff(): Promise<unknown> {
+      return await this.run("mark_tab", {
+        tabId: this.id,
+        status: "handoff",
+      });
     }
 
     async url(): Promise<string> {
-      const data = await command("url", { tabId: this.id });
+      const data = await this.run("url", { tabId: this.id });
       const url = stringField(
         data,
         "url",
@@ -2104,7 +2281,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     }
 
     async title(): Promise<string> {
-      const data = await command("title", { tabId: this.id });
+      const data = await this.run("title", { tabId: this.id });
       const title = stringField(
         data,
         "title",
@@ -2115,15 +2292,34 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     }
 
     async snapshot(rawOptions?: Record<string, unknown>): Promise<unknown> {
-      const data = await command(
+      const data = await this.run(
         "snapshot",
         snapshotParams(this.id, rawOptions),
       );
       return fieldOrSelf(data, "snapshot");
     }
 
-    async screenshot(rawOptions?: Record<string, unknown>): Promise<unknown> {
-      return await command("screenshot", screenshotParams(this.id, rawOptions));
+    async screenshot(
+      rawOptions?: Record<string, unknown>,
+    ): Promise<BrowserWorkerScreenshotReceipt> {
+      const data = await this.run(
+        "screenshot",
+        screenshotParams(this.id, rawOptions),
+      );
+      const path = stringField(data, "path");
+      if (!path) {
+        throw new Error(
+          "Browser screenshot completed without an attached artifact path.",
+        );
+      }
+      const format =
+        stringField(data, "format", "jpeg") === "png" ? "png" : "jpeg";
+      return Object.freeze({
+        attached: true,
+        path,
+        format,
+        mimeType: format === "png" ? "image/png" : "image/jpeg",
+      });
     }
 
     async scroll(rawOptions: Record<string, unknown> = {}): Promise<unknown> {
@@ -2157,14 +2353,15 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
       if (value.selector !== undefined) {
         params.selector = requireSelectorText(value.selector, "selector");
       }
-      return await command("scroll", params);
+      return await this.run("scroll", params);
     }
 
     async expectNewTab(
       action: () => unknown | Promise<unknown>,
       rawOptions?: Readonly<{ timeoutMs?: number }>,
     ): Promise<BrowserWorkerTab> {
-      return await expectNewTab(action, rawOptions);
+      const state = this.state();
+      return await expectNewTab(action, rawOptions, state.backend);
     }
   }
 
@@ -2273,6 +2470,7 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
   const sanitizeChainStep = (
     value: unknown,
     index: number,
+    backend: BrowserWorkerBackend,
   ): BrowserWorkerChainStep => {
     if (!isPlainObject(value)) {
       throw new TypeError(`steps[${index}] must be an action object.`);
@@ -2308,8 +2506,9 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
         clean.tabGeneration,
         tabId,
         `steps[${index}].params.tabGeneration`,
+        backend,
       );
-      assertCurrentTabGeneration(tabId, generation);
+      assertCurrentTabGeneration(tabId, generation, backend);
       if (!isLegacyTabGeneration(generation)) {
         clean.tabGeneration = generation;
       } else {
@@ -2379,11 +2578,15 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
   const tabs: BrowserWorkerTabs = Object.freeze({
     list: async () => (await listTabsInternal()).tabs,
     new: async (url?: string) => {
+      // Capture before transport: browser.use() may complete while tab_new is
+      // in flight, but the returned handle belongs to the backend that
+      // actually received this dispatch.
+      const backend = selectedBackend;
       const params: Record<string, unknown> = {};
       if (url !== undefined) {
         params.url = requireString(url, "url", { maxLength: 16_384 });
       }
-      const data = await command("tab_new", params);
+      const data = await command("tab_new", params, backend);
       const rawId =
         field(data, "tabId") ??
         field(data, "id") ??
@@ -2395,11 +2598,15 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
         }
         throw browserProtocolMismatch(detail);
       }
-      return getTab(rawId, {
-        tabGeneration: field(data, "tabGeneration"),
-        url: typeof url === "string" ? url : "about:blank",
-        active: true,
-      });
+      return getTab(
+        rawId,
+        {
+          tabGeneration: field(data, "tabGeneration"),
+          url: typeof url === "string" ? url : "about:blank",
+          active: true,
+        },
+        backend,
+      );
     },
     selected: async () => {
       const listed = await listTabsInternal();
@@ -2411,8 +2618,9 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
     },
     get: (id: number) => getTab(id),
     finalize: async (entries: unknown = []) => {
+      const defaultBackend = selectedBackend;
       const input = Array.isArray(entries) ? entries : [entries];
-      const keep = input.map((entry, index) => {
+      const normalized = input.map((entry, index) => {
         let tabId: unknown;
         let status: unknown = "deliverable";
         const directState =
@@ -2433,21 +2641,21 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
         } else {
           throw new TypeError(`finalize entry ${index} is invalid.`);
         }
+        const nestedState =
+          isPlainObject(entry) && entry.tab && typeof entry.tab === "object"
+            ? tabState.get(entry.tab as object)
+            : undefined;
+        const entryBackend =
+          directState?.backend ?? nestedState?.backend ?? defaultBackend;
         if (status !== "handoff" && status !== "deliverable") {
           throw new TypeError(
             `finalize entry ${index} status must be 'handoff' or 'deliverable'.`,
           );
         }
-        return Object.freeze({
+        const keep = Object.freeze({
           tabId: normalizeTabId(tabId, `finalize entry ${index} tabId`),
           ...(() => {
-            const stateGeneration =
-              directState ??
-              (isPlainObject(entry) &&
-              entry.tab &&
-              typeof entry.tab === "object"
-                ? tabState.get(entry.tab as object)
-                : undefined);
+            const stateGeneration = directState ?? nestedState;
             const rawGeneration =
               stateGeneration?.generation ??
               (isPlainObject(entry) ? entry.tabGeneration : undefined);
@@ -2459,20 +2667,56 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
               rawGeneration,
               normalizedTabId,
               `finalize entry ${index} tabGeneration`,
+              entryBackend,
             );
-            assertCurrentTabGeneration(normalizedTabId, generation);
+            assertCurrentTabGeneration(
+              normalizedTabId,
+              generation,
+              entryBackend,
+            );
             return isLegacyTabGeneration(generation)
               ? {}
               : { tabGeneration: generation };
           })(),
           status,
         });
+        return Object.freeze({ backend: entryBackend, keep });
       });
-      return await command("finalize_tabs", { keep: Object.freeze(keep) });
+      const groups = new Map<
+        BrowserWorkerBackend,
+        Array<(typeof normalized)[number]["keep"]>
+      >();
+      if (normalized.length === 0) groups.set(defaultBackend, []);
+      for (const entry of normalized) {
+        const group = groups.get(entry.backend) ?? [];
+        group.push(entry.keep);
+        groups.set(entry.backend, group);
+      }
+      const outcomes: Array<{
+        backend: BrowserWorkerBackend;
+        result: unknown;
+      }> = [];
+      for (const [backend, keep] of groups) {
+        outcomes.push({
+          backend,
+          result: await command(
+            "finalize_tabs",
+            { keep: Object.freeze(keep) },
+            backend,
+          ),
+        });
+      }
+      if (outcomes.length === 1) return outcomes[0]!.result;
+      return Object.freeze({
+        backendResults: Object.freeze(
+          outcomes.map(({ backend, result }) =>
+            Object.freeze({ backend, result }),
+          ),
+        ),
+      });
     },
   });
 
-  let selectedBackend: BrowserWorkerBackend = "in-app";
   const browser: BrowserWorkerApi = Object.freeze({
     get backend() {
       return selectedBackend;
@@ -2487,7 +2731,25 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
         backend: BrowserWorkerBackend;
       }>;
     },
-    documentation: () => DOCUMENTATION,
+    capabilities: Object.freeze({
+      observations: Object.freeze([
+        "url/title",
+        "element state/text",
+        "bounded semantic snapshot",
+        "screenshot receipt",
+      ]),
+      actions: Object.freeze([
+        "backend-bound tab and locator handles",
+        "locator actions",
+        "low-level chain",
+        "network observation",
+      ]),
+      notes: Object.freeze([
+        "Prefer state reads before snapshots.",
+        "Screenshots attach automatically.",
+        "Reuse one task-owned tab.",
+      ]),
+    }),
     chain: async (
       rawSteps: readonly BrowserWorkerChainStep[],
       rawOptions?: BrowserWorkerChainOptions,
@@ -2500,9 +2762,12 @@ await browser.tabs.finalize([{ tab, status: "deliverable" }]);`;
           `steps must contain at most ${MAX_CHAIN_STEPS} actions.`,
         );
       }
-      const steps = Object.freeze(rawSteps.map(sanitizeChainStep));
+      const backend = selectedBackend;
+      const steps = Object.freeze(
+        rawSteps.map((step, index) => sanitizeChainStep(step, index, backend)),
+      );
       const chainOptions = sanitizeChainOptions(rawOptions);
-      return await sendChain(steps, chainOptions);
+      return await sendChain(steps, chainOptions, backend);
     },
     tabs,
   });

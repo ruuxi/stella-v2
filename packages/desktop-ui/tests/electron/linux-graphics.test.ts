@@ -3,30 +3,31 @@ import { describe, expect, it, vi } from "vitest";
 import { configureLinuxGraphics } from "@stella/desktop/electron/linux-graphics.js";
 
 describe("Linux graphics configuration", () => {
-  it("disables hardware acceleration on Linux", () => {
-    const disableHardwareAcceleration = vi.fn();
+  it("selects ANGLE's OpenGL backend on Linux", () => {
+    const appendSwitch = vi.fn();
 
     expect(
       configureLinuxGraphics({
-        disableHardwareAcceleration,
+        commandLine: { appendSwitch },
         platform: "linux",
       }),
     ).toBe(true);
-    expect(disableHardwareAcceleration).toHaveBeenCalledOnce();
+    expect(appendSwitch).toHaveBeenNthCalledWith(1, "use-gl", "angle");
+    expect(appendSwitch).toHaveBeenNthCalledWith(2, "use-angle", "gl");
   });
 
   it.each(["darwin", "win32"] as const)(
-    "retains hardware acceleration on %s",
+    "retains the default graphics configuration on %s",
     (platform) => {
-      const disableHardwareAcceleration = vi.fn();
+      const appendSwitch = vi.fn();
 
       expect(
         configureLinuxGraphics({
-          disableHardwareAcceleration,
+          commandLine: { appendSwitch },
           platform,
         }),
       ).toBe(false);
-      expect(disableHardwareAcceleration).not.toHaveBeenCalled();
+      expect(appendSwitch).not.toHaveBeenCalled();
     },
   );
 });

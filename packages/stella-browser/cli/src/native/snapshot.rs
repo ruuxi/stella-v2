@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
@@ -7,6 +7,18 @@ use super::cdp::types::{
     AXNode, AXProperty, AXValue, EvaluateParams, EvaluateResult, GetFullAXTreeResult,
 };
 use super::element::{RefLocatorHints, RefMap};
+
+const MAX_SNAPSHOT_CHARS: usize = 20_000;
+const MAX_SNAPSHOT_ELEMENTS: usize = 200;
+
+#[derive(Debug, PartialEq, Eq)]
+struct BoundedSnapshot {
+    tree: String,
+    visible_refs: HashSet<String>,
+    truncated: bool,
+    emitted_elements: usize,
+    emitted_chars: usize,
+}
 
 const INTERACTIVE_ROLES: &[&str] = &[
     "button",
@@ -344,6 +356,7 @@ pub async fn take_snapshot(
     // resolve the child frame ID and take a snapshot of its content.
     // We only recurse from the main frame (frame_id == None) to avoid
     // unbounded depth; nested iframes within iframes are not expanded.
+    let mut skipped_cross_origin_frames = 0usize;
     if frame_id.is_none() {
         let mut iframe_snapshots: Vec<(String, String)> = Vec::new(); // (ref_id, child_snapshot)
         for node in tree_nodes.iter() {
@@ -372,7 +385,11 @@ pub async fn take_snapshot(
                     {
                         iframe_snapshots.push((ref_id.to_string(), child_text));
                     }
+                } else {
+                    skipped_cross_origin_frames += 1;
                 }
+            } else {
+                skipped_cross_origin_frames += 1;
             }
         }
 
@@ -411,13 +428,30 @@ pub async fn take_snapshot(
     let trimmed = output.trim().to_string();
 
     if trimmed.is_empty() {
+        // Ref assignment happens before render-time filters such as
+        // `interactive`, selector roots, depth, and compact mode. An empty
+        // top-level rendering must therefore clear any handles that were
+        // discovered but never disclosed. Child-frame calls share the
+        // top-level map and leave final pruning to their caller.
+        if frame_id.is_none() {
+            ref_map.retain_ids(&HashSet::new());
+        }
         if options.interactive {
             return Ok("(no interactive elements)".to_string());
         }
         return Ok("(empty page)".to_string());
     }
 
-    Ok(trimmed)
+    // Child-frame snapshots are assembled into the top-level output. Apply a
+    // single global budget only after that assembly so nested content cannot
+    // multiply the public 200-element / 20,000-character limits.
+    if frame_id.is_some() {
+        return Ok(trimmed);
+    }
+
+    let bounded = bound_snapshot(&trimmed, skipped_cross_origin_frames);
+    ref_map.retain_ids(&bounded.visible_refs);
+    Ok(bounded.tree)
 }
 
 /// Resolve the child frame ID for an iframe element given its backendNodeId.
@@ -1000,6 +1034,69 @@ fn count_indent(line: &str) -> usize {
     (line.len() - trimmed.len()) / 2
 }
 
+/// Apply the same public snapshot envelope as the extension backend.
+///
+/// Character accounting intentionally uses UTF-16 code units because the
+/// extension's JavaScript implementation accounts with `String.length`.
+/// Metadata is appended after the content budget, matching the extension.
+fn bound_snapshot(tree: &str, skipped_cross_origin_frames: usize) -> BoundedSnapshot {
+    let mut lines = Vec::new();
+    let mut emitted_chars = 0usize;
+    let mut truncated = false;
+
+    for line in tree.lines() {
+        let line_chars = line.encode_utf16().count() + 1;
+        if lines.len() >= MAX_SNAPSHOT_ELEMENTS
+            || emitted_chars.saturating_add(line_chars) > MAX_SNAPSHOT_CHARS
+        {
+            truncated = true;
+            break;
+        }
+        lines.push(line);
+        emitted_chars += line_chars;
+    }
+
+    let emitted_elements = lines.len();
+    let mut bounded_tree = lines.join("\n");
+    let visible_refs = collect_visible_refs(&bounded_tree);
+
+    if truncated || skipped_cross_origin_frames > 0 {
+        if !bounded_tree.is_empty() {
+            bounded_tree.push('\n');
+        }
+        bounded_tree.push_str(&format!(
+            "[snapshot metadata: truncated={truncated}; emittedElements={emitted_elements}; emittedChars={emitted_chars}; maxElements={MAX_SNAPSHOT_ELEMENTS}; maxChars={MAX_SNAPSHOT_CHARS}; skippedCrossOriginFrames={skipped_cross_origin_frames}]"
+        ));
+    }
+
+    BoundedSnapshot {
+        tree: bounded_tree,
+        visible_refs,
+        truncated,
+        emitted_elements,
+        emitted_chars,
+    }
+}
+
+fn collect_visible_refs(tree: &str) -> HashSet<String> {
+    let mut refs = HashSet::new();
+    let mut remainder = tree;
+
+    while let Some(start) = remainder.find("ref=e") {
+        let after_prefix = &remainder[start + "ref=".len()..];
+        let digit_count = after_prefix[1..]
+            .chars()
+            .take_while(|ch| ch.is_ascii_digit())
+            .count();
+        if digit_count > 0 {
+            refs.insert(after_prefix[..1 + digit_count].to_string());
+        }
+        remainder = &after_prefix[1..];
+    }
+
+    refs
+}
+
 fn extract_ax_string(value: &Option<AXValue>) -> String {
     match value {
         Some(v) => match &v.value {
@@ -1146,6 +1243,69 @@ mod tests {
         assert_eq!(count_indent("- heading"), 0);
         assert_eq!(count_indent("  - link"), 1);
         assert_eq!(count_indent("    - text"), 2);
+    }
+
+    #[test]
+    fn bounded_snapshot_caps_elements_and_exposes_only_visible_refs() {
+        let input = (1..=250)
+            .map(|idx| format!("- button \"Button {idx}\" [ref=e{idx}]"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let result = bound_snapshot(&input, 0);
+
+        assert!(result.truncated);
+        assert_eq!(result.emitted_elements, MAX_SNAPSHOT_ELEMENTS);
+        assert!(result.emitted_chars <= MAX_SNAPSHOT_CHARS);
+        assert!(result.visible_refs.contains("e1"));
+        assert!(result.visible_refs.contains("e200"));
+        assert!(!result.visible_refs.contains("e201"));
+        assert_eq!(result.visible_refs.len(), MAX_SNAPSHOT_ELEMENTS);
+        assert!(result
+            .tree
+            .contains("[snapshot metadata: truncated=true; emittedElements=200;"));
+        assert!(result.tree.contains("maxElements=200; maxChars=20000;"));
+        assert!(!result.tree.contains("Button 201"));
+    }
+
+    #[test]
+    fn bounded_snapshot_caps_utf16_characters_without_splitting_lines() {
+        // An emoji is two UTF-16 code units, matching JavaScript String.length.
+        let long_line = format!("- text: {}x", "🙂".repeat(9_995));
+        assert_eq!(long_line.encode_utf16().count() + 1, MAX_SNAPSHOT_CHARS);
+        let input = format!("{long_line}\n- button \"hidden\" [ref=e1]");
+
+        let result = bound_snapshot(&input, 0);
+
+        assert!(result.truncated);
+        assert_eq!(result.emitted_elements, 1);
+        assert_eq!(result.emitted_chars, MAX_SNAPSHOT_CHARS);
+        assert!(result.visible_refs.is_empty());
+        assert!(!result.tree.contains("ref=e1"));
+    }
+
+    #[test]
+    fn bounded_snapshot_metadata_matches_extension_shape_for_frame_skips() {
+        let result = bound_snapshot("- button \"OK\" [ref=e1]", 2);
+
+        assert!(!result.truncated);
+        assert_eq!(result.visible_refs, HashSet::from(["e1".to_string()]));
+        assert!(result.tree.ends_with(
+            "[snapshot metadata: truncated=false; emittedElements=1; emittedChars=23; maxElements=200; maxChars=20000; skippedCrossOriginFrames=2]"
+        ));
+    }
+
+    #[test]
+    fn ref_map_prunes_handles_not_present_in_bounded_snapshot() {
+        let mut ref_map = RefMap::new();
+        ref_map.add("e1".to_string(), Some(1), "button", "Visible", None);
+        ref_map.add("e2".to_string(), Some(2), "button", "Hidden", None);
+        let bounded = bound_snapshot("- button \"Visible\" [ref=e1]", 0);
+
+        ref_map.retain_ids(&bounded.visible_refs);
+
+        assert!(ref_map.get("e1").is_some());
+        assert!(ref_map.get("e2").is_none());
     }
 
     #[test]

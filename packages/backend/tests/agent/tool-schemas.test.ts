@@ -6,6 +6,7 @@ import {
   MAX_IMAGE_GEN_REFERENCE_ITEMS,
   WebSchema,
   WebSearchSchema,
+  WriteStdinSchema,
 } from "../../convex/agent/tool_schemas";
 
 describe("backend exec_command device-tool schema", () => {
@@ -15,6 +16,62 @@ describe("backend exec_command device-tool schema", () => {
     ).toBe(true);
     expect(
       ExecCommandSchema.safeParse({ cmd: "node", tty: "true" }).success,
+    ).toBe(false);
+  });
+});
+
+describe("backend write_stdin device-tool schema", () => {
+  test("preserves legacy calls and accepts idempotent writes", () => {
+    expect(
+      WriteStdinSchema.safeParse({ session_id: "session", chars: "hello\n" })
+        .success,
+    ).toBe(true);
+    expect(
+      WriteStdinSchema.safeParse({
+        session_id: "session",
+        operation: "write",
+        chars: "hello\n",
+        write_id: "write-1",
+      }).success,
+    ).toBe(true);
+    // Preserve the existing backend compatibility for older numeric ids.
+    expect(WriteStdinSchema.safeParse({ session_id: 1234 }).success).toBe(true);
+  });
+
+  test("accepts explicit controls and rejects invalid operations or dimensions", () => {
+    expect(
+      WriteStdinSchema.safeParse({
+        session_id: "session",
+        operation: "terminate",
+      }).success,
+    ).toBe(true);
+    expect(
+      WriteStdinSchema.safeParse({
+        session_id: "session",
+        operation: "close_stdin",
+      }).success,
+    ).toBe(true);
+    expect(
+      WriteStdinSchema.safeParse({
+        session_id: "session",
+        operation: "resize",
+        cols: 100,
+        rows: 40,
+      }).success,
+    ).toBe(true);
+    expect(
+      WriteStdinSchema.safeParse({
+        session_id: "session",
+        operation: "restart",
+      }).success,
+    ).toBe(false);
+    expect(
+      WriteStdinSchema.safeParse({
+        session_id: "session",
+        operation: "resize",
+        cols: 0,
+        rows: 40.5,
+      }).success,
     ).toBe(false);
   });
 });

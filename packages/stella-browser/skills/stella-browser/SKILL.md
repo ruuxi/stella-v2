@@ -74,9 +74,11 @@ Use the least expensive observation that answers the question:
 - Element existence or state: `count()`, `isVisible()`, `isEnabled()`, or `isChecked()`.
 - Focused values: `innerText()`, `textContent()`, `inputValue()`, or `getAttribute()`.
 - Unknown structure at a branch or recovery point: `tab.snapshot()` or `page.domSnapshot()`.
-- Visual appearance, coordinates, or rendering: `tab.screenshot()`.
+- Visual appearance, coordinates, or rendering: `tab.screenshot()`. The image is attached to the tool result automatically; the JavaScript return value is only a compact `{ attached, path, format, mimeType }` receipt. Do not pass that receipt to `nodeRepl.emitImage()`.
 
 Do not take a snapshot after every action. Snapshot only when page structure is needed to choose the next step. Use a screenshot only when pixels matter.
+
+Semantic snapshots are bounded to 200 emitted entries and 20,000 characters. When a page exceeds that budget, the final metadata line reports truncation and any skipped cross-origin frames; narrow with `selector`, `interactive`, `compact`, or `maxDepth` instead of requesting repeated full-page snapshots.
 
 ## Synchronize on Browser State
 
@@ -109,7 +111,16 @@ await reportPage.getByRole("heading", { name: "Report" }).waitFor();
 
 ## Finalize Owned Tabs
 
-Finalize tabs when browser work ends, including recovery after a failed flow. List only tabs intentionally retained; unlisted task-owned tabs are eligible for cleanup.
+Mark a retained tab as soon as its final disposition is known. Automatic close-tabs turn cleanup preserves marked tabs and closes unmarked task-owned tabs:
+
+```js
+await tab.markHandoff();
+await reportTab.markDeliverable();
+```
+
+Marks are scoped to the current owner turn. `markHandoff()` is for a tab the user should continue in; `markDeliverable()` is for a completed result worth retaining.
+
+`browser.tabs.finalize()` remains the explicit authoritative cleanup operation. List only tabs intentionally retained; unlisted task-owned tabs are closed even if previously marked.
 
 ```js
 await browser.tabs.finalize([
@@ -122,13 +133,13 @@ Entries may be a `Tab`, tab ID, or `{ tab, status }`/`{ tabId, status }`. Status
 
 ## Frozen Browser API
 
-The public object graph is frozen. Do not mutate it or attach properties. It is introspectable: `Object.keys(tab)` or `Object.keys(locator)` lists the available methods. Call `browser.documentation()` for the full runtime reference.
+The public object graph is frozen. Do not mutate it or attach properties. This installed skill is the runtime reference. For lightweight discovery, inspect `browser.capabilities`, `Object.keys(browser)`, `Object.keys(tab)`, or `Object.keys(locator)`; there is no runtime documentation command.
 
 ### Browser and Tabs
 
 | Object         | Supported API                                                        |
 | -------------- | -------------------------------------------------------------------- |
-| `browser`      | `documentation()`, `chain(steps, options)`, `tabs`                   |
+| `browser`      | `capabilities`, `use(backend)`, `chain(steps, options)`, `tabs`      |
 | `browser.tabs` | `list()`, `new(url?)`, `selected()`, `get(id)`, `finalize(entries?)` |
 
 For a new task, call `tabs.new()` once and then navigate that handle with `tab.goto(url)`. If navigation fails, reuse the same handle or inspect `tabs.list()`; do not loop on `tabs.new()` because a delayed response can otherwise create a pileup of blank tabs. Use `tabs.selected()` only when the user's currently selected owned tab is the target, and `tabs.list()` when tab choice is itself a decision.
@@ -144,6 +155,7 @@ For a new task, call `tabs.new()` once and then navigate that handle with `tab.g
 | `goto(url, { waitUntil?, timeout? })`                                 | Navigate the tab.                        |
 | `back({ timeout? })`, `forward({ timeout? })`, `reload({ timeout? })` | History navigation.                      |
 | `close()`                                                             | Close this tab.                          |
+| `markHandoff()`, `markDeliverable()`                                  | Retain during automatic turn cleanup.    |
 | `url()`, `title()`                                                    | Cheapest page identity reads.            |
 | `snapshot(options?)`                                                  | Structural observation.                  |
 | `screenshot(options?)`                                                | Pixel observation.                       |
@@ -195,7 +207,7 @@ evaluate(pageFunction, arg?), waitFor(options?), allTextContents()
 
 `locator()` chaining is supported only from an unfiltered CSS locator. `filter({ has, hasNot })` requires same-tab CSS locators. `nth()` is zero-based. Semantic locators use the frozen API's small role mapping and string matching; they do not provide every Playwright accessibility behavior.
 
-Timeouts are non-negative milliseconds and are capped at 120 seconds unless a smaller `expectNewTab()` limit applies. Unknown option keys fail fast.
+Timeouts are non-negative milliseconds and are capped at 120 seconds unless a smaller `expectNewTab()` limit applies. Locator actions retry transient not-found/not-actionable state for one shared three-second deadline, then add a bounded five-match diagnostic; unknown-outcome transport failures are never replayed. A low-level `browser.chain()` has its own overall `timeout` option capped at 240 seconds. Unknown option keys fail fast. A timeout error states whether its deadline was the caller's override or the runtime default and whether the request had already been dispatched; if dispatch occurred, treat the remote outcome as unknown and inspect state before retrying a mutating action.
 
 ## Not Logged In: Try the External Browser
 
@@ -204,10 +216,13 @@ The default in-app browser has its own session and mirrors the user's signed-in 
 When a site loads but appears NOT logged in — redirected to a sign-in page, "session expired", an auth wall, or an action that fails only for lack of auth — attempt the user's real, signed-in browser before concluding the site is inaccessible:
 
 ```js
-await browser.use("external"); // drive the user's real browser via the Stella Browser extension
-// retry the same navigation / action on that site
-await browser.use("in-app"); // switch back when the auth-gated step is done
+await browser.use("external"); // select the user's real browser for newly acquired handles
+var externalTab = await browser.tabs.new("https://example.com");
+// retry the auth-gated workflow on externalTab
+await browser.use("in-app"); // old in-app handles remain bound and safe to reuse
 ```
+
+Every `Tab` and `Locator` exposes its fixed `.backend`. Switching the default affects newly acquired handles only; an existing handle continues routing to the backend that created it, even after `browser.use()` changes the default. Do not expect an in-app tab to become an external tab.
 
 This is a fallback to try, not a default. Keep using the in-app browser for normal work; reach for `external` only when missing auth actually blocks the task, then switch back with `browser.use("in-app")`. External mode needs the Stella Browser extension installed and connected — if it is unavailable, report that rather than assuming the site is down. This is distinct from a transport/bridge failure (below): use `external` only for a logged-out or auth-failed site on an otherwise-working browser.
 

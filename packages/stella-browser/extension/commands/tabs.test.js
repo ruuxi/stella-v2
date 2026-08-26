@@ -1,5 +1,5 @@
-import assert from 'node:assert/strict';
-import test from 'node:test';
+import assert from "node:assert/strict";
+import test from "node:test";
 
 const listeners = {
   tabCreated: [],
@@ -8,7 +8,16 @@ const listeners = {
   windowRemoved: [],
 };
 const tabs = new Map([
-  [1, { id: 1, windowId: 1, groupId: -1, url: 'https://user.example', title: 'User' }],
+  [
+    1,
+    {
+      id: 1,
+      windowId: 1,
+      groupId: -1,
+      url: "https://user.example",
+      title: "User",
+    },
+  ],
 ]);
 const groups = new Map();
 let nextTabId = 10;
@@ -28,7 +37,9 @@ globalThis.chrome = {
     session: {
       async get(keys) {
         return Object.fromEntries(
-          keys.filter((key) => storage[key] !== undefined).map((key) => [key, clone(storage[key])]),
+          keys
+            .filter((key) => storage[key] !== undefined)
+            .map((key) => [key, clone(storage[key])]),
         );
       },
       async set(value) {
@@ -39,33 +50,35 @@ globalThis.chrome = {
   windows: {
     onRemoved: event(listeners.windowRemoved),
     async get(windowId) {
-      if (windowId !== 1) throw new Error('window not found');
-      return { id: 1, type: 'normal' };
+      if (windowId !== 1) throw new Error("window not found");
+      return { id: 1, type: "normal" };
     },
     async getLastFocused() {
-      return { id: 1, type: 'normal' };
+      return { id: 1, type: "normal" };
     },
     async getAll() {
-      return [{ id: 1, type: 'normal' }];
+      return [{ id: 1, type: "normal" }];
     },
     async create({ url }) {
-      const tab = { id: nextTabId++, windowId: 1, groupId: -1, url, title: '' };
+      const tab = { id: nextTabId++, windowId: 1, groupId: -1, url, title: "" };
       tabs.set(tab.id, tab);
       return { id: 1, tabs: [clone(tab)] };
     },
   },
   tabGroups: {
     async query({ title } = {}) {
-      return [...groups.values()].filter((group) => !title || group.title === title).map(clone);
+      return [...groups.values()]
+        .filter((group) => !title || group.title === title)
+        .map(clone);
     },
     async get(groupId) {
       const group = groups.get(groupId);
-      if (!group) throw new Error('group not found');
+      if (!group) throw new Error("group not found");
       return clone(group);
     },
     async update(groupId, updates) {
       const group = groups.get(groupId);
-      if (!group) throw new Error('group not found');
+      if (!group) throw new Error("group not found");
       Object.assign(group, updates);
       return clone(group);
     },
@@ -74,19 +87,24 @@ globalThis.chrome = {
     onCreated: event(listeners.tabCreated),
     onRemoved: event(listeners.tabRemoved),
     async create({ url, windowId }) {
-      const tab = { id: nextTabId++, windowId, groupId: -1, url, title: '' };
+      const tab = { id: nextTabId++, windowId, groupId: -1, url, title: "" };
       tabs.set(tab.id, tab);
       return clone(tab);
     },
     async get(tabId) {
       const tab = tabs.get(tabId);
-      if (!tab) throw new Error('tab not found');
+      if (!tab) throw new Error("tab not found");
       return clone(tab);
     },
     async query(query) {
       return [...tabs.values()]
-        .filter((tab) => query.windowId === undefined || tab.windowId === query.windowId)
-        .filter((tab) => query.groupId === undefined || tab.groupId === query.groupId)
+        .filter(
+          (tab) =>
+            query.windowId === undefined || tab.windowId === query.windowId,
+        )
+        .filter(
+          (tab) => query.groupId === undefined || tab.groupId === query.groupId,
+        )
         .map(clone);
     },
     async group({ tabIds, groupId, createProperties }) {
@@ -95,8 +113,8 @@ globalThis.chrome = {
         groups.set(resolvedGroupId, {
           id: resolvedGroupId,
           windowId: createProperties?.windowId ?? tabs.get(tabIds[0]).windowId,
-          title: '',
-          color: 'grey',
+          title: "",
+          color: "grey",
         });
       }
       for (const tabId of tabIds) tabs.get(tabId).groupId = resolvedGroupId;
@@ -104,20 +122,22 @@ globalThis.chrome = {
     },
     async ungroup(tabIds) {
       for (const tabId of tabIds) {
-        if (ungroupFailures.has(tabId)) throw new Error(`ungroup failed for ${tabId}`);
+        if (ungroupFailures.has(tabId))
+          throw new Error(`ungroup failed for ${tabId}`);
         const tab = tabs.get(tabId);
         if (tab) tab.groupId = -1;
       }
     },
     async move(tabId, { windowId }) {
       const tab = tabs.get(tabId);
-      if (!tab) throw new Error('tab not found');
+      if (!tab) throw new Error("tab not found");
       tab.windowId = windowId;
       return clone(tab);
     },
     async remove(tabIds) {
       for (const tabId of Array.isArray(tabIds) ? tabIds : [tabIds]) {
-        if (removeFailures.has(tabId)) throw new Error(`remove failed for ${tabId}`);
+        if (removeFailures.has(tabId))
+          throw new Error(`remove failed for ${tabId}`);
         tabs.delete(tabId);
       }
     },
@@ -137,70 +157,85 @@ const {
   getActiveTab,
   handleTabClose,
   handleTabList,
+  handleMarkTab,
   handleTabNew,
   handleTabSwitch,
   releaseOwnerLease,
-} = await import('./tabs.js');
+} = await import("./tabs.js");
 
-test('tab responses expose stable IDs and explicit targeting stays owner-scoped', async () => {
-  for (const ownerId of ['__proto__', 'prototype', 'constructor']) {
+test("tab responses expose stable IDs and explicit targeting stays owner-scoped", async () => {
+  for (const ownerId of ["__proto__", "prototype", "constructor"]) {
     await assert.rejects(
       handleTabNew({ id: `unsafe-${ownerId}`, ownerId }),
       /Unsafe ownerId/,
     );
   }
 
-  const first = await handleTabNew({ id: 'new-a', ownerId: 'owner-a' });
-  const second = await handleTabNew({ id: 'new-b', ownerId: 'owner-b' });
+  const first = await handleTabNew({ id: "new-a", ownerId: "owner-a" });
+  const second = await handleTabNew({ id: "new-b", ownerId: "owner-b" });
   assert.equal(Number.isInteger(first.data.tabId), true);
   assert.equal(Number.isInteger(second.data.tabId), true);
   assert.notEqual(first.data.tabId, second.data.tabId);
 
-  const list = await handleTabList({ id: 'list-a', ownerId: 'owner-a' });
+  const list = await handleTabList({ id: "list-a", ownerId: "owner-a" });
   assert.equal(list.data.tabs[0].tabId, first.data.tabId);
   assert.equal(list.data.activeTabId, first.data.tabId);
 
   const switched = await handleTabSwitch({
-    id: 'switch-a',
-    ownerId: 'owner-a',
+    id: "switch-a",
+    ownerId: "owner-a",
     tabId: first.data.tabId,
   });
   assert.equal(switched.data.tabId, first.data.tabId);
   await assert.rejects(
-    getActiveTab({ ownerId: 'owner-a', tabId: second.data.tabId }),
+    getActiveTab({ ownerId: "owner-a", tabId: second.data.tabId }),
     /not owned by command owner/,
   );
 
-  tabs.set(999, { id: 999, windowId: 1, groupId: -1, url: 'https://unowned.example' });
+  tabs.set(999, {
+    id: 999,
+    windowId: 1,
+    groupId: -1,
+    url: "https://unowned.example",
+  });
   await assert.rejects(
-    getActiveTab({ ownerId: 'owner-a', tabId: 999 }),
+    getActiveTab({ ownerId: "owner-a", tabId: 999 }),
     /not owned by command owner/,
   );
 
   const closed = await handleTabClose({
-    id: 'close-b',
-    ownerId: 'owner-b',
+    id: "close-b",
+    ownerId: "owner-b",
     tabId: second.data.tabId,
   });
   assert.equal(closed.data.tabId, second.data.tabId);
   assert.equal(tabs.has(second.data.tabId), false);
 });
 
-test('opener child tabs are adopted and finalization only touches owner tabs', async () => {
-  const ownerTab = await handleTabNew({ id: 'owner-new', ownerId: 'owner-finalize' });
-  const unrelated = await handleTabNew({ id: 'other-new', ownerId: 'owner-unrelated' });
+test("opener child tabs are adopted and finalization only touches owner tabs", async () => {
+  const ownerTab = await handleTabNew({
+    id: "owner-new",
+    ownerId: "owner-finalize",
+  });
+  const unrelated = await handleTabNew({
+    id: "other-new",
+    ownerId: "owner-unrelated",
+  });
   const child = {
     id: nextTabId++,
     openerTabId: ownerTab.data.tabId,
     windowId: 1,
     groupId: -1,
-    url: 'https://child.example',
-    title: 'Child',
+    url: "https://child.example",
+    title: "Child",
   };
   tabs.set(child.id, child);
   for (const listener of listeners.tabCreated) listener(clone(child));
 
-  const list = await handleTabList({ id: 'list-child', ownerId: 'owner-finalize' });
+  const list = await handleTabList({
+    id: "list-child",
+    ownerId: "owner-finalize",
+  });
   assert.deepEqual(
     list.data.tabs.map((tab) => tab.tabId),
     [ownerTab.data.tabId, child.id],
@@ -209,9 +244,9 @@ test('opener child tabs are adopted and finalization only touches owner tabs', a
   assert.notEqual(tabs.get(child.id).groupId, -1);
 
   const finalized = await finalizeOwnerTabs({
-    id: 'finalize',
-    ownerId: 'owner-finalize',
-    keep: [{ tabId: child.id, status: 'handoff' }],
+    id: "finalize",
+    ownerId: "owner-finalize",
+    keep: [{ tabId: child.id, status: "handoff" }],
   });
   assert.deepEqual(finalized.closedTabIds, [ownerTab.data.tabId]);
   assert.deepEqual(finalized.releasedTabIds, [child.id]);
@@ -220,21 +255,102 @@ test('opener child tabs are adopted and finalization only touches owner tabs', a
   assert.equal(tabs.has(unrelated.data.tabId), true);
 
   await assert.rejects(
-    getActiveTab({ ownerId: 'owner-finalize', tabId: child.id }),
+    getActiveTab({ ownerId: "owner-finalize", tabId: child.id }),
     /not owned by command owner/,
   );
-  const unrelatedList = await handleTabList({ id: 'other-list', ownerId: 'owner-unrelated' });
+  const unrelatedList = await handleTabList({
+    id: "other-list",
+    ownerId: "owner-unrelated",
+  });
   assert.equal(unrelatedList.data.tabs[0].tabId, unrelated.data.tabId);
 });
 
-test('navigation target source adopts noopener tabs after the click action', async () => {
-  const ownerTab = await handleTabNew({ id: 'source-owner', ownerId: 'owner-source' });
+test("automatic finalization preserves per-turn tab marks", async () => {
+  const lease = {
+    id: "mark-lease",
+    action: "tab_new",
+    ownerId: "owner-marked",
+    ownerLeaseId: "mark-lease-1",
+    ownerLeaseIssuedAt: 50,
+  };
+  await authorizeOwnerLease(lease);
+  const deliverable = await handleTabNew(lease);
+  const handoff = await handleTabNew(lease);
+  const throwaway = await handleTabNew(lease);
+
+  await handleMarkTab({
+    ...lease,
+    id: "mark-deliverable",
+    action: "mark_tab",
+    tabId: deliverable.data.tabId,
+    status: "deliverable",
+  });
+  await handleMarkTab({
+    ...lease,
+    id: "mark-handoff",
+    action: "mark_tab",
+    tabId: handoff.data.tabId,
+    status: "handoff",
+  });
+
+  const finalized = await finalizeOwnerTabs({
+    ...lease,
+    id: "automatic-finalize",
+    action: "finalize_tabs",
+    keep: [],
+    preserveMarked: true,
+  });
+  assert.deepEqual(finalized.closedTabIds, [throwaway.data.tabId]);
+  assert.deepEqual(finalized.releasedTabIds, [
+    deliverable.data.tabId,
+    handoff.data.tabId,
+  ]);
+  assert.deepEqual(finalized.kept, [
+    { tabId: deliverable.data.tabId, status: "deliverable" },
+    { tabId: handoff.data.tabId, status: "handoff" },
+  ]);
+});
+
+test("explicit empty finalization remains authoritative over tab marks", async () => {
+  const lease = {
+    id: "explicit-mark-lease",
+    action: "tab_new",
+    ownerId: "owner-explicit-mark",
+    ownerLeaseId: "mark-lease-2",
+    ownerLeaseIssuedAt: 60,
+  };
+  await authorizeOwnerLease(lease);
+  const marked = await handleTabNew(lease);
+  await handleMarkTab({
+    ...lease,
+    id: "explicit-mark",
+    action: "mark_tab",
+    tabId: marked.data.tabId,
+    status: "deliverable",
+  });
+
+  const finalized = await finalizeOwnerTabs({
+    ...lease,
+    id: "explicit-finalize",
+    action: "finalize_tabs",
+    keep: [],
+  });
+  assert.deepEqual(finalized.closedTabIds, [marked.data.tabId]);
+  assert.deepEqual(finalized.releasedTabIds, []);
+  assert.deepEqual(finalized.kept, []);
+});
+
+test("navigation target source adopts noopener tabs after the click action", async () => {
+  const ownerTab = await handleTabNew({
+    id: "source-owner",
+    ownerId: "owner-source",
+  });
   const child = {
     id: nextTabId++,
     windowId: 1,
     groupId: -1,
-    url: 'about:blank',
-    title: '',
+    url: "about:blank",
+    title: "",
   };
   tabs.set(child.id, child);
   for (const listener of listeners.tabCreated) listener(clone(child));
@@ -242,7 +358,10 @@ test('navigation target source adopts noopener tabs after the click action', asy
     listener({ sourceTabId: ownerTab.data.tabId, tabId: child.id });
   }
 
-  const list = await handleTabList({ id: 'source-list', ownerId: 'owner-source' });
+  const list = await handleTabList({
+    id: "source-list",
+    ownerId: "owner-source",
+  });
   assert.deepEqual(
     list.data.tabs.map((tab) => tab.tabId),
     [ownerTab.data.tabId, child.id],
@@ -250,32 +369,41 @@ test('navigation target source adopts noopener tabs after the click action', asy
   assert.equal(list.data.activeTabId, child.id);
 });
 
-test('opener-less tabs are not adopted without an authoritative source event', async () => {
-  const ownerTab = await handleTabNew({ id: 'unrelated-owner', ownerId: 'owner-unrelated-tab' });
+test("opener-less tabs are not adopted without an authoritative source event", async () => {
+  const ownerTab = await handleTabNew({
+    id: "unrelated-owner",
+    ownerId: "owner-unrelated-tab",
+  });
   const unrelated = {
     id: nextTabId++,
     windowId: 1,
     groupId: -1,
-    url: 'https://user.example/unrelated',
-    title: 'Unrelated',
+    url: "https://user.example/unrelated",
+    title: "Unrelated",
   };
   tabs.set(unrelated.id, unrelated);
   for (const listener of listeners.tabCreated) listener(clone(unrelated));
 
-  const list = await handleTabList({ id: 'unrelated-list', ownerId: 'owner-unrelated-tab' });
-  assert.deepEqual(list.data.tabs.map((tab) => tab.tabId), [ownerTab.data.tabId]);
+  const list = await handleTabList({
+    id: "unrelated-list",
+    ownerId: "owner-unrelated-tab",
+  });
+  assert.deepEqual(
+    list.data.tabs.map((tab) => tab.tabId),
+    [ownerTab.data.tabId],
+  );
   assert.equal(tabs.get(unrelated.id).groupId, -1);
 });
 
-test('finalization rejects cross-owner keep entries before changing state', async () => {
-  const own = await handleTabNew({ id: 'own', ownerId: 'owner-keep' });
-  const other = await handleTabNew({ id: 'other', ownerId: 'owner-other' });
+test("finalization rejects cross-owner keep entries before changing state", async () => {
+  const own = await handleTabNew({ id: "own", ownerId: "owner-keep" });
+  const other = await handleTabNew({ id: "other", ownerId: "owner-other" });
 
   await assert.rejects(
     finalizeOwnerTabs({
-      id: 'bad-finalize',
-      ownerId: 'owner-keep',
-      keep: [{ tabId: other.data.tabId, status: 'deliverable' }],
+      id: "bad-finalize",
+      ownerId: "owner-keep",
+      keep: [{ tabId: other.data.tabId, status: "deliverable" }],
     }),
     /not owned/,
   );
@@ -283,76 +411,97 @@ test('finalization rejects cross-owner keep entries before changing state', asyn
   assert.equal(tabs.has(other.data.tabId), true);
 });
 
-test('failed close_owner operations retain ownership for retry', async () => {
-  const owned = await handleTabNew({ id: 'retry-new', ownerId: 'owner-retry' });
+test("failed close_owner operations retain ownership for retry", async () => {
+  const owned = await handleTabNew({ id: "retry-new", ownerId: "owner-retry" });
   removeFailures.add(owned.data.tabId);
 
   await assert.rejects(
-    finalizeOwnerTabs({ id: 'retry-close', ownerId: 'owner-retry', keep: [] }),
+    finalizeOwnerTabs({ id: "retry-close", ownerId: "owner-retry", keep: [] }),
     /close tab .*remove failed/,
   );
-  const retained = await handleTabList({ id: 'retry-list', ownerId: 'owner-retry' });
-  assert.deepEqual(retained.data.tabs.map((tab) => tab.tabId), [owned.data.tabId]);
+  const retained = await handleTabList({
+    id: "retry-list",
+    ownerId: "owner-retry",
+  });
+  assert.deepEqual(
+    retained.data.tabs.map((tab) => tab.tabId),
+    [owned.data.tabId],
+  );
 
   removeFailures.delete(owned.data.tabId);
   const retried = await finalizeOwnerTabs({
-    id: 'retry-close-again',
-    ownerId: 'owner-retry',
+    id: "retry-close-again",
+    ownerId: "owner-retry",
     keep: [],
   });
   assert.deepEqual(retried.closedTabIds, [owned.data.tabId]);
   assert.equal(tabs.has(owned.data.tabId), false);
 });
 
-test('failed handoff operations retain ownership for retry', async () => {
-  const owned = await handleTabNew({ id: 'retry-release', ownerId: 'owner-release' });
+test("failed handoff operations retain ownership for retry", async () => {
+  const owned = await handleTabNew({
+    id: "retry-release",
+    ownerId: "owner-release",
+  });
   ungroupFailures.add(owned.data.tabId);
 
   await assert.rejects(
     finalizeOwnerTabs({
-      id: 'retry-release-finalize',
-      ownerId: 'owner-release',
-      keep: [{ tabId: owned.data.tabId, status: 'handoff' }],
+      id: "retry-release-finalize",
+      ownerId: "owner-release",
+      keep: [{ tabId: owned.data.tabId, status: "handoff" }],
     }),
     /release tab .*ungroup failed/,
   );
-  const retained = await handleTabList({ id: 'release-list', ownerId: 'owner-release' });
-  assert.deepEqual(retained.data.tabs.map((tab) => tab.tabId), [owned.data.tabId]);
+  const retained = await handleTabList({
+    id: "release-list",
+    ownerId: "owner-release",
+  });
+  assert.deepEqual(
+    retained.data.tabs.map((tab) => tab.tabId),
+    [owned.data.tabId],
+  );
 
   ungroupFailures.delete(owned.data.tabId);
   const retried = await finalizeOwnerTabs({
-    id: 'retry-release-again',
-    ownerId: 'owner-release',
-    keep: [{ tabId: owned.data.tabId, status: 'handoff' }],
+    id: "retry-release-again",
+    ownerId: "owner-release",
+    keep: [{ tabId: owned.data.tabId, status: "handoff" }],
   });
   assert.deepEqual(retried.releasedTabIds, [owned.data.tabId]);
   assert.equal(tabs.get(owned.data.tabId).groupId, -1);
 });
 
-test('window drift preserves valid owned tabs in the registry', async () => {
-  const owned = await handleTabNew({ id: 'drift-new', ownerId: 'owner-drift' });
+test("window drift preserves valid owned tabs in the registry", async () => {
+  const owned = await handleTabNew({ id: "drift-new", ownerId: "owner-drift" });
   tabs.get(owned.data.tabId).windowId = 2;
   for (const listener of listeners.windowRemoved) listener(1);
   await new Promise((resolve) => setImmediate(resolve));
 
-  const listed = await handleTabList({ id: 'drift-list', ownerId: 'owner-drift' });
-  assert.deepEqual(listed.data.tabs.map((tab) => tab.tabId), [owned.data.tabId]);
+  const listed = await handleTabList({
+    id: "drift-list",
+    ownerId: "owner-drift",
+  });
+  assert.deepEqual(
+    listed.data.tabs.map((tab) => tab.tabId),
+    [owned.data.tabId],
+  );
   assert.equal(tabs.has(owned.data.tabId), true);
 });
 
-test('replacement lease fences stale cleanup from an older kernel', async () => {
+test("replacement lease fences stale cleanup from an older kernel", async () => {
   const firstLease = {
-    id: 'lease-first',
-    action: 'tab_new',
-    ownerId: 'owner-lease',
-    ownerLeaseId: 'kernel-1',
+    id: "lease-first",
+    action: "tab_new",
+    ownerId: "owner-lease",
+    ownerLeaseId: "kernel-1",
     ownerLeaseIssuedAt: 100,
   };
   const replacementLease = {
-    id: 'lease-replacement',
-    action: 'tab_list',
-    ownerId: 'owner-lease',
-    ownerLeaseId: 'kernel-2',
+    id: "lease-replacement",
+    action: "tab_list",
+    ownerId: "owner-lease",
+    ownerLeaseId: "kernel-2",
     ownerLeaseIssuedAt: 200,
   };
   await authorizeOwnerLease(firstLease);
@@ -360,38 +509,45 @@ test('replacement lease fences stale cleanup from an older kernel', async () => 
   await authorizeOwnerLease(replacementLease);
 
   await assert.rejects(
-    authorizeOwnerLease({ ...firstLease, id: 'stale-close', action: 'close_owner' }),
+    authorizeOwnerLease({
+      ...firstLease,
+      id: "stale-close",
+      action: "close_owner",
+    }),
     /Stale browser owner lease rejected/,
   );
   assert.equal(tabs.has(owned.data.tabId), true);
   const listed = await handleTabList(replacementLease);
-  assert.deepEqual(listed.data.tabs.map((tab) => tab.tabId), [owned.data.tabId]);
-});
-
-test('protocol 2 owner commands always reject missing lease fields', async () => {
-  await assert.rejects(
-    authorizeOwnerLease({
-      id: 'legacy-owner-command',
-      action: 'close_owner',
-      ownerId: 'legacy-owner',
-    }),
-    /protocol mismatch.*no owner lease.*1\.2\.6/i,
+  assert.deepEqual(
+    listed.data.tabs.map((tab) => tab.tabId),
+    [owned.data.tabId],
   );
 });
 
-test('in-flight tab close rechecks its lease after replacement', async () => {
+test("protocol 2 owner commands always reject missing lease fields", async () => {
+  await assert.rejects(
+    authorizeOwnerLease({
+      id: "legacy-owner-command",
+      action: "close_owner",
+      ownerId: "legacy-owner",
+    }),
+    /protocol mismatch.*no owner lease.*1\.2\.12/i,
+  );
+});
+
+test("in-flight tab close rechecks its lease after replacement", async () => {
   const firstLease = {
-    id: 'in-flight-first',
-    action: 'tab_new',
-    ownerId: 'owner-in-flight',
-    ownerLeaseId: 'kernel-old',
+    id: "in-flight-first",
+    action: "tab_new",
+    ownerId: "owner-in-flight",
+    ownerLeaseId: "kernel-old",
     ownerLeaseIssuedAt: 300,
   };
   const replacementLease = {
-    id: 'in-flight-replacement',
-    action: 'tab_list',
-    ownerId: 'owner-in-flight',
-    ownerLeaseId: 'kernel-new',
+    id: "in-flight-replacement",
+    action: "tab_list",
+    ownerId: "owner-in-flight",
+    ownerLeaseId: "kernel-new",
     ownerLeaseIssuedAt: 400,
   };
   await authorizeOwnerLease(firstLease);
@@ -400,8 +556,12 @@ test('in-flight tab close rechecks its lease after replacement', async () => {
   const originalGet = chrome.tabs.get;
   let resumeGet;
   let getStarted;
-  const getStartedPromise = new Promise((resolve) => { getStarted = resolve; });
-  const resumeGetPromise = new Promise((resolve) => { resumeGet = resolve; });
+  const getStartedPromise = new Promise((resolve) => {
+    getStarted = resolve;
+  });
+  const resumeGetPromise = new Promise((resolve) => {
+    resumeGet = resolve;
+  });
   chrome.tabs.get = async (tabId) => {
     getStarted();
     await resumeGetPromise;
@@ -411,8 +571,8 @@ test('in-flight tab close rechecks its lease after replacement', async () => {
   try {
     const staleClose = handleTabClose({
       ...firstLease,
-      id: 'in-flight-close',
-      action: 'tab_close',
+      id: "in-flight-close",
+      action: "tab_close",
       tabId: owned.data.tabId,
     });
     await getStartedPromise;
@@ -427,12 +587,12 @@ test('in-flight tab close rechecks its lease after replacement', async () => {
   }
 });
 
-test('lease release preserves the generation fence while tabs survive', async () => {
+test("lease release preserves the generation fence while tabs survive", async () => {
   const lease = {
-    id: 'release-lease',
-    action: 'tab_new',
-    ownerId: 'owner-release-lease',
-    ownerLeaseId: 'short-lived-session',
+    id: "release-lease",
+    action: "tab_new",
+    ownerId: "owner-release-lease",
+    ownerLeaseId: "short-lived-session",
     ownerLeaseIssuedAt: 500,
   };
   await authorizeOwnerLease(lease);
@@ -442,32 +602,32 @@ test('lease release preserves the generation fence while tabs survive', async ()
   await assert.rejects(
     authorizeOwnerLease({
       ...lease,
-      id: 'stale-after-release',
-      ownerLeaseId: 'stale-session',
+      id: "stale-after-release",
+      ownerLeaseId: "stale-session",
       ownerLeaseIssuedAt: 1,
     }),
     /Stale browser owner lease rejected/,
   );
   await authorizeOwnerLease({
     ...lease,
-    id: 'newer-after-release',
-    ownerLeaseId: 'later-session',
+    id: "newer-after-release",
+    ownerLeaseId: "later-session",
     ownerLeaseIssuedAt: 600,
   });
   assert.equal(tabs.has(owned.data.tabId), true);
 });
 
-test('lease release leaves no tombstone for a stateless short-lived owner', async () => {
+test("lease release leaves no tombstone for a stateless short-lived owner", async () => {
   const lease = {
-    id: 'stateless-release',
-    action: 'cookies_get',
-    ownerId: 'stateless-owner',
-    ownerLeaseId: 'stateless-session',
+    id: "stateless-release",
+    action: "cookies_get",
+    ownerId: "stateless-owner",
+    ownerLeaseId: "stateless-session",
     ownerLeaseIssuedAt: 700,
   };
   await authorizeOwnerLease(lease);
   await releaseOwnerLease(lease);
 
-  assert.equal(storage.ownerLeaseState?.['stateless-owner'], undefined);
-  assert.equal(storage.ownerLeaseHighWater?.['stateless-owner'], undefined);
+  assert.equal(storage.ownerLeaseState?.["stateless-owner"], undefined);
+  assert.equal(storage.ownerLeaseHighWater?.["stateless-owner"], undefined);
 });

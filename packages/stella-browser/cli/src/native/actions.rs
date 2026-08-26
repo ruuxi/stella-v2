@@ -215,6 +215,7 @@ fn is_known_action(action: &str) -> bool {
             | "mousedown"
             | "mouseup"
             | "chain"
+            | "mark_tab"
             | "finalize_tabs"
             | "close_owner"
             | "release_owner_lease"
@@ -323,6 +324,7 @@ fn validate_chain_actions(cmd: &Value) -> Result<Vec<&str>, String> {
             .filter(|action| !action.trim().is_empty())
             .ok_or_else(|| format!("Chain step {} must have a non-empty string action", index))?;
         if action == "chain"
+            || action == "mark_tab"
             || action == "finalize_tabs"
             || action == "close_owner"
             || action == "release_owner_lease"
@@ -430,6 +432,7 @@ struct OwnerLeaseClaim {
 struct OwnerLeaseRegistry {
     current_by_owner: HashMap<String, OwnerLease>,
     order_high_water: HashMap<String, OwnerLeaseOrder>,
+    marked_tabs_by_owner: HashMap<String, HashMap<u64, (Option<String>, String)>>,
 }
 
 impl OwnerLeaseRegistry {
@@ -507,6 +510,9 @@ impl OwnerLeaseRegistry {
     }
 
     fn commit(&mut self, claim: &OwnerLeaseClaim) {
+        if self.current_by_owner.get(&claim.owner_id) != Some(&claim.lease) {
+            self.marked_tabs_by_owner.remove(&claim.owner_id);
+        }
         let order = claim.lease.order();
         self.order_high_water
             .entry(claim.owner_id.clone())
@@ -527,8 +533,38 @@ impl OwnerLeaseRegistry {
         let is_current = self.current_by_owner.get(&claim.owner_id) == Some(&claim.lease);
         if is_current {
             self.current_by_owner.remove(&claim.owner_id);
+            self.marked_tabs_by_owner.remove(&claim.owner_id);
         }
         Ok(is_current)
+    }
+
+    fn mark_tab(
+        &mut self,
+        owner_id: &str,
+        tab_id: u64,
+        tab_generation: Option<String>,
+        status: &str,
+    ) {
+        self.marked_tabs_by_owner
+            .entry(owner_id.to_string())
+            .or_default()
+            .insert(tab_id, (tab_generation, status.to_string()));
+    }
+
+    fn marked_tabs(&self, owner_id: &str) -> Vec<(u64, Option<String>, String)> {
+        let mut marked = self
+            .marked_tabs_by_owner
+            .get(owner_id)
+            .into_iter()
+            .flat_map(|marks| marks.iter())
+            .map(|(tab_id, (generation, status))| (*tab_id, generation.clone(), status.clone()))
+            .collect::<Vec<_>>();
+        marked.sort_by_key(|(tab_id, _, _)| *tab_id);
+        marked
+    }
+
+    fn clear_marked_tabs(&mut self, owner_id: &str) {
+        self.marked_tabs_by_owner.remove(owner_id);
     }
 }
 
@@ -629,6 +665,12 @@ fn validate_owner_finalization(cmd: &Value, action: &str) -> Result<(), String> 
     }
 
     if action == "finalize_tabs" {
+        if cmd
+            .get("preserveMarked")
+            .is_some_and(|value| !value.is_boolean())
+        {
+            return Err("finalize_tabs preserveMarked must be a boolean".to_string());
+        }
         let keep = match cmd.get("keep") {
             None | Some(Value::Null) => return Ok(()),
             Some(value) => value
@@ -691,6 +733,18 @@ fn validate_owner_finalization(cmd: &Value, action: &str) -> Result<(), String> 
     }
 
     Ok(())
+}
+
+fn validate_mark_tab(cmd: &Value) -> Result<(), String> {
+    command_owner_id(cmd).ok_or("mark_tab requires a non-empty ownerId")?;
+    cmd.get("tabId")
+        .and_then(Value::as_u64)
+        .filter(|tab_id| *tab_id > 0 && *tab_id <= u32::MAX as u64)
+        .ok_or("mark_tab tabId must be a positive integer")?;
+    match cmd.get("status").and_then(Value::as_str) {
+        Some("handoff" | "deliverable") => Ok(()),
+        _ => Err("mark_tab status must be 'handoff' or 'deliverable'".to_string()),
+    }
 }
 
 pub struct HarEntry {
@@ -1519,6 +1573,11 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
             return error_response(&id, &error);
         }
     }
+    if action == "mark_tab" {
+        if let Err(error) = validate_mark_tab(cmd) {
+            return error_response(&id, &error);
+        }
+    }
 
     // Drain pending CDP events (console, errors, screencast frames, target lifecycle, fetch)
     let (pending_acks, new_targets, destroyed_targets, fetch_paused) = state.drain_cdp_events();
@@ -1688,6 +1747,7 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
             | "state_clean"
             | "state_rename"
             | "device_list"
+            | "mark_tab"
             | "finalize_tabs"
             | "close_owner"
             | "release_owner_lease"
@@ -1828,7 +1888,10 @@ pub async fn execute_command(cmd: &Value, state: &mut DaemonState) -> Value {
     // action. The CDP handlers operate on the active page, so make the
     // addressed tab active first. tab_switch/tab_close resolve their own
     // target, and tab_list/tab_new take none.
-    if !matches!(action, "tab_list" | "tab_new" | "tab_switch" | "tab_close") {
+    if !matches!(
+        action,
+        "tab_list" | "tab_new" | "tab_switch" | "tab_close" | "mark_tab"
+    ) {
         if let Some(tab_id_value) = cmd.get("tabId") {
             match tab_id_value.as_u64().filter(|tab_id| *tab_id > 0) {
                 None => return error_response(&id, "'tabId' must be a positive integer"),
@@ -2034,6 +2097,7 @@ async fn dispatch_action(
         // Chains are executed by handle_chain before dispatch; reaching this
         // arm means a nested chain step slipped past validation.
         "chain" => Err("Chain steps cannot contain a nested chain".to_string()),
+        "mark_tab" => handle_mark_tab(cmd, state).await,
         "finalize_tabs" | "close_owner" => handle_finalize_tabs(action, cmd, state).await,
         // Handled before launch/policy dispatch so release never creates a
         // browser and stale cleanup cannot reach tab mutation.
@@ -2069,6 +2133,12 @@ async fn within_chain_deadline<T, F>(
 where
     F: Future<Output = T>,
 {
+    if tokio::time::Instant::now() >= deadline {
+        return Err(format!(
+            "Chain exceeded its {}ms execution budget {}",
+            chain_budget_ms, context
+        ));
+    }
     let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
     tokio::time::timeout(remaining, operation)
         .await
@@ -2385,9 +2455,14 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
                     Some(tab_id) => {
                         let mut switch_error = None;
                         if let Some(ref mut mgr) = state.browser {
-                            let remaining =
-                                deadline.saturating_duration_since(tokio::time::Instant::now());
-                            match tokio::time::timeout(remaining, mgr.select_tab_by_id(tab_id)).await {
+                            match within_chain_deadline(
+                                deadline,
+                                chain_budget_ms,
+                                "while selecting the step tab",
+                                mgr.select_tab_by_id(tab_id),
+                            )
+                            .await
+                            {
                                 Ok(Ok(switched)) => {
                                     if let Some(owner_id) = command_owner_id(&step_cmd) {
                                         mgr.mark_owner_tab_active(owner_id, tab_id);
@@ -2397,12 +2472,7 @@ async fn handle_chain(cmd: &Value, state: &mut DaemonState, id: &str) -> Value {
                                     }
                                 }
                                 Ok(Err(error)) => switch_error = Some(error),
-                                Err(_) => {
-                                    switch_error = Some(format!(
-                                        "Chain exceeded its {}ms execution budget while selecting the step tab",
-                                        chain_budget_ms
-                                    ))
-                                }
+                                Err(error) => switch_error = Some(error),
                             }
                         }
                         if let Some(error) = switch_error {
@@ -2834,20 +2904,7 @@ async fn forward_targeted_extension_command(cmd: &Value, state: &DaemonState) ->
     })
     .await
     {
-        Ok(Ok(response)) if response.success => {
-            let mut result = json!({ "id": id, "success": true });
-            if let Some(data) = response.data {
-                result["data"] = data;
-            }
-            result
-        }
-        Ok(Ok(response)) => error_response(
-            &id,
-            response
-                .error
-                .as_deref()
-                .unwrap_or("Extension proxy command failed without an error message"),
-        ),
+        Ok(Ok(response)) => normalize_extension_proxy_response(&id, response),
         Ok(Err(error)) => error_response(&id, &format!("Extension proxy unavailable: {error}")),
         Err(error) => error_response(&id, &format!("Extension proxy task failed: {error}")),
     }
@@ -2879,26 +2936,67 @@ pub(crate) async fn forward_extension_command(cmd: &Value, bridge: &ExtensionBri
 }
 
 fn normalize_extension_response(id: &str, response: &Value) -> Value {
-    // Extension returns {id, success, data/error}; the daemon owns request correlation.
-    let success = response
+    // The daemon owns request correlation, but the extension owns the receipt.
+    // Preserve all current and future receipt fields on both success and failure.
+    let Some(source) = response.as_object() else {
+        return error_response(id, "Extension command returned an invalid response");
+    };
+    let success = source
         .get("success")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    if success {
-        let mut normalized = json!({ "id": id, "success": true });
-        if let Some(data) = response.get("data") {
-            normalized["data"] = data.clone();
-        }
-        normalized
-    } else {
-        error_response(
-            id,
-            response
-                .get("error")
-                .and_then(Value::as_str)
-                .unwrap_or("Extension command failed without an error message"),
-        )
+    let mut normalized = source.clone();
+    normalized.insert("id".to_string(), json!(id));
+    normalized.insert("success".to_string(), json!(success));
+    if !success
+        && normalized
+            .get("error")
+            .and_then(Value::as_str)
+            .is_none_or(str::is_empty)
+    {
+        normalized.insert(
+            "error".to_string(),
+            json!("Extension command failed without an error message"),
+        );
     }
+    Value::Object(normalized)
+}
+
+fn normalize_extension_proxy_response(id: &str, response: connection::Response) -> Value {
+    let connection::Response {
+        success,
+        data,
+        error,
+        outcome_unknown,
+        outcome_unknown_reason,
+        mut extra,
+    } = response;
+
+    // The proxy daemon's response ID belongs to its connection. Restore the
+    // original request ID while forwarding its complete receipt unchanged.
+    extra.insert("id".to_string(), json!(id));
+    extra.insert("success".to_string(), json!(success));
+    if let Some(data) = data {
+        extra.insert("data".to_string(), data);
+    }
+    if let Some(error) = error.filter(|error| !error.is_empty()) {
+        extra.insert("error".to_string(), json!(error));
+    } else if !success {
+        extra.insert(
+            "error".to_string(),
+            json!("Extension proxy command failed without an error message"),
+        );
+    }
+    if let Some(outcome_unknown) = outcome_unknown {
+        extra.insert("outcomeUnknown".to_string(), json!(outcome_unknown));
+    }
+    if let Some(outcome_unknown_reason) = outcome_unknown_reason {
+        extra.insert(
+            "outcomeUnknownReason".to_string(),
+            json!(outcome_unknown_reason),
+        );
+    }
+    Value::Object(extra)
 }
 
 // ---------------------------------------------------------------------------
@@ -4891,6 +4989,33 @@ async fn handle_tab_new(cmd: &Value, state: &mut DaemonState) -> Result<Value, S
     Ok(result)
 }
 
+async fn handle_mark_tab(cmd: &Value, state: &mut DaemonState) -> Result<Value, String> {
+    let owner_id = command_owner_id(cmd)
+        .ok_or("mark_tab requires a non-empty ownerId")?
+        .to_string();
+    let tab_id = cmd
+        .get("tabId")
+        .and_then(Value::as_u64)
+        .ok_or("mark_tab requires tabId")?;
+    let status = cmd
+        .get("status")
+        .and_then(Value::as_str)
+        .ok_or("mark_tab requires status")?;
+    let tab_generation = {
+        let mgr = state.browser.as_ref().ok_or("Browser not launched")?;
+        validate_tab_ownership(cmd, mgr, tab_id)?;
+        mgr.tab_generation_by_id(tab_id).map(str::to_string)
+    };
+    state
+        .owner_leases
+        .mark_tab(&owner_id, tab_id, tab_generation.clone(), status);
+    Ok(json!({
+        "tabId": tab_id,
+        "tabGeneration": tab_generation,
+        "status": status,
+    }))
+}
+
 /// CDP implementation of `finalize_tabs`/`close_owner`: closes every tab
 /// recorded for the command owner (minus `keep` entries, which are released
 /// from ownership without closing) and clears the owner's mapping. The
@@ -4913,7 +5038,7 @@ async fn handle_finalize_tabs(
 
     // `close_owner` always closes everything; `finalize_tabs` may keep tabs.
     // Entries were validated by validate_owner_finalization before dispatch.
-    let keep_entries: Vec<(u64, Option<String>, String)> = if action == "finalize_tabs" {
+    let mut keep_entries: Vec<(u64, Option<String>, String)> = if action == "finalize_tabs" {
         cmd.get("keep")
             .and_then(Value::as_array)
             .map(|entries| {
@@ -4938,6 +5063,25 @@ async fn handle_finalize_tabs(
     } else {
         Vec::new()
     };
+    if action == "finalize_tabs"
+        && cmd
+            .get("preserveMarked")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    {
+        let owned_tab_ids: HashSet<u64> = state
+            .browser
+            .as_ref()
+            .map(|mgr| mgr.owner_tab_ids(&owner_id).into_iter().collect())
+            .unwrap_or_default();
+        let mut explicit_tab_ids: HashSet<u64> =
+            keep_entries.iter().map(|(tab_id, _, _)| *tab_id).collect();
+        for marked in state.owner_leases.marked_tabs(&owner_id) {
+            if owned_tab_ids.contains(&marked.0) && explicit_tab_ids.insert(marked.0) {
+                keep_entries.push(marked);
+            }
+        }
+    }
     let keep_ids: std::collections::HashSet<u64> =
         keep_entries.iter().map(|(tab_id, _, _)| *tab_id).collect();
 
@@ -4987,6 +5131,7 @@ async fn handle_finalize_tabs(
             entry
         })
         .collect();
+    state.owner_leases.clear_marked_tabs(&owner_id);
     Ok(json!({
         "closedTabIds": closed_tab_ids,
         "releasedTabIds": released_tab_ids,
@@ -9004,6 +9149,21 @@ mod tests {
         assert!(error.contains("5ms execution budget during test step"));
     }
 
+    #[tokio::test]
+    async fn expired_chain_deadline_never_polls_the_next_operation() {
+        let polled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let operation_polled = polled.clone();
+        let deadline = tokio::time::Instant::now();
+        let error = within_chain_deadline(deadline, 5, "before late dispatch", async move {
+            operation_polled.store(true, std::sync::atomic::Ordering::SeqCst);
+        })
+        .await
+        .unwrap_err();
+
+        assert!(error.contains("5ms execution budget before late dispatch"));
+        assert!(!polled.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
     #[test]
     fn browser_provenance_fingerprints_the_bearer_lease() {
         let raw_lease = "raw-owner-lease-bearer-secret";
@@ -9098,13 +9258,85 @@ mod tests {
     }
 
     #[test]
+    fn test_extension_failure_response_preserves_receipt_and_unknown_outcome() {
+        let response = json!({
+            "id": "extension-id",
+            "success": false,
+            "error": "Browser chain timed out",
+            "data": {
+                "results": [{
+                    "index": 0,
+                    "action": "click",
+                    "success": false,
+                    "outcomeUnknown": true
+                }]
+            },
+            "outcomeUnknown": true,
+            "outcomeUnknownReason": "The dispatched click may still complete",
+            "deadline": { "timeoutMs": 25 }
+        });
+        let normalized = normalize_extension_response("request-id", &response);
+
+        assert_eq!(normalized["id"], "request-id");
+        assert_eq!(normalized["success"], false);
+        assert_eq!(normalized["error"], "Browser chain timed out");
+        assert_eq!(normalized["data"]["results"][0]["action"], "click");
+        assert_eq!(normalized["data"]["results"][0]["outcomeUnknown"], true);
+        assert_eq!(normalized["outcomeUnknown"], true);
+        assert_eq!(
+            normalized["outcomeUnknownReason"],
+            "The dispatched click may still complete"
+        );
+        assert_eq!(normalized["deadline"]["timeoutMs"], 25);
+    }
+
+    #[test]
+    fn test_extension_proxy_failure_preserves_receipt_and_unknown_outcome() {
+        let response: connection::Response = serde_json::from_value(json!({
+            "id": "proxy-response-id",
+            "success": false,
+            "error": "Browser chain timed out",
+            "data": {
+                "results": [{
+                    "index": 0,
+                    "action": "click",
+                    "success": false,
+                    "outcomeUnknown": true
+                }]
+            },
+            "outcomeUnknown": true,
+            "outcomeUnknownReason": "The dispatched click may still complete",
+            "deadline": { "timeoutMs": 25 }
+        }))
+        .expect("proxy response should deserialize");
+        let normalized = normalize_extension_proxy_response("request-id", response);
+
+        assert_eq!(normalized["id"], "request-id");
+        assert_eq!(normalized["success"], false);
+        assert_eq!(normalized["error"], "Browser chain timed out");
+        assert_eq!(normalized["data"]["results"][0]["action"], "click");
+        assert_eq!(normalized["data"]["results"][0]["outcomeUnknown"], true);
+        assert_eq!(normalized["outcomeUnknown"], true);
+        assert_eq!(
+            normalized["outcomeUnknownReason"],
+            "The dispatched click may still complete"
+        );
+        assert_eq!(normalized["deadline"]["timeoutMs"], 25);
+    }
+
+    #[test]
     fn test_chain_validation_rejects_top_level_unknown_empty_and_oversized_actions() {
         let nested = json!({ "steps": [{ "action": "chain", "steps": [] }] });
         assert!(validate_chain_actions(&nested)
             .unwrap_err()
             .contains("top-level-only action chain"));
 
-        for action in ["finalize_tabs", "close_owner", "release_owner_lease"] {
+        for action in [
+            "mark_tab",
+            "finalize_tabs",
+            "close_owner",
+            "release_owner_lease",
+        ] {
             let lifecycle = json!({ "steps": [{ "action": action }] });
             assert!(validate_chain_actions(&lifecycle)
                 .unwrap_err()
@@ -9553,6 +9785,69 @@ mod tests {
             .contains("Stale browser owner lease"));
     }
 
+    #[test]
+    fn test_tab_marks_are_scoped_to_the_current_owner_lease() {
+        let mut registry = OwnerLeaseRegistry::default();
+        let first = with_owner_lease(
+            json!({ "action": "mark_tab" }),
+            "worker-1",
+            "turn-1",
+            "lease-1",
+            100,
+        );
+        let claim = registry.validate_claim(&first).unwrap().unwrap();
+        registry.commit(&claim);
+        registry.mark_tab(
+            "worker-1",
+            7,
+            Some("generation-1".to_string()),
+            "deliverable",
+        );
+        assert_eq!(
+            registry.marked_tabs("worker-1"),
+            vec![(
+                7,
+                Some("generation-1".to_string()),
+                "deliverable".to_string(),
+            )]
+        );
+
+        let replacement = with_owner_lease(
+            json!({ "action": "healthcheck" }),
+            "worker-1",
+            "turn-2",
+            "lease-2",
+            200,
+        );
+        let claim = registry.validate_claim(&replacement).unwrap().unwrap();
+        registry.commit(&claim);
+        assert!(registry.marked_tabs("worker-1").is_empty());
+    }
+
+    #[test]
+    fn test_mark_tab_validation_rejects_invalid_dispositions() {
+        assert!(validate_mark_tab(&json!({
+            "ownerId": "worker-1",
+            "tabId": 7,
+            "status": "handoff",
+        }))
+        .is_ok());
+        assert!(validate_mark_tab(&json!({
+            "ownerId": "worker-1",
+            "tabId": 0,
+            "status": "deliverable",
+        }))
+        .unwrap_err()
+        .contains("positive integer"));
+        assert!(validate_mark_tab(&json!({
+            "ownerId": "worker-1",
+            "tabId": 7,
+            "status": "keep",
+        }))
+        .unwrap_err()
+        .contains("handoff"));
+    }
+
     #[tokio::test]
     async fn test_owner_finalization_without_browser_succeeds_with_empty_results() {
         let mut state = DaemonState::new();
@@ -9669,6 +9964,17 @@ mod tests {
         // separately requires and authenticates the complete owner lease.
         let no_keep = json!({ "id": "finalize", "action": "finalize_tabs", "ownerId": "worker-1" });
         assert!(validate_owner_finalization(&no_keep, "finalize_tabs").is_ok());
+        assert!(validate_owner_finalization(
+            &json!({
+                "id": "finalize",
+                "action": "finalize_tabs",
+                "ownerId": "worker-1",
+                "preserveMarked": "yes",
+            }),
+            "finalize_tabs"
+        )
+        .unwrap_err()
+        .contains("preserveMarked must be a boolean"));
         // Lease validation is a separate execute_command concern.
         assert!(validate_owner_finalization(
             &json!({ "action": "close_owner", "ownerId": "worker-1" }),

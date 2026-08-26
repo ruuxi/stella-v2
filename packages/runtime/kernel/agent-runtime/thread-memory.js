@@ -35,56 +35,14 @@ export const buildRunThreadKey = ({
     runId,
     threadId,
   });
-const MAX_IMAGES_IN_HISTORY = 8;
-const IMAGE_HISTORY_BASE64_BUDGET = 12 * 1024 * 1024;
+// Historical compatibility shim. Never rewrite the active message array on
+// every turn: doing so shifts the provider prompt prefix and destroys prompt
+// cache reuse. Image pressure is handled at the existing compaction/checkpoint
+// boundary in thread-runtime.ts, where a cache-prefix change is expected and
+// the harness persists deterministic structured image receipts outside the
+// model-authored summary.
 export const stripStaleImageBlocks = (messages) => {
-  let imagesKept = 0;
-  let imageBytesKept = 0;
-  let rewroteAny = false;
-  const out = [];
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message.role !== "toolResult") {
-      out.push(message);
-      continue;
-    }
-    const hasImage = message.content.some((block) => block.type === "image");
-    if (!hasImage) {
-      out.push(message);
-      continue;
-    }
-    let rewroteThisMessage = false;
-    const compactContent = [...message.content]
-      .reverse()
-      .map((block) => {
-        if (block.type !== "image") {
-          return block;
-        }
-        const base64Bytes = block.data?.length ?? 0;
-        if (
-          imagesKept < MAX_IMAGES_IN_HISTORY &&
-          imageBytesKept + base64Bytes <= IMAGE_HISTORY_BASE64_BUDGET
-        ) {
-          imagesKept += 1;
-          imageBytesKept += base64Bytes;
-          return block;
-        }
-        rewroteThisMessage = true;
-        const sizeKb = Math.round((base64Bytes * 0.75) / 1024);
-        return {
-          type: "text",
-          text: `[Older ${block.mimeType ?? "image/png"} screenshot omitted from history (~${sizeKb}KB). Re-run the tool to see it again.]`,
-        };
-      })
-      .reverse();
-    if (!rewroteThisMessage) {
-      out.push(message);
-      continue;
-    }
-    rewroteAny = true;
-    out.push({ ...message, content: compactContent });
-  }
-  return rewroteAny ? out.reverse() : messages;
+  return messages;
 };
 export const buildHistorySource = (context) => {
   const threadHistory = context.threadHistory ?? [];
@@ -214,7 +172,9 @@ const stringifyPayload = (value) => {
 const contentPreviewFromTextAndImages = (content) =>
   content
     .map((block) =>
-      block.type === "text" ? block.text : `[Image: ${block.mimeType}]`,
+      block.type === "text"
+        ? block.text
+        : `[Image receipt: ${block.mimeType}${block.sourcePath ? ` path=${block.sourcePath}` : ""}]`,
     )
     .join("\n")
     .trim();

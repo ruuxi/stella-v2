@@ -15,6 +15,7 @@ import { STELLA_NATIVE_HOST_NAME } from "./native-host-name.js";
 const BRIDGE_HEALTH_URL = "http://127.0.0.1:39040/healthz";
 const PROBE_INTERVAL = 4000;
 const PROBE_TIMEOUT = 1500;
+const EXTENSION_PROTOCOL_VERSION = "2.1";
 
 let nativePort = null;
 let probeTimer = null;
@@ -244,7 +245,7 @@ function doConnect(generation) {
     type: "hello",
     version: extensionVersion,
     extensionVersion,
-    protocolVersion: "2.0",
+    protocolVersion: EXTENSION_PROTOCOL_VERSION,
     token: "",
   });
 }

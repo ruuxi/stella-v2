@@ -1,18 +1,20 @@
 /**
  * Capture command handlers: screenshot, snapshot, content, evaluate, pdf.
  */
-import { getActiveTab } from './tabs.js';
-import { setRefMap, resolveSelector, buildRoleMatcherScript } from '../lib/selector.js';
-import { executeSnapshot } from '../lib/snapshot.js';
-import { ensureDebugger, evaluateRuntime } from '../lib/debugger.js';
+import { getActiveTab } from "./tabs.js";
+import {
+  setRefMap,
+  resolveSelector,
+  buildResolvedElementMatcherScript,
+  buildTopLevelRectSource,
+} from "../lib/selector.js";
+import { executeSnapshot } from "../lib/snapshot.js";
+import { ensureDebugger, evaluateRuntime } from "../lib/debugger.js";
 
 function buildElementExpression(selector, ownerId, tabId, onFoundSource) {
   const resolved = resolveSelector(selector, ownerId, tabId);
-  if (resolved.isRef) {
-    const finder = buildRoleMatcherScript(resolved.role, resolved.name, resolved.nth);
-    return `(() => { const el = ${finder.trim()}; ${onFoundSource} })()`;
-  }
-  return `(() => { const el = document.querySelector(${JSON.stringify(resolved.css)}); ${onFoundSource} })()`;
+  const finder = buildResolvedElementMatcherScript(resolved);
+  return `(() => { const el = ${finder.trim()}; ${onFoundSource} })()`;
 }
 
 async function evaluateExpression(tabId, expression, options) {
@@ -28,17 +30,31 @@ async function getSelectorClip(tabId, selector, ownerId) {
       tabId,
       `
         if (!el) return null;
-        const rect = el.getBoundingClientRect();
-        if (!rect.width || !rect.height) return null;
+        const ancestorFrames = [];
+        let ancestorWindow = el.ownerDocument?.defaultView;
+        while (ancestorWindow && ancestorWindow !== ancestorWindow.top) {
+          let frameElement;
+          try { frameElement = ancestorWindow.frameElement; } catch (_) { frameElement = null; }
+          if (!frameElement) return null;
+          ancestorFrames.push(frameElement);
+          ancestorWindow = frameElement.ownerDocument?.defaultView;
+        }
+        for (const frameElement of ancestorFrames.reverse()) {
+          frameElement.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+        }
+        el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+        ${buildTopLevelRectSource("el")}
+        if (!localRect.width || !localRect.height) return null;
+        const topWindow = currentWindow || window.top;
         return {
-          x: rect.left + window.scrollX,
-          y: rect.top + window.scrollY,
-          width: rect.width,
-          height: rect.height,
+          x: topX + topWindow.scrollX,
+          y: topY + topWindow.scrollY,
+          width: localRect.width,
+          height: localRect.height,
           scale: 1,
         };
-      `
-    )
+      `,
+    ),
   );
 
   if (!clip) {
@@ -51,24 +67,29 @@ async function getSelectorClip(tabId, selector, ownerId) {
 export async function handleScreenshot(command) {
   const tab = await getActiveTab(command);
   if (command.path) {
-    throw new Error('Custom screenshot paths are not supported in extension mode');
+    throw new Error(
+      "Custom screenshot paths are not supported in extension mode",
+    );
   }
 
-  const format = command.format || 'jpeg';
-  const quality = command.quality ?? (format === 'jpeg' ? 60 : undefined);
+  const format = command.format || "jpeg";
+  const quality = command.quality ?? (format === "jpeg" ? 60 : undefined);
   /** @type {Record<string, unknown>} */
   const params = {
     format,
     captureBeyondViewport: Boolean(command.fullPage || command.selector),
   };
-  if (format === 'jpeg') {
+  if (format === "jpeg") {
     params.quality = quality;
   }
 
   await ensureDebugger(tab.id);
 
   if (command.fullPage) {
-    const metrics = await chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.getLayoutMetrics');
+    const metrics = await chrome.debugger.sendCommand(
+      { tabId: tab.id },
+      "Page.getLayoutMetrics",
+    );
     const contentSize = metrics.contentSize;
     params.clip = {
       x: 0,
@@ -78,10 +99,18 @@ export async function handleScreenshot(command) {
       scale: 1,
     };
   } else if (command.selector) {
-    params.clip = await getSelectorClip(tab.id, command.selector, command.ownerId);
+    params.clip = await getSelectorClip(
+      tab.id,
+      command.selector,
+      command.ownerId,
+    );
   }
 
-  const result = await chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.captureScreenshot', params);
+  const result = await chrome.debugger.sendCommand(
+    { tabId: tab.id },
+    "Page.captureScreenshot",
+    params,
+  );
   const base64 = result.data;
 
   return {
@@ -109,13 +138,14 @@ export async function handleSnapshot(command) {
     target: { tabId: tab.id },
     func: executeSnapshot,
     args: [options],
-    world: 'MAIN',
+    world: "MAIN",
   });
 
-  if (result?.error) throw new Error(result.error.message || String(result.error));
+  if (result?.error)
+    throw new Error(result.error.message || String(result.error));
 
   const snapshot = result?.result;
-  if (!snapshot) throw new Error('Snapshot generation failed');
+  if (!snapshot) throw new Error("Snapshot generation failed");
 
   // Update the ref map for subsequent commands
   setRefMap(command.ownerId, tab.id, snapshot.refs || {});
@@ -132,7 +162,7 @@ export async function handleSnapshot(command) {
 
 export async function handleContent(command) {
   const tab = await getActiveTab(command);
-  let html = '';
+  let html = "";
 
   if (command.selector) {
     html =
@@ -142,15 +172,15 @@ export async function handleContent(command) {
           command.selector,
           command.ownerId,
           tab.id,
-          'return el ? el.innerHTML : null;'
-        )
-      )) || '';
+          "return el ? el.innerHTML : null;",
+        ),
+      )) || "";
   } else {
     html =
       (await evaluateExpression(
         tab.id,
-        'document.documentElement ? document.documentElement.outerHTML : ""'
-      )) || '';
+        'document.documentElement ? document.documentElement.outerHTML : ""',
+      )) || "";
   }
 
   return {
@@ -164,7 +194,7 @@ export async function handleEvaluate(command) {
   const tab = await getActiveTab(command);
   const expression = command.expression || command.script;
 
-  if (!expression) throw new Error('Expression is required for evaluate');
+  if (!expression) throw new Error("Expression is required for evaluate");
 
   const value = await evaluateExpression(tab.id, expression, {
     timeoutMs: Math.min(command.timeout ?? 30_000, 30_000),
@@ -179,22 +209,19 @@ export async function handleEvaluate(command) {
 export async function handleGetText(command) {
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
-  if (!selector) throw new Error('Selector is required for gettext');
+  if (!selector) throw new Error("Selector is required for gettext");
 
-  const resolved = resolveSelector(selector, command.ownerId, tab.id);
-
-  let script;
-  if (resolved.isRef) {
-    const finder = buildRoleMatcherScript(resolved.role, resolved.name, resolved.nth);
-    script = `(() => { const el = ${finder.trim()}; return el ? el.textContent.trim() : null; })()`;
-  } else {
-    script = `(() => { const el = document.querySelector(${JSON.stringify(resolved.css)}); return el ? el.textContent.trim() : null; })()`;
-  }
+  const script = buildElementExpression(
+    selector,
+    command.ownerId,
+    tab.id,
+    "return el ? el.textContent.trim() : null;",
+  );
 
   return {
     id: command.id,
     success: true,
-    data: { text: (await evaluateExpression(tab.id, script)) ?? '' },
+    data: { text: (await evaluateExpression(tab.id, script)) ?? "" },
   };
 }
 
@@ -202,18 +229,15 @@ export async function handleGetAttribute(command) {
   const tab = await getActiveTab(command);
   const selector = command.selector || command.ref;
   const attribute = command.attribute || command.name;
-  if (!selector) throw new Error('Selector is required');
-  if (!attribute) throw new Error('Attribute name is required');
+  if (!selector) throw new Error("Selector is required");
+  if (!attribute) throw new Error("Attribute name is required");
 
-  const resolved = resolveSelector(selector, command.ownerId, tab.id);
-
-  let script;
-  if (resolved.isRef) {
-    const finder = buildRoleMatcherScript(resolved.role, resolved.name, resolved.nth);
-    script = `(() => { const el = ${finder.trim()}; return el ? el.getAttribute(${JSON.stringify(attribute)}) : null; })()`;
-  } else {
-    script = `(() => { const el = document.querySelector(${JSON.stringify(resolved.css)}); return el ? el.getAttribute(${JSON.stringify(attribute)}) : null; })()`;
-  }
+  const script = buildElementExpression(
+    selector,
+    command.ownerId,
+    tab.id,
+    `return el ? el.getAttribute(${JSON.stringify(attribute)}) : null;`,
+  );
 
   return {
     id: command.id,
@@ -226,16 +250,20 @@ export async function handlePdf(command) {
   const tab = await getActiveTab(command);
   await ensureDebugger(tab.id);
 
-  const result = await chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.printToPDF', {
-    landscape: command.landscape || false,
-    printBackground: command.printBackground ?? true,
-    paperWidth: command.paperWidth,
-    paperHeight: command.paperHeight,
-  });
+  const result = await chrome.debugger.sendCommand(
+    { tabId: tab.id },
+    "Page.printToPDF",
+    {
+      landscape: command.landscape || false,
+      printBackground: command.printBackground ?? true,
+      paperWidth: command.paperWidth,
+      paperHeight: command.paperHeight,
+    },
+  );
 
   return {
     id: command.id,
     success: true,
-    data: { base64: result.data, format: 'pdf' },
+    data: { base64: result.data, format: "pdf" },
   };
 }

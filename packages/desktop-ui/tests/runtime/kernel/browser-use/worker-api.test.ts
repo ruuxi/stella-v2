@@ -31,6 +31,161 @@ describe("browser worker API", () => {
       "backend must be 'in-app' or 'external'",
     );
     expect(callBrowser).toHaveBeenCalledTimes(1);
+    expect(browser.capabilities.observations).toContain(
+      "bounded semantic snapshot",
+    );
+  });
+
+  it("keeps tab and locator handles bound to the backend that created them", async () => {
+    const calls: Array<{ method: string; args: readonly unknown[] }> = [];
+    const browser = installBrowserWorkerApi(async (method, args) => {
+      calls.push({ method, args });
+      if (method === "use") return { backend: args[0] };
+      if (args[0] === "url")
+        return { success: true, data: { url: "https://example.com" } };
+      return { success: true, data: { clicked: true } };
+    });
+    const inAppTab = browser.tabs.get(7);
+    const inAppLocator = inAppTab.playwright.locator("#save");
+
+    await browser.use("external");
+    await inAppTab.url();
+    await inAppLocator.click();
+    const externalTab = browser.tabs.get(7);
+
+    expect(inAppTab.backend).toBe("in-app");
+    expect(inAppLocator.backend).toBe("in-app");
+    expect(externalTab.backend).toBe("external");
+    expect(inAppTab).not.toBe(externalTab);
+    const commandParams = calls
+      .filter(({ method }) => method === "command")
+      .map(({ args }) => args[1] as Record<string, unknown>);
+    expect(commandParams).toEqual([
+      expect.objectContaining({ __stellaBrowserBackend: "in-app", tabId: 7 }),
+      expect.objectContaining({ __stellaBrowserBackend: "in-app", tabId: 7 }),
+    ]);
+  });
+
+  it("routes concurrent bound chains atomically without temporary backend switches", async () => {
+    const calls: Array<{ method: string; args: readonly unknown[] }> = [];
+    const browser = installBrowserWorkerApi(async (method, args) => {
+      calls.push({ method, args });
+      if (method === "use") return { backend: args[0] };
+      if (method === "chain") {
+        return {
+          success: true,
+          data: {
+            results: [
+              { success: true, data: true },
+              { success: true, data: { clicked: true } },
+            ],
+          },
+        };
+      }
+      return { success: true, data: { result: 0 } };
+    });
+    const inAppLocator = browser.tabs
+      .get(7)
+      .playwright.locator(".row")
+      .filter({ hasText: "In-app" });
+    await browser.use("external");
+    const externalLocator = browser.tabs
+      .get(8)
+      .playwright.locator(".row")
+      .filter({ hasText: "External" });
+
+    await expect(
+      Promise.all([inAppLocator.click(), externalLocator.click()]),
+    ).resolves.toEqual([{ clicked: true }, { clicked: true }]);
+
+    const useCalls = calls.filter(({ method }) => method === "use");
+    expect(useCalls).toEqual([{ method: "use", args: ["external"] }]);
+    const chainOptions = calls
+      .filter(({ method }) => method === "chain")
+      .map(({ args }) => args[1] as Record<string, unknown>);
+    expect(chainOptions).toEqual([
+      expect.objectContaining({
+        abortOnError: false,
+        waitForSelector: false,
+        __stellaBrowserBackend: "in-app",
+      }),
+      expect.objectContaining({
+        abortOnError: false,
+        waitForSelector: false,
+        __stellaBrowserBackend: "external",
+      }),
+    ]);
+    const cleanupParams = calls
+      .filter(
+        ({ method, args }) => method === "command" && args[0] === "evaluate",
+      )
+      .map(({ args }) => args[1] as Record<string, unknown>);
+    expect(cleanupParams).toEqual([
+      expect.objectContaining({ __stellaBrowserBackend: "in-app", tabId: 7 }),
+      expect.objectContaining({
+        __stellaBrowserBackend: "external",
+        tabId: 8,
+      }),
+    ]);
+  });
+
+  it("binds tabs.new to its dispatch backend when browser.use changes in flight", async () => {
+    const calls: Array<{ method: string; args: readonly unknown[] }> = [];
+    let resolveTabNew: ((value: unknown) => void) | undefined;
+    let notifyTabNewStarted: (() => void) | undefined;
+    const tabNewStarted = new Promise<void>((resolve) => {
+      notifyTabNewStarted = resolve;
+    });
+    const browser = installBrowserWorkerApi(async (method, args) => {
+      calls.push({ method, args });
+      if (method === "use") return { backend: args[0] };
+      if (method === "command" && args[0] === "tab_new") {
+        notifyTabNewStarted?.();
+        return await new Promise((finish) => {
+          resolveTabNew = finish;
+        });
+      }
+      if (method === "command" && args[0] === "title") {
+        return { success: true, data: { title: "Bound" } };
+      }
+      return { success: true, data: {} };
+    });
+
+    const createdPromise = browser.tabs.new("https://bound.test");
+    await tabNewStarted;
+    await browser.use("external");
+    resolveTabNew?.({
+      success: true,
+      data: { tabId: 61, tabGeneration: "in-app-generation" },
+    });
+    const created = await createdPromise;
+    expect(created.backend).toBe("in-app");
+    await expect(created.title()).resolves.toBe("Bound");
+
+    const commands = calls.filter(({ method }) => method === "command");
+    expect(commands).toEqual([
+      {
+        method: "command",
+        args: [
+          "tab_new",
+          {
+            url: "https://bound.test",
+            __stellaBrowserBackend: "in-app",
+          },
+        ],
+      },
+      {
+        method: "command",
+        args: [
+          "title",
+          {
+            tabId: 61,
+            tabGeneration: "in-app-generation",
+            __stellaBrowserBackend: "in-app",
+          },
+        ],
+      },
+    ]);
   });
 
   it("adapts waitForFunction and detached scheduling to the existing extension API", async () => {
@@ -208,13 +363,7 @@ describe("browser worker API", () => {
     expect(Object.isFrozen(tab!.playwright)).toBe(true);
     expect(Object.isFrozen(locator)).toBe(true);
     expect("run" in browser).toBe(false);
-    expect(browser.documentation()).toContain(
-      "multiple awaited browser actions",
-    );
-    expect(browser.documentation()).toContain("Do not add sleeps");
-    expect(browser.documentation()).toContain(
-      "never open a new tab per page",
-    );
+    expect("documentation" in browser).toBe(false);
   });
 
   it("normalizes tab payloads and preserves Tab identity across the graph", async () => {
@@ -259,7 +408,10 @@ describe("browser worker API", () => {
     expect(created.id).toBe(52);
     expect(calls.at(-1)).toEqual({
       method: "command",
-      args: ["tab_new", { url: "https://new.test" }],
+      args: [
+        "tab_new",
+        { url: "https://new.test", __stellaBrowserBackend: "in-app" },
+      ],
     });
   });
 
@@ -310,6 +462,7 @@ describe("browser worker API", () => {
         {
           tabId: 7,
           tabGeneration: "22222222-2222-4222-8222-222222222222",
+          __stellaBrowserBackend: "in-app",
         },
       ],
     });
@@ -377,6 +530,12 @@ describe("browser worker API", () => {
       if (action === "snapshot") {
         return { success: true, data: { snapshot: "tree" } };
       }
+      if (action === "screenshot") {
+        return {
+          success: true,
+          data: { path: "/tmp/browser-shot.png", format: "png" },
+        };
+      }
       return { success: true, data: { ok: true } };
     });
     const tab = installBrowserWorkerApi(callBrowser).tabs.get(9);
@@ -390,7 +549,14 @@ describe("browser worker API", () => {
     await expect(
       tab.snapshot({ interactive: true, maxDepth: 3 }),
     ).resolves.toBe("tree");
-    await tab.screenshot({ fullPage: true, format: "png" });
+    await expect(
+      tab.screenshot({ fullPage: true, format: "png" }),
+    ).resolves.toEqual({
+      attached: true,
+      path: "/tmp/browser-shot.png",
+      format: "png",
+      mimeType: "image/png",
+    });
     await tab.close();
 
     expect(calls).toEqual([
@@ -403,23 +569,61 @@ describe("browser worker API", () => {
             url: "https://example.test",
             waitUntil: "none",
             timeout: 500,
+            __stellaBrowserBackend: "in-app",
           },
         ],
       },
-      { method: "command", args: ["back", { tabId: 9 }] },
-      { method: "command", args: ["forward", { tabId: 9 }] },
-      { method: "command", args: ["reload", { tabId: 9, timeout: 750 }] },
-      { method: "command", args: ["url", { tabId: 9 }] },
-      { method: "command", args: ["title", { tabId: 9 }] },
       {
         method: "command",
-        args: ["snapshot", { tabId: 9, interactive: true, maxDepth: 3 }],
+        args: ["back", { tabId: 9, __stellaBrowserBackend: "in-app" }],
       },
       {
         method: "command",
-        args: ["screenshot", { tabId: 9, fullPage: true, format: "png" }],
+        args: ["forward", { tabId: 9, __stellaBrowserBackend: "in-app" }],
       },
-      { method: "command", args: ["tab_close", { tabId: 9 }] },
+      {
+        method: "command",
+        args: [
+          "reload",
+          { tabId: 9, timeout: 750, __stellaBrowserBackend: "in-app" },
+        ],
+      },
+      {
+        method: "command",
+        args: ["url", { tabId: 9, __stellaBrowserBackend: "in-app" }],
+      },
+      {
+        method: "command",
+        args: ["title", { tabId: 9, __stellaBrowserBackend: "in-app" }],
+      },
+      {
+        method: "command",
+        args: [
+          "snapshot",
+          {
+            tabId: 9,
+            interactive: true,
+            maxDepth: 3,
+            __stellaBrowserBackend: "in-app",
+          },
+        ],
+      },
+      {
+        method: "command",
+        args: [
+          "screenshot",
+          {
+            tabId: 9,
+            fullPage: true,
+            format: "png",
+            __stellaBrowserBackend: "in-app",
+          },
+        ],
+      },
+      {
+        method: "command",
+        args: ["tab_close", { tabId: 9, __stellaBrowserBackend: "in-app" }],
+      },
     ]);
   });
 
@@ -434,8 +638,9 @@ describe("browser worker API", () => {
     const locator = tab.playwright.getByRole("button", { name: "Save" });
 
     expect(Object.keys(browser)).toEqual(
-      expect.arrayContaining(["documentation", "chain", "tabs"]),
+      expect.arrayContaining(["chain", "tabs"]),
     );
+    expect(Object.keys(browser)).not.toContain("documentation");
     expect(Object.keys(browser.tabs)).toEqual(
       expect.arrayContaining(["list", "new", "selected", "get", "finalize"]),
     );
@@ -498,7 +703,6 @@ describe("browser worker API", () => {
     expect(Object.isFrozen(locator)).toBe(true);
     expect(tab.press).toBe(Object.getPrototypeOf(tab).press);
     await expect(tab.press("Enter")).resolves.toBeDefined();
-    expect(browser.documentation()).toContain("Object.keys");
   });
 
   it("exposes page-level press and keyboard on the tab handle", async () => {
@@ -516,17 +720,49 @@ describe("browser worker API", () => {
     await tab.keyboard.type("");
 
     expect(calls).toEqual([
-      { method: "command", args: ["press", { tabId: 9, key: "Enter" }] },
-      { method: "command", args: ["press", { tabId: 9, key: "Control+a" }] },
       {
         method: "command",
-        args: ["press", { tabId: 9, key: "Meta+Shift+P" }],
+        args: [
+          "press",
+          { tabId: 9, key: "Enter", __stellaBrowserBackend: "in-app" },
+        ],
       },
       {
         method: "command",
-        args: ["inserttext", { tabId: 9, text: "héllo 🌍" }],
+        args: [
+          "press",
+          { tabId: 9, key: "Control+a", __stellaBrowserBackend: "in-app" },
+        ],
       },
-      { method: "command", args: ["inserttext", { tabId: 9, text: "" }] },
+      {
+        method: "command",
+        args: [
+          "press",
+          {
+            tabId: 9,
+            key: "Meta+Shift+P",
+            __stellaBrowserBackend: "in-app",
+          },
+        ],
+      },
+      {
+        method: "command",
+        args: [
+          "inserttext",
+          {
+            tabId: 9,
+            text: "héllo 🌍",
+            __stellaBrowserBackend: "in-app",
+          },
+        ],
+      },
+      {
+        method: "command",
+        args: [
+          "inserttext",
+          { tabId: 9, text: "", __stellaBrowserBackend: "in-app" },
+        ],
+      },
     ]);
 
     // Keyboard handle is frozen and identity-stable per tab.
@@ -540,11 +776,6 @@ describe("browser worker API", () => {
       TypeError,
     );
     expect(calls).toHaveLength(5);
-
-    // The agent-facing documentation advertises the page-level keyboard.
-    const browser = installBrowserWorkerApi(callBrowser);
-    expect(browser.documentation()).toContain("tab.press(key)");
-    expect(browser.documentation()).toContain("tab.keyboard.type(text)");
   });
 
   it("sends press-with-selector payloads that focus the target element", async () => {
@@ -575,12 +806,21 @@ describe("browser worker API", () => {
               exact: true,
             }),
             key: "Enter",
+            __stellaBrowserBackend: "in-app",
           },
         ],
       },
       {
         method: "command",
-        args: ["press", { tabId: 21, selector: "#query", key: "Control+a" }],
+        args: [
+          "press",
+          {
+            tabId: 21,
+            selector: "#query",
+            key: "Control+a",
+            __stellaBrowserBackend: "in-app",
+          },
+        ],
       },
     ]);
   });
@@ -608,6 +848,7 @@ describe("browser worker API", () => {
             tabId: 4,
             selector: "input[type=file]",
             files: ["/tmp/report.pdf"],
+            __stellaBrowserBackend: "in-app",
           },
         ],
       },
@@ -619,12 +860,21 @@ describe("browser worker API", () => {
             tabId: 4,
             selector: "input[type=file]",
             files: ["/tmp/a.png", "C:\\data\\b.png"],
+            __stellaBrowserBackend: "in-app",
           },
         ],
       },
       {
         method: "command",
-        args: ["upload", { tabId: 4, selector: "input[type=file]", files: [] }],
+        args: [
+          "upload",
+          {
+            tabId: 4,
+            selector: "input[type=file]",
+            files: [],
+            __stellaBrowserBackend: "in-app",
+          },
+        ],
       },
     ]);
 
@@ -636,10 +886,6 @@ describe("browser worker API", () => {
       input.setInputFiles([42] as unknown as string[]),
     ).rejects.toThrow(TypeError);
     expect(calls).toHaveLength(3);
-
-    expect(installBrowserWorkerApi(callBrowser).documentation()).toContain(
-      "setInputFiles",
-    );
   });
 
   it("scrolls the page and elements through tab.scroll", async () => {
@@ -655,13 +901,36 @@ describe("browser worker API", () => {
     await tab.scroll({ selector: ".list", direction: "down", amount: 300 });
 
     expect(calls).toEqual([
-      { method: "command", args: ["scroll", { tabId: 6, y: 600 }] },
-      { method: "command", args: ["scroll", { tabId: 6, x: -120, y: -40 }] },
       {
         method: "command",
         args: [
           "scroll",
-          { tabId: 6, selector: ".list", direction: "down", amount: 300 },
+          { tabId: 6, y: 600, __stellaBrowserBackend: "in-app" },
+        ],
+      },
+      {
+        method: "command",
+        args: [
+          "scroll",
+          {
+            tabId: 6,
+            x: -120,
+            y: -40,
+            __stellaBrowserBackend: "in-app",
+          },
+        ],
+      },
+      {
+        method: "command",
+        args: [
+          "scroll",
+          {
+            tabId: 6,
+            selector: ".list",
+            direction: "down",
+            amount: 300,
+            __stellaBrowserBackend: "in-app",
+          },
         ],
       },
     ]);
@@ -674,10 +943,6 @@ describe("browser worker API", () => {
       tab.scroll({ velocity: 3 } as Record<string, unknown>),
     ).rejects.toThrow(TypeError);
     expect(calls).toHaveLength(3);
-
-    expect(installBrowserWorkerApi(callBrowser).documentation()).toContain(
-      "tab.scroll(",
-    );
   });
 
   it("encodes semantic selectors deterministically and re-encodes nth", async () => {
@@ -714,11 +979,25 @@ describe("browser worker API", () => {
     };
     expect(calls[0]).toEqual({
       method: "command",
-      args: ["click", { tabId: 17, selector: semantic(role) }],
+      args: [
+        "click",
+        {
+          tabId: 17,
+          selector: semantic(role),
+          __stellaBrowserBackend: "in-app",
+        },
+      ],
     });
     expect(calls[1]).toEqual({
       method: "command",
-      args: ["click", { tabId: 17, selector: semantic({ ...role, nth: 2 }) }],
+      args: [
+        "click",
+        {
+          tabId: 17,
+          selector: semantic({ ...role, nth: 2 }),
+          __stellaBrowserBackend: "in-app",
+        },
+      ],
     });
     expect(calls.slice(2)).toEqual([
       {
@@ -732,6 +1011,7 @@ describe("browser worker API", () => {
               value: "Continue?",
               exact: false,
             }),
+            __stellaBrowserBackend: "in-app",
           },
         ],
       },
@@ -743,6 +1023,7 @@ describe("browser worker API", () => {
             tabId: 17,
             selector: semantic({ kind: "label", value: "Email", exact: false }),
             value: "a@example.com",
+            __stellaBrowserBackend: "in-app",
           },
         ],
       },
@@ -758,6 +1039,7 @@ describe("browser worker API", () => {
               exact: false,
             }),
             text: "query",
+            __stellaBrowserBackend: "in-app",
           },
         ],
       },
@@ -772,6 +1054,7 @@ describe("browser worker API", () => {
               value: "submit-button",
               exact: false,
             }),
+            __stellaBrowserBackend: "in-app",
           },
         ],
       },
@@ -849,7 +1132,11 @@ describe("browser worker API", () => {
 
     await expect(locator.click()).resolves.toEqual({ clicked: true });
     const [steps, options] = calls[0]!.args;
-    expect(options).toEqual({ abortOnError: false, waitForSelector: false });
+    expect(options).toEqual({
+      abortOnError: false,
+      waitForSelector: false,
+      __stellaBrowserBackend: "in-app",
+    });
     expect(steps).toHaveLength(2);
     expect(calls[1]).toMatchObject({
       method: "command",
@@ -926,7 +1213,11 @@ describe("browser worker API", () => {
       ReadonlyArray<{ action: string; params: Record<string, unknown> }>,
       Record<string, unknown>,
     ];
-    expect(options).toEqual({ abortOnError: false, waitForSelector: false });
+    expect(options).toEqual({
+      abortOnError: false,
+      waitForSelector: false,
+      __stellaBrowserBackend: "in-app",
+    });
     expect(steps).toHaveLength(2);
     expect(steps[0]).toEqual({
       action: "evaluate",
@@ -1106,6 +1397,52 @@ describe("browser worker API", () => {
     ]);
   });
 
+  it("polls expectNewTab on the handle backend after browser.use changes", async () => {
+    const calls: RecordedCall[] = [];
+    let childCreated = false;
+    const browser = installBrowserWorkerApi(async (method, args) => {
+      calls.push({ method, args });
+      if (method === "use") return { backend: args[0] };
+      if (method === "command" && args[0] === "tab_list") {
+        const params = args[1] as Record<string, unknown>;
+        if (params.__stellaBrowserBackend !== "in-app") {
+          return {
+            success: true,
+            data: { tabs: [{ tabId: 90, active: true }], activeTabId: 90 },
+          };
+        }
+        return {
+          success: true,
+          data: {
+            tabs: [
+              { tabId: 10, active: !childCreated },
+              ...(childCreated ? [{ tabId: 11, active: true }] : []),
+            ],
+            activeTabId: childCreated ? 11 : 10,
+          },
+        };
+      }
+      if (method === "command" && args[0] === "click") childCreated = true;
+      return { success: true, data: {} };
+    });
+    const parent = browser.tabs.get(10);
+
+    const child = await parent.expectNewTab(async () => {
+      await browser.use("external");
+      await parent.playwright.getByText("Open report").click();
+    });
+
+    expect(child.id).toBe(11);
+    expect(child.backend).toBe("in-app");
+    const boundParams = calls
+      .filter(({ method }) => method === "command")
+      .map(({ args }) => args[1] as Record<string, unknown>);
+    expect(boundParams).toHaveLength(3);
+    expect(
+      boundParams.every((params) => params.__stellaBrowserBackend === "in-app"),
+    ).toBe(true);
+  });
+
   it("sanitizes structured chains and rejects nested or arbitrary actions", async () => {
     const callBrowser = vi.fn<BrowserWorkerCall>(async () => ({
       success: true,
@@ -1125,7 +1462,12 @@ describe("browser worker API", () => {
 
     expect(callBrowser).toHaveBeenCalledWith("chain", [
       steps,
-      { timeout: 120_000, abortOnError: true, waitForSelector: false },
+      {
+        timeout: 120_000,
+        abortOnError: true,
+        waitForSelector: false,
+        __stellaBrowserBackend: "in-app",
+      },
     ]);
     await expect(
       browser.chain([{ action: "chain", params: { tabId: 4 } }]),
@@ -1164,6 +1506,124 @@ describe("browser worker API", () => {
           { tabId: 1, status: "deliverable" },
           { tabId: 2, status: "handoff" },
         ],
+        __stellaBrowserBackend: "in-app",
+      },
+    ]);
+  });
+
+  it("groups mixed-backend handles into backend-bound finalization calls", async () => {
+    const calls: RecordedCall[] = [];
+    const browser = installBrowserWorkerApi(async (method, args) => {
+      calls.push({ method, args });
+      if (method === "use") return { backend: args[0] };
+      const backend = (args[1] as Record<string, unknown>)
+        .__stellaBrowserBackend;
+      return {
+        success: true,
+        data: {
+          closedTabIds: [],
+          releasedTabIds: backend === "in-app" ? [1] : [2],
+          kept: (args[1] as Record<string, unknown>).keep,
+        },
+      };
+    });
+    const inAppTab = browser.tabs.get(1);
+    await browser.use("external");
+    const externalTab = browser.tabs.get(2);
+
+    const result = await browser.tabs.finalize([
+      inAppTab,
+      { tab: externalTab, status: "handoff" },
+    ]);
+
+    expect(calls.filter(({ method }) => method === "command")).toEqual([
+      {
+        method: "command",
+        args: [
+          "finalize_tabs",
+          {
+            keep: [{ tabId: 1, status: "deliverable" }],
+            __stellaBrowserBackend: "in-app",
+          },
+        ],
+      },
+      {
+        method: "command",
+        args: [
+          "finalize_tabs",
+          {
+            keep: [{ tabId: 2, status: "handoff" }],
+            __stellaBrowserBackend: "external",
+          },
+        ],
+      },
+    ]);
+    expect(result).toEqual({
+      backendResults: [
+        {
+          backend: "in-app",
+          result: {
+            closedTabIds: [],
+            releasedTabIds: [1],
+            kept: [{ tabId: 1, status: "deliverable" }],
+          },
+        },
+        {
+          backend: "external",
+          result: {
+            closedTabIds: [],
+            releasedTabIds: [2],
+            kept: [{ tabId: 2, status: "handoff" }],
+          },
+        },
+      ],
+    });
+  });
+
+  it("marks individual tabs for automatic turn cleanup", async () => {
+    const callBrowser = vi.fn<BrowserWorkerCall>(async (method, args) => {
+      if (method === "command" && args[0] === "tab_list") {
+        return {
+          success: true,
+          data: {
+            tabs: [
+              {
+                tabId: 7,
+                tabGeneration: "generation-7",
+                active: true,
+              },
+            ],
+            activeTabId: 7,
+          },
+        };
+      }
+      return { success: true, data: args[1] };
+    });
+    const browser = installBrowserWorkerApi(callBrowser);
+    const [tab] = await browser.tabs.list();
+
+    await tab!.markDeliverable();
+    await tab!.markHandoff();
+
+    expect(Object.keys(tab!)).toEqual(
+      expect.arrayContaining(["markDeliverable", "markHandoff"]),
+    );
+    expect(callBrowser).toHaveBeenNthCalledWith(2, "command", [
+      "mark_tab",
+      {
+        tabId: 7,
+        tabGeneration: "generation-7",
+        status: "deliverable",
+        __stellaBrowserBackend: "in-app",
+      },
+    ]);
+    expect(callBrowser).toHaveBeenNthCalledWith(3, "command", [
+      "mark_tab",
+      {
+        tabId: 7,
+        tabGeneration: "generation-7",
+        status: "handoff",
+        __stellaBrowserBackend: "in-app",
       },
     ]);
   });
@@ -1175,7 +1635,10 @@ describe("browser worker API", () => {
     const callBrowser = vi.fn<BrowserWorkerCall>(async (method, args) => {
       expect(method).toBe("command");
       expect(args[0]).toBe("finalize_tabs");
-      expect(args[1]).toEqual({ keep: [{ tabId: 2, status: "handoff" }] });
+      expect(args[1]).toEqual({
+        keep: [{ tabId: 2, status: "handoff" }],
+        __stellaBrowserBackend: "in-app",
+      });
       return {
         result: {
           id: "finalize-1",
@@ -1213,7 +1676,7 @@ describe("browser worker API", () => {
 
     expect(callBrowser).toHaveBeenCalledWith("command", [
       "finalize_tabs",
-      { keep: [] },
+      { keep: [], __stellaBrowserBackend: "in-app" },
     ]);
     expect(finalized).toEqual({
       closedTabIds: [1],

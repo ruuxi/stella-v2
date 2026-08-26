@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { createConnection } from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -56,6 +63,119 @@ const capabilityRequest = (token: string) => ({
 });
 
 describe("InAppBrowserBootstrapServer", () => {
+  it.skipIf(process.platform === "win32")(
+    "does not steal a live endpoint or replace its owner token",
+    async () => {
+      const endpoint = createEndpoint();
+      const tokenPath = `${endpoint.path}.token`;
+      const firstReady = vi.fn(async () => ({
+        bridgeSessionId: "first-owner",
+        capabilityExpiresAt: 10_000,
+      }));
+      const first = new InAppBrowserBootstrapServer({
+        endpoint,
+        tokenPath,
+        token: "first-token",
+        ensureReady: firstReady,
+      });
+      const challenger = new InAppBrowserBootstrapServer({
+        endpoint,
+        tokenPath,
+        token: "challenger-token",
+        ensureReady: vi.fn(async () => ({
+          bridgeSessionId: "challenger",
+          capabilityExpiresAt: 20_000,
+        })),
+      });
+      servers.push(first, challenger);
+      await first.start();
+
+      await expect(challenger.start()).rejects.toMatchObject({
+        code: "EADDRINUSE",
+      });
+      await challenger.stop();
+
+      expect(readFileSync(tokenPath, "utf8")).toBe("first-token");
+      await expect(
+        sendRequest(endpoint, capabilityRequest("first-token")),
+      ).resolves.toMatchObject({
+        success: true,
+        data: { bridgeSessionId: "first-owner" },
+      });
+      expect(firstReady).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "cannot unlink another owner's replacement endpoint or token during cleanup",
+    async () => {
+      const endpoint = createEndpoint();
+      const tokenPath = `${endpoint.path}.token`;
+      const first = new InAppBrowserBootstrapServer({
+        endpoint,
+        tokenPath,
+        token: "first-token",
+        ensureReady: vi.fn(async () => ({
+          bridgeSessionId: "first-owner",
+          capabilityExpiresAt: 10_000,
+        })),
+      });
+      const replacementReady = vi.fn(async () => ({
+        bridgeSessionId: "replacement-owner",
+        capabilityExpiresAt: 20_000,
+      }));
+      const replacement = new InAppBrowserBootstrapServer({
+        endpoint,
+        tokenPath,
+        token: "replacement-token",
+        ensureReady: replacementReady,
+      });
+      servers.push(first, replacement);
+      await first.start();
+
+      // Model a legacy/external takeover: Unix permits unlinking a live socket
+      // and rebinding its pathname while the old server remains open.
+      unlinkSync(endpoint.path);
+      await replacement.start();
+      await first.stop();
+
+      expect(existsSync(endpoint.path)).toBe(true);
+      expect(readFileSync(tokenPath, "utf8")).toBe("replacement-token");
+      await expect(
+        sendRequest(endpoint, capabilityRequest("replacement-token")),
+      ).resolves.toMatchObject({
+        success: true,
+        data: { bridgeSessionId: "replacement-owner" },
+      });
+      expect(replacementReady).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "reclaims an unreachable stale filesystem endpoint",
+    async () => {
+      const endpoint = createEndpoint();
+      const tokenPath = `${endpoint.path}.token`;
+      writeFileSync(endpoint.path, "stale");
+      const server = new InAppBrowserBootstrapServer({
+        endpoint,
+        tokenPath,
+        token: "fresh-token",
+        ensureReady: vi.fn(async () => ({
+          bridgeSessionId: "fresh-owner",
+          capabilityExpiresAt: 10_000,
+        })),
+      });
+      servers.push(server);
+
+      await expect(server.start()).resolves.toBeUndefined();
+      expect(readFileSync(tokenPath, "utf8")).toBe("fresh-token");
+      await expect(
+        sendRequest(endpoint, capabilityRequest("fresh-token")),
+      ).resolves.toMatchObject({ success: true });
+    },
+  );
+
   it("authenticates local requests and invokes only the hidden readiness callback", async () => {
     const endpoint = createEndpoint();
     const ensureReady = vi.fn(async () => ({

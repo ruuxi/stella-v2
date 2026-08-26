@@ -73,8 +73,9 @@ describe("screenshotPixelToScreenPoint", () => {
 
     expect(result.point).toBeUndefined();
     expect(result.error).toContain(
-      "Take a fresh snapshot without `--no-screenshot`",
+      'sky.get_app_state({ app, screenshot_policy: "always", disable_diff: true })',
     );
+    expect(result.error).toContain("retry with that state's state_id");
   });
 
   it("rejects coordinates on the exclusive right and bottom image bounds", () => {

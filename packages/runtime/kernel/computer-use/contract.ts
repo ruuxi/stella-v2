@@ -1,5 +1,5 @@
-export const COMPUTER_USE_SCHEMA_VERSION = 1 as const;
-export const COMPUTER_USE_PROTOCOL_VERSION = "1.0" as const;
+export const COMPUTER_USE_SCHEMA_VERSION = 2 as const;
+export const COMPUTER_USE_PROTOCOL_VERSION = "2.0" as const;
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue =
@@ -76,6 +76,10 @@ export type ComputerUseAction =
 export type ComputerUseActionCommand = Readonly<{
   target: ComputerUseTarget;
   action: ComputerUseAction;
+  observedObservationId?: string;
+  observedStateId?: string;
+  observedVisualStateId?: string;
+  observedResourceGeneration?: number;
 }>;
 
 type ComputerUseRequestEnvelope = Readonly<{
@@ -97,6 +101,16 @@ export type ComputerUseRequest =
       Readonly<{
         type: "get_app_state";
         target: ComputerUseTarget;
+        screenshotPolicy: "auto" | "always" | "never";
+        disableDiff: boolean;
+      }>)
+  | (ComputerUseRequestEnvelope &
+      Readonly<{
+        type: "wait_for_change";
+        target: ComputerUseTarget;
+        afterStateId: string;
+        afterVisualStateId?: string;
+        timeoutMs: number;
         screenshotPolicy: "auto" | "always" | "never";
         disableDiff: boolean;
       }>)
@@ -139,10 +153,28 @@ export type ComputerUseImage = Readonly<{
   height?: number;
 }>;
 
+export type ComputerUseWaitProvenance = Readonly<{
+  afterStateId: string;
+  afterVisualStateId?: string;
+  timeoutMs: number;
+  elapsedMs: number;
+  pollCount: number;
+  changeKinds: readonly ("semantic" | "visual" | "resource")[];
+}>;
+
 export type ComputerUseAppState = Readonly<{
   app: string;
   text: string;
   screenshot: ComputerUseImage | null;
+  /** Compatibility alias for semanticStateId. */
+  stateId?: string;
+  semanticStateId?: string;
+  visualStateId?: string;
+  baseStateId?: string;
+  baseVisualStateId?: string;
+  resourceGeneration?: number;
+  representation?: "full" | "diff";
+  wait?: ComputerUseWaitProvenance;
   instructions?: string;
 }>;
 
@@ -163,6 +195,8 @@ export type ComputerUseResponse =
   | (ComputerUseResponseEnvelope &
       Readonly<{ type: "app_state"; state: ComputerUseAppState }>)
   | (ComputerUseResponseEnvelope &
+      Readonly<{ type: "wait_for_change"; state: ComputerUseAppState }>)
+  | (ComputerUseResponseEnvelope &
       Readonly<{ type: "action"; receipt: ComputerUseActionReceipt }>)
   | (ComputerUseResponseEnvelope &
       Readonly<{ type: "batch"; receipt: ComputerUseBatchReceipt }>)
@@ -181,9 +215,11 @@ export type ComputerUseResponseFor<TRequest extends ComputerUseRequest> =
   | Extract<ComputerUseResponse, { type: "error" }>
   | (TRequest["type"] extends "get_app_state"
       ? Extract<ComputerUseResponse, { type: "app_state" }>
-      : TRequest["type"] extends "resolve_target"
-        ? Extract<ComputerUseResponse, { type: "target_policy" }>
-        : Extract<ComputerUseResponse, { type: TRequest["type"] }>);
+      : TRequest["type"] extends "wait_for_change"
+        ? Extract<ComputerUseResponse, { type: "wait_for_change" }>
+        : TRequest["type"] extends "resolve_target"
+          ? Extract<ComputerUseResponse, { type: "target_policy" }>
+          : Extract<ComputerUseResponse, { type: TRequest["type"] }>);
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -254,6 +290,16 @@ const positiveInteger: (value: unknown, context: string) => number = (
 ) => {
   if (!Number.isInteger(value) || Number(value) <= 0) {
     fail(context, "must be a positive integer.");
+  }
+  return Number(value);
+};
+
+const nonNegativeInteger: (value: unknown, context: string) => number = (
+  value,
+  context,
+) => {
+  if (!Number.isInteger(value) || Number(value) < 0) {
+    fail(context, "must be a non-negative integer.");
   }
   return Number(value);
 };
@@ -444,9 +490,39 @@ export const assertComputerUseAction: (
 
 const assertActionCommand = (value: unknown, context: string) => {
   const candidate = record(value, context);
-  exactKeys(candidate, ["target", "action"], context);
+  exactKeys(
+    candidate,
+    [
+      "target",
+      "action",
+      "observedObservationId",
+      "observedStateId",
+      "observedVisualStateId",
+      "observedResourceGeneration",
+    ],
+    context,
+  );
   assertComputerUseTarget(candidate.target, `${context}.target`);
   assertComputerUseAction(candidate.action, `${context}.action`);
+  if (candidate.observedObservationId !== undefined) {
+    nonEmptyString(
+      candidate.observedObservationId,
+      `${context}.observedObservationId`,
+    );
+  }
+  nonEmptyString(candidate.observedStateId, `${context}.observedStateId`);
+  if (candidate.observedVisualStateId !== undefined) {
+    nonEmptyString(
+      candidate.observedVisualStateId,
+      `${context}.observedVisualStateId`,
+    );
+  }
+  if (candidate.observedResourceGeneration !== undefined) {
+    nonNegativeInteger(
+      candidate.observedResourceGeneration,
+      `${context}.observedResourceGeneration`,
+    );
+  }
 };
 
 const assertEnvelope = (candidate: UnknownRecord, context: string) => {
@@ -508,6 +584,36 @@ export const assertComputerUseRequest: (
       );
       booleanValue(candidate.disableDiff, "ComputerUseRequest.disableDiff");
       return;
+    case "wait_for_change":
+      exactKeys(
+        candidate,
+        [
+          ...REQUEST_ENVELOPE_KEYS,
+          "target",
+          "afterStateId",
+          "afterVisualStateId",
+          "timeoutMs",
+          "screenshotPolicy",
+          "disableDiff",
+        ],
+        "ComputerUseRequest",
+      );
+      assertComputerUseTarget(candidate.target, "ComputerUseRequest.target");
+      nonEmptyString(candidate.afterStateId, "ComputerUseRequest.afterStateId");
+      if (candidate.afterVisualStateId !== undefined) {
+        nonEmptyString(
+          candidate.afterVisualStateId,
+          "ComputerUseRequest.afterVisualStateId",
+        );
+      }
+      positiveInteger(candidate.timeoutMs, "ComputerUseRequest.timeoutMs");
+      oneOf(
+        candidate.screenshotPolicy,
+        ["auto", "always", "never"],
+        "ComputerUseRequest.screenshotPolicy",
+      );
+      booleanValue(candidate.disableDiff, "ComputerUseRequest.disableDiff");
+      return;
     case "action":
       exactKeys(
         candidate,
@@ -562,11 +668,91 @@ const assertImage = (value: unknown, context: string) => {
 
 const assertAppState = (value: unknown, context: string) => {
   const candidate = record(value, context);
-  exactKeys(candidate, ["app", "text", "screenshot", "instructions"], context);
+  exactKeys(
+    candidate,
+    [
+      "app",
+      "text",
+      "screenshot",
+      "stateId",
+      "semanticStateId",
+      "visualStateId",
+      "baseStateId",
+      "baseVisualStateId",
+      "resourceGeneration",
+      "representation",
+      "wait",
+      "instructions",
+    ],
+    context,
+  );
   nonEmptyString(candidate.app, `${context}.app`);
   stringValue(candidate.text, `${context}.text`);
+  if (candidate.stateId !== undefined) {
+    nonEmptyString(candidate.stateId, `${context}.stateId`);
+  }
+  if (candidate.semanticStateId !== undefined) {
+    nonEmptyString(candidate.semanticStateId, `${context}.semanticStateId`);
+  }
+  if (candidate.visualStateId !== undefined) {
+    nonEmptyString(candidate.visualStateId, `${context}.visualStateId`);
+  }
+  if (candidate.baseStateId !== undefined) {
+    nonEmptyString(candidate.baseStateId, `${context}.baseStateId`);
+  }
+  if (candidate.baseVisualStateId !== undefined) {
+    nonEmptyString(candidate.baseVisualStateId, `${context}.baseVisualStateId`);
+  }
+  if (candidate.resourceGeneration !== undefined) {
+    nonNegativeInteger(
+      candidate.resourceGeneration,
+      `${context}.resourceGeneration`,
+    );
+  }
+  if (candidate.representation !== undefined) {
+    oneOf(
+      candidate.representation,
+      ["full", "diff"],
+      `${context}.representation`,
+    );
+  }
   if (candidate.screenshot !== null) {
     assertImage(candidate.screenshot, `${context}.screenshot`);
+  }
+  if (candidate.wait !== undefined) {
+    const wait = record(candidate.wait, `${context}.wait`);
+    exactKeys(
+      wait,
+      [
+        "afterStateId",
+        "afterVisualStateId",
+        "timeoutMs",
+        "elapsedMs",
+        "pollCount",
+        "changeKinds",
+      ],
+      `${context}.wait`,
+    );
+    nonEmptyString(wait.afterStateId, `${context}.wait.afterStateId`);
+    if (wait.afterVisualStateId !== undefined) {
+      nonEmptyString(
+        wait.afterVisualStateId,
+        `${context}.wait.afterVisualStateId`,
+      );
+    }
+    positiveInteger(wait.timeoutMs, `${context}.wait.timeoutMs`);
+    nonNegativeInteger(wait.elapsedMs, `${context}.wait.elapsedMs`);
+    positiveInteger(wait.pollCount, `${context}.wait.pollCount`);
+    if (!Array.isArray(wait.changeKinds) || wait.changeKinds.length === 0) {
+      fail(`${context}.wait.changeKinds`, "must be a non-empty array.");
+    }
+    wait.changeKinds.forEach((kind, index) =>
+      oneOf(
+        kind,
+        ["semantic", "visual", "resource"],
+        `${context}.wait.changeKinds[${index}]`,
+      ),
+    );
   }
   if (candidate.instructions !== undefined) {
     nonEmptyString(candidate.instructions, `${context}.instructions`);
@@ -686,6 +872,7 @@ export const assertComputerUseResponse: (
       assertAppPolicy(candidate.policy, "ComputerUseResponse.policy");
       return;
     case "app_state":
+    case "wait_for_change":
       exactKeys(
         candidate,
         [...RESPONSE_ENVELOPE_KEYS, "state"],

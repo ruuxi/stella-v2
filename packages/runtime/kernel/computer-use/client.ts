@@ -1,10 +1,11 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import {
   COMPUTER_USE_PROTOCOL_VERSION,
   COMPUTER_USE_SCHEMA_VERSION,
   type ComputerUseAction,
   type ComputerUseActionCommand,
+  type ComputerUseAppState,
   type ComputerUseAppPolicy,
   type ComputerUseAppSelector,
   type ComputerUseRequest,
@@ -22,6 +23,8 @@ import {
 type CommonAction = {
   app?: string;
   window_id?: string | number;
+  state_id?: string;
+  observation_id?: string;
 };
 
 export type SkyAction =
@@ -86,10 +89,37 @@ export type GetAppStateArgs = CommonAction & {
   disableDiff?: boolean;
 };
 
+export type WaitForChangeArgs = GetAppStateArgs & {
+  after_state_id: string;
+  after_visual_state_id?: string;
+  timeout_ms?: number;
+};
+
+export type AppStateProvenance = {
+  request_id: string;
+  resource_generation?: number;
+  wait?: {
+    after_state_id: string;
+    after_visual_state_id?: string;
+    timeout_ms: number;
+    elapsed_ms: number;
+    poll_count: number;
+    change_kinds: Array<"semantic" | "visual" | "resource">;
+  };
+};
+
 export type AppState = {
   app: string;
   screenshot: { url: string } | null;
   text: string;
+  state_id: string;
+  observation_id: string;
+  visual_state_id?: string;
+  base_state_id?: string;
+  base_visual_state_id?: string;
+  resource_generation?: number;
+  is_diff: boolean;
+  provenance: AppStateProvenance;
 };
 
 export type AuthorizeAppContext = Readonly<{
@@ -106,6 +136,7 @@ export type SkyClient = Readonly<{
   list_apps: () => Promise<string>;
   list_windows: () => Promise<string>;
   get_app_state: (args: GetAppStateArgs) => Promise<AppState>;
+  wait_for_change: (args: WaitForChangeArgs) => Promise<AppState>;
   click: (args: ClickArgs) => Promise<unknown>;
   drag: (args: DragArgs) => Promise<unknown>;
   perform_secondary_action: (args: SecondaryActionArgs) => Promise<unknown>;
@@ -268,27 +299,41 @@ const actionCommand = (entry: SkyAction): ComputerUseActionCommand => {
     throw new Error("Each batch action must be an object.");
   }
   const target = targetFrom(entry);
+  const observedState = (command: ComputerUseActionCommand) => ({
+    ...command,
+    ...(entry.observation_id === undefined
+      ? {}
+      : {
+          observedObservationId: requireString(
+            entry.observation_id,
+            "observation_id",
+          ),
+        }),
+    ...(entry.state_id === undefined
+      ? {}
+      : { observedStateId: requireString(entry.state_id, "state_id") }),
+  });
   switch (entry.type) {
     case "click":
-      return { target, action: clickAction(entry) };
+      return observedState({ target, action: clickAction(entry) });
     case "drag":
-      return { target, action: dragAction(entry) };
+      return observedState({ target, action: dragAction(entry) });
     case "perform_secondary_action":
-      return {
+      return observedState({
         target,
         action: {
           type: "perform_secondary_action",
           elementId: elementId(entry.element_index),
           action: requireString(entry.action, "action"),
         },
-      };
+      });
     case "press_key":
-      return {
+      return observedState({
         target,
         action: { type: "press_key", key: requireString(entry.key, "key") },
-      };
+      });
     case "scroll":
-      return {
+      return observedState({
         target,
         action: {
           type: "scroll",
@@ -296,9 +341,9 @@ const actionCommand = (entry: SkyAction): ComputerUseActionCommand => {
           direction: directionFromScroll(entry),
           pages: requirePositiveInteger(entry.pages ?? 1, "pages"),
         },
-      };
+      });
     case "select_text":
-      return {
+      return observedState({
         target,
         action: {
           type: "select_text",
@@ -310,24 +355,24 @@ const actionCommand = (entry: SkyAction): ComputerUseActionCommand => {
             ? {}
             : { selectionType: entry.selection_type }),
         },
-      };
+      });
     case "set_value":
-      return {
+      return observedState({
         target,
         action: {
           type: "set_value",
           elementId: elementId(entry.element_index),
           value: String(entry.value ?? ""),
         },
-      };
+      });
     case "type_text":
-      return {
+      return observedState({
         target,
         action: {
           type: "type_text",
           text: requireString(entry.text, "text"),
         },
-      };
+      });
     default:
       throw new Error(
         `Unsupported batch action: ${String((entry as { type?: unknown }).type)}`,
@@ -354,6 +399,13 @@ export const createSkyClient = (options: CreateSkyClientOptions): SkyClient => {
   const sessionId = requireString(options.sessionId, "sessionId");
   const session = options.session;
   const deliveredInstructions = new Set<string>();
+  type StateProvenance = {
+    semanticStateId: string;
+    visualStateId?: string;
+    resourceGeneration?: number;
+  };
+  const stateProvenance = new Map<string, StateProvenance | null>();
+  const observationProvenance = new Map<string, StateProvenance>();
   const signal = () => options.getSignal?.() ?? options.signal;
   const envelope = () => ({
     schemaVersion: COMPUTER_USE_SCHEMA_VERSION,
@@ -398,8 +450,66 @@ export const createSkyClient = (options: CreateSkyClientOptions): SkyClient => {
     return policy;
   };
 
-  const runAction = async (command: ComputerUseActionCommand) => {
-    await authorizeTarget(command.target);
+  const commandWithProvenance = (
+    command: ComputerUseActionCommand,
+  ): ComputerUseActionCommand => {
+    const stateId = command.observedStateId;
+    const observationId = command.observedObservationId;
+    const exactProvenance = observationId
+      ? observationProvenance.get(observationId)
+      : undefined;
+    if (observationId && !exactProvenance) {
+      throw new Error(
+        "observation_id is unknown or no longer available. Use the observation_id returned with the current app state.",
+      );
+    }
+    if (
+      stateId &&
+      exactProvenance &&
+      exactProvenance.semanticStateId !== stateId
+    ) {
+      throw new Error(
+        "state_id and observation_id refer to different app-state observations.",
+      );
+    }
+    const provenance =
+      exactProvenance ?? (stateId ? stateProvenance.get(stateId) : undefined);
+    const needsVisualState =
+      command.action.type === "click_point" || command.action.type === "drag";
+    if (
+      needsVisualState &&
+      (!observationId || !exactProvenance?.visualStateId)
+    ) {
+      throw new Error(
+        'Screenshot-coordinate actions require the immutable observation_id from get_app_state with screenshot_policy: "always".',
+      );
+    }
+    return {
+      ...command,
+      ...(exactProvenance
+        ? { observedStateId: exactProvenance.semanticStateId }
+        : {}),
+      ...(needsVisualState && provenance?.visualStateId
+        ? { observedVisualStateId: provenance.visualStateId }
+        : {}),
+      ...(provenance?.resourceGeneration !== undefined
+        ? { observedResourceGeneration: provenance.resourceGeneration }
+        : {}),
+    };
+  };
+
+  const requireFreshInput = (command: ComputerUseActionCommand) => {
+    if (!command.observedStateId) {
+      throw new Error(
+        `${command.action.type} requires state_id from a fresh get_app_state result.`,
+      );
+    }
+  };
+
+  const runAction = async (rawCommand: ComputerUseActionCommand) => {
+    await authorizeTarget(rawCommand.target);
+    requireFreshInput(rawCommand);
+    const command = commandWithProvenance(rawCommand);
     const response = await execute({
       ...envelope(),
       type: "action",
@@ -407,6 +517,113 @@ export const createSkyClient = (options: CreateSkyClientOptions): SkyClient => {
       command,
     });
     return response.receipt;
+  };
+
+  const mapAppState = (
+    response: { requestId: string; state: ComputerUseAppState },
+    policy: ComputerUseAppPolicy,
+  ): AppState => {
+    const instructionKey = policy.bundleIdentifier.toLocaleLowerCase();
+    const instructions = response.state.instructions?.trim();
+    const shouldDeliverInstructions =
+      Boolean(instructions) && !deliveredInstructions.has(instructionKey);
+    if (shouldDeliverInstructions) deliveredInstructions.add(instructionKey);
+    const stateId =
+      response.state.semanticStateId ??
+      response.state.stateId ??
+      `state_${createHash("sha256")
+        .update(`${response.state.app}\n${response.state.text}`)
+        .digest("hex")
+        .slice(0, 20)}`;
+    const provenance: StateProvenance = {
+      semanticStateId: stateId,
+      ...(response.state.visualStateId
+        ? { visualStateId: response.state.visualStateId }
+        : {}),
+      ...(response.state.resourceGeneration !== undefined
+        ? { resourceGeneration: response.state.resourceGeneration }
+        : {}),
+    };
+    const observationId = `observation_${createHash("sha256")
+      .update(
+        `${stateId}\n${provenance.visualStateId ?? "-"}\n${provenance.resourceGeneration ?? "-"}`,
+      )
+      .digest("hex")
+      .slice(0, 20)}`;
+    observationProvenance.set(observationId, provenance);
+    const existing = stateProvenance.get(stateId);
+    if (existing === undefined) {
+      stateProvenance.set(stateId, provenance);
+    } else if (
+      existing !== null &&
+      (existing.visualStateId !== provenance.visualStateId ||
+        existing.resourceGeneration !== provenance.resourceGeneration)
+    ) {
+      stateProvenance.set(stateId, null);
+    }
+    return {
+      app: response.state.app,
+      screenshot: response.state.screenshot
+        ? { url: response.state.screenshot.url }
+        : null,
+      text:
+        shouldDeliverInstructions && instructions
+          ? instructionText(instructions, response.state.text)
+          : response.state.text,
+      state_id: stateId,
+      observation_id: observationId,
+      ...(response.state.visualStateId
+        ? { visual_state_id: response.state.visualStateId }
+        : {}),
+      ...(response.state.baseStateId
+        ? { base_state_id: response.state.baseStateId }
+        : {}),
+      ...(response.state.baseVisualStateId
+        ? { base_visual_state_id: response.state.baseVisualStateId }
+        : {}),
+      ...(response.state.resourceGeneration !== undefined
+        ? { resource_generation: response.state.resourceGeneration }
+        : {}),
+      is_diff:
+        response.state.representation === "diff" ||
+        response.state.text.includes("<app_state_diff"),
+      provenance: {
+        request_id: response.requestId,
+        ...(response.state.resourceGeneration !== undefined
+          ? { resource_generation: response.state.resourceGeneration }
+          : {}),
+        ...(response.state.wait
+          ? {
+              wait: {
+                after_state_id: response.state.wait.afterStateId,
+                ...(response.state.wait.afterVisualStateId
+                  ? {
+                      after_visual_state_id:
+                        response.state.wait.afterVisualStateId,
+                    }
+                  : {}),
+                timeout_ms: response.state.wait.timeoutMs,
+                elapsed_ms: response.state.wait.elapsedMs,
+                poll_count: response.state.wait.pollCount,
+                change_kinds: [...response.state.wait.changeKinds],
+              },
+            }
+          : {}),
+      },
+    };
+  };
+
+  const getAppState = async (args: GetAppStateArgs): Promise<AppState> => {
+    const target = targetFrom(args);
+    const policy = await authorizeTarget(target);
+    const response = await execute({
+      ...envelope(),
+      type: "get_app_state",
+      target,
+      screenshotPolicy: args.screenshot_policy ?? "auto",
+      disableDiff: args.disable_diff === true || args.disableDiff === true,
+    });
+    return mapAppState(response, policy);
   };
 
   const methods: SkyClient = {
@@ -418,33 +635,32 @@ export const createSkyClient = (options: CreateSkyClientOptions): SkyClient => {
       const response = await execute({ ...envelope(), type: "list_windows" });
       return response.text;
     },
-    get_app_state: async (args: GetAppStateArgs): Promise<AppState> => {
+    get_app_state: getAppState,
+    wait_for_change: async (args: WaitForChangeArgs): Promise<AppState> => {
+      const afterStateId = requireString(args.after_state_id, "after_state_id");
+      const timeoutMs = requirePositiveInteger(
+        args.timeout_ms ?? 10_000,
+        "timeout_ms",
+      );
+      if (timeoutMs > 120_000) {
+        throw new Error("timeout_ms must not exceed 120000.");
+      }
       const target = targetFrom(args);
       const policy = await authorizeTarget(target);
+      const known = stateProvenance.get(afterStateId);
+      const afterVisualStateId =
+        args.after_visual_state_id ?? known?.visualStateId;
       const response = await execute({
         ...envelope(),
-        type: "get_app_state",
+        type: "wait_for_change",
         target,
+        afterStateId,
+        ...(afterVisualStateId ? { afterVisualStateId } : {}),
+        timeoutMs,
         screenshotPolicy: args.screenshot_policy ?? "auto",
         disableDiff: args.disable_diff === true || args.disableDiff === true,
       });
-      const instructionKey = policy.bundleIdentifier.toLocaleLowerCase();
-      const instructions = response.state.instructions?.trim();
-      const shouldDeliverInstructions =
-        Boolean(instructions) && !deliveredInstructions.has(instructionKey);
-      if (shouldDeliverInstructions) {
-        deliveredInstructions.add(instructionKey);
-      }
-      return {
-        app: response.state.app,
-        screenshot: response.state.screenshot
-          ? { url: response.state.screenshot.url }
-          : null,
-        text:
-          shouldDeliverInstructions && instructions
-            ? instructionText(instructions, response.state.text)
-            : response.state.text,
-      };
+      return mapAppState(response, policy);
     },
     click: async (args) => await runAction(singleAction("click", args)),
     drag: async (args) => await runAction(singleAction("drag", args)),
@@ -458,10 +674,10 @@ export const createSkyClient = (options: CreateSkyClientOptions): SkyClient => {
     type_text: async (args) => await runAction(singleAction("type_text", args)),
     batch: async (actions) => {
       if (!Array.isArray(actions)) throw new Error("actions must be an array.");
-      const commands = actions.map(actionCommand);
+      const rawCommands = actions.map(actionCommand);
       const policiesBySelector = new Map<string, ComputerUseAppPolicy>();
       const authorizationByBundle = new Map<string, ComputerUseAppPolicy>();
-      for (const command of commands) {
+      for (const command of rawCommands) {
         const selectorKey = JSON.stringify(command.target);
         let policy = policiesBySelector.get(selectorKey);
         if (!policy) {
@@ -476,6 +692,8 @@ export const createSkyClient = (options: CreateSkyClientOptions): SkyClient => {
       for (const policy of authorizationByBundle.values()) {
         await authorizePolicy(policy);
       }
+      rawCommands.forEach(requireFreshInput);
+      const commands = rawCommands.map(commandWithProvenance);
       const response = await execute({
         ...envelope(),
         type: "batch",

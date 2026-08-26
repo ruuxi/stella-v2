@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -12,6 +13,12 @@ import {
   projectLocalChatUpdateEvent,
 } from "../../../../../runtime/kernel/storage/session-store.js";
 import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
+import {
+  getThreadImageHistoryStats,
+  maybeCompactRuntimeThread,
+  parseThreadCheckpoint,
+} from "@stella/runtime/kernel/thread-runtime";
+import { withForcedThreadCompaction } from "@stella/runtime/kernel/agent-runtime/context-budget";
 
 type TestContext = {
   rootPath: string;
@@ -3122,6 +3129,328 @@ describe("session-store", () => {
       type: "text",
       text: expect.stringContaining("too large to persist in storage"),
     });
+  });
+
+  it("automatically preserves exact oversized image rows for pressure accounting", () => {
+    const { store } = createTestContext();
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId: "conv-exact-image-auto",
+      agentType: "general",
+    });
+    const imageData = "a".repeat(6_100_000);
+    store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 6_020,
+      role: "toolResult",
+      content: "captured",
+      toolCallId: "image-call",
+      payload: {
+        role: "toolResult",
+        toolCallId: "image-call",
+        toolName: "screenshot",
+        content: [
+          { type: "text", text: "captured" },
+          { type: "image", mimeType: "image/png", data: imageData },
+        ],
+        isError: false,
+        timestamp: 6_020,
+      },
+    });
+
+    const loaded = store.loadThreadMessages(threadId);
+    expect(loaded[0]?.payload).toMatchObject({
+      role: "toolResult",
+      content: [
+        { type: "text", text: "captured" },
+        { type: "image", mimeType: "image/png", data: imageData },
+      ],
+    });
+    expect(getThreadImageHistoryStats(loaded)).toMatchObject({
+      count: 1,
+      decodedBytes: 4_575_000,
+    });
+    expect(store.getThreadContextPressureStats(threadId)).toMatchObject({
+      complete: true,
+      imageCount: 1,
+      imageDecodedBytes: 4_575_000,
+    });
+  });
+
+  it("uses narrow metadata for below-threshold compaction probes", async () => {
+    const { store } = createTestContext();
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId: "conv-narrow-pressure-probe",
+      agentType: "orchestrator",
+    });
+    store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 6_025,
+      role: "toolResult",
+      content: "captured",
+      toolCallId: "large-image-call",
+      payload: {
+        role: "toolResult",
+        toolCallId: "large-image-call",
+        toolName: "screenshot",
+        content: [
+          {
+            type: "image",
+            mimeType: "image/png",
+            data: "a".repeat(6_100_000),
+          },
+        ],
+        isError: false,
+        timestamp: 6_025,
+      },
+    });
+    const loadMessages = vi.spyOn(store, "loadThreadMessages");
+    const loadExact = vi.spyOn(store, "loadExactThreadEntryData");
+
+    const result = await maybeCompactRuntimeThread({
+      store,
+      threadKey: threadId,
+      resolvedLlm: {
+        route: "stella",
+        model: { id: "test/model", contextWindow: 128_000 },
+        getApiKey: async () => "unused",
+      } as never,
+      agentType: "orchestrator",
+    });
+
+    expect(result).toEqual({ compacted: false });
+    expect(loadMessages).not.toHaveBeenCalled();
+    expect(loadExact).not.toHaveBeenCalled();
+  });
+
+  it("ignores checkpoint-resolved quarantine without loading covered screenshot history", async () => {
+    const { db, store } = createTestContext();
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId: "conv-resolved-quarantine-narrow-probe",
+      agentType: "orchestrator",
+    });
+    const quarantineKey = "6026:covered-image-call";
+    store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 6_026,
+      role: "toolResult",
+      content: "covered screenshot",
+      toolCallId: "covered-image-call",
+      payload: {
+        role: "toolResult",
+        toolCallId: "covered-image-call",
+        toolName: "screenshot",
+        content: [
+          {
+            type: "image",
+            mimeType: "image/png",
+            data: "a".repeat(6_100_000),
+          },
+        ],
+        isError: false,
+        timestamp: 6_026,
+      },
+    });
+    store.appendThreadCustomMessage({
+      threadKey: threadId,
+      timestamp: 6_027,
+      customType: "containment.quarantine",
+      content: JSON.stringify({
+        key: quarantineKey,
+        toolName: "screenshot",
+        timestamp: 6_026,
+      }),
+      display: false,
+    });
+    const covered = store.loadRawThreadMessages(threadId);
+    expect(covered).toHaveLength(2);
+    store.compactThread({
+      threadKey: threadId,
+      summary: "The covered screenshot was safely masked.",
+      fromEntryId: covered[0]!.entryId,
+      toEntryId: covered[1]!.entryId,
+      tokensBefore: 1_000,
+      details: { quarantinedToolResultKeys: [quarantineKey] },
+    });
+    store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 6_028,
+      role: "user",
+      content: "continue",
+      payload: { role: "user", content: "continue", timestamp: 6_028 },
+    });
+    const physicalChunks = db
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM runtime_thread_entry_payload_chunks
+         WHERE thread_key = ?`,
+      )
+      .get(threadId) as { count: number };
+    expect(physicalChunks.count).toBeGreaterThan(1);
+    expect(store.getThreadContextPressureStats(threadId)).toMatchObject({
+      complete: true,
+      rowCount: 1,
+      quarantineCount: 0,
+      imageCount: 0,
+      imageDecodedBytes: 0,
+    });
+    const loadMessages = vi.spyOn(store, "loadThreadMessages");
+    const loadRawMessages = vi.spyOn(store, "loadRawThreadMessages");
+    const loadExact = vi.spyOn(store, "loadExactThreadEntryData");
+
+    const result = await maybeCompactRuntimeThread({
+      store,
+      threadKey: threadId,
+      resolvedLlm: {
+        route: "stella",
+        model: { id: "test/model", contextWindow: 128_000 },
+        getApiKey: async () => "unused",
+      } as never,
+      agentType: "orchestrator",
+    });
+
+    expect(result).toEqual({ compacted: false });
+    expect(loadMessages).not.toHaveBeenCalled();
+    expect(loadRawMessages).not.toHaveBeenCalled();
+    expect(loadExact).not.toHaveBeenCalled();
+  });
+
+  it("checkpoints one ten-image message with deterministic durable receipts", async () => {
+    const { db, rootPath, store } = createTestContext();
+    const { threadId } = store.resolveOrCreateActiveThread({
+      conversationId: "conv-image-pressure-single-message",
+      agentType: "orchestrator",
+    });
+    const images = Array.from({ length: 10 }, (_, index) => ({
+      type: "image" as const,
+      mimeType: "image/png",
+      data: Buffer.from(`image-${index}`).toString("base64"),
+      width: 1024,
+      height: 768,
+    }));
+    store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 6_030,
+      role: "toolResult",
+      content: "captured batch",
+      toolCallId: "batch-call",
+      payload: {
+        role: "toolResult",
+        toolCallId: "batch-call",
+        toolName: "screenshot",
+        content: [{ type: "text", text: "captured batch" }, ...images],
+        isError: false,
+        timestamp: 6_030,
+      },
+    });
+    const rawBefore = store.loadRawThreadMessages(threadId);
+    expect(getThreadImageHistoryStats(rawBefore)).toMatchObject({
+      count: 10,
+      overBudget: true,
+    });
+
+    const result = await maybeCompactRuntimeThread({
+      store,
+      threadKey: threadId,
+      resolvedLlm: {
+        route: "stella",
+        model: { id: "test/model", contextWindow: 128_000 },
+        getApiKey: async () => "unused",
+      } as never,
+      agentType: "orchestrator",
+      overrideSummary: "Captured a ten-image diagnostic batch.",
+      stellaDataDir: rootPath,
+    });
+
+    expect(result).toEqual({ compacted: true });
+    const effective = store.loadThreadMessages(threadId);
+    expect(effective).toHaveLength(1);
+    expect(getThreadImageHistoryStats(effective)).toMatchObject({
+      count: 0,
+      decodedBytes: 0,
+      overBudget: false,
+    });
+    expect(parseThreadCheckpoint(effective[0]!.content)).toEqual({
+      summary: "Captured a ten-image diagnostic batch.",
+    });
+    const receiptMatch = effective[0]!.content.match(
+      /<image-receipts version="1">\n(.+)\n<\/image-receipts>/,
+    );
+    expect(receiptMatch).not.toBeNull();
+    const receipts = JSON.parse(receiptMatch![1]!) as Array<{
+      id: string;
+      artifact: { durability: string; path: string };
+    }>;
+    expect(receipts).toHaveLength(10);
+    for (const receipt of receipts) {
+      expect(receipt.id).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(receipt.artifact.durability).toBe("durable");
+      expect(receipt.artifact.path).toContain(
+        path.join(rootPath, "artifacts", "thread-images"),
+      );
+      expect(existsSync(receipt.artifact.path)).toBe(true);
+    }
+    expect(store.loadRawThreadMessages(threadId)).toEqual(rawBefore);
+    const compactionRows = db
+      .prepare(
+        `SELECT COUNT(*) AS count FROM runtime_thread_entries
+         WHERE thread_key = ? AND entry_type = 'compaction'`,
+      )
+      .get(threadId) as { count: number };
+    expect(compactionRows.count).toBe(1);
+
+    store.appendThreadMessage({
+      threadKey: threadId,
+      timestamp: 6_040,
+      role: "toolResult",
+      content: "same image again",
+      toolCallId: "duplicate-image-call",
+      payload: {
+        role: "toolResult",
+        toolCallId: "duplicate-image-call",
+        toolName: "screenshot",
+        content: [images[0]!],
+        isError: false,
+        timestamp: 6_040,
+      },
+    });
+    for (let index = 0; index < 3; index += 1) {
+      store.appendThreadMessage({
+        threadKey: threadId,
+        timestamp: 6_041 + index,
+        role: "user",
+        content: `follow-up ${index}`,
+        payload: {
+          role: "user",
+          content: `follow-up ${index}`,
+          timestamp: 6_041 + index,
+        },
+      });
+    }
+    await withForcedThreadCompaction(threadId, () =>
+      maybeCompactRuntimeThread({
+        store,
+        threadKey: threadId,
+        resolvedLlm: {
+          route: "stella",
+          model: { id: "test/model", contextWindow: 128_000 },
+          getApiKey: async () => "unused",
+        } as never,
+        agentType: "orchestrator",
+        overrideSummary: "Successor checkpoint.",
+        stellaDataDir: rootPath,
+      }),
+    );
+    const successor = store.loadThreadMessages(threadId)[0]!;
+    const successorMatch = successor.content.match(
+      /<image-receipts version="1">\n(.+)\n<\/image-receipts>/,
+    );
+    const successorReceipts = JSON.parse(successorMatch![1]!) as Array<{
+      id: string;
+    }>;
+    expect(successorReceipts).toHaveLength(10);
+    expect(new Set(successorReceipts.map((receipt) => receipt.id)).size).toBe(
+      10,
+    );
   });
 
   it("preserves exact oversized payloads for an evictable working set", () => {

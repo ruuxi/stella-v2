@@ -124,9 +124,7 @@ fn dispatch_arm_actions() -> BTreeSet<String> {
             {
                 for literal in string_literals(&pattern) {
                     let is_action_name = !literal.is_empty()
-                        && literal
-                            .chars()
-                            .all(|c| c.is_ascii_lowercase() || c == '_');
+                        && literal.chars().all(|c| c.is_ascii_lowercase() || c == '_');
                     if is_action_name {
                         actions.insert(literal);
                     }
@@ -168,8 +166,16 @@ fn chain_allowed_actions_match_manifest() {
     assert!(
         manifest_chain == chain,
         "is_chain_allowed_action and the manifest's \"chain\": true set disagree:{}{}",
-        diff("in manifest but not is_chain_allowed_action", &manifest_chain, &chain),
-        diff("in is_chain_allowed_action but not manifest", &chain, &manifest_chain),
+        diff(
+            "in manifest but not is_chain_allowed_action",
+            &manifest_chain,
+            &chain
+        ),
+        diff(
+            "in is_chain_allowed_action but not manifest",
+            &chain,
+            &manifest_chain
+        ),
     );
     assert!(
         chain.is_subset(&manifest_all),
@@ -180,6 +186,7 @@ fn chain_allowed_actions_match_manifest() {
     // (validate_chain_actions enforces this at runtime).
     for top_level_only in [
         "chain",
+        "mark_tab",
         "finalize_tabs",
         "close_owner",
         "release_owner_lease",

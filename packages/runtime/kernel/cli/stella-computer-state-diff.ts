@@ -64,41 +64,70 @@ const sameTarget = (previous: StateDiffTarget, current: StateDiffTarget) => {
   return previous.pid != null && previous.pid === current.pid;
 };
 
-const lineCounts = (lines: readonly string[]) => {
+const occurrenceTokens = (lines: readonly string[]) => {
   const counts = new Map<string, number>();
+  const tokens: string[] = [];
   for (const line of lines) {
-    counts.set(line, (counts.get(line) ?? 0) + 1);
+    const occurrence = (counts.get(line) ?? 0) + 1;
+    counts.set(line, occurrence);
+    tokens.push(`${line}\u0000${occurrence}`);
   }
-  return counts;
+  return tokens;
 };
 
-const countedDelta = (
-  left: readonly string[],
-  right: readonly string[],
-) => {
-  const rightCounts = lineCounts(right);
-  const removed: string[] = [];
-  for (const line of left) {
-    const count = rightCounts.get(line) ?? 0;
-    if (count > 0) {
-      rightCounts.set(line, count - 1);
-    } else {
-      removed.push(line);
+/**
+ * Computes an ordered line delta. Repeated equal lines receive occurrence
+ * tokens, then a longest-increasing-subsequence over previous positions finds
+ * the lines that remained in order. Unlike a multiset delta, moving a subtree
+ * is observable as remove+add and cannot silently reuse an element index in a
+ * different structural position.
+ */
+const orderedDelta = (left: readonly string[], right: readonly string[]) => {
+  const leftTokens = occurrenceTokens(left);
+  const rightTokens = occurrenceTokens(right);
+  const leftPositions = new Map(
+    leftTokens.map((token, index) => [token, index] as const),
+  );
+  const candidates = rightTokens.flatMap((token, rightIndex) => {
+    const leftIndex = leftPositions.get(token);
+    return leftIndex === undefined ? [] : [{ leftIndex, rightIndex }];
+  });
+
+  const tails: number[] = [];
+  const tailCandidateIndices: number[] = [];
+  const previousCandidateIndices = new Array<number>(candidates.length).fill(
+    -1,
+  );
+  for (let index = 0; index < candidates.length; index += 1) {
+    const leftIndex = candidates[index]!.leftIndex;
+    let low = 0;
+    let high = tails.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (tails[middle]! < leftIndex) low = middle + 1;
+      else high = middle;
     }
+    if (low > 0) {
+      previousCandidateIndices[index] = tailCandidateIndices[low - 1]!;
+    }
+    tails[low] = leftIndex;
+    tailCandidateIndices[low] = index;
   }
 
-  const leftCounts = lineCounts(left);
-  const added: string[] = [];
-  for (const line of right) {
-    const count = leftCounts.get(line) ?? 0;
-    if (count > 0) {
-      leftCounts.set(line, count - 1);
-    } else {
-      added.push(line);
-    }
+  const stableLeft = new Set<number>();
+  const stableRight = new Set<number>();
+  let cursor = tailCandidateIndices[tails.length - 1] ?? -1;
+  while (cursor >= 0) {
+    const candidate = candidates[cursor]!;
+    stableLeft.add(candidate.leftIndex);
+    stableRight.add(candidate.rightIndex);
+    cursor = previousCandidateIndices[cursor]!;
   }
 
-  return { added, removed };
+  return {
+    removed: left.filter((_line, index) => !stableLeft.has(index)),
+    added: right.filter((_line, index) => !stableRight.has(index)),
+  };
 };
 
 const truncateLines = (lines: readonly string[], maxLines: number) => {
@@ -149,7 +178,10 @@ export const computeStateDiff = (input: {
     };
   }
 
-  const { added, removed } = countedDelta(input.previousLines, input.currentLines);
+  const { added, removed } = orderedDelta(
+    input.previousLines,
+    input.currentLines,
+  );
   const changedLineCount = added.length + removed.length;
   const addedBudget = Math.ceil(maxLines / 2);
   const removedBudget = Math.floor(maxLines / 2);
@@ -167,19 +199,22 @@ export const computeStateDiff = (input: {
     addedLines: visibleAdded,
     removedLines: visibleRemoved,
     maxLines,
-    truncated: visibleAdded.length < added.length || visibleRemoved.length < removed.length,
+    truncated:
+      visibleAdded.length < added.length ||
+      visibleRemoved.length < removed.length,
   };
 };
 
 const attr = (name: string, value?: string | number | boolean | null) => {
   if (value == null || value === "") return "";
-  return ` ${name}="${String(value).replaceAll("\"", "&quot;")}"`;
+  return ` ${name}="${String(value).replaceAll('"', "&quot;")}"`;
 };
 
 export const shouldUseDiffOnly = (diff: StateDiff | null | undefined) =>
   !!diff &&
   diff.sameTarget &&
-  (diff.status === "unchanged" || (diff.status === "changed" && !diff.truncated));
+  (diff.status === "unchanged" ||
+    (diff.status === "changed" && !diff.truncated));
 
 export const formatStateDiffBlock = (diff: StateDiff) => {
   const lines = [
@@ -198,9 +233,13 @@ export const formatStateDiffBlock = (diff: StateDiff) => {
   if (diff.status === "baseline") {
     lines.push("No previous app state was available; full app_state follows.");
   } else if (diff.status === "different-target") {
-    lines.push("The target changed since the previous snapshot; full app_state follows.");
+    lines.push(
+      "The target changed since the previous snapshot; full app_state follows.",
+    );
   } else if (diff.status === "unchanged") {
-    lines.push("No accessibility-tree line changes detected since the previous snapshot.");
+    lines.push(
+      "No accessibility-tree line changes detected since the previous snapshot.",
+    );
   } else {
     if (diff.addedLines.length > 0) {
       lines.push("Added lines:");

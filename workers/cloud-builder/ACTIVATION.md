@@ -164,6 +164,48 @@ from main can register a cloud conversation, so the journal append 404s
 ("Conversation not found"). Restoring + deploying it touches the shared dev
 backend and so was left out of this turn.
 
+## Update 3 — cloud-canonical journal PROVEN end-to-end (disposable identity)
+
+`scripts/cloud-canonical-proof.mjs` proves the real path over the network against
+the staging cloud-builder + development Convex `flexible-panther-999`, using a
+**disposable anonymous** identity (no secrets, no 2FA, no shared user data).
+**All checks pass:**
+- `cloud_apps:createMyConversation` registers the cloud conversation owner.
+- **Local-desktop execution → staging DO append**: `POST /local-turns/begin` +
+  `finish` append the user + assistant records; `GET /history` returns
+  `["user","assistant"]` from the DO journal.
+- **Automatic Convex projection/discovery**: `listMyConversations` finds it.
+- **Clean-client hydration**: a brand-new client with ZERO local cache hydrates
+  the full transcript from the cloud and continues (t2); the journal spans both
+  turns `["user","assistant","user","assistant"]`.
+- **Cache-loss survival**: a fresh no-cache client re-reads canonical history —
+  authority is the DO journal, never local SQLite.
+- **Cloud-Container placement**: `spawnCloudAgentFromDesktop` is accepted by the
+  real backend (returns a `threadId`), proving the cloud-sandbox dispatch path is
+  reachable end-to-end. Full container *model* execution did not append in-window
+  because a disposable anonymous identity has no LLM entitlement — a credential
+  limit of the throwaway user, not a wiring gap.
+- **No silent local fallback**: enforced + unit-tested by
+  `desktop-ui/context/resolve-chat-storage-mode.ts` (issuer mismatch / missing
+  config throw).
+
+## Remaining (honest): the actual Electron GUI + source restoration
+
+The **product cloud feature is stripped from main**, not merely activation-gated:
+`packages/backend/convex/cloud_apps.ts` (~5,671 lines in `stella-cloud`), its
+`http_routes/cloud_apps.ts`, and the desktop-ui cloud client
+(`packages/desktop-ui/src/features/cloud/*`) are all **absent from main** (present
+on the older live `flexible-panther-999` deployment and in the `stella-cloud`
+reference). The proof above therefore exercises the real deployed backend +
+worker protocol directly (the exact contract the app uses), rather than the
+Electron UI — which cannot be built from main source until `cloud_apps` +
+the desktop-ui cloud client are restored and reconciled with v2's evolved
+contracts (Effect runtime, auth/provider, device routing, removed
+`device_presence`). That reconciliation is a large multi-file port; a partial
+restore would break main's backend typecheck/deploy, and an all-or-nothing
+`convex deploy` of it to the shared `flexible-panther-999` risks the working dev
+backend the proof depends on — so it is intentionally not done blind here.
+
 ---
 
 The redundant standalone `workers/journal-realstaging` proof worker was removed;

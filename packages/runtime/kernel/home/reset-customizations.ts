@@ -1,6 +1,6 @@
 /**
  * "Use Stella's defaults" — one action that clears every prompt/skill
- * customization so the mirrored system content is what runs.
+ * customization so Stella's managed bundled copies can be restored.
  *
  * Nothing is destroyed: everything moves into a timestamped folder under
  * `~/.stella/.trash/` for one level of manual undo.
@@ -10,15 +10,15 @@
  *   user-defined agents)
  * - `prompts/*.md` (user prompt replacements)
  * - `PERSONALITY.md` (hand-edited personality)
- * - `skills/<id>/` only where `<id>` also exists in `system/skills/` (forks
- *   that shadow a shipped skill). Purely user-created skills are kept.
+ * - `skills/<id>/` only where `<id>` is tracked as a Stella-shipped skill.
+ *   Purely user-created skills are kept.
  */
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import { ensurePrivateDir } from "../shared/private-fs.js";
-import { SYSTEM_DIR_NAME } from "./system-mirror.js";
+import { listBundledSkillIds } from "./bundled-skills.js";
 
 export type ResetCustomizationsResult = {
   movedEntries: string[];
@@ -63,11 +63,9 @@ export const resetStellaCustomizations = async (
     candidates.push("PERSONALITY.md");
   } catch {}
 
-  const systemSkillIds = new Set(
-    await listDirectories(path.join(stellaDataDir, SYSTEM_DIR_NAME, "skills")),
-  );
+  const bundledSkillIds = new Set(await listBundledSkillIds(stellaDataDir));
   for (const id of await listDirectories(path.join(stellaDataDir, "skills"))) {
-    if (systemSkillIds.has(id)) {
+    if (bundledSkillIds.has(id)) {
       candidates.push(path.join("skills", id));
     }
   }

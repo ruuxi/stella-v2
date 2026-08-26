@@ -69,6 +69,25 @@ describe("skill catalog", () => {
     expect(block).not.toContain("pdf");
   });
 
+  it("discovers only the canonical skills root", async () => {
+    const stellaAppDir = await createStellaAppDir();
+    await writeSkill(stellaAppDir, "stella-media", "Generate media.");
+    const legacyDir = path.join(
+      stellaAppDir,
+      "system",
+      "skills",
+      "legacy-only",
+    );
+    await mkdir(legacyDir, { recursive: true });
+    await writeFile(path.join(legacyDir, "SKILL.md"), "legacy");
+
+    const state = await buildSkillCatalogPromptState(stellaAppDir);
+    expect(state.entries.map((entry) => entry.id)).toEqual(["stella-media"]);
+    expect(state.entries[0]?.path).toBe(
+      "~/.stella/skills/stella-media/SKILL.md",
+    );
+  });
+
   it("renders every skill inline above the threshold for Explore", async () => {
     const stellaAppDir = await createStellaAppDir();
     const count = INLINE_SKILL_CATALOG_THRESHOLD + 5;

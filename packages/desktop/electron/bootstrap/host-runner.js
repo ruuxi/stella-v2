@@ -19,7 +19,7 @@ import { getMainLogger } from "../observability/main-logger.js";
 import { getLocalLlmCredential, listLocalLlmCredentials, } from "@stella/runtime/kernel/storage/llm-credentials";
 import { getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
 import { retireDetachedWorkerRoot } from "@stella/runtime/host";
-// Module-level one-shot cache for the skills/agents home reconciliation. This
+// Module-level one-shot cache for the skills home reconciliation. This
 // seeding used to run on the pre-window path inside `resolveStellaDataDir`, where
 // its ~100 awaited fs ops + sha256 over hundreds of KB contended with first
 // paint. It only needs to complete before the runtime worker reads
@@ -27,8 +27,8 @@ import { retireDetachedWorkerRoot } from "@stella/runtime/host";
 // — before `connectHostRunner` spawns the worker.
 //
 // `initializeStellaHostRunner` also runs on host-runner reset flows; caching the
-// first call's promise means resets don't re-pay the reconciliation. This is
-// safe because resets do not change bundled skills or agents on disk.
+// first call's promise means runtime resets don't re-pay the reconciliation.
+// The customization-reset handler explicitly reconciles after moving a skill.
 let stellaDataDirSeedingPromise = null;
 const ensureStellaDataDirSeededOnce = (stellaAppDir, stellaDataDirPath) => {
     if (!stellaDataDirSeedingPromise) {
@@ -335,7 +335,7 @@ export const initializeStellaHostRunner = async (context) => {
             }
         }
     }
-    // Reconcile bundled skills/agents into the home dir before the worker
+    // Reconcile bundled skills into the canonical home skills dir before the worker
     // (spawned by connectHostRunner -> runner.start()/ensureWorkerStarted) reads
     // them. One-shot cached so host-runner resets don't re-pay it.
     await ensureStellaDataDirSeededOnce(stellaAppDir, stellaDataDirPath);

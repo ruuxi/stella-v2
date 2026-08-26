@@ -12,6 +12,7 @@ import { hasRealtimeVoiceSessionRouteChanged, } from "@stella/contracts/local-pr
 import { coercePersonalityId, isKnownPersonalityId, } from "@stella/contracts/personality";
 import { writePersonality } from "@stella/runtime/kernel/personality/personality";
 import { resetStellaCustomizations } from "@stella/runtime/kernel/home/reset-customizations";
+import { ensureStellaDataDirSeeded } from "@stella/runtime/kernel/home/stella-home";
 import { loadAgentSystemPrompt } from "@stella/runtime/kernel/agents/home-agent-prompt";
 import { applyDeveloperModePromptGate } from "@stella/runtime/kernel/agents/prompt-dev-mode";
 import { deletePromptPreset, isCustomizablePromptAgentId, listPromptPresets, readPromptPreset, savePromptPreset, } from "@stella/runtime/kernel/prompts/prompt-presets";
@@ -1141,6 +1142,10 @@ export const registerSystemHandlers = (options) => {
             return { ok: false, movedEntries: [], error: "Stella data directory unavailable." };
         try {
             const result = await resetStellaCustomizations(stellaAppDir);
+            const stellaInstallDir = options.getStellaInstallDir();
+            if (stellaInstallDir && result.movedEntries.some((entry) => entry.startsWith(`skills${path.sep}`))) {
+                await ensureStellaDataDirSeeded(stellaInstallDir, stellaAppDir);
+            }
             return { ok: true, movedEntries: result.movedEntries, trashDir: result.trashDir };
         }
         catch (error) {

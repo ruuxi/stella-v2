@@ -1,21 +1,19 @@
 /**
- * One-time migration from the hash-manifest home layout to the system-mirror
- * layout.
+ * One-time migration from the original hash-manifest home layout.
  *
  * The old layout materialized shipped content directly into the user-facing
  * directories (`agents/`, `prompts/`, `skills/`, `PERSONALITY.md`) and used
  * `.bundled-manifest.json` files recording the hash of the last synced copy to
- * decide whether the user had modified each entry. The new layout keeps
- * shipped content in `system/` (see `system-mirror.ts`) and reserves the
- * user-facing directories for customizations only.
+ * decide whether the user had modified each entry. Shipped skills now share
+ * the canonical `skills/` root with user-created skills; ownership metadata
+ * lives separately in `cache/bundled-skills.json`.
  *
  * This is the only place the old hashes are ever consulted again:
- * - unmodified entries (hash matches the manifest) are deleted — the mirror
- *   now provides them;
+ * - unmodified entries (hash matches the manifest) are deleted so the current
+ *   bundled-skill synchronizer can install the latest copy;
  * - modified agent prompts become `<id>.replace.md` (full replacement,
  *   opts out of updates);
- * - modified prompts / skills / PERSONALITY.md stay where they are — in the
- *   new layout their presence already means "user replacement / fork";
+ * - modified prompts / skills / PERSONALITY.md stay where they are;
  * - the manifests and the old applied-state machinery are removed.
  *
  * Entries with no manifest record were always user-owned and are untouched.
@@ -141,8 +139,7 @@ const migrateSkills = async (skillsDir: string): Promise<void> => {
     if (hash === entry.lastSyncedHash) {
       await fs.rm(skillDir, { recursive: true, force: true });
     }
-    // Modified skills stay in place: in the new layout a user skill dir
-    // shadows the mirrored one with the same id.
+    // Modified skills stay in place and win the shared-root collision policy.
   }
   await fs.rm(path.join(skillsDir, BUNDLED_MANIFEST_FILENAME), {
     force: true,
@@ -186,7 +183,7 @@ export const migrateLegacyHomeLayout = async (
   });
   await migrateSkills(path.join(stellaDataDir, "skills"));
   await migratePersonality(stellaDataDir);
-  // Old applied-state machinery: superseded by system/revision.json.
+  // Old applied-state machinery is superseded by current home reconciliation.
   await fs.rm(path.join(stellaDataDir, "cache", "prompt-applied-state"), {
     recursive: true,
     force: true,

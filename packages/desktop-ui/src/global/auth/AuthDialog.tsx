@@ -11,7 +11,10 @@ import {
 import { MagicLinkAuthFlow } from "./MagicLinkAuthFlow";
 import { authClient } from "./lib/auth-client";
 import { useAuthSessionState } from "./hooks/use-auth-session-state";
-import { refreshAuthSession } from "./services/auth-session";
+import {
+  applyAndVerifyAccountSessionCookie,
+  startBrowserGoogleSignIn,
+} from "./services/account-connection";
 import { openExternalUrl } from "@/platform/electron/open-external";
 import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 import { useT } from "@/shared/i18n";
@@ -54,11 +57,14 @@ type Translate = ReturnType<typeof useT>;
 
 const startDesktopSocialAuth = async (t: Translate) => {
   const convexSiteUrl = getConvexSiteUrl();
-  const response = await fetch(`${convexSiteUrl}/api/auth/desktop-social/start`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ provider: "google" }),
-  });
+  const response = await fetch(
+    `${convexSiteUrl}/api/auth/desktop-social/start`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider: "google" }),
+    },
+  );
   const data = (await response.json().catch(() => null)) as {
     requestId?: string;
     callbackURL?: string;
@@ -93,10 +99,7 @@ const pollDesktopSocialAuth = async (
       sessionCookie?: string;
     } | null;
     if (data?.status === "completed" && data.sessionCookie) {
-      await window.electronAPI?.system.applyAuthSessionCookie?.(
-        data.sessionCookie,
-      );
-      await refreshAuthSession();
+      await applyAndVerifyAccountSessionCookie(data.sessionCookie);
       return;
     }
     if (data?.status === "completed") {
@@ -179,6 +182,26 @@ function GoogleAuthButton() {
     setIsSigningIn(true);
 
     try {
+      if (!window.electronAPI) {
+        let result: SocialSignInResult | undefined;
+        try {
+          result = (await startBrowserGoogleSignIn()) as
+            | SocialSignInResult
+            | undefined;
+        } catch {
+          setError(t("global.auth.googleStartFailed"));
+          return;
+        }
+        if (result?.error) {
+          setError(
+            result.error.message ||
+              result.error.statusText ||
+              t("global.auth.googleStartFailed"),
+          );
+        }
+        return;
+      }
+
       const { convexSiteUrl, requestId, callbackURL } =
         await startDesktopSocialAuth(t);
       const result = (await authClient.signIn.social({
@@ -201,9 +224,7 @@ function GoogleAuthButton() {
       await pollDesktopSocialAuth(convexSiteUrl, requestId, t);
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : t("global.auth.googleStartFailed"),
+        err instanceof Error ? err.message : t("global.auth.googleStartFailed"),
       );
     } finally {
       setIsSigningIn(false);

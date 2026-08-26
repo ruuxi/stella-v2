@@ -1,5 +1,9 @@
 import OpenAI from "openai";
-import type { ResponseCreateParamsStreaming } from "openai/resources/responses/responses.js";
+import type {
+  ResponseCreateParamsStreaming,
+  ResponseStreamEvent,
+} from "openai/resources/responses/responses.js";
+import { sleepMs } from "../effect-runtime.js";
 import { getEnvApiKey } from "../env-api-keys.js";
 import { clampThinkingLevel } from "../models.js";
 import type {
@@ -17,6 +21,7 @@ import type {
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord } from "../utils/headers.js";
 import { anomalousStreamStopError } from "../utils/provider-stop.js";
+import { resilientEventStream } from "../utils/resilient-event-stream.js";
 import { readRetryAfterMs } from "../utils/retry.js";
 import {
   isCloudflareProvider,
@@ -39,6 +44,27 @@ const OPENAI_TOOL_CALL_PROVIDERS = new Set([
   "openai-codex",
   "opencode",
 ]);
+const STELLA_RELAY_RESUME_HEADER = "x-stella-relay-resume";
+const STELLA_RELAY_REQUEST_ID_HEADER = "x-stella-relay-request-id";
+const STELLA_RELAY_RESUME_VERSION = "1";
+const RELAY_REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{16,100}$/u;
+
+const isManagedStellaRelayBaseUrl = (baseUrl: string): boolean => {
+  try {
+    return new URL(baseUrl).pathname
+      .replace(/\/+$/u, "")
+      .endsWith("/api/stella/relay");
+  } catch {
+    return false;
+  }
+};
+
+const newRequestNonce = (): string =>
+  (globalThis as { crypto?: Crypto }).crypto?.randomUUID?.() ??
+  `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
+const validRelayRequestId = (value: string): boolean =>
+  RELAY_REQUEST_ID_PATTERN.test(value);
 /**
  * Resolve cache retention preference.
  * Defaults to "short" and uses PI_CACHE_RETENTION for backward compatibility.
@@ -99,6 +125,7 @@ export const streamOpenAIResponses: StreamFunction<
 
   // Start async processing
   (async () => {
+    let detachRelayAbortListener = () => {};
     const output: AssistantMessage = {
       role: "assistant",
       content: [],
@@ -119,8 +146,8 @@ export const streamOpenAIResponses: StreamFunction<
     };
 
     try {
-      // Create OpenAI client
-      const apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
+      const initialApiKey =
+        options?.apiKey || getEnvApiKey(model.provider) || "";
       const cacheRetention = resolveCacheRetention(options?.cacheRetention);
       const cacheSessionId =
         cacheRetention === "none" ? undefined : options?.sessionId;
@@ -133,35 +160,237 @@ export const streamOpenAIResponses: StreamFunction<
       if (nextParams !== undefined) {
         params = nextParams as ResponseCreateParamsStreaming;
       }
-      // A failed stream is a failed model round. The agent runtime retries
-      // from the last stable user/tool-result boundary, preserving completed
-      // tool work without requiring a server-side response buffer.
-      const requestOptions = {
-        ...(options?.signal ? { signal: options.signal } : {}),
-        ...(options?.timeoutMs !== undefined
-          ? { timeout: options.timeoutMs }
-          : {}),
-        maxRetries: 0,
+
+      // One nonce identifies exactly one logical model request. Agent tool
+      // loops call this provider again and therefore receive a different
+      // nonce; physical transport retries and cursor resumes below retain it.
+      const requestNonce = newRequestNonce();
+      const idempotencyKey = `stella-response-${requestNonce}`;
+      const proposedRelayRequestId = isManagedStellaRelayBaseUrl(model.baseUrl)
+        ? `stella-relay-${requestNonce}`
+        : undefined;
+      const requestOptions = (
+        signal?: AbortSignal,
+        initializeRelay = false,
+        recoveryTimeoutMs?: number,
+      ) => {
+        const timeout =
+          recoveryTimeoutMs === undefined
+            ? options?.timeoutMs
+            : options?.timeoutMs === undefined
+              ? recoveryTimeoutMs
+              : Math.min(options.timeoutMs, recoveryTimeoutMs);
+        return {
+          ...(signal ? { signal } : {}),
+          ...(timeout !== undefined ? { timeout } : {}),
+          // The bounded recovery state machine owns every physical retry.
+          maxRetries: 0,
+          headers: {
+            "Idempotency-Key": idempotencyKey,
+            ...(initializeRelay && proposedRelayRequestId
+              ? {
+                  [STELLA_RELAY_REQUEST_ID_HEADER]: proposedRelayRequestId,
+                }
+              : {}),
+          },
+        };
       };
-      const { data: openaiStream, response } = await requestWithAuthRefresh({
-        apiKey,
-        refreshApiKey: options?.refreshApiKey,
-        request: (requestApiKey) =>
-          createClient(
-            model,
-            context,
-            requestApiKey,
-            options?.headers,
-            cacheSessionId,
-            promptCacheKey,
-          )
-            .responses.create(params, requestOptions)
+
+      let activeApiKey = initialApiKey;
+      const clientForKey = (requestApiKey: string) =>
+        createClient(
+          model,
+          context,
+          requestApiKey,
+          options?.headers,
+          cacheSessionId,
+          promptCacheKey,
+        );
+      const withActiveAuth = async <T>(
+        request: (client: OpenAI) => Promise<T>,
+      ): Promise<T> =>
+        await requestWithAuthRefresh({
+          apiKey: activeApiKey,
+          refreshApiKey: options?.refreshApiKey,
+          request: async (requestApiKey) => {
+            activeApiKey = requestApiKey;
+            return await request(clientForKey(requestApiKey));
+          },
+        });
+
+      let relayRequestId = proposedRelayRequestId;
+      let relayResumeCapable = false;
+      let relayAbortListenerAttached = false;
+      const providerDurableResumeEnabled =
+        params.background === true && params.store !== false;
+
+      const attachRelayAbortListener = (requestId: string) => {
+        if (!options?.signal || relayAbortListenerAttached) return;
+        relayAbortListenerAttached = true;
+        const cancelRelayResponse = () => {
+          void (async () => {
+            // A pre-header abort can race the relay reservation. Retrying only
+            // 404 lets the server's bounded cancellation tombstone win that
+            // race without retrying the upstream Responses POST.
+            for (const delayMs of [0, 100, 250, 500, 1_000]) {
+              if (delayMs > 0) await sleepMs(delayMs);
+              try {
+                await withActiveAuth(async (client) => {
+                  await client.delete<void>(
+                    `/responses/${encodeURIComponent(requestId)}`,
+                    {
+                      maxRetries: 0,
+                      timeout: options.timeoutMs ?? 10_000,
+                    },
+                  );
+                });
+                return;
+              } catch (error) {
+                if ((error as { status?: unknown })?.status !== 404) return;
+              }
+            }
+          })();
+        };
+        if (options.signal.aborted) cancelRelayResponse();
+        else
+          options.signal.addEventListener("abort", cancelRelayResponse, {
+            once: true,
+          });
+        detachRelayAbortListener = () =>
+          options.signal?.removeEventListener("abort", cancelRelayResponse);
+      };
+      if (proposedRelayRequestId) {
+        attachRelayAbortListener(proposedRelayRequestId);
+      }
+
+      const noteResponse = async (response: Response): Promise<void> => {
+        const headers = headersToRecord(response.headers);
+        const advertisedVersion = response.headers
+          .get(STELLA_RELAY_RESUME_HEADER)
+          ?.trim();
+        const advertisedRequestId = response.headers
+          .get(STELLA_RELAY_REQUEST_ID_HEADER)
+          ?.trim();
+        if (
+          advertisedVersion === STELLA_RELAY_RESUME_VERSION &&
+          advertisedRequestId
+        ) {
+          if (!validRelayRequestId(advertisedRequestId)) {
+            throw new Error(
+              "Stella relay returned an invalid resume request id",
+            );
+          }
+          if (relayRequestId && advertisedRequestId !== relayRequestId) {
+            throw new Error(
+              "Stella relay returned a mismatched resume request id",
+            );
+          }
+          relayResumeCapable = true;
+          relayRequestId = advertisedRequestId;
+          attachRelayAbortListener(advertisedRequestId);
+        }
+        await options?.onResponse?.(
+          { status: response.status, headers },
+          model,
+        );
+      };
+
+      const connect = async (
+        signal?: AbortSignal,
+        timeoutMs?: number,
+      ): Promise<AsyncIterable<ResponseStreamEvent>> => {
+        const { data, response } = await withActiveAuth((client) =>
+          client.responses
+            .create(params, requestOptions(signal, true, timeoutMs))
             .withResponse(),
+        );
+        await noteResponse(response);
+        return data;
+      };
+      const resume = async ({
+        runId,
+        cursor,
+        signal,
+        timeoutMs,
+      }: {
+        runId: string;
+        cursor: number;
+        signal?: AbortSignal;
+        timeoutMs?: number;
+      }): Promise<AsyncIterable<ResponseStreamEvent>> => {
+        const { data, response } = await withActiveAuth((client) =>
+          client.responses
+            .retrieve(
+              runId,
+              { stream: true, starting_after: cursor },
+              requestOptions(signal, false, timeoutMs),
+            )
+            .withResponse(),
+        );
+        await noteResponse(response);
+        return data;
+      };
+
+      const openaiStream = resilientEventStream<ResponseStreamEvent>({
+        connect,
+        resume,
+        // The managed client proposes the durable id before POST, so even a
+        // pre-header failure tries GET cursor zero rather than replaying POST.
+        getInitialResumeState: () =>
+          proposedRelayRequestId
+            ? { runId: proposedRelayRequestId, cursor: 0 }
+            : relayResumeCapable && relayRequestId
+              ? { runId: relayRequestId, cursor: 0 }
+              : undefined,
+        getRunId: (event) => {
+          if (relayResumeCapable) return relayRequestId;
+          return providerDurableResumeEnabled &&
+            "response" in event &&
+            event.response?.id
+            ? event.response.id
+            : undefined;
+        },
+        getSequence: (event) => {
+          const relaySequence = (
+            event as ResponseStreamEvent & {
+              stella_relay_sequence?: unknown;
+            }
+          ).stella_relay_sequence;
+          if (relayResumeCapable) {
+            if (
+              typeof relaySequence !== "number" ||
+              !Number.isSafeInteger(relaySequence) ||
+              relaySequence < 1
+            ) {
+              throw new Error(
+                "Stella relay event is missing a valid durable cursor",
+              );
+            }
+            return relaySequence;
+          }
+          return typeof event.sequence_number === "number"
+            ? event.sequence_number
+            : undefined;
+        },
+        isTerminal: (event) =>
+          event.type === "response.completed" ||
+          event.type === "response.incomplete" ||
+          event.type === "response.failed" ||
+          event.type === "error",
+        abortSource: (source, reason) => {
+          // OpenAI's Stream owns the platform AbortController used by its
+          // fetch/body reader. The recovery timer is Effect-owned; at this SDK
+          // boundary it interrupts that already-owned physical request.
+          (
+            source as AsyncIterable<ResponseStreamEvent> & {
+              controller?: AbortController;
+            }
+          ).controller?.abort(reason);
+        },
+        ...(options?.signal ? { signal: options.signal } : {}),
+        onReconnect: ({ attempt, delayMs, reason }) =>
+          options?.onProviderRetry?.({ attempt, delayMs, reason }),
       });
-      await options?.onResponse?.(
-        { status: response.status, headers: headersToRecord(response.headers) },
-        model,
-      );
       stream.push({ type: "start", partial: output });
 
       await processResponsesStream(openaiStream, output, stream, model, {
@@ -179,8 +408,10 @@ export const streamOpenAIResponses: StreamFunction<
       }
 
       stream.push({ type: "done", reason: output.stopReason, message: output });
+      detachRelayAbortListener();
       stream.end();
     } catch (error) {
+      detachRelayAbortListener();
       for (const block of output.content) {
         delete (block as { index?: number }).index;
         // partialJson is only a streaming scratch buffer; never persist it.
@@ -287,6 +518,18 @@ function createClient(
   // Merge options headers last so they can override defaults
   if (optionsHeaders) {
     Object.assign(headers, optionsHeaders);
+  }
+  // These two headers are transport identities, not session/cache identity.
+  // Request-level values generated in streamOpenAIResponses must win even if
+  // an older caller supplied one static value for the whole agent turn.
+  for (const name of Object.keys(headers)) {
+    const lower = name.toLowerCase();
+    if (
+      lower === "idempotency-key" ||
+      lower === STELLA_RELAY_REQUEST_ID_HEADER
+    ) {
+      delete headers[name];
+    }
   }
 
   const defaultHeaders =

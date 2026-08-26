@@ -129,6 +129,43 @@ now succeed.
    discover/hydrate/continue; prove desktop vs container execution into the same
    DO journal.
 
+## Update 2 — activation wired; auth/routing proven; backend cloud_apps merge-drop found
+
+Activation is now implemented in the product runtime (pushed):
+- `desktop-ui/context/resolve-chat-storage-mode.ts` + `chat-store.tsx`: ordinary
+  conversations are cloud-canonical when enabled + issuer-aligned; misconfig
+  throws (no silent local fallback). `desktop-ui/.env.development` enables it for
+  standard dev with the flexible-panther-999 issuer (production `.env` unchanged).
+- `runtime/kernel/runner/cloud-builder-override.ts` (+ context.ts wiring,
+  electron bootstrap `STELLA_PACKAGED` scrub, launch-electron-dev default):
+  dev/harness-only staging cloud-builder origin override, production-isolated and
+  fail-visible. 11 regression tests pass; typechecks + boundary clean.
+
+Proven over the network against the deployed staging worker with a **disposable
+anonymous** flexible-panther-999 identity (no 2FA):
+- Anonymous sign-in works; its Convex JWT (`iss=flexible-panther-999.convex.site`,
+  `aud=convex`, RS256) is ACCEPTED by the staging worker on the real journal
+  route `POST /conversations/:id/local-turns/begin` (400 malformed-body, not 401;
+  no-auth control = 401). This proves issuer alignment + JWKS verification +
+  routing-to-staging end-to-end.
+- `conversations:createConversation` via the Convex HTTP API with the disposable
+  JWT succeeds (real conversation `_id`, correct `ownerId`).
+
+**Open blocker for the actual DO append + Electron GUI proof (not 2FA):** a cloud
+conversation must be registered in the cloud-owner registry that the worker
+reads via Convex `GET /api/cloud/conversation-owner` (service-secret). That
+registration — and the whole `cloud_apps` module (`getCloudRealtimeConfig`,
+`spawnCloudAgentFromDesktop`, the registration writer) — is **absent from main's
+backend source** (`packages/backend/convex`); it lives only on the older live
+flexible-panther-999 deployment. Same merge-drop as `app-template`/`apps-sdk`.
+Until `cloud_apps` is restored/reconciled into main and (re)deployed to the
+paired dev Convex, neither a hand-rolled client nor the real Electron app built
+from main can register a cloud conversation, so the journal append 404s
+("Conversation not found"). Restoring + deploying it touches the shared dev
+backend and so was left out of this turn.
+
+---
+
 The redundant standalone `workers/journal-realstaging` proof worker was removed;
 its journal invariants (gapless seq, idempotent receipts, fencing, R2 rollover)
 are already covered by the real implementation in `src/journal.ts` and

@@ -867,6 +867,58 @@ describe("shell hardening", () => {
     ]);
   });
 
+  it("keeps a stalled external after-snapshot recoverable for a later drain", async () => {
+    const root = createTempDir();
+    const externalRoot = createTempDir();
+    const externalPath = path.join(externalRoot, "eventual.txt");
+    let externalStatCalls = 0;
+    let markAfterStatStarted!: () => void;
+    const afterStatStarted = new Promise<void>((resolve) => {
+      markAfterStatStarted = resolve;
+    });
+    let releaseAfterStat!: (info: fs.Stats) => void;
+    const delayedAfterStat = new Promise<fs.Stats>((resolve) => {
+      releaseAfterStat = resolve;
+    });
+    mocks.stat.mockImplementation(async (filePath) => {
+      if (path.resolve(String(filePath)) === path.resolve(externalPath)) {
+        externalStatCalls += 1;
+        if (externalStatCalls === 2) {
+          markAfterStatStarted();
+          return await delayedAfterStat;
+        }
+      }
+      return await statWithoutPromisesModuleMock(String(filePath));
+    });
+
+    const state = createShellState(root);
+    const pending = handleExecCommand(state, {
+      cmd: `printf eventual > ${JSON.stringify(externalPath)}`,
+      workdir: root,
+      yield_time_ms: 250,
+    });
+    await afterStatStarted;
+    const result = await pending;
+
+    expect(result.error).toBeUndefined();
+    expect(result.producedFiles).toBeUndefined();
+    const sessionId = (result.details as { shell_session_id: string })
+      .shell_session_id;
+    const record = state.shells.get(sessionId);
+    expect(record?.producedFilesReported).not.toBe(true);
+
+    releaseAfterStat(await statWithoutPromisesModuleMock(externalPath));
+    const recovered = await drainCompletedProducedFiles(state, null, [
+      sessionId,
+    ]);
+    expect(recovered.files).toEqual([
+      { path: externalPath, kind: { type: "add" } },
+    ]);
+    expect(
+      (await drainCompletedProducedFiles(state, null, [sessionId])).files,
+    ).toEqual([]);
+  });
+
   it("releases every snapshot abort listener after successful completion", async () => {
     const root = createTempDir();
     const controller = new AbortController();
@@ -1165,6 +1217,7 @@ describe("shell hardening", () => {
     expect(record.activeInteractionSequence).toBeNull();
     expect(record.activeInteractionReceipt).toBeUndefined();
     expect(record.producedFilesReported).not.toBe(true);
+    await expect(record.interactionTail).resolves.toBeUndefined();
 
     releaseCompletion([
       {
@@ -1173,10 +1226,14 @@ describe("shell hardening", () => {
         isFile: () => true,
       },
     ]);
-    const recovered = await drainCompletedProducedFiles(state, null, [
-      sessionId,
-    ]);
-    expect(recovered.files).toEqual([
+    const recovered = await handleWriteStdin(state, {
+      session_id: sessionId,
+      operation: "poll",
+      yield_time_ms: 1_000,
+    });
+    expect(recovered.error).toBeUndefined();
+    expect(recovered.details).toMatchObject({ interaction_sequence: 3 });
+    expect(recovered.producedFiles).toEqual([
       { path: artifactPath, kind: { type: "add" } },
     ]);
     expect(

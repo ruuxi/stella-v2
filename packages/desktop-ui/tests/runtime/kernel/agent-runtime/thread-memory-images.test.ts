@@ -1,9 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { stripStaleImageBlocks } from "@stella/runtime/kernel/agent-runtime/thread-memory";
+import {
+  collectThreadImageReceipts,
+  getThreadImageHistoryStats,
+  splitThreadMessagesForImagePressure,
+} from "@stella/runtime/kernel/thread-runtime";
 
 type TestMessage = {
   role: string;
-  content: Array<{ type: string; data?: string; mimeType?: string; text?: string }>;
+  content: Array<{
+    type: string;
+    data?: string;
+    mimeType?: string;
+    text?: string;
+  }>;
 };
 
 const imageResult = (base64Bytes: number): TestMessage => ({
@@ -14,47 +24,54 @@ const imageResult = (base64Bytes: number): TestMessage => ({
   ],
 });
 
-const countImages = (messages: TestMessage[]): number =>
-  messages.reduce(
-    (sum, message) =>
-      sum + message.content.filter((block) => block.type === "image").length,
-    0,
-  );
+const stored = (messages: TestMessage[]) =>
+  messages.map((message, index) => ({
+    entryId: `entry-${index}`,
+    timestamp: index,
+    role: "toolResult",
+    content: "viewed",
+    payload: {
+      role: "toolResult" as const,
+      toolCallId: `call-${index}`,
+      toolName: "screenshot",
+      content: message.content,
+      isError: false,
+      timestamp: index,
+    },
+  })) as never;
 
-describe("stripStaleImageBlocks retention budget", () => {
-  it("keeps a multi-image reference set intact (the 12-ref regression)", async () => {
-    // Old policy kept exactly 1 image: viewing 5 reference images left 4
-    // as placeholders on the very next call. Pi-sized images (≤4.5MB
-    // base64, typically ~300KB) must survive together.
-    const messages = Array.from({ length: 6 }, () => imageResult(400 * 1024));
-    const result = stripStaleImageBlocks(messages);
-    expect(countImages(result)).toBe(6);
-    expect(result).toBe(messages);
-  });
-
-  it("evicts oldest first past the image-count cap", () => {
+describe("image history cache and compaction accounting", () => {
+  it("never rewrites an existing message prefix between compactions", () => {
     const messages = Array.from({ length: 10 }, () => imageResult(1024));
-    const result = stripStaleImageBlocks(messages);
-    expect(countImages(result)).toBe(8);
-    // Oldest two are rewritten to text placeholders, newest kept.
-    expect(result[0].content.some((b) => b.type === "image")).toBe(false);
-    expect(result[1].content.some((b) => b.type === "image")).toBe(false);
-    expect(
-      result[0].content.find((b) => b.type === "text" && b.text?.includes("omitted")),
-    ).toBeTruthy();
-    expect(result[9].content.some((b) => b.type === "image")).toBe(true);
+    expect(stripStaleImageBlocks(messages)).toBe(messages);
   });
 
-  it("evicts oldest first past the byte budget", () => {
-    // 4 x 4MB base64 = 16MB > 12MB budget: newest 3 fit, oldest evicted.
-    const messages = Array.from({ length: 4 }, () => imageResult(4 * 1024 * 1024));
-    const result = stripStaleImageBlocks(messages);
-    expect(countImages(result)).toBe(3);
-    expect(result[0].content.some((b) => b.type === "image")).toBe(false);
-    expect(result[3].content.some((b) => b.type === "image")).toBe(true);
+  it("keeps a multi-image reference set below the pressure threshold", () => {
+    const messages = Array.from({ length: 6 }, () => imageResult(400 * 1024));
+    expect(getThreadImageHistoryStats(stored(messages))).toMatchObject({
+      count: 6,
+      overBudget: false,
+    });
   });
 
-  it("accounts per image block within a batched multi-image result", () => {
+  it("requests checkpoint compaction past the active image-count cap", () => {
+    const messages = Array.from({ length: 9 }, () => imageResult(1024));
+    expect(getThreadImageHistoryStats(stored(messages))).toMatchObject({
+      count: 9,
+      overBudget: true,
+    });
+  });
+
+  it("accounts decoded base64 bytes for the checkpoint budget", () => {
+    const messages = Array.from({ length: 5 }, () =>
+      imageResult(4 * 1024 * 1024),
+    );
+    const stats = getThreadImageHistoryStats(stored(messages));
+    expect(stats.decodedBytes).toBe(15 * 1024 * 1024);
+    expect(stats.overBudget).toBe(true);
+  });
+
+  it("accounts every image block in a batched result", () => {
     const batched: TestMessage = {
       role: "toolResult",
       content: Array.from({ length: 10 }, () => ({
@@ -63,18 +80,28 @@ describe("stripStaleImageBlocks retention budget", () => {
         mimeType: "image/png",
       })),
     };
-    const result = stripStaleImageBlocks([batched]);
-    expect(countImages(result)).toBe(8);
-    // Non-image structure preserved; evicted blocks become placeholders.
-    expect(result[0].content).toHaveLength(10);
+    expect(getThreadImageHistoryStats(stored([batched]))).toMatchObject({
+      count: 10,
+      overBudget: true,
+    });
+    const plan = splitThreadMessagesForImagePressure(stored([batched]));
+    expect(plan).toMatchObject({
+      fromEntryId: "entry-0",
+      toEntryId: "entry-0",
+      imagePressure: true,
+    });
+    expect(plan?.middleMessages).toHaveLength(1);
   });
 
-  it("leaves non-tool messages untouched", () => {
-    const messages: TestMessage[] = [
-      { role: "user", content: [{ type: "text", text: "hi" }] },
-      imageResult(1024),
-    ];
-    const result = stripStaleImageBlocks(messages);
-    expect(result).toBe(messages);
+  it("marks receipts explicitly non-durable when promotion is unavailable", () => {
+    const receipts = collectThreadImageReceipts(
+      stored([imageResult(4)]),
+      undefined,
+    );
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]?.artifact).toMatchObject({
+      durability: "non-durable",
+      reason: expect.stringContaining("no durable artifact directory"),
+    });
   });
 });

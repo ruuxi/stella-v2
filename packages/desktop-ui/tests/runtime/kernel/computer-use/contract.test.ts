@@ -6,8 +6,8 @@ import {
 } from "@stella/runtime/kernel/computer-use/contract";
 
 const envelope = {
-  schemaVersion: 1,
-  protocolVersion: "1.0",
+  schemaVersion: 2,
+  protocolVersion: "2.0",
   requestId: "request-1",
   sessionId: "session-1",
 } as const;
@@ -21,6 +21,7 @@ describe("computer-use contract", () => {
       commands: [
         {
           target: { type: "app", app: "Notes" },
+          observedStateId: "state_observed",
           action: {
             type: "click_element",
             elementId: "12",
@@ -40,7 +41,18 @@ describe("computer-use contract", () => {
     expect(() =>
       parseComputerUseRequest({
         ...envelope,
-        schemaVersion: 2,
+        type: "action",
+        execution: "background",
+        command: {
+          target: { type: "app", app: "Notes" },
+          action: { type: "press_key", key: "ENTER" },
+        },
+      }),
+    ).toThrow("observedStateId");
+    expect(() =>
+      parseComputerUseRequest({
+        ...envelope,
+        schemaVersion: 1,
         type: "list_apps",
       }),
     ).toThrow("schemaVersion");

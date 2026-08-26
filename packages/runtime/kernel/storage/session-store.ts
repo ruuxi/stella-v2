@@ -61,6 +61,14 @@ import {
   parseResidentFold,
   residentIdentityForCustomMessage,
 } from "../agent-runtime/resident-context.js";
+import {
+  estimateProviderPayloadTokens,
+  getProviderPayloadImageStats,
+} from "../agent-runtime/context-budget.js";
+import {
+  QUARANTINE_CUSTOM_TYPE,
+  parseQuarantineRecord,
+} from "../agent-runtime/provider-abort-containment.js";
 /**
  * Upper bound on raw source events returned by one mobile sync delta.
  */
@@ -626,8 +634,20 @@ export const tokenizeSearchQuery = (query: string): string[] => {
   return (meaningful.length > 0 ? meaningful : rawTokens).slice(0, 12);
 };
 const toIsoTimestamp = (timestamp) => new Date(timestamp).toISOString();
-const formatThreadCheckpointMessage = (summary) =>
-  [THREAD_CHECKPOINT_MARKER, "", summary.trim()].join("\n");
+const formatThreadCheckpointMessage = (summary, imageReceipts = []) =>
+  [
+    THREAD_CHECKPOINT_MARKER,
+    "",
+    summary.trim(),
+    ...(imageReceipts.length > 0
+      ? [
+          "",
+          '<image-receipts version="1">',
+          JSON.stringify(imageReceipts),
+          "</image-receipts>",
+        ]
+      : []),
+  ].join("\n");
 const previewFromTextAndImages = (content) => {
   if (typeof content === "string") {
     return content;
@@ -764,6 +784,7 @@ const THREAD_ROW_MAX_TEXT_CHARS = 1_000;
 const THREAD_ROW_PREVIEW_CHARS = 500;
 const THREAD_EXACT_PAYLOAD_CHUNK_CHARS = 1_000_000;
 const THREAD_EXACT_PAYLOAD_MARKER = "__stellaExactPayloadChunks";
+const THREAD_CONTEXT_PRESSURE_MARKER = "__stellaContextPressure";
 const isHighSurrogate = (codeUnit) => codeUnit >= 0xd800 && codeUnit <= 0xdbff;
 const isLowSurrogate = (codeUnit) => codeUnit >= 0xdc00 && codeUnit <= 0xdfff;
 const payloadByteLength = (payload) =>
@@ -846,6 +867,25 @@ const strippedImageStorageNote = (image) => {
   return {
     type: "text",
     text: `[image content block stripped for storage: mime=${image.mimeType ?? "image/png"} approx_kb=${sizeKb}]`,
+  };
+};
+const payloadContainsImage = (payload) =>
+  typeof payload?.content !== "string" &&
+  Array.isArray(payload?.content) &&
+  payload.content.some((block) => block?.type === "image");
+const customMessageContainsImage = (message) =>
+  Array.isArray(message?.content) &&
+  message.content.some((block) => block?.type === "image");
+const buildThreadContextPressure = (value) => {
+  const images = getProviderPayloadImageStats({ messages: [value] });
+  return {
+    version: 1,
+    estimatedTokens: estimateProviderPayloadTokens(
+      { messages: [value] },
+      Number.POSITIVE_INFINITY,
+    ),
+    imageCount: images.count,
+    imageDecodedBytes: images.decodedBytes,
   };
 };
 const truncateObjectForStorage = (value, label) => {
@@ -1308,6 +1348,41 @@ const parseCheckpointQuarantineKeys = (details) => {
   ];
 };
 
+const parseImageReceipts = (details) => {
+  const receipts =
+    details && typeof details === "object" && !Array.isArray(details)
+      ? details.imageReceipts
+      : undefined;
+  if (!Array.isArray(receipts)) return [];
+  return receipts.flatMap((receipt) => {
+    if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) {
+      return [];
+    }
+    const id = typeof receipt.id === "string" ? receipt.id.trim() : "";
+    const mimeType =
+      typeof receipt.mimeType === "string" ? receipt.mimeType.trim() : "";
+    const decodedBytes = Number(receipt.decodedBytes);
+    const origin = receipt.origin;
+    const artifact = receipt.artifact;
+    if (
+      !/^sha256:[a-f0-9]{64}$/.test(id) ||
+      !mimeType.startsWith("image/") ||
+      !Number.isFinite(decodedBytes) ||
+      decodedBytes < 0 ||
+      !origin ||
+      typeof origin !== "object" ||
+      !Number.isFinite(Number(origin.timestamp)) ||
+      typeof origin.role !== "string" ||
+      !artifact ||
+      typeof artifact !== "object" ||
+      !["durable", "non-durable"].includes(artifact.durability)
+    ) {
+      return [];
+    }
+    return [receipt];
+  });
+};
+
 const normalizeCompactionOverlay = (compaction, rawMessages) => {
   const timestamp = Date.parse(compaction.timestamp) || Date.now();
   const residentFold = parseResidentFold(compaction.details);
@@ -1319,6 +1394,7 @@ const normalizeCompactionOverlay = (compaction, rawMessages) => {
   const checkpointQuarantineKeys = parseCheckpointQuarantineKeys(
     compaction.details,
   );
+  const imageReceipts = parseImageReceipts(compaction.details);
   if (compaction.fromEntryId && compaction.toEntryId) {
     return {
       id: compaction.id,
@@ -1332,6 +1408,7 @@ const normalizeCompactionOverlay = (compaction, rawMessages) => {
       ...(checkpointQuarantineKeys.length > 0
         ? { checkpointQuarantineKeys }
         : {}),
+      ...(imageReceipts.length > 0 ? { imageReceipts } : {}),
     };
   }
   if (!compaction.firstKeptEntryId) {
@@ -1360,6 +1437,7 @@ const normalizeCompactionOverlay = (compaction, rawMessages) => {
     ...(checkpointQuarantineKeys.length > 0
       ? { checkpointQuarantineKeys }
       : {}),
+    ...(imageReceipts.length > 0 ? { imageReceipts } : {}),
   };
 };
 const buildThreadCompactionOverlays = (path, rawMessages) =>
@@ -1462,11 +1540,17 @@ const applyCompactionOverlays = (rawMessages, overlays) => {
           threadKey: "",
           timestamp: overlay.timestamp,
           role: "assistant",
-          content: formatThreadCheckpointMessage(overlay.summary),
+          content: formatThreadCheckpointMessage(
+            overlay.summary,
+            overlay.imageReceipts,
+          ),
           ...(overlay.checkpointQuarantineKeys
             ? {
                 checkpointQuarantineKeys: overlay.checkpointQuarantineKeys,
               }
+            : {}),
+          ...(overlay.imageReceipts
+            ? { checkpointImageReceipts: overlay.imageReceipts }
             : {}),
         });
         // Re-emit the pinned latest-user-instruction copy carried on the
@@ -5200,6 +5284,89 @@ export class SessionStore {
         }
       : null;
   }
+  /**
+   * Cheap compaction probe over bounded row metadata only. It never joins or
+   * reconstructs `runtime_thread_entry_payload_chunks`; callers fall back to
+   * full history only when a legacy/malformed active row lacks metadata.
+   */
+  getThreadContextPressureStats(threadKeyInput) {
+    const threadKey = normalizeRuntimeThreadId(threadKeyInput);
+    if (!threadKey) {
+      throw new Error("threadKey is required.");
+    }
+    const compaction = this.findLatestRangeCompaction(threadKey);
+    const rangePredicate = compaction
+      ? "AND (insertion_sequence < ? OR insertion_sequence > ?)"
+      : "";
+    const rangeArgs = compaction
+      ? [compaction.coveredFromSequence, compaction.coveredThroughSequence]
+      : [];
+    const row = this.db
+      .prepare(
+        `SELECT
+           COUNT(*) AS rowCount,
+           SUM(CASE WHEN json_type(data_json, '$.${THREAD_CONTEXT_PRESSURE_MARKER}') = 'object' THEN 1 ELSE 0 END) AS knownRows,
+           SUM(COALESCE(json_extract(data_json, '$.${THREAD_CONTEXT_PRESSURE_MARKER}.estimatedTokens'), 0)) AS estimatedTokens,
+           SUM(COALESCE(json_extract(data_json, '$.${THREAD_CONTEXT_PRESSURE_MARKER}.imageCount'), 0)) AS imageCount,
+           SUM(COALESCE(json_extract(data_json, '$.${THREAD_CONTEXT_PRESSURE_MARKER}.imageDecodedBytes'), 0)) AS imageDecodedBytes
+         FROM runtime_thread_entries
+         WHERE thread_key = ?
+           AND entry_type IN ('message', 'custom_message')
+           ${rangePredicate}`,
+      )
+      .get(threadKey, ...rangeArgs);
+    const resolvedCoveredQuarantineKeys = new Set(
+      compaction ? parseCheckpointQuarantineKeys(compaction.entry.details) : [],
+    );
+    const quarantineRows = this.db
+      .prepare(
+        `SELECT
+           insertion_sequence AS insertionSequence,
+           data_json AS dataJson
+         FROM runtime_thread_entries
+         WHERE thread_key = ?
+           AND entry_type = 'custom_message'
+           AND json_extract(data_json, '$.customType') = ?`,
+      )
+      .all(threadKey, QUARANTINE_CUSTOM_TYPE);
+    let quarantineCount = 0;
+    for (const quarantineRow of quarantineRows) {
+      const insertionSequence = Number(quarantineRow?.insertionSequence);
+      const coveredByCheckpoint =
+        compaction !== null &&
+        Number.isFinite(insertionSequence) &&
+        insertionSequence >= compaction.coveredFromSequence &&
+        insertionSequence <= compaction.coveredThroughSequence;
+      if (!coveredByCheckpoint) {
+        quarantineCount += 1;
+        continue;
+      }
+      const stored = parseJsonRecord(quarantineRow?.dataJson);
+      const record = parseQuarantineRecord(stored?.content);
+      // A covered record is resolved only when the checkpoint explicitly says
+      // its tool result was masked. Malformed or unacknowledged records remain
+      // active so the full-history quarantine rebuild path still runs.
+      if (!record || !resolvedCoveredQuarantineKeys.has(record.key)) {
+        quarantineCount += 1;
+      }
+    }
+    const rowCount = Number(row?.rowCount ?? 0);
+    const knownRows = Number(row?.knownRows ?? 0);
+    const checkpointChars = compaction
+      ? compaction.entry.summary.length +
+        JSON.stringify(compaction.entry.details?.imageReceipts ?? []).length
+      : 0;
+    return {
+      complete: knownRows === rowCount,
+      rowCount,
+      estimatedTokens:
+        Math.max(0, Number(row?.estimatedTokens ?? 0)) +
+        Math.ceil(checkpointChars / 3),
+      imageCount: Math.max(0, Number(row?.imageCount ?? 0)),
+      imageDecodedBytes: Math.max(0, Number(row?.imageDecodedBytes ?? 0)),
+      quarantineCount,
+    };
+  }
   loadThreadMessagesAfterCompaction(threadKey, compaction) {
     const loadRange = (predicate, sequence) =>
       this.parseThreadSessionEntryRows(
@@ -5235,9 +5402,15 @@ export class SessionStore {
         threadKey: "",
         timestamp: overlay.timestamp,
         role: "assistant",
-        content: formatThreadCheckpointMessage(overlay.summary),
+        content: formatThreadCheckpointMessage(
+          overlay.summary,
+          overlay.imageReceipts,
+        ),
         ...(overlay.checkpointQuarantineKeys
           ? { checkpointQuarantineKeys: overlay.checkpointQuarantineKeys }
+          : {}),
+        ...(overlay.imageReceipts
+          ? { checkpointImageReceipts: overlay.imageReceipts }
           : {}),
       },
       ...(overlay.pinnedUserInstruction
@@ -5279,13 +5452,30 @@ export class SessionStore {
       }
       const fallbackPayload = buildFallbackThreadPayload(message);
       const boundedPayload = enforceThreadPayloadRowSizeLimit(fallbackPayload);
+      const contextPressure = buildThreadContextPressure(fallbackPayload);
+      // Image pressure must be measured from the same payload the live agent
+      // can replay. Never let the 6MB row limiter silently replace image data
+      // with text; automatically spill image-bearing payloads into exact
+      // chunks even for non-orchestrator writers.
       const storage =
-        message.preservePayloadExactly === true
+        message.preservePayloadExactly === true ||
+        payloadContainsImage(fallbackPayload)
           ? chunkExactThreadEntryData(
-              { message: fallbackPayload },
-              { message: boundedPayload },
+              {
+                message: fallbackPayload,
+                [THREAD_CONTEXT_PRESSURE_MARKER]: contextPressure,
+              },
+              {
+                message: boundedPayload,
+                [THREAD_CONTEXT_PRESSURE_MARKER]: contextPressure,
+              },
             )
-          : { data: { message: boundedPayload } };
+          : {
+              data: {
+                message: boundedPayload,
+                [THREAD_CONTEXT_PRESSURE_MARKER]: contextPressure,
+              },
+            };
       return {
         message,
         payload: fallbackPayload,
@@ -5383,10 +5573,26 @@ export class SessionStore {
         : {}),
     };
     const boundedMessage = enforceCustomMessageRowSizeLimit(exactMessage);
+    const contextPressure = buildThreadContextPressure(exactMessage);
     const storage =
-      message.preservePayloadExactly === true
-        ? chunkExactThreadEntryData(exactMessage, boundedMessage)
-        : { data: boundedMessage };
+      message.preservePayloadExactly === true ||
+      customMessageContainsImage(exactMessage)
+        ? chunkExactThreadEntryData(
+            {
+              ...exactMessage,
+              [THREAD_CONTEXT_PRESSURE_MARKER]: contextPressure,
+            },
+            {
+              ...boundedMessage,
+              [THREAD_CONTEXT_PRESSURE_MARKER]: contextPressure,
+            },
+          )
+        : {
+            data: {
+              ...boundedMessage,
+              [THREAD_CONTEXT_PRESSURE_MARKER]: contextPressure,
+            },
+          };
     const conversationId = this.getThreadConversationId(threadKey);
     let entryId = "";
     this.withImmediateTransaction(() => {
@@ -5526,6 +5732,9 @@ export class SessionStore {
           ? {
               checkpointQuarantineKeys: message.checkpointQuarantineKeys,
             }
+          : {}),
+        ...(message.checkpointImageReceipts
+          ? { checkpointImageReceipts: message.checkpointImageReceipts }
           : {}),
       }),
     );

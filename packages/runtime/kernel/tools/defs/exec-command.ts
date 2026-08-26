@@ -28,7 +28,7 @@ export const createExecCommandTool = (
 ): ToolDefinition => ({
   name: "exec_command",
   description:
-    "Run a command in a shell process. By default stdin/stdout/stderr use ordinary pipes; set tty: true for a real Unix PTY on macOS/Linux or ConPTY on supported Windows. Returns immediate output, or a session_id if the process is still running so you can poll/interact via write_stdin. Required: cmd. Node.js and Stella CLIs (stella-browser, stella-office, stella-computer, stella-media, stella-x-api) are auto-injected into PATH.",
+    "Run a command in a shell process. By default stdin/stdout/stderr use ordinary pipes; set tty: true for a real Unix PTY on macOS/Linux or ConPTY on supported Windows. Returns immediate output, or a session_id if the process is still running so you can poll/interact via write_stdin. Streaming updates are incremental UTF-8 deltas with stable cursor receipts; final details retain shell_session_id even after completion. Required: cmd. Node.js and Stella CLIs (stella-browser, stella-office, stella-computer, stella-media, stella-x-api) are auto-injected into PATH.",
   promptSnippet:
     "Execute shell commands (git, build, package managers, file scripts)",
   parameters: {
@@ -43,7 +43,7 @@ export const createExecCommandTool = (
       shell: {
         type: "string",
         description:
-          "Shell binary to launch. Defaults to Stella's platform shell. On Windows, cmd.exe, PowerShell/pwsh, and Unix-style shells use their native command syntax.",
+          "Shell binary to launch. Defaults to the user's detected login shell on macOS/Linux (with platform fallbacks), and to pwsh then Windows PowerShell on Windows with cmd.exe as the final fallback. Explicit shells use their native command syntax.",
       },
       tty: {
         type: "boolean",

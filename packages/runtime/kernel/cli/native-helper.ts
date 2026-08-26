@@ -44,12 +44,7 @@ export const resolveNativeHelperPath = (baseName: string): string | null => {
       ? path.join(process.resourcesPath, "native", "out", platformDir, fileName)
       : null,
     cliDir
-      ? path.resolve(
-          cliDir,
-          "../../../native/out",
-          platformDir,
-          fileName,
-        )
+      ? path.resolve(cliDir, "../../../native/out", platformDir, fileName)
       : null,
     cliDir
       ? path.resolve(cliDir, "../../../../native/out", platformDir, fileName)

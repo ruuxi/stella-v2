@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
@@ -120,6 +120,14 @@ impl RefMap {
     pub fn clear(&mut self) {
         self.map.clear();
         self.next_ref = 1;
+    }
+
+    /// Drop ref entries that were not included in the snapshot returned to
+    /// the caller. Snapshot generation can discover more nodes than fit in
+    /// the public output budget; keeping those refs would expose handles the
+    /// caller never saw and cannot reason about.
+    pub fn retain_ids(&mut self, visible_ids: &HashSet<String>) {
+        self.map.retain(|ref_id, _| visible_ids.contains(ref_id));
     }
 
     pub fn next_ref_num(&self) -> usize {
@@ -925,11 +933,7 @@ pub async fn get_element_bounding_box(
         .send_command_typed(
             "Runtime.callFunctionOn",
             &CallFunctionOnParams {
-                function_declaration: r#"function() {
-                    const r = this.getBoundingClientRect();
-                    return { x: r.x, y: r.y, width: r.width, height: r.height };
-                }"#
-                .to_string(),
+                function_declaration: BOUNDING_BOX_JS.to_string(),
                 object_id: Some(object_id),
                 arguments: None,
                 return_by_value: Some(true),
@@ -944,6 +948,27 @@ pub async fn get_element_bounding_box(
         .value
         .ok_or_else(|| format!("Could not get bounding box for: {}", selector_or_ref))
 }
+
+/// Return geometry in top-viewport coordinates, matching coordinate actions
+/// and the extension backend. `getBoundingClientRect()` is frame-local, so a
+/// same-origin iframe result must accumulate every ancestor frame's content
+/// offset and border before it is exposed to callers.
+const BOUNDING_BOX_JS: &str = r#"function() {
+    const r = this.getBoundingClientRect();
+    let x = r.x;
+    let y = r.y;
+    let win = this.ownerDocument && this.ownerDocument.defaultView;
+    for (let depth = 0; depth < 16 && win && win !== win.parent; depth += 1) {
+        let frame = null;
+        try { frame = win.frameElement; } catch (_) { frame = null; }
+        if (!frame) break;
+        const frameRect = frame.getBoundingClientRect();
+        x += frameRect.left + frame.clientLeft;
+        y += frameRect.top + frame.clientTop;
+        win = frame.ownerDocument && frame.ownerDocument.defaultView;
+    }
+    return { x, y, width: r.width, height: r.height };
+}"#;
 
 pub async fn get_element_count(
     client: &CdpClient,
@@ -1031,6 +1056,14 @@ pub async fn get_element_styles(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bounding_box_geometry_is_top_viewport_relative() {
+        assert!(BOUNDING_BOX_JS.contains("this.ownerDocument"));
+        assert!(BOUNDING_BOX_JS.contains("win.frameElement"));
+        assert!(BOUNDING_BOX_JS.contains("frameRect.left + frame.clientLeft"));
+        assert!(BOUNDING_BOX_JS.contains("frameRect.top + frame.clientTop"));
+    }
 
     fn make_ref_entry(
         role: &str,

@@ -1,9 +1,10 @@
 import path from "node:path";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createPiTools,
   extractAttachImageBlocks,
+  extractNodeReplImageBlocks,
   truncateModelVisibleToolText,
 } from "@stella/runtime/kernel/agent-runtime/tool-adapters";
 import { MAX_IMAGE_BASE64_BYTES } from "@stella/runtime/ai/utils/image-payload";
@@ -314,6 +315,60 @@ App=com.apple.finder (pid 504)
   });
 });
 
+describe("typed node_repl images", () => {
+  it("materializes structured images without compatibility markers", async () => {
+    const tempDir = createTempDir();
+    const imgPath = writePng(tempDir, "typed node repl.png");
+    const images = await extractNodeReplImageBlocks({
+      nodeRepl: {
+        content: [
+          {
+            type: "image",
+            path: imgPath,
+            mimeType: "image/png",
+            detail: "original",
+          },
+          {
+            type: "audio",
+            path: path.join(tempDir, "audio.mp3"),
+            mimeType: "audio/mpeg",
+          },
+        ],
+      },
+    });
+
+    expect(images).toHaveLength(1);
+    expect(images[0]).toMatchObject({
+      type: "image",
+      mimeType: "image/png",
+      sourcePath: imgPath,
+    });
+    expect(images[0].data).toBe(ONE_BY_ONE_PNG.toString("base64"));
+    expect(existsSync(imgPath)).toBe(true);
+  });
+
+  it("acknowledges kernel-owned screenshots by deleting them after attach", async () => {
+    const tempDir = createTempDir();
+    const imgPath = writePng(tempDir, "temporary browser screenshot.png");
+    const images = await extractNodeReplImageBlocks({
+      nodeRepl: {
+        content: [
+          {
+            type: "image",
+            path: imgPath,
+            mimeType: "image/png",
+            deleteAfterAttach: true,
+          },
+        ],
+      },
+    });
+
+    expect(images).toHaveLength(1);
+    expect(images[0].data).toBe(ONE_BY_ONE_PNG.toString("base64"));
+    expect(existsSync(imgPath)).toBe(false);
+  });
+});
+
 describe("truncateModelVisibleToolText", () => {
   it("leaves small tool output unchanged", () => {
     const result = truncateModelVisibleToolText("short output", 80);
@@ -342,6 +397,75 @@ describe("truncateModelVisibleToolText", () => {
 });
 
 describe("native tool-result persistence boundary", () => {
+  it("forwards typed node_repl images as native model content", async () => {
+    const tempDir = createTempDir();
+    const imgPath = writePng(tempDir, "native typed image.png");
+    const audioPath = path.join(tempDir, "typed audio.mp3");
+    const [tool] = createPiTools({
+      runId: "run-node-repl-media",
+      rootRunId: "run-node-repl-media",
+      conversationId: "conversation-1",
+      agentType: "general",
+      deviceId: "device-1",
+      stellaAppDir: tempDir,
+      stellaDataDir: tempDir,
+      agentDepth: 1,
+      toolsAllowlist: ["node_repl"],
+      toolCatalog: [
+        {
+          name: "node_repl",
+          description: "Run JavaScript",
+          parameters: { type: "object", properties: {} },
+        },
+      ],
+      store: {} as never,
+      toolExecutor: async () => ({
+        result: `[Audio output available at ${audioPath} (audio/mpeg).]`,
+        details: {
+          nodeRepl: {
+            cellId: "g1:cell",
+            generation: 1,
+            status: "completed",
+            fromCursor: 0,
+            cursor: 2,
+            content: [
+              {
+                type: "image",
+                path: imgPath,
+                mimeType: "image/png",
+                deleteAfterAttach: true,
+              },
+              { type: "audio", path: audioPath, mimeType: "audio/mpeg" },
+            ],
+          },
+        },
+      }),
+    });
+
+    const result = await tool!.execute("call-media", {}, undefined, undefined);
+    expect(result.content).toHaveLength(2);
+    expect(result.content[0]).toEqual({
+      type: "text",
+      text: expect.stringContaining("Audio output available"),
+    });
+    expect(result.content[1]).toMatchObject({
+      type: "image",
+      mimeType: "image/png",
+      sourcePath: imgPath,
+    });
+    expect(JSON.stringify(result.content)).not.toContain(
+      "[stella-attach-image]",
+    );
+    expect(existsSync(imgPath)).toBe(false);
+    expect(result.details).toMatchObject({
+      nodeRepl: {
+        content: expect.arrayContaining([
+          { type: "audio", path: audioPath, mimeType: "audio/mpeg" },
+        ]),
+      },
+    });
+  });
+
   it("keeps browser response-metadata screenshots out of model content", async () => {
     const screenshotUrl = `data:image/jpeg;base64,${JPEG_BYTES.toString("base64")}`;
     const [tool] = createPiTools({

@@ -5,41 +5,104 @@
  * commands to Chrome extension APIs.
  */
 
-import { connect, disconnect, isConnected, onCommand, onStatus, send } from './lib/connection.js';
-import { authorizeOwnerLease, releaseOwnerLease, handleTabNew, handleTabList, handleTabSwitch, handleTabClose, closeAgentWindow, finalizeOwnerTabs, cleanupStaleGroups, cleanupStaleTabs } from './commands/tabs.js';
-import { handleNavigate, handleBack, handleForward, handleReload, handleUrl, handleTitle } from './commands/navigation.js';
 import {
-  handleClick, handleFill, handleType, handleHover, handleSelect,
-  handlePress, handleScroll, handleClear, handleCheck, handleUncheck,
-  handleFocus, handleDblclick, handleWait,
-  handleClipboard, handleMouseMove, handleMouseDown, handleMouseUp,
-  handleDrag, handleKeyDown, handleKeyUp, handleInsertText,
-} from './commands/interaction.js';
+  connect,
+  disconnect,
+  isConnected,
+  onCommand,
+  onStatus,
+  send,
+} from "./lib/connection.js";
 import {
-  handleScreenshot, handleSnapshot, handleContent, handleEvaluate,
-  handleGetText, handleGetAttribute, handlePdf,
-} from './commands/capture.js';
+  authorizeOwnerLease,
+  releaseOwnerLease,
+  handleTabNew,
+  handleTabList,
+  handleTabSwitch,
+  handleTabClose,
+  handleMarkTab,
+  closeAgentWindow,
+  finalizeOwnerTabs,
+  cleanupStaleGroups,
+  cleanupStaleTabs,
+} from "./commands/tabs.js";
+import {
+  handleNavigate,
+  handleBack,
+  handleForward,
+  handleReload,
+  handleUrl,
+  handleTitle,
+} from "./commands/navigation.js";
+import {
+  handleClick,
+  handleFill,
+  handleType,
+  handleHover,
+  handleSelect,
+  handlePress,
+  handleScroll,
+  handleClear,
+  handleCheck,
+  handleUncheck,
+  handleFocus,
+  handleDblclick,
+  handleWait,
+  handleClipboard,
+  handleMouseMove,
+  handleMouseDown,
+  handleMouseUp,
+  handleDrag,
+  handleKeyDown,
+  handleKeyUp,
+  handleInsertText,
+} from "./commands/interaction.js";
+import {
+  handleScreenshot,
+  handleSnapshot,
+  handleContent,
+  handleEvaluate,
+  handleGetText,
+  handleGetAttribute,
+  handlePdf,
+} from "./commands/capture.js";
 import {
   handleCookiesGet,
   handleCookiesExportAll,
   handleCookiesSet,
   handleCookiesClear,
-} from './commands/cookies.js';
+} from "./commands/cookies.js";
 import {
-  handleInnerText, handleInnerHtml, handleInputValue, handleBoundingBox,
-  handleWaitForUrl, handleScrollIntoView, handleIsVisible, handleIsEnabled,
-  handleIsChecked, handleCount, handleStyles, handleBringToFront,
-} from './commands/queries.js';
+  handleInnerText,
+  handleInnerHtml,
+  handleInputValue,
+  handleBoundingBox,
+  handleWaitForUrl,
+  handleScrollIntoView,
+  handleIsVisible,
+  handleIsEnabled,
+  handleIsChecked,
+  handleCount,
+  handleStyles,
+  handleBringToFront,
+} from "./commands/queries.js";
 import {
-  handleRequests, handleResponseBody, handleRoute, handleUnroute,
-  handleHarStart, handleHarStop,
-} from './commands/network.js';
-import { handleDownload } from './commands/downloads.js';
-import { handleChain } from './commands/chain.js';
+  handleRequests,
+  handleResponseBody,
+  handleRoute,
+  handleUnroute,
+  handleHarStart,
+  handleHarStop,
+} from "./commands/network.js";
+import { handleDownload } from "./commands/downloads.js";
+import { handleChain } from "./commands/chain.js";
 import {
-  handleSiteModSet, handleSiteModList, handleSiteModRemove, handleSiteModToggle,
+  handleSiteModSet,
+  handleSiteModList,
+  handleSiteModRemove,
+  handleSiteModToggle,
   syncContentScriptRegistration,
-} from './commands/site-mods.js';
+} from "./commands/site-mods.js";
 
 // --- Command Router ---
 
@@ -122,6 +185,7 @@ const HANDLERS = {
   tab_list: handleTabList,
   tab_switch: handleTabSwitch,
   tab_close: handleTabClose,
+  mark_tab: handleMarkTab,
   finalize_tabs: async (cmd) => {
     const data = await finalizeOwnerTabs(cmd);
     await releaseOwnerLease(cmd);
@@ -155,60 +219,107 @@ const HANDLERS = {
 
 // Commands that we acknowledge but don't support in extension mode
 const UNSUPPORTED = new Set([
-  'launch', 'trace_start', 'trace_stop',
-  'state_save', 'state_load', 'video_start', 'video_stop',
-  'recording_start', 'recording_stop', 'recording_restart',
-  'screencast_start', 'screencast_stop',
-  'input_mouse', 'input_keyboard', 'input_touch',
-  'frame', 'mainframe', 'expose', 'highlight',
-  'dialog', 'geolocation', 'permissions', 'viewport',
-  'device', 'useragent', 'emulatemedia', 'offline',
-  'headers', 'credentials', 'timezone', 'locale',
-  'addscript', 'addstyle', 'addinitscript',
-  'console', 'errors', 'keyboard',
-  'window_new', 'upload',
-  'getbyrole', 'getbytext', 'getbylabel', 'getbyplaceholder',
-  'getbyalttext', 'getbytitle', 'getbytestid', 'nth',
-  'tap', 'wheel', 'multiselect',
-  'selectall', 'dispatch', 'evalhandle', 'pause',
-  'waitforloadstate',
-  'waitforfunction', 'waitfordownload',
-  'getboundingbox',
+  "launch",
+  "trace_start",
+  "trace_stop",
+  "state_save",
+  "state_load",
+  "video_start",
+  "video_stop",
+  "recording_start",
+  "recording_stop",
+  "recording_restart",
+  "screencast_start",
+  "screencast_stop",
+  "input_mouse",
+  "input_keyboard",
+  "input_touch",
+  "frame",
+  "mainframe",
+  "expose",
+  "highlight",
+  "dialog",
+  "geolocation",
+  "permissions",
+  "viewport",
+  "device",
+  "useragent",
+  "emulatemedia",
+  "offline",
+  "headers",
+  "credentials",
+  "timezone",
+  "locale",
+  "addscript",
+  "addstyle",
+  "addinitscript",
+  "console",
+  "errors",
+  "keyboard",
+  "window_new",
+  "upload",
+  "getbyrole",
+  "getbytext",
+  "getbylabel",
+  "getbyplaceholder",
+  "getbyalttext",
+  "getbytitle",
+  "getbytestid",
+  "nth",
+  "tap",
+  "wheel",
+  "multiselect",
+  "selectall",
+  "dispatch",
+  "evalhandle",
+  "pause",
+  "waitforloadstate",
+  "waitforfunction",
+  "waitfordownload",
+  "getboundingbox",
 ]);
 
 async function handleCommand(message) {
   const { action, id } = message;
 
   // Handle 'close' command - close agent window, then acknowledge
-  if (action === 'close') {
-    if (typeof message.ownerId === 'string' && message.ownerId.trim()) {
+  if (action === "close") {
+    if (typeof message.ownerId === "string" && message.ownerId.trim()) {
       await authorizeOwnerLease(message);
       const result = await finalizeOwnerTabs(message, []);
       await releaseOwnerLease(message);
-      return { type: 'response', id, success: true, data: result };
+      return { type: "response", id, success: true, data: result };
     }
 
     await closeAgentWindow();
-    return { type: 'response', id, success: true, data: { closed: true } };
+    return { type: "response", id, success: true, data: { closed: true } };
   }
 
   // Handle 'launch' - in extension mode the browser is already running
-  if (action === 'launch') {
-    return { type: 'response', id, success: true, data: { launched: true, provider: 'extension' } };
+  if (action === "launch") {
+    return {
+      type: "response",
+      id,
+      success: true,
+      data: { launched: true, provider: "extension" },
+    };
   }
 
   // Known handler
   const handler = HANDLERS[action];
   if (handler) {
     try {
-      if (action !== 'healthcheck' && (message.ownerId || message.ownerLeaseId)) {
+      if (
+        action !== "healthcheck" &&
+        (message.ownerId || message.ownerLeaseId)
+      ) {
         await authorizeOwnerLease(message);
       }
       const result = await handler(message);
-      return { type: 'response', ...result };
+      return { type: "response", ...result };
     } catch (err) {
       return {
-        type: 'response',
+        type: "response",
         id,
         success: false,
         error: err.message || String(err),
@@ -219,7 +330,7 @@ async function handleCommand(message) {
   // Known unsupported
   if (UNSUPPORTED.has(action)) {
     return {
-      type: 'response',
+      type: "response",
       id,
       success: false,
       error: `Command '${action}' is not supported in extension mode`,
@@ -228,7 +339,7 @@ async function handleCommand(message) {
 
   // Unknown command
   return {
-    type: 'response',
+    type: "response",
     id,
     success: false,
     error: `Unknown command: ${action}`,
@@ -246,11 +357,14 @@ onCommand(handleCommand);
 // fresh "Stella" group instead of reusing the shared one. Use `closeAgentWindow`
 // only for the explicit `close` action initiated by the user.
 onStatus((connected) => {
-  console.log('[background] Connection status:', connected ? 'connected' : 'disconnected');
+  console.log(
+    "[background] Connection status:",
+    connected ? "connected" : "disconnected",
+  );
 });
 // Keep service worker alive via offscreen document port
 chrome.runtime.onConnect.addListener((port) => {
-  if (port.name === 'keepalive') {
+  if (port.name === "keepalive") {
     // Port keeps the service worker alive - nothing else needed
   }
 });
@@ -259,19 +373,19 @@ chrome.runtime.onConnect.addListener((port) => {
 async function ensureOffscreen() {
   try {
     const contexts = await chrome.runtime.getContexts({
-      contextTypes: ['OFFSCREEN_DOCUMENT'],
-      documentUrls: [chrome.runtime.getURL('offscreen.html')],
+      contextTypes: ["OFFSCREEN_DOCUMENT"],
+      documentUrls: [chrome.runtime.getURL("offscreen.html")],
     });
     if (contexts.length === 0) {
       await chrome.offscreen.createDocument({
-        url: 'offscreen.html',
-        reasons: ['WORKERS'],
-        justification: 'Keep service worker alive for the browser bridge',
+        url: "offscreen.html",
+        reasons: ["WORKERS"],
+        justification: "Keep service worker alive for the browser bridge",
       });
-      console.log('[background] Offscreen keepalive document created');
+      console.log("[background] Offscreen keepalive document created");
     }
   } catch (err) {
-    console.error('[background] Failed to create offscreen document:', err);
+    console.error("[background] Failed to create offscreen document:", err);
   }
 }
 
@@ -281,9 +395,9 @@ ensureOffscreen();
 cleanupStaleGroups();
 cleanupStaleTabs();
 
-chrome.alarms.create('stale-tabs', { periodInMinutes: 60 });
+chrome.alarms.create("stale-tabs", { periodInMinutes: 60 });
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'stale-tabs') {
+  if (alarm.name === "stale-tabs") {
     void cleanupStaleTabs();
   }
 });
@@ -313,7 +427,7 @@ let incognitoStoreIds = new Set();
 function refreshCookieStores() {
   try {
     const result = chrome.cookies.getAllCookieStores();
-    if (result && typeof result.then === 'function') {
+    if (result && typeof result.then === "function") {
       result
         .then((stores) => {
           incognitoStoreIds = new Set(
@@ -337,7 +451,7 @@ function flushCookieChanges() {
   }
   const changes = pendingCookieChanges;
   pendingCookieChanges = [];
-  send({ type: 'event', event: 'cookies_changed', changes });
+  send({ type: "event", event: "cookies_changed", changes });
 }
 
 function queueCookieChange(changeInfo) {
@@ -372,7 +486,7 @@ chrome.cookies.onChanged.addListener(queueCookieChange);
 // Auto-connect on service worker load (this runs on every SW start, including
 // browser startup and extension install/update - no need for separate listeners)
 async function autoConnect() {
-  console.log('[background] Auto-connecting via native messaging');
+  console.log("[background] Auto-connecting via native messaging");
   connect();
 }
 
@@ -380,34 +494,36 @@ autoConnect();
 
 // Listen for messages from popup and content scripts
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'connect') {
+  if (message.type === "connect") {
     connect();
     sendResponse({ ok: true });
-  } else if (message.type === 'disconnect') {
+  } else if (message.type === "disconnect") {
     disconnect();
     sendResponse({ ok: true });
-  } else if (message.type === 'getStatus') {
+  } else if (message.type === "getStatus") {
     sendResponse({ connected: isConnected() });
-  } else if (message.type === 'hookHistory' && sender.tab) {
+  } else if (message.type === "hookHistory" && sender.tab) {
     // Inject history hook into the page's main world (bypasses CSP)
-    chrome.scripting.executeScript({
-      target: { tabId: sender.tab.id },
-      world: 'MAIN',
-      func: () => {
-        if (window.__stellaHistoryHooked) return;
-        window.__stellaHistoryHooked = true;
-        const origPush = history.pushState;
-        const origReplace = history.replaceState;
-        history.pushState = function() {
-          origPush.apply(this, arguments);
-          window.dispatchEvent(new Event('stella:urlchange'));
-        };
-        history.replaceState = function() {
-          origReplace.apply(this, arguments);
-          window.dispatchEvent(new Event('stella:urlchange'));
-        };
-      },
-    }).catch(() => {});
+    chrome.scripting
+      .executeScript({
+        target: { tabId: sender.tab.id },
+        world: "MAIN",
+        func: () => {
+          if (window.__stellaHistoryHooked) return;
+          window.__stellaHistoryHooked = true;
+          const origPush = history.pushState;
+          const origReplace = history.replaceState;
+          history.pushState = function () {
+            origPush.apply(this, arguments);
+            window.dispatchEvent(new Event("stella:urlchange"));
+          };
+          history.replaceState = function () {
+            origReplace.apply(this, arguments);
+            window.dispatchEvent(new Event("stella:urlchange"));
+          };
+        },
+      })
+      .catch(() => {});
     sendResponse({ ok: true });
   }
 });

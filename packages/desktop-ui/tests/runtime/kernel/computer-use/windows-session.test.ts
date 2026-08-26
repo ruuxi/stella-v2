@@ -44,6 +44,8 @@ const snapshot = (overrides: Partial<WinSnapshot> = {}): WinSnapshot => ({
     { index: 19, name: "Play", controlType: "Button" },
   ],
   appInstructions: "Prefer the Search textbox for exact queries.",
+  revision: 7,
+  materializedRevision: 7,
   ...overrides,
 });
 
@@ -62,8 +64,61 @@ const withStateRoot = async <T>(operation: () => Promise<T>) => {
 };
 
 describe("Windows production ComputerUseSession", () => {
+  it("keeps hidden target resolution out of the model-delivered diff baseline", async () => {
+    let reads = 0;
+    const requestHelper: WindowsComputerHelperRequest = vi.fn(
+      async (_sessionId, operation) => {
+        if (operation.tool !== "get_app_state") {
+          throw new Error(`Unexpected helper operation: ${operation.tool}`);
+        }
+        reads += 1;
+        const label = reads === 1 ? "Old" : reads === 2 ? "Hidden" : "New";
+        return {
+          ok: true,
+          snapshot: snapshot({
+            treeLines: [`[12] textbox "${label}"`],
+            elements: [{ index: 12, name: label, controlType: "Edit" }],
+          }),
+        };
+      },
+    );
+    const session = createWindowsComputerUseSession({ requestHelper });
+    const { value, root } = await withStateRoot(async () => {
+      const first = await executeComputerUseRequest(session, {
+        ...envelope("first"),
+        type: "get_app_state",
+        target: { type: "app", app: "spotify" },
+        screenshotPolicy: "never",
+        disableDiff: false,
+      });
+      await executeComputerUseRequest(session, {
+        ...envelope("hidden-resolve"),
+        type: "resolve_target",
+        selector: { type: "app", app: "spotify" },
+      });
+      const second = await executeComputerUseRequest(session, {
+        ...envelope("second"),
+        type: "get_app_state",
+        target: { type: "app", app: "spotify" },
+        screenshotPolicy: "never",
+        disableDiff: false,
+      });
+      return { first, second };
+    });
+
+    expect(value.first.state.representation).toBe("full");
+    expect(value.second.state).toMatchObject({
+      representation: "diff",
+      baseStateId: value.first.state.semanticStateId,
+    });
+    expect(value.second.state.text).toContain('- [12] textbox "Old"');
+    expect(value.second.state.text).toContain('+ [12] textbox "New"');
+    expect(value.second.state.text).not.toContain("Hidden");
+    rmSync(root, { recursive: true, force: true });
+  });
+
   it("maps list, canonical target policy, and state directly to typed helper requests", async () => {
-    const calls: WinHelperRequest[] = [];
+    const calls: Parameters<WindowsComputerHelperRequest>[1][] = [];
     const requestHelper: WindowsComputerHelperRequest = vi.fn(
       async (_sessionId, operation) => {
         calls.push(operation);
@@ -226,7 +281,7 @@ describe("Windows production ComputerUseSession", () => {
   ])(
     "maps $name without argv/stdout translation",
     async ({ action, expected }) => {
-      const operations: WinHelperRequest[] = [];
+      const operations: Parameters<WindowsComputerHelperRequest>[1][] = [];
       const requestHelper: WindowsComputerHelperRequest = vi.fn(
         async (_sessionId, operation) => {
           operations.push(operation);
@@ -247,7 +302,7 @@ describe("Windows production ComputerUseSession", () => {
       );
       const session = createWindowsComputerUseSession({ requestHelper });
       const { value, root } = await withStateRoot(async () => {
-        await executeComputerUseRequest(session, {
+        const observed = await executeComputerUseRequest(session, {
           ...envelope("observe"),
           type: "get_app_state",
           target: { type: "app", app: "spotify" },
@@ -261,17 +316,28 @@ describe("Windows production ComputerUseSession", () => {
           command: {
             target: { type: "app", app: "spotify" },
             action,
+            observedStateId: observed.state.semanticStateId!,
           },
         });
       });
 
-      expect(operations[1]).toMatchObject({
-        ...expected,
-        app: "spotify",
-        windowId: 654,
-        dispatch: "background",
-        defer_observation: true,
-        screenshot_policy: "auto",
+      expect(operations[2]).toMatchObject({
+        tool: "atomic_action",
+        precondition: {
+          state_id: expect.any(String),
+          target_pid: 321,
+          window_id: 654,
+          revision: 7,
+          materialized_revision: 7,
+        },
+        command: {
+          ...expected,
+          app: "spotify",
+          windowId: 654,
+          dispatch: "background",
+          defer_observation: true,
+          screenshot_policy: "auto",
+        },
       });
       expect(value.receipt).toMatchObject({
         action: action.type,
@@ -320,7 +386,7 @@ describe("Windows production ComputerUseSession", () => {
     );
     const session = createWindowsComputerUseSession({ requestHelper });
     const { value, root } = await withStateRoot(async () => {
-      await executeComputerUseRequest(session, {
+      const observed = await executeComputerUseRequest(session, {
         ...envelope("observe"),
         type: "get_app_state",
         target: { type: "app", app: "spotify" },
@@ -335,10 +401,12 @@ describe("Windows production ComputerUseSession", () => {
           {
             target: { type: "app", app: "spotify" },
             action: { type: "press_key", key: "CTRL+L" },
+            observedStateId: observed.state.semanticStateId!,
           },
           {
             target: { type: "app", app: "spotify" },
             action: { type: "type_text", text: "query" },
+            observedStateId: observed.state.semanticStateId!,
           },
         ],
       };
@@ -346,21 +414,37 @@ describe("Windows production ComputerUseSession", () => {
     });
 
     expect(value.receipt.receipts).toHaveLength(2);
-    expect(operations).toHaveLength(2);
-    expect(operations[1]).toMatchObject({
-      tool: "batch",
+    expect(operations).toHaveLength(4);
+    expect(operations[3]).toMatchObject({
+      tool: "atomic_batch",
       commands: [
         {
-          tool: "press_key",
-          key: "CTRL+L",
-          dispatch: "background",
-          defer_observation: true,
+          precondition: {
+            target_pid: 321,
+            window_id: 654,
+            revision: 7,
+            materialized_revision: 7,
+          },
+          command: {
+            tool: "press_key",
+            key: "CTRL+L",
+            dispatch: "background",
+            defer_observation: true,
+          },
         },
         {
-          tool: "type_text",
-          text: "query",
-          dispatch: "background",
-          defer_observation: true,
+          precondition: {
+            target_pid: 321,
+            window_id: 654,
+            revision: 7,
+            materialized_revision: 7,
+          },
+          command: {
+            tool: "type_text",
+            text: "query",
+            dispatch: "background",
+            defer_observation: true,
+          },
         },
       ],
     });
@@ -372,7 +456,7 @@ describe("Windows production ComputerUseSession", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("surfaces the first failed native batch result without issuing more helper requests", async () => {
+  it("invalidates the observation after a partially executed native batch", async () => {
     const requestHelper: WindowsComputerHelperRequest = vi.fn(
       async (_sessionId, operation) => {
         if (operation.tool === "get_app_state") {
@@ -399,7 +483,7 @@ describe("Windows production ComputerUseSession", () => {
     );
     const session = createWindowsComputerUseSession({ requestHelper });
     const { root } = await withStateRoot(async () => {
-      await executeComputerUseRequest(session, {
+      const observed = await executeComputerUseRequest(session, {
         ...envelope("observe-failed-batch"),
         type: "get_app_state",
         target: { type: "app", app: "spotify" },
@@ -415,10 +499,12 @@ describe("Windows production ComputerUseSession", () => {
             {
               target: { type: "app", app: "spotify" },
               action: { type: "press_key", key: "CTRL+L" },
+              observedStateId: observed.state.semanticStateId!,
             },
             {
               target: { type: "app", app: "spotify" },
               action: { type: "type_text", text: "query" },
+              observedStateId: observed.state.semanticStateId!,
             },
           ],
         }),
@@ -426,9 +512,152 @@ describe("Windows production ComputerUseSession", () => {
         code: "windows_session_failed",
         message: "strict background dispatch failed",
       });
+      await expect(
+        executeComputerUseRequest(session, {
+          ...envelope("retry-after-failed-batch"),
+          type: "action",
+          execution: "background",
+          command: {
+            target: { type: "app", app: "spotify" },
+            action: { type: "type_text", text: "must not dispatch" },
+            observedStateId: observed.state.semanticStateId!,
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: "stale_observation",
+      });
     });
 
-    expect(requestHelper).toHaveBeenCalledTimes(2);
+    expect(requestHelper).toHaveBeenCalledTimes(4);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("maps a native dispatch-boundary revision mismatch to stale_observation", async () => {
+    const requestHelper: WindowsComputerHelperRequest = vi.fn(
+      async (_sessionId, operation) =>
+        operation.tool === "get_app_state"
+          ? { ok: true, snapshot: snapshot() }
+          : {
+              ok: false,
+              code: "stale_observation",
+              error: "Observed Windows app state changed before dispatch.",
+              observed_state_id:
+                operation.tool === "atomic_action" &&
+                "precondition" in operation
+                  ? operation.precondition.state_id
+                  : undefined,
+              current_revision: 8,
+            },
+    );
+    const session = createWindowsComputerUseSession({ requestHelper });
+    const { root } = await withStateRoot(async () => {
+      const observed = await executeComputerUseRequest(session, {
+        ...envelope("observe-native-stale"),
+        type: "get_app_state",
+        target: { type: "app", app: "spotify" },
+        screenshotPolicy: "never",
+        disableDiff: false,
+      });
+      await expect(
+        executeComputerUseRequest(session, {
+          ...envelope("native-stale-action"),
+          type: "action",
+          execution: "background",
+          command: {
+            target: { type: "app", app: "spotify" },
+            action: { type: "type_text", text: "must not land" },
+            observedStateId: observed.state.semanticStateId!,
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: "stale_observation",
+        message: expect.stringContaining("native_revision_8"),
+      });
+    });
+
+    expect(requestHelper).toHaveBeenCalledTimes(3);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("arbitrates the same target across independently created Windows sessions", async () => {
+    let activeMutations = 0;
+    let maxActiveMutations = 0;
+    let atomicCalls = 0;
+    let releaseFirst!: () => void;
+    const firstEntered = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let announceFirst!: () => void;
+    const firstAnnounced = new Promise<void>((resolve) => {
+      announceFirst = resolve;
+    });
+    const requestHelper: WindowsComputerHelperRequest = vi.fn(
+      async (_sessionId, operation) => {
+        if (operation.tool === "get_app_state") {
+          return { ok: true, snapshot: snapshot() };
+        }
+        if (operation.tool !== "atomic_action") {
+          throw new Error(`Unexpected helper operation: ${operation.tool}`);
+        }
+        atomicCalls += 1;
+        activeMutations += 1;
+        maxActiveMutations = Math.max(maxActiveMutations, activeMutations);
+        announceFirst();
+        await firstEntered;
+        activeMutations -= 1;
+        return { ok: true, deferred: true, revision: 8 };
+      },
+    );
+    const sessionA = createWindowsComputerUseSession({ requestHelper });
+    const sessionB = createWindowsComputerUseSession({ requestHelper });
+    const targetApp = `process-wide-${Date.now()}-${Math.random()}`;
+    const { root } = await withStateRoot(async () => {
+      const observedA = await executeComputerUseRequest(sessionA, {
+        ...envelope("observe-a", "windows-a"),
+        type: "get_app_state",
+        target: { type: "app", app: targetApp },
+        screenshotPolicy: "never",
+        disableDiff: false,
+      });
+      const observedB = await executeComputerUseRequest(sessionB, {
+        ...envelope("observe-b", "windows-b"),
+        type: "get_app_state",
+        target: { type: "app", app: targetApp },
+        screenshotPolicy: "never",
+        disableDiff: false,
+      });
+      const first = executeComputerUseRequest(sessionA, {
+        ...envelope("action-a", "windows-a"),
+        type: "action",
+        execution: "background",
+        command: {
+          target: { type: "app", app: targetApp },
+          action: { type: "type_text", text: "first" },
+          observedStateId: observedA.state.semanticStateId!,
+        },
+      });
+      await firstAnnounced;
+      const second = executeComputerUseRequest(sessionB, {
+        ...envelope("action-b", "windows-b"),
+        type: "action",
+        execution: "background",
+        command: {
+          target: { type: "app", app: targetApp },
+          action: { type: "type_text", text: "second" },
+          observedStateId: observedB.state.semanticStateId!,
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      expect(atomicCalls).toBe(1);
+      releaseFirst();
+      await first;
+      await expect(second).rejects.toMatchObject({
+        code: "stale_observation",
+      });
+    });
+
+    expect(atomicCalls).toBe(1);
+    expect(maxActiveMutations).toBe(1);
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -459,10 +688,9 @@ describe("Windows production ComputerUseSession", () => {
           action: { type: "type_text", text: "no-op" },
         },
       }),
-    ).rejects.toMatchObject({
-      code: "windows_session_failed",
-      message: expect.stringContaining("Call get_app_state"),
-    });
+    ).rejects.toThrow(
+      "ComputerUseRequest.command.observedStateId must be a non-empty string",
+    );
   });
 
   it("lets Sky inspect and switch ordinary Windows apps without a per-app consent prompt", async () => {
@@ -490,9 +718,8 @@ describe("Windows production ComputerUseSession", () => {
     );
     const session = createWindowsComputerUseSession({ requestHelper });
     const authorizeApp = vi.fn(async () => false);
-    const { createSkyClient } = await import(
-      "@stella/runtime/kernel/computer-use/client"
-    );
+    const { createSkyClient } =
+      await import("@stella/runtime/kernel/computer-use/client");
     const { value, root } = await withStateRoot(async () => {
       const sky = createSkyClient({
         sessionId: "windows-session",
@@ -500,7 +727,12 @@ describe("Windows production ComputerUseSession", () => {
         authorizeApp,
       });
       const state = await sky.get_app_state({ app: "Spotify.exe" });
-      await sky.click({ app: "explorer.exe", element_index: 12 });
+      const explorerState = await sky.get_app_state({ app: "explorer.exe" });
+      await sky.click({
+        app: "explorer.exe",
+        element_index: 12,
+        state_id: explorerState.state_id,
+      });
       return state;
     });
 

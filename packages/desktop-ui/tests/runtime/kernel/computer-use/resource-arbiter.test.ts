@@ -9,10 +9,9 @@ import {
   type ComputerUseTarget,
 } from "@stella/runtime/kernel/computer-use/contract";
 import {
+  ComputerUseResourceStaleError,
   ComputerUseResourceArbiter,
-  macComputerUseResourceArbiter,
 } from "@stella/runtime/kernel/computer-use/resource-arbiter";
-import { createMacComputerUseSession } from "@stella/runtime/kernel/computer-use/stella-computer-executor";
 
 const deferred = () => {
   let resolve!: () => void;
@@ -45,6 +44,22 @@ const stateRequest = (
   disableDiff: false,
 });
 
+const waitRequest = (
+  sessionId: string,
+  requestTarget: ComputerUseTarget,
+): Extract<ComputerUseRequest, { type: "wait_for_change" }> => ({
+  schemaVersion: COMPUTER_USE_SCHEMA_VERSION,
+  protocolVersion: COMPUTER_USE_PROTOCOL_VERSION,
+  requestId: `${sessionId}-wait`,
+  sessionId,
+  type: "wait_for_change",
+  target: requestTarget,
+  afterStateId: "state_baseline",
+  timeoutMs: 1_000,
+  screenshotPolicy: "never",
+  disableDiff: false,
+});
+
 const actionRequest = (
   sessionId: string,
   requestTarget: ComputerUseTarget,
@@ -61,7 +76,11 @@ const actionRequest = (
   sessionId,
   type: "action",
   execution: "background",
-  command: { target: requestTarget, action },
+  command: {
+    target: requestTarget,
+    action,
+    observedStateId: `${sessionId}-state-observed`,
+  },
 });
 
 const batchRequest = (
@@ -76,6 +95,7 @@ const batchRequest = (
   execution: "background",
   commands: targets.map((requestTarget, index) => ({
     target: requestTarget,
+    observedStateId: `${sessionId}-state-observed`,
     action: {
       type: "click_element",
       elementId: String(index + 1),
@@ -122,6 +142,25 @@ const responseFor = (request: ComputerUseRequest): ComputerUseResponse => {
         app: request.target.type === "app" ? request.target.app : "test-app",
         text: "test state",
         screenshot: null,
+      },
+    };
+  }
+  if (request.type === "wait_for_change") {
+    return {
+      ...envelope(request),
+      type: "wait_for_change",
+      state: {
+        app: request.target.type === "app" ? request.target.app : "test-app",
+        text: "changed state",
+        screenshot: null,
+        semanticStateId: "state_changed",
+        wait: {
+          afterStateId: request.afterStateId,
+          timeoutMs: request.timeoutMs,
+          elapsedMs: 1,
+          pollCount: 1,
+          changeKinds: ["semantic"],
+        },
       },
     };
   }
@@ -239,7 +278,7 @@ describe("ComputerUseResourceArbiter", () => {
     expect(started).toEqual(["a", "b"]);
   });
 
-  it("acquires batch resources in a stable order and keeps the batch atomic", async () => {
+  it("acquires batch resources in a stable order and rejects the queued stale batch", async () => {
     const arbiter = new ComputerUseResourceArbiter();
     const gate = deferred();
     const started: string[] = [];
@@ -268,8 +307,12 @@ describe("ComputerUseResourceArbiter", () => {
 
     await vi.waitFor(() => expect(started).toEqual(["a"]));
     gate.resolve();
-    await Promise.all([first, second]);
-    expect(started).toEqual(["a", "b"]);
+    await first;
+    await expect(second).rejects.toMatchObject({
+      code: "stale_observation",
+      currentResourceGeneration: 1,
+    });
+    expect(started).toEqual(["a"]);
   });
 
   it("removes an aborted waiter without leaking the resource lock", async () => {
@@ -340,7 +383,7 @@ describe("ComputerUseResourceArbiter", () => {
     expect(started).toEqual(["a", "b"]);
   });
 
-  it("rejects an action when another session mutated its observed target", async () => {
+  it("rejects a session whose cross-session resource generation is stale", async () => {
     const arbiter = new ComputerUseResourceArbiter();
     const brave = target("Brave");
     await observe(arbiter, "agent-a", brave);
@@ -358,61 +401,129 @@ describe("ComputerUseResourceArbiter", () => {
       ),
     ).rejects.toMatchObject({
       code: "stale_observation",
-      retryable: true,
-      message: expect.stringContaining("get_app_state"),
+      observedStateId: "agent-a-state-observed",
+      currentResourceGeneration: 1,
+      resourceKeys: ["app:brave"],
     });
   });
 
-  it("advances the mutating session so its own action sequence stays fresh", async () => {
+  it("invalidates the mutating session's explicit pre-action generation", async () => {
     const arbiter = new ComputerUseResourceArbiter();
     const brave = target("Brave");
     await observe(arbiter, "agent-a", brave);
 
     const first = actionRequest("agent-a", brave);
-    const second = { ...actionRequest("agent-a", brave), requestId: "second" };
+    const second = {
+      ...actionRequest("agent-a", brave),
+      requestId: "second",
+      command: {
+        ...actionRequest("agent-a", brave).command,
+        observedResourceGeneration: 0,
+      },
+    };
     await arbiter.runRequest(first, undefined, async () => responseFor(first));
     await expect(
       arbiter.runRequest(second, undefined, async () => responseFor(second)),
-    ).resolves.toMatchObject({ type: "action" });
+    ).rejects.toMatchObject({
+      code: "stale_observation",
+      observedResourceGeneration: 0,
+      currentResourceGeneration: 1,
+    });
   });
 
-  it("maps stale observations to a retryable Computer Use response", async () => {
-    const firstSessionId = "arbiter-response-agent-a";
-    const secondSessionId = "arbiter-response-agent-b";
-    const requestTarget = target("Arbiter Response Test App");
-    try {
-      await observe(
-        macComputerUseResourceArbiter,
-        firstSessionId,
-        requestTarget,
-      );
-      await observe(
-        macComputerUseResourceArbiter,
-        secondSessionId,
-        requestTarget,
-      );
-      const mutation = actionRequest(secondSessionId, requestTarget);
-      await macComputerUseResourceArbiter.runRequest(
-        mutation,
-        undefined,
-        async () => responseFor(mutation),
-      );
+  it("invalidates prior observations when mutation dispatch throws", async () => {
+    const arbiter = new ComputerUseResourceArbiter();
+    const brave = target("Brave");
+    await observe(arbiter, "agent-a", brave);
 
-      const staleAction = actionRequest(firstSessionId, requestTarget);
-      const response = await createMacComputerUseSession({
-        sessionId: firstSessionId,
-      }).request(staleAction);
-      expect(response).toMatchObject({
-        type: "error",
-        error: {
-          code: "stale_observation",
-          retryable: true,
-          message: expect.stringContaining("get_app_state"),
-        },
-      });
-    } finally {
-      macComputerUseResourceArbiter.forgetSession(firstSessionId);
-      macComputerUseResourceArbiter.forgetSession(secondSessionId);
-    }
+    const dispatched = actionRequest("agent-a", brave);
+    await expect(
+      arbiter.runRequest(dispatched, undefined, async () => {
+        throw new Error("transport failed after dispatch");
+      }),
+    ).rejects.toThrow("transport failed after dispatch");
+
+    let retryDispatched = false;
+    const retry = { ...actionRequest("agent-a", brave), requestId: "retry" };
+    await expect(
+      arbiter.runRequest(retry, undefined, async () => {
+        retryDispatched = true;
+        return responseFor(retry);
+      }),
+    ).rejects.toMatchObject({
+      code: "stale_observation",
+      currentResourceGeneration: 1,
+    });
+    expect(retryDispatched).toBe(false);
+  });
+
+  it("invalidates prior observations when mutation dispatch returns an error", async () => {
+    const arbiter = new ComputerUseResourceArbiter();
+    const brave = target("Brave");
+    await observe(arbiter, "agent-a", brave);
+
+    const dispatched = actionRequest("agent-a", brave);
+    const failure: ComputerUseResponse = {
+      ...envelope(dispatched),
+      type: "error",
+      error: {
+        code: "native_dispatch_failed",
+        message: "the mutation outcome is unknown",
+        retryable: true,
+      },
+    };
+    await expect(
+      arbiter.runRequest(dispatched, undefined, async () => failure),
+    ).resolves.toBe(failure);
+
+    const retry = { ...actionRequest("agent-a", brave), requestId: "retry" };
+    await expect(
+      arbiter.runRequest(retry, undefined, async () => responseFor(retry)),
+    ).rejects.toMatchObject({
+      code: "stale_observation",
+      currentResourceGeneration: 1,
+    });
+  });
+
+  it("rejects a wait result when the resource changes while polling unlocked", async () => {
+    const arbiter = new ComputerUseResourceArbiter();
+    const brave = target("Brave");
+    await observe(arbiter, "agent-a", brave);
+    await observe(arbiter, "agent-b", brave);
+
+    const wait = waitRequest("agent-a", brave);
+    const started = deferred();
+    const release = deferred();
+    const waiting = arbiter.runRequest(wait, undefined, async () => {
+      started.resolve();
+      await release.promise;
+      return responseFor(wait);
+    });
+    await started.promise;
+
+    const mutation = actionRequest("agent-b", brave);
+    await arbiter.runRequest(mutation, undefined, async () =>
+      responseFor(mutation),
+    );
+    release.resolve();
+
+    await expect(waiting).rejects.toMatchObject({
+      code: "stale_observation",
+      observedStateId: "state_baseline",
+      observedResourceGeneration: 0,
+      currentResourceGeneration: 1,
+      resourceKeys: ["app:brave"],
+    });
+  });
+
+  it("reports explicit stale state ids with the current replacement", () => {
+    const error = new ComputerUseResourceStaleError("state_old", "state_new");
+    expect(error).toMatchObject({
+      code: "stale_observation",
+      retryable: true,
+      observedStateId: "state_old",
+      currentStateId: "state_new",
+      message: expect.stringContaining("current_state_id=state_new"),
+    });
   });
 });

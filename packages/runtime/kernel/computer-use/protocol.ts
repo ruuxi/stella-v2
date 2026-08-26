@@ -46,8 +46,55 @@ export type SerializedError = {
   stack?: string;
 };
 
+export type NodeReplImageDetail = "auto" | "low" | "high" | "original";
+
+/**
+ * Typed output emitted by the REPL worker. The worker never manufactures
+ * model-facing attachment markers; the host formats those only at the legacy
+ * ToolResult boundary while retaining this structured representation for
+ * resumable cells and future native multimodal delivery.
+ */
+export type NodeReplContentItem =
+  | { type: "text"; text: string }
+  | {
+      type: "image";
+      path: string;
+      mimeType?: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+      detail?: NodeReplImageDetail;
+      alreadyAttached?: boolean;
+      /** Kernel-owned temporary file; the outer adapter deletes it after read. */
+      deleteAfterAttach?: boolean;
+    }
+  | {
+      type: "audio";
+      path: string;
+      mimeType?: string;
+    };
+
+export type NodeReplResetReason =
+  | "explicit"
+  | "timeout"
+  | "cancelled"
+  | "terminated"
+  | "uncaught_error"
+  | "worker_error"
+  | "protocol_error"
+  | "transport_error"
+  | "closed";
+
+export type NodeReplResetReceipt = Readonly<{
+  reset: true;
+  reason: NodeReplResetReason;
+  previousGeneration: number;
+  nextGeneration: number;
+  bindingsDiscarded: true;
+  requestedAt: number;
+}>;
+
 export type NodeReplWorkerData = {
   cwd: string;
+  generation: number;
+  generationStartedAt: number;
   moduleUrl: string;
   maxCodeBytes: number;
   maxEvalOutputBytes: number;
@@ -124,11 +171,27 @@ export type ParentToNodeReplWorkerMessage =
 
 export type WorkerToNodeReplParentMessage =
   | { type: "ready" }
-  | { type: "evaluation-result"; evaluationId: number; output: string }
+  | {
+      type: "evaluation-content";
+      evaluationId: number;
+      cursor: number;
+      item: NodeReplContentItem;
+    }
+  | {
+      type: "reset-request";
+      evaluationId: number;
+      requestedAt: number;
+    }
+  | {
+      type: "evaluation-result";
+      evaluationId: number;
+      finalCursor: number;
+    }
   | {
       type: "evaluation-error";
       evaluationId: number;
       error: SerializedError;
+      finalCursor: number;
     }
   | {
       type: "sky-call";

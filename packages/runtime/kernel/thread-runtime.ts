@@ -9,10 +9,13 @@ import type { ResolvedLlmRoute } from "./model-routing.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { createRuntimeLogger } from "./debug.js";
 import { redactMemoryText } from "./memory/redaction.js";
 import { readRuntimePrompt } from "./prompts/home-prompts.js";
 import {
+  decodedBase64ByteLength,
+  estimateModelVisibleImageTokens,
   getLastProviderPayloadTokens,
   isThreadCompactionForced,
 } from "./agent-runtime/context-budget.js";
@@ -86,7 +89,8 @@ const GENERAL_COMPACTION_KEEP_RECENT_TOKENS = 20_000;
 const GENERAL_COMPACTION_SMALL_WINDOW_RESERVE_TOKENS = 4_096;
 const MAX_BLOCK_CHARS = 100_000;
 const TOOL_RESULT_MAX_CHARS = 2_000;
-const ESTIMATED_IMAGE_TOKENS = 1_200;
+export const MAX_ACTIVE_THREAD_IMAGES = 8;
+export const ACTIVE_THREAD_IMAGE_DECODED_BYTE_BUDGET = 12 * 1024 * 1024;
 
 type ThreadMessage = {
   timestamp: number;
@@ -104,6 +108,7 @@ type StoredThreadMessage = {
   payload?: RuntimeThreadMessage["payload"];
   customMessage?: RuntimeThreadMessage["customMessage"];
   checkpointQuarantineKeys?: string[];
+  checkpointImageReceipts?: ThreadImageReceipt[];
 };
 
 type ThreadCheckpoint = {
@@ -133,6 +138,24 @@ export type ThreadCompactionPlan = {
    */
   turnPrefixMessages?: StoredThreadMessage[];
   isSplitTurn?: boolean;
+  /** The cut was selected prospectively to make the retained image set fit. */
+  imagePressure?: true;
+};
+
+type ThreadImageReceipt = {
+  id: string;
+  mimeType: string;
+  decodedBytes: number;
+  width?: number;
+  height?: number;
+  origin: {
+    timestamp: number;
+    role: string;
+    toolName?: string;
+  };
+  artifact:
+    | { durability: "durable"; path: string }
+    | { durability: "non-durable"; path?: string; reason: string };
 };
 
 export type ThreadCompactionSplitPolicy = "orchestrator" | "general";
@@ -175,7 +198,9 @@ const stringifyPayloadMessage = (
         ? payload.content
         : payload.content
             .map((block) =>
-              block.type === "text" ? block.text : `[Image: ${block.mimeType}]`,
+              block.type === "text"
+                ? block.text
+                : `[Image receipt: ${block.mimeType}${block.sourcePath ? ` path=${block.sourcePath}` : ""}]`,
             )
             .join("\n");
     return content.trim() ? [`[User] ${content.trim()}`] : [];
@@ -221,7 +246,9 @@ const stringifyPayloadMessage = (
 
   const content = payload.content
     .map((block) =>
-      block.type === "text" ? block.text : `[Image: ${block.mimeType}]`,
+      block.type === "text"
+        ? block.text
+        : `[Image receipt: ${block.mimeType}${block.sourcePath ? ` path=${block.sourcePath}` : ""}]`,
     )
     .join("\n")
     .trim();
@@ -340,7 +367,7 @@ const estimatePayloadTokens = (
       tokens +=
         block.type === "text"
           ? Math.max(1, Math.ceil(block.text.length / 4))
-          : ESTIMATED_IMAGE_TOKENS;
+          : estimateModelVisibleImageTokens(block);
     }
     return tokens;
   }
@@ -372,15 +399,31 @@ const estimatePayloadTokens = (
     tokens +=
       block.type === "text"
         ? Math.max(1, Math.ceil(block.text.length / 4))
-        : ESTIMATED_IMAGE_TOKENS;
+        : estimateModelVisibleImageTokens(block);
   }
   return tokens;
 };
 
-const estimateStoredMessageTokens = (message: StoredThreadMessage): number =>
-  message.payload
-    ? estimatePayloadTokens(message.payload)
-    : estimateMessageTokens(message as ThreadMessage);
+const storedMessageImageBlocks = (message: StoredThreadMessage) => {
+  const payload = message.payload;
+  if (payload && typeof payload.content !== "string") {
+    return payload.content.filter((block) => block.type === "image");
+  }
+  const customContent = message.customMessage?.content;
+  if (Array.isArray(customContent)) {
+    return customContent.filter((block) => block.type === "image");
+  }
+  return [];
+};
+
+const estimateStoredMessageTokens = (message: StoredThreadMessage): number => {
+  if (message.payload) return estimatePayloadTokens(message.payload);
+  const imageTokens = storedMessageImageBlocks(message).reduce(
+    (sum, block) => sum + estimateModelVisibleImageTokens(block),
+    0,
+  );
+  return estimateMessageTokens(message as ThreadMessage) + imageTokens;
+};
 
 const getContextWindow = (route: ResolvedLlmRoute): number => {
   const value = Number(route.model.contextWindow);
@@ -418,6 +461,26 @@ export const getThreadTokenEstimate = (
     (sum, message) => sum + estimateStoredMessageTokens(message),
     0,
   );
+
+export const getThreadImageHistoryStats = (
+  messages: StoredThreadMessage[],
+): Readonly<{ count: number; decodedBytes: number; overBudget: boolean }> => {
+  let count = 0;
+  let decodedBytes = 0;
+  for (const message of messages) {
+    for (const block of storedMessageImageBlocks(message)) {
+      count += 1;
+      decodedBytes += decodedBase64ByteLength(block.data);
+    }
+  }
+  return {
+    count,
+    decodedBytes,
+    overBudget:
+      count > MAX_ACTIVE_THREAD_IMAGES ||
+      decodedBytes > ACTIVE_THREAD_IMAGE_DECODED_BYTE_BUDGET,
+  };
+};
 
 const isCompactionMessage = (message: StoredThreadMessage): boolean =>
   message.role === "assistant" &&
@@ -912,6 +975,269 @@ export const splitGeneralThreadMessagesForCompaction = (
   };
 };
 
+const imageStatsPlus = (
+  left: Readonly<{ count: number; decodedBytes: number }>,
+  right: Readonly<{ count: number; decodedBytes: number }>,
+) => ({
+  count: left.count + right.count,
+  decodedBytes: left.decodedBytes + right.decodedBytes,
+});
+
+const imageStatsFit = (stats: {
+  count: number;
+  decodedBytes: number;
+}): boolean =>
+  stats.count <= MAX_ACTIVE_THREAD_IMAGES &&
+  stats.decodedBytes <= ACTIVE_THREAD_IMAGE_DECODED_BYTE_BUDGET;
+
+/**
+ * Select the smallest old prefix whose checkpoint removal makes the retained
+ * image set fit. Unlike the ordinary token splitter, this may compact through
+ * the newest message: a single result containing ten images cannot be made
+ * safe by retaining that result as a mandatory tail.
+ */
+export const splitThreadMessagesForImagePressure = (
+  messages: StoredThreadMessage[],
+): ThreadCompactionPlan | null => {
+  const build = (compressionStart: number): ThreadCompactionPlan | null => {
+    const protectedStats = getThreadImageHistoryStats(
+      messages.slice(0, compressionStart),
+    );
+    if (protectedStats.overBudget) return null;
+
+    let retained = {
+      count: protectedStats.count,
+      decodedBytes: protectedStats.decodedBytes,
+    };
+    let tailStartIndex = messages.length;
+    for (
+      let index = messages.length - 1;
+      index >= compressionStart;
+      index -= 1
+    ) {
+      const messageStats = getThreadImageHistoryStats([messages[index]!]);
+      const candidate = imageStatsPlus(retained, messageStats);
+      if (!imageStatsFit(candidate)) {
+        tailStartIndex = alignBoundaryForward(messages, index + 1);
+        break;
+      }
+      retained = candidate;
+    }
+    if (tailStartIndex <= compressionStart) return null;
+
+    const compactedWindow = messages.slice(compressionStart, tailStartIndex);
+    const middleMessages = compactedWindow.filter(
+      (message) =>
+        !isCompactionMessage(message) && !isPinnedInstructionMessage(message),
+    );
+    if (middleMessages.length === 0) return null;
+    const fromEntryId = middleMessages[0]?.entryId?.trim();
+    const toEntryId = middleMessages.at(-1)?.entryId?.trim();
+    if (!fromEntryId || !toEntryId) return null;
+    if (
+      fromEntryId.includes(RESIDENT_FOLD_ENTRY_ID_MARKER) ||
+      toEntryId.includes(RESIDENT_FOLD_ENTRY_ID_MARKER) ||
+      fromEntryId.includes(PINNED_INSTRUCTION_ENTRY_ID_MARKER) ||
+      toEntryId.includes(PINNED_INSTRUCTION_ENTRY_ID_MARKER)
+    ) {
+      return null;
+    }
+
+    const prospectiveStats = getThreadImageHistoryStats([
+      ...messages.slice(0, compressionStart),
+      ...messages.slice(tailStartIndex),
+    ]);
+    if (prospectiveStats.overBudget) return null;
+
+    let previousSummary: string | undefined;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const candidate = parseThreadCheckpoint(
+        messages[index]!.content,
+      )?.summary;
+      if (candidate) {
+        previousSummary = candidate;
+        break;
+      }
+    }
+    let latestUserMessage: StoredThreadMessage | undefined;
+    for (let index = middleMessages.length - 1; index >= 0; index -= 1) {
+      if (middleMessages[index]!.role === "user") {
+        latestUserMessage = middleMessages[index];
+        break;
+      }
+    }
+    return {
+      ...(previousSummary ? { previousSummary } : {}),
+      fromEntryId,
+      toEntryId,
+      middleMessages,
+      ...(latestUserMessage ? { latestUserMessage } : {}),
+      imagePressure: true,
+    };
+  };
+
+  // Bootstrap docs normally contain no image payloads and stay pinned. If a
+  // malformed/imported thread put images there, fall back to compacting real
+  // rows from the start rather than entering an endless pressure loop.
+  return build(countLeadingBootstrapStartupDocs(messages)) ?? build(0);
+};
+
+const imageExtension = (mimeType: string): string => {
+  switch (mimeType.toLowerCase()) {
+    case "image/jpeg":
+      return "jpg";
+    case "image/webp":
+      return "webp";
+    case "image/gif":
+      return "gif";
+    default:
+      return "png";
+  }
+};
+
+const finiteImageDimension = (value: unknown): number | undefined => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : undefined;
+};
+
+const promoteImageArtifact = (args: {
+  data: string;
+  mimeType: string;
+  sourcePath?: string;
+  stellaDataDir?: string;
+}): Pick<ThreadImageReceipt, "id" | "decodedBytes" | "artifact"> => {
+  const bytes = Buffer.from(args.data, "base64");
+  const hash = crypto.createHash("sha256").update(bytes).digest("hex");
+  const id = `sha256:${hash}`;
+  if (args.stellaDataDir) {
+    const directory = path.join(
+      args.stellaDataDir,
+      "artifacts",
+      "thread-images",
+    );
+    const artifactPath = path.join(
+      directory,
+      `${hash}.${imageExtension(args.mimeType)}`,
+    );
+    try {
+      fs.mkdirSync(directory, { recursive: true });
+      if (!fs.existsSync(artifactPath)) {
+        const temporaryPath = `${artifactPath}.${process.pid}.tmp`;
+        try {
+          fs.writeFileSync(temporaryPath, bytes, { flag: "wx" });
+          fs.renameSync(temporaryPath, artifactPath);
+        } catch (error) {
+          try {
+            fs.rmSync(temporaryPath, { force: true });
+          } catch {
+            // Best-effort cleanup; receipt fallback below remains explicit.
+          }
+          if (!fs.existsSync(artifactPath)) throw error;
+        }
+      }
+      return {
+        id,
+        decodedBytes: bytes.length,
+        artifact: { durability: "durable", path: artifactPath },
+      };
+    } catch (error) {
+      logger.warn("thread.compaction.image-artifact-promotion-failed", {
+        artifactId: id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  const sourcePath = args.sourcePath?.trim();
+  return {
+    id,
+    decodedBytes: bytes.length,
+    artifact: {
+      durability: "non-durable",
+      ...(sourcePath ? { path: sourcePath } : {}),
+      reason: args.stellaDataDir
+        ? "durable artifact promotion failed"
+        : sourcePath
+          ? "source path was not promoted because no Stella data directory was available"
+          : "inline image was evicted at checkpoint and no durable artifact directory was available",
+    },
+  };
+};
+
+export const collectThreadImageReceipts = (
+  messages: StoredThreadMessage[],
+  stellaDataDir?: string,
+): ThreadImageReceipt[] => {
+  const receipts: ThreadImageReceipt[] = [];
+  for (const message of messages) {
+    const payload = message.payload;
+    for (const block of storedMessageImageBlocks(message)) {
+      const dimensions = block as typeof block & {
+        width?: number;
+        height?: number;
+        widthPx?: number;
+        heightPx?: number;
+      };
+      const promoted = promoteImageArtifact({
+        data: block.data,
+        mimeType: block.mimeType,
+        ...(block.sourcePath ? { sourcePath: block.sourcePath } : {}),
+        ...(stellaDataDir ? { stellaDataDir } : {}),
+      });
+      const width = finiteImageDimension(
+        dimensions.width ?? dimensions.widthPx,
+      );
+      const height = finiteImageDimension(
+        dimensions.height ?? dimensions.heightPx,
+      );
+      receipts.push({
+        ...promoted,
+        mimeType: block.mimeType,
+        ...(width ? { width } : {}),
+        ...(height ? { height } : {}),
+        origin: {
+          timestamp: message.timestamp,
+          role: message.role,
+          ...(payload?.role === "toolResult"
+            ? { toolName: payload.toolName }
+            : {}),
+        },
+      });
+    }
+  }
+  return receipts;
+};
+
+const latestDurableCheckpointImageReceipts = (
+  messages: StoredThreadMessage[],
+): ThreadImageReceipt[] => {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    if (!parseThreadCheckpoint(message.content)) continue;
+    return (message.checkpointImageReceipts ?? []).filter(
+      (receipt) => receipt.artifact.durability === "durable",
+    );
+  }
+  return [];
+};
+
+const mergeThreadImageReceipts = (
+  inherited: ThreadImageReceipt[],
+  current: ThreadImageReceipt[],
+): ThreadImageReceipt[] => {
+  const byId = new Map<string, ThreadImageReceipt>();
+  for (const receipt of [...inherited, ...current]) {
+    const existing = byId.get(receipt.id);
+    if (
+      !existing ||
+      (existing.artifact.durability !== "durable" &&
+        receipt.artifact.durability === "durable")
+    ) {
+      byId.set(receipt.id, receipt);
+    }
+  }
+  return [...byId.values()];
+};
+
 export const resolveOrchestratorThreadKey = (conversationId: string): string =>
   conversationId;
 
@@ -951,7 +1277,15 @@ export const parseThreadCheckpoint = (
     }
   }
 
-  const summary = lines.slice(bodyStart).join("\n").trim();
+  const summaryWithReceipts = lines.slice(bodyStart).join("\n").trim();
+  const receiptStart = summaryWithReceipts.indexOf(
+    '\n<image-receipts version="1">\n',
+  );
+  const summary = (
+    receiptStart >= 0
+      ? summaryWithReceipts.slice(0, receiptStart)
+      : summaryWithReceipts
+  ).trim();
   if (!summary) {
     return null;
   }
@@ -1615,28 +1949,60 @@ export const maybeCompactRuntimeThread = async (args: {
    */
   stellaDataDir?: string;
 }): Promise<ThreadCompactionResult> => {
+  const compactionStartedAt = Date.now();
+  const forcedBeforeProbe = isThreadCompactionForced(args.threadKey);
+  const narrowProbe =
+    typeof args.store.getThreadContextPressureStats === "function"
+      ? args.store.getThreadContextPressureStats(args.threadKey)
+      : null;
+  const initialRelevantQuarantineCount =
+    narrowProbe?.complete === true ? narrowProbe.quarantineCount : null;
+  if (
+    !forcedBeforeProbe &&
+    narrowProbe?.complete === true &&
+    narrowProbe.quarantineCount === 0 &&
+    narrowProbe.imageCount <= MAX_ACTIVE_THREAD_IMAGES &&
+    narrowProbe.imageDecodedBytes <= ACTIVE_THREAD_IMAGE_DECODED_BYTE_BUDGET &&
+    Math.max(
+      narrowProbe.estimatedTokens,
+      getLastProviderPayloadTokens(args.threadKey) ?? 0,
+    ) < getCompactionTriggerTokens(args.resolvedLlm, args.agentType)
+  ) {
+    return { compacted: false };
+  }
   let storedMessages = args.store.loadThreadMessages(args.threadKey);
   if (storedMessages.length === 0) {
     return { compacted: false };
   }
+  const inheritedImageReceipts =
+    latestDurableCheckpointImageReceipts(storedMessages);
+  const checkpointQuarantineKeys =
+    latestCheckpointQuarantineKeys(storedMessages);
 
+  // A complete narrow probe distinguishes active/unresolved quarantine rows
+  // from historical rows already masked by the effective checkpoint. Only the
+  // former require reconstructing the append-only log; otherwise doing so
+  // needlessly pages old chunked screenshot payloads back into memory.
+  const inspectRawQuarantine =
+    initialRelevantQuarantineCount === null ||
+    initialRelevantQuarantineCount > 0;
   const rawStoredMessages =
+    inspectRawQuarantine &&
     typeof args.store.loadRawThreadMessages === "function"
       ? args.store.loadRawThreadMessages(args.threadKey)
       : null;
-  // Quarantine records are durable control data, not summary content. An
-  // effective checkpoint may cover their custom rows, so always discover keys
-  // from the append-only view when the store provides one.
-  let quarantineKeys = quarantinedToolResultKeys(
-    rawStoredMessages ?? storedMessages,
-  );
+  // Carry forward checkpoint-confirmed keys even when the cheap path can skip
+  // raw history. Successor checkpoints must retain that proof so the same
+  // covered records remain resolved on future probes.
+  let quarantineKeys = new Set([
+    ...checkpointQuarantineKeys,
+    ...quarantinedToolResultKeys(rawStoredMessages ?? storedMessages),
+  ]);
   const effectiveToolResultKeys = new Set(
     storedMessages
       .filter((message: any) => message.payload?.role === "toolResult")
       .map((message: any) => toolResultQuarantineKey(message)),
   );
-  const checkpointQuarantineKeys =
-    latestCheckpointQuarantineKeys(storedMessages);
   const rebuildUnsafeCheckpoint =
     quarantineKeys.size > 0 &&
     storedMessages.some((message: any) =>
@@ -1655,12 +2021,16 @@ export const maybeCompactRuntimeThread = async (args: {
     // historical context is retained while the offending result is masked.
     storedMessages =
       rawStoredMessages ?? args.store.loadRawThreadMessages(args.threadKey);
-    quarantineKeys = quarantinedToolResultKeys(storedMessages);
+    quarantineKeys = new Set([
+      ...checkpointQuarantineKeys,
+      ...quarantinedToolResultKeys(storedMessages),
+    ]);
   }
 
   const policy = resolveCompactionSplitPolicy(args.agentType);
   const totalTokens = getThreadTokenEstimate(storedMessages);
-  const forced = isThreadCompactionForced(args.threadKey);
+  const forced = forcedBeforeProbe;
+  const imageHistory = getThreadImageHistoryStats(storedMessages);
   // The trigger measures what the provider actually receives: the last
   // preflight-measured full outbound payload (system prompt + tool schemas +
   // resident context + history). The history-only estimate is the floor for
@@ -1672,6 +2042,7 @@ export const maybeCompactRuntimeThread = async (args: {
   );
   if (
     !forced &&
+    !imageHistory.overBudget &&
     !rebuildUnsafeCheckpoint &&
     measuredTokens <
       getCompactionTriggerTokens(args.resolvedLlm, args.agentType)
@@ -1684,8 +2055,12 @@ export const maybeCompactRuntimeThread = async (args: {
     storedMessages,
   );
   const keepRecentTokens = resolveKeepRecentTokens(args.resolvedLlm, policy);
-  let splitMessages =
-    policy === "general"
+  // Ordinary turns remain byte-identical. Image removal happens only here,
+  // at the already-cache-breaking checkpoint overlay, and the prospective
+  // splitter is allowed to compact a single oversized newest message.
+  let splitMessages = imageHistory.overBudget
+    ? splitThreadMessagesForImagePressure(storedMessages)
+    : policy === "general"
       ? splitGeneralThreadMessagesForCompaction(
           storedMessages,
           protectHead,
@@ -1700,7 +2075,11 @@ export const maybeCompactRuntimeThread = async (args: {
             ? Math.max(0, Math.floor(args.preserveLastN))
             : THREAD_COMPACTION_MIN_TAIL_MESSAGES,
         );
-  if (!splitMessages && (forced || rebuildUnsafeCheckpoint)) {
+  if (
+    !splitMessages &&
+    (forced || rebuildUnsafeCheckpoint) &&
+    !imageHistory.overBudget
+  ) {
     // Emergency split for an overflow that the standard cut points cannot
     // relieve (e.g. a few enormous messages inside the protected head or
     // tail). Only the orchestrator's bootstrap docs stay pinned; everything
@@ -1724,8 +2103,36 @@ export const maybeCompactRuntimeThread = async (args: {
           );
   }
   if (!splitMessages) {
+    logger.error("thread.compaction.no-safe-split", {
+      threadKey: args.threadKey,
+      reason: imageHistory.overBudget ? "image-pressure" : "token-pressure",
+      imageCount: imageHistory.count,
+      imageDecodedBytes: imageHistory.decodedBytes,
+    });
     return { compacted: false };
   }
+
+  const triggerReason = imageHistory.overBudget
+    ? "image-pressure"
+    : rebuildUnsafeCheckpoint
+      ? "quarantine-rebuild"
+      : forced
+        ? "forced"
+        : "token-pressure";
+  logger.info("thread.compaction.started", {
+    threadKey: args.threadKey,
+    model: args.resolvedLlm.model.id,
+    reason: triggerReason,
+    policy,
+    cacheBoundary: "checkpoint-overlay",
+    tokensBefore: totalTokens,
+    measuredTokens,
+    imageCountBefore: imageHistory.count,
+    imageDecodedBytesBefore: imageHistory.decodedBytes,
+    compactedMessageCount:
+      splitMessages.middleMessages.length +
+      (splitMessages.turnPrefixMessages?.length ?? 0),
+  });
 
   const summaryMiddleMessages = maskQuarantinedCompactionMessages(
     splitMessages.middleMessages,
@@ -1734,6 +2141,16 @@ export const maybeCompactRuntimeThread = async (args: {
   const summaryTurnPrefixMessages = maskQuarantinedCompactionMessages(
     splitMessages.turnPrefixMessages ?? [],
     quarantineKeys,
+  );
+  // This structured receipt is produced by the harness, not by the summary
+  // model. The store renders it as a separate checkpoint section, so receipt
+  // presence/content cannot depend on whether the model mentions an image.
+  const imageReceipts = mergeThreadImageReceipts(
+    inheritedImageReceipts,
+    collectThreadImageReceipts(
+      [...summaryMiddleMessages, ...summaryTurnPrefixMessages],
+      args.stellaDataDir,
+    ),
   );
 
   const durableMemoryReference =
@@ -1889,6 +2306,7 @@ export const maybeCompactRuntimeThread = async (args: {
           modifiedFiles: generalFileOps.modifiedFiles,
         }
       : {}),
+    ...(imageReceipts.length > 0 ? { imageReceipts } : {}),
   };
 
   // Quarantine can engage while the summary provider call is in flight. A
@@ -1905,16 +2323,36 @@ export const maybeCompactRuntimeThread = async (args: {
       await sleep(COMPACTION_STORE_WRITE_RETRY_DELAYS_MS[attempt - 1]!);
     }
     try {
-      const latestQuarantineKeys = quarantinedToolResultKeys(
-        typeof args.store.loadRawThreadMessages === "function"
-          ? args.store.loadRawThreadMessages(args.threadKey)
-          : args.store.loadThreadMessages(args.threadKey),
-      );
-      if ([...latestQuarantineKeys].some((key) => !quarantineKeys.has(key))) {
+      const latestNarrowProbe =
+        typeof args.store.getThreadContextPressureStats === "function"
+          ? args.store.getThreadContextPressureStats(args.threadKey)
+          : null;
+      const relevantQuarantineGrew =
+        initialRelevantQuarantineCount !== null &&
+        latestNarrowProbe?.complete === true
+          ? latestNarrowProbe.quarantineCount > initialRelevantQuarantineCount
+          : null;
+      const latestQuarantineKeys =
+        relevantQuarantineGrew === null
+          ? quarantinedToolResultKeys(
+              typeof args.store.loadRawThreadMessages === "function"
+                ? args.store.loadRawThreadMessages(args.threadKey)
+                : args.store.loadThreadMessages(args.threadKey),
+            )
+          : null;
+      if (
+        relevantQuarantineGrew === true ||
+        (latestQuarantineKeys !== null &&
+          [...latestQuarantineKeys].some((key) => !quarantineKeys.has(key)))
+      ) {
         logger.warn("thread.compaction.quarantine-changed-before-write", {
           threadKey: args.threadKey,
-          quarantineCountBefore: quarantineKeys.size,
-          quarantineCountAfter: latestQuarantineKeys.size,
+          quarantineCountBefore:
+            initialRelevantQuarantineCount ?? quarantineKeys.size,
+          quarantineCountAfter:
+            latestNarrowProbe?.complete === true
+              ? latestNarrowProbe.quarantineCount
+              : (latestQuarantineKeys?.size ?? 0),
         });
         return { compacted: false };
       }
@@ -1927,6 +2365,23 @@ export const maybeCompactRuntimeThread = async (args: {
         ...(Object.keys(details).length > 0 ? { details } : {}),
       });
       args.store.updateThreadSummary(args.threadKey, summary);
+      const effectiveAfter = args.store.loadThreadMessages(args.threadKey);
+      const imageHistoryAfter = getThreadImageHistoryStats(effectiveAfter);
+      logger.info("thread.compaction.completed", {
+        threadKey: args.threadKey,
+        model: args.resolvedLlm.model.id,
+        reason: triggerReason,
+        cacheBoundary: "checkpoint-overlay",
+        durationMs: Date.now() - compactionStartedAt,
+        tokensBefore: totalTokens,
+        tokensAfter: getThreadTokenEstimate(effectiveAfter),
+        imageCountBefore: imageHistory.count,
+        imageCountAfter: imageHistoryAfter.count,
+        imageDecodedBytesBefore: imageHistory.decodedBytes,
+        imageDecodedBytesAfter: imageHistoryAfter.decodedBytes,
+        imageReceiptCount: imageReceipts.length,
+        postCheckpointImageBudgetSatisfied: !imageHistoryAfter.overBudget,
+      });
       return { compacted: true };
     } catch (error) {
       if (attempt === COMPACTION_STORE_WRITE_RETRY_DELAYS_MS.length) {

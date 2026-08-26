@@ -126,9 +126,23 @@ function sanitizeOwnerLeaseState(raw) {
         Number.isSafeInteger(value.issuedAt) &&
         value.issuedAt > 0
       ) {
+        const markedTabs = createRecord();
+        if (value.markedTabs && typeof value.markedTabs === "object") {
+          for (const [tabId, status] of Object.entries(value.markedTabs)) {
+            const parsedTabId = Number(tabId);
+            if (
+              Number.isInteger(parsedTabId) &&
+              parsedTabId > 0 &&
+              (status === "handoff" || status === "deliverable")
+            ) {
+              markedTabs[String(parsedTabId)] = status;
+            }
+          }
+        }
         next[normalizedOwnerId] = {
           id: value.id.trim(),
           issuedAt: value.issuedAt,
+          markedTabs,
         };
       }
     } catch {}
@@ -255,7 +269,7 @@ export async function authorizeOwnerLease(command) {
 
   if (leaseId == null && issuedAt == null) {
     throw new Error(
-      `Browser protocol mismatch for owner "${ownerId}": this command has no owner lease. Update Stella and the Stella Browser extension to 1.2.6 or newer.`,
+      `Browser protocol mismatch for owner "${ownerId}": this command has no owner lease. Update Stella and the Stella Browser extension to 1.2.12 or newer.`,
     );
   }
   if (typeof leaseId !== "string" || !leaseId.trim()) {
@@ -265,10 +279,16 @@ export async function authorizeOwnerLease(command) {
     throw new Error("ownerLeaseIssuedAt must be a positive integer");
   }
 
-  const normalizedLease = { id: leaseId.trim(), issuedAt };
+  const normalizedLease = {
+    id: leaseId.trim(),
+    issuedAt,
+    markedTabs: createRecord(),
+  };
   if (current?.id === normalizedLease.id) {
     if (current.issuedAt !== normalizedLease.issuedAt) {
-      throw new Error(`Browser owner lease timestamp changed for owner "${ownerId}"`);
+      throw new Error(
+        `Browser owner lease timestamp changed for owner "${ownerId}"`,
+      );
     }
     return { ownerId, lease: normalizedLease };
   }
@@ -307,7 +327,8 @@ export async function releaseOwnerLease(command) {
 }
 
 export async function assertCurrentOwnerLease(command) {
-  if (command?.ownerLeaseId == null && command?.ownerLeaseIssuedAt == null) return;
+  if (command?.ownerLeaseId == null && command?.ownerLeaseIssuedAt == null)
+    return;
   await loadState();
   const ownerId = getCommandOwnerId(command);
   const current = ownerLeaseState[ownerId];
@@ -320,6 +341,40 @@ export async function assertCurrentOwnerLease(command) {
       `Stale browser owner lease rejected for owner "${ownerId}"; a replacement kernel already owns this browser session.`,
     );
   }
+}
+
+export async function handleMarkTab(command) {
+  await assertCurrentOwnerLease(command);
+  const ownerId = getCommandOwnerId(command);
+  const currentLease = ownerLeaseState[ownerId];
+  if (
+    !currentLease ||
+    currentLease.id !== command?.ownerLeaseId ||
+    currentLease.issuedAt !== command?.ownerLeaseIssuedAt
+  ) {
+    throw new Error(
+      `mark_tab requires the current owner lease for owner "${ownerId}"`,
+    );
+  }
+
+  const tabId = getRequestedTabId(command);
+  if (tabId == null) throw new Error("mark_tab requires tabId");
+  if (command?.status !== "handoff" && command?.status !== "deliverable") {
+    throw new Error('mark_tab status must be "handoff" or "deliverable"');
+  }
+
+  const tabs = await getOwnerTabs(ownerId);
+  if (!tabs.some((tab) => tab.id === tabId)) {
+    throw new Error(`Tab ${tabId} is not owned by the mark_tab command owner`);
+  }
+
+  currentLease.markedTabs[String(tabId)] = command.status;
+  await saveState();
+  return {
+    id: command.id,
+    success: true,
+    data: { tabId, status: command.status },
+  };
 }
 
 /**
@@ -874,7 +929,9 @@ function validateKeepEntries(keep, ownedTabIds) {
       );
     }
     if (seen.has(entry.tabId)) {
-      throw new Error(`finalize_tabs keep contains duplicate tabId ${entry.tabId}`);
+      throw new Error(
+        `finalize_tabs keep contains duplicate tabId ${entry.tabId}`,
+      );
     }
     if (!ownedTabIds.has(entry.tabId)) {
       throw new Error(
@@ -891,7 +948,24 @@ export async function finalizeOwnerTabs(command, keep = command?.keep ?? []) {
   const ownerId = getCommandOwnerId(command);
   const tabs = await getOwnerTabs(ownerId);
   const ownedTabIds = new Set(tabs.map((tab) => tab.id));
+  if (
+    command?.preserveMarked !== undefined &&
+    typeof command.preserveMarked !== "boolean"
+  ) {
+    throw new Error("finalize_tabs preserveMarked must be a boolean");
+  }
   const keepEntries = validateKeepEntries(keep, ownedTabIds);
+  if (command?.preserveMarked === true) {
+    const keptTabIds = new Set(keepEntries.map((entry) => entry.tabId));
+    const markedTabs = ownerLeaseState[ownerId]?.markedTabs ?? {};
+    for (const [rawTabId, status] of Object.entries(markedTabs)) {
+      const tabId = Number(rawTabId);
+      if (ownedTabIds.has(tabId) && !keptTabIds.has(tabId)) {
+        keepEntries.push({ tabId, status });
+        keptTabIds.add(tabId);
+      }
+    }
+  }
   const releasedTabIds = keepEntries.map((entry) => entry.tabId);
   const releasedSet = new Set(releasedTabIds);
   const closedTabIds = tabs
@@ -941,11 +1015,22 @@ export async function finalizeOwnerTabs(command, keep = command?.keep ?? []) {
   await validateAgentWindowAfterClose();
   if (failures.length > 0) {
     const details = failures
-      .map(({ tabId, operation, error }) =>
-        `${operation} tab ${tabId}: ${error?.message || String(error)}`,
+      .map(
+        ({ tabId, operation, error }) =>
+          `${operation} tab ${tabId}: ${error?.message || String(error)}`,
       )
       .join("; ");
     throw new Error(`Failed to finalize owner tabs; ${details}`);
+  }
+
+  const currentLease = ownerLeaseState[ownerId];
+  if (
+    currentLease &&
+    currentLease.id === command?.ownerLeaseId &&
+    currentLease.issuedAt === command?.ownerLeaseIssuedAt
+  ) {
+    currentLease.markedTabs = createRecord();
+    await saveState();
   }
 
   return {

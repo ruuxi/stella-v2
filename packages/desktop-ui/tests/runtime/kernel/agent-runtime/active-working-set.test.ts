@@ -670,6 +670,106 @@ describe("Pi active-turn working set", () => {
     ).toBe(true);
     session.dispose();
   });
+
+  it("synchronously gates a low-token active loop with nine images", async () => {
+    const { session } = createSession();
+    const scheduler = new BackgroundCompactionScheduler();
+    let finishCompaction!: (value: { compacted: boolean }) => void;
+    runCompactionWithHooks.mockImplementation(
+      () =>
+        new Promise<{ compacted: boolean }>((resolve) => {
+          finishCompaction = resolve;
+        }),
+    );
+    const imageResult = {
+      role: "toolResult" as const,
+      toolCallId: "nine-images",
+      toolName: "screenshot",
+      content: Array.from({ length: 9 }, () => ({
+        type: "image" as const,
+        mimeType: "image/png",
+        data: "YQ==",
+      })),
+      isError: false,
+      timestamp: 30,
+    };
+    const store = {
+      getThreadContextPressureStats: vi.fn(() => ({
+        complete: true,
+        estimatedTokens: 2_000,
+        imageCount: 9,
+        imageDecodedBytes: 9,
+      })),
+      loadThreadMessages: vi.fn(),
+    };
+    const onCompacting = vi.fn();
+    const args = createArgs(store, scheduler);
+    args.messages = [imageResult];
+    args.completedMessages = [imageResult];
+
+    let settled = false;
+    const refresh = session
+      .refreshActiveWorkingSetAtBoundary({ ...args, onCompacting })
+      .finally(() => {
+        settled = true;
+      });
+    await vi.waitFor(() =>
+      expect(runCompactionWithHooks).toHaveBeenCalledOnce(),
+    );
+    expect(settled).toBe(false);
+    expect(onCompacting).toHaveBeenCalledOnce();
+    expect(store.loadThreadMessages).not.toHaveBeenCalled();
+
+    finishCompaction({ compacted: false });
+    await expect(refresh).resolves.toBeUndefined();
+    session.dispose();
+  });
+
+  it("waits on pending compaction for image pressure below the token guard", async () => {
+    const { session } = createSession();
+    const scheduler = new BackgroundCompactionScheduler();
+    let finishPending!: () => void;
+    const pending = scheduler.schedule({
+      threadKey: "thread-working-set",
+      run: () =>
+        new Promise<void>((resolve) => {
+          finishPending = resolve;
+        }),
+    });
+    await vi.waitFor(() => expect(finishPending).toBeTypeOf("function"));
+    const store = {
+      getThreadContextPressureStats: vi.fn(() => ({
+        complete: true,
+        estimatedTokens: 2_000,
+        imageCount: 9,
+        imageDecodedBytes: 9,
+      })),
+      loadThreadMessages: vi.fn(),
+    };
+    const onCompacting = vi.fn();
+    let settled = false;
+    const gate = session
+      .awaitPendingCompactionBeforeTurn({
+        compactionScheduler: scheduler,
+        store,
+        resolvedLlm: { model },
+        mode: "guard",
+        onCompacting,
+        logContext: {},
+      })
+      .finally(() => {
+        settled = true;
+      });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(onCompacting).toHaveBeenCalledOnce();
+    expect(store.loadThreadMessages).not.toHaveBeenCalled();
+
+    finishPending();
+    await pending;
+    await gate;
+    session.dispose();
+  });
 });
 
 describe("Orchestrator active-turn boundary integration", () => {
@@ -683,10 +783,7 @@ describe("Orchestrator active-turn boundary integration", () => {
   it("preserves the abort-containment tail across a page-in", async () => {
     const session = new OrchestratorSession("boundary-containment");
     const originalMessages = userMessages(20);
-    const replacement = [
-      ...userMessages(5),
-      ...originalMessages.slice(18),
-    ];
+    const replacement = [...userMessages(5), ...originalMessages.slice(18)];
     const containmentTurn = {
       messagesBefore: 15,
       failureMessagesBefore: 15,
@@ -850,16 +947,14 @@ describe("Orchestrator active-turn boundary integration", () => {
           },
         },
         stopReason: "error",
-        errorMessage:
-          'Provider aborted the response (stop reason: "refusal").',
+        errorMessage: 'Provider aborted the response (stop reason: "refusal").',
         timestamp: 12,
       },
     ];
     session.noteAbortContainmentFailure(agent as never, {
       messagesBefore: containmentTurn.messagesBefore,
       failureMessagesBefore: containmentTurn.failureMessagesBefore,
-      errorMessage:
-        'Provider aborted the response (stop reason: "refusal").',
+      errorMessage: 'Provider aborted the response (stop reason: "refusal").',
     });
 
     expect(

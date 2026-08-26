@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { readFile, rm } from "node:fs/promises";
 import {
   createExternalNodeReplTransport,
   isBunNodeReplRuntime,
@@ -344,10 +345,10 @@ describe("persistent Node REPL kernels", () => {
         [
           "await Promise.all([",
           "  sky.batch([",
-          "    { type: 'click', app: 'Notes', element_index: 1 },",
-          "    { type: 'set_value', app: 'Notes', element_index: 2, value: 'done' },",
+          "    { type: 'click', app: 'Notes', element_index: 1, state_id: 'known-notes-state' },",
+          "    { type: 'set_value', app: 'Notes', element_index: 2, value: 'done', state_id: 'known-notes-state' },",
           "  ]),",
-          "  sky.press_key({ app: 'Notes', key: 'ENTER' }),",
+          "  sky.press_key({ app: 'Notes', key: 'ENTER', state_id: 'known-notes-state' }),",
           "])",
         ].join("\n"),
         context("agent-serialized"),
@@ -732,6 +733,124 @@ describe("persistent Node REPL kernels", () => {
     }
   });
 
+  it("uses a bound handle's backend for post-cell tab state and preview metadata", async () => {
+    const jpeg = Buffer.from("bound-backend-presentation");
+    const command = vi.fn(async (action: string) => {
+      const data =
+        action === "tab_list"
+          ? {
+              tabs: [
+                {
+                  tabId: 44,
+                  url: "https://example.test/in-app",
+                  active: true,
+                },
+              ],
+              activeTabId: 44,
+            }
+          : action === "screenshot"
+            ? { base64: jpeg.toString("base64"), format: "jpeg" }
+            : { ok: true };
+      return {
+        sessionId: "agent-bound-preview",
+        bridgeSessionId: "stella-app-bridge",
+        requestId: `request-${command.mock.calls.length}`,
+        action,
+        params: {},
+        result: { id: "response", success: true as const, data },
+        attempts: 1,
+        durationMs: 1,
+      };
+    });
+    const chain = vi.fn(async () => ({
+      sessionId: "agent-bound-preview",
+      bridgeSessionId: "stella-app-bridge",
+      requestId: "request-chain",
+      action: "chain",
+      params: {},
+      result: {
+        id: "response-chain",
+        success: true as const,
+        data: {
+          results: [
+            { step: 0, action: "evaluate", success: true, data: true },
+            {
+              step: 1,
+              action: "click",
+              success: true,
+              data: { clicked: true },
+            },
+          ],
+          completed: 2,
+          total: 2,
+          totalDurationMs: 1,
+        },
+      },
+      attempts: 1,
+      durationMs: 1,
+    }));
+    const selectBackend = vi.fn(async (backend: "in-app" | "external") => ({
+      backend,
+    }));
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: defaultSessionFactory,
+      idleTimeoutMs: 60_000,
+      browserSessionFactory: () =>
+        ({
+          command,
+          chain,
+          selectBackend,
+          dispose: vi.fn(async () => undefined),
+        }) as unknown as BrowserSessionClient,
+    });
+    try {
+      const onResponseMeta = vi.fn();
+      await registry.evaluate(
+        [
+          "var boundTab = browser.tabs.get(44)",
+          "await browser.use('external')",
+          "await boundTab.playwright.locator('.row').filter({hasText: 'Save'}).click()",
+        ].join("; "),
+        context("agent-bound-preview"),
+        { onResponseMeta },
+      );
+
+      expect(selectBackend).toHaveBeenCalledWith("external");
+      expect(selectBackend).toHaveBeenCalledTimes(1);
+      expect(chain).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ action: "evaluate" }),
+          expect.objectContaining({ action: "click" }),
+        ]),
+        expect.objectContaining({
+          __stellaBrowserBackend: "in-app",
+          abortOnError: false,
+          waitForSelector: false,
+        }),
+      );
+      expect(command.mock.calls.map(([action]) => action)).toEqual([
+        "evaluate",
+        "tab_list",
+        "screenshot",
+      ]);
+      for (const index of [0, 1, 2]) {
+        expect(command.mock.calls[index]?.[1]).toMatchObject({
+          __stellaBrowserBackend: "in-app",
+        });
+      }
+      expect(onResponseMeta).toHaveBeenCalledWith(
+        expect.objectContaining({
+          "stella/toolSurface": expect.objectContaining({
+            backend: "iab",
+            screenshot: expect.objectContaining({ tabId: "44" }),
+          }),
+        }),
+      );
+    } finally {
+      await registry.dispose();
+    }
+  });
+
   it("captures the newly active tab after a successful tab close", async () => {
     const jpeg = Buffer.from("post-close-active-tab");
     const command = vi.fn(async (action: string) => {
@@ -893,7 +1012,10 @@ describe("persistent Node REPL kernels", () => {
         .catch((cause: unknown) => cause as Error);
       expect(error.message).toContain("Element is covered");
       expect(error.message).not.toContain("[stella-attach-image]");
-      expect(command.mock.calls.map(([action]) => action)).toEqual(["click"]);
+      expect(command.mock.calls.map(([action]) => action)).toEqual([
+        "click",
+        "evaluate",
+      ]);
       expect(onResponseMeta).not.toHaveBeenCalled();
     } finally {
       await registry.dispose();
@@ -955,6 +1077,7 @@ describe("persistent Node REPL kernels", () => {
       expect(command.mock.calls.map(([action]) => action)).toEqual([
         "fill",
         "click",
+        "evaluate",
         "tab_list",
         "screenshot",
       ]);
@@ -1219,7 +1342,7 @@ describe("persistent Node REPL kernels", () => {
     });
     try {
       const pending = registry.evaluate(
-        "await Promise.all([sky.click({ app: 'Notes', element_index: 1 }), sky.click({ app: 'Notes', element_index: 2 })])",
+        "await Promise.all([sky.click({ app: 'Notes', element_index: 1, state_id: 'known-state' }), sky.click({ app: 'Notes', element_index: 2, state_id: 'known-state' })])",
         context("agent-cancelled"),
         { signal: controller.signal },
       );
@@ -1241,17 +1364,174 @@ describe("persistent Node REPL kernels", () => {
           "nodeRepl.write(nodeRepl.cwd)",
           "nodeRepl.write(nodeRepl.homeDir === nodeRepl.home, nodeRepl.tmpDir === nodeRepl.tmp)",
           "nodeRepl.write(Object.isFrozen(sky))",
+          "nodeRepl.write(JSON.stringify(nodeRepl.status()))",
+          "nodeRepl.write(nodeRepl.help('bindings'))",
+          "nodeRepl.write(nodeRepl.emitImage({ attached: true, path: '/tmp/already.png' }))",
           "await nodeRepl.emitImage('file:///tmp/screen%20shot.png')",
         ].join("; "),
         context("agent-a"),
       );
       expect(output).toContain(TEST_WORKSPACE_ROOT);
       expect(output).toContain("true true");
+      expect(output).toContain('"generation":1');
+      expect(output).toContain("Use var for names you may redeclare");
+      expect(output).toContain("{ type: 'image'");
+      expect(output).toContain("attached: true");
+      expect(output.match(/\[stella-attach-image\]/g)).toHaveLength(1);
       expect(output).toContain(
         `[stella-attach-image] path=${JSON.stringify("/tmp/screen shot.png")}`,
       );
     } finally {
       registry.dispose();
+    }
+  });
+
+  it("keeps text, image, and audio output typed until the compatibility boundary", async () => {
+    const registry = createRegistry();
+    try {
+      const result = await registry.evaluateDetailed(
+        [
+          "nodeRepl.write('hello')",
+          "nodeRepl.emitImage('/tmp/image.png', { mimeType: 'image/png', detail: 'original' })",
+          "nodeRepl.emitAudio('/tmp/audio.mp3', { mimeType: 'audio/mpeg' })",
+          "'done'",
+        ].join("; "),
+        context("agent-typed-content"),
+      );
+      expect(result.content).toEqual([
+        { type: "text", text: "hello" },
+        {
+          type: "image",
+          path: "/tmp/image.png",
+          mimeType: "image/png",
+          detail: "original",
+        },
+        { type: "audio", path: "/tmp/audio.mp3", mimeType: "audio/mpeg" },
+        { type: "text", text: "'done'" },
+      ]);
+      expect(result.output).toContain(
+        '[stella-attach-image] inline=image/png detail=original path="/tmp/image.png"',
+      );
+      expect(result.output).toContain(
+        '[node-repl-audio] mime=audio/mpeg path="/tmp/audio.mp3"',
+      );
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("resets explicitly with generation metadata and discards bindings", async () => {
+    const registry = createRegistry();
+    try {
+      const reset = await registry.evaluate(
+        "var beforeReset = 42; nodeRepl.reset()",
+        context("agent-reset"),
+      );
+      expect(reset).toContain("previousGeneration: 1");
+      expect(reset).toContain("nextGeneration: 2");
+      expect(reset).toContain("bindingsDiscarded: true");
+
+      const status = await registry.evaluate(
+        "nodeRepl.status()",
+        context("agent-reset"),
+      );
+      expect(status).toContain("generation: 2");
+      await expect(
+        registry.evaluate("beforeReset", context("agent-reset")),
+      ).rejects.toThrow("beforeReset is not defined");
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("commits an explicit reset when the same evaluation later throws", async () => {
+    const registry = createRegistry();
+    try {
+      const failed = await registry.startCell(
+        "var discardedAfterResetError = 42; nodeRepl.reset(); throw new Error('failure after reset')",
+        context("agent-reset-error"),
+        { yieldTimeMs: 2_000 },
+      );
+      expect(failed).toMatchObject({
+        status: "failed",
+        generation: 1,
+        error: expect.stringContaining("failure after reset"),
+        reset: {
+          reason: "explicit",
+          previousGeneration: 1,
+          nextGeneration: 2,
+          bindingsDiscarded: true,
+        },
+      });
+      await expect(
+        registry.evaluate("nodeRepl.status()", context("agent-reset-error")),
+      ).resolves.toContain("generation: 2");
+      await expect(
+        registry.evaluate(
+          "typeof discardedAfterResetError",
+          context("agent-reset-error"),
+        ),
+      ).resolves.toBe("'undefined'");
+    } finally {
+      await registry.dispose();
+    }
+  });
+
+  it("transfers reset-closing browser screenshots before kernel cleanup", async () => {
+    const png = Buffer.from("kernel-owned-browser-screenshot");
+    const command = vi.fn(async (action: string) => ({
+      sessionId: "agent-screenshot-reset",
+      bridgeSessionId: "stella-app-bridge",
+      requestId: `request-${command.mock.calls.length}`,
+      action,
+      params: {},
+      result: {
+        id: "response",
+        success: true as const,
+        data: { base64: png.toString("base64"), format: "png" },
+      },
+      attempts: 1,
+      durationMs: 1,
+    }));
+    const registry = new NodeReplKernelRegistry({
+      sessionFactory: defaultSessionFactory,
+      idleTimeoutMs: 60_000,
+      browserSessionFactory: () =>
+        ({
+          command,
+          chain: vi.fn(),
+          dispose: vi.fn(async () => undefined),
+        }) as unknown as BrowserSessionClient,
+    });
+    let screenshotPath: string | undefined;
+    try {
+      const result = await registry.evaluateDetailed(
+        "await browser.tabs.get(44).screenshot({ format: 'png' }); nodeRepl.reset()",
+        context("agent-screenshot-reset"),
+      );
+      const image = result.content.find((item) => item.type === "image");
+      expect(image).toMatchObject({
+        type: "image",
+        mimeType: "image/png",
+        deleteAfterAttach: true,
+      });
+      if (!image || image.type !== "image") {
+        throw new Error("Expected a typed browser screenshot.");
+      }
+      screenshotPath = image.path;
+
+      // Starting the next generation guarantees the reset-closing kernel has
+      // handed off the result. Its temp cleanup must no longer own this file.
+      await expect(
+        registry.evaluate(
+          "nodeRepl.status()",
+          context("agent-screenshot-reset"),
+        ),
+      ).resolves.toContain("generation: 2");
+      await expect(readFile(screenshotPath)).resolves.toEqual(png);
+    } finally {
+      await registry.dispose();
+      if (screenshotPath) await rm(screenshotPath, { force: true });
     }
   });
 
@@ -1262,7 +1542,9 @@ describe("persistent Node REPL kernels", () => {
         registry.evaluate("await new Promise(() => {})", context("agent-a"), {
           timeoutMs: 10,
         }),
-      ).rejects.toThrow("timed out");
+      ).rejects.toThrow(
+        /timed out.*reason=timeout generation=1 previousGeneration=1 nextGeneration=2 bindingsDiscarded=true/,
+      );
       await registry.evaluate("const afterTimeout = 1", context("agent-a"));
       await new Promise((resolve) => setTimeout(resolve, 30));
       await expect(
@@ -1358,7 +1640,7 @@ describe("persistent Node REPL kernels", () => {
           "const apps = await sky.list_apps()",
           "const firstState = await sky.get_app_state({ app: 'Notes' })",
           "const secondState = await sky.get_app_state({ app: 'Notes' })",
-          "await sky.batch([{ type: 'click', app: 'Notes', element_index: 4 }])",
+          "await sky.batch([{ type: 'click', app: 'Notes', element_index: 4, state_id: firstState.state_id }])",
           "nodeRepl.write(Object.isFrozen(sky), apps, firstState.screenshot.url)",
           "[firstState.text.includes('app_specific_instructions'), secondState.text.includes('app_specific_instructions')]",
         ].join("; "),

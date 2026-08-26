@@ -54,13 +54,18 @@ const copyRuntimeDirectory = (directory, extension) => {
     ) {
       continue;
     }
-    cpSync(path.join(sourceDir, entry.name), path.join(destinationDir, entry.name));
+    cpSync(
+      path.join(sourceDir, entry.name),
+      path.join(destinationDir, entry.name),
+    );
   }
 };
 
 try {
-  if (manifest.version !== "1.2.11") {
-    throw new Error(`Expected extension version 1.2.11, found ${manifest.version}.`);
+  if (manifest.version !== "1.2.12") {
+    throw new Error(
+      `Expected extension version 1.2.12, found ${manifest.version}.`,
+    );
   }
   for (const file of rootFiles) {
     cpSync(path.join(extensionDir, file), path.join(stagingDir, file));
@@ -69,7 +74,10 @@ try {
   copyRuntimeDirectory("lib", ".js");
   copyRuntimeDirectory("icons", ".png");
 
-  const background = readFileSync(path.join(stagingDir, "background.js"), "utf8");
+  const background = readFileSync(
+    path.join(stagingDir, "background.js"),
+    "utf8",
+  );
   for (const marker of [
     "chrome.cookies.onChanged",
     "queueCookieChange",
@@ -113,7 +121,13 @@ try {
     .digest("hex");
   console.log(
     JSON.stringify(
-      { outputPath, version: manifest.version, entries: archiveEntries.length, bytes, sha256 },
+      {
+        outputPath,
+        version: manifest.version,
+        entries: archiveEntries.length,
+        bytes,
+        sha256,
+      },
       null,
       2,
     ),

@@ -446,7 +446,9 @@
       },
       "steps": {
         "download": "הורד את האפליקציה",
-        "downloadQrAlt": "סרוק כדי להוריד את Stella מה-App Store",
+        "platformSelectorLabel": "בחר פלטפורמה לנייד",
+        "appStoreQrAlt": "סרוק כדי להוריד את Stella מה-App Store",
+        "playStoreQrAlt": "סרוק כדי להוריד את Stella מ-Google Play",
         "connect": "חבר את הטלפון שלך"
       },
       "toasts": {

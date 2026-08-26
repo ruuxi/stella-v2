@@ -19,8 +19,10 @@ import {
 import { createRuntimeAgent, resolveAgentThinkingLevel } from "./shared.js";
 import { buildHistorySource } from "./thread-memory.js";
 import {
+  ACTIVE_THREAD_IMAGE_DECODED_BYTE_BUDGET,
   getCompactionTriggerTokens,
   getThreadTokenEstimate,
+  MAX_ACTIVE_THREAD_IMAGES,
 } from "../thread-runtime.js";
 import {
   CONTEXT_DELTA_CUSTOM_TYPE_PREFIX,
@@ -34,6 +36,7 @@ import {
   clearProviderContextWindow,
   estimateProviderPayloadTokens,
   getLastProviderPayloadTokens,
+  getProviderPayloadImageStats,
   providerInputBudgetTokens,
   setProviderContextWindow,
   withForcedThreadCompaction,
@@ -407,14 +410,33 @@ export class PiSessionCore {
     if (!agent || !scheduler || args.signal?.aborted) return undefined;
 
     let measuredTokens = 0;
+    const liveImages = getProviderPayloadImageStats({
+      messages: args.messages,
+    });
+    const imagePressure =
+      liveImages.count > MAX_ACTIVE_THREAD_IMAGES ||
+      liveImages.decodedBytes > ACTIVE_THREAD_IMAGE_DECODED_BYTE_BUDGET;
     if (!this.pendingHistoryRefresh) {
       try {
         const lastProviderTokens = getLastProviderPayloadTokens(this.threadKey);
         if (lastProviderTokens === undefined) {
-          // Durable history already includes the completed group.
-          measuredTokens = getThreadTokenEstimate(
-            args.opts.store.loadThreadMessages(this.threadKey),
-          );
+          const narrow =
+            typeof args.opts.store.getThreadContextPressureStats === "function"
+              ? args.opts.store.getThreadContextPressureStats(this.threadKey)
+              : null;
+          // Prefer bounded SQLite metadata. If this is a legacy row,
+          // the live mirror is already exact and avoids reconstructing
+          // chunked base64 merely to perform a below-threshold probe.
+          measuredTokens = narrow?.complete
+            ? narrow.estimatedTokens
+            : narrow
+              ? estimateProviderPayloadTokens(
+                  { messages: args.messages },
+                  Number.POSITIVE_INFINITY,
+                )
+              : getThreadTokenEstimate(
+                  args.opts.store.loadThreadMessages(this.threadKey),
+                );
         } else {
           // The last measured provider payload predates this completed
           // assistant/tool group. Include it so a large tool result can
@@ -435,7 +457,7 @@ export class PiSessionCore {
         args.opts.resolvedLlm,
         args.opts.agentType,
       );
-      if (measuredTokens < triggerTokens) return undefined;
+      if (!imagePressure && measuredTokens < triggerTokens) return undefined;
       args.onCompacting?.();
     }
 
@@ -466,7 +488,7 @@ export class PiSessionCore {
           threadKey: this.threadKey,
           run: async () => {
             const result =
-              inputBudget && measuredTokens >= inputBudget
+              imagePressure || (inputBudget && measuredTokens >= inputBudget)
                 ? await withForcedThreadCompaction(
                     this.threadKey,
                     runCompaction,
@@ -720,22 +742,46 @@ export class PiSessionCore {
       const window = Number(args.resolvedLlm?.model?.contextWindow);
       if (!Number.isFinite(window) || window <= 0) return;
       let estimate: number;
+      let imagePressure = false;
+      let imageCount = 0;
       try {
-        estimate = getThreadTokenEstimate(
-          store.loadThreadMessages(this.threadKey),
-        );
+        const narrow =
+          typeof store.getThreadContextPressureStats === "function"
+            ? store.getThreadContextPressureStats(this.threadKey)
+            : null;
+        if (narrow?.complete) {
+          estimate = narrow.estimatedTokens;
+          imageCount = narrow.imageCount;
+          imagePressure =
+            narrow.imageCount > MAX_ACTIVE_THREAD_IMAGES ||
+            narrow.imageDecodedBytes >
+              ACTIVE_THREAD_IMAGE_DECODED_BYTE_BUDGET;
+        } else {
+          const history = store.loadThreadMessages(this.threadKey);
+          estimate = getThreadTokenEstimate(history);
+          const images = getProviderPayloadImageStats({ messages: history });
+          imageCount = images.count;
+          imagePressure =
+            images.count > MAX_ACTIVE_THREAD_IMAGES ||
+            images.decodedBytes > ACTIVE_THREAD_IMAGE_DECODED_BYTE_BUDGET;
+        }
       } catch {
         // Can't assess the accumulated tail — preserve the non-blocking UX
         // and let pre-generation overflow recovery catch a genuine overflow.
         return;
       }
-      if (estimate < window * ORCHESTRATOR_COMPACTION_BLOCK_WINDOW_FRACTION) {
+      if (
+        !imagePressure &&
+        estimate < window * ORCHESTRATOR_COMPACTION_BLOCK_WINDOW_FRACTION
+      ) {
         return;
       }
       this.logger.warn("compaction.block-imminent-overflow", {
         threadKey: this.threadKey,
         estimatedTokens: estimate,
         contextWindow: window,
+        imagePressure,
+        imageCount,
         ...args.logContext,
       });
     } else {

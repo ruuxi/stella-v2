@@ -183,12 +183,53 @@ describe("BrowserSession direct daemon client", () => {
       });
       expect(sharedDaemon.requests).toHaveLength(0);
 
+      await client.command("url", {
+        tabId: 7,
+        __stellaBrowserBackend: "in-app",
+      });
+      expect(inAppDaemon.requests[2]).toMatchObject({
+        action: "url",
+        tabId: 7,
+      });
+      expect(inAppDaemon.requests[2]).not.toHaveProperty("browserBackend");
+      expect(inAppDaemon.requests[2]).not.toHaveProperty(
+        "__stellaBrowserBackend",
+      );
+
+      await Promise.all([
+        client.chain([{ action: "tab_list" }], {
+          __stellaBrowserBackend: "in-app",
+        }),
+        client.chain([{ action: "tab_list" }], {
+          __stellaBrowserBackend: "external",
+        }),
+      ]);
+      expect(inAppDaemon.requests[3]).toMatchObject({ action: "chain" });
+      expect(inAppDaemon.requests[3]).not.toHaveProperty("browserBackend");
+      expect(inAppDaemon.requests[3]).not.toHaveProperty(
+        "__stellaBrowserBackend",
+      );
+      expect(inAppDaemon.requests[4]).toMatchObject({
+        action: "chain",
+        browserBackend: "extension",
+      });
+      expect(inAppDaemon.requests[4]).not.toHaveProperty(
+        "__stellaBrowserBackend",
+      );
+
+      // Per-chain routing must not disturb the selected external default.
+      await client.command("tab_list");
+      expect(inAppDaemon.requests[5]).toMatchObject({
+        action: "tab_list",
+        browserBackend: "extension",
+      });
+
       await client.selectBackend("in-app");
       await client.command("tab_list");
 
       expect(initializeInAppBrowser).toHaveBeenCalledOnce();
-      expect(inAppDaemon.requests[2]).toMatchObject({ action: "tab_list" });
-      expect(inAppDaemon.requests[2]).not.toHaveProperty("browserBackend");
+      expect(inAppDaemon.requests[6]).toMatchObject({ action: "tab_list" });
+      expect(inAppDaemon.requests[6]).not.toHaveProperty("browserBackend");
     } finally {
       await client.dispose();
       await inAppDaemon.close();
@@ -615,7 +656,13 @@ describe("BrowserSession direct daemon client", () => {
     try {
       await expect(timeoutClient.command("url")).rejects.toMatchObject({
         code: "execution_failed",
-        message: expect.stringContaining("timed out after 40ms"),
+        message: expect.stringMatching(
+          /timed out after 40ms.*timeoutMs=40 source=runtime-default dispatched=true outcome=unknown/,
+        ),
+        timeoutMs: 40,
+        timeoutSource: "runtime-default",
+        requestDispatched: true,
+        outcomeUnknown: true,
       });
     } finally {
       await timeoutClient.dispose();
@@ -1022,6 +1069,11 @@ describe("BrowserSession direct daemon client", () => {
         "release_owner_lease",
         "title",
       ]);
+      expect(daemon.requests[1]).toMatchObject({
+        action: "finalize_tabs",
+        keep: [],
+        preserveMarked: true,
+      });
       expect(daemon.requests[3]).toMatchObject({
         sessionId: "node-repl-session-1",
         turnId: "test-turn-2",
@@ -1086,7 +1138,9 @@ describe("BrowserSession direct daemon client", () => {
       await new Promise((resolve) => setImmediate(resolve));
       await expect(client.command("tab_list")).rejects.toMatchObject({
         code: "execution_failed",
-        message: expect.stringMatching(/ENOENT|Failed to connect|did not return an authorized/),
+        message: expect.stringMatching(
+          /ENOENT|Failed to connect|did not return an authorized/,
+        ),
       });
 
       await agentDaemon.start();
@@ -1315,7 +1369,6 @@ describe("BrowserSession direct daemon client", () => {
     }
   });
 
-
   it("retains root tabs while releasing browser control at turn completion", async () => {
     const daemon = createTestDaemon((request) => ({
       id: request.id,
@@ -1362,7 +1415,11 @@ describe("BrowserSession direct daemon client", () => {
           action: "finalize_tabs",
           keep: [{ tabId: 7, status: "deliverable" }],
         }),
-        expect.objectContaining({ action: "finalize_tabs", keep: [] }),
+        expect.objectContaining({
+          action: "finalize_tabs",
+          keep: [],
+          preserveMarked: true,
+        }),
         expect.objectContaining({ action: "release_owner_lease" }),
       ]);
     } finally {
@@ -1392,6 +1449,100 @@ describe("BrowserSession direct daemon client", () => {
           result: {
             success: false,
             error: "No active tab for this owner",
+          },
+        },
+      });
+    } finally {
+      await client.dispose();
+      await daemon.close();
+    }
+  });
+
+  it("adds deadline provenance to explicit daemon timeout failures", async () => {
+    const daemon = createTestDaemon((request) => ({
+      id: request.id,
+      success: false,
+      error: "waitForURL timed out",
+    }));
+    await daemon.start();
+    const client = createClient(daemon, { commandTimeoutMs: 30_000 });
+
+    try {
+      await expect(
+        client.command("waitforurl", { timeout: 1_250 }),
+      ).rejects.toMatchObject({
+        code: "command_failed",
+        message: expect.stringMatching(
+          /timeoutMs=1250 source=caller dispatched=true outcome=failed/,
+        ),
+        timeoutMs: 1_250,
+        timeoutSource: "caller",
+        requestDispatched: true,
+        outcomeUnknown: false,
+      });
+    } finally {
+      await client.dispose();
+      await daemon.close();
+    }
+  });
+
+  it("preserves unknown mutation outcome provenance from an internally timed-out chain", async () => {
+    const daemon = createTestDaemon((request) => ({
+      id: request.id,
+      success: false,
+      error:
+        "Chain step 0 (click) failed: Chain exceeded its 25ms execution budget during step 0 (click)",
+      outcomeUnknown: true,
+      outcomeUnknownReason:
+        "A state-changing chain step was dispatched before its timeout and the browser did not confirm cancellation or completion.",
+      data: {
+        results: [
+          {
+            step: 0,
+            action: "click",
+            success: false,
+            outcomeUnknown: true,
+            error: "Chain exceeded its 25ms execution budget",
+            durationMs: 25,
+          },
+        ],
+        completed: 0,
+        total: 1,
+        totalDurationMs: 25,
+      },
+    }));
+    await daemon.start();
+    const client = createClient(daemon, { commandTimeoutMs: 30_000 });
+
+    try {
+      const error = await client
+        .chain([{ action: "click", params: { selector: "#slow-mutation" } }], {
+          timeoutMs: 25,
+          waitForSelector: false,
+        })
+        .catch((cause: unknown) => cause);
+      expect(error).toBeInstanceOf(BrowserSessionCommandError);
+      expect(error).toMatchObject({
+        code: "command_failed",
+        message: expect.stringMatching(
+          /timeoutMs=25 source=caller dispatched=true outcome=unknown/,
+        ),
+        timeoutMs: 25,
+        timeoutSource: "caller",
+        requestDispatched: true,
+        outcomeUnknown: true,
+        receipt: {
+          result: {
+            success: false,
+            outcomeUnknown: true,
+            data: {
+              results: [
+                expect.objectContaining({
+                  action: "click",
+                  outcomeUnknown: true,
+                }),
+              ],
+            },
           },
         },
       });

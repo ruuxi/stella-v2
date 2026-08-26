@@ -7,7 +7,7 @@ import {
   defaultCloudExecutionForEngine,
   normalizeCloudExecutionSelection,
   type CloudExecutionSelectionInput,
-} from "../convex/lib/cloud_execution";
+} from "../packages/backend/convex/lib/cloud_execution";
 
 describe("cloud execution selection", () => {
   test("normalizes canonical managed and connected routes", () => {

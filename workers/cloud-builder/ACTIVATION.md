@@ -1,0 +1,111 @@
+# Cloud-canonical activation — diagnosis, design, and isolated staging
+
+This document is the authoritative, code-grounded plan for making **normal
+Stella v2 development conversations cloud-canonical** through the real product
+runtime, reusing the merged `workers/cloud-builder`, runtime cloud dispatch,
+journal/orchestrator, and Convex `cloud_apps` — **not** a parallel journal.
+
+## Diagnosis (verified against the merged code)
+
+The cloud merge preserved two separate paths:
+
+1. **Cloud-agent path (already cloud-canonical).** `spawn_agent` into a cloud
+   workspace is dispatched via Convex mutations over the signed-in user's JWT —
+   `packages/runtime/kernel/runner/cloud-spawn-dispatch.ts`
+   (`cloud_apps.spawnCloudAgentFromDesktop` / `continueMyCloudAgentFromDesktop`
+   / `cancelMyCloudAgentThread`). The DO journal + orchestrator + container
+   Sandbox live in `workers/cloud-builder` (`src/journal.ts`,
+   `src/orchestrator-session.ts`, `src/conversation-hub.ts`). The
+   user-authenticated conversation surface verifies a Convex Better-Auth RS256
+   JWT (`src/auth-jwt.ts`, JWKS at `${STELLA_CONVEX_SITE_URL}/api/auth/convex/jwks`,
+   `aud=convex`).
+
+2. **Normal conversation path (intentionally local-canonical).** The ordinary
+   desktop chat writes to the local SQLite session store
+   (`packages/runtime/kernel/storage/session-store.ts`, 7,899 lines) →
+   `~/.stella/stella.sqlite`. It never touches the DO journal.
+
+**The real bug relative to Rahul's product goal** is therefore not a missing
+toggle: normal conversations are local-canonical by design. Making them
+cloud-canonical is a deliberate architecture change on path (2), reusing the
+already-working machinery of path (1).
+
+## Target architecture (no user-facing toggle)
+
+- **Authority:** the `cloud-builder` conversation DO (SQLite journal in
+  `src/journal.ts`) is canonical for identity, ordered events, lifecycle,
+  child completions, retries/resume, compaction, cancellation, reconnect.
+- **R2 segments:** rolled-over cold segments in `CONVERSATION_ARCHIVE`
+  (`src/archive.ts`), oversize-row spills likewise.
+- **Convex projection/discovery:** `cloud_apps` derives the monotonic
+  cross-device conversation list; a clean client discovers + hydrates from it.
+- **Execution placement:** automatic — an eligible desktop executes local tools
+  and appends to the DO journal; otherwise the container Sandbox executes and
+  appends to the *same* journal, under the existing claim/fencing/idempotency
+  (`append_receipts`, `append_window`).
+- **Local SQLite:** demoted to a rebuildable cache / offline-read materialized
+  view of the DO journal. Never authoritative, never a silent fallback.
+- **Fail-visible:** when cloud staging config is absent/unreachable, conversation
+  creation must surface an explicit error (mirroring the existing
+  `conversation_auth_unconfigured` path in `src/index.ts`) — never a silent
+  local-canonical write.
+
+### Runtime seam to change (path 2 → cloud-canonical)
+
+`session-store.ts` conversation creation + append must, when cloud config is
+present, mint/open the conversation through the same authenticated
+conversation surface used by the cloud-agent path (the `x-stella-conversation-id`
+surface in `cloud-builder/src/index.ts`), writing events to the DO journal and
+mirroring into the local cache. This is a runtime change only — no UI change,
+no mode picker.
+
+## Isolated staging infrastructure
+
+### 1. Worker (`wrangler.staging.jsonc`, added alongside this doc)
+
+Isolated names so nothing collides with `stella-v2-cloud-builder-dev`:
+`stella-v2-cloud-builder-staging`, fresh DO classes (new `new_sqlite_classes`
+migration under a new worker name), isolated R2 buckets + KV.
+
+Required per-environment secrets (set with `wrangler secret put`, never in Git):
+
+- `BUILDER_SERVICE_SECRET` — shared Convex⇄worker service secret; must match the
+  paired Convex deployment's env var of the same name.
+- `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` — S3 creds for the archive bucket.
+
+Vars: `STELLA_CONVEX_SITE_URL` / `STELLA_CONVEX_CLOUD_URL` point at the paired
+isolated Convex staging deployment.
+
+Deploy: `bun run image:prepare && wrangler deploy -c wrangler.staging.jsonc`
+(builds the real `cloudflare/sandbox:0.12.4`-based container image; Containers
+run under the existing plan).
+
+### 2. Convex staging (paired)
+
+The worker verifies **real user JWTs** via the paired Convex deployment's
+Better-Auth JWKS. A functional isolated Convex staging therefore requires the
+full backend (`packages/backend/convex`: `auth.ts`, `betterAuth/`, `http.ts`,
+`cloud_apps`, schema) deployed to a fresh deployment **with its external secret
+set**: Better-Auth secret, the OAuth client id/secret for each sign-in provider,
+Stripe keys used by billing, and `BUILDER_SERVICE_SECRET` matching the worker.
+Without these a disposable dev user cannot sign in and no JWT can be minted, so
+the authenticated conversation surface cannot be exercised.
+
+## Status / blocker (honest)
+
+- Verified this activation direction against the merged code (references above).
+- Deploy pipeline confirmed reachable: `bun install` + `wrangler` bundle the
+  worker; Docker is available for the container image; the account already runs
+  SQLite DOs + Containers under the existing plan.
+- **Open blocker for the end-to-end signed-in proof:** an isolated Convex
+  staging that can mint sign-in JWTs needs the external Better-Auth/OAuth/Stripe
+  secret set (not held here; cannot be fabricated), *or* explicit authorization
+  to pair staging with the existing dev Convex (`flexible-panther-999`) using its
+  `BUILDER_SERVICE_SECRET` — which shares dev data and so is not isolated.
+- The `stella-dev-harness` runtime (scripts + worktrees) is currently deleted
+  (skill marked STALE) and must be rebuilt to drive the real Electron UI.
+
+The redundant standalone `workers/journal-realstaging` proof worker has been
+removed; its journal invariants (gapless seq, idempotent receipts, fencing,
+R2 rollover) are already covered by the real implementation in `src/journal.ts`
+and `tests/journal-append-*.test.ts`.

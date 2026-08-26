@@ -1,0 +1,53 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  // Isolated STAGING deployment of the real cloud-builder. Same code/contract
+  // as wrangler.jsonc (dev); only names/bindings are isolated so staging cannot
+  // collide with stella-v2-cloud-builder-dev. See ACTIVATION.md for the full
+  // procedure, required secrets, and the paired Convex staging requirement.
+  //
+  // Deploy: bun run image:prepare && wrangler deploy -c wrangler.staging.jsonc
+  // Secrets (wrangler secret put -c wrangler.staging.jsonc; never in Git):
+  //   BUILDER_SERVICE_SECRET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
+  "name": "stella-v2-cloud-builder-staging",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": true } },
+  "vars": {
+    "SANDBOX_TRANSPORT": "rpc",
+    "TURN_TIMEOUT_MS": "900000",
+    "SANDBOX_IDLE_TIMEOUT_MS": "600000",
+    "APPS_HOST_BASE_URL": "https://stella-v2-apps-host-staging.lolruuxi.workers.dev",
+    // Point at the paired isolated Convex staging deployment (its Better-Auth
+    // JWKS is the only user-auth door into this worker).
+    "STELLA_CONVEX_SITE_URL": "https://REPLACE-staging.convex.site",
+    "STELLA_CONVEX_CLOUD_URL": "https://REPLACE-staging.convex.cloud"
+  },
+  "r2_buckets": [
+    { "binding": "APP_BUILDS", "bucket_name": "stella-v2-app-builds-staging" },
+    { "binding": "BACKUP_BUCKET", "bucket_name": "stella-v2-app-builds-staging" },
+    { "binding": "AGENT_HOME", "bucket_name": "stella-v2-agent-home-staging" },
+    { "binding": "CONVERSATION_ARCHIVE", "bucket_name": "stella-v2-conversation-archive-staging" }
+  ],
+  "kv_namespaces": [
+    // Create with: wrangler kv namespace create APP_ROUTES_STAGING ; paste id here.
+    { "binding": "APP_ROUTES", "id": "REPLACE_WITH_STAGING_KV_ID" }
+  ],
+  "containers": [
+    { "class_name": "Sandbox", "image": "./Dockerfile", "instance_type": "standard-4", "max_instances": 1 },
+    { "class_name": "SandboxSmall", "image": "./Dockerfile", "instance_type": "standard-2", "max_instances": 1 }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "Sandbox", "class_name": "Sandbox" },
+      { "name": "SANDBOX_SMALL", "class_name": "SandboxSmall" },
+      { "name": "BUILD_SESSIONS", "class_name": "BuildSession" },
+      { "name": "ORCHESTRATOR_SESSIONS", "class_name": "OrchestratorSession" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Sandbox", "BuildSession"] },
+    { "tag": "v2", "new_sqlite_classes": ["OrchestratorSession"] },
+    { "tag": "v3", "new_sqlite_classes": ["SandboxSmall"] }
+  ]
+}

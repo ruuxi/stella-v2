@@ -35,7 +35,7 @@ export type UseDictationOptions = {
   anonymous: boolean;
   /** Headers to forward (e.g. X-Stella-Mobile-Device-Id for guests). */
   headers?: Record<string, string>;
-  /** Optional BCP-47 hint forwarded to Voxtral. */
+  /** Optional BCP-47 hint forwarded to xAI STT. */
   language?: string;
   /** Fired once a transcript comes back. */
   onTranscript: (text: string) => void;
@@ -92,7 +92,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     stopReadAloudForDictation();
     operationInFlightRef.current = true;
     // Apple 5.1.1(i): voice audio is sent to a third-party AI transcription
-    // service (Mistral Voxtral). Don't even start the recorder until the
+    // service (xAI). Don't even start the recorder until the
     // user has explicitly agreed to the data-sharing disclosure.
     if (!hasAiConsent()) {
       requestAiConsent();

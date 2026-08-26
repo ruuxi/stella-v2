@@ -1,4 +1,5 @@
 import { toSendableImage } from "./image-attachments";
+import type { MobileChatStreamToolCall } from "./mobile-chat-stream";
 
 export const MAX_OFFLINE_CHAT_IMAGES = 5;
 export const MAX_OFFLINE_CHAT_IMAGE_BASE64_CHARS = 6_000_000;
@@ -20,10 +21,39 @@ export type OfflineChatHistoryItem = {
   text: string;
 };
 
+export type OfflineChatNativeToolCall = {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+  thoughtSignature?: string;
+};
+
+export type OfflineChatAssistantSource = NonNullable<
+  MobileChatStreamToolCall["source"]
+>;
+
+export type OfflineChatToolMessage =
+  | {
+      role: "assistant";
+      text: string;
+      toolCalls: OfflineChatNativeToolCall[];
+      source?: OfflineChatAssistantSource;
+    }
+  | {
+      role: "toolResult";
+      toolCallId: string;
+      toolName: string;
+      text: string;
+      isError: boolean;
+    };
+
 export type OfflineChatRequest = {
   message: string;
   history: OfflineChatHistoryItem[];
   images: OfflineChatImagePayload[];
+  context?: string;
+  enableTools?: boolean;
+  toolMessages?: OfflineChatToolMessage[];
 };
 
 export class InvalidChatImageError extends Error {
@@ -73,10 +103,7 @@ export const prepareOfflineChatImages = async (
         "That image format is not supported. Attach a JPEG, PNG, GIF, or WebP image.",
       );
     }
-    if (
-      !BASE64_PATTERN.test(image.base64) ||
-      image.base64.length % 4 !== 0
-    ) {
+    if (!BASE64_PATTERN.test(image.base64) || image.base64.length % 4 !== 0) {
       throw new InvalidChatImageError(
         "An attached image could not be read. Try attaching it again.",
       );
@@ -101,4 +128,9 @@ export const buildOfflineChatRequest = (args: OfflineChatRequest) => ({
   message: args.message,
   history: args.history,
   images: args.images,
+  ...(args.context ? { context: args.context } : {}),
+  ...(args.enableTools ? { enableTools: true } : {}),
+  ...(args.toolMessages && args.toolMessages.length > 0
+    ? { toolMessages: args.toolMessages }
+    : {}),
 });

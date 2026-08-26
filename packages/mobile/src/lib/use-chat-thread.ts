@@ -19,6 +19,7 @@ import {
   type DesktopChatOutboxRecord,
 } from "./desktop-chat-outbox-state";
 import { postStream, postStreamAnonymous, StreamAbortError } from "./http";
+import type { MobileChatStreamToolCall } from "./mobile-chat-stream";
 import { hasAiConsent, requestAiConsent } from "./ai-consent";
 import {
   getOrCreateMobileDeviceId,
@@ -81,6 +82,7 @@ import {
   buildOfflineChatRequest,
   prepareOfflineChatImages,
   type OfflineChatImagePayload,
+  type OfflineChatToolMessage,
 } from "./offline-chat-request";
 import { admitSend } from "./send-admission";
 import { createStreamTextSmoother } from "./stream-text-smoother";
@@ -94,11 +96,7 @@ import {
   runCompaction,
   buildCompactedContext,
 } from "./chat-compaction";
-import {
-  buildToolPreamble,
-  createToolBlockFilter,
-  parseToolBlock,
-} from "./chat-tools";
+import { buildMobileModelContext, normalizeMobileToolCall } from "./chat-tools";
 import { formatRecallResults } from "./chat-recall";
 import {
   initMessageIndex,
@@ -143,11 +141,11 @@ const OFFLINE_CHAT_STREAM_PATH = "/api/mobile/offline-chat/stream";
  */
 const OFFLINE_ARTIFACT_CONVERSATION_ID = "offline-chat";
 /**
- * Max streamed rounds per turn in the offline tool loop: one answer round plus
- * at most one recall-continuation round. Keeps the client-side tool loop
- * bounded (there is no server-side agent loop for the offline responder).
+ * Native tool rounds are client-mediated because several tools create local
+ * phone artifacts. The provider still receives real tool-call/tool-result
+ * messages on every continuation round.
  */
-const MAX_OFFLINE_TOOL_ROUNDS = 2;
+const MAX_OFFLINE_TOOL_ROUNDS = 4;
 
 /** Quiet period after the last `messages` change before the transcript is written. */
 const PERSIST_DEBOUNCE_MS = 500;
@@ -1386,10 +1384,7 @@ export function useChatThread(opts: {
         return acc;
       };
 
-      // Map- and PDF-tool failures, surfaced on the reply after the answer
-      // finishes streaming so the note lands after the streamed text (below).
-      const mapErrors: string[] = [];
-      const pdfErrors: string[] = [];
+      type ToolExecutionResult = { text: string; isError: boolean };
       const upsertToolStep = (
         step: NonNullable<ChatMessage["toolSteps"]>[number],
       ) => {
@@ -1457,12 +1452,9 @@ export function useChatThread(opts: {
         },
         toolCallId: string,
         textOffset: number,
-      ) => {
+      ): Promise<ToolExecutionResult> => {
         const outcome = await resolveMap(call);
         if (!outcome.ok) {
-          // Don't drop the failure silently: the model already told the user a
-          // map was coming, so a missing card with no explanation is confusing.
-          mapErrors.push(outcome.error);
           upsertToolStep({
             id: toolCallId,
             toolName: "map",
@@ -1470,7 +1462,7 @@ export function useChatThread(opts: {
             args: { title: call.title ?? "Map" },
             textOffset,
           });
-          return;
+          return { text: outcome.error, isError: true };
         }
         const artifact = mapArtifactFor(
           outcome.result.payload,
@@ -1479,6 +1471,10 @@ export function useChatThread(opts: {
         );
         removeToolStep(toolCallId);
         upsertArtifact({ ...artifact, id: toolCallId, textOffset });
+        return {
+          text: `Displayed the map${call.title ? `: ${call.title}` : ""}.`,
+          isError: false,
+        };
       };
 
       // Generate a PDF on-device and hang the tappable file card off the reply.
@@ -1490,12 +1486,9 @@ export function useChatThread(opts: {
         },
         toolCallId: string,
         textOffset: number,
-      ) => {
+      ): Promise<ToolExecutionResult> => {
         const outcome = await generatePdf(call);
         if (!outcome.ok) {
-          // The model already told the user a PDF was coming, so a missing file
-          // with no explanation is confusing — surface the failure.
-          pdfErrors.push(outcome.error);
           upsertToolStep({
             id: toolCallId,
             toolName: "pdf",
@@ -1503,7 +1496,7 @@ export function useChatThread(opts: {
             args: { title: call.title ?? "PDF" },
             textOffset,
           });
-          return;
+          return { text: outcome.error, isError: true };
         }
         const artifact = pdfArtifactFor(
           {
@@ -1515,13 +1508,17 @@ export function useChatThread(opts: {
         );
         removeToolStep(toolCallId);
         upsertArtifact({ ...artifact, id: toolCallId, textOffset });
+        return {
+          text: `Created and attached the PDF${call.title ? `: ${call.title}` : ""}.`,
+          isError: false,
+        };
       };
 
       const applyImageTool = async (
         call: { prompt: string; aspectRatio?: string; numImages?: number },
         toolCallId: string,
         textOffset: number,
-      ) => {
+      ): Promise<ToolExecutionResult> => {
         const createdAt = Date.now();
         const imagePayload: Extract<
           ChatArtifact["payload"],
@@ -1558,6 +1555,12 @@ export function useChatThread(opts: {
               generationState: "completed",
             },
           });
+          return {
+            text: `Generated ${result.filePaths.length || call.numImages || 1} image${
+              (result.filePaths.length || call.numImages || 1) === 1 ? "" : "s"
+            } and displayed the result.`,
+            isError: false,
+          };
         } catch (error) {
           const canceled =
             abort.signal.aborted ||
@@ -1570,6 +1573,12 @@ export function useChatThread(opts: {
               generationState: canceled ? "canceled" : "failed",
             },
           });
+          return {
+            text: canceled
+              ? "Image generation was canceled."
+              : `Image generation failed: ${userFacingError(error)}`,
+            isError: true,
+          };
         }
       };
 
@@ -1596,7 +1605,7 @@ export function useChatThread(opts: {
         }
 
         // Durable memory + rolling checkpoint; compact if the running context
-        // is over budget, then build the primed context turn.
+        // is over budget, then pass that context separately from native tools.
         const [memoryFacts, existingCheckpoint] = await Promise.all([
           loadMemoryFacts(),
           loadCheckpoint(),
@@ -1613,57 +1622,74 @@ export function useChatThread(opts: {
           // Best-effort: a failed compaction just leaves context uncompacted.
         }
         const context = buildCompactedContext(priorMessages, checkpoint);
-        const preamble = buildToolPreamble({
+        const mobileModelContext = buildMobileModelContext({
           memoryFacts,
           summary: context.summary,
         });
-        const primedHistory: { role: ChatMessage["role"]; text: string }[] = [
-          { role: "user", text: preamble },
-          { role: "assistant", text: "Understood." },
-          ...context.history,
-        ];
-
-        // One answer round, plus at most one recall-continuation round.
-        let message = item.text;
-        let roundImages = imagesPayload;
+        const toolMessages: OfflineChatToolMessage[] = [];
         let toolTimelineOffset = 0;
-        for (let round = 0; round < MAX_OFFLINE_TOOL_ROUNDS; round += 1) {
-          const filter = createToolBlockFilter();
+        for (let round = 0; round <= MAX_OFFLINE_TOOL_ROUNDS; round += 1) {
+          const allowTools = round < MAX_OFFLINE_TOOL_ROUNDS;
+          const nativeCalls: MobileChatStreamToolCall[] = [];
+          let roundText = "";
           let roundVisibleChars = 0;
           await streamFn(
             OFFLINE_CHAT_STREAM_PATH,
             buildOfflineChatRequest({
-              message,
-              history: primedHistory,
-              images: roundImages,
+              message: item.text,
+              history: context.history,
+              images: imagesPayload,
+              context: mobileModelContext,
+              enableTools: allowTools,
+              toolMessages,
             }),
             (delta) => {
-              // Hide the trailing tool block while the answer streams.
-              const visible = filter.feed(delta);
-              if (!visible) return;
-              roundVisibleChars += visible.length;
-              if (/\S/.test(visible)) patchActivity({ isStreamingText: true });
-              textSmoother.push(visible);
+              roundText += delta;
+              roundVisibleChars += delta.length;
+              if (/\S/.test(delta)) patchActivity({ isStreamingText: true });
+              textSmoother.push(delta);
             },
-            streamOptions,
+            {
+              ...streamOptions,
+              ...(allowTools
+                ? {
+                    onToolCall: (toolCall: MobileChatStreamToolCall) => {
+                      nativeCalls.push(toolCall);
+                    },
+                  }
+                : {}),
+            },
           );
-          const tail = filter.finalize();
-          if (tail) {
-            roundVisibleChars += tail.length;
-            if (/\S/.test(tail)) patchActivity({ isStreamingText: true });
-            textSmoother.push(tail);
-          }
-
-          const { calls } = parseToolBlock(filter.raw());
           const textOffset = toolTimelineOffset + roundVisibleChars;
           toolTimelineOffset = textOffset;
-          const recalls: { query: string }[] = [];
-          const webResults: string[] = [];
-          const indexedCalls = calls.map((call, index) => ({
-            call,
+
+          if (nativeCalls.length === 0) break;
+
+          toolMessages.push({
+            role: "assistant",
+            text: roundText,
+            toolCalls: nativeCalls,
+            ...(nativeCalls[0]?.source
+              ? { source: nativeCalls[0].source }
+              : {}),
+          });
+
+          const indexedCalls = nativeCalls.map((nativeCall, index) => ({
+            nativeCall,
+            call: normalizeMobileToolCall(nativeCall),
             toolCallId: `${replyId}:tool:${round}:${index}`,
           }));
-          for (const { call, toolCallId } of indexedCalls) {
+
+          for (const { call, nativeCall, toolCallId } of indexedCalls) {
+            if (!call) {
+              upsertToolStep({
+                id: toolCallId,
+                toolName: nativeCall.name,
+                status: "error",
+                textOffset,
+              });
+              continue;
+            }
             if (call.tool !== "image_gen") {
               const args: Record<string, string> =
                 call.tool === "web"
@@ -1686,8 +1712,15 @@ export function useChatThread(opts: {
               });
             }
           }
-          for (const { call, toolCallId } of indexedCalls) {
-            if (call.tool === "remember") {
+
+          for (const { call, nativeCall, toolCallId } of indexedCalls) {
+            let result: ToolExecutionResult;
+            if (!call) {
+              result = {
+                text: `The ${nativeCall.name} tool call had invalid arguments.`,
+                isError: true,
+              };
+            } else if (call.tool === "remember") {
               try {
                 await rememberFact(call.key, call.value);
                 upsertToolStep({
@@ -1697,7 +1730,8 @@ export function useChatThread(opts: {
                   args: { title: call.key },
                   textOffset,
                 });
-              } catch {
+                result = { text: `Remembered ${call.key}.`, isError: false };
+              } catch (error) {
                 upsertToolStep({
                   id: toolCallId,
                   toolName: "remember",
@@ -1705,6 +1739,10 @@ export function useChatThread(opts: {
                   args: { title: call.key },
                   textOffset,
                 });
+                result = {
+                  text: `Could not save that memory: ${userFacingError(error)}`,
+                  isError: true,
+                };
               }
             } else if (call.tool === "forget") {
               try {
@@ -1715,20 +1753,29 @@ export function useChatThread(opts: {
                   status: "completed",
                   textOffset,
                 });
-              } catch {
+                result = { text: `Forgot ${call.key}.`, isError: false };
+              } catch (error) {
                 upsertToolStep({
                   id: toolCallId,
                   toolName: "forget",
                   status: "error",
                   textOffset,
                 });
+                result = {
+                  text: `Could not remove that memory: ${userFacingError(error)}`,
+                  isError: true,
+                };
               }
             } else if (call.tool === "map") {
-              await applyMapTool(call, toolCallId, textOffset);
+              result = await applyMapTool(call, toolCallId, textOffset);
             } else if (call.tool === "pdf") {
-              await applyPdfTool(call, toolCallId, textOffset);
+              result = await applyPdfTool(call, toolCallId, textOffset);
             } else if (call.tool === "recall") {
-              recalls.push({ query: call.query });
+              const excludeIds = new Set([item.userMessageId, replyId]);
+              const recallText = formatRecallResults(
+                await searchMessages(call.query, { excludeIds }),
+                call.query,
+              );
               upsertToolStep({
                 id: toolCallId,
                 toolName: "recall",
@@ -1736,6 +1783,7 @@ export function useChatThread(opts: {
                 args: { query: call.query },
                 textOffset,
               });
+              result = { text: recallText, isError: false };
             } else if (call.tool === "web") {
               const webArgs = {
                 ...(call.query ? { query: call.query } : {}),
@@ -1745,8 +1793,7 @@ export function useChatThread(opts: {
                 ...(call.format ? { format: call.format } : {}),
               };
               try {
-                const result = await searchChatWeb(webArgs);
-                webResults.push(result.text);
+                const webResult = await searchChatWeb(webArgs);
                 upsertToolStep({
                   id: toolCallId,
                   toolName: "web",
@@ -1754,7 +1801,8 @@ export function useChatThread(opts: {
                   args: webArgs,
                   textOffset,
                 });
-              } catch {
+                result = { text: webResult.text, isError: false };
+              } catch (error) {
                 upsertToolStep({
                   id: toolCallId,
                   toolName: "web",
@@ -1762,49 +1810,27 @@ export function useChatThread(opts: {
                   args: webArgs,
                   textOffset,
                 });
+                result = {
+                  text: `Web tool failed: ${userFacingError(error)}`,
+                  isError: true,
+                };
               }
-            } else if (call.tool === "image_gen") {
-              await applyImageTool(call, toolCallId, textOffset);
+            } else {
+              result = await applyImageTool(call, toolCallId, textOffset);
             }
-          }
 
-          if (
-            (recalls.length === 0 && webResults.length === 0) ||
-            round === MAX_OFFLINE_TOOL_ROUNDS - 1
-          ) {
-            break;
+            toolMessages.push({
+              role: "toolResult",
+              toolCallId: nativeCall.id,
+              toolName: nativeCall.name,
+              text: result.text,
+              isError: result.isError,
+            });
           }
-          // Feed the recall results back so the model answers next round.
-          const excludeIds = new Set([item.userMessageId, replyId]);
-          const resultParts = await Promise.all(
-            recalls.map(async (r) =>
-              formatRecallResults(
-                await searchMessages(r.query, { excludeIds }),
-                r.query,
-              ),
-            ),
-          );
-          const resultsText = [...resultParts, ...webResults].join("\n\n");
-          message = `Tool results for the user's latest request:\n${resultsText}\n\nUsing these results, answer the user's latest message: "${item.text}". Do not call web or recall again.`;
-          roundImages = [];
         }
 
         await textSmoother.drain();
         ensureFallbackReply();
-        const toolErrors = [...mapErrors, ...pdfErrors];
-        if (toolErrors.length > 0) {
-          // Append after the drain so the note follows the streamed answer.
-          const note = toolErrors.join("\n");
-          setMessages((m) =>
-            m.map((msg) => {
-              if (msg.id !== replyId || msg.text.includes(note)) return msg;
-              return {
-                ...msg,
-                text: msg.text ? `${msg.text}\n\n${note}` : note,
-              };
-            }),
-          );
-        }
         notifySuccess();
       } catch (e) {
         if (e instanceof StreamAbortError) {

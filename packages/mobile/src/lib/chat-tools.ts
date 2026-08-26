@@ -1,30 +1,12 @@
-/**
- * The offline chat's client-side tool protocol.
- *
- * The offline responder is a plain streaming-text model with no native
- * tool-call channel, so tools are bolted on through the one thing the client
- * controls: the prompt and the streamed text. Each turn the client injects a
- * preamble that (a) carries the user's durable memory + the rolling compaction
- * summary as context and (b) documents four tools and the exact text syntax to
- * invoke them. The model emits tool calls as a trailing, delimited block; the
- * client parses that block, hides it from the rendered reply, and runs the
- * tools on-device (persist a memory fact, resolve a map card, search earlier
- * messages).
- *
- * This is the mobile analog of the desktop's Remember / Recall / map tools,
- * collapsed onto a text protocol because there is no runtime tool loop here.
- */
-
 import { formatMemoryForContext, type MemoryFact } from "./chat-memory";
+import type { MobileChatStreamToolCall } from "./mobile-chat-stream";
 
-export const TOOL_BLOCK_OPEN = "<<<STELLA_TOOLS";
-export const TOOL_BLOCK_CLOSE = "STELLA_TOOLS>>>";
-
-export type ToolCall =
-  | { tool: "remember"; key: string; value: string }
-  | { tool: "forget"; key: string }
-  | { tool: "recall"; query: string }
+export type MobileToolCall =
+  | { id: string; tool: "remember"; key: string; value: string }
+  | { id: string; tool: "forget"; key: string }
+  | { id: string; tool: "recall"; query: string }
   | {
+      id: string;
       tool: "map";
       places?: string[];
       origin?: string;
@@ -32,8 +14,15 @@ export type ToolCall =
       mode?: string;
       title?: string;
     }
-  | { tool: "pdf"; title?: string; content: string; filename?: string }
   | {
+      id: string;
+      tool: "pdf";
+      title?: string;
+      content: string;
+      filename?: string;
+    }
+  | {
+      id: string;
       tool: "web";
       query?: string;
       url?: string;
@@ -42,6 +31,7 @@ export type ToolCall =
       format?: "text" | "markdown" | "html";
     }
   | {
+      id: string;
       tool: "image_gen";
       prompt: string;
       aspectRatio?: string;
@@ -56,11 +46,6 @@ const asStringArray = (value: unknown): string[] =>
     ? value.map(asString).filter((entry) => entry.length > 0)
     : [];
 
-/**
- * Coerce a tool field that may arrive as a string or an array of lines (models
- * sometimes split long PDF bodies into a JSON array to avoid embedding raw
- * newlines) into a single string. Array entries join with newlines.
- */
 const asText = (value: unknown): string => {
   if (typeof value === "string") return value.trim();
   if (Array.isArray(value)) {
@@ -72,43 +57,50 @@ const asText = (value: unknown): string => {
   return "";
 };
 
-const toToolCall = (value: unknown): ToolCall | null => {
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
-  switch (record.tool) {
+/** Validate and normalize a structured provider tool call before execution. */
+export const normalizeMobileToolCall = (
+  call: MobileChatStreamToolCall,
+): MobileToolCall | null => {
+  const id = call.id.trim();
+  if (!id) return null;
+  const args = call.arguments;
+
+  switch (call.name) {
     case "remember": {
-      const key = asString(record.key);
-      const val = asString(record.value);
-      return key && val ? { tool: "remember", key, value: val } : null;
+      const key = asString(args.key);
+      const value = asString(args.value);
+      return key && value ? { id, tool: "remember", key, value } : null;
     }
     case "forget": {
-      const key = asString(record.key);
-      return key ? { tool: "forget", key } : null;
+      const key = asString(args.key);
+      return key ? { id, tool: "forget", key } : null;
     }
     case "recall": {
-      const query = asString(record.query);
-      return query ? { tool: "recall", query } : null;
+      const query = asString(args.query);
+      return query ? { id, tool: "recall", query } : null;
     }
     case "map": {
-      const places = asStringArray(record.places);
-      const origin = asString(record.origin);
-      const destination = asString(record.destination);
+      const places = asStringArray(args.places);
+      const origin = asString(args.origin);
+      const destination = asString(args.destination);
       if (places.length === 0 && !(origin && destination)) return null;
       return {
+        id,
         tool: "map",
         ...(places.length > 0 ? { places } : {}),
         ...(origin ? { origin } : {}),
         ...(destination ? { destination } : {}),
-        ...(asString(record.mode) ? { mode: asString(record.mode) } : {}),
-        ...(asString(record.title) ? { title: asString(record.title) } : {}),
+        ...(asString(args.mode) ? { mode: asString(args.mode) } : {}),
+        ...(asString(args.title) ? { title: asString(args.title) } : {}),
       };
     }
     case "pdf": {
-      const content = asText(record.content ?? record.body ?? record.markdown);
+      const content = asText(args.content ?? args.body ?? args.markdown);
       if (!content) return null;
-      const title = asString(record.title);
-      const filename = asString(record.filename);
+      const title = asString(args.title);
+      const filename = asString(args.filename);
       return {
+        id,
         tool: "pdf",
         content,
         ...(title ? { title } : {}),
@@ -116,12 +108,12 @@ const toToolCall = (value: unknown): ToolCall | null => {
       };
     }
     case "web": {
-      const query = asString(record.query);
-      const url = asString(record.url);
+      const query = asString(args.query);
+      const url = asString(args.url);
       if ((!query && !url) || (query && url)) return null;
-      const category = asString(record.category);
-      const prompt = asString(record.prompt);
-      const requestedFormat = asString(record.format);
+      const category = asString(args.category);
+      const prompt = asString(args.prompt);
+      const requestedFormat = asString(args.format);
       const format =
         requestedFormat === "text" ||
         requestedFormat === "markdown" ||
@@ -129,6 +121,7 @@ const toToolCall = (value: unknown): ToolCall | null => {
           ? requestedFormat
           : "";
       return {
+        id,
         tool: "web",
         ...(query ? { query } : {}),
         ...(url ? { url } : {}),
@@ -138,14 +131,15 @@ const toToolCall = (value: unknown): ToolCall | null => {
       };
     }
     case "image_gen": {
-      const prompt = asString(record.prompt);
+      const prompt = asString(args.prompt);
       if (!prompt) return null;
-      const aspectRatio = asString(record.aspectRatio ?? record.aspect_ratio);
-      const requestedCount = Number(record.numImages ?? record.num_images ?? 1);
+      const aspectRatio = asString(args.aspectRatio ?? args.aspect_ratio);
+      const requestedCount = Number(args.numImages ?? args.num_images ?? 1);
       const numImages = Number.isFinite(requestedCount)
         ? Math.max(1, Math.min(4, Math.floor(requestedCount)))
         : 1;
       return {
+        id,
         tool: "image_gen",
         prompt,
         ...(aspectRatio ? { aspectRatio } : {}),
@@ -157,124 +151,11 @@ const toToolCall = (value: unknown): ToolCall | null => {
   }
 };
 
-export type ParsedReply = {
-  /** The reply with the tool block stripped, ready to render. */
-  visibleText: string;
-  /** Parsed, validated tool calls (in the order the model emitted them). */
-  calls: ToolCall[];
-};
-
-/** Split a completed reply into its visible prose and its tool calls. */
-export function parseToolBlock(rawText: string): ParsedReply {
-  const openAt = rawText.indexOf(TOOL_BLOCK_OPEN);
-  if (openAt === -1) {
-    return { visibleText: rawText.trim(), calls: [] };
-  }
-  const visibleText = rawText.slice(0, openAt).trim();
-  const afterOpen = rawText.slice(openAt + TOOL_BLOCK_OPEN.length);
-  const closeAt = afterOpen.indexOf(TOOL_BLOCK_CLOSE);
-  const body = closeAt === -1 ? afterOpen : afterOpen.slice(0, closeAt);
-
-  const calls: ToolCall[] = [];
-  const parseCandidate = (candidate: string): unknown[] => {
-    try {
-      const parsed = JSON.parse(candidate) as unknown;
-      return Array.isArray(parsed) ? parsed : [parsed];
-    } catch {
-      return [];
-    }
-  };
-  // Prefer the complete body. Models commonly pretty-print a PDF call across
-  // several lines; the old line-only parser silently dropped that valid call
-  // and left the assistant claiming it could not make the requested file.
-  let parsedEntries = parseCandidate(body.trim());
-  if (parsedEntries.length === 0) {
-    parsedEntries = body
-      .split(/\r?\n/)
-      .flatMap((line) => parseCandidate(line.trim()));
-  }
-  for (const parsed of parsedEntries) {
-    const entries = Array.isArray(parsed) ? parsed : [parsed];
-    for (const entry of entries) {
-      const call = toToolCall(entry);
-      if (call) calls.push(call);
-    }
-  }
-  return { visibleText, calls };
-}
-
-/**
- * Streaming filter that hides the trailing tool block while text streams in.
- * `feed` returns only the newly-safe VISIBLE characters for each delta; once
- * the open marker appears, nothing further is emitted. `finalize` flushes any
- * held-back visible tail, and `raw` returns the full accumulated text for
- * `parseToolBlock`.
- */
-export function createToolBlockFilter() {
-  let raw = "";
-  let emitted = 0;
-  let sawOpen = false;
-  const holdBack = TOOL_BLOCK_OPEN.length - 1;
-
-  return {
-    feed(delta: string): string {
-      raw += delta;
-      if (sawOpen) return "";
-      const openAt = raw.indexOf(TOOL_BLOCK_OPEN);
-      if (openAt !== -1) {
-        sawOpen = true;
-        const slice = raw.slice(emitted, openAt);
-        emitted = openAt;
-        return slice;
-      }
-      // Hold back the tail that could still become the open marker.
-      const safeEnd = Math.max(emitted, raw.length - holdBack);
-      if (safeEnd <= emitted) return "";
-      const slice = raw.slice(emitted, safeEnd);
-      emitted = safeEnd;
-      return slice;
-    },
-    finalize(): string {
-      if (sawOpen) return "";
-      const openAt = raw.indexOf(TOOL_BLOCK_OPEN);
-      const end = openAt === -1 ? raw.length : openAt;
-      if (end <= emitted) return "";
-      const slice = raw.slice(emitted, end);
-      emitted = end;
-      return slice;
-    },
-    raw(): string {
-      return raw;
-    },
-  };
-}
-
-const TOOL_INSTRUCTIONS = [
-  "You have seven mobile tools, invoked through a text protocol.",
-  "To use them, append EXACTLY ONE tool block at the very END of your reply with nothing after it:",
-  TOOL_BLOCK_OPEN,
-  '{"tool":"remember","key":"home city","value":"Austin, TX"}',
-  TOOL_BLOCK_CLOSE,
-  "Put one compact JSON object per line inside the block. The block is invisible to the user - never mention it or put tool JSON anywhere else. Only include a block when you actually use a tool.",
-  "Tools:",
-  '- remember: store a durable fact about the user you will want in future sessions (name, location, stable preference, ongoing situation). {"tool":"remember","key":"...","value":"..."}',
-  '- forget: remove a stored fact. {"tool":"forget","key":"..."}',
-  '- map: show an interactive map card inline (pins and/or a route). {"tool":"map","places":["Blue Bottle, SF"]} or {"tool":"map","origin":"...","destination":"...","mode":"driving"}',
-  '- recall: full-text search YOUR earlier messages in this conversation. {"tool":"recall","query":"..."} When you need to recall, reply with ONLY the tool block (no answer text) and wait for the results, then answer.',
-  '- pdf: generate a PDF on the phone and drop it into the chat as a tappable file the user can open, save, or share. Use it whenever the user asks for a PDF (a document, report, summary, letter, cheatsheet…). {"tool":"pdf","title":"Trip Itinerary","content":"# Trip Itinerary\\n\\nDay 1: ..."} The content is the full document body in Markdown (headings, lists, bold, tables, code all render). Put the entire document in `content` as a single JSON string with \\n for line breaks, or as an array of lines. Keep a short spoken reply like "Here is your PDF" as the visible answer; do not paste the whole document into the chat text too.',
-  '- web: search the live web or fetch a known URL. Pass exactly one of `query` or `url`; `category` is an optional search hint, `prompt` is an optional fetch extraction prompt, and `format` may be `text`, `markdown`, or `html` (default `text`). {"tool":"web","query":"..."} or {"tool":"web","url":"https://...","prompt":"...","format":"markdown"} Reply with ONLY the tool block and wait for results; then answer with links.',
-  '- image_gen: generate an image and render it directly in chat. Use whenever the user asks to create, draw, or generate an image. {"tool":"image_gen","prompt":"a detailed generation prompt","aspectRatio":"4:3","numImages":1} Keep any visible preamble to one short sentence; never substitute a generic file or claim image generation is unavailable.',
-].join("\n");
-
-/**
- * Build the per-turn context preamble: durable memory + rolling compaction
- * summary + tool instructions. Sent as a leading context turn so the model
- * both "remembers" the user and knows how to reach the tools.
- */
-export function buildToolPreamble(args: {
+/** Build memory and compaction context without embedding fake tool instructions. */
+export const buildMobileModelContext = (args: {
   memoryFacts: MemoryFact[];
   summary: string;
-}): string {
+}): string => {
   const sections: string[] = [];
   const memory = formatMemoryForContext(args.memoryFacts);
   if (memory) sections.push(memory);
@@ -283,6 +164,5 @@ export function buildToolPreamble(args: {
       `Summary of earlier conversation (older turns were compacted to save space):\n${args.summary.trim()}`,
     );
   }
-  sections.push(TOOL_INSTRUCTIONS);
   return sections.join("\n\n");
-}
+};

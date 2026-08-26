@@ -55,16 +55,59 @@ describe("normal mobile chat image request", () => {
 
     const heicHeader = Buffer.from(
       new Uint8Array([
-        0x00, 0x00, 0x00, 0x28, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69,
-        0x63,
+        0x00, 0x00, 0x00, 0x28, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63,
       ]),
     ).toString("base64");
     await expectRejection(
       prepareOfflineChatImages([
-        { uri: "file:///photo.heic", base64: heicHeader, mimeType: "image/jpeg" },
+        {
+          uri: "file:///photo.heic",
+          base64: heicHeader,
+          mimeType: "image/jpeg",
+        },
       ]),
       "format is not supported",
     );
+  });
+
+  test("serializes native tool continuation messages without a text protocol", () => {
+    const request = buildOfflineChatRequest({
+      message: "Search for today's news",
+      history: [],
+      images: [],
+      context: "The user lives in Austin.",
+      enableTools: true,
+      toolMessages: [
+        {
+          role: "assistant",
+          text: "",
+          toolCalls: [
+            {
+              id: "call_web",
+              name: "web",
+              arguments: { query: "today's news" },
+            },
+          ],
+        },
+        {
+          role: "toolResult",
+          toolCallId: "call_web",
+          toolName: "web",
+          text: "Result text",
+          isError: false,
+        },
+      ],
+    });
+
+    expect(request).toMatchObject({
+      enableTools: true,
+      context: "The user lives in Austin.",
+      toolMessages: [
+        { role: "assistant", toolCalls: [{ name: "web" }] },
+        { role: "toolResult", toolCallId: "call_web" },
+      ],
+    });
+    expect(request.history).toEqual([]);
   });
 
   test("enforces count, per-image, and total request limits before upload", async () => {

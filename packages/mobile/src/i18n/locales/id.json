@@ -446,7 +446,9 @@
       },
       "steps": {
         "download": "Unduh aplikasinya",
-        "downloadQrAlt": "Pindai untuk mengunduh Stella dari App Store",
+        "platformSelectorLabel": "Pilih platform seluler",
+        "appStoreQrAlt": "Pindai untuk mengunduh Stella dari App Store",
+        "playStoreQrAlt": "Pindai untuk mengunduh Stella dari Google Play",
         "connect": "Hubungkan ponsel Anda"
       },
       "toasts": {

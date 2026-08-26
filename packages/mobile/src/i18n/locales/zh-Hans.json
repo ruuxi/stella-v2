@@ -446,7 +446,9 @@
       },
       "steps": {
         "download": "下载应用",
-        "downloadQrAlt": "扫描以从 App Store 下载 Stella",
+        "platformSelectorLabel": "选择移动平台",
+        "appStoreQrAlt": "扫描以从 App Store 下载 Stella",
+        "playStoreQrAlt": "扫描以从 Google Play 下载 Stella",
         "connect": "连接你的手机"
       },
       "toasts": {

@@ -446,7 +446,9 @@
       },
       "steps": {
         "download": "Uygulamayı indirin",
-        "downloadQrAlt": "Stella'yı App Store'dan indirmek için tarayın",
+        "platformSelectorLabel": "Bir mobil platform seçin",
+        "appStoreQrAlt": "Stella'yı App Store'dan indirmek için tarayın",
+        "playStoreQrAlt": "Stella'yı Google Play'den indirmek için tarayın",
         "connect": "Telefonunuzu bağlayın"
       },
       "toasts": {

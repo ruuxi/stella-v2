@@ -446,7 +446,9 @@
       },
       "steps": {
         "download": "앱 다운로드",
-        "downloadQrAlt": "스캔해 App Store에서 Stella 다운로드",
+        "platformSelectorLabel": "모바일 플랫폼 선택",
+        "appStoreQrAlt": "스캔해 App Store에서 Stella 다운로드",
+        "playStoreQrAlt": "스캔해 Google Play에서 Stella 다운로드",
         "connect": "휴대폰 연결"
       },
       "toasts": {

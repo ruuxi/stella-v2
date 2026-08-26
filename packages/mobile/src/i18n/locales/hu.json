@@ -446,7 +446,9 @@
       },
       "steps": {
         "download": "Töltsd le az alkalmazást",
-        "downloadQrAlt": "Olvasd be a Stella letöltéséhez az App Store-ból",
+        "platformSelectorLabel": "Válassz mobilplatformot",
+        "appStoreQrAlt": "Olvasd be a Stella letöltéséhez az App Store-ból",
+        "playStoreQrAlt": "Olvasd be a Stella letöltéséhez a Google Playről",
         "connect": "Csatlakoztasd a telefonodat"
       },
       "toasts": {

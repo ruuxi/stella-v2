@@ -74,8 +74,72 @@ describe("conversation display message merge", () => {
     expect(merged[1]!.toolEvents.map((event) => event._id)).toEqual(["tool-1"]);
   });
 
-  it("shows a whole assistant message the instant its event lands, before SQLite", () => {
+  it("drops locked streaming overlays whose owning user message was truncated", () => {
+    const keptUser = message({
+      _id: "u1",
+      type: "user_message",
+      timestamp: 1,
+      payload: { text: "first" },
+    });
+    const keptAssistant = message({
+      _id: "a1",
+      timestamp: 2,
+      payload: { text: "answer to first", userMessageId: "u1" },
+    });
+    const truncatedOverlay = overlay({
+      _id: "stream-overlay:u2:1",
+      userMessageId: "u2",
+      text: "answer to second",
+      locked: true,
+      timestamp: 4,
+    });
+    const truncatedOverlayMessage = overlayToMessageRecord(truncatedOverlay);
 
+    const merged = mergeConversationDisplayMessageSources({
+      persistedMessages: [keptUser, keptAssistant],
+      overlayMessages: [truncatedOverlayMessage],
+      streamingAssistants: [truncatedOverlay],
+      persistedAssistantSlots: getPersistedAssistantSlots([
+        keptUser,
+        keptAssistant,
+      ]),
+    });
+
+    expect(merged.map((item) => item._id)).toEqual(["u1", "a1"]);
+    expect(
+      merged.some((item) => item.payload?.text === "answer to second"),
+    ).toBe(false);
+  });
+
+  it("keeps a live overlay when its owning user is an optimistic overlay", () => {
+    const optimisticUser = message({
+      _id: "u-new",
+      type: "user_message",
+      timestamp: 1,
+      payload: { text: "just sent" },
+    });
+    const live = overlay({
+      _id: "stream-overlay:u-new:1",
+      userMessageId: "u-new",
+      text: "streaming",
+      timestamp: 2,
+    });
+    const liveMessage = overlayToMessageRecord(live);
+
+    const merged = mergeConversationDisplayMessageSources({
+      persistedMessages: [],
+      overlayMessages: [optimisticUser, liveMessage],
+      streamingAssistants: [live],
+      persistedAssistantSlots: getPersistedAssistantSlots([]),
+    });
+
+    expect(merged.map((item) => item._id)).toEqual([
+      "u-new",
+      "stream-overlay:u-new:1",
+    ]);
+  });
+
+  it("shows a whole assistant message the instant its event lands, before SQLite", () => {
     const landed = overlay({
       _id: "stream-overlay:u1:1",
       userMessageId: "u1",

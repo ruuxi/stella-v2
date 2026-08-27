@@ -26,7 +26,7 @@ const COLON_BEARING_REGISTRY_REFERENCES = Object.entries(MODELS).flatMap(
 );
 
 describe("state tools", () => {
-  it("uses one spawn-time domain description for the durable thread", () => {
+  it("uses a domain name at spawn and preserves it for send_input", () => {
     const ctx = createStateContext("/tmp", {
       createAgent: async () => ({ threadId: "thread-1" }),
       getAgent: async () => null,
@@ -37,7 +37,18 @@ describe("state tools", () => {
     const sendInput = tools.find((tool) => tool.name === "send_input");
 
     expect(spawnAgent?.parameters.properties?.description?.description).toContain(
-      "2-3 word domain name",
+      "2–3 word domain name",
+    );
+    expect(spawnAgent?.description).toContain(
+      "that agent it may spawn its own subagents",
+    );
+    expect(spawnAgent?.description).toContain("Most tasks stay with one agent");
+    expect(spawnAgent?.description).toContain(
+      "immediate tool result means the agent has started, not finished",
+    );
+    expect(sendInput?.description).toContain("benefits from an existing agent's context");
+    expect(sendInput?.description).toContain(
+      "successful tool result means the agent has started or resumed working, not finished",
     );
     expect(sendInput?.parameters.properties).not.toHaveProperty("description");
     expect(sendInput?.parameters.required).toEqual(["thread_id", "message"]);

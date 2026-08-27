@@ -64,13 +64,13 @@ export const createAgentTools = (stateContext) => [
     {
         name: "spawn_agent",
         agentTypes: AGENT_SPAWNERS,
-        description: "Spawn a sub-agent for a well-scoped background task. Returns immediately with a durable `thread_id` - marking that the agent has started work. After it returns, wait for the [Agent completed] event before reporting results — do not narrate the task as if it never started, and do not immediately call send_input to check on it.",
+        description: "Spawn an agent for a specific, well-scoped background task. Give it all relevant context and instructions. For multi-part or decomposable work, tell that agent it may spawn its own subagents as appropriate, or direct it when parallel pieces warrant it. Most tasks stay with one agent. The immediate tool result means the agent has started, not finished; its completed result arrives in [Agent completed].",
         parameters: {
             type: "object",
             properties: {
                 description: {
                     type: "string",
-                    description: "A 2-3 word domain name for this agent and its durable thread, such as Personal, Finance, Ads Manager, or Music Manager.",
+                    description: "A concise 2–3 word domain name. It becomes the thread's name — put distinguishing words first.",
                 },
                 prompt: {
                     type: "string",
@@ -88,7 +88,7 @@ export const createAgentTools = (stateContext) => [
     {
         name: "send_input",
         agentTypes: AGENT_SPAWNERS,
-        description: "Send a follow-up message to an existing sub-agent. The agent sees it right away. A successful result means the message was DELIVERED, not that the work is complete — the agent keeps working, so wait for the [Agent completed] event rather than re-checking. If you want the message to land after the agent has finished its current work, wait for the [Agent completed] event on that thread first.",
+        description: "Steer, update, continue, or add work that benefits from an existing agent's context. A successful tool result means the agent has started or resumed working, not finished; its completed result arrives in [Agent completed].",
         parameters: {
             type: "object",
             properties: {

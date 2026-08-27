@@ -36,9 +36,15 @@ Choose the models and providers you want, connect the services you use, and keep
 the rest simple. Stella is useful out of the box without forcing every workflow
 into a plugin or a separate mode.
 
-## Open source. Your data stays on your computer.
+## Open source. Local execution stays on your computer.
 
-Stella is fully open source. Your files and your conversations stay on your machine — we don't store them on our servers. Bring any model you already pay for, or use Stella's managed route if you'd rather not set anything up.
+Stella is fully open source. Local agents run on your device, and local files and
+runtime artifacts stay there unless you choose to upload, attach, or share them.
+When you sign in, conversations, memory, Cloud Drive, and account settings sync
+through Stella Cloud so they can follow you across devices. Managed model and
+provider requests are processed by the services you choose. Bring any model you
+already pay for, or use Stella's managed route if you'd rather not set anything
+up.
 
 ## What Stella can do
 

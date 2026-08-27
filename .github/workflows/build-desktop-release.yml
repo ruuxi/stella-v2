@@ -10,6 +10,7 @@ on:
   push:
     tags:
       - "desktop-v2-v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -35,10 +36,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#desktop-v2-v}"
-          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Stable desktop-v2 releases require desktop-v2-vX.Y.Z; refusing: $GITHUB_REF_NAME" >&2
-            exit 1
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            version="0.0.${GITHUB_RUN_NUMBER}"
+          else
+            version="${GITHUB_REF_NAME#desktop-v2-v}"
+            if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Stable desktop-v2 releases require desktop-v2-vX.Y.Z; refusing: $GITHUB_REF_NAME" >&2
+              exit 1
+            fi
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
@@ -186,6 +191,66 @@ jobs:
             --force
           test -f "packages/stella-browser/out/${{ matrix.sourcePlatform }}/.stella-browser.json"
 
+      - name: Reconstruct DigiCert client authentication certificate
+        if: runner.os == 'Windows'
+        env:
+          SM_CLIENT_CERT_FILE_B64: ${{ secrets.SM_CLIENT_CERT_FILE_B64 }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $certificatePath = Join-Path $env:RUNNER_TEMP "stella-digicert-client-auth.p12"
+          $certificateBytes = [Convert]::FromBase64String($env:SM_CLIENT_CERT_FILE_B64)
+          [IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
+          "SM_CLIENT_CERT_FILE=$certificatePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install DigiCert Software Trust Manager tools
+        if: runner.os == 'Windows'
+        uses: digicert/code-signing-software-trust-action@fae23a455ba4bde62b64fd7cb2f81ade788f5a95
+        env:
+          SM_HOST: ${{ vars.SM_HOST }}
+          SM_API_KEY: ${{ secrets.SM_API_KEY }}
+          SM_CLIENT_CERT_FILE: ${{ env.SM_CLIENT_CERT_FILE }}
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+
+      - name: Synchronize and select the approved DigiCert certificate
+        if: runner.os == 'Windows'
+        env:
+          SM_HOST: ${{ vars.SM_HOST }}
+          SM_API_KEY: ${{ secrets.SM_API_KEY }}
+          SM_CLIENT_CERT_FILE: ${{ env.SM_CLIENT_CERT_FILE }}
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+          SM_KEYPAIR_ALIAS: ${{ vars.SM_KEYPAIR_ALIAS }}
+          EXPECTED_THUMBPRINT: ${{ vars.STELLA_WINDOWS_CERT_SHA1 }}
+          EXPECTED_SERIAL: ${{ vars.STELLA_WINDOWS_CERT_SERIAL }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $false
+          Write-Output "::add-mask::$env:SM_KEYPAIR_ALIAS"
+          Write-Output "::add-mask::$env:EXPECTED_THUMBPRINT"
+          $syncOutput = & smctl windows certsync --keypair-alias $env:SM_KEYPAIR_ALIAS 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            throw "DigiCert certificate synchronization failed"
+          }
+          $expectedThumbprint = ($env:EXPECTED_THUMBPRINT -replace "[^0-9A-Fa-f]", "").ToUpperInvariant()
+          $expectedSerial = ($env:EXPECTED_SERIAL -replace "[^0-9A-Fa-f]", "").ToUpperInvariant()
+          $certificates = @(
+            Get-ChildItem Cert:\CurrentUser\My |
+              Where-Object { (($_.Thumbprint -replace "[^0-9A-Fa-f]", "").ToUpperInvariant()) -eq $expectedThumbprint }
+          )
+          if ($certificates.Count -ne 1) {
+            throw "Exactly one approved Windows signing certificate must be synchronized"
+          }
+          $certificate = $certificates[0]
+          if ((($certificate.SerialNumber -replace "[^0-9A-Fa-f]", "").ToUpperInvariant()) -ne $expectedSerial) {
+            throw "The synchronized Windows signing certificate has the wrong serial number"
+          }
+          if ($certificate.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false) -ne "FromYou, LLC") {
+            throw "The synchronized Windows signing certificate has the wrong publisher"
+          }
+          "STELLA_WINDOWS_SIGNING_CERT_SHA1=$expectedThumbprint" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output "Approved DigiCert certificate synchronized for this runner."
+
       - name: Import Apple Developer ID certificate
         if: runner.os == 'macOS'
         env:
@@ -246,17 +311,15 @@ jobs:
             --config.mac.notarize=false \
             --config.extraMetadata.version="${{ needs.validate_stable_tag.outputs.version }}"
 
-      # Windows is deliberately unsigned for M4. Users will see SmartScreen
-      # until the future DigiCert seam documented in PACKAGING.md is enabled.
-      - name: Build unsigned Windows release
+      - name: Build Authenticode-signed Windows release
         if: runner.os == 'Windows'
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
         shell: bash
         run: |
           set -euo pipefail
           node node_modules/electron-builder/out/cli/cli.js ${{ matrix.builderArgs }} \
             --publish never \
+            --config.forceCodeSigning=true \
+            --config.win.signtoolOptions.certificateSha1="$STELLA_WINDOWS_SIGNING_CERT_SHA1" \
             --config.extraMetadata.version="${{ needs.validate_stable_tag.outputs.version }}"
 
       # Linux is deliberately unsigned for the beta: Linux packages have no
@@ -308,16 +371,33 @@ jobs:
           xcrun stapler validate "$app_path"
           spctl --assess --verbose --type exec "$app_path"
 
-      - name: Prove Windows artifact is intentionally unsigned
+      - name: Verify Windows Authenticode signatures and RFC 3161 timestamps
         if: runner.os == 'Windows'
+        env:
+          EXPECTED_THUMBPRINT: ${{ vars.STELLA_WINDOWS_CERT_SHA1 }}
+          EXPECTED_SERIAL: ${{ vars.STELLA_WINDOWS_CERT_SERIAL }}
         shell: pwsh
         run: |
-          $installer = Get-ChildItem packages/desktop/release/Stella-*-Windows-x64.exe | Select-Object -First 1
-          if (-not $installer) { throw "Missing Windows NSIS installer" }
-          $signature = Get-AuthenticodeSignature $installer.FullName
-          if ($signature.Status -ne "NotSigned") {
-            throw "M4 expects an unsigned Windows installer; got $($signature.Status)"
+          $ErrorActionPreference = "Stop"
+          Write-Output "::add-mask::$env:EXPECTED_THUMBPRINT"
+          $installers = @(Get-ChildItem packages/desktop/release/Stella-*-Windows-x64.exe)
+          if ($installers.Count -ne 1) {
+            throw "Exactly one Windows NSIS installer is required"
           }
+          & packages/desktop/scripts/verify-windows-signatures.ps1 `
+            -AppDirectory packages/desktop/release/win-unpacked `
+            -InstallerPath $installers[0].FullName `
+            -NativeManifestPath release-pins/native-helpers-manifest.json `
+            -ExpectedThumbprint $env:EXPECTED_THUMBPRINT `
+            -ExpectedSerial $env:EXPECTED_SERIAL `
+            -ReportPath windows-signature-verification/report.json
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: stella-windows-signature-verification
+          path: windows-signature-verification/report.json
+          retention-days: 30
 
       - name: Stage release artifacts and updater metadata
         shell: bash
@@ -354,8 +434,17 @@ jobs:
             security delete-keychain "$CSC_KEYCHAIN" || true
           fi
 
+      - name: Cleanup DigiCert client authentication certificate
+        if: runner.os == 'Windows' && always()
+        shell: pwsh
+        run: |
+          if ($env:SM_CLIENT_CERT_FILE -and (Test-Path $env:SM_CLIENT_CERT_FILE)) {
+            Remove-Item $env:SM_CLIENT_CERT_FILE -Force
+          }
+
   publish:
     needs: build
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

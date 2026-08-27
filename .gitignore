@@ -85,3 +85,5 @@ packages/runtime/kernel/exec/.exec-worker-cache/
 
 # Local strategy notes (never commit).
 /strategy/
+
+.env.local

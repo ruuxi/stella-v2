@@ -7,11 +7,7 @@ import { getMainLogger } from "../observability/main-logger.js";
 import { t } from "../services/i18n-service.js";
 import { shutdownBootstrapRuntime } from "./resets.js";
 import { initializeBootstrapApplication } from "./runtime.js";
-// Shutdown cleanup is best-effort, never a hostage. Squirrel's installer waits
-// for this process to exit before it swaps the bundle in, so a cleanup that
-// stalls reads to the user as "the update never restarted" — the app is gone
-// from screen but still alive. Each phase gets a budget; whatever hasn't
-// finished when it runs out is abandoned and the process exits anyway.
+
 const QUIT_PHASE_DEADLINE_MS = {
     "before-quit": 4_000,
     "will-quit": 2_000,
@@ -104,19 +100,13 @@ export const registerBootstrapLifecycle = (context) => {
         await shutdownBootstrapRuntime(context, { stopScheduler: true });
     });
     app.on("activate", () => {
-        // Quitting closes every window well before the process exits. Without
-        // this guard a dock click during that window rebuilds the whole UI on a
-        // runtime that is already torn down — which is how an update restart
-        // ends up showing the outgoing build, "Restart to update" and all.
+
         if (context.state.isQuitting) {
             return;
         }
         context.state.windowManager?.onActivate();
     });
-    // Electron's update restart closes every BrowserWindow before emitting the
-    // normal app `before-quit` event. Mark the process as quitting at the
-    // updater-specific boundary so auxiliary windows do not cancel that close
-    // sequence and strand the downloaded update in a hidden, still-live app.
+
     autoUpdater.on("before-quit-for-update", () => {
         context.state.isQuitting = true;
     });
@@ -129,9 +119,7 @@ export const registerBootstrapLifecycle = (context) => {
                 resourcesPath: process.resourcesPath,
             });
             if (process.platform === "linux") {
-                // Best-effort AppImage integration (stella:// handler) and an
-                // early, explicit signal when the system-git fallback has no
-                // git to fall back to. Both are no-throw.
+
                 registerLinuxDesktopIntegration();
                 warnIfSystemGitMissing();
             }
@@ -159,7 +147,7 @@ export const registerBootstrapLifecycle = (context) => {
                 writeFileSync(devUserQuitRequestFile, `${process.pid}\n`, "utf8");
             }
             catch {
-                // Best-effort dev-supervisor signal; quitting must never depend on it.
+
             }
         }
         event.preventDefault();

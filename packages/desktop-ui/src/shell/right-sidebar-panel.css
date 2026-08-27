@@ -1,14 +1,8 @@
-/* Unified workspace panel — full-height right viewer. Junction curves and
-   panel-chrome overrides live in shell-junction.css. */
-
 .right-sidebar.right-sidebar-panel {
   overflow: clip;
   overflow-clip-margin: 0;
 }
 
-/* The inner element is the panel surface. Selector is qualified with
-   `.right-sidebar` so it wins over the base `.right-sidebar-inner`
-   rules (padding-top, border, width, transform) on the same node. */
 .right-sidebar.right-sidebar-panel .right-sidebar-inner.right-sidebar-panel__frame {
   display: flex;
   flex-direction: column;
@@ -21,10 +15,7 @@
   overflow: hidden;
   contain: layout paint;
   transition: width 460ms cubic-bezier(0.32, 0.72, 0.16, 1);
-  /* Container context for the panel body. User apps rendered in the Apps
-     section size against it: they are authored as full pages with `vw` units
-     and viewport media queries, which would otherwise read the whole window
-     and overflow a narrow panel. */
+
   container-type: inline-size;
   container-name: display-panel;
 }
@@ -42,11 +33,6 @@
   }
 }
 
-/* While the user is actively dragging the resize handle (or the OS window
-   is resizing, or the expand toggle is mid-swap), the panel width updates
-   every frame — the 460ms width ease would make the frame trail the cursor.
-   Drop it so the frame tracks the aside 1:1, mirroring
-   `.right-sidebar--resizing`. */
 .right-sidebar.right-sidebar-panel.right-sidebar--resizing
   .right-sidebar-inner.right-sidebar-panel__frame,
 body[data-display-resizing="true"]
@@ -62,15 +48,12 @@ body[data-display-expanding="true"]
   transition: none;
 }
 
-/* Open mode hosts a scrollable tab body — fixed width (clip-reveal on the
-   slide) + fill the available height. */
 .right-sidebar.right-sidebar-panel.right-sidebar--open
   .right-sidebar-inner.right-sidebar-panel__frame {
   width: var(--display-panel-width, clamp(380px, 34vw, 520px));
   height: 100%;
 }
 
-/* Expanded mode fills the absolutely-positioned aside. */
 .right-sidebar.right-sidebar-panel.right-sidebar--expanded
   .right-sidebar-inner.right-sidebar-panel__frame {
   width: auto;
@@ -90,21 +73,16 @@ body[data-display-expanding="true"]
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  /* Hold the viewer at the open width while the frame animates so the
-     contents (e.g. a media image) stay laid out at their final size and
-     get clip-revealed rather than reflowed/rescaled during the slide. */
+
   width: 100%;
   min-width: var(--display-panel-width, clamp(380px, 34vw, 520px));
 }
 
-/* Expanded fills the content area, so let the viewer track the frame. */
 .right-sidebar.right-sidebar-panel.right-sidebar--expanded
   .right-sidebar-panel__body
   .right-sidebar__active {
   min-width: 0;
 }
-
-/* ── Width / visibility ──────────────────────────────────────────── */
 
 .right-sidebar.right-sidebar-panel:not(.right-sidebar--open).right-sidebar--shell-visible {
   width: var(--chat-workspace-strip-width, 320px);
@@ -114,10 +92,6 @@ body[data-display-expanding="true"]
   width: var(--display-panel-width, clamp(380px, 34vw, 520px));
 }
 
-/* Expanded takes over the content area. The absolute overlay must win the
-   width over the fixed open-width rule above (equal-ish specificity), so this
-   selector carries an extra class. The top inset keeps the display topbar
-   clear and reachable while the panel is expanded. */
 .right-sidebar.right-sidebar-panel.right-sidebar--open.right-sidebar--expanded.right-sidebar--shell-visible {
   position: absolute;
   inset: var(--shell-topbar-height, 38px) 6px 6px;
@@ -132,9 +106,6 @@ body[data-display-expanding="true"]
   pointer-events: none;
 }
 
-/* Keep the card visible (cancel the base slide-out transform) whenever the
-   shell is shown — the base `.right-sidebar-inner` is hidden unless the
-   panel is in the `--open` state. */
 .right-sidebar.right-sidebar-panel.right-sidebar--shell-visible
   .right-sidebar-inner {
   transform: translate3d(0, 0, 0);

@@ -1,13 +1,3 @@
-/**
- * Inline summary pill for a finished realtime voice session. Replaces the
- * raw "Voice session — Duration: …" text body on the visible assistant
- * message that the voice session manager writes when it deactivates
- * (see `endVisibleVoiceSession` in `use-realtime-voice.ts`).
- *
- * Reads the structured `voiceSession` metadata off the assistant message
- * rather than parsing the text, so the surface stays robust if the
- * fallback wording changes.
- */
 import { AudioLines } from "@/ui/icons";
 import { useT } from "@/shared/i18n";
 import "./voice-session-card.css";

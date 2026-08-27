@@ -1,5 +1,3 @@
-// @vitest-environment jsdom
-
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -33,7 +31,7 @@ describe("right-sidebar navigation model (browser-tab style)", () => {
       "apps",
       "browser",
     ]);
-    // Every section, Home included, now renders inside the panel body.
+
     expect(PANEL_SIDEBAR_SECTIONS).toContain("home");
     expect(PANEL_SIDEBAR_SECTIONS).toContain("quickchat");
   });
@@ -83,9 +81,9 @@ describe("right-sidebar navigation model (browser-tab style)", () => {
   });
 
   it("opening two files yields two INDEPENDENT file tabs (per item, not per section)", () => {
-    sidebarSections.openLocation("files", "file-a"); // morphs Home -> file-a
-    sidebarSections.openHomeLauncher(); // new empty Home tab
-    sidebarSections.openLocation("files", "file-b"); // morphs it -> file-b
+    sidebarSections.openLocation("files", "file-a");
+    sidebarSections.openHomeLauncher();
+    sidebarSections.openLocation("files", "file-b");
     const fileTabs = sidebarSections
       .getSnapshot()
       .tabs.filter((tab) => tab.kind === "files");
@@ -94,17 +92,17 @@ describe("right-sidebar navigation model (browser-tab style)", () => {
   });
 
   it("opening an item from a NON-home tab creates a new tab (no morph)", () => {
-    sidebarSections.openLocation("quickchat", null); // Home -> quickchat
-    sidebarSections.openLocation("files", "file-a"); // active is quickchat -> new tab
+    sidebarSections.openLocation("quickchat", null);
+    sidebarSections.openLocation("files", "file-a");
     expect(
       sidebarSections.getSnapshot().tabs.map((tab) => tab.kind),
     ).toEqual(["quickchat", "files"]);
   });
 
   it("activateTab switches by id; closeTab activates a neighbor / closes on last", () => {
-    sidebarSections.openLocation("files", "file-a"); // [file-a]
-    sidebarSections.openHomeLauncher(); // [file-a, home]
-    sidebarSections.openLocation("browser", null); // morph home -> [file-a, browser]
+    sidebarSections.openLocation("files", "file-a");
+    sidebarSections.openHomeLauncher();
+    sidebarSections.openLocation("browser", null);
     const snap = sidebarSections.getSnapshot();
     const fileTabId = snap.tabs[0]!.id;
     const browserTabId = snap.tabs[1]!.id;

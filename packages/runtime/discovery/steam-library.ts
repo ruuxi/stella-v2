@@ -1,13 +1,3 @@
-/**
- * Steam Library Discovery
- *
- * Reads Steam's local VDF/ACF files to extract:
- * - Game library with playtime and last-played dates
- * - Game names from app manifests (installed) + Steam Store API (uninstalled)
- *
- * Works on Windows, macOS, and Linux.
- */
-
 import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
@@ -15,15 +5,11 @@ import { z } from "zod";
 
 const log = (...args: unknown[]) => console.error("[steam-library]", ...args);
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export type SteamGame = {
   appId: string;
   name: string;
   playtimeMinutes: number;
-  lastPlayed: number; // unix timestamp (seconds)
+  lastPlayed: number;
 };
 
 export type SteamLibrarySignals = {
@@ -31,22 +17,13 @@ export type SteamLibrarySignals = {
   games: SteamGame[];
 };
 
-// ---------------------------------------------------------------------------
-// VDF Parser
-// ---------------------------------------------------------------------------
-
-/**
- * Minimal VDF/ACF parser. Valve's key-value text format:
- *   "key" "value"
- *   "key" { ...nested... }
- */
 const parseVdf = (text: string): Record<string, unknown> => {
   let pos = 0;
 
   const skipWhitespace = () => {
     while (pos < text.length) {
       if (/\s/.test(text[pos])) { pos++; continue; }
-      // Skip // comments
+
       if (text[pos] === "/" && text[pos + 1] === "/") {
         while (pos < text.length && text[pos] !== "\n") pos++;
         continue;
@@ -71,7 +48,7 @@ const parseVdf = (text: string): Record<string, unknown> => {
       }
       pos++;
     }
-    pos++; // closing quote
+    pos++;
     return result;
   };
 
@@ -106,10 +83,6 @@ const parseVdf = (text: string): Record<string, unknown> => {
   return readObject();
 };
 
-// ---------------------------------------------------------------------------
-// Steam Path Detection
-// ---------------------------------------------------------------------------
-
 const getSteamPaths = (): string[] => {
   const home = os.homedir();
   const platform = process.platform;
@@ -137,21 +110,16 @@ const findSteamDir = async (): Promise<string | null> => {
     try {
       await fs.access(p);
       return p;
-    } catch { /* try next */ }
+    } catch {  }
   }
   return null;
 };
 
-// ---------------------------------------------------------------------------
-// Data Extraction
-// ---------------------------------------------------------------------------
-
-/** Find the first user ID directory under userdata/ */
 const findUserId = async (steamDir: string): Promise<string | null> => {
   const userDataDir = path.join(steamDir, "userdata");
   try {
     const entries = await fs.readdir(userDataDir);
-    // Filter for numeric directories (Steam user IDs)
+
     const userIds = entries.filter((e) => /^\d+$/.test(e));
     return userIds[0] ?? null;
   } catch {
@@ -176,7 +144,6 @@ const appStateSchema = z.looseObject({
   name: z.string().optional(),
 });
 
-/** Get username from loginusers.vdf */
 const getUsername = async (steamDir: string): Promise<string> => {
   try {
     const content = await fs.readFile(path.join(steamDir, "config", "loginusers.vdf"), "utf-8");
@@ -188,11 +155,10 @@ const getUsername = async (steamDir: string): Promise<string> => {
         if (info.AccountName) return info.AccountName;
       }
     }
-  } catch { /* fall through */ }
+  } catch {  }
   return "Unknown";
 };
 
-/** Get library folder paths from libraryfolders.vdf */
 const getLibraryPaths = async (steamDir: string): Promise<string[]> => {
   const paths: string[] = [steamDir];
   try {
@@ -211,11 +177,10 @@ const getLibraryPaths = async (steamDir: string): Promise<string[]> => {
         }
       }
     }
-  } catch { /* just use steamDir */ }
+  } catch {  }
   return paths;
 };
 
-/** Scan appmanifest files across all library folders for game names */
 const getGameNamesFromManifests = async (
   libraryPaths: string[],
 ): Promise<Map<string, string>> => {
@@ -234,15 +199,14 @@ const getGameNamesFromManifests = async (
           if (state.success && state.data.appid && state.data.name) {
             names.set(state.data.appid, state.data.name);
           }
-        } catch { /* skip bad manifest */ }
+        } catch {  }
       }
-    } catch { /* dir doesn't exist */ }
+    } catch {  }
   }
 
   return names;
 };
 
-/** Extract playtime data from localconfig.vdf */
 const getPlaytimeData = async (
   steamDir: string,
   userId: string,
@@ -253,12 +217,9 @@ const getPlaytimeData = async (
     const configPath = path.join(steamDir, "userdata", userId, "config", "localconfig.vdf");
     const content = await fs.readFile(configPath, "utf-8");
 
-    // Extract per-app entries from the Software/Valve/Steam/apps section
-    // Using regex for targeted extraction since the file can be large
     const appsIdx = content.indexOf('"apps"', content.indexOf('"Software"'));
     if (appsIdx === -1) return playtime;
 
-    // Find the apps block
     const braceStart = content.indexOf("{", appsIdx);
     if (braceStart === -1) return playtime;
     let depth = 1;
@@ -270,7 +231,6 @@ const getPlaytimeData = async (
     }
     const appsBlock = content.substring(braceStart, pos);
 
-    // Match individual app entries
     const appPattern = /"(\d+)"\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}/g;
     let match;
     while ((match = appPattern.exec(appsBlock)) !== null) {
@@ -293,12 +253,11 @@ const getPlaytimeData = async (
   return playtime;
 };
 
-/** Resolve game names for IDs missing from manifests via Steam Store API */
 const resolveGameNames = async (
   appIds: string[],
   existingNames: Map<string, string>,
 ): Promise<void> => {
-  // Only resolve up to 20 missing names to avoid hammering the API
+
   const missing = appIds.filter((id) => !existingNames.has(id)).slice(0, 20);
   if (missing.length === 0) return;
 
@@ -317,17 +276,13 @@ const resolveGameNames = async (
         if (entry?.success && entry.data?.name) {
           existingNames.set(appId, entry.data.name);
         }
-      } catch { /* skip */ }
+      } catch {  }
     }),
   );
 
   const resolved = results.filter((r) => r.status === "fulfilled").length;
   log(`Resolved ${resolved}/${missing.length} names`);
 };
-
-// ---------------------------------------------------------------------------
-// Main Collection
-// ---------------------------------------------------------------------------
 
 export const collectSteamLibrary = async (): Promise<SteamLibrarySignals | null> => {
   const steamDir = await findSteamDir();
@@ -351,20 +306,16 @@ export const collectSteamLibrary = async (): Promise<SteamLibrarySignals | null>
 
   const gameNames = await getGameNamesFromManifests(libraryPaths);
 
-  // Get IDs that have playtime but no name, sorted by most recent
   const allIds = [...playtimeData.keys()]
     .sort((a, b) => (playtimeData.get(b)!.lastPlayed) - (playtimeData.get(a)!.lastPlayed));
 
-  // Resolve missing names via API (top 20 most recent without names)
   await resolveGameNames(allIds, gameNames);
 
-  // Build game list (only games we have names for)
   const games: SteamGame[] = [];
   for (const appId of allIds) {
     const name = gameNames.get(appId);
     if (!name) continue;
 
-    // Skip redistributables, tools, etc.
     if (name.toLowerCase().includes("redistributable")) continue;
     if (name.toLowerCase().includes("proton ")) continue;
 
@@ -382,10 +333,6 @@ export const collectSteamLibrary = async (): Promise<SteamLibrarySignals | null>
   return { username, games };
 };
 
-// ---------------------------------------------------------------------------
-// Formatting
-// ---------------------------------------------------------------------------
-
 export const formatSteamLibraryForSynthesis = (signals: SteamLibrarySignals): string => {
   if (signals.games.length === 0) return "";
 
@@ -393,12 +340,10 @@ export const formatSteamLibraryForSynthesis = (signals: SteamLibrarySignals): st
 
   const thirtyDaysAgo = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
 
-  // Recently played (last 90 days)
   const recent = signals.games
     .filter((g) => g.lastPlayed >= thirtyDaysAgo)
     .sort((a, b) => b.lastPlayed - a.lastPlayed);
 
-  // Most played (by playtime, excluding recent)
   const recentIds = new Set(recent.map((g) => g.appId));
   const mostPlayed = signals.games
     .filter((g) => !recentIds.has(g.appId) && g.playtimeMinutes > 0)

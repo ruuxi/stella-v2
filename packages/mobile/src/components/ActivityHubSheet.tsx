@@ -91,8 +91,7 @@ function TaskRow({
     task.status === "running"
       ? task.statusText?.trim() || t("mobile.activityHub.task.working")
       : t(TERMINAL_SUBTITLE_KEY[task.status]);
-  // Newest reasoning summary (oldest→newest order), shown under the agent while
-  // it's active. Defensive against the field being absent on older desktops.
+
   const reasoningSummary = running
     ? task.reasoningSummaries?.[task.reasoningSummaries.length - 1]?.trim()
     : undefined;
@@ -168,13 +167,6 @@ function TaskRow({
 
 type GroupSubagent = { task: MobileTask; artifacts: ChatArtifact[] };
 
-/**
- * A top-level agent row plus the subagents it spawned, grouped the way the
- * desktop activity workspace does: the parent is always visible, its owned
- * subagents collapse into a single "N subagents · M done" summary, and a tap
- * expands them into the normal subagent list. Collapsed by default so a
- * subagent-heavy run (e.g. a 16-child research fleet) stays quiet.
- */
 function TaskGroupRow({
   owner,
   ownerArtifacts,
@@ -430,15 +422,15 @@ function ScheduleRow({
 type ActivityHubSheetProps = {
   visible: boolean;
   onClose: () => void;
-  /** Background tasks in the conversation (running + settled). */
+
   tasks: MobileTask[];
-  /** Artifacts in the conversation, newest first. */
+
   artifacts: ChatArtifact[];
-  /** Exact desktop-style agent/thread ownership for nested files. */
+
   artifactsByTaskId: ReadonlyMap<string, ChatArtifact[]>;
-  /** Direct orchestrator artifacts owned by the main conversation thread. */
+
   conversationArtifacts: ChatArtifact[];
-  /** Desktop pairing used to load artifact contents for the inline viewer. */
+
   access: StoredPhoneAccess | null;
 };
 
@@ -460,16 +452,6 @@ const activityHubListRowKey = (row: ActivityHubListRow): string => {
   return "conversation";
 };
 
-/**
- * The hub sheet the floating activity pill opens — a TOP-anchored sheet
- * (slides down, dismiss gap at the bottom, like the other top sheets) with
- * its own tab bar (Activity / Schedule / Search / Files) docked at the
- * sheet's bottom edge. Tapping Search expands an input above the tab bar
- * with the keyboard focused; Schedule lists the paired computer's local
- * schedules (the same rows the desktop Schedules dialog shows) with
- * pause/resume/delete for cron jobs. Tapping a file opens the artifact
- * viewer within the sheet.
- */
 export function ActivityHubSheet({
   visible,
   onClose,
@@ -489,8 +471,7 @@ export function ActivityHubSheet({
 
   const [tab, setTab] = useState<HubTab>("activity");
   const [query, setQuery] = useState("");
-  // True once Search is tapped — expands the input above the tab bar and
-  // focuses it. Leaving Search (or closing the sheet) collapses it again.
+
   const [searchFocusedMode, setSearchFocusedMode] = useState(false);
   const [openArtifact, setOpenArtifact] = useState<ChatArtifact | null>(null);
 
@@ -500,9 +481,7 @@ export function ActivityHubSheet({
   const [busyScheduleKey, setBusyScheduleKey] = useState<string | null>(null);
 
   const hubTasks = useMemo(() => sortHubTasksByRecency(tasks), [tasks]);
-  // Group subagents under their parent agent (desktop-parity association):
-  // each top-level group is one visual unit, so the paging window counts
-  // groups, not raw tasks — a 16-child fleet collapses to a single row here.
+
   const hubGroups = useMemo(() => groupActivityHubTasks(hubTasks), [hubTasks]);
   const groupCount = hubGroups.length;
 
@@ -512,8 +491,7 @@ export function ActivityHubSheet({
   const pagingLockedRef = useRef(false);
   const latestGroupCountRef = useRef(groupCount);
   latestGroupCountRef.current = groupCount;
-  // Collapsed by default: only groups the user taps open expand into their
-  // subagent list. Keyed by owner id so LegendList recycling can't leak state.
+
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -528,8 +506,6 @@ export function ActivityHubSheet({
 
   const searchInputRef = useRef<TextInput>(null);
 
-  // Fresh overview each open: reset to Activity, clear search state, any
-  // in-sheet artifact, and every expanded subagent group.
   useEffect(() => {
     if (!visible) return;
     setTab("activity");
@@ -540,8 +516,6 @@ export function ActivityHubSheet({
     setActivityWindow(initialActivityWindow(latestGroupCountRef.current));
   }, [visible]);
 
-  // Entering Search mode focuses the input once it has mounted; leaving it
-  // dismisses the keyboard so the sheet doesn't hold focus invisibly.
   useEffect(() => {
     if (searchFocusedMode) {
       const timer = setTimeout(() => searchInputRef.current?.focus(), 60);
@@ -558,8 +532,6 @@ export function ActivityHubSheet({
     );
   }, [groupCount]);
 
-  // True until unmount; loads and mutations check it before touching state
-  // so a slow bridge round-trip can't set state on a torn-down sheet.
   const aliveRef = useRef(true);
   useEffect(
     () => () => {
@@ -567,14 +539,9 @@ export function ActivityHubSheet({
     },
     [],
   );
-  // Monotonic load epoch: a response only lands if it is still the newest
-  // request, so overlapping loads (open + push burst) can't interleave into
-  // last-write-wins with stale data.
+
   const scheduleLoadEpochRef = useRef(0);
 
-  // Schedules load each time the sheet opens onto the Schedule tab — a cheap
-  // authenticated read through the desktop bridge, refreshed on every open so
-  // next-run stays current.
   const loadSchedules = useCallback(async () => {
     const epoch = ++scheduleLoadEpochRef.current;
     const isCurrent = () =>
@@ -602,11 +569,6 @@ export function ActivityHubSheet({
     void loadSchedules();
   }, [visible, tab, loadSchedules]);
 
-  // Live updates: the desktop broadcasts `schedule:updated` after every
-  // scheduler mutation (its own dialog, an agent's Schedule tool, or this
-  // phone). Subscribe only while the Schedule tab is on screen; cleanup
-  // closes the socket on tab switch, sheet close, and unmount, so badges
-  // and paused state stay current without reopening the sheet.
   useEffect(() => {
     if (!visible || tab !== "schedule") return;
     const subscription = subscribeMobileScheduleUpdates(() => {
@@ -621,9 +583,7 @@ export function ActivityHubSheet({
       setBusyScheduleKey(key);
       try {
         await mutateMobileSchedule(action, schedule);
-        // Re-read so enabled/nextRunAtMs come back authoritative. The
-        // desktop's schedule:updated push triggers the same reload; the
-        // load epoch collapses the overlap.
+
         await loadSchedules();
       } catch (error) {
         if (aliveRef.current) {
@@ -645,7 +605,7 @@ export function ActivityHubSheet({
     (schedule: MobileSchedule, action: MobileScheduleAction) => {
       if (busyScheduleKey) return;
       if (action === "remove") {
-        // Destructive actions confirm first — deleting stops future runs.
+
         Alert.alert(
           t("mobile.activityHub.schedule.deleteSchedule"),
           t("mobile.activityHub.schedule.deleteConfirm", {
@@ -690,7 +650,7 @@ export function ActivityHubSheet({
     () => new Set(matchingArtifacts.map((artifact) => artifact.id)),
     [matchingArtifacts],
   );
-  // Non-search: one windowed page of grouped top-level rows.
+
   const shownGroups = useMemo(
     () =>
       searching
@@ -698,8 +658,7 @@ export function ActivityHubSheet({
         : hubGroups.slice(activityWindow.start, activityWindow.end),
     [searching, hubGroups, activityWindow.start, activityWindow.end],
   );
-  // Search flattens grouping back to individual matching rows (parents and
-  // subagents alike), preserving the pre-existing flat search behavior.
+
   const shownTasks = useMemo(() => {
     if (!searching) return [];
     return hubTasks.filter(
@@ -766,9 +725,6 @@ export function ActivityHubSheet({
     shownConversationArtifacts,
   ]);
 
-  // Files tab: file cards aggregated into one browsable list — everything
-  // the conversation produced, newest first, noise already filtered by the
-  // collector. Search narrows it; otherwise show all.
   const fileRows = useMemo<FileRow[]>(() => {
     const source = searching ? matchingArtifacts : artifacts;
     return source.map((artifact) => ({ kind: "file" as const, artifact }));
@@ -799,8 +755,7 @@ export function ActivityHubSheet({
   const selectTab = (next: HubTab) => {
     tapLight();
     if (next === "search") {
-      // Search is a mode, not a list: expand the input above the tab bar
-      // (keyboard focuses via the effect) and show the combined results.
+
       setSearchFocusedMode(true);
       setTab("search");
     } else {
@@ -847,8 +802,6 @@ export function ActivityHubSheet({
     </View>
   );
 
-  // Frozen per render pass so relative badges ("in 5m") don't flicker as the
-  // list re-renders; refreshed each time the schedule list reloads.
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     setNowMs(Date.now());
@@ -857,8 +810,7 @@ export function ActivityHubSheet({
   return (
     <TopSheet visible={visible} onClose={onClose}>
       {viewerOpen ? (
-        // Artifact open in-sheet: full-height viewer (WebViews and media need
-        // real space), with a back chevron returning to the previous list.
+
         <View style={styles.sheetFill}>
           <ArtifactViewerContent
             artifact={openArtifact}
@@ -1008,9 +960,9 @@ export function ActivityHubSheet({
             />
           )}
 
-          {/* Bottom control bar — the only chrome in the sheet. The sheet is
-              top-anchored, so its bottom edge floats mid-screen well above
-              the home indicator; no bottom safe-area inset needed. */}
+          {
+
+}
           <View style={styles.tabBar}>
             <View style={styles.tabBarHairline} pointerEvents="none" />
             {TAB_ORDER.map((entry) => {
@@ -1057,13 +1009,10 @@ const makeStyles = (colors: Colors, topInset: number) =>
   StyleSheet.create({
     sheetFill: {
       flex: 1,
-      // Top-anchored sheet slides under the translucent status bar; keep the
-      // first content row (lists / viewer chrome) clear of the notch.
+
       paddingTop: topInset + 10,
     },
 
-    // Search — rendered only while Search mode is active, docked above the
-    // tab bar at the bottom of the sheet (thumb reach).
     searchWrap: {
       alignItems: "center",
       backgroundColor: colors.panel,
@@ -1086,8 +1035,6 @@ const makeStyles = (colors: Colors, topInset: number) =>
       paddingVertical: 10,
     },
 
-    // Hug content naturally; the sheet itself fills the screen and the lists
-    // scroll inside the region between any expanded field and the tab bar.
     scroll: {
       flexGrow: 1,
       flexShrink: 1,
@@ -1127,7 +1074,7 @@ const makeStyles = (colors: Colors, topInset: number) =>
     taskGroup: {
       gap: 2,
     },
-    // Collapsed subagent summary bar; sits under the parent's text column.
+
     groupToggle: {
       alignItems: "center",
       flexDirection: "row",
@@ -1148,7 +1095,7 @@ const makeStyles = (colors: Colors, topInset: number) =>
       letterSpacing: -0.1,
       marginLeft: "auto",
     },
-    // Expanded subagent list: indented + a hairline rail to read as nested.
+
     groupChildren: {
       borderLeftColor: colors.border,
       borderLeftWidth: StyleSheet.hairlineWidth,

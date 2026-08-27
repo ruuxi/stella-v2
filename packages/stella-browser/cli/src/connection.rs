@@ -81,29 +81,24 @@ impl Connection {
     }
 }
 
-/// Get the base directory for socket/pid files.
-/// Priority: STELLA_BROWSER_SOCKET_DIR > XDG_RUNTIME_DIR > ~/.stella-browser > tmpdir
 pub fn get_socket_dir() -> PathBuf {
-    // 1. Explicit override (ignore empty string)
+
     if let Ok(dir) = env::var("STELLA_BROWSER_SOCKET_DIR") {
         if !dir.is_empty() {
             return PathBuf::from(dir);
         }
     }
 
-    // 2. XDG_RUNTIME_DIR (Linux standard, ignore empty string)
     if let Ok(runtime_dir) = env::var("XDG_RUNTIME_DIR") {
         if !runtime_dir.is_empty() {
             return PathBuf::from(runtime_dir).join("stella-browser");
         }
     }
 
-    // 3. Home directory fallback (like Docker Desktop's ~/.docker/run/)
     if let Some(home) = dirs::home_dir() {
         return home.join(".stella-browser");
     }
 
-    // 4. Last resort: temp dir
     env::temp_dir().join("stella-browser")
 }
 
@@ -116,7 +111,6 @@ fn get_pid_path(session: &str) -> PathBuf {
     get_socket_dir().join(format!("{}.pid", session))
 }
 
-/// Clean up stale socket and PID files for a session
 fn cleanup_stale_files(session: &str) {
     let pid_path = get_pid_path(session);
     let _ = fs::remove_file(&pid_path);
@@ -145,8 +139,7 @@ fn get_port_for_session(session: &str) -> u16 {
     for c in session.chars() {
         hash = ((hash << 5).wrapping_sub(hash)).wrapping_add(c as i32);
     }
-    // Correct logic: first take absolute modulo, then cast to u16
-    // Using unsigned_abs() to safely handle i32::MIN
+
     49152 + ((hash.unsigned_abs() as u32 % 16383) as u16)
 }
 
@@ -162,9 +155,7 @@ fn is_daemon_running(session: &str) -> bool {
                 if libc::kill(pid, 0) == 0 {
                     return true;
                 }
-                // EPERM means the process exists but we lack permission to
-                // signal it (e.g. inside a macOS sandbox). Only ESRCH means
-                // the process is genuinely gone.
+
                 return std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH);
             }
         }
@@ -203,9 +194,8 @@ fn daemon_ready(session: &str) -> bool {
     }
 }
 
-/// Result of ensure_daemon indicating whether a new daemon was started
 pub struct DaemonResult {
-    /// True if we connected to an existing daemon, false if we started a new one
+
     pub already_running: bool,
 }
 
@@ -214,11 +204,9 @@ fn configure_daemon_command(cmd: &mut Command, session: &str) {
 }
 
 pub fn ensure_daemon(session: &str) -> Result<DaemonResult, String> {
-    // Check if daemon is running AND responsive
+
     if is_daemon_running(session) && daemon_ready(session) {
-        // Double-check it's actually responsive by waiting and checking again
-        // This handles the race condition where daemon is shutting down
-        // (daemon has a 100ms shutdown delay, so we wait longer)
+
         thread::sleep(Duration::from_millis(150));
         if daemon_ready(session) {
             return Ok(DaemonResult {
@@ -227,17 +215,14 @@ pub fn ensure_daemon(session: &str) -> Result<DaemonResult, String> {
         }
     }
 
-    // Clean up any stale socket/pid files before starting fresh
     cleanup_stale_files(session);
 
-    // Ensure socket directory exists
     let socket_dir = get_socket_dir();
     if !socket_dir.exists() {
         fs::create_dir_all(&socket_dir)
             .map_err(|e| format!("Failed to create socket directory: {}", e))?;
     }
 
-    // Pre-flight check: Validate socket path length (Unix limit is 104 bytes including null terminator)
     #[cfg(unix)]
     {
         let socket_path = get_socket_path(session);
@@ -251,7 +236,6 @@ pub fn ensure_daemon(session: &str) -> Result<DaemonResult, String> {
         }
     }
 
-    // Pre-flight check: Verify socket directory is writable
     {
         let test_file = socket_dir.join(".write_test");
         match fs::write(&test_file, b"") {
@@ -324,7 +308,6 @@ pub fn ensure_daemon(session: &str) -> Result<DaemonResult, String> {
             });
         }
 
-        // Detect early daemon exit and surface the real error from stderr
         if let Some(ref mut child) = daemon_child {
             if let Ok(Some(_)) = child.try_wait() {
                 let mut stderr_output = String::new();
@@ -392,7 +375,7 @@ pub fn send_command_with_timeout(
     session: &str,
     timeout: Duration,
 ) -> Result<Response, String> {
-    // Retry logic for transient errors (EAGAIN/EWOULDBLOCK/connection issues)
+
     const MAX_RETRIES: u32 = 5;
     const RETRY_DELAY_MS: u64 = 200;
 
@@ -410,7 +393,7 @@ pub fn send_command_with_timeout(
                     last_error = e;
                     continue;
                 }
-                // Non-transient error, fail immediately
+
                 return Err(e);
             }
         }
@@ -422,28 +405,22 @@ pub fn send_command_with_timeout(
     ))
 }
 
-/// Check if an error is transient and worth retrying.
-/// Transient errors include:
-/// - EAGAIN/EWOULDBLOCK (os error 35 on macOS, 11 on Linux)
-/// - EOF errors (daemon closed connection before responding)
-/// - Connection reset/broken pipe (daemon crashed or restarting)
-/// - Connection refused/socket not found (daemon still starting)
 fn is_transient_error(error: &str) -> bool {
-    error.contains("os error 35") // EAGAIN on macOS
-        || error.contains("os error 11") // EAGAIN on Linux
+    error.contains("os error 35")
+        || error.contains("os error 11")
         || error.contains("WouldBlock")
         || error.contains("Resource temporarily unavailable")
         || error.contains("EOF")
-        || error.contains("line 1 column 0") // Empty JSON response
+        || error.contains("line 1 column 0")
         || error.contains("Connection reset")
         || error.contains("Broken pipe")
-        || error.contains("os error 54") // Connection reset by peer (macOS)
-        || error.contains("os error 104") // Connection reset by peer (Linux)
-        || error.contains("os error 2") // No such file or directory (socket gone)
-        || error.contains("os error 61") // Connection refused (macOS)
-        || error.contains("os error 111") // Connection refused (Linux)
-        || error.contains("os error 10061") // Connection refused (Windows)
-        || error.contains("os error 10054") // Connection reset by peer (Windows)
+        || error.contains("os error 54")
+        || error.contains("os error 104")
+        || error.contains("os error 2")
+        || error.contains("os error 61")
+        || error.contains("os error 111")
+        || error.contains("os error 10061")
+        || error.contains("os error 10054")
 }
 
 fn send_command_once(cmd: &Value, session: &str, timeout: Duration) -> Result<Response, String> {
@@ -568,8 +545,6 @@ mod tests {
         );
     }
 
-    // === Transient Error Detection Tests ===
-
     #[test]
     fn test_is_transient_error_eagain_macos() {
         assert!(is_transient_error(
@@ -669,7 +644,7 @@ mod tests {
 
     #[test]
     fn test_is_transient_error_non_transient() {
-        // These should NOT be considered transient
+
         assert!(!is_transient_error("Unknown command: foo"));
         assert!(!is_transient_error("Invalid JSON syntax"));
         assert!(!is_transient_error("Permission denied"));

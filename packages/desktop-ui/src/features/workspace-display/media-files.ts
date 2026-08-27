@@ -1,8 +1,3 @@
-/**
- * File-level helpers for the Media tab: drag/drop classification,
- * data-uri conversion, and local-import wiring through the desktop
- * media `saveOutput` IPC.
- */
 import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import { openDisplayPayloadTab } from "./open-payload";
 

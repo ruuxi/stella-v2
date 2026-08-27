@@ -1,21 +1,3 @@
-/**
- * Lightweight connector discovery for agents.
- *
- * Agents deliberately do not get the integration catalog in context —
- * only enabled connectors surface (as skills). When a user request
- * implies an external service ("check my Gmail…"), the agent calls
- * `connect.discover("<keywords>")` in node_repl and gets back a handful of
- * compact matches spanning the WHOLE catalog (native integrations
- * — Google Workspace, backend Composio toolkits, recovered OAuth
- * providers — plus imported MCP/API connectors), each annotated with
- * enabled/declined state so the agent knows whether to just use it,
- * offer an in-chat connect card, or stay quiet.
- *
- * Scoring is intentionally dumb (token prefix/substring over id, name,
- * category, description): the caller is a language model that already
- * did the semantic work of picking keywords.
- */
-
 import {
   buildNativeConnectorCatalog,
   type NativeConnectorCatalogEntry,
@@ -36,11 +18,11 @@ export type ConnectorDiscoveryMatch = {
   description: string;
   category?: string;
   provider?: NativeConnectorCatalogEntry["provider"];
-  /** Native integrations: enabled in Connections. Imported MCP/API: always true. */
+
   enabled: boolean;
-  /** Whether Stella can currently run a connect flow for this entry. */
+
   connectable: boolean;
-  /** The user declined an in-chat connect offer for this integration. */
+
   declined: boolean;
   score: number;
 };
@@ -70,11 +52,6 @@ type ScoreFields = {
   description?: string;
 };
 
-/**
- * Exported for tests. Exact id/name hits dominate so `discover gmail`
- * always puts the Gmail integration first even though "mail" appears in
- * dozens of descriptions.
- */
 export const scoreConnectorMatch = (
   tokens: readonly string[],
   fields: ScoreFields,
@@ -116,7 +93,7 @@ export const discoverConnectors = async (
   query: string,
   options: {
     catalogOverride?: NativeConnectorCatalogOverride;
-    /** Native connectors that are currently enabled (by id). */
+
     enabledNativeIds: ReadonlySet<string>;
     limit?: number;
   },
@@ -145,10 +122,7 @@ export const discoverConnectors = async (
       category: entry.category,
       provider: entry.provider,
       enabled: options.enabledNativeIds.has(entry.id),
-      // `connectable` on catalog entries is conservative for
-      // oauth-catalog fallbacks (backend provider config is only
-      // known to the desktop); google-workspace and backend-composio
-      // entries carry an accurate flag.
+
       connectable: entry.connectable,
       declined: Boolean(declines[entry.id]),
       score,
@@ -195,7 +169,7 @@ export const discoverConnectors = async (
 
   matches.sort((left, right) => {
     if (right.score !== left.score) return right.score - left.score;
-    // Same score: prefer what's already usable, then stable by name.
+
     if (left.enabled !== right.enabled) return left.enabled ? -1 : 1;
     return left.name.localeCompare(right.name);
   });

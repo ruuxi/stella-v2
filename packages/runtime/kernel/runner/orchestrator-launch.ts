@@ -42,11 +42,7 @@ export type PreparedOrchestratorRun = {
   agentContext: LocalAgentContext;
   resolvedLlm: ResolvedLlmRoute;
   abortController: AbortController;
-  /**
-   * Memory-review user-turn counter AFTER incrementing for this run.
-   * Only set when the run is a real user turn (Orchestrator + uiVisibility !== "hidden").
-   * Consumed by finalizeOrchestratorSuccess to decide whether to spawn the review.
-   */
+
   userTurnsSinceMemoryReview?: number;
 };
 
@@ -69,8 +65,7 @@ export const prepareOrchestratorRun = async (args: {
     externalMessageId?: string;
   };
   toolWorkspaceRoot?: string;
-  /** Current turn's user-message id; excludes the just-appended display
-   * event from the legacy pre-transition history shim. */
+
   userMessageId?: string;
 }): Promise<PreparedOrchestratorRun> => {
   const isUserTurn = args.uiVisibility !== "hidden";
@@ -108,11 +103,7 @@ export const prepareOrchestratorRun = async (args: {
     if (abortController.signal.aborted) {
       throw new Error("Run canceled.");
     }
-    // Increment the memory-review counter only on real user-driven turns
-    // for agents that declare the `triggersMemoryReview` capability.
-    // Synthetic task-callback turns (uiVisibility === "hidden") and
-    // capability-less agents do not count — they would inflate the counter
-    // without representing user input.
+
     let userTurnsSinceMemoryReview: number | undefined;
     if (
       isUserTurn &&
@@ -124,7 +115,7 @@ export const prepareOrchestratorRun = async (args: {
             args.conversationId,
           );
       } catch {
-        // Memory review is best-effort. Counter failure must not block the turn.
+
       }
     }
 

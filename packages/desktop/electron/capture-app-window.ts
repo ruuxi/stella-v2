@@ -1,12 +1,6 @@
 import { desktopCapturer } from "electron";
 import { captureWindowScreenshotByPid } from "./window-capture.js";
 
-/**
- * Snapshot of an app's topmost window: a PNG data URL plus the window
- * title we found. Returned by `captureAppWindow` for the auto-context chip
- * "lazy capture" path — we attach the chip eagerly with metadata, then
- * patch in this screenshot when it lands.
- */
 export type AppWindowCapture = {
   title: string;
   axTree?: string | null;
@@ -23,27 +17,12 @@ const normalizeName = (value: string): string =>
   value.toLowerCase().replace(/\s+/g, "").trim();
 
 type CaptureOptions = {
-  /** Preferred selector — pid uniquely identifies the running app. */
+
   pid?: number | null;
-  /** Fallback selector — only used when pid is missing or fails. */
+
   appName?: string | null;
 };
 
-/**
- * Captures the topmost on-screen window for the given app.
- *
- * When a `pid` is provided, uses the bundled native helpers
- * (`home_capture --pid=<pid>` on macOS via ScreenCaptureKit,
- * `window_info --shot --pid=<pid>` on Windows via PrintWindow) against the
- * process's topmost window. This is the reliable path — Electron's
- * `desktopCapturer.getSources({ types: ['window'] })` returns sources named
- * by window title (no app prefix) on modern macOS and Windows, so a
- * name-based match against window sources misses most apps.
- *
- * When no pid is provided (or the native helper fails) we fall back to
- * `desktopCapturer` and a name match — useful for cmd+rc → "Open chat"
- * which doesn't have a pid.
- */
 export const captureAppWindow = async (
   options: CaptureOptions,
 ): Promise<AppWindowCapture | null> => {
@@ -75,13 +54,6 @@ export const captureAppWindow = async (
   return await captureAppWindowByName(appName);
 };
 
-/**
- * Fallback path — match a window source by app name via `desktopCapturer`.
- * On modern macOS most window sources are named after the window title,
- * not "<App> - <Title>", so this only succeeds for a small set of apps.
- * Kept around for cmd+rc → "Open chat" which doesn't carry a pid, and
- * eventually for Windows/Linux capture.
- */
 const captureAppWindowByName = async (
   appName: string,
 ): Promise<AppWindowCapture | null> => {

@@ -1,15 +1,6 @@
-/*
- * PetOverlay — floating Stella pet companion.
- *
- * Renders inside a dedicated transparent BrowserWindow. The wrapper keeps
- * pointer events on only for the pet window's compact bounds.
- */
-
 .pet-overlay-root {
   position: absolute;
-  /* The dedicated pet `BrowserWindow` is 280x240 (see `pet-window.ts`).
-   * The sprite is anchored to the bottom-right of that window so the
-   * bubble floats above the sprite — inside the window's bounds. */
+
   right: 20px;
   bottom: 20px;
   padding: 4px;
@@ -38,25 +29,14 @@ html[data-stella-window="pet"] #root {
 }
 
 .pet-overlay-bubble {
-  /* Anchored above the sprite (its parent `.pet-overlay-mascot` is
-   * `position: relative`) so the bubble's horizontal position tracks
-   * the sprite even though the sprite-hit-zone root is much wider. */
+
   position: absolute;
   bottom: calc(100% + 6px);
   right: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  /* Bubble is right-anchored to the sprite (which itself sits 20px
-   * from the window's right edge). The dedicated pet window is 280px
-   * wide while the composer is closed, so the bubble can extend at
-   * most ~244px leftward before its left edge clips against the
-   * window's left edge. Capping max-width here lets the message
-   * truncate cleanly inside the bubble (`text-overflow: ellipsis`
-   * below) instead of being cut off by the OS-level window bounds. */
-  /* Right-anchored to the sprite, so the bubble shrinks from the left
-   * to fit short messages and grows leftward (capped at 244px) for
-   * long ones, which then ellipsize. */
+
   width: fit-content;
   max-width: 244px;
   padding: var(--space-3) var(--space-4);
@@ -85,9 +65,6 @@ html[data-stella-window="pet"] #root {
   pointer-events: none;
 }
 
-/* Two stacked text slots so the message can cross-fade on change
- * instead of hot-swapping. The bubble has a fixed width, so the slot
- * stays put and only opacity animates. */
 .pet-overlay-bubble-message {
   position: relative;
   display: block;

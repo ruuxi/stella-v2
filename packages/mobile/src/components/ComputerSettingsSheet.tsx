@@ -53,7 +53,7 @@ type Props = {
   onClose: () => void;
   access: StoredPhoneAccess | null;
   catalog: StellaCatalog;
-  /** Called whenever the desktop snapshot changes, so the quick menu label can stay in sync. */
+
   onApplied?: (snapshot: DesktopModelSnapshot) => void;
   composerModelPinned: boolean;
   onComposerModelPinnedChange: (next: boolean) => void;
@@ -62,19 +62,12 @@ type Props = {
 const isRuntimeEngine = (engine: AgentRuntimeEngine): engine is RuntimeEngine =>
   engine === "codex_cli" || engine === "claude_code_local";
 
-/** Which provider tab a selected Stella-engine model belongs to. */
 const providerKeyForModel = (modelId: string): string => {
   if (!modelId || modelId.startsWith("stella/")) return "stella";
   const slash = modelId.indexOf("/");
   return slash > 0 ? modelId.slice(0, slash) : "stella";
 };
 
-/**
- * Advanced model picker for the Computer chat — mirrors the desktop
- * display-sidebar engine/model picker and writes the paired desktop's real
- * local model preferences over the bridge. Opens as an iOS page sheet like
- * the pairing sheet.
- */
 export function ComputerSettingsSheet({
   visible,
   onClose,
@@ -101,7 +94,7 @@ export function ComputerSettingsSheet({
   const [directModels, setDirectModels] = useState<
     Record<string, RuntimeModelOption[]>
   >({});
-  // Active provider tab within the Stella engine (null = follow selection).
+
   const [activeProviderKey, setActiveProviderKey] = useState<string | null>(
     null,
   );
@@ -123,7 +116,6 @@ export function ComputerSettingsSheet({
     [runtimeModels],
   );
 
-  // Resolve the bridge and load the live desktop snapshot when the sheet opens.
   useEffect(() => {
     if (!visible) {
       bridgeRef.current = null;
@@ -138,7 +130,7 @@ export function ComputerSettingsSheet({
     let cancelled = false;
     setLoading(true);
     setError(null);
-    // models.dev catalog (BYOK model lists) is plain HTTP — load independently.
+
     void fetchDirectProviderModels().then((models) => {
       if (!cancelled) setDirectModels(models);
     });
@@ -167,8 +159,7 @@ export function ComputerSettingsSheet({
     return () => {
       cancelled = true;
     };
-    // Re-run only when the sheet opens / the device changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [visible, access]);
 
   const apply = useCallback(
@@ -262,14 +253,11 @@ export function ComputerSettingsSheet({
   const runtimeRows: RuntimeModelOption[] = runtime
     ? (runtimeModels[runtime] ?? [])
     : [];
-  // Stella engine groups models by provider: Stella always, then each
-  // connected BYOK provider (Anthropic, OpenRouter, …) with its models.
+
   const stellaGroups: ProviderModelGroup[] = runtime
     ? []
     : buildStellaProviderGroups(catalog, connectedProviders, directModels);
 
-  // Default the provider tab to whichever provider owns the selected model;
-  // a user tap (activeProviderKey) overrides until it's no longer valid.
   const selectedProviderKey = providerKeyForModel(selectedModelId);
   const activeProvider =
     activeProviderKey &&
@@ -283,7 +271,7 @@ export function ComputerSettingsSheet({
 
   const isRowSelected = (rowId: string) => {
     if (rowId === selectedModelId) return true;
-    // No Stella override means the desktop is on its default model.
+
     if (!runtime && selectedModelId === "" && rowId === STELLA_DEFAULT_MODEL) {
       return true;
     }
@@ -502,8 +490,7 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     sheetSafe: {
       backgroundColor: colors.background,
-      // Soft hairline on the leading (top) edge so the sheet reads against
-      // the page beneath, matching the TopSheet primitive's edge treatment.
+
       borderTopColor: colors.border,
       borderTopWidth: StyleSheet.hairlineWidth,
       flex: 1,

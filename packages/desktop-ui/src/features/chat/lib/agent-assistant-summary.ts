@@ -6,7 +6,6 @@ export type AgentAssistantSummary = {
   sequence?: number;
 };
 
-/** Latest non-empty assistant prose from an already chronological message list. */
 export const selectLatestAgentAssistantMessage = (
   messages: readonly string[] | undefined,
 ): string | undefined => {
@@ -32,12 +31,6 @@ const isLaterSummary = (
   return candidate.atMs > current.atMs;
 };
 
-/**
- * Select assistant prose for an exact set of child threads. Thread identity,
- * attempt generation, root run, and spawn time are all checked before
- * recency, so a parent/root message or a resumed attempt cannot bleed into a
- * historical inline card. Durable insertion sequence wins over timestamps.
- */
 export const selectLatestThreadAssistantSummary = (
   records: readonly ThreadActivityRecord[],
   options: {

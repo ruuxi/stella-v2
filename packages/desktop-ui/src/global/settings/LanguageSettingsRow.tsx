@@ -2,11 +2,6 @@ import { useMemo } from "react";
 import { useT, useI18n, LOCALE_NATIVE_LABELS, type Locale } from "@/shared/i18n";
 import { Select } from "@/ui/select";
 
-/**
- * Settings row for switching the active app language. Stored both in
- * the shared UI state store (instant rendering) and in Convex
- * `user_preferences` (synced across signed-in devices).
- */
 export function LanguageSettingsRow() {
   const t = useT();
   const { locale, setLocale, supportedLocales } = useI18n();

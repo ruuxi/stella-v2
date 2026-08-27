@@ -15,9 +15,6 @@ import {
   getComputerExecutionSignal,
 } from "../computer-use/execution-context.js";
 
-// The Electron bundle injects a top-level `__dirname` compatibility binding in
-// its banner. Keep this module-local path distinct so esbuild cannot emit a
-// duplicate top-level declaration in the standalone stella-computer CLI.
 const nativeHelperModuleDir = import.meta.dirname;
 
 const platformDir =
@@ -89,7 +86,7 @@ const cleanupTempDir = (tempDir: string) => {
   try {
     rmSync(tempDir, { recursive: true, force: true });
   } catch {
-    // ignore cleanup failures
+
   }
 };
 
@@ -103,12 +100,12 @@ const killDetachedProcess = (pid: number | undefined) => {
       return;
     }
   } catch {
-    // fall through to direct pid kill
+
   }
   try {
     process.kill(pid, "SIGKILL");
   } catch {
-    // ignore kill failures
+
   }
 };
 

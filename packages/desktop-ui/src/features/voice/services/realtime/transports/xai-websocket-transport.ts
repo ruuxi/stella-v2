@@ -1,26 +1,3 @@
-/**
- * xAI Voice Agent WebSocket transport.
- *
- * xAI's Voice Agent API is OpenAI-Realtime-compatible at the event level but
- * uses a WebSocket (no WebRTC). That means we hand-roll what WebRTC was
- * doing for free: capture mic samples → resample to 24 kHz PCM16 → base64 →
- * `input_audio_buffer.append`; receive `response.output_audio.delta` →
- * decode PCM16 → schedule on AudioContext.
- *
- * Differences from OpenAI's event vocabulary that this transport
- * normalises before passing events upstream:
- *   - `response.text.delta` → `response.output_text.delta` (xAI uses the
- *     OpenAI beta event name).
- *   - Synthesises `output_audio.started` / `output_audio.done` from the
- *     PCM player's queue state so the session's echo guard works
- *     identically to the WebRTC path.
- *
- * Auth: WebSocket subprotocol `xai-client-secret.<token>` (browser
- * WebSocket can't send headers). The clientSecret is minted in main by
- * the xai-provider module; this transport just uses whatever was handed
- * to it.
- */
-
 import { z } from "zod";
 import {
   acquireSharedMicrophone,
@@ -215,9 +192,7 @@ export class XaiWebSocketTransport implements RealtimeTransport {
 
   send(event: Record<string, unknown>): void {
     if (event.type === "conversation.item.truncate") {
-      // xAI doesn't support truncate; flushing local playback is the
-      // closest analogue and matches user-visible behaviour (assistant
-      // stops talking immediately).
+
       this.player.flush();
       return;
     }
@@ -260,13 +235,11 @@ export class XaiWebSocketTransport implements RealtimeTransport {
       try {
         this.ws.close();
       } catch {
-        // Already closed.
+
       }
       this.ws = null;
     }
   }
-
-  // ── internals ────────────────────────────────────────────────────────
 
   private sendRaw(event: Record<string, unknown>): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
@@ -295,9 +268,6 @@ export class XaiWebSocketTransport implements RealtimeTransport {
     }
     const type = parsed.type;
 
-    // Audio deltas go straight to the PCM player; the session class
-    // doesn't need to see them. The player's queue state drives our
-    // synthesised speaking-start / speaking-end events.
     if (type === "response.output_audio.delta") {
       const audio = parsed.delta ?? parsed.audio;
       if (typeof audio === "string" && audio.length > 0) {
@@ -315,8 +285,6 @@ export class XaiWebSocketTransport implements RealtimeTransport {
       return;
     }
 
-    // Normalise xAI's beta text-delta name onto OpenAI's GA name so the
-    // session class only needs one vocabulary.
     if (type === "response.text.delta") {
       this.events?.onEvent({ ...parsed, type: "response.output_text.delta" });
       return;
@@ -397,8 +365,7 @@ export class XaiWebSocketTransport implements RealtimeTransport {
       this.mic.setSoftMute(false);
       return;
     }
-    // Clear xAI's server-side buffer so any accidental tail samples
-    // don't get committed as the user's next utterance.
+
     this.sendRaw({ type: "input_audio_buffer.clear" });
     this.releaseMicrophoneCapture();
   }

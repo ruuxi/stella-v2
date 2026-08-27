@@ -51,7 +51,7 @@ describe("Composio native integrations", () => {
   });
 
   it("reads toolkit connection status across payload shapes", () => {
-    // Connected account, current shape.
+
     expect(
       composioToolkitConnectedFromPayload(
         {
@@ -68,7 +68,7 @@ describe("Composio native integrations", () => {
         "gmail",
       ),
     ).toBe(true);
-    // Pending OAuth: account exists but is not active yet.
+
     expect(
       composioToolkitConnectedFromPayload(
         {
@@ -85,28 +85,28 @@ describe("Composio native integrations", () => {
         "gmail",
       ),
     ).toBe(false);
-    // No connection object at all.
+
     expect(
       composioToolkitConnectedFromPayload(
         { items: [{ toolkit: { slug: "gmail" } }] },
         "gmail",
       ),
     ).toBe(false);
-    // Flat/legacy shapes and alternate arrays.
+
     expect(
       composioToolkitConnectedFromPayload(
         { data: [{ slug: "GMAIL", is_connected: true }] },
         "gmail",
       ),
     ).toBe(true);
-    // Other toolkits don't count.
+
     expect(
       composioToolkitConnectedFromPayload(
         { items: [{ toolkit: { slug: "notion" }, is_connected: true }] },
         "gmail",
       ),
     ).toBe(false);
-    // Empty payloads.
+
     expect(composioToolkitConnectedFromPayload({}, "gmail")).toBe(false);
   });
 });

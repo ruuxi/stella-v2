@@ -5,8 +5,6 @@ type ApiResizeParams = {
   multipleOf: number
 }
 
-// Keep the resized screenshot in a stable desktop-friendly envelope so the
-// model's coordinate space is the exact image space we upload.
 export const API_RESIZE_PARAMS: ApiResizeParams = {
   maxLongEdge: 1600,
   maxShortEdge: 900,
@@ -44,14 +42,6 @@ export function targetImageSize(
   return [targetWidth, targetHeight]
 }
 
-/**
- * Logical -> physical -> API target dimensions.
- *
- * The screenshot pipeline captures the real display/window pixels, but overlay
- * placement needs to land back in logical screen coordinates. We therefore
- * compute the exact resized image dimensions up front and treat that image
- * space as the model's coordinate system.
- */
 export function computeTargetDims(
   logicalWidth: number,
   logicalHeight: number,

@@ -38,7 +38,7 @@ export const extractFrontmatter = (content: string): FrontmatterParseResult => {
       return { metadata: parsed as Record<string, unknown>, body };
     }
   } catch {
-    // Fall through to empty metadata on parse errors.
+
   }
 
   return { metadata: {}, body };

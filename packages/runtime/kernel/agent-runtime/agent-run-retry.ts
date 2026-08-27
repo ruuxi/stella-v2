@@ -8,22 +8,11 @@ const isLocalContextPreflight = (message: string): boolean =>
 
 export const AGENT_RUN_MAX_ATTEMPTS = 4;
 export const AGENT_RUN_RETRY_DELAYS_MS = [1_000, 2_500, 6_000] as const;
-/**
- * Rate limits need a different curve from dropped connections. A 429 usually
- * means a provider-side capacity window has to drain (DeepSeek, for one, counts
- * a request as concurrent until its response completes), and the transport
- * schedule above exhausts its whole budget in under ten seconds — fast enough
- * to burn all four attempts against a limit that was never going to clear that
- * quickly. A provider-supplied `Retry-After` overrides this entirely.
- */
+
 export const AGENT_RUN_RATE_LIMIT_RETRY_DELAYS_MS = [
   5_000, 15_000, 30_000,
 ] as const;
-/**
- * Ceiling on an honored `Retry-After`. Providers occasionally return very long
- * windows (or an HTTP-date far in the future); waiting that out would look like
- * a hang, so we cap, retry anyway, and let the attempt budget end the run.
- */
+
 export const AGENT_RUN_MAX_RETRY_AFTER_MS = 60_000;
 export const AGENT_RUN_RETRY_JITTER_RATIO = 0.1;
 
@@ -45,18 +34,14 @@ export type AgentRunFailure = {
   category: AgentRunFailureCategory;
   message: string;
   retryable: boolean;
-  /** Provider-requested backoff, when the failing response carried one. */
+
   retryAfterMs?: number;
 };
 
 export type AgentTurnExecution = {
   finalText: string;
   errorMessage?: string;
-  /**
-   * Set by `getAgentCompletion` from the assistant message the provider
-   * adapter annotated. Present only when the upstream response actually
-   * carried a `Retry-After` / `retry-after-ms` header.
-   */
+
   retryAfterMs?: number;
 };
 
@@ -71,12 +56,6 @@ export type AgentRunRetryInfo = AgentRunFailure & {
   delayMs: number;
 };
 
-/**
- * Lead-in for the retry status the user sees. "Connection interrupted" was
- * shown for every category, which reads as a local network problem when the
- * real cause is the provider throttling or erroring — actively misleading
- * during a rate limit, since nothing about the user's connection is wrong.
- */
 const RETRY_STATUS_REASONS: Record<AgentRunFailureCategory, string> = {
   rate_limit: "Rate limited by the model provider.",
   http_5xx: "The model provider returned an error.",
@@ -184,9 +163,7 @@ export const classifyAgentRunFailure = (
   const message = errorMessage(error).trim() || "Agent run failed";
   const status = numericStatus(error);
   const code = errorCode(error);
-  // Prefer the caller's value (parsed by the provider adapter before the error
-  // was flattened to a string); fall back to the live error object, which still
-  // has headers when the failure was thrown rather than streamed.
+
   const retryAfterMs = options?.retryAfterMs ?? readRetryAfterMs(error);
   const withRetryAfter = <T extends AgentRunFailure>(failure: T): T =>
     typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs)
@@ -228,8 +205,7 @@ const classifyExecution = (
   signal?: AbortSignal,
 ): AgentRunFailure | null => {
   if (execution.errorMessage?.trim()) {
-    // `errorMessage` is a bare string by this point, so the header-derived
-    // backoff has to be passed alongside it rather than read back off it.
+
     return classifyAgentRunFailure(execution.errorMessage, {
       signal,
       ...(execution.retryAfterMs !== undefined
@@ -252,10 +228,7 @@ export const agentRunRetryDelayMs = (
   random: () => number = Math.random,
   failure?: Pick<AgentRunFailure, "category" | "retryAfterMs">,
 ): number => {
-  // An explicit Retry-After is the provider telling us exactly when it will
-  // serve us again; guessing a shorter delay just wastes an attempt, and a
-  // longer one wastes the user's time. Honor it verbatim, without jitter —
-  // jitter exists to de-synchronize blind retries, and this one isn't blind.
+
   const retryAfterMs = failure?.retryAfterMs;
   if (typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs)) {
     return Math.min(
@@ -389,7 +362,7 @@ export const executeAgentTurnWithRetry = async (args: {
         delayMs,
       });
     } catch {
-      // Activity/status reporting must never break recovery.
+
     }
     await wait(delayMs, args.signal);
     if (!args.prepareRetry(failure)) {

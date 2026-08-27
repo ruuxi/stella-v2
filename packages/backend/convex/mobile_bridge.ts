@@ -12,34 +12,13 @@ import { constantTimeEqual, hashSha256Hex } from "./lib/crypto_utils";
 import { requireBoundedString } from "./shared_validators";
 
 export const MOBILE_BRIDGE_LEASE_MS = 15 * 60_000;
-/**
- * The desktop re-registers on a short interval (and often fires two requests
- * back-to-back as its LAN and tunnel URLs become ready). Each register is a
- * full patch of the same row, which also invalidates every subscription that
- * reads it. `updatedAt` doubles as the lease heartbeat (`leaseExpiresAt =
- * updatedAt + MOBILE_BRIDGE_LEASE_MS`), so we still refresh it periodically --
- * but far less often than the client re-registers. When the registration
- * content is unchanged we only re-write once the row is older than this
- * interval, which collapses the redundant burst writes while keeping the lease
- * comfortably fresh (a third of the lease window).
- */
+
 const MOBILE_BRIDGE_REGISTRATION_MIN_REFRESH_MS = MOBILE_BRIDGE_LEASE_MS / 3;
 const MOBILE_BRIDGE_REGISTRATION_RATE_LIMIT = 60;
 const MOBILE_BRIDGE_REGISTRATION_RATE_WINDOW_MS = 60_000;
-/**
- * Bridge sessions live for an hour (was 15 minutes) so a phone that persisted
- * its session across an app restart can reconnect without a fresh
- * challenge/mint round-trip. The secret is stored hashed, the desktop still
- * re-validates via `consumeSession`, and both ends expire the session
- * client-side at this same horizon.
- */
+
 export const MOBILE_BRIDGE_SESSION_TTL_MS = 60 * 60_000;
-/**
- * Hard caps on the `baseUrls` array stored on each registration row. The
- * array is unbounded by schema (`v.array(v.string())`); without these caps a
- * misbehaving client could grow the document until it hits the 1MB Convex
- * document limit and corrupts the row for every subsequent heartbeat.
- */
+
 const MAX_BASE_URLS_PER_REGISTRATION = 8;
 const MAX_BASE_URL_LENGTH = 2048;
 const MAX_DEVICE_ID_LENGTH = 256;
@@ -49,11 +28,6 @@ const BRIDGE_SESSION_ID_BYTES = 18;
 const BRIDGE_SESSION_SECRET_BYTES = 32;
 const SESSION_CLEANUP_SCAN_LIMIT = 20;
 
-/**
- * Trim, dedupe and cap the caller-provided list so the persisted array stays
- * tiny and predictable. Preserves caller order so the most recently
- * registered URL keeps priority for downstream consumers.
- */
 const sanitizeBaseUrls = (raw: readonly string[]): string[] => {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -275,10 +249,7 @@ const upsertRegistrationRecord = async (
     .unique();
 
   if (existing) {
-    // Skip redundant writes: when the caller-supplied content matches what is
-    // already stored and the lease is still comfortably fresh, avoid the
-    // patch entirely. This leaves the registration itself at one indexed read
-    // (in addition to the private limiter row) and avoids subscriber churn.
+
     const baseUrlsUnchanged =
       existing.baseUrls.length === sanitizedBaseUrls.length &&
       existing.baseUrls.every((url, i) => url === sanitizedBaseUrls[i]);
@@ -319,12 +290,6 @@ const upsertRegistrationRecord = async (
   return { written: true, updatedAt: args.updatedAt };
 };
 
-/**
- * Cost-efficient registration path for current desktops. Authentication,
- * revoked-session policy enforcement, validation, and the indexed upsert all
- * run in this single mutation invocation. The legacy HTTP route remains for
- * older desktop builds.
- */
 export const registerDesktopBridge = mutation({
   args: {
     deviceId: v.string(),
@@ -439,11 +404,7 @@ export const getRegistrationForOwnerDevice = internalQuery({
   },
   returns: v.union(v.null(), bridgeRegistrationValidator),
   handler: async (ctx: QueryCtx, args) => {
-    // A phone pins the desktop id it paired with, but that id is retired
-    // whenever the desktop's keypair rotates. Resolve through succession so a
-    // phone holding a retired id still finds the live bridge (and learns the
-    // current id from the `deviceId` we return) instead of reading the desktop
-    // as permanently offline.
+
     const deviceId = await resolveCurrentDeviceId(
       ctx,
       args.ownerId,

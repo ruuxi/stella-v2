@@ -1,6 +1,3 @@
-/**
- * Capture command handlers: screenshot, snapshot, content, evaluate, pdf.
- */
 import { getActiveTab } from "./tabs.js";
 import {
   setRefMap,
@@ -74,7 +71,7 @@ export async function handleScreenshot(command) {
 
   const format = command.format || "jpeg";
   const quality = command.quality ?? (format === "jpeg" ? 60 : undefined);
-  /** @type {Record<string, unknown>} */
+
   const params = {
     format,
     captureBeyondViewport: Boolean(command.fullPage || command.selector),
@@ -147,7 +144,6 @@ export async function handleSnapshot(command) {
   const snapshot = result?.result;
   if (!snapshot) throw new Error("Snapshot generation failed");
 
-  // Update the ref map for subsequent commands
   setRefMap(command.ownerId, tab.id, snapshot.refs || {});
 
   return {

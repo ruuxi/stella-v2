@@ -228,7 +228,7 @@ describe("buildStartupPromptMessages", () => {
             },
           },
         ],
-        // Remember replaced the fact after the old doc was persisted.
+
         userProfile: "# User Profile\n\n- The user goes by Robert",
       },
     });
@@ -578,7 +578,6 @@ describe("buildHistorySource", () => {
     ]);
   });
 
-  // Retaining current bootstrap entries keeps the prompt-cache prefix stable.
   it("drops legacy summaries while retaining current memory entries in chronological order", () => {
     const history = buildHistorySource({
       systemPrompt: "system",

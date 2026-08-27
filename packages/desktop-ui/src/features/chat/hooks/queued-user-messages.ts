@@ -5,17 +5,10 @@ export type QueuedUserMessage = {
   id: string
   text: string
   timestamp: number
-  /** Monotonic renderer send order captured before any asynchronous work. */
+
   queueOrder: number
 }
 
-/**
- * Structural subset of a queued send payload that the drain combiner
- * understands. Extra fields (deviceId, platform, optimistic event, …) ride
- * along untouched via the generic parameter — the combined payload always
- * inherits them from the FIRST queued message so the turn keeps its
- * original identity/ordering.
- */
 export type CombinableQueuedSendPayload = {
   id: string
   queueOrder: number
@@ -38,12 +31,6 @@ export const orderQueuedMessages = <
     )
     .map(({ message }) => message)
 
-/**
- * A queued message is visible at enqueue time but does not join the transcript
- * until its drain is accepted. Re-stamp the optimistic row at that boundary so
- * both the live overlay and persisted user event sort after assistant output
- * that completed while the message waited.
- */
 export const timestampQueuedOptimisticEventForDrain = <
   T extends { timestamp: number },
 >(event: T, dequeuedAtMs: number): T => ({
@@ -53,16 +40,10 @@ export const timestampQueuedOptimisticEventForDrain = <
 
 export type QueuedDequeueClock = {
   userTimestamp: number
-  /** Reserves the next logical tick for this user's assistant response. */
+
   nextTimelineFloor: number
 }
 
-/**
- * Issues a monotonic user timestamp for a drain and reserves the following
- * tick for its assistant. The reservation keeps a later drain beyond the
- * prior response even when both cycles observe the same or a backward wall
- * clock before the persisted assistant snapshot reaches the renderer.
- */
 export const issueQueuedDequeueTimestamp = (
   wallClockMs: number,
   previousTimelineFloor: number,
@@ -76,11 +57,6 @@ export const issueQueuedDequeueTimestamp = (
   }
 }
 
-/**
- * Restores a drain batch after `startChat` failed before acceptance. Existing
- * ids win so a late failure callback cannot duplicate a message that was
- * already re-queued through another path.
- */
 export const restoreQueuedMessagesAfterFailedDrain = <
   T extends Pick<CombinableQueuedSendPayload, 'id' | 'queueOrder'>,
 >(current: readonly T[], drained: readonly T[]): T[] => {
@@ -93,13 +69,6 @@ export const restoreQueuedMessagesAfterFailedDrain = <
 const definedEntries = (value: object) =>
   Object.entries(value).filter(([, entry]) => entry !== undefined)
 
-/**
- * Field-wise merge of the chat contexts captured with each queued message.
- * Scalars (window, screenshot, selection, …) take the value from the most
- * recent message that explicitly set them; additive user content
- * (pastedTexts, regionScreenshots, files) is concatenated in queue order so
- * nothing the user attached gets dropped from the combined turn.
- */
 const mergeChatContexts = (contexts: ChatContext[]): ChatContext => {
   const merged: Record<string, unknown> = {}
   const pastedTexts: string[] = []
@@ -149,21 +118,6 @@ const mergeMessageMetadata = (
   return merged as MessageMetadata
 }
 
-/**
- * Collapses every unsent queued message into a single send payload so one
- * idle drain produces ONE turn instead of a turn per queued message.
- *
- * - A single payload is returned as-is (reference-equal), keeping the
- *   one-queued-message path byte-identical to a direct drain.
- * - Prompts are joined in queue order with a blank line between them.
- * - Attachments are concatenated in queue order.
- * - `selectedText` takes the most recent non-empty selection.
- * - Chat context / metadata merge field-wise (latest explicit value wins,
- *   pasted-text collections concatenate).
- * - Identity fields (id, conversation, device, optimistic event, …) come
- *   from the first payload so the combined turn keeps the head message's
- *   transcript slot and run correlation id.
- */
 export const combineQueuedSendPayloads = <
   T extends CombinableQueuedSendPayload,
 >(
@@ -214,14 +168,6 @@ export const removeQueuedUserMessageById = (
   messageId: string,
 ) => messages.filter((message) => message.id !== messageId)
 
-/**
- * Resolves the composer text after a queued message is cancelled and its
- * text restored. When the composer is empty we drop the restored text in
- * wholesale so the user can immediately edit/resend it. When the composer
- * already holds an unsent draft we don't clobber it — the restored text is
- * appended below the draft (separated by a blank line) so nothing the user
- * was typing is lost.
- */
 export const restoreQueuedTextToComposer = (
   currentComposerText: string,
   restoredText: string,

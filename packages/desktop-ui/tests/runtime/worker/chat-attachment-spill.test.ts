@@ -35,15 +35,14 @@ describe("chat attachment spill", () => {
   it("approximates decoded bytes from a data URL", () => {
     const url = pngDataUrl(3000);
     const expected = PNG_MAGIC.length + 3000;
-    // Padding chars count toward the estimate, so it may overshoot by ≤2.
+
     expect(approximateDataUrlBytes(url)).toBeGreaterThanOrEqual(expected);
     expect(approximateDataUrlBytes(url)).toBeLessThanOrEqual(expected + 2);
     expect(approximateDataUrlBytes("not a data url")).toBe(0);
   });
 
   it("keeps a typical single screenshot under the inline budget", () => {
-    // ~8.6MB was the per-image size in the original 413 repro; one image
-    // must stay inline (current behavior), ten must not.
+
     const single = 8.6 * 1024 * 1024;
     expect(single).toBeLessThan(INLINE_IMAGE_ATTACHMENT_BUDGET_BYTES);
     expect(single * 10).toBeGreaterThan(INLINE_IMAGE_ATTACHMENT_BUDGET_BYTES);
@@ -56,8 +55,7 @@ describe("chat attachment spill", () => {
       attachments: [
         { url: pngDataUrl(64), mimeType: "image/png" },
         { url: pngDataUrl(128), mimeType: "image/jpeg" },
-        // Non-data URLs are skipped (materialization upstream guarantees
-        // data URLs, but the helper should not throw on stragglers).
+
         { url: "https://example.com/image.png", mimeType: "image/png" },
       ],
     });

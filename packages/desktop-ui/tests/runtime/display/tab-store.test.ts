@@ -56,7 +56,6 @@ describe("displayTabs.openTab", () => {
     expect(snap.panelOpen).toBe(true);
     expect(snap.tabs.map((t) => t.id)).toEqual(["a", "b"]);
 
-    // Closing then re-registering passively should not pop the panel back open.
     displayTabs.setPanelOpen(false);
     displayTabs.openTab(makeSpec("c"), { activate: false });
     expect(displayTabs.getSnapshot().panelOpen).toBe(false);
@@ -106,7 +105,7 @@ describe("displayTabs.activateTab / closeTab", () => {
     displayTabs.closeTab("b");
     const snap = displayTabs.getSnapshot();
     expect(snap.tabs.map((t) => t.id)).toEqual(["a", "c"]);
-    // Activates the tab that was previously to the left.
+
     expect(snap.activeTabId).toBe("a");
   });
 

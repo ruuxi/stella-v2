@@ -26,19 +26,15 @@ const MAX_TOOL_RESULT_CHARS = 80_000;
 const MAX_SETTLED_CALL_LEDGER_ENTRIES = 512;
 
 export type ClaudeCodeToolMcpActiveTurn = {
-  /** Stable Stella run identity; survives a Claude process restart. */
+
   identityScope?: string;
-  /** Resolve the engine-persisted Anthropic tool_use id for this MCP call. */
+
   claimNativeToolUseId?: (
     toolName: string,
     args: Record<string, unknown>,
     signal: AbortSignal,
   ) => Promise<string>;
-  /**
-   * Resolves to a truncation when the model's stream ended mid-argument for
-   * this call (safety refusal, output budget), or undefined when the arguments
-   * are whole or unadjudicated. Truncated calls are rejected, never executed.
-   */
+
   checkToolUseIntegrity?: (
     toolName: string,
     args: Record<string, unknown>,
@@ -61,7 +57,7 @@ export type ClaudeCodeToolMcpActiveTurn = {
     toolName: string;
     result: ToolResult;
   }) => void;
-  /** Called only after the MCP HTTP response has been flushed to the socket. */
+
   onToolResponseWritten?: (args: {
     toolCallId: string;
     toolName: string;
@@ -69,38 +65,35 @@ export type ClaudeCodeToolMcpActiveTurn = {
 };
 
 export type ClaudeCodeToolMcpHost = {
-  /** Authenticated, loopback-only Streamable HTTP MCP endpoint. */
+
   url: string;
-  /** Header value rather than the raw token so callers never need to format it. */
+
   authorizationHeader: string;
-  /** Stable digest of the immutable tool catalog exposed by this host. */
+
   toolCatalogHash: string;
-  /** Object accepted as one entry in Claude Code's `mcpServers` config. */
+
   mcpServerConfig: {
     type: "http";
     url: string;
     headers: { Authorization: string };
   };
-  /** Abort tools owned by a dying Claude process without closing the host. */
+
   abortActiveCalls: (reason?: unknown) => void;
-  /** Wait until the spawned Claude process has initialized this MCP catalog. */
+
   waitForClientReady: (
     signal?: AbortSignal,
     timeoutMs?: number,
   ) => Promise<void>;
-  /** Drop MCP transports owned by a dead Claude process generation. */
+
   resetClientSessions: (reason?: unknown) => Promise<void>;
   close: () => Promise<void>;
 };
 
 export type CreateClaudeCodeToolMcpHostOptions = {
   tools: readonly ToolMetadata[];
-  /** Persisted Stella session identity, not an MCP transport session id. */
+
   identityScope?: string;
-  /**
-   * Resolved for every native MCP call. The host is session-scoped while the
-   * execution callback and cancellation boundary are turn-scoped.
-   */
+
   getActiveTurn: () => ClaudeCodeToolMcpActiveTurn | undefined;
 };
 
@@ -259,21 +252,13 @@ const closeHttpServer = (
     for (const socket of sockets) socket.destroy();
   });
 
-/**
- * Creates one private MCP host for a Claude Code takeover session.
- *
- * The catalog is copied at creation and cannot change. Tool calls are handed
- * to the currently active turn, keeping Stella's existing execution policy,
- * hooks, lifecycle events, and side-effect tracking in the worker.
- */
 export const createClaudeCodeToolMcpHost = async (
   options: CreateClaudeCodeToolMcpHostOptions,
 ): Promise<ClaudeCodeToolMcpHost> => {
   const tools = options.tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
-    // Claude rejects root combinators. The host still dispatches through
-    // Stella's original catalog and execution-side validators.
+
     inputSchema: normalizeProviderToolInputSchema(tool.parameters),
   }));
   const names = new Set<string>();
@@ -300,9 +285,7 @@ export const createClaudeCodeToolMcpHost = async (
   const bearer = `Bearer ${crypto.randomBytes(32).toString("base64url")}`;
   const endpointPath = `/mcp/${crypto.randomBytes(32).toString("base64url")}`;
   const activeCalls = new Set<AbortController>();
-  // Streamable HTTP clients may retry a JSON-RPC request after losing its
-  // response. Retain the original promise for the session so a successful
-  // mutation is never executed twice under the same native request ID.
+
   const callLedger = new Map<string, Promise<CallToolResult>>();
   const responseDelivery = new AsyncLocalStorage<{
     acknowledgements: Set<() => void | Promise<void>>;
@@ -342,12 +325,7 @@ export const createClaudeCodeToolMcpHost = async (
           );
         }
         const turn = options.getActiveTurn();
-        // A safety refusal or an exhausted output budget cuts the model's
-        // stream mid-argument, and the CLI repairs the partial JSON and
-        // dispatches the call anyway — a half-written `prompt` or `message`
-        // is indistinguishable from a complete one by the time it lands here.
-        // Refuse it loudly so the model resends whole arguments instead of
-        // silently shipping half an instruction to an agent.
+
         const integrityCheck = turn?.checkToolUseIntegrity?.(
           request.params.name,
           request.params.arguments ?? {},
@@ -484,8 +462,7 @@ export const createClaudeCodeToolMcpHost = async (
               callAbort.signal,
             );
           } catch (error) {
-            // A client cancellation already has its own MCP lifecycle; do not turn
-            // it into a misleading model-visible tool failure.
+
             if (callAbort.signal.aborted) throw error;
             return {
               content: [
@@ -580,9 +557,7 @@ export const createClaudeCodeToolMcpHost = async (
           return;
         }
       } else {
-        // A fresh Claude process initializes a fresh MCP client session on the
-        // same private host. This lets process/compaction recovery preserve
-        // the immutable catalog URL without reusing stale transport state.
+
         state = await createClientSession();
       }
       const delivery = {
@@ -682,8 +657,7 @@ export const createClaudeCodeToolMcpHost = async (
     );
     callLedger.clear();
     settledCallLedgerKeys.clear();
-    // Tear down sockets concurrently: an in-flight HTTP call can otherwise
-    // keep the protocol close waiting for the response it is itself aborting.
+
     await Promise.allSettled([
       resetPromise,
       closeHttpServer(httpServer, sockets),

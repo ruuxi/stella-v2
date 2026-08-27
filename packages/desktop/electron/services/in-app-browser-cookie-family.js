@@ -48,9 +48,6 @@ const isGoogleTrustFamilyName = (name) => {
   const withoutSecurityPrefix = original.replace(SECURITY_PREFIX, "");
   const withoutAudience = withoutSecurityPrefix.replace(AUDIENCE_PREFIX, "");
 
-  // Security-prefixed and explicit 1P/3P cookies are rotating trust variants.
-  // Normalizing the prefixes instead of enumerating current names makes future
-  // Google variants join the same coherent source snapshot automatically.
   if (
     withoutSecurityPrefix !== original ||
     withoutAudience !== withoutSecurityPrefix

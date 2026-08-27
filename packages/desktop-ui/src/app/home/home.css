@@ -25,7 +25,6 @@
   margin-bottom: 0;
 }
 
-/* Fade-in for home content elements */
 .home-stella-title,
 .home-sidebar-hint {
   animation: homeContentFadeIn 300ms ease both;
@@ -46,7 +45,6 @@
   }
 }
 
-/* Fade-out when leaving home → chat */
 .full-body-main--home-leaving .home-stella-title,
 .full-body-main--home-leaving .home-sidebar-hint,
 .full-body-main--home-leaving .composer-wrap {

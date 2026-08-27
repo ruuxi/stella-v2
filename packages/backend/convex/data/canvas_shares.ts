@@ -1,12 +1,3 @@
-/**
- * Convex data layer for canvas shares (V8 runtime).
- *
- * Public reads plus the internal mutations/queries the `"use node"`
- * publish/revoke/purge actions in `data/canvas_shares_actions.ts` call into.
- * R2 object writes/deletes live in the node action module because they need
- * `node:crypto` for SigV4 signing.
- */
-
 import { v } from "convex/values";
 import {
   internalMutation,
@@ -16,18 +7,12 @@ import {
 import { getConnectedUserIdOrNull } from "../auth";
 import { buildCanvasShareUrl } from "../lib/canvas_share_url";
 
-/** Shape returned to internal callers that need to touch R2 objects. */
 const shareR2RefValidator = v.object({
   id: v.id("canvas_shares"),
   slug: v.string(),
   r2Key: v.string(),
 });
 
-/**
- * The caller's live shares (not revoked, not expired), newest first. Backs a
- * UI subscription, so a signed-out/anonymous render returns [] instead of
- * throwing.
- */
 export const listMine = query({
   args: {},
   returns: v.array(
@@ -60,7 +45,6 @@ export const listMine = query({
   },
 });
 
-/** Look up a share by slug (ownership check for revoke). */
 export const getBySlug = internalQuery({
   args: { slug: v.string() },
   returns: v.union(
@@ -87,7 +71,6 @@ export const getBySlug = internalQuery({
   },
 });
 
-/** Insert a freshly-published share row. */
 export const insertShare = internalMutation({
   args: {
     slug: v.string(),
@@ -111,7 +94,6 @@ export const insertShare = internalMutation({
   },
 });
 
-/** Mark a share revoked after its R2 object has been deleted. */
 export const markRevoked = internalMutation({
   args: { id: v.id("canvas_shares") },
   returns: v.null(),
@@ -124,7 +106,6 @@ export const markRevoked = internalMutation({
   },
 });
 
-/** A bounded page of expired shares for the purge cron. */
 export const listExpiredBatch = internalQuery({
   args: { batchSize: v.optional(v.number()) },
   returns: v.array(shareR2RefValidator),
@@ -146,7 +127,6 @@ export const listExpiredBatch = internalQuery({
   },
 });
 
-/** A bounded page of an owner's shares for account-deletion cleanup. */
 export const listOwnerBatch = internalQuery({
   args: { ownerUserId: v.string(), batchSize: v.optional(v.number()) },
   returns: v.array(shareR2RefValidator),
@@ -169,7 +149,6 @@ export const listOwnerBatch = internalQuery({
   },
 });
 
-/** Delete share rows by id (used after their R2 objects are removed). */
 export const deleteShareRows = internalMutation({
   args: { ids: v.array(v.id("canvas_shares")) },
   returns: v.null(),

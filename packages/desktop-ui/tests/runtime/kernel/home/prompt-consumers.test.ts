@@ -23,7 +23,6 @@ const tempDir = async () => {
   return dir;
 };
 
-/** Point the bundled-prompt lookup at a controlled directory. */
 const tempPromptsDir = async () => {
   const dir = await tempDir();
   process.env.STELLA_RUNTIME_PROMPTS_DIR = dir;
@@ -83,7 +82,7 @@ describe("bundled prompt consumers", () => {
   });
 
   it("ships the real bundled prompt set", () => {
-    // Without the env override, the repo's own bundle is the source.
+
     expect(resolveThreadCompactionSystemPrompt()).not.toBe("");
     expect(defaultPromptForAgentType(AGENT_IDS.ORCHESTRATOR)).not.toBe("");
     expect(defaultPromptForAgentType("unknown-agent")).not.toBe("");
@@ -104,7 +103,6 @@ describe("personality composition", () => {
     );
     expect(readOrSeedPersonality(home)).toBe("Stella voice");
 
-    // Reading never materializes a file — updates keep flowing.
     await expect(
       readFile(path.join(home, "PERSONALITY.md"), "utf-8"),
     ).rejects.toThrow();
@@ -121,7 +119,6 @@ describe("personality composition", () => {
     await writeFile(path.join(home, "PERSONALITY.md"), "my custom voice");
     expect(readOrSeedPersonality(home)).toBe("my custom voice");
 
-    // Picking a preset is an explicit choice: it clears the replacement.
     setPersonalityVoiceId(home, "professional");
     expect(writePersonality(home, "professional")).toBe("Professional voice");
     await expect(

@@ -144,8 +144,6 @@ describe("payloadToTabSpec", () => {
     expect(second.id).toBe("source-diff");
   });
 
-  // Generated media and canvases get one tab per file; the shared item
-  // stores are what merge a multi-image job, not a singleton gallery tab.
   it("gives each generated image its own tab id from the shared store", () => {
     const first = payloadToTabSpec({
       kind: "media",

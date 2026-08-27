@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-
 import { copyFileSync, existsSync } from "node:fs";
 import {
   finalizeBundledBinary,

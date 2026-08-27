@@ -18,7 +18,6 @@ impl AppiumManager {
         let port = APPIUM_DEFAULT_PORT;
         let client = WebDriverClient::new(port);
 
-        // Check if Appium is already running
         if is_appium_running(port).await {
             return Ok(Self {
                 client,
@@ -27,10 +26,8 @@ impl AppiumManager {
             });
         }
 
-        // Try to launch Appium
         let appium_process = launch_appium(port)?;
 
-        // Wait for Appium to be ready
         wait_for_appium(port, APPIUM_STARTUP_TIMEOUT_SECS).await?;
 
         Ok(Self {
@@ -164,7 +161,7 @@ async fn is_appium_running(port: u16) -> bool {
 }
 
 fn launch_appium(port: u16) -> Result<Child, String> {
-    // Try npx appium first, then direct appium
+
     let result = Command::new("npx")
         .args(["appium", "--relaxed-security", "--port", &port.to_string()])
         .stdin(Stdio::null())
@@ -220,18 +217,15 @@ mod tests {
             Some("18.5"),
         );
 
-        // W3C standard capabilities must NOT have vendor prefix
         assert!(caps.get("platformName").is_some());
         assert!(caps.get("browserName").is_some());
 
-        // Non-standard capabilities MUST have appium: vendor prefix
         assert!(caps.get("appium:automationName").is_some());
         assert!(caps.get("appium:noReset").is_some());
         assert!(caps.get("appium:deviceName").is_some());
         assert!(caps.get("appium:platformVersion").is_some());
         assert!(caps.get("appium:udid").is_some());
 
-        // Must NOT have unprefixed non-standard capabilities
         assert!(caps.get("automationName").is_none());
         assert!(caps.get("noReset").is_none());
         assert!(caps.get("deviceName").is_none());

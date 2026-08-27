@@ -145,11 +145,6 @@ import type {
 } from "@stella/contracts/protocol";
 import type { RuntimeModelCatalogSnapshot } from "@stella/contracts/model-catalog";
 
-// ---------------------------------------------------------------------------
-// IPC listener helpers — eliminate boilerplate for the 3 common patterns.
-// ---------------------------------------------------------------------------
-
-/** Subscribe to an IPC channel, stripping the IpcRendererEvent and forwarding data. */
 const onIpc =
   <T>(channel: string) =>
   (callback: (data: T) => void): (() => void) => {
@@ -160,7 +155,6 @@ const onIpc =
     };
   };
 
-/** Subscribe to an IPC channel that sends no payload. */
 const onIpcSignal =
   (channel: string) =>
   (callback: () => void): (() => void) => {
@@ -171,7 +165,6 @@ const onIpcSignal =
     };
   };
 
-/** Subscribe to an IPC channel, forwarding both the event and payload. */
 const onIpcWithEvent =
   <T>(channel: string) =>
   (callback: (event: IpcRendererEvent, data: T) => void): (() => void) => {
@@ -181,7 +174,6 @@ const onIpcWithEvent =
     };
   };
 
-/** Electron wraps handler errors as "Error invoking remote method 'ch': Error: …" — unwrap for UI. */
 const unwrapIpcInvokeError = (error: unknown): Error => {
   if (!(error instanceof Error)) {
     return new Error(String(error));
@@ -256,10 +248,6 @@ type BrowserViewLayout = {
   surfaceBounds: { x: number; y: number; width: number; height: number };
 };
 
-// ---------------------------------------------------------------------------
-
-// Shared UI state (~/.stella/ui-state.json) snapshot, read synchronously so
-// the boot script and module-load preference reads see it before first paint.
 contextBridge.exposeInMainWorld(
   "__stellaUiState",
   (() => {
@@ -279,11 +267,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   arch: process.arch,
 
   files: {
-    /**
-     * Absolute on-disk path for a picker/drag-drop `File`, or "" for
-     * synthetic files (e.g. clipboard images). Lets the composer attach
-     * images by path so the renderer never loads the original bytes.
-     */
+
     getPathForFile: (file: File) => {
       try {
         return webUtils.getPathForFile(file) || "";
@@ -833,20 +817,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
         } | null;
         events: AgentStreamEvent[];
       }>,
-    /**
-     * Every agent lifecycle/text event for the current renderer, on the
-     * `agent:event` channel. Typed by the shared contract so new event types
-     * (notably `assistant-message`, the sole assistant-text carrier) cannot
-     * drift out of the preload surface again.
-     */
+
     onStream: onIpc<AgentStreamEvent>("agent:event"),
-    /**
-     * Subscribe to runtime client availability transitions. The host
-     * adapter fires this whenever the worker connection drops or
-     * reattaches — most notably after Electron restarts and reconnects
-     * to the still-running detached worker. Renderer hooks listen so
-     * they can re-trigger chat-resume the moment the runtime is back.
-     */
+
     onAvailability: onIpc<{
       connected: boolean;
       ready: boolean;
@@ -1701,13 +1674,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       seedHints?: string[];
     }) => ipcRenderer.invoke("fashion:startOutfitBatch", payload),
     pickTryOnImages: () => ipcRenderer.invoke("fashion:pickTryOnImages"),
-    /**
-     * Resolves an absolute filesystem path for a `File` dropped into the
-     * fashion drop zone. Uses Electron's `webUtils.getPathForFile`
-     * (Electron ≥32) which works under `contextIsolation: true` where
-     * `File.path` is no longer exposed. Returns an empty string if the
-     * dropped item is not a real on-disk file (e.g. a generated File).
-     */
+
     getDroppedFilePath: (file: File) => {
       try {
         return webUtils.getPathForFile(file) || "";
@@ -1836,7 +1803,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     start: (slug: string) => ipcRenderer.invoke(IPC_USER_APPS_START, { slug }),
     stop: (slug: string) => ipcRenderer.invoke(IPC_USER_APPS_STOP, { slug }),
     onUpdated: onIpc<void>(IPC_USER_APPS_UPDATED),
-    // Alias retained for consumers that use the event-style naming convention.
+
     onChanged: onIpc<void>(IPC_USER_APPS_UPDATED),
   },
 

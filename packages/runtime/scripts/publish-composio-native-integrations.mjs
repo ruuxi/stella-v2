@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 import { getOAuthProviderCatalog } from "../kernel/connectors/oauth-provider-catalog.ts";
 
-// The catalog data now lives in oauth-provider-catalog.json, loaded lazily from
-// disk by getOAuthProviderCatalog() (run via bun, which resolves it next to the
-// module). Read it once here.
 const OAUTH_PROVIDER_CATALOG = getOAuthProviderCatalog();
 
 const siteUrl = (

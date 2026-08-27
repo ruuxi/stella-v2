@@ -12,14 +12,6 @@ const SOURCE_ROOT = path.resolve(
 const readSource = (relativePath: string) =>
   fs.readFileSync(path.join(SOURCE_ROOT, relativePath), "utf8");
 
-/**
- * These labels used to be asserted as literal JSX text. They are now
- * `t()` keys, so the contract is checked in two halves: the source
- * renders the key in the right slot, and the English catalog still maps
- * that key to the copy this contract is about. Checking only the key
- * would let the copy drift silently; checking only the copy would miss
- * the label being moved to a different control.
- */
 const englishFor = (key: string): string => {
   const value = key
     .split(".")
@@ -42,15 +34,10 @@ describe("composer add-menu contract", () => {
     expect(englishFor("app.chat.addMenu.capture")).toBe("Capture");
     expect(englishFor("app.chat.addMenu.attachFiles")).toBe("Attach files…");
 
-    // Whitespace-tolerant: prettier reflows this across lines once the
-    // literal becomes a t() call.
     expect(source).toMatch(
       /<DropdownMenuLabel>\s*\{t\("app\.chat\.addMenu\.context"\)\}\s*<\/DropdownMenuLabel>/,
     );
 
-    // No New chat affordance here — it is the top bar's, and only the
-    // top bar's. Guard the key as well as the literal so the extraction
-    // cannot smuggle it back in.
     expect(source).not.toContain("onNewChat");
     expect(source).not.toContain("New chat");
     expect(source).not.toContain("newChat");

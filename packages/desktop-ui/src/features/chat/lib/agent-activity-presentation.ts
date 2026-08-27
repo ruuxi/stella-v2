@@ -20,15 +20,6 @@ export type AuthoritativeAgentPresentation = {
 const isTerminal = (status: TaskLifecycleStatus): boolean =>
   status !== "running";
 
-/**
- * Resolve the one status summary surfaces should present for a thread.
- *
- * The durable Activity row normally wins. A newly observed attempt is the
- * narrow exception: its start can reach the renderer before the row refetch
- * that re-opens a previously completed thread. Attempt generation is the
- * primary authority; timestamps/root-run identity are only compatibility
- * fallbacks for older lifecycle packets.
- */
 export const latestAttemptSupersedesAuthoritative = (
   authoritative: AuthoritativeAgentPresentation,
   latestAttempt?: AgentAttemptPresentation,
@@ -42,8 +33,6 @@ export const latestAttemptSupersedesAuthoritative = (
     if (observedAttempt > authoritativeAttempt) return true;
     if (observedAttempt < authoritativeAttempt) return false;
 
-    // Same attempt: a terminal observation advances a still-running durable
-    // row, while a terminal durable row fences a leftover running decoration.
     if (authoritative.status === "running" && isTerminal(observedStatus)) {
       return true;
     }
@@ -82,11 +71,6 @@ export const deriveLatestAgentPresentationStatus = (
     : authoritative.status;
 };
 
-/**
- * A terminal owner is only visually complete once its currently-owned work
- * has settled. Running owners stay running; paused/failed owners keep their
- * explicit terminal state even if a stale child row still says running.
- */
 export const deriveOwnedAgentPresentationStatus = (
   ownerStatus: TaskLifecycleStatus,
   ownedStatuses: readonly TaskLifecycleStatus[],
@@ -128,11 +112,6 @@ const isRecordCurrentForCard = (
   return record.startedAt >= cardStartedAt || record.updatedAt >= cardStartedAt;
 };
 
-/**
- * Resolve the current durable status of one thread plus everything it owns.
- * Ownership is transitive and comes from the same authoritative Activity
- * rows used by the sidebar. Cycles fail closed on the owner's own status.
- */
 export const deriveThreadAndOwnedPresentationStatus = (
   records: readonly ThreadActivityRecord[],
   threadId: string,
@@ -145,9 +124,7 @@ export const deriveThreadAndOwnedPresentationStatus = (
   const recordById = new Map(records.map((record) => [record.threadId, record]));
   const childrenByParent = new Map<string, ThreadActivityRecord[]>();
   for (const record of records) {
-    // Claude Code owns the lifecycle of its native children. Those rows are
-    // passive observations for Activity/chat and must not hold a Stella-owned
-    // parent card open or change its completion/failure state.
+
     if (record.source === "claude-native") continue;
     if (!record.parentAgentId || record.parentAgentId === record.threadId) {
       continue;
@@ -176,8 +153,6 @@ export const deriveThreadAndOwnedPresentationStatus = (
   return derive(threadId, new Set());
 };
 
-/** Group/card state uses active-first precedence so a mixed card can never
- * pair a terminal glyph with its active `Working…` fallback. */
 export const deriveAgentCardPresentationStatus = (input: {
   working: boolean;
   paused: boolean;

@@ -1,11 +1,3 @@
-/**
- * The full-page user-app library.
- *
- * Apps themselves open in the right sidebar's Apps section, which also carries
- * its own library list. This route remains available to deep links, but picking
- * an app here still hands off to the sidebar rather than rendering it inline,
- * so there is exactly one place a user app is ever mounted.
- */
 import { useDeferredValue, useMemo, useState, useSyncExternalStore, } from "react";
 import { Search } from "@/ui/icons";
 import { useT } from "@/shared/i18n";

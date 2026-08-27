@@ -1,12 +1,3 @@
-/**
- * On-disk markdown layout the Dream agent edits.
- *
- * The Dream agent never CREATES these files — `ensureDreamMemoryLayout` seeds
- * them with stable templates the first time the scheduler runs (or on
- * startup). The agent then surgically edits them via StrReplace using the
- * unique anchor markers below.
- */
-
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
@@ -31,13 +22,8 @@ const MEMORY_TEMPLATE = `# MEMORY
 >     Outcome: <what shipped, what is pending>
 >     Recall hooks: <comma-separated keywords>
 
-<!-- DREAM:ACTIVE_BLOCKS_START -->
-<!-- DREAM:ACTIVE_BLOCKS_END -->
-
 ## Archive
 
-<!-- DREAM:ARCHIVE_START -->
-<!-- DREAM:ARCHIVE_END -->
 `;
 
 const MEMORY_MAP_TEMPLATE = `# Memory map
@@ -50,9 +36,8 @@ const MEMORY_MAP_TEMPLATE = `# Memory map
 > Never store secrets, credentials, tokens, private keys, auth headers, or
 > sensitive personal data here. This file contains routing metadata only.
 
-<!-- DREAM:MAP_START -->
 - No routing entries recorded yet.
-<!-- DREAM:MAP_END -->
+
 `;
 
 export const memoriesRoot = (stellaDataDir: string): string =>

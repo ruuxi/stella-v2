@@ -1,21 +1,3 @@
-/**
- * Per-message action row rendered below a chat message.
- *
- * - User messages get a single Copy action.
- * - Assistant messages get Copy + Read aloud (on-demand TTS) — but only a
- *   turn's FINAL assistant message. Intra-turn segments (preambles that
- *   ended in a tool call) never mount this row at all (see the
- *   `isIntraTurn` gate in `AssistantMessageRow`).
- *
- * The row reserves its height at all times and only fades in on row hover /
- * keyboard focus (or while its read-aloud is active) so revealing it never
- * shifts surrounding row geometry, which the chat's scroll-follow logic
- * depends on.
- *
- * The row reserves its height from the message's first paint. Assistant
- * messages arrive whole, so there is no in-flight state to suppress: the
- * strip is interactive as soon as its row exists.
- */
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
@@ -37,30 +19,8 @@ import "./message-actions.css";
 
 const COPIED_RESET_MS = 1600;
 
-// Rewind is destructive (drops the message + everything after it), so it
-// takes two clicks: the first arms a "Click again to rewind" state, the
-// second within this window performs it. Mirrors the two-step confirm used
-// by the top bar's new-chat / delete-conversation controls
-// (HISTORY_*_CONFIRM_TIMEOUT_MS in ConversationTopBar).
 const REWIND_CONFIRM_TIMEOUT_MS = 3000;
 
-/**
- * @typedef {Object} MessageActionsProps
- * @property {string} text
- * @property {string} messageKey
- * @property {boolean} [showReadAloud]
- * @property {"start" | "end"} [align]
- * @property {(() => void)} [onRewind] Rewind action (user rows only).
- * @property {(() => void)} [onFork] Fork action (user rows only).
- * @property {boolean} [actionsDisabled] Greys out Rewind/Fork while a turn is busy.
- * @property {number} [timestampMs] Message created time (epoch ms); renders a
- *   muted local-time "h:mm AM/PM" stamp alongside the actions on hover.
- * @property {{ path?: string, url?: string, mimeType?: string, kind?: string, name?: string }} [copyAttachment]
- *   Attachment to copy when the message has no text (image → clipboard image,
- *   file → path as text). Text always takes priority when present.
- */
-
-/** @param {MessageActionsProps} props */
 function MessageActionsImpl({
   text,
   messageKey,
@@ -77,7 +37,6 @@ function MessageActionsImpl({
   const copiedTimerRef = useRef(null);
   const readAloudStatus = useManualReadAloudStatus(messageKey);
 
-  // Two-step confirm state for the destructive Rewind action.
   const [rewindArmed, setRewindArmed] = useState(false);
   const rewindTimerRef = useRef(null);
 
@@ -97,8 +56,6 @@ function MessageActionsImpl({
     setRewindArmed(false);
   }, []);
 
-  // First click arms + shows the confirm state (auto-resets after the
-  // timeout); second click within the window performs the rewind.
   const handleRewindClick = useCallback(() => {
     if (!onRewind) return;
     if (rewindTimerRef.current) {
@@ -117,8 +74,6 @@ function MessageActionsImpl({
     }, REWIND_CONFIRM_TIMEOUT_MS);
   }, [onRewind, rewindArmed]);
 
-  // Escape disarms without executing (mirrors the top bar's armed confirm
-  // controls).
   const handleRewindKeyDown = useCallback(
     (event) => {
       if (event.key === "Escape") disarmRewind();
@@ -126,9 +81,6 @@ function MessageActionsImpl({
     [disarmRewind],
   );
 
-  // Reset the armed state when the turn becomes busy (the button also
-  // disables) or the window loses focus, matching "click away / lose
-  // focus / timeout" resets on the existing confirm controls.
   useEffect(() => {
     if (actionsDisabled) disarmRewind();
   }, [actionsDisabled, disarmRewind]);
@@ -144,12 +96,10 @@ function MessageActionsImpl({
     const value = text.trim();
     let ok = false;
     if (value) {
-      // Text takes priority, including mixed text + attachment messages.
+
       ok = await copyTextToClipboard(value);
     } else if (copyAttachment) {
-      // Attachment-only message: hand it to main, which writes an image
-      // (from the on-disk path or data URL) or falls back to the file
-      // path as text.
+
       const result =
         await window.electronAPI?.media?.copyAttachment?.(copyAttachment);
       ok = Boolean(result?.ok);
@@ -174,8 +124,6 @@ function MessageActionsImpl({
 
   const isPlaying = readAloudStatus !== "idle";
 
-  // Local-timezone "h:mm AM/PM" (e.g. "3:07 PM"); the strip only reveals on
-  // hover, so the stamp inherits that hover-only visibility for free.
   const timestampLabel =
     typeof timestampMs === "number" && Number.isFinite(timestampMs)
       ? new Date(timestampMs).toLocaleTimeString([], {
@@ -188,8 +136,7 @@ function MessageActionsImpl({
     <div
       className={`message-actions message-actions--${align}`}
       data-active={isPlaying ? "true" : undefined}
-      // While the destructive Rewind is armed, hold the strip fully revealed
-      // (even off-hover) so the confirm affordance can't silently vanish.
+
       data-confirming={rewindArmed ? "true" : undefined}
       onMouseLeave={onRewind ? disarmRewind : undefined}
     >
@@ -225,7 +172,7 @@ function MessageActionsImpl({
           disabled={actionsDisabled}
           aria-disabled={actionsDisabled || undefined}
           data-armed={rewindArmed ? "true" : undefined}
-          // Expose the two-step control to assistive tech.
+
           aria-expanded={rewindArmed || undefined}
           aria-label={
             rewindArmed

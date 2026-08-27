@@ -35,13 +35,6 @@ type HunkLine =
   | { kind: "remove"; text: string }
   | { kind: "add"; text: string };
 
-/**
- * Paths in the envelope are home-expanded (~, $HOME, %USERPROFILE%) but must
- * be absolute — the file tools no longer resolve paths against any working
- * directory. Raw paths are kept during parse; the absolute-path requirement
- * is enforced in resolveOp.
- * Empty paths are rejected.
- */
 const normalizeRawPath = (raw: string): string => {
   const expanded = expandHomePath(raw.trim());
   if (!expanded) throw new Error("apply_patch requires a file path.");
@@ -49,7 +42,7 @@ const normalizeRawPath = (raw: string): string => {
 };
 
 const requireAbsolutePatchPath = (raw: string): string => {
-  // Paths in the envelope are already home-expanded during parse.
+
   if (!path.isAbsolute(raw)) {
     throw new Error(
       `File tool paths must be absolute. Received relative path '${raw}'. ` +
@@ -60,15 +53,6 @@ const requireAbsolutePatchPath = (raw: string): string => {
   return path.resolve(raw);
 };
 
-// ----------------------------------------------------------------------------
-// Parser
-// ----------------------------------------------------------------------------
-
-/**
- * Some models wrap their `apply_patch` argument in a shell heredoc
- * (`<<EOF\n*** Begin Patch\n...\nEOF`). Stella strips that wrapper before
- * parsing.
- */
 const stripHeredocWrapper = (text: string): string => {
   const lines = text.split("\n");
   if (lines.length < 4) return text;
@@ -137,8 +121,7 @@ const parsePatch = (input: string): FileOp[] => {
         const next = lines[i] ?? "";
         if (next.startsWith("*** ") && next !== "*** End of File") break;
         if (next.trim() === "") {
-          // Skip blank separators between chunks. Blank lines INSIDE a chunk
-          // are consumed by the chunk-collection loop below as context lines.
+
           i++;
           continue;
         }
@@ -149,13 +132,11 @@ const parsePatch = (input: string): FileOp[] => {
           if (header) hunk.header = header;
           i++;
         } else if (hunks.length > 0) {
-          // Subsequent chunks must start with @@; only the first chunk may
-          // omit the header.
+
           throw new Error(
             `apply_patch: expected '@@' header inside Update File '${filePath}'. Saw: '${next}'`,
           );
         }
-        // First chunk may omit @@; fall through and start collecting diff lines.
 
         while (i < lines.length) {
           const candidate = lines[i] ?? "";
@@ -213,15 +194,6 @@ const parsePatch = (input: string): FileOp[] => {
   throw new Error("apply_patch: missing `*** End Patch` terminator.");
 };
 
-// ----------------------------------------------------------------------------
-// Tolerant context matching
-// ----------------------------------------------------------------------------
-
-/**
- * Common typographic look-alikes folded to ASCII so patches authored against
- * straight ASCII can still match source containing dashes, curly quotes, NBSP,
- * etc. This keeps patch matching stable across typographic look-alikes.
- */
 const fuzzyChar = (ch: string): string => {
   switch (ch) {
     case "\u2010":
@@ -315,13 +287,6 @@ const matchFuzzy = (
   return true;
 };
 
-/**
- * Locate `pattern` inside `lines` starting at or after `start`. Tries four
- * progressively more lenient strategies (exact → rstrip → trim → unicode).
- * When `eof` is true the search is biased to the end of `lines`.
- *
- * Returns the matching start index, or -1 when no strategy locates it.
- */
 const seekSequence = (
   lines: string[],
   pattern: string[],
@@ -454,10 +419,6 @@ const buildPatchMissHint = (
   return parts.join("\n\n");
 };
 
-// ----------------------------------------------------------------------------
-// File operations
-// ----------------------------------------------------------------------------
-
 const oldLinesOf = (hunk: Hunk): string[] =>
   hunk.lines.filter((entry) => entry.kind !== "add").map((entry) => entry.text);
 
@@ -484,9 +445,7 @@ const computeReplacements = (
 
   for (const hunk of hunks) {
     if (hunk.header) {
-      // Per-chunk pre-seek: locate the @@ header line and advance the cursor
-      // past it. Lets repeated context (e.g. several `}` blocks) be
-      // disambiguated by the model with @@ class Foo / @@ def bar.
+
       const headerIdx = seekSequence(fileLines, [hunk.header], cursor, false);
       if (headerIdx === -1) {
         throw new Error(
@@ -500,9 +459,7 @@ const computeReplacements = (
     const newLines = newLinesOf(hunk);
 
     if (oldLines.length === 0) {
-      // Pure addition with no anchor: append at end of file (we already
-      // stripped the trailing empty line, so fileLines.length is the right
-      // insertion point).
+
       const insertionIdx = fileLines.length;
       replacements.push({ startIdx: insertionIdx, oldLen: 0, newLines });
       cursor = insertionIdx;
@@ -518,9 +475,6 @@ const computeReplacements = (
       hunk.isEndOfFile === true,
     );
 
-    // Retry: if the pattern's last line is the empty sentinel that
-    // represents the file's terminating newline, drop it (and the matching
-    // empty in the replacement) and search again.
     if (found === -1 && pattern[pattern.length - 1] === "") {
       const trimmedPattern = pattern.slice(0, -1);
       const trimmedReplacement =
@@ -564,7 +518,7 @@ const applyReplacements = (
   fileLines: string[],
   replacements: Replacement[],
 ): string[] => {
-  // Apply in reverse order so earlier replacements don't shift later positions.
+
   const sorted = [...replacements].sort((a, b) => a.startIdx - b.startIdx);
   for (let r = sorted.length - 1; r >= 0; r--) {
     const { startIdx, oldLen, newLines } = sorted[r]!;
@@ -581,8 +535,7 @@ const applyUpdate = async (
   if (block) throw new Error(block);
 
   const lockPaths = op.moveTo ? [op.path, op.moveTo] : [op.path];
-  // Read → apply hunks → write happens under the per-path lock so a
-  // concurrent Edit/Write/apply_patch of the same file can't interleave.
+
   return withFileWriteLocks(lockPaths, async () => {
     let original: string;
     try {
@@ -719,7 +672,7 @@ export const handleApplyPatch = async (
   args: Record<string, unknown>,
   context?: ToolContext,
 ): Promise<ToolResult> => {
-  // Stella's JSON tool uses `input`; Convex/device paths may send `patch`.
+
   const patch = String(args.input ?? args.patch ?? "").trim();
   if (!patch) {
     return { error: "apply_patch requires a patch envelope." };

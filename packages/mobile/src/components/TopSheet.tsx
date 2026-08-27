@@ -17,33 +17,18 @@ import { type Colors } from "../theme/colors";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-/** Extra hide distance so the drop shadow clears the top edge too. */
 const SHADOW_CLEARANCE = 40;
 
 type TopSheetProps = {
   visible: boolean;
   onClose: () => void;
   children: React.ReactNode;
-  /**
-   * Fraction of the screen height the sheet occupies — or caps at, when
-   * `contentSized`. Defaults to 80%.
-   */
+
   heightFraction?: number;
-  /**
-   * Hug the content's natural height (up to `heightFraction`) instead of
-   * always filling the fixed fraction. Used by sheets whose content is often
-   * sparse (e.g. the activity hub with one or two tasks).
-   */
+
   contentSized?: boolean;
 };
 
-/**
- * A page-sheet that anchors to the top of the screen and slides down into view.
- * Covers ~80% of the height (or hugs content when `contentSized`), leaving the
- * rest as a tappable scrim, with rounded bottom corners and a soft hairline on
- * the leading (bottom) edge so the sheet reads against the page beneath it.
- * Used for the artifact viewer, the activity hub, and the device sheet.
- */
 export function TopSheet({
   visible,
   onClose,
@@ -58,9 +43,7 @@ export function TopSheet({
 
   const progress = useRef(new Animated.Value(0)).current;
   const [rendered, setRendered] = useState(visible);
-  // Actual laid-out height when content-sized; drives the slide distance so a
-  // short sheet doesn't overshoot from way offscreen. Falls back to the max
-  // before the first layout (always ≥ the real height, so never under-hides).
+
   const [measuredHeight, setMeasuredHeight] = useState<number | null>(null);
 
   useEffect(() => {
@@ -82,8 +65,7 @@ export function TopSheet({
         if (finished) setRendered(false);
       });
     }
-    // `progress` is a stable ref; only react to visibility changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [visible]);
 
   const hideDistance =
@@ -164,9 +146,7 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.background,
       borderBottomLeftRadius: 26,
       borderBottomRightRadius: 26,
-      // Soft hairline on the leading edge (and down the sides, where the sheet
-      // meets the page) so the sheet's boundary reads instead of dissolving
-      // into a same-color background. Top edge is offscreen, so no border.
+
       borderColor: colors.border,
       borderTopWidth: 0,
       borderWidth: StyleSheet.hairlineWidth,

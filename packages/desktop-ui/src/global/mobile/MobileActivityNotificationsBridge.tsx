@@ -26,15 +26,6 @@ type MobileActivityTaskItem = TaskItem & {
 const isWellFormedThreadId = (value: string): boolean =>
   value.length > 0 && value.trim() === value;
 
-/**
- * Select the durable Activity rows that own mobile lifecycle notifications.
- *
- * Only top-level work notifies the user. A subagent belongs to the agent that
- * spawned it, and its completion is that parent's business — it is delivered
- * into the parent's thread instead, so it must never surface as a user-facing
- * notification. The Activity feed intentionally omits the Orchestrator, so an
- * agent with no parent is exactly a root-spawned one.
- */
 export function selectActivityNotificationTasks(
   tasks: readonly TaskItem[],
 ): TaskItem[] {
@@ -97,9 +88,7 @@ export function collectActivityNotificationKinds(
         record = {
           attemptGeneration: observedGeneration,
           observedRunning: task.status === "running",
-          // The mounted bridge observed this generation advance, so it owns
-          // the new attempt's start even though the thread's durable
-          // startedAtMs still describes its first-ever attempt.
+
           eligibleForStartedNotification: true,
           startedNotified: false,
           terminalNotified: false,
@@ -109,8 +98,7 @@ export function collectActivityNotificationKinds(
         recordedGeneration === undefined &&
         observedGeneration !== undefined
       ) {
-        // Attaching a generation to an already-observed legacy snapshot does
-        // not by itself prove that a new attempt began.
+
         record.attemptGeneration = observedGeneration;
       }
     }

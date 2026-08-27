@@ -16,7 +16,7 @@ const getScreenCapturePermissions = (): ScreenCapturePermissionsModule | null =>
     const require = createRequire(import.meta.url)
     _screenCapturePermissions = require('mac-screen-capture-permissions') as ScreenCapturePermissionsModule
   } catch {
-    // Native module not available; fall back to Electron APIs.
+
   }
   return _screenCapturePermissions
 }
@@ -65,21 +65,13 @@ const checkScreenRecording = (): boolean => {
   if (process.platform !== 'darwin') {
     return checkScreenRecordingViaElectron()
   }
-  // Electron's getMediaAccessStatus is TCC-backed and reflects newly granted
-  // permissions immediately; the native module's CGPreflightScreenCaptureAccess
-  // is per-process and can keep reporting "denied" until the app is relaunched.
-  // OR them so a fresh grant flips us to "granted" without a restart.
+
   if (checkScreenRecordingViaElectron()) return true
   return checkScreenRecordingViaNativeModule() === true
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
-/**
- * Touch desktopCapturer from the Electron main process so macOS records the
- * Stella.app bundle (not a child helper) as a screen-recording client. Without
- * this, fresh installs may never show up in System Settings → Screen Recording.
- */
 const registerStellaForScreenRecording = async () => {
   try {
     await desktopCapturer.getSources({
@@ -88,8 +80,7 @@ const registerStellaForScreenRecording = async () => {
       fetchWindowIcons: false,
     })
   } catch {
-    // If we don't yet have access this can throw; the side-effect of registering
-    // the bundle in TCC is what matters and that happens regardless.
+
   }
 }
 
@@ -209,10 +200,6 @@ export type PermissionRequestResult = {
   alreadyGranted: boolean
 }
 
-/**
- * Trigger the native macOS permission prompt for a single permission kind.
- * Returns whether the permission is now granted.
- */
 export const requestMacPermission = async (kind: MacPermissionKind): Promise<PermissionRequestResult> => {
   if (process.platform !== 'darwin') return { granted: true, alreadyGranted: true }
 

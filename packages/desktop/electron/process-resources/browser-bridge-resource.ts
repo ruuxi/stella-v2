@@ -158,10 +158,7 @@ export const createStellaBrowserBridgeResource = (options: {
         subscribeCookieEvents: (
           onEvent: (event: Record<string, unknown>) => void,
         ) => {
-          // Delegates to the current service, which owns socket-level
-          // reconnects to the daemon. If the bridge service has not started
-          // yet, there is nothing to subscribe to; the in-app browser's
-          // periodic reconcile is the backstop until a subscription exists.
+
           const service = getService();
           if (!service) {
             return () => {};

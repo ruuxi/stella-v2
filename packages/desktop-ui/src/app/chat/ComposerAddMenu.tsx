@@ -1,18 +1,3 @@
-/**
- * ComposerAddMenu — the dropdown that opens from the composer's "+" button.
- *
- * Attachment actions backed by chatContext:
- *   1. Attach files…   → image-aware file picker (matches drag-and-drop).
- *   2. Capture         → region/window capture.
- *
- * Menu order (top → bottom): optional recent files, optional context,
- * then capture and attach files at the bottom (nearest the + button).
- * No dividers between rows.
- *
- * The menu owns its own state (file input ref + recent-files store), so
- * both the home full-chat composer and the sidebar composer can reuse it
- * without threading a `onAdd` callback through the chat-column types.
- */
 import { useCallback, useRef, useState } from "react";
 import type { ChangeEvent, Dispatch, SetStateAction } from "react";
 import { Camera, File, Paperclip } from "@/ui/icons";
@@ -64,7 +49,7 @@ function truncateFileName(
 ): string {
   if (name.length <= max) return name;
   const dotIndex = name.lastIndexOf(".");
-  // Keep the extension visible when there's a sensible head budget.
+
   if (dotIndex >= 0 && dotIndex >= max - 4) {
     const ext = name.slice(dotIndex);
     const headBudget = max - 1 - ext.length;
@@ -100,9 +85,7 @@ export function ComposerAddMenu({
       }
       const files = Array.from(list);
       const processed = await attachFilesToContext(files, setChatContext);
-      // Only non-image attachments are recorded — images come back as
-      // chip thumbnails (`regionScreenshots`), and the recents row treats
-      // its entries as file badges.
+
       recordRecentFiles(processed.files);
       event.target.value = "";
     },

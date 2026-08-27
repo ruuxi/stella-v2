@@ -13,8 +13,6 @@ import {
   type BridgeCryptoSession,
 } from "../bridge-envelope";
 
-// Deterministic-enough randomness for tests (never reused across envelopes
-// within a test because GCM IVs are drawn fresh each call).
 let seed = 1;
 const testRandomBytes = (byteLength: number) => {
   const out = new Uint8Array(byteLength);
@@ -53,7 +51,7 @@ describe("bridge envelope round trips", () => {
 
   test("compressed payload round-trips identically and shrinks", () => {
     const { sender, receiver } = makeSessionPair();
-    // Highly repetitive payload — the shape transcript syncs have.
+
     const payload = {
       messages: Array.from({ length: 50 }, (_, index) => ({
         localMessageId: `message-${index}`,
@@ -82,7 +80,7 @@ describe("bridge envelope round trips", () => {
 
   test("compression is skipped when it does not shrink the payload", () => {
     const { sender, receiver } = makeSessionPair();
-    // High-entropy payload: base64ish random string doesn't deflate smaller.
+
     const payload = { blob: Array.from(testRandomBytes(64)).join(",") };
     const envelope = encryptBridgePayloadCore(
       sender,
@@ -91,8 +89,7 @@ describe("bridge envelope round trips", () => {
       testRandomBytes,
       { compress: true },
     );
-    // Whether or not this particular payload shrank, the envelope must be
-    // self-describing and decrypt to the identical payload.
+
     const decoded = decryptBridgePayloadCore(receiver, "m2d", envelope);
     expect(decoded).toEqual(payload);
   });
@@ -104,7 +101,7 @@ describe("bridge envelope round trips", () => {
       "d2m",
       { legacy: true },
       testRandomBytes,
-      // compress deliberately not passed — what an old peer produces
+
     );
     expect("z" in envelope).toBe(false);
     expect(decryptBridgePayloadCore(receiver, "d2m", envelope)).toEqual({

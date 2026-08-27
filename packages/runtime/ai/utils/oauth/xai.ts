@@ -1,7 +1,3 @@
-// STELLA-GUARD: xai-oauth-flow
-// This module handles xAI device authorization and refresh tokens. Do not log
-// token responses, expose credentials, or weaken verification URL validation.
-
 import type {
   OAuthCredentials,
   OAuthLoginCallbacks,

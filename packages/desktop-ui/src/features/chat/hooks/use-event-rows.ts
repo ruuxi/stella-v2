@@ -72,28 +72,6 @@ const asNonEmptyString = (value: unknown): string | undefined =>
     ? value.trim()
     : undefined;
 
-/**
- * Background-work threads kicked off (or re-activated) on this assistant
- * turn, read from the `agent-started` lifecycle events attached to the turn
- * — the same canonical source the sidebar Activity surface and live task
- * list use.
- *
- * Why the lifecycle event and not the `spawn_agent` tool_result: the spawn
- * handler returns its `thread_id` under `result`, which the runtime persists
- * only as a preview *string* (the structured object never lands on the
- * tool_result event payload), so the id isn't reliably recoverable there.
- * `agent-started` carries `agentId` directly. It also fires on `send_input`
- * re-activation (so updating a thread drops a fresh card lower in the chat)
- * and for agents spawned via `multi_tool_use_parallel`, and never fires for
- * a failed spawn (so no phantom card).
- *
- * Only user-facing *delegated* work earns a card: `general` and any custom
- * user-installed subagent. A denylist (rather than an allowlist of only
- * known agent types) means legitimate custom subagents still surface while
- * future internal builtins remain excluded automatically. Tool-internal
- * one-shot helpers like HTML/canvas and Recall never emit `agent-started`, so
- * they cannot produce a card regardless.
- */
 export const getBackgroundWork = (
   events: readonly EventRecord[],
 ):
@@ -101,16 +79,11 @@ export const getBackgroundWork = (
       threadIds: string[];
       descriptions: Record<string, string>;
       spawnedAtMs: Record<string, number>;
-      /** Per-thread durable spawn description for threads re-activated via
-       *  `send_input` on this turn, lifted from the `agent-started`
-       *  `statusText`. Absent for plain spawns. */
+
       statusTexts: Record<string, string>;
-      /** Threads on this card whose `agent-started` was flagged a `send_input`
-       *  follow-up (re-activation) rather than a fresh spawn — the explicit
-       *  discriminator the card reads to pick its follow-up variant. */
+
       followUpThreadIds: string[];
-      /** Canonical identity/anchor for each task occurrence. Unlike agentId
-       *  and rootRunId, this changes for every `send_input` activation. */
+
       startEventIdsByThread: Record<string, string>;
       attemptGenerationsByThread: Record<string, number>;
       rootRunIdsByThread: Record<string, string>;
@@ -124,14 +97,11 @@ export const getBackgroundWork = (
   const startEventIdsByThread: Record<string, string> = {};
   const attemptGenerationsByThread: Record<string, number> = {};
   const rootRunIdsByThread: Record<string, string> = {};
-  // When this thread was kicked off / last advanced on this turn (ms). Lets
-  // the card distinguish a fresh spawn (read as working) from one whose
-  // lifecycle aged out of the loaded windows (presume settled, not pinned
-  // as forever-working).
+
   const spawnedAtMs: Record<string, number> = {};
   for (const event of events) {
     if (!isAgentStartedEvent(event)) continue;
-    // Skip internal/system agents invoked behind a tool (schedule, etc.).
+
     const agentType = asNonEmptyString(event.payload.agentType);
     if (agentType && isOrchestratorReservedBuiltinAgentId(agentType)) {
       continue;
@@ -174,8 +144,7 @@ export const getBackgroundWork = (
         followUpThreadIds.splice(previousFollowUpIndex, 1);
       }
       delete statusTexts[agentId];
-      // Explicit runtime signal: a `send_input` re-activation stamps
-      // `isFollowUp`; statusText is that occurrence's own title.
+
       if (event.payload.isFollowUp) {
         followUpThreadIds.push(agentId);
         const followUp = asNonEmptyString(event.payload.statusText);
@@ -200,18 +169,11 @@ export const getBackgroundWork = (
   };
 };
 
-/**
- * Preserve one inline receipt per lifecycle start occurrence. A spawn and a
- * `send_input` follow-up can share the same assistant row, but they are still
- * separate user-visible actions and must not be flattened into one card.
- */
 export const getBackgroundWorks = (
   events: readonly EventRecord[],
 ): NonNullable<ReturnType<typeof getBackgroundWork>>[] => {
   const cards: NonNullable<ReturnType<typeof getBackgroundWork>>[] = [];
-  // Lifecycle routing can merge an older start into a row that already owns a
-  // newer follow-up. The event timestamps/ids are the persisted timeline
-  // order; the merged array's insertion order is not.
+
   const starts = events
     .filter(isAgentStartedEvent)
     .sort((a, b) => a.timestamp - b.timestamp || a._id.localeCompare(b._id));
@@ -222,16 +184,6 @@ export const getBackgroundWorks = (
   return cards;
 };
 
-/**
- * Run-scoped "paused" subset for a background-work card: threads whose
- * latest `agent-canceled` (a) postdates this card's spawn and (b) is not
- * outdated by a completion. The orchestrator's pause_agent lands as an
- * agent-canceled lifecycle event and the runtime's thread live-state
- * (`deriveRuntimeThreadLiveState`) reads any non-running thread as
- * paused/resumable, so this is the reload-safe mirror of that signal for
- * the inline card. A resume emits a fresh `agent-started` whose newer card
- * supersedes the paused one.
- */
 export const derivePausedThreadIds = (
   threadIds: readonly string[],
   spawnedAtMs: Record<string, number>,
@@ -277,17 +229,6 @@ type UseEventRowsResult = {
   rows: EventRowViewModel[];
 };
 
-/**
- * Whether an assistant row carries anything other than a background-work
- * receipt. Used by the dedup pass below to decide between clearing just the
- * card (the row has other content to keep) and dropping the synthetic
- * card-only row entirely.
- *
- * Keep in sync with `AssistantRowViewModel` content fields: every renderable
- * field other than `backgroundWork` must be checked here, otherwise a row
- * that carries only that (unchecked) content can be silently dropped when its
- * duplicate background card is deduped.
- */
 export const assistantRowHasNonBackgroundContent = (
   row: AssistantRowViewModel,
 ): boolean =>
@@ -302,19 +243,6 @@ export const assistantRowHasNonBackgroundContent = (
   (row.agentCompletion?.sections.length ?? 0) > 0 ||
   Boolean(row.customSlot);
 
-/**
- * Reconcile a completion that surfaces on more than one row. During the
- * SQLite/stream handoff the same `agent-completed` event can briefly be
- * projected onto both the user-message fallback row and the assistant row,
- * drawing two identical completion cards. Key each section by `agentId` +
- * `completedAtMs`: the same pair on two rows is the same completion (the
- * latest row wins, mirroring the background-work `latestOwnerByThread`
- * duplicated handling); a different `completedAtMs` is a genuine `send_input`
- * re-run's later completion and both stay. Redundant copies strip their
- * duplicated sections and the row is marked dropped when nothing else
- * remains. Mutates `rows` / `droppedRowIndices` in place (same contract as
- * the background-work pass it sits beside).
- */
 export const dedupeAgentCompletionRows = (
   rows: EventRowViewModel[],
   droppedRowIndices: Set<number>,
@@ -343,14 +271,12 @@ export const dedupeAgentCompletionRows = (
     if (assistantRowHasNonBackgroundContent(rest) || rest.backgroundWork) {
       rows[index] = rest;
     } else {
-      // Synthetic row whose sole content was the duplicated completion —
-      // drop it so the canonical copy is the only render.
+
       droppedRowIndices.add(index);
     }
   });
 };
 
-/** Resolve completion events on one timeline row through their exact start. */
 export const projectAgentCompletionSections = (
   toolEvents: readonly EventRecord[],
   lifecycleIndex: BackgroundTaskLifecycleIndex,
@@ -372,7 +298,6 @@ export const projectAgentCompletionSections = (
   return [...sections.values()];
 };
 
-/** Whether an assistant message is a pre-tool segment, not the final answer. */
 export const isIntraTurnAssistantRuntime = (
   runtime:
     | { followedByToolCall?: boolean; turnComplete?: boolean }
@@ -392,7 +317,6 @@ const isImageOnlyInlineRow = (row: AssistantRowViewModel): boolean =>
   !row.agentCompletion?.sections.length &&
   !row.customSlot;
 
-/** Merge sequential one-by-one image_gen rows into a single inline strip. */
 const coalesceInlineImageRows = (
   rows: EventRowViewModel[],
 ): EventRowViewModel[] => {
@@ -438,12 +362,6 @@ const isVoiceOnlyRow = (row: AssistantRowViewModel): boolean =>
   !row.agentCompletion?.sections.length &&
   !row.customSlot;
 
-/**
- * Collapse a run of back-to-back voice-session summary rows (no user
- * message or other assistant content between them) into a single
- * "Talked with Stella" chip whose duration is the sum of the run, rather
- * than stacking one chip per session.
- */
 const coalesceVoiceSessionRows = (
   rows: EventRowViewModel[],
 ): EventRowViewModel[] => {
@@ -485,12 +403,6 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
     [messages],
   );
 
-  /**
-   * Canonical per-start lifecycle state across the loaded transcript. The
-   * selector deduplicates live + persisted copies by raw event id and binds a
-   * terminal packet to its exact `agent-started` occurrence. That start id is
-   * both identity and anchor, so completion can only update the existing card.
-   */
   const lifecycleCacheRef = useRef<{
     toolEventsByIndex: ReadonlyArray<readonly EventRecord[]>;
     result: BackgroundTaskLifecycleIndex;
@@ -521,24 +433,6 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
     return result;
   }, [messages]);
 
-  /**
-   * Per-message projection cache. Finalized messages keep a stable object
-   * identity across stream deltas (see `stabilizeMessageList`), so their
-   * already-projected rows are reused instead of being re-derived on every
-   * streamed delta — only the live overlay (whose identity changes per
-   * delta) re-projects. Without this the whole list re-derives each frame,
-   * O(messages) work that grows with conversation length.
-   *
-   * Excluded from the cache: rows carrying a background-work card. Those are
-   * mutated in place by the dedup/supersede pass below and their
-   * `completedThreadIds` depend on the per-frame completion map, so they are
-   * rebuilt every frame (they are rare — only turns that spawned agents).
-   *
-   * Keyed by message identity and invalidated wholesale when the
-   * developer-resource-preview flag flips (the only non-message-intrinsic
-   * input to a row's content; the per-frame completion map only feeds the
-   * uncached background-work rows).
-   */
   const projectionCacheRef = useRef<{
     devFlag: boolean;
     byMessage: WeakMap<
@@ -552,21 +446,9 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
 
   const allRows = useMemo<EventRowViewModel[]>(() => {
     const computed: EventRowViewModel[] = [];
-    /**
-     * 1-based per-`userMessageId` count of assistant rows seen so far
-     * in this projection walk. Drives `assistantScrollFollowKey(...)`
-     * so a live-streaming overlay and the eventual persisted row at
-     * the same position end up with the same React key. The display-
-     * messages merge upstream filters
-     * out overlays whose persisted counterpart has landed, so each
-     * `(userMessageId, indexInTurn)` slot is occupied by exactly one
-     * source at a time.
-     */
+
     const assistantCountByUserMessageId = new Map<string, number>();
 
-    // Spawn-anchored card descriptor. Terminal/progress payloads may live on a
-    // much later message, but the lifecycle selector resolves them back to the
-    // exact persisted start event represented by this card.
     const buildBackgroundWorks = (toolEvents: readonly EventRecord[]) =>
       getBackgroundWorks(toolEvents).map((base) => ({
         ...base,
@@ -606,11 +488,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
     const cacheByMessage = projectionCache.byMessage;
 
     for (const message of displayMessages) {
-      // Advance the per-turn assistant index for every assistant message
-      // (cache hit or miss) so the sequential stableKeys stay correct, then
-      // reuse the prior projection of any message whose identity — and index
-      // position — is unchanged. The live overlay's identity changes per
-      // delta, so it always re-projects; finalized rows are reused.
+
       let indexWithinTurn = -1;
       let assistantReplyId: string | undefined;
       if (isAssistantMessage(message)) {
@@ -650,8 +528,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           contextMetadata.windowPreviewImageUrl.trim()
             ? contextMetadata.windowPreviewImageUrl.trim()
             : undefined;
-        // Prefer the per-selection list; older messages persisted a
-        // single (possibly joined) label.
+
         const appSelectionLabels = (() => {
           const plural = Array.isArray(contextMetadata?.appSelectionLabels)
             ? contextMetadata.appSelectionLabels
@@ -699,11 +576,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
             : {}),
         };
         produced.push(row);
-        // A fire-and-forget spawn / send_input that never produced an
-        // assistant message has its tools anchored on this user_message.
-        // Surface the card on a synthetic assistant row right under it so
-        // background work is still visible (the working indicator steps
-        // aside once a task is running).
+
         const userBackgroundWorks = buildBackgroundWorks(message.toolEvents);
         const userBackgroundWork = userBackgroundWorks[0];
         if (userBackgroundWork) {
@@ -734,13 +607,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
         const text = getDisplayMessageText(message);
         const payload = getMessagePayload(message);
         const replyToUserMessageId = assistantReplyId;
-        // Read `responseTarget` straight off this message's own runtime
-        // metadata. It was previously precomputed into a per-render
-        // `Map<_id, responseTarget>` and looked up here by `message._id` — but
-        // that lookup is always THIS same message, so the map was a redundant
-        // O(messages) pass + allocation on every streamed delta. Inlining it
-        // (it folds into the per-message projection cache for finalized rows;
-        // only the live overlay reads it fresh) removes that whole pass.
+
         const runtimeMetadata = (
           payload?.metadata as
             | {
@@ -753,12 +620,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
             | undefined
         )?.runtime;
         const responseTarget = runtimeMetadata?.responseTarget;
-        // Unified key for both live-streaming overlays (synthetic
-        // `_id`s) and the eventual persisted rows for the same
-        // `(userMessageId, indexInTurn)` slot. The display merge
-        // ensures only one source is present at a time, so the count
-        // stays consistent. `indexWithinTurn` was advanced in the loop
-        // preamble (so cache hits keep positions correct).
+
         const stableKey =
           replyToUserMessageId !== undefined
             ? assistantScrollFollowKey(replyToUserMessageId, indexWithinTurn)
@@ -788,9 +650,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
         const row: AssistantRowViewModel = {
           kind: "assistant",
           id: stableKey,
-          // The voice-session summary card replaces the text body entirely,
-          // so the raw "Voice session\n\nDuration: …" model-history fallback
-          // never renders as markdown.
+
           text: voiceSession ? "" : text,
           timestampMs: message.timestamp,
           cacheKey: stableKey,
@@ -825,11 +685,6 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
         );
       }
 
-      // Cache the projection for reuse on the next delta, EXCEPT rows that
-      // carry an agent activity card: those are mutated by the dedup passes
-      // below and depend on per-frame cross-row lifecycle state, so they must be rebuilt
-      // each frame. Everything else is a pure function of the (stable)
-      // message identity + dev flag.
       const hasAgentActivityCard = produced.some(
         (producedRow) =>
           producedRow.kind === "assistant" &&
@@ -844,28 +699,6 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
       for (const producedRow of produced) computed.push(producedRow);
     }
 
-    // No synthetic trailing artifact row: a `user_message` carrying inline-
-    // image tool events with no assistant reply yet is an in-progress turn.
-    // The images surface on that turn's assistant row's tool events once the
-    // message lands, so no fire-and-forget stand-in is projected mid-flight.
-
-    // Reconcile a thread that surfaces on more than one row. Exact duplicate
-    // copies share the canonical `agent-started` event id. A different start
-    // id is a genuine later activation of the durable thread.
-    //
-    //  - Follow-up while active: the newer card replaces the predecessor.
-    //    There is no synthetic completed breadcrumb for the interrupted
-    //    occurrence; only the current follow-up remains visible.
-    //
-    //  - Follow-up after settlement: both cards remain. The predecessor keeps
-    //    its real terminal state/prose and the follow-up owns its own status.
-    //
-    //  - Exact duplicate: the SAME `agent-started` event (identical
-    //    `spawnedAtMs`) projected onto two rows — e.g. a fire-and-forget
-    //    spawn briefly anchored on both the user-message fallback row and the
-    //    assistant row during the SQLite/stream handoff. Rendering both draws
-    //    two identical "Started in background" receipts, so the redundant
-    //    (non-canonical) copy drops the thread entirely. One spawn = one card.
     const latestOwnerByThread = new Map<string, number>();
     computed.forEach((row, index) => {
       if (row.kind !== "assistant" || !row.backgroundWork) return;
@@ -909,9 +742,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
         ) {
           replaced.add(id);
         } else if (owner?.followUpThreadIds?.includes(id)) {
-          // The predecessor had already settled before this follow-up. Keep
-          // its terminal card, but fence it from the durable thread's newer
-          // attempt so only the follow-up can become the current live unit.
+
           superseded.push(id);
         } else {
           superseded.push(id);
@@ -935,8 +766,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           const { backgroundWork: _omit, ...rest } = row;
           computed[index] = rest;
         } else {
-          // Synthetic card-only row whose sole receipt was duplicated or
-          // replaced by an in-flight follow-up — keep only the current card.
+
           droppedRowIndices.add(index);
         }
         return;

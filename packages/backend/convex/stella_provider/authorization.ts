@@ -55,11 +55,6 @@ const FIREWORKS_KIMI_K2P6_SERVICE_TIERS = new Set([
   "fast",
 ]);
 
-/**
- * Wafer lists its models with capitalized slugs (e.g.
- * `DeepSeek-V4-Flash-0731-Fast`) while Stella's managed ids are lowercase.
- * Send the exact upstream casing wafer's catalog advertises.
- */
 const WAFER_NATIVE_MODEL_IDS: Record<string, string> = {
   "deepseek-v4-flash-0731-fast": "DeepSeek-V4-Flash-0731-Fast",
 };
@@ -208,11 +203,7 @@ export async function authorizeStellaRelayRequest(args: {
   if (isAnonymous) {
     const deviceId = `anon-jwt:${ownerId}`;
     const clientAddressKey = getClientAddressKey(request);
-    // The per-IP counter is the durable backstop: deleting Stella data mints
-    // a new anonymous identity (fresh `deviceId`), but the IP bucket persists,
-    // so spam-resets from one network still hit a ceiling. Check it first so a
-    // request blocked by the IP cap doesn't also burn the (fresh) per-device
-    // counter. The per-device counter is the smaller per-person trial.
+
     const ipAllowed = await consumeAnonymousIpAllowance(ctx, clientAddressKey);
     const deviceAllowed = ipAllowed
       ? await consumeAnonymousRequestAllowance(ctx, deviceId, clientAddressKey)

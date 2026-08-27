@@ -1,57 +1,3 @@
-// meeting_capture - Granola-style dual-stream meeting recorder for Stella.
-//
-// Captures system audio (everyone else on the call, no meeting bot required)
-// via ScreenCaptureKit AND the local microphone (you) via AVAudioEngine, as two
-// independent PCM streams written to disk as rolling WAV segments. Keeping the
-// two streams separate is deliberate: it gives a downstream transcriber clean
-// "you vs them" speaker separation for free.
-//
-// This helper only does capture-to-disk. Transcription and note enhancement
-// live elsewhere (a skill / agent step); this binary stays dumb, robust, and
-// independent of any renderer window so a recording survives the UI closing,
-// reloading, or crashing.
-//
-// One process model:
-//   $ meeting_capture daemon --root <stellaDataDir> [--segment-seconds 30]
-//
-// Lifecycle commands (sent to the running daemon over AF_UNIX):
-//   $ meeting_capture start    --root <stellaDataDir> [--session-id <id>] [--segment-seconds N]
-//   $ meeting_capture pause    --root <stellaDataDir>
-//   $ meeting_capture resume   --root <stellaDataDir>
-//   $ meeting_capture stop     --root <stellaDataDir>   # ends recording, daemon lives on
-//   $ meeting_capture status   --root <stellaDataDir>
-//   $ meeting_capture ping     --root <stellaDataDir>
-//   $ meeting_capture shutdown --root <stellaDataDir>   # finalize + exit
-//
-// State layout (all under <stellaDataDir>/meetings/):
-//   meeting_capture.pid           Daemon pid (cleaned up on graceful exit)
-//   meeting_capture.state.json    { running, recording, paused, sessionId, startedAtMs, segmentSeconds }
-//   <sessionId>/                  One folder per recording
-//     session.json                { sessionId, startedAtMs, endedAtMs, segmentSeconds, streams: {...} }
-//     segments.jsonl              One line per finalized WAV segment
-//     system/seg-<idx>-<startMs>.wav
-//     mic/seg-<idx>-<startMs>.wav
-//
-// The AF_UNIX command socket does NOT live under <stellaDataDir>: macOS caps
-// `sun_path` at 104 bytes (103 usable), and the Electron host points --root at
-// userData (`~/Library/Application Support/Stella Development`), which
-// overflows for long usernames. The socket is anchored at a short
-// home-relative path instead, namespaced per install by a hash of the root
-// (same pattern as runtime/kernel/computer-use/automation-socket-paths.ts):
-//   ~/.stella/meeting-capture/<sha1(resolvedRoot + "\n" + "meeting_capture")[0..<16]>.sock
-// Everything else (pid, state, recordings) stays under <stellaDataDir>/meetings/.
-//
-// Permissions: system audio needs Screen Recording (CGPreflightScreenCaptureAccess);
-// the mic needs Microphone access. The Electron host prompts for both via TCC
-// before starting a recording (macos-permissions.ts). The daemon itself runs
-// idle without permission and only fails the `start` command if Screen Recording
-// is missing; the mic is best-effort (a recording still works system-audio-only).
-//
-// Build:
-//   swiftc -O -o out/darwin/meeting_capture src/meeting_capture.swift \
-//     -framework AVFoundation -framework AppKit -framework CoreAudio \
-//     -framework CoreMedia -framework Foundation -framework ScreenCaptureKit
-
 import AVFoundation
 import AppKit
 import CoreAudio
@@ -59,8 +5,6 @@ import CoreMedia
 import CryptoKit
 import Foundation
 import ScreenCaptureKit
-
-// MARK: - Helpers
 
 func eprint(_ s: String) {
     FileHandle.standardError.write((s + "\n").data(using: .utf8) ?? Data())
@@ -83,8 +27,6 @@ func jsonLine(_ values: [String: Any]) -> String {
     }
     return str
 }
-
-// MARK: - Args
 
 struct MeetingArgs {
     var command: String = ""
@@ -138,19 +80,13 @@ func sanitizeSessionId(_ id: String) -> String {
     return cleaned.isEmpty ? generateSessionId() : cleaned
 }
 
-// MARK: - Paths
-
 struct MeetingPaths {
     let root: String
     var stateDir: String { root + "/meetings" }
-    // Short home-anchored socket location (see header comment): the root-derived
-    // location overflows the 104-byte macOS `sun_path` cap for long usernames.
-    // The filename hashes the resolved root so multiple Stella installs (dev
-    // tree + packaged app) sharing this directory never collide on one socket.
+
     var sockDir: String { NSHomeDirectory() + "/.stella/meeting-capture" }
     var sockPath: String { sockDir + "/" + rootHash + ".sock" }
-    // Pre-relocation socket location, swept once at daemon startup so sockets
-    // left behind by older builds don't linger under the data dir.
+
     var legacySockPath: String { stateDir + "/meeting_capture.sock" }
     var pidPath: String { stateDir + "/meeting_capture.pid" }
     var statePath: String { stateDir + "/meeting_capture.state.json" }
@@ -179,8 +115,6 @@ struct MeetingPaths {
     }
 }
 
-// MARK: - State persistence
-
 struct MeetingState: Codable {
     var running: Bool
     var recording: Bool
@@ -205,8 +139,6 @@ func readState(_ paths: MeetingPaths) -> MeetingState? {
     return try? JSONDecoder().decode(MeetingState.self, from: data)
 }
 
-// MARK: - Permissions
-
 func hasScreenRecordingPermission() -> Bool {
     CGPreflightScreenCaptureAccess()
 }
@@ -229,9 +161,6 @@ func ensureMicrophoneAccess() -> Bool {
     }
 }
 
-// MARK: - PCM conversion
-
-/// Pack non-interleaved float channel data into interleaved little-endian Int16.
 func interleaveInt16(frames: Int, channels: Int, sample: (Int, Int) -> Float) -> Data {
     guard frames > 0, channels > 0 else { return Data() }
     var out = Data(count: frames * channels * MemoryLayout<Int16>.size)
@@ -255,8 +184,6 @@ struct PCMChunk {
     let channels: UInt16
 }
 
-/// Convert a ScreenCaptureKit audio CMSampleBuffer (Float32, usually
-/// non-interleaved stereo at 48kHz) into interleaved Int16 PCM.
 func pcmFromSampleBuffer(_ sampleBuffer: CMSampleBuffer) -> PCMChunk? {
     guard let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
           let asbdPtr = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc)
@@ -311,8 +238,6 @@ func pcmFromSampleBuffer(_ sampleBuffer: CMSampleBuffer) -> PCMChunk? {
     }
 }
 
-/// Convert an AVAudioEngine microphone buffer (non-interleaved Float32) into
-/// interleaved Int16 PCM.
 func pcmFromAudioBuffer(_ buffer: AVAudioPCMBuffer) -> PCMChunk? {
     guard let channelData = buffer.floatChannelData else { return nil }
     let channels = Int(buffer.format.channelCount)
@@ -325,10 +250,6 @@ func pcmFromAudioBuffer(_ buffer: AVAudioPCMBuffer) -> PCMChunk? {
     return PCMChunk(data: data, sampleRate: sampleRate, channels: UInt16(channels))
 }
 
-// MARK: - WAV writer
-
-/// Streams interleaved Int16 PCM to a .wav file, patching the RIFF/data sizes
-/// on close. Single-threaded; only touched from the recorder's serial io queue.
 final class WavWriter {
     let path: String
     let sampleRate: UInt32
@@ -364,18 +285,18 @@ final class WavWriter {
         let blockAlign = channels * (bitsPerSample / 8)
         var header = Data()
         header.append("RIFF".data(using: .ascii)!)
-        header.append(u32(0)) // chunk size, patched on close
+        header.append(u32(0))
         header.append("WAVE".data(using: .ascii)!)
         header.append("fmt ".data(using: .ascii)!)
-        header.append(u32(16)) // PCM fmt chunk size
-        header.append(u16(1)) // audio format = PCM
+        header.append(u32(16))
+        header.append(u16(1))
         header.append(u16(channels))
         header.append(u32(sampleRate))
         header.append(u32(byteRate))
         header.append(u16(blockAlign))
         header.append(u16(bitsPerSample))
         header.append("data".data(using: .ascii)!)
-        header.append(u32(0)) // data size, patched on close
+        header.append(u32(0))
         handle.write(header)
     }
 
@@ -385,7 +306,6 @@ final class WavWriter {
         dataBytes &+= UInt32(pcm.count)
     }
 
-    /// Finalize sizes and close. Returns the wall-clock duration in ms.
     func close() -> Int64 {
         let byteRate = sampleRate * UInt32(channels) * UInt32(bitsPerSample / 8)
         do {
@@ -394,7 +314,7 @@ final class WavWriter {
             try handle.seek(toOffset: 40)
             handle.write(u32(dataBytes))
         } catch {
-            // best-effort; an unpatched header still has valid audio bytes
+
         }
         try? handle.close()
         guard byteRate > 0 else { return 0 }
@@ -402,9 +322,6 @@ final class WavWriter {
     }
 }
 
-// MARK: - Per-stream segmenter
-
-/// Owns the rolling WAV segments for a single stream ("system" or "mic").
 final class StreamSegmenter {
     let streamName: String
     let dir: String
@@ -448,7 +365,6 @@ final class StreamSegmenter {
         current?.append(chunk.data)
     }
 
-    /// Close the active segment (e.g. on pause / stop) so gaps are explicit.
     func finalizeCurrent(endedAtMs: Int64) {
         guard let writer = current else { return }
         let durationMs = writer.close()
@@ -481,9 +397,6 @@ final class StreamSegmenter {
     }
 }
 
-// MARK: - System audio output
-
-/// Forwards ScreenCaptureKit audio sample buffers to a sink closure.
 final class SystemAudioOutput: NSObject, SCStreamOutput {
     private let onAudio: (CMSampleBuffer) -> Void
 
@@ -492,16 +405,12 @@ final class SystemAudioOutput: NSObject, SCStreamOutput {
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .audio else { return } // video frames are intentionally dropped
+        guard type == .audio else { return }
         guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
         onAudio(sampleBuffer)
     }
 }
 
-// MARK: - Recorder
-
-/// Owns the active recording: one SCStream (system audio) + one AVAudioEngine
-/// (mic), funneling both into per-stream segmenters on a serial io queue.
 final class MeetingRecorder: NSObject, SCStreamDelegate {
     private let paths: MeetingPaths
     private let ioQueue = DispatchQueue(label: "com.stella.meeting_capture.io")
@@ -540,8 +449,6 @@ final class MeetingRecorder: NSObject, SCStreamDelegate {
             )
         }
     }
-
-    // MARK: Lifecycle
 
     func start(requestedId: String?, segmentSeconds: Int) -> [String: Any] {
         if ioQueue.sync(execute: { recording }) {
@@ -588,8 +495,7 @@ final class MeetingRecorder: NSObject, SCStreamDelegate {
         let systemStarted = startSystemAudio()
         let micStarted = startMicrophone()
         if !systemStarted && !micStarted {
-            // Nothing captured — roll the session back so we don't leave a
-            // ghost recording the host thinks is live.
+
             _ = stop()
             return ["ok": false, "error": "no-audio-streams"]
         }
@@ -625,8 +531,6 @@ final class MeetingRecorder: NSObject, SCStreamDelegate {
             return ["ok": false, "error": "not-recording"]
         }
 
-        // Tear down the live capture before closing files so no late frame
-        // lands after finalize.
         if let stream = scStream {
             let semaphore = DispatchSemaphore(value: 0)
             stream.stopCapture { _ in semaphore.signal() }
@@ -673,8 +577,6 @@ final class MeetingRecorder: NSObject, SCStreamDelegate {
         return result
     }
 
-    // MARK: Ingestion
-
     private func ingestSystem(_ sampleBuffer: CMSampleBuffer) {
         guard let chunk = pcmFromSampleBuffer(sampleBuffer) else { return }
         ioQueue.async {
@@ -690,8 +592,6 @@ final class MeetingRecorder: NSObject, SCStreamDelegate {
             self.micSegmenter?.ingest(chunk)
         }
     }
-
-    // MARK: System audio (ScreenCaptureKit)
 
     private func startSystemAudio() -> Bool {
         let semaphore = DispatchSemaphore(value: 0)
@@ -712,9 +612,6 @@ final class MeetingRecorder: NSObject, SCStreamDelegate {
             )
             guard let display = content.displays.first else { return false }
 
-            // Exclude Stella's own apps from the screen content. System audio
-            // from our own process is dropped separately via
-            // excludesCurrentProcessAudio below.
             let stellaApps = content.applications.filter { app in
                 let bundle = app.bundleIdentifier.lowercased()
                 return bundle.hasPrefix("com.stella") || bundle == "com.github.electron"
@@ -730,8 +627,7 @@ final class MeetingRecorder: NSObject, SCStreamDelegate {
             config.sampleRate = 48_000
             config.channelCount = 2
             config.excludesCurrentProcessAudio = true
-            // We only want audio. SCStream still produces video, so keep it as
-            // cheap as possible: tiny frames, slow cadence, dropped on arrival.
+
             config.width = 2
             config.height = 2
             config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
@@ -753,8 +649,6 @@ final class MeetingRecorder: NSObject, SCStreamDelegate {
             return false
         }
     }
-
-    // MARK: Microphone (AVAudioEngine)
 
     private func startMicrophone() -> Bool {
         guard ensureMicrophoneAccess() else {
@@ -781,8 +675,6 @@ final class MeetingRecorder: NSObject, SCStreamDelegate {
             return false
         }
     }
-
-    // MARK: session.json
 
     private func writeSessionJson(ended: Bool) {
         let snapshot: (String, String, Int64, Int, StreamSegmenter?, StreamSegmenter?) = ioQueue.sync {
@@ -828,20 +720,13 @@ final class MeetingRecorder: NSObject, SCStreamDelegate {
         try? encoded.write(toFile: dir + "/session.json", atomically: true, encoding: .utf8)
     }
 
-    // MARK: SCStreamDelegate
-
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         eprint("meeting_capture.system-audio.stopped: \(error)")
     }
 }
 
-// MARK: - AF_UNIX command server
-
 func makeUnixSocket(path: String, listen: Bool) -> Int32 {
-    // macOS `sun_path` holds 104 bytes including the trailing NUL. Refuse
-    // over-long paths outright instead of silently truncating: a truncated
-    // path would bind/connect somewhere the other side never looks, producing
-    // baffling "daemon not reachable" failures.
+
     let pathBytes = Array(path.utf8)
     if pathBytes.count > 103 {
         eprint(
@@ -898,8 +783,6 @@ func sendString(_ fd: Int32, _ s: String) {
     }
 }
 
-// MARK: - Daemon
-
 func runDaemon(paths: MeetingPaths, defaultSegmentSeconds: Int) {
     do {
         try paths.ensureStateDir()
@@ -909,9 +792,6 @@ func runDaemon(paths: MeetingPaths, defaultSegmentSeconds: Int) {
         exit(1)
     }
 
-    // One-time sweep of the pre-relocation socket path under the data dir so
-    // older builds' sockets don't linger (the current path is unlinked before
-    // bind and on graceful shutdown).
     try? FileManager.default.removeItem(atPath: paths.legacySockPath)
 
     try? "\(getpid())".write(toFile: paths.pidPath, atomically: true, encoding: .utf8)
@@ -1010,8 +890,6 @@ func runDaemon(paths: MeetingPaths, defaultSegmentSeconds: Int) {
     }
 }
 
-// MARK: - Client commands
-
 func sendCommand(_ paths: MeetingPaths, _ command: String) {
     let fd = makeUnixSocket(path: paths.sockPath, listen: false)
     if fd < 0 {
@@ -1024,8 +902,6 @@ func sendCommand(_ paths: MeetingPaths, _ command: String) {
         print(reply)
     }
 }
-
-// MARK: - Main
 
 let args = parseArgs()
 if args.stellaDataDir.isEmpty {

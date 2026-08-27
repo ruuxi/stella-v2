@@ -1,15 +1,3 @@
-/**
- * Global Models control — the bottom-right model-picker button + popover.
- *
- * Mounted ONCE at the shell level (see `routes/__root.tsx`), NOT inside the
- * right sidebar, so it is always visible and openable regardless of which
- * sidebar tab is active or whether the sidebar is open, closed or mounted.
- *
- * Open state lives in the shared engine-overlay singleton store, which
- * `openModelPicker()` and the `stella:open-model-picker` window event also flip.
- * The picker itself renders as a top-level portal popover (radix `Popover`)
- * above the whole app, so its lifecycle/anchor are not owned by the sidebar.
- */
 import { lazy, Suspense, useEffect } from "react";
 import {
   engineOverlay,
@@ -36,13 +24,6 @@ const AgentModelPicker = lazy(() =>
   })),
 );
 
-/**
- * @param {{ visible?: boolean }} props `visible` follows the shell's
- *   authoritative right-side Activity-workspace visibility. When the right
- *   region isn't displaying, the control renders nothing so it never leaves an
- *   empty right gutter behind. State/overlay/lifecycle stay globally owned
- *   (engine-overlay store) — this only gates whether the button is on screen.
- */
 export function GlobalModelsControl({ visible = true }) {
   const open = useEngineOverlayOpen();
   const modelPinned = useComposerModelPinned();

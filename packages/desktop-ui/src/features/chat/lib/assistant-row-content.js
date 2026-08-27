@@ -1,19 +1,3 @@
-/**
- * Whether an assistant row paints ANYTHING on screen.
- *
- * Single source of truth shared by:
- *  - `AssistantMessageRow` — a row with no visible content renders `null`;
- *  - `ChatTimeline` — rows that render nothing are dropped BEFORE the
- *    virtualized list is built, so they can't occupy an item slot or
- *    accumulate per-row separator gaps as invisible spacers between
- *    turns. (Empty assistant segments are routine: tool-only stream
- *    segments, and rows whose lifecycle events were re-anchored onto a
- *    different row by `route-lifecycle-events`.)
- *
- * Keep in sync with the render branches in `AssistantMessageRow`: every
- * field that can paint content must be checked here, otherwise a row
- * carrying only that field would be dropped from the timeline.
- */
 export const assistantRowHasVisibleContent = (row) => row.text.trim().length > 0 ||
     Boolean(row.officePreviewRef) ||
     Boolean(row.resourcePayload) ||
@@ -25,10 +9,6 @@ export const assistantRowHasVisibleContent = (row) => row.text.trim().length > 0
     Boolean(row.voiceSession) ||
     (row.backgroundWork?.threadIds.length ?? 0) > 0 ||
     (row.agentCompletion?.sections.length ?? 0) > 0;
-/**
- * Whether a timeline row produces a rendered box at all. User rows always
- * render; assistant rows render when they have visible content. (Assistant
- * messages arrive whole, so there is no pre-first-token placeholder.)
- */
+
 export const eventRowRendersContent = (row) => row.kind !== "assistant" ||
     assistantRowHasVisibleContent(row);

@@ -1,13 +1,3 @@
-/**
- * Canonical document/file chip used before and after send: file-type
- * glyph, real filename (extension-preserving truncation), optional size.
- * Composer callers add removal; sent-message callers keep the same
- * visual body without a remove affordance.
- *
- * Also owns the sent-attachment routing helpers so `MessageRow` never
- * feeds a non-image attachment (pdf, docs, audio, …) into an `<img>` —
- * that produced a broken image whose alt text clipped to "Attachmer".
- */
 import { cn } from "@/shared/lib/utils";
 import {
   Archive,
@@ -78,8 +68,6 @@ export function formatFileSize(bytes) {
 
 const FILE_NAME_MAX_CHARS = 12;
 
-// Truncate to FILE_NAME_MAX_CHARS but keep the extension visible when it
-// fits — losing the extension drops a lot of context for short caps.
 export function truncateFileName(name, max = FILE_NAME_MAX_CHARS) {
   if (name.length <= max) return name;
   const dotIdx = name.lastIndexOf(".");
@@ -104,22 +92,12 @@ const FILE_CATEGORY_LABELS = {
   file: "File",
 };
 
-/**
- * Human type label for a file attachment whose real filename is missing
- * (older persisted payloads). Never a generic "Attachment" string that a
- * narrow chip would clip into nonsense.
- */
 export function fileAttachmentTypeLabel(mimeType = "") {
   return FILE_CATEGORY_LABELS[resolveFileCategory(mimeType, "")];
 }
 
 const IMAGE_FILE_EXT_RE = /\.(?:png|jpe?g|gif|webp|svg|avif|bmp|ico|tiff?|heic|heif)$/i;
 
-/**
- * Whether a sent attachment should render as an image thumbnail. Routing
- * mistakes here previously fed PDFs into an `<img>`, producing a broken
- * image plus clipped alt text.
- */
 export function isImageAttachment(attachment, safeUrl) {
   if (attachment.kind === "file") return false;
   const mimeType = attachment.mimeType?.trim().toLowerCase();
@@ -127,15 +105,13 @@ export function isImageAttachment(attachment, safeUrl) {
   if (safeUrl.startsWith("data:")) {
     return /^data:image\//i.test(safeUrl);
   }
-  // Legacy remote payloads often lack a mimeType; keep the historical
-  // image treatment unless the filename clearly says otherwise.
+
   if (attachment.name && /\.[a-z0-9]+$/i.test(attachment.name)) {
     return IMAGE_FILE_EXT_RE.test(attachment.name);
   }
   return true;
 }
 
-/** Display name for a sent non-image attachment chip. */
 export function getFileAttachmentName(attachment) {
   if (attachment.name) return attachment.name;
   if (attachment.kind && attachment.kind !== "file") {
@@ -147,16 +123,6 @@ export function getFileAttachmentName(attachment) {
   return fileAttachmentTypeLabel(attachment.mimeType);
 }
 
-/**
- * @param {object} props
- * @param {string} props.name
- * @param {number} [props.size]
- * @param {string} [props.mimeType]
- * @param {string} [props.path] On-disk source; when present the chip opens
- *   the original in its default app — the same convention as the composer.
- * @param {string} [props.chipClassName]
- * @param {import("react").ReactNode} [props.removeButton]
- */
 export function FileAttachmentChip({
   name,
   size,
@@ -166,8 +132,7 @@ export function FileAttachmentChip({
   removeButton,
 }) {
   const category = resolveFileCategory(mimeType ?? "", name);
-  // Disk-backed attachments open in their default app for preview;
-  // synthetic files (no on-disk path) have no preview target.
+
   const canOpen = Boolean(path);
   return (
     <span className="composer-chip-shell">

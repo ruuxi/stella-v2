@@ -106,19 +106,12 @@ export const decryptAndParseImageSubmission = async (
   return parseSubmission(parsed);
 };
 
-/**
- * At-most-once provider dispatcher for image_gen. The database claim is the
- * last Stella operation before POST. A failure after that claim is ambiguous
- * and is never retried; a Fal webhook may still reconcile it by jobId.
- */
 export const submitReservedImageJob = internalAction({
   args: { jobId: v.string(), encryptedPayload: v.optional(v.string()) },
   returns: v.null(),
   handler: async (ctx, args) => {
     const attemptId = crypto.randomUUID();
 
-    // Read/decrypt before claiming so configuration or storage failures leave
-    // the request provably pending and safe for the reconciler to reschedule.
     const preview = args.encryptedPayload
       ? null
       : await ctx.runQuery(internal.media_jobs.getImageSubmissionPayload, {

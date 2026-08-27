@@ -97,8 +97,7 @@ export async function generateMusicPrompt(
       agentType: "music_prompt",
       systemPrompt: getMusicSystemPrompt(),
       userText: userMessage,
-      // Ride the user's Assistant-tab BYOK pick when the user has chosen a
-      // non-Stella provider, instead of pinning to Stella's managed gateway.
+
       fallbackAgentTypes: ["general"],
       temperature: 1,
       maxOutputTokens: 16192,

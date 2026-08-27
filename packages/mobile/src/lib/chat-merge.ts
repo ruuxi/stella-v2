@@ -25,12 +25,6 @@ const everyRowHasSequence = (rows: readonly ChatMessage[]): boolean => {
   return true;
 };
 
-/**
- * Order the whole transcript by the desktop's authoritative monotonic
- * `sequence`. Sorting by the stable sequence is jump-free, and an optimistic row
- * snaps deterministically into its authoritative slot the moment it reconciles
- * and gains a sequence. This is the steady-state path.
- */
 const orderBySequence = (rows: ChatMessage[]): ChatMessage[] =>
   [...rows].sort((a, b) => {
     if (a.sequence! !== b.sequence!) return a.sequence! - b.sequence!;
@@ -38,18 +32,6 @@ const orderBySequence = (rows: ChatMessage[]): ChatMessage[] =>
     return a.id < b.id ? -1 : 1;
   });
 
-/**
- * SAFETY FALLBACK for rows that lack a sequence — the in-flight/optimistic
- * window (a just-sent bubble has no sequence until it reconciles) and version
- * skew (a peer desktop on an older build that never sends `sequence`). It slots
- * only genuinely-new rows into their canonical `(canonicalCreatedAt,
- * canonicalId)` position and NEVER re-sorts rows already on screen, so a
- * locally-anchored row (whose phone clock may disagree with the desktop by
- * minutes) can't invert above its neighbours — e.g. a linked reply can't render
- * above its own unstamped user row. Once every row carries a sequence the
- * transcript re-derives by sequence instead (see mergeMessagesById), so this
- * path is the exception, not the norm.
- */
 const insertNewRowsCanonically = (
   current: ChatMessage[],
   unseen: ChatMessage[],
@@ -90,14 +72,6 @@ const insertNewRowsCanonically = (
   return out;
 };
 
-/**
- * Order the merged transcript. Steady state (every row carries the desktop's
- * authoritative `sequence`) sorts by that monotonic key — jump-free and
- * clock-independent. When any row lacks a sequence (the optimistic window or
- * version skew) it falls back to {@link insertNewRowsCanonically}, which places
- * only new rows and never re-sorts visible ones, preserving the no-inversion
- * invariant until sequences arrive and the sort converges.
- */
 const rederiveOrder = (
   retained: ChatMessage[],
   unseen: ChatMessage[],
@@ -106,11 +80,6 @@ const rederiveOrder = (
     ? orderBySequence([...retained, ...unseen])
     : insertNewRowsCanonically(retained, unseen);
 
-/**
- * The desktop-clock ordering stamp for a canonical row arriving off the
- * bridge (whose `createdAt` IS the desktop timestamp — see
- * `parseDesktopBridgeMessageRows`).
- */
 const canonicalStampOf = (canonical: ChatMessage): number | undefined =>
   canonical.canonicalCreatedAt ?? canonical.createdAt;
 
@@ -164,10 +133,6 @@ const isSubset = (candidate: Set<string>, target: Set<string>): boolean => {
   return true;
 };
 
-/** Whether two rows carry the same delegated-agent run. The live mobile stream
- * temporarily puts every turn artifact on one optimistic assistant row; the
- * canonical desktop projection is authoritative about which assistant row
- * actually owns that lifecycle event. */
 const messagesShareAgentWork = (
   left: ChatMessage,
   right: ChatMessage,
@@ -289,9 +254,6 @@ const dedupeGeneratedImageResults = (
   return output.length === artifacts.length ? artifacts : output;
 };
 
-/** Keep card identity/order stable and never make an already-visible artifact
- * disappear because an intermediate projection omitted it. Same-id payloads
- * (running -> done) update in place; genuinely new artifacts append. */
 const mergeArtifacts = (
   existing: ChatMessage["artifacts"],
   incoming: ChatMessage["artifacts"],
@@ -314,8 +276,7 @@ const mergeArtifacts = (
         entry.ids.size > incomingAgentIds.size,
     );
     if (covering) {
-      // Do not let a stale single-agent replay downgrade an aggregate already
-      // visible on the row.
+
       updates = incoming.filter((artifact) => artifact !== incomingAgent);
     } else {
       const covered = existingAgents.filter((entry) =>
@@ -397,9 +358,7 @@ const mergeCanonicalMessage = (
   const canonicalCreatedAt =
     existing.canonicalCreatedAt ?? canonicalStampOf(canonical);
   const artifacts = mergeArtifacts(existing.artifacts, canonical.artifacts);
-  // When the canonical text is just a whitespace normalization of what this
-  // row already holds, keep the existing string (same reference) so a purely
-  // cosmetic rewrite never re-renders a message the user is already reading.
+
   const keepExistingText =
     existing.text !== canonical.text &&
     partialTextKey(existing.text) === partialTextKey(canonical.text);
@@ -407,8 +366,7 @@ const mergeCanonicalMessage = (
     ...canonical,
     id: existing.id,
     ...(keepExistingText ? { text: existing.text } : {}),
-    // A direct canonical replay needs no second identity field. Linked local
-    // rows retain their local list key and adopt the desktop id exactly once.
+
     ...(existing.id !== canonical.id || existing.canonicalId
       ? { canonicalId: canonical.id }
       : {}),
@@ -421,9 +379,7 @@ const mergeCanonicalMessage = (
     ...(existing.thumbnailUris?.length && !canonical.thumbnailUris?.length
       ? { thumbnailUris: existing.thumbnailUris, hasImage: true }
       : {}),
-    // The desktop→mobile row projection doesn't carry quoted-context chips, so
-    // keep the optimistic quote preview across reconciliation instead of losing
-    // the chip once the canonical row lands.
+
     ...(existing.quotedText && !canonical.quotedText
       ? { quotedText: existing.quotedText }
       : {}),
@@ -434,18 +390,6 @@ const mergeCanonicalMessage = (
 const sameMessageSequence = (a: ChatMessage[], b: ChatMessage[]): boolean =>
   a.length === b.length && a.every((message, index) => message === b[index]);
 
-/**
- * Heal the assistant form of the optimistic/canonical twin before the generic
- * id merge sees it. The streamed local reply is stamped with the turn's
- * `requestId` immediately, but it may not have a `canonicalId` yet. If a sync
- * inserted the canonical reply first, a later replay finds that direct id and
- * never reaches the request-id fallback, leaving both rows rendered forever.
- *
- * Canonical sync rows carry `canonicalCreatedAt`; optimistic rows do not. That
- * lets us distinguish the two without text-matching arbitrary history. A turn
- * with several assistant rows is linked only by shared agent-work identity or
- * an exact unique text match; a single canonical candidate is unambiguous.
- */
 const collapseRequestLinkedAssistantDuplicates = (
   messages: ChatMessage[],
 ): ChatMessage[] => {
@@ -505,29 +449,9 @@ const collapseRequestLinkedAssistantDuplicates = (
     .map((message) => replacements.get(message.id) ?? message);
 };
 
-/** Whitespace-insensitive text key for the superseded-partial sweep below:
- * a locally-assembled turn and the canonical row can disagree on newline /
- * trailing whitespace normalization without being different responses. */
 const partialTextKey = (text: string): string =>
   text.replace(/\s+/g, " ").trim();
 
-/**
- * Pick the reply row's text when a desktop turn settles.
- *
- * The bridge's finished event carries only the turn's LAST canonical assistant
- * message (normalized/trimmed), while the row holds every assistant-message
- * segment the turn delivered. Overwriting the assembled text with that final
- * text would rewrite the row wholesale and re-render the whole already-visible
- * reply at end of turn.
- *
- * Keep the assembled string (same reference — the renderer sees no change) when
- * it already contains the final text: identical modulo whitespace, or the final
- * text is a normalized tail of the turn (a multi-segment turn concatenates
- * preamble + answer into one row; the background reconcile splits them into
- * their canonical rows in one atomic merge). Fall back to the final text only
- * when delivery genuinely missed content (empty row, or a strict earlier cut —
- * e.g. the terminal event arrived after a reconnect that dropped a segment).
- */
 export const finalizeAssistantTurnText = (
   assembledText: string,
   finalText: string,
@@ -540,33 +464,6 @@ export const finalizeAssistantTurnText = (
   return finalText;
 };
 
-/**
- * Drop interrupted partial-turn snapshots that a canonical-backed row of the
- * SAME turn has superseded.
- *
- * An assistant reply row can die mid-turn (app kill/suspension, dropped bridge
- * socket) holding only the segments that had landed so far, and a replayed
- * dispatch then assembles the whole turn into a NEW reply row. Each
- * interruption strands one partial row; once the turn's
- * canonical reply lands (adopted by one of the rows via `requestId`, or merged
- * as its own row), those leftovers render as extra assistant messages above
- * the full reply, forever.
- *
- * A row is swept only when ALL of these hold, so genuinely distinct messages
- * are never deleted:
- *  - it is an assistant row linked to a turn (`requestId`) but NOT to a
- *    canonical desktop row (no `canonicalId`, no `canonicalCreatedAt`) — i.e.
- *    a local in-flight snapshot, not desktop history;
- *  - some OTHER row of the same turn IS canonical-backed and its text starts
- *    with the snapshot's text (whitespace-insensitive) — the snapshot is a
- *    strict earlier cut of that very response. A multi-message turn's other
- *    rows (preamble + post-tool answer) are canonical-backed and don't prefix
- *    each other, so they always survive.
- *
- * Artifacts a swept snapshot collected that the surviving row lacks are
- * adopted so a card never disappears. Returns the input array unchanged (same
- * reference) when there is nothing to sweep.
- */
 const sweepSupersededPartialReplies = (
   messages: ChatMessage[],
 ): ChatMessage[] => {
@@ -625,29 +522,6 @@ const sweepSupersededPartialReplies = (
   });
 };
 
-/**
- * Collapse optimistic/canonical twins in either identity phase: an assistant
- * reply may still have only its turn `requestId`, or a settled local row may
- * already be linked to the desktop row (`canonicalId: X`) while that canonical
- * row also exists separately (`id: X`, no `canonicalId`).
- *
- * That state is how the "user message rendered twice" bug looks on disk. It
- * arises when a sync pulls the turn's canonical user row MID-SEND — the
- * desktop persists it the moment the turn starts, and `mergeMessagesById`
- * deliberately doesn't text-match, so the not-yet-linked optimistic bubble
- * can't absorb it; the canonical row lands as its own row stamped with the
- * *desktop* clock, sorting after the locally-anchored bubble (and, with any
- * clock skew, after the reply). The stream-end/reconcile linking then marks
- * the bubble `canonicalId: X`, but the twin survives because that mid-send
- * pull advanced the cursor past the row — it is never re-delivered, so the
- * in-merge collapse (which needs the canonical row in `incoming`) never runs.
- *
- * This pass heals either pair structurally, whatever created it: the local row
- * wins (stable id, anchored timestamp) and adopts canonical content. It then
- * sweeps interrupted partial snapshots the turn's canonical reply superseded
- * (see {@link sweepSupersededPartialReplies}). Returns the input array
- * unchanged (same reference) when there is nothing to collapse.
- */
 export const collapseLinkedDuplicates = (
   messages: ChatMessage[],
 ): ChatMessage[] =>
@@ -678,10 +552,7 @@ const collapseLinkedTwinDuplicates = (
       ? twinsById.get(message.canonicalId)
       : undefined;
     if (twin) {
-      // The dropped twin may carry content the linked row never received:
-      // artifacts on a canonical assistant row, and — the twin being the
-      // canonical row itself — the desktop-clock ordering stamp the survivor
-      // may lack (a stream-end link happens before any delta delivers it).
+
       const adoptArtifacts =
         twin.artifacts?.length && !message.artifacts?.length;
       const twinStamp =
@@ -702,45 +573,17 @@ const collapseLinkedTwinDuplicates = (
   return out;
 };
 
-/**
- * Merge canonical desktop messages into the local transcript by id without ever
- * discarding local-only rows (e.g. cloud-answered turns). Rows the transcript
- * already reconciled keep their local id (`canonicalId` links them to the
- * desktop row) so live reply rows never remount.
- *
- * Matching is by id / `canonicalId`, plus — for real assistant rows only — the
- * turn `requestId` the optimistic reply was stamped with at turn end, so a
- * canonical reply that arrives in a later delta (e.g. the reconcile pull beat
- * the desktop persisting it) updates the bubble instead of duplicating it.
- * Content (role+text) is deliberately NOT used to link rows here: this generic
- * sync can't tell an unsent optimistic bubble apart from an older message that
- * merely repeats the same text (e.g. a second "ok"), so a text match could
- * overwrite the bubble with stale history and move it by an old timestamp.
- * Precise optimistic ↔ canonical linking for a just-sent turn is
- * `reconcileSentDesktopTurn`'s job, where the specific row ids are known.
- *
- * When the transcript already holds both a linked row (`canonicalId: X`) and an
- * unlinked twin (`id: X`) — e.g. a poll merged the canonical row before the
- * turn's reconcile linked the bubble — the twin collapses into the linked row
- * so re-delivered canonical rows (task anchors re-emit them) heal the
- * duplicate instead of keeping it. The merged set is then ordered by the
- * desktop's authoritative sequence (see {@link rederiveOrder}).
- */
 export const mergeMessagesById = (
   current: ChatMessage[],
   incoming: ChatMessage[],
 ): ChatMessage[] => {
-  // Even a no-op delta heals linked-row/unlinked-twin duplicates: the
-  // post-turn reconcile's delta often no longer contains the canonical row a
-  // mid-send pull already consumed (see `collapseLinkedDuplicates`).
+
   if (incoming.length === 0) return collapseLinkedDuplicates(current);
   const healedCurrent = collapseLinkedDuplicates(current);
   const byId = new Map(healedCurrent.map((message) => [message.id, message]));
   const order = healedCurrent.map((message) => message.id);
   const unseenIds: string[] = [];
-  // Lookup indexes over `current` (which the loop below never mutates),
-  // built once so the merge is O(current + incoming) instead of a linear
-  // scan per incoming row. Each keeps `.find`'s first-match semantics.
+
   const linkedByCanonicalId = new Map<string, ChatMessage>();
   const directById = new Map<string, ChatMessage>();
   const assistantsByRequestId = new Map<string, ChatMessage[]>();
@@ -784,9 +627,7 @@ export const mergeMessagesById = (
             )
         : undefined;
     const existing = linked ?? direct ?? byRequestId;
-    // Collapse a duplicate: the canonical row was merged as its own row before
-    // the local bubble got linked to it. Keep the linked local row (stable id,
-    // anchored timestamp) and drop the raw canonical twin.
+
     if (linked && direct && direct.id !== linked.id) {
       byId.delete(direct.id);
     }
@@ -819,25 +660,6 @@ export const mergeMessagesById = (
   return sameMessageSequence(current, merged) ? current : merged;
 };
 
-/**
- * Link a phone-sent turn's optimistic rows to their canonical desktop ids
- * WITHOUT swapping in any canonical content or appending finish/error text.
- *
- * Used on the interrupted-turn paths — the user stopped the run, or it errored
- * after the desktop already persisted the row. The desktop persists the turn's
- * canonical user row the instant the run starts, so an optimistic user bubble
- * left unlinked is a duplicate waiting to happen: the next send's wake→sync
- * pulls that canonical row and `mergeMessagesById`, matching only by
- * id/`canonicalId`, appends it as a SECOND copy of the same user message
- * (the "first user message duplicates after stop-then-send" bug). Stamping the
- * bubble's `canonicalId` (and the reply's `requestId`, the key canonical
- * assistant rows carry) lets that merge fold the canonical rows into the
- * existing bubbles instead of duplicating them.
- *
- * Only fills the link fields when they're still empty, so it never clobbers a
- * link a completed turn already established, and returns the input array
- * unchanged (same reference) when there is nothing to link.
- */
 export const linkOptimisticTurnToCanonical = (
   messages: ChatMessage[],
   {
@@ -867,13 +689,6 @@ export const linkOptimisticTurnToCanonical = (
   return changed ? next : messages;
 };
 
-/**
- * Move the one optimistic assistant row to the user message whose steer the
- * runtime has just started consuming. Rapid mobile sends share one root reply
- * observer, so creating one assistant placeholder per send would duplicate the
- * same streamed answer. Repositioning preserves the reply id/component while
- * keeping transcript order honest across successive response boundaries.
- */
 export const retargetOptimisticReplyToUser = (
   messages: ChatMessage[],
   {
@@ -910,23 +725,6 @@ export const retargetOptimisticReplyToUser = (
   return next;
 };
 
-/**
- * After a phone-sent desktop turn completes, swap the optimistic local user
- * bubble and its assembled reply for their canonical desktop rows (keeping local
- * ids stable), then merge any other turns that happened on the desktop.
- *
- * `canonicalUserMessageId` — the desktop id the bridge reported for the
- * submitted user message — links the turn precisely when present: the user row
- * by its id, the assistant row by `requestId` (the desktop stamps replies with
- * their turn's user-message id). Text/last-assistant matching remains only as
- * a fallback for older desktops that don't report it. When a turn
- * produced several assistant rows, the canonical row carrying the same agent
- * card wins over the generic last-assistant match. That keeps the optimistic
- * card anchored to its desktop spawn position while later assistant rows slot
- * in below it. Stand-in artifact rows (`<id>:artifacts` / `<id>:agent` — role
- * "assistant", empty text) are never eligible: adopting one would blank the
- * delivered reply and orphan the real one.
- */
 export const reconcileSentDesktopTurn = ({
   current,
   userMessageId,
@@ -985,8 +783,7 @@ export const reconcileSentDesktopTurn = ({
         },
         {
           ...canonicalUser,
-          // The canonical desktop row drops attachment thumbnails — keep the
-          // ones the user just attached so the bubble doesn't lose its images.
+
           ...(message.thumbnailUris?.length
             ? { thumbnailUris: message.thumbnailUris, hasImage: true }
             : {}),
@@ -1002,9 +799,7 @@ export const reconcileSentDesktopTurn = ({
     }
     return message;
   });
-  // Evict canonical twins that a mid-turn sync already merged as their own
-  // rows: the map above relabelled the *local* rows with `canonicalId`, so any
-  // remaining row whose id is a consumed canonical id is a duplicate.
+
   const deduped = next.filter(
     (message) =>
       !(

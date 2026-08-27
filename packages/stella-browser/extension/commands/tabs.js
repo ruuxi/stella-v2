@@ -1,11 +1,3 @@
-/**
- * Tab management command handlers.
- *
- * Stella reuses the user's normal Chrome window when possible. Each command
- * owner gets its own logical tab set and active tab so concurrent agents do
- * not fight over whichever Chrome tab happens to be focused.
- */
-
 import { clearCdpEvents } from "../lib/debugger.js";
 import { clearOwnerRefMaps, clearTabRefMap } from "../lib/selector.js";
 
@@ -27,9 +19,6 @@ const STELLA_GROUP_COLOR = "pink";
 const DEFAULT_OWNER_ID = "default";
 const STALE_TAB_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
-/**
- * Apply title and color to a tab group.
- */
 async function updateGroupStyle(groupId) {
   try {
     await chrome.tabGroups.update(groupId, {
@@ -218,9 +207,6 @@ function resetAgentState({ clearLeases = false } = {}) {
   clearOwnerRefMaps();
 }
 
-/**
- * Load persisted window/group/owner state from session storage.
- */
 async function loadState() {
   if (stateLoaded) return;
   try {
@@ -244,9 +230,6 @@ async function loadState() {
   stateLoaded = true;
 }
 
-/**
- * Persist current window/group/owner state to session storage.
- */
 async function saveState() {
   try {
     await chrome.storage.session.set({
@@ -377,9 +360,6 @@ export async function handleMarkTab(command) {
   };
 }
 
-/**
- * Search all tab groups for an existing "Stella" group and recover window ID.
- */
 async function recoverExistingGroup({ windowId } = {}) {
   try {
     const groups = await chrome.tabGroups.query({ title: STELLA_GROUP_TITLE });
@@ -444,11 +424,6 @@ async function getReusableWindowId() {
   return null;
 }
 
-/**
- * Ensure Stella has a host window. Prefer an existing Stella group, then the
- * user's last-focused normal Chrome window. Creating a new Chrome window is a
- * fallback for when Chrome has no reusable normal window.
- */
 async function ensureAgentWindowInternal() {
   await loadState();
 
@@ -510,9 +485,6 @@ async function ensureAgentWindow() {
   return ensureAgentWindowPromise;
 }
 
-/**
- * Add a tab to the Stella group.
- */
 async function addToStellaGroupInternal(tabId) {
   await loadState();
 
@@ -724,9 +696,6 @@ async function getOwnerTabs(ownerId, { ensureWindow = false } = {}) {
   return pruneOwnerTabs(ownerId);
 }
 
-/**
- * Get the currently active logical tab for the command owner.
- */
 export async function getActiveTab(command) {
   const ownerId = getCommandOwnerId(command);
   const tabs = await getOwnerTabs(ownerId, { ensureWindow: true });
@@ -873,9 +842,6 @@ export async function cleanupStaleTabs(options) {
   return staleTabCleanupPromise;
 }
 
-/**
- * Clean up stale unnamed tab groups left over from previous sessions.
- */
 export async function cleanupStaleGroups() {
   try {
     const allGroups = await chrome.tabGroups.query({});
@@ -1040,10 +1006,6 @@ export async function finalizeOwnerTabs(command, keep = command?.keep ?? []) {
   };
 }
 
-/**
- * Close Stella-owned tabs and reset owner state. When Stella is reusing the
- * user's Chrome window, this must not close the whole window.
- */
 export async function closeAgentWindow() {
   const tabIds = Array.from(getOwnedTabIds());
   if (tabIds.length > 0) {
@@ -1157,10 +1119,7 @@ export async function handleTabClose(command) {
   }
 
   tab ??= tabs[index];
-  // Authorization at dispatch is insufficient: tab discovery can overlap a
-  // replacement kernel claiming this owner. Fence the destructive operation
-  // itself so an already-admitted stale command cannot close the new lease's
-  // tab session.
+
   await assertCurrentOwnerLease(command);
   clearTabRefMap(ownerId, tab.id);
   clearCdpEvents(tab.id);

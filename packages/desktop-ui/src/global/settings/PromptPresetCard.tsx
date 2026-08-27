@@ -18,13 +18,6 @@ type PresetSummary = { id: string; name: string; agentId: string };
 
 type Status = { kind: "info" | "error"; message: string } | null;
 
-/**
- * Prompt preset picker + editor.
- *
- * Stella's shipped prompt is never edited in place — it always updates with
- * the app. A preset is a separate saved prompt that replaces it wholesale
- * while selected, so the two can never collide.
- */
 export function PromptPresetCard() {
   const t = useT();
   const [agentId, setAgentId] = useState<PromptAgentId>("orchestrator");

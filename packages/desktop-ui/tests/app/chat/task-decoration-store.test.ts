@@ -58,13 +58,13 @@ describe("task-decoration-store", () => {
         statusText: `s${index}`,
       });
     }
-    // Updating an existing key at the cap must not evict anything.
+
     decorateTask({ agentId: "t5", conversationId: "c1", statusText: "fresh" });
     expect(Object.keys(getTaskDecorationsSnapshot())).toHaveLength(
       MAX_TASK_DECORATIONS,
     );
     expect(getTaskDecoration("t0")).toBeDefined();
-    // A new key past the cap evicts the oldest entry.
+
     decorateTask({ agentId: "overflow", conversationId: "c1", statusText: "z" });
     expect(Object.keys(getTaskDecorationsSnapshot())).toHaveLength(
       MAX_TASK_DECORATIONS,

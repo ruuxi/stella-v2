@@ -1,13 +1,3 @@
-/**
- * Live browser screenshot acceptance for the complete model-facing path.
- *
- * This intentionally runs outside Vitest and uses the production BrowserSession,
- * Node REPL worker, node_repl tool definition, and Pi tool adapter. It creates one
- * task-owned external-browser tab, captures it, and finalizes that owner before
- * reporting. Run while the Stella browser bridge and extension are connected:
- *
- *   bun packages/runtime/scripts/live-browser-adapter-acceptance.ts
- */
 import { randomUUID } from "node:crypto";
 import { access } from "node:fs/promises";
 import path from "node:path";
@@ -439,8 +429,7 @@ nodeRepl.reset()`;
     ),
   );
 } finally {
-  // Cleanup is keyed to each real BrowserSession, so it also covers a tab_new
-  // whose request timed out after dispatch and never returned a tab ID.
+
   await Promise.allSettled(sessionCleanups.map((cleanup) => cleanup()));
   await registry.dispose().catch(() => undefined);
   server.stop(true);

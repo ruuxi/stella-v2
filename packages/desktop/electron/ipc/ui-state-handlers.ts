@@ -1,13 +1,3 @@
-/**
- * Shared UI state KV IPC — bridges the renderer's durable key/value state
- * (formerly localStorage) to the main-owned `~/.stella/ui-state.json` store.
- *
- * The snapshot channel is synchronous: the preload script reads it once with
- * `ipcRenderer.sendSync` and exposes it as `window.__stellaUiState`, so the
- * boot script and module-load preference reads stay synchronous (no
- * flash-of-wrong-theme).
- */
-
 import {
   app,
   ipcMain,
@@ -48,11 +38,6 @@ export const registerUiStateKvHandlers = (
 ): UiStateStore => {
   const store = new UiStateStore(options.stellaDataDirPath);
 
-  // The renderer's language picker persists through this store, so it is also
-  // how main-process surfaces (tray menu, native dialogs, notifications) learn
-  // the active locale. Seed once, then track every applied batch below —
-  // `onExternalChange` alone would miss renderer-driven writes, which are
-  // applied locally rather than observed off the file watcher.
   bindUiStateLocale(store);
 
   const broadcast = (
@@ -94,8 +79,6 @@ export const registerUiStateKvHandlers = (
     broadcast(store.clear(), event.sender.id);
   });
 
-  // Changes written by another host on the same file (the Vite dev server's
-  // store instance, serving plain-browser tabs) reach every window.
   store.onExternalChange((changes) => broadcast(changes));
 
   app.on("before-quit", () => {

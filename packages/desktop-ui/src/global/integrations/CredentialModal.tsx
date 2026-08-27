@@ -21,10 +21,7 @@ type CredentialModalProps = {
   label?: string;
   description?: string;
   placeholder?: string;
-  /**
-   * Show the "Label" field when a provider can have multiple saved keys.
-   * Single-key provider settings can use the provider identifier directly.
-   */
+
   showLabel?: boolean;
   onSubmit: (payload: { label: string; secret: string }) => Promise<void>;
   onCancel: () => void;

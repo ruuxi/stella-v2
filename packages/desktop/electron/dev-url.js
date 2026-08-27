@@ -1,9 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 const __dirname = import.meta.dirname;
-// The dev server URL is fixed for the process lifetime, but this thunk is
-// re-invoked on every window load. Cache the resolved URL so we don't re-probe
-// candidate paths + re-read the .vite-dev-url file each time.
+
 let cachedDevUrl = null;
 export function getDevServerUrl() {
     if (cachedDevUrl) {
@@ -33,7 +31,7 @@ export function getDevServerUrl() {
     if (!url) {
         throw new Error(`Vite dev server URL file is empty: ${devUrlFile}`);
     }
-    // Cache only after validation so a transient empty/partial file is never cached.
+
     cachedDevUrl = url;
     return url;
 }

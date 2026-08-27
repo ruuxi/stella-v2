@@ -155,7 +155,7 @@ const PLATFORM_ASSETS = {
       archive: "tar.gz",
       root: "python",
     },
-    // musl build for glibc-independent portability across distros.
+
     ripgrep: {
       url: "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-unknown-linux-musl.tar.gz",
       sha256:
@@ -173,10 +173,6 @@ const PLATFORM_ASSETS = {
   },
 };
 
-// The Linux beta deliberately ships no bundled git runtime: the hosted
-// git-runtime manifest has no linux asset, and a relocatable Linux git is
-// fiddly (libc/exec-path assumptions). Packaged Linux installs fall back to
-// system git (see bundled-runtime-environment.ts).
 const GITLESS_PLATFORMS = new Set(["linux-x64"]);
 
 const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");

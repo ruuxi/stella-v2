@@ -76,11 +76,7 @@ const normalizeAgent = (
 export const loadParsedAgentsFromDir = (
   dir: string | URL,
 ): ParsedAgent[] => {
-  // Convert `file://` URLs to a native filesystem path with `fileURLToPath`,
-  // not `URL.pathname`. On Windows `.pathname` is `/C:/Users/.../agents/`
-  // (leading slash before the drive, plus URL-encoded chars like `%20`),
-  // which `path.join` turns into an invalid path so every `readFileSync`
-  // throws and the loader silently returns no agents.
+
   const rootDir = dir instanceof URL ? fileURLToPath(dir) : dir;
   let entries: fs.Dirent[];
   try {

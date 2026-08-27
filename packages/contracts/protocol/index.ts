@@ -133,16 +133,7 @@ export const METHOD_NAMES = {
   HOST_DISPLAY_UPDATE: "host.display.update",
   HOST_NOTIFICATION_SHOW: "host.notification.show",
   HOST_SYSTEM_REQUEST_PERMISSION: "host.system.requestPermission",
-  /**
-   * Ask the Electron host process to spawn the desktop_automation daemon on
-   * behalf of the (detached) runtime worker. macOS attributes TCC permission
-   * checks (Accessibility) to the responsible process, which is inherited at
-   * spawn time. The worker outlives the Electron app that spawned it, so
-   * daemons spawned from the worker's process tree lose Stella.app attribution
-   * after an app restart and fail AXIsProcessTrusted(). Spawning from the live
-   * Electron main process keeps every automation process under the single
-   * "Stella" TCC identity the user granted.
-   */
+
   HOST_COMPUTER_USE_SPAWN_AUTOMATION_DAEMON:
     "host.computerUse.spawnAutomationDaemon",
   HOST_SYSTEM_OPEN_EXTERNAL: "host.system.openExternal",
@@ -156,12 +147,7 @@ export const METHOD_NAMES = {
   INTERNAL_WORKER_GET_ACTIVE: "internal.worker.getActive",
   INTERNAL_WORKER_START_CHAT: "internal.worker.startChat",
   INTERNAL_WORKER_CANCEL: "internal.worker.cancel",
-  /**
-   * Cancel the active orchestrator automation/chat run for a given local
-   * conversation. Used by the host's remote-turn bridge when the
-   * originating connector (e.g. the Stella mobile app) issues a
-   * server-side cancel for its in-flight `requestId`.
-   */
+
   INTERNAL_WORKER_CANCEL_BY_CONVERSATION:
     "internal.worker.cancelByConversation",
   INTERNAL_WORKER_RESUME_EVENTS: "internal.worker.resumeEvents",
@@ -338,39 +324,22 @@ export type RuntimeHealthSnapshot = {
   deviceId: string | null;
   activeRunId: string | null;
   activeAgentCount: number;
-  /**
-   * True when the host detected that the connected worker is running stale
-   * runtime code (build-stamp mismatch on reattach) but deferred the restart
-   * because work is in flight.
-   * The worker restarts automatically at the first quiescent moment.
-   */
+
   pendingWorkerRestart?: boolean;
 };
 
 export type RuntimeAttachmentRef = {
   url: string;
   mimeType?: string;
-  /** Durable local copy used when an older image is pruned from model input. */
+
   sourcePath?: string;
-  /**
-   * Optional metadata preserved across the host/worker boundary so future
-   * non-image attachment paths (voice notes, documents, video) can branch
-   * on it. Today the image materializer only reads `url`/`mimeType` and
-   * silently drops everything that isn't an image — these fields exist so
-   * that adding non-image support later is a worker-only change rather
-   * than another round of contract plumbing.
-   */
+
   kind?: string;
   name?: string;
   size?: number;
   transcript?: string;
   extractedText?: string;
-  /**
-   * Downscaled data URL generated at attach time. The model path always
-   * uses the full-resolution `url`; the chat display store persists the
-   * preview instead so user-message rows never decode (or store) tens of
-   * megabytes of base64 per turn.
-   */
+
   previewUrl?: string;
 };
 
@@ -380,7 +349,7 @@ export type RuntimePromptMessage = {
   messageType?: "message" | "user";
   customType?: string;
   display?: boolean;
-  /** Durable timestamp reused when a pre-persisted runtime prompt is replayed. */
+
   timestamp?: number;
 };
 
@@ -394,18 +363,13 @@ export type RuntimeChatPayload = {
   deviceId?: string;
   platform?: string;
   timezone?: string;
-  /**
-   * BCP-47 locale tag for the user's preferred response language. Plumbed
-   * from the desktop renderer's `useI18n()` so the runtime can inject a
-   * "respond in X" directive into the agent system prompt. Optional —
-   * falls back to English when absent.
-   */
+
   locale?: string;
   mode?: string;
   messageMetadata?: Record<string, unknown>;
   attachments?: RuntimeAttachmentRef[];
   userMessageEventId?: string;
-  /** Original renderer send time; remains stable while a queued turn waits. */
+
   userMessageTimestamp?: number;
   agentType?: string;
   storageMode?: "cloud" | "local";
@@ -416,7 +380,7 @@ export type RuntimeVoiceTranscriptPayload = {
   role: "user" | "assistant";
   text: string;
   uiVisibility?: "visible" | "hidden";
-  /** Present only on the visible end-of-session summary message. */
+
   voiceSession?: { durationMs: number };
 };
 
@@ -472,18 +436,6 @@ export type RuntimeActiveRun = {
   uiVisibility?: "visible" | "hidden";
 };
 
-/**
- * One-shot text completion request. Lets renderer surfaces (the music-prompt
- * shaper, etc.) run a single completion through the runtime's BYOK-aware
- * route resolver — same path the orchestrator and subsidiary agents use —
- * instead of unconditionally hitting Stella's managed chat-completions endpoint.
- *
- * `agentType` picks which per-agent model override + provider to honor.
- * `fallbackAgentTypes` lets the caller fall through to a related agent's
- * configured model when no explicit override exists for `agentType` (e.g.
- * `music_prompt` falls back to `general` so the user's Assistant-tab BYOK
- * pick is respected even though `music_prompt` is not user-configurable).
- */
 export type RuntimeOneShotCompletionRequest = {
   agentType: string;
   systemPrompt?: string;
@@ -491,23 +443,17 @@ export type RuntimeOneShotCompletionRequest = {
   maxOutputTokens?: number;
   temperature?: number;
   fallbackAgentTypes?: string[];
-  /**
-   * Explicit model id (e.g. `stella/light`) that takes precedence over any
-   * per-agent override or `fallbackAgentTypes`. Lets internal helpers pin a
-   * tier alias so it resolves consistently across engines — notably so the
-   * Claude Code / Codex engines map `stella/light` to their own light models
-   * (Haiku / mini) instead of the user's expensive default.
-   */
+
   model?: string;
-  /** Internal-only effort pin for bounded utility passes. */
+
   reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
-  /** Marks a non-user-facing automatic utility pass for engine policy. */
+
   utility?: boolean;
-  /** Stable key for a short-lived reusable utility session. */
+
   sessionKey?: string;
-  /** Close a previously-created reusable utility session without a model call. */
+
   closeSession?: boolean;
-  /** Safety cleanup for reusable sessions when lifecycle cleanup is missed. */
+
   sessionIdleTtlMs?: number;
 };
 
@@ -528,12 +474,7 @@ export type RuntimeAutomationTurnRequest = {
     provider?: string;
     externalMessageId?: string;
   };
-  /**
-   * Chat-events id of the user message the caller already appended for
-   * display (connector turns). Lets the runtime exclude that event from the
-   * legacy pre-transition history shim so the message isn't duplicated into
-   * model context alongside the prompt.
-   */
+
   userMessageEventId?: string;
 };
 
@@ -666,16 +607,6 @@ export type HostHeartbeatSignature = {
   signature: string;
 };
 
-/**
- * The host display update bridge accepts structured payloads that the renderer
- * maps to the workspace panel tab manager.
- *
- * Structured payloads use the same `DisplayPayload` shape defined in
- * `desktop/src/shared/contracts/display-payload.ts`. We avoid importing it
- * here so the runtime protocol stays free of desktop-only types — the
- * renderer is the single source of truth for the union and validates the
- * payload shape before routing it to the panel.
- */
 export type HostDisplayUpdateParams = { payload: unknown };
 
 export type HostRecentApp = {

@@ -38,19 +38,12 @@ import { PrimaryButton } from "../../src/components/PrimaryButton";
 import { useT } from "../../src/i18n";
 
 const STATUS_POLL_MS = 20_000;
-/**
- * Slow verification cadence while the localChat push socket is connected —
- * the live socket itself proves the desktop is reachable, so the Convex
- * status poll only needs to keep the platform label fresh.
- */
+
 const STATUS_POLL_LIVE_MS = 120_000;
-/** Faster cadence while a wake request is in flight. */
+
 const WAKE_POLL_MS = 3_000;
 const WAKE_WINDOW_MS = 30_000;
-/**
- * Collapses a focus + AppState "active" pair firing on the same return into a
- * single connect-or-sync action so we don't double-fire the resume handler.
- */
+
 const RESUME_DEBOUNCE_MS = 1_500;
 
 type DeviceStatus = {
@@ -59,11 +52,6 @@ type DeviceStatus = {
   platform: string | null;
 };
 
-/**
- * The Computer tab hosts the conversation with the paired desktop's Stella
- * agent. Its device controls (status, wake, view-screen, artifacts, model
- * settings) live in a sheet opened from the composer's status control.
- */
 export default function ComputerScreen() {
   if (isGuest()) {
     return <GuestComputerSurface />;
@@ -93,11 +81,6 @@ function GuestComputerSurface() {
   );
 }
 
-/**
- * Loads the pairing state and routes to the right surface. Each branch is its
- * own component so the chat surface can call its hooks unconditionally once a
- * valid access is known.
- */
 function ComputerRouter() {
   const colors = useColors();
   const t = useT();
@@ -218,15 +201,11 @@ function ComputerChatSurface({
     }
   }, []);
 
-  // Poll bridge availability while the surface is mounted; tighten the cadence
-  // while a wake request is pending, and relax it while the localChat push
-  // socket is live (an open socket already proves the desktop is reachable).
   const livePushConnected = thread.livePushConnected;
   const livePushConnectedRef = useRef(livePushConnected);
   useEffect(() => {
     livePushConnectedRef.current = livePushConnected;
-    // A freshly connected push socket is authoritative: reflect "connected"
-    // immediately instead of waiting out the current poll interval.
+
     if (livePushConnected) {
       setStatus((prev) => {
         updateStellaWidget({
@@ -248,8 +227,7 @@ function ComputerChatSurface({
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const tick = async () => {
-      // While push is live the socket is the liveness signal; skip the Convex
-      // round-trip (and never let a stale lease read downgrade the badge).
+
       if (livePushConnectedRef.current) {
         timer = setTimeout(() => void tick(), STATUS_POLL_LIVE_MS);
         return;
@@ -298,18 +276,9 @@ function ComputerChatSurface({
     triggerWake();
   }, [triggerWake]);
 
-  // Auto-wake: the computer tab exists to talk to the desktop, so landing here
-  // and finding it asleep should start a wake attempt on its own rather than
-  // making the user open the device sheet and tap Wake. Fire once per asleep
-  // spell — armed again only after it next comes online — so a desktop that
-  // stays off isn't spammed with wake requests; the sheet's manual Wake button
-  // remains for an explicit retry. Gated on focus and a settled offline read so
-  // we don't wake a computer the user isn't even looking at, or when the phone
-  // has no connectivity to deliver the request.
   const autoWokeRef = useRef(false);
   useEffect(() => {
-    // Re-arm whenever the user leaves the tab or the desktop comes online, so a
-    // later return (or a fresh sleep) gets one more automatic attempt.
+
     if (!isFocused || status.available === true) {
       autoWokeRef.current = false;
       return;
@@ -325,17 +294,6 @@ function ComputerChatSurface({
     }
   }, [isFocused, offline, status.available, waking, triggerWake]);
 
-  // Returning to this surface "later" — either by foregrounding the app
-  // (AppState → active) or navigating back onto the computer tab (focus
-  // transition) — must self-heal the connection. The transport is
-  // request/response, not a live socket: while the app is backgrounded the
-  // ~20s status poll is throttled, so a connection that dropped meanwhile is
-  // never re-attempted, and a tab that stayed focused across a
-  // background/foreground cycle fires no focus transition for the existing
-  // auto-wake effect to catch. On return we re-check status immediately, then:
-  // if the desktop is asleep, re-run the SAME wake handshake; if it is up, run
-  // a catch-up `runDesktopSync()` so a phone that went stale in the background
-  // pulls any desktop turns it missed.
   const runDesktopSync = thread.runDesktopSync;
   const offlineRef = useRef(offline);
   const wakingRef = useRef(waking);
@@ -349,16 +307,13 @@ function ComputerChatSurface({
   const lastResumeRef = useRef(0);
   const skipNextAvailabilityCatchUpRef = useRef(false);
   const reconnectOrSync = useCallback(async () => {
-    // Only act when this paired-desktop surface is the one the user is on, so
-    // we never wake a computer the user isn't looking at.
+
     if (!isFocusedRef.current) return;
-    // Debounce so a focus + AppState pair on the same return acts once.
+
     const now = Date.now();
     if (now - lastResumeRef.current < RESUME_DEBOUNCE_MS) return;
     lastResumeRef.current = now;
-    // The bridge sync is authoritative and already performs bounded wake /
-    // rediscovery. Starting it directly avoids a serialized backend status
-    // lookup before every foreground catch-up.
+
     const outcome = await runDesktopSync({ catchUp: true, trigger: "resume" });
     if (!outcome.offline && !outcome.error) {
       skipNextAvailabilityCatchUpRef.current = status.available === false;
@@ -386,12 +341,6 @@ function ComputerChatSurface({
     }
   }, [runDesktopSync, status.available, status.platform, triggerWake]);
 
-  // Reconnection invariant: whenever the desktop transitions from unavailable
-  // to available while this surface is mounted — wake handshake landing,
-  // tunnel coming back, push socket reattaching — run a catch-up pull. This is
-  // what actually syncs after the resume handler's wake branch (which can't
-  // pull anything itself: the desktop wasn't reachable yet), and it also
-  // covers connectivity gaps that never went through the resume handler.
   const wasAvailableRef = useRef<boolean | null>(null);
   useEffect(() => {
     const was = wasAvailableRef.current;
@@ -405,8 +354,6 @@ function ComputerChatSurface({
     }
   }, [status.available, runDesktopSync]);
 
-  // Mirror into a ref so the once-mounted AppState subscription always invokes
-  // the latest closure without re-subscribing.
   const reconnectOrSyncRef = useRef(reconnectOrSync);
   useEffect(() => {
     reconnectOrSyncRef.current = reconnectOrSync;
@@ -421,7 +368,6 @@ function ComputerChatSurface({
     return () => sub.remove();
   }, []);
 
-  // Fire on the focus false → true transition (navigating back onto the tab).
   const wasFocusedRef = useRef(isFocused);
   useEffect(() => {
     const wasFocused = wasFocusedRef.current;
@@ -429,12 +375,6 @@ function ComputerChatSurface({
     if (isFocused && !wasFocused) void reconnectOrSync();
   }, [isFocused, reconnectOrSync]);
 
-  // Manual "Force Sync" from the device sheet. Runs a catch-up (full-window)
-  // pull — never the delta cursor, so a cursor that got ahead of undelivered
-  // rows can't turn this into a silent no-op — and reports honestly: fresh
-  // rows, or a visible error explaining why nothing came in. `runDesktopSync`
-  // coalesces in-flight runs and the `syncing` guard blocks double-taps, so
-  // this never stacks work.
   const forceSync = useCallback(async () => {
     if (syncing) return;
     tapLight();
@@ -510,8 +450,7 @@ function ComputerChatSurface({
 
   const composerModelPicker = useMemo(
     () => ({
-      // The pinned composer picker is a developer-mode surface; an explicit
-      // "off" from the paired desktop unpins it regardless of local state.
+
       pinned: composerModelPinned && modelSettings.developerModeEnabled !== false,
       label: modelSettings.selectedModelLabel,
       loading: modelSettings.loading && !modelSettings.snapshot,

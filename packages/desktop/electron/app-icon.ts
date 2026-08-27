@@ -4,8 +4,6 @@ import path from 'path'
 
 const decodedIconCache = new Map<string, NativeImage>()
 
-// Compiled main lives at desktop/dist-electron/desktop/electron, so the desktop
-// package root (which holds build/, public/, dist/) is three levels up.
 const resolveDesktopRoot = (electronDir: string) => path.resolve(electronDir, '..', '..', '..')
 
 const resolveDockIconPath = (electronDir: string) => {

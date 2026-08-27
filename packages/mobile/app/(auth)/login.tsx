@@ -71,8 +71,7 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [submitState, setSubmitState] = useState<SubmitState>({ type: "idle" });
   const [activeLegal, setActiveLegal] = useState<LegalDoc>(null);
-  // Claim secret for the in-flight handoff. A ref so it never re-renders and
-  // is never persisted.
+
   const claimSecretRef = useRef<string | null>(null);
   const [canResend, setCanResend] = useState(false);
 
@@ -101,7 +100,7 @@ export default function LoginScreen() {
     setSubmitState({ type: "sending" });
 
     try {
-      // In memory for this attempt only; the server stores just the hash.
+
       const claimSecret = generateClaimSecret();
       claimSecretRef.current = claimSecret;
       const response = await fetch(
@@ -159,11 +158,7 @@ export default function LoginScreen() {
 
     try {
       if (Platform.OS === "ios") {
-        // Apple echoes whatever string is passed as `nonce` into the
-        // identity token's `nonce` claim. better-auth verifies it with a
-        // literal string compare, so we must pass the SAME value to both
-        // sides. We use the SHA-256 hash of a random UUID so the raw value
-        // never traverses Apple's servers in the JWT.
+
         const rawNonce = Crypto.randomUUID();
         const hashedNonce = await Crypto.digestStringAsync(
           Crypto.CryptoDigestAlgorithm.SHA256,
@@ -227,7 +222,7 @@ export default function LoginScreen() {
 
       router.replace(await loadLastMainTabHref());
     } catch (error) {
-      // User cancels surface as ERR_REQUEST_CANCELED — return silently.
+
       if (
         error &&
         typeof error === "object" &&
@@ -241,7 +236,6 @@ export default function LoginScreen() {
     }
   };
 
-  // Enable "resend" after a short grace once the link is sent.
   useEffect(() => {
     if (submitState.type !== "sent") {
       setCanResend(false);
@@ -253,15 +247,14 @@ export default function LoginScreen() {
   }, [submitState]);
 
   const editEmail = () => {
-    // Leaving "sent" cancels the poll via the polling effect's cleanup.
+
     setSubmitState({ type: "idle" });
   };
 
-  // Poll for magic link verification.
   useEffect(() => {
     if (submitState.type !== "sent") return;
     const { requestId } = submitState;
-    // Scoped per effect run so a resend's new poll can't revive this one.
+
     let cancelled = false;
 
     const poll = async () => {
@@ -291,11 +284,10 @@ export default function LoginScreen() {
               if (!token) {
                 throw new Error("Handoff could not be claimed.");
               }
-              // The native auth client attaches this bearer token to every
-              // request.
+
               await SecureStore.setItemAsync(MOBILE_SESSION_TOKEN_KEY, token);
               claimSecretRef.current = null;
-              // Nudge useSession() to re-fetch now that a credential exists.
+
               const store = (authClient as unknown as { $store?: { notify: (s: string) => void } }).$store;
               store?.notify("$sessionSignal");
             } catch {
@@ -316,7 +308,7 @@ export default function LoginScreen() {
             return;
           }
         } catch {
-          // Retry silently on network errors.
+
         }
       }
     };
@@ -762,8 +754,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   legalModal: {
     flex: 1,
     backgroundColor: colors.background,
-    // Soft hairline on the leading (top) edge so the sheet reads against the
-    // page beneath, matching the TopSheet primitive's edge treatment.
+
     borderTopColor: colors.border,
     borderTopWidth: StyleSheet.hairlineWidth,
   },

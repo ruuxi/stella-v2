@@ -161,12 +161,9 @@ describe("local-files-store", () => {
         { conversationId: "c1", limit: 500 },
         () => undefined,
       );
-      // Initial load.
+
       await waitFor(() => expect(listFiles).toHaveBeenCalledTimes(1));
 
-      // The per-token streaming flood: assistant text, user message, tool
-      // request, reasoning, progress. None can change the files window, so
-      // none must trigger a full-window refetch.
       updateListener?.({
         conversationId: "c1",
         event: { _id: "m-1", timestamp: 1_001, type: "assistant_message" },
@@ -183,18 +180,16 @@ describe("local-files-store", () => {
         conversationId: "c1",
         event: { _id: "r-1", timestamp: 1_004, type: "agent-reasoning" },
       });
-      // Give any erroneous async refetch a chance to run before asserting.
+
       await new Promise((resolve) => setTimeout(resolve, 30));
       expect(listFiles).toHaveBeenCalledTimes(1);
 
-      // A genuinely file-bearing event type still refetches.
       updateListener?.({
         conversationId: "c1",
         event: { _id: "ev-2", timestamp: 1_010, type: "tool_result" },
       });
       await waitFor(() => expect(listFiles).toHaveBeenCalledTimes(2));
 
-      // An `agent-completed` (carries `producedFiles`) refetches too.
       updateListener?.({
         conversationId: "c1",
         event: { _id: "ac-1", timestamp: 1_020, type: "agent-completed" },
@@ -229,7 +224,6 @@ describe("local-files-store", () => {
       );
       await waitFor(() => expect(listFiles).toHaveBeenCalledTimes(1));
 
-      // No event attached → we can't rule out a file change, so refetch.
       updateListener?.(null);
       await waitFor(() => expect(listFiles).toHaveBeenCalledTimes(2));
 
@@ -279,9 +273,6 @@ describe("local-files-store", () => {
         (snapshot) => largerSnapshots.push(snapshot),
       );
 
-      // Grow-fetch is mid-flight; the new entry must surface the prior
-      // window's files (with hasLoaded=false) instead of briefly
-      // showing an empty list.
       expect(largerSnapshots[0]?.hasLoaded).toBe(false);
       expect(
         largerSnapshots[0]?.window.files.map((event) => event._id),

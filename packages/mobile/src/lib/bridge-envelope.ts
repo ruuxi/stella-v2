@@ -1,22 +1,9 @@
-/**
- * Pure envelope core for the mobile↔desktop bridge: AES-GCM envelopes with
- * optional pre-encryption deflate, an anti-replay window, and the binary
- * frame lane. No Expo/React Native imports — randomness is injected — so the
- * whole protocol surface is testable under `bun test` and mirrors
- * `desktop/electron/services/mobile-bridge/crypto.ts` byte-for-byte.
- */
 import { gcm } from "@noble/ciphers/aes.js";
 import { utf8ToBytes } from "@noble/hashes/utils.js";
 import { deflateSync, Inflate } from "fflate";
 
 export const BRIDGE_CRYPTO_PROTOCOL = "x25519-hkdf-sha256-aes-256-gcm-v1";
 
-/**
- * Optional bridge features negotiated above the base protocol. The desktop
- * advertises its set in the `mobile:hello` response; the phone advertises its
- * own in the `X-Stella-Bridge-Features` header. All additive — a peer missing
- * one keeps the legacy path.
- */
 export const BRIDGE_FEATURE_HELLO = "hello-v1";
 export const BRIDGE_FEATURE_DEFLATE = "envelope-deflate";
 export const BRIDGE_FEATURE_BINARY_FILE = "binary-file-lane";
@@ -26,7 +13,6 @@ export const BRIDGE_FEATURE_COMPACT_THREAD_ACTIVITY =
   "compact-thread-activity-v1";
 export const MAX_BRIDGE_ENVELOPE_PLAINTEXT_BYTES = 16 * 1024 * 1024;
 
-/** Features this phone build supports receiving, sent on every request. */
 export const MOBILE_SUPPORTED_BRIDGE_FEATURES = [
   BRIDGE_FEATURE_DEFLATE,
 ] as const;
@@ -40,7 +26,7 @@ export type BridgeEncryptedEnvelope = {
   seq: number;
   iv: string;
   ct: string;
-  /** 1 = plaintext was raw-deflated before encryption (feature-gated). */
+
   z?: 1;
 };
 
@@ -48,7 +34,7 @@ export type BridgeCryptoSession = {
   sessionId: string;
   key: Uint8Array;
   txSeq: number;
-  /** Anti-replay window over received envelope/binary seqs (lazy). */
+
   rx?: BridgeReplayGuard;
 };
 
@@ -100,7 +86,6 @@ const STANDARD_BASE64_LOOKUP = new Map(
   [...STANDARD_BASE64_ALPHABET].map((char, index) => [char, index]),
 );
 
-/** Decode standard (`+/`, padded) base64 — the flavor data URLs use. */
 export const standardBase64ToBytes = (value: string) => {
   let buffer = 0;
   let bits = 0;
@@ -121,7 +106,6 @@ export const standardBase64ToBytes = (value: string) => {
   return new Uint8Array(out);
 };
 
-/** Split a `data:<mime>;base64,<payload>` URL. Returns null when not one. */
 export const parseBase64DataUrl = (
   url: string,
 ): { mimeType: string; base64: string } | null => {
@@ -158,13 +142,8 @@ export const isBridgeEncryptedEnvelope = (
   );
 };
 
-// ── Anti-replay window ──────────────────────────────────────────────────
-// Strict monotonic rejection would break legitimate traffic (concurrent HTTP
-// responses complete out of order), so — as in DTLS/IPsec — accept any unseen
-// seq newer than `maxSeen - window`, reject duplicates and stale ones.
-
 export type BridgeReplayGuard = {
-  /** Throws on a replayed or too-old sequence number; records fresh ones. */
+
   check: (seq: number) => void;
 };
 
@@ -218,8 +197,7 @@ const inflateBridgeEnvelope = (input: Uint8Array): Uint8Array => {
     }
     chunks.push(chunk);
   });
-  // Feed bounded input chunks so fflate emits incrementally instead of
-  // materializing the complete inflated replay before the limit is checked.
+
   const inputChunkBytes = 64 * 1024;
   for (let offset = 0; offset < input.length; offset += inputChunkBytes) {
     const end = Math.min(input.length, offset + inputChunkBytes);
@@ -233,8 +211,6 @@ const inflateBridgeEnvelope = (input: Uint8Array): Uint8Array => {
   }
   return output;
 };
-
-// ── JSON envelope lane ──────────────────────────────────────────────────
 
 const envelopeAad = (
   sessionId: string,
@@ -251,11 +227,7 @@ export const encryptBridgePayloadCore = (
   payload: unknown,
   randomBytes: RandomBytesFn,
   options?: {
-    /**
-     * Deflate the JSON plaintext before encryption. Only pass true when the
-     * peer advertised BRIDGE_FEATURE_DEFLATE — an old peer would decrypt to
-     * binary garbage. Skipped automatically when it doesn't shrink.
-     */
+
     compress?: boolean;
   },
 ): BridgeEncryptedEnvelope => {
@@ -301,17 +273,11 @@ export const decryptBridgePayloadCore = (
     base64UrlToBytes(envelope.iv),
     envelopeAad(session.sessionId, direction, envelope.seq),
   ).decrypt(base64UrlToBytes(envelope.ct));
-  // Only trust the compression flag after authenticated decryption succeeded.
+
   replayGuard?.check(envelope.seq);
   const json = envelope.z === 1 ? inflateBridgeEnvelope(plaintext) : plaintext;
   return JSON.parse(bytesToUtf8(json)) as unknown;
 };
-
-// ── Binary frame lane ───────────────────────────────────────────────────
-// Raw file bytes encrypted directly (no JSON, no base64); seq/iv ride HTTP
-// headers. The `bin` AAD marker keeps binary ciphertexts and JSON envelopes
-// mutually non-replayable. Deliberately NOT compressed — the payloads are
-// already-entropy-coded formats (images, PDFs, media).
 
 const binaryAad = (
   sessionId: string,
@@ -326,9 +292,9 @@ const binaryAad = (
 
 export type BridgeBinaryFrame = {
   seq: number;
-  /** base64url, 12 bytes. */
+
   iv: string;
-  /** Raw ciphertext (plaintext length + 16-byte GCM tag). */
+
   ciphertext: Uint8Array;
 };
 
@@ -363,7 +329,6 @@ export const decryptBridgeBytesCore = (
   return plaintext;
 };
 
-/** True when the invoked bridge channel doesn't exist on the peer desktop. */
 export const isUnknownBridgeChannelError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error ?? "");
   return (

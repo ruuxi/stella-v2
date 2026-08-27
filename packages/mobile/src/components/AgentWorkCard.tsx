@@ -7,16 +7,6 @@ import type { Colors } from "../theme/colors";
 
 type AgentWorkPayload = Extract<MobileDisplayPayload, { kind: "agent-work" }>;
 
-/**
- * Inline "background work" marker — work the computer kicked off in the
- * background. Mirrors the redesigned desktop `BackgroundWorkCard`: a minimal,
- * chrome-less one-line row (no card surface, no badges, no provider icons)
- * carrying the task DESCRIPTION only. The leading slot doubles as the status
- * tell — static star while the shimmering title carries the running motion,
- * a quiet grey check once done, an arrow for `send_input` follow-ups;
- * failed/canceled rows settle plain with the star. State is live-reconciled,
- * so a running row never fakes "finished" (see `applyLiveAgentWorkState`).
- */
 export function AgentWorkCard({
   payload,
   colors,
@@ -24,7 +14,7 @@ export function AgentWorkCard({
 }: {
   payload: AgentWorkPayload;
   colors: Colors;
-  /** Opens the agent detail (activity hub). */
+
   onPress?: () => void;
 }) {
   const opacity = useRef(new Animated.Value(0)).current;

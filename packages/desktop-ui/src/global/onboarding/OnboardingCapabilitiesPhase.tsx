@@ -1,14 +1,3 @@
-/**
- * Capabilities phase — a user-paced, prompt-first demo player.
- *
- * The old version was a passive auto-cycling carousel that failed to
- * teach. This rebuild shows the real interaction loop instead: each
- * chapter types a prompt into the faithful demo shell, sends it,
- * streams work receipts, and lands the result. Chapters auto-advance
- * after a short hold, but the word nav lets the user jump or replay
- * any chapter, and Continue is never gated.
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Clock,
@@ -48,7 +37,7 @@ type Chapter = {
   word: string;
   title: string;
   caption: string;
-  /** Script length — also drives the word-nav underline fill. */
+
   durationMs: number;
 };
 
@@ -57,8 +46,6 @@ const TYPE_START_DELAY_MS = 300;
 const AUTO_ADVANCE_HOLD_MS = 1700;
 
 const scriptEnd = (cues: ChoreographyCue[]) => cues[cues.length - 1].at;
-
-/* ── Chapter scripts ──────────────────────────────────────────────── */
 
 const ERRANDS_CUES: ChoreographyCue[] = [
   { id: "send", at: 1500 },
@@ -122,8 +109,6 @@ const CHAPTERS: Chapter[] = [
   },
 ];
 
-/* ── Workflow chapter content (errands + work share the loop) ─────── */
-
 type WorkflowStep = {
   cue: string;
   icon: IconComponent;
@@ -167,11 +152,6 @@ const WORK_SPEC: WorkflowSpec = {
   ],
 };
 
-/**
- * One choreography per chapter. `playNonce` bumps when the user clicks
- * a word tab — restarting the script if this chapter is the active one
- * (activation itself already starts a fresh run via the hook).
- */
 function useChapterScript(
   cues: ChoreographyCue[],
   active: boolean,
@@ -247,8 +227,6 @@ function WorkflowChapter({
   );
 }
 
-/* ── Phone chapter (phone thread → desktop picking up the work) ───── */
-
 function PhoneChapter({ active, playNonce, onDone }: ChapterContentProps) {
   const has = useChapterScript(PHONE_CUES, active, playNonce, onDone);
 
@@ -316,14 +294,12 @@ function PhoneChapter({ active, playNonce, onDone }: ChapterContentProps) {
   );
 }
 
-/* ── Phase shell ──────────────────────────────────────────────────── */
-
 export function OnboardingCapabilitiesPhase({
   splitTransitionActive,
   onContinue,
 }: CapabilitiesPhaseProps) {
   const [chapterIndex, setChapterIndex] = useState(0);
-  /** Bumped on every manual play (word click / replay) to restart scripts. */
+
   const [playNonce, setPlayNonce] = useState(0);
   const [chapterDone, setChapterDone] = useState(false);
   const [playedChapters, setPlayedChapters] = useState<ReadonlySet<ChapterId>>(
@@ -350,7 +326,7 @@ export function OnboardingCapabilitiesPhase({
         return next;
       });
       setChapterDone(true);
-      // Hold on the finished chapter, then advance — never past the last.
+
       if (index >= CHAPTERS.length - 1) return;
       clearAdvanceTimer();
       advanceTimerRef.current = setTimeout(() => {

@@ -33,10 +33,7 @@ describe("MobileBridgeService registration lease", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-07T00:00:00Z"));
-    // syncRegistration now probes the advertised tunnel's /bridge/health before
-    // registering; default it to reachable so these tests exercise the
-    // registration-response handling. The health-gate behavior itself is
-    // covered in mobile-bridge-health-gate.test.ts.
+
     vi.spyOn(
       MobileBridgeService.prototype as unknown as {
         probePublicTunnelHealth: (url: string) => Promise<boolean>;
@@ -319,10 +316,7 @@ describe("MobileBridgeService registration lease", () => {
   });
 
   it("prefers explicit session headers over a stale cookie", async () => {
-    // Regression: a request carrying a previous send's session cookie plus the
-    // current send's session headers must authorize the *header* session. The
-    // cookie used to win, so the desktop decrypted the new payload with the old
-    // session's keys and the phone saw a spurious "session expired".
+
     const service = createService();
     const anyService = configureReadyService(service);
     anyService.registrationLeaseExpiresAt = Date.now() + 120_000;
@@ -361,8 +355,7 @@ describe("MobileBridgeService registration lease", () => {
   });
 
   it("falls back to the cookie when no session headers are present", async () => {
-    // WebView sub-resources (scripts, images) can't set custom headers, so the
-    // cookie path must still authorize them.
+
     const service = createService();
     const anyService = configureReadyService(service);
     anyService.registrationLeaseExpiresAt = Date.now() + 120_000;

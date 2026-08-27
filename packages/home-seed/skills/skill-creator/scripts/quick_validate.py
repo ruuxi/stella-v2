@@ -11,7 +11,6 @@ import yaml
 
 MAX_SKILL_NAME_LENGTH = 64
 
-
 def validate_skill(skill_path):
     """Basic validation of a skill"""
     skill_path = Path(skill_path)
@@ -89,7 +88,6 @@ def validate_skill(skill_path):
             )
 
     return True, "Skill is valid!"
-
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:

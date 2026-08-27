@@ -47,9 +47,7 @@ export const useDesktopPermissions = ({
   );
   const [restartRecommended, setRestartRecommended] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
-  // While a request is in flight or within its post-request cooldown we refuse
-  // to fire another open-settings call. cooldownAction drives the button label,
-  // while the refs let the guard read the live value without stale closures.
+
   const [cooldownAction, setCooldownAction] =
     useState<DesktopPermissionKind | null>(null);
   const activeActionRef = useRef<DesktopPermissionKind | null>(null);
@@ -90,9 +88,7 @@ export const useDesktopPermissions = ({
     ) {
       setRestartRecommended(true);
     }
-    // Skip the React state update when nothing actually changed — every
-    // poll otherwise allocates a fresh object and re-renders the entire
-    // permissions card grid even when the user hasn't toggled anything.
+
     if (previousStatus && isShallowEqual(previousStatus, nextStatus)) {
       return previousStatus;
     }
@@ -134,15 +130,10 @@ export const useDesktopPermissions = ({
     const startPolling = () => {
       if (intervalId !== null) return;
       intervalId = window.setInterval(() => {
-        // Don't burn cycles on a hidden window — the user can't act on a
-        // permission they aren't currently looking at, and the next
-        // foreground transition triggers a fresh load below.
+
         if (document.visibilityState === "hidden") return;
         void load().then((next) => {
-          // Stop the loop once every permission required by the caller
-          // has been granted; we won't observe further state transitions
-          // we care about until the user revokes one in System Settings,
-          // at which point the next mount picks them back up.
+
           if (
             next &&
             next.accessibility &&
@@ -164,10 +155,7 @@ export const useDesktopPermissions = ({
       }
     };
     const handleFocus = () => {
-      // Returning from System Settings often doesn't fire a visibilitychange
-      // (the window was never occluded), so refresh on window focus too. This
-      // is what makes a freshly granted microphone flip to "granted" without a
-      // restart.
+
       if (document.visibilityState === "hidden") return;
       void load();
       startPolling();
@@ -177,8 +165,7 @@ export const useDesktopPermissions = ({
 
     void load().then((next) => {
       if (cancelled) return;
-      // Skip starting the interval at all when everything is already
-      // granted — the common case for users on a returning device.
+
       if (
         next &&
         next.accessibility &&
@@ -209,10 +196,6 @@ export const useDesktopPermissions = ({
         throw new Error("Desktop permissions are unavailable in this window.");
       }
 
-      // Debounce guard: while a request is in flight or within the post-request
-      // cooldown, ignore repeat clicks. Rapidly re-firing openExternal against
-      // the x-apple.systempreferences: URL relaunches System Settings and
-      // corrupts its view (it can render nearly blank), so one click is enough.
       if (activeActionRef.current || cooldownRef.current) {
         return lastStatusRef.current ?? initialStatus;
       }

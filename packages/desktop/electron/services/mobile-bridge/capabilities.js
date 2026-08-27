@@ -64,8 +64,7 @@ export const MOBILE_BRIDGE_CAPABILITIES = [
     invoke("capture.getContext", IPC_CHAT_CONTEXT_GET),
     event("capture.onContext", IPC_CHAT_CONTEXT_UPDATED),
     invoke("theme.listInstalled", IPC_THEME_LIST_INSTALLED),
-    // Website base origin: the phone builds Stripe return URLs from it, the
-    // same way the desktop billing surface does.
+
     invoke("website.getBaseUrl", IPC_WEBSITE_GET_BASE_URL),
     send("uiState.apply", IPC_UI_STATE_KV_APPLY),
     send("uiState.clear", IPC_UI_STATE_KV_CLEAR),
@@ -78,10 +77,7 @@ export const MOBILE_BRIDGE_CAPABILITIES = [
     invoke("voice.getRuntimeState", IPC_VOICE_GET_RUNTIME_STATE),
     event("voice.onRuntimeState", IPC_VOICE_RUNTIME_STATE),
     invoke("agent.healthCheck", IPC_AGENT_HEALTH_CHECK),
-    // The renderer's LLM proxy. Apps rendered in the phone's mirrored UI call
-    // this directly; without it the shim leaves the method undefined and they
-    // fail with a TypeError rather than a bridged call. `agent.startChat` below
-    // is already exposed and is strictly more capable.
+
     invoke("agent.oneShotCompletion", IPC_AGENT_ONE_SHOT_COMPLETION),
     invoke("agent.getActiveRun", IPC_AGENT_GET_ACTIVE_RUN),
     invoke("agent.getAppSessionStartedAt", IPC_AGENT_GET_SESSION_STARTED_AT),
@@ -138,17 +134,13 @@ export const MOBILE_BRIDGE_CAPABILITIES = [
     invoke("media.getStellaMediaDir", IPC_MEDIA_GET_DIR),
     invoke("schedule.listCronJobs", IPC_SCHEDULE_LIST_CRON_JOBS),
     invoke("schedule.listHeartbeats", IPC_SCHEDULE_LIST_HEARTBEATS),
-    // Narrowed mutation lanes: the desktop handler accepts a full cron patch
-    // (the Schedules dialog needs it), but mobile-originated payloads are
-    // clamped to `{ jobId, patch: { enabled } }` / `{ jobId }` by
-    // `invoke-guards.ts` before dispatch.
+
     invoke("schedule.updateCronJob", IPC_SCHEDULE_UPDATE_CRON_JOB),
     invoke("schedule.removeCronJob", IPC_SCHEDULE_REMOVE_CRON_JOB),
     invoke("schedule.listConversationEvents", IPC_SCHEDULE_LIST_CONVERSATION_EVENTS),
     invoke("schedule.getConversationEventCount", IPC_SCHEDULE_GET_EVENT_COUNT),
     event("schedule.onUpdated", IPC_SCHEDULE_UPDATED),
-    // One-RTT connect: conversation id + developer flag + message delta +
-    // feature list in a single invoke (see registerMobileHelloHandlers).
+
     invoke("mobile.hello", "mobile:hello"),
     invoke("localChat.getOrCreateDefaultConversationId", IPC_LOCAL_CHAT_GET_OR_CREATE_ID),
     invoke("localChat.createNewDefaultConversationId", IPC_LOCAL_CHAT_CREATE_NEW_DEFAULT_ID),
@@ -172,23 +164,12 @@ export const MOBILE_BRIDGE_REQUEST_CAPABILITIES = MOBILE_BRIDGE_CAPABILITIES.fil
 export const MOBILE_BRIDGE_EVENT_CAPABILITIES = MOBILE_BRIDGE_CAPABILITIES.filter((capability) => capability.mode === "remote-event");
 export const MOBILE_BRIDGE_REQUEST_CHANNELS = MOBILE_BRIDGE_REQUEST_CAPABILITIES.map((capability) => capability.channel);
 export const MOBILE_BRIDGE_EVENT_CHANNELS = MOBILE_BRIDGE_EVENT_CAPABILITIES.map((capability) => capability.channel);
-/**
- * Channels the phone is allowed to call that preload does not expose, so the
- * derived payload contract has nothing to say about them. Each one is a
- * surface the phone reaches directly rather than through the desktop's own
- * `window.electronAPI`. A new channel that lands here without a contract is a
- * mistake until someone decides otherwise, which is what the parity test
- * asserts.
- */
+
 export const PHONE_ONLY_REQUEST_CHANNELS = {
     "mobile:hello": "One-RTT connect handshake; only the phone ever calls it.",
     "localChat:getEventCount": "Registered in local-chat-handlers for the phone; the desktop UI reads counts from its own store.",
 };
-/**
- * The manifest the phone bootstraps from. Payload contracts are attached here
- * rather than at each declaration so a channel added above picks its contract
- * up automatically.
- */
+
 export const buildMobileBridgeCapabilityManifest = () => ({
     version: 1,
     capabilities: MOBILE_BRIDGE_CAPABILITIES.map((capability) => {
@@ -198,12 +179,7 @@ export const buildMobileBridgeCapabilityManifest = () => ({
         return payload ? { ...capability, payload } : capability;
     }),
 });
-/**
- * Optional bridge features this desktop supports, advertised to the phone in
- * the `mobile:hello` response (and implied by hello answering at all). Kept
- * as plain strings so the phone can gate each lane independently; every
- * feature degrades to the legacy path when absent on either peer.
- */
+
 export const MOBILE_BRIDGE_FEATURES = [
     BRIDGE_FEATURE_HELLO,
     BRIDGE_FEATURE_DEFLATE,

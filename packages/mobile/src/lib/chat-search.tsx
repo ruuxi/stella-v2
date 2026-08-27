@@ -7,13 +7,13 @@ import {
 } from "react";
 
 type ChatSearchValue = {
-  /** Current query text. Empty string means "not filtering". */
+
   query: string;
-  /** Whether the search field is expanded in the top bar. */
+
   isOpen: boolean;
   setQuery: (next: string) => void;
   open: () => void;
-  /** Collapse the field and clear the query. */
+
   close: () => void;
 };
 
@@ -25,12 +25,6 @@ const ChatSearchContext = createContext<ChatSearchValue>({
   close: () => {},
 });
 
-/**
- * Shared chat-search state. Lives above both the top bar (which owns the
- * expanding search field) and the chat surfaces (which filter their message
- * list by the query), so the control and the result stay in sync without
- * threading props through the router.
- */
 export function ChatSearchProvider({
   children,
 }: {

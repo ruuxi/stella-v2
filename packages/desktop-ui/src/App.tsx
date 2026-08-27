@@ -11,14 +11,6 @@ import {
 
 const AUTO_REPAIR_SIGNATURE_KEY = "stella:auto-repair:last-signature";
 
-// Every passive IPC listener below mounts eagerly because main fires the
-// matching channels fire-and-forget — if the renderer isn't subscribed at the
-// moment of `webContents.send(...)`, the event is silently dropped:
-//   * CredentialRequestLayer  → `credential:request` (agent stalls 5 min on
-//     timeout, see `desktop/electron/services/credential-service.ts`)
-//     (stella-connect CLI hangs on the bridge until the user submits)
-// Bundle savings from lazy-loading these were negligible (every dep is in the
-// eager chunk anyway), and the cost of missing the event is high.
 function App() {
   useEffect(() => {
     const timer = window.setTimeout(() => {

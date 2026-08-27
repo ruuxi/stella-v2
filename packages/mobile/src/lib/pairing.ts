@@ -1,8 +1,3 @@
-/**
- * Shared phone↔desktop pairing-code flow, used by both the View-computer
- * screen (deep-link codes) and the PairPhoneSheet (QR scan + manual entry)
- * so code normalization and error copy can't drift between the surfaces.
- */
 import { completePhonePairing, type StoredPhoneAccess } from "./phone-access";
 import { notifyError, notifySuccess } from "./haptics";
 import { userFacingError } from "./user-facing-error";

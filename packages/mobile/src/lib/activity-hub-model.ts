@@ -75,31 +75,16 @@ const compareHubTasks = (a: MobileTask, b: MobileTask): number => {
   );
 };
 
-/** Active agents first, then most-recently-active within each status group. */
 export const sortHubTasksByRecency = (
   tasks: readonly MobileTask[],
 ): MobileTask[] => [...tasks].sort(compareHubTasks);
 
-/** Stable virtualized-row identity used by LegendList's data-change anchor. */
 export const activityHubTaskRowKey = (task: Pick<MobileTask, "id">): string =>
   `task:${task.id}`;
 
-/**
- * One top-level Activity entry: a parent agent plus every descendant subagent
- * it owns (flattened, active-first). Standalone tasks have no subagents.
- *
- * This mirrors the desktop activity workspace's `groupActivityTasks`
- * association rule (desktop-ui `event-transforms.ts`): a task whose
- * `parentAgentId` resolves to another visible task is nested under that owner
- * instead of standing on its own root row. The rule is replicated here rather
- * than imported because the desktop projection is built on its own `TaskItem`
- * model and manager-status helpers; only the pure parent→child association is
- * shared in spirit. Missing/unresolved parents fail open as standalone rows,
- * and cyclic ownership is broken so no work can disappear.
- */
 export type HubTaskGroup = {
   owner: MobileTask;
-  /** All descendant subagents, flattened and active-first. */
+
   subagents: MobileTask[];
 };
 
@@ -111,12 +96,6 @@ export type HubSubagentSummary = {
   canceled: number;
 };
 
-/**
- * Project a flat, activity-ordered task list into top-level groups. A group is
- * active when either its owner or one of its descendants is running, matching
- * the running indicator shown on the collapsed row. Groups and descendants
- * use most-recent activity as their secondary order.
- */
 export const groupActivityHubTasks = (
   orderedTasks: readonly MobileTask[],
 ): HubTaskGroup[] => {
@@ -132,8 +111,6 @@ export const groupActivityHubTasks = (
     ownedIds.add(task.id);
   }
 
-  // Breadth-first descendant walk, guarded against cycles so a corrupt edge
-  // can never loop forever or double-count a task.
   const collectDescendants = (rootId: string): MobileTask[] => {
     const out: MobileTask[] = [];
     const seen = new Set<string>([rootId]);
@@ -159,8 +136,6 @@ export const groupActivityHubTasks = (
     for (const child of subagents) represented.add(child.id);
   }
 
-  // Cyclic ownership leaves some tasks owned-but-never-reached. Fail them open
-  // as standalone top-level rows so nothing vanishes from Activity.
   for (const task of orderedTasks) {
     if (represented.has(task.id)) continue;
     groups.push({ owner: task, subagents: [] });
@@ -182,12 +157,10 @@ export const groupActivityHubTasks = (
   );
 };
 
-/** Stable virtualized-row identity for a top-level group (keyed on owner). */
 export const activityHubGroupRowKey = (group: {
   owner: Pick<MobileTask, "id">;
 }): string => activityHubTaskRowKey(group.owner);
 
-/** Counts used by the collapsed "N subagents · M done" summary bar. */
 export const summarizeHubSubagents = (
   subagents: readonly MobileTask[],
 ): HubSubagentSummary => ({
@@ -198,14 +171,11 @@ export const summarizeHubSubagents = (
   canceled: subagents.filter((task) => task.status === "canceled").length,
 });
 
-/** Single-line summary shown on a collapsed subagent group. */
 export const hubSubagentSummaryText = (summary: HubSubagentSummary): string => {
   const noun = summary.total === 1 ? "subagent" : "subagents";
   return `${summary.total} ${noun} · ${summary.done} done`;
 };
 
-/** Full, newest-first artifact dataset for ownership and search. Display
- *  pagination is applied later to activity rows, never to this source. */
 export const collectActivityHubArtifacts = (
   messages: readonly Pick<ChatMessage, "artifacts">[],
 ): ChatArtifact[] => {
@@ -231,14 +201,6 @@ export const collectActivityHubArtifacts = (
   return out;
 };
 
-/**
- * Attribute the activity hub's already-deduped artifact list to the task that
- * produced each file. Modern desktop bridges carry an exact agent id on each
- * agent-work file section; every remaining loose artifact on those rows is
- * orchestrator-direct by contract. Older row-scoped payloads fall back only
- * when exactly one task can own the files. Ambiguous and direct artifacts stay
- * owned by the conversation instead of becoming a global Files section.
- */
 export const groupActivityArtifacts = (
   messages: readonly Pick<ChatMessage, "artifacts" | "tasks">[],
   artifacts: readonly ChatArtifact[],

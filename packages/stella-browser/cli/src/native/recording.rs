@@ -120,8 +120,6 @@ fn build_ffmpeg_command(output_path: &str) -> tokio::process::Command {
     cmd
 }
 
-/// Spawn a background task that captures screenshots at a fixed interval
-/// and pipes them to ffmpeg in real-time.
 pub fn spawn_recording_task(
     client: Arc<CdpClient>,
     session_id: String,

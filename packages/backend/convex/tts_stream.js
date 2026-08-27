@@ -1,12 +1,6 @@
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 
-// Read-aloud stream tickets. Mobile POSTs its (long) reply text once (see
-// `tts_hls.startHlsSession`) and gets back a short-lived, owner-bound ticket so
-// its native player can fetch the audio without the text ever hitting a URL.
-// The HLS transport streams MP3 segments; the buffered range transport
-// (`readTicket` + `cacheTicketAudio`) serves a whole `Range`-capable MP3 from
-// the same ticket. Both are swept by the cron below.
 const MAX_PURGE_BATCH_LIMIT = 5000;
 
 const clampInt = (value, defaultValue, min, max) => {
@@ -17,10 +11,6 @@ const clampInt = (value, defaultValue, min, max) => {
   return Math.max(min, Math.min(max, n));
 };
 
-// Reusable within its short TTL (owner-bound), NOT single-use: native players
-// issue several (ranged) requests per playback, so all must resolve. Replay is
-// bounded — same owner, same text, ≤2 minutes, prepare is rate-limited, and the
-// cron sweeps it. Returns the synthesis params plus any cached audio.
 export const readTicket = internalMutation({
   args: {
     ticket: v.string(),
@@ -47,8 +37,6 @@ export const readTicket = internalMutation({
   },
 });
 
-// Cache the synthesized MP3 (base64) on the ticket so the player's follow-up
-// range requests are served without re-synthesizing.
 export const cacheTicketAudio = internalMutation({
   args: {
     ticket: v.string(),
@@ -94,7 +82,6 @@ export const purgeExpired = internalMutation({
       if (expired.length < limit) break;
     }
 
-    // Sweep expired HLS segments (a side table keyed by the same TTL).
     for (let i = 0; i < maxBatches; i += 1) {
       const expiredSegments = await ctx.db
         .query("tts_hls_segments")

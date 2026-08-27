@@ -9,9 +9,7 @@
   font-size: var(--font-size-base);
   line-height: 1.35;
   border-radius: var(--radius-lg);
-  /* Blended "panel surface" — same translucent gradient, hairline border, and
-     top highlight as the background-work card / sidebars, so artifacts read as
-     soft glass over the chat background. */
+
   border: 1px solid var(--panel-surface-border);
   background: var(--panel-surface-bg-gradient);
   box-shadow: var(--panel-surface-highlight);

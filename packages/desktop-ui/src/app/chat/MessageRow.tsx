@@ -1,24 +1,3 @@
-/**
- * Linear chat row components.
- *
- * Each message renders as a single row in chronological order, with no
- * per-turn user/assistant grouping. Tool-derived artifacts (web-search
- * badge, office preview, end-resource pill, self-mod undo) attach to
- * the assistant row that immediately followed the producing tool events.
- *
- * Assistant text is never streamed: one runtime `assistant-message` event
- * carries the whole message, which `useConversationDisplayMessages` merges
- * in as an in-memory `MessageRecord` overlay under a stable
- * `assistant-{userMessageId}-{indexInTurn}` key. When the persisted
- * `assistant_message` lands, the overlay remains the visible text
- * source while borrowing persisted metadata/tool events; when the
- * overlay later clears, the persisted row reuses the same React key.
- * A live arrival is tagged `justArrived` for one animation window so the
- * bubble plays its entrance.
- *
- * Reasoning text is intentionally NOT rendered anywhere in this surface
- * (the underlying data still flows through state for model history).
- */
 import {
   Fragment,
   memo,
@@ -94,11 +73,6 @@ const getAttachmentLabel = (
 
 const IMAGE_FILE_EXT_RE = /\.(?:png|jpe?g|gif|webp|svg|avif|bmp|ico|tiff?|heic|heif)$/i;
 
-/**
- * Whether a sent attachment should render as an image thumbnail. Routing
- * mistakes here previously fed PDFs into an `<img>`, producing a broken
- * image plus clipped alt text.
- */
 const isImageAttachment = (attachment: Attachment, safeUrl: string): boolean => {
   if (attachment.kind === "file") return false;
   const mimeType = attachment.mimeType?.trim().toLowerCase();
@@ -106,15 +80,13 @@ const isImageAttachment = (attachment: Attachment, safeUrl: string): boolean => 
   if (safeUrl.startsWith("data:")) {
     return /^data:image\//i.test(safeUrl);
   }
-  // Legacy remote payloads often lack a mimeType; keep the historical
-  // image treatment unless the filename clearly says otherwise.
+
   if (attachment.name && /\.[a-z0-9]+$/i.test(attachment.name)) {
     return IMAGE_FILE_EXT_RE.test(attachment.name);
   }
   return true;
 };
 
-/** Display name for a sent non-image attachment chip. */
 const getFileAttachmentName = (
   attachment: Attachment,
   t: Translate,
@@ -161,12 +133,6 @@ const summarizeReactions = (
   });
 };
 
-/**
- * Window context chip inside the user bubble. The screenshot preview is
- * portaled to `document.body` (via `ChipPreviewPortal`) so it escapes the
- * scrolling chat container's clip rect — a plain absolutely-positioned
- * popover gets cropped to the message bubble / scroll viewport.
- */
 function UserWindowContextChip({
   label,
   previewImageUrl,
@@ -203,12 +169,6 @@ function UserWindowContextChip({
   );
 }
 
-/**
- * Pasted-text chip inside the user bubble. Mirrors the composer's
- * `PastedTextChip`: hovering (or focusing) reveals the pasted content in a
- * scrollable portaled card so the user can read what they attached. The
- * body comes from the bounded preview persisted on the message metadata.
- */
 function UserPastedTextChip({
   descriptor,
 }: {
@@ -243,13 +203,6 @@ function UserPastedTextChip({
   );
 }
 
-/**
- * Quoted / "Ask Stella" context chip inside the user bubble. Mirrors the
- * composer's selected-text chip: the quoted content is delivered to the model
- * as a dedicated hidden context message, never folded into the visible body,
- * so this chip is the display side of that decoupling. Hovering (or focusing)
- * reveals the quoted text in a scrollable portaled card.
- */
 function UserQuotedTextChip({ quotedText }: { quotedText: string }) {
   const t = useT();
   const { triggerRef, open, previewProps } = useHoverPreview<HTMLSpanElement>();
@@ -279,29 +232,16 @@ function UserQuotedTextChip({ quotedText }: { quotedText: string }) {
   );
 }
 
-
 type ContextChip = { key: string; node: ReactNode };
 
-// The chips sit above the bubble and are capped to the same 85% of the
-// message-row column that the bubble uses (`.event-item.user max-width: 85%`),
-// so the overflow math matches what the user sees. `CHIP_GAP` mirrors the
-// chip row's `gap: 6px`.
 const BUBBLE_MAX_FRACTION = 0.85;
 const CHIP_GAP = 6;
 
-/**
- * Lays out the user-bubble context chips on a single line. When they would
- * overflow the bubble's max width, the trailing chips collapse into a
- * "+N" pill; hovering / focusing it reveals the rest in a portaled popover
- * (portaled so it escapes the scrolling chat container's clip rect).
- */
 function UserContextChips({ chips }: { chips: ContextChip[] }) {
   const t = useT();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const measureRef = useRef<HTMLDivElement | null>(null);
-  // The "+N" trigger mounts only after the measurement pass collapses chips,
-  // so its hover listeners must be plain React props (a mount-time ref hook
-  // would bind to a null element and never fire).
+
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const [overflowOpen, setOverflowOpen] = useState(false);
   const [visibleCount, setVisibleCount] = useState(chips.length);
@@ -318,7 +258,7 @@ function UserContextChips({ chips }: { chips: ContextChip[] }) {
       const available = columnWidth * BUBBLE_MAX_FRACTION;
       const items = Array.from(measure.children) as HTMLElement[];
       if (items.length === 0) return;
-      // Last measure child is the "+N" template; the rest map to `chips`.
+
       const overflowEl = items[items.length - 1];
       const chipEls = items.slice(0, items.length - 1);
       if (chipEls.length <= 1) {
@@ -409,11 +349,6 @@ function UserContextChips({ chips }: { chips: ContextChip[] }) {
   );
 }
 
-/**
- * A user-attached image inside the sent message. Presentation reuses the
- * composer's compact, uniform image chip while retaining the shared
- * full-window lightbox.
- */
 function AttachmentImage({
   attachment,
   index,
@@ -454,9 +389,7 @@ export const UserMessageRow = memo(
       [forkAction, row],
     );
     const { text, windowLabel, attachments, channelEnvelope } = row;
-    // Attachment the Copy action falls back to when the message has no text
-    // (image → clipboard image; other file → path as text). Memoized so the
-    // memoized action row isn't re-rendered by busy-state toggles.
+
     const copyAttachment = useMemo(
       () => primaryCopyAttachment(attachments),
       [attachments],
@@ -555,9 +488,7 @@ export const UserMessageRow = memo(
         });
         return;
       }
-      // Non-image attachments (pdf, docs, audio, …) reuse the composer's
-      // document chip: file-type glyph + real filename, opening the
-      // original on disk when a source path was captured at attach time.
+
       chips.push({
         key,
         node: (
@@ -582,11 +513,9 @@ export const UserMessageRow = memo(
             <UserMessageBody text={text} />
           </div>
         )}
-        {/* The action row (Copy + Rewind + Fork) mounts for any user
-            message that has visible content — text OR attachment/context
-            chips — so attachment-only messages get the same actions. Copy
-            no-ops gracefully when there is no text to copy; Rewind/Fork use
-            the attachment-restore path to bring the attachments back. */}
+        {
+
+}
         {(text.trim() || chips.length > 0) && (
           <MessageActions
             text={text}
@@ -628,8 +557,7 @@ export const AssistantMessageRow = memo(
     const hasAgentCompletion = Boolean(
       row.agentCompletion && row.agentCompletion.sections.length > 0,
     );
-    // Shared predicate with ChatTimeline (which drops renderless rows
-    // before virtualization) — see assistant-row-content.ts.
+
     if (!assistantRowHasVisibleContent(row)) {
       return null;
     }
@@ -716,8 +644,7 @@ export const AssistantMessageRow = memo(
           ) : null}
           {row.customSlot ? row.customSlot : null}
           {hasText && !row.isIntraTurn && (
-            // Only a turn's final assistant message carries the action strip.
-            // Mid-turn preambles render no strip or reserved action height.
+
             <MessageActions
               text={text}
               messageKey={row.id}

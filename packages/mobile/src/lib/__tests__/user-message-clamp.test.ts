@@ -27,9 +27,7 @@ describe("mobile user message collapse contract", () => {
 
   test("never paints a long message unclamped — measures at collapse + 1", () => {
     expect(USER_MESSAGE_MEASURE_LINES).toBe(USER_MESSAGE_COLLAPSE_LINES + 1);
-    // The measuring pass renders at the measure cap, not unclamped, so a
-    // >4-line send never inflates the row (and the post-send scroll anchor)
-    // with a full-height first paint.
+
     expect(
       userMessageNumberOfLines({
         expanded: false,
@@ -58,7 +56,7 @@ describe("mobile user message collapse contract", () => {
         truncatable: true,
       }),
     ).toBeUndefined();
-    // An expanded remeasure (width change) must lay out the full text.
+
     expect(
       userMessageNumberOfLines({
         expanded: true,
@@ -66,7 +64,7 @@ describe("mobile user message collapse contract", () => {
         truncatable: true,
       }),
     ).toBeUndefined();
-    // A five-line measurement is still distinguishable as overflow.
+
     expect(isUserMessageTruncatable(USER_MESSAGE_MEASURE_LINES)).toBe(true);
   });
 

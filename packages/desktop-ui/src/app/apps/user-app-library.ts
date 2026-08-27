@@ -1,13 +1,3 @@
-/**
- * Presentation-free pieces of the user-app library: the search/sort rule, the
- * "created" stamp, and the prompt that asks Stella for a new app.
- *
- * Two surfaces render the library — the Apps sidebar section and the `/apps`
- * page kept for window types without the panel — and they differ only in
- * layout. Keeping the rules here is what stops the two from drifting into
- * different sort orders for the same list.
- */
-
 import { useCallback } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useT } from "@/shared/i18n";
@@ -16,7 +6,6 @@ import type { UserApp } from "@/app/apps/user-apps-registry";
 
 export type UserAppSort = "recent" | "name";
 
-/** i18n keys (not literal copy) — resolve with `t()` at render time. */
 export const USER_APP_SORT_LABELS: Record<UserAppSort, string> = {
   recent: "app.apps.sort.recent",
   name: "app.apps.sort.name",
@@ -60,7 +49,6 @@ export function formatUserAppCreatedAt(iso: string): string {
   return relativeTimeFormatter.format(Math.round(diff / last.ms), last.unit);
 }
 
-/** Apps matching `query` (label or slug), in `sort` order. */
 export function listUserApps(
   apps: readonly UserApp[],
   query: string,
@@ -88,11 +76,6 @@ export function listUserApps(
   return filtered;
 }
 
-/**
- * Hand the user to chat with the "what can you build me" prompt already in the
- * composer. The compose event only lands on a mounted composer, so the
- * navigation has to settle first.
- */
 export function useRequestUserApp(): () => void {
   const navigate = useNavigate();
   const t = useT();

@@ -39,8 +39,7 @@ describe("agent run transient retry policy", () => {
       delayMs: 1_000,
     },
     {
-      // Rate limits get their own, slower curve: a 429 means a provider-side
-      // capacity window has to drain, which the transport schedule outruns.
+
       name: "429 provider rate limit",
       error: Object.assign(new Error("Too many requests"), { status: 429 }),
       category: "rate_limit",
@@ -232,9 +231,7 @@ describe("agent run transient retry policy", () => {
   });
 
   it("backs off further for rate limits than for dropped connections", () => {
-    // A 429 waits out a provider capacity window; the transport curve would
-    // burn all four attempts in under ten seconds against a limit that was
-    // never going to clear that fast.
+
     for (const [
       index,
       base,
@@ -247,15 +244,14 @@ describe("agent run transient retry policy", () => {
   });
 
   it("honors a provider Retry-After verbatim, capped", () => {
-    // No jitter: jitter de-synchronizes blind retries, and this one isn't
-    // blind — the provider named the time.
+
     expect(
       agentRunRetryDelayMs(0, () => 0, {
         category: "rate_limit",
         retryAfterMs: 12_000,
       }),
     ).toBe(12_000);
-    // Shorter than the schedule wins too — no point idling past the reopen.
+
     expect(
       agentRunRetryDelayMs(2, () => 0, {
         category: "rate_limit",
@@ -271,8 +267,7 @@ describe("agent run transient retry policy", () => {
   });
 
   it("carries Retry-After from a streamed failure into the delay", async () => {
-    // The provider adapter parks the header value on the assistant message
-    // because flattening the error to a string drops its headers.
+
     const retries: AgentRunRetryInfo[] = [];
     await executeAgentTurnWithRetry({
       execute: async (resume) =>
@@ -307,8 +302,7 @@ describe("agent run transient retry policy", () => {
   });
 
   it("names the real cause in the retry status", () => {
-    // "Connection interrupted" for a 429 blames the user's network for a
-    // provider-side throttle.
+
     expect(
       formatAgentRunRetryStatus({
         category: "rate_limit",

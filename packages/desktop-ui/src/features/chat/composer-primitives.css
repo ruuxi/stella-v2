@@ -119,9 +119,6 @@
   color: var(--text-strong);
 }
 
-/* The spinner SVG itself rotates; the button stays put so the layout
-   doesn't jiggle. transform-origin: center keeps the rotation centered
-   inside the 16x16 viewBox. */
 .chat-composer-spinner-svg {
   animation: stella-composer-spinner 0.85s linear infinite;
   transform-origin: 50% 50%;

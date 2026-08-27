@@ -101,7 +101,6 @@ export function getModelDisplayLabel(
   return modelNamesById.get(modelId) ?? modelId;
 }
 
-/** Friendly names for Claude Code CLI model aliases. */
 const CLAUDE_CODE_ALIAS_LABELS: Record<string, string> = {
   default: "Default",
   best: "Best",
@@ -114,11 +113,6 @@ const CLAUDE_CODE_ALIAS_LABELS: Record<string, string> = {
   "opus[1m]": "Opus · 1M",
 };
 
-/**
- * Display label for a saved override id, engine routes and local models
- * included. Shared by the sidebar picker and the composer's pinned mini
- * picker so both render the same names.
- */
 export function getModelPickerDisplayLabel(
   modelId: string,
   modelNamesById: ReadonlyMap<string, string>,

@@ -14,7 +14,6 @@ type DemandDrivenAnimationLoopOptions = {
   setTimer?: (callback: () => void, delayMs: number) => number;
 };
 
-/** A restart-safe rAF loop whose callbacks are requested only at its FPS cap. */
 export const createDemandDrivenAnimationLoop = ({
   cancelFrame = cancelAnimationFrame,
   clearTimer = window.clearTimeout,
@@ -41,8 +40,7 @@ export const createDemandDrivenAnimationLoop = ({
     if (!running) return;
     const elapsed =
       lastFrameAt === undefined ? frameIntervalMs : now() - lastFrameAt;
-    // Wake before the next eligible display frame. Waiting the full interval
-    // and then waiting for rAF would turn a 30 fps cap into roughly 15 fps.
+
     const wakeAheadMs = Math.min(displayFrameMs, frameIntervalMs / 2);
     const delayMs = Math.max(0, frameIntervalMs - elapsed - wakeAheadMs);
     if (delayMs <= 1) {

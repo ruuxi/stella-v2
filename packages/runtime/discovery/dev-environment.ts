@@ -44,14 +44,12 @@ async function collectGitConfig(): Promise<GitConfig | null> {
     for (const line of lines) {
       const trimmed = line.trim();
 
-      // Section header
       const sectionMatch = trimmed.match(/^\[([^\]]+)\]$/);
       if (sectionMatch) {
         currentSection = sectionMatch[1];
         continue;
       }
 
-      // Key-value pair
       const kvMatch = trimmed.match(/^(\w+)\s*=\s*(.*)$/);
       if (kvMatch) {
         const [, key, value] = kvMatch;
@@ -105,7 +103,7 @@ async function collectDotfiles(): Promise<string[]> {
         await fs.access(path.join(homeDir, file));
         existing.push(file);
       } catch {
-        // File doesn't exist, ignore
+
       }
     })
   );
@@ -136,7 +134,7 @@ async function collectRuntimes(): Promise<string[]> {
         await fs.access(path.join(homeDir, dir));
         detected.push(name);
       } catch {
-        // Directory doesn't exist, ignore
+
       }
     })
   );
@@ -151,7 +149,6 @@ async function collectPackageManagers(): Promise<string[]> {
 
   const checks: Promise<void>[] = [];
 
-  // Homebrew (macOS)
   if (platform === "darwin") {
     checks.push(
       (async () => {
@@ -160,19 +157,18 @@ async function collectPackageManagers(): Promise<string[]> {
           detected.push("homebrew");
           return;
         } catch {
-          // Try alternate location
+
         }
         try {
           await fs.access("/usr/local/Homebrew");
           detected.push("homebrew");
         } catch {
-          // Not found
+
         }
       })()
     );
   }
 
-  // Scoop and Chocolatey (Windows)
   if (platform === "win32") {
     checks.push(
       (async () => {
@@ -180,7 +176,7 @@ async function collectPackageManagers(): Promise<string[]> {
           await fs.access(path.join(homeDir, "scoop"));
           detected.push("scoop");
         } catch {
-          // Not found
+
         }
       })()
     );
@@ -192,7 +188,7 @@ async function collectPackageManagers(): Promise<string[]> {
           await fs.access(path.join(programData, "chocolatey"));
           detected.push("chocolatey");
         } catch {
-          // Not found
+
         }
       })()
     );
@@ -203,13 +199,12 @@ async function collectPackageManagers(): Promise<string[]> {
           await execAsync("where winget");
           detected.push("winget");
         } catch {
-          // Not found
+
         }
       })()
     );
   }
 
-  // pnpm (cross-platform)
   checks.push(
     (async () => {
       const pnpmPaths =
@@ -223,7 +218,7 @@ async function collectPackageManagers(): Promise<string[]> {
           detected.push("pnpm");
           return;
         } catch {
-          // Try next path
+
         }
       }
     })()
@@ -272,7 +267,6 @@ export async function collectDevEnvironment(): Promise<DevEnvironmentSignals> {
 export function formatDevEnvironmentForSynthesis(data: DevEnvironmentSignals): string {
   const sections: string[] = [];
 
-  // Git Identity
   if (data.gitConfig) {
     const lines: string[] = ["### Git Identity"];
     const parts: string[] = [];
@@ -294,22 +288,18 @@ export function formatDevEnvironmentForSynthesis(data: DevEnvironmentSignals): s
     }
   }
 
-  // Dotfiles
   if (data.dotfiles.length > 0) {
     sections.push(`### Dotfiles\n${data.dotfiles.join(", ")}`);
   }
 
-  // Runtimes
   if (data.runtimes.length > 0) {
     sections.push(`### Runtimes\n${data.runtimes.join(", ")}`);
   }
 
-  // Package Managers
   if (data.packageManagers.length > 0) {
     sections.push(`### Package Managers\n${data.packageManagers.join(", ")}`);
   }
 
-  // WSL
   if (data.wslDetected) {
     sections.push("### WSL\nDetected");
   }

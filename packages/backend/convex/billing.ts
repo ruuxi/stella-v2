@@ -80,11 +80,6 @@ const voiceRealtimeLeaseEventValidator = v.union(
   v.literal("lost"),
 );
 
-/**
- * `Retry-After` advertised once a lifetime allowance is spent. Nothing
- * resets, so this is purely a "stop hammering the relay" hint — an upgrade
- * (or a credit purchase) is what actually unblocks the account.
- */
 const LIFETIME_LIMIT_RETRY_AFTER_MS = 24 * 60 * 60 * 1000;
 
 const VOICE_REALTIME_LEASE_DURATION_MS = 5 * 60 * 1000;
@@ -117,11 +112,7 @@ const subscriptionStatusReturnValidator = v.object({
       weeklyLimitUsd: v.number(),
       monthlyUsedUsd: v.number(),
       monthlyLimitUsd: v.number(),
-      /**
-       * Cumulative spend that never resets, and the one-shot allowance it is
-       * checked against. `lifetimeLimitUsd` is null on plans without a
-       * lifetime cap, which is how the UI knows not to show the allowance.
-       */
+
       lifetimeUsedUsd: v.number(),
       lifetimeLimitUsd: v.union(v.number(), v.null()),
     }),
@@ -344,11 +335,7 @@ type UsageSnapshot = {
     resetAt: number;
     exceeded: boolean;
   };
-  /**
-   * The Free plan's one-shot allowance. `null` on every plan that leaves
-   * `lifetimeLimitUsd` unset, so paid plans keep purely windowed limits and
-   * never pay for the extra check.
-   */
+
   lifetime: {
     used: number;
     limit: number;
@@ -369,8 +356,7 @@ const getIncludedUsageHeadroomMicroCents = (snapshot: UsageSnapshot) =>
       Math.max(0, snapshot.rolling.limit - snapshot.rolling.used),
       Math.max(0, snapshot.weekly.limit - snapshot.weekly.used),
       Math.max(0, snapshot.monthly.limit - snapshot.monthly.used),
-      // A spent lifetime allowance leaves no included headroom, so further
-      // spend draws on purchased credits exactly like an exhausted window.
+
       snapshot.lifetime
         ? Math.max(0, snapshot.lifetime.limit - snapshot.lifetime.used)
         : Number.POSITIVE_INFINITY,
@@ -472,11 +458,6 @@ const buildUsageSnapshot = (args: {
     : month.start.getTime();
   const monthlyResetAt = month.end.getTime();
 
-  // The lifetime allowance never refreshes, so there is no window to
-  // normalize and nothing to reset — `totalUsageMicroCents` already
-  // accumulates forever. `resetAt` exists only to keep the shared
-  // `Retry-After` math honest; it advertises a re-check horizon, not a
-  // moment when the allowance comes back.
   const lifetimeLimitUsd = planConfig.lifetimeLimitUsd;
   const lifetimeUsed = Math.max(0, args.usage.totalUsageMicroCents);
   const lifetime =
@@ -540,12 +521,6 @@ const buildUsageSnapshot = (args: {
   };
 };
 
-/**
- * Picks the window that blocks a request, lifetime first: when the one-shot
- * allowance is gone the shorter windows are irrelevant, and reporting the
- * lifetime bucket is what makes the message say "upgrade" instead of
- * "try again in five hours".
- */
 const findExceededWindow = (
   snapshot: UsageSnapshot,
   isBlocked: (window: { used: number; limit: number }) => boolean = () => false,
@@ -565,8 +540,7 @@ const findExceededWindow = (
 
 const buildLimitMessage = (plan: SubscriptionPlan, lifetime = false) => {
   if (lifetime) {
-    // Deliberately different from the windowed message: this one does not
-    // come back, and telling someone to wait would be a lie.
+
     return "You've used your free Stella allowance. Upgrade to keep going.";
   }
   if (plan === "free") {
@@ -597,7 +571,7 @@ const buildManagedModelAccessResult = (args: {
     | UsageSnapshot["weekly"]
     | UsageSnapshot["monthly"]
     | null;
-  /** The blocking bucket is the never-refreshing lifetime allowance. */
+
   lifetimeExhausted?: boolean;
   now: number;
 }): ManagedModelAccessResult => {
@@ -1262,16 +1236,6 @@ export const recordVoiceTtsUsage = internalMutation({
   },
 });
 
-/**
- * Internal-only TTS/read-aloud spend ledger.
- *
- * Read-aloud is free on every plan, so — unlike `recordVoiceTtsUsage` above —
- * this mutation deliberately does NOT call `persistManagedUsage`. It never
- * touches the user's usage windows, credit balance, `usage_logs`, or any plan
- * entitlement. It only writes a row to `internal_tts_usage` capturing provider
- * spend, including for interrupted/partial/failed generations, so internal
- * cost reporting stays accurate without ever charging a user.
- */
 export const recordInternalTtsUsage = internalMutation({
   args: {
     ownerId: v.string(),
@@ -1345,17 +1309,6 @@ export const recordInternalTtsUsage = internalMutation({
   },
 });
 
-/**
- * Finalize a streaming TTS ledger row created up front.
- *
- * A streaming synthesis inserts a pessimistic "interrupted" row before it
- * begins, then updates it to the real terminal status when the stream ends.
- * If the client disconnects mid-stream the serving action is terminated and
- * this update never runs — the row is left as "interrupted", which is exactly
- * the correct accounting (the provider received the full text and the client
- * stopped early). Cost is recomputed from the final synthesized-character
- * count so a clean completion is billed exactly.
- */
 export const finalizeInternalTtsUsage = internalMutation({
   args: {
     usageId: v.id("internal_tts_usage"),
@@ -2015,13 +1968,6 @@ export type ManagedUsageLimitResult = {
   message: string;
 };
 
-// Reusable cores so the same billing math can run either as its own
-// `internalMutation` (one transaction per call) or inline inside the combined
-// gate mutation in `lib/gate_and_meter.ts`, which reads billing once and runs
-// the usage-limit + rate-limit (+ capability) gates in a SINGLE transaction to
-// remove the serial per-call round-trips. Behaviour is byte-for-byte identical
-// to the standalone mutations — the only thing that changes is how many
-// commits a route pays for.
 export const runResolveManagedModelAccess = async (
   ctx: MutationCtx,
   args: { ownerId: string; isAnonymous?: boolean },
@@ -2051,9 +1997,7 @@ export const runResolveManagedModelAccess = async (
   const credit = firstExceeded
     ? await getOwnerUsageCreditRow(ctx, args.ownerId)
     : null;
-  // Purchased credits unblock a spent lifetime allowance the same way they
-  // unblock a spent window — the allowance caps what is free, not what a
-  // paying account may use.
+
   const exceededWindow =
     firstExceeded && getUsageCreditBalanceMicroCents(credit) > 0
       ? null
@@ -2296,9 +2240,6 @@ export const syncManagedModelPricesFromModelsDev = internalAction({
       syncedAt,
     });
 
-    // Persist every resolved row before surfacing an incomplete catalog. A
-    // newly added model should not prevent unrelated current prices from
-    // refreshing for another 24-hour cron cycle.
     const upserted: { upserted: number } =
       entries.length > 0
         ? await ctx.runMutation(internal.billing.upsertManagedModelPrices, {
@@ -2321,18 +2262,6 @@ export const syncManagedModelPricesFromModelsDev = internalAction({
   },
 });
 
-/**
- * Public subscription/usage snapshot.
- *
- * `now` is optional. When omitted (e.g. callers that only need the plan
- * label), the query returns the usage figures **as stored** on the
- * `billing_usage_windows` row without recomputing window expiration. When
- * supplied, callers MUST bucket the value (e.g. floor to a minute) so
- * `useQuery` subscribers don't invalidate on every render — see
- * `projects/stella-website/src/app/billing/billing-client.tsx` for the
- * canonical pattern
- * (60-second `setInterval`).
- */
 export const getSubscriptionStatus = query({
   args: {
     now: v.optional(v.number()),
@@ -2379,9 +2308,6 @@ export const getSubscriptionStatus = query({
         .unique(),
     ]);
 
-    // Use the stored `updatedAt` as a deterministic fallback when the caller
-    // doesn't pass `now`. This keeps the query reactive on data changes
-    // while avoiding per-render `Date.now()` cache invalidation.
     const fallbackNow = args.now ?? usage?.updatedAt ?? profile?.updatedAt ?? 0;
     const normalizedProfile =
       profile ?? createDefaultProfile(ownerId, fallbackNow);
@@ -2464,9 +2390,7 @@ export const createCheckoutSession = action({
   args: {
     plan: paidPlanValidator,
     returnUrl: v.string(),
-    // Optional caller context. The mobile app sends source "ios" plus the
-    // StoreKit storefront country so the server can enforce the U.S.-only
-    // in-app purchase policy. Desktop/web omit both and are unaffected.
+
     source: v.optional(v.string()),
     appStoreCountry: v.optional(v.string()),
   },
@@ -2484,10 +2408,7 @@ export const createCheckoutSession = action({
     }
 
     const ownerId = identity.tokenIdentifier;
-    // iOS in-app purchase is offered only where the App Store storefront is
-    // the United States. The client gates its UI on StoreKit's storefront and
-    // attests it here; this is the server-side backstop that fails closed for
-    // any non-US or unknown storefront. Desktop/web callers omit `source`.
+
     const checkoutSource = args.source?.trim().toLowerCase() || "web";
     if (checkoutSource === "ios") {
       const appStoreCountry = args.appStoreCountry?.trim().toUpperCase();
@@ -2502,8 +2423,7 @@ export const createCheckoutSession = action({
         });
       }
     }
-    // Each call hits the live Stripe API (customer.create / checkout.create);
-    // tight cap protects both Stripe rate limits and our cost.
+
     await enforceActionRateLimit(
       ctx,
       "billing_create_checkout_session",
@@ -2556,16 +2476,6 @@ export const createCheckoutSession = action({
       });
     }
 
-    // Stripe-hosted Checkout: returns a `url` we open in the user's
-    // system browser. This avoids the awkward in-app embedding we
-    // experimented with — Stripe owns the entire payment surface, the
-    // user comes back to `/billing` once Stripe redirects to the
-    // success/cancel URL, and Stella's webhook updates the local plan.
-    //
-    // `managed_payments` is a preview feature that lets Stripe handle
-    // payment-method orchestration (saved methods, dynamic ordering,
-    // etc.) without us having to enumerate `payment_method_types`.
-    // The Stripe SDK's typings don't include it yet, hence the cast.
     const goFirstMonthCoupon =
       args.plan === "go" ? getStripeGoFirstMonthCouponId() : undefined;
 
@@ -2586,10 +2496,7 @@ export const createCheckoutSession = action({
       success_url: successUrl,
       cancel_url: cancelUrl,
       managed_payments: { enabled: true },
-      // Persist whatever Checkout collects back onto the Stripe Customer
-      // so subsequent subscription renewals — which run without an
-      // interactive Checkout — still have the address Managed Payments
-      // needs for correct tax determination.
+
       billing_address_collection: "auto",
       customer_update: { address: "auto", name: "auto" },
       metadata: {

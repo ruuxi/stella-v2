@@ -1,22 +1,3 @@
-/* ═══════════════════════════════════════════════════════════════════════
-   Plan & billing.
-
-   A purchase surface has one job: make the choice obvious and make the
-   product feel worth paying for. Three rules hold this file together,
-   and every value below answers to one of them.
-
-   1. ONE accent. Exactly one blue thing is on screen — the button you
-      are meant to press. Everything that used to compete with it (the
-      intro price, the meter fills) is neutral or subordinate to it.
-   2. ONE baseline grid. The three cards share row tracks via subgrid, so
-      name, price, tagline and CTA land on the same line across all
-      three columns however many features each card lists. A pricing
-      table that doesn't line up is three boxes.
-   3. NOTHING repeated. Anything the eye has already read is not shown
-      again — no percentage restating the bar it sits on, no second
-      container wrapping a grid of containers.
-   ═══════════════════════════════════════════════════════════════════════ */
-
 @keyframes billing-enter {
   from {
     opacity: 0;
@@ -29,13 +10,9 @@
 }
 
 .billing-panel {
-  /* Component-scoped tokens. The price is the one size on this surface
-     the global scale has no stop for: --font-size-2xl (20px) is barely
-     louder than a heading and --font-size-4xl (32px) overwhelms a 253px
-     card. 28px is where the number leads without shouting. */
+
   --billing-price-size: 28px;
-  /* Cards nest inside a --radius-2xl dialog, so they take the step
-     below it. Equal radii on nested surfaces read as an accident. */
+
   --billing-card-radius: var(--radius-xl);
 
   display: flex;
@@ -51,7 +28,6 @@
   animation: billing-enter 180ms ease-out both;
 }
 
-/* Full-route wrapper (the dialog and sidebar provide their own scroll). */
 .billing-screen-scroll {
   flex: 1;
   min-height: 0;
@@ -67,10 +43,6 @@
   text-transform: uppercase;
 }
 
-/* Screen-reader-only. Absolutely positioned, so it is out of flow and
-   never becomes a flex item in the price row that contains it. A
-   `<s>` element conveys nothing to assistive tech, so the struck-through
-   standard rate needs its meaning in words. */
 .billing-visually-hidden {
   position: absolute;
   width: 1px;
@@ -124,17 +96,6 @@
   line-height: 1.55;
 }
 
-/* ── Where you stand ─────────────────────────────────────────────────
-   A band, not a card. This used to be a bordered, filled box sitting on
-   top of a grid of bordered, filled boxes — two levels of container
-   competing before the user reached a single price. Stripped to a rule,
-   it leaves the plan grid as the only object on the surface, which is
-   what the user opened this dialog for. */
-
-/* No closing rule. The three meter tracks already draw a horizontal
-   terminus across the full width; a hairline 12px under them made four
-   stacked lines in a row, and the eye read the lot as one broken rule
-   rather than as three meters. The gap does the separating. */
 .billing-account {
   box-sizing: border-box;
   padding: 0 2px;
@@ -177,9 +138,6 @@
   margin-top: 12px;
 }
 
-/* A lifetime allowance is one meter, not three windows — let it take
-   the full width rather than sitting in a third of a grid built for a
-   trio of bars. */
 .billing-account-meters:has(> :only-child) {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -233,10 +191,6 @@
   overflow: hidden;
 }
 
-/* Neutral, not accent. These bars report a fact; they are not the thing
-   to press. Blue here is a second accent arguing with the CTA — and a
-   blue bar filling up reads as "good" when it means "you are nearly
-   out". Red at the limit is the only color this strip earns. */
 .billing-meter-fill {
   height: 100%;
   border-radius: inherit;
@@ -247,13 +201,6 @@
 .billing-meter-fill[data-full] {
   background: var(--destructive);
 }
-
-/* ── Plans ───────────────────────────────────────────────────────────
-   Subgrid keeps the plan name, price, tagline and CTA of all three
-   cards on shared baselines however many features each one lists — the
-   thing that separates a pricing table from three stacked boxes. The
-   feature list is the flexible track, so a shorter list leaves its slack
-   above the CTA rather than dragging the button up out of line. */
 
 .billing-plan-intro h1 {
   margin: 0;
@@ -296,18 +243,10 @@
   border-color: var(--border-strong);
 }
 
-/* Current: a firmer hairline, nothing more. You already own it — it
-   doesn't need selling, and tinting it would put a second colored
-   surface beside the one the user is meant to choose. */
 .billing-plan[data-active] {
   border-color: var(--border-strong);
 }
 
-/* Recommended: three quiet signals instead of one loud one — an accent
-   hairline, a 4% wash of the accent through the card, and a soft lift
-   off the surface. Each is nearly subliminal alone; together the eye
-   lands here first without anything raising its voice. The filled CTA
-   finishes the sentence. */
 .billing-plan[data-recommended] {
   border-color: color-mix(in oklch, var(--primary) 42%, transparent);
   background: color-mix(in oklch, var(--primary) 4%, var(--surface-raised));
@@ -326,9 +265,6 @@
   min-height: 18px;
 }
 
-/* The plan name is a column header, not a headline — the price is the
-   headline. Small, tracked-out and weak, it labels the column and then
-   gets out of the way. */
 .billing-plan-name {
   color: var(--text-weak);
   font-size: var(--font-size-2xs);
@@ -379,8 +315,7 @@
   font-size: var(--billing-price-size);
   font-weight: var(--weight-semibold);
   line-height: 1;
-  /* Large type needs tighter tracking than small type to hold the same
-     optical density — the global -0.01em reads loose at 28px. */
+
   letter-spacing: -0.035em;
   font-variant-numeric: tabular-nums;
 }
@@ -390,10 +325,6 @@
   font-size: var(--font-size-sm);
 }
 
-/* The standard rate, struck through beside the price actually charged.
-   Achromatic on purpose: a discount marked in blue would be a second
-   accent arguing with the only control on this surface that should be
-   filled. The strike plus the weaker weight already say "was". */
 .billing-plan-list-price {
   color: var(--text-weaker);
   font-size: var(--font-size-base);
@@ -402,9 +333,6 @@
   text-decoration-thickness: 1px;
 }
 
-/* What the card bills on renewal. Directly under the price, never
-   further away — this line is the other half of the offer, not a
-   footnote to it. */
 .billing-plan-terms {
   color: var(--text-weak);
   font-size: var(--font-size-xs);
@@ -418,8 +346,6 @@
   line-height: 1.45;
 }
 
-/* The rule under the tagline turns "some words, then some rows" into
-   "the pitch, then the spec sheet". */
 .billing-plan-features {
   display: flex;
   flex-direction: column;
@@ -430,9 +356,6 @@
   list-style: none;
 }
 
-/* Every row is something the plan includes, so every row reads at one
-   strength. A card simply runs shorter than the one beside it when it
-   includes less. */
 .billing-plan-features li {
   display: grid;
   grid-template-columns: 13px minmax(0, 1fr);
@@ -453,20 +376,12 @@
   margin-top: 12px;
 }
 
-/* A disabled current-plan CTA shouldn't read as "broken button" — it is a
-   status line that happens to occupy the button slot. */
 .billing-plan[data-active] .billing-plan-cta.pill-btn:disabled {
   opacity: 1;
   border-style: dashed;
   border-color: var(--border-base);
   color: var(--text-weaker);
 }
-
-/* ── Extra usage credit ──────────────────────────────────────────────
-   One instrument on one line: presets, amount, action, read left to
-   right as a single sentence. It used to be a row of outlined pills,
-   then a full-width field, then a button — three stacked controls for
-   one number, tall enough on its own to push the dialog into a scroll. */
 
 .billing-credit {
   box-sizing: border-box;
@@ -529,21 +444,6 @@
   flex-wrap: wrap;
 }
 
-/* Amount segments. The selected one uses the app's canonical quiet
-   "you are here" recipe -- the same `--select-surface-*` pair the
-   sidebar tab rail uses -- rather than a hand-rolled recessed-track and
-   raised-thumb pair.
-
-   The hand-rolled version was wrong in dark. A track painted as
-   `foreground @ 7%` always moves TOWARD the foreground: darker than the
-   surface in light (a recess, correct) but LIGHTER than it in dark (a
-   ridge). The thumb, painted with the opaque `--surface-raised`, then
-   sat darker than its own track -- the selected segment read as a hole
-   and the empty track as the raised part, exactly inverted. index.css
-   warns about this on `--select-fill`: alpha tints composite against
-   whatever sits behind them, so one value becomes a different material
-   on every surface and in every theme. The `--select-surface-*` pair is
-   built to carry both themes and already ships in the tab rail. */
 .billing-credit-presets {
   display: inline-flex;
   align-items: center;
@@ -553,8 +453,7 @@
 .billing-credit-preset {
   min-height: 28px;
   padding: 0 13px;
-  /* Transparent on unselected segments so gaining the selected border
-     never shifts the row by a pixel. */
+
   border: 1px solid transparent;
   border-radius: var(--radius-full);
   background: transparent;
@@ -629,7 +528,6 @@
   margin-left: auto;
 }
 
-/* Narrow embeddings (sidebar panel): stack everything. */
 @container (max-width: 620px) {
   .billing-account-meters {
     grid-template-columns: minmax(0, 1fr);
@@ -652,8 +550,6 @@
     margin-left: 0;
   }
 
-  /* Once the head wraps, the balance is no longer opposite anything —
-     right-aligning it would leave it floating against nothing. */
   .billing-credit-balance {
     align-items: flex-start;
   }

@@ -1,13 +1,3 @@
-/**
- * Shared CSS color parsing utility.
- *
- * Converts any CSS color string (hex, rgb, oklch, named colors, etc.)
- * to numeric RGB values. Uses regex fast paths for hex/rgb and falls
- * back to a cached canvas for complex formats like oklch.
- */
-
-// ---- Internal helpers ----
-
 function clampByte(value: number): number {
   return Math.max(0, Math.min(255, Math.round(value)));
 }
@@ -73,7 +63,6 @@ function parseRgbColor(color: string): Uint8ClampedArray | null {
   return new Uint8ClampedArray([r, g, b, parseAlphaToken(parts[3])]);
 }
 
-// Cached canvas context — allocated once, reused for all calls.
 let _colorCtx: CanvasRenderingContext2D | null | undefined;
 
 function getColorCtx(): CanvasRenderingContext2D | null {
@@ -89,10 +78,6 @@ function getColorCtx(): CanvasRenderingContext2D | null {
   return _colorCtx;
 }
 
-/**
- * Parse any CSS color string to RGBA bytes.
- * Tries hex/rgb regex first, falls back to canvas for oklch etc.
- */
 function sampleColor(color: string): Uint8ClampedArray {
   const parsed = parseHexColor(color) ?? parseRgbColor(color);
   if (parsed) return parsed;
@@ -111,15 +96,11 @@ function sampleColor(color: string): Uint8ClampedArray {
   }
 }
 
-// ---- Public API ----
-
-/** CSS color string → [r, g, b] in 0–255 range. */
 export function cssToRgb(color: string): [number, number, number] {
   const d = sampleColor(color);
   return [d[0], d[1], d[2]];
 }
 
-/** CSS color string → [r, g, b] in 0–1 range (for WebGL uniforms). */
 export function cssToVec3(color: string): [number, number, number] {
   const d = sampleColor(color);
   return [d[0] / 255, d[1] / 255, d[2] / 255];

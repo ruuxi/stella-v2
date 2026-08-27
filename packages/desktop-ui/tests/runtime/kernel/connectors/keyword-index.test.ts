@@ -58,7 +58,7 @@ const fakeCatalog: NativeConnectorCatalogEntry[] = [
   composioEntry("googlecalendar", "Google Calendar"),
   composioEntry("notion", "Notion"),
   composioEntry("slack", "Slack"),
-  // Generic single-word name: must not become a standalone keyword.
+
   composioEntry("docs", "Docs"),
 ];
 
@@ -102,8 +102,7 @@ describe("buildConnectorKeywordIndex + matchConnectorsInMessage", () => {
   });
 
   it("keeps generic words out of the derived keyword set", () => {
-    // "docs" is stoplisted as a derived keyword; with no googledocs in this
-    // catalog the docs synonym has no valid target either.
+
     expect(
       matchConnectorsInMessage(index, "read the docs for this library"),
     ).toEqual([]);
@@ -132,7 +131,6 @@ describe("getConnectorKeywordIndex (catalog cache sync)", () => {
       ),
     ).toContain("linear");
 
-    // New catalog fetch lands on disk → the index picks it up.
     await new Promise((resolve) => setTimeout(resolve, 2));
     await writeCachedServerCatalog(root, [
       composioEntry("linear", "Linear"),

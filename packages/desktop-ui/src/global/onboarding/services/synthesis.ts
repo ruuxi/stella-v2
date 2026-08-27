@@ -1,10 +1,3 @@
-/**
- * Core Memory Synthesis Service
- *
- * Delegates synthesis through Electron host IPC so onboarding orchestration
- * stays host-coordinated while the backend still owns the actual model work.
- */
-
 import { getSynthesisPromptConfig } from "@/prompts";
 import type { DiscoveryCategory } from "@stella/contracts/discovery";
 import type {

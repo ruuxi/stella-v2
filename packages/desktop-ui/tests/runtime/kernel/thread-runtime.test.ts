@@ -358,13 +358,11 @@ describe("latest user instruction pinning (bounded)", () => {
     const messages = buildThread("Follow-up task\n\nNow do the next thing");
     const plan = splitThreadMessagesForCompaction(messages, 1, 100, 1);
 
-    // The tail cut is decided purely by the token budget — the middle still
-    // swallows the follow-up (no unbounded tail-shift back to it).
     expect(plan).toMatchObject({
       fromEntryId: "mid-1",
       toEntryId: "mid-2",
     });
-    // ...but the plan carries the follow-up for verbatim pinning.
+
     expect(plan?.latestUserMessage?.entryId).toBe("follow-up");
   });
 
@@ -431,9 +429,7 @@ describe("latest user instruction pinning (bounded)", () => {
   });
 
   it("keeps the tail bounded when the latest user message is buried deep in a huge middle", () => {
-    // ~40 x 10k chars ≈ 100k estimated tokens of middle after the buried
-    // instruction. The old (rejected) design would have kept all of it
-    // verbatim; the bounded design summarizes it and pins one capped copy.
+
     const messages = [
       {
         entryId: "spawn",
@@ -470,8 +466,7 @@ describe("latest user instruction pinning (bounded)", () => {
     );
 
     expect(plan?.latestUserMessage?.entryId).toBe("buried-instruction");
-    // Boundedness proof at the plan level: the verbatim tail obeys the token
-    // budget instead of stretching back ~100k tokens to the instruction.
+
     const middleEntryIds = plan!.middleMessages.map((m) => m.entryId);
     const tailStart = messages.findIndex(
       (m) => m.entryId === plan!.toEntryId,
@@ -519,8 +514,7 @@ describe("latest user instruction pinning (bounded)", () => {
     expect(plan?.middleMessages.map((m) => m.entryId)).not.toContain(
       "checkpoint-1::pinned-instruction",
     );
-    // The stale pinned copy is still the thread's latest user message, so it
-    // is carried forward across the new checkpoint.
+
     expect(plan?.latestUserMessage?.entryId).toBe(
       "checkpoint-1::pinned-instruction",
     );
@@ -611,8 +605,6 @@ describe("compaction head protection by agent role", () => {
       1,
     );
 
-    // Compaction starts at the first user turn — the bootstrap docs (b1, b2)
-    // are never swept into the summarized middle.
     expect(plan?.fromEntryId).toBe("u1");
     expect(plan?.middleMessages.map((message) => message.entryId)).not.toContain(
       "b1",
@@ -900,5 +892,4 @@ describe("role-specific compaction policy", () => {
     ).toEqual(["new-user", "new-work"]);
   });
 });
-
 

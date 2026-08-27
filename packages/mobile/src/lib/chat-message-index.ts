@@ -9,21 +9,6 @@ import {
   type RecallHit,
 } from "./chat-recall";
 
-/**
- * SQLite FTS5-backed message index for the offline chat's recall tool.
- *
- * The recall search moved off the in-memory transcript scan onto a real
- * on-device SQLite database with an FTS5 full-text index over the chat's own
- * messages. Messages are mirrored into `messages` as they are persisted, an
- * external-content FTS5 table (`messages_fts`) is kept in sync by triggers, and
- * the `recall` tool runs bm25-ranked MATCH queries against it. On first run the
- * existing AsyncStorage transcript is backfilled once so past messages are
- * searchable.
- *
- * The key/value memory (remember/forget) and checkpoint compaction stay on
- * AsyncStorage — only the search layer is SQLite-backed.
- */
-
 const DB_NAME = "stella-chat-index.db";
 
 const SCHEMA_SQL = `
@@ -70,13 +55,6 @@ function getDb(): Promise<SQLite.SQLiteDatabase> {
   return dbPromise;
 }
 
-/**
- * Serialize DB writes. The mount-time backfill and the debounced mirror both
- * open `withTransactionAsync` on the shared connection near mount; expo-sqlite
- * does not queue transactions, so two overlapping BEGINs would throw. Chaining
- * every write through a single promise guarantees one transaction runs at a
- * time. The chain is kept alive across individual failures.
- */
 let writeQueue: Promise<unknown> = Promise.resolve();
 
 function enqueueWrite<T>(work: () => Promise<T>): Promise<T> {
@@ -88,11 +66,6 @@ function enqueueWrite<T>(work: () => Promise<T>): Promise<T> {
   return run;
 }
 
-/**
- * Upsert messages into the index. Only rows whose text/role actually changed
- * touch the FTS index (the conflict WHERE guard skips no-op rewrites, so
- * streaming the same reply many times doesn't re-index on every chunk).
- */
 export async function indexMessages(messages: ChatMessage[]): Promise<void> {
   const rows = messages.filter(
     (message) => typeof message.text === "string" && message.text.trim().length > 0,
@@ -120,20 +93,12 @@ export async function indexMessages(messages: ChatMessage[]): Promise<void> {
       }),
     );
   } catch {
-    // Best-effort mirror: a failed index write (e.g. a transient SQLite error)
-    // just leaves those rows unsearchable until the next persist re-attempts
-    // them. Swallow rather than surface an unhandled rejection — the debounced
-    // mirror fires this as a floating promise.
+
   }
 }
 
 let backfilled = false;
 
-/**
- * Open the DB and, on first run, backfill the existing AsyncStorage transcript
- * into the index once so history predating the SQLite index is searchable.
- * Idempotent and safe to call on every mount.
- */
 export async function initMessageIndex(): Promise<void> {
   const db = await getDb();
   if (backfilled) return;
@@ -146,21 +111,17 @@ export async function initMessageIndex(): Promise<void> {
     const existing = await loadChatMessages("cloud");
     if (existing.length > 0) await indexMessages(existing);
   } catch {
-    // Best-effort backfill; allow a retry on the next mount.
+
     backfilled = false;
   }
 }
 
 export type RecallSearchOptions = {
   limit?: number;
-  /** Message ids to skip (e.g. the in-flight turn's own rows). */
+
   excludeIds?: Set<string>;
 };
 
-/**
- * FTS5-ranked full-text search over the chat's own indexed messages. Returns
- * bm25-ordered hits, honouring `excludeIds` and a bounded `limit`.
- */
 export async function searchMessages(
   query: string,
   options: RecallSearchOptions = {},
@@ -169,7 +130,7 @@ export async function searchMessages(
   if (!match) return [];
   const limit = options.limit ?? DEFAULT_RECALL_LIMIT;
   const exclude = options.excludeIds;
-  // Over-fetch so excludeIds filtering can't starve the result set.
+
   const fetchLimit = limit + (exclude ? exclude.size : 0);
   const db = await getDb();
   let rows: (MessageRow & { rank: number })[] = [];
@@ -197,7 +158,6 @@ export async function searchMessages(
   return hits;
 }
 
-/** Test/maintenance helper: wipe the index (content + FTS stay in sync). */
 export async function clearMessageIndex(): Promise<void> {
   const db = await getDb();
   await enqueueWrite(() => db.execAsync("DELETE FROM messages;"));

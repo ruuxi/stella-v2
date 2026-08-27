@@ -1,26 +1,9 @@
-/**
- * User-authored system prompt presets.
- *
- * Stella's shipped prompts live in the app bundle and are never written to,
- * so they always update with the app. A user preset is a separate, standalone
- * file that *replaces* the shipped prompt wholesale for one agent when
- * selected — the two never share a file, so an update can't clobber a preset
- * and a preset can't stale-freeze the default.
- *
- *   ~/.stella/prompts/<agent>/<slug>.md    preset body (optional `name:` frontmatter)
- *   preferences.json → promptPresetSelections: { orchestrator: "<slug>" }
- *
- * Selecting `default` (or deleting the selected preset) falls straight back to
- * the bundled prompt.
- */
-
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import { extractFrontmatter } from "../frontmatter.js";
 import { ensurePrivateDir } from "../shared/private-fs.js";
 
-/** Agents whose prompt a user may replace. */
 export const CUSTOMIZABLE_PROMPT_AGENT_IDS = [
   "orchestrator",
   "general",
@@ -47,10 +30,6 @@ export const isCustomizablePromptAgentId = (
   typeof value === "string" &&
   (CUSTOMIZABLE_PROMPT_AGENT_IDS as readonly string[]).includes(value);
 
-/**
- * The orchestrator's two working-mode variants share one selection: a user
- * writing "my Stella prompt" means it for whichever mode is active.
- */
 export const promptSelectionAgentId = (
   agentType: string,
 ): CustomizablePromptAgentId | null => {
@@ -61,8 +40,7 @@ export const promptSelectionAgentId = (
 export const slugifyPresetName = (name: string): string => {
   const slug = name
     .normalize("NFKD")
-    // Drop the combining marks NFKD split off, so "Über" slugs to "uber"
-    // rather than "u-ber".
+
     .replace(/\p{M}+/gu, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
@@ -82,7 +60,6 @@ const presetPath = (
   id: string,
 ): string => path.join(presetsDir(stellaDataDir, agentId), `${id}.md`);
 
-/** Rejects ids that could escape the presets directory. */
 const isSafePresetId = (id: string): boolean =>
   /^[a-z0-9][a-z0-9-]{0,63}$/.test(id) && id !== DEFAULT_PROMPT_PRESET_ID;
 
@@ -148,10 +125,6 @@ export type SavePromptPresetResult =
   | { ok: true; preset: PromptPresetSummary }
   | { ok: false; error: string };
 
-/**
- * Create or update a preset. Omit `id` to create one from `name`, uniquifying
- * the slug so a new preset never silently overwrites an existing one.
- */
 export const savePromptPreset = async (
   stellaDataDir: string,
   args: {

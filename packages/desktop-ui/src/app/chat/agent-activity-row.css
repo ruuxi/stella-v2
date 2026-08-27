@@ -1,15 +1,3 @@
-/* ============================================================
-   Minimal in-chat agent activity rows — the chrome-less treatment for
-   spawned-agent work in the chat transcript. No card surface, no border,
-   no colored badges, no provider icons: a single line of text with a
-   leading slot that doubles as the status tell (static star while the
-   title shimmer carries the running motion, a quiet grey check once done,
-   an arrow for `send_input` follow-ups) and a trailing chevron as the
-   click-through affordance. Shared by BackgroundWorkCard and
-   AgentCompletionCard.
-   ============================================================ */
-
-/* Several completions at one timeline slot stack as sibling rows. */
 .agent-activity-group {
   display: flex;
   flex-direction: column;
@@ -49,10 +37,6 @@
   box-shadow: var(--focus-ring);
 }
 
-/* The status glyph (star / check / arrow) renders at FULL strength — solid
-   strong ink, no opacity dimming. Only the description text keeps the muted
-   / shimmer treatment; a translucent grey glyph was too ghostly to read as
-   the row's status tell. */
 .agent-activity-row__glyph {
   display: inline-flex;
   align-items: center;
@@ -67,16 +51,10 @@
   display: block;
 }
 
-/* Muted by default — one step up from the weakest ink so the description
-   stays comfortably readable while still reading as secondary to main-chat
-   body text. Matches the running shimmer's resting base
-   (`--text-shimmer-from: --text-base`) so settled and running rows agree;
-   settled rows lift to full strength on hover. */
 .agent-activity-row__title {
   min-width: 0;
   flex: 0 1 auto;
-  /* One type step above the row's 13px base — the description is the row's
-     whole content, so it earns the emphasized-body size. */
+
   font-size: var(--font-size-md);
   font-weight: var(--weight-medium);
   color: var(--text-base);
@@ -91,15 +69,6 @@
   color: var(--text-strong);
 }
 
-/* The running-state title shimmer clips to the same single line as the
-   plain title so a long description ellipses instead of overflowing.
-
-   Polarity is INVERTED from the TextShimmer default: the resting text sits
-   dimmed but comfortably legible (`--text-shimmer-from` = the standard body
-   ink, a step below full strength) and the moving band lights it up to full
-   strength (`--text-shimmer-via` = --text-strong) — light sweeping across
-   dim text, not a shadow crossing bright text. Under reduced motion the
-   sweep never renders, leaving just the dimmed base. */
 .agent-activity-row__title .text-shimmer {
   --text-shimmer-from: var(--text-base);
   --text-shimmer-via: var(--text-strong);
@@ -110,10 +79,6 @@
   white-space: nowrap;
 }
 
-/* Stronger highlight: hold the sweep's mask near-opaque across most of its
-   window (soft shoulders only at the edges) so the bright wave is an
-   obvious lift, not a thin glint. Same window geometry as the base
-   TextShimmer (width/keyframes untouched) — only the mask profile widens. */
 .agent-activity-row__title .text-shimmer__sweep {
   -webkit-mask-image: linear-gradient(
     90deg,
@@ -152,11 +117,6 @@
   transform: translateX(1px);
 }
 
-/* ── Produced-file chips under a completed row ──
-   No card surface: a strip of pill-shaped chips sits directly beneath the
-   description line, indented to the title's left edge (glyph 16px + 8px
-   gap). Cap + "+N more" expand/collapse behave exactly like the old
-   completion card; only the chrome is gone and the chips are true pills. */
 .agent-activity-files {
   display: flex;
   flex-direction: column;
@@ -172,20 +132,15 @@
   gap: 6px;
 }
 
-/* Individual file chip: icon + filename open target with a compact "+"
-   affordance for the "open in other ways" menu. Pill-shaped, hairline. */
 .agent-activity-files__pill {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   max-width: 100%;
-  /* Balanced for the chrome-less chevron trigger: its own 2px padding plus
-     this side padding keeps comfortable air inside the pill. */
+
   padding: 2px 4px;
   border-radius: 999px;
-  /* Outline strength tracks the label ink: clearly visible (the old
-     panel-surface hairline all but disappeared on the chat background) but
-     one step below the `--text-base` label so it never outshines it. */
+
   border: 1px solid var(--text-weaker);
   background: color-mix(in oklch, var(--foreground) 3%, transparent);
   transition:
@@ -240,9 +195,6 @@
   text-overflow: ellipsis;
 }
 
-/* Overflow region past the pill cap — animated open/close via the
-   grid-template-rows 0fr -> 1fr technique (no JS measurement; stays
-   correct when the strip re-wraps on width changes). */
 .agent-activity-files__overflow {
   display: grid;
   grid-template-rows: 0fr;
@@ -301,8 +253,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* TextShimmer already stills its sweep; quiet the hover nudge and the
-     file-strip expand/collapse motion too. */
+
   .agent-activity-row:hover .agent-activity-row__chevron,
   .agent-activity-row:focus-visible .agent-activity-row__chevron {
     transform: none;

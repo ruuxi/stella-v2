@@ -1,16 +1,4 @@
 #!/usr/bin/env bash
-# Safe OTA publish ritual. Born from the 2026-07-02 boot-crash postmortem:
-# `eas update` was run from a DIRTY working tree, so the bundle labeled
-# `cc5808e` actually contained a mid-refactor ChatPane referencing an
-# unimported <ActivityTray/> — ReferenceError on first render, instant
-# release-mode crash on every launch of builds 95/96.
-#
-# This script refuses dirty trees, exports locally, proves (via the Hermes
-# sourcemap's sourcesContent) that the bundle matches HEAD byte-for-byte,
-# and only then publishes with the real commit stamped in the message.
-#
-# Usage: scripts/publish-ota.sh <channel> [platform]
-#   e.g. scripts/publish-ota.sh preview ios
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -31,8 +19,6 @@ if [[ -n "$(git status --porcelain)" ]]; then
   exit 1
 fi
 
-# The export bakes EXPO_PUBLIC_* in at bundle time; a missing env produced
-# the first broken OTA of 2026-07-02. Expo CLI auto-loads .env.local.
 if [[ ! -f .env.local ]] && [[ -z "${EXPO_PUBLIC_CONVEX_URL:-}" ]]; then
   echo "REFUSING to publish: no .env.local and EXPO_PUBLIC_CONVEX_URL unset." >&2
   exit 1
@@ -49,7 +35,6 @@ echo "Verifying exported bundle matches git HEAD..."
 bun scripts/verify-ota-export.ts HEAD
 
 echo "Publishing ${PLATFORM} to channel '${CHANNEL}' as: ${SHA} ${SUBJECT}"
-# Channels here (development/preview/production) map 1:1 to the default EAS
-# environments; --environment is mandatory in --non-interactive mode.
+
 bunx eas-cli update --channel "${CHANNEL}" --environment "${CHANNEL}" \
   --platform "${PLATFORM}" --message "${SHA} ${SUBJECT}" --non-interactive

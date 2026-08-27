@@ -18,12 +18,7 @@ export const _listStaleAnonymousOwnerIds = internalQuery({
     cutoffMs: v.number(),
   },
   handler: async (ctx, args) => {
-    // Only pass isAnonymous in the where clause so the adapter's findIndex
-    // matches the isAnonymous_updatedAt index prefix. The updatedAt range
-    // filter is applied below; this works around a bug in
-    // @convex-dev/better-auth <=0.10.10 where findIndex prepends "_" to
-    // bound fields in compound lookups, turning "updatedAt" into
-    // "_updatedAt" and missing the index.
+
     const result: PaginatedResult = await ctx.runQuery(
       components.betterAuth.adapter.findMany,
       {
@@ -59,8 +54,7 @@ export const purgeStaleAnonymousData = internalAction({
       );
 
       for (const userId of batch.ownerIds) {
-        // App tables key `ownerId` by the Convex tokenIdentifier
-        // (`${issuer}|${betterAuthUserId}`), not the raw Better Auth user id.
+
         await ctx.scheduler.runAfter(
           0,
           internal.account_deletion.purgeOwnerCloudData,

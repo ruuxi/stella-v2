@@ -16,9 +16,7 @@ const stellaComputerStateRoot = () =>
   path.join(resolveStatePath(), "stella-computer");
 
 const sessionsDir = (root: string) => path.join(root, "sessions");
-// Pre-socket-relocation layout; swept so sockets left behind by older builds
-// don't linger. Current sockets live under ~/.stella/computer-sockets (see
-// runtime/kernel/computer-use/automation-socket-paths.ts).
+
 const legacySocketsDir = (root: string) => path.join(root, "daemon-sockets");
 
 const readPidFile = (filePath: string): number | null => {
@@ -38,9 +36,7 @@ const isProcessAlive = (pid: number): boolean => {
     return true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EPERM") {
-      // Process exists but we can't signal it; treat as alive so we
-      // still attempt SIGTERM (which may still be permitted) and let
-      // the kill fail loudly if not.
+
       return true;
     }
     return false;
@@ -105,22 +101,6 @@ const findOrphanedDesktopAutomationPids = (): number[] => {
   }
 };
 
-// Stops every long-lived stella-computer daemon. macOS stores
-// `desktop_automation` pids under
-// `<stateDir>/stella-computer/sessions/<id>/automation.pid` plus sockets under
-// `~/.stella/computer-sockets/<sha>.sock` (home-anchored so the path stays
-// inside the 104-byte macOS Unix-socket cap); Windows stores
-// `stella-computer-helper.exe` pids under
-// `~/.stella/stella-computer/sessions/<id>/windows-daemon/helper.pid`.
-// We SIGTERM the pids, give them a moment to exit cleanly, then SIGKILL
-// anything that didn't, and finally clean up pid/socket state so the next
-// boot doesn't trip over stale entries.
-//
-// The reason this matters: macOS does not reload an executable under a
-// running process. If you rebuild `desktop_automation` and a daemon is
-// already alive, the old code stays mapped in. Killing on quit means
-// the next Stella launch always spawns a fresh daemon from the
-// on-disk binary.
 export const stopAllDesktopAutomationDaemons = async (): Promise<void> => {
   const root = stellaComputerStateRoot();
   const sessions = sessionsDir(root);
@@ -176,18 +156,13 @@ export const stopAllDesktopAutomationDaemons = async (): Promise<void> => {
     }
   }
 
-  // Drop the pidfiles + per-session sockets so the next launch never
-  // mistakes a dead pid for a live daemon.
   for (const pidFile of pidFiles) {
     rmSync(pidFile, { force: true });
     if (path.basename(path.dirname(pidFile)) === "windows-daemon") {
       rmSync(path.dirname(pidFile), { recursive: true, force: true });
     }
   }
-  // The shared ~/.stella/computer-sockets dir also holds other installs'
-  // sockets, so only remove the ones this install's sessions map to (the
-  // filename hash covers state dir + session id). Orphans are aged out by
-  // the runtime's own pruning.
+
   for (const name of sessionNames) {
     rmSync(resolveAutomationSocketPath(root, name), { force: true });
   }

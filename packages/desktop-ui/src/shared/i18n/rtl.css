@@ -1,47 +1,19 @@
-/*
- * Right-to-left adjustments. Applied globally when `<html dir="rtl">`
- * is set by the I18n provider for Arabic and Hebrew.
- *
- * This is a baseline pass — it covers the most-visible direction-
- * sensitive surfaces (top-bar nav, settings, onboarding) so RTL
- * renders usably out of the gate. A full visual QA pass is still
- * planned.
- *
- * Approach:
- *   - Flip `text-align: left/right` to logical `start/end`.
- *   - Mirror absolute `left`/`right` offsets via inset properties.
- *   - Flip directional icons (back arrows, chevrons, sliders) with
- *     `transform: scaleX(-1)` so SVG glyphs face the right way.
- *
- * Keep this file small and focused. Anything that needs a per-locale
- * override beyond a simple flip should live with the component.
- */
-
 [dir="rtl"] .shell-topbar-nav-item,
 [dir="rtl"] .shell-topbar-account-signin {
   text-align: start;
 }
 
 [dir="rtl"] .shell-topbar-nav-badge {
-  /* The unread badge is anchored top-right of its icon. In RTL the
-   * icon column visually flips to the right edge, so the badge needs
-   * to live at top-left of the same box. */
+
   right: auto;
   left: -6px;
 }
 
-/* Onboarding's prev/next chevron buttons are positioned glyphs
- * (`<path d="M15 18l-6-6 6-6"/>`). The icon meaning ("go back") is
- * semantically tied to direction, not to the literal arrow shape.
- * Flip the SVG so the arrow points the correct way under RTL. */
 [dir="rtl"] .onboarding-phase-nav-btn--prev svg,
 [dir="rtl"] .onboarding-phase-nav-btn--next svg {
   transform: scaleX(-1);
 }
 
-/* Settings panel rows also use `text-align: left` for the row label
- * column — convert to logical start so RTL labels align to the
- * (visually) right edge of the row. */
 [dir="rtl"] .settings-row-info,
 [dir="rtl"] .settings-card-desc,
 [dir="rtl"] .onboarding-discovery-row {

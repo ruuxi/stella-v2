@@ -1,7 +1,3 @@
-/* ============================================
-   Connect dialog — hero copy + tagline
-   ============================================ */
-
 .connect-hero-section {
   position: relative;
   z-index: 1;
@@ -45,11 +41,6 @@
   height: 118px;
 }
 
-/* ============================================
-   ConnectDialog — card grid + detail area
-   Surfaces align with shell sidebar + home (glass, nav rows, dashboard cards)
-   ============================================ */
-
 [data-slot="dialog-content"].connect-dialog {
   --connect-dialog-pad-x: 24px;
   background: var(--panel-glass-bg);
@@ -68,7 +59,6 @@
   border-bottom: 1px solid var(--border-weak);
 }
 
-/* Taller modal footprint; grid + detail share the same body box (overrides data-fit auto height) */
 [data-component="dialog"][data-fit]:has([data-slot="dialog-content"].connect-dialog)
   [data-slot="dialog-container"] {
   --dialog-width: 500px;
@@ -76,7 +66,6 @@
   min-height: min(calc(100vh - 16px), 640px);
 }
 
-/* Phone pairing (QR + code) needs more vertical room than OAuth detail views */
 [data-component="dialog"][data-fit]:has(
     [data-slot="dialog-content"].connect-dialog[data-phone-detail]
   )
@@ -85,7 +74,6 @@
   min-height: min(calc(100vh - 16px), 700px);
 }
 
-/* Body fills space below header; main pane stays one size when switching views */
 .connect-dialog [data-slot="dialog-body"] {
   flex: 1;
   min-height: 0;
@@ -157,7 +145,6 @@
   overflow: hidden;
 }
 
-/* Section title — matches .sidebar-nav-section-label */
 .connect-section-title {
   margin: 0;
   padding: 0;
@@ -172,8 +159,6 @@
   margin-top: 8px;
 }
 
-/* Featured row — home .dashboard-card family. Elevated card treatment so it
-   reads as the primary interactive option above the integrations list. */
 .connect-grid-card--wide {
   width: 100%;
   margin-bottom: 0;
@@ -218,7 +203,6 @@
   height: 20px;
 }
 
-/* Title + subtitle stack — body font so the row reads as a control, not a heading */
 .connect-grid-card--wide .connect-grid-card-text {
   flex: 1;
   min-width: 0;
@@ -249,7 +233,6 @@
   white-space: normal;
 }
 
-/* Right-side chevron affordance — brightens on hover like sidebar row icons */
 .connect-grid-card--wide .connect-grid-card-chevron {
   flex-shrink: 0;
   color: var(--text-weak);
@@ -261,14 +244,12 @@
   transform: translateX(2px);
 }
 
-/* Integration list — sidebar .sidebar-nav-item family */
 .connect-grid {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-/* Grid card — sidebar .sidebar-nav-item family */
 .connect-grid-card {
   display: flex;
   align-items: center;
@@ -314,7 +295,6 @@
   color: var(--text-strong);
 }
 
-/* Card icon — sidebar icon size */
 .connect-grid-card-icon {
   display: flex;
   align-items: center;
@@ -340,7 +320,6 @@
   height: 20px;
 }
 
-/* Card name */
 .connect-grid-card:not(.connect-grid-card--wide) .connect-grid-card-name {
   flex: 1;
   font-size: inherit;
@@ -352,7 +331,6 @@
   text-align: left;
 }
 
-/* Connected indicator — vertical glow line on right edge */
 .connect-grid-card-badge {
   position: absolute;
   top: 6px;
@@ -369,7 +347,6 @@
   background: var(--success);
 }
 
-/* Back button — .sidebar-icon-button family */
 .connect-back-button {
   display: flex;
   align-items: center;
@@ -399,7 +376,6 @@
   box-shadow: var(--focus-ring);
 }
 
-/* Full view — replaces grid when a provider is selected */
 .connect-full-view {
   flex: 1;
   min-height: 0;
@@ -457,11 +433,6 @@
   min-height: 140px;
 }
 
-/* ============================================
-   Shared styles (retained from original)
-   ============================================ */
-
-/* Bot link */
 .connect-bot-link {
   display: inline-flex;
   align-items: center;
@@ -497,7 +468,6 @@
   color: var(--success);
 }
 
-/* Skeleton loading */
 .connect-skeleton {
   border-radius: var(--radius-md, 6px);
   background: linear-gradient(
@@ -521,7 +491,6 @@
   border-radius: var(--radius-md, 10px);
 }
 
-/* Error state */
 .connect-error {
   font-size: var(--font-size-sm);
   color: var(--destructive);
@@ -530,7 +499,6 @@
   border-radius: var(--radius-md, 6px);
 }
 
-/* Phone number + code entry forms */
 .connect-phone-form {
   display: flex;
   align-items: center;
@@ -614,7 +582,6 @@
   text-align: center;
 }
 
-/* Phone pairing — centered layout filling the detail card */
 .connect-pair-centered {
   display: flex;
   flex-direction: column;
@@ -830,7 +797,6 @@
   color: var(--text-base);
 }
 
-/* Upsize buttons and links inside the connect detail views */
 .connect-full-view [data-component="button"] {
   height: 40px;
   padding: 0 20px;

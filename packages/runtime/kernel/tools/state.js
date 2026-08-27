@@ -1,6 +1,3 @@
-/**
- * State tools: spawn_agent / pause_agent / send_input / agent_status handlers.
- */
 import { deriveRuntimeThreadLiveState, formatRuntimeThreadAge, runtimeThreadLastActiveAt, } from "../runtime-threads.js";
 import { AGENT_PAUSE_CANCEL_REASON } from "../agents/local-agent-manager.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
@@ -16,7 +13,7 @@ const toOptionalString = (value) => {
 const logWorkingIndicatorTrace = (label, payload) => {
     process.stderr.write(`${JSON.stringify({ label, ...payload })}\n`);
 };
-/** Engine ids accepted in spawn_agent's `model` parameter. */
+
 const SPAWN_ENGINE_IDS = {
     codex: "codex_cli",
     "claude-code": "claude_code_local",
@@ -39,26 +36,12 @@ const splitSpawnReasoningSuffix = (raw) => {
     return { model, suffix };
 };
 const invalidSpawnReasoningSuffix = (suffix) => new Error(`Invalid spawn_agent model reasoning suffix ":${suffix}". Expected one of :low, :medium, :high, or :xhigh; open-ended gateway references keep colons verbatim.`);
-/**
- * Parses spawn_agent's optional `model` parameter:
- *
- *   - omitted / `default`            → the user's configured setup, untouched
- *   - `stella`                        → Stella's in-process engine
- *   - `codex` / `claude-code`        → that engine with its configured model
- *   - `codex/<m>` / `claude-code/<m>`→ that engine with `<m>` pinned
- *   - anything else                  → plain model reference, resolved through
- *                                      the normal model-routing path
- *
- * Closed known forms may end in `:low`, `:medium`, `:high`, or `:xhigh`.
- * Open-ended provider model identifiers preserve colons verbatim.
- */
+
 export const parseSpawnAgentModel = (value, canResolveModel = () => false) => {
     const raw = toOptionalString(value);
     if (!raw)
         return { kind: "default" };
-    // Registered full model references win over suffix interpretation.
-    // This preserves legitimate ids such as `...:thinking`, `...:free`, and
-    // even a future registered model whose id literally ends in `:high`.
+
     const fullReferenceIsModel = isRegisteredModelReference(raw) || isOpenEndedModelReference(raw);
     const suffixParts = splitSpawnReasoningSuffix(raw);
     let modelReference = raw;
@@ -93,8 +76,7 @@ export const parseSpawnAgentModel = (value, canResolveModel = () => false) => {
         };
     }
     const slash = modelReference.indexOf("/");
-    // Engine ids are matched case-insensitively so `Codex/gpt-x` selects the
-    // engine instead of falling through to a confusing route error.
+
     const head = (slash === -1 ? modelReference : modelReference.slice(0, slash)).toLowerCase();
     const engine = SPAWN_ENGINE_IDS[head];
     if (engine) {
@@ -115,9 +97,7 @@ const buildOtherThreadsResult = (threads, currentThreadId) => threads
     .filter((thread) => thread.threadId !== currentThreadId)
     .map((thread) => ({
     thread_id: thread.threadId,
-    // Live execution state from the same runtime signal as the "# Other
-    // Threads" roster: "active" = executing a turn now, "paused" = idle
-    // but resumable via send_input.
+
     status: deriveRuntimeThreadLiveState(thread),
     last_active: formatRuntimeThreadAge(runtimeThreadLastActiveAt(thread)),
     ...(thread.description ? { description: thread.description } : {}),
@@ -163,7 +143,7 @@ export const handleSendInput = async (ctx, args, context) => {
     };
 
 };
-/** Codex engine id whose transcripts carry reasoning summaries, not text. */
+
 const CODEX_ENGINE_ID = "codex_cli";
 const AGENT_STATUS_MESSAGE_LIMIT = 4;
 const AGENT_STATUS_TEXT_CHARS = 2_000;
@@ -182,12 +162,7 @@ const joinAssistantBlocks = (blocks, type, field) => blocks
     : [])
     .join("\n\n")
     .trim();
-/**
- * Read-only `agent_status` handler. Projects a durable-thread snapshot into
- * the live status, the last few assistant messages (reasoning summaries for
- * Codex-engine threads), and the most recent tool CALL — never a tool result,
- * and never any delivery into the target thread.
- */
+
 export const handleAgentStatus = async (ctx, args) => {
     const threadId = toOptionalString(args.thread_id);
     if (!threadId) {
@@ -200,9 +175,7 @@ export const handleAgentStatus = async (ctx, args) => {
     if (!snapshot) {
         return { error: `Thread not found: ${threadId}` };
     }
-    // Codex surfaces reasoning summaries as its visible narration; native
-    // engines author plain text blocks. Chronological walk keeps "latest
-    // tool call" honest even if the store returns rows out of order.
+
     const isCodex = snapshot.engine === CODEX_ENGINE_ID;
     const ordered = [...snapshot.messages].sort((a, b) => a.timestamp - b.timestamp);
     const assistantMessages = [];
@@ -245,7 +218,7 @@ export const handleAgentStatus = async (ctx, args) => {
     return {
         result: {
             thread_id: threadId,
-            // Same live signal as the "# Other Threads" roster.
+
             status: snapshot.status,
             ...(snapshot.statusLabel && snapshot.statusLabel !== snapshot.status
                 ? { status_detail: snapshot.statusLabel }
@@ -265,11 +238,7 @@ export const handleSpawnAgent = async (ctx, args, context) => {
     const action = toOptionalString(args.action)?.toLowerCase();
     const explicitThreadId = toOptionalString(args.thread_id);
     if ((action === "cancel" || action === "stop") && explicitThreadId) {
-        // Pin the cancel reason to a sentinel so the runner can recognize
-        // orchestrator-initiated pause_agent and skip the hidden `[Task canceled]`
-        // follow-up turn — that follow-up was clobbering the user-facing reply
-        // because it produced an empty assistant message that overwrote the
-        // orchestrator's actual response to the pause request.
+
         if (ctx.agentApi) {
             const canceled = await ctx.agentApi.cancelAgent(explicitThreadId, AGENT_PAUSE_CANCEL_REASON);
             if (!canceled.canceled) {
@@ -298,9 +267,7 @@ export const handleSpawnAgent = async (ctx, args, context) => {
         };
     }
     const agentType = AGENT_IDS.GENERAL;
-    // The root orchestrator has no thread identity of its own, so this resolves
-    // to undefined there and the spawn is top-level. A General parent always has
-    // one, which is what makes its children route back to it instead of root.
+
     const parentAgentId = toOptionalString(context.agentId);
     const storageMode = context.storageMode ?? "local";
     const parentAgentDepth = Math.max(0, context.agentDepth ?? 0);
@@ -312,8 +279,7 @@ export const handleSpawnAgent = async (ctx, args, context) => {
             error: "Only the orchestrator or a General agent can create tasks.",
         };
     }
-    // agent_type was removed with the custom-agent-types story; error loudly
-    // instead of silently ignoring a stale argument.
+
     if (toOptionalString(args.agent_type)) {
         return {
             error: "agent_type has been removed from spawn_agent. Every spawn runs the general agent; use the optional `model` parameter to pick a model or engine instead.",
@@ -342,9 +308,7 @@ export const handleSpawnAgent = async (ctx, args, context) => {
         return { error: error.message };
     }
     if (modelSelection.kind === "model") {
-        // Fail the spawn loudly on an unroutable model — never silently fall
-        // back to the configured default. A host without a validator can't
-        // honor the override, which is also a loud failure, not a fallback.
+
         if (!ctx.validateSpawnModel && !ctx.validateSpawnModelWithMetadata) {
             return {
                 error: `Cannot honor model "${modelSelection.model}": model routing is not available in this runtime. Omit the model parameter to use the configured default.`,
@@ -443,8 +407,7 @@ export const handleSpawnAgent = async (ctx, args, context) => {
             });
         }
         catch (error) {
-            // Group member caps and thread-resolution failures surface as tool
-            // errors the model can act on, not as runner-level crashes.
+
             return { error: error.message };
         }
         const otherThreads = context.agentType === AGENT_IDS.ORCHESTRATOR && created.activeThreads
@@ -455,7 +418,7 @@ export const handleSpawnAgent = async (ctx, args, context) => {
                 status: "spawned_running_in_background",
                 thread_id: created.threadId,
                 note: "The agent is now working in the background and has NOT finished. Do not describe the task as if it never started, and do not call send_input to check on it — wait for the [Agent completed] event. In this turn, reply to the user with at most one short line, or say nothing.",
-                // Back-compat booleans (kept after status/note so they can't read as "done").
+
                 created: true,
                 running_in_background: true,
                 follow_up_on_completion: true,
@@ -464,7 +427,7 @@ export const handleSpawnAgent = async (ctx, args, context) => {
         };
 
     }
-    // Fallback local in-memory task behavior (used only when no task manager is wired).
+
     const id = String(ctx.tasks.size + 1);
     const record = {
         id,
@@ -488,7 +451,7 @@ export const handleSpawnAgent = async (ctx, args, context) => {
             status: "spawned_running_in_background",
             thread_id: id,
             note: "The agent is now working in the background and has NOT finished. Do not describe the task as if it never started, and do not call send_input to check on it — wait for the [Agent completed] event. In this turn, reply to the user with at most one short line, or say nothing.",
-            // Back-compat booleans (kept after status/note so they can't read as "done").
+
             created: true,
             running_in_background: true,
             follow_up_on_completion: true,

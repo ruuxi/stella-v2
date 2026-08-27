@@ -11,10 +11,6 @@ if (!configuredConvexUrl) {
   );
 }
 
-// A missing public deployment URL must not prevent the local packaged shell,
-// Bun runtime, settings, or first-run flow from mounting. Connected release
-// builds still supply VITE_CONVEX_URL; this loopback target only keeps the
-// provider inert for local packaging milestones and offline source builds.
 export const convexClient = new ConvexReactClient(
   configuredConvexUrl ?? "http://127.0.0.1:3210",
 );

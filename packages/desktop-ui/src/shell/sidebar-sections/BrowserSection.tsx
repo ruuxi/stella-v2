@@ -154,18 +154,9 @@ const boundsKey = (layout: BrowserLayout) =>
   `${layout.pageBounds.x},${layout.pageBounds.y},${layout.pageBounds.width},${layout.pageBounds.height}|` +
   `${layout.surfaceBounds.x},${layout.surfaceBounds.y},${layout.surfaceBounds.width},${layout.surfaceBounds.height}`;
 
-/* How long to keep re-reading the rects after something disturbs the
-   layout, and how many identical frames end the watch. Sized for the
-   panel's 460ms open/close ease (`.right-sidebar` in right-sidebar.css)
-   with headroom for a slow frame. */
 const LAYOUT_SETTLE_MS = 900;
 const LAYOUT_SETTLE_FRAMES = 3;
 
-/* WebContentsView is composited above the renderer, so any part of it that
-   overlaps the DOM resize handle wins hit-testing. Keep the native page clear
-   of the handle's full hit target; the browser chrome remains renderer-owned
-   and does not need this inset. Keep this in sync with
-   `.right-sidebar__resize-handle` in right-sidebar.css. */
 const SIDEBAR_RESIZE_HANDLE_WIDTH = 12;
 
 const browserPageBounds = (rect: DOMRect): BrowserBounds => {
@@ -444,7 +435,7 @@ export function BrowserSection() {
           );
         }
       } catch {
-        // Keep the product default when preferences are unavailable.
+
       } finally {
         if (!disposed) setAssistantWorkingModeLoaded(true);
       }
@@ -527,26 +518,6 @@ export function BrowserSection() {
       return;
     }
 
-    /*
-     * The page rect has to be watched for MOVEment, not just resize.
-     *
-     * The panel opens by easing `.right-sidebar`'s width 0 → N with
-     * `overflow: hidden`, while the inner frame keeps a fixed width — a
-     * clip-reveal (see right-sidebar-panel.css). Because the aside is
-     * `margin-left: auto` in a flex row, the inner frame's *size never
-     * changes* during that 460ms; only its x slides leftward into place.
-     *
-     * ResizeObserver reports size, not position, so it stays silent for
-     * the whole animation. Syncing once on the opening frame therefore
-     * pinned the WebContentsView to the frame's mid-animation x — far to
-     * the right of where the panel finally lands — and nothing ever
-     * corrected it. That's the "content pushed to the right" you only see
-     * after a close/reopen (selecting the tab while the panel is already
-     * open never animates).
-     *
-     * So: after anything disturbs the layout, keep re-reading the rects
-     * each frame until they hold still, and push only real changes.
-     */
     let frame = 0;
     let settleDeadline = 0;
     let stableFrames = 0;
@@ -579,8 +550,6 @@ export function BrowserSection() {
         }
       }
 
-      // A collapsed rect means the panel hasn't opened far enough to
-      // measure yet — keep watching rather than counting it as settled.
       if (
         (collapsed || stableFrames < LAYOUT_SETTLE_FRAMES) &&
         performance.now() < settleDeadline
@@ -605,12 +574,7 @@ export function BrowserSection() {
     observer?.observe(surface);
     observer?.observe(page);
     window.addEventListener("resize", watchLayout);
-    /* The width ease is the common case and the settle window above
-       already covers it, but a transition that starts later (expand
-       toggle, breakpoint swap) moves the frame after we've stopped
-       watching. Bind on the animating ancestor itself — `transitionend`
-       bubbles up from descendants, never down from an ancestor, so a
-       listener on `surface` would never hear the panel's own ease. */
+
     const panel = surface.closest(".right-sidebar");
     panel?.addEventListener("transitionend", watchLayout);
     watchLayout();

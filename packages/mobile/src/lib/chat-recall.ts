@@ -1,30 +1,16 @@
 import type { ChatMessage } from "../types";
 
-/**
- * Pure helpers behind the offline chat's message recall — a simplified analog
- * of the desktop's Recall tool. The desktop Recall searches across many
- * threads, agents, and machine state; the mobile offline chat is a single
- * continuous thread with no threads or agents, so recall only ever needs to
- * full-text search the chat's OWN prior messages.
- *
- * The actual search is backed by SQLite FTS5 (see `chat-message-index.ts`);
- * this module holds the native-free pieces — query tokenization, the FTS5
- * MATCH expression builder, row -> hit mapping, and result formatting — so they
- * stay unit-testable without loading the native SQLite module.
- */
-
 export type RecallHit = {
   id: string;
   role: ChatMessage["role"];
   text: string;
-  /** A short excerpt centered on the first matched term. */
+
   snippet: string;
   createdAt: number | undefined;
-  /** Relevance score (higher is better); derived from FTS5 bm25. */
+
   score: number;
 };
 
-/** A raw row joined out of the SQLite messages table. */
 export type MessageRow = {
   id: string;
   role: string;
@@ -35,7 +21,6 @@ export type MessageRow = {
 const SNIPPET_RADIUS = 90;
 export const DEFAULT_RECALL_LIMIT = 8;
 
-/** Lowercase word tokens (letters/digits), 2+ chars, deduped, order kept. */
 export const tokenize = (input: string): string[] => {
   const matches = input.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu);
   if (!matches) return [];
@@ -49,12 +34,6 @@ export const tokenize = (input: string): string[] => {
   return out;
 };
 
-/**
- * Build an FTS5 MATCH expression from a free-text query. Each token is quoted
- * as a string literal (so query text can never inject FTS5 operators) and the
- * tokens are OR-joined — any term may match, and bm25 ranks multi-term hits
- * higher. Returns null when the query has no usable terms.
- */
 export const buildFtsMatchQuery = (query: string): string | null => {
   const terms = tokenize(query);
   if (terms.length === 0) return null;
@@ -84,10 +63,6 @@ const buildSnippet = (text: string, terms: string[]): string => {
 const normalizeRole = (role: string): ChatMessage["role"] =>
   role === "user" ? "user" : "assistant";
 
-/**
- * Map a matched SQLite row to a RecallHit. `bm25Rank` is FTS5's bm25 score
- * (lower is better), negated into a higher-is-better `score`.
- */
 export const rowToHit = (
   row: MessageRow,
   query: string,
@@ -104,7 +79,6 @@ export const rowToHit = (
   score: Number.isFinite(bm25Rank) ? -bm25Rank : 0,
 });
 
-/** Render recall hits as the tool-result text the model reads to continue. */
 export function formatRecallResults(hits: RecallHit[], query: string): string {
   if (hits.length === 0) {
     return `No earlier messages matched "${query}".`;

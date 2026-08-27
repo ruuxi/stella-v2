@@ -34,7 +34,5 @@ export const cronPayloadValidator = v.union(
 );
 
 export const schedulingSchema = {
-  // Scheduling moved to the local runtime. Keep validators exported so any
-  // transitional modules can reuse the same shapes without reintroducing
-  // backend persistence tables.
+
 };

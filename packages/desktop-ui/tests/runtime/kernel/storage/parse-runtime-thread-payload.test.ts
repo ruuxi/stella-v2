@@ -12,10 +12,7 @@ const VALID_USAGE = {
 
 describe("parseRuntimeThreadPayload", () => {
   it("preserves unknown fields on an assistant message round trip", () => {
-    // Simulates a future addition to AssistantMessage (e.g. cacheControl,
-    // reasoningContent, modelMetadata) landing in storage before
-    // parseRuntimeThreadPayload knows about it. The unknown field must ride
-    // through unchanged instead of being silently dropped on read.
+
     const stored = JSON.stringify({
       role: "assistant",
       content: [{ type: "text", text: "hi" }],
@@ -99,7 +96,7 @@ describe("parseRuntimeThreadPayload", () => {
     expect(parseRuntimeThreadPayload(null)).toBeUndefined();
     expect(parseRuntimeThreadPayload("not json")).toBeUndefined();
     expect(parseRuntimeThreadPayload("[]")).toBeUndefined();
-    // Wrong-typed required field must still fail validation.
+
     expect(
       parseRuntimeThreadPayload(
         JSON.stringify({
@@ -109,13 +106,13 @@ describe("parseRuntimeThreadPayload", () => {
         }),
       ),
     ).toBeUndefined();
-    // Missing required field must still fail validation even with extras.
+
     expect(
       parseRuntimeThreadPayload(
         JSON.stringify({
           role: "assistant",
           content: [{ type: "text", text: "x" }],
-          // Missing usage / api / provider / model / stopReason / timestamp.
+
           unknownExtra: "ignored",
         }),
       ),

@@ -24,11 +24,6 @@ function escapeControlCharacter(char: string): string {
   }
 }
 
-/**
- * Repairs malformed JSON string literals by:
- * - escaping raw control characters inside strings
- * - doubling backslashes before invalid escape characters
- */
 export function repairJson(json: string): string {
   let repaired = "";
   let inString = false;

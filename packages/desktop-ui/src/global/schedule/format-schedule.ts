@@ -1,18 +1,3 @@
-/**
- * Small helpers for rendering schedule rows without leaking the underlying
- * cron / heartbeat shape into the UI.
- *
- * Two axes:
- *   - `formatNextRun(nextRunAtMs, nowMs)` — short right-aligned badge text
- *     for "when does this fire next" (`in 2h`, `tomorrow 9:00`, `Mon 9:00`,
- *     `Apr 14`, `now`, `due`).
- *   - `summarizeSchedule(schedule, intervalMs?)` — natural-language summary
- *     of a cron schedule definition or a heartbeat interval (`Every 30 min`,
- *     `Daily 9:00`, `Mon–Fri 9:00`, `Once at Apr 14, 9:00`). Best-effort:
- *     falls back to the raw cron expression when the pattern is too custom
- *     to summarize cheaply.
- */
-
 import type { LocalCronSchedule } from "@stella/contracts/scheduling";
 
 const MINUTE_MS = 60_000;
@@ -31,11 +16,6 @@ const padTime = (h: number, m: number): string => {
   return `${hh}:${mm}`;
 };
 
-/**
- * 12-hour clock with `AM`/`PM` suffix used by the Up next badges in the
- * Chat home overview. Always includes minutes (`9:00 AM`, `9:30 AM`).
- * Hour `0` renders as `12 AM`; hour `12` renders as `12 PM`.
- */
 const formatClock12 = (h: number, m: number): string => {
   const period = h >= 12 ? "PM" : "AM";
   const displayHour = h % 12 === 0 ? 12 : h % 12;
@@ -47,7 +27,6 @@ const isSameCalendarDay = (a: Date, b: Date): boolean =>
   a.getMonth() === b.getMonth() &&
   a.getDate() === b.getDate();
 
-/** Right-aligned next-run badge, e.g. `in 2h` or `Mon 9:00`. */
 export const formatNextRun = (nextRunAtMs: number, nowMs: number): string => {
   if (!Number.isFinite(nextRunAtMs)) return "";
   const delta = nextRunAtMs - nowMs;
@@ -108,7 +87,7 @@ const parseClockTimeFromCron = (
 
 const summarizeCron = (expr: string): string => {
   const parts = expr.trim().split(/\s+/);
-  // Accept both 5-field (m h dom mon dow) and 6-field (s m h dom mon dow) forms.
+
   const fields = parts.length === 6 ? parts.slice(1) : parts;
   if (fields.length !== 5) return expr;
   const [minute, hour, dom, mon, dow] = fields;
@@ -149,10 +128,6 @@ const summarizeCron = (expr: string): string => {
   return expr;
 };
 
-/**
- * Natural-language one-liner for a schedule shape. Pass `intervalMs` for
- * heartbeats (which don't have a `LocalCronSchedule` — they're "every N ms").
- */
 export const summarizeSchedule = (
   schedule: LocalCronSchedule | null | undefined,
   intervalMs?: number,

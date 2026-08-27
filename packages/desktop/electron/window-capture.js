@@ -8,15 +8,9 @@ import { requestWindowInfoDaemon } from './native-helper-daemon.js';
 import { hasMacPermission } from './utils/macos-permissions.js';
 const WINDOW_INFO_HELPER = 'window_info';
 export const STELLA_CAPTURE_EXCLUDED_TITLE_PREFIXES = ['Stella Overlay'];
-// Coalesce read-only "window at point" probes. The capture window-highlight
-// preview can fire many near-identical point queries in quick succession; on Windows each one is a `CreateProcess`, so a
-// short TTL + in-flight dedup collapses a burst into a single spawn. The window
-// under a screen point is stable over this window, so the staleness is benign.
+
 const WINDOW_INFO_POINT_CACHE_MS = 200;
-// Cap the dedupe cache: it's keyed per cursor pixel, so without a bound it
-// grows one entry per unique coordinate forever. The entry only backs a 200ms
-// dedupe window, so a tiny cap is plenty; we evict oldest-inserted on overflow
-// (Map preserves insertion order) so the live 200ms set is always retained.
+
 const WINDOW_INFO_POINT_CACHE_MAX = 256;
 const windowInfoPointCache = new Map();
 const windowInfoPointInFlight = new Map();
@@ -39,12 +33,7 @@ const parseWindowInfoJson = (stdout) => {
         return null;
     }
 };
-/**
- * Resolve the topmost window at a point, preferring the persistent
- * `window_info --serve` daemon (a pipe write, no process spawn) and falling
- * back to a one-shot spawn when the daemon is unavailable. The daemon client
- * self-gates by platform, so callers don't branch on `process.platform`.
- */
+
 const resolveWindowInfoAtPoint = async (x, y, options) => {
     const tokens = [String(x), String(y), ...exclusionArgs(options)];
     const daemonResponse = await requestWindowInfoDaemon(tokens);
@@ -88,9 +77,7 @@ export const getWindowInfoAtPoint = (x, y, options) => {
     if (cached && cached.expiresAt > now) {
         return Promise.resolve(cached.value);
     }
-    // Evict on expiry rather than leaving the stale entry in the Map; otherwise
-    // a coordinate visited once keeps its entry forever even though the 200ms
-    // dedupe window is long gone.
+
     if (cached)
         windowInfoPointCache.delete(key);
     const inFlight = windowInfoPointInFlight.get(key);
@@ -105,9 +92,7 @@ export const getWindowInfoAtPoint = (x, y, options) => {
             expiresAt: Date.now() + WINDOW_INFO_POINT_CACHE_MS,
             value,
         });
-        // Bound total size: drop the oldest-inserted key (which is also the
-        // closest to expiry) so the cache can't grow without limit across a
-        // long session of cursor movement.
+
         if (windowInfoPointCache.size > WINDOW_INFO_POINT_CACHE_MAX) {
             const oldest = windowInfoPointCache.keys().next().value;
             if (oldest !== undefined)
@@ -191,13 +176,7 @@ const buildWindowCaptureFromShot = (data) => {
         axTree: null,
     };
 };
-/**
- * Windows window capture: ask the warm `--serve` daemon for a base64 JPEG
- * (one pipe write, no spawn, no temp file, no PNG double-encode), falling
- * back to a one-shot spawn when the daemon is unavailable. Both emit the same
- * JSON shape. Tokens select the target: `--shot x y` (window at point) or
- * `--shot --pid=N` (process's topmost window).
- */
+
 const runWindowShotWin32 = async (tokens) => {
     const daemonResponse = await requestWindowInfoDaemon(tokens);
     if (daemonResponse !== undefined) {
@@ -214,13 +193,7 @@ const runWindowShotWin32 = async (tokens) => {
     return buildWindowCaptureFromShot(safeParseJson(stdout));
 };
 const captureWindowScreenshotWin32 = (x, y, options) => runWindowShotWin32(shotTokens(x, y, options));
-/**
- * Capture a window screenshot. On Windows this uses the daemon/base64 fast
- * path (no temp file, JPEG); on macOS it uses the Swift helper's
- * `--screenshot=path` flag. Returns window info + image data URL, or null.
- * Captures a single window directly via PrintWindow (Windows) /
- * ScreenCaptureKit (macOS) — no desktopCapturer enumeration (~15ms vs 100-500ms).
- */
+
 export const captureWindowScreenshot = async (x, y, options) => {
     if (!hasMacPermission('screen'))
         return null;
@@ -232,14 +205,7 @@ export const captureWindowScreenshot = async (x, y, options) => {
     args.push(...exclusionArgs(options));
     return runWindowCapture(WINDOW_INFO_HELPER, args, tempPath);
 };
-/**
- * Windows-only native region capture: BitBlt a virtual-screen rectangle
- * (physical pixels) straight from the screen DC via the native helper,
- * returning a base64 JPEG. Far cheaper than capturing every display at full
- * resolution and cropping (Electron's desktopCapturer). Tries the warm daemon
- * first, then a one-shot spawn; returns null on any failure so the caller can
- * fall back to desktopCapturer. No-op (null) off Windows.
- */
+
 export const captureRegionScreenshotNative = async (x, y, width, height) => {
     if (process.platform !== 'win32')
         return null;
@@ -268,22 +234,7 @@ export const captureRegionScreenshotNative = async (x, y, width, height) => {
     };
 };
 const HOME_CAPTURE_HELPER = 'home_capture';
-/**
- * Capture the topmost window owned by `pid`. Used by the home suggestion
- * chip lazy-capture path: the chip attaches eagerly with metadata and we
- * patch in the screenshot when this resolves.
- *
- * macOS: backed by the dedicated `home_capture` helper (separate from
- * `desktop_automation` / `window_info`) because the home flow needs
- * different defaults: include off-Space windows in the search, skip the
- * point-based layer-0 filter, and use ScreenCaptureKit with
- * `onScreenWindowsOnly: false` so off-Space windows still capture.
- *
- * Windows: backed by `window_info --shot --pid=N` (PrintWindow against the
- * process's topmost alt-tab window), which works for occluded windows —
- * unlike the desktopCapturer name-match fallback, which mismatches most
- * title-only Windows sources and returns wallpaper for occluded windows.
- */
+
 export const captureWindowScreenshotByPid = async (pid, _options) => {
     if (!hasMacPermission('screen'))
         return null;
@@ -309,7 +260,7 @@ const runWindowCapture = async (helperName, args, tempPath) => {
             pngBuffer = await fs.readFile(tempPath);
         }
         catch {
-            // Screenshot file wasn't created (native capture failed); return null
+
             return null;
         }
         const image = nativeImage.createFromBuffer(pngBuffer);

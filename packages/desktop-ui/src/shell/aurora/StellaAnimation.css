@@ -25,9 +25,6 @@
   z-index: 2;
 }
 
-/* Aurora brand palette — the stella-website hero / OG-image ramp
- * (teal → cyan → violet → rose), sampled bottom→top of the orb. Themes
- * may override individual stops via the --stella-aurora-N properties. */
 .stella-animation-container .aurora-stop-1 {
   color: var(--stella-aurora-1, #0acc94);
 }
@@ -57,7 +54,6 @@
   pointer-events: none;
 }
 
-/* Subtle breathing — scale only, no opacity flicker */
 @keyframes breathing {
   0% {
     transform: scale(1);

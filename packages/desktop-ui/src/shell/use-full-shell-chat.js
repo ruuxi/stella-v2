@@ -20,11 +20,7 @@ import { forkLocalConversation, truncateLocalConversation, } from "@/features/ch
 import { composerDraftFromUserRow } from "@/app/chat/message-composer-restore";
 import { coerceAssistantWorkingMode, DEFAULT_ASSISTANT_WORKING_MODE, } from "@stella/contracts/local-preferences";
 const MAX_RETAINED_TAB_STATE = 20;
-/**
- * How long, after opening/switching into a conversation that lands at the
- * bottom, to keep re-pinning to the true end while late-rendering content
- * (agent cards, activity cards, images) settles and grows the scroll height.
- */
+
 const OPEN_BOTTOM_SETTLE_MS = 600;
 const setBoundedTabMemory = (memory, conversationId, value) => {
     memory.delete(conversationId);
@@ -37,12 +33,7 @@ const setBoundedTabMemory = (memory, conversationId, value) => {
     }
 };
 export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEnabled, navigateToConversation, }) {
-    // Message state + always-current mirror ref, synced at WRITE time. The
-    // dictate-and-submit commit is rAF-deferred and can fire before React
-    // flushes the render that carries the appended transcript — a ref synced in
-    // the render body would still hold the pre-transcript text at that point,
-    // so the send would go out empty (and silently no-op), leaving the
-    // transcript sitting in the composer unsent. See use-composer-message-state.
+
     const { message, setMessage, messageRef: latestMessageRef, } = useComposerMessageState();
     const [composerFocusRequestId, setComposerFocusRequestId] = useState(0);
     const { chatContext, setChatContext, selectedText, setSelectedText } = useCapturedChatContext();
@@ -101,11 +92,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         conversationId: activeConversationId,
         persistedMessages,
     });
-    // Visible chat timeline: SQLite-backed `persistedMessages` plus the
-    // synthetic overlays (optimistic users, in-memory streaming
-    // assistants, scheduler-pending) that drop off as their persisted
-    // counterparts land. Lives in its own hook so the overlay-
-    // composition concerns stay next to each other.
+
     const displayMessages = useConversationDisplayMessages({
         conversationId: activeConversationId,
         persistedMessages,
@@ -113,13 +100,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         streamingAssistants,
     });
     useTraceIpcListener(traceEnabled);
-    // Opt-in event trace consumes the union of activity + message + the
-    // per-turn tool events. The hook's internal `seenIds` set keeps it
-    // idempotent across re-runs, so we can rebuild the list cheaply on
-    // every tick without double-firing trace entries. Gated on `traceEnabled`
-    // (explicit opt-in) rather than `import.meta.env.DEV`, which is TRUE in
-    // Stella's dev-server-as-production build, so the array stays empty for
-    // real users.
+
     const traceEvents = useMemo(() => {
         if (!traceEnabled)
             return [];
@@ -142,9 +123,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         isStreaming,
         activeConversationId,
     });
-    // Focus the composer on mount and whenever the user navigates onto the
-    // chat route (covers both home content and the full chat surface), so
-    // the user can start typing without clicking first.
+
     useEffect(() => {
         if (!isOnChatRoute)
             return;
@@ -159,11 +138,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         sendContextlessMessage,
         sendAgentInputMessage,
     });
-    /**
-     * Scroll: backed by Legend List (web entry). The list owns scrolling
-     * and content geometry; the hook adapts list state into the surface
-     * UI concerns (at-bottom, custom thumb, scroll-to-bottom button).
-     */
+
     const { listRef, isAtBottom, isNearBottom, isFollowingLatest, isUserScrolling, noteManualScroll, getIsFollowing, getShouldPlaceLatestTurn, getIsEffectivelyAtBottom, showScrollButton, scrollToBottom, releaseFollow, nudgeAfterSend, nudgeQueuedMessagesIntoView, thumbRef, } = useChatScrollManagement({
         hasOlderEvents: hasOlderMessages,
         isLoadingOlder: isLoadingOlderMessages,
@@ -216,19 +191,13 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
             }
             else {
                 scrollToBottom("instant");
-                // Agent cards, activity cards, and images near the bottom can
-                // mount/settle a beat AFTER this initial pin, growing the scroll
-                // height so the "bottom" we just landed on is now above the real
-                // one — tab switches that land slightly above the true bottom.
-                // Keep re-pinning to the end through that post-open settling
-                // (until the height stops changing, a short window elapses, or
-                // the user takes over) so we always end at the actual bottom.
+
                 let lastHeight = element ? element.scrollHeight : 0;
                 const deadline = performance.now() + OPEN_BOTTOM_SETTLE_MS;
                 const settle = () => {
                     settleRaf = null;
                     const node = listRef.current?.getScrollableNode();
-                    // Bail once the user has scrolled away — never yank them back.
+
                     if (!node || !getIsFollowing())
                         return;
                     if (node.scrollHeight !== lastHeight) {
@@ -257,26 +226,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         scrollToBottom,
     ]);
     const handleSend = useCallback(async () => {
-        // The placement gate subtracts the synthetic response spacer before
-        // applying Codex's 300px near-bottom threshold. That keeps a visually
-        // bottomed short reply eligible without pulling deliberate scrollback
-        // forward.
-        //
-        // While a stream is already in flight, the send queues as a
-        // follow-up chip at the keyed tail of the event list (not yet a sent
-        // user row). The normal latest-user-row nudge is still skipped:
-        // it would fall through to the prior turn's user bubble and scroll
-        // *backwards* to re-frame it. The streaming branch below uses a
-        // footer-tail target instead.
-        // Frame the just-sent turn (place the new user message near the top,
-        // with the response spacer as the reading area below it) whenever the
-        // freshest turn is on screen — near/at bottom OR meaningfully scrolled
-        // up but still within the placement window. `getIsEffectivelyAtBottom`
-        // is distance-based (latch-independent), so a stray upward nudge near
-        // the bottom still frames-to-top rather than falling through to a plain
-        // scroll. Only a genuine read-history position (neither) stays put. The
-        // spacer is settled+frozen for the placement in the scroll hook, so the
-        // nudge target can't be yanked mid-animation.
+
         const shouldKeepTailFramed =
             showHomeContent || getIsEffectivelyAtBottom() || getShouldPlaceLatestTurn();
         const shouldNudgeAfterSend = !isStreaming && shouldKeepTailFramed;
@@ -310,19 +260,13 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         enterChatSurfaceForInteraction();
         resetIdleTimer();
         if (isStreaming) {
-            // Queued follow-up — no new user row lands in the event list.
-            // The streaming assistant row's own auto-follow keeps the reply
-            // framed, but repeated queued chips live below that row in the
-            // virtualized tail and can drift under the viewport without their own
-            // target.
+
             if (shouldKeepTailFramed) {
                 nudgeQueuedMessagesIntoView();
             }
         }
         else if (shouldNudgeAfterSend) {
-            // Places the newest user turn near the top of the readable area,
-            // above the (now settled) response spacer. The gentle loop keeps
-            // that reframe continuous with the assistant stream-follow.
+
             nudgeAfterSend();
         }
         else {
@@ -355,10 +299,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         conversationId: activeConversationId,
         requireConversationId: true,
     });
-    // Assistant working mode gates the Fork action: forking spawns a new
-    // conversation/tab, which only exists in the multi-tab (orchestrator-off)
-    // experience. In orchestrated mode there are no tabs, so Fork is omitted
-    // entirely (Rewind still shows). Mirrors the top bar's mode read.
+
     const [assistantWorkingMode, setAssistantWorkingMode] = useState(DEFAULT_ASSISTANT_WORKING_MODE);
     useEffect(() => {
         let disposed = false;
@@ -370,7 +311,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
                 }
             }
             catch {
-                // Keep the product default when preferences are unavailable.
+
             }
         };
         const handlePreferencesChanged = () => { void loadWorkingMode(); };
@@ -382,19 +323,12 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         };
     }, []);
     const isOrchestratedMode = assistantWorkingMode === "orchestrated";
-    // Per-conversation model selection: mirror the global model preferences
-    // to whichever conversation is active so each tab remembers its own
-    // engine/model/reasoning pick. Runs in both working modes — orchestrated
-    // still has a conversation strip / history replace, and the picker is
-    // the same global preference surface.
+
     useConversationModelSelection({
         activeConversationId,
         enabled: true,
     });
-    // Per-user-message quick actions (Fork / Rewind) exposed to the deeply
-    // nested action row. The callbacks are stable and read live state
-    // through this ref, so every user row can consume them without
-    // re-rendering as conversation state churns.
+
     const messageActionsStateRef = useRef(null);
     messageActionsStateRef.current = {
         activeConversationId,
@@ -405,11 +339,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         navigateToConversation,
         requestFocus: () => setComposerFocusRequestId((id) => id + 1),
     };
-    // Rewind: destructively truncate THIS conversation at the target user
-    // message (removing it and everything after), then load its text +
-    // attachments back into the same chat's composer. The action row is
-    // disabled while a turn is busy, so this never fires mid-stream; the
-    // guard below is belt-and-suspenders and never interrupts in-flight work.
+
     const rewindToUserMessage = useCallback((row) => {
         const state = messageActionsStateRef.current;
         if (!state)
@@ -434,9 +364,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
             state.requestFocus();
         })();
     }, []);
-    // Fork: non-destructively branch the history BEFORE the target user
-    // message into a brand-new conversation, drop the message into the new
-    // chat's composer, and navigate there. The original chat is untouched.
+
     const forkToNewConversation = useCallback((row) => {
         const state = messageActionsStateRef.current;
         if (!state)
@@ -446,8 +374,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         const conversationId = state.activeConversationId;
         if (!conversationId || !row?.id)
             return;
-        // Never mint a branch we can't navigate to — that would strand the
-        // user on the original chat with an orphan conversation in the store.
+
         if (!state.navigateToConversation)
             return;
         const draft = composerDraftFromUserRow(row);
@@ -462,10 +389,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
             }
             if (!newConversationId)
                 return;
-            // Open + navigate first so the destination tab exists, THEN seed
-            // its composer memory. The composer-restore effect reads this
-            // seed when `activeConversationId` flips to the fork on the next
-            // render, dropping the message + attachments into the new chat.
+
             state.navigateToConversation?.(newConversationId);
             setBoundedTabMemory(composerMemoryByConversationRef.current, newConversationId, {
                 message: draft.message,
@@ -474,13 +398,11 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
             });
         })();
     }, []);
-    // Fork is dropped entirely in orchestrated mode (no tabs to branch
-    // into); Rewind is always present, subject only to the busy disable.
+
     const messageActions = useMemo(() => (isOrchestratedMode
         ? { rewind: rewindToUserMessage }
         : { rewind: rewindToUserMessage, fork: forkToNewConversation }), [isOrchestratedMode, rewindToUserMessage, forkToNewConversation]);
-    // The single task list every activity surface renders: authoritative
-    // thread rows overlaid with live stream decoration. No event folding.
+
     const tasks = useMemo(() => buildActivityTasks(threadActivityRecords, taskDecorations), [threadActivityRecords, taskDecorations]);
     const chatColumnConversation = useMemo(() => ({
         conversationId: activeConversationId,
@@ -592,13 +514,7 @@ export function useFullShellChat({ activeConversationId, isOnChatRoute, traceEna
         scrollToBottom,
         thumbRef,
     ]);
-    // The visible message timeline (`displayMessages`) is the only field
-    // that changes whenever a provider chunk arrives while a reply streams. It is
-    // returned separately and published through `ChatMessagesContext` rather
-    // than folded into `runtime`, so the `runtime` value below keeps a stable
-    // identity across streamed chunks. That stops every `useChatRuntime()`
-    // consumer (shell chrome, left sidebar, mobile bridge) from re-rendering
-    // per chunk — only the timeline renderers subscribe to the message channel.
+
     const conversation = useMemo(() => ({
         ...chatColumnConversation,
         hasOlderMessages,

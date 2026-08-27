@@ -86,8 +86,7 @@ export class SecurityPolicyService {
           {
             version: SECURITY_POLICY_VERSION,
             approved: [...this.trustedPrivilegedActions].sort(),
-            // Per-app Computer Use consent is retired. Drop any remembered
-            // bundle approvals so stale state cannot prompt or deny later.
+
             computerUseAppApprovals: {},
           },
           null,
@@ -152,8 +151,7 @@ export class SecurityPolicyService {
   async ensureComputerUseAppApproval(
     request: ComputerUseAppApprovalRequest,
   ): Promise<ComputerUseAppApprovalResult> {
-    // Compatibility shim for older runtimes that still request per-app
-    // Computer Use consent. Chat-initiated use is already authorized.
+
     void request;
     return { decision: "approved", scope: "session" };
   }

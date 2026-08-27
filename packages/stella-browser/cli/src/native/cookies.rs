@@ -55,7 +55,7 @@ pub async fn set_cookies(
     let cookies: Vec<Value> = cookies
         .into_iter()
         .map(|mut c| {
-            // Auto-fill url if no domain/path/url provided
+
             if c.get("url").is_none() && c.get("domain").is_none() && current_url.is_some() {
                 c.as_object_mut().map(|m| {
                     m.insert(

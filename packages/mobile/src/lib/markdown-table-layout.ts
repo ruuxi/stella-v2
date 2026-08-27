@@ -68,10 +68,6 @@ export function estimateMarkdownTableColumnWidths(
   });
 }
 
-/**
- * Fill the viewport when a table is narrow, but preserve intrinsic column
- * widths when it is wide so the horizontal scroller has real overflow.
- */
 export function fitMarkdownTableColumnWidths(
   widths: number[],
   viewportWidth: number,

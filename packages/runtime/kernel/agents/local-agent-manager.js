@@ -1,30 +1,3 @@
-/**
- * LocalAgentManager
- *
- * Two layers stacked on top of each other for every subagent thread, easy to
- * conflate:
- *
- *   1. Conversation layer — `subagentSession`, keyed by durable `threadId`,
- *      holds the long-lived `Agent` + message array. Lives across many
- *      runs and is only disposed when the task reaches a real terminal
- *      state (see end of `executeTask`) or `cancelAgent` is called.
- *
- *   2. Run-loop layer — `executeTask` / `runSubagent`. Each call to
- *      `runSubagent` is one user-turn → assistant-resolution cycle: a
- *      user message goes in, the assistant streams + uses tools until it
- *      decides to stop, then `runSubagent` returns.
- *
- * What this file historically called a "restart" only happens at layer 2.
- * Layer 1 is untouched: the session's message array is preserved across
- * the re-entry, so the LLM sees `[system, original user, prior turns,
- * follow-up user]` — i.e. the same conversation continuing with a new
- * user turn. The cached prefix doesn't change, prompt cache is preserved.
- *
- * `send_input` steers a live native Pi agent at its next safe boundary. The
- * current provider response and any issued tools finish first, then the new
- * user message is appended and the same loop continues. If input lands before
- * a live Pi agent exists, it remains queued for the next natural turn.
- */
 import path from "path";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { AGENT_ORCHESTRATION_TOOL_NAMES } from "../tools/defs/task.js";
@@ -32,12 +5,7 @@ import { sanitizeForLogs, truncate } from "../tools/utils.js";
 import { getOrCreateSubagentSession, } from "../agent-runtime/subagent-session.js";
 const formatTaskUpdateStatusText = (text) => truncate(text.replace(/\s+/g, " ").trim(), 200);
 const fileRecordKey = (record) => `${record.kind.type}:${record.path}:${record.kind.type === "update" ? (record.kind.move_path ?? "") : ""}`;
-/**
- * Append-merge file records, deduped by `(kind, path, move_path)` — the same
- * identity the runner's per-run collectors use. First occurrence wins so a
- * banked record from an interrupted run keeps its original position when the
- * completing run re-reports the same write.
- */
+
 const mergeUniqueFileRecords = (existing, incoming) => {
     if (!incoming?.length)
         return existing;
@@ -217,9 +185,7 @@ const getFsLockKey = (toolName, args, context) => {
 const isSpawnAgentTool = (toolName) => toolName === "spawn_agent";
 export const AGENT_SHUTDOWN_CANCEL_REASON = "Canceled because Stella closed or restarted.";
 export const AGENT_ORPHANED_RESTART_CANCEL_REASON = "Canceled because Stella restarted before the agent finished.";
-// Sentinel set by the orchestrator's pause_agent tool so the runner
-// can suppress the hidden `[Task canceled]` follow-up turn that would
-// otherwise replace the user-facing reply with an empty silence.
+
 export const AGENT_PAUSE_CANCEL_REASON = "Paused by orchestrator.";
 export const DEFAULT_AGENT_ATTEMPT_TEARDOWN_TIMEOUT_MS = 5_000;
 export class LocalAgentManager {
@@ -233,49 +199,31 @@ export class LocalAgentManager {
     cancelCascadeInProgress = new Set();
     activeFsLocks = [];
     fsLockWaiters = [];
-    /**
-     * Long-lived per-task subagent sessions keyed by durable threadId (E2).
-     * Created lazily on first `executeTask` for a thread, reused across
-     * restart-on-input attempts within the same thread, disposed when the
-     * task reaches a terminal status. Paused tasks keep their session.
-     */
+
     subagentSessions = new Map();
     static MAX_QUEUE_MESSAGES = 32;
     static MAX_LOG_MESSAGES = 80;
     nextId = 0;
-    /**
-     * Threads whose durable rows were still `running` when this manager booted
-     * — i.e. the agent work interrupted by the previous shutdown/restart. The
-     * boot sweep below flips those rows, so this snapshot (captured before the
-     * flip) is the only surviving record of "what was in flight at shutdown".
-     * Consumed by the restart-with-continuation boot conversion.
-     */
+
     bootInterruptedThreads = [];
-    /** Crash-repair work excluded from the ordinary orphan-cancel sweep. */
+
     bootPendingBoundaryRecords = [];
-    /** Episode id the boot capture was authorized under (see opts). */
+
     bootInterruptionEpisodeId = null;
     constructor(opts) {
         this.opts = opts;
         this.defaultMaxConcurrent = Math.max(1, opts.maxConcurrent ?? 3);
         this.recoverOrCancelOrphanedPersistedAgents();
     }
-    /** Threads that were running at the previous shutdown (pre-sweep snapshot). */
+
     getBootInterruptedThreads() {
         return [...this.bootInterruptedThreads];
     }
-    /**
-     * Episode id the pre-flip capture was authorized under; null when the
-     * capture is unauthorized (no shutdown record / retained attempted one).
-     */
+
     getBootInterruptionEpisodeId() {
         return this.bootInterruptionEpisodeId;
     }
-    /**
-     * Repair crash windows that deliberately remain `running` on disk until
-     * their durable lifecycle boundary is complete. Called after the runner has
-     * installed this manager in shared state, so parent ownership routing works.
-     */
+
     repairInterruptedDescendantBoundaries() {
         const records = this.bootPendingBoundaryRecords.splice(0);
         for (const record of records) {
@@ -330,10 +278,7 @@ export class LocalAgentManager {
                 continue;
             const resumedTask = this.hydrateTaskFromRecord(record, "A subagent you started has finished. Review its newly persisted report in this thread and continue your task.", "Reviewing a subagent's report");
             resumedTask.rootRunId = record.rootRunId;
-            // This is an internal owner wake-up, not a new instruction from the
-            // root orchestrator. Keep the existing top-level task card in place;
-            // only the owner's eventual consolidated completion belongs in root
-            // chat.
+
             resumedTask.pendingStartAudience = "orchestrator-only";
             this.enqueueTask(resumedTask, true);
         }
@@ -353,19 +298,13 @@ export class LocalAgentManager {
             });
         }
         if (this.bootInterruptedThreads.length > 0) {
-            // Persist the snapshot BEFORE any row below is flipped: after the
-            // flip, this in-memory capture is the only remaining evidence of the
-            // interruption, and it dies with this process. The returned episode
-            // id binds the capture to the shutdown record present right now;
-            // conversion refuses the capture if the record changes underneath it.
-            // Best-effort — on failure the continuation degrades to requiring a
-            // successful interruption-state write on this same boot.
+
             try {
                 this.bootInterruptionEpisodeId =
                     this.opts.persistBootInterruptionSnapshot?.(this.getBootInterruptedThreads()) ?? null;
             }
             catch {
-                // Never let continuation bookkeeping break the boot sweep.
+
             }
         }
         for (const record of runningRecords) {
@@ -400,12 +339,7 @@ export class LocalAgentManager {
                     : {}),
                 updatedAt: now,
             });
-            // The runtime worker, not Electron's renderer/main process, owns agent
-            // execution. Persist the matching lifecycle transition here so every
-            // Activity consumer observes the real worker restart. Renderer code
-            // must not guess that an old `agent-started` event stopped merely
-            // because the desktop window restarted: the detached worker may still
-            // be running it.
+
             this.opts.onAgentEvent?.({
                 type: "agent-canceled",
                 conversationId: record.conversationId,
@@ -457,12 +391,7 @@ export class LocalAgentManager {
     buildTaskPrompt(task) {
         return this.formatTaskPrompt(task, this.consumeTaskMessages(task, "subagent"), "next-turn");
     }
-    /**
-     * Wake-up seam for blocking waiters. Purely a notification: waiters
-     * re-read the durable record and decide for themselves, so SQLite stays
-     * the only truth and a missed wakeup (e.g. a record rehydrated by
-     * another writer) is covered by the caller's fallback timeout.
-     */
+
     updateWaiters = new Map();
     notifyAgentUpdated(threadId) {
         const waiters = this.updateWaiters.get(threadId);
@@ -472,12 +401,7 @@ export class LocalAgentManager {
         for (const wake of waiters)
             wake();
     }
-    /**
-     * Resolve on the next persisted update for `threadId`, or after
-     * `timeoutMs` as a rehydration-safe fallback. Replaces fixed-interval
-     * completion polling: terminal transitions wake blocking callers
-     * immediately instead of on the next 250ms tick.
-     */
+
     waitForAgentUpdate(threadId, timeoutMs = 2_000) {
         return new Promise((resolve) => {
             let timer = null;
@@ -621,32 +545,19 @@ export class LocalAgentManager {
         return false;
     }
     shouldParkFinalForDescendants(task) {
-        // Native Codex/ChatGPT owns its parent/child completion protocol. Stella,
-        // Claude Code, and harnessed Codex share this manager boundary: a
-        // General's natural final is not root-facing until every descendant has
-        // reached a terminal state.
+
         return (task.status === "completed" &&
             task.agentType === AGENT_IDS.GENERAL &&
             (task.modelConfigSnapshot?.engine !== "codex_cli" ||
                 task.modelConfigSnapshot.subscriptionHarnessEnabled === true) &&
             this.hasActiveDescendants(task.threadId));
     }
-    /**
-     * Resolve the thread that owns a subagent's completion routing: its direct
-     * parent agent thread, or undefined when the agent was spawned by the root
-     * orchestrator (the only case that reaches root chat and notifies the user).
-     * Missing links and legacy cycles return null so an unattributable thread is
-     * never guessed into root chat.
-     */
+
     resolveOwningParentThread(threadId, parentAgentId) {
         const parent = parentAgentId ?? this.getAgentState(threadId)?.parentAgentId;
         if (!parent)
             return undefined;
-        // The direct parent owns routing, but the whole ancestry still has to be
-        // sane: legacy rows can contain multi-node cycles, and attributing a
-        // report inside one would route it to a thread that is also its own
-        // descendant. Walk to the root once and refuse anything that doesn't
-        // terminate.
+
         const visited = new Set([threadId]);
         let cursor = parent;
         while (cursor) {
@@ -676,9 +587,7 @@ export class LocalAgentManager {
             (persisted.attemptGeneration ?? 0) < task.attemptGeneration) {
             return;
         }
-        // The authoritative record, queues, and thread transcript now live in
-        // SQLite. Keeping the terminal task object would retain result/file
-        // payloads forever and makes this map grow with the lifetime chat.
+
         this.tasks.delete(task.threadId);
     }
     isActiveAgentState(task) {
@@ -723,8 +632,7 @@ export class LocalAgentManager {
         }
     }
     resetTaskForNextAttempt(task, prompt) {
-        // Invalidate any older executeTask still unwinding after an abort. It may
-        // finish later, but it no longer owns this thread's mutable state.
+
         task.attemptGeneration += 1;
         task.prompt = prompt;
         task.status = "pending";
@@ -745,8 +653,7 @@ export class LocalAgentManager {
         task.terminalEventEmitted = false;
         task.pendingStartStatusText = undefined;
         task.pendingStartAudience = undefined;
-        // Cleared here so a bare reset reads as a spawn; the follow-up callers
-        // (`sendAgentMessage` / `deliverFollowUpAsNextTurn`) re-set it right after.
+
         task.pendingStartIsFollowUp = undefined;
     }
     hydrateTaskFromRecord(record, prompt, statusText = prompt) {
@@ -783,13 +690,9 @@ export class LocalAgentManager {
             turnCount: 0,
             terminalEventEmitted: false,
             pendingStartStatusText: formatTaskUpdateStatusText(statusText),
-            // Resuming an evicted/persisted thread is always a `send_input`
-            // follow-up (this helper is only reached from that path).
+
             pendingStartIsFollowUp: true,
-            // A terminal record can be evicted while its canceled execution is
-            // still unwinding (or ignoring abort entirely). Rehydration is a new
-            // attempt boundary, just like resetTaskForNextAttempt: advance here
-            // so stale ownership is fenced before enqueueTask observes it.
+
             attemptGeneration: Number.isFinite(record.attemptGeneration)
                 ? Math.max(0, Math.floor(record.attemptGeneration)) + 1
                 : 1,
@@ -811,30 +714,16 @@ export class LocalAgentManager {
         this.persistTask(task);
         this.tryStartNext();
     }
-    /**
-     * Re-enter the run-loop layer with the queued follow-up as the next
-     * user turn on the existing long-lived `subagentSession`. Despite
-     * being implemented as "reset + re-enqueue", this is NOT a fresh run
-     * of the task — the session's accumulated message array (system +
-     * original user prompt + prior assistant/tool turns) is preserved,
-     * and the synthesized "Task update: …" string is
-     * just the next user message that gets appended on top.
-     *
-     * Reached when input could not be steered into a live native Pi loop and
-     * remained queued until the current run finished naturally.
-     */
+
     deliverFollowUpAsNextTurn(task) {
         const pendingStartStatusText = task.pendingStartStatusText;
         const pendingStartAudience = task.pendingStartAudience;
         const prompt = this.buildTaskPrompt(task);
         this.resetTaskForNextAttempt(task, prompt);
-        // The superseded turn's boundary emitted no completion event (the
-        // dispatch short-circuits into this delivery before the lifecycle
-        // emit) — an interjection extends ongoing work, so only the continued
-        // turn's eventual real finish surfaces a completion card.
+
         task.pendingStartStatusText = pendingStartStatusText;
         task.pendingStartAudience = pendingStartAudience;
-        // Interjected in-flight work is a `send_input` follow-up, not a spawn.
+
         task.pendingStartIsFollowUp = true;
         task.recentActivity = [
             pendingStartStatusText ?? "Applying task update.",
@@ -874,10 +763,7 @@ export class LocalAgentManager {
                 this.clearAttemptTakeoverTimer(task.threadId, activeAttempt.generation, activeAttempt.promise);
                 return;
             }
-            // The old promise may never settle (for example a bridge/tool that
-            // ignored abort). Release its scheduler slot and remove its ownership
-            // record. Generation/controller checks fence every later callback and
-            // state write from that promise if it eventually returns.
+
             this.attemptTakeoverTimers.delete(task.threadId);
             this.inFlightAttempts.delete(task.threadId);
             this.runningCount = Math.max(0, this.runningCount - 1);
@@ -904,10 +790,7 @@ export class LocalAgentManager {
                 this.clearAttemptTakeoverTimer(task.threadId, activeAttempt.generation, activeAttempt.promise);
                 return;
             }
-            // Cancellation has already disposed the live Pi session and fenced
-            // durable writes by generation. A bridge/tool that ignores abort
-            // must not retain the global scheduler slot forever even when this
-            // thread is never resumed.
+
             this.attemptTakeoverTimers.delete(task.threadId);
             this.inFlightAttempts.delete(task.threadId);
             this.runningCount = Math.max(0, this.runningCount - 1);
@@ -922,10 +805,7 @@ export class LocalAgentManager {
     }
     tryStartNext() {
         const maxConcurrent = Math.max(1, optsValueOrDefault(this.opts.getMaxConcurrent?.(), this.defaultMaxConcurrent));
-        // Schedule stale-attempt takeover independently of free global slots.
-        // With max concurrency 1, the hung predecessor itself occupies the only
-        // slot; waiting until the start loop runs would therefore deadlock before
-        // the teardown deadline was ever armed.
+
         for (const threadId of this.pendingQueue) {
             const task = this.tasks.get(threadId);
             const activeAttempt = this.inFlightAttempts.get(threadId);
@@ -947,9 +827,7 @@ export class LocalAgentManager {
             }
             const activeAttempt = this.inFlightAttempts.get(threadId);
             if (activeAttempt) {
-                // A canceled/interrupted attempt still owns teardown for this thread.
-                // Keep the resume queued, but bound that ownership: an abort-ignoring
-                // promise is fenced and replaced after the teardown lease expires.
+
                 this.pendingQueue.push(threadId);
                 this.scheduleAttemptTakeover(task, activeAttempt);
                 continue;
@@ -1029,10 +907,7 @@ export class LocalAgentManager {
             task.controller === attempt.controller;
         try {
             const runId = `run:${task.threadId}:${++this.nextId}`;
-            // Create the session before the context load. A managed-child report
-            // can persist while that async load (or prompt hooks) is in flight;
-            // the session then retains `notifyHistoryChanged()` even before its Pi
-            // Agent exists and reloads SQLite immediately after creation.
+
             const subagentSession = getOrCreateSubagentSession(this.subagentSessions, task.threadId, task.conversationId, task.agentType);
             const context = await this.opts.fetchAgentContext({
                 conversationId: task.conversationId,
@@ -1055,9 +930,7 @@ export class LocalAgentManager {
                 return;
             if (context.modelConfigSnapshot) {
                 task.modelConfigSnapshot = context.modelConfigSnapshot;
-                // Persist the exact resolved engine/model after context loading. The
-                // Activity projection exposes this for provider icons and tooltips,
-                // and a resumed thread keeps the same effective route.
+
                 this.persistTask(task);
             }
             context.maxAgentDepth =
@@ -1067,11 +940,7 @@ export class LocalAgentManager {
             context.agentDepth = task.agentDepth;
             context.parentAgentId = task.parentAgentId;
             if (task.parentAgentId && context.toolsAllowlist) {
-                // A parent-owned agent runs a top-level agent's toolset minus the
-                // orchestration tools. Pruned from the allowlist, not just from the
-                // catalog: the allowlist is the authoritative activation list, and a
-                // name on it that is missing from the catalog is still registered
-                // against synthesized metadata rather than dropped.
+
                 context.toolsAllowlist = context.toolsAllowlist.filter((toolName) => !AGENT_ORCHESTRATION_TOOL_NAMES.includes(toolName));
             }
             context.attemptGeneration = attempt.generation;
@@ -1134,11 +1003,7 @@ export class LocalAgentManager {
                     });
                 },
                 onToolStart: (ev) => {
-                    // Once cancelAgent has marked this task canceled, suppress any
-                    // in-flight `tool_execution_start` events from the agent loop —
-                    // those would otherwise leak `agent-progress` lifecycle events
-                    // after `agent-canceled`, leaving a phantom "Working … Task" chip
-                    // in the footer that re-adds the task to the live UI state.
+
                     if (!isCurrentAttempt() ||
                         attempt.controller.signal.aborted ||
                         task.status === "canceled") {
@@ -1149,9 +1014,7 @@ export class LocalAgentManager {
                         ...ev,
                         statusText,
                     });
-                    // Tool lifecycle is a liveness signal too: without this, a single
-                    // long tool call looks idle to snapshot pollers even though the
-                    // agent is working.
+
                     task.recentActivity = [truncate(statusText, 500)];
                     task.lastActivityAt = Date.now();
                     task.activeToolCount += 1;
@@ -1220,10 +1083,7 @@ export class LocalAgentManager {
                 },
             };
             let result;
-            // Turn boundary: whatever the run reports, no tool is in flight once
-            // `runSubagent` returns (or throws). Clearing here — not just in
-            // onToolEnd — keeps the in-flight signal honest for runs that die
-            // mid-tool without ever emitting a tool-end event.
+
             try {
                 result = await this.opts.runSubagent(runSubagentArgs);
             }
@@ -1235,9 +1095,7 @@ export class LocalAgentManager {
             if (!isCurrentAttempt())
                 return;
             task.completedAt = Date.now();
-            // Bank this run's collected file records immediately, before any
-            // branch below decides the run's fate. A queued follow-up can land
-            // too late to steer; banking lets those files survive the boundary.
+
             task.bankedFileChanges = mergeUniqueFileRecords(task.bankedFileChanges, result.fileChanges);
             task.bankedProducedFiles = mergeUniqueFileRecords(task.bankedProducedFiles, result.producedFiles);
             if (attempt.controller.signal.aborted ||
@@ -1256,11 +1114,7 @@ export class LocalAgentManager {
             else {
                 task.status = "completed";
                 task.result = result.result;
-                // Completion rollup = banked records from queued-follow-up
-                // boundaries + this run's records. Drained
-                // when the `agent-completed` event is actually emitted, so files
-                // are never re-revealed across rollups but survive completions
-                // that get skipped (e.g. a queued follow-up re-entering the loop).
+
                 task.fileChanges = task.bankedFileChanges;
                 task.producedFiles = task.bankedProducedFiles;
             }
@@ -1281,10 +1135,7 @@ export class LocalAgentManager {
         if (!isCurrentAttempt())
             return;
         if (this.shouldParkFinalForDescendants(task)) {
-            // The model is allowed to yield while background descendants continue,
-            // but that text is not a root completion. A child terminal report will
-            // resume this same thread; its next natural final becomes root-facing
-            // once no descendants remain.
+
             task.descendantFinalParked = true;
             task.result = undefined;
         }
@@ -1292,12 +1143,7 @@ export class LocalAgentManager {
             this.deliverFollowUpAsNextTurn(task);
             return;
         }
-        // Task has reached a terminal status (completed/error/canceled). Drop
-        // the long-lived SubagentSession so its Agent + message array can be
-        // reclaimed; future tasks for this threadId would build a fresh
-        // session if the runtime ever re-enqueues this thread (rare — terminal
-        // is sticky). Done before persistTask + lifecycle emit so any
-        // listener-triggered work (e.g. cloud sync) doesn't see stale state.
+
         const session = this.subagentSessions.get(task.threadId);
         if (session && !task.descendantFinalParked) {
             this.subagentSessions.delete(task.threadId);
@@ -1305,7 +1151,7 @@ export class LocalAgentManager {
                 session.dispose();
             }
             catch {
-                // Best-effort: dispose just aborts the agent and frees the ref.
+
             }
         }
         if (task.parentAgentId &&
@@ -1327,7 +1173,7 @@ export class LocalAgentManager {
         if (!publishesCompletion) {
             this.persistTask(task);
         }
-        // Emit task lifecycle event
+
         if (!task.terminalEventEmitted) {
             if (task.status === "completed") {
                 if (!task.descendantFinalParked) {
@@ -1350,11 +1196,7 @@ export class LocalAgentManager {
                             ? { producedFiles: task.producedFiles }
                             : {}),
                     };
-                    // The rollup is now captured on the event — drain the bank so a
-                    // send_input re-run's later completion only reveals new files.
-                    // First persist a recoverable running row carrying the final result;
-                    // only after both lifecycle artifacts are durable may the row become
-                    // irrecoverably completed.
+
                     this.persistTask(task, {
                         pendingCompletionEventId: completionEventId,
                     });
@@ -1452,9 +1294,7 @@ export class LocalAgentManager {
             terminalEventEmitted: false,
             attemptGeneration: 0,
         };
-        // Re-check immediately before publication. Today the setup above is
-        // synchronous, but keeping the invariant at the commit point closes the
-        // spawn-during-pause race if thread/cloud setup later gains an await.
+
         this.assertActiveParentChain(request);
         this.enqueueTask(task);
         return {
@@ -1462,14 +1302,7 @@ export class LocalAgentManager {
             activeThreads: this.opts.listActiveThreads?.(request.conversationId),
         };
     }
-    /**
-     * Run a single agent turn OUTSIDE the durable task surface: no thread
-     * row, no work slot, no lifecycle events, no persisted agent record.
-     * This is the execution primitive for workflow scripts — their agents
-     * report to the script, not to the orchestrator. The agentId should
-     * use the `<conversationId>::subagent::<type>::…` shape so any
-     * incidental thread-storage writes derive the right conversation.
-     */
+
     async runEphemeralAgent(args) {
         const agentType = "general";
         const agentContext = await this.opts.fetchAgentContext({
@@ -1527,17 +1360,12 @@ export class LocalAgentManager {
                     liveSession.dispose();
                 }
                 catch {
-                    // Best-effort.
+
                 }
             }
         }
     }
-    /**
-     * Cancel every descendant thread of a parent. Member discovery comes
-     * from the durable thread registry (not the in-memory task map) so
-     * already-persisted members are covered too; cancelAgent is a no-op
-     * for members that already reached a terminal status.
-     */
+
     listActiveDescendantThreadIds(parentThreadId) {
         const threadIds = new Set();
         for (const task of this.tasks.values()) {
@@ -1557,8 +1385,7 @@ export class LocalAgentManager {
         return [...threadIds];
     }
     async cascadeCancelChildren(parentThreadId, reason) {
-        // Old persisted data may contain parent cycles from before ownership was
-        // guarded. Keep pause durable without recursively walking such a cycle.
+
         if (this.cancelCascadeInProgress.has(parentThreadId))
             return;
         this.cancelCascadeInProgress.add(parentThreadId);
@@ -1652,18 +1479,7 @@ export class LocalAgentManager {
             if (activeAttempt) {
                 this.scheduleCanceledAttemptRelease(local, activeAttempt);
             }
-            // Dispose the long-lived `SubagentSession` eagerly here too.
-            // `executeTask` disposes at the end of the run, which is the
-            // happy path for normal cancellation (abort propagates into
-            // `runTurn`, the interrupted finalize fires, executeTask
-            // reaches its dispose block). But if the abort gets swallowed
-            // mid-flight (e.g. a tool executor doesn't honor the signal,
-            // or executeTask isn't running yet because the task was still
-            // pending), the session's Pi `Agent` would stay allocated
-            // forever — the canceled task never re-enters `executeTask`.
-            // `PiSessionCore.dispose` is idempotent and guarded against
-            // already-null state, so calling it from both paths is safe;
-            // the second call is a no-op.
+
             const session = this.subagentSessions.get(agentId);
             if (session) {
                 this.subagentSessions.delete(agentId);
@@ -1671,7 +1487,7 @@ export class LocalAgentManager {
                     session.dispose();
                 }
                 catch {
-                    // Best-effort.
+
                 }
             }
             if ((!local.terminalEventEmitted || wasParked) &&
@@ -1683,8 +1499,7 @@ export class LocalAgentManager {
                     local.parentWakePendingEventId = cancellationEventId;
                     local.parentWakeDeliveredEventId = undefined;
                 }
-                // Parent-owned terminal intent must survive a crash before the
-                // lifecycle listener can durably wake the parent.
+
                 this.persistTask(local);
                 this.opts.onAgentEvent?.({
                     type: "agent-canceled",
@@ -1725,11 +1540,7 @@ export class LocalAgentManager {
         }
         return { canceled: false };
     }
-    /**
-     * Complete the child side of the parent-wake handshake. The positive
-     * pending marker is the only state boot replay considers; legacy rows with
-     * no marker are therefore treated as already settled.
-     */
+
     markParentWakeDelivered(agentId, eventIdInput) {
         const eventId = eventIdInput.trim();
         if (!eventId)
@@ -1768,19 +1579,14 @@ export class LocalAgentManager {
         const text = message.trim();
         if (!text)
             return { delivered: false };
-        // A child report is already persisted into this thread by the
-        // orchestration layer, so the delivered turn input is a pointer rather
-        // than a second copy of the report.
+
         const isChildReport = options?.deliveryKind === "child-report";
         const deliveryEventId = isChildReport
             ? options?.deliveryEventId?.trim() || undefined
             : undefined;
         const task = this.tasks.get(agentId);
         const persisted = task ? undefined : this.opts.getAgentRecord?.(agentId);
-        // The parent can be root-spawned, so keep even its internal task status
-        // free of child-report contents. The wake lifecycle is hidden from root
-        // chat below, while Activity/thread inspection may still read this safe
-        // boundary label from the durable task row.
+
         const updateStatusSource = isChildReport
             ? "Reviewing a subagent's report"
             : task?.description ?? persisted?.description ?? text;
@@ -1802,9 +1608,7 @@ export class LocalAgentManager {
             }
             if (isChildReport &&
                 (persisted.status === "error" || persisted.status === "canceled")) {
-                // A child report wakes an idle parent, but must never resurrect one
-                // the user paused or that failed. The report is already durable in
-                // the thread, so a later explicit send_input still picks it up.
+
                 if (deliveryEventId) {
                     const consumedEventIds = [
                         ...(persisted.descendantBoundaryState?.consumedEventIds ?? []),
@@ -1821,10 +1625,7 @@ export class LocalAgentManager {
                 }
                 return { delivered: true };
             }
-            // Re-activate the durable thread row (and its whole group) so the
-            // resumed work re-enters the active slot budget and reappears under
-            // "Other Threads" — without this, an evicted thread keeps running
-            // with status 'evicted' and stays invisible to the orchestrator.
+
             this.opts.resolveTaskThread?.({
                 conversationId: persisted.conversationId,
                 agentType: persisted.agentType,
@@ -1853,17 +1654,14 @@ export class LocalAgentManager {
             return { delivered: true };
         }
         if (isChildReport) {
-            // The orchestration layer persisted the report before calling us. Make
-            // that durable row the only report source; a live session refreshes it
-            // at the next turn instead of receiving a duplicate prompt copy.
+
             this.subagentSessions.get(agentId)?.notifyHistoryChanged();
             if (deliveryEventId &&
                 task.consumedDescendantEventIds.includes(deliveryEventId)) {
                 return { delivered: true };
             }
             if (task.status === "error" || task.status === "canceled") {
-                // Same rule as the persisted-record path: never resurrect a parent
-                // the user paused or that failed.
+
                 if (deliveryEventId) {
                     task.consumedDescendantEventIds.push(deliveryEventId);
                     task.descendantWakePending = false;
@@ -1896,22 +1694,19 @@ export class LocalAgentManager {
                 task.consumedDescendantEventIds.push(deliveryEventId);
                 task.descendantWakePending = true;
             }
-            // Same re-activation as the persisted-record path above: the thread
-            // row may have been evicted while this task sat terminal in memory.
+
             this.opts.resolveTaskThread?.({
                 conversationId: task.conversationId,
                 agentType: task.agentType,
                 threadId: task.threadId,
             });
-            // `deliveredInput` (not `text`) so a child report resumes the parent
-            // with the pointer; the report itself is already durable in the thread
-            // and would otherwise be replayed twice.
+
             this.resetTaskForNextAttempt(task, deliveredInput);
             task.pendingStartStatusText = updateStatusText;
             task.pendingStartAudience = isChildReport
                 ? "orchestrator-only"
                 : undefined;
-            // Re-activating a terminal thread is a `send_input` follow-up.
+
             task.pendingStartIsFollowUp = true;
             task.recentActivity = [updateStatusText];
             this.opts.onAgentEvent?.({

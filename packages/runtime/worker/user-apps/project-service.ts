@@ -152,7 +152,7 @@ const killProcessTree = async (child: ChildProcess): Promise<void> => {
       try {
         process.kill(-pid, "SIGKILL");
       } catch {
-        // Already exited.
+
       }
       finish();
     }, STOP_GRACE_MS);
@@ -187,12 +187,6 @@ export class UserAppProjectService {
     this.appsRoot = path.join(path.resolve(options.workspacePath), "apps");
   }
 
-  /**
-   * User apps are hosted by child Vite processes owned by this worker. Keep the
-   * worker alive while one is starting, running, stopping, or awaiting a
-   * scheduled restart; otherwise detached-worker idle shutdown tears down a
-   * healthy app moments after the start RPC returns.
-   */
   hasActiveWork(): boolean {
     for (const entry of this.entries.values()) {
       if (
@@ -257,7 +251,7 @@ export class UserAppProjectService {
           status: runtime?.status ?? "stopped",
         });
       } catch {
-        // Invalid or incomplete projects are not exposed to the renderer.
+
       }
     }
     apps.sort((a, b) => a.slug.localeCompare(b.slug));
@@ -397,7 +391,7 @@ export class UserAppProjectService {
         });
         this.projectWatchers.set(slug, watcher);
       } catch {
-        // The project may have disappeared between readdir and watch.
+
       }
     }
   }
@@ -596,9 +590,7 @@ export class UserAppProjectService {
           if (settled) return;
           if (ready) {
             consecutiveReadyProbes += 1;
-            // Two successful probes keep a pre-existing listener from being
-            // mistaken for this child during the brief strict-port failure
-            // window.
+
             if (
               consecutiveReadyProbes >= 2 &&
               child.exitCode === null &&
@@ -623,9 +615,7 @@ export class UserAppProjectService {
         void killProcessTree(child).finally(() => finish(null));
       }, URL_TIMEOUT_MS);
       timeout.unref?.();
-      // Vite's console format is not a runtime contract and has changed across
-      // versions. Keep parsing it as a fast path, but treat the actual bound
-      // loopback port as the source of truth for readiness.
+
       probeLoopback();
       const onData = (chunk: Buffer | string) => {
         buffer = `${buffer}${chunk.toString()}`.slice(-8_000);
@@ -717,7 +707,7 @@ export class UserAppProjectService {
         this.portMap.set(slug, value as number);
       }
     } catch {
-      // Missing or malformed mappings are rebuilt on first start.
+
     }
   }
 

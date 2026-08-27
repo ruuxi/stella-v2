@@ -1,26 +1,3 @@
-/**
- * WebRTC transport for OpenAI-Realtime-compatible providers.
- *
- * Used by every provider whose wire protocol is OpenAI Realtime over
- * WebRTC: the Stella-managed OpenAI path, the user's BYOK OpenAI path,
- * the user's BYOK Inworld path, and the Stella-managed Inworld path
- * (which goes through a backend SDP proxy so the org key never reaches
- * the renderer).
- *
- * Provider-specific bits (SDP endpoint, auth scheme, whether session
- * config is sent at token-mint or via `session.update` on connect) are
- * passed in by the provider module:
- *   - `sdpFetch`: takes the local SDP offer, returns the remote SDP
- *     answer. Provider chooses Bearer-against-public-endpoint vs
- *     Stella-proxied-with-Convex-auth.
- *   - `initialSessionConfig`: optional. When present, the transport applies
- *     it after the data channel opens and waits for `session.updated` before
- *     exposing the connection to the caller.
- *
- * The data channel name is "oai-events" — Inworld uses the same name on
- * purpose since their realtime API is OpenAI-Realtime-compatible.
- */
-
 import {
   acquireSharedMicrophone,
   type SharedMicrophoneLease,
@@ -34,55 +11,27 @@ import type {
 } from "./types";
 
 const DEFAULT_RTC_CONFIGURATION: RTCConfiguration = {
-  // Pre-gather one ICE candidate batch to shorten negotiation time.
+
   iceCandidatePoolSize: 1,
 };
 
-/** Hard cap on how long we'll wait for ICE gathering. */
 const ICE_GATHERING_TIMEOUT_MS = 4000;
-/** Hard cap on opening the event channel and applying initial session config. */
+
 const DATA_CHANNEL_READY_TIMEOUT_MS = 10_000;
 
 export interface OpenAIWebRTCTransportOptions {
   provider: RealtimeTransportProvider;
-  /** Server-reported model id (or the requested model as a fallback). */
+
   model: string;
-  /** Provider-specific SDP exchange (handles auth + endpoint choice). */
+
   sdpFetch: SdpAnswerFetcher;
-  /**
-   * Optional session.update to send once the data channel opens. Used by
-   * providers (Inworld) that set session config at runtime rather than
-   * at token-mint time.
-   */
+
   initialSessionConfig?: Record<string, unknown>;
-  /**
-   * Provider-supplied STUN/TURN servers. Inworld returns these from
-   * `/v1/realtime/ice-servers`; OpenAI leaves this unset because its
-   * media server handles connectivity without client-side ICE.
-   */
+
   iceServers?: RTCIceServer[];
-  /**
-   * Wait for ICE gathering to complete before POSTing the SDP offer.
-   * Required by providers (Inworld) whose SDP endpoint expects a
-   * complete offer with candidates already baked in. OpenAI's endpoint
-   * does its own ICE negotiation and accepts the pre-gathering offer,
-   * so this stays off there to avoid an extra round-trip.
-   */
+
   waitForIceGathering?: boolean;
-  /**
-   * Acquire the microphone and attach it to the transceiver BEFORE
-   * createOffer, so the SDP offer's audio m-line advertises a real
-   * sending track (SSRC, crypto, codec params baked in). OpenAI's
-   * media server is happy with a placeholder transceiver and a
-   * post-SDP replaceTrack; Inworld's WebRTC proxy needs the real
-   * track in the initial offer or it never allocates the inbound
-   * media path — symptom: WebRTC connects fine, session.update is
-   * accepted, but no `input_audio_buffer.speech_started` ever fires
-   * no matter how loud you talk.
-   *
-   * Mute / unmute mid-session continues to work via replaceTrack
-   * after this initial attach.
-   */
+
   acquireMicBeforeOffer?: boolean;
 }
 
@@ -104,7 +53,7 @@ const waitForIceGatheringComplete = (pc: RTCPeerConnection): Promise<void> =>
       if (pc.iceGatheringState === "complete") finish();
     };
     const onCandidate = (event: RTCPeerConnectionIceEvent) => {
-      // Null candidate signals end-of-gathering on some implementations.
+
       if (!event.candidate) finish();
     };
     pc.addEventListener("icegatheringstatechange", onStateChange);
@@ -162,8 +111,7 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
   async connect(events: RealtimeTransportEvents): Promise<void> {
     this.events = events;
     const dataChannelReady = this.prepareDataChannelReady();
-    // The handshake can fail while SDP setup is still awaiting another step.
-    // Attach a handler immediately; the later await still observes the error.
+
     void dataChannelReady.catch(() => undefined);
 
     this.pc = new RTCPeerConnection({
@@ -187,11 +135,6 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
       if (stream) this.setupAudioPlayback(stream);
     };
 
-    // Inworld's WebRTC proxy requires the audio m-line in the SDP
-    // offer to advertise a real sending track, otherwise no inbound
-    // media path is allocated on their side and the user's mic is
-    // silently dropped. Acquire + attach BEFORE createOffer so the
-    // SDP includes proper SSRC + codec params for our send direction.
     if (this.acquireMicBeforeOffer) {
       this.micEnabled = true;
       await this.preAttachMicrophone();
@@ -207,10 +150,6 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
       if (this.destroyed) return;
     }
 
-    // Once gathering completes, `pc.localDescription.sdp` includes the
-    // ICE candidates; `offer.sdp` is the pre-gathering snapshot. Inworld
-    // needs the post-gathering SDP. Fall back to `offer.sdp` for the
-    // OpenAI path which skips gathering.
     const sdpToSend = this.pc.localDescription?.sdp ?? offer.sdp ?? "";
 
     const answerSdp = await this.sdpFetch(sdpToSend);
@@ -219,9 +158,6 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
     await this.pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
     if (this.destroyed) return;
 
-    // Do not enable the mic or let callers send conversation context until the
-    // event channel is open and the provider has acknowledged session.update.
-    // Otherwise the first utterance can race against a stale tool catalog.
     await dataChannelReady;
     if (this.destroyed) return;
 
@@ -256,10 +192,7 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
   }
 
   interruptPlayback(): void {
-    // WebRTC has no client-side queue to flush. The session emits
-    // conversation.item.truncate over the data channel for OpenAI to
-    // forget audio it didn't deliver; remote playback stops as the model
-    // stops sending audio frames.
+
   }
 
   async disconnect(): Promise<void> {
@@ -271,7 +204,7 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
       try {
         this.dc.close();
       } catch {
-        // Already closed.
+
       }
       this.dc = null;
     }
@@ -279,7 +212,7 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
       try {
         this.pc.close();
       } catch {
-        // Already closed.
+
       }
       this.pc = null;
     }
@@ -297,7 +230,7 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
       try {
         this.outputMonitorSource.disconnect();
       } catch {
-        // Already disconnected.
+
       }
       this.outputMonitorSource = null;
     }
@@ -308,7 +241,7 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
       try {
         await this.audioContext.close();
       } catch {
-        // Already closed.
+
       }
       this.audioContext = null;
       this.analyser = null;
@@ -317,8 +250,6 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
       this.processedInputTrack = null;
     }
   }
-
-  // ── internals ────────────────────────────────────────────────────────
 
   private setupDataChannel(): void {
     if (!this.dc) return;
@@ -488,7 +419,7 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
       try {
         this.inputSourceNode.disconnect();
       } catch {
-        // Already disconnected.
+
       }
       this.inputSourceNode = null;
     }
@@ -504,7 +435,7 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
       try {
         this.outputMonitorSource.disconnect();
       } catch {
-        // Already disconnected.
+
       }
       this.outputMonitorSource = null;
     }
@@ -554,12 +485,6 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
     this.releaseMicrophoneCapture();
   }
 
-  /**
-   * Acquire the shared microphone and attach its track to the
-   * transceiver's sender BEFORE the SDP offer is generated. Subsequent
-   * mute/unmute toggles use the normal replaceTrack(null|track) path,
-   * which keeps the SDP-negotiated media slot alive.
-   */
   private async preAttachMicrophone(): Promise<void> {
     if (this.destroyed || !this.sender) return;
     const lease = await acquireSharedMicrophone();
@@ -630,7 +555,7 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
       try {
         this.inputSourceNode.disconnect();
       } catch {
-        // Already disconnected.
+
       }
       this.inputSourceNode = null;
     }

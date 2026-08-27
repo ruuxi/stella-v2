@@ -1,9 +1,3 @@
-// Mobile port of `desktop/src/shell/ascii-creature/StellaAnimation.tsx`.
-//
-// `width` / `height` are character-grid units (same as desktop), not layout pt.
-// Optional `displayWidth` / `displayHeight` set the GLView layout size in pt
-// (e.g. 70 for the working indicator — desktop's 350px canvas × scale(0.2)).
-
 import React, {
   useCallback,
   useEffect,
@@ -27,7 +21,7 @@ import { initRenderer, type StellaRenderer } from "./renderer";
 import { initAuroraRenderer } from "./aurora-renderer";
 
 const TIME_RATE = 0.96;
-/** One display frame at 60Hz — the unit `frameSkip` counts in. */
+
 const FRAME_PERIOD_MS = 1000 / 60;
 const NOISE_FLOOR_FAST_RATE = 0.1;
 const NOISE_FLOOR_SLOW_RATE = 0.005;
@@ -48,54 +42,34 @@ export interface StellaAnimationHandle {
 
 export type VoiceMode = "idle" | "listening" | "speaking";
 
-/**
- * `"creature"` — the ascii/glyph creature.
- * `"star"` — the star from the brand mark, made of aurora and spun like a top,
- * matching the desktop working indicator (`desktop-ui/src/shell/aurora`,
- * variant `"star-spin"`).
- */
 export type StellaVariant = "creature" | "star";
 
 export interface StellaAnimationProps {
-  /** Character-grid width — matches desktop `StellaAnimation` `width`. */
+
   width?: number;
-  /** Character-grid height — matches desktop `StellaAnimation` `height`. */
+
   height?: number;
-  /**
-   * GLView layout width in pt. Defaults to the full supersampled canvas size
-   * (`width × 7 × 2.5`). Pass `WORKING_INDICATOR_DISPLAY_PT` for the inline
-   * indicator — RN GLView breaks inside `transform: scale`, so the surface is
-   * sized natively rather than rendered large and scaled down.
-   */
+
   displayWidth?: number;
-  /** GLView layout height in pt. */
+
   displayHeight?: number;
-  /**
-   * Frames skipped between draws, counted in 60Hz display frames — 0 draws at
-   * 60fps, 1 at 30, 2 at 20. It sets the timer's period rather than filtering
-   * its callbacks, so a skipped frame costs no JS wake-up either.
-   */
+
   frameSkip?: number;
-  /**
-   * Multiplier on shader time. The star wants 1 — its turn is staged inside the
-   * shader against an unscaled clock, and its motion blur is sized to one frame
-   * of that clock (see `starTurn` / `sweep` in the shader). Scaling time here
-   * desynchronises the smear from the ground the arms actually cover.
-   */
+
   timeScale?: number;
   initialBirthProgress?: number;
   paused?: boolean;
-  /** Audio-reactive state used by the realtime voice surface. */
+
   voiceMode?: VoiceMode;
-  /** Server-side speech detection for the user's microphone. */
+
   isUserSpeaking?: boolean;
-  /** Normalized microphone energy (0…1). */
+
   micLevel?: number;
-  /** Normalized Stella output energy (0…1). */
+
   outputLevel?: number;
-  /** Restores the original drifting/blinking creature eyes. */
+
   showEyes?: boolean;
-  /** Which creature to draw. Defaults to the ascii `"creature"`. */
+
   variant?: StellaVariant;
 }
 
@@ -108,12 +82,6 @@ const colorsToFloat = (c: Colors): Float32Array =>
     ...parseColor(c.text),
   ]);
 
-/**
- * The star's five aurora ramp stops. Desktop seeds these from the theme's
- * `interactive` + `accent`; the mobile `Colors` shape carries those same two
- * seeds as `accentHover` (= `Src.interactive`) and `decorative`
- * (= `Src.accent`) — see the `map()` in theme/themes.ts.
- */
 const colorsToAurora = (c: Colors, isDark: boolean): Float32Array =>
   new Float32Array(
     generateAuroraStops(c.accentHover, c.decorative, isDark).flatMap((stop) =>
@@ -262,7 +230,7 @@ const StellaAnimationInner = React.forwardRef<
     (gl: ExpoWebGLRenderingContext) => {
       const buildRenderer = (): StellaRenderer | null => {
         if (variantRef.current === "star") {
-          // The star is a plain screen-space quad — no glyph atlas or grid.
+
           return initAuroraRenderer(
             gl,
             shaderColorsRef.current,
@@ -345,8 +313,6 @@ const StellaAnimationInner = React.forwardRef<
         const outputEnergy = Math.max(0, Math.min(1, outputLevelRef.current));
         const isVoiceActive = voiceModeRef.current !== "idle";
 
-        // Match the legacy realtime creature: learn the ambient microphone
-        // floor slowly, then react only when actual speech clears it.
         if (!isVoiceActive) {
           noiseFloorRef.current = 0;
         } else {
@@ -423,15 +389,6 @@ const StellaAnimationInner = React.forwardRef<
     [shaderGridW, shaderGridH],
   );
 
-  // Use setInterval rather than rAF: on React Native, rAF is coalesced into the
-  // JS scheduler and goes idle if no React commits are queued, which freezes
-  // expo-gl after the first frame even when JS is free.
-  //
-  // The timer runs at the frame rate rather than at 60Hz with the extras thrown
-  // away: waking JS sixty times a second to skip two of every three wake-ups is
-  // pure battery on a phone, and there is nothing for the discarded ticks to do.
-  // A paused surface gets no timer at all — it used to keep waking to find out
-  // that it was still paused.
   useEffect(() => {
     if (paused) return;
     const periodMs = Math.round(FRAME_PERIOD_MS * (Math.max(0, frameSkip) + 1));
@@ -448,7 +405,7 @@ const StellaAnimationInner = React.forwardRef<
         try {
           renderer.destroy();
         } catch {
-          // GL context may already be gone.
+
         }
       }
     };
@@ -461,14 +418,9 @@ const StellaAnimationInner = React.forwardRef<
 
   return (
     <View style={containerStyle} pointerEvents="none" collapsable={false}>
-      {/* Both surfaces here draw one quad covering the whole view, so there is
-          no polygon edge for multisampling to find: every sample in a pixel is
-          covered, the fragment shader runs once, and the resolve averages four
-          identical samples. iOS turns 4x MSAA on by default, which buys a
-          multisampled colour buffer and a resolve pass per frame for exactly
-          nothing — desktop measured the same trade at 0.49ms against 0.016ms
-          for byte-identical output. Every edge you can see in these shaders is
-          drawn by a smoothstep instead, which MSAA could never have helped. */}
+      {
+
+}
       <GLView
         style={styles.gl}
         msaaSamples={0}
@@ -478,16 +430,6 @@ const StellaAnimationInner = React.forwardRef<
   );
 });
 
-/**
- * Memoized so the working indicator's GL surface is never re-rendered by the
- * chat's per-token streaming commits or by status-label swaps. The frame loop
- * is a JS-thread `setInterval` (expo-gl can only be driven from the JS thread),
- * so keeping this component out of the streaming re-render path is what stops
- * the star's frames from being reset/starved while a reply streams. Props are
- * primitives that stay stable across a working-indicator session (only
- * `paused` toggles), so the default shallow comparison is correct; the realtime
- * voice surface still re-renders on changing mic/output levels.
- */
 export const StellaAnimation = React.memo(StellaAnimationInner);
 
 const nowMs = (): number => {

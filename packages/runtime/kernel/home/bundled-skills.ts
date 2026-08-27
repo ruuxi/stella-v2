@@ -1,14 +1,3 @@
-/**
- * Materializes Stella-shipped skills into the canonical `~/.stella/skills/`
- * directory without overwriting user-owned content.
- *
- * Ownership is tracked outside the skill library in
- * `cache/bundled-skills.json`. An installed skill is updated only when its
- * current contents still match the last version Stella wrote. A pre-existing
- * directory with the same id, or a shipped skill edited by the user, becomes
- * user-owned and is preserved on subsequent updates.
- */
-
 import { createHash, randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -28,7 +17,7 @@ const PLATFORM_EXCLUSIVE_SKILL_IDS = new Set(
 );
 
 type BundledSkillStateEntry = {
-  /** Null means a same-id user skill won the collision and must be preserved. */
+
   lastSyncedHash: string | null;
 };
 
@@ -63,7 +52,6 @@ const pathExists = async (filePath: string): Promise<boolean> => {
   }
 };
 
-/** Stable whole-directory hash: sorted relative file paths plus contents. */
 export const hashSkillDirectory = async (
   dir: string,
 ): Promise<string | null> => {
@@ -285,18 +273,11 @@ const cleanupBundledSkillStaging = async (
   }
 };
 
-/**
- * Compatibility bridge for the former installed `system/skills` mirror.
- * Unknown legacy entries are copied into the canonical root, then the entire
- * legacy tree is moved to trash so no second installed skills namespace
- * remains. Shipped ids are installed from the current app seed below.
- */
 const migrateLegacySystemSkills = async (
   stellaDataDir: string,
   bundledIds: ReadonlySet<string>,
 ): Promise<string | null> => {
-  // These names are intentionally migration-only. Normal discovery and sync
-  // never read the legacy root.
+
   const legacySystemDir = path.join(stellaDataDir, "system");
   const entries = await fs
     .readdir(stellaDataDir, { withFileTypes: true })
@@ -440,7 +421,6 @@ const syncBundledSkillsLocked = async (
   return { applied };
 };
 
-/** Serialized in-process; individual skill replacements are atomic. */
 export const syncBundledSkills = (
   stellaDataDir: string,
   snapshot: BundledSkillsSnapshot,

@@ -1,9 +1,3 @@
-/* ──────────────────────────────────────────────────────────────────────
- * Voice phase — two looping demo cards (wake word + dictation).
- * Every choreographed element sits in a reserved slot so the loop never
- * shifts layout.
- * ────────────────────────────────────────────────────────────────────── */
-
 .onboarding-dialogue[data-phase="voice"] .onboarding-split-right {
   width: 100%;
   min-width: 100%;
@@ -45,8 +39,6 @@
     grid-template-columns: 1fr;
   }
 }
-
-/* ── Card ─────────────────────────────────────────────────────────── */
 
 .ovoice-card {
   display: flex;
@@ -95,8 +87,6 @@
   opacity: 0.85;
 }
 
-/* ── Talk card: wake-word conversation loop ───────────────────────── */
-
 .ovoice-talk {
   flex: 1;
   display: flex;
@@ -106,7 +96,6 @@
   gap: 6px;
 }
 
-/* Spoken phrases render as quiet quote chips in fixed-height slots. */
 .ovoice-talk__quote {
   height: 30px;
   display: inline-flex;
@@ -171,8 +160,6 @@
   }
 }
 
-/* Reply and "Bye" share one fixed-height slot — they never overlap in
- * time, so stacking them in a grid cell keeps the column stable. */
 .ovoice-talk__exchange {
   display: grid;
   grid-template-columns: 1fr;
@@ -202,8 +189,6 @@
   opacity: 0.72;
   transform: none;
 }
-
-/* ── Dictate card: key hold → pill → typed words ──────────────────── */
 
 .ovoice-dictate {
   flex: 1;
@@ -278,7 +263,7 @@
   display: flex;
   flex-direction: column;
   gap: 7px;
-  padding: 12px 14px 52px; /* bottom space for the floating pill */
+  padding: 12px 14px 52px;
   min-height: 0;
 }
 
@@ -337,8 +322,6 @@
   }
 }
 
-/* Mirror of the real `.dictation-overlay` pill, floating over the
- * draft. Pops in while recording, confirms away once the text lands. */
 .ovoice-pill {
   position: absolute;
   left: 50%;
@@ -426,8 +409,6 @@
 .ovoice-pill__btn--confirm {
   color: var(--foreground);
 }
-
-/* ── Reduced motion ───────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
   .ovoice-talk__sprite[data-listening] .ovoice-talk__ring,

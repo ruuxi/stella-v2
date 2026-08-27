@@ -19,12 +19,6 @@ interface ConnectDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-/**
- * The Stella mobile app is the only connection method, so the dialog opens
- * straight onto the pair-your-phone surface (QR + connect code) with no
- * intermediate "Connect to Stella app" step. Signed-out visitors get the
- * sign-in prompt instead, since pairing requires an account.
- */
 export const ConnectDialog = ({ open, onOpenChange }: ConnectDialogProps) => {
   const t = useT();
   const navigate = useNavigate();

@@ -86,8 +86,7 @@ describe("connector-availability reminder hook", () => {
     expect(message?.uiVisibility).toBe("hidden");
     expect(message?.text).toContain("not connected");
     expect(message?.text).toContain("connector_status");
-    // Clean cut: the reminder must not reference the removed tool_search
-    // mechanism; the node_repl fallback covers demoted placement instead.
+
     expect(message?.text).not.toContain("tool_search");
     expect(message?.text).toContain("tools.connector_status");
   });
@@ -111,7 +110,7 @@ describe("connector-availability reminder hook", () => {
     const hook = makeHook(root);
     const first = await hook.handler(basePayload("file this in notion"));
     expect(first?.prependMessages?.length).toBe(1);
-    // Same active window (no compaction since): second mention stays quiet.
+
     const second = await hook.handler(basePayload("also notion this one"));
     expect(second).toBeUndefined();
   });
@@ -119,14 +118,14 @@ describe("connector-availability reminder hook", () => {
   it("becomes eligible again after a compaction checkpoint resets the window", async () => {
     const root = makeRoot();
     await writeCachedServerCatalog(root, [notionEntry]);
-    // Shown earlier…
+
     await recordReminderShown({
       stellaDataDir: root,
       threadKey: "conv-1",
       key: "connector-offer:notion",
       timestamp: Date.now() - 60_000,
     });
-    // …then the window was compacted (checkpoint newer than the reminder).
+
     const checkpoint = {
       content: formatThreadCheckpointMessage({
         summary: "Compacted: user filed several notes to Notion earlier.",
@@ -142,7 +141,7 @@ describe("connector-availability reminder hook", () => {
     const root = makeRoot();
     await writeCachedServerCatalog(root, [notionEntry]);
     await recordConnectorDecline(root, "notion");
-    // Fresh window (post-compaction equivalent): still no offer.
+
     const hook = makeHook(root);
     const result = await hook.handler(basePayload("sync this into notion"));
     expect(result).toBeUndefined();
@@ -151,8 +150,7 @@ describe("connector-availability reminder hook", () => {
   it("still shows the connected variant for a previously-declined connector", async () => {
     const root = makeRoot();
     await writeCachedServerCatalog(root, [notionEntry]);
-    // Connected first, then a (stale) decline on record: the connected
-    // variant is just useful info and stays eligible.
+
     await enableNativeConnector(root, "notion", "store", {}, [notionEntry]);
     await recordConnectorDecline(root, "notion");
     const hook = makeHook(root);
@@ -174,7 +172,7 @@ describe("connector-availability reminder hook", () => {
     expect(message?.uiVisibility).toBe("hidden");
     expect(message?.text).toContain("connect.addMcp(");
     expect(message?.text).toContain("connect.remove(id)");
-    // Deduped through the same once-per-active-window gate.
+
     const second = await hook.handler(basePayload("what about that MCP?"));
     expect(second).toBeUndefined();
   });

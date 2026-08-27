@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-
-// Backend-owned administrative publisher. This script requires Composio and
-// Stella admin credentials and must never be shipped with the desktop runtime.
 import AjvModule from "ajv";
 
 const siteUrl = (
@@ -49,9 +46,6 @@ const hasCompilableSchema = (schema) => {
   }
 };
 
-// The supported Store surface is explicit. Every entry below must currently be
-// non-deprecated and support Composio-managed OAuth; official Composio APIs
-// supply all metadata and schemas.
 const SUPPORTED_TOOLKIT_IDS = new Set([
   "airtable", "apaleo", "asana", "attio", "basecamp", "bitbucket",
   "blackbaud", "boldsign", "box", "cal", "calendly", "canva", "capsule_crm",
@@ -117,15 +111,12 @@ const normalizeSchemaNode = (value) => {
   const normalized = {};
   for (const [key, child] of Object.entries(value)) {
     if (key !== "properties" || !isObject(child)) {
-      // A properties block owns normalization of its adjacent required array.
+
       if (key === "required" && isObject(value.properties)) continue;
       normalized[key] = normalizeSchemaNode(child);
       continue;
     }
 
-    // Normalize property schemas without recursively treating the property map
-    // itself as a schema. Real APIs can have a field literally named
-    // `properties` (for example BigQuery Spark options).
     const required = new Set(
       Array.isArray(value.required)
         ? value.required.filter((name) => typeof name === "string")
@@ -157,8 +148,6 @@ const normalizeObjectSchema = (value) => {
     return isObject(normalized) ? normalized : null;
   }
 
-  // The list-tools API also returns `input_parameters` as a field map whose
-  // child definitions carry `required: boolean`. Convert it to JSON Schema.
   const wrapped = normalizeSchemaNode({
     type: "object",
     properties: value,
@@ -396,8 +385,6 @@ if (!siteUrl || !adminToken) {
   process.exit(1);
 }
 
-// Resolve and validate the complete publication before mutating the backend.
-// A provider/API failure therefore leaves every existing action set untouched.
 const resolvedRows = await mapConcurrent(rows, FETCH_CONCURRENCY, async (row) => {
   return await fetchToolkitActions(row);
 });

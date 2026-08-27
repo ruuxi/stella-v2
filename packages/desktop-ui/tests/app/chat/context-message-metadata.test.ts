@@ -1,5 +1,3 @@
-// @vitest-environment jsdom
-
 import { describe, expect, it } from "vitest";
 
 import { buildContextMessageMetadata } from "@/features/chat/hooks/use-streaming-chat-core";

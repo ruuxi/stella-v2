@@ -6,12 +6,7 @@ import { LLM_PROVIDERS, isApiKeyOnlyPlaceholder, } from "@/global/settings/lib/l
 import { findApiKey, findOauthCredential, findOauthProvider, useLlmCredentials, } from "@/global/settings/hooks/use-llm-credentials";
 import { Button } from "@/ui/button";
 import { TextField } from "@/ui/text-field";
-/**
- * Provider keys we surface in the onboarding "Bring your own provider" list.
- * The full catalog lives in `llm-providers.ts` and shows up in
- * Settings → Models. The onboarding tile is a focused subset that lets users
- * sign in / paste a key inline, or skip and configure later.
- */
+
 const BYOK_PROVIDER_KEYS = [
     "openai-codex",
     "anthropic",
@@ -29,10 +24,7 @@ export function OnboardingEnginePhase({ splitTransitionActive, onContinue, }) {
     const [activeProvider, setActiveProvider] = useState(null);
     const [draftKey, setDraftKey] = useState("");
     const [savingKey, setSavingKey] = useState(false);
-    // Seed the selection from the existing engine preference so revisiting
-    // the phase reflects the user's prior pick. BYOK is inferred from "any
-    // non-Stella API key or OAuth credential is already configured", since
-    // the engine itself stays "default" on BYOK.
+
     useEffect(() => {
         let cancelled = false;
         const load = async () => {
@@ -49,7 +41,7 @@ export function OnboardingEnginePhase({ splitTransitionActive, onContinue, }) {
                 setChoice(hasAnyByok ? "byok" : "stella");
             }
             catch {
-                // Best-effort; fall through to "stella" default.
+
             }
         };
         void load();
@@ -57,12 +49,7 @@ export function OnboardingEnginePhase({ splitTransitionActive, onContinue, }) {
             cancelled = true;
         };
     }, [credentials.apiKeys, credentials.oauthCredentials]);
-    // Persist the chosen engine pref + advance. Fire-and-forget so the
-    // visible transition matches every other onboarding phase — the IPC
-    // round-trip never holds the Continue click. If saving fails we still
-    // advance and surface the error after the fact via the system event
-    // listeners that already retry; blocking onboarding on a local-pref
-    // write would be a worse UX than a one-line warning.
+
     const persistAndContinue = useCallback((next) => {
         void (async () => {
             try {
@@ -72,8 +59,7 @@ export function OnboardingEnginePhase({ splitTransitionActive, onContinue, }) {
                 window.dispatchEvent(new CustomEvent("stella:local-model-preferences-changed"));
             }
             catch (caught) {
-                // The user has already moved on by this point — log instead
-                // of stranding them on the engine phase.
+
                 console.warn("[onboarding/engine] Failed to persist engine pref", caught);
             }
         })();
@@ -89,15 +75,13 @@ export function OnboardingEnginePhase({ splitTransitionActive, onContinue, }) {
     }, []);
     const handleSelectByok = useCallback(() => {
         setChoice("byok");
-        // BYOK runs through Stella's own runner — engine stays "default".
+
     }, []);
     const handleContinue = useCallback(() => {
         persistAndContinue(choice === "claude_code" ? "claude_code_local" : "default");
     }, [choice, persistAndContinue]);
     const handleProviderClick = useCallback((providerKey) => {
-        // Toggle the inline auth panel for the picked provider so users can
-        // collapse it with a second click instead of being forced to navigate
-        // away. Resets transient draft state so each open starts clean.
+
         setActiveProvider((prev) => (prev === providerKey ? null : providerKey));
         setDraftKey("");
         setError(null);
@@ -246,13 +230,7 @@ export function OnboardingEnginePhase({ splitTransitionActive, onContinue, }) {
       </button>
     </div>);
 }
-/**
- * Engine selection tile with a leading brand icon. Two sizes:
- *  - `hero`: full-width Stella tile, sized to read as the recommended
- *    default (large logo, generous padding).
- *  - `compact`: smaller alternative-engine tile that pairs with another
- *    `compact` in the same row.
- */
+
 function EngineTile({ variant, active, onClick, icon, label, description, }) {
     return (<button type="button" className="onboarding-selection-tile onboarding-engine-tile" data-variant={variant} data-active={active} onClick={onClick}>
       <span className="onboarding-engine-tile-icon" aria-hidden>

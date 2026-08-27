@@ -1,17 +1,3 @@
-/**
- * Mobile mirror of desktop's DictationRecordingBar
- * (`desktop/src/features/dictation/components/DictationRecordingBar.tsx`).
- * Lays out as flex children of the composer pill/expanded form:
- *
- *   [waveform — flex 1]   [0:24]   [X]   [✓]   [↑]
- *
- * The trailing send (↑) is optional: when `onSend` is given it stops dictation
- * and, once the transcript lands, auto-submits the message in one tap.
- *
- * Renders the waveform with a stack of <View>s rather than canvas so we stay
- * inside RN's native render path.
- */
-
 import { memo, useEffect, useMemo, useState } from "react";
 import { type AudioRecorder, useAudioRecorderState } from "expo-audio";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -25,14 +11,14 @@ const BAR_GAP = 2;
 const WAVEFORM_HEIGHT = 28;
 const MIN_BAR_HEIGHT = 1;
 const LEVEL_BUFFER_LENGTH = 64;
-/** Update tick for the waveform/timer. ~12 Hz feels right and matches desktop. */
+
 const RECORDER_TICK_MS = 80;
 
 type Props = {
   recorder: AudioRecorder;
   onCancel: () => void;
   onConfirm: () => void;
-  /** When provided, stop dictation and auto-send once the transcript lands. */
+
   onSend?: () => void;
 };
 
@@ -44,9 +30,7 @@ export const DictationRecordingBar = memo(function DictationRecordingBar({
 }: Props) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  // Keep the 12 Hz metering updates inside this small memoized leaf. Hosting
-  // this polling hook in ChatPane used to re-render the entire transcript and
-  // composer on every sample, which became visibly laggy as that tree grew.
+
   const recorderState = useAudioRecorderState(recorder, RECORDER_TICK_MS);
   const [levels, setLevels] = useState<number[]>([]);
 
@@ -107,7 +91,6 @@ export const DictationRecordingBar = memo(function DictationRecordingBar({
   );
 });
 
-/** Map expo-audio metering (dBFS, -160...0) to a 0...1 visual amplitude. */
 const normalizeMetering = (db: number | undefined): number => {
   if (db === undefined || !isFinite(db)) return 0;
   const clamped = Math.max(-50, Math.min(0, db));

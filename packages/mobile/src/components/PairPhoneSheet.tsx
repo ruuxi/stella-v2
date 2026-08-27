@@ -40,21 +40,16 @@ const desktopChipLabel = (
 type Props = {
   visible: boolean;
   onClose: () => void;
-  /** Called with the new access once pairing succeeds. */
+
   onPaired: (access: StoredPhoneAccess) => void;
-  /** When set, the sheet frames the flow as adding another computer. */
+
   preferredAccess?: StoredPhoneAccess | null;
-  /** Other already-paired computers, for switching between them. */
+
   pairedDesktops?: StoredPhoneAccess[];
   desktopPlatforms?: Record<string, string | null>;
   onSwitchDesktop?: (access: StoredPhoneAccess) => void;
 };
 
-/**
- * Self-contained phone↔desktop pairing sheet (QR scan + manual code), shared
- * by the Computer chat and the desktop (View computer) screen so neither has
- * to bounce the user to a separate pairing screen.
- */
 export function PairPhoneSheet({
   visible,
   onClose,
@@ -209,20 +204,15 @@ export function PairPhoneSheet({
           </ScrollView>
         </SafeAreaView>
 
-        {/*
-          The scanner must be nested inside this Modal, not rendered as a
-          sibling: on iOS a sibling Modal can't present while the pageSheet
-          is already up, so its content mounts (and the camera even scans)
-          without any visible preview. Nesting makes iOS present the
-          full-screen scanner from the sheet's view controller.
-        */}
+        {
+
+}
         <PairingQrScanner
           visible={isScanningQr}
           onClose={() => setIsScanningQr(false)}
           onCodeScanned={(code) => {
             setIsScanningQr(false);
-            // Scanning is unambiguous — pair immediately rather than dropping
-            // the code into the manual field for a second confirmation tap.
+
             void pair(code);
           }}
         />
@@ -235,8 +225,7 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     sheetSafe: {
       backgroundColor: colors.background,
-      // Soft hairline on the leading (top) edge so the sheet reads against
-      // the page beneath, matching the TopSheet primitive's edge treatment.
+
       borderTopColor: colors.border,
       borderTopWidth: StyleSheet.hairlineWidth,
       flex: 1,

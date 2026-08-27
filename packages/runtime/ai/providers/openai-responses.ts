@@ -39,10 +39,7 @@ const OPENAI_TOOL_CALL_PROVIDERS = new Set([
   "openai-codex",
   "opencode",
 ]);
-/**
- * Resolve cache retention preference.
- * Defaults to "short" and uses PI_CACHE_RETENTION for backward compatibility.
- */
+
 function resolveCacheRetention(
   cacheRetention?: CacheRetention,
 ): CacheRetention {
@@ -77,16 +74,12 @@ function getPromptCacheRetention(
     : undefined;
 }
 
-// OpenAI Responses-specific options
 export interface OpenAIResponsesOptions extends StreamOptions {
   reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
   reasoningSummary?: "auto" | "detailed" | "concise" | null;
   serviceTier?: ResponseCreateParamsStreaming["service_tier"];
 }
 
-/**
- * Generate function for OpenAI Responses API
- */
 export const streamOpenAIResponses: StreamFunction<
   "openai-responses",
   OpenAIResponsesOptions
@@ -97,7 +90,6 @@ export const streamOpenAIResponses: StreamFunction<
 ): AssistantMessageEventStream => {
   const stream = new AssistantMessageEventStream();
 
-  // Start async processing
   (async () => {
     const output: AssistantMessage = {
       role: "assistant",
@@ -118,7 +110,7 @@ export const streamOpenAIResponses: StreamFunction<
     };
 
     try {
-      // Create OpenAI client
+
       const apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
       const cacheRetention = resolveCacheRetention(options?.cacheRetention);
       const cacheSessionId =
@@ -132,9 +124,7 @@ export const streamOpenAIResponses: StreamFunction<
       if (nextParams !== undefined) {
         params = nextParams as ResponseCreateParamsStreaming;
       }
-      // A failed stream is a failed model round. The agent runtime retries
-      // from the last stable user/tool-result boundary, preserving completed
-      // tool work without requiring a server-side response buffer.
+
       const requestOptions = {
         ...(options?.signal ? { signal: options.signal } : {}),
         ...(options?.timeoutMs !== undefined
@@ -182,16 +172,13 @@ export const streamOpenAIResponses: StreamFunction<
     } catch (error) {
       for (const block of output.content) {
         delete (block as { index?: number }).index;
-        // partialJson is only a streaming scratch buffer; never persist it.
+
         delete (block as { partialJson?: string }).partialJson;
       }
       output.stopReason = options?.signal?.aborted ? "aborted" : "error";
       output.errorMessage =
         error instanceof Error ? error.message : JSON.stringify(error);
-      // Flattening the error to a string drops its headers, so pull the
-      // provider's requested backoff out first — the run-level retry has
-      // no other way to learn it. `maxRetries: 0` above means nothing
-      // below this layer has already honored it.
+
       const retryAfterMs = readRetryAfterMs(error);
       if (retryAfterMs !== undefined) output.retryAfterMs = retryAfterMs;
       stream.push({ type: "error", reason: output.stopReason, error: output });
@@ -210,10 +197,7 @@ export const streamSimpleOpenAIResponses: StreamFunction<
   context: Context,
   options?: SimpleStreamOptions,
 ): AssistantMessageEventStream => {
-  // The OpenAI SDK requires a non-empty apiKey even when authentication is
-  // supplied entirely by custom headers. Match the completions transport's
-  // local/custom-base-url sentinel; model/options headers still override the
-  // SDK's generated Authorization header.
+
   const apiKey =
     options?.apiKey ||
     getEnvApiKey(model.provider) ||
@@ -283,7 +267,6 @@ function createClient(
     headers["x-session-affinity"] = promptCacheKey;
   }
 
-  // Merge options headers last so they can override defaults
   if (optionsHeaders) {
     Object.assign(headers, optionsHeaders);
   }
@@ -318,7 +301,7 @@ function buildParams(
     context,
     OPENAI_TOOL_CALL_PROVIDERS,
   );
-  // Dedupe by name — last definition wins, matching historical behavior.
+
   const uniqueTools = [
     ...new Map((context.tools ?? []).map((tool) => [tool.name, tool])).values(),
   ];
@@ -333,8 +316,7 @@ function buildParams(
         ? undefined
         : (options?.promptCacheKey ?? options?.sessionId),
     prompt_cache_retention: getPromptCacheRetention(compat, cacheRetention),
-    // OpenRouter rejects `store: true` on its Responses API (verified live:
-    // "Invalid Responses API request"); omit it there, keep it elsewhere.
+
     store: !(
       model.provider === "openrouter" || model.baseUrl.includes("openrouter.ai")
     ),

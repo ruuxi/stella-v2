@@ -1,9 +1,6 @@
 use async_trait::async_trait;
 use serde_json::Value;
 
-/// Abstract backend for browser automation. CDP (Chromium) and WebDriver
-/// (Safari/iOS) share this interface so actions.rs can remain backend-agnostic
-/// in the future.
 #[async_trait]
 pub trait BrowserBackend: Send + Sync {
     async fn navigate(&self, url: &str) -> Result<(), String>;
@@ -22,7 +19,6 @@ pub trait BrowserBackend: Send + Sync {
     fn backend_type(&self) -> &str;
 }
 
-/// WebDriver implementation of BrowserBackend
 pub struct WebDriverBackend {
     client: super::client::WebDriverClient,
 }
@@ -95,7 +91,6 @@ impl BrowserBackend for WebDriverBackend {
     }
 }
 
-/// CDP-backed backend constants for unsupported actions on WebDriver
 pub const WEBDRIVER_UNSUPPORTED_ACTIONS: &[&str] = &[
     "screencast_start",
     "screencast_stop",

@@ -1,8 +1,3 @@
-// Rows behind Recall's inline "# Thread Index": the most recent N delegated
-// agent threads across ALL conversations with the fields the index renders —
-// including the agent's final result/error excerpts, which no keyword search
-// ever exposed (and `summary` is empty on nearly every real thread).
-
 import { rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -124,8 +119,7 @@ describe("listThreadsForRecallIndex", () => {
       conversationId: "conv-a",
       nameHint: "Newest thread",
     });
-    // The old thread's agent record was touched most recently — a running
-    // turn bumps updated_at even when the thread row wasn't re-used.
+
     store.saveAgentRecord({
       threadId: oldButBusy,
       conversationId: "conv-a",
@@ -184,8 +178,7 @@ describe("listThreadsForRecallIndex", () => {
       conversationId: "conv-a",
       nameHint: "Fresh thread",
     });
-    // A stale thread whose AGENT record was recently updated stays in the
-    // window — last activity is the max of thread and agent recency.
+
     const staleButBusy = createThreadAt(store, 2_000, {
       conversationId: "conv-b",
       nameHint: "Stale but busy",

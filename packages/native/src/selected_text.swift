@@ -1,31 +1,7 @@
-// selected_text - Get currently selected text + screen bounds
-// Usage: selected_text [--no-clipboard-fallback]
-// Output: A single line of JSON to stdout (UTF-8):
-//   {"text":"...","rect":{"x":123,"y":456,"w":210,"h":22}}
-//   {"text":"..."}                         (text but no bounds available)
-//   {}                                     (nothing selected)
-//
-// Strategy (in order):
-//   1. Walk UP and DOWN the AX tree from the focused element looking
-//      for `AXSelectedText` (cheap, no side effects).
-//   2. Try the same against `AXFocusedWindow` and the system-wide
-//      `AXFocusedUIElement`.
-//   3. Pasteboard fallback: simulate Cmd+C, read NSPasteboard, restore
-//      the original pasteboard contents. Covers apps that don't expose
-//      `AXSelectedText` (Discord, Slack, terminals, custom-drawn text
-//      views, many Electron apps). Skipped if the foreground app is
-//      Stella itself or if `--no-clipboard-fallback` is passed.
-//
-// Build: swiftc -O -o selected_text src/selected_text.swift -framework ApplicationServices -framework AppKit -framework Carbon
-
 import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
 import Foundation
-
-// ────────────────────────────────────────────────────────────────────
-// JSON helpers
-// ────────────────────────────────────────────────────────────────────
 
 func emitEmpty() {
     print("{}", terminator: "")
@@ -60,10 +36,6 @@ func emit(text: String, rect: CGRect?) {
         print("{\"text\":\(escapedText)}", terminator: "")
     }
 }
-
-// ────────────────────────────────────────────────────────────────────
-// AX helpers
-// ────────────────────────────────────────────────────────────────────
 
 func axCopy(_ element: AXUIElement, _ attribute: String) -> AnyObject? {
     var value: AnyObject?
@@ -129,10 +101,6 @@ func readSelectionFrom(_ element: AXUIElement) -> AXSelection? {
     return nil
 }
 
-/// Walk up to `maxDepth` ancestors looking for an element that exposes
-/// `AXSelectedText`. Mirrors the Windows binary's TreeWalker behavior —
-/// browsers and many native apps expose selection on a parent of the
-/// directly-focused leaf.
 func walkUpForSelection(_ start: AXUIElement, maxDepth: Int = 12) -> AXSelection? {
     var current: AXUIElement? = start
     for _ in 0..<maxDepth {
@@ -143,10 +111,6 @@ func walkUpForSelection(_ start: AXUIElement, maxDepth: Int = 12) -> AXSelection
     return nil
 }
 
-/// Walk children breadth-first up to `maxNodes` looking for selection.
-/// Used when the focused element is a container that itself doesn't
-/// expose selection but a descendant does (common for split views,
-/// scroll views, Electron BrowserView wrappers).
 func walkDownForSelection(_ root: AXUIElement, maxNodes: Int = 80) -> AXSelection? {
     var queue: [AXUIElement] = [root]
     var visited = 0
@@ -195,13 +159,6 @@ func tryAccessibilityChain(app: AXUIElement) -> AXSelection? {
     return nil
 }
 
-// ────────────────────────────────────────────────────────────────────
-// Pasteboard fallback (Cmd+C with restore)
-// ────────────────────────────────────────────────────────────────────
-
-/// Snapshot of every item currently on the general pasteboard so we can
-/// restore it after our synthetic Cmd+C without losing whatever the user
-/// had on their clipboard.
 struct PasteboardSnapshot {
     let items: [[String: Data]]
     let changeCount: Int
@@ -284,15 +241,9 @@ func tryPasteboardFallback(targetPid: pid_t) -> AXSelection? {
         }
     }
 
-    // Always restore — even if the copy succeeded — so the user's
-    // pasteboard is untouched.
     restorePasteboard(snapshot)
     return result
 }
-
-// ────────────────────────────────────────────────────────────────────
-// Main
-// ────────────────────────────────────────────────────────────────────
 
 let args = CommandLine.arguments
 let allowClipboardFallback = !args.contains("--no-clipboard-fallback")
@@ -302,10 +253,6 @@ guard let frontApp = NSWorkspace.shared.frontmostApplication else {
     exit(0)
 }
 
-// Never invoke the clipboard fallback against ourselves — Stella's own
-// renderer handles in-app selections via the React `AskStellaSelectionChip`,
-// and synthesizing Cmd+C inside Electron would race with the renderer's
-// own focus/selection state.
 let frontPid = frontApp.processIdentifier
 let isStellaFrontmost = frontPid == ProcessInfo.processInfo.processIdentifier
     || (frontApp.bundleIdentifier ?? "").contains("stella")

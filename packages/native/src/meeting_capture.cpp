@@ -1,34 +1,3 @@
-// meeting_capture.exe - Granola-style dual-stream meeting recorder for Stella.
-//
-// Windows counterpart of src/meeting_capture.swift. Captures system audio
-// (everyone else on the call, no meeting bot required) via WASAPI loopback on
-// the default render endpoint, AND the local microphone (you) via WASAPI
-// capture on the default capture endpoint, as two independent PCM streams
-// written to disk as rolling WAV segments. Keeping the streams separate gives a
-// downstream transcriber clean "you vs them" speaker separation for free.
-//
-// On-disk layout matches the macOS helper exactly so the downstream consumer is
-// platform-agnostic (all under <stellaDataDir>\meetings\):
-//   meeting_capture.pid           Daemon pid (best-effort, cleaned on exit)
-//   meeting_capture.state.json    { running, recording, paused, sessionId, startedAtMs, segmentSeconds }
-//   <sessionId>\session.json      { sessionId, startedAtMs, endedAtMs, segmentSeconds, streams: {...} }
-//   <sessionId>\segments.jsonl    One line per finalized WAV segment
-//   <sessionId>\system\seg-<idx>-<startMs>.wav
-//   <sessionId>\mic\seg-<idx>-<startMs>.wav
-//
-// IPC: a named pipe (\\.\pipe\stella-mtgcap-<hash-of-root>) is the Windows
-// analog of the macOS AF_UNIX socket. Commands are single line/message:
-//   daemon | start [id] [seg] | pause | resume | stop | status | ping | shutdown
-//
-// Permissions: WASAPI loopback needs no special permission. The microphone is
-// governed by the Windows mic privacy setting; capture is best-effort and a
-// recording still proceeds system-audio-only if the mic is unavailable.
-//
-// Compile (MSVC):
-//   cl /O2 /EHsc meeting_capture.cpp /link ole32.lib oleaut32.lib uuid.lib /OUT:meeting_capture.exe
-// Compile (mingw-w64):
-//   g++ -O2 -static meeting_capture.cpp -o meeting_capture.exe -lole32 -loleaut32 -luuid
-
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 
@@ -54,11 +23,7 @@
 #include <thread>
 #include <vector>
 
-// ---------------------------------------------------------------------------
-// Small helpers
-// ---------------------------------------------------------------------------
-
-static const int64_t REFTIMES_PER_SEC = 10000000; // 100-ns units in one second
+static const int64_t REFTIMES_PER_SEC = 10000000;
 
 static int64_t nowMs()
 {
@@ -67,7 +32,7 @@ static int64_t nowMs()
     ULARGE_INTEGER uli;
     uli.LowPart = ft.dwLowDateTime;
     uli.HighPart = ft.dwHighDateTime;
-    // FILETIME is 100-ns ticks since 1601-01-01; convert to ms since 1970.
+
     const int64_t EPOCH_DIFF_100NS = 116444736000000000LL;
     return (int64_t)((uli.QuadPart - EPOCH_DIFF_100NS) / 10000);
 }
@@ -89,8 +54,6 @@ static std::wstring lowerW(const std::wstring& s)
     return out;
 }
 
-// Stable per-root pipe name. The Electron host passes an identical --root to
-// the daemon and to every client command, so both derive the same name.
 static std::wstring pipeNameForRoot(const std::wstring& root)
 {
     std::wstring norm = lowerW(root);
@@ -106,10 +69,6 @@ static std::wstring pipeNameForRoot(const std::wstring& root)
     swprintf(buf, 64, L"\\\\.\\pipe\\stella-mtgcap-%016llx", (unsigned long long)h);
     return std::wstring(buf);
 }
-
-// ---------------------------------------------------------------------------
-// Filesystem (wide Win32 APIs so non-ASCII home paths work)
-// ---------------------------------------------------------------------------
 
 static std::wstring joinW(const std::wstring& a, const std::wstring& b)
 {
@@ -159,10 +118,6 @@ static void removeFileW(const std::wstring& path)
 {
     DeleteFileW(path.c_str());
 }
-
-// ---------------------------------------------------------------------------
-// Args
-// ---------------------------------------------------------------------------
 
 struct MeetingArgs {
     std::wstring command;
@@ -222,10 +177,6 @@ static std::string sanitizeSessionId(const std::string& id)
     return out.empty() ? generateSessionId() : out;
 }
 
-// ---------------------------------------------------------------------------
-// Paths
-// ---------------------------------------------------------------------------
-
 struct MeetingPaths {
     std::wstring root;
     std::wstring stateDir() const { return joinW(root, L"meetings"); }
@@ -236,10 +187,6 @@ struct MeetingPaths {
         return joinW(stateDir(), wid);
     }
 };
-
-// ---------------------------------------------------------------------------
-// WAV writer (Win32 handles for MSVC/MinGW/clang portability)
-// ---------------------------------------------------------------------------
 
 class WavWriter {
 public:
@@ -304,24 +251,20 @@ private:
         uint32_t byteRate = sampleRate * channels * (bits / 8);
         uint16_t blockAlign = channels * (bits / 8);
         writeTag("RIFF");
-        writeU32(0); // patched on close
+        writeU32(0);
         writeTag("WAVE");
         writeTag("fmt ");
         writeU32(16);
-        writeU16(1); // PCM
+        writeU16(1);
         writeU16(channels);
         writeU32(sampleRate);
         writeU32(byteRate);
         writeU16(blockAlign);
         writeU16(bits);
         writeTag("data");
-        writeU32(0); // patched on close
+        writeU32(0);
     }
 };
-
-// ---------------------------------------------------------------------------
-// Per-stream segmenter (rolling WAV segments + wall-clock silence padding)
-// ---------------------------------------------------------------------------
 
 class StreamSegmenter {
 public:
@@ -363,14 +306,11 @@ public:
         }
         if (!current_) return;
 
-        // Pad with silence to keep the file wall-clock aligned (WASAPI loopback
-        // delivers no packets while the system is silent). Bounded so a stalled
-        // thread can't write a runaway block.
         int64_t elapsedMs = now - streamStartMs_;
         uint64_t expectedFrames = (uint64_t)((double)elapsedMs * (double)sampleRate / 1000.0);
         if (expectedFrames > totalFrames_) {
             uint64_t deficit = expectedFrames - totalFrames_;
-            uint64_t minPad = sampleRate / 50; // ignore < ~20ms jitter
+            uint64_t minPad = sampleRate / 50;
             uint64_t maxPad = (uint64_t)sampleRate * 5;
             if (deficit >= minPad) {
                 if (deficit > maxPad) deficit = maxPad;
@@ -413,15 +353,11 @@ private:
     uint64_t totalFrames_ = 0;
 };
 
-// ---------------------------------------------------------------------------
-// WASAPI capture
-// ---------------------------------------------------------------------------
-
 struct CaptureFormat {
     uint32_t sampleRate = 0;
     uint16_t channels = 0;
-    int bytesPerSample = 0; // source bytes per single channel sample
-    int kind = 0;           // 0 = unknown, 1 = float32, 2 = pcm16, 3 = pcm32
+    int bytesPerSample = 0;
+    int kind = 0;
 };
 
 static CaptureFormat classifyFormat(const WAVEFORMATEX* wfx)
@@ -434,8 +370,7 @@ static CaptureFormat classifyFormat(const WAVEFORMATEX* wfx)
     WORD tag = wfx->wFormatTag;
     if (tag == WAVE_FORMAT_EXTENSIBLE) {
         const WAVEFORMATEXTENSIBLE* ext = reinterpret_cast<const WAVEFORMATEXTENSIBLE*>(wfx);
-        // KSDATAFORMAT_SUBTYPE_{IEEE_FLOAT,PCM} carry the legacy format tag in
-        // SubFormat.Data1, so we can classify without linking the KS GUIDs.
+
         tag = (WORD)ext->SubFormat.Data1;
     }
     if (tag == WAVE_FORMAT_IEEE_FLOAT && wfx->wBitsPerSample == 32) fmt.kind = 1;
@@ -466,10 +401,6 @@ static void convertToInt16(const BYTE* data, uint32_t numFrames, const CaptureFo
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Recorder
-// ---------------------------------------------------------------------------
 
 class Recorder {
 public:
@@ -555,7 +486,6 @@ public:
             if (!recording_) return "{\"ok\":false,\"error\":\"not-recording\"}";
         }
 
-        // Signal threads without holding the mutex (they take it in ingest()).
         stopFlag_ = true;
         if (systemThread_.joinable()) systemThread_.join();
         if (micThread_.joinable()) micThread_.join();
@@ -686,8 +616,6 @@ private:
                                       __uuidof(IMMDeviceEnumerator), (void**)&enumerator);
         if (FAILED(hr) || !enumerator) { announce(false); cleanup(); return; }
 
-        // Loopback captures system output from the render endpoint; mic uses the
-        // capture endpoint.
         hr = enumerator->GetDefaultAudioEndpoint(loopback ? eRender : eCapture, eConsole, &device);
         if (FAILED(hr) || !device) { announce(false); cleanup(); return; }
 
@@ -779,7 +707,6 @@ private:
         payload += "\"streams\":{\"system\":" + sysMeta + ",\"mic\":" + micMeta + "}";
         payload += "}";
 
-        // Rebuild the path from the wide field (the utf8 `dir` is only for JSON).
         std::wstring sessionPath;
         {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -803,10 +730,6 @@ private:
     std::thread micThread_;
 };
 
-// ---------------------------------------------------------------------------
-// Named pipe IPC
-// ---------------------------------------------------------------------------
-
 static void writePipe(HANDLE pipe, const std::string& s)
 {
     DWORD written = 0;
@@ -821,7 +744,7 @@ static bool readPipeLine(HANDLE pipe, std::string& out)
     if (!ReadFile(pipe, buf, sizeof(buf) - 1, &read, NULL) || read == 0) return false;
     buf[read] = 0;
     out.assign(buf, read);
-    // trim trailing whitespace/newlines
+
     while (!out.empty() && (out.back() == '\n' || out.back() == '\r' ||
                             out.back() == ' ' || out.back() == '\0')) {
         out.pop_back();
@@ -842,10 +765,6 @@ static std::vector<std::string> splitTokens(const std::string& s)
     return out;
 }
 
-// ---------------------------------------------------------------------------
-// Daemon
-// ---------------------------------------------------------------------------
-
 static MeetingPaths* g_paths = nullptr;
 static Recorder* g_recorder = nullptr;
 
@@ -861,7 +780,7 @@ static void daemonCleanup()
 static BOOL WINAPI consoleCtrlHandler(DWORD)
 {
     daemonCleanup();
-    return FALSE; // allow default termination
+    return FALSE;
 }
 
 static int runDaemon(const MeetingPaths& paths, int defaultSegmentSeconds)
@@ -951,10 +870,6 @@ static int runDaemon(const MeetingPaths& paths, int defaultSegmentSeconds)
     }
 }
 
-// ---------------------------------------------------------------------------
-// Client
-// ---------------------------------------------------------------------------
-
 static int sendCommand(const MeetingPaths& paths, const std::string& command)
 {
     std::wstring pipeName = pipeNameForRoot(paths.root);
@@ -981,10 +896,6 @@ static int sendCommand(const MeetingPaths& paths, const std::string& command)
     CloseHandle(pipe);
     return 0;
 }
-
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
 
 int main()
 {

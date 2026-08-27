@@ -5,25 +5,18 @@ use tokio_tungstenite::tungstenite::Message;
 
 use super::types::BrowserVersionInfo;
 
-/// Default timeout for CDP discovery HTTP requests.
 const DEFAULT_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Discover the CDP WebSocket URL for the given host and port.
-///
-/// Tries three methods in order: `/json/version`, `/json/list`, and a direct
-/// WebSocket connection to `/devtools/browser`. The returned URL has its
-/// host/port rewritten to match the requested target.
 pub async fn discover_cdp_url(host: &str, port: u16) -> Result<String, String> {
     discover_cdp_url_with_timeout(host, port, DEFAULT_DISCOVERY_TIMEOUT).await
 }
 
-/// Like [`discover_cdp_url`] but with a custom request timeout.
 pub async fn discover_cdp_url_with_timeout(
     host: &str,
     port: u16,
     timeout: Duration,
 ) -> Result<String, String> {
-    // Primary: /json/version (standard path)
+
     let version_err = match fetch_cdp_info(host, port, timeout).await {
         Ok(info) => {
             if let Some(ws_url) = info.web_socket_debugger_url {
@@ -37,15 +30,11 @@ pub async fn discover_cdp_url_with_timeout(
         Err(e) => e,
     };
 
-    // Fallback: /json/list (returns target list; look for the browser target)
     let list_err = match fetch_cdp_list(host, port, timeout).await {
         Ok(ws_url) => return Ok(rewrite_ws_host(&ws_url, host, port)),
         Err(e) => e,
     };
 
-    // Final fallback: direct WebSocket at /devtools/browser.
-    // Chrome 136+ with UI-based remote debugging (chrome://inspect) exposes
-    // CDP over WebSocket but does not serve HTTP discovery endpoints.
     match discover_cdp_ws(host, port, timeout).await {
         Ok(ws_url) => Ok(ws_url),
         Err(ws_err) => Err(format!(
@@ -55,7 +44,6 @@ pub async fn discover_cdp_url_with_timeout(
     }
 }
 
-/// Bracket an IPv6 address for use in URLs. No-op for IPv4 or already-bracketed addresses.
 fn bracket_ipv6(host: &str) -> String {
     if host.contains(':') && !host.starts_with('[') {
         format!("[{}]", host)
@@ -64,7 +52,6 @@ fn bracket_ipv6(host: &str) -> String {
     }
 }
 
-/// Fetch `/json/version` from the given host:port and parse the response.
 async fn fetch_cdp_info(
     host: &str,
     port: u16,
@@ -80,10 +67,6 @@ async fn fetch_cdp_info(
     serde_json::from_str(&body).map_err(|e| format!("Invalid /json/version response: {}", e))
 }
 
-/// Rewrite the host and port in a WebSocket URL to match the target we
-/// actually connected to. Chrome's `/json/version` always returns
-/// `ws://127.0.0.1:<local-port>/...` which is unreachable when the
-/// browser is on a remote machine or behind a port-forward.
 fn rewrite_ws_host(ws_url: &str, host: &str, port: u16) -> String {
     if let Ok(mut parsed) = url::Url::parse(ws_url) {
         let _ = parsed.set_host(Some(&bracket_ipv6(host)));
@@ -94,8 +77,6 @@ fn rewrite_ws_host(ws_url: &str, host: &str, port: u16) -> String {
     }
 }
 
-/// Fetch `/json/list` and extract the `webSocketDebuggerUrl` from the first
-/// target with `type == "browser"`, or the first target if none has that type.
 async fn fetch_cdp_list(host: &str, port: u16, timeout: Duration) -> Result<String, String> {
     let url = format!("http://{}:{}/json/list", bracket_ipv6(host), port);
 
@@ -112,7 +93,6 @@ async fn fetch_cdp_list(host: &str, port: u16, timeout: Duration) -> Result<Stri
     let targets: Vec<serde_json::Value> =
         serde_json::from_str(&body).map_err(|e| format!("Invalid /json/list response: {}", e))?;
 
-    // Prefer targets with type "browser", fall back to first target with a ws URL
     let browser_target = targets
         .iter()
         .find(|t| t.get("type").and_then(|v| v.as_str()) == Some("browser"));
@@ -126,9 +106,6 @@ async fn fetch_cdp_list(host: &str, port: u16, timeout: Duration) -> Result<Stri
         .ok_or_else(|| "No webSocketDebuggerUrl found in /json/list targets".to_string())
 }
 
-/// Discover a CDP endpoint by connecting directly to `ws://host:port/devtools/browser`
-/// and verifying it responds to `Browser.getVersion`.
-/// Returns the WebSocket URL on success.
 async fn discover_cdp_ws(host: &str, port: u16, timeout: Duration) -> Result<String, String> {
     let ws_url = format!("ws://{}:{}/devtools/browser", bracket_ipv6(host), port);
 
@@ -221,7 +198,7 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         let server = tokio::spawn(async move {
             accept_http(&listener, &http_200("not-json")).await;
-            // /json/list and ws fallback both fail (server closes)
+
         });
 
         let err = discover_cdp_url("127.0.0.1", port).await.unwrap_err();
@@ -252,11 +229,10 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let server = tokio::spawn(async move {
-            // /json/version -> 404, /json/list -> 404
+
             accept_http(&listener, HTTP_404).await;
             accept_http(&listener, HTTP_404).await;
 
-            // WebSocket handshake + respond to Browser.getVersion
             let (stream, _) = listener.accept().await.unwrap();
             let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
             if let Some(Ok(Message::Text(text))) = ws.next().await {

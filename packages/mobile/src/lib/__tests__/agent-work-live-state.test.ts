@@ -3,15 +3,6 @@ import { describe, expect, test } from "bun:test";
 import type { ChatArtifact, ChatMessage, MobileTask } from "../../types";
 import { applyLiveAgentWorkState } from "../agent-work-live-state";
 
-/**
- * The transcript's agent-work cards must agree with the activity pill: the
- * synced payload's `state` is settled desktop-side where elapsed time counts
- * as completion (`AGENT_WORK_STALE_MS`), so a long-running thread — notably a
- * `send_input` follow-up — can sync as a false "Finished" while the pill's
- * live task fold still counts it running. `applyLiveAgentWorkState` re-derives
- * the card state from that same fold.
- */
-
 const task = (overrides: Partial<MobileTask> & { id: string }): MobileTask => ({
   title: "Background work",
   status: "running",
@@ -56,9 +47,7 @@ const payloadOf = (chatMessage: ChatMessage, index = 0) => {
 
 describe("applyLiveAgentWorkState", () => {
   test("send_input follow-up on a running thread renders as in-progress, not Finished", () => {
-    // The desktop projection stale-settled the follow-up card to "done"
-    // (spawned longer than the stale window ago, no terminal event), while
-    // the live fold behind the pill still has the thread running.
+
     const followUpCard = agentWorkArtifact({
       agentIds: ["agent-a"],
       state: "done",
@@ -87,9 +76,7 @@ describe("applyLiveAgentWorkState", () => {
   });
 
   test("a live terminal status never flips a running card to done (bridge/sync own that)", () => {
-    // A just-steered card can briefly coexist with a stale terminal snapshot
-    // from the thread's PREVIOUS run; the fold catching up must not re-settle
-    // the card. The done flip arrives via agent-completed / transcript sync.
+
     const card = agentWorkArtifact({
       agentIds: ["agent-a"],
       state: "running",
@@ -104,9 +91,7 @@ describe("applyLiveAgentWorkState", () => {
   });
 
   test("only the latest card covering a thread follows live state; earlier turns stay settled", () => {
-    // Turn 1 spawned the agent; turn 2 steered it via send_input. Desktop
-    // freezes superseded occurrences as settled — the older card keeps its
-    // synced done state, only the newest shimmers.
+
     const spawnCard = agentWorkArtifact({ agentIds: ["agent-a"] });
     const followUpCard = agentWorkArtifact({
       agentIds: ["agent-a"],

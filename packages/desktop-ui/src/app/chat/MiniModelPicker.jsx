@@ -1,17 +1,3 @@
-/**
- * MiniModelPicker — the pinned model control in the composer's expanded
- * toolbar (shown while the Work footer's "Show in composer" toggle is on).
- *
- * The trigger shows the active model's display name; the popover opens
- * above it (the composer sits at the bottom of the screen) with the
- * reasoning-effort pills and the freshest recent models. Selections apply
- * exactly like the sidebar picker's Assistant tab — same preference patch,
- * same `stella:local-model-preferences-changed` announcement.
- *
- * It deliberately stays a shortcut, not a second picker: anything beyond
- * "switch back to a model I just used" hands off to the full picker
- * through the last row.
- */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Lightbulb, SlidersHorizontal } from "@/ui/icons";
 import { BrandIcon } from "@/ui/brand-icon";
@@ -32,15 +18,10 @@ import { buildRecentModelRows, createKnownModelIdPredicate, readRecentModels, re
 import { showToast } from "@/ui/toast";
 import { useT } from "@/shared/i18n";
 import "./mini-model-picker.css";
-/** Mirrors the sidebar Assistant tab's dual orchestrator + general write. */
+
 const ASSISTANT_AGENT_KEYS = ["orchestrator", "general"];
 const NO_EXCLUDED_IDS = new Set();
-/**
- * Brand glyph for a row. Engine aliases carry the engine's vendor; catalog
- * ids resolve through the merged catalog's provider key (the same key
- * `BrandIcon` takes elsewhere), and anything unresolved falls back to the
- * id's own namespace so BYOK/local rows still get a stable mark.
- */
+
 const getModelBrandKey = (modelId, providersById) => {
     if (modelId.startsWith("claude-code/"))
         return "anthropic";
@@ -48,11 +29,7 @@ const getModelBrandKey = (modelId, providersById) => {
         return "openai";
     return (providersById.get(modelId) ?? modelId.split("/")[0] ?? "stella");
 };
-/**
- * Last-known local model preferences, so re-mounting the pinned control
- * (composer remounts on conversation switches) doesn't flash a loading
- * label while the IPC roundtrip lands.
- */
+
 let cachedMiniPickerPreferences = null;
 export function MiniModelPicker() {
     const t = useT();
@@ -85,14 +62,12 @@ export function MiniModelPicker() {
             window.removeEventListener("stella:local-model-preferences-changed", handlePreferencesChanged);
         };
     }, []);
-    // Recents are re-read on every open so picks recorded by the sidebar
-    // picker (same uiState store) show up without an event channel.
+
     useEffect(() => {
         if (open)
             setRecentIds(readRecentModels());
     }, [open]);
-    // Labels come from the FULL merged catalog so BYOK / local override ids
-    // (openrouter/…, anthropic/…, local/…) render their display names too.
+
     const modelNamesById = useMemo(() => {
         const next = new Map();
         for (const model of allModels) {
@@ -126,8 +101,7 @@ export function MiniModelPicker() {
         return normalizeModelOverrides(preferences.modelOverrides);
     }, [preferences]);
     const committedEngine = preferences?.agentRuntimeEngine ?? "default";
-    /** Current selection as an override id, engine routes included — the
-     * same id family the recents store persists. */
+
     const currentId = committedEngine === "codex_cli"
         ? `codex-cli/${preferences?.codexModel || DEFAULT_CHATGPT_MODEL}`
         : committedEngine === "claude_code_local"
@@ -147,9 +121,7 @@ export function MiniModelPicker() {
             : (preferences?.reasoningEfforts?.orchestrator ??
                 preferences?.reasoningEfforts?.general ??
                 "default");
-    // Model metadata from Codex app-server belongs only to the explicit native
-    // runtime. Regular ChatGPT selections use the in-process OAuth provider and
-    // must not launch the local Codex executable from this compact picker.
+
     const nativeCodexRuntimeEnabled = preferences?.useNativeCodexRuntime === true;
     const codexCatalog = useCodexModelCatalog(committedEngine === "codex_cli" &&
         nativeCodexRuntimeEnabled);
@@ -158,9 +130,7 @@ export function MiniModelPicker() {
         ? codexCatalog.models?.find((model) => model.id === selectedChatGptModel)
             ?.defaultReasoningEffort
         : null;
-    // Fast mode (codexServiceTier) — same gate as the sidebar picker: only
-    // offered when the live codex catalog reports the selected ChatGPT model
-    // supports a faster service tier.
+
     const selectedChatGptLiveModel = committedEngine === "codex_cli" && nativeCodexRuntimeEnabled
         ? (codexCatalog.models?.find((model) => model.id === selectedChatGptModel) ?? null)
         : null;
@@ -173,8 +143,7 @@ export function MiniModelPicker() {
             isDeepSeekV4FlashModel(selectedStellaCatalogModel?.upstreamModel)) ||
             (isMuseSpark12ContributorModel(selectedStellaModelId) ||
                 isMuseSpark12ContributorModel(selectedStellaCatalogModel?.upstreamModel)));
-    // Mirrors the sidebar picker's `effectiveDefaultReasoningEffort`: a
-    // live-reported ChatGPT default wins when it maps to a known option.
+
     const effectiveDefaultReasoningEffort = reasoningEffortOptions.some((option) => option.id === reportedDefaultReasoningEffort)
         ? reportedDefaultReasoningEffort
         : selectedModelDefaultsToXhigh
@@ -201,7 +170,7 @@ export function MiniModelPicker() {
             const saved = await window.electronAPI?.system?.setLocalModelPreferences?.(patch);
             if (saved)
                 setPreferences(saved);
-            // Let the sidebar picker and mention menu pick up the change.
+
             window.dispatchEvent(new CustomEvent("stella:local-model-preferences-changed"));
         }
         catch (caught) {

@@ -11,12 +11,6 @@ export const usersSchema = {
     .index("by_ownerId_and_key", ["ownerId", "key"])
     .index("by_key", ["key"]),
 
-  /**
-   * Denormalized per-owner counters. Singleton row per `ownerId` updated by
-   * mutations that change the underlying row counts. Lets quota checks (e.g.
-   * `MAX_CONVERSATIONS_PER_USER`) run in O(1) instead of scanning the
-   * conversations table on every create.
-   */
   user_counters: defineTable({
     ownerId: v.string(),
     conversationCount: v.optional(v.number()),

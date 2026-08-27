@@ -9,15 +9,6 @@ import {
 } from "@stella/runtime/kernel/browser-use/client";
 import { installBrowserWorkerApi } from "@stella/runtime/kernel/browser-use/worker-api";
 
-/**
- * Contract tests binding every JS layer of the browser vocabulary to the
- * canonical manifest at packages/stella-browser/protocol/actions.json. The
- * Rust daemon is bound to the same manifest by
- * packages/stella-browser/cli/src/native/contract_tests.rs, so an action
- * added, removed, or renamed in any layer fails a test until the manifest and
- * every layer agree.
- */
-
 const MANIFEST_PATH = fileURLToPath(
   new URL(
     "../../../../../stella-browser/protocol/actions.json",
@@ -47,10 +38,6 @@ const globalParams = new Set(manifest.globalParams.params);
 const paramsOf = (action: string): Set<string> =>
   new Set(manifest.actions[action]?.params ?? []);
 
-/**
- * SAFE_ACTION_KEYS lives inside installBrowserWorkerApi so the function stays
- * self-contained for data-URL embedding; recover the literal from its source.
- */
 const extractSafeActionKeys = (): Record<string, readonly string[]> => {
   const source = installBrowserWorkerApi.toString();
   const marker = source.indexOf("SAFE_ACTION_KEYS");
@@ -76,19 +63,13 @@ const extractSafeActionKeys = (): Record<string, readonly string[]> => {
     string,
     readonly string[]
   >;
-  // Sanity: the extraction must have found the real table.
+
   expect(Object.keys(parsed)).toContain("navigate");
   return parsed;
 };
 
-/**
- * Every daemon action the worker API's method surface emits, mapped to the
- * param keys those methods send (tabId excluded; it is a global param). Keep
- * in sync with worker-api.ts — this is the JS-offered vocabulary outside of
- * browser.chain().
- */
 const WORKER_EMITTED_COMMANDS: Record<string, readonly string[]> = {
-  navigate: ["url", "waitUntil", "timeout"], // tab.goto
+  navigate: ["url", "waitUntil", "timeout"],
   back: ["timeout"],
   forward: ["timeout"],
   reload: ["timeout"],
@@ -97,18 +78,18 @@ const WORKER_EMITTED_COMMANDS: Record<string, readonly string[]> = {
   tab_list: [],
   tab_new: ["url"],
   tab_close: [],
-  mark_tab: ["status"], // tab.markDeliverable / tab.markHandoff
-  finalize_tabs: ["keep"], // browser.tabs.finalize (top-level only)
+  mark_tab: ["status"],
+  finalize_tabs: ["keep"],
   snapshot: ["interactive", "cursor", "compact", "maxDepth", "selector"],
   screenshot: ["fullPage", "annotate", "selector", "format", "quality"],
-  scroll: ["x", "y", "direction", "amount", "selector"], // tab.scroll
+  scroll: ["x", "y", "direction", "amount", "selector"],
   evaluate: ["script"],
   evaluate_detached: ["script"],
-  wait: ["selector", "timeout"], // waitFor / waitForTimeout
+  wait: ["selector", "timeout"],
   waitforurl: ["url", "timeout"],
   waitforfunction: ["expression", "timeout"],
-  press: ["key", "selector"], // tab.press / locator.press
-  inserttext: ["text"], // tab.keyboard.type
+  press: ["key", "selector"],
+  inserttext: ["text"],
   click: ["selector"],
   dblclick: ["selector"],
   fill: ["selector", "value"],
@@ -117,8 +98,8 @@ const WORKER_EMITTED_COMMANDS: Record<string, readonly string[]> = {
   focus: ["selector"],
   check: ["selector"],
   uncheck: ["selector"],
-  select: ["selector", "values"], // locator.selectOption
-  upload: ["selector", "files"], // locator.setInputFiles
+  select: ["selector", "values"],
+  upload: ["selector", "files"],
   scrollintoview: ["selector"],
   innertext: ["selector"],
   gettext: ["selector"],
@@ -144,12 +125,6 @@ const WORKER_EMITTED_COMMANDS: Record<string, readonly string[]> = {
   authenticated_request_batch: ["requests", "concurrency", "timeout"],
 };
 
-/**
- * Manifest actions with "chain": true that the agent-facing chain vocabulary
- * (SAFE_ACTION_KEYS) deliberately does not offer. Every omission must be
- * conscious: a new chain-capable daemon action either gets a SAFE_ACTION_KEYS
- * entry or an entry here with a reason.
- */
 const CHAIN_ACTIONS_NOT_OFFERED_TO_AGENTS: Record<string, string> = {
   healthcheck: "transport-level liveness probe, not an automation step",
   content: "full-page HTML dump; snapshot/evaluate are the supported reads",
@@ -226,8 +201,7 @@ describe("browser action contract (manifest <-> JS layers)", () => {
         ).toBe(true);
       }
     }
-    // Chains built by the worker are validated again by the client; every
-    // agent-offered chain action must survive that validation.
+
     const clientChain = new Set<string>(BROWSER_CHAIN_ACTIONS);
     for (const action of Object.keys(safeActionKeys)) {
       expect(
@@ -251,7 +225,7 @@ describe("browser action contract (manifest <-> JS layers)", () => {
         `'${action}' is both offered and marked not-offered`,
       ).toBe(true);
     }
-    // The exclusion list must not drift either: no stale entries.
+
     for (const action of excluded) {
       expect(
         manifestChainActions.has(action),
@@ -273,7 +247,7 @@ describe("browser action contract (manifest <-> JS layers)", () => {
           `worker API sends param '${key}' for '${action}' that the manifest does not list`,
         ).toBe(true);
       }
-      // Everything the worker can emit must pass the client allowlist.
+
       expect(
         (BROWSER_PROTOCOL_ACTIONS as readonly string[]).includes(action),
         `worker API emits '${action}' but the client transport would reject it`,
@@ -282,9 +256,7 @@ describe("browser action contract (manifest <-> JS layers)", () => {
   });
 
   it("retired vocabulary stays retired", () => {
-    // 'open' was an extension-era alias for navigate that the CDP daemon
-    // never implemented; site_mod_* are extension-only credential-seeding
-    // helpers. None of them belong to the CDP contract.
+
     for (const action of [
       "open",
       "site_mod_set",
@@ -297,8 +269,7 @@ describe("browser action contract (manifest <-> JS layers)", () => {
         (BROWSER_PROTOCOL_ACTIONS as readonly string[]).includes(action),
       ).toBe(false);
     }
-    // finalize_tabs is top-level-only: offering it as a chain step would be
-    // rejected by both the client and the daemon.
+
     expect(extractSafeActionKeys()).not.toHaveProperty("finalize_tabs");
   });
 });

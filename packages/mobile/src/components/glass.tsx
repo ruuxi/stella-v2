@@ -17,12 +17,6 @@ import { useColors, useTheme } from "../theme/theme-context";
 import { fadeHex, hexToOklch } from "../theme/oklch";
 import { tapLight } from "../lib/haptics";
 
-/**
- * Whether Apple's Liquid Glass (iOS 26+ `UIGlassEffect`) is actually available.
- * Computed once at module load: the native API is iOS-only, and on older iOS
- * versions / Android `isLiquidGlassAvailable()` reports false so every glass
- * surface below falls back to a softly-tinted view.
- */
 export const liquidGlassSupported: boolean = (() => {
   try {
     return Platform.OS === "ios" && isLiquidGlassAvailable();
@@ -31,54 +25,30 @@ export const liquidGlassSupported: boolean = (() => {
   }
 })();
 
-/**
- * Resolve the glass `colorScheme` from the *Stella* theme rather than the OS.
- * The app owns its own light/dark + forced-mode (Pearl/Noir) palette, so the
- * glass tint must follow that, not the device appearance.
- */
 function useGlassScheme(): "light" | "dark" {
   const { isDark } = useTheme();
   return isDark ? "dark" : "light";
 }
 
 type GlassSurfaceProps = ViewProps & {
-  /** Liquid Glass intensity. `regular` for chrome/cards, `clear` for controls. */
+
   glass?: GlassStyle;
-  /** Translucent tint layered over the glass (and the fallback). */
+
   tintColor?: string;
-  /**
-   * Surfaces with text over busy content (menus, popovers, the composer).
-   * Layers a strong theme-surface tint over the *glass itself* — not just the
-   * fallback — so labels stay readable on iOS 26+, and defaults the fallback
-   * to the opaque surface color.
-   */
+
   legible?: boolean;
-  /**
-   * Drives the native Liquid Glass materialize/dissolve animation. While
-   * `false` the glass renders as `none`; flipping to `true` animates the
-   * material in (and vice versa). Defaults to `true` (always present).
-   */
+
   present?: boolean;
-  /** Whether the glass reacts to touches with the native interactive sheen. */
+
   interactive?: boolean;
-  /** Corner radius applied to both the glass surface and the fallback. */
+
   radius?: number;
-  /** Hairline ring for extra definition against busy backdrops. */
+
   ringed?: boolean;
-  /**
-   * Solid-ish background used when Liquid Glass is unavailable. Defaults to a
-   * theme-aware translucent tint that mimics frosted chrome. Pass an opaque
-   * color (e.g. `colors.surface`) for surfaces that sit over busy content and
-   * need to stay legible (menus, the composer).
-   */
+
   fallbackColor?: string;
 };
 
-/**
- * Surface that renders Apple's Liquid Glass on iOS 26+ and a softly-tinted
- * fallback everywhere else. Behaves like a regular `<View>`: children render
- * directly inside, and the fallback keeps the same radius / clipping shape.
- */
 export function GlassSurface({
   glass = "regular",
   tintColor,
@@ -100,9 +70,6 @@ export function GlassSurface({
     ? { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }
     : null;
 
-  // Apple's `regular` glass is far too transparent for text-bearing popovers
-  // over busy content; a strong surface tint keeps the refraction while
-  // restoring contrast.
   const resolvedTint =
     tintColor ?? (legible ? fadeHex(colors.surface, 0.78) : undefined);
 
@@ -150,14 +117,10 @@ type GlassCardProps = ViewProps & {
   intensity?: GlassStyle;
   ringed?: boolean;
   radius?: number;
-  /** See {@link GlassSurface}: strong surface tint for text-bearing glass. */
+
   legible?: boolean;
 };
 
-/**
- * Back-compatible card wrapper (sidebar, pairing input, etc.). Thin alias over
- * {@link GlassSurface} so existing call sites keep working unchanged.
- */
 export function GlassCard({
   intensity = "regular",
   ringed = false,
@@ -182,12 +145,6 @@ type GlassToggleProps = {
   accessibilityLabel?: string;
 };
 
-/**
- * Liquid Glass switch. The track is a glass pill that tints toward the accent
- * when on; the thumb slides with a spring. Falls back to a tinted track + thumb
- * when Liquid Glass is unavailable, and adapts the thumb color per theme so it
- * stays legible across light, dark, and the forced Pearl/Noir palettes.
- */
 export function GlassToggle({
   value,
   onValueChange,
@@ -208,8 +165,7 @@ export function GlassToggle({
   }, [anim, value]);
 
   const thumbColor = value ? colors.accentForeground : "#ffffff";
-  // Accent-light themes (e.g. Noir's near-white accent) need a darker neutral
-  // off-track so the white thumb still reads; otherwise a faint text tint.
+
   const accentIsLight = hexToOklch(colors.accent).l > 0.7;
   const offTrack = accentIsLight
     ? fadeHex(colors.text, 0.18)

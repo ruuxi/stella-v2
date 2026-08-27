@@ -3,14 +3,6 @@ import path from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
-/**
- * `electron.d.ts` is a declaration file, and the renderer tsconfig sets
- * `skipLibCheck: true` — so a stale `import type { Gone } from
- * "@stella/contracts"` compiles clean even after `Gone` is deleted. That is
- * exactly how a removed surface leaves a tombstone behind. Resolve the
- * imports ourselves instead of trusting the compiler here.
- */
-
 const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..", "..");
 const contractsRoot = path.join(repoRoot, "packages/contracts");
 
@@ -23,7 +15,6 @@ const parse = (file: string) =>
     file.endsWith(".js") ? ts.ScriptKind.JS : ts.ScriptKind.TS,
   );
 
-/** Mirrors the `exports` map in `packages/contracts/package.json`. */
 const resolveContractsModule = (specifier: string): string | null => {
   if (specifier === "@stella/contracts") {
     return path.join(contractsRoot, "index.ts");
@@ -40,7 +31,6 @@ const resolveContractsModule = (specifier: string): string | null => {
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
 };
 
-/** Names a module exports directly, plus anything it re-exports by name. */
 const collectExportedNames = (
   file: string,
   seen = new Set<string>(),
@@ -79,7 +69,7 @@ const collectExportedNames = (
       }
       continue;
     }
-    // `export * from "./x"` — follow it so re-exported names still resolve.
+
     const moduleSpecifier = statement.moduleSpecifier;
     if (!moduleSpecifier || !ts.isStringLiteral(moduleSpecifier)) continue;
     const target = moduleSpecifier.text.startsWith(".")

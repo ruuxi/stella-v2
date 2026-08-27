@@ -139,7 +139,6 @@ fn main() {
 
     let args: Vec<String> = env::args().skip(1).collect();
 
-    // Chromium passes the extension origin to native hosts on Windows.
     let spawned_by_chromium = cfg!(windows)
         && args
             .iter()

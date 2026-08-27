@@ -1,9 +1,3 @@
-/**
- * Local preferences — reads/writes `~/.stella/preferences.json`.
- *
- * Serves as the local source of truth for user preferences. Model routing
- * preferences live here only; Convex does not own or sync them.
- */
 import fs from "fs";
 import path from "path";
 import { ensurePrivateDirSync, writePrivateFileSync, } from "../shared/private-fs.js";
@@ -22,7 +16,7 @@ const DEFAULT_PREFERENCES = {
     defaultModels: {},
     modelOverrides: {},
     assistantPropagatedAgents: [],
-    // Missing entries use the selected model's own default reasoning effort.
+
     reasoningEfforts: {},
     stellaConversationModelOverrides: {},
     stellaConversationReasoningEfforts: {},
@@ -54,17 +48,10 @@ const DEFAULT_PREFERENCES = {
     readAloudEnabled: false,
     personalityVoiceId: undefined,
     promptPresetSelections: {},
-    // Tri-state on purpose: `undefined` means "never explicitly chosen", in
-    // which case developer mode is derived from existing power-user signals
-    // (BYOK credentials, a non-default engine, or model overrides) so an
-    // update never hides surfaces a user already relies on. A stored boolean
-    // is an explicit user choice and always wins.
+
     developerModeEnabled: undefined,
 };
-/**
- * `{ <agentId>: <presetId> }`. Only well-formed slug pairs survive; anything
- * else falls back to the shipped prompt rather than failing a load.
- */
+
 const normalizePromptPresetSelections = (value) => {
     if (!value || typeof value !== "object" || Array.isArray(value))
         return {};
@@ -88,8 +75,7 @@ const RETIRED_MODEL_PROVIDERS = new Set([
     "mistral",
     "fal",
 ]);
-// Keep dedicated native Codex ids valid; only migrate direct-provider routing
-// references removed from the maintained ChatGPT OAuth catalog.
+
 const RETIRED_OPENAI_CODEX_MODELS = new Set([
     "gpt-5.1",
     "gpt-5.1-codex-max",
@@ -119,11 +105,7 @@ export const loadLocalPreferences = (stellaDataDir) => {
             stellaConversationModelOverrides: normalizeModelPreferenceMap(parsed.stellaConversationModelOverrides),
             stellaConversationReasoningEfforts: normalizeReasoningEfforts(parsed.stellaConversationReasoningEfforts),
             agentRuntimeEngine: normalizeEngine(parsed.agentRuntimeEngine),
-            // The short-lived global native-runtime opt-out is migrated per engine
-            // only when that engine's replacement key is absent. Its default false
-            // (and the older `subscriptionHarnessEnabled` key) never change the new
-            // harness-by-default behavior. Saving the normalized object strips both
-            // retired keys.
+
             useNativeCodexRuntime: typeof parsed.useNativeCodexRuntime === "boolean"
                 ? parsed.useNativeCodexRuntime
                 : parsed.useNativeAgentRuntimes === true,
@@ -335,14 +317,7 @@ export const updateLocalModelPreferences = (stellaDataDir, patch) => {
     saveLocalPreferences(stellaDataDir, next);
     return getLocalModelPreferences(stellaDataDir);
 };
-/**
- * Resolve the model name for the Explore agent. Prefers an explicit override
- * (modelOverrides["explore"]), then returns undefined to let resolveLlmRoute
- * fall back to Stella's backend-owned default.
- *
- * Explore is meant to be a fast cheap pass over ~/.stella/. Users who want to
- * spend more should set modelOverrides["explore"] explicitly.
- */
+
 export const getExploreModel = (stellaDataDir) => {
     const prefs = loadLocalPreferences(stellaDataDir);
     return prefs.modelOverrides["explore"];
@@ -387,19 +362,7 @@ export const setPersonalityVoiceId = (stellaDataDir, id) => {
     const prefs = loadLocalPreferences(stellaDataDir);
     saveLocalPreferences(stellaDataDir, { ...prefs, personalityVoiceId: id });
 };
-// ── Developer mode ────────────────────────────────────────────────────────
-//
-// One flag gates every power-user surface: the model/engine pickers, BYOK
-// provider configuration, the engine-routing prompt guidance, and the
-// spawn_agent `model` parameter. Machinery is never removed — it is only
-// surfaced when this resolves true.
-/**
- * True when the user has already exercised a power-user feature: any BYOK
- * API key or OAuth credential, a non-default agent engine, an explicit
- * external-engine model, or any model/reasoning override. Used only while
- * `developerModeEnabled` has never been explicitly set, so updating never
- * silently hides features such a user depends on ("grandfathering").
- */
+
 export const hasDeveloperModeSignals = (stellaDataDir) => {
     const prefs = loadLocalPreferences(stellaDataDir);
     if (prefs.agentRuntimeEngine !== "default")
@@ -421,21 +384,18 @@ export const hasDeveloperModeSignals = (stellaDataDir) => {
             return true;
     }
     catch {
-        // Unreadable credential store never blocks preference resolution.
+
     }
     try {
         if (listLocalLlmOAuthCredentials(stellaDataDir).length > 0)
             return true;
     }
     catch {
-        // Same: derive from what is readable.
+
     }
     return false;
 };
-/**
- * Effective developer-mode state: the explicit stored boolean when the user
- * has toggled it, otherwise derived from {@link hasDeveloperModeSignals}.
- */
+
 export const getDeveloperModeEnabled = (stellaDataDir) => {
     const prefs = loadLocalPreferences(stellaDataDir);
     if (typeof prefs.developerModeEnabled === "boolean") {
@@ -458,7 +418,7 @@ export const setOnboardingCompleted = (stellaDataDir, completed) => {
         onboardingCompleted: completed,
     });
 };
-// ── Normalization helpers ─────────────────────────────────────────────────
+
 const normalizeEngine = (value) => {
     return coerceAgentRuntimeEngine(value);
 };
@@ -624,11 +584,7 @@ export const normalizeRealtimeVoicePreferences = (value) => {
         result.readAloudProvider = readAloudProvider;
     return result;
 };
-/**
- * Resolve the voice id that should be used for the active session, given
- * the user's preferences and the underlying provider that will actually
- * run the session.
- */
+
 export const resolveRealtimeVoiceId = (prefs, underlyingProvider, fallback) => {
     const stored = prefs.voices?.[underlyingProvider]?.trim();
     return stored && stored.length > 0 ? stored : fallback;

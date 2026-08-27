@@ -1,10 +1,3 @@
-/**
- * Anthropic OAuth flow (Claude Pro/Max)
- *
- * NOTE: This module uses Node.js http.createServer for the OAuth callback server.
- * It is only intended for CLI use, not browser environments.
- */
-
 import type { Server } from "node:http";
 import { oauthErrorHtml, oauthSuccessHtml } from "./oauth-page.js";
 import { generatePKCE } from "./pkce.js";
@@ -65,7 +58,7 @@ function parseAuthorizationInput(input: string): { code?: string; state?: string
 			state: url.searchParams.get("state") ?? undefined,
 		};
 	} catch {
-		// not a URL
+
 	}
 
 	if (value.includes("#")) {
@@ -230,9 +223,6 @@ async function exchangeAuthorizationCode(
 	};
 }
 
-/**
- * Login with Anthropic OAuth (authorization code + PKCE)
- */
 export async function loginAnthropic(options: {
 	onAuth: (info: { url: string; instructions?: string }) => void;
 	onPrompt: (prompt: OAuthPrompt) => Promise<string>;
@@ -358,9 +348,6 @@ export async function loginAnthropic(options: {
 	}
 }
 
-/**
- * Refresh Anthropic OAuth token
- */
 export async function refreshAnthropicToken(refreshToken: string): Promise<OAuthCredentials> {
 	let responseBody: string;
 	try {

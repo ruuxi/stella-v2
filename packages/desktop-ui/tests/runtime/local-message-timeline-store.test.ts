@@ -214,7 +214,7 @@ describe("local message timeline production store", () => {
 
       for (let page = 0; page < 4; page += 1) {
         expectStarted(loadOlderLocalMessages("conversation-a"));
-        // Rapid duplicate actions are rejected while the cursor read is live.
+
         expect(loadOlderLocalMessages("conversation-a")).toBe(false);
         await waitForIdle("conversation-a");
       }
@@ -1478,8 +1478,7 @@ describe("local message timeline production store", () => {
       const exhausted = await subscribeAndWait("short-conversation");
       const shortSnapshot =
         getLocalMessageTimelineSnapshot("short-conversation");
-      // The fake API shares its 200-row fixture across conversation IDs, so
-      // exhaust this window through cursor pages rather than relying on size.
+
       while (getLocalMessageTimelineSnapshot("short-conversation").hasOlder) {
         loadOlderLocalMessages("short-conversation");
         await waitForIdle("short-conversation");

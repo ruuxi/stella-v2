@@ -3,7 +3,6 @@ import { httpAction } from "./_generated/server";
 import { authComponent, createAuth } from "./auth";
 import { corsPreflightHandler } from "./http_shared/cors";
 
-// Route modules
 import { registerAdminRoutes } from "./http_routes/admin";
 import { registerBackupRoutes } from "./http_routes/backups";
 import { registerDesktopReleaseRoutes } from "./http_routes/desktop_releases";
@@ -18,7 +17,6 @@ import { registerVoiceRoutes } from "./http_routes/voice";
 import { registerDictationRoutes } from "./http_routes/dictation";
 import { registerXRoutes } from "./http_routes/x";
 
-// Stella provider endpoints
 import {
   STELLA_ANTHROPIC_MESSAGES_PATH,
   STELLA_CROF_CHAT_COMPLETIONS_PATH,
@@ -44,21 +42,9 @@ import {
 
 const http = httpRouter();
 
-// ---------------------------------------------------------------------------
-// Auth
-// ---------------------------------------------------------------------------
-
-// `exposedHeaders` is required for `set-auth-token` to be readable by browser
-// clients: the convex-helpers CORS wrapper SETS Access-Control-Expose-Headers
-// on the way out, clobbering the value the bearer plugin adds. Without this
-// the header is present on the response but unreadable from JS.
 authComponent.registerRoutes(http, createAuth, {
   cors: { exposedHeaders: ["set-auth-token"] },
 });
-
-// ---------------------------------------------------------------------------
-// Feature Routes
-// ---------------------------------------------------------------------------
 
 registerAdminRoutes(http);
 registerSynthesisRoutes(http);
@@ -73,10 +59,6 @@ registerDictationRoutes(http);
 registerXRoutes(http);
 
 registerStripeRoutes(http);
-
-// ---------------------------------------------------------------------------
-// Stella provider endpoints
-// ---------------------------------------------------------------------------
 
 const stellaModelsOptionsHandler = httpAction(async (_ctx, request) =>
   corsPreflightHandler(request),

@@ -1,6 +1,3 @@
-// Inlines the ES modules into one self-contained demo page.
-// The modules stay the deliverable; this is only so the demo can run from
-// file:// and be published as a single artifact.
 import { readFileSync, writeFileSync } from "node:fs";
 
 const files = ["geometry.js", "shapes.js", "eyes.js", "stella-mark.js"];

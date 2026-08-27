@@ -1,18 +1,3 @@
-//! Unified selector parsing and page-side resolution.
-//!
-//! One code path resolves every selector shape the CLI accepts:
-//! - snapshot refs (`@e1`, `ref=e1`, `e1`) — handled by `element::parse_ref`
-//!   and the `RefMap` (backend node ids), not by this module
-//! - semantic selectors (`aria=<urlencoded JSON>`) — the agent-facing contract
-//!   produced by worker-api.ts `semanticSelector()` and by the extension's
-//!   `lib/selector.js` `encodeSemanticSelector()`
-//! - plain CSS selectors — everything else
-//!
-//! The semantic matching semantics (role map, accessible-name computation,
-//! exact vs. substring matching, visibility filtering) intentionally mirror
-//! `packages/stella-browser/extension/lib/selector.js` so the CDP backend and
-//! the extension backend resolve the same selector to the same element.
-
 use serde_json::Value;
 
 pub const SEMANTIC_SELECTOR_PREFIX: &str = "aria=";
@@ -21,11 +6,6 @@ pub const MAX_SEMANTIC_VALUE_LENGTH: usize = 1024;
 pub const MAX_SEMANTIC_ROLE_LENGTH: usize = 128;
 pub const MAX_SEMANTIC_NTH: u64 = 10_000;
 
-/// Semantic locator kinds. The first five are the wire contract shared with
-/// worker-api.ts and the extension. `alttext` and `title` are CLI-internal
-/// extensions used by the `getbyalttext` / `getbytitle` commands (the JS side
-/// never encodes them, but accepting them keeps the getby* handlers on the
-/// same resolver).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SemanticKind {
     Role,
@@ -67,11 +47,11 @@ impl SemanticKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SemanticSelector {
     pub kind: SemanticKind,
-    /// Only set for kind == Role.
+
     pub role: Option<String>,
-    /// Optional accessible-name filter, only for kind == Role.
+
     pub name: Option<String>,
-    /// The match value for all non-role kinds.
+
     pub value: Option<String>,
     pub nth: Option<u64>,
     pub exact: bool,
@@ -111,9 +91,6 @@ impl SemanticSelector {
         })
     }
 
-    /// Human-readable description used in "No element found with ..." errors.
-    /// Mirrors the extension's description format:
-    ///   role="button" name="Submit"   |   text="Sign in"
     pub fn describe(&self) -> String {
         match self.kind {
             SemanticKind::Role => {
@@ -192,8 +169,6 @@ fn hex_value(byte: u8) -> Option<u8> {
     }
 }
 
-/// Percent-decode a string the way `decodeURIComponent` does (strict: invalid
-/// escape sequences are an error, `+` is NOT treated as a space).
 fn percent_decode(input: &str) -> Option<String> {
     let bytes = input.as_bytes();
     let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
@@ -215,7 +190,6 @@ fn percent_decode(input: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-/// Percent-encode a string the way `encodeURIComponent` does.
 fn percent_encode(input: &str) -> String {
     const UNRESERVED: &[u8] = b"-_.!~*'()";
     let mut out = String::with_capacity(input.len() * 2);
@@ -229,18 +203,11 @@ fn percent_encode(input: &str) -> String {
     out
 }
 
-/// Encode a semantic selector into the `aria=<urlencoded JSON>` wire format.
 pub fn encode_semantic_selector(selector: &SemanticSelector) -> String {
     let json = serde_json::to_string(&selector.matcher_json()).unwrap_or_default();
     format!("{}{}", SEMANTIC_SELECTOR_PREFIX, percent_encode(&json))
 }
 
-/// Parse an `aria=<urlencoded JSON>` semantic selector.
-///
-/// Returns `Ok(None)` when the input does not carry the `aria=` prefix (i.e.
-/// it should be treated as a CSS selector), `Ok(Some(..))` for a valid
-/// semantic selector, and `Err` for a malformed semantic selector. Error
-/// messages mirror `extension/lib/selector.js`.
 pub fn parse_semantic_selector(selector: &str) -> Result<Option<SemanticSelector>, String> {
     let Some(encoded) = selector.strip_prefix(SEMANTIC_SELECTOR_PREFIX) else {
         return Ok(None);
@@ -357,20 +324,6 @@ fn normalize_semantic_selector(value: &Value) -> Result<SemanticSelector, String
     })
 }
 
-// ---------------------------------------------------------------------------
-// Page-side resolution scripts
-// ---------------------------------------------------------------------------
-
-/// JS statements that collect every document root reachable from the top
-/// document — the document itself, same-origin iframe/frame documents
-/// (recursively), and open shadow roots — plus a count of frames whose
-/// documents are NOT reachable from injected JS (cross-origin or sandboxed).
-/// Also defines `queryAll(sel)`, a querySelectorAll that runs against every
-/// collected root (top-document matches first, then frames/shadow roots in
-/// encounter order).
-///
-/// Kept as a plain constant (spliced by string replacement, not `format!`) so
-/// the JS braces stay readable.
 const COLLECT_ROOTS_JS: &str = r#"const roots = [];
       let blockedFrames = 0;
       const visitRoot = (root, depth) => {
@@ -398,18 +351,10 @@ const COLLECT_ROOTS_JS: &str = r#"const roots = [];
         return out;
       };"#;
 
-/// Build a page-context IIFE that evaluates to an ARRAY of all elements
-/// matching a semantic selector. Semantics mirror
-/// `extension/lib/selector.js#buildRoleMatcherAllScript`, extended to search
-/// same-origin iframes and open shadow roots (the extension resolver only
-/// searches the top document).
 pub fn match_all_expression(selector: &SemanticSelector) -> String {
     semantic_match_expression(selector, "return matches;")
 }
 
-/// Same matching as `match_all_expression`, but evaluates to
-/// `{ matches: Element[], blockedFrames: number }` so callers can explain
-/// unreachable cross-origin frames in not-found errors.
 fn match_result_expression(selector: &SemanticSelector) -> String {
     semantic_match_expression(
         selector,
@@ -563,22 +508,13 @@ fn semantic_match_expression(selector: &SemanticSelector, return_statement: &str
     template
 }
 
-/// Expression evaluating to the number of semantic matches.
 pub fn count_expression(selector: &SemanticSelector) -> String {
     format!("{}.length", match_all_expression(selector))
 }
 
-/// Suffix appended to not-found errors when reachable documents matched
-/// nothing but one or more frames could not be searched from injected JS.
 const BLOCKED_FRAMES_NOTE_JS: &str =
     r#" + (resolved.blockedFrames > 0 ? ' (' + resolved.blockedFrames + " cross-origin frame(s) could not be searched)" : '')"#;
 
-/// Expression that evaluates to the matched ELEMENT on success or to a plain
-/// STRING error message on failure. The caller inspects the RemoteObject type
-/// to distinguish the two (elements come back as objects with subtype "node",
-/// failures come back as type "string"). When nothing matched but
-/// cross-origin frames were present, the error notes how many frames could
-/// not be searched.
 pub fn resolve_one_expression(selector: &SemanticSelector) -> String {
     let not_found = json_quote(&format!("No element found with {}", selector.describe()));
     format!(
@@ -607,10 +543,6 @@ pub fn resolve_one_expression(selector: &SemanticSelector) -> String {
     )
 }
 
-/// IIFE evaluating to an ARRAY of every element matching a plain CSS
-/// selector across all reachable documents (top document, same-origin
-/// iframes, open shadow roots). CSS combinators do not cross root
-/// boundaries; the selector is evaluated independently against each root.
 pub fn css_match_all_expression(css_selector: &str) -> String {
     css_match_expression(css_selector, "return matches;")
 }
@@ -635,8 +567,6 @@ fn css_match_expression(css_selector: &str, return_statement: &str) -> String {
     )
 }
 
-/// Same success-or-string protocol for plain CSS selectors, searching all
-/// reachable documents like the semantic resolver.
 pub fn resolve_one_css_expression(css_selector: &str) -> String {
     let not_found = json_quote(&format!("Element not found: {}", css_selector));
     format!(
@@ -652,8 +582,6 @@ pub fn resolve_one_css_expression(css_selector: &str) -> String {
     )
 }
 
-/// Build the resolve-one expression for any non-ref selector string
-/// (semantic `aria=` payloads and plain CSS).
 pub fn resolve_one_expression_for(selector: &str) -> Result<String, String> {
     match parse_semantic_selector(selector)? {
         Some(semantic) => Ok(resolve_one_expression(&semantic)),
@@ -668,8 +596,6 @@ mod tests {
     fn encode_payload(json: &str) -> String {
         format!("{}{}", SEMANTIC_SELECTOR_PREFIX, percent_encode(json))
     }
-
-    // -- parsing: happy paths ------------------------------------------------
 
     #[test]
     fn test_parse_role_selector_full() {
@@ -706,8 +632,7 @@ mod tests {
 
     #[test]
     fn test_parse_matches_worker_api_encoding() {
-        // Exactly what worker-api.ts semanticSelector() produces for
-        // getByRole("button", { name: "Save & Continue" })
+
         let payload = serde_json::json!({
             "kind": "role",
             "role": "button",
@@ -737,19 +662,15 @@ mod tests {
         assert_eq!(parsed, original);
     }
 
-    // -- parsing: passthrough ------------------------------------------------
-
     #[test]
     fn test_non_semantic_selectors_pass_through() {
         assert_eq!(parse_semantic_selector("#login .btn").unwrap(), None);
         assert_eq!(parse_semantic_selector("button[type=submit]").unwrap(), None);
         assert_eq!(parse_semantic_selector("@e1").unwrap(), None);
         assert_eq!(parse_semantic_selector("e12").unwrap(), None);
-        // "aria" without "=" is CSS
+
         assert_eq!(parse_semantic_selector("[aria-label]").unwrap(), None);
     }
-
-    // -- parsing: error paths ------------------------------------------------
 
     #[test]
     fn test_parse_empty_payload() {
@@ -810,7 +731,7 @@ mod tests {
         ))
         .unwrap_err();
         assert_eq!(err, "Unknown semantic selector field 'css' for kind 'text'");
-        // "name" is only valid for role selectors
+
         let err = parse_semantic_selector(&encode_payload(
             r#"{"kind":"text","value":"x","name":"y"}"#,
         ))
@@ -884,8 +805,6 @@ mod tests {
         );
     }
 
-    // -- JS generation --------------------------------------------------------
-
     #[test]
     fn test_match_all_expression_embeds_matcher_json() {
         let sel = SemanticSelector::by_role("button", Some("Submit"), true).unwrap();
@@ -915,8 +834,7 @@ mod tests {
 
     #[test]
     fn test_match_all_expression_escapes_hostile_values() {
-        // A value that would break out of a naive string splice must stay
-        // inside the JSON literal.
+
         let sel = SemanticSelector::by_value(
             SemanticKind::Text,
             r#"'; alert(1); //</script>"#,
@@ -925,7 +843,7 @@ mod tests {
         .unwrap();
         let js = match_all_expression(&sel);
         assert!(js.contains(r#""value":"'; alert(1); //</script>""#));
-        // The raw (unquoted) payload must not appear outside the JSON string.
+
         assert!(!js.contains("\n'; alert(1);"));
     }
 
@@ -959,24 +877,20 @@ mod tests {
 
     #[test]
     fn test_resolve_one_expression_for_routing() {
-        // aria= routes to the semantic resolver
+
         let aria = encode_semantic_selector(
             &SemanticSelector::by_role("link", Some("Docs"), false).unwrap(),
         );
         let js = resolve_one_expression_for(&aria).unwrap();
         assert!(js.contains("ROLE_TAG_MAP"));
-        // CSS routes to the multi-root queryAll walk
+
         let js = resolve_one_expression_for(".card button").unwrap();
         assert!(js.contains(r#"queryAll(".card button")"#));
         assert!(!js.contains("ROLE_TAG_MAP"));
-        // malformed aria= is an error, not silently CSS
+
         assert!(resolve_one_expression_for("aria=%ZZ").is_err());
     }
 
-    // -- JS generation: frame and shadow-root descent -------------------------
-
-    /// Both resolver flavors must walk same-origin iframes and open shadow
-    /// roots, and must count frames whose documents are unreachable.
     #[test]
     fn test_resolvers_walk_frames_and_shadow_roots() {
         let semantic = SemanticSelector::by_role("textbox", Some("Document content"), false)
@@ -992,14 +906,11 @@ mod tests {
             assert!(js.starts_with("(() => {"), "{}: not an IIFE", label);
             assert!(js.ends_with("})()"), "{}: not an IIFE", label);
         }
-        // match_all still evaluates to a plain array (count_expression appends
-        // `.length`).
+
         assert!(semantic.contains("return matches;"));
         assert!(css.contains("return matches;"));
     }
 
-    /// Not-found errors must explain unreachable cross-origin frames so
-    /// agents understand why a visible element could not be matched.
     #[test]
     fn test_resolve_one_errors_note_cross_origin_frames() {
         let semantic = SemanticSelector::by_role("textbox", None, false)
@@ -1020,8 +931,6 @@ mod tests {
         }
     }
 
-    /// aria-labelledby and label[for] lookups must resolve ids inside the
-    /// element's own document/shadow root, not the top document.
     #[test]
     fn test_accessible_name_is_root_scoped() {
         let sel = SemanticSelector::by_role("textbox", Some("Email"), false).unwrap();
@@ -1054,11 +963,11 @@ mod tests {
             Some("世界")
         );
         assert_eq!(percent_decode("a%20b").as_deref(), Some("a b"));
-        // '+' passes through untouched, matching decodeURIComponent
+
         assert_eq!(percent_decode("a+b").as_deref(), Some("a+b"));
         assert_eq!(percent_decode("%"), None);
         assert_eq!(percent_decode("%f"), None);
-        // invalid UTF-8 after decoding
+
         assert_eq!(percent_decode("%FF"), None);
     }
 }

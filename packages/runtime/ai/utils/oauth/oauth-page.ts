@@ -1,12 +1,3 @@
-/**
- * HTML rendered on the local-loopback OAuth callback page (e.g. Anthropic
- * OAuth lands here after the user authorizes Stella). Matches Stella's
- * splash + recovery aesthetic — white card, Cormorant Garamond
- * wordmark, muted status line. The fonts pull from Google Fonts because
- * this page runs in the user's regular browser, not the Electron shell,
- * so we can't use the bundled font files.
- */
-
 function escapeHtml(value: string): string {
 	return value
 		.replaceAll("&", "&amp;")

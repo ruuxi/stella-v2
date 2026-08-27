@@ -68,9 +68,7 @@ const WORKING_PHRASES = [
 ] as const;
 
 type WorkingTaskShape = TaskItem & {
-  /** A handful of agent flows tag tasks with a "needs input" hint via
-   *  the `requiresUserInput` flag — when present the pet should show
-   *  the waiting mood. */
+
   requiresUserInput?: boolean;
 };
 
@@ -125,22 +123,13 @@ const getWorkingPhrase = (seed: string): string => {
 
 type UsePetStatusBroadcastInput = {
   messages: MessageRecord[] | null | undefined;
-  /** Full conversation task list (durable rows + live decoration). */
+
   tasks: TaskItem[] | null | undefined;
   runtimeStatusText: string;
   isStreaming: boolean;
   pendingUserMessageId: string | null | undefined;
 };
 
-/**
- * Derive a `PetOverlayStatus` from the full-shell chat surface and push
- * it to every renderer (the pet window subscribes via
- * `electronAPI.pet.onStatus`).
- *
- * The chat surface already runs once per app via `ChatRuntimeProvider`,
- * so we don't pay any extra subscription cost here — we just pluck the
- * fields the pet cares about, debounce-by-equality, and fan out.
- */
 export const usePetStatusBroadcast = ({
   messages,
   tasks,
@@ -152,9 +141,6 @@ export const usePetStatusBroadcast = ({
     readLastSeenPetAssistantMessageId(),
   );
 
-  // Rows are durable history now, so "just finished" is a time window, not
-  // a presence signal. Re-derive after the completion beat elapses so the
-  // pet settles back to idle without waiting for the next unrelated render.
   const [freshTick, bumpFreshTick] = useReducer((n: number) => n + 1, 0);
   const liveTasks = useMemo(
     () => selectFreshActivityTasks(tasks ?? []),
@@ -233,11 +219,6 @@ export const usePetStatusBroadcast = ({
     lastSeenAssistantMessageIdRef.current = id;
   }, [latestAssistant, status.message, status.state]);
 
-  // Subscribe to inbound `pet:sendMessage` from the overlay popover and
-  // re-emit it as a Stella send-message custom event so the existing
-  // chat surface ingests it. We mount this in the chat runtime provider,
-  // which is the only React
-  // tree that listens for `STELLA_SEND_MESSAGE_EVENT`.
   useEffect(() => {
     const cleanup = window.electronAPI?.pet?.onSendMessage?.((text) => {
       if (typeof text !== "string" || text.trim().length === 0) return;

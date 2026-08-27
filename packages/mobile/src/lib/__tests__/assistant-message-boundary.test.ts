@@ -15,8 +15,7 @@ describe("assistant message boundary rendering", () => {
   });
 
   test("selects assistant text on the rendered markdown without a plain-text fallback", () => {
-    // Assistant text arrives whole, so selection is never gated on a partial
-    // render window — the markdown is always selectable.
+
     expect(chatPane).toContain("        selectable\n");
     expect(chatPane.includes("selectable={!isStreaming}")).toBe(false);
     expect(chatPane.match(/<AssistantTextSelection/g)).toHaveLength(1);
@@ -26,7 +25,7 @@ describe("assistant message boundary rendering", () => {
     expect(chatPane).toContain(
       "<AssistantBubble styles={styles} animate={mountedEmptyRef.current}>",
     );
-    // Artifacts, tool traces and row actions stay outside the bubble.
+
     expect(chatPane).toContain("</AssistantBubble>\n      ) : null}\n      {toolActivity ? (");
   });
 

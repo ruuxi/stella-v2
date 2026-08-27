@@ -30,7 +30,6 @@ const MAX_INPUT_CHARS = 40_000;
 const truncate = (value: string, max = MAX_RAW_TEXT) =>
   value.length <= max ? value : `${value.slice(0, max)}\n\n... (truncated)`;
 
-
 type AgentInvokeResult =
   | {
       ok: false;
@@ -105,7 +104,7 @@ export const invoke = internalAction({
         ? await assertManagedUsageAllowed(ctx, ownerId)
         : undefined;
       if (ownerId) {
-        // Access is resolved above so paid tiers can downgrade instead of hard-failing.
+
       }
 
       const invokeSharedArgs = {

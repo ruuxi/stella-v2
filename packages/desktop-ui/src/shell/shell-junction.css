@@ -1,18 +1,7 @@
-/* The main column keeps the original shell geometry. The display panel alone
-   is presented as an inset window below its external topbar.
-
-   This was a three-column junction until the left sidebar was removed; the
-   left-seam gradient scoop it needed went with it. */
-
 :root[data-shell-panel-chrome="true"] {
-  /* The seam between the main column and the panel uses the shell's
-     standard hairline weight. The old 35%-foreground mix sat visibly
-     brighter than every other border on screen and read as a stray line
-     rather than part of the border system. */
+
   --shell-junction-border: var(--border-base);
 }
-
-/* ── Center column ─────────────────────────────────────────────────── */
 
 :root[data-shell-panel-chrome="true"] .content-area {
   border: 1px solid var(--shell-junction-border);
@@ -27,8 +16,6 @@
   z-index: 1;
 }
 
-/* ── Inset right viewer window ─────────────────────────────────────── */
-
 :root[data-shell-panel-chrome="true"]
   .right-sidebar.right-sidebar-panel.right-sidebar--shell-visible {
   height: auto;
@@ -40,8 +27,6 @@
   box-sizing: border-box;
   box-shadow: none;
 }
-
-/* ── Right viewer panel ────────────────────────────────────────────── */
 
 :root[data-shell-panel-chrome="true"] .right-sidebar.right-sidebar-panel {
   overflow: hidden;
@@ -90,10 +75,6 @@
   min-width: var(--display-panel-width, clamp(380px, 34vw, 520px));
 }
 
-/* ── Narrow shell: full-view panel takeover ─────────────────────────────
-   The panel remains available below its side-by-side pressure point. It
-   replaces the main content instead of squeezing it, while the external
-   panel topbar remains visible above the section body. */
 :root[data-shell-panel-chrome="true"][data-display-panel-takeover="true"]
   .right-sidebar.right-sidebar-panel.right-sidebar--open {
   position: absolute;

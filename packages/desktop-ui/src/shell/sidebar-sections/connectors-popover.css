@@ -1,23 +1,16 @@
 .connectors-popover {
   width: 320px;
-  /* Never grow past the viewport: cap to the space Radix measured between
-     the trigger and the collision boundary (it already accounts for
-     collisionPadding), then scroll the connector list internally. */
+
   max-height: min(420px, var(--radix-popover-content-available-height, 60vh));
   display: flex;
   flex-direction: column;
 }
 
-/* The popover body is a plain div; make it a height-constrained flex
-   column so the "Connectors" head stays pinned and the list below can
-   actually shrink and scroll instead of overflowing the rounded edge. */
 .connectors-popover [data-slot="popover-body"] {
   display: flex;
   min-height: 0;
   flex-direction: column;
-  /* Drop the body's right padding so the list's scrollbar rides the
-     popover's own inner edge instead of floating 12px inside it. Every
-     child that isn't the scroll container re-adds that inset itself. */
+
   padding-right: 0;
 }
 
@@ -90,10 +83,9 @@
   padding: 0;
   list-style: none;
   overflow-y: auto;
-  /* Contain momentum/overscroll so a rubber-band at the list edge doesn't
-     bleed into the page behind the popover. */
+
   overscroll-behavior: contain;
-  /* Thin, app-consistent scrollbar (matches dropdown menus). */
+
   scrollbar-width: thin;
   scrollbar-color: var(--border-weak) transparent;
 }

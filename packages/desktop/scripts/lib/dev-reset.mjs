@@ -88,7 +88,7 @@ const killPosixTree = async (pid) => {
     try {
       process.kill(pid, 'SIGKILL');
     } catch {
-      // Process already exited.
+
     }
   }
 };

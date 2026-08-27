@@ -1,25 +1,3 @@
-/**
- * Generic one-shot text completion driven by the runtime's BYOK-aware route
- * resolver. Used by renderer surfaces that previously rolled their own
- * `callChatCompletion`/Convex-action call (the music-prompt shaper, etc.) so
- * the user's per-agent model override + local provider credentials are
- * honored just like the orchestrator and subsidiary agents.
- *
- * Resolution order for `agentType`:
- *   1. Explicit `modelOverrides[agentType]` (e.g. user picked a model for
- *      this agent specifically).
- *   2. Any `fallbackAgentTypes` (in order) — lets internal helpers like
- *      `music_prompt` ride the user's Assistant-tab BYOK pick without being
- *      listed as user-configurable agents themselves.
- *   3. Stella's backend-owned default for the agent/audience.
- *
- * One-shot completions are non-interactive utility calls (connector
- * auto-replies, prompt shapers, …), so unlike the orchestrator they degrade
- * gracefully: a pick that can't be honored (`resolveLlmRoute` throws) falls
- * through to the next, broader candidate and ultimately to Stella's managed
- * default — rather than surfacing a hard error to the RPC caller.
- */
-
 import { completeSimple, readAssistantText } from "../../ai/stream.js";
 import type { Context, Message } from "../../ai/types.js";
 import {
@@ -116,15 +94,6 @@ export const runOneShotCompletion = async (args: {
       site,
     });
 
-  // Candidate model ids in priority order, most specific first:
-  //   1. the explicit / inherited BYOK pick,
-  //   2. the caller's `fallbackAgentTypes` pick,
-  //   3. `undefined` → Stella's backend-chosen default (managed relay).
-  // `resolveLlmRoute` now throws for a pick it can't honor (no key, unknown
-  // model, unsupported provider); we catch and try the next, broader candidate
-  // instead of letting the throw escape to the RPC caller. A route that
-  // resolves but has no usable credential (e.g. a Stella alias while signed
-  // out) likewise falls through.
   const candidateModelNames: (string | undefined)[] = [];
   for (const candidate of [
     explicitModel ?? fallbackModelName,
@@ -148,11 +117,7 @@ export const runOneShotCompletion = async (args: {
       candidateRoute = buildRoute(candidate);
     } catch (error) {
       lastRouteError = error;
-      // The Claude Code engine runs completions through the local CLI and
-      // needs no resolvable LLM route or API credential. A candidate that
-      // fails route resolution (e.g. `stella/light` while signed out on a
-      // BYOK Claude Code setup) must still reach the engine check below —
-      // otherwise progress summaries silently never run for CC users.
+
       if (
         !shouldUseClaudeCodeAgentRuntime({
           stellaAppDir: runtime.stellaDataDir,
@@ -231,11 +196,9 @@ export const runOneShotCompletion = async (args: {
     }
     if (useClaudeCode) {
       const text = await runClaudeCodeAgentTextCompletion({
-        // Data dir, matching the other CC completion callers: preferences
-        // (claudeCodeModel, reasoning effort) live under the data dir.
+
         stellaAppDir: runtime.stellaDataDir,
-        // The CLI must NOT run inside the data dir — resolve its working
-        // directory against the app dir (home for home-scoped agents).
+
         cwd: resolveLocalCliCwd({
           agentType: request.agentType,
           stellaAppDir: runtime.stellaAppDir,
@@ -259,7 +222,7 @@ export const runOneShotCompletion = async (args: {
       return { text: text.trim() };
     }
     if (!route) {
-      // Unreachable: a non-Claude-Code selection always carries a route.
+
       throw new Error("No usable model route was selected.");
     }
     const response = await completeSimple(route.model, context, {

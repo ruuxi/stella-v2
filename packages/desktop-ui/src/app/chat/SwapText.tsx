@@ -4,8 +4,7 @@ import { TextShimmer } from "./TextShimmer";
 interface SwapTextProps {
   text: string;
   active?: boolean;
-  /** Let a parent-owned entrance animation reveal the initial text as part of
-   * one atomic surface, while preserving animated swaps after it changes. */
+
   animateInitial?: boolean;
   minimumVisibleMs?: number;
   className?: string;

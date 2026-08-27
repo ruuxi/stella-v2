@@ -1,10 +1,3 @@
-/* ============================================================
-   Home overview — body of the Home display tab while the user is
-   on home (`/chat`). Quiet list of the other display surfaces the
-   user can jump into. Activity / files / schedules already live in
-   the left sidebar, so this surface doesn't repeat them.
-   ============================================================ */
-
 .chat-home-overview {
   display: flex;
   flex-direction: column;

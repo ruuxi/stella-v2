@@ -32,18 +32,12 @@ export const buildRunThreadKey = ({
     runId,
     threadId,
   });
-// Historical compatibility shim. Never rewrite the active message array on
-// every turn: doing so shifts the provider prompt prefix and destroys prompt
-// cache reuse. Image pressure is handled at the existing compaction/checkpoint
-// boundary in thread-runtime.ts, where a cache-prefix change is expected and
-// the harness persists deterministic structured image receipts outside the
-// model-authored summary.
+
 export const stripStaleImageBlocks = (messages) => {
   return messages;
 };
 export const buildHistorySource = (context) => {
-  // Keep older bootstrap entries so cadence injections do not shift the
-  // prompt-cache prefix on coast turns.
+
   const messages =
     context.threadHistory
       ?.filter(
@@ -269,18 +263,7 @@ const hasToolGuidance = (context, toolNames) => {
 const hasShellToolGuidance = (context) => {
   return hasToolGuidance(context, ["Bash", "exec_command"]);
 };
-/**
- * Runtime facts about waiting, stated wherever an agent has a shell rather
- * than left to each agent's prompt body.
- *
- * Agents were writing checks the runtime couldn't cash — "I'll report back
- * when the benchmark lands" — and their threads stopped forever; one left a
- * GPU pod idle-billing for hours. There are exactly two ways to wait now
- * and no tool for either: a background `exec_command` session wakes the
- * thread when it exits, and everything else is polled inside the turn.
- * Since the covered case is defined by what the tool host can see, the
- * boundary has to be spelled out too.
- */
+
 const buildBackgroundWaitPrompt = (context) => {
   if (!hasShellToolGuidance(context)) {
     return null;
@@ -337,13 +320,7 @@ export const buildSystemPrompt = (context) => {
   }
   return sections.filter(Boolean).join("\n\n");
 };
-/**
- * Resident-block delta step. All resident context blocks (personality,
- * core memory, user profile, memory map, skill catalog) live in the
- * ResidentBlock registry (`resident-context.js`), which owns rendering,
- * byte-exact dedup against the persisted thread, and the compaction
- * fold-in. This wrapper keeps the historical call sites stable.
- */
+
 export const buildStartupPromptMessages = async (args) =>
   buildResidentContextMessages(args.context);
 const fanOutBeforeUserMessage = async (args) => {
@@ -399,10 +376,7 @@ const fanOutBeforeUserMessage = async (args) => {
 export const buildSubagentPromptMessages = async (args) => {
   const trimmedUserPrompt = args.userPrompt.trim();
   const messages = [];
-  // `before_user_message` fan-out runs first so extension-injected
-  // context lands at the very top of the prompt-message array.
-  // Subagent reminder fields are intentionally undefined — they're an
-  // orchestrator-only concept on `LocalAgentContext` today.
+
   if (args.agentType && args.hookContext) {
     const { prepend, append } = await fanOutBeforeUserMessage({
       hookContext: args.hookContext,
@@ -438,13 +412,7 @@ export const buildSubagentPromptMessages = async (args) => {
 export const buildOrchestratorPromptMessages = async (args) => {
   const trimmedUserPrompt = args.userPrompt.trim();
   const messages = [];
-  // Stale-user / orchestrator reminders used to be inline branches
-  // here; they now live as `before_user_message` hooks in
-  // `runtime/extensions/stella-runtime/hooks/`. The reminder text is
-  // forwarded through the hook payload so the hooks can decide whether
-  // to inject. When no hook emitter is wired (legacy / direct test
-  // callers) the prompt builds without reminders, matching the
-  // pre-migration behavior for those callers.
+
   if (args.agentType && args.hookContext) {
     const { prepend, append } = await fanOutBeforeUserMessage({
       hookContext: args.hookContext,
@@ -518,10 +486,7 @@ export const appendThreadMessage = (store, args) => {
     ...(args.preservePayloadExactly ? { preservePayloadExactly: true } : {}),
   });
 };
-// Retries live where the failures are: summary generation has its own
-// backoff schedule and the overlay write retries a busy SQLite inside
-// `maybeCompactRuntimeThread`. This wrapper only converts a residual
-// store-level throw into a logged `compacted: false`.
+
 export const compactRuntimeThreadHistory = async (args) => {
   try {
     return await maybeCompactRuntimeThread({

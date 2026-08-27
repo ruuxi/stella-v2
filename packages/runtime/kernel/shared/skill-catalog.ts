@@ -29,7 +29,6 @@ const SKILLS_DIR_NAME = "skills";
 const SKILL_FILENAME = "SKILL.md";
 const PROGRAM_FILENAME = path.join("scripts", "program.ts");
 
-/** Every installed skill, shipped or user-created, resolves from one root. */
 type SkillLocation = { id: string; dir: string; displayPath: string };
 
 const asNonEmptyString = (value: unknown): string | null => {
@@ -102,11 +101,6 @@ const filterSkillLocations = (
   return locations.filter((location) => !omitted.has(location.id));
 };
 
-// Per-SKILL.md cache so an unchanged skill is never re-read or re-parsed on a
-// later turn. The directory listing still runs each turn (cheap, and needed to
-// detect added/removed skills); only the file read + frontmatter parse is gated
-// behind an mtime+size signature that also folds in `scripts/program.ts`
-// presence (a program add/remove changes the rendered entry).
 const skillEntryCache = new Map<
   string,
   { sig: string; entry: SkillCatalogEntry }
@@ -255,13 +249,6 @@ export const renderSkillCatalogBlock = async (
   return state.block;
 };
 
-/**
- * Render every skill as an inline catalog, ignoring the inline/placeholder
- * threshold. Used by the Explore agent, whose entire job is skill selection —
- * it should always see the full catalog rather than the placeholder, even
- * (especially) when the count is above {@link INLINE_SKILL_CATALOG_THRESHOLD}.
- * Omits the general-agent "how to use" footer; Explore has its own usage rules.
- */
 export const renderFullSkillCatalogBlock = async (
   stellaAppDir: string,
   options: SkillCatalogRenderOptions = {},

@@ -1,22 +1,11 @@
-/**
- * Discovery Types & Category Configuration
- *
- * Defines the 4 onboarding-selectable discovery categories
- * and type definitions for all signal collectors.
- */
-
 import type { DiscoveryCategory } from '@stella/contracts/discovery'
-
-// ---------------------------------------------------------------------------
-// Discovery Categories
-// ---------------------------------------------------------------------------
 
 export type DiscoveryCategoryConfig = {
   id: DiscoveryCategory;
   label: string;
   description: string;
   defaultEnabled: boolean;
-  requiresFDA: boolean; // macOS Full Disk Access
+  requiresFDA: boolean;
 };
 
 export const DISCOVERY_CATEGORIES: DiscoveryCategoryConfig[] = [
@@ -50,30 +39,22 @@ export const DISCOVERY_CATEGORIES: DiscoveryCategoryConfig[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Category 1: Browsing & Bookmarks
-// ---------------------------------------------------------------------------
-
 export type BookmarkEntry = {
   title: string;
   url: string;
-  folder?: string; // parent folder name — user-created category
+  folder?: string;
 };
 
 export type BrowserBookmarks = {
   browser: string;
   bookmarks: BookmarkEntry[];
-  folders: string[]; // unique folder names
+  folders: string[];
 };
 
 export type SafariData = {
   history: { domain: string; visits: number }[];
   bookmarks: BookmarkEntry[];
 };
-
-// ---------------------------------------------------------------------------
-// Category 2: Development Environment
-// ---------------------------------------------------------------------------
 
 export type GitConfig = {
   name?: string;
@@ -84,15 +65,11 @@ export type GitConfig = {
 
 export type DevEnvironmentSignals = {
   gitConfig: GitConfig | null;
-  dotfiles: string[]; // names of dotfiles that exist
-  runtimes: string[]; // names of runtimes detected
-  packageManagers: string[]; // names of package managers detected
+  dotfiles: string[];
+  runtimes: string[];
+  packageManagers: string[];
   wslDetected: boolean;
 };
-
-// ---------------------------------------------------------------------------
-// Category 3: Apps & System
-// ---------------------------------------------------------------------------
 
 export type AppUsageSummary = {
   app: string;
@@ -111,10 +88,10 @@ export type UserIdentitySignal = {
 };
 
 export type DeviceSignals = {
-  os: string; // e.g. "macOS 15.5" | "Windows 11"
-  arch: string; // e.g. "Apple Silicon (arm64)" | "x64"
-  model?: string; // hardware model, e.g. "MacBookPro18,3"
-  cpu?: string; // CPU brand string
+  os: string;
+  arch: string;
+  model?: string;
+  cpu?: string;
   cpuCores?: number;
   memoryGB?: number;
 };
@@ -126,13 +103,9 @@ export type SystemSignals = {
   device: DeviceSignals | null;
 };
 
-// ---------------------------------------------------------------------------
-// Category 4: Messages & Notes
-// ---------------------------------------------------------------------------
-
 export type ContactFrequency = {
-  identifier: string; // phone/email
-  displayName: string; // contact name
+  identifier: string;
+  displayName: string;
   messageCount: number;
 };
 
@@ -149,7 +122,7 @@ export type NoteFolder = {
 export type CalendarSummary = {
   calendarName: string;
   eventCount: number;
-  recurringTitles: string[]; // recurring event titles
+  recurringTitles: string[];
 };
 
 export type MessagesNotesSignals = {

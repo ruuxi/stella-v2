@@ -1,8 +1,3 @@
-// End-to-end proof that the architectural Recall pipeline actually RETURNS a
-// synthesized brief through the resolved model — and that a route which
-// explicitly declares itself credentialless (local model, no API key) reaches
-// the model instead of failing with "No API key for provider: …".
-
 import { mkdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -67,7 +62,7 @@ const credentiallessRoute = () =>
     modelId: "local/llama",
     resolvedLlm: {
       route: "direct-provider",
-      // Only the local/ provider is constructed credentialless in production.
+
       credentialless: true,
       model: {
         id: "llama",
@@ -101,7 +96,7 @@ describe("architectural Recall synthesis returns a model brief", () => {
 
     const brief = await runRecall({
       conversationId: "conv-1",
-      // Episodic (deterministicFastPath: false) — genuine synthesis question.
+
       lookupPrompt: "When did I first drive the blue Lotus?",
       memorySearchTerms: ["blue Lotus", "first drove"],
       stellaAppDir: root,
@@ -119,14 +114,9 @@ describe("architectural Recall synthesis returns a model brief", () => {
       },
     });
 
-    // The synthesized brief was returned — Recall genuinely produced an answer.
     expect(brief).toContain("blue Lotus");
     expect(streamMock.completeSimple).toHaveBeenCalledTimes(1);
 
-    // Credentialless route: no apiKey sent, and reasoning omitted (off/none)
-    // because the local model does not support a reasoning/effort setting.
-    // Recall also sends NEITHER temperature NOR a max-tokens cap — provider
-    // defaults govern both (Codex's responses API rejects `temperature`).
     const options = streamMock.completeSimple.mock.calls[0]?.[2] as Record<
       string,
       unknown
@@ -135,8 +125,7 @@ describe("architectural Recall synthesis returns a model brief", () => {
     expect(options.reasoning).toBeUndefined();
     expect(options.temperature).toBeUndefined();
     expect(options.maxTokens).toBeUndefined();
-    // Explicit omission mode so the serialized provider request carries no
-    // max-tokens field at all (no model-derived default downstream).
+
     expect(options.omitMaxTokens).toBe(true);
   });
 

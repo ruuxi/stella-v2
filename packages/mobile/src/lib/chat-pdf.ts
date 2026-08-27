@@ -1,21 +1,5 @@
 import type { ChatArtifact, MobileDisplayPayload } from "../types";
 
-/**
- * Client-side PDF generator for the standalone cloud chat — the on-device
- * companion to `chat-maps.ts`. The cloud chat is self-contained (no desktop
- * bridge), so when the model asks for a PDF through the `chat-tools.ts` text
- * protocol this module renders the Markdown body to HTML, prints it to a real
- * PDF on the phone with `expo-print`, and hands back a `pdf` display payload
- * carrying the local `file://` URI. That payload rides the assistant message's
- * `artifacts` and surfaces as a tappable file card (open / save / share) with
- * no server round-trip — the mobile analog of ChatGPT's downloadable PDF.
- *
- * Native modules (`expo-print`, `expo-file-system`, `expo-sharing`) are pulled
- * in through dynamic `import()` inside the runtime functions so this module's
- * pure helpers (Markdown → HTML, filename slug, payload/summary builders) stay
- * importable in unit tests without a native runtime.
- */
-
 type PdfPayload = Extract<MobileDisplayPayload, { kind: "pdf" }>;
 
 export type PdfToolInput = {
@@ -26,7 +10,7 @@ export type PdfToolInput = {
 
 export type PdfGenerateResult = {
   payload: PdfPayload;
-  /** Compact text the model answers from; the card carries the file itself. */
+
   summary: string;
 };
 
@@ -43,7 +27,6 @@ const escapeHtml = (value: string): string =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 
-/** Slugify a title into a safe, human-readable PDF filename ending in `.pdf`. */
 export const pdfFileName = (title: string, filename?: string): string => {
   const raw = (filename ?? title ?? "").trim();
   const base = raw
@@ -55,10 +38,9 @@ export const pdfFileName = (title: string, filename?: string): string => {
   return `${base || "document"}.pdf`;
 };
 
-/** Render a minimal, safe subset of inline Markdown to HTML. */
 const renderInline = (text: string): string => {
   let out = escapeHtml(text);
-  // Inline code first so its contents are not further transformed.
+
   out = out.replace(/`([^`]+)`/g, (_all, code: string) => `<code>${code}</code>`);
   out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   out = out.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
@@ -80,12 +62,6 @@ const parseTableRow = (line: string): string[] =>
 const isTableDivider = (line: string): boolean =>
   /^\s*\|?[\s:|-]+\|?\s*$/.test(line) && line.includes("-");
 
-/**
- * Render a block-level Markdown document to a self-contained HTML body.
- * Supports headings, paragraphs, ordered/unordered lists, blockquotes, fenced
- * code blocks, simple pipe tables, and horizontal rules — enough for the kinds
- * of documents the chat produces without pulling in a full Markdown engine.
- */
 export const renderMarkdownBody = (markdown: string): string => {
   const lines = markdown.replace(/\r\n/g, "\n").split("\n");
   const html: string[] = [];
@@ -116,7 +92,6 @@ export const renderMarkdownBody = (markdown: string): string => {
     const line = lines[i] ?? "";
     const trimmed = line.trim();
 
-    // Fenced code block.
     const fence = trimmed.match(/^```/);
     if (fence) {
       flushAll();
@@ -135,14 +110,12 @@ export const renderMarkdownBody = (markdown: string): string => {
       continue;
     }
 
-    // Horizontal rule.
     if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
       flushAll();
       html.push("<hr />");
       continue;
     }
 
-    // Heading.
     const heading = trimmed.match(/^(#{1,6})\s+(.*)$/);
     if (heading) {
       flushAll();
@@ -151,7 +124,6 @@ export const renderMarkdownBody = (markdown: string): string => {
       continue;
     }
 
-    // Blockquote.
     const quote = trimmed.match(/^>\s?(.*)$/);
     if (quote) {
       flushAll();
@@ -159,7 +131,6 @@ export const renderMarkdownBody = (markdown: string): string => {
       continue;
     }
 
-    // Pipe table: a header row followed by a divider row.
     if (
       trimmed.includes("|") &&
       i + 1 < lines.length &&
@@ -167,7 +138,7 @@ export const renderMarkdownBody = (markdown: string): string => {
     ) {
       flushAll();
       const header = parseTableRow(trimmed);
-      i += 2; // skip header + divider
+      i += 2;
       const bodyRows: string[][] = [];
       while (
         i < lines.length &&
@@ -177,7 +148,7 @@ export const renderMarkdownBody = (markdown: string): string => {
         bodyRows.push(parseTableRow((lines[i] ?? "").trim()));
         i += 1;
       }
-      i -= 1; // the outer loop will advance past the last consumed row
+      i -= 1;
       const head = header
         .map((cell) => `<th>${renderInline(cell)}</th>`)
         .join("");
@@ -193,7 +164,6 @@ export const renderMarkdownBody = (markdown: string): string => {
       continue;
     }
 
-    // Ordered / unordered list item.
     const ordered = trimmed.match(/^\d+[.)]\s+(.*)$/);
     const unordered = trimmed.match(/^[-*+]\s+(.*)$/);
     if (ordered || unordered) {
@@ -206,7 +176,6 @@ export const renderMarkdownBody = (markdown: string): string => {
       continue;
     }
 
-    // Plain paragraph text.
     flushList();
     paragraph.push(trimmed);
   }
@@ -215,7 +184,6 @@ export const renderMarkdownBody = (markdown: string): string => {
   return html.join("\n");
 };
 
-/** Wrap the rendered body in a print-friendly HTML document. */
 export const renderPdfHtml = (title: string, content: string): string => {
   const body = renderMarkdownBody(content);
   return `<!doctype html>
@@ -267,7 +235,6 @@ ${body}
 </html>`;
 };
 
-/** Compact text the model narrates from once the PDF is in the chat. */
 export const summarizePdf = (payload: PdfPayload): string => {
   const name = payload.title ?? payload.filePath;
   return [
@@ -277,7 +244,6 @@ export const summarizePdf = (payload: PdfPayload): string => {
   ].join(" ");
 };
 
-/** Wrap a generated PDF payload as a ChatArtifact for an assistant message. */
 export const pdfArtifactFor = (
   payload: PdfPayload,
   conversationId: string,
@@ -290,10 +256,6 @@ export const pdfArtifactFor = (
   };
 };
 
-/**
- * Render `content` (Markdown) to a real PDF on the device and return a payload
- * pointing at the local file. Runs entirely on-device; never touches a bridge.
- */
 export async function generatePdf(
   input: PdfToolInput,
 ): Promise<PdfGenerateOutcome> {
@@ -310,9 +272,6 @@ export async function generatePdf(
       html: renderPdfHtml(title, content),
     });
 
-    // Move the print output to the app's durable document directory. The old
-    // cache destination could be purged between a saved transcript and reload,
-    // leaving a persisted card that no longer opened.
     let localUri = uri;
     let sizeBytes: number | undefined;
     try {
@@ -325,7 +284,7 @@ export async function generatePdf(
       const size = target.size;
       if (typeof size === "number" && size > 0) sizeBytes = size;
     } catch {
-      // Keep the original print URI; the artifact is still usable.
+
     }
 
     const generatedFile = new (await import("expo-file-system")).File(localUri);
@@ -358,7 +317,6 @@ export async function generatePdf(
 
 export type PdfShareOutcome = { ok: true } | { ok: false; error: string };
 
-/** Present the OS share sheet for an on-device PDF (save to Files / share). */
 export async function sharePdf(payload: PdfPayload): Promise<PdfShareOutcome> {
   const localUri = payload.localUri;
   if (!localUri) {

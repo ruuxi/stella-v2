@@ -14,17 +14,6 @@ import { UserAppProjectService } from "@stella/runtime/worker/user-apps/project-
 
 const roots: string[] = [];
 
-/**
- * On macOS `fs.watch` is backed by FSEvents, which does not deliver changes
- * made in the window between the watcher being created and the stream actually
- * running. A single write straight after `start()` can land in that window and
- * be dropped outright — so the notification never arrives and no amount of
- * waiting helps. That, not slowness, was this test's flakiness: it failed on
- * roughly three runs in four under a loaded parallel suite.
- *
- * Re-writing until the change is observed removes the race without hiding a
- * real regression: a watcher that never emits still exhausts the deadline.
- */
 const CHANGE_NOTIFICATION_TIMEOUT_MS = 10_000;
 const CHANGE_NOTIFICATION_RETRY_MS = 250;
 

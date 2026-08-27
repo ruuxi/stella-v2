@@ -1,7 +1,3 @@
-/**
- * `Write` — replace or create a whole text file.
- */
-
 import { handleWrite } from "../file.js";
 import type { ToolDefinition } from "../types.js";
 

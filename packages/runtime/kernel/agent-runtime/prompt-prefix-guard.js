@@ -1,22 +1,7 @@
-/**
- * Dev-only byte-stability guard for the provider prompt prefix.
- *
- * The prompt-cache contract for a long-lived session: between two
- * consecutive turns with no compaction/refresh boundary, the system prompt,
- * the tools block, and every already-sent message must be byte-identical —
- * only new tail messages may appear. Silent violations (the class of bug the
- * ResidentBlock refactor removes) are invisible in normal operation; this
- * guard makes them loud in development.
- *
- * Enabled only when `STELLA_DEBUG_PROMPT_CACHE=1` (hashing the full message
- * mirror every turn is not free). No test files — this is a runtime
- * assertion by design.
- */
 import crypto from "node:crypto";
 
 const isEnabled = () => process.env.STELLA_DEBUG_PROMPT_CACHE === "1";
 
-/** threadKey → snapshot taken at the previous turn's prompt time. */
 const snapshots = new Map();
 
 const hashText = (value) =>
@@ -43,11 +28,6 @@ export const clearPromptPrefixSnapshot = (threadKey) => {
   snapshots.delete(threadKey);
 };
 
-/**
- * Record this turn's prefix and warn when it diverged from the previous
- * turn without a legitimate boundary (thread build, compaction refresh,
- * memory toggle, structural tool change).
- */
 export const checkPromptPrefixStability = ({
   threadKey,
   systemPrompt,

@@ -112,13 +112,12 @@ describe("FileLogger", () => {
   it("deletes log files older than the retention window on rollover", async () => {
     const { logDir, logger } = await makeLogger(7);
     try {
-      // Seed a stale file dated/aged well beyond the retention window.
+
       const stale = path.join(logDir, "process-2000-01-01.txt");
       await writeFile(stale, "old line\n");
       const old = new Date("2000-01-01T00:00:00Z");
       await utimes(stale, old, old);
 
-      // First write of the day rolls over and sweeps retention.
       logger.process("worker.listening", { pid: 1 });
 
       const files = await readdir(logDir);
@@ -131,7 +130,7 @@ describe("FileLogger", () => {
   it("enforces a total-size budget by deleting oldest files first", async () => {
     const logDir = await mkdtemp(path.join(tmpdir(), "stella-logs-"));
     try {
-      // Three recent (within retention) files, each 4KB, oldest -> newest.
+
       const seed = async (name: string, ageMs: number) => {
         const filePath = path.join(logDir, name);
         await writeFile(filePath, "x".repeat(4096));
@@ -142,7 +141,6 @@ describe("FileLogger", () => {
       await seed("error-2024-01-02.txt", 2 * 60_000);
       await seed("process-2024-01-03.txt", 1 * 60_000);
 
-      // Budget of 6KB forces deletion of the oldest file(s).
       const logger = new FileLogger({
         logDir,
         component: "test",
@@ -152,7 +150,7 @@ describe("FileLogger", () => {
       logger.process("worker.listening", { pid: 1 });
 
       const files = await readdir(logDir);
-      // Oldest file deleted to get back under the total budget.
+
       expect(files).not.toContain("process-2024-01-01.txt");
     } finally {
       await rm(logDir, { recursive: true, force: true });
@@ -161,7 +159,7 @@ describe("FileLogger", () => {
 
   it("does not throw when the log directory cannot be created", async () => {
     const logger = new FileLogger({
-      // A path under a file (not a dir) so mkdir fails.
+
       logDir: path.join(tmpdir(), "stella-logger.test", "nope", "\0bad"),
       component: "test",
     });

@@ -25,7 +25,6 @@ import {
   X_PROVIDER_ID,
 } from "../lib/x_oauth";
 
-
 const storeIntegrationConnectorValidator = v.object({
   type: v.literal("composio"),
   toolkit: v.string(),
@@ -37,9 +36,7 @@ const publishedIntegrationActionValidator = v.object({
   name: v.string(),
   title: v.optional(v.string()),
   description: v.optional(v.string()),
-  // Kept as a string because real JSON schemas can be much deeper than the
-  // shared bounded JSON validator. HTTP ingestion validates/parses this once,
-  // then this mutation stores each schema in its own bounded document.
+
   inputSchemaJson: v.string(),
 });
 
@@ -107,8 +104,7 @@ const normalizePublicIntegration = (record: {
     provider: record.provider,
     category: record.category ?? "integrations",
     auth: record.auth ?? ["OAUTH2"],
-    // The stored action set, rather than provider-reported marketing metadata,
-    // is the authoritative executable tool count.
+
     catalogToolCount: record.actionCount ?? 0,
     description: record.description ?? `Connect ${record.provider} to Stella.`,
     ...(record.sourceUrl ? { sourceUrl: record.sourceUrl } : {}),
@@ -311,9 +307,6 @@ export const upsertPublicIntegration = internalMutation({
       });
     }
 
-    // Convex mutations are transactional. Validate the full new set above,
-    // then replace children and parent together so readers see either the old
-    // complete publication or the new complete publication, never a partial.
     await Promise.all(existingActions.map((action) => ctx.db.delete(action._id)));
     const now = Date.now();
     await Promise.all(
@@ -716,7 +709,6 @@ const getPublicIntegrationByIdHandler = async (ctx: Pick<QueryCtx, "db">, args: 
   }
   return record;
 };
-
 
 export const getPublicIntegrationById = internalQuery({
   args: {

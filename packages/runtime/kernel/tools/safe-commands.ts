@@ -1,15 +1,3 @@
-/**
- * Curated allowlist of "obviously safe" shell commands. Single source of
- * truth for "this command is read-only, never blocks/escalates."
- *
- * Used to:
- *   - Skip HMR speculation on commands that can't possibly write source.
- *   - Provide an `is_mutating` hint for future approval/sandbox flows.
- *
- * The Rust version also handles Windows powershell prefixes; we keep this
- * Unix-first for now and add Windows when needed.
- */
-
 const SIMPLE_SAFE_BINARIES = new Set<string>([
   "cat",
   "cd",
@@ -39,7 +27,6 @@ const SIMPLE_SAFE_BINARIES = new Set<string>([
 
 const SAFE_OPERATORS = new Set<string>(["&&", "||", ";", "|"]);
 
-/** `bash -lc "..."` style invocations we recursively unwrap. */
 const SHELL_INTERPRETERS = new Set<string>(["bash", "sh", "zsh"]);
 const SHELL_LC_FLAGS = new Set<string>(["-c", "-lc", "-cl"]);
 
@@ -97,12 +84,6 @@ const SAFE_GIT_BRANCH_FLAGS = new Set<string>([
   "--verbose",
 ]);
 
-/**
- * Best-effort POSIX shell tokenizer. Handles single quotes, double quotes,
- * and backslash escapes; does NOT expand variables, command substitution,
- * subshells, or globs (deliberately conservative — anything more exotic
- * fails the safe check and falls through to the normal exec path).
- */
 const tokenizeShell = (command: string): string[] | null => {
   const tokens: string[] = [];
   let buf = "";
@@ -169,8 +150,7 @@ const tokenizeShell = (command: string): string[] | null => {
         i++;
         continue;
       }
-      // Backgrounding (`&`) is intentionally rejected rather than treated as a
-      // separator for safe-command classification.
+
       return null;
     }
     if (ch === "|") {
@@ -187,7 +167,7 @@ const tokenizeShell = (command: string): string[] | null => {
       continue;
     }
     if (ch === "\n" || ch === "\r") {
-      // Newlines separate commands in shell scripts, so treat them like `;`.
+
       if (ch === "\r" && command[i + 1] === "\n") {
         i++;
       }
@@ -198,8 +178,7 @@ const tokenizeShell = (command: string): string[] | null => {
       flushToken();
       continue;
     }
-    // Reject characters that introduce side effects we can't reason about
-    // safely (subshells, redirects, command substitution, globs, etc.).
+
     if ("()<>`$*?[]{}".includes(ch)) {
       return null;
     }
@@ -233,18 +212,18 @@ const splitOnOperators = (tokens: string[]): string[][] => {
 
 const executableLookupKey = (raw: string): string | null => {
   if (!raw) return null;
-  // Strip directory components (handles `/usr/bin/git` → `git`).
+
   const last = raw.split(/[\\/]/).pop() ?? raw;
-  // Strip `.exe` for a future Windows port.
+
   return last.replace(/\.exe$/i, "").toLowerCase() || null;
 };
 
 const isSafeBinaryInvocation = (cmd: string[]): boolean => {
   const head = cmd[0];
   if (!head) return false;
-  // If operators leaked into the args, this is a composite (split it instead).
+
   if (cmd.some((arg) => SAFE_OPERATORS.has(arg))) return false;
-  // Treat `zsh` as `bash` for matching.
+
   const lookup = executableLookupKey(head === "zsh" ? "bash" : head);
   if (!lookup) return false;
 
@@ -281,7 +260,7 @@ const gitGlobalOptionRequiresPrompt = (arg: string): boolean => {
   for (const opt of UNSAFE_GIT_GLOBAL_OPTIONS) {
     if (arg.startsWith(`${opt}=`)) return true;
   }
-  // Also block `-ccore.pager=cat` (option fused with value, no `=`).
+
   if (arg.startsWith("-c") && arg !== "-c" && arg.length > 2) return true;
   return false;
 };
@@ -289,12 +268,12 @@ const gitGlobalOptionRequiresPrompt = (arg: string): boolean => {
 const findGitSubcommand = (
   cmd: string[],
 ): { index: number; sub: string } | null => {
-  // Skip global options and their values.
+
   let i = 1;
   while (i < cmd.length) {
     const tok = cmd[i]!;
     if (gitGlobalOptionRequiresPrompt(tok)) return null;
-    // Flags that take a separate value: skip the value.
+
     if (
       (tok === "-C" || tok === "-c") &&
       i + 1 < cmd.length
@@ -348,7 +327,7 @@ const isSafeGitInvocation = (cmd: string[]): boolean => {
 const SED_N_ARG_PATTERN = /^(\d+,)?\d+p$/;
 
 const isSafeSedInvocation = (cmd: string[]): boolean => {
-  // Only `sed -n {N|M,N}p [file]` is whitelisted.
+
   if (cmd.length > 4) return false;
   if (cmd[1] !== "-n") return false;
   const sedArg = cmd[2];
@@ -356,19 +335,10 @@ const isSafeSedInvocation = (cmd: string[]): boolean => {
   return true;
 };
 
-/**
- * Returns true when the command is in the curated read-only allowlist.
- *
- * Accepts either a string (parsed with our conservative tokenizer) or an
- * argv array (when callers already have one). Composite expressions joined
- * with `&&`, `||`, `;`, or `|` are allowed only when *every* child command
- * is itself safe.
- */
 export const isKnownSafeCommand = (command: string | string[]): boolean => {
   const tokens = Array.isArray(command) ? command : tokenizeShell(command);
   if (!tokens || tokens.length === 0) return false;
 
-  // `bash -lc "real command"` → recurse on the inner string.
   const head = executableLookupKey(tokens[0]!);
   if (
     head &&
@@ -381,7 +351,6 @@ export const isKnownSafeCommand = (command: string | string[]): boolean => {
 
   if (isSafeBinaryInvocation(tokens)) return true;
 
-  // Composite case: split on safe operators, every piece must be safe.
   const pieces = splitOnOperators(tokens);
   if (pieces.length > 1 && pieces.every((piece) => isSafeBinaryInvocation(piece))) {
     return true;

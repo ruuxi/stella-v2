@@ -9,37 +9,20 @@ import {
 } from "react"
 import { createPortal } from "react-dom"
 
-/**
- * Hover/focus preview that escapes any clipping ancestor (e.g. the composer
- * shell's `overflow: clip`). The trigger and the preview body are rendered
- * separately: the trigger lives where the chip lives, and the preview is
- * portaled to `document.body` and positioned via `getBoundingClientRect`.
- *
- * Caller supplies the trigger element (as a ref) and the preview content;
- * this component handles position math, scroll/resize repositioning, and
- * the fade transition.
- *
- * The hover/focus listener glue lives in `use-hover-preview.ts` so this file
- * can stick to component exports (Vite fast-refresh rule).
- */
-
 type Placement = "top" | "bottom"
 
 type ChipPreviewPortalProps = {
-  /** The element the preview anchors above/below. */
+
   triggerRef: RefObject<HTMLElement | null>
-  /** When false the preview is hidden (no DOM at all). */
+
   open: boolean
-  /** Pixels of gap between the trigger and the preview. */
+
   gap?: number
-  /** Force placement; defaults to "top" with auto-flip to "bottom". */
+
   preferredPlacement?: Placement
-  /** Visual className for the preview shell — caller controls styling. */
+
   className?: string
-  /**
-   * Hover handlers (from `useHoverPreview().previewProps`). When supplied the
-   * preview accepts pointer events so the user can move onto it and scroll.
-   */
+
   onMouseEnter?: () => void
   onMouseLeave?: () => void
   children: ReactNode
@@ -74,9 +57,7 @@ export function ChipPreviewPortal({
 }: ChipPreviewPortalProps) {
   const interactive = Boolean(onMouseEnter || onMouseLeave)
   const containerRef = useRef<HTMLDivElement | null>(null)
-  // We always render the portal box while `open` is true and let the
-  // position state decide what's visible. Default to off-screen so the
-  // first paint can measure without flashing in the wrong spot.
+
   const [position, setPosition] = useState<Position>(HIDDEN_POSITION)
 
   const reposition = useCallback(() => {
@@ -122,9 +103,7 @@ export function ChipPreviewPortal({
 
   useLayoutEffect(() => {
     if (!open) return undefined
-    // Wait one frame so the container has measurable dimensions, then
-    // reposition. The portal box is mounted at off-screen coordinates
-    // until then so layout never flashes in the wrong spot.
+
     const raf = window.requestAnimationFrame(() => reposition())
     return () => window.cancelAnimationFrame(raf)
   }, [open, reposition])

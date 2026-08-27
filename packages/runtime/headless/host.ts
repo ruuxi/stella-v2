@@ -14,32 +14,8 @@ import {
   resolveStellaAppDir,
 } from "../kernel/home/stella-paths.js";
 
-/**
- * Headless host for the runtime kernel: everything a host must provide to
- * boot the worker and run turns, with no Electron and no desktop shell.
- *
- * What a host actually owes the worker (see `registerHostHandlers` in
- * `runtime/host/index.js`):
- *   - device identity + heartbeat signing  -> EPHEMERAL. The durable
- *     `device.json` private key is encrypted with the OS keychain via
- *     Electron safeStorage, so a headless host can neither reuse it nor
- *     safely rotate it (rotation would supersede the desktop's paired
- *     device id). A per-process ed25519 identity keeps the worker happy
- *     without touching the desktop's identity — and this host never
- *     registers devices or heartbeats anyway (`hasConnectedAccount` stays
- *     false).
- *   - LLM credential brokering             -> desktop decrypts BYOK values
- *     via safeStorage; headless cannot, so we advertise no local BYOK
- *     credentials and the model runtime falls back to env API keys, engine
- *     CLIs (Claude Code / Codex), and the Stella-managed relay when an
- *     auth token is provided by the caller.
- *   - UI affordances (display updates, notifications, windows, connect
- *     cards, permission prompts)           -> no-ops / "unsupported"
- *   - auth refresh                          -> identity stays an input; we
- *     return whatever token the caller handed us and never mint tokens.
- */
 export type HeadlessAuthInput = {
-  /** Convex auth token minted elsewhere (desktop session, CI secret, ...). */
+
   authToken?: string | null;
 };
 
@@ -100,13 +76,7 @@ export const createHeadlessHostHandlers = (
         hasConnectedAccount: false,
       };
     },
-    // Credential presence (provider names) is plain metadata and drives
-    // route eligibility — report it truthfully. The stored VALUES are
-    // encrypted with the OS keychain via Electron safeStorage, which a
-    // headless host cannot decrypt: value reads fall back to null, so
-    // engine-CLI routes (Claude Code / Codex manage their own auth) work
-    // while raw BYOK API-key routes fail at call time with an accurate
-    // missing-key error.
+
     requestLlmCredentials: async (request: {
       operation: string;
       kind?: "api-key" | "oauth-api-key";
@@ -136,12 +106,11 @@ export const createHeadlessHostHandlers = (
               );
         return { ok: true as const, value };
       } catch {
-        // Value is protected-storage-encrypted; headless cannot decrypt it.
+
         return { ok: true as const, value: null };
       }
     },
-    // Matches the desktop's no-window behavior (CredentialService throws
-    // when there is no window to collect a secret in).
+
     requestCredential: async () => {
       throw new Error("Headless host has no UI to collect credentials.");
     },

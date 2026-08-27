@@ -1,14 +1,6 @@
 import type { BetterAuthPlugin } from "better-auth";
 import { createAuthMiddleware } from "better-auth/api";
 
-/**
- * Carry Better Auth's short-lived one-time token through browser redirects.
- *
- * The first-party `oneTimeToken()` plugin emits `set-ott` when a new session
- * is created. Browser-followed redirects cannot expose that response header to
- * a native app, so move only that ephemeral value into the redirect URL. The
- * session credential itself remains out of the URL.
- */
 export const nativeOttRedirect = () => ({
   id: "stella-native-ott-redirect",
   hooks: {

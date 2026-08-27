@@ -1,4 +1,3 @@
-/** Live smoke test: Muse Spark 1.2 Contributor via OpenRouter Responses API. */
 import { streamOpenAIResponses } from "../convex/runtime_ai/openai_responses";
 
 const model = {

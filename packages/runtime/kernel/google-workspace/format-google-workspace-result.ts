@@ -45,7 +45,6 @@ const getGoogleWorkspaceJsonError = (text: string): string | null => {
   }
 };
 
-/** Converts upstream Google Workspace tool output into Stella `ToolResult`. */
 export const formatGoogleWorkspaceCallToolResult = (
   result: unknown,
 ): ToolResult => {

@@ -1,6 +1,5 @@
 import type { BetterFetch } from "@better-fetch/fetch";
 
-/** Exchange a short-lived callback token through Better Auth's native plugin. */
 export const verifyOneTimeToken = async (
   authFetch: BetterFetch,
   token: string,

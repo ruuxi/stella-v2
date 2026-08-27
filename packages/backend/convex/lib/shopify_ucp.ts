@@ -1,36 +1,9 @@
-/**
- * Shopify Universal Commerce Protocol (UCP) client library.
- *
- * Used by the Fashion tab + agent flow to:
- *   - Search the global Shopify catalog (`search_global_products`)
- *   - Fetch product details (`get_global_product_details`)
- *   - Resolve per-merchant Checkout MCP endpoints via `/.well-known/ucp`
- *   - Open / update / cancel a hosted checkout session via Checkout MCP
- *     (`create_checkout`, `update_checkout`, `cancel_checkout`)
- *
- * All HTTP lives here — Convex actions in `agent/local_runtime.ts` call the
- * helpers exported below. Token-exchange is cached for the duration of one
- * Convex action invocation; no persistent token store, no global state.
- *
- * Required env vars (set on the backend Convex deployment):
- *   - SHOPIFY_UCP_CLIENT_ID
- *   - SHOPIFY_UCP_CLIENT_SECRET
- * Optional env vars:
- *   - SHOPIFY_UCP_TOKEN_URL                (defaults to the Shopify auth URL)
- *   - SHOPIFY_UCP_GLOBAL_SEARCH_ENDPOINT   (defaults to discover.shopifyapps.com)
- *   - SHOPIFY_UCP_DEFAULT_SAVED_CATALOG    (optional named saved-catalog id)
- *
- * The shape of every response is intentionally narrowed to the fields the
- * fashion runtime needs — passing the entire upstream payload through to the
- * model bloats prompts and exposes us to provider drift.
- */
-
 import type { Value } from "convex/values";
 import { normalizeSafeExternalUrl } from "./url_security";
 
 const SHOPIFY_TOKEN_URL = "https://api.shopify.com/auth/access_token";
 const SHOPIFY_GLOBAL_MCP_URL = "https://discover.shopifyapps.com/global/mcp";
-const TOKEN_TTL_MS = 50 * 60_000; // refresh well before the upstream expiry
+const TOKEN_TTL_MS = 50 * 60_000;
 
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.trim().length > 0;
@@ -60,18 +33,9 @@ const requireEnv = (name: string): string => {
   return value.trim();
 };
 
-/**
- * Lightweight env probe used by the renderer to decide whether to surface the
- * Fashion tab as configured. Doesn't perform any HTTP — the UI uses this to
- * render a friendly "not configured" notice instead of having actions throw.
- */
 export const isShopifyUcpConfigured = (): boolean =>
   isNonEmptyString(process.env.SHOPIFY_UCP_CLIENT_ID) &&
   isNonEmptyString(process.env.SHOPIFY_UCP_CLIENT_SECRET);
-
-// ---------------------------------------------------------------------------
-// Token cache (per Convex action invocation; resets between cold starts).
-// ---------------------------------------------------------------------------
 
 type CachedToken = {
   token: string;
@@ -125,16 +89,12 @@ const fetchAccessToken = async (): Promise<string> => {
   return token;
 };
 
-// ---------------------------------------------------------------------------
-// JSON-RPC over MCP HTTP transport.
-// ---------------------------------------------------------------------------
-
 type McpToolCallResult = {
-  /** Raw tool result envelope returned by the MCP server. */
+
   raw: unknown;
-  /** First text content block (Shopify returns JSON-encoded text content). */
+
   text: string | null;
-  /** Parsed JSON when `text` is JSON; otherwise null. */
+
   json: unknown;
 };
 
@@ -247,10 +207,6 @@ const callMcpTool = async (args: {
   return { raw: result, text, json };
 };
 
-// ---------------------------------------------------------------------------
-// search_global_products
-// ---------------------------------------------------------------------------
-
 export type ShopifySearchProduct = {
   productId: string;
   variantId: string;
@@ -332,9 +288,6 @@ const findPrice = (
     );
     if (explicitMinorUnit) return numericAmount / 100;
 
-    // Shopify UCP search results have been observed returning whole-number
-    // minor-unit amounts in objects like `{ amount: 12900, currency: "USD" }`.
-    // Decimal strings such as "129.00" are already major units and pass through.
     const hasDecimalString =
       typeof amount === "string" && /[.,]\d{1,2}\s*$/.test(amount.trim());
     const hasCurrency = isNonEmptyString(currency);
@@ -471,7 +424,7 @@ const findProductUrl = (
     try {
       merchantOrigin = new URL(url).origin;
     } catch {
-      // ignore — handled below
+
     }
   }
   if (!merchantOrigin) {
@@ -667,10 +620,6 @@ export const debugSearchGlobalProducts = async (args: {
   } as Value;
 };
 
-// ---------------------------------------------------------------------------
-// get_global_product_details
-// ---------------------------------------------------------------------------
-
 export type ShopifyProductDetail = ShopifySearchProduct & {
   variants?: Array<{
     variantId: string;
@@ -743,14 +692,10 @@ export const getGlobalProductDetails = async (args: {
   return { ...base, ...(variants ? { variants } : {}) };
 };
 
-// ---------------------------------------------------------------------------
-// Checkout MCP (per-merchant) — discovery + create / update / cancel.
-// ---------------------------------------------------------------------------
-
 export type CheckoutEndpointDescriptor = {
-  /** Origin we discovered from. */
+
   merchantOrigin: string;
-  /** MCP endpoint URL. */
+
   endpoint: string;
 };
 
@@ -771,8 +716,7 @@ const isCheckoutEndpoint = (descriptor: { name?: unknown }): boolean => {
 export const discoverCheckoutEndpoint = async (args: {
   merchantOrigin: string;
 }): Promise<CheckoutEndpointDescriptor | null> => {
-  // https-only + private/loopback hosts blocked: the merchant origin can be
-  // influenced by catalog data, so this fetch must not become an SSRF.
+
   let baseOrigin = "";
   try {
     baseOrigin = new URL(normalizeSafeExternalUrl(args.merchantOrigin)).origin;
@@ -810,9 +754,7 @@ export const discoverCheckoutEndpoint = async (args: {
     } catch {
       continue;
     }
-    // Pin the checkout endpoint to the merchant's own domain. The platform
-    // bearer token is sent to this endpoint on every checkout call, so a
-    // discovery document must not be able to point it at a third party.
+
     const endpointHost = new URL(url).hostname.toLowerCase();
     if (
       endpointHost !== merchantHost &&
@@ -838,13 +780,13 @@ const variantIdForCartPermalink = (variantId: string): string => {
 };
 
 export type CheckoutSessionResult = {
-  /** Upstream checkout/session id. */
+
   checkoutId: string;
-  /** Status string from upstream (`open`, `pending`, `completed`, …). */
+
   status: string;
-  /** URL the user should open to complete payment. */
+
   continueUrl?: string;
-  /** Whole upstream response body (so callers can persist it). */
+
   raw: unknown;
 };
 
@@ -891,8 +833,7 @@ export const createCheckout = async (args: {
   if (lines.length === 0) {
     throw new Error("At least one valid line item is required to create a checkout.");
   }
-  // Persisted endpoints get re-validated on use: https-only, no private
-  // hosts (the token must never be sent to a local/internal target).
+
   let endpoint: string;
   try {
     endpoint = normalizeSafeExternalUrl(args.endpoint);
@@ -986,12 +927,6 @@ export const cancelCheckout = async (args: {
     status: session?.status ?? "canceled",
   };
 };
-
-// ---------------------------------------------------------------------------
-// Cart-permalink fallback used when Checkout MCP isn't reachable.
-//
-// Spec: https://shopify.dev/docs/storefronts/themes/architecture/templates/cart#permalinks
-// ---------------------------------------------------------------------------
 
 export const buildCartPermalink = (args: {
   merchantOrigin: string;

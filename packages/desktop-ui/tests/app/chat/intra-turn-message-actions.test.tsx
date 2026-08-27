@@ -1,21 +1,3 @@
-// @vitest-environment jsdom
-/**
- * A turn that interleaves tool calls emits several short assistant
- * segments ("Let me try X…") before the final answer. Only the turn's
- * FINAL assistant message may carry the Copy / Read-aloud action strip —
- * mid-turn segments used to mount it too, showing actions where they
- * weren't wanted and reserving the strip's 24px + flex gap under every
- * preamble.
- *
- * Pins both halves of the fix:
- *   1. `isIntraTurnAssistantRuntime` — the projection predicate over the
- *      persisted runtime metadata (`followedByToolCall` stamped on every
- *      segment that handed off to a tool; `turnComplete` stamped on the
- *      run's last message and winning when both are set).
- *   2. `AssistantMessageRow` — an `isIntraTurn` row renders NO
- *      `.message-actions` element at all (nothing reserving height), while
- *      a final row keeps the strip with its read-aloud button.
- */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -40,8 +22,7 @@ describe("isIntraTurnAssistantRuntime", () => {
   });
 
   it("keeps the turn's final message: turnComplete wins over followedByToolCall", () => {
-    // A run whose LAST action was a tool call stamps both flags on the same
-    // message — that message is still the turn's terminal answer.
+
     expect(
       isIntraTurnAssistantRuntime({
         followedByToolCall: true,
@@ -81,7 +62,7 @@ describe("AssistantMessageRow action strip", () => {
       root.render(
         withI18n(
           <AssistantMessageRow
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
             row={row as any}
             conversationId="conv-1"
           />,
@@ -101,10 +82,9 @@ describe("AssistantMessageRow action strip", () => {
 
   it("renders no action strip for an intra-turn segment", async () => {
     await renderRow(baseRow({ isIntraTurn: true }));
-    // The message text still renders…
+
     expect(container.textContent).toContain("Let me try the other endpoint.");
-    // …but nothing mounts the strip, so there is no element reserving its
-    // 24px height between intra-turn messages.
+
     expect(container.querySelector(".message-actions")).toBeNull();
   });
 
@@ -114,7 +94,7 @@ describe("AssistantMessageRow action strip", () => {
     expect(strip).not.toBeNull();
     expect(strip!.querySelector('[aria-label="Copy"]')).not.toBeNull();
     expect(strip!.querySelector('[aria-label="Read aloud"]')).not.toBeNull();
-    // Settled (non-streaming) strip stays hover-revealable: not inert.
+
     expect(strip!.getAttribute("inert")).toBeNull();
     expect(strip!.getAttribute("data-streaming")).toBeNull();
   });

@@ -29,64 +29,21 @@ import {
   morphEnvelope,
 } from "./motion";
 
-/**
- * Stella's working/thinking indicator: the character mark itself becomes the
- * middle dot of a three-dot thinking bounce, then unfolds back into the star
- * when the run settles.
- *
- * ACTIVE — the star cross-fades into its fully inflated profile (the orb) while
- * shrinking to dot size, two sibling dots spread out from underneath it with a
- * staggered ease-out-back, and all three ride one travelling Gaussian: rise,
- * pop and tone. INACTIVE — the same morph runs backward to the resting star,
- * which then holds a slow ±1.3% breathe. No face: at 34px the eyes would be
- * sub-pixel, and the desktop rig hides them in dots mode anyway.
- *
- * OTA-SAFE. This replaces the previous `WorkingStarSkia`, whose SkSL shader ran
- * through `@shopify/react-native-skia` — native code, so any change to it could
- * only ship in a fresh store build. Everything here is `react-native-svg` +
- * `react-native-reanimated`, both already in the bundle, so the indicator can
- * be changed over the air.
- *
- * PERFORMANCE. Two shared values drive everything: `clock` (a linear
- * millisecond ramp) and `morphT` (a linear 0..1 ramp whose critically damped
- * shape is applied in the worklet — see `motion.ts`). Every transform and
- * opacity is computed inside `useAnimatedStyle` worklets on the UI thread, on
- * plain `Animated.View`s, so no per-frame JS runs and React never re-renders
- * while the indicator animates. Both animations are cancelled — and the clock
- * parked — when the indicator unmounts or reduced motion is on, so no work
- * lingers.
- *
- * The geometry (`geometry.ts`) is baked from the same source as the desktop
- * rig, and its viewBox is centred on the mark's own centre, so a View-level
- * transform is exactly a shape-centre transform.
- */
-
 const DEFAULT_SIZE = 34;
-/** Span of the shared viewBox (`-15 -15 258.541 258.541`) in viewBox units. */
+
 const VIEWBOX_SPAN = 258.541;
 const VIEWBOX_MIN = -15;
-/** Scale that takes the full-size mark down to a thinking dot. */
+
 const DOT_SCALE = DOT_RADIUS_UNITS / STELLA_MARK_CENTER;
-/** Three dots at 34px are tiny; the desktop rig zooms the group under 44px. */
+
 const SMALL_SIZE_THRESHOLD = 44;
 const DOTS_ZOOM = 1.5;
-/** Resting breathe — amplitude and period. */
+
 const BREATHE_AMPLITUDE = 0.013;
 const BREATHE_MS = 4000;
-/**
- * Length of the linear clock ramp. A common multiple of the bounce cycle
- * (1400ms) and the breathe period (4000ms), so the wrap is seamless for both;
- * at ~47 minutes it is far outside any single indicator activation anyway.
- */
+
 const CLOCK_SPAN_MS = 2_800_000;
 
-/**
- * One full-size copy of a mark path filling the indicator box.
- *
- * Each layer carries its own gradient definition: `Defs` are scoped to their
- * `Svg` root in react-native-svg, so a `url(#…)` reference cannot reach a
- * gradient declared in a sibling `Svg`.
- */
 function MarkLayer({
   d,
   size,
@@ -129,28 +86,26 @@ export function StellaMarkIndicator({
   active,
   size = DEFAULT_SIZE,
 }: {
-  /** True while a run is in flight — the mark runs the thinking bounce. */
+
   active: boolean;
   size?: number;
 }) {
   const reduceMotion = useReducedMotion();
-  // Gradient ids are per-instance: two indicators sharing an id make the second
-  // resolve against the first one's gradient (see StellaMark.tsx).
+
   const uid = useId().replace(/[^a-zA-Z0-9-]/g, "");
 
   const pxPerUnit = size / VIEWBOX_SPAN;
   const spreadPx = DOT_SPREAD_UNITS * pxPerUnit;
   const zoom = size < SMALL_SIZE_THRESHOLD ? DOTS_ZOOM : 1;
 
-  /** Linear millisecond ramp; every periodic term derives from it. */
   const clock = useSharedValue(0);
-  /** Linear 0..1 morph ramp — the spring shape is applied in the worklets. */
+
   const morphT = useSharedValue(0);
 
   useEffect(() => {
     cancelAnimation(clock);
     if (reduceMotion) {
-      // Park static: the resting star, no breathe, no bounce.
+
       clock.value = 0;
       return;
     }
@@ -169,7 +124,7 @@ export function StellaMarkIndicator({
   useEffect(() => {
     cancelAnimation(morphT);
     if (reduceMotion) {
-      // Reduced motion never leaves the resting star — the dots are the motion.
+
       morphT.value = 0;
       return;
     }
@@ -180,7 +135,6 @@ export function StellaMarkIndicator({
     return () => cancelAnimation(morphT);
   }, [active, morphT, reduceMotion]);
 
-  /** Critically damped 0..1 morph envelope, shared by every layer below. */
   const envelope = useDerivedValue(() => morphEnvelope(morphT.value));
 
   const stageStyle = useAnimatedStyle(() => {
@@ -193,8 +147,6 @@ export function StellaMarkIndicator({
     return { transform: [{ scale: (1 + (zoom - 1) * env) * breathe }] };
   });
 
-  // Middle slot (index 1): the character itself. It shrinks from full size to a
-  // dot while the star cross-fades into the orb, then joins the bounce.
   const middleStyle = useAnimatedStyle(() => {
     const env = envelope.value;
     const wave = dotWave(1, clock.value);

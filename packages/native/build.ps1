@@ -1,11 +1,6 @@
-# Build script for native helpers
-# Tries MSVC first, falls back to MinGW, then clang
-
 $outputDir = Join-Path $PSScriptRoot "out\win32"
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 
-# Pinned parakeet.cpp (C++/ggml ASR) revision for the Windows local dictation
-# helper. Keep in sync with desktop/native/build.sh.
 $ParakeetCppRepo = "https://github.com/mudler/parakeet.cpp"
 $ParakeetCppCommit = "9edf17c3ada66e0f881dcff155492867db7ac4cf"
 
@@ -22,8 +17,7 @@ $targets = @(
     @{ kind = "cpp"; src = "src\dictation_bridge.cpp"; out = (Join-Path $outputDir "dictation_bridge.exe"); libs = @("ole32.lib", "oleaut32.lib", "uuid.lib", "user32.lib"); gccLibs = @("-lole32", "-loleaut32", "-luuid", "-luser32") },
     @{ kind = "cpp"; src = "src\stella_computer_helper.cpp"; out = (Join-Path $outputDir "stella-computer-helper.exe"); libs = @("ole32.lib", "oleaut32.lib", "uuid.lib", "user32.lib", "gdi32.lib", "gdiplus.lib", "shell32.lib", "advapi32.lib", "dwmapi.lib"); gccLibs = @("-lole32", "-loleaut32", "-luuid", "-luser32", "-lgdi32", "-lgdiplus", "-lshell32", "-ladvapi32", "-ldwmapi") },
     @{ kind = "cpp"; src = "src\meeting_capture.cpp"; out = (Join-Path $outputDir "meeting_capture.exe"); libs = @("ole32.lib", "oleaut32.lib", "uuid.lib", "shell32.lib"); gccLibs = @("-lole32", "-loleaut32", "-luuid", "-lshell32") },
-    # GUI subsystem (no console window): /SUBSYSTEM:WINDOWS for MSVC via the
-    # link-args list, -mwindows for MinGW/clang via the gcc-args list.
+
     @{ kind = "cpp"; src = "src\update_splash.cpp"; out = (Join-Path $outputDir "stella-update-splash.exe"); libs = @("user32.lib", "gdi32.lib", "gdiplus.lib", "shell32.lib", "dwmapi.lib", "ole32.lib", "/SUBSYSTEM:WINDOWS"); gccLibs = @("-luser32", "-lgdi32", "-lgdiplus", "-lshell32", "-ldwmapi", "-lole32", "-mwindows") }
 )
 
@@ -34,9 +28,7 @@ function Build-WithMSVC($vcvars, $srcFile, $outFile, $libs) {
     $cwd = (Get-Location).Path
     $libArgs = ($libs -join " ")
     $cmd = "call `"$vcvars`" && cd /d `"$cwd`" && cl /O2 /EHsc /nologo `"$srcFile`" /link $libArgs /OUT:`"$outFile`""
-    # Stream cmd's stdout/stderr to the host so they don't bleed into the
-    # function's pipeline output (which would make the returned boolean
-    # array-truthy regardless of actual success).
+
     cmd /c $cmd 2>&1 | ForEach-Object { Write-Host $_ }
     $exit = $LASTEXITCODE
     $exists = Test-Path $outFile
@@ -66,7 +58,6 @@ function Build-WithClang($srcFile, $outFile, $gccLibs) {
     return ($exit -eq 0 -and $exists)
 }
 
-# Detect compiler
 $vcvars = $null
 $vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 if (Test-Path $vsWhere) {
@@ -113,21 +104,8 @@ foreach ($t in $targets) {
 
 if (-not $allOk) { exit 1 }
 
-# parakeet_cpp_transcriber.exe — local on-device dictation (parakeet.cpp / ggml).
-#
-# Strictness is controlled by the REQUIRE_PARAKEET_CPP env flag:
-#   - CI sets REQUIRE_PARAKEET_CPP=1 so any failure (missing toolchain, clone,
-#     cmake configure/build, or a missing binary) HARD-FAILS the workflow. A
-#     silently-skipped required helper is exactly what previously shipped a
-#     Windows tarball with no on-device dictation, so CI must never swallow it.
-#   - Local/dev runs leave the flag unset, so the helper is best-effort: a
-#     failure just leaves that machine on cloud dictation instead of blocking
-#     the whole native build for contributors without cmake/MSVC.
 $RequireParakeetCpp = ($env:REQUIRE_PARAKEET_CPP -eq "1")
 
-# Emit a failure for the parakeet.cpp helper. In strict (CI) mode this prints a
-# GitHub Actions ::error:: annotation and terminates the whole build with a
-# non-zero exit; otherwise it warns and lets the caller skip gracefully.
 function Fail-ParakeetCpp($message, $logPath) {
     if ($logPath -and (Test-Path $logPath)) {
         Get-Content $logPath -Tail 25 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
@@ -158,11 +136,6 @@ function Build-ParakeetCpp {
         & git -C $src submodule update --init --recursive --quiet 2>&1 | Add-Content $log
         if ($LASTEXITCODE -ne 0) { Fail-ParakeetCpp "submodule init failed" $log; return }
 
-        # The pinned parakeet.cpp backend.hpp uses int64_t without including
-        # <cstdint>. Patch that header directly instead of force-including the
-        # C++ header globally: /FIcstdint also reaches ggml's C translation
-        # units under the Visual Studio generator, where MSVC rejects it with
-        # STL1003 ("expected C++ compiler").
         $backendHeader = Join-Path $src "src\backend.hpp"
         $backendSource = [System.IO.File]::ReadAllText($backendHeader)
         if (-not $backendSource.Contains("#include <cstddef>")) {
@@ -175,9 +148,6 @@ function Build-ParakeetCpp {
         )
         [System.IO.File]::WriteAllText($backendHeader, $backendSource)
 
-        # MSVC only exposes M_PI from <cmath> when this opt-in is defined
-        # before any standard header. The pinned upstream sources use M_PI in
-        # exactly these two translation units.
         foreach ($mathSourceRelative in @("src\fft.cpp", "src\mel_gpu.cpp")) {
             $mathSourcePath = Join-Path $src $mathSourceRelative
             $mathSource = [System.IO.File]::ReadAllText($mathSourcePath)
@@ -198,7 +168,7 @@ function Build-ParakeetCpp {
         Add-Content -Path (Join-Path $src "CMakeLists.txt") -Value "add_subdirectory(examples/stella)"
 
         Write-Host "Building parakeet_cpp_transcriber (static, x64)..."
-        # Static CRT (/MT) so the shipped helper needs no VC++ redistributable.
+
         & cmake -S $src -B (Join-Path $src "build") -A x64 `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
@@ -222,8 +192,6 @@ function Build-ParakeetCpp {
 Write-Host "Building parakeet_cpp_transcriber.exe (REQUIRE_PARAKEET_CPP=$($RequireParakeetCpp))..."
 Build-ParakeetCpp
 
-# wakeword_listener — Rust binary, x86_64 Windows via cargo. Skipped silently
-# when cargo is unavailable so non-Rust contributors aren't blocked.
 $cargo = Get-Command cargo -ErrorAction SilentlyContinue
 if ($cargo) {
     Write-Host "Building wakeword_listener.exe..."

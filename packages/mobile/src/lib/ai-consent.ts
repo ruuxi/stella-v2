@@ -1,18 +1,5 @@
-/**
- * Tracks whether the user has explicitly agreed to share data with the
- * third-party AI providers Stella routes through (DeepSeek directly, plus
- * OpenRouter / Fireworks gateways → Anthropic / OpenAI / Google for text;
- * xAI for voice transcription; OpenAI for live realtime audio).
- *
- * Required by App Store Review Guideline 5.1.1(i) / 5.1.2(i): we must
- * disclose what is sent, who it is sent to, and get the user's permission
- * BEFORE any data leaves the device.
- */
-
 import * as SecureStore from "expo-secure-store";
 
-// Version 3 names xAI as the direct transcription recipient. Do not silently
-// treat consent naming the previous recipient as consent to xAI.
 const CONSENT_KEY = "stella-mobile_ai-data-consent-v3";
 
 let cached: boolean | null = null;
@@ -36,11 +23,6 @@ export function hasAiConsent(): boolean {
   return cached === true;
 }
 
-/**
- * Imperatively ask the host to show the consent modal. Used from places
- * (like dictation) that cannot mount the modal themselves but need to
- * gate a third-party AI call behind explicit user permission.
- */
 export function requestAiConsent(): void {
   for (const listener of requestListeners) listener();
 }

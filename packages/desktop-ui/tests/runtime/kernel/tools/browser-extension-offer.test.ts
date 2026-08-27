@@ -125,7 +125,6 @@ describe("maybeOfferBrowserExtensionConnect", () => {
     expect(payloadOf(first).note).toMatch(/park the browser-dependent step/i);
     expect(payloadOf(first).note).not.toMatch(/visible browser control/i);
 
-    // Within the cool-down the offer is suppressed entirely.
     now += 60_000;
     const second = await maybeOfferBrowserExtensionConnect({
       result: execResult(EXTENSION_ERROR),
@@ -178,7 +177,7 @@ describe("maybeOfferBrowserExtensionConnect", () => {
     controller.abort();
     const result = await pending;
     expect(receivedSignal).toBe(controller.signal);
-    // Aborted turn: the original failure passes through untouched.
+
     expect(result).toBe(original);
   });
 

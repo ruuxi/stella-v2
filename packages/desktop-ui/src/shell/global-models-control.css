@@ -1,10 +1,3 @@
-/* The always-present bottom-right Models control — see GlobalModelsControl.jsx.
-
-   Fixed to the app's bottom-right so it stays visible on every tab/state,
-   independent of the right sidebar. Sits above the right-sidebar panel
-   (z-index 60) but below the topbar (80/81) and dialogs; the picker popover
-   itself portals higher via the Popover primitive. */
-
 .global-models-control {
   position: fixed;
   right: 14px;
@@ -13,8 +6,6 @@
   -webkit-app-region: no-drag;
 }
 
-/* Composer pin — a plain label + switch, not a pill: it is a persistent
-   preference, not an action to press. */
 .work-models-pin-switch [data-slot="switch-label"] {
   color: var(--text-weak);
   font-size: var(--font-size-sm);
@@ -48,12 +39,8 @@
   font-size: var(--font-size-base);
 }
 
-/* Models popover: hosts the agent model picker above the button. */
 .models-popover {
-  /* `max-width` has to move with `width`: the shared popover surface caps
-     every popover at 320px, which silently clamped this one. The model
-     list carries provider names plus an action pill, so it needs the
-     extra room. */
+
   width: min(380px, 92vw);
   max-width: min(380px, 92vw);
   height: min(560px, 72vh);
@@ -76,10 +63,6 @@
   overflow: hidden;
 }
 
-/* The picker's own root is `flex-grow: 0` (it sizes to content in the
-   settings page, where it sits beside other blocks). Inside the popover it
-   is the only child and should own the full width, or widening the popover
-   just adds dead space on the right. */
 .models-popover__panel > * {
   flex: 1 1 auto;
   min-width: 0;

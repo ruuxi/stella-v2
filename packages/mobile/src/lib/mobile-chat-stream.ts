@@ -1,11 +1,3 @@
-/**
- * Frame parser for the cloud offline-chat SSE lane.
- *
- * `{"t": …}` is a COMPLETED assistant text segment carrying its full text —
- * one per segment, with tool-loop interleaving preserved — so a `text` frame
- * is appended whole rather than accumulated. `toolCall`, `error` and `[DONE]`
- * are unchanged.
- */
 export type MobileChatStreamToolCall = {
   id: string;
   name: string;

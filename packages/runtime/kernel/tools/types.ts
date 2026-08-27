@@ -1,7 +1,3 @@
-/**
- * Shared type definitions for the tools system.
- */
-
 import type { TaskLifecycleStatus } from "@stella/contracts/agent-runtime";
 import type {
   AgentModelConfigSnapshot,
@@ -38,17 +34,13 @@ export type ToolContext = {
   toolWorkspaceRoot?: string;
   storageMode?: "cloud" | "local";
   agentId?: string;
-  /**
-   * Thread of the agent that spawned this one. Set only for a parent-owned
-   * thread; a root-spawned agent has no agent parent. Drives the ownership
-   * tier that withholds the orchestration tools.
-   */
+
   parentAgentId?: string;
   agentDepth?: number;
   maxAgentDepth?: number;
   modelConfigSnapshot?: AgentModelConfigSnapshot;
   allowedToolNames?: string[];
-  /** External adapters acknowledge image delivery after transcript storage. */
+
   deferImageDeliveryAck?: boolean;
   connectorDeliveryTarget?: {
     requestId: string;
@@ -62,29 +54,11 @@ export type ToolResult = {
   result?: unknown;
   details?: unknown;
   error?: string;
-  /**
-   * Tool-specific model-facing text budget. The raw result is still returned
-   * and persisted; provider context assembly applies this limit later.
-   */
+
   modelOutputTokens?: number;
-  /**
-   * Normalized record of any filesystem mutations the tool performed.
-   *
-   * The runtime worker hoists this field into the persisted `tool_result`
-   * event payload, and the chat surface walks the records to build a per-turn
-   * `editedFilePaths` list without having to know which specific tool
-   * produced the change.
-   *
-   * Tools that don't mutate the filesystem leave this `undefined`.
-   * Shell-like tools should use `producedFiles` for snapshot-detected outputs
-   * rather than treating arbitrary CLI side effects as explicit edits.
-   */
+
   fileChanges?: FileChangeRecord[];
-  /**
-   * User-facing output files detected from a tool side effect. This is for
-   * artifacts Stella should show to the user even when they were produced by
-   * shell/CLI work rather than an explicit file-edit tool.
-   */
+
   producedFiles?: ProducedFileRecord[];
 };
 
@@ -101,23 +75,12 @@ export type ToolMetadata = {
   workingText?: string;
   description: string;
   parameters: Record<string, unknown>;
-  /**
-   * Demoted tools leave the model's direct tool list whenever `node_repl`
-   * is available for the agent and become callable only as
-   * `tools.<name>(args)` inside the REPL, advertised through the
-   * token-budgeted signature catalog in node_repl's description and
-   * discoverable via `tools.$search`. Agents without node_repl get the tool
-   * in their direct list as usual (never stranded).
-   */
+
   demoted?: {
     searchTerms?: readonly string[];
     requiredConnectorProvider?: string;
   };
-  /**
-   * Optional declarative gate: when set, only the listed agent types may see
-   * the tool in their catalog and run it via executeTool. Replaces in-line
-   * `agentType === ORCHESTRATOR` checks at the tool-handler layer.
-   */
+
   agentTypes?: readonly string[];
 };
 
@@ -148,24 +111,13 @@ export type AgentToolRequest = {
   description: string;
   prompt: string;
   agentType: string;
-  /**
-   * Per-spawn model override (plain model-reference string, e.g.
-   * `stella/light` or `anthropic/claude-...`). Resolved through the normal
-   * model-routing path, exactly as if the user had set it as the agent's
-   * model override. Never persisted.
-   */
+
   model?: string;
-  /**
-   * Per-spawn engine selection. Plain model references pin `default` so a
-   * saved external-engine preference cannot override the requested model;
-   * `stella` explicitly selects `default`, while `codex` / `claude-code`
-   * optionally carry a pinned engine-native model.
-   * Never persisted.
-   */
+
   spawnEngine?: SpawnEngineSelection;
-  /** Per-spawn reasoning override parsed from model's `:<effort>` suffix. */
+
   spawnReasoningEffort?: SpawnReasoningEffort;
-  /** Durable effective route inherited by a subagent from its Orchestrator. */
+
   modelConfigSnapshot?: AgentModelConfigSnapshot;
   toolWorkspaceRoot?: string;
   rootRunId?: string;
@@ -185,19 +137,9 @@ export type AgentToolSnapshot = {
   result?: string;
   error?: string;
   recentActivity?: string[];
-  /**
-   * Last discrete liveness event (streamed progress or tool start/end).
-   * Goes stale mid-call while a tool is running — check `activeToolCount`
-   * first; only fall back to this stamp (or diffing `recentActivity`) when
-   * no tool is in flight. Never implement an idle timeout on this alone.
-   */
+
   lastActivityAt?: number;
-  /**
-   * Tool calls currently in flight. `lastActivityAt` only moves on discrete
-   * events (progress, tool start/end), so a single tool call outlasting an
-   * idle window would read as idle mid-call; a non-zero count means the
-   * agent is actively working regardless of how stale the stamp looks.
-   */
+
   activeToolCount?: number;
   messages?: Array<{
     from: "orchestrator" | "subagent";
@@ -206,7 +148,6 @@ export type AgentToolSnapshot = {
   }>;
 };
 
-/** One durable thread-store row surfaced to the `agent_status` projection. */
 export type AgentThreadStatusMessage = {
   timestamp: number;
   role: string;
@@ -214,32 +155,23 @@ export type AgentThreadStatusMessage = {
   payload?: PersistedRuntimeThreadPayload;
 };
 
-/**
- * Raw, read-only view of one agent thread backing the `agent_status` tool.
- * Produced entirely from existing durable reads (`runtime_agents` +
- * `loadThreadMessages`); building it never messages, resumes, or otherwise
- * steers the target thread.
- */
 export type AgentThreadStatusRead = {
-  /** Live execution state from the same signal as `other_threads`. */
+
   status: RuntimeThreadLiveState;
-  /** Roster-style label, e.g. "active" or "paused (last run errored)". */
+
   statusLabel: string;
-  /** `runtime_agents.status` detail (running / completed / error / ...). */
+
   agentStatus?: TaskLifecycleStatus | string;
   description?: string;
-  /** External engine the thread runs on (e.g. "codex_cli"); absent = default. */
+
   engine?: string;
-  /** When the agent record was last written (turn start / terminal). */
+
   lastActiveAt?: number;
   messages: AgentThreadStatusMessage[];
 };
 
 export type AgentToolApi = {
-  /**
-   * Read-only snapshot backing `agent_status`. Implementations must not
-   * deliver input to, resume, or cancel the thread. `null` = unknown thread.
-   */
+
   readAgentThreadStatus?: (
     threadId: string,
   ) => Promise<AgentThreadStatusRead | null>;
@@ -258,9 +190,9 @@ export type AgentToolApi = {
     from: "orchestrator" | "subagent",
     options?: {
       rootRunId?: string;
-      /** Parent agent thread that owns this thread's completion routing. */
+
       parentAgentId?: string;
-      /** Internal child report vs. direct orchestrator status/steering input. */
+
       deliveryKind?: "child-report" | "external-input";
       modelConfigSnapshot?: AgentModelConfigSnapshot;
     },
@@ -280,21 +212,17 @@ export type ToolHostOptions = {
   stellaXApiCliPath?: string;
   cliBridgeSocketPath?: string;
   agentApi?: AgentToolApi;
-  /**
-   * Validates a plain model-reference string passed to spawn_agent's `model`
-   * parameter. Throws with the standard route-failure message when the model
-   * cannot be resolved, so the spawn fails loudly instead of falling back.
-   */
+
   validateSpawnModel?: (modelName: string) => void;
   validateSpawnModelWithMetadata?: (
     modelName: string,
     reasoningEffort?: SpawnReasoningEffort,
   ) => Promise<void>;
-  /** Resolve and freeze a spawn's effective engine/model configuration. */
+
   captureSpawnModelConfig?: (args: {
     agentType: string;
     spawnEngine: SpawnEngineSelection;
-    /** Omitted/default model selection samples the configured General engine. */
+
     useConfiguredEngine?: boolean;
     model?: string;
     spawnReasoningEffort?: SpawnReasoningEffort;
@@ -302,10 +230,7 @@ export type ToolHostOptions = {
   scheduleApi?: ScheduleToolApi;
   fashionApi?: FashionToolApi;
   extensionTools?: import("../extensions/types.js").ToolDefinition[];
-  /**
-   * Optional handler for Stella's search-backed `web` tool. When omitted,
-   * search mode is unavailable.
-   */
+
   webSearch?: (
     query: string,
     options?: { category?: string },
@@ -313,32 +238,19 @@ export type ToolHostOptions = {
     text: string;
     results?: Array<{ title: string; url: string; snippet: string }>;
   }>;
-  /**
-   * Optional authenticated Stella site access for tool surfaces like `image_gen`
-   * that call the managed media HTTP API.
-   */
+
   getStellaSiteAuth?: () => { baseUrl: string; authToken: string } | null;
-  /**
-   * Optional authenticated Convex query bridge for polling backend-owned state
-   * such as media job completion.
-   */
+
   queryConvex?: (
     ref: unknown,
     args: Record<string, unknown>,
   ) => Promise<unknown>;
-  /**
-   * Optional authenticated Convex action bridge for tools that need to invoke
-   * backend-owned side effects, such as connector delivery affordances.
-   */
+
   actionConvex?: (
     ref: unknown,
     args: Record<string, unknown>,
   ) => Promise<unknown>;
-  /**
-   * Optional context lookup backing the orchestrator's read-only `Recall`
-   * tool. The host runs the recall agent (memory ledger + past-thread search
-   * + live machine state) and returns its synthesized brief.
-   */
+
   contextProvider?: (payload: {
     conversationId: string;
     requestId: string;
@@ -349,10 +261,7 @@ export type ToolHostOptions = {
     modelConfigSnapshot?: AgentModelConfigSnapshot;
     signal?: AbortSignal;
   }) => Promise<RecallLookupResult>;
-  /**
-   * Optional DreamInboxStore + stellaDataDir used by the background Dream
-   * agent's consolidation pass.
-   */
+
   dreamInboxStore?: import("../memory/dream-inbox-store.js").DreamInboxStore;
   stellaDataDir?: string;
   requestCredential?: (payload: {
@@ -361,12 +270,7 @@ export type ToolHostOptions = {
     description?: string;
     placeholder?: string;
   }) => Promise<{ secretId: string; provider: string; label: string }>;
-  /**
-   * Optional desktop hop for `exec_command`: render an inline "connect the
-   * Stella browser extension" card in the chat when a stella-browser command
-   * fails on the missing extension bridge, resolving once the user connects
-   * or declines so the tool can re-run the command automatically.
-   */
+
   requestBrowserExtensionConnect?: import("./browser-extension-offer.js").BrowserExtensionConnectRequester;
   requestComputerUseAppApproval?: (payload: {
     bundleIdentifier: string;
@@ -379,11 +283,7 @@ export type ToolHostOptions = {
     | { decision: "approved"; scope: "session" | "persistent" }
     | { decision: "declined"; scope: "none" }
   >;
-  /**
-   * Optional desktop hop for the orchestrator's `connector_status` tool:
-   * render the inline connector connect card and resolve with the user's
-   * outcome (same ConnectorConnectService flow the CLI bridge uses).
-   */
+
   requestConnectorConnection?: import("./defs/connector-status.js").ConnectorConnectionRequester;
 };
 
@@ -447,14 +347,6 @@ export type FashionCheckoutSessionResult = {
   cartUrl?: string;
 };
 
-/**
- * Fashion-tab Convex bridge.
- *
- * Mirrors `ScheduleToolApi`: a tight set of typed methods the Fashion subagent
- * (and the Fashion tab worker) calls into. Implementations live in the
- * runtime context layer and forward to `backend/convex/agent/local_runtime.ts`
- * so HTTP, auth, and rate-limits stay backend-side.
- */
 export type FashionToolApi = {
   getOrchestratorContext: () => Promise<FashionContextSummary>;
   searchProducts: (args: {
@@ -521,68 +413,26 @@ export type ToolHandler = (
   extras?: ToolHandlerExtras,
 ) => Promise<ToolResult>;
 
-/**
- * Self-contained tool definition. One file per tool under
- * `runtime/kernel/tools/defs/` exports either a `ToolDefinition` directly (for
- * stateless tools) or a `createXxxTool(options)` factory that returns one (for
- * tools that need wired dependencies like `webSearch`, `agentApi`, etc.).
- *
- * The host imports every def and builds a single Map<name, ToolDefinition>
- * that drives both:
- *   - the catalog the model sees (name, description, parameters, promptSnippet)
- *   - the handler the runtime dispatches (execute)
- *
- * No central description/schema map. No name-string lookup with placeholder
- * fallback. If a tool isn't in the registry, the agent loop simply doesn't
- * see it.
- */
 export type ToolDefinition = {
-  /** Tool name surfaced to the model (e.g. `web`, `exec_command`). */
+
   name: string;
-  /** Human-readable label surfaced to the UI. */
+
   label?: string;
-  /** User-facing status text while the tool is running. */
+
   workingText?: string;
-  /** Description string shown in the model's tool list. */
+
   description: string;
-  /** JSON Schema for tool arguments. */
+
   parameters: Record<string, unknown>;
-  /**
-   * Optional declarative agent-type gate. When set, the tool is hidden from
-   * agents not in the list (catalog filter) and rejected at executeTool if
-   * the call still slips through. Prefer this over per-handler `agentType`
-   * checks: it keeps gating colocated with the tool definition and makes the
-   * surface area easy to audit.
-   */
+
   agentTypes?: readonly string[];
-  /**
-   * Optional one-line snippet for an auto-generated "Available tools" block in
-   * the agent's system prompt. Tools omit this when their use is so context-
-   * specific that an unconditional snippet would be misleading.
-   */
+
   promptSnippet?: string;
-  /**
-   * Demoted tools are dropped from the model's direct tool list whenever
-   * `node_repl` is available for the agent; they remain callable inside the
-   * REPL as `tools.<name>(args)` and are advertised through the signature
-   * catalog appended to node_repl's description (plus `tools.$search`).
-   * `requiredConnectorProvider` gates context-specific tools to matching
-   * connector-delivery turns; `searchTerms` feed `$search` scoring.
-   * Agents without node_repl get demoted tools in their direct list as
-   * normal tools, so nothing is ever stranded.
-   *
-   * Reachability rule: demoted tools are gated by `agentTypes`/catalog
-   * scoping and connector context, NOT by per-agent frontmatter allowlists;
-   * flagging a tool demoted exposes it to every agent type its definition
-   * allows (matching the old deferred mechanism, which was gated by
-   * tool_search presence rather than frontmatter). The only exception is
-   * the empty-allowlist STELLA_LOCAL_TOOLS fallback surface, which never
-   * receives demoted tools.
-   */
+
   demoted?: {
     searchTerms?: readonly string[];
     requiredConnectorProvider?: string;
   };
-  /** Handler invoked when the model calls the tool. */
+
   execute: ToolHandler;
 };

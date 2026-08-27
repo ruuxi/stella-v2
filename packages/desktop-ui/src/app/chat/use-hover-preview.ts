@@ -1,15 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
-/** Grace period so the pointer can cross the gap between chip and preview. */
 const CLOSE_DELAY_MS = 160
 
-/**
- * Hover/focus listeners for a chip preview. Returns a ref to attach to the
- * trigger element, the current `open` flag, and `previewProps` to spread on
- * the preview body so the user can move the pointer onto the preview (e.g.
- * to scroll long pasted text) without it dismissing. Lives in its own module
- * so `ChipPreviewPortal.tsx` only exports components (Vite fast-refresh rule).
- */
 export function useHoverPreview<T extends HTMLElement>() {
   const triggerRef = useRef<T | null>(null)
   const [open, setOpen] = useState(false)

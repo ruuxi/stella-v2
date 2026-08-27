@@ -1,27 +1,3 @@
-/**
- * Composer activity pill — the compact presentation of background work that
- * sits in the context chip row above the composer.
- *
- * It renders only when Activity exists but its standalone surface is hidden:
- * while the right sidebar replaces Activity, or when the shell automatically
- * hides Activity at narrower widths.
- *
- * The pill only appears while there is live or just-settled work:
- *   • Idle (nothing in progress), it renders nothing at all — the generic
- *     "Activity" label was pure noise, so the pill stays out of the bar
- *     entirely. The standalone Activity surface remains the way in when
- *     there's simply nothing running.
- *   • While Stella has background work in flight it shows a simple,
- *     shimmering count of how many top-level work units are running ("1 task in progress",
- *     "2 tasks in progress", …) — the per-task detail lives in the inline
- *     chat cards and the Tasks section, so the ambient pill just tallies. When
- *     work settles it briefly shows a finished / couldn't-finish / stopped
- *     state for a minimum dwell (so a quick task doesn't just flash) before
- *     disappearing again.
- *
- * Clicking it (in any visible state) opens the Activity tray. Search lives
- * permanently in the sidebar's unified Work tab.
- */
 import {
   lazy,
   memo,
@@ -49,17 +25,13 @@ import { useShellBreakpointState } from "@/shell/shell-breakpoints";
 import { useT, useTPlural } from "@/shared/i18n";
 import "./composer-activity-pill.css";
 
-// Keep the full Activity hierarchy off the composer's eager module graph.
-// The standalone surface already loads it lazily, and the tray only needs it
-// after the user opens the popover.
 const loadActivityOverview = () =>
   import("@/shell/sidebar-sections/HomeSection").then((module) => ({
     default: module.ActivityOverview,
   }));
 
 const preloadActivityOverview = (): void => {
-  // Opening the tray will surface a real lazy-load failure through the normal
-  // render boundary; speculative hover must not create an unhandled rejection.
+
   void loadActivityOverview().catch(() => undefined);
 };
 
@@ -67,10 +39,8 @@ const ActivityOverview = lazy(loadActivityOverview);
 
 export type PillState = "idle" | "running" | "done" | "error" | "canceled";
 
-/** Sweep for the running-title shimmer — matches the inline card. */
 const TITLE_SHIMMER_MS = 1900;
-/** Keep a settled (finished / failed / stopped) state visible at least
- *  this long before reverting to idle, so quick work doesn't flash. */
+
 const TERMINAL_DWELL_MS = 2800;
 
 const STATUS_FALLBACK_KEYS: Record<Exclude<PillState, "idle">, string> = {
@@ -99,16 +69,11 @@ export const shouldShowActivityPill = (
   workspaceStripHidden: boolean,
 ): boolean => hasActivity && (panelOpen || workspaceStripHidden);
 
-/** Live status of the whole conversation's background work, distilled into
- *  a single pill state (+ running count) with a minimum dwell on terminal
- *  states. */
 function useActivityPillState(tasks: TaskItem[]): {
   state: PillState;
   runningCount: number;
 } {
-  // Count the same durable top-level work units the Activity hierarchy shows:
-  // standalone agents, Manager roots, and direct sibling groups. Owned
-  // descendants never inflate the ambient pill count.
+
   const workUnits = useMemo(
     () => deriveTopLevelActivityWorkUnits(tasks),
     [tasks],
@@ -126,8 +91,7 @@ function useActivityPillState(tasks: TaskItem[]): {
   const [state, setState] = useState<PillState>("idle");
   const prevRunningIdsRef = useRef<string[]>([]);
   const settleTimerRef = useRef<number | null>(null);
-  // Read fresh statuses at the falling edge without re-arming the effect on
-  // every task tick (only running-set changes drive a transition).
+
   const workUnitsRef = useRef(workUnits);
   workUnitsRef.current = workUnits;
 
@@ -142,8 +106,7 @@ function useActivityPillState(tasks: TaskItem[]): {
       }
       setState("running");
     } else if (prev.length > 0) {
-      // Work just wound down — settle into the terminal outcome of the
-      // top-level units that were running, then revert to idle after the dwell.
+
       const statusById = new Map(
         workUnitsRef.current.map((unit) => [unit.id, unit.status]),
       );
@@ -191,7 +154,7 @@ function useActivityPillState(tasks: TaskItem[]): {
 function PillGlyph({ state }: { state: PillState }) {
   switch (state) {
     case "running":
-      // No glyph while running — the shimmering count carries the state.
+
       return null;
     case "done":
       return <Check size={15} strokeWidth={2} aria-hidden="true" />;
@@ -283,10 +246,7 @@ export const ComposerActivityPill = memo(function ComposerActivityPill() {
   const tasks = chat.conversation.tasks;
 
   const { state, runningCount } = useActivityPillState(tasks);
-  // Gate on live/settling work: the idle "Activity" label is noise, so when
-  // there's nothing in progress the pill renders nothing. Running plus the
-  // brief terminal (done / error / canceled) dwell keep it visible; only the
-  // idle state drops it out of the bar.
+
   const hasActiveWork = state !== "idle";
   const visible =
     hasActiveWork &&

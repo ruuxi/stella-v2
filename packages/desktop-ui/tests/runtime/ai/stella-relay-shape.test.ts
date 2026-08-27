@@ -5,20 +5,6 @@ import { streamSimple } from "@stella/runtime/ai/stream";
 import { transformMessages } from "@stella/runtime/ai/providers/transform-messages";
 import type { Context, Message, Model } from "@stella/runtime/ai/types";
 
-/**
- * Wire-shape integration tests for the Stella relay path.
- *
- * For each upstream provider, we:
- *   1. Build a route via `createStellaRoute` and assert the relay `baseUrl`
- *      + provider + api the pi-mono adapter will dispatch on.
- *   2. (Anthropic + Google only) Stub `fetch`, invoke `streamSimple`, and
- *      assert the adapter targets the relay path with
- *      `Authorization: Bearer <stella-token>` (NOT `x-api-key` /
- *      `x-goog-api-key`). That's the load-bearing part of the baseUrl-based
- *      relay auth detection; if it ever regresses, every relayed Anthropic /
- *      Google request 401s at the relay.
- */
-
 const STELLA_SITE = "https://stella.example.test";
 const STELLA_TOKEN = "stella-jwt";
 
@@ -52,12 +38,10 @@ const sseResponse = (body: string, contentType = "text/event-stream") =>
 
 const drain = async (stream: AsyncIterable<unknown>) => {
   for await (const _ of stream) {
-    // ignore individual events
+
   }
 };
 
-// Bun's vitest-compatible runner doesn't implement `vi.stubGlobal`, so we
-// install/restore `globalThis.fetch` by hand. Vitest also runs this fine.
 type CapturedCall = { url: string; init?: RequestInit; headers: Headers };
 
 const originalFetch: typeof fetch = globalThis.fetch;
@@ -220,14 +204,12 @@ describe("Stella relay route shape", () => {
   it("Muse relay: Responses API transport, xhigh effort survives the clamp", () => {
     const route = makeRoute("stella/default");
     const model = route!.model;
-    // xhigh is Stella's default rung for Muse; the model's thinkingLevelMap
-    // must keep it from being clamped to high by the responses adapter.
+
     expect(model.thinkingLevelMap).toMatchObject({ xhigh: "xhigh" });
   });
 
   it("the explicit DeepSeek V4 Flash pick still routes to the CrofAI relay", () => {
-    // The previous default stays fully routable: its canonical CrofAI id
-    // keeps the CrofAI completions transport and effort ladder.
+
     const route = makeRoute("stella/crof/deepseek-v4-flash-0731");
     const model = route!.model;
     expect(model.api).toBe("openai-completions");
@@ -235,7 +217,7 @@ describe("Stella relay route shape", () => {
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
     ).toBe("deepseek-v4-flash-0731");
-    // CrofAI accepts none | low | medium | high.
+
     expect(model.thinkingLevelMap).toMatchObject({
       minimal: "low",
       low: "low",
@@ -254,7 +236,7 @@ describe("Stella relay route shape", () => {
     expect(
       (model as typeof model & { upstreamModelId?: string }).upstreamModelId,
     ).toBe("deepseek-v4-flash-0731-fast");
-    // Wafer shares CrofAI's effort ladder via the relay's body normalization.
+
     expect(model.thinkingLevelMap).toMatchObject({
       minimal: "low",
       low: "low",
@@ -277,8 +259,7 @@ describe("Stella relay route shape", () => {
   });
 
   it("the retained Fireworks spelling still routes to the Fireworks relay", () => {
-    // Rollback safety: flipping DEEPSEEK_V4_FLASH_ROUTE back must not need a
-    // client change, so the client still knows how to route this id.
+
     const route = makeRoute(
       "stella/accounts/fireworks/models/deepseek-v4-flash-0731",
     );
@@ -290,8 +271,7 @@ describe("Stella relay route shape", () => {
 
 describe("Stella relay auth (baseUrl-based detection)", () => {
   it("Anthropic adapter sends Authorization: Bearer to the Stella relay (not x-api-key)", async () => {
-    // Anthropic SSE that closes immediately so the adapter resolves
-    // without us having to mock the full streaming protocol.
+
     const calls = captureRequest(() =>
       sseResponse(
         [
@@ -326,16 +306,13 @@ describe("Stella relay auth (baseUrl-based detection)", () => {
       streamSimple(route.model, userContext("hi"), { apiKey, maxTokens: 8 }),
     );
 
-    // Exactly one request, hitting the relay
     expect(calls.length).toBeGreaterThan(0);
     const messagesCall = calls.find((c) => c.url.endsWith("/messages"));
     expect(
       messagesCall,
       `expected POST to /messages, got URLs: ${calls.map((c) => c.url).join(", ")}`,
     ).toBeDefined();
-    // The Anthropic SDK appends `/v1/messages` to the neutral Stella
-    // relay prefix. The backend resolves the upstream provider from the
-    // model instead of from the URL.
+
     expect(messagesCall!.url).toBe(
       `${STELLA_SITE}/api/stella/relay/v1/messages`,
     );
@@ -370,10 +347,6 @@ describe("Stella relay auth (baseUrl-based detection)", () => {
       streamSimple(route.model, userContext("hi"), { apiKey, maxTokens: 8 }),
     );
 
-    // Google SDK calls fetch with the full URL containing
-    // `:streamGenerateContent`. We only care that SOMETHING was forwarded
-    // to the Stella relay base and the Authorization Bearer header was
-    // present.
     const relayCall = calls.find((c) =>
       c.url.startsWith(`${STELLA_SITE}/api/stella/relay/`),
     );
@@ -414,7 +387,7 @@ describe("Stella Muse Responses transport (default model)", () => {
 
     const call = calls.find((c) => c.url !== undefined);
     expect(call).toBeDefined();
-    // The OpenAI Responses adapter posts to <relay base>/responses.
+
     expect(call!.url).toBe(`${STELLA_SITE}/api/stella/relay/responses`);
     const body = JSON.parse(String(call!.init?.body)) as Record<string, any>;
     expect(body.model).toBe("stella/default");
@@ -423,8 +396,7 @@ describe("Stella Muse Responses transport (default model)", () => {
       { role: "user", content: [{ type: "input_text", text: "hi" }] },
     ]);
     expect(body.max_output_tokens).toBe(2048);
-    // Reasoning is mandatory for this model and must ship at Stella's top
-    // rung — not clamped down to high by the adapter.
+
     expect(body.reasoning).toMatchObject({ effort: "xhigh" });
   });
 });

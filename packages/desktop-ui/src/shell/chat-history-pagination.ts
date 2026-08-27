@@ -27,16 +27,6 @@ export type HistoryPaginationDecision = {
 
 type RequestPhase = "idle" | "awaiting-loading" | "loading";
 
-/**
- * Intent gate for older-history pagination.
- *
- * Legend List intentionally re-fires `onStartReached` when data changes while
- * the start threshold remains visible. That behavior is useful for ordinary
- * feeds, but a prepend turns one chat scroll gesture into a request cascade.
- * This gate makes a user action, rather than content identity, the unit of
- * pagination: an action id can be consumed at most once, and render/layout
- * updates never create an action.
- */
 export class ChatHistoryPaginationGate {
   private readonly edge: "start" | "end";
   private consumedActionIds = new Set<number>();
@@ -55,9 +45,6 @@ export class ChatHistoryPaginationGate {
     const externallySettled = this.settledSinceLastSync;
     this.settledSinceLastSync = false;
 
-    // Subscription re-keying briefly reports `hasMore=false` while retaining
-    // the prior rows. Loading wins over that transient so the accepted request
-    // cannot settle until its larger window actually resolves.
     if (guards.isLoading) {
       this.requestPhase = "loading";
     } else if (this.requestPhase === "loading") {
@@ -113,8 +100,6 @@ export class ChatHistoryPaginationGate {
       };
     }
 
-    // Consume near-top actions even when a guard blocks them. A wheel burst
-    // that overlaps request completion must not become a second request.
     this.consumedActionIds.add(actionId);
     if (this.consumedActionIds.size > 64) {
       const oldest = this.consumedActionIds.values().next().value;
@@ -132,10 +117,6 @@ export class ChatHistoryPaginationGate {
       };
     }
 
-    // A newly-created upward action is an explicit re-arm even if the user is
-    // still within the threshold after the previous prepend. Moving away and
-    // approaching again also arrives under a fresh input action; content and
-    // measurement updates never manufacture one.
     this.requestPhase = "awaiting-loading";
     return { request: true, reason: "request", thresholdVisible };
   }
@@ -146,11 +127,6 @@ export class ChatHistoryPaginationGate {
     }
   }
 
-  /**
-   * Complete an accepted request even when React batched the transient
-   * loading=true snapshot away. The next guard sync still reports the
-   * settlement so anchor restoration runs exactly once.
-   */
   settleRequest(): boolean {
     if (this.requestPhase === "idle") return false;
     this.requestPhase = "idle";
@@ -177,7 +153,6 @@ export type ChatPrependAnchor = {
 const chatRows = (node: HTMLElement): HTMLElement[] =>
   Array.from(node.querySelectorAll<HTMLElement>("[data-chat-row-id]"));
 
-/** Capture the first painted row intersecting the viewport's top edge. */
 export const captureChatPrependAnchor = (
   node: HTMLElement,
 ): ChatPrependAnchor | null => {
@@ -189,8 +164,7 @@ export const captureChatPrependAnchor = (
     }))
     .filter(({ rect }) => rect.bottom > viewport.top)
     .sort((a, b) => a.rect.top - b.rect.top);
-  // Recycled Legend containers are not guaranteed to remain in visual DOM
-  // order, so geometry — not querySelector order — chooses the top anchor.
+
   const row = rows[0]?.candidate;
   const rowId = row?.dataset.chatRowId;
   if (!row || !rowId) return null;
@@ -213,11 +187,6 @@ export type ChatPrependAnchorRestore = {
   contentHeightAfter: number;
 };
 
-/**
- * Correct any residual MVCP error after a prepend. Legend remains the primary
- * anchor owner; this only writes when the captured row's painted viewport
- * offset differs, so an exact MVCP result is a zero-write no-op.
- */
 export const restoreChatPrependAnchor = (
   node: HTMLElement,
   anchor: ChatPrependAnchor,
@@ -254,13 +223,6 @@ export const restoreChatPrependAnchor = (
   };
 };
 
-/**
- * Keeps the captured reading row fixed while already-mounted content above it
- * settles asynchronously (images, fonts, expanded tool cards, highlighted
- * code). It observes only mounted rows at-or-before the anchor, so observer and
- * callback work stays bounded by the virtual list's render window. A new user
- * gesture must stop the stabilizer; scroll intent always wins over anchoring.
- */
 export class ChatPrependAnchorStabilizer {
   private resizeObserver: ResizeObserver | null = null;
   private raf = 0;
@@ -317,7 +279,6 @@ export type ChatHistoryPaginationDebugEvent = {
   detail: Record<string, unknown>;
 };
 
-/** Opt-in live diagnostics used by the isolated dev harness. */
 export const emitChatHistoryPaginationDebug = (
   event: ChatHistoryPaginationDebugEvent,
 ): void => {

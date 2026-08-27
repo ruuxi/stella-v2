@@ -27,7 +27,7 @@ export type ResolveExternalCliOptions = {
   env?: NodeJS.ProcessEnv;
   homeDir?: string;
   cwd?: string;
-  /** Override candidate directories for deterministic tests. */
+
   wellKnownDirectories?: readonly string[];
 };
 

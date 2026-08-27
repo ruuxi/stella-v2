@@ -60,9 +60,9 @@ export function AppCreationIllustration({
             .anim-sidebar { animation: slideSidebar 6s ease-in-out infinite; }
             .anim-card { animation: popCard 6s ease-in-out infinite; }
             .anim-app-cursor { animation: moveStellaCursor 6s ease-in-out infinite; }
-            .anim-sparkle { 
-              animation: popSparkle 6s ease-out infinite; 
-              transform-origin: 220px 160px; 
+            .anim-sparkle {
+              animation: popSparkle 6s ease-out infinite;
+              transform-origin: 220px 160px;
             }
             .anim-ripple {
               animation: rippleEffect 6s cubic-bezier(0.1, 0.8, 0.3, 1) infinite;
@@ -127,7 +127,7 @@ export function AppCreationIllustration({
         </filter>
       </defs>
 
-      {/* Floating background shapes */}
+      {}
       <g className="anim-float-1">
         <circle cx="80" cy="70" r="10" fill="color-mix(in oklch, var(--foreground) 6%, transparent)" />
         <rect
@@ -149,7 +149,7 @@ export function AppCreationIllustration({
         <circle cx="90" cy="230" r="6" fill="color-mix(in oklch, var(--foreground) 6%, transparent)" />
       </g>
 
-      {/* Ground/baseline */}
+      {}
       <path
         d="M100 245 L300 245"
         stroke="var(--border-strong, var(--border))"
@@ -158,9 +158,9 @@ export function AppCreationIllustration({
         opacity="0.8"
       />
 
-      {/* Main App Window canvas */}
+      {}
       <g className="anim-window" filter="url(#shadow-sm)">
-        {/* Outer frame */}
+        {}
         <rect
           x="100"
           y="80"
@@ -172,20 +172,20 @@ export function AppCreationIllustration({
           strokeWidth="1.5"
         />
 
-        {/* Title bar */}
+        {}
         <path
           d="M100 92 L300 92"
           stroke="var(--border)"
           strokeWidth="1"
         />
-        {/* Title bar buttons (traffic lights) */}
+        {}
         <circle cx="114" cy="86" r="3" fill="var(--destructive)" />
         <circle cx="122" cy="86" r="3" fill="var(--warning)" />
         <circle cx="130" cy="86" r="3" fill="var(--success)" />
 
-        {/* Inner layout container */}
+        {}
         <g opacity="0.85">
-          {/* Top layout / search bar preview */}
+          {}
           <rect
             x="142"
             y="83"
@@ -195,7 +195,7 @@ export function AppCreationIllustration({
             fill="color-mix(in oklch, var(--foreground) 10%, transparent)"
           />
 
-          {/* Sidebar */}
+          {}
           <g className="anim-sidebar">
             <rect
               x="110"
@@ -207,7 +207,7 @@ export function AppCreationIllustration({
               stroke="var(--border)"
               strokeWidth="1"
             />
-            {/* Sidebar elements */}
+            {}
             <rect x="116" y="108" width="28" height="5" rx="2.5" fill="color-mix(in oklch, var(--foreground) 15%, transparent)" />
             <rect x="116" y="120" width="28" height="5" rx="2.5" fill="color-mix(in oklch, var(--foreground) 10%, transparent)" />
             <rect x="116" y="132" width="28" height="5" rx="2.5" fill="color-mix(in oklch, var(--foreground) 10%, transparent)" />
@@ -215,7 +215,7 @@ export function AppCreationIllustration({
             <rect x="130" y="194" width="14" height="4" rx="2" fill="color-mix(in oklch, var(--foreground) 10%, transparent)" />
           </g>
 
-          {/* App Canvas Area */}
+          {}
           <rect
             x="156"
             y="100"
@@ -227,7 +227,7 @@ export function AppCreationIllustration({
             strokeWidth="1"
           />
 
-          {/* App UI Card - the created app */}
+          {}
           <g className="anim-card" filter="url(#shadow-sm)">
             <rect
               x="166"
@@ -239,11 +239,11 @@ export function AppCreationIllustration({
               stroke="color-mix(in oklch, var(--primary) 30%, transparent)"
               strokeWidth="1.5"
             />
-            {/* App title */}
+            {}
             <rect x="174" y="118" width="45" height="6" rx="3" fill="var(--primary)" opacity="0.8" />
             <rect x="174" y="128" width="98" height="4" rx="2" fill="color-mix(in oklch, var(--foreground) 15%, transparent)" />
 
-            {/* App UI Graph representation */}
+            {}
             <path
               d="M174 180 L195 160 L215 170 L235 150 L255 165 L272 145"
               fill="none"
@@ -258,7 +258,7 @@ export function AppCreationIllustration({
         </g>
       </g>
 
-      {/* Click ripple circle */}
+      {}
       <circle
         className="anim-ripple"
         cx="220"
@@ -269,7 +269,7 @@ export function AppCreationIllustration({
         strokeWidth="1.5"
       />
 
-      {/* Sparkle pop */}
+      {}
       <g className="anim-sparkle">
         <path
           d="M220 145 C 220 156, 205 160, 205 160 C 205 160, 220 164, 220 175 C 220 164, 235 160, 235 160 C 235 160, 220 156, 220 145 Z"
@@ -277,7 +277,7 @@ export function AppCreationIllustration({
         />
       </g>
 
-      {/* Stella Cursor */}
+      {}
       <g className="anim-app-cursor" filter="url(#shadow-sm)">
         <path
           d="M0,0 L0,24 L6,18 L11,29 L14,27 L9,16 L18,16 Z"

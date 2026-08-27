@@ -19,14 +19,6 @@ import { AskStellaSelectionChip } from "./selection/AskStellaSelectionChip";
 import "./full-shell.layout.css";
 import "./mobile.css";
 
-/* Onboarding is loaded as a dynamic chunk that contains the whole flow:
- * every phase component, the StellaAnimation aurora, the legal dialog,
- * and all onboarding CSS.
- *
- * Returning users (`appReady === true` at first paint) never fetch this
- * chunk. After completion the React subtree unmounts and the lazy
- * import is never re-evaluated, so onboarding code is genuinely gone
- * for the remainder of the session and absent from the next cold start. */
 const onboardingChunkPromise: { current: Promise<unknown> | null } = {
   current: null,
 };
@@ -93,12 +85,6 @@ function OnboardingExperience({
     [onboarding],
   );
 
-  // Once the split flow starts, the aurora is decorative beside controls.
-  // Keep it alive — a frozen aurora frame reads as a rendering glitch, unlike
-  // the old dot creature — but OnboardingOverlay drops its frame budget in
-  // split mode (and pauses it entirely on low-power machines) so form
-  // interactions and demos still own the renderer thread. Hidden phases
-  // are paused through `stellaHiddenByPhase`.
   const pauseStellaAnimation =
     onboarding.onboardingExiting || stellaHiddenByPhase;
 
@@ -145,11 +131,7 @@ export const FullShell = () => {
   const { gradientMode, gradientColor } = useTheme();
   const { completed: onboardingDone, hydrated: onboardingHydrated } =
     useOnboardingState();
-  // Returning users resolve `onboardingDone` synchronously from shared UI state,
-  // so seed `hasEnteredApp` synchronously too — otherwise the chat-surface /
-  // RouterProvider mount is deferred to a separate macrotask by the
-  // setTimeout(0) effect below. The splash stays up until `appReady`, so there
-  // is no flash. The onboarding -> app transition still defers via the
+
   const [hasEnteredApp, setHasEnteredApp] = useState(
     () => readLocalOnboardingCompleted(),
   );
@@ -167,16 +149,10 @@ export const FullShell = () => {
     return () => window.clearTimeout(timer);
   }, [onboardingDone, onboardingResolved]);
 
-  // The renderer shell does not depend on auth or the local runtime. Those
-  // background bootstraps only unlock cloud state, chat history, sends, and
-  // local tools once their own state arrives.
   useEffect(() => {
     window.electronAPI?.ui.setAppReady?.(appReady);
   }, [appReady]);
 
-  // Keep the static launch splash up for returning users until React has
-  // mounted the real shell. First-run onboarding dismisses it after its chunk
-  // is loaded from OnboardingExperience.
   useEffect(() => {
     if (appReady) {
       dismissLaunchSplash();
@@ -188,11 +164,6 @@ export const FullShell = () => {
     if (activeConversationId) return;
     if (runtimeStatus !== "ready") return;
 
-    // Bootstrap can finish while RouterProvider is still unmounted during
-    // onboarding. If the handoff ever loses the conversation id, kick the
-    // light bootstrap loop once more after the real app tree mounts instead
-    // of leaving the chat runtime stuck in its initial loading state until a
-    // process relaunch.
     retryRuntimeBootstrap();
   }, [activeConversationId, appReady, retryRuntimeBootstrap, runtimeStatus]);
 

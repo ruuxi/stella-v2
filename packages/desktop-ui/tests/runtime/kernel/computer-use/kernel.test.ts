@@ -1520,8 +1520,6 @@ describe("persistent Node REPL kernels", () => {
       }
       screenshotPath = image.path;
 
-      // Starting the next generation guarantees the reset-closing kernel has
-      // handed off the result. Its temp cleanup must no longer own this file.
       await expect(
         registry.evaluate(
           "nodeRepl.status()",
@@ -1883,7 +1881,6 @@ describe("persistent Node REPL kernels", () => {
       expect(output).toContain("tools.example_send_message(input:");
       expect(queries).toEqual([{ query: "send an example", limit: 3 }]);
 
-      // Empty queries fail loudly instead of returning an ambiguous [].
       await expect(
         registry.evaluate(
           "await tools.$search({ query: '   ' })",
@@ -1927,8 +1924,6 @@ describe("persistent Node REPL kernels", () => {
       expect(first).toContain("alpha_tool");
       expect(first).not.toContain("beta_tool");
 
-      // Same kernel, next turn: a tool added mid-session appears and a
-      // removed one disappears — the construction-time list is not frozen.
       const second = await registry.evaluate(
         "Object.keys(tools).sort()",
         contextWithTools(["node_repl", "beta_tool"]),
@@ -1943,7 +1938,6 @@ describe("persistent Node REPL kernels", () => {
         ),
       ).resolves.toBe("'ran beta_tool'");
 
-      // Object.keys accuracy and identity stability across refreshes.
       const third = await registry.evaluate(
         [
           "const before = tools.beta_tool;",
@@ -1974,12 +1968,12 @@ describe("persistent Node REPL kernels", () => {
           ].join("\n"),
           {
             ...context("agent-proxy"),
-            // A hostile "$evil" entry in allowedToolNames must be filtered.
+
             allowedToolNames: ["node_repl", "$evil", "real_tool"],
           },
         )
         .catch((error: Error) => error.message);
-      // defineProperty on a refusing trap throws TypeError in the REPL.
+
       expect(String(output)).toContain("evil");
 
       const keys = await registry.evaluate(
@@ -1993,12 +1987,7 @@ describe("persistent Node REPL kernels", () => {
       expect(keys).toContain("'$search'");
       expect(keys).not.toContain("$evil");
       expect(keys).toContain("shadow: 'undefined'");
-      // Object.freeze(tools) THROWS by design: the Proxy target must stay
-      // extensible for the per-evaluate key refresh (JS invariants forbid a
-      // non-extensible target from reporting keys it doesn't own), so the
-      // preventExtensions trap refuses and freeze fails loudly rather than
-      // letting user code lock the target and break the refresh. The
-      // node_repl description warns the model never to freeze `tools`.
+
       expect(keys).toContain("freezeFails: true");
     } finally {
       await registry.dispose();

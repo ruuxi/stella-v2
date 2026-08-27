@@ -35,11 +35,6 @@ type SelectedTextContextSectionProps = {
   setChatContext: SetChatContext;
 };
 
-/* The chip visuals live entirely in the shared components
- * (`ContextPill`, `ImageAttachmentChip`, `FileAttachmentChip`) so the
- * composer and the sent message row cannot drift apart. The variant maps
- * below only add layout constraints (the compact composer's tighter width
- * cap) plus the pending-capture shimmer's size classes. */
 const captureVariantClassNames = {
   full: {
     containerClassName: null,
@@ -107,9 +102,7 @@ export function ComposerCaptureContextSection({
 }: CaptureContextSectionProps) {
   const screenshots = chatContext?.regionScreenshots ?? [];
   const hasScreenshots = screenshots.length > 0;
-  // Only render the standalone pending-capture shimmer when there's no
-  // window chip in flight — the window chip renders its own pending
-  // treatment so users see one loading indicator, not two.
+
   const hasWindow = Boolean(chatContext?.window);
   const isCapturePending =
     Boolean(chatContext?.capturePending) && !hasWindow;

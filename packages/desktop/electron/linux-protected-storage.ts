@@ -24,16 +24,6 @@ export const needsLinuxSecretServiceSelection = ({
   platform === "linux" &&
   desktopNames(env).some((name) => HYPRLAND_DESKTOP_NAMES.has(name));
 
-/**
- * Chromium does not currently recognize Hyprland as a desktop that uses the
- * freedesktop Secret Service API. Without an explicit backend it selects
- * `basic_text`, which Electron correctly reports as unavailable encryption.
- *
- * Omarchy starts a Secret Service implementation (GNOME Keyring) for its
- * Hyprland session, so select libsecret before Electron's `ready` event. The
- * switch is internal application configuration and applies to packaged and
- * development builds alike.
- */
 export const configureLinuxProtectedStorage = ({
   commandLine,
   env = process.env,

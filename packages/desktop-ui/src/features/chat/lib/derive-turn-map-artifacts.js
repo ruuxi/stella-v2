@@ -1,17 +1,6 @@
-/**
- * Per-turn map-card derivation.
- *
- * The orchestrator's `map` tool persists its resolved `map-route` artifact
- * onto the `tool_result` payload (`details: { map }`, spread by the worker —
- * see `runtime/kernel/tools/defs/map.ts`). Each successful call on the turn
- * becomes one inline interactive map card, in call order.
- *
- * Purely a renderer affordance derived from already-persisted events — the
- * model only sees the tool's text summary.
- */
 import { isMapRouteArtifact, } from "@stella/contracts/map-artifact";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
-/** Keep a runaway turn from stacking maps down the timeline. */
+
 const MAX_MAP_CARDS_PER_TURN = 3;
 export const deriveTurnMapArtifacts = (events) => {
     const cards = [];
@@ -23,8 +12,7 @@ export const deriveTurnMapArtifacts = (events) => {
             continue;
         if (typeof payload.error === "string" && payload.error)
             continue;
-        // Orchestrator-only affordance (absent agentType means orchestrator,
-        // mirroring the worker's persistence default).
+
         const agentType = typeof payload.agentType === "string" ? payload.agentType : undefined;
         if (agentType !== undefined && agentType !== AGENT_IDS.ORCHESTRATOR) {
             continue;

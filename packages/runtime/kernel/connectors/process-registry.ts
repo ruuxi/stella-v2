@@ -98,7 +98,7 @@ export const stopConnectorBridgeProcess = async (
     try {
       process.kill(pid, "SIGKILL");
     } catch {
-      // Best-effort stale connector cleanup.
+
     }
   }
 };

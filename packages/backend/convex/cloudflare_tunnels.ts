@@ -37,7 +37,6 @@ const tunnelNameForDevice = (ownerId: string, deviceId: string) => {
   return base.slice(0, 63);
 };
 
-/** Tunnel rows may omit `deviceId` until a desktop claims the row (older one-row-per-owner data). */
 const tunnelRowMissingDeviceId = (row: { deviceId?: string }) =>
   row.deviceId === undefined || row.deviceId === "";
 
@@ -53,8 +52,7 @@ export const getTunnelForOwnerDevice = internalQuery({
     if (specific) {
       return specific;
     }
-    // One tunnel per owner with no deviceId yet; first desktop to request a token claims it.
-    // Owners typically have <10 tunnel rows; cap the scan to stay bounded.
+
     const forOwner = await ctx.db
       .query("cloudflare_tunnels")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))

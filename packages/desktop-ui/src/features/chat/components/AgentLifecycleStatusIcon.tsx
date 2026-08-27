@@ -6,7 +6,6 @@ type StatusIconProps = Omit<ComponentProps<typeof CircleDot>, "ref"> & {
   status: TaskLifecycleStatus;
 };
 
-/** One icon vocabulary for inline cards and Activity rows. */
 export function AgentLifecycleStatusIcon({
   status,
   ...props

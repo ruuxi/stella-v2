@@ -146,10 +146,7 @@ export const registerVoiceHandlers = (options) => {
         }
         options.getBroadcastToMobile?.()?.("voice:runtimeState", runtimeState);
     };
-    // The voice runtime lives in the hidden, screen-spanning overlay window, so
-    // a toast raised there is painted where the user can never see it. Route
-    // actionable voice errors to the full app window, where the toast and its
-    // sign-in/settings CTA work as expected.
+
     const emitVoiceSessionErrorToast = (message) => {
         const trimmed = typeof message === "string" ? message.trim() : "";
         if (!trimmed)
@@ -297,10 +294,7 @@ export const registerVoiceHandlers = (options) => {
             ? preferences.model.slice("xai/".length)
             : preferences.model || DEFAULT_XAI_REALTIME_MODEL;
         const voice = resolveRealtimeVoiceId(preferences, "xai", DEFAULT_XAI_REALTIME_VOICE);
-        // The browser WebSocket cannot attach an Authorization header, so it
-        // must use an ephemeral token. Voice/instructions/tools are configured
-        // after connection via session.update; xAI rejects them on this
-        // client-secret endpoint.
+
         let clientSecret = null;
         let expiresAt;
         const response = await fetch("https://api.x.ai/v1/realtime/client_secrets", {
@@ -353,14 +347,9 @@ export const registerVoiceHandlers = (options) => {
             ? preferences.model.slice("inworld/".length)
             : preferences.model || DEFAULT_INWORLD_REALTIME_MODEL;
         const voice = resolveRealtimeVoiceId(preferences, "inworld", DEFAULT_INWORLD_REALTIME_VOICE);
-        // Inworld's WebRTC SDP endpoint requires a complete offer with ICE
-        // candidates baked in, so we need their STUN/TURN servers up front.
+
         const iceServers = await fetchInworldIceServers(apiKey);
-        // Inworld doesn't use ephemeral tokens — the API key is the Bearer
-        // for the SDP exchange. In BYOK mode we hand the user's own key
-        // back to the renderer because it's their key on their machine.
-        // (Stella-managed Inworld goes through a backend SDP proxy so the
-        // org key never reaches the renderer; that's a different path.)
+
         return {
             provider: "inworld",
             clientSecret: apiKey,

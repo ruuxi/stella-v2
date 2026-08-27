@@ -1,6 +1,3 @@
-/* Unified Work list — agent threads and files interleaved by recency. The
-   surface remains the drop target for local media imports. */
-
 .work-section,
 .work-section__body {
   display: flex;
@@ -19,8 +16,6 @@
   min-height: 0;
 }
 
-/* Quiet inline field, same language as the Home search — icon + text on
-   the panel surface, no box and no divider. */
 .files-list__search {
   display: flex;
   align-items: center;
@@ -61,8 +56,6 @@
   height: 1px;
 }
 
-/* Recency groups (Today / Yesterday / …). The group is itself a list item, so
-   it carries no row chrome of its own — only the heading and its nested rows. */
 .files-list__group {
   display: flex;
   flex-direction: column;
@@ -131,10 +124,6 @@
   text-overflow: ellipsis;
 }
 
-/* Kind labels ("File", "Agent") repeat down the whole list, so they stay
-   hidden until the row is pointed at — the icon already tells the story.
-   (`--text-faint` was never defined; the label previously inherited the
-   row's strong text color at 11px.) */
 .files-list__meta {
   flex: 0 0 auto;
   color: var(--text-weaker);
@@ -148,8 +137,6 @@
   opacity: 1;
 }
 
-/* The remove affordance only appears on hover/focus so a long list reads as
-   titles rather than as a column of buttons. */
 .files-list__remove {
   display: inline-flex;
   align-items: center;
@@ -181,9 +168,6 @@
   box-shadow: var(--focus-ring);
 }
 
-/* Subagent groups — a parent (general) agent that owns subagents collapses
-   into one row carrying the same compact count/progress summary the activity
-   workspace strip shows; its children reveal on toggle. */
 .files-list__item--group {
   align-items: stretch;
 }
@@ -215,16 +199,12 @@
   transform: rotate(90deg);
 }
 
-/* The workspace insets the summary under its own icon column; here it aligns
-   flush under the parent's caret + icon so it reads as one grouped block. */
 .files-list__group-toggle .chat-workspace-strip__compact-cells,
 .files-list__group-toggle .chat-workspace-strip__compact-progress,
 .files-list__group-toggle .chat-workspace-strip__compact-status {
   margin-left: 22px;
 }
 
-/* Reuses the file remove button's hover-reveal language for a quiet "open the
-   parent thread" affordance beside the group toggle. */
 .files-list__group-open {
   display: inline-flex;
   align-items: center;
@@ -257,7 +237,6 @@
   box-shadow: var(--focus-ring);
 }
 
-/* Owned subagents sit indented beneath their parent while expanded. */
 .files-list__item--nested {
   margin-left: 22px;
 }

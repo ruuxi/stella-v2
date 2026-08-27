@@ -197,7 +197,6 @@ export const writeDiscoveryKnowledge = async (
       "utf-8",
     ),
 
-    // LLM-summarized summary pages
     ...availableKnowledgePages.map((page) =>
       fs.writeFile(
         path.join(skillRoot, page.fileName),
@@ -210,7 +209,6 @@ export const writeDiscoveryKnowledge = async (
       ),
     ),
 
-    // Raw signal dumps
     ...availableRawPages.map((page) =>
       fs.writeFile(
         path.join(rawRoot, page.fileName),

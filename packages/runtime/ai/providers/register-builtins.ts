@@ -1,15 +1,5 @@
 import { clearApiProviders, registerLazyApiProvider } from "../api-registry.js";
 
-// NOTE: provider implementation modules are imported LAZILY (via the
-// `load` closures below) rather than statically. Each module statically
-// imports its heavy SDK (@anthropic-ai/sdk, openai, @google/genai,
-// @aws-sdk/client-bedrock-runtime, …); pulling that
-// whole graph in eagerly would have to be parsed+evaluated before the
-// worker can answer INTERNAL_WORKER_INITIALIZE. Registering loader
-// closures keeps boot cheap — the SDK for a given api is only imported
-// when `stream()` is first called for it (see ai/stream.ts +
-// api-registry.ts `resolveApiProviderInternal`).
-
 export function registerBuiltInApiProviders(): void {
 	registerLazyApiProvider({
 		api: "anthropic-messages",

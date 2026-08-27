@@ -816,22 +816,20 @@ describe("general agent tools", () => {
     expect(result.error).toMatch(
       /File tool paths must be absolute. Received relative path 'notes\.txt'/,
     );
-    // The original file is left untouched when the path is rejected.
+
     expect(await readFile(filePath, "utf-8")).toBe("hello\nworld\n");
   });
 
   it("apply_patch tolerates trailing whitespace and unicode dashes", async () => {
     const root = await createTempDir();
     const filePath = path.join(root, "fuzz.py");
-    // Source has a trailing tab and a Unicode en-dash (U+2013) in the line we replace.
+
     await writeFile(
       filePath,
       "import asyncio\nimport os  # local import \u2013 keep\t\n",
       "utf-8",
     );
 
-    // Patch authored with no trailing whitespace and an ASCII hyphen — only
-    // the tolerant matcher (rstrip / fuzzy) can locate the second line.
     const result = await handleApplyPatch({
       input: `*** Begin Patch
 *** Update File: ${filePath}
@@ -857,8 +855,6 @@ describe("general agent tools", () => {
       "utf-8",
     );
 
-    // Both functions return the same line; the @@ header line ("function b() {")
-    // disambiguates by advancing the cursor past the second declaration.
     const result = await handleApplyPatch({
       input: `*** Begin Patch
 *** Update File: ${filePath}
@@ -984,7 +980,7 @@ EOF`,
     const result = await handleExecCommand(
       shellState,
       {
-        // Emit ~6KB of output, well above the small budget below so we trigger truncation.
+
         cmd: "printf %.0s_ {1..6000}; echo done",
         yield_time_ms: 1000,
         max_output_tokens: 256,

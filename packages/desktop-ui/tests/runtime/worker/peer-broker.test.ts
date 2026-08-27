@@ -2,11 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { JsonRpcPeer } from "@stella/contracts/protocol/rpc-peer";
 import { WorkerPeerBroker } from "@stella/runtime/worker/peer-broker";
 
-/**
- * Wires two `JsonRpcPeer` instances together over a microtask-queued
- * loopback so request/response and notification semantics work without
- * spawning a real transport. Mirrors a UDS hop minus the byte stream.
- */
 const createConnectedPair = () => {
   const peerA: JsonRpcPeer = new JsonRpcPeer((message) => {
     queueMicrotask(() => peerB.handleMessage(message));

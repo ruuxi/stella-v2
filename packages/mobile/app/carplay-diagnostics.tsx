@@ -1,15 +1,3 @@
-/**
- * Self-serve CarPlay field-debugging surface.
- *
- * The CarPlay stack (native scene delegate, patched RNCarPlay module, and the
- * JS session) writes breadcrumbs to the `StellaCarPlayDiagnostics` key in
- * NSUserDefaults. Those lines are the only way to diagnose head-unit failures
- * that happen in the car — Console.app only shows LIVE logs over a cable, but
- * the user-defaults store persists. This screen (Account → CarPlay
- * diagnostics) shows the stored lines and copies them to the clipboard so a
- * field report is one screenshot or paste away.
- */
-
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Platform,
@@ -77,14 +65,12 @@ export default function CarPlayDiagnosticsScreen() {
       try {
         Settings.set({ [DIAGNOSTICS_KEY]: [] });
       } catch {
-        /* ignore */
+
       }
     }
     refresh();
   }, [refresh]);
 
-  // Newest last in the store; show newest FIRST so the most recent drive is
-  // at the top without scrolling.
   const newestFirst = useMemo(() => [...lines].reverse(), [lines]);
 
   return (
@@ -104,7 +90,7 @@ export default function CarPlayDiagnosticsScreen() {
         <Text style={styles.title}>
           {t("mobile.carPlayDiagnostics.title")}
         </Text>
-        {/* Spacer balances the back button so the title centers. */}
+        {}
         <View style={styles.headerSpacer} />
       </View>
 

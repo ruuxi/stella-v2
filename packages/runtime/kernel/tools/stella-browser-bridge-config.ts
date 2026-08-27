@@ -15,7 +15,6 @@ export const STELLA_BROWSER_BRIDGE_PORT = "39040";
 export const STELLA_IN_APP_BROWSER_INIT_PORT = 39041;
 export const STELLA_BROWSER_MANAGED_BRIDGE = "1";
 
-/** Chrome native messaging host name — must match extension `connectNative` and host manifest. */
 export const STELLA_NATIVE_MESSAGING_HOST_NAME = "com.stella.browser_bridge";
 
 const readBridgeToken = (tokenPath: string): string | null => {
@@ -87,7 +86,7 @@ const persistBridgeToken = (
     try {
       chmodSync(tokenPath, 0o600);
     } catch {
-      // Best-effort permissions tightening on Unix-like systems.
+
     }
   }
 };
@@ -110,7 +109,6 @@ const getOrCreateBridgeToken = (): string => {
       return persistedToken;
     }
 
-    // Recover from a stale zero-byte/truncated token file so startup can heal itself.
     try {
       persistBridgeToken(tokenPath, nextToken, true);
       const repairedToken = readBridgeToken(tokenPath);
@@ -118,7 +116,7 @@ const getOrCreateBridgeToken = (): string => {
         return repairedToken;
       }
     } catch {
-      // Fall through to the descriptive error below.
+
     }
 
     throw new Error(

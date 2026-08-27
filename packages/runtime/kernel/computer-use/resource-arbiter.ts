@@ -55,12 +55,6 @@ const targetFallbackKeys = (target: ComputerUseTarget): string[] => {
 const uniqueSorted = (keys: readonly string[]) =>
   [...new Set(keys.filter(Boolean))].sort();
 
-/**
- * Serializes typed Computer Use requests that address the same OS resource.
- * Locks are process-wide through the shared instance used by the macOS
- * session factory. Multiple resources are always acquired in lexical order,
- * so opposite-order batches cannot deadlock.
- */
 export class ComputerUseResourceArbiter {
   private readonly locks = new Map<string, ResourceLock>();
   private readonly canonicalTargets = new Map<string, string>();
@@ -126,10 +120,7 @@ export class ComputerUseResourceArbiter {
         this.assertFreshObservation(request, stateKeys);
       }
       try {
-        // Once a mutating operation crosses this boundary its dispatch outcome
-        // can be unknown (transport loss) or partial (batch failure). Fail
-        // closed by invalidating every prior observation even when no success
-        // receipt reaches this layer.
+
         mutationAttempted = mutatingRequest;
         const response = await operation();
         mutationSucceeded =
@@ -144,9 +135,7 @@ export class ComputerUseResourceArbiter {
       } finally {
         if (mutationAttempted) {
           this.advance(stateKeys);
-          // A complete receipt lets this session use wait_for_change against
-          // the pre-action state ID. Commands still carry the old explicit
-          // resource generation and must be re-derived from a fresh state.
+
           if (mutationSucceeded) this.observe(request.sessionId, stateKeys);
         }
       }

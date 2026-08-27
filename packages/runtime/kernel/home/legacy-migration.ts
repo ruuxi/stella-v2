@@ -1,24 +1,3 @@
-/**
- * One-time migration from the original hash-manifest home layout.
- *
- * The old layout materialized shipped content directly into the user-facing
- * directories (`agents/`, `prompts/`, `skills/`, `PERSONALITY.md`) and used
- * `.bundled-manifest.json` files recording the hash of the last synced copy to
- * decide whether the user had modified each entry. Shipped skills now share
- * the canonical `skills/` root with user-created skills; ownership metadata
- * lives separately in `cache/bundled-skills.json`.
- *
- * This is the only place the old hashes are ever consulted again:
- * - unmodified entries (hash matches the manifest) are deleted so the current
- *   bundled-skill synchronizer can install the latest copy;
- * - modified agent prompts become `<id>.replace.md` (full replacement,
- *   opts out of updates);
- * - modified prompts / skills / PERSONALITY.md stay where they are;
- * - the manifests and the old applied-state machinery are removed.
- *
- * Entries with no manifest record were always user-owned and are untouched.
- */
-
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -75,7 +54,6 @@ const fileHash = async (filePath: string): Promise<string | null> => {
   }
 };
 
-/** The old whole-directory hash unit: sorted rel paths + contents, NUL-joined. */
 const directoryHash = async (dir: string): Promise<string | null> => {
   const files: string[] = [];
   const walk = async (current: string, rel: string): Promise<void> => {
@@ -139,7 +117,7 @@ const migrateSkills = async (skillsDir: string): Promise<void> => {
     if (hash === entry.lastSyncedHash) {
       await fs.rm(skillDir, { recursive: true, force: true });
     }
-    // Modified skills stay in place and win the shared-root collision policy.
+
   }
   await fs.rm(path.join(skillsDir, BUNDLED_MANIFEST_FILENAME), {
     force: true,
@@ -161,17 +139,13 @@ const migratePersonality = async (stellaDataDir: string): Promise<void> => {
     const filePath = path.join(stellaDataDir, "PERSONALITY.md");
     const hash = await fileHash(filePath);
     if (hash !== null && hash === recorded) {
-      // Unmodified: live composition from the selected preset takes over.
+
       await fs.rm(filePath, { force: true });
     }
   }
   await fs.rm(manifestPath, { force: true });
 };
 
-/**
- * Detects the old layout by its manifest files; a home dir that has already
- * migrated (or a fresh one) is a fast no-op.
- */
 export const migrateLegacyHomeLayout = async (
   stellaDataDir: string,
 ): Promise<void> => {
@@ -183,7 +157,7 @@ export const migrateLegacyHomeLayout = async (
   });
   await migrateSkills(path.join(stellaDataDir, "skills"));
   await migratePersonality(stellaDataDir);
-  // Old applied-state machinery is superseded by current home reconciliation.
+
   await fs.rm(path.join(stellaDataDir, "cache", "prompt-applied-state"), {
     recursive: true,
     force: true,

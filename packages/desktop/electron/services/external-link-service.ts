@@ -15,18 +15,11 @@ export class ExternalLinkService {
     { windowStartMs: number; count: number; lastOpenedAtMs: number }
   >()
 
-  /** When set (dev: Vite on LAN), renderer at this origin may use privileged IPC. */
   private trustedDevOrigin: string | null = null
   private trustedFileRendererRoot: string | null = null
 
-  /** Dev-only: allow privileged IPC when sender URL is missing (Electron edge cases). */
   private isDevBuild = false
 
-  /**
-   * Optional interceptor for canvas-share links. When it returns true the URL
-   * was recognized + handled (rendered as a native canvas), so it should NOT
-   * be forwarded to the system browser.
-   */
   private canvasShareHandler: ((url: string) => boolean) | null = null
 
   setCanvasShareHandler(handler: ((url: string) => boolean) | null) {
@@ -78,9 +71,6 @@ export class ExternalLinkService {
     return false
   }
 
-  /**
-   * Call in dev with the same fixed loopback base URL used by Vite.
-   */
   trustDevServerBaseUrl(baseUrl: string) {
     const trimmed = baseUrl.trim()
     if (!trimmed) return

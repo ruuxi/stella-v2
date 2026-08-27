@@ -13,13 +13,6 @@ const baseRow = (): AssistantRowViewModel => ({
   cacheKey: "row-1",
 });
 
-/**
- * Guards the silent-drop failure mode: the background-card dedup pass drops a
- * row only when `assistantRowHasNonBackgroundContent` reports it carries
- * nothing else. If a content field is added to `AssistantRowViewModel` but
- * not mirrored into the predicate, a row holding only that content would be
- * silently removed. Each non-background content field must keep the row.
- */
 describe("assistantRowHasNonBackgroundContent", () => {
   const contentFieldCases: Array<[string, Partial<AssistantRowViewModel>]> = [
     ["text", { text: "hello" }],
@@ -61,14 +54,6 @@ describe("assistantRowHasNonBackgroundContent", () => {
   });
 });
 
-/**
- * Guards the invisible-spacer failure mode: `ChatTimeline` drops rows for
- * which `eventRowRendersContent` is false, and `AssistantMessageRow`
- * renders `null` for the same rows. If a content field is added to
- * `AssistantRowViewModel` but not mirrored into
- * `assistantRowHasVisibleContent`, a row holding only that content would
- * vanish from the timeline entirely.
- */
 describe("assistantRowHasVisibleContent", () => {
   const visibleFieldCases: Array<[string, Partial<AssistantRowViewModel>]> = [
     ["text", { text: "hello" }],

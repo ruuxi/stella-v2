@@ -166,7 +166,7 @@ export type ComputerUseAppState = Readonly<{
   app: string;
   text: string;
   screenshot: ComputerUseImage | null;
-  /** Compatibility alias for semanticStateId. */
+
   stateId?: string;
   semanticStateId?: string;
   visualStateId?: string;

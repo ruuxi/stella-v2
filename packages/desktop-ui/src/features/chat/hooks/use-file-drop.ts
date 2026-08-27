@@ -5,16 +5,16 @@ import { attachFilesToContext } from "@/features/chat/lib/file-attach";
 
 type UseFileDropOptions = {
   setChatContext: Dispatch<SetStateAction<ChatContext | null>>;
-  /** Disable drop zone (e.g. while streaming). */
+
   disabled?: boolean;
 };
 
 type UseFileDropReturn = {
-  /** Whether files are currently being dragged over the drop zone. */
+
   isDragOver: boolean;
-  /** Whether any file drag is happening anywhere on the window. */
+
   isWindowDragActive: boolean;
-  /** Bind these to the drop-zone element. */
+
   dropHandlers: {
     onDragEnter: (e: DragEvent) => void;
     onDragOver: (e: DragEvent) => void;
@@ -32,12 +32,6 @@ function hasFiles(e: DragEvent): boolean {
   return false;
 }
 
-/**
- * Shared drag-and-drop hook for all composers.
- *
- * Dropped image files → `chatContext.regionScreenshots` (thumbnails).
- * Other files → `chatContext.files` (file badges).
- */
 export function useFileDrop({
   setChatContext,
   disabled = false,
@@ -47,7 +41,6 @@ export function useFileDrop({
   const dragCounterRef = useRef(0);
   const windowDragCounterRef = useRef(0);
 
-  // Window-level drag detection — for components with pointer-events:none
   useEffect(() => {
     if (disabled) return;
     const onEnter = () => {

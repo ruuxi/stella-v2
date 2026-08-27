@@ -3,9 +3,6 @@ type RuntimeLogLevel = "debug" | "info" | "warn" | "error";
 const SENSITIVE_KEY_RE =
   /(authorization|proxy-authorization|cookie|set-cookie|token|secret|password|passwd|api[-_]?key|client[-_]?secret|session|csrf|x[-_]api[-_]key)/i;
 
-// Numeric token-usage metrics are observability data, not bearer credentials.
-// Keep this allowlist deliberately exact so fields such as `accessToken` remain
-// redacted even if a caller accidentally represents the credential as a number.
 const NUMERIC_TOKEN_METRIC_KEYS = new Set([
   "cachedTokens",
   "cacheReadTokens",

@@ -5,15 +5,6 @@ import { notifyAssistantScrollFollowLayoutChange } from "@/shell/chat-scroll-fol
 import { useT } from "@/shared/i18n";
 import "./web-search-results-strip.css";
 
-/**
- * Claude-style "Results from the web" image strip.
- *
- * Renders the thumbnailable hits from a turn's web search as a single row
- * of source cards. Each card opens its URL in the OS browser via the
- * Electron external-link handlers (plain `<a target="_blank">`). Images
- * that fail to load (hotlink protection, dead URLs) drop out silently;
- * if none survive, the strip renders nothing.
- */
 const prettySource = (url: string): string => {
   try {
     const host = new URL(url).hostname.replace(/^www\./i, "");

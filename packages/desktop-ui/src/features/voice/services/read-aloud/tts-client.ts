@@ -1,12 +1,3 @@
-/**
- * Stella-backend TTS client for the read-aloud surface.
- *
- * Two modes, both keeping the provider API keys server-side:
- *   - `openReadAloudStream` — progressive Inworld synthesis proxied back as a
- *     chunked `audio/mpeg` stream so playback can begin early.
- *   - `fetchReadAloudAudio` — one-shot synthesis (mp3 for OpenAI, wav for
- *     Inworld), the graceful fallback when streaming is unavailable.
- */
 import { createServiceRequest } from "@/platform/http/service-request";
 
 export type ReadAloudVoiceFamily = "openai" | "inworld";
@@ -21,19 +12,13 @@ export type ReadAloudRequest = {
 
 export type ReadAloudResponse = {
   audio: ArrayBuffer;
-  /** MIME type the backend reported (`audio/mpeg`, `audio/wav`, …). */
+
   contentType: string;
 };
 
 const TTS_PATH = "/api/voice/tts";
 const TTS_STREAM_PATH = "/api/voice/tts/stream";
 
-/**
- * Open a progressive Inworld TTS stream. Resolves with the raw streaming
- * `Response` (an `audio/mpeg` body) so the player can feed it into Media
- * Source Extensions. Throws on a non-OK response so the caller can fall back
- * to one-shot synthesis.
- */
 export async function openReadAloudStream(
   req: Omit<ReadAloudRequest, "voiceProvider">,
 ): Promise<Response> {

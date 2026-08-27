@@ -1,12 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Shrinking-model-switch compaction: when the incoming route's window is
-// smaller than the outgoing route's and the thread no longer fits the
-// incoming route's safe input budget, the session runs a forced blocking
-// compaction on the OUTGOING (larger-window) route before the switch takes
-// effect, surfacing a "compacting" indicator while it waits. Fitting threads
-// and window-growing switches never block.
-
 const runCompactionWithHooksMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@stella/runtime/kernel/agent-runtime/run-completion.js", () => ({
@@ -29,8 +22,6 @@ const createRoute = (id: string, contextWindow: number): ResolvedLlmRoute =>
     getApiKey: async () => "auth-token",
   }) as unknown as ResolvedLlmRoute;
 
-// ~150k estimated tokens: over a 200k window's ~140k safe input budget,
-// far under a 1M window's.
 const bigThreadMessages = Array.from({ length: 60 }, (_, index) => ({
   entryId: `entry-${index + 1}`,
   timestamp: 1_000 + index,
@@ -88,9 +79,9 @@ describe("shrinking-model-switch compaction", () => {
     const call = runCompactionWithHooksMock.mock.calls[0]![0] as {
       opts: { resolvedLlm: ResolvedLlmRoute };
     };
-    // The summary runs on the OUTGOING larger-window route, not the new one.
+
     expect(call.opts.resolvedLlm).toBe(outgoing);
-    // Forced: the below-trigger size on the outgoing route must still compact.
+
     expect(forcedDuringRun).toBe(true);
   });
 
@@ -121,7 +112,6 @@ describe("shrinking-model-switch compaction", () => {
     });
     expect(runCompactionWithHooksMock).not.toHaveBeenCalled();
 
-    // Fresh session (e.g. after a worker restart): no previous route known.
     const fresh = new OrchestratorSession(CONVERSATION_ID);
     await fresh.maybeCompactForModelSwitch({
       opts: createOpts({ resolvedLlm: createRoute("small/model", 200_000) }),
@@ -148,8 +138,6 @@ describe("shrinking-model-switch compaction", () => {
         }),
     });
 
-    // The in-flight compaction "relieves" the thread: after it lands, the
-    // store reports a fitting history, so no forced pass is needed.
     let currentMessages = bigThreadMessages;
     const opts = {
       ...createOpts({ resolvedLlm: createRoute("small/model", 200_000) }),

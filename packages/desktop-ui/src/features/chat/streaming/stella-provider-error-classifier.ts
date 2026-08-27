@@ -1,6 +1,3 @@
-// Imported from the contract rather than from `global/billing/capabilities`
-// on purpose: this module must stay a pure classifier, free of the toast
-// and router graph that the capability entry point pulls in.
 import {
   CAPABILITIES,
   CAPABILITY_DENIED_CODE,
@@ -30,25 +27,12 @@ export type StellaProviderErrorClassification = {
   kind: StellaProviderErrorKind
   message: string
   detail?: string
-  /**
-   * Set on `capability-required` when the backend names which capability
-   * was denied, so the toast can say what the user actually lost and
-   * which plan returns it.
-   */
+
   capability?: Capability
 }
 
 const signInRequiredMatchers = ['sign in required'] as const
 
-/**
- * The Free plan's allowance is a lifetime budget, not a window — once it
- * is exhausted it cannot be used again. It has to be classified separately
- * from the ordinary `billing` limit or the user gets told to "wait until
- * usage resets" about a quota that has no reset.
- *
- * Checked before `billingMatchers` because the backend's exhaustion
- * error may also carry the generic "usage limit reached" prose.
- */
 const freeAllowanceMatchers = [
   'free_allowance_exhausted',
   'lifetime_limit_reached',
@@ -57,14 +41,6 @@ const freeAllowanceMatchers = [
   'lifetime usage limit',
 ] as const
 
-/**
- * Structured capability denial. The authoritative signals are the
- * contract's `CAPABILITY_REQUIRED` code and the `[capability/<id>]`
- * marker it appends to the prose (see `buildCapabilityDenial`); the
- * remaining matchers cover the older paid-media rejections
- * (`assertPaidMediaTier` and the `PAID_PLAN_REQUIRED` ConvexError) that
- * predate the matrix.
- */
 const capabilityRequiredMatchers = [
   CAPABILITY_DENIED_CODE.toLowerCase(),
   'capability_not_available',
@@ -239,7 +215,7 @@ const extractJsonErrorMessage = (message: string): string | null => {
       const extracted = nestedErrorMessage(JSON.parse(candidate))
       if (extracted) return extracted
     } catch {
-      // The error is ordinary text, not a JSON envelope.
+
     }
   }
   return null

@@ -57,29 +57,22 @@ type ArtifactViewerProps = {
 type ArtifactViewerContentProps = {
   artifact: ChatArtifact | null;
   access: StoredPhoneAccess | null;
-  /**
-   * When hosted inside another sheet (the activity hub), renders a back
-   * chevron in the header for returning to the host's list instead of
-   * dismissing the whole sheet.
-   */
+
   onBack?: () => void;
 };
 
 type LoadedArtifact =
   | { kind: "html"; html: string }
   | { kind: "canvas-html"; html: string }
-  /**
-   * A print-style HTML *document* (canvas HTML, office preview). Rendered on
-   * a paper-white surface regardless of app theme; see html-document-preview.
-   */
+
   | { kind: "html-document"; html: string }
   | { kind: "url"; uri: string }
   | { kind: "markdown"; text: string }
   | { kind: "text"; text: string }
   | { kind: "image"; uri: string }
-  /** A `file://` PDF handed to the platform's own full-page PDF renderer. */
+
   | { kind: "pdf"; uri: string }
-  /** A `file://` clip played by the native transport in `AudioPlayerView`. */
+
   | { kind: "audio"; uri: string }
   | { kind: "web-media"; html: string };
 
@@ -156,7 +149,7 @@ function CanvasDocumentWebView({ html, style }: { html: string; style: object })
         void Linking.openURL(navigation.url).catch(() => undefined);
       }
     } catch {
-      // Ignore malformed messages from untrusted canvas code.
+
     }
   }, []);
 
@@ -183,12 +176,6 @@ function CanvasDocumentWebView({ html, style }: { html: string; style: object })
   );
 }
 
-/**
- * Wrapper document for media the viewer still renders in a WebView (video).
- * PDFs and audio have their own full-surface treatments — `kind: "pdf"` and
- * `kind: "audio"` — because this centred, capped-height card clipped PDF pages
- * and reduced audio to a floating browser control bar.
- */
 const mediaHtml = (colors: Colors, title: string, body: string) =>
   `<!doctype html>
 <html>
@@ -249,11 +236,6 @@ th { position: sticky; top: 0; background: ${colors.muted}; font-weight: 600; }
 </html>`;
 };
 
-/**
- * The artifact display itself (header + rendered preview), without any sheet
- * chrome. `ArtifactViewer` wraps it in a `TopSheet` for the chat-card path;
- * the activity hub embeds it directly so artifacts open within that sheet.
- */
 export function ArtifactViewerContent({
   artifact,
   access,
@@ -272,8 +254,6 @@ export function ArtifactViewerContent({
   const title = artifact ? artifactTitle(artifact.payload) : "Artifact";
   const subtitle = artifact ? artifactSubtitle(artifact.payload) : "";
 
-  // On-device PDFs carry a local file URI we can hand straight to the OS share
-  // sheet (save to Files / open in another app), with no desktop bridge.
   const localPdf =
     artifact &&
     artifact.payload.kind === "pdf" &&
@@ -305,8 +285,7 @@ export function ArtifactViewerContent({
   useEffect(() => {
     if (!artifact) return;
     let cancelled = false;
-    // PDFs and audio are handed to native renderers as real files; they live
-    // in the cache only as long as this artifact is on screen.
+
     let materialized: ArtifactMediaFile | null = null;
     setLoaded(null);
     setError(null);
@@ -331,8 +310,7 @@ export function ArtifactViewerContent({
       if (payload.kind === "media" && payload.asset.kind === "text") {
         return { kind: "text" as const, text: payload.asset.text };
       }
-      // On-device PDF (cloud chat's `pdf` tool) — the file is already on disk,
-      // so hand its URI straight to the viewer; no desktop bridge is involved.
+
       if (payload.kind === "pdf" && payload.localUri) {
         return { kind: "pdf" as const, uri: payload.localUri };
       }
@@ -552,15 +530,11 @@ export function ArtifactViewerContent({
               originWhitelist={["*"]}
               source={{ html: loaded.html }}
               style={styles.documentWebview}
-              // Documents render on their own paper-white surface; never let
-              // Android WebView force-darken them into unreadability.
+
               forceDarkOn={false}
             />
           ) : loaded?.kind === "pdf" ? (
-            // Loading the file at the top level (rather than in an iframe)
-            // hands it to the platform's own PDF renderer, which fits the page
-            // to the width, scrolls through pages, and pinch-zooms — the same
-            // full-bleed treatment HTML documents get.
+
             <WebView
               originWhitelist={["*"]}
               source={{ uri: loaded.uri }}
@@ -601,7 +575,6 @@ export function ArtifactViewerContent({
   );
 }
 
-/** Standalone top-sheet artifact viewer, opened from agent cards in chat. */
 export function ArtifactViewer({
   artifact,
   access,

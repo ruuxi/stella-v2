@@ -20,13 +20,11 @@ export const stringifyBounded = (value: unknown, maxChars: number): string => {
   }
 };
 
-/** Collapse whitespace, trim, and cap length. Accepts `unknown` for raw LLM output. */
 export const normalizeText = (value: unknown, max: number): string => {
   if (typeof value !== "string") return "";
   return value.replace(/\s+/g, " ").trim().slice(0, max);
 };
 
-/** Deduplicate and cap a list of source strings (case-insensitive). */
 export const cleanSources = (raw: unknown): string[] => {
   if (!Array.isArray(raw)) return [];
   const seen = new Set<string>();
@@ -42,7 +40,6 @@ export const cleanSources = (raw: unknown): string[] => {
   return out.slice(0, 8);
 };
 
-/** Lowercase slug: a-z, 0-9, underscores only. */
 export const slugify = (value: string, maxLen = 48): string =>
   value
     .toLowerCase()

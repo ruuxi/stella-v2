@@ -51,12 +51,6 @@ const barPhaseOutputRange = (index: number): number[] => {
   );
 };
 
-/**
- * A native-view voice meter. One native-driver phase value animates every bar
- * and ring; audio snapshots only retarget one native-driver energy value.
- * Keeping this off Expo GL avoids a dedicated render loop and, critically,
- * leaves no GL context behind when the voice modal closes.
- */
 export function RealtimeVoiceVisualizer({
   size,
   mode,

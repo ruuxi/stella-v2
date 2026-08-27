@@ -19,13 +19,6 @@ import type { Theme, ThemeColors } from "./types";
 
 export type { Theme, ThemeColors };
 
-// One flat, macOS-native "Default" theme with light+dark variants driven by
-// the Appearance mode toggle (Light / Dark / System) — plus the invisible
-// Custom overlay every user starts on, and the colorful character themes, which
-// render the ShiftingGradient backdrop behind clean opaque panels. (The old
-// separate "Light"/"Dark" themes were collapsed into Default: they duplicated
-// the mode toggle and, being `forcedMode`-pinned, made "Light theme + Dark
-// mode" a no-op.)
 const themes: Theme[] = [
   custom,
   defaultTheme_,
@@ -52,16 +45,8 @@ export const getThemeById = (id: string): Theme | undefined => {
   return themes.find((t) => t.id === id);
 };
 
-// Everyone starts on the Custom overlay; while empty it renders as its base
-// (Default), so the default look is unchanged.
 export const defaultTheme = themes.find((t) => t.id === "custom")!;
 
-/**
- * Effective colors for a theme. Overlay themes (those with `base`) inherit the
- * base theme's colors for the given appearance and merge their per-mode
- * `overrides` on top. Non-overlay themes return their own colors directly.
- * Also reports the base id (for `data-base-theme`) and effective forced mode.
- */
 export const resolveThemeColors = (
   theme: Theme,
   isDark: boolean,
@@ -70,7 +55,7 @@ export const resolveThemeColors = (
   colors: ThemeColors;
   baseThemeId?: string;
   forcedMode?: "light" | "dark";
-  /** Whether the theme renders flat (gradient-suppressed). `forcedMode` implies flat. */
+
   flat: boolean;
 } => {
   if (!theme.base && !baseOverrideId) {
@@ -81,8 +66,7 @@ export const resolveThemeColors = (
       flat: theme.forcedMode !== undefined || theme.flat === true,
     };
   }
-  // Overlay: inherit from the runtime base override (the base the user has
-  // Custom displaying) when present, else the theme's declared base.
+
   const baseId = baseOverrideId ?? theme.base;
   const baseTheme = baseId ? getThemeById(baseId) : undefined;
   const forcedMode = theme.forcedMode ?? baseTheme?.forcedMode;
@@ -104,7 +88,6 @@ export const resolveThemeColors = (
   };
 };
 
-/** Whether a theme should be hidden from the picker (empty overlay). */
 export const isHiddenOverlay = (theme: Theme): boolean =>
   theme.base !== undefined && !theme.populated;
 

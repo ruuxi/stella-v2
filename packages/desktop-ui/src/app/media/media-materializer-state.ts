@@ -19,9 +19,6 @@ const loadFromStorage = (key = MATERIALIZED_KEY): string[] => {
   }
 };
 
-// Enforce MATERIALIZED_CAP in memory (not just on persist). Maps/Sets keep
-// insertion order, so deleting the first key evicts the oldest entry, keeping
-// the live collection bounded mid-session without changing what gets persisted.
 export const capInMemory = (
   collection: Set<string> | Map<string, unknown>,
 ): void => {
@@ -74,9 +71,6 @@ const persistPayloadsToStorage = (
   );
 };
 
-// Module-scoped, mutated through `markMediaJobMaterialized` and the
-// materializer hook. Sharing the same Set across both means no race window
-// where one writer's mark is invisible to the other.
 export const materializedJobs: Set<string> = new Set(loadFromStorage());
 export const failedNotifiedJobs: Set<string> = new Set(
   loadFromStorage(FAILED_NOTIFIED_KEY),
@@ -100,16 +94,13 @@ export const publishMaterializedMediaPayload = (
 ): boolean => {
   if (payload.kind === "media" && payload.jobId) {
     const existing = materializedPayloadsByJobId.get(payload.jobId);
-    // Transcript replay and the live completion subscription can construct
-    // slightly different payloads for the same durable job. Job identity,
-    // rather than JSON equality, is the deduplication boundary.
+
     if (existing) return false;
     materializedPayloadsByJobId.set(payload.jobId, payload);
-    // Bound the in-memory payload map, matching the persist-time cap.
+
     capInMemory(materializedPayloadsByJobId);
     persistPayloadsToStorage(materializedPayloadsByJobId);
-    // useSyncExternalStore compares snapshots by identity. Publishing a fresh
-    // immutable snapshot is what makes React observe the Map mutation.
+
     materializedPayloadSnapshot = new Map(materializedPayloadsByJobId);
   }
   for (const listener of materializedPayloadListeners) listener();
@@ -141,15 +132,10 @@ export const useMaterializedMediaPayloadSnapshot = (): ReadonlyMap<
     () => EMPTY_MATERIALIZED_PAYLOAD_SNAPSHOT,
   );
 
-/**
- * Mark a jobId as already-handled so the materializer skips it. Use this
- * from any UI that materializes its own jobs (e.g. MediaStudio) so we don't
- * double-download or pop the workspace panel over the user's active surface.
- */
 export const markMediaJobMaterialized = (jobId: string): void => {
   if (materializedJobs.has(jobId)) return;
   materializedJobs.add(jobId);
-  // Bound the in-memory set, matching the persist-time cap.
+
   capInMemory(materializedJobs);
   persistMaterializedJobs();
 };

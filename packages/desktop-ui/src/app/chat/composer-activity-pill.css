@@ -1,13 +1,3 @@
-/* ============================================================
-   Composer activity pill — the Activity / background-work marker that leads
-   the composer when the standalone Activity surface is hidden. Shares the soft "panel surface"
-   fill + hairline border the composer / sidebar use, but as a single-row
-   pill: a leading glyph (search · check · alert · dot) plus one line of
-   text. While running there's no glyph — the shimmering task count carries
-   the status on its own.
-   ============================================================ */
-
-/* Motion wrapper for the pill's initial entrance. */
 .composer-activity-pill-slot {
   display: inline-flex;
   flex-shrink: 0;
@@ -45,9 +35,6 @@
   color: var(--text-strong);
 }
 
-/* Inset ring (not the shared --focus-ring box-shadow): the slot clips at
-   the pill's bounds for the width tween, so an outside ring would be cut
-   off. Inset keeps keyboard focus fully visible. */
 .composer-activity-pill:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
@@ -81,8 +68,6 @@
   color: var(--danger, #d9534f);
 }
 
-/* Running has no glyph — drop the slot so the count sits flush with the
-   pill's leading edge instead of behind an empty gap. */
 .composer-activity-pill[data-state="running"] .composer-activity-pill__glyph {
   display: none;
 }
@@ -103,11 +88,6 @@
   color: inherit;
 }
 
-/* ============================================================
-   Tray — the same current Activity overview used by the standalone
-   right-side surface, without bringing Work search back into Activity.
-   ============================================================ */
-
 [data-component="popover-content"].composer-activity-tray-popover {
   width: 22rem;
   max-width: calc(100vw - 32px);
@@ -119,9 +99,6 @@
   box-shadow: var(--shadow-overlay), var(--panel-surface-highlight);
 }
 
-/* Size to the item count rather than a fixed box: a short overview stays
-   compact, and only once the content passes the cap does the tray settle at
-   its max height and scroll (via `.sidebar-search__body`'s own overflow). */
 .composer-activity-tray {
   display: flex;
   flex-direction: column;

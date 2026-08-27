@@ -35,10 +35,6 @@ const kindForFormat = (format: OfficePreviewFormat): ArtifactKind => {
   return "document";
 };
 
-/**
- * Returns a catalog *key*, not copy — resolving here would freeze the
- * label to whatever locale was active when the module first evaluated.
- */
 const labelKeyForKind = (kind: ArtifactKind) => {
   if (kind === "spreadsheet") return "shell.display.office.kind.spreadsheet";
   if (kind === "presentation") return "shell.display.office.kind.presentation";

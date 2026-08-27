@@ -125,27 +125,24 @@ describe("user-profile-store", () => {
         action: "add",
         content: `Durable fact number ${i} about the user and their stable long-running preferences`,
       });
-      // Every add must succeed — the store must never wedge above its cap.
+
       expect(result.ok).toBe(true);
       lastCount = result.entryCount;
     }
 
-    // The store bounded itself by evicting oldest facts rather than rejecting.
     expect(lastCount).toBeGreaterThan(0);
     expect(lastCount).toBeLessThan(200);
 
-    // The persisted body is at or under the hard cap.
     const stored = await entries();
     const bodyLength = stored.reduce((sum, e) => sum + e.length + 3, 0);
     expect(bodyLength).toBeLessThanOrEqual(MAX_USER_PROFILE_CHARS);
 
-    // The newest fact survived; the oldest were the ones evicted (FIFO).
     expect(stored[stored.length - 1]).toContain("number 199");
     expect(stored.some((e) => e.includes("number 0 "))).toBe(false);
   });
 
   it("never wedges: adds still succeed when the on-disk file starts over cap", async () => {
-    // Simulate a hand-edited / legacy over-cap profile.md.
+
     const oversized = Array.from(
       { length: 40 },
       (_, i) => `- Legacy durable fact ${i} ${"padding ".repeat(30)}`,

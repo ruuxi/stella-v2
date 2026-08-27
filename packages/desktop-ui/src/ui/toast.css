@@ -44,8 +44,6 @@
   }
 }
 
-/* Variant accents — left edge instead of full-perimeter color so the
-   toast itself stays in the neutral glass family. */
 [data-component="toast"][data-variant="success"]::before,
 [data-component="toast"][data-variant="error"]::before,
 [data-component="toast"][data-variant="loading"]::before {

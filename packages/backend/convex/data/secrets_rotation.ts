@@ -37,9 +37,7 @@ export const rotateEncryptedMaterialBatch = internalMutation({
     let remaining = batchSize;
 
     if (remaining > 0) {
-      // Query secrets NOT on the active key version.
-      // Secrets with no keyVersion (undefined) sort before numeric values in the index,
-      // so we query for keyVersion < activeKeyVersion and keyVersion > activeKeyVersion separately.
+
       const candidatesBelow = await ctx.db
         .query("secrets")
         .withIndex("by_keyVersion", (q) => q.lt("keyVersion", activeKeyVersion))

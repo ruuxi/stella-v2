@@ -1,32 +1,3 @@
-/**
- * Dictation transcription proxy.
- *
- * The renderer captures microphone audio locally, WAV-encodes it (LINEAR16
- * PCM, 16 kHz mono), and POSTs the base64'd container here on stop. This
- * route forwards the request to xAI Grok STT (`POST https://api.x.ai/v1/stt`,
- * one-shot multipart upload) so `XAI_API_KEY` never leaves the backend.
- * Direct xAI beat the previous OpenRouter Nemotron path on latency
- * (~245-760ms model time vs ~1.1s median).
- *
- * Provider is env-selectable for fast rollback without a code deploy:
- * `DICTATION_STT_PROVIDER=openrouter` restores the OpenRouter one-shot path
- * (`OPENROUTER_API_KEY`), `DICTATION_STT_PROVIDER=inworld` restores
- * Inworld's sync STT endpoint (`INWORLD_API_KEY`, Basic auth). Default is
- * `xai`. `DICTATION_STT_MODEL` overrides the model id for the active
- * provider (for xAI it only relabels usage metering — the REST STT endpoint
- * has a single model and takes no model parameter).
- *
- * We deliberately stay on sync HTTP: browser WebSockets cannot set the
- * Authorization headers these providers require, and one-shot latency is
- * already low enough for stop-to-text dictation.
- *
- * Billing: Grok STT REST is $0.10/hr ($0.0000278/s). We require sign-in,
- * gate on the user's managed-usage limit, then meter the response's
- * `duration` seconds at the list rate and log it through `logManagedUsage`
- * with `costMicroCents` so it counts against the user's plan windows. The
- * OpenRouter rollback meters `usage.cost`/`usage.seconds` as before, and
- * the Inworld rollback still meters `transcribedAudioMs` at $0.28/hr.
- */
 import type { HttpRouter } from "convex/server";
 import { httpAction, type ActionCtx } from "../_generated/server";
 import {
@@ -50,13 +21,13 @@ import {
   transcribeWithXaiRest,
 } from "../lib/xai_stt";
 
-const DICTATION_RATE_LIMIT = 30; // per minute
+const DICTATION_RATE_LIMIT = 30;
 const DICTATION_RATE_WINDOW_MS = 60_000;
 
 const INWORLD_TRANSCRIBE_URL = "https://api.inworld.ai/stt/v1/transcribe";
 const INWORLD_DEFAULT_MODEL = "inworld/inworld-stt-1";
 const INWORLD_DEFAULT_LANGUAGE = "en-US";
-// Inworld STT pricing as of 2026-05. Kept for the env rollback path.
+
 const INWORLD_USD_PER_HOUR = 0.28;
 const INWORLD_USD_PER_MS = INWORLD_USD_PER_HOUR / (60 * 60 * 1000);
 
@@ -68,16 +39,11 @@ const OPENROUTER_USD_PER_SECOND = 0.000003;
 
 export const XAI_DICTATION_MODEL = XAI_STT_MODEL_LABEL;
 
-// Convex HTTP actions cap request bodies at ~20MB; base64 inflates by 33%
-// so this keeps a comfortable margin for the JSON envelope.
 const MAX_AUDIO_BASE64_BYTES = 14 * 1024 * 1024;
 
 type TranscribeRequestBody = {
   audioBase64?: string;
-  /**
-   * Container/encoding hint. Desktop WAV uploads send AUTO_DETECT or
-   * LINEAR16; OpenRouter needs a concrete format, so AUTO_DETECT maps to wav.
-   */
+
   audioEncoding?: "AUTO_DETECT" | "LINEAR16" | "MP3" | "OGG_OPUS" | "FLAC";
   language?: string;
   modelId?: string;
@@ -98,10 +64,6 @@ const DEFAULT_MODEL_BY_PROVIDER: Record<DictationProvider, string> = {
   inworld: INWORLD_DEFAULT_MODEL,
 };
 
-/**
- * Model precedence: explicit request override, then the `DICTATION_STT_MODEL`
- * env (so future swaps are env-only, no deploy), then the provider default.
- */
 export const resolveDictationModel = (
   provider: DictationProvider,
   requested?: string,
@@ -141,8 +103,7 @@ export const registerDictationRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        // Cloud STT is paid by the second; require a connected account so every
-        // transcription rolls up to a real user's plan window.
+
         const auth = await requireSignedInAccountAction(ctx, origin, {
           message: "Sign in to Stella to use dictation.",
           realm: "stella-dictation",
@@ -150,14 +111,6 @@ export const registerDictationRoutes = (http: HttpRouter) => {
         if (!auth.ok) return auth.response;
         const ownerId = auth.ownerId;
 
-        // No capability/subscription gate: composer dictation is a free input
-        // path into the text assistant, not audio generation. Signed-in Free,
-        // Go, and Pro users all reach the same transcription path. See
-        // `capabilityForMediaCapabilityId` in `capability_contract.ts`, which
-        // leaves `speech_to_text` ungated for the same reason.
-        // Both spend gates in a single transaction/commit, evaluated in the
-        // same order as before (usage-limit first, then rate-limit) so the
-        // 429 a client sees is unchanged. Both are still enforced pre-spend.
         const gate = await runManagedGate(ctx, origin, {
           ownerId,
           order: ["usage", "rate"],
@@ -173,8 +126,7 @@ export const registerDictationRoutes = (http: HttpRouter) => {
         if (!gate.ok) return gate.response;
 
         const provider = resolveDictationProvider();
-        // Same org key the realtime Grok Voice path uses (voice.ts); it
-        // never leaves the backend.
+
         const xaiKey = provider === "xai" ? resolveXaiSttApiKey() : null;
         const openRouterKey =
           provider === "openrouter"

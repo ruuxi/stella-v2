@@ -3,7 +3,6 @@ import { describe, expect, it } from "bun:test";
 import { resolveModelConfig } from "../../convex/agent/model_resolver";
 import { AGENT_IDS } from "../../convex/lib/agent_constants";
 
-// resolveModelConfig only touches ctx.runQuery (modalities lookup); null → text-only.
 const ctx = { runQuery: async () => null } as never;
 
 describe("resolveModelConfig single-model enforcement", () => {
@@ -56,8 +55,7 @@ describe("resolveModelConfig single-model enforcement", () => {
   });
 
   it("ignores a mode override a restricted tier may not pick", async () => {
-    // free can't override designer → falls back to the primary agent's
-    // backend default (Muse Spark 1.2 Contributor on OpenRouter).
+
     const resolved = await resolveModelConfig(
       ctx,
       AGENT_IDS.ORCHESTRATOR,

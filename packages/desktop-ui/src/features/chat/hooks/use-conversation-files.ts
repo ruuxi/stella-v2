@@ -1,16 +1,3 @@
-/**
- * Hook over the file-events stream for a conversation
- * (`localChat:listFiles` IPC, backed by `SessionStore.listFiles`).
- * Returns the raw file-carrying events (`tool_result` /
- * `agent-completed` with non-empty `fileChanges` / `producedFiles`);
- * `deriveConversationFiles` further dedupes them by path.
- *
- * Window growth is purely file-event-count based. File events are even
- * sparser than activity events (only fire when a tool actually
- * touches disk), so a cap of 500 covers everyday usage and
- * `loadOlder` doubles the window for the ActivityHistoryDialog
- * "files" section.
- */
 import {
   startTransition,
   useCallback,

@@ -1,24 +1,3 @@
-/**
- * Shared dialog reused by:
- *
- *   - The inline "Scheduled" receipt chip that lands on an assistant turn
- *     after the orchestrator's `Schedule` tool returns. The chip carries
- *     the structured `ScheduleToolDetails` straight from the tool result
- *     (see `runtime/kernel/tools/schedule.ts`).
- *   - The "Up next" rows in `ChatHomeOverview`. Those rows pass a single
- *     live `ScheduleEntry` (already enriched with `nextRunAtMs`) so the
- *     dialog reads as the same thing whether you opened it from the
- *     receipt chip or from the sidebar.
- *
- * The dialog is purely a manage surface: per-row Run now / Pause / Resume /
- * Delete pills wired to the renderer's `electronAPI.schedule` mutation
- * IPC. No edit affordance — the schedule subagent is the canonical edit
- * path; an "Edit" button would just nudge the user back to the composer
- * and is intentionally omitted to keep the dialog focused on the
- * "did-it / undo / pause" flow people actually want immediately after a
- * schedule lands.
- */
-
 import { useEffect, useMemo, useState } from "react";
 import { Dialog } from "@/ui/dialog";
 import { Button } from "@/ui/button";
@@ -33,20 +12,15 @@ import "./schedule-details-dialog.css";
 
 const NEXT_RUN_TICK_MS = 30_000;
 
-/**
- * Generic "row" the dialog renders. Either a fresh affected ref straight
- * from the tool result, or a synthesized record we resolved live from
- * `scheduleApi.listCronJobs / listHeartbeats`.
- */
 type DialogRow = {
   kind: "cron" | "heartbeat";
   id: string;
   name: string;
   enabled: boolean;
   nextRunAtMs: number;
-  /** Recurrence summary line (e.g. "Daily 9:00", "Every 30 min"). */
+
   recurrence: string;
-  /** Conversation that owns the heartbeat (heartbeats only). */
+
   conversationId?: string;
 };
 
@@ -79,13 +53,6 @@ const heartbeatToRow = (
   conversationId: record.conversationId,
 });
 
-/**
- * Resolve the dialog rows live from `scheduleApi`. `affectedRefs` is the
- * authoritative list of "what's in this dialog" — we look each ref up in
- * the live cron/heartbeat snapshot so we always render current state
- * (e.g. a paused entry shows as paused even if the receipt chip was
- * created when it was enabled).
- */
 function useResolvedRows(
   affectedRefs: ReadonlyArray<ScheduleToolAffectedRef>,
   open: boolean,
@@ -225,10 +192,7 @@ function ScheduleDialogRow({
     if (row.kind === "cron") {
       void callMutation("delete", () => api.removeCronJob({ jobId: row.id }));
     } else if (row.conversationId) {
-      // Heartbeats can't be deleted outright — disabling is the closest
-      // affordance (`upsertHeartbeat({ enabled: false })`). We frame the
-      // action as Delete in the UI for parity with crons; the user can
-      // re-enable from the same dialog later.
+
       void callMutation("delete", () =>
         api.upsertHeartbeat({
           conversationId: row.conversationId!,
@@ -304,9 +268,9 @@ function ScheduleDialogRow({
 export type ScheduleDetailsDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Refs to render. Order is preserved. */
+
   affected: ReadonlyArray<ScheduleToolAffectedRef>;
-  /** Optional one-line summary shown above the row list. */
+
   summary?: string;
 };
 

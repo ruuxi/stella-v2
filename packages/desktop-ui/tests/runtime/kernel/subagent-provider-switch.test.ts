@@ -1,16 +1,3 @@
-// Regression coverage for the "subagents break when the provider/model is
-// switched mid-session" bug.
-//
-// Root cause of the field failure was NOT here (it was reasoning-model
-// provider-request handling — a resumed subagent adopted the newly-selected
-// OpenRouter/OpenAI model fine and ran several turns before a reasoning-signature
-// replay error). These tests lock in the invariant that DOES belong to the
-// selection/propagation path: a subagent agent-type resolves the *same* active
-// provider/model route as the orchestrator from the *same* live preference
-// source, and a mid-session model switch is reflected for both. If a future
-// change re-introduces a divergent subagent config path (a stale snapshot, a
-// different resolver, or the wrong credential directory), this fails loudly.
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Model } from "@stella/runtime/ai/types";
 import { createSyncTempDirTracker } from "../../helpers/temp.js";
@@ -56,8 +43,7 @@ vi.mock("@stella/runtime/ai/models", () => ({
       case "anthropic":
         return [model("anthropic", "claude-opus-4-8", "anthropic")];
       case "openrouter":
-        // OpenRouter is a synthesizable gateway; the first entry is the
-        // template used to route arbitrary `<vendor>/<model>` ids.
+
         return [model("openrouter", "openai/gpt-5.5")];
       default:
         return [];
@@ -72,10 +58,6 @@ const site = {
 
 const tempDirs = createSyncTempDirTracker();
 
-// Mirrors how the runner obtains the active model per agent type:
-//   orchestrator -> getConfiguredModel(...) = getModelOverride(dataDir, "orchestrator") ?? agent.model
-//   subagent     -> resolveAgentModelRoute("general") = getModelOverride(dataDir, "general") ?? agent.model
-// Both read the exact same preference map; there is no separate subagent store.
 const ORCHESTRATOR = "orchestrator";
 const SUBAGENT = "general";
 
@@ -112,8 +94,6 @@ describe("subagent provider/model selection parity", () => {
         site,
       });
 
-    // Starting state: the UI writes the same model to orchestrator + general
-    // (the "Assistant" pair), so both read anthropic/claude-opus-4-8.
     updateLocalModelPreferences(stellaDataDir, {
       modelOverrides: {
         [ORCHESTRATOR]: "anthropic/claude-opus-4-8",
@@ -129,8 +109,6 @@ describe("subagent provider/model selection parity", () => {
     expect(orchBefore.model.provider).toBe("anthropic");
     expect(orchBefore.route).toBe("direct-provider");
 
-    // Mid-session switch: Anthropic -> OpenRouter OpenAI model. This is the
-    // exact transition that broke subagents in the field.
     updateLocalModelPreferences(stellaDataDir, {
       modelOverrides: {
         [ORCHESTRATOR]: "openrouter/openai/gpt-5.5",
@@ -141,7 +119,6 @@ describe("subagent provider/model selection parity", () => {
     const orchAfter = resolveFor(ORCHESTRATOR);
     const subAfter = resolveFor(SUBAGENT);
 
-    // The subagent must pick up the switch exactly like the orchestrator.
     expect(subAfter.model.id).toBe("openai/gpt-5.5");
     expect(subAfter.model.provider).toBe("openrouter");
     expect(subAfter.route).toBe("direct-provider");
@@ -152,10 +129,7 @@ describe("subagent provider/model selection parity", () => {
   });
 
   it("resolves BYOK credentials from the passed data dir (route carries a usable key)", async () => {
-    // resolveLlmRoute's `stellaAppDir` arg is really the credential directory
-    // (~/.stella data dir). The subagent route-resolution fallback in
-    // agent-orchestration.ts must pass the data dir, not the install/code
-    // tree, or a subagent would fail to find the key the orchestrator uses.
+
     const stellaDataDir = tempDirs.create("stella-subagent-cred-");
     credentials.set("openrouter", "openrouter-key");
 

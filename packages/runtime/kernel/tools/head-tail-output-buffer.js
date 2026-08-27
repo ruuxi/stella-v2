@@ -2,11 +2,6 @@ export const RAW_SHELL_OUTPUT_MAX_BYTES = 1024 * 1024;
 const omissionMarker = (omittedBytes) =>
   `... ${omittedBytes} bytes omitted ...`;
 
-/**
- * Split text into non-empty UTF-8-safe frames without exceeding `maxBytes`.
- * Iterating JavaScript strings by code point prevents a frame boundary from
- * bisecting either a surrogate pair or its encoded UTF-8 scalar.
- */
 export const splitUtf8TextByBytes = (text, maxBytes) => {
   const budget = Math.max(1, Math.floor(maxBytes));
   if (!text) return [];
@@ -27,10 +22,7 @@ export const splitUtf8TextByBytes = (text, maxBytes) => {
   if (codePoints.length > 0) frames.push(codePoints.join(""));
   return frames;
 };
-/**
- * Byte-capped process output that keeps equal-sized head and tail regions.
- * This mirrors Codex's raw unified-exec collection boundary.
- */
+
 export class HeadTailOutputBuffer {
   #maxBytes;
   #headBudget;

@@ -1,17 +1,3 @@
-/**
- * Mobile client for the paired computer's LOCAL schedules.
- *
- * Scheduling in v2 lives in the desktop's local runtime (`LocalSchedulerService`,
- * state on the user's machine) — the backend schema deliberately has no
- * schedule tables. So this reads the user's computer's cron jobs + heartbeats
- * THROUGH the existing encrypted desktop bridge (the same pairing the computer
- * chat uses), not from Convex.
- *
- * Read + cron mutations only: the runtime exposes pause/resume (`enabled`
- * patch) and delete for cron jobs; heartbeats stay read-only here for now.
- * Live updates ride the bridge's `schedule:updated` broadcast.
- */
-
 import {
   formatNextRun,
   parseStoredSchedule,
@@ -21,14 +7,14 @@ import {
 export type MobileSchedule = {
   kind: "cron" | "heartbeat";
   id: string;
-  /** Cron `name`, or the heartbeat's prompt excerpt / "Check-in". */
+
   title: string;
   conversationId: string;
   enabled: boolean;
   nextRunAtMs: number;
-  /** Serialized LocalCronSchedule for crons; absent for heartbeats. */
+
   scheduleJson?: string;
-  /** Heartbeat cadence (ms); absent for crons. */
+
   intervalMs?: number;
   lastStatus?: string;
   lastError?: string;
@@ -48,8 +34,7 @@ const asFiniteNumber = (value: unknown): number | undefined =>
 const heartbeatTitle = (record: RawRecord): string => {
   const prompt = asTrimmedString(record.prompt);
   if (prompt) {
-    // Heartbeat prompts are short instructions; first ~60 chars identifies
-    // the schedule without dumping the whole checklist (desktop parity).
+
     return prompt.length > 60 ? `${prompt.slice(0, 60)}…` : prompt;
   }
   return "Check-in";
@@ -103,13 +88,6 @@ const readHeartbeatRow = (value: unknown): MobileSchedule | null => {
   };
 };
 
-/**
- * Defensive parse of the bridge's two lists — a bad row drops itself instead
- * of failing the tab. Sorted next-run first with paused rows sunk to the
- * bottom. This deliberately differs from the desktop's Up-next hook
- * (`use-conversation-schedules.ts`), which DROPS disabled entries outright:
- * on the phone a paused row must stay visible so it can be resumed.
- */
 export const parseMobileSchedules = (payload: {
   cronJobs?: unknown;
   heartbeats?: unknown;
@@ -141,15 +119,10 @@ export const parseMobileSchedules = (payload: {
   });
 };
 
-/**
- * The two row-rendering decisions the Schedule tab makes per row, extracted
- * so they are testable production code rather than inline JSX ternaries.
- */
 export type ScheduleRowBadge =
   | { kind: "paused" }
   | { kind: "next"; label: string };
 
-/** Paused rows show a Paused badge; active rows show the next-run label. */
 export const scheduleRowBadge = (
   schedule: Pick<MobileSchedule, "enabled" | "nextRunAtMs">,
   nowMs: number,
@@ -158,11 +131,6 @@ export const scheduleRowBadge = (
     ? { kind: "next", label: formatNextRun(schedule.nextRunAtMs, nowMs) }
     : { kind: "paused" };
 
-/**
- * Natural-language cadence line for a row — stored cron/at/every JSON for
- * crons, the interval for heartbeats. Empty string when the shape is too
- * custom to summarize (the UI falls back to its localized "custom" copy).
- */
 export const scheduleCadence = (
   schedule: Pick<MobileSchedule, "scheduleJson" | "intervalMs">,
 ): string =>
@@ -171,7 +139,6 @@ export const scheduleCadence = (
     schedule.intervalMs,
   );
 
-/** Load every schedule on the paired computer through the desktop bridge. */
 export async function fetchMobileSchedules(): Promise<MobileSchedule[]> {
   const { resolveDesktopBridge, invokeDesktopBridge } = await import(
     "./desktop-bridge-chat"
@@ -188,11 +155,6 @@ export async function fetchMobileSchedules(): Promise<MobileSchedule[]> {
   return parseMobileSchedules({ cronJobs, heartbeats });
 }
 
-/**
- * Pause / resume / delete one cron schedule by id. Heartbeats have no mobile
- * mutation surface yet — the runtime's heartbeat upsert is per-conversation
- * config, not a pause toggle.
- */
 export type MobileScheduleAction = "pause" | "resume" | "remove";
 
 export async function mutateMobileSchedule(
@@ -223,14 +185,6 @@ export async function mutateMobileSchedule(
   );
 }
 
-/**
- * Subscribe to the desktop's `schedule:updated` push while the Schedule tab
- * is on screen. Fires `onUpdate` on every broadcast (the payload carries no
- * data — callers refetch the authoritative lists). Deliberately simpler than
- * `desktop-bridge-live`: no reconnect loop — the tab refetches on every
- * open/switch anyway, so a dropped socket only costs liveness until then.
- * The returned close() is idempotent and also cancels an in-flight connect.
- */
 export function subscribeMobileScheduleUpdates(
   onUpdate: () => void,
 ): { close: () => void } {
@@ -261,7 +215,7 @@ export function subscribeMobileScheduleUpdates(
       }
       socket = opened;
     } catch {
-      // No pairing / unreachable desktop — the tab still works via refetch.
+
     }
   })();
   return {

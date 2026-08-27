@@ -2,16 +2,6 @@ import { v } from "convex/values";
 import { internalMutation, query } from "../_generated/server";
 import { desktop_release_artifact_ref_validator } from "../schema/desktop_releases";
 
-/**
- * Latest published desktop release per platform.
- *
- * The CI publish job calls `publishDesktopRelease` (via an HTTP route
- * gated by a CI shared secret) once per platform after uploading the
- * clone-install manifest to R2. Installed desktops subscribe to
- * `currentDesktopRelease` via `useQuery` and react to a new commit
- * pointer the moment CI finishes — no polling required.
- */
-
 const platformValidator = v.string();
 
 export const currentDesktopRelease = query({

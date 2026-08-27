@@ -1,37 +1,24 @@
-/* ─────────────────────────────────────────────────────────────
-   Dropdown menu — transient overlay surface. Keeps a light blur (one
-   of the few surfaces that does) with a hairline lip via the shared
-   overlay shadow, scaled down for menu density.
-   ───────────────────────────────────────────────────────────── */
-
 [data-component="dropdown-menu-content"] {
   min-width: 180px;
   padding: 6px;
   border-radius: var(--radius-lg, 10px);
-  /* Hairline edge keeps a crisp boundary against the page. */
+
   border: 1px solid var(--border-base);
-  /* Light blur — menus are transient overlays, so they keep glass. */
+
   background: var(--glass-bg);
   background-clip: padding-box;
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: var(--shadow-overlay);
-  /* Sit above popovers (zIndex 9999) so Selects rendered inside a popover
-     — e.g. the model picker's "More options" runtime selectors — aren't
-     clipped behind the popover surface. */
+
   z-index: 10000;
-  /* Never grow past the viewport. Cap to the space Radix measured between
-     the trigger and the collision boundary — that value already accounts
-     for collisionPadding, so there's breathing room from the top/bottom
-     edges — then scroll the item list internally. Keeps long menus (e.g.
-     the canvas switcher with many canvases) fully on-screen. */
+
   max-height: var(--radix-dropdown-menu-content-available-height, calc(100vh - 24px));
   overflow-y: auto;
   overflow-x: hidden;
-  /* Contain momentum/overscroll so a rubber-band at the list edge doesn't
-     bleed into the page behind the menu. */
+
   overscroll-behavior: contain;
-  /* Thin, app-consistent scrollbar (matches the sidebar lists). */
+
   scrollbar-width: thin;
   scrollbar-color: var(--border-weak) transparent;
 }
@@ -119,9 +106,6 @@
   color: var(--text-strong, var(--foreground));
 }
 
-/* Trailing chevron + value on a sub-trigger row. The trailing slot
-   reserves a right-aligned area for a current-value label so the row
-   reads as "Model · Stella Standard ›". */
 [data-slot="dropdown-menu-sub-trigger"] [data-slot="dropdown-menu-trailing"] {
   margin-left: auto;
   display: inline-flex;
@@ -168,10 +152,6 @@
   color: var(--text-weaker, var(--muted-foreground));
 }
 
-/* ── Variants ─────────────────────────────────────────────── */
-
-/* Destructive item (e.g. "Sign out"). Subtle red on hover so it's
-   visually distinct from neutral actions without screaming about it. */
 [data-slot="dropdown-menu-item"][data-variant="destructive"] {
   color: var(--text-base, var(--popover-foreground));
 }

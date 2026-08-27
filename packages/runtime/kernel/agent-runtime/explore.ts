@@ -1,20 +1,3 @@
-/**
- * Explore - per-task scout that reads ~/.stella/ before a General agent task runs.
- *
- * Stateless one-shot helper. Not a real subagent task: no SQLite thread, no
- * runtime_threads row, no run-events emitted, no UI surface. The result is
- * inlined into the General agent's first user message as an
- * <explore_findings>...</explore_findings> block.
- *
- * The Explore agent has only Read and Grep available. It is constrained by
- * its backend-synchronized system prompt (`~/.stella/agents/explore.md`) to
- * `~/.stella/` and to a strict JSON output shape.
- *
- * Failures are graceful: a 30-second timeout, a missing model route, or any
- * tool/LLM error all produce an `<explore_findings status="unavailable">`
- * block so the General agent still gets a clean prompt.
- */
-
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -227,11 +210,6 @@ export type RunExploreArgs = {
   signal?: AbortSignal;
 };
 
-/**
- * Run the Explore agent for a single task and return the wrapped
- * <explore_findings>...</explore_findings> block to prepend to the General
- * agent's first user message. Always returns a usable block; never throws.
- */
 export const runExplore = async (args: RunExploreArgs): Promise<string> => {
   const { context, conversationId, taskDescription, taskPrompt, signal } = args;
   if (signal?.aborted) {
@@ -255,9 +233,6 @@ export const runExplore = async (args: RunExploreArgs): Promise<string> => {
     return FALLBACK_FINDINGS;
   }
 
-  // Explore's whole job is skill selection, so it always gets the full catalog
-  // inline (not the placeholder) — that's why it can pick from the list instead
-  // of grepping the skills tree to rediscover what already has a description.
   try {
     const catalogBlock = await renderFullSkillCatalogBlock(context.stellaDataDir);
     if (catalogBlock.trim()) {

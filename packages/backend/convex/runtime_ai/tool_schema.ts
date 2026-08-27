@@ -21,7 +21,6 @@ const intersectRequired = (branches: Record<string, unknown>[]): string[] => {
   );
 };
 
-/** Keep provider-facing tool schemas compatible without changing validation. */
 export const normalizeProviderToolInputSchema = (
   schema: Record<string, unknown>,
 ): Record<string, unknown> => {

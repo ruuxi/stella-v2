@@ -7,18 +7,11 @@ import { ModelConfig, isModelConfigValueConfigured, resolveModelConfigHeaders, r
 import { ensurePrivateDirSync, writePrivateFileSync, } from "../kernel/shared/private-fs.js";
 const DEFAULT_CATALOG_BASE_URL = "https://pi.dev";
 const REMOTE_CATALOG_REFRESH_INTERVAL_MS = 4 * 60 * 60 * 1_000;
-// Per provider, measured from the moment that provider's request is dispatched
-// rather than from the start of the batch, so one slow endpoint cannot spend
-// the budget belonging to the providers queued behind it.
+
 const REMOTE_CATALOG_TIMEOUT_MS = 15_000;
-// Every provider catalog lives on the same origin, so firing all of them at
-// once just queues them in the connection pool while their deadlines run.
+
 const REMOTE_CATALOG_CONCURRENCY = 6;
-/**
- * A bare AbortError reads as "The operation was aborted." no matter why it
- * fired, which made a per-provider timeout indistinguishable from a refresh the
- * caller had torn down. Name the cause instead.
- */
+
 class CatalogRefreshCancelledError extends Error {
     constructor(providerId) {
         super(`Model catalog refresh for ${providerId} was cancelled`);
@@ -26,8 +19,7 @@ class CatalogRefreshCancelledError extends Error {
     }
 }
 const describeCatalogFetchFailure = (providerId, error, causes) => {
-    // A lifecycle teardown wins over the deadline: if both fired, the refresh was
-    // going away regardless and reporting a timeout would be misleading.
+
     if (causes.cancelled)
         return new CatalogRefreshCancelledError(providerId);
     if (causes.timeoutMs !== undefined) {
@@ -130,10 +122,7 @@ const createConfiguredModel = (providerId, provider, definition, transportDefaul
         },
         contextWindow: definition.contextWindow ?? metadataDefaults?.contextWindow ?? 128_000,
         maxTokens: definition.maxTokens ?? metadataDefaults?.maxTokens ?? 16_384,
-        // models.json header expressions remain credential-blind model metadata;
-        // they are resolved for each request by getConfiguredHeaders().
-        // Preserve only already-composed baseline headers for a same-ID model.
-        // models.json header expressions remain request-time-only below.
+
         headers: metadataDefaults?.headers
             ? { ...metadataDefaults.headers }
             : undefined,
@@ -177,8 +166,7 @@ export class ModelRuntime {
     catalogError;
     catalogBaseUrl = DEFAULT_CATALOG_BASE_URL;
     catalogRequestTimeoutMs = REMOTE_CATALOG_TIMEOUT_MS;
-    // Timestamp-derived sequence remains ordered across worker restarts while
-    // still allowing multiple registry changes inside one millisecond.
+
     revision = Date.now() * 1_000;
     snapshotFingerprint;
     catalogChangeListeners = new Set();
@@ -224,7 +212,7 @@ export class ModelRuntime {
             }
         }
         catch {
-            // Missing/corrupt cache falls back to the built-in catalog.
+
         }
     }
     writeStoredCatalogs() {
@@ -329,8 +317,7 @@ export class ModelRuntime {
                 listener(published);
             }
             catch {
-                // Registry writes must not fail because a detached host cannot receive
-                // its best-effort picker notification.
+
             }
         }
     }
@@ -393,7 +380,7 @@ export class ModelRuntime {
         let payload;
         try {
             response = await fetch(new URL(`/api/models/providers/${encodeURIComponent(providerId)}`, this.catalogBaseUrl), { headers: { accept: "application/json" }, signal });
-            // Reading the body can abort too, so it shares the request's deadline.
+
             payload = response.ok ? (await response.json()) : undefined;
         }
         catch (error) {
@@ -449,11 +436,7 @@ export class ModelRuntime {
         });
         return promise;
     }
-    /**
-     * Resolve one model from a provider catalog, fetching that provider only
-     * when the requested model is absent. This prevents a cold first turn from
-     * racing the broader startup catalog warm.
-     */
+
     async ensureProviderModel(providerId, modelIds) {
         const candidates = Array.from(new Set(modelIds.map((id) => id.trim()).filter(Boolean)));
         const findCandidate = () => {
@@ -484,10 +467,7 @@ export class ModelRuntime {
         this.recompose();
         return findCandidate();
     }
-    /**
-     * Refresh providers through a bounded pool so one slow endpoint does not
-     * stall or spend the request deadline of the providers behind it.
-     */
+
     async refreshProviders(providerIds, options) {
         const failures = [];
         let cursor = 0;
@@ -523,9 +503,7 @@ export class ModelRuntime {
             if (options.allowNetwork !== false) {
                 const providerIds = Array.from(new Set([...this.builtins.keys(), ...STELLA_RELAY_PROVIDERS])).filter((providerId) => providerId !== "local");
                 const failures = await this.refreshProviders(providerIds, options);
-                // A torn-down refresh is not a catalog failure. Report nothing rather
-                // than one scary line per provider that never got its turn, and leave
-                // the previous error in place as the last thing we actually learned.
+
                 if (options.signal?.aborted)
                     return;
                 const successCount = providerIds.length - failures.length;

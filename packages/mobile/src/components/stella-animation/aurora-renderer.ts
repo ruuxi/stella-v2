@@ -1,10 +1,3 @@
-// Renderer for the aurora star variant — the mobile half of the working
-// indicator's animation. Mirrors `desktop-ui/src/shell/aurora/renderer.ts`.
-//
-// Kept separate from `renderer.ts` (the ascii creature) because the star needs
-// no glyph atlas, character grid, or eye uniforms — just a screen-space quad
-// and the aurora's own uniforms.
-
 import type { ExpoWebGLRenderingContext } from "expo-gl";
 import { AURORA_STAR_SPIN_FRAGMENT } from "./aurora-shader";
 import { VERTEX_SOURCE, createProgram } from "./shader";
@@ -93,9 +86,7 @@ export const initAuroraRenderer = (
     speaking = 0,
     voiceEnergy = 0,
   ) => {
-    // expo-gl does not preserve GL state between `endFrameEXP()` calls the way
-    // browser WebGL does — re-bind program / buffer / viewport every frame,
-    // otherwise only the first frame draws and the surface freezes afterwards.
+
     gl.useProgram(program);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);

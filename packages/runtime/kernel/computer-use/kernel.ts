@@ -67,21 +67,10 @@ import {
 import type { ReplConnectClient } from "../connectors/connect-service.js";
 import { resolveToolFallbackCwd } from "../tools/cwd.js";
 
-// Browser protocol waits can deliberately run for ten minutes. Keep the
-// enclosing REPL cell alive slightly longer so a requested wait is not killed
-// by the historical five-minute outer evaluation ceiling.
 const DEFAULT_EVAL_TIMEOUT_MS = 11 * 60_000;
 const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 const DEFAULT_IDLE_TIMEOUT_MS = 4 * 60 * 60_000;
-/**
- * Upper bound on kernel/session teardown awaited inside the evaluate error
- * path. Disposal can touch the browser client transport and the computer-use
- * session daemon; if either is wedged, an unbounded await here
- * holds the evaluation's own timeout rejection hostage and the node_repl
- * tool call never returns (observed 2026-07-12: a hung Brave extension
- * bridge turned a 5-minute eval timeout into an indefinite tool hang).
- * Teardown keeps running in the background past this bound.
- */
+
 const DEFAULT_KERNEL_DISPOSE_TIMEOUT_MS = 10_000;
 const DEFAULT_COMPLETED_CELL_RETENTION_MS = 5 * 60_000;
 const DEFAULT_MAX_RETAINED_CELLS = 128;
@@ -119,7 +108,7 @@ export type NodeReplToolSearchResult = {
   name: string;
   signature: string;
   description?: string;
-  /** Exact JavaScript expression for this tool; uses brackets when needed. */
+
   access?: string;
   dotNotation?: boolean;
 };
@@ -139,9 +128,9 @@ export type NodeReplCellObservation = Readonly<{
   generation: number;
   status: "running" | "completed" | "failed";
   elapsedMs: number;
-  /** Exclusive cursor used for this observation's first content item. */
+
   fromCursor: number;
-  /** Monotonic cursor after the last returned content item. */
+
   cursor: number;
   output?: string;
   content?: readonly NodeReplContentItem[];
@@ -164,16 +153,13 @@ export type NodeReplKernelManagerOptions = {
   evalTimeoutMs?: number;
   commandTimeoutMs?: number;
   idleTimeoutMs?: number;
-  /**
-   * Bounded settlement deadline for nested `tools.*` calls a cell started
-   * without awaiting (see `DEFAULT_NODE_REPL_TOOL_DRAIN_TIMEOUT_MS`).
-   */
+
   toolDrainTimeoutMs?: number;
-  /** Bound on teardown awaited in the evaluate error path (tests only). */
+
   disposeTimeoutMs?: number;
-  /** TTL for completed yielded cells retained for repeatable cursor reads. */
+
   cellRetentionMs?: number;
-  /** LRU bound for completed yielded cells retained by this registry. */
+
   maxRetainedCells?: number;
   executeTool?: (
     toolName: string,
@@ -182,20 +168,9 @@ export type NodeReplKernelManagerOptions = {
     signal?: AbortSignal,
     onUpdate?: ToolUpdateCallback,
   ) => Promise<ToolResult>;
-  /**
-   * Host-side implementation of the in-REPL frozen `connect` client
-   * (third-party app integrations: discover/connectors/actions/schema/
-   * call). Dispatched by the kernel from worker `connect-call` messages;
-   * thrown Errors are serialized back so REPL code sees them as rejects.
-   */
+
   connectClient?: ReplConnectClient;
-  /**
-   * Host-side handler for the in-REPL `tools.$search({ query })` intrinsic.
-   * Runs over the live tool catalog scoped to the calling context and
-   * returns full callable signatures. Intercepted by the kernel before the
-   * per-context allowlist gate, so it never needs to appear in
-   * `allowedToolNames`.
-   */
+
   searchTools?: (
     query: string,
     context: ToolContext,
@@ -219,9 +194,9 @@ export type EvaluateOptions = {
   signal?: AbortSignal;
   onToolResult?: (result: ToolResult) => void;
   onToolUpdate?: ToolUpdateCallback;
-  /** UI-only response metadata; excluded from model-facing REPL output. */
+
   onResponseMeta?: (meta: BrowserUseResponseMeta) => void;
-  /** Ordered typed output as the worker emits it. Cursor starts at one. */
+
   onContent?: (item: NodeReplContentItem, cursor: number) => void;
 };
 
@@ -240,11 +215,6 @@ class KernelTerminatedError extends Error {
   }
 }
 
-/**
- * Error name the worker assigns to uncaught async throws surfaced through the
- * REPL's output stream (see the inline literal in `kernel-worker.ts`, which is
- * serialized into the worker source and cannot share this constant).
- */
 const NODE_REPL_UNCAUGHT_ERROR_NAME = "NodeReplUncaughtError";
 
 const BLOCKED_NODE_MODULE_RE =
@@ -413,12 +383,7 @@ const READ_ONLY_BROWSER_ACTIONS = new Set([
   "wait",
   "waitforurl",
 ]);
-/**
- * Successful commands that warrant one UI-only post-cell screenshot. This is
- * intentionally a positive allowlist matching ChatGPT's browser client: DOM
- * reads/evaluate/network calls, hover/focus, uploads, and failures do not
- * capture. A cell with several visual commands captures only after the last.
- */
+
 const BROWSER_PRESENTATION_ACTIONS = new Set([
   "tab_close",
   "click",
@@ -438,7 +403,7 @@ const BROWSER_PRESENTATION_ACTIONS = new Set([
   "reload",
   "dialog",
   "download",
-  // Raw CUA equivalents retained for protocol parity if surfaced later.
+
   "input_keyboard",
   "input_mouse",
   "keyboard",
@@ -448,18 +413,12 @@ const BROWSER_PRESENTATION_ACTIONS = new Set([
 ]);
 const BROWSER_PRESENTATION_TIMEOUT_MS = 10_000;
 const MAX_BROWSER_SCREENSHOT_FILES_PER_KERNEL = 100;
-/**
- * Tools never exposed inside the REPL's `tools` object. `$`-prefixed names
- * need no entry here: the host rejects them at registration, and the worker
- * filters them from every refresh, so nothing can shadow the built-in
- * `tools.$search`.
- */
+
 export const NODE_REPL_EXCLUDED_TOOL_NAMES: ReadonlySet<string> = new Set([
   "node_repl",
   "multi_tool_use_parallel",
 ]);
 
-/** Current REPL-visible tool names for a context (exclusions applied). */
 const replToolNamesForContext = (context: ToolContext): string[] =>
   [...new Set(context.allowedToolNames ?? [])].filter(
     (name) => !NODE_REPL_EXCLUDED_TOOL_NAMES.has(name) && !name.startsWith("$"),
@@ -568,13 +527,6 @@ type ExternalNodeReplTransportOptions = Readonly<{
   spawnProcess?: typeof spawn;
 }>;
 
-/**
- * Bun cannot host the hardened REPL in-process, so production starts the
- * bundled Node runtime and streams the worker source over stdin. ChildProcess
- * `error` events do not cover errors emitted by the separate stdin Socket:
- * when a Windows child closes during bootstrap, an unobserved stdin EPIPE is
- * otherwise fatal to the detached runtime worker.
- */
 export const createExternalNodeReplTransport = (
   source: string,
   workerData: NodeReplWorkerData,
@@ -607,9 +559,6 @@ export const createExternalNodeReplTransport = (
     for (const listener of errorListeners) listener(error);
   };
 
-  // Install both guards before writing any source. `child.on("error")` handles
-  // spawn/IPC failures; stdin is its own EventEmitter and needs a distinct
-  // listener for asynchronous EPIPE/ECONNRESET failures.
   child.on("error", forwardError);
   child.stdin?.on("error", forwardError);
   try {
@@ -952,9 +901,7 @@ class NodeReplKernel {
         }
       }
       try {
-        // Ship the current allowed tool names with every evaluate so the
-        // worker's `tools` object tracks tools added or removed mid-session
-        // (the frozen construction-time list went stale otherwise).
+
         this.post({
           type: "evaluate",
           evaluationId: id,
@@ -1044,7 +991,7 @@ class NodeReplKernel {
       try {
         active.onContent?.(typed.item, typed.cursor);
       } catch {
-        // Streaming observers are diagnostic only and cannot change execution.
+
       }
       return;
     }
@@ -1104,10 +1051,7 @@ class NodeReplKernel {
         return;
       }
       if (error.name === NODE_REPL_UNCAUGHT_ERROR_NAME) {
-        // The worker's REPL caught an uncaught async throw via its domain and
-        // abandoned the in-flight evaluation; the REPL cannot be safely
-        // reused. Terminate so the registry disposes this kernel's session
-        // and the next evaluate starts a fresh kernel.
+
         void this.completeEvaluation(
           active,
           active.content,
@@ -1207,11 +1151,6 @@ class NodeReplKernel {
     }
   }
 
-  /**
-   * Per-method argument shape check before touching the client. The worker
-   * installer already validates for cooperative callers; this is the
-   * protocol-boundary defense against handcrafted messages.
-   */
   private dispatchConnectCall(
     client: ReplConnectClient,
     method: ConnectMethod,
@@ -1604,10 +1543,6 @@ class NodeReplKernel {
       return;
     }
 
-    // `tools.$search` is a kernel intrinsic, resolved host-side over the
-    // live tool catalog BEFORE the per-context allowlist gate: demoted
-    // tools are deliberately absent from the model's direct list, and the
-    // search surface is how the REPL discovers them.
     if (message.toolName === NODE_REPL_TOOL_SEARCH_NAME) {
       try {
         if (!this.searchTools) {
@@ -1882,7 +1817,7 @@ class NodeReplKernel {
     try {
       active.onResponseMeta?.(meta);
     } catch {
-      // UI metadata must never change the tool's success/error outcome.
+
     }
   }
 
@@ -1912,10 +1847,7 @@ class NodeReplKernel {
     if (!presentation) return;
     const tabs = tabState?.tabs ?? [];
     const activeTab = tabs.find((tab) => tab.tabId === tabState?.activeTabId);
-    // ChatGPT treats an explicitly targeted visual action as authoritative:
-    // if that target vanished, capture fails best-effort rather than silently
-    // showing another tab. Closing a tab is the exception and intentionally
-    // selects the surviving active tab.
+
     const screenshotTab =
       presentation.action === "tab_close"
         ? (activeTab ?? tabs[0])
@@ -1955,7 +1887,7 @@ class NodeReplKernel {
           };
         }
       } catch {
-        // ChatGPT treats this capture as best-effort response metadata.
+
       }
     }
     const visibleUrl = screenshotTab?.url
@@ -1986,16 +1918,12 @@ class NodeReplKernel {
     const needsPresentation =
       Boolean(active.onResponseMeta) &&
       (activity.terminalLifecycle || Boolean(activity.presentationAction));
-    // The submitted cell itself has completed. From here ChatGPT gives the
-    // UI-only presentation hook its own ten-second budget rather than racing
-    // it against whatever remained of the REPL evaluation deadline.
+
     if (needsPresentation) clearTimeout(active.timeout);
     const content: NodeReplContentItem[] = [...(workerContent ?? [])];
     if (!error) {
       for (const attachment of activity.screenshotAttachments) {
-        // Ownership of kernel-created screenshot files transfers to the outer
-        // tool adapter before reset/close starts. The adapter acknowledges the
-        // transfer by deleting the file only after it has read the bytes.
+
         if (attachment.deleteAfterAttach) {
           this.browserScreenshotPaths.delete(attachment.path);
         }
@@ -2223,9 +2151,7 @@ const waitForCellChange = async (
         cell.cursor > afterCursor &&
         !contentImmediate
       ) {
-        // A return value is immediately followed by its terminal message on
-        // the worker channel. Give that next message one event-loop turn so a
-        // completed cell is not spuriously reported as running.
+
         contentImmediate = setImmediate(settle);
         contentImmediate.unref?.();
       }
@@ -2679,19 +2605,14 @@ export class NodeReplKernelRegistry {
           () => undefined,
         );
       } catch {
-        // Session cleanup must not mask the evaluation or shutdown outcome.
+
       }
     }
     if (this.kernels.get(id) === kernel) this.kernels.delete(id);
     const teardown = Promise.allSettled([kernelClose, sessionCleanup]).then(
       () => undefined,
     );
-    // Never let a wedged teardown (hung browser bridge dispose, stuck
-    // session daemon) block the caller: `evaluate` awaits this before
-    // rethrowing a KernelTerminatedError, so an unbounded wait here would
-    // swallow the eval timeout and hang the node_repl tool call forever.
-    // The registry entry is already deleted, so a follow-up evaluate gets a
-    // fresh kernel while teardown finishes in the background.
+
     let deadline: NodeJS.Timeout | undefined;
     return Promise.race([
       teardown,

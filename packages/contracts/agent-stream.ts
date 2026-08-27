@@ -19,7 +19,7 @@ export type AgentStreamEvent = {
   type: AgentStreamEventType;
   runId: string;
   seq: number;
-  /** Runtime-recorder sequence retained when the main process re-sequences IPC. */
+
   sourceSeq?: number;
   conversationId?: string;
   requestId?: string;
@@ -32,7 +32,7 @@ export type AgentStreamEvent = {
   toolName?: string;
   args?: Record<string, unknown>;
   resultPreview?: string;
-  /** Absent only on historical tool-end events. */
+
   isError?: boolean;
   details?: unknown;
   error?: string;
@@ -50,18 +50,12 @@ export type AgentStreamEvent = {
   reason?: string;
   replacedByRunId?: string;
   responseTarget?: AgentResponseTarget;
-  /** Working mode captured when the run began; stable for the whole turn. */
+
   workingMode?: AssistantWorkingMode;
-  /** Canonical SQLite row persisted for an `ASSISTANT_MESSAGE` boundary. */
+
   assistantMessageEventId?: string;
-  /** Canonical text for the finalized message; provider deltas are optimistic. */
+
   assistantMessageText?: string;
-  /**
-   * On an `ASSISTANT_MESSAGE` boundary: true when the message that just
-   * finalized ends with a tool call, i.e. it is an interim/preamble message
-   * rather than the run's final answer. The renderer keeps the working
-   * indicator up (instead of handing off to the painted preamble text)
-   * across the gap between this message and the tool it precedes.
-   */
+
   followedByToolCall?: boolean;
 };

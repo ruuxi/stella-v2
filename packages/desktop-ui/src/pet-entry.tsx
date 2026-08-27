@@ -23,15 +23,6 @@ const IDLE_PET_STATUS: PetOverlayStatus = {
   isLoading: false,
 };
 
-/**
- * Pet window React tree.
- *
- * The pet runs in its own small dedicated `BrowserWindow` (rather than
- * inside the screen-spanning overlay) so the OS-level click-through
- * problem disappears: clicks within the window's bounds go to the pet,
- * clicks outside the bounds go to whatever app is below — no
- * `setIgnoreMouseEvents` toggling required.
- */
 export function PetWindowRoot() {
   const [open, setOpen] = useState(true);
   const [status, setStatus] = useState<PetOverlayStatus>(IDLE_PET_STATUS);

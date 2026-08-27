@@ -1,10 +1,3 @@
-/**
- * Dictation IPC handlers.
- *
- * Owns global speech-to-text dictation. Option/Alt is handled as push-to-talk
- * through the low-level input hook; other configured shortcuts use Electron's
- * toggle-style globalShortcut path.
- */
 import { app, BrowserWindow, clipboard, ipcMain, screen, systemPreferences, } from "electron";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
@@ -117,13 +110,7 @@ export const registerDictationHandlers = (options) => {
     const { windowManager } = options;
     let currentShortcut = "";
     let activeOverlaySessionId = null;
-    /**
-     * When set, the active overlay session's transcript is delivered to
-     * Stella's chat (via IPC_PET_SEND_MESSAGE) instead of being pasted
-     * into whatever app is in the foreground. Used by the pet's mic
-     * action button so a click → dictate → auto-send-to-Stella round-trip
-     * lands the spoken text in chat regardless of which app is focused.
-     */
+
     let activeOverlayRoute = "paste";
     let pendingInAppStartId = null;
     let activePushToTalk = null;
@@ -244,8 +231,7 @@ export const registerDictationHandlers = (options) => {
         });
     };
     const pickFocusedStellaWindow = () => {
-        // Gate on Stella being active so dictation while another app is in the
-        // foreground routes through the OS-wide overlay instead.
+
         if (process.platform === "darwin" && !app.isActive())
             return null;
         const focused = BrowserWindow.getFocusedWindow();
@@ -291,7 +277,7 @@ export const registerDictationHandlers = (options) => {
         const workArea = display.workArea;
         return {
             x: workArea.x + Math.round(workArea.width / 2),
-            // Anchor sits at pill center (`translate(-50%, -50%)`); tuck tight above the dock.
+
             y: workArea.y + workArea.height - 24,
         };
     };
@@ -665,8 +651,7 @@ export const registerDictationHandlers = (options) => {
         if (!text)
             return;
         if (route === "stella-chat") {
-            // Pet mic flow: deliver transcript to Stella's chat instead of
-            // pasting into the foreground app.
+
             const fullWindow = windowManager.getFullWindow();
             if (fullWindow && !fullWindow.isDestroyed()) {
                 fullWindow.webContents.send("pet:sendMessage", text);
@@ -685,14 +670,7 @@ export const registerDictationHandlers = (options) => {
         hideOverlaySession(payload.sessionId);
         console.warn("[dictation] overlay dictation failed:", payload.error);
     });
-    /**
-     * Start an overlay dictation session whose transcript routes to
-     * Stella's chat instead of pasting. Used by the pet's mic action
-     * button so a click → speak → auto-send round-trip lands the
-     * transcript as a chat message regardless of the foreground app.
-     * Toggling while a session is active stops it (same UX as the
-     * default overlay session toggle).
-     */
+
     const startPetDictation = () => {
         if (activeOverlaySessionId) {
             stopOverlaySession();

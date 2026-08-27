@@ -6,7 +6,6 @@ export const isTopLevelActivityShimmerEligible = (
   isTopLevel: boolean,
 ): boolean => isTopLevel && task.status === "running";
 
-/** Shimmer every visible, running top-level Activity row. */
 export function ActivityTaskShimmer({
   task,
   text,

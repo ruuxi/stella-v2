@@ -1,14 +1,5 @@
 import { uiState } from "@/platform/ui-state";
 
-/**
- * Recently used assistant models, persisted across sessions. The sidebar
- * model popover surfaces the freshest few so switching back and forth
- * between a user's usual models is one click.
- *
- * Stored newest-first as override ids (`stella/<mode>`,
- * `openrouter/<model>`, `claude-code/<model>`, …). The empty-string
- * "default" pick is never recorded — the Default row is always present.
- */
 const STORAGE_KEY = "stella:recent-models";
 const MAX_STORED = 8;
 
@@ -31,7 +22,7 @@ const writeRecentModels = (next: string[]): void => {
   try {
     uiState.setItem(STORAGE_KEY, JSON.stringify(next));
   } catch {
-    // Recents are a convenience; ignore storage failures.
+
   }
 };
 
@@ -46,11 +37,6 @@ export const recordRecentModel = (modelId: string): string[] => {
   return next;
 };
 
-/**
- * Drop persisted recents that no longer resolve to a selectable model
- * (provider disconnected, catalog entry removed, local model deleted).
- * Returns the surviving list; persists only when something was pruned.
- */
 export const pruneRecentModels = (
   isKnownModelId: (modelId: string) => boolean,
 ): string[] => {
@@ -60,33 +46,12 @@ export const pruneRecentModels = (
   return next;
 };
 
-/**
- * Namespaces whose model-id space is open-ended, so a typed custom id is
- * valid WITHOUT appearing in the merged catalog. Pass-through gateways
- * (OpenRouter, Vercel AI Gateway) accept arbitrary `<vendor>/<model>` slugs
- * the baked/pi.dev-fed catalog has never heard of (stealth models are the
- * canonical case), and `local/…` ids name user-configured local servers.
- * Mirrors the runtime resolver's open-ended gateway set in
- * `runtime/kernel/model-routing-matching.ts`, which synthesizes a route for
- * exactly these ids.
- */
 const OPEN_ENDED_ID_PREFIXES = [
   "openrouter/",
   "vercel-ai-gateway/",
   "local/",
 ] as const;
 
-/**
- * Availability predicate for override ids. `catalogModelIds` must cover the
- * FULL merged catalog (Stella + connected BYOK providers + local models) —
- * validating against the Stella subset alone would prune perfectly valid
- * `openrouter/…` / `anthropic/…` / `local/…` picks. Engine ids
- * (`claude-code/…`, `codex-cli/…`) are aliases resolved by the engine at
- * run time, and open-ended-namespace ids are valid by construction, so both
- * stay valid independent of the catalog. An empty id set means the catalog
- * hasn't loaded (or failed, e.g. offline): everything passes — never wipe
- * or grey out recents on missing data.
- */
 export const createKnownModelIdPredicate = (
   catalogModelIds: ReadonlySet<string>,
 ): ((modelId: string) => boolean) => {
@@ -107,20 +72,10 @@ export const createKnownModelIdPredicate = (
 
 export interface RecentModelRow {
   id: string;
-  /**
-   * True when the id no longer resolves against the live catalog. Only
-   * the pinned current selection renders in this state (so the user sees
-   * what's configured); stale non-current recents are dropped outright.
-   */
+
   unavailable?: boolean;
 }
 
-/**
- * Pure selection logic for the popover's Recent section: the current
- * selection first (kept visible even when stale, flagged unavailable),
- * then the freshest known recents, minus ids the caller already renders
- * (Stella presets) and duplicates.
- */
 export const buildRecentModelRows = (args: {
   currentId: string;
   recentIds: readonly string[];

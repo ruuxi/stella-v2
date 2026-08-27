@@ -1,12 +1,3 @@
-/**
- * Plan & usage — one dialog for everything money- and quota-shaped, opened
- * from the account menu.
- *
- * Two tabs rather than one long scroll: "Plan" is a decision surface
- * (what you're on, what else costs what) and "Usage" is an analytics
- * surface (what you've spent locally). Stacking them made the second one
- * feel like a footnote and buried the plan cards behind a scroll.
- */
 import { lazy, Suspense, useState } from "react";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import {
@@ -52,8 +43,8 @@ export function PlanUsageDialog({ open, onOpenChange }: PlanUsageDialogProps) {
         className="plan-usage-dialog"
         aria-describedby={undefined}
       >
-        {/* The tabs name the surface, so the title would only repeat them.
-            Keep it for the accessible name and give the row to the tabs. */}
+        {
+}
         <DialogHeader className="plan-usage-dialog__header">
           <VisuallyHidden asChild>
             <DialogTitle>Plan &amp; usage</DialogTitle>

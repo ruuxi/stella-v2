@@ -1,8 +1,3 @@
-// window_info - Returns JSON info about the window at a given screen point
-// Usage: window_info <x> <y> [--exclude-pids=1,2,3] [--screenshot=path.png] [--set-bounds=x,y,w,h]
-// Build: swiftc -O -o window_info src/window_info.swift -framework CoreGraphics -framework AppKit
-// Output: {"title":"...","process":"...","pid":123,"bounds":{"x":0,"y":0,"width":800,"height":600}}
-
 import AppKit
 import ApplicationServices
 import CoreGraphics
@@ -72,10 +67,6 @@ func escapeJson(_ s: String) -> String {
     return out
 }
 
-/// Topmost on-screen window containing `point`, as a JSON object string
-/// (`{title,process,pid,bounds}`) or nil. Shares the same layer-0 / area /
-/// exclude-pid filtering as the CLI path, and is shared by the one-shot and
-/// `--serve` daemon entrypoints.
 func windowJson(at point: CGPoint, in windowList: [[String: Any]], excludedPids: Set<Int>) -> String? {
     for window in windowList {
         guard let boundsDict = window[kCGWindowBounds as String] as? [String: CGFloat],
@@ -223,13 +214,6 @@ func setAXWindowBounds(pid: Int, title: String, oldBounds: CGRect, newBounds: CG
     return (moved, axFrame(window))
 }
 
-// Persistent daemon: `window_info --serve` answers point queries over
-// stdin/stdout so the desktop avoids a process spawn (Swift + framework load,
-// ~40ms each) per hover probe. Read-only only — screenshots and
-// --set-bounds stay one-shot (they need ScreenCaptureKit / AX side effects).
-// Protocol mirrors the Windows daemon:
-//   request:  <id>\t<token>\t<token>...   (tokens mirror the one-shot CLI)
-//   response: <id>\t<json>\n
 func serveResponse(forTokens tokens: [String]) -> String {
     let slice = tokens[...]
     let excludedPids = parseExcludedPids(slice)
@@ -258,8 +242,7 @@ func serveResponse(forTokens tokens: [String]) -> String {
 }
 
 if CommandLine.arguments.count >= 2, CommandLine.arguments[1] == "--serve" {
-    // stdout is block-buffered when piped; make it unbuffered so each response
-    // reaches the desktop client immediately instead of timing out.
+
     setvbuf(stdout, nil, _IONBF, 0)
     while let line = readLine(strippingNewline: true) {
         if line.isEmpty { continue }
@@ -287,7 +270,6 @@ let excludedPids = parseExcludedPids(extraArgs)
 let screenshotPath = parseScreenshotPath(extraArgs)
 let setBounds = parseSetBounds(extraArgs)
 
-// Get all on-screen windows (excluding desktop elements)
 guard let windowList = CGWindowListCopyWindowInfo(
     [.optionOnScreenOnly, .excludeDesktopElements],
     kCGNullWindowID
@@ -296,7 +278,6 @@ guard let windowList = CGWindowListCopyWindowInfo(
     exit(0)
 }
 
-// Find the topmost window whose bounds contain the point
 for window in windowList {
     guard let boundsDict = window[kCGWindowBounds as String] as? [String: CGFloat],
           let wx = boundsDict["X"],
@@ -307,7 +288,6 @@ for window in windowList {
     let rect = CGRect(x: wx, y: wy, width: ww, height: wh)
     guard rect.contains(point) else { continue }
 
-    // Skip windows with zero area or non-zero layer (Dock=20, MenuBar=24, StatusItems=25, etc.)
     guard ww > 0, wh > 0 else { continue }
     if let layer = window[kCGWindowLayer as String] as? Int, layer != 0 { continue }
 
@@ -338,7 +318,6 @@ for window in windowList {
     """
     print(json.trimmingCharacters(in: .whitespacesAndNewlines))
 
-    // Capture screenshot if requested (ScreenCaptureKit replaces deprecated CGWindowListCreateImage)
     if let ssPath = screenshotPath, windowID != 0 {
         let captureWidth = Int(ww)
         let captureHeight = Int(wh)

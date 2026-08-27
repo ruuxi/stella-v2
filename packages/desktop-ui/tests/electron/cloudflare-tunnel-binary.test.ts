@@ -43,8 +43,7 @@ describe("CloudflareTunnelService binary resolution", () => {
   });
 
   it("installs into the configured app-data directory rather than the packaged default", async () => {
-    // The packaged default lives inside the read-only `app.asar`, so it can be
-    // neither found nor written; a configured dir is the only workable target.
+
     const target = path.join(binDir, "nested");
     const service = createService(() => target);
 

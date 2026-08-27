@@ -26,8 +26,6 @@ import {
 import { SessionStore } from "@stella/runtime/kernel/storage/session-store";
 import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 
-// The architectural pipeline's synthesis pass runs through completeSimple;
-// these tests script its one light-tier call.
 vi.mock("@stella/runtime/ai/stream", () => ({
   completeSimple: vi.fn(),
   readAssistantText: vi.fn(() => ""),
@@ -479,10 +477,7 @@ describe("architectural Recall pipeline", () => {
   });
 
   it("records usage feedback through the REAL store when thread evidence is surfaced", async () => {
-    // Regression for the phases-1-3 gate finding: the mocked stores masked
-    // that v2's DreamInboxStore lacked findThreadSummariesByThreadIds, so
-    // delegated-thread Recall crashed on the real SessionStore. This test
-    // runs the whole delegated-work fast path with NO mocks.
+
     const root = await createRoot();
     const db = new DatabaseSync(getDesktopDatabasePath(root), {
       timeout: 5000,
@@ -530,10 +525,9 @@ describe("architectural Recall pipeline", () => {
         },
       });
 
-      // The delegated-work fast path answers directly from indexed evidence.
       expect(brief).toContain(thread.threadId);
       expect(brief).toContain("Zanzibar dashboard rebuild");
-      // Usage feedback landed on the real dream inbox row.
+
       const [summary] = store.dreamInboxStore.findThreadSummariesByThreadIds([
         thread.threadId,
       ]);
@@ -549,10 +543,7 @@ describe("architectural Recall pipeline", () => {
   });
 
   it("escalates a durable-classified miss through the full sweep and synthesis", async () => {
-    // Pangram-style regression: the evidence exists ONLY in past delegated
-    // threads, but the intent classifier routes the prompt to the durable
-    // lane. The old pipeline searched curated memory only, hard-returned
-    // no_match with fastPath:true, and never ran the documented fallback.
+
     const root = await createRoot();
     const store = makeStore() as any;
     store.searchThreads.mockReturnValue([
@@ -585,14 +576,11 @@ describe("architectural Recall pipeline", () => {
       },
     });
 
-    // The widened sweep surfaced the thread and the light-tier synthesis pass
-    // ran exactly once — never a deterministic no_match.
     expect(brief).toContain("pangram-detector-v1");
     expect(brief).toContain("Pangram image detection model");
     expect(store.searchThreads).toHaveBeenCalledTimes(1);
     expect(records[0]).toMatchObject({ modelCalls: 0, fastPath: true });
-    // The durable lane's miss cascaded into the delegated-work sweep instead
-    // of hard-returning no_match — the pangram regression is closed.
+
     expect(metadata?.fastPath).toBe(true);
   });
 

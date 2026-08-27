@@ -29,8 +29,7 @@ export const createBootstrapServices = (options) => {
             }
             options.getMobileBroadcast()?.("localChat:updated", payload ?? null);
         },
-        // Mobile-only: desktop windows maintain their own decoration stores from
-        // the live stream; the bridge snapshot exists for the phone's benefit.
+
         onTaskDecorationUpdated: (payload) => {
             options.getMobileBroadcast()?.("localChat:taskDecorationUpdated", payload);
         },
@@ -42,11 +41,7 @@ export const createBootstrapServices = (options) => {
     else {
         externalLinkService.trustFileRendererRoot(resolveRendererRoot(config.electronDir));
     }
-    // A canvas-share link (`<CANVAS_SHARE_BASE_URL>/c/<slug>`) clicked/opened
-    // inside Stella is fetched + materialized in main and pushed to the Canvas
-    // panel via the existing `display:update` path, instead of bouncing out to
-    // the system browser. Returns true so the external-link funnel skips the
-    // browser open. No-ops when the share domain has not been configured.
+
     externalLinkService.setCanvasShareHandler((url) => {
         const baseUrl = readConfiguredCanvasShareBaseUrl();
         if (!baseUrl || !isCanvasShareUrl(url, baseUrl))
@@ -72,9 +67,7 @@ export const createBootstrapServices = (options) => {
         windowManagerTarget: lifecycle,
     });
     let connectorCredentialService = null;
-    // NOTE: setPreventComputerSleep is applied post-appReady in
-    // registerBootstrapIpcHandlers (ipc.ts) so the first preferences.json read
-    // and the power toggle don't run on the synchronous pre-paint path.
+
     const authService = new AuthService({
         authProtocol: config.authProtocol,
         isDev: config.isDev,

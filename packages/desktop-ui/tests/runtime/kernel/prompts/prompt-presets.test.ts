@@ -27,7 +27,6 @@ const tempDir = async (prefix: string) => {
   return root;
 };
 
-/** A bundled agent-metadata dir standing in for the shipped app bundle. */
 const tempBundle = async () => {
   const dir = await tempDir("prompt-preset-bundle-");
   process.env.STELLA_AGENT_METADATA_DIR = dir;
@@ -70,7 +69,7 @@ describe("prompt preset store", () => {
     await expect(
       readPromptPreset(home, "orchestrator", "my-prompt"),
     ).resolves.toMatchObject({ name: "My Prompt", content: "be terse" });
-    // Presets are per-agent.
+
     await expect(listPromptPresets(home, "general")).resolves.toEqual([]);
 
     await expect(
@@ -144,7 +143,7 @@ describe("prompt preset store", () => {
 
   it("maps agent types to a selection owner", () => {
     expect(promptSelectionAgentId("orchestrator")).toBe("orchestrator");
-    // Both working-mode variants share one selection.
+
     expect(promptSelectionAgentId("orchestrator-orchestrated")).toBe(
       "orchestrator",
     );
@@ -168,7 +167,7 @@ describe("prompt resolution", () => {
       name: "Mine",
       content: "my custom prompt",
     });
-    // Saving alone changes nothing — selection is what switches it.
+
     await expect(loadAgentSystemPrompt("orchestrator", home)).resolves.toBe(
       "shipped orchestrator prompt",
     );
@@ -179,11 +178,10 @@ describe("prompt resolution", () => {
       "my custom prompt",
     );
 
-    // The selection also applies to the orchestrated working-mode variant…
     await expect(
       loadAgentSystemPrompt("orchestrator-orchestrated", home),
     ).resolves.toBe("my custom prompt");
-    // …but never to an agent that isn't customizable.
+
     await expect(loadAgentSystemPrompt("general", home)).resolves.toBe(
       "shipped general prompt",
     );
@@ -218,7 +216,6 @@ describe("prompt resolution", () => {
     });
     setPromptPresetSelection(home, "orchestrator", "mine");
 
-    // An app update rewrites the bundled prompt; the preset file is untouched.
     await new Promise((resolve) => setTimeout(resolve, 20));
     await writeFile(
       path.join(bundle, "orchestrator.md"),

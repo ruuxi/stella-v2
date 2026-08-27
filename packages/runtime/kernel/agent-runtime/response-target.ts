@@ -1,7 +1,5 @@
 import type { RuntimeAgentEventPayload } from "@stella/contracts/protocol";
 
-// Sub-agent management tool names. These all share the same task ids and
-// `thread_id`-shaped payloads.
 const TASK_TOOL_NAMES = new Set(["spawn_agent", "send_input", "pause_agent"]);
 
 const isSpawnName = (toolName: string): boolean => toolName === "spawn_agent";
@@ -46,8 +44,7 @@ const getTaskIdFromToolDetails = (
       asTaskId(record.thread_id) ??
       getTaskIdFromArgsLike(record.result) ??
       getTaskIdFromArgsLike(record.details) ??
-      // Some task surfaces return the snapshot inline; fall back to the raw
-      // record when that happens.
+
       asTaskId(record.threadId) ??
       asTaskId(record.id)
     );

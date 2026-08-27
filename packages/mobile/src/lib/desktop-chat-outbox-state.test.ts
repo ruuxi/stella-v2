@@ -50,8 +50,6 @@ describe("chat durable outbox", () => {
       return record.userMessageId;
     };
 
-    // Persisted before send, close during send, acceptance/ack loss, ack before
-    // cleanup, and unlimited reconnect replay all deliver the same record.
     const record = outbox[0]!;
     for (let replay = 0; replay < 20; replay += 1) {
       expect(accept(record)).toBe("send-1");

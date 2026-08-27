@@ -104,12 +104,6 @@ export type ComputerRecentModel = {
 
 export type ComputerModelSettings = ReturnType<typeof useComputerModelSettings>;
 
-/**
- * Backs the Computer chat's model row: fetches the Stella catalog for the tray
- * and keeps the floating "Model" row's label in sync with the desktop. The
- * label is cached in AsyncStorage so the menu shows the current model instantly
- * without a desktop round-trip; the tray reconciles it via `syncFromSnapshot`.
- */
 export function useComputerModelSettings(access: StoredPhoneAccess | null) {
   const [catalog, setCatalog] = useState<StellaCatalog>(EMPTY_CATALOG);
   const [selectedModelLabel, setSelectedModelLabel] = useState("Stella");
@@ -129,7 +123,7 @@ export function useComputerModelSettings(access: StoredPhoneAccess | null) {
       try {
         setRecentIds(normalizeRecents(JSON.parse(raw)));
       } catch {
-        // Ignore a stale/corrupt cache; the next successful selection repairs it.
+
       }
     });
     void fetchStellaCatalog().then((next) => {
@@ -160,7 +154,6 @@ export function useComputerModelSettings(access: StoredPhoneAccess | null) {
     });
   }, []);
 
-  // Reconcile the cached label and mini picker with a fresh desktop snapshot.
   const syncFromSnapshot = useCallback(
     (nextSnapshot: DesktopModelSnapshot) => {
       setSnapshot(nextSnapshot);
@@ -186,9 +179,7 @@ export function useComputerModelSettings(access: StoredPhoneAccess | null) {
   useEffect(() => {
     setSnapshot(null);
     if (access) void refresh().catch(() => undefined);
-    // Access identity is the refresh boundary; `refresh` also changes with its
-    // loading latch and must not turn one load into a loop.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [access?.desktopDeviceId]);
 
   const applyPatch = useCallback(
@@ -231,10 +222,7 @@ export function useComputerModelSettings(access: StoredPhoneAccess | null) {
   const selectRecentModel = useCallback(
     (routeId: string) => {
       if (!snapshot) return;
-      // Recents span every engine/provider, so route by the recent id's own
-      // family — not the active engine — and switch `agentRuntimeEngine` as
-      // needed. Mirrors desktop's `buildRecentModelSelectionPatch`, where a
-      // recent pick implies its engine.
+
       const family = routeFamily(routeId);
       let patch: DesktopModelPrefsPatch | null = null;
       if (family === "codex") {
@@ -276,10 +264,6 @@ export function useComputerModelSettings(access: StoredPhoneAccess | null) {
     [applyPatch, catalog.agentKeys, snapshot],
   );
 
-  // Mirrors desktop's MiniModelPicker (`buildRecentModelRows`): the current
-  // selection first, then the freshest recents across ALL engines/providers
-  // (Stella, Codex, Claude Code, BYOK), deduped and capped. Desktop does NOT
-  // gate the recents to the active engine, so neither do we.
   const recentModels = useMemo<ComputerRecentModel[]>(() => {
     if (!snapshot) return [];
     const currentId = routeIdForSnapshot(snapshot);
@@ -293,8 +277,6 @@ export function useComputerModelSettings(access: StoredPhoneAccess | null) {
       }));
   }, [catalog, recentIds, snapshot]);
 
-  // Only an explicit desktop "off" hides model surfaces: `null` (no snapshot
-  // yet) and older desktops without the flag keep them visible.
   const developerModeEnabled = snapshot ? snapshot.developerModeEnabled : null;
 
   return {

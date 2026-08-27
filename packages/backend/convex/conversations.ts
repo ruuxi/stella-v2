@@ -16,10 +16,6 @@ import {
 
 const rateLimiter = new RateLimiter(components.rateLimiter);
 
-/**
- * Adjust the denormalized `conversationCount` counter for an owner by `delta`.
- * Lazily creates the counter row when missing. Counters never go negative.
- */
 const adjustConversationCount = async (
   ctx: MutationCtx,
   ownerId: string,
@@ -194,9 +190,6 @@ export const createConversation = mutation({
       });
     }
 
-    // O(1) quota check via the denormalized `user_counters` row maintained
-    // by every conversation insert/delete, instead of scanning up to
-    // `MAX_CONVERSATIONS_PER_USER` rows of the conversations table.
     const counter = await ctx.db
       .query("user_counters")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))

@@ -35,7 +35,7 @@ const event = (
 describe("internal helper agent exclusion", () => {
   it("keeps delegated General agents in the activity feed", () => {
     expect(isActivityFeedTask({ agentType: "general" })).toBe(true);
-    // The Manager agent type is retired; its rows read as machinery.
+
     expect(isActivityFeedTask({ agentType: "manager" })).toBe(false);
     expect(isActivityFeedTask({ agentType: "schedule" })).toBe(false);
     expect(isActivityFeedTask({ agentType: "dream" })).toBe(false);
@@ -60,13 +60,12 @@ describe("fallbackTaskDescription", () => {
   });
 
   it("only de-slugs ids in the spawn-slug format", () => {
-    // Underscores, uppercase, and other alphabets never come out of the
-    // runtime's slugify(); such ids are opaque, not withheld descriptions.
+
     expect(fallbackTaskDescription("fix_the_bug")).toBe("Task");
     expect(fallbackTaskDescription("Fix-The-Bug")).toBe("Task");
     expect(fallbackTaskDescription("fix the bug")).toBe("Task");
     expect(fallbackTaskDescription("-fix-the-bug")).toBe("Task");
-    // Longer than slugify's 48-char cap.
+
     expect(
       fallbackTaskDescription(
         "compare-flight-prices-for-the-family-trip-to-portugal-in-june",
@@ -226,7 +225,7 @@ describe("extractStepsFromEvents", () => {
 
 describe("getInlineWorkingIndicatorActive", () => {
   it("stays visible for the whole run — text lands as a whole message", () => {
-    // Pre-tool thinking.
+
     expect(
       getInlineWorkingIndicatorActive({
         isStreaming: true,
@@ -234,7 +233,6 @@ describe("getInlineWorkingIndicatorActive", () => {
       }),
     ).toBe(true);
 
-    // A tool is actively running.
     expect(
       getInlineWorkingIndicatorActive({
         isStreaming: true,
@@ -242,7 +240,6 @@ describe("getInlineWorkingIndicatorActive", () => {
       }),
     ).toBe(true);
 
-    // A tool still in flight after the run record went terminal.
     expect(
       getInlineWorkingIndicatorActive({
         isStreaming: false,
@@ -250,7 +247,6 @@ describe("getInlineWorkingIndicatorActive", () => {
       }),
     ).toBe(true);
 
-    // Run ended: nothing to show.
     expect(
       getInlineWorkingIndicatorActive({
         isStreaming: false,
@@ -267,7 +263,7 @@ describe("buildInlineWorkingIndicatorProps", () => {
       isToolActive: false,
     });
     expect(props.active).toBe(true);
-    // Floor-only: never an early dismiss, so no immediate-exit handoff.
+
     expect(props.exitImmediately).toBeUndefined();
   });
 
@@ -370,9 +366,9 @@ describe("seen-running expansion stickiness", () => {
 
   it("prunes ids whose task left the list and keeps the reference stable otherwise", () => {
     const seen = updateSeenRunningTaskIds(new Set(), [task({ id: "a1" })]);
-    // Unchanged input → same reference (memo-friendly).
+
     expect(updateSeenRunningTaskIds(seen, [task({ id: "a1" })])).toBe(seen);
-    // Task aged out of the window → id pruned.
+
     const pruned = updateSeenRunningTaskIds(seen, [
       task({ id: "other", status: "completed" }),
     ]);
@@ -427,8 +423,7 @@ describe("buildActivityTasks", () => {
           statusText: "Comparing fares",
           reasoningText: "checking SAS…",
         },
-        // Decoration for a terminal row must be ignored entirely — a stale
-        // "running" leftover can never re-open a finished thread.
+
         "book-hotel": { statusText: "still working" },
       },
     );
@@ -503,8 +498,6 @@ describe("buildActivityTasks", () => {
     expect(tasks.map((task) => task.id)).toEqual(["research-flights"]);
   });
 
-  // Retired `manager` rows are machinery now, so they drop out of the feed
-  // while the ownership edge on their surviving children is preserved.
   it("drops retired manager rows but keeps persisted ownership on children", () => {
     const tasks = buildActivityTasks([
       record({
@@ -563,8 +556,7 @@ describe("selectFreshActivityTasks", () => {
     id: "t",
     description: "Task",
     agentType: "general",
-    // Presence surfaces only count rows Stella owns; claude-native rows are
-    // observability, so the selector requires an explicit `stella` source.
+
     source: "stella",
     status: "running",
     startedAtMs: 0,

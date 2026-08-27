@@ -1,14 +1,5 @@
 import type { PetAnimationState } from "@stella/contracts/desktop/pet";
 
-/**
- * Pet sprite-sheet geometry.
- *
- * Every pet spritesheet is a single 1536×1872 image arranged as 8 columns ×
- * 9 rows of 192×208 frames. The
- * renderer (`PetSprite`) draws one frame at a time by setting
- * `background-image` once and updating `background-position` on every
- * tick — never scaling the image, never re-uploading textures.
- */
 export const SPRITE_COLUMNS = 8;
 export const SPRITE_ROWS = 9;
 export const SPRITE_FRAME_WIDTH = 192;
@@ -21,16 +12,12 @@ export type SpriteFrame = {
 };
 
 export type SpriteAnimation = {
-  /** Frames to play in order. */
+
   frames: SpriteFrame[];
-  /** When set, looping resumes from this index after `frames` plays once. */
+
   loopStartIndex: number | null;
 };
 
-/**
- * The idle "breathing" loop. Each pet's pose is in the same slot. The first
- * and last frames hold longer to read as a soft sigh.
- */
 const IDLE_BASE: SpriteFrame[] = [
   { rowIndex: 0, columnIndex: 0, frameDurationMs: 280 },
   { rowIndex: 0, columnIndex: 1, frameDurationMs: 110 },
@@ -42,7 +29,6 @@ const IDLE_BASE: SpriteFrame[] = [
 
 const IDLE_REST_MULTIPLIER = 6;
 
-/** Slow "resting" idle used when the pet has nothing to react to. */
 const IDLE_REST: SpriteFrame[] = IDLE_BASE.map((frame) => ({
   ...frame,
   frameDurationMs: frame.frameDurationMs * IDLE_REST_MULTIPLIER,
@@ -61,13 +47,6 @@ const buildRow = (
       columnIndex === frameCount - 1 ? finalFrameDurationMs : frameDurationMs,
   }));
 
-/**
- * Per-state animation tables.
- *
- * Frame counts and timings come from the shared pet sprite-sheet spec. Keep
- * these in lockstep with the public spec so third-party sheets render
- * identically here.
- */
 const ANIMATION_TABLE: Record<PetAnimationState, SpriteFrame[]> = {
   idle: IDLE_BASE,
   jumping: buildRow(4, 5, 140, 280),
@@ -80,16 +59,6 @@ const ANIMATION_TABLE: Record<PetAnimationState, SpriteFrame[]> = {
   failed: buildRow(5, 8, 140, 240),
 };
 
-/**
- * Resolve the actual frame schedule for an animation state.
- *
- * `idle` loops forever on its slow rest cadence. Every other state plays
- * its full row three times, then settles back into the idle rest loop —
- * matching how Stella runs a cheer/wave/run for a few cycles before
- * returning to ambient breathing without waiting for an external trigger.
- *
- * Honors `prefers-reduced-motion` by collapsing to a single static frame.
- */
 export const resolveAnimation = (
   state: PetAnimationState,
   prefersReducedMotion: boolean,
@@ -112,13 +81,6 @@ export const resolveAnimation = (
   };
 };
 
-/**
- * CSS `background-position` for a single frame, expressed as percentages
- * so the sprite stays correctly placed regardless of the rendered size.
- *
- * The sheet is 800% × 900% of the rendered frame (8 cols × 9 rows), so
- * each step along an axis is `1 / (n - 1) * 100%`.
- */
 export const formatFramePosition = (frame: SpriteFrame): string => {
   const x = (frame.columnIndex / (SPRITE_COLUMNS - 1)) * 100;
   const y = (frame.rowIndex / (SPRITE_ROWS - 1)) * 100;

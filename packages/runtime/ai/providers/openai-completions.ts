@@ -50,11 +50,6 @@ import { requestWithAuthRefresh } from "./auth-refresh.js";
 import { buildBaseOptions } from "./simple-options.js";
 import { transformMessages } from "./transform-messages.js";
 
-/**
- * Check if conversation messages contain tool calls or tool results.
- * This is needed because Anthropic (via proxy) requires the tools param
- * to be present when messages include tool_calls or tool role messages.
- */
 function hasToolHistory(messages: Message[]): boolean {
   for (const msg of messages) {
     if (msg.role === "toolResult") {
@@ -256,8 +251,7 @@ export const streamOpenAICompletions: StreamFunction<
             });
           } else if (block.type === "toolCall") {
             block.arguments = parseStreamingJson(block.partialArgs);
-            // Finalize in-place and strip the scratch buffers so replay only
-            // carries parsed arguments.
+
             delete block.partialArgs;
             delete block.streamIndex;
             stream.push({
@@ -273,8 +267,6 @@ export const streamOpenAICompletions: StreamFunction<
       for await (const chunk of openaiStream) {
         if (!chunk || typeof chunk !== "object") continue;
 
-        // OpenAI documents ChatCompletionChunk.id as the unique chat completion identifier,
-        // and each chunk in a streamed completion carries the same id.
         output.responseId ||= chunk.id;
         if (
           typeof chunk.model === "string" &&
@@ -292,8 +284,6 @@ export const streamOpenAICompletions: StreamFunction<
           : undefined;
         if (!choice) continue;
 
-        // Fallback: some providers (e.g., Moonshot) return usage
-        // in choice.usage instead of the standard chunk.usage
         if (!chunk.usage && (choice as any).usage) {
           output.usage = parseChunkUsage((choice as any).usage, model);
         }
@@ -334,10 +324,6 @@ export const streamOpenAICompletions: StreamFunction<
             }
           }
 
-          // Some endpoints return reasoning in reasoning_content (llama.cpp),
-          // or reasoning (other openai compatible endpoints)
-          // Use the first non-empty reasoning field to avoid duplication
-          // (e.g., chutes.ai returns both reasoning_content and reasoning with same content)
           const reasoningFields = [
             "reasoning_content",
             "reasoning",
@@ -487,19 +473,17 @@ export const streamOpenAICompletions: StreamFunction<
     } catch (error) {
       for (const block of output.content) {
         delete (block as { index?: number }).index;
-        // Streaming scratch buffers are only used during parsing; never persist them.
+
         delete (block as { partialArgs?: string }).partialArgs;
         delete (block as { streamIndex?: number }).streamIndex;
       }
       output.stopReason = options?.signal?.aborted ? "aborted" : "error";
       output.errorMessage =
         error instanceof Error ? error.message : JSON.stringify(error);
-      // Some providers via OpenRouter give additional information in this field.
+
       const rawMetadata = (error as any)?.error?.metadata?.raw;
       if (rawMetadata) output.errorMessage += `\n${rawMetadata}`;
-      // Preserve the provider's requested backoff before the error (and
-      // its headers) is flattened to a string; the run-level retry reads
-      // it back off the assistant message.
+
       const retryAfterMs = readRetryAfterMs(error);
       if (retryAfterMs !== undefined) output.retryAfterMs = retryAfterMs;
       stream.push({ type: "error", reason: output.stopReason, error: output });
@@ -589,7 +573,6 @@ function createClient(
     }
   }
 
-  // Merge options headers last so they can override defaults
   if (optionsHeaders) {
     Object.assign(headers, optionsHeaders);
   }
@@ -670,7 +653,7 @@ export function buildOpenAICompletionsParams(
       (params as any).tool_stream = true;
     }
   } else if (hasToolHistory(context.messages)) {
-    // Anthropic (via LiteLLM/proxy) requires tools param when conversation has tool_calls/tool_results
+
     params.tools = [];
   }
 
@@ -710,7 +693,7 @@ export function buildOpenAICompletionsParams(
         options.reasoningEffort;
     }
   } else if (compat.thinkingFormat === "openrouter" && model.reasoning) {
-    // OpenRouter normalizes reasoning across providers via a nested reasoning object.
+
     const openRouterParams = params as typeof params & {
       reasoning?: { effort?: string };
     };
@@ -730,7 +713,7 @@ export function buildOpenAICompletionsParams(
     model.reasoning &&
     compat.supportsReasoningEffort
   ) {
-    // OpenAI-style reasoning_effort
+
     (params as any).reasoning_effort =
       model.thinkingLevelMap?.[options.reasoningEffort] ??
       options.reasoningEffort;
@@ -745,7 +728,6 @@ export function buildOpenAICompletionsParams(
     }
   }
 
-  // OpenRouter provider routing preferences
   if (
     model.baseUrl.includes("openrouter.ai") &&
     model.compat?.openRouterRouting
@@ -753,7 +735,6 @@ export function buildOpenAICompletionsParams(
     (params as any).provider = model.compat.openRouterRouting;
   }
 
-  // Vercel AI Gateway provider routing preferences
   if (
     model.baseUrl.includes("ai-gateway.vercel.sh") &&
     model.compat?.vercelGatewayRouting
@@ -932,13 +913,10 @@ export function convertMessages(
   const params: ChatCompletionMessageParam[] = [];
 
   const normalizeToolCallId = (id: string): string => {
-    // Handle pipe-separated IDs from OpenAI Responses API
-    // Format: {call_id}|{id} where {id} can be 400+ chars with special chars (+, /, =)
-    // These come from providers like github-copilot, openai-codex, opencode
-    // Extract just the call_id part and normalize it
+
     if (id.includes("|")) {
       const [callId] = id.split("|");
-      // Sanitize to allowed chars and truncate to 40 chars (OpenAI limit)
+
       return callId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40);
     }
 
@@ -964,8 +942,7 @@ export function convertMessages(
 
   for (let i = 0; i < transformedMessages.length; i++) {
     const msg = transformedMessages[i];
-    // Some providers don't allow user messages directly after tool results
-    // Insert a synthetic assistant message to bridge the gap
+
     if (
       compat.requiresAssistantAfterToolResult &&
       lastRole === "toolResult" &&
@@ -1008,7 +985,7 @@ export function convertMessages(
         });
       }
     } else if (msg.role === "assistant") {
-      // Some providers don't accept null content, use empty string instead
+
       const assistantMsg: ChatCompletionAssistantMessageParam = {
         role: "assistant",
         content: compat.requiresAssistantAfterToolResult ? "" : null,
@@ -1033,7 +1010,7 @@ export function convertMessages(
         .filter((block) => block.thinking.trim().length > 0);
       if (nonEmptyThinkingBlocks.length > 0) {
         if (compat.requiresThinkingAsText) {
-          // Convert thinking blocks to plain text (no tags to avoid model mimicking them)
+
           const thinkingText = nonEmptyThinkingBlocks
             .map((block) => sanitizeSurrogates(block.thinking))
             .join("\n\n");
@@ -1042,26 +1019,11 @@ export function convertMessages(
             ...assistantTextParts,
           ];
         } else {
-          // Always send assistant content as a plain string (OpenAI Chat Completions
-          // API standard format). Sending as an array of {type:"text", text:"..."}
-          // objects is non-standard and causes some models (e.g. DeepSeek V3.2 via
-          // NVIDIA NIM) to mirror the content-block structure literally in their
-          // output, producing recursive nesting like [{'type':'text','text':'[{...}]'}].
+
           if (assistantText.length > 0) {
             assistantMsg.content = assistantText;
           }
 
-          // Echo the reasoning back under the field it arrived on (for
-          // llama.cpp server + gpt-oss). Here `thinkingSignature` is the
-          // SOURCE FIELD NAME ("reasoning" / "reasoning_content"), a
-          // pseudo-signature — not a real provider-issued one. Only local,
-          // self-hosted servers want this replay; cloud reasoning models
-          // (OpenAI/OpenRouter) manage reasoning server-side and reject a
-          // plaintext reasoning field on input, so gate it on the compat
-          // flag (default off, on only for local endpoints). Cross-turn
-          // continuity for cloud reasoning models rides on opaque
-          // `reasoning_details` (see the tool-call `thoughtSignature` path
-          // below), which is unaffected by this gate.
           const signature = nonEmptyThinkingBlocks[0].thinkingSignature;
           if (
             compat.replayReasoningContentField &&
@@ -1074,11 +1036,7 @@ export function convertMessages(
           }
         }
       } else if (assistantText.length > 0) {
-        // Always send assistant content as a plain string (OpenAI Chat Completions
-        // API standard format). Sending as an array of {type:"text", text:"..."}
-        // objects is non-standard and causes some models (e.g. DeepSeek V3.2 via
-        // NVIDIA NIM) to mirror the content-block structure literally in their
-        // output, producing recursive nesting like [{'type':'text','text':'[{...}]'}].
+
         assistantMsg.content = assistantText;
       }
 
@@ -1114,10 +1072,7 @@ export function convertMessages(
       ) {
         (assistantMsg as { reasoning_content?: string }).reasoning_content = "";
       }
-      // Skip assistant messages that have no content and no tool calls.
-      // Some providers require "either content or tool_calls, but not none".
-      // Other providers also don't accept empty assistant messages.
-      // This handles aborted assistant responses that got no content.
+
       const content = assistantMsg.content;
       const hasContent =
         content !== null &&
@@ -1142,16 +1097,14 @@ export function convertMessages(
       ) {
         const toolMsg = transformedMessages[j] as ToolResultMessage;
 
-        // Extract text and image content
         const textResult = toolMsg.content
           .filter(isTextContentBlock)
           .map((block) => block.text)
           .join("\n");
         const hasImages = toolMsg.content.some((c) => c.type === "image");
 
-        // Always send tool result with text (or placeholder if only images)
         const hasText = textResult.length > 0;
-        // Some providers require the 'name' field in tool results
+
         const toolResultMsg: ChatCompletionToolMessageParam = {
           role: "tool",
           content: sanitizeSurrogates(
@@ -1224,7 +1177,7 @@ function convertTools(
       parameters: normalizeProviderToolInputSchema(
         tool.parameters as Record<string, unknown>,
       ) as any,
-      // Only include strict if provider supports it. Some reject unknown fields.
+
       ...(compat.supportsStrictMode !== false && { strict: false }),
     },
   }));
@@ -1251,18 +1204,13 @@ function parseChunkUsage(
   const cacheWriteTokens =
     rawUsage.prompt_tokens_details?.cache_write_tokens || 0;
 
-  // Normalize to pi-ai semantics:
-  // - cacheRead: hits from cache created by previous requests only
-  // - cacheWrite: tokens written to cache in this request
-  // Some OpenAI-compatible providers (observed on OpenRouter) report cached_tokens
-  // as (previous hits + current writes). In that case, remove cacheWrite from cacheRead.
   const cacheReadTokens =
     cacheWriteTokens > 0
       ? Math.max(0, reportedCachedTokens - cacheWriteTokens)
       : reportedCachedTokens;
 
   const input = Math.max(0, promptTokens - cacheReadTokens - cacheWriteTokens);
-  // OpenAI completion_tokens already includes reasoning_tokens.
+
   const outputTokens = rawUsage.completion_tokens || 0;
   const usage: AssistantMessage["usage"] = {
     input,
@@ -1311,18 +1259,6 @@ function mapStopReason(
   }
 }
 
-/**
- * Whether a base URL points at a local/self-hosted endpoint (loopback or an
- * mDNS `*.local` host). Used to auto-enable reasoning replay only for the
- * llama.cpp / gpt-oss style servers that expect it.
- *
- * Parses the host and checks it structurally (loopback IPv4 `127.0.0.0/8`,
- * the wildcard-bind `0.0.0.0`, IPv6 loopback `::1`, `localhost`, `*.local`)
- * instead of substring matching, so a self-hosted model on `[::1]` or a `.local`
- * hostname is still recognized. Malformed URLs fall back to conservative token
- * checks. In every path a public cloud hostname resolves to `false`, so a
- * cloud endpoint can never be misclassified as local.
- */
 function isLocalOrLoopbackUrl(baseUrl: string): boolean {
   let hostname: string | null = null;
   try {
@@ -1331,8 +1267,7 @@ function isLocalOrLoopbackUrl(baseUrl: string): boolean {
     hostname = null;
   }
   if (!hostname) {
-    // Malformed URL: only unambiguous loopback tokens count, so a cloud
-    // endpoint is never mistaken for a local one.
+
     const lowerUrl = baseUrl.toLowerCase();
     return (
       lowerUrl.includes("127.0.0.1") ||
@@ -1341,7 +1276,7 @@ function isLocalOrLoopbackUrl(baseUrl: string): boolean {
       lowerUrl.includes("0.0.0.0")
     );
   }
-  // URL keeps IPv6 hosts bracketed ("[::1]"); unwrap before net.isIP.
+
   const host =
     hostname.startsWith("[") && hostname.endsWith("]")
       ? hostname.slice(1, -1)
@@ -1359,11 +1294,6 @@ function isLocalOrLoopbackUrl(baseUrl: string): boolean {
   }
 }
 
-/**
- * Detect compatibility settings from provider and baseUrl for known providers.
- * Provider takes precedence over URL-based detection since it's explicitly configured.
- * Returns a fully resolved OpenAICompletionsCompat object with all fields set.
- */
 function detectCompat(
   model: Model<"openai-completions">,
 ): ResolvedOpenAICompletionsCompat {
@@ -1404,9 +1334,7 @@ function detectCompat(
     provider === "deepseek" || baseUrl.includes("deepseek.com");
   const isFireworks =
     provider === "fireworks" || baseUrl.includes("fireworks.ai");
-  // Local/self-hosted OpenAI-compatible servers (llama.cpp, gpt-oss) are the
-  // only endpoints that expect their prior reasoning replayed back as a
-  // plaintext field. Cloud providers reject it.
+
   const isLocal = provider === "local" || isLocalOrLoopbackUrl(baseUrl);
   const cacheControlFormat =
     provider === "openrouter" && model.id.startsWith("anthropic/")
@@ -1445,10 +1373,6 @@ function detectCompat(
   };
 }
 
-/**
- * Get resolved compatibility settings for a model.
- * Uses explicit model.compat if provided, otherwise auto-detects from provider/URL.
- */
 export function getCompat(
   model: Model<"openai-completions">,
 ): ResolvedOpenAICompletionsCompat {

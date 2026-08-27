@@ -14,7 +14,7 @@ import {
   getSubscriptionHarnessEnabled,
 } from "../preferences/local-preferences.js";
 import { readOrSeedPersonality } from "../personality/personality.js";
-// Deprecated pre-transition compat shim; see `buildOrchestratorThreadHistory`.
+
 import { buildLocalHistoryFromEvents } from "../local-history.js";
 import type { LocalContextEvent } from "../storage/shared.js";
 import { ConvexClient } from "convex/browser";
@@ -146,11 +146,6 @@ const getStoredMessagePreview = (
   message: ThreadHistoryEntry | undefined,
 ): string => message?.content.trim() ?? "";
 
-/**
- * Durable-store user messages may carry a write-time timestamp tag that raw
- * chat events do not. Strip it before comparing a stored preview against
- * event text so the legacy transition dedup keeps matching.
- */
 const stripUserTranscriptDecoration = (value: string): string =>
   value.replace(TRAILING_TIME_TAG_RE, "").trim();
 
@@ -180,12 +175,6 @@ const getLocalEventTimezone = (
     : undefined;
 };
 
-/**
- * Picks the user's preferred locale off the most recent `user_message`
- * event payload. Locale is plumbed in alongside `timezone` from the
- * desktop chat send path; the runtime never reads it from local
- * preferences directly.
- */
 const getLocalEventLocale = (
   event: LocalContextEvent | undefined,
 ): string | undefined => {
@@ -208,31 +197,6 @@ const findLatestLocale = (events: LocalContextEvent[]): string | undefined => {
   return undefined;
 };
 
-/**
- * Detects a "routing surface changed" transition between the latest and
- * the previous user message in a conversation and returns the hidden
- * system-reminder text the orchestrator should see (or `undefined` when
- * nothing changed).
- *
- * "Routing surface" here means whether the user is talking through a
- * connector (the Stella mobile app) or directly from the desktop, and
- * which connector if so. Each `user_message` event carries
- * `payload.source` (either `"connector"` or absent) and, when sourced
- * from a connector, `payload.provider` identifying the channel.
- *
- * The reminder is only injected on the transition turn — once the model
- * has acknowledged the new surface, subsequent same-surface user
- * messages skip the reminder so we don't burn cache or nag the model.
- *
- * - desktop → connector: tell the orchestrator the user is on
- *   `<provider>`, ask it to reply in plain text and skip the
- *   `html` tool (it's a desktop-renderer UI).
- * - connector → desktop: tell the orchestrator the user is back at
- *   their desktop so it stops constraining its format.
- * - connector → different connector: same as desktop → connector with
- *   the new provider name.
- * - same surface: returns `undefined`.
- */
 const buildConnectorTransitionReminder = (
   events: LocalContextEvent[],
 ): string | undefined => {
@@ -262,7 +226,6 @@ const buildConnectorTransitionReminder = (
   const currentSurface = sourceOf(latest);
   const previousSurface = sourceOf(previous);
 
-  // No transition: same surface (and same provider when on a connector).
   if (
     currentSurface.isConnector === previousSurface.isConnector &&
     currentSurface.provider === previousSurface.provider
@@ -284,7 +247,6 @@ const buildConnectorTransitionReminder = (
     return connectorLines.join(" ");
   }
 
-  // connector → desktop
   return "The user is back at their desktop. Markdown, the `html` tool, and other desktop-only surfaces are fine again.";
 };
 
@@ -361,30 +323,6 @@ const trimDuplicatedTransitionUserEvent = (
   return nextEvents;
 };
 
-/**
- * Orchestrator model-context history.
- *
- * The durable runtime thread store is the single source of conversation
- * history: typed turns, realtime-voice transcripts, and connector messages
- * all persist thread entries at write time (with the timestamp-tag
- * decoration applied by `agent-runtime/transcript-decoration.js`).
- * Ordinarily this function just
- * returns `storedThreadMessages`.
- *
- * LEGACY PRE-TRANSITION COMPAT: conversations whose chat events predate the
- * unification still need those events once. Two shim branches remain, both
- * feeding the deprecated `buildLocalHistoryFromEvents` projection:
- *
- *   1. no durable entries at all — a conversation that only ever wrote
- *      chat events (the current turn's own just-appended user event is
- *      excluded upstream via `currentUserMessageId`); and
- *   2. events strictly older than the thread's first durable entry, merged
- *      ahead of the stored history ("pre-transition head").
- *
- * A stored compaction checkpoint disables both branches, so the shim
- * retires organically per conversation as checkpoints land. Do not extend
- * these branches — new history must go through the durable store.
- */
 export const buildOrchestratorThreadHistory = (args: {
   storedThreadMessages: ThreadHistoryEntry[];
   localEvents?: LocalContextEvent[];
@@ -533,9 +471,7 @@ export const createRunnerContext = ({
       ? { requestBrowserExtensionConnect }
       : {}),
     ...(requestConnectorConnection ? { requestConnectorConnection } : {}),
-    // spawn_agent's `model` parameter: throws the standard route-failure
-    // message when a plain model reference can't be resolved, so the spawn
-    // fails loudly instead of silently falling back to the default.
+
     validateSpawnModel: (modelName) => {
       resolveRunnerLlmRoute(context, AGENT_IDS.GENERAL, modelName);
     },
@@ -680,11 +616,7 @@ export const createRunnerContext = ({
         async (): Promise<RecallLookupResult> => {
           try {
             const recallStartedAtMs = performance.now();
-            // Resolve the Recall route lazily and memoized. Fast, indexed
-            // lookups return evidence with no model call, so they must never
-            // resolve — let alone require — a route or its credential.
-            // Resolving eagerly here made an unresolvable/ signed-out model
-            // selection fail EVERY Recall, including pure lookups.
+
             let recallRoutePromise:
               | ReturnType<typeof resolveRunnerRecallLlmRoute>
               | undefined;
@@ -751,8 +683,7 @@ export const createRunnerContext = ({
                 : {}),
               telemetry: {
                 startedAtMs: recallStartedAtMs,
-                // Route resolution is deferred to the synthesis fallback, so
-                // it is folded into model timing rather than measured here.
+
                 routeMs: 0,
                 hostContextMs,
                 sourceTimings,
@@ -837,10 +768,7 @@ export const createRunnerContext = ({
           recipient,
         );
       },
-      // Read-only backing for `agent_status`: durable-store SELECTs only, so
-      // checking on a thread can never deliver input to it or resume it. The
-      // live-state derivation is the exact signal `other_threads` uses
-      // (`runtime_agents.status` via deriveRuntimeThreadLiveState).
+
       readAgentThreadStatus: async (agentId) => {
         const store = context.runtimeStore;
         if (!store) return null;
@@ -915,9 +843,6 @@ export const createRunnerContext = ({
     toolHost,
   });
 
-  // Needs both halves: the tool host owns the shell sessions, the agent
-  // manager owns the threads a wake resumes. Both are reachable now, so the
-  // wake is wired here rather than deferred to initialization.
   context.state.backgroundExitWake = createBackgroundExitWake({
     watchShellExit: toolHost.watchShellExit,
     readShellExitSnapshot: toolHost.readShellExitSnapshot,
@@ -928,8 +853,7 @@ export const createRunnerContext = ({
     deliver: async ({ conversationId, agentId, text }) => {
       const manager = context.state.localAgentManager;
       if (!manager) return false;
-      // Same door as `send_input`: rehydrates an evicted or finished thread
-      // with its own history instead of starting a stranger.
+
       const result = await manager.sendAgentMessage(
         agentId,
         text,
@@ -1027,32 +951,22 @@ export type BuildAgentContextArgs = {
   agentType: string;
   runId: string;
   threadId?: string;
-  /**
-   * Per-spawn engine selection (spawn_agent's `model` parameter). Plain model
-   * references carry `default`; explicit engine references carry the chosen
-   * external engine. Overrides the preference-configured engine for this run.
-   */
+
   spawnEngine?: SpawnEngineSelection;
-  /** Per-spawn reasoning override from spawn_agent's model suffix. */
+
   spawnReasoningEffort?: SpawnReasoningEffort;
-  /** Effective Orchestrator route inherited by a durable Manager thread. */
+
   modelConfigSnapshot?: AgentModelConfigSnapshot;
-  /** One-shot configured-engine sample paired with route resolution. */
+
   configuredAgentEngine?: AgentRuntimeEngine;
-  /** One-shot generic agent effort sample paired with route resolution. */
+
   configuredReasoningEffort?: string;
-  /** Engine model/effort/tier sampled before route resolution. */
+
   sampledEngineConfig?: SampledAgentEngineConfig;
-  /** Preference sample taken before async route resolution. */
+
   subscriptionHarnessEnabled?: boolean;
   toolWorkspaceRoot?: string;
-  /**
-   * The current turn's user-message id. The chat-events log receives the
-   * user message before the run prepares its context, and the same message
-   * arrives via the prompt, so the matching event (by eventId or requestId)
-   * is excluded from the legacy pre-transition history shim to avoid
-   * duplication. Reminders still see the full event list.
-   */
+
   currentUserMessageId?: string;
 } & ResolvedAgentModelRoute;
 
@@ -1100,7 +1014,7 @@ export const captureEffectiveModelConfig = (args: {
   configuredModel?: string;
   engineModelOverride?: string;
   serviceTierOverride?: CodexServiceTier;
-  /** Engine preferences, including an intentional absent effort, were frozen. */
+
   engineConfigSampled?: boolean;
   resolvedLlm: ResolvedLlmRoute;
   reasoningEffort?: string;
@@ -1178,7 +1092,6 @@ export type SampledAgentEngineConfig = {
   serviceTier?: CodexServiceTier;
 };
 
-/** Freeze every engine-owned picker value before any async route lookup. */
 export const sampleAgentEngineConfig = (args: {
   stellaDataDir: string;
   engine: AgentRuntimeEngine;
@@ -1221,10 +1134,6 @@ export const sampleAgentEngineConfig = (args: {
   return explicitEffort ? { reasoningEffort: explicitEffort } : {};
 };
 
-/**
- * Resolve the provider route used when a General Codex run executes through
- * Stella's Pi harness. Root Orchestrator routing remains unchanged.
- */
 export const resolveSubscriptionHarnessRouteModel = (args: {
   stellaDataDir: string;
   agentType: string;
@@ -1315,17 +1224,9 @@ export const buildAgentContext = async (
   let threadHistory: ThreadHistoryEntry[] | undefined;
   let staleUserReminderText: string | undefined;
   let connectorTransitionReminderText: string | undefined;
-  // Locale is plumbed onto user-message payloads alongside `timezone`, so
-  // we read whatever was most recently sent. The orchestrator path
-  // already loads recent local events to build history; subagent paths
-  // make a fresh, smaller fetch since they don't otherwise need the
-  // local-events stream.
+
   let userLocale: string | undefined;
-  // The orchestrator-shape thread history (merged stored thread messages +
-  // recent local events) and the runtime reminders (stale-user reminder,
-  // active-threads prompt) are gated by the `injectsRuntimeReminders`
-  // capability rather than a literal `agentType === ORCHESTRATOR` check, so
-  // future user-facing agents inherit the shape by data, not code.
+
   const injectsRuntimeReminders = agentHasCapability(
     args.agentType,
     "injectsRuntimeReminders",
@@ -1338,9 +1239,7 @@ export const buildAgentContext = async (
     connectorTransitionReminderText =
       buildConnectorTransitionReminder(localEvents);
     userLocale = findLatestLocale(localEvents);
-    // The current turn's user message rides in via the prompt; its
-    // just-appended display event must not double into the legacy
-    // pre-transition history shim.
+
     const historyEvents = args.currentUserMessageId
       ? localEvents.filter(
           (event) =>
@@ -1370,10 +1269,6 @@ export const buildAgentContext = async (
     : "";
   const dynamicContextSections: string[] = [];
 
-  // Inject the user's response-language directive at the top of the
-  // dynamic context. It's a single line, comes from the latest
-  // `user_message` event's `locale` payload, and is `undefined` for
-  // English so we don't waste tokens on a no-op directive.
   const responseLanguageDirective = getResponseLanguageSystemPrompt(userLocale);
   if (responseLanguageDirective) {
     dynamicContextSections.push(
@@ -1398,15 +1293,13 @@ export const buildAgentContext = async (
           shouldInjectDynamicReminder: false,
           reminderTokensSinceLastInjection: 0,
         };
-  // A per-spawn engine selection wins over the preference-configured engine
-  // for this run only; saved preferences are never touched.
+
   const configuredAgentEngine =
     args.configuredAgentEngine ?? getAgentRuntimeEngine(context.stellaDataDir);
   const agentEngine =
     args.modelConfigSnapshot?.engine ??
     resolveAgentEngineForRun(configuredAgentEngine, args.spawnEngine);
-  // Persisted snapshots are authoritative. An absent mode field is the
-  // backward-compatible native meaning for legacy external-engine runs.
+
   const subscriptionHarnessEnabled = args.modelConfigSnapshot
     ? args.modelConfigSnapshot.subscriptionHarnessEnabled === true
     : (args.subscriptionHarnessEnabled ??
@@ -1486,13 +1379,7 @@ export const buildAgentContext = async (
       ].join("\n"),
     );
   }
-  // The skill catalog is a message-resident block now, NOT a system-prompt
-  // section: rendering it into the system prompt meant any mid-thread skill
-  // save rewrote request block #1 and invalidated the whole thread's prompt
-  // cache. It rides the agent context into the ResidentBlock registry
-  // (`agent-runtime/resident-context.js`), which pins it as a hidden
-  // `bootstrap.skills_catalog` message at thread start and appends a fresh
-  // copy only when the rendered bytes actually change.
+
   let skillsCatalog: string | undefined;
   if (agentHasCapability(args.agentType, "injectsSkillCatalog")) {
     const skillCatalogOptions =
@@ -1503,16 +1390,9 @@ export const buildAgentContext = async (
       context.stellaDataDir,
       skillCatalogOptions,
     );
-    // Connector discovery + connect offers are orchestrator-driven now:
-    // a deterministic keyword reminder (connector-availability hook) plus
-    // the demoted `connector_status` tool (direct, or via node_repl's
-    // tools.connector_status) own the offer flow. Agents just use
-    // already-connected integrations via their skills; no standing
-    // integration guidance is injected here.
+
   }
-  // Resolve the live prompt body: the user's selected prompt preset when set,
-  // else the shipped bundled body (mtime-gated — unchanged files are not
-  // re-read). Falls back to the registered prompt for extension agents.
+
   const bundledSystemPrompt = await loadAgentSystemPrompt(
     agent?.id ?? args.agentType,
     context.stellaDataDir,
@@ -1534,9 +1414,7 @@ export const buildAgentContext = async (
   }
 
   return {
-    // Developer-mode gate runs at assembly: with the flag off, the fenced
-    // engine-routing guidance in the shipped prompt is omitted from the
-    // session context entirely (see prompt-dev-mode.ts).
+
     systemPrompt: applyDeveloperModePromptGate(
       bundledSystemPrompt ??
         agent?.systemPrompt ??

@@ -38,7 +38,6 @@ fn main() {
         all_domains.extend(protocol.domains);
     }
 
-    // Collect all known type IDs per domain for cross-domain resolution
     let mut domain_types: std::collections::HashMap<String, HashSet<String>> =
         std::collections::HashMap::new();
     for domain in &all_domains {
@@ -49,7 +48,6 @@ fn main() {
         domain_types.insert(domain.domain.clone(), types);
     }
 
-    // Known recursive struct fields that need Box wrapping
     let recursive_fields: HashSet<(&str, &str, &str)> = [
         ("DOM", "Node", "contentDocument"),
         ("DOM", "Node", "templateContent"),
@@ -172,8 +170,7 @@ fn to_snake_case(s: &str) -> String {
     let chars: Vec<char> = s.chars().collect();
     for (i, &c) in chars.iter().enumerate() {
         if c.is_uppercase() && i > 0 {
-            // Only insert underscore at transitions from lowercase to uppercase,
-            // or when an uppercase sequence ends (e.g. "DOM" -> "dom", not "d_o_m")
+
             let prev_upper = chars[i - 1].is_uppercase();
             let next_lower = chars.get(i + 1).is_some_and(|n| n.is_lowercase());
             if !prev_upper || next_lower {
@@ -185,8 +182,6 @@ fn to_snake_case(s: &str) -> String {
     result
 }
 
-/// Resolve a $ref type reference. Cross-domain refs like "Page.FrameId" become
-/// `super::cdp_page::FrameId`. Same-domain refs are used directly.
 fn resolve_ref(
     r: &str,
     current_domain: &str,
@@ -199,7 +194,7 @@ fn resolve_ref(
         if ref_domain == current_domain {
             to_pascal_case(ref_type)
         } else {
-            // Check if this type actually exists in the referenced domain
+
             if domain_types
                 .get(ref_domain)
                 .is_some_and(|t| t.contains(ref_type))
@@ -210,7 +205,7 @@ fn resolve_ref(
                     to_pascal_case(ref_type)
                 )
             } else {
-                // Fall back to serde_json::Value for unknown cross-domain refs
+
                 "serde_json::Value".to_string()
             }
         }
@@ -330,7 +325,7 @@ fn generate_domain(
 
     for type_def in &domain.types {
         if !type_def.enum_values.is_empty() {
-            // Deduplicate enum variants (some CDP enums have duplicated PascalCase forms)
+
             let mut seen_variants = HashSet::new();
             output.push_str("    #[derive(Debug, Clone, Serialize, Deserialize)]\n");
             output.push_str(&format!("    pub enum {} {{\n", type_def.id));
@@ -364,7 +359,6 @@ fn generate_domain(
                 };
                 let mut rust_type = map_type_in_domain(prop, &domain.domain, domain_types);
 
-                // Wrap recursive fields in Box
                 if recursive_fields.contains(&(
                     domain.domain.as_str(),
                     type_def.id.as_str(),

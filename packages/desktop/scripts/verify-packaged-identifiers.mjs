@@ -8,9 +8,6 @@ const scriptDir = import.meta.dirname;
 const repoRootDir = path.resolve(scriptDir, "..", "..", "..");
 const toPosix = (value) => value.split(path.sep).join("/");
 
-// These are feature-detection names emitted by bundled dependencies. Keep the
-// list deliberately narrow: standards-based globals come from `globals`, and
-// Stella application identifiers must never be added here.
 const bundleProbeGlobals = {
   AsyncIterator: "readonly",
   EdgeRuntime: "readonly",

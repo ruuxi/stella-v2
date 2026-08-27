@@ -44,11 +44,6 @@ export const getStellaComputerSessionId = (
   return `${agentSegment}-${ownerSegment}`.slice(0, MAX_SESSION_LENGTH);
 };
 
-/**
- * Browser ownership follows the durable task rather than an individual root
- * run. Root turns therefore share their conversation's tabs, while spawned
- * agents retain their own isolated browser sessions.
- */
 export const getStellaBrowserSessionId = (
   context?: ToolContext,
 ): string | null => {

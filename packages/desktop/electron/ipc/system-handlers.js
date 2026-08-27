@@ -54,11 +54,7 @@ const screenCapturePermissionsHasPrompted = (mod) => {
         return false;
     }
 };
-// System Settings corrupts its own view (it can render nearly blank, showing
-// only General/Spotlight) when the x-apple.systempreferences: URL is opened
-// repeatedly in quick succession. Coalesce rapid opens from every path (enable
-// button spam, request + settings fallback, the openSettings handler) behind a
-// single cooldown so one user click opens System Settings at most once.
+
 const PERMISSION_SETTINGS_OPEN_COOLDOWN_MS = 1500;
 let lastPermissionSettingsOpenAt = 0;
 const consumePermissionSettingsOpenSlot = () => {
@@ -101,16 +97,7 @@ const openMacPermissionSettings = async (kind) => {
     await shell.openExternal(url);
     return { opened: true, url };
 };
-/**
- * Touch a few TCC-protected paths from the main process so macOS records the
- * Stella.app bundle as a Full Disk Access client. Until an app actually
- * *attempts* to read protected data, it never appears in
- * System Settings → Privacy & Security → Full Disk Access — so the user opens
- * the pane and Stella isn't in the list, forcing them to add it by hand. The
- * reads are expected to fail with EPERM when access hasn't been granted yet;
- * the TCC registration side-effect is what we're after, so all errors are
- * swallowed. Mirrors `registerStellaForScreenRecording` in macos-permissions.
- */
+
 const registerStellaForFullDiskAccess = async () => {
     if (process.platform !== "darwin")
         return;
@@ -159,16 +146,7 @@ const anyExistsAsync = async (paths) => {
     const results = await Promise.all(paths.map(pathExists));
     return results.some(Boolean);
 };
-/**
- * On Windows the simplistic `for (dir in PATH) for (ext in PATHEXT) existsSync(...)`
- * loop is the recurring source of slow onboarding. PATH typically has 30-50
- * entries and PATHEXT defaults to `.EXE;.CMD;.BAT`, so each binary lookup is
- * ~150-300 filesystem hits — and `existsSync` blocks the entire main process.
- *
- * We resolve each binary by running every candidate path through `fs.promises.access`
- * in parallel. NTFS is case-insensitive so the lowercase-vs-uppercase double
- * check the legacy code did is unnecessary; we use PATHEXT as-is.
- */
+
 const findCliOnPathAsync = async (binName) => {
     const home = os.homedir();
     const wellKnown = binName === "claude"
@@ -230,12 +208,10 @@ const detectTechnicalUserSignalsAsync = async () => {
 };
 let technicalUserSignalsPromise = null;
 const detectTechnicalUserSignalsMemoized = () => {
-    // Memoize for the lifetime of the Electron main process. The probe scans
-    // ~hundreds of filesystem entries on Windows and the answer can't change
-    // mid-session in any way the user cares about.
+
     if (!technicalUserSignalsPromise) {
         technicalUserSignalsPromise = detectTechnicalUserSignalsAsync().catch((error) => {
-            // Reset the cache on failure so a later probe can retry.
+
             technicalUserSignalsPromise = null;
             throw error;
         });
@@ -709,10 +685,7 @@ export const registerSystemHandlers = (options) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_DIAGNOSTICS_REPORT_ERROR)) {
             return;
         }
-        // The shared FileLogger scrubs message/stack before writing. `stack`
-        // is rendered as an indented block; pass the renderer's stack through
-        // directly rather than via crash() (which would wrap the string and
-        // overwrite it with a main-process stack).
+
         getMainLogger()?.error("renderer.error", {
             kind: payload?.kind,
             source: payload?.source,
@@ -729,7 +702,7 @@ export const registerSystemHandlers = (options) => {
             return { ok: false, error: "no-root" };
         const { logDir } = resolveLogPaths(stellaAppDir);
         const opened = await shell.openPath(logDir);
-        // shell.openPath returns "" on success, or an error string.
+
         return opened
             ? { ok: false, error: opened, path: logDir }
             : { ok: true, path: logDir };
@@ -781,8 +754,7 @@ export const registerSystemHandlers = (options) => {
             return;
         }
         if (process.platform === "darwin") {
-            // Register the Stella.app bundle with TCC first so it shows up in the
-            // Full Disk Access list, then open the pane for the user to toggle on.
+
             await registerStellaForFullDiskAccess();
             await openMacPermissionSettings("full-disk-access");
         }
@@ -1041,7 +1013,7 @@ export const registerSystemHandlers = (options) => {
                 await contentTracing.stopRecording();
             }
             catch {
-                // No active trace, or tracing already stopped.
+
             }
             return {
                 ok: false,
@@ -1080,11 +1052,9 @@ export const registerSystemHandlers = (options) => {
     ipcMain.handle(IPC_PROMPT_PRESETS_READ, async (event, agentId, presetId) => {
         const dir = promptPresetContext(event, IPC_PROMPT_PRESETS_READ, agentId);
         const id = String(presetId ?? "");
-        // "default" reads the shipped prompt so the editor can seed a new
-        // preset from what Stella actually ships.
+
         if (id === "default") {
-            // Strip the developer-mode fence markers but keep their content:
-            // the preset editor seeds from the full shipped prompt.
+
             const content = applyDeveloperModePromptGate((await loadAgentSystemPrompt(agentId)) ?? "", true);
             return { id: "default", name: "default", agentId, content };
         }
@@ -1108,7 +1078,7 @@ export const registerSystemHandlers = (options) => {
         const dir = promptPresetContext(event, IPC_PROMPT_PRESETS_DELETE, agentId);
         const id = String(presetId ?? "");
         const ok = await deletePromptPreset(dir, agentId, id);
-        // A deleted selection reverts to the shipped prompt.
+
         if (ok && getPromptPresetSelection(dir, agentId) === id) {
             setPromptPresetSelection(dir, agentId, "default");
         }
@@ -1205,10 +1175,7 @@ export const registerSystemHandlers = (options) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_LIST_MODELS)) {
             throw new Error("Blocked untrusted preferences:listModels request.");
         }
-        // Do not let a renderer preload during runner attachment turn a
-        // transient lifecycle gap into a successful, 24-hour cached empty
-        // catalog. Await runner attachment instead so early renderer mounts
-        // resolve once the deferred host-runner initialization completes.
+
         const runner = await waitForConnectedRunner(options.getStellaHostRunner, {
             timeoutMs: 10_000,
             unavailableMessage: "Stella runtime model catalog is not ready.",
@@ -1323,7 +1290,7 @@ export const registerSystemHandlers = (options) => {
                     window.webContents.send(IPC_VOICE_PREFERENCES_CHANGED, saved.realtimeVoice);
                 }
                 catch {
-                    // Ignore renderer delivery failures while a window closes.
+
                 }
             }
         }
@@ -1359,8 +1326,7 @@ export const registerSystemHandlers = (options) => {
         return listLocalLlmOAuthCredentials(stellaAppDir);
     });
     ipcMain.handle("llmCredentials:loginOAuth", async (event, payload) => {
-        // Modifying this could break the app. Avoid exposing or logging OAuth
-        // credentials, and confirm any request to weaken this boundary.
+
         if (!options.externalLinkService.assertPrivilegedSender(event, "llmCredentials:loginOAuth")) {
             throw new Error("Blocked untrusted OAuth login request.");
         }
@@ -1538,7 +1504,7 @@ export const registerSystemHandlers = (options) => {
                 options.ensureGlobalInputHooksOnMac?.();
             }
             catch {
-                // Best-effort; hooks may still be starting.
+
             }
         }
         lastAccessibilityStatus = accessibility;
@@ -1638,7 +1604,7 @@ export const registerSystemHandlers = (options) => {
                 }
             }
             catch {
-                // Best effort only; the renderer can still expose manual settings access.
+
             }
         }
         if (result.granted && !result.alreadyGranted) {

@@ -168,7 +168,7 @@ describe("map-route artifact helpers", () => {
       ).toString("utf8"),
     ) as MapRouteArtifact;
     expect(decoded.route?.polyline).toBe("abc123");
-    // Steps are stripped from the embed payload (URL budget).
+
     expect(decoded.route?.steps).toBeUndefined();
     expect(decoded.markers).toHaveLength(2);
   });

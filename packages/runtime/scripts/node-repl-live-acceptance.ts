@@ -110,10 +110,6 @@ const main = async () => {
       `unexpected terminal output: ${terminalChunk.output}`,
     );
 
-    // The terminal value and terminal status are separate child messages.
-    // Depending on IPC scheduling, one observation can receive the value just
-    // before the status. A subsequent observation must then complete without
-    // replaying already-delivered content.
     const completion =
       terminalChunk.status === "completed"
         ? terminalChunk

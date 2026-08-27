@@ -10,9 +10,6 @@ import {
   resolveStellaProviderErrorToast,
 } from "@/features/chat/streaming/stella-provider-error-toast";
 
-// Locks the runtime↔desktop contract: route failures are matched by their
-// stable marker, not by human-readable prose. A reworded message must keep the
-// marker (round-trip test) AND keep mapping to a specific toast.
 describe("llm route failure → toast", () => {
   const failures: LlmRouteFailure[] = [
     {
@@ -181,8 +178,6 @@ describe("llm route failure → toast", () => {
   });
 });
 
-// The reactive half of the capability gate: the backend refused
-// something the affordances could not pre-empt.
 describe("capability denials → toast", () => {
   it("names the capability and the plan that unlocks it", () => {
     const toast = resolveStellaProviderErrorToast(
@@ -211,9 +206,6 @@ describe("capability denials → toast", () => {
       { audience: "pro" },
     );
 
-    // A Pro account holds every capability, so a bare paid-plan
-    // rejection can't be attributed to one — fall back to the generic
-    // copy rather than telling a Pro user to buy Pro.
     expect(toast.title).toBe("Not included on your plan");
     expect(toast.action).toMatchObject({ label: "Upgrade" });
   });
@@ -235,8 +227,6 @@ describe("capability denials → toast", () => {
   });
 });
 
-// The Free plan does not refill, so its exhaustion must never be
-// phrased as something to wait out.
 describe("free allowance exhaustion → toast", () => {
   const reason =
     "free_allowance_exhausted: usage limit reached for this account.";
@@ -252,7 +242,7 @@ describe("free allowance exhaustion → toast", () => {
   });
 
   it("wins over the generic billing matcher it shares prose with", () => {
-    // "usage limit reached" alone still means the ordinary windowed cap.
+
     expect(
       resolveStellaProviderErrorToast("Usage limit reached.").title,
     ).toBe("Stella needs more room");

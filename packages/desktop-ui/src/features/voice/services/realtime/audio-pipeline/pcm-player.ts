@@ -1,38 +1,13 @@
-/**
- * PCM playback queue for the WebSocket transport.
- *
- * The xAI Voice Agent API delivers assistant audio as a stream of base64
- * PCM16 `response.output_audio.delta` events. We decode each chunk into an
- * AudioBuffer and schedule it back-to-back on the AudioContext clock so
- * playback is gap-free even at high event-rate.
- *
- * Responsibilities:
- *   - Maintain a scheduled-end timestamp so consecutive chunks queue with
- *     zero gap.
- *   - Expose an AnalyserNode tap for output-level visualisation (so the
- *     echo guard and the StellaAnimation can read assistant audio levels
- *     the same way they do over WebRTC).
- *   - Emit speaking-start / speaking-end callbacks when the queue
- *     transitions from idle → playing → idle, since xAI doesn't emit the
- *     `output_audio.started` / `output_audio.done` events that the OpenAI
- *     WebRTC transport provides.
- *   - Support `flush()` for barge-in / interrupt — drop everything that
- *     hasn't been emitted yet.
- *
- * Output device is honoured via `setSinkId` on a tiny <audio> element that
- * receives the MediaStreamDestination, matching the OpenAI transport.
- */
-
 import { uiState } from "@/platform/ui-state";
 
-const SCHEDULE_FUDGE_SEC = 0.02; // ~20 ms cushion to avoid xrun on slow chunks
+const SCHEDULE_FUDGE_SEC = 0.02;
 
 export interface PcmPlayerOptions {
-  /** PCM input sample rate (matches session.audio.output.format.rate). */
+
   inputSampleRate: number;
-  /** Fired on first scheduled chunk after silence. */
+
   onSpeakingStart?: () => void;
-  /** Fired ~50 ms after the scheduled tail elapses with no new chunks. */
+
   onSpeakingEnd?: () => void;
 }
 
@@ -56,7 +31,6 @@ export class PcmPlayer {
     this.onSpeakingEnd = options.onSpeakingEnd;
   }
 
-  /** Lazily construct the AudioContext + sink element on first chunk. */
   private ensureContext(): AudioContext {
     if (this.audioContext) return this.audioContext;
 
@@ -92,7 +66,6 @@ export class PcmPlayer {
     return ctx;
   }
 
-  /** Decode a base64 PCM16 chunk and append to the scheduled tail. */
   pushBase64Pcm16(base64: string): void {
     const bytes = base64ToBytes(base64);
     if (bytes.byteLength === 0) return;
@@ -133,14 +106,13 @@ export class PcmPlayer {
     this.markSpeaking();
   }
 
-  /** Drop everything currently scheduled — used on barge-in / interrupt. */
   flush(): void {
     for (const node of this.pendingNodes) {
       try {
         node.stop();
         node.disconnect();
       } catch {
-        // Already stopped.
+
       }
     }
     this.pendingNodes.clear();
@@ -174,7 +146,7 @@ export class PcmPlayer {
       try {
         this.destination.disconnect();
       } catch {
-        // Already disconnected.
+
       }
       this.destination = null;
     }
@@ -183,7 +155,7 @@ export class PcmPlayer {
       try {
         await this.audioContext.close();
       } catch {
-        // Already closed.
+
       }
       this.audioContext = null;
     }
@@ -203,7 +175,7 @@ export class PcmPlayer {
       0,
       this.scheduledEndSec - ctx.currentTime,
     );
-    // Add 50 ms so we don't bounce in/out on the last sample.
+
     this.speakingEndTimer = setTimeout(
       () => {
         this.speakingEndTimer = null;

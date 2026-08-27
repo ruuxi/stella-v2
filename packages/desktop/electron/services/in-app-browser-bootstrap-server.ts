@@ -62,7 +62,7 @@ const acquireDiscoveryLock = async (
             rmSync(lockPath, { force: true });
           }
         } catch {
-          // A missing/replaced lock is no longer ours to release.
+
         }
       };
     } catch (error) {
@@ -83,8 +83,7 @@ const acquireDiscoveryLock = async (
         continue;
       }
     } catch {
-      // A creator can briefly exist before its contents are observable. Wait
-      // for it unless the bounded acquisition deadline is exhausted.
+
     }
 
     if (Date.now() >= deadline) {
@@ -127,8 +126,7 @@ const endpointIsLive = (socketPath: string): Promise<boolean> =>
     socket.once("connect", () => finish(true));
     socket.once("error", () => finish(false));
     socket.setTimeout(ENDPOINT_PROBE_TIMEOUT_MS, () => {
-      // A timeout is ambiguous, so preserve the endpoint rather than stealing
-      // a potentially busy owner from another Stella instance.
+
       finish(true);
     });
   });
@@ -179,11 +177,6 @@ const sameToken = (received: unknown, expected: string) => {
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
-/**
- * Authenticated local handoff used by the agent runtime to lazily prepare the
- * in-app browser. This service owns no renderer state and never opens the
- * Browser sidebar; it only invokes the hidden browser readiness callback.
- */
 export class InAppBrowserBootstrapServer {
   private readonly options: InAppBrowserBootstrapServerOptions;
   private readonly endpoint: StellaInAppBrowserInitEndpoint;
@@ -295,7 +288,7 @@ export class InAppBrowserBootstrapServer {
           try {
             server.close();
           } catch {
-            // The listen error may have left the server unopened.
+
           }
         }
       }
@@ -330,8 +323,7 @@ export class InAppBrowserBootstrapServer {
   private handleSocket(socket: Socket) {
     this.sockets.add(socket);
     socket.setEncoding("utf8");
-    // A first-time profile snapshot can be large. Keep the transport alive
-    // while the caller's browser-command deadline governs the actual wait.
+
     socket.setTimeout(5 * 60_000, () => socket.destroy());
     socket.once("close", () => this.sockets.delete(socket));
     let buffer = "";
@@ -444,9 +436,7 @@ export class InAppBrowserBootstrapServer {
           linkSync(preservedPath, filesystemEndpointPath!);
           rmSync(preservedPath, { force: true });
         } catch {
-          // linkSync never replaces a path that appeared while closing.
-          // Retaining the preserved endpoint is safer than unlinking either
-          // foreign owner.
+
         }
       }
     }

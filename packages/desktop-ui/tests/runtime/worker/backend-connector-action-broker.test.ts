@@ -161,9 +161,7 @@ describe("backend connector action broker", () => {
   });
 
   it("dispatches toolkit-prefixed actions when the catalog entry has no actions list", async () => {
-    // The live backend catalog endpoint returns entries without an
-    // `actions` array; the broker must fall back to the toolkit-prefix
-    // check instead of rejecting everything against an empty allowlist.
+
     const { actions: _actions, ...rest } = composioEntry;
     const entryWithoutActions: NativeConnectorCatalogEntry = { ...rest };
     const fetchImpl = vi.fn(
@@ -199,7 +197,7 @@ describe("backend connector action broker", () => {
 
   it("keeps the strict allowlist when the catalog entry carries actions", async () => {
     const fetchImpl = vi.fn();
-    // Toolkit prefix matches but the action is not in the populated list.
+
     const result = await makeBroker({ fetchImpl: fetchImpl as typeof fetch })({
       connectorId: "outlook",
       action: "OUTLOOK_NOT_IN_CATALOG",
@@ -208,7 +206,6 @@ describe("backend connector action broker", () => {
     expect(result).toMatchObject({ ok: false, reason: "action_not_allowed" });
     expect(fetchImpl).not.toHaveBeenCalled();
 
-    // Input schema still enforced for allowlisted actions.
     const schemaResult = await makeBroker({
       fetchImpl: fetchImpl as typeof fetch,
     })({

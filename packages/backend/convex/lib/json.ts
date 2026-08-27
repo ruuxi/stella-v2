@@ -17,18 +17,13 @@ export const stableStringify = (value: unknown): string => {
       const body = keys.map((key) => `${JSON.stringify(key)}:${stringify(record[key])}`);
       result = `{${body.join(",")}}`;
     }
-    // Track only the ancestor chain so shared (non-circular) subtrees aren't
-    // misreported as "[Circular]".
+
     seen.delete(input as object);
     return result;
   };
   return stringify(value);
 };
 
-/**
- * Safely parse a JSON string that is expected to be a plain object.
- * Returns `null` for arrays, primitives, or invalid JSON.
- */
 export function parseJsonObject(value: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(value);
@@ -58,7 +53,7 @@ export const extractJsonBlock = (text: string): string | null => {
     JSON.parse(trimmed);
     return trimmed;
   } catch {
-    // fall through
+
   }
 
   const candidate = extractJsonValueBlock(trimmed);

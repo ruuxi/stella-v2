@@ -11,7 +11,7 @@ import { getModeConfig, getModelConfig } from "../../convex/agent/model";
 
 describe("toProviderNativeModel", () => {
   it("strips provider prefix for matching upstream", () => {
-    // Anthropic ids use dashes, not dots — converted at the wire boundary.
+
     expect(toProviderNativeModel("anthropic/claude-opus-5", "anthropic")).toBe(
       "claude-opus-5",
     );
@@ -220,9 +220,7 @@ describe("downgradeUnsupportedRequestImages", () => {
   });
 
   it("downgrades images for the OpenRouter-hosted contributor despite its meta/ prefix", () => {
-    // The slug shares the `meta/` prefix with the image-capable first-party
-    // Muse Spark models but is text-only until OpenRouter documents
-    // multimodal support for the contributor tier.
+
     const body = {
       messages: [
         {
@@ -268,9 +266,7 @@ describe("estimateRequestTokens", () => {
   });
 
   it("reads Responses input and max_output_tokens", () => {
-    // The relay authorizes before `bodyForUpstream` normalizes, so the
-    // Responses wire shape has to be understood as-is or the reservation
-    // collapses to the 1-token / 1024-token floor.
+
     expect(
       estimateRequestTokens({
         input: [
@@ -510,7 +506,6 @@ describe("resolveRequestedStellaModel", () => {
     expect(light.requestedModel).toBe("stella/light");
     expect(light.resolvedModel).toBe(getModeConfig("light", "free").model);
 
-    // Designer is not in the restricted allow-list → coerced to the default.
     const designer = resolveRequestedStellaModel(
       "orchestrator",
       { model: "stella/designer" },
@@ -550,7 +545,6 @@ describe("resolveRequestedStellaModel", () => {
       expect(flash.requestedModel).toBe("stella/deepseek/deepseek-v4-flash");
       expect(flash.resolvedModel).toBe("crof/deepseek-v4-flash-0731");
 
-      // The Wafer-hosted Fast variant is public-catalog too.
       const waferFast = resolveRequestedStellaModel(
         "orchestrator",
         { model: "stella/wafer/deepseek-v4-flash-0731-fast" },
@@ -562,7 +556,6 @@ describe("resolveRequestedStellaModel", () => {
       expect(waferFast.resolvedModel).toBe("wafer/deepseek-v4-flash-0731-fast");
       expect(waferFast.config.managedGatewayProvider).toBe("wafer");
 
-      // The Muse default is explicitly pinnable for restricted audiences too.
       const muse = resolveRequestedStellaModel(
         "orchestrator",
         { model: "stella/meta/muse-spark-1.2-contributor" },

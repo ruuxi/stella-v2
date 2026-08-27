@@ -3,12 +3,6 @@ import type { ActionCtx, MutationCtx, QueryCtx } from "../_generated/server";
 import { runAgentTurn } from "../automation/runner";
 import { requireConversationOwner } from "../auth";
 
-/**
- * Shared desktop handoff policy for backend-owned turns.
- *
- * Callers can prefer desktop execution when a device is online, then fall back
- * to backend execution if the handoff is unavailable or fails.
- */
 export type DesktopTurnCandidate =
   | { mode: "desktop"; targetDeviceId: string }
   | { mode: "backend" };

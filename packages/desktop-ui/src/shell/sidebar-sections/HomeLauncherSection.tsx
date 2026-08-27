@@ -1,11 +1,3 @@
-/**
- * Home — the right sidebar's empty-state launcher (the browser-tab "new tab").
- *
- * It keeps the shared search field at the top (owned here; results render in
- * place) and, when nothing is being searched, offers a vertically-centered
- * list of destinations: Quick chat, Files, Apps, Browser. Picking one swaps
- * the panel to that section, mirroring opening a new browser tab.
- */
 import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
 import { WorkList } from "./FilesSection";
 import { HOME_LAUNCHER_SECTIONS, SIDEBAR_SECTION_META } from "./section-meta";

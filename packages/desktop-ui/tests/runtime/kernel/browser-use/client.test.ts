@@ -217,7 +217,6 @@ describe("BrowserSession direct daemon client", () => {
         "__stellaBrowserBackend",
       );
 
-      // Per-chain routing must not disturb the selected external default.
       await client.command("tab_list");
       expect(inAppDaemon.requests[5]).toMatchObject({
         action: "tab_list",
@@ -555,8 +554,6 @@ describe("BrowserSession direct daemon client", () => {
         daemon.requests.filter((request) => request.action === "click"),
       ).toHaveLength(1);
 
-      // Recovery is still armed for the next observational command; only the
-      // ambiguous mutation itself is withheld from automatic replay.
       await expect(client.command("url", { tabId: 1 })).resolves.toMatchObject({
         result: { success: true, data: { recovered: true } },
       });

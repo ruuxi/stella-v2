@@ -1,20 +1,3 @@
-/**
- * VoiceCatalogPicker — voice selector that appears below the provider
- * list on the Voice tab of the model picker.
- *
- * Layout, top to bottom:
- *   - Label row. In Stella mode the right-hand area shows the OpenAI /
- *     xAI / Inworld sub-toggle; in BYOK modes it shows a static source
- *     label ("OpenAI voices" / "Grok voices" / "Inworld voices").
- *   - Voice stepper: a single horizontal box with left/right chevrons
- *     on either side of the current voice label. Chevrons cycle through
- *     the active catalog; clicking the label opens a dropdown listing
- *     every voice with its tone description.
- *   - Inworld-only speed slider. Only renders when the active
- *     underlying provider is `inworld`. Persists to
- *     `realtimeVoice.inworldSpeed` so the user's chosen speed survives
- *     provider switches.
- */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronLeft, ChevronRight, ChevronDown } from "@/ui/icons";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, } from "@/ui/dropdown-menu";
@@ -22,16 +5,7 @@ import { DEFAULT_INWORLD_REALTIME_SPEED, getDefaultRealtimeVoice, getRealtimeVoi
 import { resolveReadAloudProvider, resolveRealtimeUnderlyingProvider, } from "@stella/contracts/local-preferences";
 import { useT } from "@/shared/i18n";
 import "./VoiceCatalogPicker.css";
-/**
- * Speed slider uses a logarithmic mapping so that 1.0× lands at the
- * geometric centre of the slider. With a linear 0.5–2.0 range the
- * midpoint would be 1.25× — users naturally drag toward the middle
- * expecting "normal" and end up at 1.25, which sounds noticeably fast.
- *
- * Slider's internal value is 0–100 (a position). The displayed/stored
- * speed is computed via exp(log-interpolated), then snapped to 0.05
- * for clean numbers.
- */
+
 const SPEED_MIN = 0.5;
 const SPEED_MAX = 2.0;
 const LOG_SPEED_MIN = Math.log(SPEED_MIN);
@@ -44,23 +18,18 @@ const speedToSliderPosition = (speed) => {
 const sliderPositionToSpeed = (position) => {
     const clamped = Math.max(0, Math.min(100, position));
     const raw = Math.exp(LOG_SPEED_MIN + (clamped / 100) * LOG_SPEED_RANGE);
-    // Snap to 0.05 so the displayed value stays clean.
+
     return Math.round(raw * 20) / 20;
 };
 export function VoiceCatalogPicker({ voiceProvider, stellaSubProvider, selectedVoices, inworldSpeed, onSelectVoice, onSelectStellaSubProvider, onSelectInworldSpeed, readAloudProvider, onSelectReadAloudProvider, disabled = false, }) {
     const t = useT();
-    // For BYOK modes this is pinned to the provider; for Stella mode it
-    // follows the user's sub-family choice (default "openai").
+
     const underlyingProvider = resolveRealtimeUnderlyingProvider({
         provider: voiceProvider,
         stellaSubProvider,
     });
     const catalog = getRealtimeVoiceCatalog(underlyingProvider);
-    // DISPLAY-ONLY: which voice to highlight when the user hasn't picked one.
-    // The real default is server-authoritative (the client omits the voice and
-    // the backend applies it), so this bundled constant only affects which chip
-    // is pre-highlighted in the picker — never what actually gets synthesized.
-    // If it drifts from the server default, only the badge is wrong, not audio.
+
     const fallback = getDefaultRealtimeVoice(underlyingProvider);
     const activeVoiceId = selectedVoices?.[underlyingProvider]?.trim() || fallback;
     const activeIndex = useMemo(() => {
@@ -73,11 +42,7 @@ export function VoiceCatalogPicker({ voiceProvider, stellaSubProvider, selectedV
     const activeSpeed = inworldSpeed ?? DEFAULT_INWORLD_REALTIME_SPEED;
     const activeReadAloud = resolveReadAloudProvider({ readAloudProvider });
     const showReadAloud = typeof onSelectReadAloudProvider === "function";
-    // ── Speed slider: commit on release ──────────────────────────────
-    // The slider stays responsive during drag (local state drives the
-    // displayed value) but only writes to prefs on pointer-up / keyboard
-    // arrow release. Otherwise every slider tick fires an IPC write and
-    // the prop comes back, re-rendering the parent on each pixel of drag.
+
     const [draftSpeed, setDraftSpeed] = useState(activeSpeed);
     const draggingRef = useRef(false);
     useEffect(() => {

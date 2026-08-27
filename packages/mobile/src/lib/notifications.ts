@@ -24,7 +24,7 @@ const NOTIFICATION_ACTIONS = [
 
 Notifications.setNotificationHandler({
   handleNotification: async () => {
-    // User-side mute wins over everything — drop the notification entirely.
+
     if (getNotificationsMuted()) {
       return {
         shouldShowAlert: false,
@@ -34,7 +34,7 @@ Notifications.setNotificationHandler({
         shouldSetBadge: false,
       };
     }
-    // Don't surface pushes over the app the user is currently looking at.
+
     const isForeground = AppState.currentState === "active";
     if (isForeground) {
       return {
@@ -84,7 +84,6 @@ async function getExpoPushToken(): Promise<string | null> {
 
 let registered = false;
 
-/** Register for push notifications and send the token to the backend. */
 export async function registerForPushNotifications(): Promise<void> {
   if (registered) return;
 
@@ -100,11 +99,10 @@ export async function registerForPushNotifications(): Promise<void> {
     });
     registered = true;
   } catch {
-    // Best-effort — don't block the app if registration fails.
+
   }
 }
 
-/** Remove this phone's push token rows for the currently signed-in account. */
 export async function unregisterForPushNotifications(): Promise<void> {
   try {
     const mobileDeviceId = await getOrCreateMobileDeviceId();
@@ -113,15 +111,10 @@ export async function unregisterForPushNotifications(): Promise<void> {
     });
     registered = false;
   } catch {
-    // Best-effort — sign-out should still work even if the network is down.
+
   }
 }
 
-/**
- * Wire up interactive notification categories and a tap handler that
- * routes the user to the right surface when they engage with a push
- * (either via the banner itself or one of the inline actions).
- */
 export async function installNotificationCategoriesAndListeners(): Promise<() => void> {
   try {
     await Promise.all([
@@ -135,7 +128,7 @@ export async function installNotificationCategoriesAndListeners(): Promise<() =>
       ),
     ]);
   } catch {
-    // Best-effort; some platforms (Expo Go) just don't support categories.
+
   }
 
   const subscription = Notifications.addNotificationResponseReceivedListener(
@@ -152,8 +145,7 @@ export async function installNotificationCategoriesAndListeners(): Promise<() =>
         try {
           router.replace("/computer");
         } catch {
-          // Router not yet mounted on cold start; the computer screen will
-          // be the natural landing once the user opens the app.
+
         }
       }
     },
@@ -162,6 +154,5 @@ export async function installNotificationCategoriesAndListeners(): Promise<() =>
   return () => subscription.remove();
 }
 
-/** Get the Expo push notification listener for navigation. */
 export const addNotificationResponseListener =
   Notifications.addNotificationResponseReceivedListener;

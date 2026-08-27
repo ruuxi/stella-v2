@@ -14,9 +14,6 @@ import type {
   ConnectorToolInfo,
 } from "./types.js";
 
-/** Thrown when a connector request comes back with an HTTP auth status
- *  (401/403/407). Lets callers branch
- *  on auth failure vs. real probe errors without parsing message strings. */
 export class ConnectorAuthError extends Error {
   readonly kind = "auth_required" as const;
   constructor(
@@ -55,7 +52,7 @@ const parseSseMessages = (text: string): RpcMessage[] => {
     try {
       messages.push(JSON.parse(data) as RpcMessage);
     } catch {
-      // Ignore malformed non-RPC SSE frames.
+
     }
   }
   return messages;
@@ -86,11 +83,6 @@ const replaceSecretPlaceholders = async (stellaAppDir: string, value: string) =>
   return parts.join("");
 };
 
-/**
- * Optional server-provided usage guidance from the MCP `initialize`
- * response (`result.instructions`). Captured so imports can embed it in
- * the generated connector skill.
- */
 const readInstructions = (result: unknown): string | undefined => {
   const instructions =
     result && typeof result === "object"
@@ -104,7 +96,7 @@ const readInstructions = (result: unknown): string | undefined => {
 class HttpConnectorBridgeSession {
   private sessionId: string | null = null;
   private initialized = false;
-  /** From the last successful `initialize` (see {@link readInstructions}). */
+
   instructions: string | undefined;
 
   constructor(
@@ -283,7 +275,7 @@ class HttpConnectorBridgeSession {
 class StdioConnectorBridgeSession {
   private child: ChildProcessWithoutNullStreams | null = null;
   private processRecordPromise: Promise<string | null> | null = null;
-  /** From the last successful `initialize` (see {@link readInstructions}). */
+
   instructions: string | undefined;
   private nextId = 1;
   private pending = new Map<
@@ -301,8 +293,7 @@ class StdioConnectorBridgeSession {
   ) {}
 
   private failChild(child: ChildProcessWithoutNullStreams, error: Error): void {
-    // Ignore late events from a child that has already been retired or
-    // replaced. Its first failure already removed the matching process record.
+
     if (this.child !== child) return;
     const recordPromise = this.processRecordPromise;
     for (const pending of this.pending.values()) {
@@ -316,7 +307,7 @@ class StdioConnectorBridgeSession {
     try {
       child.kill();
     } catch {
-      // The connector already exited.
+
     }
   }
 
@@ -360,7 +351,7 @@ class StdioConnectorBridgeSession {
         })
       : Promise.resolve(null);
     this.child.stderr.on("data", () => {
-      // Drain diagnostics so verbose connector commands cannot block on a full pipe.
+
     });
     this.child.on("exit", () => {
       this.failChild(child, new Error(`${this.server.displayName} exited.`));
@@ -368,8 +359,7 @@ class StdioConnectorBridgeSession {
     this.child.on("error", (error) => {
       this.failChild(child, error);
     });
-    // stdin has its own error channel; child.on("error") only covers process
-    // spawn failures. Own EPIPE/ECONNRESET before sending any MCP messages.
+
     this.child.stdin.on("error", (error) => this.failChild(child, error));
     const rl = readline.createInterface({ input: this.child.stdout });
     rl.on("line", (line) => {
@@ -425,8 +415,7 @@ class StdioConnectorBridgeSession {
           reject(error);
         },
       });
-      // Register the request before writing. A connector can respond in the
-      // same turn, and response dispatch must never race pending registration.
+
       try {
         child.stdin.write(payload, (error) => {
           if (error) this.failChild(child, error);
@@ -542,14 +531,10 @@ export const listConnectorBridgeTools = async (
 
 export type ConnectorBridgeProbe = {
   tools: ConnectorToolInfo[];
-  /** Server-provided usage guidance from the MCP `initialize` response. */
+
   instructions?: string;
 };
 
-/**
- * `tools/list` plus the `instructions` string the server volunteered
- * during `initialize` — the shape MCP imports need to generate a skill.
- */
 export const probeConnectorBridgeTools = async (
   stellaAppDir: string,
   server: ConnectorCommandConfig,

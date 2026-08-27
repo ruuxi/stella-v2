@@ -11,7 +11,7 @@ import type { StoredPhoneAccess } from "./phone-access";
 
 const RECONNECT_BASE_DELAY_MS = 1_000;
 const RECONNECT_MAX_DELAY_MS = 30_000;
-/** How long an unsupported desktop stays demoted before we re-check. */
+
 const UNSUPPORTED_RECHECK_MS = 10 * 60_000;
 
 export type DesktopBridgeLiveHandle = {
@@ -19,9 +19,9 @@ export type DesktopBridgeLiveHandle = {
 };
 
 export type DesktopBridgeLiveConnectionDetails = {
-  /** False for this handle's first successful socket; true after a drop. */
+
   reconnected: boolean;
-  /** True when the deliberate drop was caused by app backgrounding. */
+
   foregroundResume: boolean;
 };
 
@@ -34,17 +34,6 @@ export type DesktopLocalChatUpdatedPayload = {
   };
 };
 
-/**
- * Foreground-only push channel for transcript changes. Holds one WebSocket
- * subscribed to `localChat:updated` (the desktop broadcasts it on every
- * persisted chat event) and reports connection state so callers can suspend
- * their polling fallbacks while push is live.
- *
- * Capability-gated: only desktops that advertise `localchat-push` via
- * `mobile:hello` get a socket; against older desktops the handle stays
- * dormant (callers keep polling). Auto-reconnects with backoff while open,
- * closes in the background and reconnects on foreground.
- */
 export function openDesktopBridgeLive(options: {
   access: StoredPhoneAccess;
   onLocalChatUpdated: (payload: DesktopLocalChatUpdatedPayload) => void;
@@ -52,17 +41,9 @@ export function openDesktopBridgeLive(options: {
     connected: boolean,
     details: DesktopBridgeLiveConnectionDetails,
   ) => void;
-  /**
-   * The desktop broadcasts `localChat:threadActivityUpdated` on every
-   * background-thread transition (spawn, retitle, terminal) — the signal to
-   * refetch the authoritative task set via `fetchDesktopBridgeThreadTasks`.
-   * Older desktops never emit it; the subscription is simply silent.
-   */
+
   onThreadActivityUpdated?: (payload: { conversationId?: string }) => void;
-  /**
-   * Mid-run decoration snapshot (statusText ticks + reasoning phrases) for
-   * running threads. Carries the data itself — no refetch needed.
-   */
+
   onTaskDecorationUpdated?: (decoration: DesktopTaskDecoration) => void;
 }): DesktopBridgeLiveHandle {
   let closed = false;
@@ -103,17 +84,14 @@ export function openDesktopBridgeLive(options: {
 
   const connect = async () => {
     if (closed || connecting || socket) return;
-    // "unknown" (cold launch) counts as foreground; only explicit
-    // background/inactive states block connecting.
+
     if (isBackgrounded()) return;
     if (Date.now() < unsupportedUntil) return;
     connecting = true;
     try {
       const bridge = await resolveDesktopBridge(options.access);
       if (!bridgeSupportsLocalChatPush(bridge)) {
-        // Older desktop — stay dormant (callers keep their polling fallback).
-        // Foreground transitions re-attempt, so a desktop upgraded
-        // mid-session is picked up after the recheck window.
+
         unsupportedUntil = Date.now() + UNSUPPORTED_RECHECK_MS;
         return;
       }
@@ -175,8 +153,7 @@ export function openDesktopBridgeLive(options: {
           }
         },
         onClose: (details) => {
-          // Only react if this socket is still the live one — a superseded
-          // or deliberately dropped socket must not clobber shared state.
+
           if (socket !== opened) return;
           socket = null;
           setConnected(false);
@@ -196,8 +173,7 @@ export function openDesktopBridgeLive(options: {
       attempt = 0;
       setConnected(true);
     } catch {
-      // The socket itself is the liveness probe. A failed open invalidates the
-      // in-memory route so the next bounded retry performs discovery once.
+
       clearCachedDesktopBridge(options.access.desktopDeviceId, {
         keepPersisted: true,
       });
@@ -217,8 +193,7 @@ export function openDesktopBridgeLive(options: {
         void connect();
         return;
       }
-      // Background/inactive: drop the socket — iOS will kill it anyway, and a
-      // deliberate close gives us a clean reconnect on return.
+
       if (hasConnectedOnce) foregroundResumePending = true;
       if (socket) {
         const current = socket;

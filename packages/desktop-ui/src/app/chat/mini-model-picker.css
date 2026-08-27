@@ -1,9 +1,3 @@
-/* Pinned model control in the composer's expanded toolbar. The trigger is a
-   pill showing the active model; the popover mirrors the sidebar picker's
-   reasoning + model-row language in a compact footprint — same hover fill,
-   same `--select-surface-*` selected recipe, so a row reads identically in
-   both surfaces. */
-
 .pill-btn.mini-model-picker-trigger {
   gap: 5px;
   max-width: 180px;
@@ -32,7 +26,6 @@
   padding: 6px;
 }
 
-/* Reasoning row — same pills as the sidebar picker's selected-model extra. */
 .mini-model-picker-reasoning {
   display: flex;
   align-items: center;
@@ -98,8 +91,6 @@
   opacity: 0.5;
 }
 
-/* Fast-mode (ChatGPT service tier) switch — same recipe as the sidebar
-   picker's engine options, right-aligned under the reasoning row. */
 .mini-model-picker-engine-options {
   display: flex;
   align-items: center;
@@ -130,8 +121,6 @@
   margin-top: 4px;
 }
 
-/* The escape hatch to the full picker sits under a hairline so it reads as
-   navigation rather than one more model to pick. */
 .mini-model-picker-rows--more {
   margin-top: 5px;
   padding-top: 5px;
@@ -163,17 +152,12 @@
   color: var(--text-strong);
 }
 
-/* The accent recipe rather than the sidebar's quiet one: this list is 2–5
-   rows deep over a glass popover, where a neutral tint is indistinguishable
-   from the hover fill sitting right beside it. */
 .mini-model-picker-rows button[data-selected] {
   background: var(--select-fill);
   border-color: var(--select-border);
   color: var(--select-text);
 }
 
-/* An inset hairline, not the 4px `--focus-ring` — rows are 1px apart and a
-   halo would bleed over its neighbours. */
 .mini-model-picker-rows button:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 1px

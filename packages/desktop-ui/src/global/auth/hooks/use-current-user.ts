@@ -8,11 +8,6 @@ type CurrentUser = {
   isAnonymous?: boolean;
 } | null | undefined;
 
-// Identity (email/name/anonymous) doesn't move while the app is
-// running — it changes on sign-in/out, and `hasConnectedAccount` already
-// flips when that happens. One-shot fetch instead of a persistent
-// subscription so the always-mounted Sidebar isn't holding a Convex
-// watcher open for static data.
 export function useCurrentUser(): { user: CurrentUser; hasConnectedAccount: boolean } {
   const { cacheScope, hasConnectedAccount } = useAuthSessionState();
   const user = usePersistentConvexOneShot(

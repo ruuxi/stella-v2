@@ -1,13 +1,3 @@
-/**
- * `Edit` — replace text inside an existing file.
- *
- * Two addressing modes:
- *  - Anchor mode (preferred): reference lines by the `LINE#HASH` anchors
- *    shown in `Read` output. No need to echo the old text back, and
- *    anchors survive whitespace drift and line shifts (hash relocation).
- *  - Exact mode (fallback): classic old_string/new_string replacement.
- */
-
 import { handleEdit } from "../file.js";
 import type { ToolDefinition } from "../types.js";
 

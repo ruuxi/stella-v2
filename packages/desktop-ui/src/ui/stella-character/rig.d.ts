@@ -1,5 +1,3 @@
-/** Hand-written types for the plain-JS character rig (see rig.js). */
-
 export type StellaCharacterState =
   | "idle"
   | "listening"
@@ -24,15 +22,15 @@ export type StellaCharacterState =
 export type StellaCharacterShape = "star" | "pebble" | "brand" | "orb";
 
 export interface CreateStellaMarkOptions {
-  /** Fixed square size in px. Omit to fill the host element's width. */
+
   size?: number | null;
   state?: StellaCharacterState;
   shape?: StellaCharacterShape;
-  /** Ink ramp: "aurora" (shipping WorkingStar ramp) or "vivid" (logo ramp). */
+
   ink?: "aurora" | "vivid";
-  /** Single flat fill; overrides `ink` (uses the CSS var --fg). */
+
   flat?: string | null;
-  /** Eye cutout colour — should match the surface behind the mark. */
+
   eyeColor?: string;
   glow?: boolean;
   core?: boolean;

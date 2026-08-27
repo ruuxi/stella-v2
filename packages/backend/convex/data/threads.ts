@@ -8,14 +8,7 @@ import {
 import type { Id } from "../_generated/dataModel";
 
 const MAX_THREADS_PER_CONVERSATION = 16;
-/**
- * Upper bound for thread_messages reads (compaction / load).
- *
- * Keep this comfortably below Convex's 8192 array-return limit so a runaway
- * thread can't blow the response-size cap. Callers receive `truncated: true`
- * when this limit is hit, which signals them to compact and retry rather than
- * relying on a complete view.
- */
+
 const MAX_THREAD_MESSAGES_PER_QUERY = 4_000;
 const MAX_CONTENT_LENGTH = 500_000;
 const THREAD_SWEEP_BATCH_SIZE = 200;
@@ -90,10 +83,6 @@ export const deriveThreadLifecycleStatus = (args: {
   return "active";
 };
 
-// ---------------------------------------------------------------------------
-// Truncate large content to prevent DB bloat
-// ---------------------------------------------------------------------------
-
 const truncateContent = (raw: string): string => {
   if (raw.length > MAX_CONTENT_LENGTH) {
     return raw.slice(0, MAX_CONTENT_LENGTH) + '"...[truncated]"';
@@ -110,10 +99,6 @@ const activeThreadStatePatch = (thread: { status: string }, now: number) => ({
       }
     : {}),
 });
-
-// ---------------------------------------------------------------------------
-// createThread
-// ---------------------------------------------------------------------------
 
 export const createThread = internalMutation({
   args: {
@@ -134,9 +119,6 @@ export const createThread = internalMutation({
       });
     }
 
-    // Check active thread count and evict if at limit. We bound the read at
-    // `MAX_THREADS_PER_CONVERSATION + 1` because that's all we need to detect
-    // the over-limit condition.
     const activeThreads = await ctx.db
       .query("threads")
       .withIndex("by_conversationId_and_status_and_lastUsedAt", (q) =>
@@ -146,7 +128,7 @@ export const createThread = internalMutation({
 
     let evictedThreadName: string | null = null;
     if (activeThreads.length >= MAX_THREADS_PER_CONVERSATION) {
-      // Evict the oldest (least recently used)
+
       const sorted = activeThreads.sort((a, b) => a.lastUsedAt - b.lastUsedAt);
       const oldest = sorted[0];
       if (oldest) {
@@ -173,12 +155,6 @@ export const createThread = internalMutation({
   },
 });
 
-// ---------------------------------------------------------------------------
-// getThreadByName
-// ---------------------------------------------------------------------------
-
-
-
 export const getThreadByName = internalQuery({
   args: {
     ownerId: v.string(),
@@ -195,9 +171,6 @@ export const getThreadByName = internalQuery({
       return null;
     }
 
-    // Cap on duplicate-name matches we'll consider. Names are scoped to a
-    // conversation and rarely duplicated; a tight bound keeps this O(1) even
-    // if a user accidentally creates many same-named threads.
     const MAX_DUPLICATE_THREAD_NAMES = 32;
     const matches = await ctx.db
       .query("threads")
@@ -221,10 +194,6 @@ export const getThreadByName = internalQuery({
   },
 });
 
-// ---------------------------------------------------------------------------
-// getThreadById
-// ---------------------------------------------------------------------------
-
 export const getThreadById = internalQuery({
   args: {
     threadId: v.id("threads"),
@@ -233,10 +202,6 @@ export const getThreadById = internalQuery({
     return await ctx.db.get(args.threadId);
   },
 });
-
-// ---------------------------------------------------------------------------
-// listActiveThreads
-// ---------------------------------------------------------------------------
 
 export const listActiveThreads = internalQuery({
   args: {
@@ -264,10 +229,6 @@ export const listActiveThreads = internalQuery({
     return threads;
   },
 });
-
-// ---------------------------------------------------------------------------
-// touchThread
-// ---------------------------------------------------------------------------
 
 export const touchThread = internalMutation({
   args: {
@@ -302,10 +263,6 @@ export const activateThread = internalMutation({
   },
 });
 
-// ---------------------------------------------------------------------------
-// closeThread
-// ---------------------------------------------------------------------------
-
 export const closeThread = internalMutation({
   args: {
     ownerId: v.string(),
@@ -323,10 +280,6 @@ export const closeThread = internalMutation({
   },
 });
 
-// ---------------------------------------------------------------------------
-// loadThreadMessages
-// ---------------------------------------------------------------------------
-
 export const loadThreadMessages = internalQuery({
   args: {
     threadId: v.id("threads"),
@@ -340,10 +293,6 @@ export const loadThreadMessages = internalQuery({
       .take(MAX_THREAD_MESSAGES_PER_QUERY);
   },
 });
-
-// ---------------------------------------------------------------------------
-// saveThreadMessages
-// ---------------------------------------------------------------------------
 
 export const saveThreadMessages = internalMutation({
   args: {
@@ -364,7 +313,6 @@ export const saveThreadMessages = internalMutation({
     const thread = await loadThreadForOwner(ctx, args.threadId, args.ownerId);
     if (!thread) return null;
 
-    // Get the current max ordinal
     const lastMessage = await ctx.db
       .query("thread_messages")
       .withIndex("by_threadId_and_ordinal", (q) =>
@@ -376,9 +324,6 @@ export const saveThreadMessages = internalMutation({
     const baseOrdinal = (lastMessage?.ordinal ?? -1) + 1;
     const now = Date.now();
 
-    // Pre-compute everything synchronously, then issue inserts in parallel.
-    // Each `await ctx.db.insert` round-trip is independent — running them
-    // serially blocked the mutation on N sequential RTTs for large batches.
     const prepared = args.messages.map((msg, index) => {
       const safeContent = truncateContent(msg.content);
       const estimate = msg.tokenEstimate ?? Math.ceil(safeContent.length / 4);
@@ -400,7 +345,6 @@ export const saveThreadMessages = internalMutation({
       prepared.map(({ record }) => ctx.db.insert("thread_messages", record)),
     );
 
-    // Update thread counters
     await ctx.db.patch(args.threadId, {
       messageCount: thread.messageCount + args.messages.length,
       totalTokenEstimate: thread.totalTokenEstimate + addedTokens,
@@ -411,11 +355,6 @@ export const saveThreadMessages = internalMutation({
   },
 });
 
-// ---------------------------------------------------------------------------
-// deleteMessagesBefore
-// ---------------------------------------------------------------------------
-
-/** Maximum messages to delete in a single transaction batch. */
 const DELETE_MESSAGES_BATCH_SIZE = 500;
 
 export const deleteMessagesBefore = internalMutation({
@@ -432,8 +371,6 @@ export const deleteMessagesBefore = internalMutation({
     const thread = await loadThreadForOwner(ctx, args.threadId, args.ownerId);
     if (!thread) return { deleted: 0, hasMore: false };
 
-    // Bounded batch so a long thread doesn't blow the mutation transaction
-    // limit. Callers should re-invoke until `hasMore` is false.
     const messages = await ctx.db
       .query("thread_messages")
       .withIndex("by_threadId_and_ordinal", (q) =>
@@ -462,9 +399,6 @@ export const finalizeThreadCompaction = internalMutation({
       return null;
     }
 
-    // Read only the rows we'll keep — using the ordinal range filter rather
-    // than reading every message and JS-filtering keeps us inside the array
-    // return limit even for very long threads.
     const retained = await ctx.db
       .query("thread_messages")
       .withIndex("by_threadId_and_ordinal", (q) =>

@@ -71,7 +71,7 @@ describe("reminder-window-gate", () => {
         key: KEY,
       }),
     ).toBe(true);
-    // A different key is unaffected.
+
     expect(
       await isReminderShownInActiveWindow({
         stellaDataDir: root,
@@ -80,7 +80,7 @@ describe("reminder-window-gate", () => {
         key: "connector-offer:notion",
       }),
     ).toBe(false);
-    // A different thread is unaffected.
+
     expect(
       await isReminderShownInActiveWindow({
         stellaDataDir: root,
@@ -99,8 +99,7 @@ describe("reminder-window-gate", () => {
       key: KEY,
       timestamp: 2_000,
     });
-    // The checkpoint summary lands AFTER the reminder was shown: the raw
-    // reminder is gone from the window; the summary doesn't count.
+
     const store = storeWith([
       checkpointAt(3_000),
       { content: "user: what about my mail?", timestamp: 3_500 },

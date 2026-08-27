@@ -1,9 +1,4 @@
 #!/usr/bin/env node
-
-/**
- * Copies the compiled Rust binary to bin/ with platform-specific naming
- */
-
 import { chmodSync, copyFileSync, existsSync, mkdirSync, renameSync, rmSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { join } from 'path';
@@ -16,7 +11,6 @@ const sourceExt = platform() === 'win32' ? '.exe' : '';
 const sourcePath = join(projectRoot, `cli/target/release/stella-browser${sourceExt}`);
 const binDir = join(projectRoot, 'bin');
 
-// Determine platform suffix
 const platformKey = `${platform()}-${arch()}`;
 const ext = platform() === 'win32' ? '.exe' : '';
 const targetName = `stella-browser-${platformKey}${ext}`;
@@ -35,9 +29,7 @@ if (!existsSync(binDir)) {
 const tempPath = join(binDir, `.${targetName}.${process.pid}.tmp`);
 
 try {
-  // Replace via a fresh temp file so repeated builds do not reuse the old inode.
-  // In this repo, Cursor's shell path could get stuck launching the previous inode
-  // even when the file contents had been overwritten in place.
+
   copyFileSync(sourcePath, tempPath);
 
   if (platform() !== 'win32') {

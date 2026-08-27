@@ -86,8 +86,7 @@ describe("deriveAgentCompletionFiles", () => {
   });
 
   it("resolves a bare ~/.stella/outputs/html output to a first-class canvas-html payload", () => {
-    // The pill must open the Canvas viewer with a slug-derived title, not a
-    // generic file artifact — same payload quality the old inline path had.
+
     const files = deriveAgentCompletionFiles([
       completed("a1", ["/Users/me/.stella/outputs/html/q3-revenue-breakdown.html"], 9),
     ]);
@@ -136,11 +135,7 @@ describe("buildAgentCompletionSections", () => {
   });
 
   it("keeps reserved builtin agents' files visible (files are user-facing regardless of agent type)", () => {
-    // Before the completion-card consolidation these files rendered inline
-    // for every agent type; consolidating must not make them vanish from the
-    // transcript. (In practice, reserved builtins that could produce noise —
-    // fashion and dream — run in hidden conversations and never reach
-    // the visible transcript at all.)
+
     const meta = buildAgentMetaMap([
       started("schedule-1", "Schedule a reminder", { agentType: "schedule" }),
     ]);
@@ -163,9 +158,7 @@ describe("buildAgentCompletionSections", () => {
   });
 
   it("ranks ~/.stella/outputs/ deliverables ahead of incidental files in the pill list", () => {
-    // A big rollup mixes real deliverables with scratch assets; the declared
-    // outputs must lead so the pill cap truncates the scratch, not the
-    // deliverables.
+
     const sections = buildAgentCompletionSections(
       [
         completed("a1", [
@@ -187,10 +180,7 @@ describe("buildAgentCompletionSections", () => {
   });
 
   it("renders a section for a completion with no files (fileless card)", () => {
-    // The card must never depend on produced files: an agent that finished
-    // without observable file output (investigative work, or an engine whose
-    // writes Stella can't track) still completed. Its result excerpt stands
-    // in for the pills.
+
     const meta = buildAgentMetaMap([started("a1", "Investigate the flaky test")]);
     const sections = buildAgentCompletionSections(
       [
@@ -238,11 +228,7 @@ describe("buildAgentCompletionSections", () => {
   });
 
   it("strips block markdown to inline-only (the 0.0.383 literal-markers regression)", () => {
-    // Exact shape from the live report: headings and bullets collapsed into
-    // the one-liner as literal "##" / "-" characters, while inline bold/code
-    // rendered as raw asterisks/backticks. Block constructs must be stripped
-    // line-by-line before newline collapse; inline markdown passes through
-    // for the card's Markdown renderer.
+
     const sections = buildAgentCompletionSections(
       [
         ev({
@@ -274,9 +260,7 @@ describe("buildAgentCompletionSections", () => {
   });
 
   it("drops an inline marker left dangling by the truncation cut", () => {
-    // The cap lands inside a `**…**` span: the surviving opener must be
-    // removed so the rendered tail stays plain instead of bolding (or, for
-    // a code span, swallowing) the rest of the excerpt.
+
     const bold = (filler: string) =>
       `${filler} **bold text that keeps going well past the cap**`;
     const sections = buildAgentCompletionSections(
@@ -347,8 +331,7 @@ describe("buildAgentCompletionSections", () => {
     );
     expect(sections).toHaveLength(1);
     expect(sections[0]!.completedAtMs).toBe(50);
-    // The summary mirrors the latest completion; no stale excerpt from the
-    // earlier run may be attributed to the newer, resultless completion.
+
     expect(sections[0]!.summary).toBeUndefined();
   });
 
@@ -359,8 +342,7 @@ describe("buildAgentCompletionSections", () => {
           _id: "completed:a1:42",
           timestamp: 42,
           type: "agent-completed",
-          // Leading "x" shifts the 200-unit cap into the middle of an
-          // emoji's surrogate pair.
+
           payload: { agentId: "a1", result: `x${"🎉".repeat(400)}` },
         }),
       ],
@@ -368,7 +350,7 @@ describe("buildAgentCompletionSections", () => {
     );
     const summary = sections[0]!.summary!;
     expect(summary.endsWith("…")).toBe(true);
-    // No lone high surrogate immediately before the ellipsis.
+
     expect(/[\uD800-\uDBFF]…$/.test(summary)).toBe(false);
   });
 
@@ -384,7 +366,7 @@ describe("buildAgentCompletionSections", () => {
     );
     expect(sections).toHaveLength(1);
     expect(sections[0]!.files).toEqual([]);
-    // The `completed` helper stamps result: "done".
+
     expect(sections[0]!.summary).toBe("done");
   });
 
@@ -408,17 +390,12 @@ describe("buildAgentCompletionSections", () => {
 
 describe("append-only across a send_input re-run", () => {
   it("a resumed thread's earlier AND later completions each render a card (0.0.389 regression)", () => {
-    // Regression shape: a thread finishes (its completion emits
-    // immediately under the state-based rule in local-agent-manager),
-    // then a send_input on the idle thread starts a new run that finishes
-    // again. Both completions must survive the per-row derivation +
-    // handoff dedup as their own cards — nothing about a thread's SECOND
-    // completion may suppress either card.
+
     const meta = buildAgentMetaMap([
       started("a1", "Open the HTML file in the browser", { timestamp: 1 }),
       started("a1", "Open the HTML file in the browser", { timestamp: 50 }),
     ]);
-    // Row 1: the flushed interjection completion (fileless, one-line result).
+
     const rowOne = buildAgentCompletionSections(
       [
         ev({
@@ -430,7 +407,7 @@ describe("append-only across a send_input re-run", () => {
       ],
       meta,
     );
-    // Row 2: the resumed turn's final completion.
+
     const rowTwo = buildAgentCompletionSections(
       [
         ev({
@@ -447,8 +424,6 @@ describe("append-only across a send_input re-run", () => {
     expect(rowTwo).toHaveLength(1);
     expect(rowTwo[0]!.summary).toBe("Re-opened after the fix.");
 
-    // Handoff dedup keeps both (distinct completedAtMs = distinct
-    // completions), so neither card is reconciled away.
     const rows: EventRowViewModel[] = [
       completionRow("assistant-1", rowOne),
       completionRow("assistant-2", rowTwo),
@@ -479,15 +454,10 @@ describe("append-only across a send_input re-run", () => {
     );
     expect(firstRow[0]!.files.map((f) => f.path)).toEqual(["/out/v1.md"]);
     expect(secondRow[0]!.files.map((f) => f.path)).toEqual(["/out/v2.md"]);
-    // Distinct completedAtMs — the handoff dedup treats these as separate
-    // completions and keeps both cards.
+
     expect(firstRow[0]!.completedAtMs).not.toBe(secondRow[0]!.completedAtMs);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Handoff dedup: the same agent-completed projected onto two rows.
-// ---------------------------------------------------------------------------
 
 const fileEntry = (path: string, timestamp = 5): ConversationFileEntry => ({
   path,
@@ -533,8 +503,7 @@ describe("dedupeAgentCompletionRows — SQLite/stream handoff", () => {
     const rows: EventRowViewModel[] = [syntheticUserAnchor, assistantAnchor];
     const dropped = new Set<number>();
     dedupeAgentCompletionRows(rows, dropped);
-    // The later (canonical) row keeps the card; the synthetic
-    // completion-only row is dropped entirely.
+
     expect(dropped).toEqual(new Set([0]));
     expect(
       (rows[1] as AssistantRowViewModel).agentCompletion?.sections,
@@ -616,11 +585,6 @@ describe("dedupeAgentCompletionRows — SQLite/stream handoff", () => {
     ).toEqual(["a1"]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// agentCompletionEqual (via eventRowEqual) — the comparator the reveal path
-// leans on.
-// ---------------------------------------------------------------------------
 
 describe("agentCompletion row equality", () => {
   const base = () => completionRow("r1", [section("a1", 42, ["/out/a.md"])]);

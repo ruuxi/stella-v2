@@ -1,13 +1,3 @@
-/**
- * React access to the client-side capability gate.
- *
- * One billing subscription, one audience, one verdict — components ask
- * this hook instead of re-deriving entitlement from a plan string. It
- * also publishes the resolved audience to the module snapshot in
- * `./capabilities` so the non-React streaming error path can pick the
- * right call to action without billing state being threaded through the
- * transport.
- */
 import { useCallback, useEffect, useMemo } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/api";
@@ -54,12 +44,12 @@ type BillingStatusLite = {
 };
 
 export type CapabilityAccess = {
-  /** `null` while billing is still resolving for a signed-in user. */
+
   audience: ManagedModelAudience | null;
-  /** Optimistic during the hydration gap — see `canUseCapability`. */
+
   can: (capability: Capability) => boolean;
   restrictionFor: (capability: Capability) => CapabilityRestriction | null;
-  /** Present only for Free accounts with a lifetime ceiling. */
+
   freeAllowance: FreeAllowance | null;
 };
 

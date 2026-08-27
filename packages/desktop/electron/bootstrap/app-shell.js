@@ -58,9 +58,7 @@ const initializeWindowShell = (context) => {
         isQuitting: () => state.isQuitting,
         onMinimizeFullToTray: () => state.trayController?.notifyMinimizedToTray(),
     }));
-    // Windows keeps Stella alive in the system tray after the user closes the
-    // main window. macOS already keeps the app running via the dock, so the
-    // tray is Windows-only.
+
     if (process.platform === "win32") {
         const trayController = new TrayController({
             electronDir: config.electronDir,
@@ -108,8 +106,7 @@ const finalizeWindowLaunch = (context) => {
     context.state.processRuntime.setManagedTimeout(() => {
         triggerDeferredStartup("fallback");
     }, config.startupFirstPaintFallbackMs);
-    // If Accessibility was off at startup, deferred startup skips the hook; when
-    // the user enables it in System Settings and returns to Stella, retry start.
+
     if (process.platform === "darwin") {
         app.on("browser-window-focus", () => {
             if (!hasMacPermission("accessibility", false)) {

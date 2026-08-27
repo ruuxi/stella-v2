@@ -41,7 +41,6 @@ const register = (group: string, id: string, priority: number) => {
   };
 };
 
-/** Elect the most recently mounted visible candidate inside a motion group. */
 export const useExclusiveAnimation = (
   group: string | undefined,
   candidate: boolean,

@@ -1,12 +1,9 @@
-// Color utilities ported from Aura
-// Uses OKLCH color space for perceptually uniform color scales
-
 type HexColor = string;
 
 interface OklchColor {
-  l: number; // Lightness 0-1
-  c: number; // Chroma 0-0.4+
-  h: number; // Hue 0-360
+  l: number;
+  c: number;
+  h: number;
 }
 
 function hexToRgb(hex: HexColor): { r: number; g: number; b: number } {
@@ -113,10 +110,6 @@ function oklchToHex(oklch: OklchColor): HexColor {
   return rgbToHex(r, g, b);
 }
 
-/**
- * Generate a 12-step color scale from a seed color.
- * This matches Aura's scale generation for consistent gradients.
- */
 function generateScale(seed: HexColor, isDark: boolean): HexColor[] {
   const base = hexToOklch(seed);
   const scale: HexColor[] = [];
@@ -168,15 +161,6 @@ function generateScale(seed: HexColor, isDark: boolean): HexColor[] {
   return scale;
 }
 
-/**
- * Generate the five aurora ramp stops (see shell/aurora) from a theme's
- * seed colors. The ramp follows the brand aurora's lightness/chroma
- * profile (bright airy low stops, a saturated dip, a bright top) but
- * takes its hues from the theme: it starts below the interactive hue and
- * sweeps toward the accent hue when the accent is chromatic and far
- * enough away to read as a second color; otherwise it fans a synthetic
- * spread around the interactive hue alone.
- */
 export function generateAuroraStops(
   interactive: string,
   accent: string,
@@ -185,7 +169,6 @@ export function generateAuroraStops(
   const p = hexToOklch(interactive);
   const a = hexToOklch(accent);
 
-  // Shortest signed hue arc from interactive to accent.
   let delta = ((a.h - p.h + 540) % 360) - 180;
   const accentIsDistinct = a.c >= 0.05 && Math.abs(delta) >= 50;
   if (!accentIsDistinct) delta = 75;
@@ -194,12 +177,10 @@ export function generateAuroraStops(
     ? [p.h - 30, p.h - 12, p.h, p.h + delta * 0.55, p.h + delta]
     : [p.h - 40, p.h - 18, p.h, p.h + 32, p.h + delta];
 
-  // Lightness/chroma profile measured from the brand teal→rose ramp.
   const lightness = [0.74, 0.7, 0.65, 0.58, 0.67];
   const chromaMul = [0.9, 0.85, 1.0, 1.15, 1.0];
   const cBase = Math.min(Math.max(p.c, 0.05), 0.16);
-  // Alpha compositing washes the ramp out over light backgrounds; sit the
-  // stops slightly darker there so the waves keep their color.
+
   const lightnessShift = isDark ? 0 : -0.06;
 
   return hues.map((h, i) =>
@@ -211,10 +192,6 @@ export function generateAuroraStops(
   ) as [string, string, string, string, string];
 }
 
-/**
- * Generate derived gradient tokens from theme seed colors.
- * Matches Aura's token generation for consistent gradient appearance.
- */
 export function generateGradientTokens(
   seeds: {
     primary: string;

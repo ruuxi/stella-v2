@@ -53,8 +53,7 @@ describe("engine model routing", () => {
   });
 
   it("encodes engine picks so they round-trip through the recents list", () => {
-    // Engine panels commit outside the catalog select path; without this the
-    // compact pickers only ever show the one engine model that is current.
+
     expect(formatRecentEngineModelId("codex_cli", "gpt-5.6-sol")).toBe(
       "codex-cli/gpt-5.6-sol",
     );
@@ -114,9 +113,7 @@ describe("engine model routing", () => {
   });
 
   it("accepts a custom OpenRouter slug and reverts a committed engine", () => {
-    // A slug typed into the OpenRouter custom input (e.g. a stealth model
-    // absent from every catalog) must select like any catalog pick: routed
-    // overrides on orchestrator+general and the engine back on default.
+
     const committed = {
       ...preferences,
       reasoningEfforts: {},
@@ -145,12 +142,7 @@ describe("engine model routing", () => {
   });
 
   it("asserts the default engine even when the renderer view says default", () => {
-    // Regression: the renderer's preferences copy can lag the store (a
-    // per-conversation engine restore landing around the pick). When it
-    // wrongly reports "default" while the store holds a committed Claude
-    // Code engine, an overrides-only patch would leave that engine
-    // silently swallowing the new model — the pick "does not work". The
-    // patch must always carry the engine dimension.
+
     const staleView = {
       ...preferences,
       reasoningEfforts: {},
@@ -214,8 +206,7 @@ describe("engine model routing", () => {
       ).toEqual({ kind: "available", modelId: "gpt-5.4" });
     });
     it("keeps a registry-routable model missing from a flaky live list", () => {
-      // gpt-5.5 is a real model temporarily absent from model/list; do NOT
-      // silently reroute the user off it.
+
       expect(
         resolveChatGptEngineModel(
           "gpt-5.5",
@@ -245,7 +236,7 @@ describe("engine model routing", () => {
       ).toEqual({ kind: "unavailable" });
     });
     it("treats a transient gap even when the live list is empty", () => {
-      // A total live-list failure must not evict a registry-routable saved id.
+
       expect(
         resolveChatGptEngineModel("gpt-5.5", [], registryIds, "gpt-5.6-sol"),
       ).toEqual({ kind: "transient-gap", modelId: "gpt-5.5" });

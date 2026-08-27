@@ -6,7 +6,7 @@ import { fonts } from "../theme/fonts";
 import { StellaMark } from "./StellaMark";
 
 type Props = {
-  /** Drop the sidebar header padding for use in tight spots (e.g. the top bar). */
+
   compact?: boolean;
 };
 

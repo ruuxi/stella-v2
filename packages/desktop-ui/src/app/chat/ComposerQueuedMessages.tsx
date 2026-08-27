@@ -13,13 +13,6 @@ const EXIT_MS = 100;
 
 type VisibleItem = QueuedUserMessage & { leaving: boolean };
 
-/**
- * Legend may reconstruct a keyed virtual item while adjacent streaming rows
- * and measurements settle. Keep the playback record outside the item subtree
- * so that reconstruction cannot replay the queued bubble's CSS animation.
- * Message ids are renderer-owned and remain stable through queue reconciliation
- * and the queued-to-sent handoff.
- */
 const toVisibleItem = (message: QueuedUserMessage): VisibleItem => ({
   ...message,
   leaving: false,
@@ -27,18 +20,10 @@ const toVisibleItem = (message: QueuedUserMessage): VisibleItem => ({
 
 type ComposerQueuedMessagesProps = {
   messages: QueuedUserMessage[];
-  /**
-   * When provided, the single-message bubble or each collapsed-preview row
-   * can cancel that message and restore its text to the composer.
-   */
+
   onCancel?: (message: QueuedUserMessage) => void;
 };
 
-/**
- * The one visible queue bubble. A single message shows its text unchanged;
- * multiple messages collapse into a count whose hover/focus preview reuses
- * the composer's pasted-text preview portal and floating surface.
- */
 function QueuedMessageBubble({
   items,
   entering,
@@ -69,8 +54,7 @@ function QueuedMessageBubble({
       return undefined;
     }
     const measure = () => {
-      // `-webkit-line-clamp` caps the painted height, so an overflowing
-      // bubble reports a taller scrollHeight than its clamped clientHeight.
+
       setTruncated(el.scrollHeight - el.clientHeight > 1);
     };
     measure();
@@ -161,9 +145,7 @@ export function ComposerQueuedMessages({
   messages,
   onCancel,
 }: ComposerQueuedMessagesProps) {
-  // Latched for this virtual-item mount. Every represented id is registered
-  // after commit, so a Legend reconstruction settles immediately while a
-  // count update on the existing collapsed bubble cannot restart animation.
+
   const enteringRef = useRef(
     messages.some((message) => !hasQueuedMessageEntryPlayed(message.id)),
   );

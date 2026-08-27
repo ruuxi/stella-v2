@@ -1,13 +1,3 @@
-// Crypto for the browser -> app session handoff (magic link, desktop social).
-//
-// The handoff row in `auth_link_requests` used to store a raw session cookie
-// that /api/auth/link/status returned to anyone holding the `requestId`. Two
-// independent controls replace that:
-//
-//   1. The client generates a `claimSecret`, sends only its SHA-256, and must
-//      present the secret to claim. `requestId` alone is useless.
-//   2. The token is encrypted at rest under BETTER_AUTH_SECRET, so a database
-//      dump does not yield a usable credential either.
 import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto";
 
 const getKey = () => {
@@ -45,7 +35,6 @@ const toBase64Url = (bytes: Uint8Array): string => {
   return output;
 };
 
-/** base64url(SHA-256(value)), unpadded. Matches what clients send. */
 export const sha256Base64Url = async (value: string): Promise<string> => {
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -54,10 +43,6 @@ export const sha256Base64Url = async (value: string): Promise<string> => {
   return toBase64Url(new Uint8Array(digest));
 };
 
-/**
- * Length-independent comparison over a fixed window, so neither the length
- * nor a matching prefix of the stored hash leaks through response timing.
- */
 export const hashesMatch = (a: string, b: string): boolean => {
   const encoder = new TextEncoder();
   const left = encoder.encode(a);

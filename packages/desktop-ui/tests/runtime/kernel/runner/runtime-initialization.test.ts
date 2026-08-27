@@ -63,8 +63,6 @@ describe("runtime extension watching", () => {
       false,
     ]);
 
-    // More writes while the same reload is pending form one debounced retry
-    // and do not reopen the busy-log cycle.
     for (let index = 0; index < 100; index += 1) scheduler.schedule();
     await vi.advanceTimersByTimeAsync(500);
     expect(reload.mock.calls.map(([options]) => options.logBusy)).toEqual([
@@ -110,12 +108,10 @@ describe("runtime extension watching", () => {
     await vi.advanceTimersByTimeAsync(500);
     expect(reload).toHaveBeenCalledTimes(1);
 
-    // A rejection ends this cycle instead of creating a retry/log storm.
     await vi.advanceTimersByTimeAsync(10_000);
     expect(reload).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledTimes(1);
 
-    // A later filesystem change starts a clean cycle; `inFlight` was reset.
     scheduler.schedule();
     await vi.advanceTimersByTimeAsync(500);
     expect(reload).toHaveBeenCalledTimes(2);

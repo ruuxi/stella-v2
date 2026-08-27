@@ -5,9 +5,7 @@
   display: flex;
   flex-direction: column;
   color: var(--text-base);
-  /* Transparent like the panel's normal Chat tab
-     (`.chat-panel-tab .chat-sidebar-inner`) so the shared panel
-     background shows through instead of an opaque surface fill. */
+
   background: transparent;
 }
 
@@ -80,10 +78,7 @@
 .agent-thread-chat__messages {
   display: flex;
   flex-direction: column;
-  /* Tight chat rhythm: consecutive short narration lines should read as a
-     normal message stream, not island paragraphs. The shared `.event-item`
-     padding already contributes vertical air, so the list gap stays small
-     and the assistant items drop most of their block padding below. */
+
   gap: 4px;
   max-width: 760px;
   margin: 0 auto;
@@ -91,9 +86,6 @@
   list-style: none;
 }
 
-/* This transcript is dense, so the shared assistant bubble is tightened:
-   the item itself carries no block padding (the bubble owns it) and the
-   bubble's own padding drops a notch versus the sidebar chat. */
 .agent-thread-chat__messages .event-item.assistant {
   padding-block: 2px;
 }
@@ -120,10 +112,6 @@
   min-width: 0;
 }
 
-/* Hover timestamp in the left gutter: the message's real created time
-   (local timezone, h:mm AM/PM), revealed only while the row is hovered.
-   Absolutely positioned outside the row so it never shifts layout; in a
-   narrow panel the gutter clips it rather than squeezing the transcript. */
 .agent-thread-chat__timestamp {
   position: absolute;
   top: 4px;
@@ -147,19 +135,11 @@
   margin: 0 0 4px 2px;
 }
 
-/* Message bubbles reuse the shared `.event-item.user` /
-   `.event-item.assistant` styles scoped by the
-   `chat-conversation-surface--sidebar` classes on the list, so they stay
-   identical to the normal sidebar chat. Only the role eyebrow above the
-   right-aligned user bubble needs local alignment. */
 .agent-thread-chat__message[data-role="user"] .agent-thread-chat__role {
   text-align: right;
   margin: 0 2px 4px 0;
 }
 
-/* Collapsed trace rows: consecutive tool calls / reasoning blocks between
-   two conversation messages render as one small clickable text line — no
-   card chrome — that expands into the individual trace items. */
 .agent-thread-chat__trace-group {
   min-width: 0;
 }

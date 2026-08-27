@@ -32,7 +32,7 @@ const notify = () => {
     try {
       subscriber();
     } catch {
-      // One observer must not break the registry for the others.
+
     }
   }
 };

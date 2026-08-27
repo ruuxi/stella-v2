@@ -1,19 +1,3 @@
-/**
- * DreamInboxStore — the single durable queue of everything the Dream agent
- * consolidates into `~/.stella/memories/`.
- *
- * Two kinds of rows flow through it:
- *   - `thread_summary` — one row per finalized subagent run (upserted by
- *     (threadId, runId); re-recording a run resets its processed state).
- *   - `memory_note`    — one row per orchestrator memory-review candidate.
- *
- * `processed_by_dream_at IS NULL` is the entire queue state. There is no
- * separate watermark file or per-file mtime tracking; Dream lists unprocessed
- * rows and marks them processed by id.
- *
- * The store is intentionally tiny — it is a queue, not a search index.
- */
-
 import type { SqliteDatabase } from "../storage/shared.js";
 import { redactMemoryText, redactMemoryStringArray } from "./redaction.js";
 
@@ -151,13 +135,6 @@ const formatMemoryNote = (note: Required<MemoryNoteCandidate>): string =>
 export class DreamInboxStore {
   constructor(private readonly db: SqliteDatabase) {}
 
-  /**
-   * Insert or replace the rollout summary for (threadId, runId).
-   *
-   * `rolloutSummary` is the subagent's final output text. Re-recording the
-   * same run replaces the content and resets the processed state so Dream
-   * picks the freshest version up again.
-   */
   recordThreadSummary(args: RecordThreadSummaryArgs): void {
     const summary = redactMemoryText(args.rolloutSummary.trim());
     if (!summary) return;
@@ -199,11 +176,6 @@ export class DreamInboxStore {
     return { updated: Number(result?.changes ?? 0) };
   }
 
-  /**
-   * Queue an orchestrator memory-review candidate. Each note is its own row
-   * (no coalescing); the formatted markdown body is what Dream and the
-   * known-memory context read.
-   */
   recordMemoryNote(candidate: MemoryNoteCandidate): { id: number } {
     const title = redactMemoryText(candidate.title.trim());
     const memory = redactMemoryText(candidate.memory.trim());
@@ -298,10 +270,6 @@ export class DreamInboxStore {
       );
   }
 
-  /**
-   * Frequently surfaced rows lead, then the remaining queue is oldest-first.
-   * This makes Dream retain and refresh memory that repeatedly proves useful.
-   */
   listUnprocessed(args?: { limit?: number }): DreamInboxRow[] {
     const limit = Math.max(1, Math.min(args?.limit ?? 50, 500));
     const rows = this.db
@@ -319,7 +287,6 @@ export class DreamInboxStore {
     return rows.map(fromRow);
   }
 
-  /** Count of unprocessed rows; the Dream scheduler's eligibility gate. */
   countUnprocessed(): number {
     const row = this.db
       .prepare(
@@ -329,7 +296,6 @@ export class DreamInboxStore {
     return Number(row?.c ?? 0);
   }
 
-  /** Stamp rows as consumed by Dream. Returns how many rows were updated. */
   markProcessed(args: { ids: number[]; processedAt?: number }): {
     updated: number;
   } {
@@ -359,11 +325,6 @@ export class DreamInboxStore {
     return { updated };
   }
 
-  /**
-   * Most recent thread summaries by source_updated_at regardless of
-   * processed state. Used by background passes that want a "what has the
-   * user been doing lately" snapshot.
-   */
   listRecentThreadSummaries(args?: { limit?: number }): DreamInboxRow[] {
     const limit = Math.max(1, Math.min(args?.limit ?? 20, 200));
     const rows = this.db
@@ -380,7 +341,6 @@ export class DreamInboxStore {
     return rows.map(fromRow);
   }
 
-  /** Resolve the newest summary for each exact surfaced thread id. */
   findThreadSummariesByThreadIds(
     threadIds: readonly string[],
   ): DreamInboxRow[] {
@@ -407,11 +367,6 @@ export class DreamInboxStore {
     });
   }
 
-  /**
-   * Newest-first memory-note bodies, consolidated or not. The memory-review
-   * pass includes these in its known-memory context so it does not re-propose
-   * a candidate Dream has not folded yet.
-   */
   listRecentMemoryNotes(limit = 8): string[] {
     if (limit <= 0) return [];
     const rows = this.db
@@ -428,10 +383,6 @@ export class DreamInboxStore {
     return rows.map((row) => row.content).filter(Boolean);
   }
 
-  /**
-   * Update usage counters when the Orchestrator surfaces a thread summary in
-   * its working context. Pure bookkeeping; never throws on missing rows.
-   */
   recordUsage(
     threadId: string,
     runId: string,

@@ -132,10 +132,7 @@ type UseContinuousAnimationGateOptions<T extends HTMLElement> = {
 const isElementPresentationVisible = (element: HTMLElement): boolean => {
   let current: HTMLElement | null = element;
   while (current) {
-    // The left sidebar's collapsed state used to need its own class check
-    // here because it animated to zero width while staying visible. The right
-    // sidebar's closed state hides kept content with `display: none`, which
-    // the computed-style check below already catches.
+
     if (
       current.hidden ||
       current.inert ||
@@ -152,10 +149,6 @@ const isElementPresentationVisible = (element: HTMLElement): boolean => {
   return true;
 };
 
-/**
- * The shared contract for persistent UI motion: it runs only for live state,
- * while its element and document are visible, and while motion is allowed.
- */
 export function useContinuousAnimationGate<T extends HTMLElement>({
   active,
   elementRef,

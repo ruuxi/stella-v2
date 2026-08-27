@@ -1,11 +1,3 @@
-/**
- * Bridges Vite's HMR error stream into Stella's renderer `ErrorBoundary` /
- * `CrashSurface`. Vite's built-in red overlay is disabled in `vite.config.ts`
- * (`server.hmr.overlay: false`); we forward the `vite:error` payload through
- * `window` CustomEvents so build / parse errors get the same Reload / Ask
- * Stella to repair / Undo latest update controls as runtime crashes.
- */
-
 type ViteErrorLoc = {
   file?: string;
   line?: number;

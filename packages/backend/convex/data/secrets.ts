@@ -48,8 +48,7 @@ export const createSecret = mutation({
     requireBoundedString(args.plaintext, "plaintext", MAX_SECRET_PLAINTEXT_CHARS);
 
     const ownerId = await requireSensitiveUserId(ctx);
-    // Each call runs WebCrypto AES + a row insert. Cap so a hijacked
-    // session can't churn secret rows.
+
     await enforceMutationRateLimit(
       ctx,
       "secrets_create",

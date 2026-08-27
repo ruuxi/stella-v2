@@ -6,14 +6,6 @@ import {
 } from "@/features/chat/hooks/use-event-rows";
 import type { EventRecord } from "@/features/chat/lib/event-transforms";
 
-/**
- * `agent-started` lifecycle event as persisted into a turn's `toolEvents`.
- * A fresh `spawn_agent` leaves `isFollowUp` unset; a `send_input` re-activation
- * carries the thread's durable spawn `description`, stamps `isFollowUp: true`,
- * and reuses that domain name on `statusText`. The card keys its follow-up
- * variant off the explicit `isFollowUp` flag, so the original spawn card stays
- * put while the continuation gets its own update row.
- */
 const started = (
   agentId: string,
   description: string,
@@ -39,7 +31,7 @@ const started = (
 
 describe("getBackgroundWork spawn vs send_input follow-up", () => {
   it("reads a fresh spawn as a non-follow-up card titled by its description", () => {
-    // Spawn: no isFollowUp flag; statusText mirrors the spawn description.
+
     const work = getBackgroundWork([
       started("thread-a", "Research flights to Tokyo", {
         statusText: "Research flights to Tokyo",
@@ -67,8 +59,7 @@ describe("getBackgroundWork spawn vs send_input follow-up", () => {
   });
 
   it("renders a follow-up as a follow-up EVEN when its text is identical to the spawn description (the case the heuristic missed)", () => {
-    // The old `statusText !== description` heuristic wrongly read this as a
-    // spawn; the explicit flag fixes it.
+
     const work = getBackgroundWork([
       started("thread-a", "Build the report", {
         statusText: "Build the report",
@@ -80,8 +71,7 @@ describe("getBackgroundWork spawn vs send_input follow-up", () => {
   });
 
   it("does not flag a spawn as a follow-up even when statusText differs from the description", () => {
-    // Without the explicit flag, a differing statusText no longer implies a
-    // follow-up — the flag is the sole signal.
+
     const work = getBackgroundWork([
       started("thread-a", "Original goal", {
         statusText: "some in-flight status",
@@ -161,8 +151,7 @@ describe("derivePausedThreadIds — paused state for the inline cards", () => {
   });
 
   it("ignores a cancel from a PREVIOUS run (before this card's spawn)", () => {
-    // Thread paused earlier, then re-activated via send_input: the follow-up
-    // card (spawn 300) must read as active again — labels + shimmer return.
+
     const paused = derivePausedThreadIds(
       ["thread-a"],
       { "thread-a": 300 },

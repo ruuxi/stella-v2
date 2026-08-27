@@ -1,13 +1,3 @@
-/**
- * Builds a one-line "respond in <language>" directive for the agent
- * system prompt based on the user's preferred locale. Mirrors the
- * supported-locale list shipped to the renderer
- * (`desktop/src/shared/i18n/locales.ts`) so unknown tags just fall
- * through to English. The directive is appended to the dynamic
- * context section, not the agent's static system prompt, so that
- * cached agent definitions remain stable across locale changes.
- */
-
 const LOCALE_ENGLISH_NAMES: Record<string, string> = {
   en: "English",
   es: "Spanish",
@@ -39,15 +29,6 @@ const LOCALE_ENGLISH_NAMES: Record<string, string> = {
   he: "Hebrew",
 };
 
-/**
- * Returns a system-prompt directive for the user's locale, or `undefined`
- * for English (no directive needed — the default model behavior is
- * English already).
- *
- * Code, commands, filenames, API names, and quoted source text stay in
- * their original language by directive — translating those would break
- * tool calls and confuse the user.
- */
 export const getResponseLanguageSystemPrompt = (
   locale: string | undefined,
 ): string | undefined => {

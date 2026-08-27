@@ -29,8 +29,7 @@ describe("managed gateway", () => {
     expect(
       resolveManagedGatewayProvider({ model: "deepseek/deepseek-v4-flash" }),
     ).toBe("deepseek");
-    // The Fireworks-hosted spelling must still route to Fireworks so a
-    // rollback needs no other change.
+
     expect(
       inferManagedGatewayProviderFromModel(
         "accounts/fireworks/models/deepseek-v4-flash-0731",
@@ -40,7 +39,7 @@ describe("managed gateway", () => {
 
   it("points DeepSeek at its root base URL with DEEPSEEK_API_KEY", () => {
     const config = getManagedGatewayConfig("deepseek");
-    // No `/v1`: DeepSeek serves `/responses` and `/chat/completions` off root.
+
     expect(config.baseURL).toBe("https://api.deepseek.com");
     expect(config.apiKeyEnvVar).toBe("DEEPSEEK_API_KEY");
   });
@@ -61,7 +60,7 @@ describe("managed gateway", () => {
     const config = getManagedGatewayConfig("wafer");
     expect(config.baseURL).toBe("https://pass.wafer.ai/v1");
     expect(config.apiKeyEnvVar).toBe("WAFER_API_KEY");
-    // ZDR is opt-in per request — the header must ship on every call.
+
     expect(config.extraHeaders).toEqual({ "Wafer-ZDR": "required" });
     expect(
       resolveManagedGatewayProvider({
@@ -80,11 +79,7 @@ describe("managed gateway", () => {
   });
 
   it("routes the Muse Spark contributor slug through OpenRouter despite the meta/ prefix", () => {
-    // `meta/muse-spark-1.2-contributor` is an OpenRouter-hosted slug in
-    // vendor/model form. Prefix inference alone would send it to Meta's
-    // first-party gateway; the mode config's explicit
-    // `managedGatewayProvider: "openrouter"` must win wherever a config is
-    // present (mode/task resolution, relay authorization, runtime_ai).
+
     expect(
       inferManagedGatewayProviderFromModel("meta/muse-spark-1.2-contributor"),
     ).toBe("meta");

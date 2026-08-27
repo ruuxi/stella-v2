@@ -48,9 +48,9 @@ describe("stripDanglingThinkingFromLatestAssistant (preventive)", () => {
 
 		const out = stripDanglingThinkingFromLatestAssistant(messages);
 		const last = out[out.length - 1] as AssistantMessage;
-		// The trailing thinking block is gone; the real text stays.
+
 		expect(last.content).toEqual([{ type: "text", text: "on it" }]);
-		// Earlier assistant turn is untouched.
+
 		expect((out[1] as AssistantMessage).content).toHaveLength(1);
 	});
 
@@ -78,7 +78,7 @@ describe("stripDanglingThinkingFromLatestAssistant (preventive)", () => {
 		];
 
 		const out = stripDanglingThinkingFromLatestAssistant(messages);
-		// Same reference back means nothing changed.
+
 		expect(out).toBe(messages);
 	});
 
@@ -98,7 +98,7 @@ describe("stripDanglingThinkingFromLatestAssistant (preventive)", () => {
 		const messages: Message[] = [userMsg("hi"), earlier, userMsg("next"), assistant([{ type: "text", text: "done" }])];
 
 		const out = stripDanglingThinkingFromLatestAssistant(messages);
-		// Latest already clean -> unchanged reference.
+
 		expect(out).toBe(messages);
 		expect((out[1] as AssistantMessage).content).toHaveLength(1);
 	});

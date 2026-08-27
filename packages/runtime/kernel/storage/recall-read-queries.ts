@@ -24,11 +24,6 @@ const probeRecallFtsMatch = (
   }
 };
 
-/**
- * Recall must never accidentally enter SessionStore's slow LIKE fallback.
- * This read-only preflight turns a missing table or incomplete backfill into
- * a visible retrieval failure instead.
- */
 export const readRecallFtsHealth = (db: SqliteDatabase): RecallFtsHealth => {
   try {
     const tableRows = db
@@ -99,7 +94,6 @@ export type TranscriptNeighborTarget = {
   atMs: number;
 };
 
-/** Expand every selected transcript hit with one SQL statement. */
 export const listTranscriptNeighborsBatch = (
   db: SqliteDatabase,
   targets: readonly TranscriptNeighborTarget[],

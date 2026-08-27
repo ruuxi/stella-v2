@@ -1,8 +1,3 @@
-/**
- * Registers the Stella native messaging host with Chromium-based browsers so the
- * extension can connect without manual setup (Windows registry + per-browser JSON).
- */
-
 import { execFile } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -86,16 +81,10 @@ function writeShimAndManifest(
 
   let hostPath: string;
   if (plat === "win32") {
-    // Point the manifest directly at the exe. The binary recognizes Chrome's
-    // spawn from the chrome-extension:// origin argument, and its default
-    // session/socket-dir resolution matches the desktop's, so the old .cmd
-    // env wrapper (which kept a visible cmd.exe alive for the host's whole
-    // lifetime in Task Manager) is unnecessary.
+
     hostPath = binaryPath;
   } else {
-    // Bake the resolved socketDir into the shim so the native host reads
-    // discovery files from the same directory the daemon wrote them to,
-    // regardless of how the directory was resolved (env override, XDG, homedir).
+
     const shimPath = path.join(socketDir, "stella-native-host.sh");
     const quotedBinaryPath = quoteForSh(binaryPath);
     const quotedSocketDir = quoteForSh(socketDir);
@@ -138,7 +127,7 @@ async function installWindowsRegistry(manifestPath: string) {
           { windowsHide: true },
         );
       } catch {
-        // Browser may not be installed; ignore.
+
       }
     }),
   );
@@ -186,14 +175,11 @@ function installUnixSymlinks(manifest: Record<string, unknown>) {
       mkdirSync(dir, { recursive: true });
       writeFileSync(path.join(dir, fileName), payload, "utf8");
     } catch {
-      // Best-effort per profile location.
+
     }
   }
 }
 
-/**
- * Idempotently writes the native host shim, manifest, and browser registrations.
- */
 export async function registerStellaNativeMessagingHost(): Promise<{
   ok: boolean;
   error?: string;

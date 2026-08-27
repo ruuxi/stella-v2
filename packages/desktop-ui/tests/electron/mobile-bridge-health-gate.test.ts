@@ -21,7 +21,6 @@ const configureReadyService = (service: MobileBridgeService) => {
   return anyService;
 };
 
-/** Routes the desktop's registration and clear calls to in-memory counters. */
 const mockBridgeCalls = (anyService: any) => {
   const counts = { register: 0, clear: 0 };
   anyService.registerDesktopBridge = vi.fn(async () => {
@@ -40,11 +39,6 @@ const mockBridgeCalls = (anyService: any) => {
   return counts;
 };
 
-/**
- * Toggleable public-tunnel health probe. The real probe goes through
- * https.request with a DNS-cache-bypassing lookup, so stub the service's
- * probe seam rather than fetch.
- */
 const mockHealth = () => {
   const state = {
     healthy: true,
@@ -74,7 +68,7 @@ describe("MobileBridgeService health-gated registration", () => {
     const service = createService();
     const anyService = configureReadyService(service);
     const counts = mockBridgeCalls(anyService);
-    mockHealth(); // healthy by default
+    mockHealth();
 
     await anyService.syncRegistration();
 
@@ -126,8 +120,6 @@ describe("MobileBridgeService health-gated registration", () => {
     expect(anyService.registrationState).toBe("degraded");
     expect(anyService.isBridgeAccessEnabled()).toBe(true);
 
-    // Periodic failed probes must refresh the degraded lease while waiting for
-    // the tunnel to become verifiable from this desktop.
     await anyService.syncRegistration();
     await anyService.syncRegistration();
     expect(health.probe).toHaveBeenCalledTimes(2);
@@ -150,12 +142,12 @@ describe("MobileBridgeService health-gated registration", () => {
     const counts = mockBridgeCalls(anyService);
     const health = mockHealth();
 
-    await anyService.syncRegistration(); // establish lease
+    await anyService.syncRegistration();
     expect(anyService.isBridgeAccessEnabled()).toBe(true);
 
     health.healthy = false;
-    anyService.lastHealthyProbeAt = 0; // simulate a tick past the probe cache
-    await anyService.syncRegistration(); // 1 failure, below threshold
+    anyService.lastHealthyProbeAt = 0;
+    await anyService.syncRegistration();
 
     expect(counts.clear).toBe(0);
     expect(anyService.registrationState).toBe("degraded");
@@ -170,33 +162,28 @@ describe("MobileBridgeService health-gated registration", () => {
     const counts = mockBridgeCalls(anyService);
     const health = mockHealth();
 
-    await anyService.syncRegistration(); // establish lease
+    await anyService.syncRegistration();
     expect(anyService.isBridgeAccessEnabled()).toBe(true);
     const registersBeforeOutage = counts.register;
 
-    // Direct access remains authorized after presence expiry, but sustained
-    // tunnel failure must still explicitly clear that authorization.
     anyService.clearRegistrationLeaseTimer();
     anyService.registrationLeaseExpiresAt = null;
     anyService.registrationState = "expired";
     expect(anyService.isBridgeAccessEnabled()).toBe(true);
 
-    // Sustained outage: threshold is 3 consecutive failed probes. Clear the
-    // probe cache so each sync re-probes (real refresh ticks are spaced past it).
     health.healthy = false;
     anyService.lastHealthyProbeAt = 0;
-    await anyService.syncRegistration(); // streak 1
-    await anyService.syncRegistration(); // streak 2
+    await anyService.syncRegistration();
+    await anyService.syncRegistration();
     expect(counts.clear).toBe(0);
     expect(anyService.isBridgeAccessEnabled()).toBe(true);
 
-    await anyService.syncRegistration(); // streak 3 -> clear
+    await anyService.syncRegistration();
     expect(counts.clear).toBe(1);
     expect(anyService.isBridgeAccessEnabled()).toBe(false);
-    // No new registrations were sent against the dead URL during the outage.
+
     expect(counts.register).toBe(registersBeforeOutage);
 
-    // Recovery: health returns -> streak resets -> re-register.
     health.healthy = true;
     await anyService.syncRegistration();
     expect(counts.register).toBe(registersBeforeOutage + 1);
@@ -211,11 +198,9 @@ describe("MobileBridgeService health-gated registration", () => {
     const counts = mockBridgeCalls(anyService);
     mockHealth();
 
-    await anyService.syncRegistration(); // establish lease
+    await anyService.syncRegistration();
     const registersBefore = counts.register;
 
-    // Fire several at once; the guard should collapse them into the in-flight
-    // pass plus at most one queued pass.
     await Promise.all([
       anyService.syncRegistration(),
       anyService.syncRegistration(),
@@ -236,17 +221,14 @@ describe("MobileBridgeService health-gated registration", () => {
     mockBridgeCalls(anyService);
     const health = mockHealth();
 
-    await anyService.syncRegistration(); // one real probe
+    await anyService.syncRegistration();
     const probesAfterFirst = health.probe.mock.calls.length;
     expect(probesAfterFirst).toBe(1);
 
-    // An immediate re-sync reuses the cached probe (no new probe) but still
-    // refreshes the registration.
     await anyService.syncRegistration();
     expect(health.probe.mock.calls.length).toBe(probesAfterFirst);
     expect(anyService.isBridgeAccessEnabled()).toBe(true);
 
-    // Once the cache window has passed, the next sync probes again.
     anyService.lastHealthyProbeAt = Date.now() - 60_000;
     await anyService.syncRegistration();
     expect(health.probe.mock.calls.length).toBe(probesAfterFirst + 1);

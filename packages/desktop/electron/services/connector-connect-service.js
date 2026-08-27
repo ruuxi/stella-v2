@@ -1,12 +1,3 @@
-// Brokers agent-initiated connect prompts (the orchestrator's
-// `connector_status` tool with a connection request) into an inline
-// connect card in the chat surfaces. Accepting the card runs the
-// exact same enable + OAuth flow as Connections (`ensureNativeCredential`
-// + `enableNativeConnector`), with the OAuth dialogs suppressed — the
-// card click IS the launch gesture, so the browser opens directly. The
-// requesting tool call blocks on the outcome, which is what lets the
-// agent continue the user's original task the moment the connection
-// lands.
 import { randomUUID } from "crypto";
 import { BrowserWindow, shell } from "electron";
 import { enableNativeConnector, getNativeConnectorTools, } from "@stella/runtime/kernel/connectors/native-integrations";
@@ -14,14 +5,9 @@ import { STELLA_BROWSER_EXTENSION_ID } from "@stella/runtime/kernel/tools/stella
 import { isStellaExtensionInstalled } from "./stella-browser-bridge-service.js";
 import { ensureNativeCredential, loadConfiguredOAuthProviders, resolveDesktopNativeConnectorEntry, } from "../ipc/native-integration-handlers.js";
 import { PendingRequestStore } from "./pending-request-store.js";
-// Slightly under the CLI's 10-minute bridge timeout so the card always
-// resolves (and disappears) before the agent-side wait gives up.
+
 const CARD_TIMEOUT_MS = 9.5 * 60 * 1000;
-// Browser-extension flavor: how the install wait behaves after the user
-// accepts. Detection is the same cheap profile-directory scan the bridge
-// service uses at startup; the grace delays give the freshly installed
-// extension time to boot and dial the native messaging host before the
-// worker re-runs the failed stella-browser command.
+
 const BROWSER_EXTENSION_WEB_STORE_URL = `https://chromewebstore.google.com/detail/${STELLA_BROWSER_EXTENSION_ID}`;
 const EXTENSION_POLL_INTERVAL_MS = 2_000;
 const EXTENSION_CONNECT_GRACE_MS = 6_000;
@@ -109,14 +95,7 @@ export class ConnectorConnectService {
                 const meta = this.meta.get(requestId);
                 if (!this.pending.has(requestId))
                     return;
-                // A card the user never answered times out. An accepted flow
-                // normally settles itself well before this fires (the
-                // credential service's modal timeout, or the backend Composio
-                // completion wait's own deadline) — but none of those owners
-                // can cover a wedged await (e.g. a hung status probe), so
-                // this is the unconditional last-resort backstop: nothing may
-                // strand the card (and the CLI/tool call blocked on it) in
-                // "connecting" forever.
+
                 if (meta?.state === "connecting") {
                     meta.oauthAbort.abort(new Error("Connection timed out."));
                 }
@@ -135,18 +114,11 @@ export class ConnectorConnectService {
         }
         return settled;
     }
-    /**
-     * Browser-extension flavor of the same card, triggered by the worker
-     * when a `stella-browser` command fails on the missing Chrome
-     * extension bridge. Accept opens the Chrome Web Store and waits for
-     * the extension install to appear on disk; the worker re-runs the
-     * failed command once this resolves `{ ok: true }`.
-     */
+
     async requestBrowserExtensionConnect(payload) {
         for (const meta of this.meta.values()) {
             if (meta.kind === "browser-extension") {
-                // One extension card at a time; the worker-side gate makes this
-                // rare, but a second concurrent agent can still race it.
+
                 return { ok: false, reason: "already_pending" };
             }
         }
@@ -184,9 +156,7 @@ export class ConnectorConnectService {
                 const meta = this.meta.get(requestId);
                 if (!this.pending.has(requestId))
                     return;
-                // Same last-resort backstop as the integration card above:
-                // the install poll is self-bounded, but nothing else may
-                // strand an accepted card in "connecting" forever.
+
                 if (meta?.state === "connecting") {
                     meta.oauthAbort.abort(new Error("Connection timed out."));
                 }
@@ -216,8 +186,7 @@ export class ConnectorConnectService {
             return { ok: true };
         }
         if (payload.action === "cancel") {
-            // Cancel either dismisses a pending card or aborts an in-flight
-            // OAuth flow (the abort rejects the flow, whose catch settles).
+
             meta.oauthAbort.abort(new Error("Connection cancelled."));
             if (meta.state === "pending") {
                 this.settle(payload.requestId, { ok: false, reason: "cancelled" }, "cancelled");
@@ -243,11 +212,7 @@ export class ConnectorConnectService {
             this.settle(requestId, { ok: false, reason: "cancelled" }, "cancelled");
         }
     }
-    /**
-     * Turn-abort cancellation from the worker (`host.connectorConnect.cancel`).
-     * Settles a pending card as cancelled; an in-flight OAuth/install flow is
-     * aborted and settles through its own catch/loop.
-     */
+
     cancelByOfferId(offerId) {
         for (const [requestId, meta] of this.meta) {
             if (meta.offerId !== offerId)
@@ -270,11 +235,9 @@ export class ConnectorConnectService {
         const flowOptions = {
             getConvexAuthToken: this.options.getConvexAuthToken,
             getConvexSiteUrl: this.options.getConvexSiteUrl,
-            // Cancels the backend Composio completion wait too, so a
-            // dismissed/aborted card doesn't keep polling for minutes.
+
             abortSignal: meta.oauthAbort.signal,
-            // Headless: the card click was the launch gesture, so the browser
-            // opens directly instead of routing through the approval modal.
+
             requestPreregisteredOAuth: (payload) => credentialService.requestPreregisteredOAuth({
                 ...payload,
                 presentation: "headless",
@@ -284,8 +247,7 @@ export class ConnectorConnectService {
                 ...payload,
                 presentation: "headless",
             }),
-            // Device flow needs to show the user a pairing code — keep the
-            // modal for that rare shape rather than losing the code.
+
             requestDeviceOAuth: (payload) => credentialService.requestDeviceOAuth(payload),
         };
         try {
@@ -324,10 +286,7 @@ export class ConnectorConnectService {
             .openExternal(BROWSER_EXTENSION_WEB_STORE_URL)
             .catch(() => undefined);
         if (alreadyInstalled) {
-            // Extension files exist — it's likely disabled or the browser is
-            // closed. Give the user a moment with the Web Store page (which
-            // shows the enable state), then let the worker's re-run test
-            // whether the bridge is actually back.
+
             await sleep(EXTENSION_ALREADY_INSTALLED_GRACE_MS);
             if (!this.pending.has(requestId))
                 return;
@@ -347,9 +306,7 @@ export class ConnectorConnectService {
                 return;
             }
             if (isStellaExtensionInstalled()) {
-                // Freshly installed: give the extension time to boot and dial
-                // the native messaging host before the worker re-runs the
-                // failed command.
+
                 await sleep(EXTENSION_CONNECT_GRACE_MS);
                 if (!this.pending.has(requestId))
                     return;

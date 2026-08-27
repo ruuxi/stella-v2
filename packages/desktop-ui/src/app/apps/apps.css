@@ -61,8 +61,6 @@
   font-weight: var(--weight-semibold);
 }
 
-/* Toolbar */
-
 .apps-screen__toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -168,8 +166,6 @@
   box-shadow: none;
 }
 
-/* Grid */
-
 .apps-screen__grid {
   list-style: none;
   margin: 0;
@@ -229,7 +225,7 @@
   font-weight: var(--weight-semibold);
   line-height: 1.1;
   letter-spacing: -0.02em;
-  /* Truncate gracefully on narrow cards. */
+
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -242,8 +238,6 @@
   letter-spacing: -0.01em;
 }
 
-/* No-match state when search/sort filters everything out */
-
 .apps-screen__no-match {
   padding: 1.5rem 0;
   font-size: var(--font-size-base);
@@ -253,8 +247,6 @@
 .apps-screen__no-match-query {
   color: var(--foreground);
 }
-
-/* Empty state (no apps at all) */
 
 .apps-screen__empty {
   flex: 1;
@@ -305,9 +297,6 @@
   align-items: center;
 }
 
-/* ── Mobile WebView (~390px) ─────────────────────────────────────
-   Active when the mobile bridge shim tags <html>. */
-
 [data-platform="mobile"] .apps-screen {
   padding: 16px;
   gap: 1rem;
@@ -317,7 +306,6 @@
   font-size: 2.25rem;
 }
 
-/* Search takes the full first row; sort + create share the second. */
 [data-platform="mobile"] .apps-screen__search {
   flex-basis: 100%;
   max-width: none;

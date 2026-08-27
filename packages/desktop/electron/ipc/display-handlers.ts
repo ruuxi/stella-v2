@@ -77,7 +77,7 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   ".xml": "application/xml",
   ".yaml": "application/yaml",
   ".yml": "application/yaml",
-  // Images
+
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
@@ -85,18 +85,18 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   ".gif": "image/gif",
   ".svg": "image/svg+xml",
   ".avif": "image/avif",
-  // Audio
+
   ".mp3": "audio/mpeg",
   ".wav": "audio/wav",
   ".ogg": "audio/ogg",
   ".m4a": "audio/mp4",
   ".flac": "audio/flac",
-  // Video
+
   ".mp4": "video/mp4",
   ".webm": "video/webm",
   ".mov": "video/quicktime",
   ".m4v": "video/mp4",
-  // 3D / generic
+
   ".glb": "model/gltf-binary",
   ".gltf": "model/gltf+json",
   ".obj": "text/plain",
@@ -154,47 +154,17 @@ export const isMobileBridgeSender = (
   event.senderFrame?.url === MOBILE_BRIDGE_SENDER_URL ||
   event.sender.getURL() === MOBILE_BRIDGE_SENDER_URL;
 
-/**
- * Subdirectories of `~/.stella` the phone may read from directly.
- *
- * These hold artifacts Stella itself produced and already renders in the UI
- * (generated media, `outputs/<app>/…` result files). The mirrored desktop UI
- * on the phone is the *same* bundle, so its media viewers — and user apps that
- * read their own output directory — need them to load at all.
- *
- * Everything else under `~/.stella` stays off-limits: credential stores like
- * `llm_credentials.json` and `connectors/.credentials.json` live at the root
- * and in sibling directories, and `.json` is an allowed display extension.
- */
 const MOBILE_READABLE_DATA_SUBDIRS = ["outputs", "media"] as const;
 
-/**
- * Marks an error as "this was refused because the caller is the phone, not
- * because anything is broken". The phone's shim matches this prefix to show a
- * visible "not available in phone view" notice, so a caller that swallows the
- * rejection still degrades loudly instead of rendering a false empty state.
- * Keep in sync with `REMOTE_VIEW_DENIAL_PREFIX` in the mobile shim.
- */
 export const REMOTE_VIEW_DENIAL_PREFIX = "Not available in phone view: ";
 
-/** True when `candidate` is `base` itself or sits underneath it. */
 const isPathInside = (candidate: string, base: string): boolean =>
   candidate === base || candidate.startsWith(base + path.sep);
 
-/**
- * Resolves the deepest existing ancestor of `target` and re-appends the part
- * that does not exist yet.
- *
- * A plain `realpath` is not enough on its own: it throws for a file that has
- * not been written yet, and the caller still needs those to reach the handler's
- * soft "missing" result rather than being refused. Resolving the ancestor also
- * normalizes symlinked parents (on macOS the temp and home trees sit behind
- * `/var` -> `/private/var`), which a lexical comparison would get wrong.
- */
 const resolveThroughSymlinks = async (target: string): Promise<string> => {
   let current = target;
   const trailing: string[] = [];
-  // Bounded by the path depth; `path.dirname` is a fixed point at the root.
+
   for (;;) {
     try {
       return path.join(await fs.realpath(current), ...trailing.reverse());
@@ -207,13 +177,6 @@ const resolveThroughSymlinks = async (target: string): Promise<string> => {
   }
 };
 
-/**
- * True when the phone may read `resolvedPath` without a conversation.
- *
- * Symlinks are resolved before the containment check so a link planted inside
- * `outputs/` (e.g. by a prompt-injected agent) can't be used to read a
- * credential file that the extension allowlist would otherwise permit.
- */
 export const isMobileReadableStellaPath = async (
   resolvedPath: string,
   stellaDataDir: string | null,
@@ -257,10 +220,7 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
 
       const resolved = path.resolve(requestedPath);
       if (isMobileBridgeSender(event)) {
-        // Stella's own artifact directories are readable without a
-        // conversation: apps rendered in the phone's mirrored UI (and the
-        // shell's media viewers) read their result files directly, and have
-        // no conversation to attribute the read to.
+
         const isStellaArtifact = await isMobileReadableStellaPath(
           resolved,
           options.getStellaDataDir(),
@@ -298,12 +258,6 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
       const mimeType =
         MIME_BY_EXTENSION[extension] ?? "application/octet-stream";
 
-      // Paths can outlive the file they point at — e.g. an `image_gen` /
-      // tool-result registered a path in `generatedMediaItems`, and the
-      // underlying file was later moved or deleted (especially for paths
-      // outside `~/.stella/`). Treat ENOENT as a soft "missing" result so the
-      // renderer can render a placeholder instead of surfacing the raw
-      // IPC error to the console / UI.
       let stats: Awaited<ReturnType<typeof fs.stat>>;
       try {
         stats = await fs.stat(resolved);
@@ -345,9 +299,7 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
           await handle.close();
         }
       }
-      // Return the raw bytes; Electron's structured-clone IPC transport
-      // ships `Uint8Array` directly without the +33% base64 overhead and
-      // without forcing the renderer to spin a JS loop to decode it.
+
       const bytes = new Uint8Array(
         buffer.buffer,
         buffer.byteOffset,

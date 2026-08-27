@@ -85,11 +85,7 @@ const findOrphanedBundledDaemonPids = async (): Promise<number[]> => {
   if (process.platform === "win32") {
     if (binaryPaths.length === 0) return [];
     try {
-      // Exclude Chrome-spawned native messaging hosts: Chrome passes the
-      // extension origin (chrome-extension://...) as an argument and owns
-      // their lifecycle. Killing them disconnects the extension's native
-      // port and kicks off its respawn/reconnect loop. The NSIS installer
-      // kills those browser-owned hosts immediately before replacing files.
+
       const { stdout } = await execFileAsync(
         "powershell",
         [
@@ -147,13 +143,13 @@ export const stopOrphanedStellaBrowserDaemons = async () => {
         });
         continue;
       } catch {
-        // Fall through to a direct kill attempt below.
+
       }
     }
     try {
       process.kill(pid, "SIGTERM");
     } catch {
-      // Already stopped.
+
     }
   }
   await delay(150);
@@ -166,7 +162,7 @@ export const stopOrphanedStellaBrowserDaemons = async () => {
     try {
       process.kill(pid, "SIGKILL");
     } catch {
-      // Best-effort stale daemon cleanup.
+
     }
   }
 };
@@ -347,9 +343,7 @@ export class StellaBrowserBridgeService {
     const previousAttempt = this.connectingCdp?.promise;
     const routingGeneration = this.cdpRoutingGeneration;
     const promise = (async () => {
-      // A changed adapter URL is serialized behind any in-flight launch. The
-      // successful URL is checked again afterwards so concurrent callers do
-      // not issue duplicate launch commands.
+
       await previousAttempt?.catch(() => undefined);
       if (this.connectedCdpUrl === normalizedUrl) return;
       await this.sendCommand({
@@ -369,8 +363,7 @@ export class StellaBrowserBridgeService {
         }
       },
       () => {
-        // Failed launches are deliberately not cached, so the next browser
-        // session can retry the same endpoint.
+
         if (this.connectingCdp?.promise === promise) {
           this.connectingCdp = null;
         }
@@ -397,9 +390,6 @@ export class StellaBrowserBridgeService {
     await this.start();
     const backendGeneration = this.agentBackendGeneration;
 
-    // The process map is intentionally ephemeral: a daemon may exit after a
-    // transport error. Lease fencing must outlive that process record so an
-    // older worker cannot reclaim the durable owner's capability afterward.
     const highWater = this.agentOwnerLeaseHighWater.get(ownerId);
     if (highWater) {
       const order = compareAgentOwnerLeaseOrder(
@@ -573,9 +563,6 @@ export class StellaBrowserBridgeService {
         );
       }
 
-      // stop() can run while native-host registration or stale-session cleanup
-      // is awaiting Windows I/O. Do not spawn a fresh daemon after shutdown has
-      // already completed its process sweep.
       if (this.stopped) return;
 
       await this.closeExistingSession();
@@ -1030,14 +1017,6 @@ export class StellaBrowserBridgeService {
     });
   }
 
-  /**
-   * Open a long-lived subscription to unsolicited extension events (cookie
-   * changes pushed in real time). `onEvent` is called for each event object
-   * after the initial subscription ack. Auto-reconnects with capped backoff
-   * while the daemon is reachable; the returned disposer stops reconnecting and
-   * closes the socket. Best-effort: never throws to the caller, and a listener
-   * error never tears down the stream.
-   */
   subscribeToExtensionEvents(
     onEvent: (event: Record<string, unknown>) => void,
   ): () => void {
@@ -1095,8 +1074,7 @@ export class StellaBrowserBridgeService {
             continue;
           }
           if (!acked) {
-            // First line is the subscription ack: the stream is healthy, so
-            // reset backoff for the next reconnect.
+
             acked = true;
             backoffMs = 500;
             continue;
@@ -1104,7 +1082,7 @@ export class StellaBrowserBridgeService {
           try {
             onEvent(parsed);
           } catch {
-            // A listener error must never tear down the subscription.
+
           }
         }
       });
@@ -1264,14 +1242,14 @@ export class StellaBrowserBridgeService {
           });
           continue;
         } catch {
-          // Fall through to a direct kill attempt below.
+
         }
       }
 
       try {
         process.kill(pid, "SIGTERM");
       } catch {
-        // Best-effort cleanup for stale daemon listeners.
+
       }
     }
   }
@@ -1304,11 +1282,6 @@ const agentBackendResult = (
 const getSocketPath = (session: string) =>
   path.join(getSocketDir(), `${session}.sock`);
 
-/**
- * Per-browser user-data roots that hold installed extensions under
- * `<root>/<profile>/Extensions/<id>`. Mirrors the browser list in
- * register-stella-native-messaging-host's installUnix/Windows helpers.
- */
 const getChromiumUserDataRoots = (): string[] => {
   const homedir = os.homedir();
   const plat = os.platform();
@@ -1352,23 +1325,13 @@ export const isStellaBrowserBridgeBinaryInstalled = (): boolean => {
   }
 };
 
-/**
- * Cheap, synchronous scan (readdir + existsSync only — no process spawn, no
- * socket dial) for whether the Stella browser extension is installed in ANY
- * Chromium profile. We enumerate every profile directory under each user-data
- * root (Default, Profile N, and custom-named profiles) rather than a hardcoded
- * shortlist, so a user whose extension lives in "Profile 3" or a renamed
- * profile is still detected. (A fully custom `--user-data-dir` outside the
- * standard roots is the only remaining miss; that case is covered by the
- * on-demand start path in the browser IPC handlers.)
- */
 export const isStellaExtensionInstalled = (): boolean => {
   for (const root of getChromiumUserDataRoots()) {
     let entries;
     try {
       entries = readdirSync(root, { withFileTypes: true });
     } catch {
-      continue; // Root absent/unreadable — try the next browser.
+      continue;
     }
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
@@ -1386,29 +1349,13 @@ export const isStellaExtensionInstalled = (): boolean => {
           return true;
         }
       } catch {
-        // Ignore unreadable profile paths; keep probing the rest.
+
       }
     }
   }
   return false;
 };
 
-/**
- * Cheap, synchronous check for whether the eager app-ready bridge spawn is
- * worth it. Spawning the bridge daemon unconditionally on every launch starts
- * an extra Electron-as-Node process that, for users without the extension, only
- * ever retries with backoff (browser-bridge-resource onRetry) before failing —
- * pure startup cost for no benefit. We only eager-spawn when one of two signals
- * says the user actually uses browser automation:
- *   (a) the native-messaging host manifest already exists in the socket dir —
- *       written by registerStellaNativeMessagingHost on a prior successful
- *       launch, i.e. steady state once set up; or
- *   (b) the Stella extension directory is present in ANY Chromium profile —
- *       first-launch signal so the bridge still starts for users who DO have the
- *       extension but have never spawned the daemon (which is what registers the
- *       host). Otherwise the spawn is deferred to first real use (the browser
- *       IPC handlers start it on demand).
- */
 export const isBrowserBridgeEagerStartWorthwhile = (): boolean => {
   try {
     const manifestPath = path.join(
@@ -1419,7 +1366,7 @@ export const isBrowserBridgeEagerStartWorthwhile = (): boolean => {
       return true;
     }
   } catch {
-    // existsSync only throws on pathological inputs; treat as "no signal".
+
   }
 
   return isStellaExtensionInstalled();

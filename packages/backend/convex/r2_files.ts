@@ -16,6 +16,6 @@ export const { generateUploadUrl, syncMetadata } = r2.clientApi<DataModel>({
     }
   },
   onUpload: async (_ctx, _bucket, _key) => {
-    // Post-upload logic (e.g. store metadata in a table)
+
   },
 });

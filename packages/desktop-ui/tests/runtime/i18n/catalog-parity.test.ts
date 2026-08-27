@@ -1,21 +1,3 @@
-/**
- * Guards the translation catalogs against the three ways they rot:
- *
- *  1. **Drift** — a key added to `en.json` and never backfilled, or a key
- *     deleted from English and left behind in 27 other files. Both are
- *     invisible at runtime because `translate()` silently falls back to
- *     English, so only a test catches them.
- *  2. **Broken interpolation** — a translator dropping `{count}` or
- *     renaming `{name}`, which renders a literal brace to the user.
- *  3. **Bad plural nodes** — a pluralised entry missing `other`, which is
- *     the one category every locale is required to have.
- *
- * Plural nodes are compared as *leaves*, not as subtrees: which
- * categories a language needs is a property of the language, not of the
- * key. Japanese legitimately has only `other`; Arabic legitimately has
- * all six.
- */
-
 import { describe, expect, it } from "vitest";
 import { SUPPORTED_LOCALES, DEFAULT_LOCALE } from "@/shared/i18n/locales";
 
@@ -83,7 +65,6 @@ const leaves = (node: unknown, prefix = "", out: Leaf[] = []): Leaf[] => {
 const leafMap = (catalog: Record<string, unknown>): Map<string, Leaf> =>
   new Map(leaves(catalog).map((leaf) => [leaf.path, leaf]));
 
-/** Every `{placeholder}` a template expects, order-insensitive. */
 const placeholders = (leaf: Leaf): Set<string> => {
   const templates: string[] =
     leaf.kind === "string"
@@ -124,8 +105,7 @@ describe("i18n catalog parity", () => {
   });
 
   it("has a non-trivial English catalog to compare against", () => {
-    // Cheap canary: if the glob or the leaf walker breaks, every other
-    // assertion here passes vacuously.
+
     expect(englishLeaves.size).toBeGreaterThan(100);
   });
 
@@ -166,7 +146,7 @@ describe("i18n catalog parity", () => {
 
       for (const [path, englishLeaf] of englishLeaves) {
         const leaf = translated.get(path);
-        if (!leaf) continue; // key-set parity is asserted separately
+        if (!leaf) continue;
         const expected = placeholders(englishLeaf);
         const actual = placeholders(leaf);
 
@@ -185,12 +165,10 @@ describe("i18n catalog parity", () => {
 
   it.each(SUPPORTED_LOCALES)("%s has valid plural nodes", (locale) => {
     const translated = leafMap(catalogFor(locale));
-    // The categories this language can actually produce. A form outside
-    // this set is dead weight the runtime will never select.
+
     const usable = new Set([
       ...new Intl.PluralRules(locale).resolvedOptions().pluralCategories,
-      // `zero` is an allowed product-level override for count === 0 even
-      // where CLDR does not emit it (see translatePlural).
+
       "zero",
     ]);
 

@@ -3,13 +3,7 @@ import { StellaRuntimeHost, } from "@stella/runtime/host";
 import { createRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
 import { readConfiguredStellaSiteUrl } from "@stella/contracts/convex-urls";
 const isRunTerminalEvent = (type) => type === AGENT_STREAM_EVENT_TYPES.RUN_FINISHED;
-/**
- * Worker recorder seqs are small (event count per run). Hidden→visible
- * mirrors and similar paths use `Date.now()`-scale synthetic seqs. If
- * those advance `lastSeqByScope`, every subsequent recorder-seq event in
- * the same run is dropped — post-tool / hidden replies never reach the
- * renderer live and pop in only once persisted.
- */
+
 const SYNTHETIC_RUN_EVENT_SEQ_FLOOR = AGENT_RECORDER_SEQ_CEILING;
 const isTaskScopedEvent = (type) => type === AGENT_STREAM_EVENT_TYPES.AGENT_REASONING ||
     isTaskLifecycleEventType(type);
@@ -36,7 +30,7 @@ export class RuntimeHostAdapter {
                 this.lastHealth = { ready: false };
             }
             this.emitAvailabilityChange();
-            // Flush any config patches that failed before the worker was ready
+
             if (this.started && Object.keys(this.pendingConfig).length > 0) {
                 void this.host.configure(this.pendingConfig).catch(() => { });
             }
@@ -204,10 +198,7 @@ export class RuntimeHostAdapter {
         else if (isTaskLifecycleTerminalType(event.type) && taskKey) {
             session.activeTaskIds.delete(taskKey);
         }
-        // NOTE: `stream` (per-token assistant text) is intentionally absent.
-        // Assistant text is delivered whole on `assistant-message`. A stale
-        // worker that still emits `stream` falls through to `default` and is
-        // dropped, which is the desired behaviour.
+
         switch (event.type) {
             case AGENT_STREAM_EVENT_TYPES.RUN_STARTED:
                 session.callbacks.onRunStarted?.(event);
@@ -388,18 +379,12 @@ export class RuntimeHostAdapter {
     async waitUntilReady(timeoutMs = 10_000) {
         const deadline = Date.now() + timeoutMs;
         while (true) {
-            // Host readiness only proves that the socket and host-owned services are
-            // online. The worker builds its runner lazily after that handshake, and
-            // a failed lazy import leaves the socket healthy while chats cannot run.
-            // Require both layers to report ready before accepting a send.
+
             this.lastRuntimeHealth = await this.host.health();
             const workerHealth = await this.agentHealthCheck();
             this.emitAvailabilityChange();
             const snapshot = this.getAvailabilitySnapshot();
-            // A pending restart is intentionally informational: the current worker
-            // remains authoritative and usable until its active work drains. During
-            // the actual stop/start window workerHealth is not ready, so sends still
-            // wait without locking the user out for the entire deferral period.
+
             if (workerHealth?.ready === true && snapshot.ready) {
                 return;
             }

@@ -1,24 +1,3 @@
-/**
- * Wiring for the "canvas share" feature (publish a canvas to a public URL,
- * list your active shares, revoke them).
- *
- * The Convex function references are declared with `makeFunctionReference`
- * rather than reaching into the generated `api` object, so the desktop side
- * is decoupled from when the backend regenerates the shared API type — only
- * the module paths below need to match what the backend deploys.
- *
- * publish/revoke are Node ("use node") ACTIONS under `data/canvas_shares_actions`,
- * and listMine is a QUERY under `data/canvas_shares`.
- *
- * The provider is mounted once inside the main app tree under the Convex
- * provider. Consumers render nothing when `useCanvasShare()` returns `null`,
- * so shared canvas rendering remains safe outside that provider.
- *
- * Backend contract:
- *   publish({ html, title? }) -> { url, slug, expiresAt }   (action)
- *   revoke({ slug })          -> { revoked }                (action)
- *   listMine()                -> SharedCanvasLink[]          (query)
- */
 import {
   createContext,
   useCallback,
@@ -64,7 +43,7 @@ const canvasShareListMineRef = makeFunctionReference<
 >("data/canvas_shares:listMine");
 
 export type CanvasShareContextValue = {
-  /** Public base URL for share links, or null when the domain is pending. */
+
   baseUrl: string | null;
   publish: (args: {
     html: string;
@@ -72,7 +51,7 @@ export type CanvasShareContextValue = {
   }) => Promise<PublishedCanvasShare>;
   revoke: (args: { slug: string }) => Promise<void>;
   listMine: () => Promise<SharedCanvasLink[]>;
-  /** Bumps after a publish/revoke so list views can refetch. */
+
   version: number;
 };
 
@@ -119,9 +98,5 @@ export function CanvasShareProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/**
- * Returns the canvas-share API, or `null` when rendered outside the provider.
- * Callers must no-op or hide UI on `null`.
- */
 export const useCanvasShare = (): CanvasShareContextValue | null =>
   useContext(CanvasShareContext);

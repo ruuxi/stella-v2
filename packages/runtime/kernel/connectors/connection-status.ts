@@ -1,11 +1,3 @@
-/**
- * Shared connection-state lookup for native integrations.
- *
- * One place answers "is this integration usable right now?" for the
- * node_repl connect client (discover/connectors), the connector keyword
- * reminder, and the orchestrator's `connector_status` tool.
- */
-
 import {
   getNativeConnectorTools,
   isNativeConnectorEnabled,
@@ -21,12 +13,6 @@ export type NativeConnectorAuthStatus =
   | "not_logged_in"
   | "unsupported";
 
-/**
- * Credential-side status only (does a usable token/account exist?).
- * `backend-composio` accounts live server-side behind the user's Stella
- * auth, so they are reported as connected — enablement is the local
- * gate for those.
- */
 export const nativeConnectorAuthStatus = async (
   stellaDataDir: string,
   entry: NativeConnectorCatalogEntry,
@@ -51,15 +37,15 @@ export const nativeConnectorAuthStatus = async (
 export type NativeConnectorConnectionState = {
   enabled: boolean;
   authStatus: NativeConnectorAuthStatus;
-  /** Enabled AND credentialed — safe to call through connect.call. */
+
   connected: boolean;
-  /** True only when this process actually verified a provider credential. */
+
   accountVerified: boolean;
 };
 
 export type NativeConnectorReadiness = NativeConnectorConnectionState & {
   toolCount: number;
-  /** The CLI has a dispatcher it can attempt with the current local state. */
+
   executable: boolean;
 };
 
@@ -82,11 +68,6 @@ export const getNativeConnectorConnectionState = async (
   };
 };
 
-/**
- * Provider-aware operational readiness shared by status and CLI consumers.
- * Backend execution is intentionally actionable without claiming the remote
- * provider account was verified; the run endpoint remains the auth authority.
- */
 export const getNativeConnectorReadiness = async (
   stellaDataDir: string,
   entry: NativeConnectorCatalogEntry,

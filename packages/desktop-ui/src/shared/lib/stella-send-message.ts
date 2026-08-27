@@ -48,8 +48,7 @@ export function dispatchStellaSendMessage(
   detail: StellaSendMessageDetail,
   options: StellaSendMessageOptions = {},
 ) {
-  // Ensure the panel chat is open so the user sees the response, unless the
-  // caller is already routing the user to a chat surface.
+
   if (options.openPanel !== false) {
     dispatchOpenPanelChat();
   }

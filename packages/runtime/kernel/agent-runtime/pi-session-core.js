@@ -33,16 +33,7 @@ import {
   withForcedThreadCompaction,
 } from "./context-budget.js";
 import { runCompactionWithHooks } from "./run-completion.js";
-/**
- * Fraction of the model's real context window at which the orchestrator's
- * non-blocking "compact-while-you-talk" path degrades to blocking: if a
- * background compaction is still in flight AND the (un-compacted) thread has
- * already accumulated this share of the hard window, dispatching the next turn
- * risks overflowing the provider limit before the compaction that would
- * relieve it lands. At that point we wait for compaction instead. Sits above
- * the 0.7 compaction trigger so the common case stays non-blocking; the
- * remaining headroom to 1.0 covers the incoming turn's own output.
- */
+
 const ORCHESTRATOR_COMPACTION_BLOCK_WINDOW_FRACTION = 0.9;
 const awaitUnlessAborted = async (promise, signal) => {
   if (!signal) {
@@ -69,9 +60,7 @@ const resolveCodexProviderServiceTier = (resolvedLlm, agentContext) => {
   ) {
     return undefined;
   }
-  // Codex represents Standard as an explicit `default` session setting but
-  // omits it from the actual Responses request. The native provider has no
-  // Codex session layer, so omission is the matching wire behavior.
+
   return snapshot.serviceTier === "fast" ? "priority" : undefined;
 };
 const safeSchemaJson = (value) => {
@@ -109,7 +98,7 @@ const durableComparableMessage = (message) => {
       content: message.content,
       timestamp: message.timestamp,
       ...(message.customType ? { customType: message.customType } : {}),
-      // Custom rows persist the provider-equivalent default explicitly.
+
       display: message.display === true,
     };
   }
@@ -181,7 +170,7 @@ const hasExactDurableRawTail = (args) => {
   }
   return true;
 };
-/** Provider-visible bytes per tool, snapshotted when the thread context freezes. */
+
 const snapshotToolSchemas = (tools) =>
   new Map(
     (tools ?? []).map((tool) => [
@@ -193,49 +182,22 @@ const snapshotToolSchemas = (tools) =>
       },
     ]),
   );
-/**
- * Shared mutable Pi-Agent state for long-lived runtime sessions.
- *
- * Orchestrators and subagents differ in prompt assembly and finalization, but
- * the live `Agent` lifecycle is the same: keep one Agent per durable thread,
- * update route/system/tools between turns, and refresh the in-memory message
- * mirror only at turn boundaries after background compaction lands.
- */
+
 export class PiSessionCore {
   logger;
   agent = null;
   currentResolvedLlm = null;
   pendingHistoryRefresh = false;
   lastMemoryEnabled = null;
-  /**
-   * Thread-start (or last-boundary) snapshot of the provider-visible
-   * context: the system prompt string and each tool's description +
-   * parameter schema. Between boundaries the reused Agent keeps these
-   * frozen bytes even when the freshly-computed values drift (locale
-   * change, connector-surface switch mutating node_repl's demoted-tool
-   * catalog), so the prompt-cache prefix stays byte-identical. The
-   * snapshot re-adopts fresh values only at legitimate cache boundaries:
-   * compaction/history refresh, the memory-preference toggle, or a
-   * structural tool-set change (different tool names, e.g. a model switch
-   * flipping the file-edit family).
-   */
+
   frozenSystemPrompt = null;
   frozenToolSchemas = null;
   adoptFreshContextSnapshot = false;
-  /** Signature of the last announced frozen-tools drift (dedup). */
+
   announcedToolDriftSignature = null;
-  /**
-   * Hidden `runtime.context_delta.*` messages queued by the freeze logic,
-   * consumed into the next prompt build so the model hears about resident
-   * context drift as an APPEND instead of a prefix rewrite. Persisted by
-   * run-execution and swept at the next compaction fold-in.
-   */
+
   pendingContextDeltaMessages = [];
-  /**
-   * Deterministic provider-abort tracking for this durable thread: instant
-   * first-call failure counting and the request-assembly quarantine
-   * registry. Survives across turns for the lifetime of the session.
-   */
+
   abortContainment = new ProviderAbortContainment();
   threadKey;
   promptCacheKey;
@@ -250,28 +212,18 @@ export class PiSessionCore {
   get canSteerLiveAgent() {
     return this.agent?.state.isStreaming === true;
   }
-  /**
-   * Inject a user message into an actively streaming Pi agent. The agent loop
-   * consumes it at the next safe boundary without aborting the provider.
-   */
+
   steerLiveAgent(message) {
     if (!this.canSteerLiveAgent || !this.agent) return false;
     this.agent.steer(message);
     return true;
   }
-  /**
-   * Flag that SQLite compaction wrote a new overlay. The next turn swaps the
-   * live Agent's message array from freshly-loaded history before prompting.
-   */
+
   notifyCompacted() {
     if (!this.agent) return;
     this.pendingHistoryRefresh = true;
   }
-  /**
-   * External conversation writers (for example realtime voice) append into
-   * the same durable thread without going through this live Agent instance.
-   * Refresh at the next turn boundary so switching surfaces keeps context.
-   */
+
   notifyHistoryChanged() {
     this.pendingHistoryRefresh = true;
   }
@@ -284,11 +236,7 @@ export class PiSessionCore {
     const refreshed = buildHistorySource(agentContext);
     this.agent.state.messages = refreshed;
     this.pendingHistoryRefresh = false;
-    // The mirror swap already broke the prompt-cache prefix (that is the
-    // point of the boundary), so the next createOrReuseAgent re-freezes
-    // the system prompt + tools from current state — this is where the
-    // compaction fold-in "re-render the canonical blocks" applies to the
-    // two request-level blocks that live outside the message array.
+
     this.adoptFreshContextSnapshot = true;
     this.logger.debug("history-refreshed", {
       threadKey: this.threadKey,
@@ -296,12 +244,7 @@ export class PiSessionCore {
       ...logContext,
     });
   }
-  /**
-   * Close the session-creation race: a writer can flag history after the
-   * caller loaded `agentContext`, but before the Pi Agent exists. Once the
-   * Agent has been created, reload SQLite and replace its message mirror
-   * before the provider turn begins.
-   */
+
   refreshHistoryFromStoreIfNeeded(agentContext, store, logContext) {
     if (!this.pendingHistoryRefresh || !this.agent) return agentContext;
     const refreshedContext = {
@@ -311,18 +254,7 @@ export class PiSessionCore {
     this.refreshHistoryIfNeeded(refreshedContext, logContext);
     return refreshedContext;
   }
-  /**
-   * Bound a continuously-running Pi loop at the same durable checkpoint
-   * boundary used between outer runtime turns. The agent-core invokes this
-   * only after the completed assistant/tool-result group has synchronously
-   * emitted `message_end` and immediately before another provider call.
-   *
-   * SQLite stays authoritative: compaction appends its overlay first, then
-   * this method reloads the checkpoint + exact post-checkpoint tail. Until
-   * both steps succeed it returns no replacement, leaving the live mirror
-   * untouched. The compactor owns split selection, including atomic
-   * assistant-tool-call/tool-result groups.
-   */
+
   async refreshActiveWorkingSetAtBoundary(args) {
     const agent = this.agent;
     const scheduler = args.opts.compactionScheduler;
@@ -342,9 +274,7 @@ export class PiSessionCore {
             typeof args.opts.store.getThreadContextPressureStats === "function"
               ? args.opts.store.getThreadContextPressureStats(this.threadKey)
               : null;
-          // Prefer bounded SQLite metadata. If this is a legacy row,
-          // the live mirror is already exact and avoids reconstructing
-          // chunked base64 merely to perform a below-threshold probe.
+
           measuredTokens = narrow?.complete
             ? narrow.estimatedTokens
             : narrow
@@ -356,9 +286,7 @@ export class PiSessionCore {
                   args.opts.store.loadThreadMessages(this.threadKey),
                 );
         } else {
-          // The last measured provider payload predates this completed
-          // assistant/tool group. Include it so a large tool result can
-          // trigger compaction before it reaches the next provider call.
+
           measuredTokens =
             lastProviderTokens +
             estimateProviderPayloadTokens(
@@ -367,8 +295,7 @@ export class PiSessionCore {
             );
         }
       } catch {
-        // A failed size probe must not affect the active loop. The normal
-        // provider preflight/overflow-recovery path remains authoritative.
+
         return undefined;
       }
       const triggerTokens = getCompactionTriggerTokens(
@@ -379,9 +306,7 @@ export class PiSessionCore {
       args.onCompacting?.();
     }
     try {
-      // Serialize with any compaction scheduled by an immediately-prior
-      // outer turn. The scheduler can coalesce queued callbacks, so drain
-      // first and schedule our own pass only once it is idle.
+
       let pending = scheduler.pending(this.threadKey);
       while (pending) {
         if (!(await awaitUnlessAborted(pending, args.signal))) return undefined;
@@ -423,9 +348,7 @@ export class PiSessionCore {
         }
       }
       if (this.agent !== agent || args.signal?.aborted) return undefined;
-      // A live steer can arrive while async compaction is running. Its row
-      // is durable before the loop consumes it, so page-in only if the
-      // caller confirms there are still no queued/dequeued messages.
+
       if (args.canApply && !args.canApply()) return undefined;
       const threadHistory = args.opts.store.loadThreadMessages(this.threadKey);
       const refreshedContext = {
@@ -434,10 +357,7 @@ export class PiSessionCore {
       };
       const refreshed = buildHistorySource(refreshedContext);
       this.abortContainment.reapplyQuarantine(refreshed);
-      // Require both the completed group and the full provider-visible
-      // post-checkpoint tail to match resident context. Failed/aborted
-      // attempts are intentionally non-replayable and filtered by the
-      // history builder; other extra or truncated rows fail open here.
+
       const completedSuffixExact = hasExactDurableCompletedSuffix(
         refreshed,
         args.completedMessages,
@@ -481,9 +401,7 @@ export class PiSessionCore {
         historyLength: refreshed.length,
         ...args.logContext,
       });
-      // The outer run options retain agentContext for the duration of the
-      // prompt. Drop their reference to the pre-compaction durable rows too,
-      // otherwise the Agent swap alone would not release the old history.
+
       args.agentContext.threadHistory = threadHistory;
       return refreshed;
     } catch (error) {
@@ -495,51 +413,7 @@ export class PiSessionCore {
       return undefined;
     }
   }
-  /**
-   * Gate the next turn on any in-flight background compaction for this
-   * thread. Compaction is scheduled off the finalize path and runs
-   * asynchronously (~1-2 min); meanwhile new turns/messages accumulate on
-   * the still-uncompacted tail. Because the compaction trigger sits at the
-   * same fraction of the window as the provider input budget, any tokens
-   * added during that window eat directly into the headroom before the hard
-   * context limit — so concurrent work can overflow the model BEFORE the
-   * compaction meant to prevent it lands.
-   *
-   *   - `mode: "blocking"` (general agents + subagents): always wait for the
-   *     pending compaction to finish before running the next turn. Agents do
-   *     real tool work and can burn a lot of tokens fast, so their next turn
-   *     must resume on the compacted context. This structurally removes the
-   *     agent overflow-during-compaction path.
-   *   - `mode: "guard"` (orchestrator): keep the non-blocking
-   *     compact-while-you-talk UX for the common case, but fall back to
-   *     blocking when a real overflow is imminent — i.e. the uncompacted
-   *     thread has already reached
-   *     {@link ORCHESTRATOR_COMPACTION_BLOCK_WINDOW_FRACTION} of the hard
-   *     window while a compaction is still in flight.
-   *
-   * A rejected wait never fails the turn: background compaction failures are
-   * logged by the scheduler, and the normal pre-generation overflow recovery
-   * remains as the last-resort backstop.
-   */
-  /**
-   * Shrinking-model-switch compaction. When the incoming route's context
-   * window is smaller than the current route's AND the thread's measured
-   * context no longer fits the incoming route's safe input budget (the
-   * same ~70% bound preflight enforces at dispatch), the outgoing
-   * (larger-window) model is the one that can still read the uncompacted
-   * history in one summary pass — so compact NOW, blocking, on the
-   * outgoing route before the switch takes effect. Any in-flight
-   * background compaction is drained first (the "switched while
-   * compacting" case waits here too), and `args.onCompacting` lets the
-   * caller surface the wait as a "compacting" working indicator. Below
-   * that bound nothing blocks: the thread fits the new model, and the
-   * routine non-blocking compaction covers it from there.
-   *
-   * Best-effort by design: after a worker restart the previous route is
-   * unknown (`currentResolvedLlm` is null), and a failed pass here is not
-   * fatal — the pre-dispatch preflight, overflow recovery, and the capped
-   * single-pass summary on the new route remain the backstops.
-   */
+
   async maybeCompactForModelSwitch(args) {
     const previous = this.currentResolvedLlm;
     const next = args.opts.resolvedLlm;
@@ -569,7 +443,7 @@ export class PiSessionCore {
     try {
       measuredTokens = measureTokens();
     } catch {
-      // Can't measure the thread — let the dispatch backstops decide.
+
       return;
     }
     if (measuredTokens < blockThresholdTokens) return;
@@ -584,9 +458,7 @@ export class PiSessionCore {
     });
     args.onCompacting?.();
     try {
-      // Drain any in-flight/queued background compaction first; it may
-      // already relieve the thread (it was scheduled with the outgoing
-      // route too).
+
       let pending = scheduler.pending(this.threadKey);
       while (pending) {
         await pending;
@@ -598,8 +470,7 @@ export class PiSessionCore {
         return;
       }
       if (measuredTokens < blockThresholdTokens) return;
-      // Forced pass on the outgoing route. The scheduler is idle after the
-      // drain, so this runs immediately and the await is the block.
+
       await scheduler.schedule({
         threadKey: this.threadKey,
         run: async () => {
@@ -619,8 +490,7 @@ export class PiSessionCore {
         },
       });
     } catch {
-      // Failures are logged by the scheduler/compaction path; the turn
-      // proceeds and the dispatch backstops handle a residual overflow.
+
     }
   }
   async awaitPendingCompactionBeforeTurn(args) {
@@ -654,8 +524,7 @@ export class PiSessionCore {
             images.decodedBytes > ACTIVE_THREAD_IMAGE_DECODED_BYTE_BUDGET;
         }
       } catch {
-        // Can't assess the accumulated tail — preserve the non-blocking UX
-        // and let pre-generation overflow recovery catch a genuine overflow.
+
         return;
       }
       if (
@@ -677,33 +546,20 @@ export class PiSessionCore {
         ...args.logContext,
       });
     }
-    // The turn is now actually going to wait on compaction — surface it
-    // as a "compacting" working indicator instead of a silent stall.
+
     args.onCompacting?.();
     try {
-      // Drain the active run plus any queued follow-up so the next turn
-      // starts on the compacted context. No new compaction is scheduled
-      // during a turn boundary, so this loop terminates.
+
       let pending = scheduler.pending(this.threadKey);
       while (pending) {
         await pending;
         pending = scheduler.pending(this.threadKey);
       }
     } catch {
-      // Background compaction failures are already logged by the scheduler;
-      // a rejected wait must not fail the turn.
+
     }
   }
-  /**
-   * Start a containment-tracked turn. Re-seeds the quarantine registry from
-   * persisted thread records (so healed threads survive app restarts),
-   * re-masks previously quarantined entries (history refreshes rebuild the
-   * message array from the intact store) and, after two consecutive instant
-   * provider aborts, quarantines the newest suspect tool-result entry from
-   * the request assembly. Returns the pre-run message count so failures can
-   * be classified later, plus any newly quarantined record so the caller
-   * can persist it.
-   */
+
   beginAbortContainmentTurn(agent, agentContext, logContext) {
     const persisted = (agentContext.threadHistory ?? [])
       .map((entry) =>
@@ -734,17 +590,7 @@ export class PiSessionCore {
       newlyQuarantined: application.newlyQuarantined,
     };
   }
-  /**
-   * Last resort after `prepareSafetySameModelRetry` exhausts the fable
-   * attempt budget: auto-swap a fable-5 route to opus-4.8 and retry once
-   * (fable's safety guardrails false-positive on benign quoted content).
-   * When eligible, this pops the errored assistant tail, points the live
-   * Agent at the swapped route, and returns the swap so the caller re-runs
-   * via `resume`. Per-run only: the next turn's
-   * `setResolvedLlm(opts.resolvedLlm)` restores the configured model. The
-   * caller invokes this at most once per turn, which enforces the
-   * one-swap-attempt cap (no ping-pong).
-   */
+
   prepareSafetyModelSwap(agent, args) {
     if (!this.currentResolvedLlm) return null;
     if (!isProviderContentAbortMessage(args.errorMessage)) return null;
@@ -763,15 +609,7 @@ export class PiSessionCore {
     });
     return swap;
   }
-  /**
-   * After a failed attempt, decide whether to retry the SAME fable-5 route
-   * before any model swap (refusals are frequently transient). When
-   * eligible, pops the errored tail so the caller re-runs via `resume` and
-   * returns the failing model id for the status note; the caller owns the
-   * attempt budget (`SAFETY_ABORT_FABLE_ATTEMPTS`). Requires the same
-   * eligibility as the swap itself so a route that could never swap doesn't
-   * burn retries on a hopeless error.
-   */
+
   prepareSafetySameModelRetry(agent, args) {
     if (!this.currentResolvedLlm) return null;
     if (!isProviderContentAbortMessage(args.errorMessage)) return null;
@@ -787,12 +625,7 @@ export class PiSessionCore {
     });
     return { modelId };
   }
-  /**
-   * Prepare a transient run-level retry without appending another user turn.
-   * Only the failed (or clean-but-empty) assistant tail is removed. Any tool
-   * result immediately before it remains in context, so continuing resumes
-   * after completed side effects instead of executing them again.
-   */
+
   prepareAgentRunRetry(agent, args) {
     if (!args.failure.retryable) return false;
     if (
@@ -852,16 +685,7 @@ export class PiSessionCore {
       });
     }
   }
-  /**
-   * Pop the errored assistant tail so `continue()` resumes from the prompt
-   * instead of refusing on a trailing assistant message. Inspects the tail
-   * WITHOUT mutating it first: only commits to the pop once the retry is
-   * definitely happening — bailing after a pop would corrupt the
-   * appended-messages slice that failure classification reads, silently
-   * resetting the deterministic-abort streak. Returns false when the tail
-   * shape is unexpected (e.g. failure mid-tool-loop) and resuming would
-   * throw.
-   */
+
   popErroredTailForResume(agent, options) {
     const messages = agent.state.messages;
     const last = messages[messages.length - 1];
@@ -884,7 +708,7 @@ export class PiSessionCore {
       return false;
     }
     if (popAssistantTail) {
-      // Drop the failed stream's partial output or clean-but-empty reply.
+
       messages.pop();
     }
     return true;
@@ -892,11 +716,7 @@ export class PiSessionCore {
   noteAbortContainmentSuccess() {
     this.abortContainment.noteRunSuccess();
   }
-  /**
-   * Record a failed turn with the containment tracker. Returns the error
-   * message to surface — the original, or the deterministic-abort
-   * containment error once the threshold is reached.
-   */
+
   noteAbortContainmentFailure(agent, args) {
     const messages = agent.state.messages;
     const failureMessagesBefore = Number.isFinite(args.failureMessagesBefore)
@@ -926,7 +746,7 @@ export class PiSessionCore {
     this.announcedToolDriftSignature = null;
     this.adoptFreshContextSnapshot = false;
   }
-  /** Drain the queued resident-context delta messages for this turn's prompt. */
+
   takePendingContextDeltaMessages() {
     if (this.pendingContextDeltaMessages.length === 0) {
       return [];
@@ -935,19 +755,7 @@ export class PiSessionCore {
     this.pendingContextDeltaMessages = [];
     return messages;
   }
-  /**
-   * Reused-agent context policy. Tool `execute` closures are rebuilt every
-   * turn (they capture per-turn state like runId), but the provider-visible
-   * bytes come from the frozen snapshot so the cached prefix survives:
-   *
-   *   - boundary (compaction refresh / memory toggle / structural tool-set
-   *     change) → adopt fresh system prompt + tools and re-freeze;
-   *   - otherwise → keep frozen bytes; when the freshly-computed bytes
-   *     drifted (e.g. a desktop↔mobile surface switch changing
-   *     node_repl's demoted-tool catalog), queue ONE hidden
-   *     `runtime.context_delta.tools` note so the model learns about the
-   *     change as an append. The real bytes swap at the next boundary.
-   */
+
   applyFrozenContext(args) {
     const agent = this.agent;
     const frozen = this.frozenToolSchemas;
@@ -959,10 +767,7 @@ export class PiSessionCore {
     const boundary = this.adoptFreshContextSnapshot || structuralToolChange;
     if (boundary) {
       if (structuralToolChange && !this.adoptFreshContextSnapshot) {
-        // Accepted cache break: the available tool NAMES changed (model
-        // switch flipping the file-edit family, extension hot-reload).
-        // Frozen schemas for a tool that no longer exists would strand
-        // calls, so the swap applies immediately and knowingly.
+
         this.logger.warn("frozen-context.structural-tool-change", {
           threadKey: this.threadKey,
           previousTools: frozen ? [...frozen.keys()] : [],
@@ -1005,8 +810,7 @@ export class PiSessionCore {
       };
     });
     if (args.systemPrompt !== this.frozenSystemPrompt) {
-      // Rare (locale / workspace-root / hook-append drift). Kept frozen;
-      // the fresh prompt applies at the next compaction boundary.
+
       this.logger.debug("frozen-context.system-prompt-drift-held", {
         threadKey: this.threadKey,
         ...args.logContext,
@@ -1090,8 +894,7 @@ export class PiSessionCore {
     if (this.lastMemoryEnabled !== memoryEnabled) {
       this.agent.state.messages = buildHistorySource(args.agentContext);
       this.lastMemoryEnabled = memoryEnabled;
-      // Deliberate full cache break (the user toggled memory); adopt
-      // fresh context bytes at the same boundary.
+
       this.adoptFreshContextSnapshot = true;
       this.logger.debug("history-refreshed.memory-preference", {
         threadKey: this.threadKey,
@@ -1123,7 +926,7 @@ export class PiSessionCore {
       try {
         this.agent.abort();
       } catch {
-        // Best-effort; the Agent may already be idle.
+
       }
     }
     this.agent = null;
@@ -1137,13 +940,11 @@ export class PiSessionCore {
     this.pendingContextDeltaMessages = [];
     clearPromptPrefixSnapshot(this.threadKey);
     clearProviderContextWindow(this.threadKey);
-    // Release per-session provider resources keyed by the same id used as the
-    // AI cache session id (the thread key), e.g. Codex WebSocket connections
-    // and their transport/fallback bookkeeping.
+
     try {
       cleanupSessionResources(this.threadKey);
     } catch {
-      // Best-effort; a failing cleanup shouldn't break session teardown.
+
     }
   }
 }

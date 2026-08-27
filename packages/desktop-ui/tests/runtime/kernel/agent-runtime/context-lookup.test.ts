@@ -29,16 +29,11 @@ import {
   shouldUseClaudeCodeAgentRuntime,
 } from "@stella/runtime/kernel/integrations/claude-code-agent-runtime";
 
-// runRecall drives its steps through completeSimple; the tests script its
-// responses. readAssistantText stays real (it reads the fake message text).
 vi.mock("@stella/runtime/ai/stream", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@stella/runtime/ai/stream")>()),
   completeSimple: vi.fn(),
 }));
 
-// The external-engine path: engine detection defaults to false (matching a
-// data dir with no preferences file); the Claude Code tests flip it on and
-// script the CLI turn.
 vi.mock(
   "@stella/runtime/kernel/integrations/claude-code-agent-runtime",
   async (importOriginal) => ({
@@ -201,7 +196,6 @@ describe("buildContextLookupUserPrompt", () => {
 
     db.close();
 
-    // The pre-seeded searches ran with the joined terms.
     expect(searchThreads).toHaveBeenCalledWith({
       conversationId: "conv-1",
       query: "context tool lookup",
@@ -226,8 +220,7 @@ describe("buildContextLookupUserPrompt", () => {
     expect(prompt).toContain("Safari - Context docs");
     expect(prompt).toContain("https://example.com/live-context");
     expect(prompt).toContain("Selected Stella panel");
-    // Pre-seeded evidence leads, live/current state follows, the lookup
-    // request comes LAST.
+
     expect(prompt.indexOf("# Memory Files")).toBeLessThan(
       prompt.indexOf("# Memory Search Results"),
     );
@@ -331,7 +324,7 @@ describe("buildContextLookupUserPrompt", () => {
     expect(liveSection).toContain("- still-running (active, last active");
     expect(liveSection).toContain("agent updates (newest last):");
     expect(liveSection).toMatch(/- \[[^\]]+\] running smoke tests/);
-    // Paused threads never render as live status.
+
     expect(
       liveSection.slice(0, liveSection.indexOf("# Lookup Request")),
     ).not.toContain("summing spreadsheet rows");
@@ -352,7 +345,7 @@ describe("resolveRecallSearchAction", () => {
         limit: 5,
       }),
     ).toEqual({ kind: "search_threads", query: "flights", limit: 5 });
-    // Legacy names from older transcripts resolve to the nearest tool.
+
     expect(resolveRecallSearchAction("search", { query: "x" })).toEqual({
       kind: "search_transcripts",
       query: "x",
@@ -400,7 +393,7 @@ describe("formatThreadSearchResults", () => {
     const out = formatThreadSearchResults(
       makeStore(
         [
-          // Given oldest-first to prove the formatter re-orders by recency.
+
           {
             threadId: "older-thread",
             conversationId: "conv-2",
@@ -432,14 +425,14 @@ describe("formatThreadSearchResults", () => {
     expect(out.indexOf("newer-thread")).toBeLessThan(
       out.indexOf("older-thread"),
     );
-    // Absolute date/time per entry for recency awareness.
+
     expect(out).toMatch(/- newer-thread \| last active [A-Z][a-z]{2} \d/);
     expect(out).toContain("| from this conversation | Deploy the backend");
     expect(out).toContain("| from another conversation | Draft the budget");
-    // Result/error excerpts collapse whitespace into one dense line.
+
     expect(out).toContain("result: Deployed rev 42 to prod");
     expect(out).toContain("error: spreadsheet API returned 401");
-    // A description identical to the name adds nothing — deduped.
+
     expect(out).toContain(
       "description: Draft the household budget spreadsheet",
     );
@@ -508,7 +501,7 @@ describe("formatTranscriptSearchResults", () => {
     const now = Date.now();
     const out = formatTranscriptSearchResults(
       makeStore([
-        // Relevance-ranked input: newest/most-relevant first.
+
         {
           conversationId: "conv-old",
           role: "assistant" as const,
@@ -526,7 +519,7 @@ describe("formatTranscriptSearchResults", () => {
       "emira saguaro",
     );
     expect(out).toContain("[oldest → newest — read as a timeline]");
-    // Older message renders FIRST even though the newer one ranked higher.
+
     expect(out.indexOf("emira day")).toBeLessThan(
       out.indexOf("took the Emira out to Saguaro Lake"),
     );
@@ -587,7 +580,7 @@ describe("formatTranscriptSearchResults", () => {
     );
     expect(out).toContain("emira felt amazing");
     expect(out).toContain("…");
-    // Snippet stays bounded instead of dumping the whole message.
+
     expect(out.length).toBeLessThan(800);
   });
 
@@ -595,8 +588,7 @@ describe("formatTranscriptSearchResults", () => {
     expect(
       formatTranscriptSearchResults(makeStore([]), "conv-1", "flights"),
     ).toMatch(/Nothing matched in past conversation transcripts/);
-    // The tokenizer keeps all-stopword queries searchable; only an EMPTY
-    // query has no usable terms.
+
     expect(
       formatTranscriptSearchResults(makeStore([]), "conv-1", undefined),
     ).toMatch(/No usable search terms/);
@@ -709,8 +701,7 @@ describe("runRecall", () => {
 
     expect(out).toBe("The lake house wifi password is PINETREE42.");
     expect(completions).toHaveBeenCalledTimes(2);
-    // Pre-seed searched with the orchestrator's terms; the model's own call
-    // reformulated.
+
     expect(searchTranscripts).toHaveBeenCalledWith({
       query: "connector discovery",
       limit: 12,
@@ -727,8 +718,7 @@ describe("runRecall", () => {
       "search_transcripts",
       "search_threads",
     ]);
-    // History is real turns: seed user message, assistant tool call, then a
-    // toolResult carrying the observation.
+
     const [seedMessage, assistantTurn, toolResult] = context.messages as [
       Message,
       Message,
@@ -775,7 +765,7 @@ describe("runRecall", () => {
     );
 
     expect(out).toBe("No trace of it.");
-    // Pre-seed + the model's own round.
+
     expect(searchThreads).toHaveBeenCalledTimes(2);
     expect(searchTranscripts).toHaveBeenCalledTimes(2);
     const toolResults = lastContext().messages.filter(
@@ -807,8 +797,7 @@ describe("runRecall", () => {
 
     expect(out).toBe("connector-discovery-take-2 is active.");
     expect(completions).toHaveBeenCalledTimes(2);
-    // The retry turn carries the rejection as a user message after the
-    // rejected assistant turn.
+
     const messages = lastContext().messages;
     const lastUser = messages[messages.length - 1] as Message & {
       content: Array<{ text: string }>;
@@ -884,7 +873,7 @@ describe("runRecall", () => {
     const out = await runRecall(await makeRunArgs(rootPath));
 
     expect(out).toBe(RECALL_NO_OUTPUT_TEXT);
-    // First attempt plus the bounded retries — never an unbounded loop.
+
     expect(completions).toHaveBeenCalledTimes(3);
   });
 
@@ -942,9 +931,7 @@ describe("runRecall", () => {
     db.close();
     const completions = vi.mocked(completeSimple);
     completions.mockReset();
-    // Four rounds execute; the fifth tool request trips the budget, its
-    // calls get error results, and the forced final synthesis produces
-    // nothing.
+
     for (let i = 0; i < 5; i += 1) {
       completions.mockResolvedValueOnce(
         assistantToolCalls([
@@ -1026,7 +1013,7 @@ describe("runRecall", () => {
           query: "lake house wifi password",
         });
         expect(String(hit.result)).toContain("PINETREE42");
-        // Legacy alias still lands on transcript search.
+
         const aliased = await turn.executeTool!("call-2", "search", {
           query: "lake house",
         });

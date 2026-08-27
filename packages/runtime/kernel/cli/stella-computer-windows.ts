@@ -419,7 +419,7 @@ const killProcess = (pid: number | null) => {
   try {
     process.kill(pid, "SIGKILL");
   } catch {
-    // ignore stale pid files
+
   }
 };
 
@@ -569,7 +569,7 @@ const pruneWindowsSessions = (activeSessionId: string) => {
     };
     if (now - (previous.prunedAtMs ?? 0) < sessionPruneIntervalMs) return;
   } catch {
-    // Missing maintenance state means pruning is due.
+
   }
   try {
     writeJsonAtomic(pruneStatePath, { prunedAtMs: now });
@@ -634,7 +634,7 @@ export const connectWindowsPipe = (
         socket.destroy();
         reject(error);
       } else {
-        // Guard the handoff between connection and request handler installation.
+
         socket.on("error", ignoreWindowsPipeError);
         resolve(socket);
       }
@@ -699,7 +699,6 @@ const windowsPipeAcceptingConnections = async (
   }
 };
 
-/** Wait until both the killed helper and its named-pipe server are gone. */
 export const waitForWindowsDaemonTeardown = async (
   pid: number | null,
   pipeName: string,
@@ -796,8 +795,7 @@ export const spawnWindowsDaemonProcess = async (
     };
 
     child.once("spawn", onSpawn);
-    // Deliberately retained after startup so a later ChildProcess error can never
-    // become an unhandled EventEmitter error in the long-lived host.
+
     child.on("error", onError);
     signal?.addEventListener("abort", onAbort, { once: true });
   });
@@ -805,12 +803,6 @@ export const spawnWindowsDaemonProcess = async (
   return child;
 };
 
-/**
- * Start or reconnect to the per-session helper and return the connected pipe
- * that proved it is ready. The old flow closed this readiness connection and
- * immediately raced a second connection against the helper's single pipe
- * instance, which could surface as EPIPE before the real request was written.
- */
 const connectWindowsDaemon = async (
   sessionId: string,
   signal = getComputerExecutionSignal(),
@@ -853,7 +845,7 @@ const connectWindowsDaemon = async (
           return await connectWindowsPipe(pipeName, 100, signal);
         } catch (error) {
           if (signal?.aborted) throw error;
-          // Keep waiting until the named-pipe server accepts connections.
+
         }
       }
       await delayWithSignal(50, signal);
@@ -975,9 +967,7 @@ export const exchangeWindowsDaemonRequest = (
       if (settled) return;
       settled = true;
       cleanup();
-      // A write callback can report EPIPE before the Socket emits its matching
-      // asynchronous `error` event. Keep a terminal guard installed after the
-      // request settles so that late event cannot crash the runtime worker.
+
       socket.on("error", ignoreWindowsPipeError);
       socket.destroy();
       if (error) reject(error);
@@ -991,11 +981,6 @@ export const exchangeWindowsDaemonRequest = (
         return;
       }
 
-      // The native helper newline-frames every daemon response. Resolve as
-      // soon as that complete frame arrives instead of waiting for the server
-      // to disconnect its Windows named-pipe instance: libuv can surface that
-      // normal disconnect as a read-side EPIPE even after all response bytes
-      // were delivered.
       chunks.push(buffer.subarray(0, newlineIndex));
       settle(null, Buffer.concat(chunks).toString("utf8"));
     };

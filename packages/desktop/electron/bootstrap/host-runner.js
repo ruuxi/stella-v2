@@ -19,16 +19,7 @@ import { getMainLogger } from "../observability/main-logger.js";
 import { getLocalLlmCredential, listLocalLlmCredentials, } from "@stella/runtime/kernel/storage/llm-credentials";
 import { getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
 import { retireDetachedWorkerRoot } from "@stella/runtime/host";
-// Module-level one-shot cache for the skills home reconciliation. This
-// seeding used to run on the pre-window path inside `resolveStellaDataDir`, where
-// its ~100 awaited fs ops + sha256 over hundreds of KB contended with first
-// paint. It only needs to complete before the runtime worker reads
-// `~/.stella/skills` and `~/.stella/agents`, so we run it here — off first paint
-// — before `connectHostRunner` spawns the worker.
-//
-// `initializeStellaHostRunner` also runs on host-runner reset flows; caching the
-// first call's promise means runtime resets don't re-pay the reconciliation.
-// The customization-reset handler explicitly reconciles after moving a skill.
+
 let stellaDataDirSeedingPromise = null;
 const ensureStellaDataDirSeededOnce = (stellaAppDir, stellaDataDirPath) => {
     if (!stellaDataDirSeedingPromise) {
@@ -42,16 +33,7 @@ const ensureStellaDataDirSeededOnce = (stellaAppDir, stellaDataDirPath) => {
     }
     return stellaDataDirSeedingPromise;
 };
-// macOS attributes TCC (Accessibility) checks to the "responsible process",
-// which is inherited at spawn time. The detached runtime worker outlives the
-// Electron process that spawned it, so any desktop_automation daemon spawned
-// from the worker's process tree loses Stella's TCC attribution after an app
-// restart and fails AXIsProcessTrusted() even though the user granted
-// Accessibility to Stella. Spawning the daemon from the Electron main process
-// keeps it under the single "Stella" identity. The worker side lives in
-// stella-computer-executor.ts (ensureAutomationDaemon); it records the
-// returned hostPid so a daemon whose spawning host has exited is restarted
-// by the next live host.
+
 const spawnAutomationDaemonFromHost = async (params) => {
     if (process.platform === "win32") {
         return { ok: false, reason: "unsupported_platform" };
@@ -71,8 +53,7 @@ const spawnAutomationDaemonFromHost = async (params) => {
         !path.isAbsolute(logPath)) {
         return { ok: false, reason: "invalid_params" };
     }
-    // Only the fixed daemon argv for the bundled helper is ever spawned here;
-    // this handler must never grow into an arbitrary-exec RPC.
+
     const helperPath = resolveNativeHelperPath("desktop_automation");
     if (!helperPath) {
         return { ok: false, reason: "helper_not_found" };
@@ -218,8 +199,7 @@ export const createHostRunnerHandlers = (context, options) => ({
     requestBrowserExtensionConnect: (payload) => context.services.connectorConnectService.requestBrowserExtensionConnect(payload),
     requestComputerUseAppApproval: (payload) => context.services.securityPolicyService.ensureComputerUseAppApproval(payload),
     displayUpdate: (payload) => {
-        // Forward structured DisplayPayload objects to all windows. The renderer
-        // validates them before routing to the workspace panel.
+
         broadcastToWindows(context, "display:update", payload);
     },
     showNotification: ({ title, body, sound }) => {
@@ -299,9 +279,7 @@ const connectHostRunner = async (context) => {
             return;
         }
     }
-    // Proactively spawn the worker (off the open burst, since connectHostRunner
-    // runs from the deferred-startup sequence). The worker self-warms its model
-    // catalog on init, so the first chat stays fast without a blocking warm.
+
     await runner.ensureWorkerStarted();
     const workerStartedAt = Math.round(process.uptime() * 1000);
     logger?.process("startup.host-runner.worker-spawned", {
@@ -335,13 +313,11 @@ export const initializeStellaHostRunner = async (context) => {
             }
         }
     }
-    // Reconcile bundled skills into the canonical home skills dir before the worker
-    // (spawned by connectHostRunner -> runner.start()/ensureWorkerStarted) reads
-    // them. One-shot cached so host-runner resets don't re-pay it.
+
     await ensureStellaDataDirSeededOnce(stellaAppDir, stellaDataDirPath);
     await services.securityPolicyService.loadPolicy();
     const loadDeviceIdentity = async () => await getOrCreateDeviceIdentity(stellaDataDirPath);
-    // Involuntary rotation: keep the retired id so its pairings can follow.
+
     const resetDeviceIdentity = async () => await resetStoredDeviceIdentity(stellaDataDirPath, { preservePairings: true });
     const clearSupersededDeviceId = async () => await clearStoredSupersededDeviceId(stellaDataDirPath);
     clearHostRunnerSubscriptions(context);

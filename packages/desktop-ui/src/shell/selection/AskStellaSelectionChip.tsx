@@ -1,20 +1,3 @@
-/**
- * AskStellaSelectionChip — floating "Ask Stella" pill that appears above
- * any text selection inside the Stella renderer.
- *
- * Click opens the panel chat with the selection attached as a
- * SelectedTextChip via the standard chat-context broadcast. A companion copy
- * icon button to the pill's right copies the same text to the clipboard (icon
- * swaps to a checkmark briefly, matching MessageActions' copy feedback).
- *
- * Hidden in any of the following surfaces (where a chip would either be
- * redundant or actively get in the user's way):
- *   - The composer textarea / chip strip
- *   - The panel chat
- *   - Any input/textarea/contenteditable
- *   - Anything marked `[data-stella-chrome]`
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy } from "@/ui/icons";
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
@@ -27,7 +10,7 @@ const PILL_OFFSET = 8;
 const PILL_MIN_WIDTH = 88;
 const VIEWPORT_MARGIN = 6;
 const MIN_CHARS = 2;
-/** Copy icon button + gap to the pill's right — included when clamping. */
+
 const COPY_BUTTON_EXTENT = 28 + 6;
 const COPIED_RESET_MS = 1200;
 
@@ -289,7 +272,7 @@ export function AskStellaSelectionChip() {
         window.getSelection()?.removeAllRanges();
         chip.source?.postMessage({ type: "stella:canvas-selection-clear" }, "*");
       } catch {
-        /* selection may not be removable in some hosts */
+
       }
 
       const electronApi = window.electronAPI;

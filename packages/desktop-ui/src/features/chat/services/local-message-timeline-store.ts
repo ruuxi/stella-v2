@@ -531,9 +531,7 @@ async function readNewer(entry: TimelineEntry) {
   try {
     const result = await api.listMessagesAfter({
       conversationId: entry.conversationId,
-      // Start one loaded row behind the live edge. The strictly-after storage
-      // contract then returns the newest row itself if streaming or tool
-      // artifacts replaced it, followed by a full page plus look-ahead.
+
       afterTimestampMs: queryCursor.timestamp,
       afterId: queryCursor._id,
       afterSequence: queryCursor.sequence,
@@ -629,9 +627,7 @@ async function readTail(entry: TimelineEntry) {
     advanceTailCursor(entry, result.nextCursor);
 
     const strict = strictMessagesAfter(changed, newest);
-    // A saturated tail response is intentionally collapsed to a fresh latest
-    // page. This can only happen after the renderer missed more than one page
-    // of updates while it was inactive; incremental streaming stays append-only.
+
     if (strict.length > MESSAGE_TIMELINE_PAGE_SIZE) {
       finishRead(entry, requestId);
       return readInitial(entry, "latest");
@@ -643,9 +639,7 @@ async function readTail(entry: TimelineEntry) {
       (message) =>
         currentIds.has(message._id) || compareMessageOrder(message, newest) > 0,
     );
-    // Always merge against the latest resident snapshot. If a notification or
-    // lazy-detail page landed while IPC was pending, preserve that newer local
-    // projection and replay the exact pushed events below.
+
     let messages =
       entry.mutationRevision === mutationRevision
         ? mergeOrderedMessages(current, eligibleChanged)
@@ -743,7 +737,6 @@ function rememberLiveToolEvent(
   entry.liveToolEventPins.set(messageId, pins);
 }
 
-/** Apply an in-place event upsert without reopening the durable tail. */
 function patchNotifiedEvent(
   entry: TimelineEntry,
   event: NonNullable<LocalChatUpdatedPayload["event"]>,
@@ -934,12 +927,7 @@ function handleLocalUpdate(payload: LocalChatUpdatedPayload | null) {
   if (!payload?.conversationId) return;
   const entry = entries.get(payload.conversationId);
   if (!entry || entry.listeners.size === 0) return;
-  // Destructive update (Rewind truncate): no appended event exists, and an
-  // incremental tail read keys strictly AFTER the newest loaded row — it can
-  // never observe rows that were REMOVED. Re-read the latest page instead so
-  // truncated suffixes drop out of the visible timeline. Append
-  // notifications always carry their event and keep using the cheap
-  // incremental path below.
+
   if (!payload.event) {
     if (entry.inFlight) entry.queuedLatestRefresh = true;
     else void readInitial(entry, "latest");
@@ -961,9 +949,7 @@ function handleLocalUpdate(payload: LocalChatUpdatedPayload | null) {
     if (entry.inFlight) return;
     if (!authored && patched) return;
     if (atOrBeforeDurableCursor) {
-      // A failed patch below the durable high-water mark cannot be recovered by
-      // a strictly-after query. Reconcile the bounded latest window instead of
-      // silently dropping an out-of-order authored notification.
+
       if (!patched) void readInitial(entry, "latest");
       return;
     }
@@ -985,7 +971,6 @@ function syncUpdateSubscription() {
 
 const detailReads = new Set<string>();
 
-/** Load at most one bounded page of complete turn events on explicit demand. */
 export async function loadLocalMessageToolEventPage(
   conversationId: string,
   messageId: string,
@@ -1125,8 +1110,7 @@ export function subscribeToLocalMessageTimeline(
   return () => {
     entry.listeners.delete(listener);
     if (entry.listeners.size === 0) {
-      // Logical cancellation: IPC itself is not abortable, so invalidate the
-      // completion and retain the last settled window for tab restoration.
+
       entry.requestId += 1;
       entry.inFlight = null;
       entry.queuedTailRefresh = false;

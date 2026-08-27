@@ -1,24 +1,9 @@
-/* ===== Onboarding — 3-phase flow ===== */
-/* Phase 1: Center (start) */
-/* Phase 2: Split (capabilities, theme, personality, permissions,
- *          browser, extension, engine, voice,
- *          memory, enter) */
-/* Phase 3: Complete */
-
-/* The canvas has its own bounded renderer loop. Its global breathing keyframe
- * would otherwise force a style recalculation on every display frame for the
- * entire first-run flow, even while the visual barely changes. */
 .onboarding-stella-animation .stella-animation-container {
   animation: none;
 }
 
 :root {
-  /* Disclosure tokens ported from the marketing site
-   * (stella-website /globals.css `.has-reveal` block). The character
-   * is: longer duration, a small upward translate, a tiny scale, and
-   * an aggressive blur that resolves to clarity — it reads as
-   * "considered" rather than "snappy." Children cascade behind the
-   * parent on a per-element index. */
+
   --onboarding-ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
   --onboarding-ease-soft: cubic-bezier(0.25, 0.1, 0.25, 1);
   --onboarding-duration-fade: 240ms;
@@ -28,16 +13,9 @@
   --onboarding-reveal-text-blur: 4px;
   --onboarding-reveal-translate: 22px;
   --onboarding-reveal-text-translate: 14px;
-  /* Allow `height` / `max-height` transitions between a fixed value and
-   * intrinsic keywords like `auto`. Electron 40 ships Chromium 134, which
-   * supports this (Chromium 129+). With this on, the grow-in elements
-   * below can transition `height: 0 → auto` directly instead of guessing
-   * a `max-height` ceiling — that single layout property reads visibly
-   * smoother than coordinating max-height + padding + border + margin. */
+
   interpolate-size: allow-keywords;
 }
-
-/* ═══ Dialogue container ═══ */
 
 .onboarding-dialogue {
   position: absolute;
@@ -55,7 +33,6 @@
   padding: 0 24px;
 }
 
-/* Split mode: dialogue becomes right-half panel */
 .onboarding-dialogue--split {
   top: 0;
   left: 0;
@@ -68,8 +45,6 @@
   height: 100%;
   padding: 0;
 }
-
-/* ═══ Moments (center phases) ═══ */
 
 .onboarding-moment {
   display: flex;
@@ -98,7 +73,6 @@
   }
 }
 
-/* Fade out when leaving */
 .onboarding-dialogue[data-leaving="true"] .onboarding-moment,
 .onboarding-dialogue[data-leaving="true"] .onboarding-split-right {
   animation: momentFadeOut var(--onboarding-duration-fade) ease-out forwards;
@@ -112,8 +86,6 @@
     opacity: 0;
   }
 }
-
-/* ═══ Moment 0: Start ═══ */
 
 .onboarding-start-button {
   background: none;
@@ -139,9 +111,7 @@
 
 .onboarding-start-button:hover,
 .onboarding-start-button:focus-visible {
-  /* `!important` overrides the running `startButtonFade` keyframe, which
-   * otherwise wins over static rules during its animation period and
-   * makes the hover state invisible. */
+
   animation: none !important;
   opacity: 1 !important;
   text-decoration-color: oklch(from var(--foreground) l c h / 0.7);
@@ -173,7 +143,6 @@
   max-width: 320px;
 }
 
-/* Pinned to bottom of new-session view (Start Stella), not stacked in the vertically centered moment */
 .onboarding-legal-footer--new-session {
   position: absolute;
   left: 0;
@@ -186,7 +155,7 @@
   max-width: none;
   z-index: 6;
   pointer-events: auto;
-  /* Own keyframes: momentFadeIn overwrites transform (breaks centering) and forces opacity: 1 */
+
   animation: onboardingLegalFooterFadeIn var(--onboarding-duration-enter)
     var(--onboarding-ease-standard) forwards;
 }
@@ -228,12 +197,6 @@
   border-radius: var(--radius-sm);
 }
 
-/* ═══ Confirm button ═══ */
-
-/* Per-phase override for the parent flex `gap` we have to negate when the
- * Continue button is collapsed. Defaults to `.onboarding-step-content`'s
- * 20px; phases that wrap the button in a different container can re-set
- * this on their own scope. */
 .onboarding-confirm {
   --onboarding-collapse-gap: 20px;
   box-sizing: border-box;
@@ -248,14 +211,7 @@
   cursor: default;
   -webkit-app-region: no-drag;
   font-family: inherit;
-  /* Collapsed default: a single `height: 0` plus a negative top margin
-   * cancels the parent's flex `gap` so the stage's `justify-content:
-   * center` truly centers around the visible content above. Padding
-   * and border stay constant — they're clipped by `overflow: hidden`
-   * while collapsed and revealed cleanly as height grows. Animating
-   * one layout property (`height`) with a matched margin-top + opacity
-   * on the same curve reads visibly smoother than the previous combo
-   * of max-height + padding-block + border-block-width + transform. */
+
   height: 0;
   margin-top: calc(-1 * var(--onboarding-collapse-gap));
   overflow: hidden;
@@ -289,17 +245,10 @@
   transform: scale(0.97);
 }
 
-/* ═══ SPLIT LAYOUT ═══ */
-
 .onboarding-split-right {
   display: flex;
   flex-direction: column;
-  /* Vertical-center the stage inside the right pane so non-mock phases
-   * (permissions, theme, browser, personality) read as balanced instead of
-   * floating near the top with empty space below. `safe center` keeps the
-   * stage scrollable from the top if its content ever exceeds the pane.
-   * Full-stage demo phases (capabilities, memory)
-   * override this further down. */
+
   justify-content: safe center;
   align-items: flex-start;
   position: relative;
@@ -307,8 +256,7 @@
   min-width: min(360px, 100%);
   margin-left: auto;
   height: 100%;
-  /* Equal-ish top/bottom padding so centering reads as actually centered.
-   * Top keeps a small buffer above the macOS traffic lights area. */
+
   padding: clamp(56px, 8vh, 96px) 40px clamp(56px, 8vh, 96px);
   overflow-y: auto;
   scrollbar-gutter: stable both-edges;
@@ -341,11 +289,6 @@
   text-align: center;
 }
 
-/* The split-right pane has its own `translateX(...)` positioning per
- * phase, so we can't put a translate/scale into this keyframe — it
- * would fight the positioning rule. Disclosure is opacity-only so the
- * compositor doesn't have to re-rasterize a 50%-of-viewport filter
- * pipeline every frame; inner children carry their own reveal cascade. */
 @keyframes splitPaneFadeIn {
   from {
     opacity: 0;
@@ -355,9 +298,6 @@
   }
 }
 
-/* Capabilities phase: full-width demo player (title → frame → continue).
- * The stage spans the canvas instead of being clamped to the right pane,
- * and stays interactive since the word nav/Continue inside are clickable. */
 .onboarding-dialogue[data-phase="capabilities"] .onboarding-split-right {
   width: 100%;
   min-width: 100%;
@@ -387,11 +327,6 @@
   max-width: none;
 }
 
-/* ═══ Act eyebrow + progress strip ═══ */
-
-/* The five-act story chrome: a quiet uppercase eyebrow above each step
- * title, and a grouped dot strip at the bottom of the canvas. Both are
- * orientation only — navigation stays on the chevrons. */
 .onboarding-act-label {
   font-size: var(--font-size-2xs);
   font-weight: var(--weight-semibold);
@@ -458,11 +393,7 @@
 .onboarding-split-stage {
   display: flex;
   flex-direction: column;
-  /* Center the stage's own children vertically so a short step-content
-   * (e.g. permissions, theme, browser) sits in the middle of the 520px
-   * stage block rather than pinned to the top. Phases that need a
-   * top-aligned or distributed layout (memory: flex children) override
-   * this further down. */
+
   justify-content: center;
   gap: 24px;
   width: 100%;
@@ -496,21 +427,6 @@
   margin: 0;
 }
 
-/* ═══ Step content (right panel) ═══ */
-
-/* The split-stage is vertically-centered (justify-content: center) and
- * historically that was fragile when the next phase's chunk hadn't
- * arrived: an empty .onboarding-step-content would let centering
- * collapse around the lone title, then the title would jump upward
- * when the lazy chunk resolved. We solved that architecturally —
- * onboarding loads as one eager chunk in FullShell, so there are no
- * Suspense fallbacks below this layer and the content area is always
- * fully rendered before this layout runs. If a future phase introduces
- * async content (data fetch with a real loading state, etc.), give that
- * phase a stable min-height on its own stage/step-content overrides
- * rather than baking a global floor here — phase shapes diverge enough
- * (memory uses min-height: 0 + flex stretch) that a global floor
- * causes more layout bugs than it prevents. */
 .onboarding-step-content {
   display: flex;
   flex-direction: column;
@@ -548,8 +464,6 @@
   opacity: 0.65;
   text-transform: uppercase;
 }
-
-/* ═══ Pills (reusable) ═══ */
 
 .onboarding-pills {
   display: flex;
@@ -637,11 +551,6 @@
   }
 }
 
-/* `.onboarding-pill-stagger` cascades each pill in top-down using the
- * shared `--onboarding-stagger-step`. The parent split-stage runs in
- * parallel as a softer wash; per-pill keyframes layer on top so each
- * item visibly resolves on its own beat, but the timeline is short
- * enough (≤ ~16 * step) that the eye reads it as one disclosure. */
 .onboarding-pill-stagger :is(.onboarding-pill, .onboarding-theme-orb) {
   animation: onboardingPillStaggerIn var(--onboarding-duration-text)
     var(--onboarding-ease-standard) both;
@@ -712,8 +621,6 @@
   animation-delay: calc(var(--onboarding-stagger-step) * 16);
 }
 
-/* ═══ Theme step ═══ */
-
 .onboarding-theme-row {
   display: flex;
   gap: 10px;
@@ -736,15 +643,6 @@
   font-size: var(--font-size-sm);
 }
 
-/* ═══ Theme swatches ═══ */
-
-/* Each theme shows the surface it produces rather than its name — the same
- * blob palette the shifting gradient paints, at the same five positions. The
- * name moves to the caption below, which tracks the cursor. */
-
-/* Cap the normal desktop layout at eight columns for an intentional 8x2, then
- * let the grid shed columns as its pane narrows. Fixed-size tracks preserve the
- * swatches while auto-fit moves overflow into additional rows. */
 .onboarding-theme-grid--orbs {
   display: grid;
   grid-template-columns: repeat(auto-fit, 38px);
@@ -762,9 +660,7 @@
   border-radius: 50%;
   border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent);
   background: none;
-  /* Barely dimmed. Pills can drop to 0.35 when unselected because their
-   * content is text, but dimming a swatch falsifies the one thing it is
-   * there to show — so selection is carried by the ring below instead. */
+
   opacity: 0.82;
   cursor: default;
   -webkit-app-region: no-drag;
@@ -797,8 +693,6 @@
   transform: scale(0.95);
 }
 
-/* Reserves its line so revealing Appearance below doesn't shift as the
- * caption swaps between an empty and a filled string. */
 .onboarding-theme-orb-caption {
   margin-top: 10px;
   min-height: 1.3em;
@@ -809,9 +703,6 @@
   opacity: 0.6;
 }
 
-/* Theme step: each sub-row (Appearance → Gradient Style → Color) grows open
- * via grid 0fr→1fr. No opacity fade and no pill-stagger — content stays
- * visible as height expands so it never reads as a top-down reveal. */
 .onboarding-dialogue[data-phase="theme"] {
   --onboarding-duration-enter: 480ms;
   --onboarding-duration-text: 360ms;
@@ -829,7 +720,6 @@
   grid-template-rows: 1fr;
 }
 
-/* Pearl/Noir unlock all three at once — stagger grows so they cascade. */
 .onboarding-theme-grow-in--delayed-1[data-visible] {
   transition-delay: 100ms;
 }
@@ -930,8 +820,6 @@
   pointer-events: auto;
 }
 
-/* ═══ Browser expanded — CSS grid reveal (no layout shift) ═══ */
-
 .onboarding-reveal {
   display: grid;
   grid-template-rows: 0fr;
@@ -977,8 +865,6 @@
   opacity: 1;
 }
 
-/* Profiles sub-reveal inside browser expanded */
-
 .onboarding-profiles-reveal {
   display: grid;
   grid-template-rows: 0fr;
@@ -1003,8 +889,6 @@
   opacity: 1;
 }
 
-/* ═══ Warning — CSS grid reveal (no layout shift) ═══ */
-
 .onboarding-warning-reveal {
   display: grid;
   grid-template-rows: 0fr;
@@ -1026,8 +910,6 @@
 .onboarding-warning-reveal[data-visible] > .onboarding-warning-reveal-inner {
   opacity: 1;
 }
-
-/* ═══ Discovery (trust) ═══ */
 
 .onboarding-discovery {
   display: flex;
@@ -1056,9 +938,6 @@
   }
 }
 
-/* Browser step: heading + browser row + category rows cascade
- * top-down on the shared stagger so the user reads them sequentially
- * (eager-imported, so no layout shift while they mount). */
 .onboarding-dialogue[data-phase="browser"]
   .onboarding-step-content
   > .onboarding-step-label {
@@ -1272,15 +1151,10 @@
   margin: 0;
 }
 
-/* ═══ Mock data preview windows (left side) ═══ */
-
 .onboarding-mock-windows {
   position: fixed;
   top: 36%;
-  /* Align horizontally with the Stella animation in split mode. Stella's
-   * center sits at `50% + clamp(-350px, -25vw, 0px)`; subtract half the
-   * mock width (340 / 2 = 170) so the mock column shares that center on
-   * wide displays where Stella's shift-x clamps at -350px. */
+
   left: calc(50% + clamp(-350px, -25vw, 0px) - 170px);
   z-index: 6;
   display: flex;
@@ -1301,9 +1175,7 @@
   border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent);
   border-radius: 8px;
   overflow: hidden;
-  /* Decorative side-column windows sit behind the dialogue copy and don't need
-   * to show through. A flat near-opaque background avoids the per-frame
-   * backdrop-sample cost of `backdrop-filter: blur(12px)` × ~6 windows. */
+
   background: color-mix(in oklch, var(--background) 92%, transparent);
   animation: mockWindowIn var(--onboarding-duration-enter)
     var(--onboarding-ease-standard) both;
@@ -1316,8 +1188,7 @@
     opacity: 0;
     transform: translate3d(0, var(--onboarding-reveal-translate), 0)
       scale(0.988);
-    /* Resolve disclosure with opacity + transform only — no stacked
-     * `filter: blur()` on the tinted window during the reveal. */
+
   }
   to {
     opacity: 1;
@@ -1336,10 +1207,6 @@
   }
 }
 
-/* Outgoing window when switching active category: fade out + slight lift
- * while the incoming window fades in via the existing mockWindowIn
- * keyframes. Position absolutely so the two briefly overlap rather than
- * stacking and pushing layout. */
 .onboarding-mock-window[data-fading] {
   position: absolute;
   inset: 0 0 auto 0;
@@ -1358,7 +1225,6 @@
   }
 }
 
-/* Titlebar */
 .onboarding-mock-window-titlebar {
   display: flex;
   align-items: center;
@@ -1389,15 +1255,13 @@
   opacity: 0.4;
   flex: 1;
   text-align: center;
-  padding-right: 30px; /* offset for dots */
+  padding-right: 30px;
 }
 
-/* Body */
 .onboarding-mock-window-body {
   padding: 10px 12px;
 }
 
-/* Sections */
 .mock-window-sections {
   display: flex;
   flex-direction: column;
@@ -1414,7 +1278,6 @@
   margin-bottom: 4px;
 }
 
-/* Tags (for simple lists like dev tools, dotfiles) */
 .mock-window-tags {
   display: flex;
   flex-wrap: wrap;
@@ -1433,7 +1296,6 @@
   background: color-mix(in oklch, var(--foreground) 3%, transparent);
 }
 
-/* Detail rows (name + value) */
 .mock-window-detail-row {
   display: flex;
   justify-content: space-between;
@@ -1455,8 +1317,6 @@
   opacity: 0.4;
   font-variant-numeric: tabular-nums;
 }
-
-/* ═══ Phase navigation chevrons (bottom-right) ═══ */
 
 .onboarding-phase-nav {
   position: fixed;
@@ -1532,9 +1392,6 @@
   cursor: default;
 }
 
-/* ═══ Reduced motion ═══ */
-
-/* Fade out mock windows when leaving phase */
 .onboarding-dialogue[data-leaving="true"] .onboarding-mock-windows {
   animation: momentFadeOut var(--onboarding-duration-fade) ease-out forwards;
 }
@@ -1554,8 +1411,6 @@
     filter: none;
   }
 
-  /* Swatches carry their own resting opacity — that is what separates the
-   * selected theme from the rest — so only the animation is dropped here. */
   .onboarding-pill-stagger .onboarding-theme-orb {
     animation: none;
     transform: none;
@@ -1596,8 +1451,6 @@
     transform: none;
   }
 }
-
-/* ── Permissions phase ─────────────────────────────────────────────── */
 
 .onboarding-permissions-list {
   display: flex;
@@ -1731,8 +1584,6 @@
   flex-wrap: wrap;
 }
 
-/* ── Browser extension phase ───────────────────────────────────────── */
-
 .onboarding-extension-card {
   display: flex;
   align-items: center;
@@ -1816,8 +1667,6 @@
   font-size: var(--font-size-md);
 }
 
-/* ── Engine phase ───────────────────────────────────────────────────── */
-
 .onboarding-engine-tiles {
   display: flex;
   flex-direction: column;
@@ -1825,9 +1674,6 @@
   margin-top: 16px;
 }
 
-/* Overrides `.onboarding-selection-tile`'s default column layout: engine
- * tiles run as `icon | (label + desc)` so the brand logo (Stella / Claude
- * mark / key glyph) sits on the left and visually anchors both text rows. */
 .onboarding-engine-tile {
   flex-direction: row;
   align-items: center;
@@ -1850,9 +1696,6 @@
   flex: 1;
 }
 
-/* Hero tile (Stella, the recommended default): bigger padding, larger
- * logo + label so it reads first against the two compact alternatives
- * below. */
 .onboarding-engine-tile[data-variant="hero"] {
   padding: 18px 20px;
   gap: 16px;
@@ -1874,8 +1717,6 @@
   opacity: 0.75;
 }
 
-/* Compact tiles (Claude Code, Bring your own provider): smaller everything
- * so they read as alternative engines, not competing peers to the hero. */
 .onboarding-engine-tiles-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1906,12 +1747,6 @@
   line-height: 1.35;
 }
 
-/* Progressive disclosure for the BYOK panel: grows in (height) and
- * fades in (opacity) when "Bring your own provider" is selected, then
- * collapses smoothly back to zero when another engine is chosen. Same
- * `grid-template-rows: 0fr → 1fr` pattern used by `.onboarding-theme-grow-in`
- * — the only CSS technique that gracefully animates from collapsed to
- * intrinsic content height without a JS measurement step. */
 .onboarding-engine-byok-reveal {
   display: grid;
   grid-template-rows: 0fr;
@@ -1930,8 +1765,7 @@
   flex-direction: column;
   padding-top: 0;
   opacity: 0;
-  /* Fade in lockstep with the height grow — a delayed opacity pop was
-   * reading as a bump once the panel had already partially opened. */
+
   transition:
     padding-top var(--onboarding-duration-enter) var(--onboarding-ease-soft),
     opacity var(--onboarding-duration-enter) var(--onboarding-ease-soft);
@@ -2066,13 +1900,6 @@
   color: color-mix(in oklch, var(--foreground) 70%, var(--destructive));
 }
 
-/* "I'll set this up later" sits flush under the Continue button as a
- * subtle subtext — no flex wrapper so the parent `.onboarding-step-content`
- * keeps its standard gap rhythm and the Continue button stays a direct
- * child (matches every other split phase). */
-/* Collapse like `.onboarding-confirm` so the link never pops into the
- * flex column in one frame when BYOK is selected (that instant mount was
- * shoving Continue upward mid-reveal). */
 .onboarding-engine-skip {
   --onboarding-collapse-gap: 20px;
   align-self: center;
@@ -2129,14 +1956,6 @@
   line-height: 1.62;
 }
 
-/* ═══ Top-level reduced-motion overrides ═══
- *
- * Catch-all for the cost-heavy animations declared throughout this file.
- * Disables blur-based entrance animations (collapsing them to a plain
- * instant fade-in), drops `filter: blur()` on enter states, and stops
- * the always-running attention pulses so users with reduced-motion
- * preferences pay zero animation cost. Keep this block last so it
- * wins specificity ties with the per-phase rules above. */
 @keyframes onboardingInstantFadeIn {
   from {
     opacity: 0;
@@ -2164,31 +1983,11 @@
     animation: none !important;
   }
 
-  /* Grow-in elements: snap between collapsed/expanded states with no
-   * smooth transition, but keep the layout collapse so the parent stage
-   * still re-centers when they appear. */
   .onboarding-confirm {
     transition: none !important;
     transform: none !important;
   }
 }
-
-/* ═══ Short-viewport rescale ═══
- *
- * On short windows several phases (permissions, theme, browser, capabilities,
- * memory) stack a heavy "above" surface — a fixed-aspect
- * frame, a tall mock canvas, or a column of cards — that pushes
- * the Continue button below the fold or against fixed chrome (`.onboarding-
- * phase-nav`). The split pane has `overflow-y: auto`, but requiring users to
- * scroll just to find Continue reads as broken. Instead, we shrink the
- * heavy content above when vertical space is tight: tighter pane padding,
- * smaller gaps, and a height-aware width cap on the demo frames +
- * lower floors on the mock windows. Two breakpoints:
- *
- *   ≤ 820px  — tighten paddings, gaps, and the largest illustrations.
- *   ≤ 680px  — aggressive: shrink cards, drop section gaps, scale mocks.
- *
- * Targeted at viewport height only — width-based behavior is unchanged. */
 
 @media (max-height: 820px) {
   .onboarding-split-right {
@@ -2210,7 +2009,6 @@
     margin-top: 12px;
   }
 
-  /* Permissions cards — reduce padding and font sizes so 3 cards fit. */
   .onboarding-dialogue[data-phase="permissions"] .onboarding-permission-card {
     padding: 10px 14px;
     gap: 12px;
@@ -2238,7 +2036,6 @@
     margin-bottom: 12px;
   }
 
-  /* Browser phase — keep the two larger choices compact on short windows. */
   .onboarding-dialogue[data-phase="browser"] .onboarding-discovery-row {
     min-height: 108px;
     padding: 12px 16px;
@@ -2258,7 +2055,6 @@
     gap: 6px;
   }
 
-  /* Extension phase — large icon + card. */
   .onboarding-dialogue[data-phase="extension"] .onboarding-extension-card {
     padding: 14px 18px;
     gap: 14px;
@@ -2271,10 +2067,6 @@
     height: 72px;
   }
 
-  /* Capabilities — height-bound the frame so the stage's 16/8 aspect
-   * doesn't dictate a height larger than the viewport allows. The third
-   * term in min() converts available vertical space into a width via the
-   * stage aspect ratio (≈80px reserved for caption + words + padding). */
   .onboarding-dialogue[data-phase="capabilities"] .onboarding-split-right {
     padding-top: clamp(14px, 2vh, 24px);
     padding-bottom: 20px;
@@ -2286,10 +2078,7 @@
   }
 
   .onboarding-cap-frame {
-    /* Reserve ~320px for split padding (~80) + cap title (~50) + words
-     * (~36) + body desc (~54) + gaps (~30) + Continue (~50) + breathing
-     * room. Stage width via `aspect-ratio: 16/8` is then bounded by
-     * the remaining vertical space. */
+
     width: min(
       var(--cap-frame-max-width),
       calc(100vw - var(--cap-frame-viewport-gutter)),
@@ -2321,9 +2110,6 @@
     gap: clamp(8px, 1.2vw, 18px);
   }
 
-  /* Memory mocks share a 280px floor that doesn't pay off on short
-   * windows — the mocks read fine smaller and the toggle row +
-   * Continue need the headroom. */
   .onboarding-memory-mock {
     min-height: 200px;
   }
@@ -2337,7 +2123,6 @@
     gap: 16px;
   }
 
-  /* Theme — 4 stacked option groups. Tighten the row spacing only. */
   .onboarding-dialogue[data-phase="theme"] .onboarding-theme-row {
     margin-bottom: 4px;
   }
@@ -2372,8 +2157,6 @@
     margin: 0;
   }
 
-  /* Capabilities — tighter still; the body description is hidden so we
-   * only reserve ~250px (smaller padding + title + words + Continue). */
   .onboarding-cap-frame {
     width: min(
       var(--cap-frame-max-width),
@@ -2409,12 +2192,10 @@
     padding-bottom: 14px;
   }
 
-  /* Mock floors drop further. */
   .onboarding-memory-mock {
     min-height: 160px;
   }
 
-  /* Permissions — drop optional meta lines so the 3 cards + button fit. */
   .onboarding-dialogue[data-phase="permissions"] .onboarding-permission-card {
     padding: 8px 12px;
     gap: 10px;
@@ -2434,7 +2215,6 @@
     font-size: var(--font-size-sm);
   }
 
-  /* Browser rows tighter still. */
   .onboarding-dialogue[data-phase="browser"] .onboarding-discovery-row {
     min-height: 88px;
     padding: 10px 14px;
@@ -2448,7 +2228,6 @@
     font-size: var(--font-size-sm);
   }
 
-  /* Extension — shrink the icon and copy. */
   .onboarding-dialogue[data-phase="extension"]
     .onboarding-extension-card__icon {
     width: 56px;
@@ -2465,11 +2244,6 @@
   }
 }
 
-/* ═══ Enter phase ═══ */
-
-/* Final pre-app step is a single centered moment: the title sits centered
- * in the pane, "Preparing…" pulses below it with a rotating capability
- * tagline, and the Enter Stella CTA fades in once discovery completes. */
 .onboarding-dialogue[data-phase="enter"] .onboarding-split-right {
   width: 100%;
   min-width: 100%;
@@ -2618,10 +2392,6 @@
   }
 }
 
-/* Plain-text CTA: when discovery is ready we drop the title, status, and
- * rotating suggestion; only "Enter Stella" remains, rendered as the same
- * large italic Cormorant treatment as the home greeting (no border, no
- * pill) so the moment reads as an invitation, not a form submission. */
 .onboarding-dialogue[data-phase="enter"]
   .onboarding-split-stage:has(.onboarding-enter-step[data-ready])
   .onboarding-split-title {
@@ -2710,12 +2480,6 @@
   transition-duration: 0.08s;
 }
 
-/* ═══ Start-screen language picker ═══
- * Quiet language switch tucked into the top-right of the start screen
- * (only visible while the user hasn't pressed "Start Stella"). The
- * native <select> stays unstyled-ish so it reads as an unobtrusive
- * affordance rather than a primary CTA. RTL flips it to top-left
- * automatically via logical inset properties. */
 .onboarding-language-switch {
   position: absolute;
   inset-block-start: 16px;

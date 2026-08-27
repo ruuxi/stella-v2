@@ -1,11 +1,3 @@
-/**
- * JSON Schema tool definitions for the OpenAI Realtime API voice session.
- *
- * Current desktop clients send the exact runtime tool catalog resolved for
- * the active orchestrator. The static list below is retained only as a
- * compatibility fallback for older clients that do not send `tools` yet.
- */
-
 export type VoiceToolSchema = {
   type: "function";
   name: string;
@@ -29,12 +21,6 @@ const UNSUPPORTED_REALTIME_ROOT_SCHEMA_KEYS = [
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-/**
- * Validate and strip a renderer-supplied tool catalog before forwarding it to
- * a Realtime provider. Returning null is intentionally distinct from the
- * legacy fallback: malformed catalogs must fail loudly instead of silently
- * advertising `perform_action`, which the current desktop runtime cannot run.
- */
 export function normalizeVoiceToolSchemas(
   value: unknown,
 ): VoiceToolSchema[] | null {

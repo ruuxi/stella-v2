@@ -20,7 +20,7 @@ export const savePersistedBridgeSession = async (
       serializePersistedBridgeSession(session),
     );
   } catch {
-    // Persistence is an optimization; the in-memory session still works.
+
   }
 };
 
@@ -37,11 +37,6 @@ export const loadPersistedBridgeSession = async (
   }
 };
 
-/**
- * The last tunnel URL that worked, even if the session on it has expired —
- * hostnames are stable per desktop, so this seeds the parallel direct-probe
- * on reconnect (skipping the Convex status poll when the desktop is up).
- */
 export const loadCachedBridgeBaseUrl = async (
   desktopDeviceId: string,
 ): Promise<string | null> => {
@@ -63,6 +58,6 @@ export const clearPersistedBridgeSession = async (desktopDeviceId: string) => {
   try {
     await SecureStore.deleteItemAsync(bridgeSessionKey(desktopDeviceId));
   } catch {
-    // best effort
+
   }
 };

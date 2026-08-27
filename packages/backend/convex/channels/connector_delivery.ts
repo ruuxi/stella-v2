@@ -1,13 +1,3 @@
-/**
- * Connector Delivery: Handles async delivery of responses back to connectors
- * when using inverted execution (local device runs the AI turn).
- *
- * Flow:
- * 1. Local device finishes a remote turn request
- * 2. Local device calls `completeRemoteTurn` (public mutation)
- * 3. Mutation inserts a fulfilled marker and schedules `deliverToConnector`
- * 4. `deliverToConnector` sends the response to the appropriate connector
- */
 import {
   internalAction,
   internalMutation,
@@ -38,14 +28,6 @@ const BACKEND_FALLBACK_AGENT_TYPE = "offline_responder";
 const EMPTY_RESPONSE_TEXT = "(Stella had nothing to say.)";
 const RELAYED_MEDIA_DELETE_DELAY_MS = 10 * 60_000;
 
-
-
-/**
- * Look up the original `remote_turn_request` event by `requestId`. The
- * lifecycle (`pending` / `claimed` / `fulfilled` / `cancelled`) lives directly on this
- * row — there are no longer any separate `remote_turn_claimed` /
- * `remote_turn_fulfilled` event rows to chase.
- */
 const findRemoteTurnRequest = async (
   ctx: QueryCtx | MutationCtx,
   requestId: string,
@@ -55,8 +37,6 @@ const findRemoteTurnRequest = async (
     .withIndex("by_requestId", (q) => q.eq("requestId", requestId))
     .first();
 
-
-// ─── Public Mutation (called by local device via HTTP) ──────────────────────
 export const claimRemoteTurn = mutation({
   args: {
     requestId: v.string(),
@@ -101,21 +81,6 @@ export const claimRemoteTurn = mutation({
   },
 });
 
-/**
- * Caller-initiated cancellation of an in-flight remote turn. Patches the
- * `remote_turn_request` row to `cancelled` so:
- *   1. If the local device hasn't claimed it yet, the device's
- *      `subscribeRemoteTurnRequestsForDevice` snapshot drops the row at the
- *      next reactive update and the bridge garbage-collects its pending
- *      entry.
- *   2. If the local device has already claimed and started the run, the
- *      device subscribes to `subscribeRemoteTurnCancelsForDevice` and aborts
- *      the active orchestrator run on the next snapshot.
- *
- * Idempotent: a cancel against a `fulfilled` row is a no-op (the reply has
- * already been delivered). A second cancel against an already-`cancelled`
- * row is also a no-op.
- */
 export const cancelRemoteTurn = mutation({
   args: {
     requestId: v.string(),
@@ -124,9 +89,7 @@ export const cancelRemoteTurn = mutation({
   handler: async (ctx, args) => {
     const request = await findRemoteTurnRequest(ctx, args.requestId);
     if (!request || request.type !== "remote_turn_request") return null;
-    // Verify the caller owns the conversation this request belongs to;
-    // the conversationId is derived from the request row rather than
-    // trusted from the caller (the mobile client only knows requestId).
+
     const conversation = await requireConversationOwner(
       ctx,
       request.conversationId,
@@ -178,8 +141,6 @@ export const completeRemoteTurn = mutation({
       RATE_HOT_PATH,
     );
 
-    // Read routing metadata from the original remote_turn_request event
-    // (never trust caller-provided routing data)
     const request = await findRemoteTurnRequest(ctx, args.requestId);
     if (!request || request.type !== "remote_turn_request") {
       throw new ConvexError({
@@ -204,9 +165,6 @@ export const completeRemoteTurn = mutation({
     const provider = reqPayload.provider as string;
     const deliveryMeta = reqPayload.deliveryMeta as Record<string, unknown>;
 
-    // Mark as claimed so subsequent reads see consistent state. The
-    // delivery action will flip it to `fulfilled` after the connector POST
-    // succeeds.
     if (request.requestState !== "claimed") {
       await ctx.db.patch(request._id, {
         requestState: "claimed",
@@ -215,8 +173,6 @@ export const completeRemoteTurn = mutation({
       });
     }
 
-    // Schedule async delivery — fulfilled marker is set by
-    // deliverToConnector AFTER successful delivery
     await ctx.scheduler.runAfter(
       0,
       internal.channels.connector_delivery.deliverToConnector,
@@ -237,20 +193,6 @@ export const completeRemoteTurn = mutation({
   },
 });
 
-
-/**
- * Send an unsolicited follow-up message to the connector that initiated
- * the most recent remote turn for a conversation. Routing metadata is
- * read from the original `remote_turn_request` row (never trust the
- * caller). Unlike `completeRemoteTurn`, this does NOT flip any request
- * lifecycle state — the original request stays in its existing terminal
- * state ("fulfilled" after the first reply landed).
- *
- * Used by the desktop runtime to forward later assistant messages
- * produced after the orchestrator's first turn (e.g. responses to
- * spawned-agent completion notices) back to the user's device.
- * while the conversation is still being driven from that connector.
- */
 export const sendConnectorFollowup = mutation({
   args: {
     requestId: v.string(),
@@ -306,9 +248,6 @@ export const sendConnectorFollowup = mutation({
   },
 });
 
-
-// ─── Shared delivery logic (callable from any action in the same runtime) ───
-
 type DeliveryCtx = Pick<ActionCtx, "runQuery" | "runMutation">;
 
 type DeliveryArgs = {
@@ -333,8 +272,7 @@ async function dispatchConnectorDelivery(
 ): Promise<void> {
   switch (args.provider) {
     case "stella_app":
-      // Mobile chat replies travel over the authenticated desktop bridge, so
-      // the reply text never lands in Convex — there is nothing to deliver.
+
       return;
     default:
       throw new ConvexError({
@@ -364,22 +302,18 @@ async function deliverToConnectorCore(
       media: args.media,
     });
 
-    // Mark fulfilled AFTER successful delivery — patches the original
-    // `remote_turn_request` row in place.
     await ctx.runMutation(
       internal.channels.connector_delivery.markRemoteTurnFulfilled,
       { requestId: args.requestId },
     );
   } catch (error) {
-    // NOT marking fulfilled — watchdog will retry delivery
+
     console.error(
       `[connector_delivery] Delivery failed for ${args.provider}:`,
       error,
     );
   }
 }
-
-// ─── Shared: run backend fallback agent + deliver to connector ──────────────
 
 async function runFallbackAndDeliver(
   ctx: ActionCtx,
@@ -494,11 +428,6 @@ async function isTargetDeviceStillFresh(
   return freshDevices.some((device) => device.deviceId === args.targetDeviceId);
 }
 
-// ─── Per-request fallback (scheduled by message_pipeline) ───────────────────
-// Runs a few seconds after a remote_turn_request is inserted. This fast rescue
-// exists only for the mobile app's backend offline responder. Other connectors
-// must wait for the normal desktop flow or the slower orphan watchdog; an
-// unclaimed request after a few seconds does not mean the desktop is offline.
 export const rescueSingleTurn = internalAction({
   args: {
     requestId: v.string(),
@@ -511,9 +440,7 @@ export const rescueSingleTurn = internalAction({
     targetDeviceId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // Check if desktop already claimed or fulfilled this request — both
-    // states live on the original `remote_turn_request` row now, so a
-    // single read is enough.
+
     const requestState = (await ctx.runQuery(
       internal.channels.connector_delivery.getRemoteTurnState,
       { requestId: args.requestId },
@@ -567,7 +494,6 @@ export const rescueSingleTurn = internalAction({
   },
 });
 
-// ─── Internal Action (delivers a follow-up message — no lifecycle update) ───
 export const deliverConnectorFollowup = internalAction({
   args: {
     provider: v.string(),
@@ -591,7 +517,6 @@ export const deliverConnectorFollowup = internalAction({
   },
 });
 
-// ─── Internal Action (delivers message to connector) ────────────────────────
 export const deliverToConnector = internalAction({
   args: {
     requestId: v.string(),
@@ -699,7 +624,6 @@ export const deliverMediaJobToConnector = internalAction({
   },
 });
 
-/** Fetch the most recent assistant_message text for a conversation. */
 async function getLatestAssistantText(
   ctx: Pick<ActionCtx, "runQuery">,
   conversationId: Id<"conversations">,
@@ -711,7 +635,6 @@ async function getLatestAssistantText(
 
   if (!events) return EMPTY_RESPONSE_TEXT;
 
-  // listRecentMessages returns asc order — walk backwards to find the latest
   for (let i = events.length - 1; i >= 0; i--) {
     if (events[i].type === "assistant_message") {
       return (events[i].payload?.text as string) ?? EMPTY_RESPONSE_TEXT;
@@ -751,12 +674,6 @@ export const scheduleRescue = internalMutation({
   },
 });
 
-/**
- * Returns the lifecycle state of a remote turn — `null` if the request
- * itself doesn't exist. Replaces the previous pair of `findClaimedEvent` /
- * `getRemoteTurnFulfilled` lookups, each of which hit the `by_requestId`
- * index separately.
- */
 export const getRemoteTurnState = internalQuery({
   args: { requestId: v.string() },
   returns: v.union(
@@ -773,10 +690,6 @@ export const getRemoteTurnState = internalQuery({
   },
 });
 
-/**
- * Patch a `remote_turn_request` row to `fulfilled` after successful
- * delivery. Idempotent: a second call is a no-op.
- */
 export const markRemoteTurnFulfilled = internalMutation({
   args: { requestId: v.string() },
   returns: v.null(),
@@ -801,11 +714,9 @@ export const markRemoteTurnFulfilled = internalMutation({
   },
 });
 
-const ORPHAN_MIN_AGE_MS = 90_000; // must be at least 90s old
-const ORPHAN_MAX_AGE_MS = 10 * 60_000; // ignore anything older than 10 min
+const ORPHAN_MIN_AGE_MS = 90_000;
+const ORPHAN_MAX_AGE_MS = 10 * 60_000;
 
-// Cap per-state scan; orphans are normally 0 and any backlog beyond this is
-// picked up by the next 60s sweep.
 const ORPHAN_SCAN_LIMIT = 100;
 
 type OrphanResult = {
@@ -817,14 +728,6 @@ type OrphanResult = {
   claimed: boolean;
 };
 
-/**
- * Shared read for the orphan watchdog. Queries the unfulfilled remote turns
- * directly by lifecycle state + age. This is independent of how many devices
- * are registered — only the (usually zero) `pending`/`claimed` request rows in
- * the orphan window are read, instead of scanning every device's event stream
- * each minute. Callable from both a query (`findOrphanedTurnRequests`) and the
- * cheap gating mutation (`sweepOrphanedTurns`).
- */
 const collectOrphanedTurnRequests = async (
   ctx: QueryCtx | MutationCtx,
   nowMs: number,
@@ -876,13 +779,6 @@ export const findOrphanedTurnRequests = internalQuery({
   handler: async (ctx, args) => collectOrphanedTurnRequests(ctx, args.nowMs),
 });
 
-/**
- * Cheap per-minute gate for the orphan watchdog. `rescueOrphanedTurns` is an
- * `internalAction` (Node isolate) that is comparatively expensive to spin up,
- * yet the orphan set is empty in the overwhelming majority of sweeps. Run the
- * bounded index read in a mutation and only schedule the action when there is
- * actually something to rescue.
- */
 export const sweepOrphanedTurns = internalMutation({
   args: {},
   returns: v.null(),
@@ -927,8 +823,7 @@ export const rescueOrphanedTurns = internalAction({
       try {
         if (isCronRequest) {
           if (orphan.claimed) {
-            // Claimed cron turns should be fulfilled atomically by desktop.
-            // If they are still orphaned, mark as failed to unblock the job.
+
             await ctx.runMutation(
               internal.scheduling.cron_jobs.completeCronTurnResultFromWatchdog,
               {
@@ -993,8 +888,7 @@ export const rescueOrphanedTurns = internalAction({
         }
 
         if (orphan.claimed) {
-          // Case 1: Claimed but not fulfilled — the local device ran the turn
-          // but delivery failed. Retry delivery only (no re-execution).
+
           console.log(
             `[watchdog] Retrying delivery for claimed turn ${orphan.requestId}`,
           );
@@ -1006,9 +900,7 @@ export const rescueOrphanedTurns = internalAction({
             text: await getLatestAssistantText(ctx, orphan.conversationId),
           });
         } else {
-          // Case 2: Not claimed — device went offline before picking up the
-          // request. Non-mobile connectors should never use the offline
-          // responder; return the execution-unavailable message instead.
+
           if (!shouldUseOfflineResponderForProvider(provider)) {
             await deliverExecutionUnavailable(ctx, {
               requestId: orphan.requestId,
@@ -1026,7 +918,6 @@ export const rescueOrphanedTurns = internalAction({
             continue;
           }
 
-          // Mobile app can still use the backend offline responder.
           const conversation = await ctx.runQuery(
             internal.conversations.getById,
             { id: conversationId },
@@ -1084,19 +975,18 @@ export const rescueOrphanedTurns = internalAction({
               },
             );
           } catch {
-            // Best effort.
+
           }
           continue;
         }
 
-        // Mark as fulfilled to prevent infinite retries
         try {
           await ctx.runMutation(
             internal.channels.connector_delivery.markRemoteTurnFulfilled,
             { requestId: orphan.requestId },
           );
         } catch {
-          // Best effort — if this fails too, the orphan will age out after 10 min
+
         }
       }
     }

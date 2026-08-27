@@ -1,18 +1,3 @@
-/**
- * File-type icons for the Display tab strip and the inline chat
- * end-resource pill.
- *
- * Each icon is a custom SVG built around a shared "folded sheet" silhouette,
- * with a type-specific colored badge or glyph painted on top. The sheet
- * outline tracks `currentColor` so it adapts to the surrounding text colour
- * in either theme; the badge colours are intentionally fixed brand-style
- * accents (PDF red, sheet green, slides orange, etc.) so each format is
- * recognizable at a glance.
- *
- * Top-level tab glyphs (Chat, Media, Trash, URL) come from the shared
- * Stella icon set in `@/ui/icons`; only the badged file-type marks live here.
- */
-
 import type { CSSProperties, ReactNode } from "react";
 import { Globe, Image as ImageGlyph, MessageSquare, Trash2 } from "@/ui/icons";
 import { CustomHouse } from "@/ui/nav-icons";
@@ -306,12 +291,6 @@ const MediaIcon = ({ size = 18, style }: IconProps) => (
   <ImageGlyph size={size} strokeWidth={1.5} style={style} />
 );
 
-/**
- * Canvas tab icon — a stylized "framed page" silhouette evoking a
- * rendered HTML artifact (header bar + content lines) without leaning on
- * developer iconography (no `<>`/code glyphs). Reads as "document with
- * structure" at thumbnail size.
- */
 const CanvasIcon = ({ size = 18, style }: IconProps) => (
   <svg
     width={size}

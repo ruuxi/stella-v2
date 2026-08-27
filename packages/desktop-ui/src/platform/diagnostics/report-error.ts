@@ -1,16 +1,3 @@
-/**
- * Renderer-side crash/error reporting into the shared on-disk error log.
- *
- * Forwards uncaught renderer errors, unhandled promise rejections, and
- * React error-boundary catches to the main process, which scrubs and
- * writes them to `~/.stella/logs/<rootHash>/error-*.txt` alongside main +
- * worker crashes. Metadata only (message + stack + source) — never UI
- * content or app state.
- *
- * Guarded for hosts without `electronAPI` (e.g. the mobile tunnel webview),
- * and throttled/deduped so an error loop can't flood the log.
- */
-
 type RendererErrorPayload = {
   message?: string
   stack?: string
@@ -41,7 +28,7 @@ export const reportRendererError = (payload: RendererErrorPayload): void => {
   try {
     api.reportError(payload)
   } catch {
-    // Reporting must never throw into app code.
+
   }
 }
 

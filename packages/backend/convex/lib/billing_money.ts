@@ -81,12 +81,11 @@ const DEFAULT_REALTIME_STT_PRICE_CATALOG: Record<
   string,
   RealtimeSttPriceConfig
 > = {
-  // Inworld Creator-tier realtime STT price.
+
   "inworld/inworld-stt-1": {
     audioPerHourUsd: 0.35,
   },
-  // Current Stella Inworld realtime STT model. Inworld exposes this as a
-  // selectable STT model; we meter it through the Creator STT rate.
+
   "assemblyai/u3-rt-pro": {
     audioPerHourUsd: 0.35,
   },
@@ -105,11 +104,6 @@ const DEFAULT_TTS_PRICE_CATALOG: Record<
   },
 };
 
-// Inworld TTS is billed per million *input characters synthesized* (a
-// different meter from OpenAI's text-in / audio-out token split). On-demand
-// list prices from inworld.ai/pricing: TTS-2 $25/1M, TTS-2 Flash $15/1M,
-// TTS-1.5 Mini $15/1M, TTS-1 $5/1M. These feed the internal spend ledger
-// only and are never charged to the user.
 const DEFAULT_INWORLD_TTS_PER_MILLION_CHARS_USD: Record<string, number> = {
   "inworld-tts-2": 25,
   "inworld-tts-2-flash": 15,
@@ -124,8 +118,7 @@ const lookupInworldTtsPerMillionCharsUsd = (model: string): number => {
   if (model.startsWith("inworld-tts-2")) return 25;
   if (model.startsWith("inworld-tts-1.5")) return 15;
   if (model.startsWith("inworld-tts-1")) return 5;
-  // Unknown Inworld TTS model: fall back to the most expensive on-demand rate
-  // so internal spend is never silently underestimated.
+
   return 25;
 };
 
@@ -167,7 +160,7 @@ const lookupTtsPriceConfig = (
     : undefined);
 
 const DEFAULT_TOKEN_PRICE: TokenPriceConfig = {
-  // Reference baseline from OpenCode Go docs/token table.
+
   inputPerMillionUsd: 0.6,
   outputPerMillionUsd: 3.0,
 };
@@ -325,30 +318,11 @@ export const dollarsToMicroCents = (dollars: number) =>
 export const microCentsToDollars = (microCents: number) =>
   microCents / (MICRO_CENTS_PER_CENT * CENTS_PER_DOLLAR);
 
-/**
- * Price one managed completion.
- *
- * Token conventions — every caller must normalize to these before calling,
- * because this function derives the billable buckets by subtraction:
- *
- * - `inputTokens` is GROSS: it includes `cachedInputTokens` and
- *   `cacheWriteInputTokens`. Providers disagree here (OpenAI's
- *   `prompt_tokens` and Google's `promptTokenCount` are gross, Anthropic's
- *   `input_tokens` is already net of both cache buckets), so the parsers
- *   are responsible for adding cache counts back in.
- * - `outputTokens` is GROSS: it includes `reasoningTokens`. Again providers
- *   disagree (OpenAI's `output_tokens` includes reasoning, Google's
- *   `candidatesTokenCount` excludes `thoughtsTokenCount`), so the parsers
- *   normalize to the inclusive form.
- *
- * Passing already-net counts double-discounts them and can silently bill a
- * request at zero.
- */
 export const computeUsageCostMicroCents = (args: {
   model: string;
-  /** Gross prompt tokens, including cached reads and cache writes. */
+
   inputTokens: number;
-  /** Gross completion tokens, including reasoning tokens. */
+
   outputTokens: number;
   cachedInputTokens?: number;
   cacheWriteInputTokens?: number;
@@ -374,10 +348,7 @@ export const computeUsageCostMicroCents = (args: {
   const cacheWriteUsd =
     (cacheWriteInputTokens / 1_000_000) * (price.cacheWritePerMillionUsd ?? 0);
   const outputUsd = (textOutputTokens / 1_000_000) * price.outputPerMillionUsd;
-  // A zero reasoning rate means "not published", not "free" — models.dev
-  // omits `cost.reasoning` for most models and the sync stores 0. No provider
-  // bills reasoning below its output rate, so fall back to it rather than
-  // handing out reasoning-heavy completions for nothing.
+
   const reasoningUsd =
     (reasoningTokens / 1_000_000) *
     (price.reasoningPerMillionUsd || price.outputPerMillionUsd);
@@ -523,11 +494,6 @@ export const computeTtsUsageCostMicroCents = (args: {
   return dollarsToMicroCents(textInputUsd + audioOutputUsd);
 };
 
-/**
- * Internal provider-cost estimate for Inworld TTS, priced per synthesized
- * input character. Used only for the internal spend ledger — read-aloud is
- * free to the user, so this is never billed against a usage window.
- */
 export const computeInworldTtsCostMicroCents = (args: {
   model: string;
   chars: number;

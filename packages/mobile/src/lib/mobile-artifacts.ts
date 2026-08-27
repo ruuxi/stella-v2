@@ -126,8 +126,7 @@ export const isMobileDisplayPayload = (
         (value.agentIds === undefined ||
           (Array.isArray(value.agentIds) &&
             value.agentIds.every((id) => isString(id) && id.length > 0))) &&
-        // Per-agent file sections are optional (older desktops omit them)
-        // but must be structurally sound when present.
+
         (value.agents === undefined ||
           (Array.isArray(value.agents) &&
             value.agents.every(

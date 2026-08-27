@@ -1,16 +1,3 @@
-// window_text.exe - Extract visible text from a window using UI Automation
-// Usage: window_text.exe <pid> <x> <y>
-// Output: Raw text to stdout (UTF-8), empty on failure
-//
-// Strategy:
-// 1. Try TextPattern on the window (editors, document viewers)
-// 2. FindAll descendants, collect bounding rects + text
-// 3. Column-aware filter: find the content column under the cursor,
-//    extract text from that column only (avoids sidebars, navbars, etc.)
-// 4. Fallback: all elements with role filtering
-//
-// Compile: cl /O2 /EHsc window_text.cpp /link ole32.lib oleaut32.lib uuid.lib /OUT:window_text.exe
-
 #define NOMINMAX
 #include <windows.h>
 #include <UIAutomationClient.h>
@@ -115,7 +102,6 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    // Find window by PID
     IUIAutomationElement* root = nullptr;
     uia->GetRootElement(&root);
     if (!root)
@@ -143,7 +129,6 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    // --- Try TextPattern first (editors, document viewers) ---
     {
         IUnknown* patternUnk = nullptr;
         hr = window->GetCurrentPattern(UIA_TextPatternId, &patternUnk);
@@ -182,7 +167,6 @@ int main(int argc, char* argv[])
         }
     }
 
-    // --- FindAll Descendants ---
     IUIAutomationCondition* trueCond = nullptr;
     uia->CreateTrueCondition(&trueCond);
 
@@ -201,7 +185,6 @@ int main(int argc, char* argv[])
     int totalCount = 0;
     allElements->get_Length(&totalCount);
 
-    // Collect element data
     std::vector<ElementInfo> elements;
     elements.reserve(std::min(totalCount, MAX_ELEMENTS));
 
@@ -262,10 +245,6 @@ int main(int argc, char* argv[])
 
     if (elements.empty()) return 0;
 
-    // --- Column-Aware Filtering ---
-
-    // Find anchor: smallest area element containing cursor
-    // Prefer elements with area >= MIN_ANCHOR_AREA (meaningful containers)
     int anchorIdx = -1;
     double minArea = 1e18;
     int smallAnchorIdx = -1;
@@ -280,13 +259,13 @@ int main(int argc, char* argv[])
             double area = (double)(el.rect.right - el.rect.left) * (el.rect.bottom - el.rect.top);
             if (area > 0)
             {
-                // Track smallest overall
+
                 if (area < smallMinArea)
                 {
                     smallMinArea = area;
                     smallAnchorIdx = i;
                 }
-                // Track smallest above threshold (prefer meaningful containers)
+
                 if (area >= MIN_ANCHOR_AREA && area < minArea)
                 {
                     minArea = area;
@@ -296,10 +275,8 @@ int main(int argc, char* argv[])
         }
     }
 
-    // Fallback to absolute smallest if no container found
     if (anchorIdx < 0) anchorIdx = smallAnchorIdx;
 
-    // If nothing contains cursor, find nearest element
     if (anchorIdx < 0)
     {
         double minDist = 1e18;
@@ -317,7 +294,6 @@ int main(int argc, char* argv[])
         }
     }
 
-    // Define column band
     int colLeft = 0, colRight = 10000;
     if (anchorIdx >= 0)
     {
@@ -333,7 +309,6 @@ int main(int argc, char* argv[])
         }
     }
 
-    // Collect text with deduplication
     auto collectText = [&](bool useColumnFilter) -> std::wstring
     {
         std::set<std::wstring> seen;
@@ -346,7 +321,7 @@ int main(int argc, char* argv[])
 
             if (useColumnFilter)
             {
-                // Element is "in column" if its horizontal range overlaps the column band
+
                 if (el.rect.right < colLeft + 20 || el.rect.left > colRight - 20)
                     continue;
             }
@@ -370,10 +345,8 @@ int main(int argc, char* argv[])
         return result;
     };
 
-    // Pass 1: column-filtered
     std::wstring text = collectText(true);
 
-    // Pass 2: fallback to all elements
     if ((int)text.size() < MIN_USEFUL_TEXT)
     {
         text = collectText(false);

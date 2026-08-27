@@ -11,20 +11,12 @@ import "./compact-conversation.css";
 type CompactConversationVariant = "orb" | "sidebar";
 
 type CompactConversationSurfaceProps = {
-  /**
-   * Class applied to the LegendList scroll element (the list IS the
-   * scroll viewport). Surfaces use this to layer their mask gradient
-   * + scrollbar suppression on top of Legend's own scroller styles.
-   */
+
   className: string;
-  /** Style passed to the inner content container (centering, padding, gutters). */
+
   contentContainerStyle?: React.CSSProperties;
   variant: CompactConversationVariant;
-  /**
-   * Owned by the parent (e.g. `ChatSidebar` running its own
-   * `useChatScrollManagement` instance). Same shape as the full chat
-   * so the indicator + thumb behavior stay identical across surfaces.
-   */
+
   scroll: ChatColumnScroll;
   messages: MessageRecord[];
   conversationId?: string | null;
@@ -34,15 +26,15 @@ type CompactConversationSurfaceProps = {
   runtimeStatusText?: string | null;
   pendingUserMessageId: string | null;
   queuedUserMessages?: QueuedUserMessage[];
-  /** Reveals a hover "X" on each queued bubble to cancel + restore its text. */
+
   onCancelQueued?: (message: QueuedUserMessage) => void;
-  /** Working/agent indicator rendered below the last assistant message. */
+
   indicator?: InlineWorkingIndicatorMountProps;
   hasOlderMessages?: boolean;
   isLoadingOlder?: boolean;
   isLoadingHistory?: boolean;
   showConversation?: boolean;
-  /** Estimated row height for first-render layout. Defaults to 96 for compact surfaces. */
+
   estimatedItemSize?: number;
 };
 

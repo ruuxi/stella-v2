@@ -6,22 +6,6 @@ import { resolveNativeHelperPath } from "../native-helper-path.js";
 import { reapPidfileDaemon } from "./helper-pid-guard.js";
 import { hasMacPermission, requestMacPermission } from "../utils/macos-permissions.js";
 
-/**
- * MeetingCaptureController owns the lifecycle of the `meeting_capture` native
- * sidecar — a Granola-style dual-stream recorder that writes rolling WAV
- * segments under `<stellaDataDir>/meetings/<sessionId>/`. System audio + mic are
- * captured via ScreenCaptureKit + AVAudioEngine on macOS, and WASAPI loopback +
- * WASAPI capture on Windows. The TS control surface is identical on both: it
- * shells out to the helper's client verbs, which talk to the daemon over an
- * AF_UNIX socket (macOS) or named pipe (Windows).
- *
- * Meeting capture is session-based rather than always-on:
- * the daemon stays idle until `start()` and only records between start and
- * stop. The daemon process itself is kept alive across recordings (cheap, and
- * avoids a cold ScreenCaptureKit spin-up per meeting); `shutdown()` tears it
- * down on app quit.
- */
-
 const STARTUP_TIMEOUT_MS = 4_000;
 const STARTUP_POLL_MS = 150;
 const STARTUP_POLL_MAX_MS = 1_200;
@@ -60,12 +44,6 @@ export type MeetingStatus = {
   micPermission: boolean;
 };
 
-// The daemon is spawned detached + unref'd and the in-memory child handle is
-// dropped on spawn error, so on quit we can't rely on `this.child` alone to
-// reap it (orphan risk). Persist the pid to a file at spawn time and, if the
-// socket `shutdown` didn't confirm exit, SIGTERM/SIGKILL the pidfile pid — the
-// same belt-and-suspenders teardown as desktop-automation-cleanup.ts. The
-// socket shutdown stays the primary path.
 const meetingPidFile = (stellaDataDir: string): string =>
   path.join(stellaDataDir, "meetings", "meeting_capture.pid");
 
@@ -111,8 +89,7 @@ export class MeetingCaptureController {
 
   private async waitForDaemonReady(timeoutMs = STARTUP_TIMEOUT_MS): Promise<boolean> {
     const startedAt = Date.now();
-    // Each ping is a full helper-process spawn (Defender-scanned on Windows),
-    // so back off exponentially instead of re-spawning every 150ms.
+
     let pollMs = STARTUP_POLL_MS;
     while (Date.now() - startedAt < timeoutMs) {
       if ((await this.runCommand(["ping"])) === "pong") {
@@ -124,11 +101,6 @@ export class MeetingCaptureController {
     return false;
   }
 
-  /**
-   * Spawn the daemon if it isn't already answering on its IPC channel
-   * (AF_UNIX socket on macOS, named pipe on Windows). Linux has no native
-   * system-audio path here yet.
-   */
   private async ensureDaemon(): Promise<{ ok: boolean; reason?: string }> {
     if (process.platform !== "darwin" && process.platform !== "win32") {
       return { ok: false, reason: "unsupported-platform" };
@@ -144,7 +116,7 @@ export class MeetingCaptureController {
     try {
       await fs.mkdir(path.join(this.stellaDataDir, "meetings"), { recursive: true });
     } catch {
-      // daemon will retry creating dirs
+
     }
 
     const child = spawn(bin, ["daemon", "--root", this.stellaDataDir], {
@@ -152,14 +124,12 @@ export class MeetingCaptureController {
       stdio: "ignore",
     });
     this.child = child;
-    // Persist the pid so quit can reap the daemon even after the in-memory
-    // handle is dropped (spawn error / process restart). Best-effort: a missing
-    // pidfile just falls back to the socket shutdown.
+
     if (typeof child.pid === "number") {
       try {
         await fs.writeFile(meetingPidFile(this.stellaDataDir), String(child.pid));
       } catch {
-        // ignored — socket shutdown remains the primary teardown path
+
       }
     }
     let spawnErrorMessage: string | null = null;
@@ -187,12 +157,6 @@ export class MeetingCaptureController {
     }
   }
 
-  /**
-   * Begin a recording. Ensures the daemon is up and that Screen Recording (for
-   * system audio) and Microphone (for your voice) permissions are granted,
-   * prompting the user via TCC if needed. The mic is best-effort: a recording
-   * still proceeds system-audio-only if the mic is unavailable.
-   */
   async start(options?: {
     sessionId?: string;
     segmentSeconds?: number;
@@ -209,13 +173,11 @@ export class MeetingCaptureController {
       }
     }
 
-    // Best-effort mic: prompt once if undetermined, but never block the
-    // recording on a denied mic — system audio alone is still useful.
     if (process.platform === "darwin" && !this.getMicPermission()) {
       try {
         await systemPreferences.askForMediaAccess("microphone");
       } catch {
-        // ignored — recording proceeds without the mic
+
       }
     }
 
@@ -335,24 +297,18 @@ export class MeetingCaptureController {
     };
   }
 
-  /** Finalize any active recording and stop the daemon. Used on app quit. */
   async shutdown(): Promise<void> {
-    // Primary path: ask the daemon to finalize + shut itself down over the
-    // socket.
+
     await this.runCommand(["shutdown"]);
     if (this.child && !this.child.killed) {
       try {
         this.child.kill("SIGTERM");
       } catch {
-        // already stopped
+
       }
     }
     this.child = null;
 
-    // Fallback: if the socket shutdown didn't actually take the process down
-    // (e.g. the daemon was orphaned across a restart, so `this.child` is null),
-    // reap the persisted pid — guarded against pid reuse and always dropping the
-    // pidfile afterwards. See reapPidfileDaemon.
     await reapPidfileDaemon(meetingPidFile(this.stellaDataDir), this.resolveBin(), [
       "--root",
       this.stellaDataDir,

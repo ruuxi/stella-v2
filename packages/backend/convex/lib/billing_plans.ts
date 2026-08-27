@@ -1,49 +1,3 @@
-/**
- * Plan catalog + Stripe-price wiring.
- *
- * Pricing and limits are loaded from Convex env at startup. Stella is
- * open source — no real values live in this file. Prices are public
- * (the marketing site shows them) but the included-usage utilization
- * rate is not, so it stays env-only.
- *
- * Required env:
- *   STELLA_INCLUDED_USAGE_UTILIZATION_RATE   — number in (0, 1]
- *   STELLA_<PLAN>_PRICE_CENTS                — paid plans only
- *
- * Optional Go intro (first recurring invoice only — pair with Stripe):
- *   STELLA_GO_INTRO_FIRST_MONTH_PRICE_CENTS — e.g. 100 ($1); shown on
- *     marketing/billing UX; recurring price stays STELLA_GO_PRICE_CENTS
- *   STRIPE_COUPON_GO_FIRST_MONTH — Stripe Coupon id (`coupon_…`) created
- *     as duration=once so the discount applies only on the subscription’s
- *     first invoice (e.g. $4 off when the list price is $5 → pay $1,
- *     then full price on renewal). Set intro price env and coupon env
- *     together, or omit both — mismatched halves fail at startup.
- *
- * Optional per-plan overrides (derive from price + utilization when
- * unset; useful if a single plan needs limits that depart from the
- * shared formula):
- *   STELLA_<PLAN>_ROLLING_LIMIT_USD
- *   STELLA_<PLAN>_WEEKLY_LIMIT_USD
- *   STELLA_<PLAN>_MONTHLY_LIMIT_USD
- *   STELLA_<PLAN>_ROLLING_WINDOW_HOURS
- *
- * Free plan has no PRICE_CENTS (always 0). Its four limit/window envs
- * are required (no formula derives from a $0 price).
- *
- * Optional lifetime allowance (Free only in practice — it is enforced
- * only for plans that set it, so Go/Pro stay windowed):
- *   STELLA_FREE_LIFETIME_LIMIT_USD — total measured managed-model cost a
- *     Free account may ever spend. Unlike the rolling/weekly/monthly
- *     windows this never refreshes: once cumulative spend reaches it the
- *     account is done until it upgrades (or buys usage credits). Leave
- *     unset to keep Free purely windowed. Recommended: 0.5.
- *
- * Anonymous (signed-out) access is capped by request count, not dollars —
- * see `lib/anonymous_usage.ts` for STELLA_ANON_MAX_REQUESTS and
- * STELLA_ANON_MAX_REQUESTS_PER_IP.
- *
- * `<PLAN>` ∈ { FREE, GO, PRO }.
- */
 export const SUBSCRIPTION_PLANS = ["free", "go", "pro"] as const;
 
 export type SubscriptionPlan = (typeof SUBSCRIPTION_PLANS)[number];
@@ -51,17 +5,13 @@ export type SubscriptionPlan = (typeof SUBSCRIPTION_PLANS)[number];
 export type PlanConfig = {
   label: string;
   monthlyPriceCents: number;
-  /** Stripe first invoice amount when using STRIPE_COUPON_GO_FIRST_MONTH (display only). */
+
   introFirstMonthPriceCents?: number;
   rollingLimitUsd: number;
   rollingWindowHours: number;
   weeklyLimitUsd: number;
   monthlyLimitUsd: number;
-  /**
-   * Cumulative managed-model spend allowed for the lifetime of the
-   * account. Absent on every plan that should stay purely windowed —
-   * enforcement is skipped entirely when this is undefined.
-   */
+
   lifetimeLimitUsd?: number;
 };
 
@@ -73,10 +23,6 @@ const PLAN_LABELS: Record<SubscriptionPlan, string> = {
   pro: "Pro",
 };
 
-// Share of the derived monthly limit allotted to the smaller windows.
-// These shape the rolling/weekly buckets relative to monthly; on their
-// own they reveal nothing about real dollar amounts (those depend on
-// the env-only utilization rate × env-only price).
 const ROLLING_LIMIT_SHARE = 0.2;
 const WEEKLY_LIMIT_SHARE = 0.5;
 const DEFAULT_ROLLING_WINDOW_HOURS = 5;
@@ -136,8 +82,7 @@ const toMonthlyPriceUsd = (monthlyPriceCents: number): number =>
   Math.max(0, monthlyPriceCents) / 100;
 
 const buildFreePlanConfig = (): PlanConfig => {
-  // The lifetime allowance is a one-shot grant: it is deliberately not
-  // derived from the windows, since it never refreshes alongside them.
+
   const lifetimeLimitUsd = optionalNumberEnv("STELLA_FREE_LIFETIME_LIMIT_USD");
   return {
     label: PLAN_LABELS.free,
@@ -265,7 +210,6 @@ export const findPlanForStripePriceId = (
   return null;
 };
 
-/** Stripe Checkout applies this Coupon when starting a Go subscription (first invoice only if duration=once). */
 export const getStripeGoFirstMonthCouponId = (): string | undefined => {
   const id = process.env.STRIPE_COUPON_GO_FIRST_MONTH?.trim();
   return id || undefined;

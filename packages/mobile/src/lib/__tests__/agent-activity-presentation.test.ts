@@ -52,8 +52,7 @@ describe("deriveAgentActivityRow", () => {
       payload({ title: "Summarize the earnings call" }),
     );
     expect(row.title).toBe("Summarize the earnings call");
-    // Description-only contract: the model exposes nothing but the status
-    // tell and the description — no subtitle, no provider, no excerpt.
+
     expect(Object.keys(row).sort()).toEqual(["glyph", "title", "working"]);
   });
 });
@@ -87,25 +86,22 @@ describe("deriveFilePillRow", () => {
 
 describe("AGENT_ACTIVITY_INK (desktop refinement parity)", () => {
   test("status glyph renders solid full-strength — never the muted ink", () => {
-    // Desktop `.agent-activity-row__glyph { color: var(--text-strong) }`,
-    // no opacity dimming.
+
     expect(AGENT_ACTIVITY_INK.glyphInk).toBe("textStrong");
   });
 
   test("settled description sits one notch above muted — readable but secondary", () => {
-    // Desktop title stepped up from --text-weak to --text-base.
+
     expect(AGENT_ACTIVITY_INK.titleInk).toBe("text");
   });
 
   test("running shimmer rests at the settled title's strength", () => {
-    // Desktop `--text-shimmer-from: var(--text-base)` — an 80% foreground
-    // mix — so settled and running rows agree.
+
     expect(AGENT_ACTIVITY_INK.runningRestAlpha).toBe(0.8);
   });
 
   test("file-pill border is visible but one step below the label ink", () => {
-    // Desktop pill border moved from the near-invisible panel hairline to
-    // --text-weaker under a --text-base label.
+
     expect(AGENT_ACTIVITY_INK.pillBorderInk).toBe("textMuted");
   });
 });

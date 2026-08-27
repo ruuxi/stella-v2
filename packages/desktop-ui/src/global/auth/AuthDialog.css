@@ -102,9 +102,7 @@
 
 .auth-dialog-headline {
   margin: 0;
-  /* Canonical dialog title identity (see dialog.css --dialog-title-*).
-   * This is the real title for this dialog — the <DialogTitle> is hidden
-   * for a11y, so we mirror the shared treatment here verbatim. */
+
   color: var(--text-strong);
   font-family: var(--dialog-title-font);
   font-size: var(--dialog-title-size);
@@ -160,10 +158,6 @@
   text-align: center;
 }
 
-/*
- * Grow-in region for the post-send extras (sent message + Open Gmail).
- * Uses the grid 0fr → 1fr trick so the height animates without measuring.
- */
 .auth-dialog-extras {
   display: grid;
   grid-template-rows: 0fr;

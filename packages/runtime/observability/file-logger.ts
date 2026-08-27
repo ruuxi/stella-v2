@@ -9,37 +9,14 @@ import path from "node:path";
 import { resolveLogPaths } from "./log-paths.js";
 import { scrubFieldValue, scrubText } from "./scrub.js";
 
-/**
- * Local-only, privacy-scrubbed diagnostic logger shared by every Stella
- * process (Electron main and the Bun runtime worker).
- *
- * Goals:
- *   - Capture errors/crashes and process lifecycle (workers + native
- *     helpers starting / being cleaned up) to plain `.txt` files.
- *   - Daily rotation with automatic retention cleanup.
- *   - Never write private data: the API takes structured metadata only,
- *     and everything that reaches disk is scrubbed (see `scrub.ts`).
- *
- * Writes are synchronous `appendFileSync`. Diagnostic volume is low
- * (lifecycle transitions + errors), so the cost is negligible, and sync
- * writes guarantee the line lands on disk even if the process is mid-crash
- * — which is exactly when these logs matter most. Do NOT route hot-path /
- * per-token / per-frame logging through here.
- */
-
 export type LogChannel = "error" | "process";
 export type LogLevel = "info" | "warn" | "error" | "fatal";
 export type LogFields = Record<string, unknown>;
 
 const DEFAULT_RETENTION_DAYS = 7;
-// Soft per-file cap so a crash loop can't fill the disk within a single
-// day. Once a day's file passes this we stop appending to it (a single
-// truncation marker is written once); it resets at the next daily rollover.
+
 const DEFAULT_MAX_FILE_BYTES = 32 * 1024 * 1024;
-// Total budget across every log file in the directory. Enforced on the
-// age sweep (init + daily rollover): oldest files are deleted first until
-// the directory is back under budget. Bounds long-term accumulation
-// independent of the day-count retention window.
+
 const DEFAULT_MAX_TOTAL_BYTES = 128 * 1024 * 1024;
 const LOG_FILE_PATTERN = /^(error|process)-\d{4}-\d{2}-\d{2}\.txt$/;
 
@@ -60,15 +37,15 @@ const parsePositiveInt = (
 };
 
 export type FileLoggerOptions = {
-  /** Absolute directory the log files live in. */
+
   logDir: string;
-  /** Identifies the writing process, e.g. "main" or "worker". */
+
   component: string;
-  /** Delete files older than this many days. */
+
   retentionDays?: number;
-  /** Stop appending to a single day's file once it passes this size. */
+
   maxFileBytes?: number;
-  /** Total byte budget across all log files; oldest are deleted first. */
+
   maxTotalBytes?: number;
 };
 
@@ -105,22 +82,18 @@ export class FileLogger {
       );
   }
 
-  /** Lifecycle / process event (worker + native helper start/stop/cleanup). */
   process(event: string, fields?: LogFields): void {
     this.write("process", "info", event, fields);
   }
 
-  /** Non-fatal warning routed to the process channel. */
   warn(event: string, fields?: LogFields): void {
     this.write("process", "warn", event, fields);
   }
 
-  /** Recoverable error. */
   error(event: string, fields?: LogFields): void {
     this.write("error", "error", event, fields);
   }
 
-  /** Crash / fatal error with a (scrubbed) stack trace. */
   crash(event: string, error: unknown, fields?: LogFields): void {
     const err = error instanceof Error ? error : new Error(String(error));
     const stack = err.stack ? scrubText(err.stack) : undefined;
@@ -138,8 +111,7 @@ export class FileLogger {
       mkdirSync(this.logDir, { recursive: true });
       this.dirReady = true;
     } catch {
-      // If we can't create the log dir, diagnostics silently no-op rather
-      // than break the app.
+
       this.dirReady = false;
     }
     return this.dirReady;
@@ -167,7 +139,7 @@ export class FileLogger {
         const filePath = path.join(this.logDir, name);
         try {
           const stat = statSync(filePath);
-          // Age-based retention first.
+
           if (stat.mtimeMs < cutoff) {
             unlinkSync(filePath);
             continue;
@@ -178,17 +150,14 @@ export class FileLogger {
             mtimeMs: stat.mtimeMs,
           });
         } catch {
-          // Skip files we can't stat/unlink.
+
         }
       }
     } catch {
-      // Directory may not exist yet; nothing to sweep.
+
       return;
     }
 
-    // Total-size budget: delete oldest files first until under budget.
-    // The active (newest) file is preserved so we never delete what we're
-    // about to append to.
     let total = remaining.reduce((sum, entry) => sum + entry.size, 0);
     if (total <= this.maxTotalBytes) return;
     remaining.sort((a, b) => a.mtimeMs - b.mtimeMs);
@@ -199,7 +168,7 @@ export class FileLogger {
         unlinkSync(entry.filePath);
         total -= entry.size;
       } catch {
-        // Skip files we can't unlink.
+
       }
     }
   }
@@ -232,7 +201,7 @@ export class FileLogger {
           `${now.toISOString()} [warn] [${this.component}] log.truncated reason=size-cap\n`,
         );
       } catch {
-        // ignore
+
       }
       return;
     }
@@ -241,7 +210,7 @@ export class FileLogger {
     try {
       appendFileSync(filePath, line);
     } catch {
-      // Best-effort diagnostics; never throw from a logging call.
+
     }
   }
 
@@ -271,9 +240,7 @@ export class FileLogger {
     }
     let line = `${parts.join(" ")}\n`;
     if (stack) {
-      // Always scrub the stack block — callers may pass an unscrubbed stack
-      // as a field (e.g. renderer errors via `error()`), and stacks routinely
-      // embed the error message which can carry secrets.
+
       line += `${scrubText(stack)
         .split("\n")
         .map((s) => `    ${s.trim()}`)
@@ -285,11 +252,6 @@ export class FileLogger {
 
 let sharedLogger: FileLogger | null = null;
 
-/**
- * Initialize (or return the existing) per-process diagnostic logger.
- * Idempotent: a process should call this once at startup; later callers
- * reuse the same instance.
- */
 export const initFileLogger = (
   stellaAppDir: string,
   component: string,
@@ -307,30 +269,8 @@ export const initFileLogger = (
   return sharedLogger;
 };
 
-/**
- * Get the process-wide logger if it has been initialized. Returns null
- * before `initFileLogger` runs so call sites can no-op safely.
- */
 export const getFileLogger = (): FileLogger | null => sharedLogger;
 
-/**
- * Install global crash handlers that route uncaught exceptions and
- * unhandled rejections to the error channel before the runtime acts on them.
- *
- * For uncaught exceptions we use `uncaughtExceptionMonitor`, which observes
- * the error and writes a durable on-disk record WITHOUT suppressing the
- * runtime's default fatal behavior (the process still crashes/exits as
- * Node/Bun/Electron would without this listener). A plain `uncaughtException`
- * listener would silently swallow the crash and leave the process running in
- * an undefined state.
- *
- * For unhandled rejections we register an `unhandledRejection` listener, which
- * DOES swallow the rejection (the process keeps running with only a log line)
- * rather than triggering the default surfacing. This is deliberate: the
- * detached worker relies on it to stay alive across benign unhandled
- * rejections. Callers that want strict fatal semantics here should revisit
- * this decision.
- */
 export const installGlobalErrorLogging = (logger: FileLogger): void => {
   process.on("uncaughtExceptionMonitor", (error) => {
     logger.crash("process.uncaughtException", error);

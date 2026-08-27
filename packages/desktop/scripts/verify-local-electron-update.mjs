@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-
 import { spawn, spawnSync } from "node:child_process";
 import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
@@ -172,7 +171,7 @@ const waitForVerificationResult = async (timeoutMs) => {
         return last;
       }
     } catch {
-      // The old build has not emitted its first updater state yet.
+
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
@@ -293,9 +292,7 @@ try {
     });
   }
   if (server) await new Promise((resolve) => server.close(resolve));
-  // Squirrel.Mac can finish materializing its test-only cache just after the
-  // Electron process exits. Give that helper a bounded drain window, then
-  // retry exact-path cleanup so the automated verifier leaves no payload.
+
   await new Promise((resolve) => setTimeout(resolve, 2_000));
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await Promise.all([

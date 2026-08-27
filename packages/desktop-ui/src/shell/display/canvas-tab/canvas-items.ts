@@ -1,18 +1,9 @@
-/**
- * Module-scoped store of HTML canvases the orchestrator's `html` tool has
- * produced. Files live under `~/.stella/outputs/html/` and a small index in
- * the shared UI state store keeps them listed across renderer and desktop
- * restarts; every mutation republishes the list into the Files index, which
- * is what the sidebar actually renders.
- */
-
 import {
   setFileEntries,
   type FileEntry,
 } from "@/features/workspace-display/files-index";
 import { uiState } from "@/platform/ui-state";
 import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
-
 
 export type CanvasHtmlItem = {
   id: string;
@@ -22,7 +13,6 @@ export type CanvasHtmlItem = {
   createdAt: number;
 };
 
-/** Display-tab id for a canvas, so one file is one Files entry. */
 export const canvasDisplayTabId = (filePath: string): string =>
   `canvas:${filePath}`;
 
@@ -32,7 +22,6 @@ const STORAGE_KEY = "stella-display-canvas-html-items";
 const REMOVED_KEY = "stella-display-canvas-html-removed";
 const MAX_ITEMS = 200;
 
-// Stable snapshot for `useSyncExternalStore`; refreshed only on mutation.
 let snapshot: ReadonlyArray<CanvasHtmlItem> = [];
 
 const toFileEntry = (item: CanvasHtmlItem): FileEntry => ({
@@ -114,7 +103,6 @@ const titleFromPayload = (
   return payload.filePath.split(/[\\/]/).pop() ?? "Canvas";
 };
 
-/** Add or refresh a canvas item; returns the up-to-date snapshot. */
 export const addCanvasHtmlItem = (
   payload: Extract<DisplayPayload, { kind: "canvas-html" }>,
 ): ReadonlyArray<CanvasHtmlItem> => {
@@ -129,8 +117,7 @@ export const addCanvasHtmlItem = (
   };
   const existing = itemsByPath.get(payload.filePath);
   if (existing) {
-    // Mutate in-place so the entry keeps its identity and we still bump
-    // createdAt (used as the iframe refresh key).
+
     existing.title = next.title;
     existing.createdAt = next.createdAt;
     if (next.slug) existing.slug = next.slug;
@@ -179,7 +166,7 @@ export const loadCanvasHtmlHistory = async (): Promise<void> => {
     }
     if (changed) emit();
   } catch {
-    // Keep the list usable even if filesystem enumeration is unavailable.
+
   }
 };
 

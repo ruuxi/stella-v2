@@ -1,7 +1,3 @@
-/* Composer "+" menu — sized for filenames in the recent-files row.
-   Inherits the glass surface, separators, hover/highlight states,
-   and label typography from `ui/dropdown-menu.css`. */
-
 [data-component="dropdown-menu-content"].composer-add-menu {
   min-width: 220px;
   max-width: 280px;
@@ -47,8 +43,6 @@
   font-weight: var(--weight-semibold);
 }
 
-/* Native <input type="file"> is the file picker primitive — keep it in
-   the DOM (so the click handler can trigger it) but never visible. */
 .composer-add-menu__file-input {
   position: absolute;
   width: 1px;

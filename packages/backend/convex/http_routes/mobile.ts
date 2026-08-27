@@ -79,17 +79,13 @@ import type {
 
 const OFFLINE_CHAT_RATE_LIMIT = 12;
 const OFFLINE_CHAT_RATE_WINDOW_MS = 60_000;
-/**
- * Secondary per-IP cap for anonymous guests. The anonymous owner id is
- * derived from the client-supplied device-id header, which an attacker can
- * rotate freely — the IP cap bounds total unauthenticated LLM spend.
- */
+
 const OFFLINE_CHAT_ANON_IP_RATE_LIMIT = 30;
-/** Per-owner cap on the mobile and CarPlay transcription endpoint. */
+
 const TRANSCRIBE_RATE_LIMIT = 30;
 const TRANSCRIBE_RATE_WINDOW_MS = 60_000;
 const TRANSCRIBE_ANON_IP_RATE_LIMIT = 60;
-/** ~10 MB of base64 ≈ ~7.5 MB raw audio. Roughly 2 min of m4a. */
+
 const MAX_TRANSCRIBE_AUDIO_BASE64_CHARS = 10_000_000;
 const TRANSCRIBE_AUDIO_FORMATS = new Set([
   "wav",
@@ -110,16 +106,15 @@ const MAX_OFFLINE_HISTORY_ITEMS = 40;
 const MAX_OFFLINE_MESSAGE_CHARS = 12_000;
 const MAX_OFFLINE_CONTEXT_CHARS = 30_000;
 
-/** Per-owner cap for the desktop bridge endpoints (cheap reads/writes). */
 const MOBILE_BRIDGE_RATE_LIMIT = 60;
 const MOBILE_BRIDGE_RATE_WINDOW_MS = 60_000;
-/** Tighter cap for the Cloudflare-Tunnel-provisioning endpoint. */
+
 const MOBILE_TUNNEL_TOKEN_RATE_LIMIT = 12;
 const MOBILE_TUNNEL_TOKEN_RATE_WINDOW_MS = 60_000;
-/** Per-request-id cap for the magic-link status poll. */
+
 const MAGIC_LINK_STATUS_RATE_LIMIT = 60;
 const MAGIC_LINK_STATUS_RATE_WINDOW_MS = 60_000;
-/** Per-IP cap on `/api/mobile/pairing/complete` so brute-force is bounded. */
+
 const MOBILE_PAIRING_COMPLETE_RATE_LIMIT = 30;
 const MOBILE_PAIRING_COMPLETE_RATE_WINDOW_MS = 60_000;
 
@@ -150,7 +145,7 @@ const parseOfflineHistory = (
 };
 
 const MAGIC_LINK_RATE_LIMIT = 3;
-/** Per-IP cap on magic-link sends so one caller can't spam many addresses. */
+
 const MAGIC_LINK_IP_RATE_LIMIT = 10;
 const MAGIC_LINK_RATE_WINDOW_MS = 60_000;
 const MAGIC_LINK_EXPIRY_MS = 10 * 60_000;
@@ -235,11 +230,6 @@ const requireMobileAccountOwner = async (
 
 const ANONYMOUS_OWNER_PREFIX = "anon:mobile:";
 
-/**
- * For offline-chat endpoints: authenticate if possible, fall back to
- * anonymous guest access keyed by a stable mobile device id when available,
- * with IP fallback for older clients.
- */
 const resolveMobileOwnerOrGuest = async (
   ctx: ActionCtx,
   request: Request,
@@ -262,8 +252,7 @@ const resolveMobileOwnerOrGuest = async (
     try {
       await assertSensitiveSessionPolicyAction(ctx, identity);
     } catch (error) {
-      // Offline mobile chat is available without an account, so stale or revoked
-      // auth should not block guest access for these endpoints.
+
       console.warn(
         "[mobile/offline-chat] Falling back to anonymous access after auth check failed:",
         readConvexErrorMessage(error, "Unauthorized"),
@@ -662,12 +651,7 @@ const streamOfflineReply = async (args: {
           onOutput: () => void,
         ): Promise<AssistantMessage> => {
           let completed: AssistantMessage | null = null;
-          // Assistant text is delivered whole: deltas accumulate here and are
-          // flushed as ONE `{t: <segment text>}` frame when the text block
-          // closes (`text_end`), so the client renders a finished message
-          // rather than a typewriter. One frame per segment (not one per
-          // response) keeps the tool-calling loop's interleaving intact:
-          // text → toolCall → text all stay in wire order.
+
           const pendingText = new Map<number, string>();
           const flushText = (contentIndex?: number) => {
             for (const [index, text] of [...pendingText.entries()].sort(
@@ -686,13 +670,12 @@ const streamOfflineReply = async (args: {
                 (pendingText.get(event.contentIndex) ?? "") + event.delta,
               );
             } else if (event.type === "text_end") {
-              // Providers report the canonical block text here; prefer it over
-              // the accumulated deltas, which can be re-emitted or partial.
+
               pendingText.set(event.contentIndex, event.content);
               flushText(event.contentIndex);
             } else if (event.type === "toolcall_end") {
               onOutput();
-              // Any text that opened before this tool call belongs ahead of it.
+
               flushText();
               controller.enqueue(
                 encodeSseData({
@@ -712,8 +695,7 @@ const streamOfflineReply = async (args: {
                 }),
               );
             } else if (event.type === "done") {
-              // Safety net for a provider that ends a stream without closing
-              // its text block.
+
               flushText();
               completed = event.message;
             } else if (event.type === "error") {
@@ -774,9 +756,6 @@ const streamOfflineReply = async (args: {
           usage: usageSummaryFromAssistant(finalMessage),
         });
 
-        // Keep the action alive until metering is durably scheduled. Closing
-        // the response first can end a streaming HTTP action before this await
-        // runs, leaving successful mobile turns unmetered.
         controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
         controller.close();
       } catch (error) {
@@ -1018,9 +997,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        // Composer dictation is free on every plan. Identity resolution stays
-        // in place for attribution and abuse controls, but there is no paid
-        // subscription/capability check on this transcription-only route.
+
         const owner = await resolveMobileOwnerOrGuest(ctx, request, origin);
         if ("response" in owner) {
           return owner.response;
@@ -1283,8 +1260,6 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           return errorResponse(400, "Push token required", origin);
         }
 
-        // Prefer the explicit mobileDeviceId from the body; fall back to the
-        // device-id header so older clients still register.
         const mobileDeviceIdFromBody = normalizeDeviceId(body.mobileDeviceId);
         const mobileDeviceIdFromHeader = normalizeDeviceId(
           request.headers.get("X-Stella-Mobile-Device-Id"),
@@ -1367,8 +1342,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         if ("response" in owner) {
           return owner.response;
         }
-        // Pairing-code brute-force protection: also gate per-IP so an
-        // attacker can't drive code guesses from many fake owner ids.
+
         const clientAddress = getClientAddressKey(request);
         const ownerLimit = await consumeWebhookRateLimit(ctx, {
           scope: "mobile_pairing_complete_owner",
@@ -1749,12 +1723,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             nowMs: Date.now(),
           },
         );
-        // A current mobile client may have reached this desktop through the
-        // additive last-known descriptor after its Convex availability lease
-        // expired. Direct bridge health/challenge validation establishes live
-        // reachability; the durable registration remains the authority for the
-        // desktop public key. Older mobile clients still receive no expired
-        // top-level baseUrls and therefore never enter this path.
+
         if (!registration) {
           return errorResponse(403, "Desktop bridge is unavailable", origin);
         }
@@ -1901,8 +1870,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         if ("response" in owner) {
           return owner.response;
         }
-        // Tunnel-token provisioning hits the Cloudflare API; tighter cap
-        // than the rest of the bridge surface.
+
         const rateLimit = await consumeWebhookRateLimit(ctx, {
           scope: "mobile_desktop_bridge_tunnel_token",
           key: owner.ownerId,
@@ -1944,8 +1912,6 @@ export const registerMobileRoutes = (http: HttpRouter) => {
     ),
   });
 
-  // ── Mobile magic link (no-redirect) ────────────────────────────────
-
   registerCorsOptions(http, [
     "/api/auth/link/send",
     "/api/auth/link/status",
@@ -1953,9 +1919,6 @@ export const registerMobileRoutes = (http: HttpRouter) => {
     "/api/auth/desktop-social/start",
   ]);
 
-  // Start a desktop social sign-in and return a requestId for polling. The
-  // OAuth callback lands on `/api/auth/desktop-social/verify`, where the OTT is
-  // exchanged server-side for a bearer token encrypted into the claim row.
   http.route({
     path: "/api/auth/desktop-social/start",
     method: "POST",
@@ -2019,7 +1982,6 @@ export const registerMobileRoutes = (http: HttpRouter) => {
     ),
   });
 
-  // Send a magic link and return a requestId for polling.
   http.route({
     path: "/api/auth/link/send",
     method: "POST",
@@ -2099,8 +2061,6 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           claimHash,
         });
 
-        // Schedule cleanup before attempting the send so a failed send
-        // doesn't leak the pending row forever.
         await ctx.scheduler.runAfter(
           MAGIC_LINK_EXPIRY_MS + 30_000,
           internal.mobile_auth.cleanupLinkRequest,
@@ -2124,7 +2084,6 @@ export const registerMobileRoutes = (http: HttpRouter) => {
     ),
   });
 
-  // Poll for magic link verification status.
   http.route({
     path: "/api/auth/link/status",
     method: "GET",
@@ -2135,9 +2094,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         if (!requestId) {
           return errorResponse(400, "requestId is required", origin);
         }
-        // Cap polls per requestId so a misbehaving client can't spin a
-        // tight poll loop. The mobile client polls every ~1 s, so 60/min
-        // is comfortably above legitimate usage.
+
         const rateLimit = await consumeWebhookRateLimit(ctx, {
           scope: "mobile_auth_link_status",
           key: requestId,
@@ -2162,10 +2119,6 @@ export const registerMobileRoutes = (http: HttpRouter) => {
     ),
   });
 
-  // Exchange a claim secret for the bearer token produced by a completed
-  // handoff. This replaces returning a raw session cookie from /link/status:
-  // the credential is encrypted at rest, single-use, short-lived, and
-  // unreachable without the secret the client generated.
   http.route({
     path: "/api/auth/link/claim",
     method: "POST",
@@ -2213,7 +2166,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           },
         );
         if (!result.ok || !result.tokenEnc) {
-          // Deliberately indistinguishable from "unknown requestId".
+
           return errorResponse(404, "Not claimable", origin);
         }
 
@@ -2230,8 +2183,6 @@ export const registerMobileRoutes = (http: HttpRouter) => {
     ),
   });
 
-  // Browser landing after desktop social auth. The native OTT redirect plugin
-  // appends ?ott=... after the provider flow completes.
   http.route({
     path: "/api/auth/desktop-social/verify",
     method: "GET",
@@ -2249,8 +2200,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             headers: new Headers(),
             returnHeaders: true,
           });
-          // `returnHeaders: true` yields a real Headers object, so read the
-          // bearer token directly rather than reaching into undici internals.
+
           const headers = (verifyRes as { headers?: Headers })?.headers;
           const bearerToken = headers?.get?.("set-auth-token") ?? "";
           if (bearerToken) {
@@ -2278,9 +2228,6 @@ export const registerMobileRoutes = (http: HttpRouter) => {
     }),
   });
 
-  // Browser landing after magic-link verification. The native OTT redirect
-  // plugin appends ?ott=..., which is exchanged server-side for the bearer
-  // token encrypted into the claim row.
   http.route({
     path: "/api/auth/link/verify",
     method: "GET",
@@ -2298,8 +2245,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             headers: new Headers(),
             returnHeaders: true,
           });
-          // `returnHeaders: true` yields a real Headers object, so read the
-          // bearer token directly rather than reaching into undici internals.
+
           const headers = (verifyRes as { headers?: Headers })?.headers;
           const bearerToken = headers?.get?.("set-auth-token") ?? "";
           if (bearerToken) {

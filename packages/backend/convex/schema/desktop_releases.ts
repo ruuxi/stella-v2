@@ -25,14 +25,10 @@ export const desktop_release_artifact_ref_validator = v.union(
   }),
 );
 
-// One row per platform identifier (e.g. "darwin-arm64", "darwin-x64",
-// "win-x64"). The CI publish job upserts the latest published release
-// here so installed desktops can subscribe via `useQuery` and receive a
-// reactive push when a new version ships, without polling R2.
 export const desktop_release_asset_validator = v.object({
   platform: v.string(),
   tag: v.string(),
-  /** Exact upstream GitHub commit cloned by fresh installs. */
+
   commit: v.string(),
   artifactRefs: v.optional(v.array(desktop_release_artifact_ref_validator)),
   publishedAt: v.number(),

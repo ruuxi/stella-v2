@@ -1,4 +1,3 @@
-// NEVER convert to top-level runtime imports - breaks browser/Vite builds (web-ui)
 let _os = null;
 const dynamicImport = (specifier) => import(specifier);
 const NODE_OS_SPECIFIER = "node:" + "os";
@@ -15,9 +14,7 @@ import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord } from "../utils/headers.js";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.js";
 import { buildBaseOptions } from "./simple-options.js";
-// ============================================================================
-// Configuration
-// ============================================================================
+
 const DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 const JWT_CLAIM_PATH = "https://api.openai.com/auth";
 const MAX_RETRIES = 3;
@@ -32,9 +29,7 @@ const CODEX_RESPONSE_STATUSES = new Set([
     "queued",
     "in_progress",
 ]);
-// ============================================================================
-// Retry Helpers
-// ============================================================================
+
 function isRetryableError(status, errorText) {
     if (status === 429 || status === 500 || status === 502 || status === 503 || status === 504) {
         return true;
@@ -58,9 +53,7 @@ function sleep(ms, signal) {
         signal?.addEventListener("abort", onAbort, { once: true });
     });
 }
-// ============================================================================
-// Main Stream Function
-// ============================================================================
+
 export const streamOpenAICodexResponses = (model, context, options) => {
     const stream = new AssistantMessageEventStream();
     (async () => {
@@ -137,7 +130,7 @@ export const streamOpenAICodexResponses = (model, context, options) => {
                     recordWebSocketSseFallback(options?.sessionId);
                 }
             }
-            // Fetch with retry logic for rate limits and transient errors
+
             let response;
             let lastError;
             for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -161,7 +154,7 @@ export const streamOpenAICodexResponses = (model, context, options) => {
                         await sleep(delayMs, options?.signal);
                         continue;
                     }
-                    // Parse error for friendly message on final attempt or non-retryable error
+
                     const fakeResponse = new Response(errorText, {
                         status: response.status,
                         statusText: response.statusText,
@@ -176,7 +169,7 @@ export const streamOpenAICodexResponses = (model, context, options) => {
                         }
                     }
                     lastError = error instanceof Error ? error : new Error(String(error));
-                    // Network errors are retryable
+
                     if (attempt < MAX_RETRIES && !lastError.message.includes("usage limit")) {
                         const delayMs = BASE_DELAY_MS * 2 ** attempt;
                         await sleep(delayMs, options?.signal);
@@ -201,7 +194,7 @@ export const streamOpenAICodexResponses = (model, context, options) => {
         }
         catch (error) {
             for (const block of output.content) {
-                // partialJson is only a streaming scratch buffer; never persist it.
+
                 delete block.partialJson;
             }
             output.stopReason = options?.signal?.aborted ? "aborted" : "error";
@@ -232,14 +225,12 @@ export const resolveOpenAICodexReasoningEffort = (model, requested) => {
     const clamped = clampThinkingLevel(model, effectiveRequest);
     return clamped === "off" ? "none" : clamped;
 };
-// ============================================================================
-// Request Building
-// ============================================================================
+
 export function buildOpenAICodexRequestBody(model, context, options) {
     const messages = convertResponsesMessages(model, context, CODEX_TOOL_CALL_PROVIDERS, {
         includeSystemPrompt: false,
     });
-    // Dedupe by name — last definition wins, matching historical behavior.
+
     const uniqueTools = [
         ...new Map((context.tools ?? []).map((tool) => [tool.name, tool])).values(),
     ];
@@ -322,9 +313,7 @@ function resolveCodexWebSocketUrl(baseUrl) {
         url.protocol = "ws:";
     return url.toString();
 }
-// ============================================================================
-// Response Processing
-// ============================================================================
+
 async function processStream(response, output, stream, model, options) {
     await processResponsesStream(mapCodexEvents(parseSSE(response)), output, stream, model, {
         serviceTier: options?.serviceTier,
@@ -381,13 +370,7 @@ async function* mapCodexEvents(events) {
             const response = event.response;
             const code = response?.error?.code;
             const message = response?.error?.message;
-            // Keep the code visible in the surfaced text (mirrors the "error"
-            // branch above): downstream context-overflow recovery classifies
-            // failures by message string, and the Responses API signals a
-            // context-limit failure as `response.failed` with
-            // `error.code: "context_length_exceeded"` — sometimes with a
-            // generic or empty message. Dropping the code here made those
-            // turns unrecoverable (no compaction retry).
+
             const summary = message || "Codex response failed";
             throw new CodexApiError(`Codex error${code ? ` (${code})` : ""}: ${summary}`, {
                 code,
@@ -410,9 +393,7 @@ function normalizeCodexStatus(status) {
         return undefined;
     return CODEX_RESPONSE_STATUSES.has(status) ? status : undefined;
 }
-// ============================================================================
-// SSE Parsing
-// ============================================================================
+
 async function* parseSSE(response) {
     if (!response.body)
         return;
@@ -462,9 +443,7 @@ async function* parseSSE(response) {
         catch { }
     }
 }
-// ============================================================================
-// WebSocket Parsing
-// ============================================================================
+
 const OPENAI_BETA_RESPONSES_WEBSOCKETS = "responses_websockets=2026-02-06";
 const SESSION_WEBSOCKET_CACHE_TTL_MS = 5 * 60 * 1000;
 const websocketSessionCache = new Map();
@@ -513,8 +492,7 @@ export function closeOpenAICodexWebSocketSessions(sessionId) {
         if (entry)
             closeEntry(entry);
         websocketSessionCache.delete(sessionId);
-        // Drop the session's transport stats and SSE-fallback flag so a
-        // session that ended can retry WS transport and stats don't leak.
+
         resetOpenAICodexWebSocketDebugStats(sessionId);
         return;
     }
@@ -568,7 +546,7 @@ function getWebSocketReadyState(socket) {
 }
 function isWebSocketReusable(socket) {
     const readyState = getWebSocketReadyState(socket);
-    // If readyState is unavailable, assume the runtime keeps it open/reusable.
+
     return readyState === undefined || readyState === 1;
 }
 function closeWebSocketSilently(socket, code = 1000, reason = "done") {
@@ -929,8 +907,7 @@ async function processWebSocketStream(url, body, headers, output, stream, model,
     const { socket, entry, reused, release } = await acquireWebSocket(url, headers, options?.sessionId, options?.signal);
     let keepConnection = true;
     const useCachedContext = options?.transport === "websocket-cached" || options?.transport === "auto";
-    // ChatGPT Codex Responses rejects `store: true` ("Store must be set to false").
-    // WebSocket continuation still works via connection-scoped previous_response_id state.
+
     const fullBody = body;
     const requestBody = useCachedContext && entry ? buildCachedWebSocketRequestBody(entry, fullBody) : fullBody;
     const stats = options?.sessionId ? getOrCreateWebSocketDebugStats(options.sessionId) : undefined;
@@ -988,9 +965,7 @@ async function processWebSocketStream(url, body, headers, output, stream, model,
         release({ keep: keepConnection });
     }
 }
-// ============================================================================
-// Error Handling
-// ============================================================================
+
 async function parseErrorResponse(response) {
     const raw = await response.text();
     let message = raw || response.statusText || "Request failed";
@@ -1009,10 +984,7 @@ async function parseErrorResponse(response) {
                 friendlyMessage = `You have hit your ChatGPT usage limit${plan}.${when}`.trim();
             }
             message = err.message || friendlyMessage || message;
-            // Preserve machine-readable error codes (e.g.
-            // `context_length_exceeded`) in the surfaced text so overflow
-            // recovery can classify the failure even when the human message
-            // omits any recognizable overflow phrasing.
+
             if (typeof code === "string" &&
                 code &&
                 !friendlyMessage &&
@@ -1024,9 +996,7 @@ async function parseErrorResponse(response) {
     catch { }
     return { message, friendlyMessage };
 }
-// ============================================================================
-// Auth & Headers
-// ============================================================================
+
 function extractAccountId(token) {
     try {
         const parts = token.split(".");

@@ -152,8 +152,7 @@
   margin-top: 10px;
   padding: 0;
   width: min(100%, 320px);
-  /* Blended panel surface — matches the background-work / artifact cards.
-     (Cleared by the `--image` variant once the real image fills the frame.) */
+
   border: 1px solid var(--panel-surface-border);
   border-radius: var(--radius-2xl);
   background: var(--panel-surface-bg-gradient);

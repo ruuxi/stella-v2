@@ -1,5 +1,3 @@
-// @vitest-environment jsdom
-
 import { StrictMode, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { withI18n } from "../../helpers/i18n";
@@ -95,7 +93,6 @@ describe("PersistentUserAppsHost", () => {
     await act(async () => vi.runAllTimersAsync());
     expect(stop).toHaveBeenCalledTimes(1);
 
-    // The shared afterEach may safely unmount an already-unmounted root.
     root = createRoot(container);
   });
 });

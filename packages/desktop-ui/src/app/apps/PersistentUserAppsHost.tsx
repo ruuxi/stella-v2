@@ -87,9 +87,7 @@ const releaseApp = (slug: string): void => {
   if (!lease) return;
   lease.refs = Math.max(0, lease.refs - 1);
   if (lease.refs > 0 || lease.stopTimer !== null) return;
-  // Delay the final release by one task. React StrictMode deliberately runs
-  // effect setup → cleanup → setup; the second acquire cancels this stop so
-  // development never races a fresh start against its stale cleanup.
+
   lease.stopTimer = window.setTimeout(() => {
     lease.stopTimer = null;
     if (lease.refs > 0 || appLeases.get(slug) !== lease) return;
@@ -217,11 +215,6 @@ function UserAppFrame({ app, active }: { app: UserApp; active: boolean }) {
   );
 }
 
-/**
- * Keeps each started webapp's iframe mounted in its final sidebar location.
- * Hidden apps retain their browsing context until MRU eviction or the
- * 30-minute teardown, at which point their loopback server lease is stopped.
- */
 export function PersistentUserAppsHost() {
   const registry = useSyncExternalStore(
     subscribe,
@@ -281,9 +274,7 @@ export function PersistentUserAppsHost() {
         const app = apps.find((entry) => entry.slug === slug);
         if (!app) return null;
         const isActive = slug === onScreenSlug;
-        // A library-level shutdown should also release the hidden retained
-        // iframe. Keep stopped/error apps mountable only when the user opens
-        // them again, which gives them a clean start lease.
+
         if (
           !isActive &&
           (app.status === "stopped" ||

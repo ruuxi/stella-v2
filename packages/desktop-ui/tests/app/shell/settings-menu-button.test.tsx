@@ -1,5 +1,3 @@
-// @vitest-environment jsdom
-
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -126,7 +124,7 @@ describe("settings gear menu", () => {
     await act(async () => {
       menuItem("Settings")?.click();
     });
-    // Wait a tick for the lazy SettingsScreen chunk to resolve.
+
     await act(async () => Promise.resolve());
 
     expect(
@@ -175,8 +173,7 @@ describe("settings gear menu", () => {
         new MouseEvent("mouseenter", { bubbles: false }),
       );
     });
-    // React attaches mouseenter via onMouseEnter — simulate through focus,
-    // which uses the same preload path.
+
     await act(async () => {
       trigger()?.focus();
       trigger()?.dispatchEvent(new FocusEvent("focus", { bubbles: false }));

@@ -1,15 +1,4 @@
 #!/usr/bin/env node
-// Downloads platform-relevant native helpers from R2 into
-// desktop/native/out/<platform>/. New manifests publish per-file refs so updates
-// only download changed files; older manifests still use the platform tarball
-// fallback.
-//
-// Usage:
-//   bun run native:download [--manifest-url <url>] [--platform <key>] [--force]
-//
-// Defaults to the canonical R2 manifest URL and the host platform. Pass --force
-// to re-download even when binaries already look present.
-
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -412,11 +401,7 @@ if (manifest.schemaVersion !== 1) {
 const asset = manifest.assets?.[platformKey];
 if (!asset) {
   if (platformKey.startsWith("linux-")) {
-    // No native helpers are built for Linux yet (computer use, dictation
-    // bridge, meeting capture are darwin/win-only). Produce an empty install
-    // marker so packaging steps that expect native/out/<dir> to exist and
-    // carry .stella-native-helpers.json still work; the app resolves absent
-    // helpers to null at runtime.
+
     await mkdir(outDir, { recursive: true });
     writeFileSync(
       installManifestPath,

@@ -1,9 +1,3 @@
-/* ============================================================
-   Trash display tab — same minimal language as
-   `chat-home-overview.css`. Quiet header, Finder-like rows,
-   pill buttons, no decorative dots in meta lines.
-   ============================================================ */
-
 .trash-tab {
   display: flex;
   flex-direction: column;

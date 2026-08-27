@@ -57,7 +57,6 @@ const asText = (value: unknown): string => {
   return "";
 };
 
-/** Validate and normalize a structured provider tool call before execution. */
 export const normalizeMobileToolCall = (
   call: MobileChatStreamToolCall,
 ): MobileToolCall | null => {
@@ -151,7 +150,6 @@ export const normalizeMobileToolCall = (
   }
 };
 
-/** Build memory and compaction context without embedding fake tool instructions. */
 export const buildMobileModelContext = (args: {
   memoryFacts: MemoryFact[];
   summary: string;

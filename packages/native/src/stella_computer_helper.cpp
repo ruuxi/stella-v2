@@ -1,6 +1,3 @@
-// stella-computer-helper.exe - Windows UI Automation + Win32 bridge for Stella.
-// Usage: stella-computer-helper.exe <operation.json>
-
 #define NOMINMAX
 #include <windows.h>
 #include <UIAutomationClient.h>
@@ -2900,9 +2897,6 @@ static std::string staleObservationJson(
     return out.str();
 }
 
-// Returns an empty string when the target still matches the observation. The
-// daemon handles one request at a time, so a successful check is adjacent to
-// dispatch and cannot be interleaved by another Stella session.
 static std::string validateAtomicPrecondition(
     IUIAutomation* uia,
     const Json& command,
@@ -2983,8 +2977,6 @@ static std::string executeAtomicBatchOperation(IUIAutomation* uia, const Json& o
         throw std::runtime_error("atomic_batch commands must contain between 1 and 64 operations");
     }
 
-    // Validate every member before dispatching any member. This prevents a
-    // stale command later in a batch from causing a partial mutation.
     for (size_t index = 0; index < commands->arrayValue.size(); index++) {
         const Json& item = commands->arrayValue[index];
         const Json* command = item.get("command");

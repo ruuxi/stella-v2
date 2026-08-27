@@ -19,8 +19,6 @@ describe("agent runtime contracts", () => {
     expect(isLocalCliAgentId(AGENT_IDS.GENERAL)).toBe(true);
   });
 
-  // The Manager agent is retired. Its persisted rows are reinterpreted as
-  // General at read time rather than migrated, so the id must still resolve.
   it("reinterprets the retired manager type as General", () => {
     expect(normalizeRetiredAgentType("manager")).toBe(AGENT_IDS.GENERAL);
     expect(AGENT_IDS).not.toHaveProperty("MANAGER");

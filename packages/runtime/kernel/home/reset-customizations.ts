@@ -1,19 +1,3 @@
-/**
- * "Use Stella's defaults" — one action that clears every prompt/skill
- * customization so Stella's managed bundled copies can be restored.
- *
- * Nothing is destroyed: everything moves into a timestamped folder under
- * `~/.stella/.trash/` for one level of manual undo.
- *
- * Cleared:
- * - `agents/*.md` and `agents/*.replace.md` (overlays, replacements, and
- *   user-defined agents)
- * - `prompts/*.md` (user prompt replacements)
- * - `PERSONALITY.md` (hand-edited personality)
- * - `skills/<id>/` only where `<id>` is tracked as a Stella-shipped skill.
- *   Purely user-created skills are kept.
- */
-
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
@@ -88,7 +72,7 @@ export const resetStellaCustomizations = async (
       await fs.rename(source, target);
       moved.push(relPath);
     } catch {
-      // Cross-device or racing removals: fall back to copy+delete.
+
       try {
         await fs.cp(source, target, { recursive: true });
         await fs.rm(source, { recursive: true, force: true });

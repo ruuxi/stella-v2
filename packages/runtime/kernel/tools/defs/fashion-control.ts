@@ -1,10 +1,3 @@
-/**
- * Fashion subagent surface — UCP catalog search, outfit registration, and
- * try-on lifecycle. The orchestrator never calls these directly; it
- * delegates plain-language outfit requests via the `Fashion` tool, which
- * spawns the Fashion subagent that owns this surface.
- */
-
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   handleFashionCreateCheckout,
@@ -21,16 +14,6 @@ export type FashionControlOptions = {
   fashionApi?: FashionToolApi;
 };
 
-// Agent-gating contract for every Fashion tool. Pre-migration each tool
-// duplicated a `requireFashionAgent` runtime check inside `execute`,
-// which (a) still surfaced the tool in non-Fashion agents' catalogs and
-// (b) drifted from the declarative `agentTypes` pattern used by every
-// other orchestrator-only tool. Centralizing it via `tools/host.ts`
-// means non-Fashion agents never see these tools in their catalog and
-// any direct execute call from another agent is rejected by the
-// shared denial path. The wording (`"only available to the Fashion
-// agent."`) is reproduced by the host's `formatAllowedAgent` helper
-// from the agent definition's `name`.
 const FASHION_ONLY = [AGENT_IDS.FASHION] as const;
 
 export const createFashionControlTools = (

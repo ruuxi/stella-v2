@@ -1,11 +1,3 @@
-/**
- * Loads Google Workspace tools directly via googleapis.
- *
- * @license
- * Portions Copyright 2025 Google LLC
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { createRuntimeLogger } from "../debug.js";
@@ -17,19 +9,14 @@ import type { ToolDefinition } from "../extensions/types.js";
 import type { ToolContext, ToolResult } from "../tools/types.js";
 import { setGoogleWorkspaceProjectRoot } from "./paths.js";
 import { SCOPES } from "./scopes.js";
-// The service modules below statically `import { google } from "googleapis"`,
-// which is very slow to require (googleapis builds clients for hundreds of
-// APIs). Import them only as TYPES here and dynamically `await import()` the
-// runtime modules inside `loadGoogleWorkspaceTools` so the googleapis graph
-// is parsed only when an agent actually loads Workspace tools — not at worker
-// boot (server.ts instantiates the runner during INTERNAL_WORKER_INITIALIZE).
+
 import type { AuthManager } from "./AuthManager.js";
 import type { DriveService } from "./DriveService.js";
 import type { DocsService } from "./DocsService.js";
 import type { CalendarService } from "./CalendarService.js";
 import type { GmailService } from "./GmailService.js";
 import type { PeopleService } from "./PeopleService.js";
-// TimeService is googleapis-free, so it stays an eager value import.
+
 import { TimeService } from "./TimeService.js";
 import { formatGoogleWorkspaceCallToolResult } from "./format-google-workspace-result.js";
 import { GOOGLE_WORKSPACE_TOOL_METADATA } from "./google-workspace-tool-metadata.js";
@@ -194,9 +181,6 @@ export const loadGoogleWorkspaceTools = async (options: {
   await mkdir(root, { recursive: true, mode: 0o700 });
   setGoogleWorkspaceProjectRoot(root);
 
-  // Lazily pull the googleapis-bearing service modules now (this is the
-  // first point we actually need real clients). See the import-type note
-  // at the top of this file.
   const [
     { AuthManager },
     { DriveService },
@@ -236,10 +220,7 @@ export const loadGoogleWorkspaceTools = async (options: {
     name: string,
     args: Record<string, unknown>,
   ): Promise<ToolResult> => {
-    // Fail fast when no credentials are stored instead of silently opening a
-    // browser and blocking the tool call. Connect flow lives in Connections
-    // (`nativeIntegrations:enable("gmail" | "googlecalendar" | …)`), which
-    // brokers the dialog + OAuth before any tool call lands here.
+
     if (
       !NON_AUTH_TOOLS.has(name) &&
       !(await loadConnectorAccessToken(options.stellaAppDir, "google-workspace"))

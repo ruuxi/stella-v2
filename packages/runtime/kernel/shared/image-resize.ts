@@ -1,24 +1,3 @@
-/**
- * Vision-input image resizing, ported from pi-mono's coding-agent
- * (`utils/image-resize-core.ts`). Guarantees every attached image fits
- * within provider dimension and byte limits at attach time, so history
- * never carries multi-megabyte base64 blocks:
- *
- * 1. Resize to maxWidth/maxHeight (Lanczos3)
- * 2. Try both PNG and JPEG encodings, pick the first under maxBytes
- *    (PNG is lossless and tried first, so text stays crisp whenever it fits)
- * 3. If still too large, walk JPEG quality down (90 → 40)
- * 4. If still too large, progressively shrink dimensions toward 1x1
- *
- * When the input already fits the target's dimension AND byte caps it is
- * passed through untouched — no needless lossy re-encode.
- *
- * Runs in-process: Stella's runtime worker is already a separate process
- * from the UI, so a brief WASM decode doesn't block anything user-facing.
- * Returns null when Photon is unavailable or the image can't be decoded
- * or shrunk under the cap — callers decide the fallback.
- */
-
 import {
   DEFAULT_JPEG_QUALITY,
   SAFE_FALLBACK_MAX_BYTES,
@@ -28,14 +7,14 @@ import { applyExifOrientation } from "./exif-orientation.js";
 import { loadPhoton } from "./photon.js";
 
 export interface ImageResizeOptions {
-  maxWidth?: number; // Default: safe-fallback long edge (2048)
-  maxHeight?: number; // Default: safe-fallback long edge (2048)
-  maxBytes?: number; // Default: safe-fallback base64 budget (~4.5MB)
-  jpegQuality?: number; // Default: 90
+  maxWidth?: number;
+  maxHeight?: number;
+  maxBytes?: number;
+  jpegQuality?: number;
 }
 
 export interface ResizedImage {
-  data: string; // base64
+  data: string;
   mimeType: string;
   originalWidth: number;
   originalHeight: number;
@@ -44,11 +23,6 @@ export interface ResizedImage {
   wasResized: boolean;
 }
 
-// Safe conservative defaults, used only when a caller does not pass
-// provider-aware caps. Callers should resolve caps via `resolveImageCaps`
-// (ai/utils/image-caps) so images reach each provider at the best quality it
-// supports; these defaults stay under every mainstream provider's per-image
-// cap for the unknown-route case.
 const DEFAULT_OPTIONS: Required<ImageResizeOptions> = {
   maxWidth: SAFE_FALLBACK_MAX_EDGE,
   maxHeight: SAFE_FALLBACK_MAX_EDGE,
@@ -99,7 +73,6 @@ export const resizeImage = async (
     const originalHeight = image.get_height();
     const format = mimeType.split("/")[1] ?? "png";
 
-    // Check if already within all limits (dimensions AND encoded size)
     if (
       originalWidth <= opts.maxWidth &&
       originalHeight <= opts.maxHeight &&
@@ -116,7 +89,6 @@ export const resizeImage = async (
       };
     }
 
-    // Calculate initial dimensions respecting max limits
     let targetWidth = originalWidth;
     let targetHeight = originalHeight;
 
@@ -156,9 +128,6 @@ export const resizeImage = async (
       }
     };
 
-    // Try the caller's quality first (default q90), then step down only as
-    // needed to fit the byte cap; heavy JPEG compression is the classic cause
-    // of illegible text, so we start high rather than at the old q80.
     const qualitySteps = Array.from(
       new Set([opts.jpegQuality, 90, 80, 70, 55, 40]),
     );
@@ -207,10 +176,6 @@ export const resizeImage = async (
   }
 };
 
-/**
- * Format a dimension note for resized images so the model can map its
- * output coordinates back to the original image space.
- */
 export const formatDimensionNote = (
   result: ResizedImage,
 ): string | undefined => {

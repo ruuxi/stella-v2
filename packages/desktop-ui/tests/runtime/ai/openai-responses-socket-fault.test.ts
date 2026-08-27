@@ -1,4 +1,3 @@
-// RUNTIME NOTE: run this suite under real Node (e.g. /opt/homebrew/bin/node).
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
@@ -66,7 +65,7 @@ describe("OpenAI Responses socket fault handling", () => {
     const server = http.createServer(async (request, response) => {
       requests.push({ method: request.method, url: request.url });
       for await (const _chunk of request) {
-        // Drain the request body before faulting the response stream.
+
       }
       response.writeHead(200, {
         "content-type": "text/event-stream",

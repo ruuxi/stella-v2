@@ -1,26 +1,3 @@
-/**
- * Headless runtime CLI — boot the Stella runtime kernel and run real turns
- * with no desktop shell, no Electron, and no dev server.
- *
- *   bun packages/runtime/headless/cli.ts --prompt "Reply with exactly: OK"
- *   bun packages/runtime/headless/cli.ts --mode completion --model stella/light -p "2+2?"
- *   bun packages/runtime/headless/cli.ts --list-models
- *
- * Topology: this process is a runtime HOST (same `StellaRuntimeHost` the
- * Electron main process uses) with headless host handlers and a private
- * stdio child worker (`workerMode: "child"`), so it never attaches to — or
- * restarts — a live desktop app's detached worker. State comes from the
- * user's existing `~/.stella` unless `--data-dir` points elsewhere.
- *
- * Auth is an input, never minted here: pass `--auth-token` (or
- * STELLA_AUTH_TOKEN) for Stella-managed models; env API keys
- * (ANTHROPIC_API_KEY, OPENAI_API_KEY, ...) and engine CLIs (Claude Code /
- * Codex) work with no token. Desktop-encrypted BYOK keys are not readable
- * headlessly (OS keychain via Electron safeStorage).
- *
- * Output: machine-readable JSONL on stdout (`kind` discriminated), human
- * diagnostics on stderr.
- */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -150,7 +127,7 @@ const parseArgs = (argv: string[]): CliOptions => {
         options.help = true;
         break;
       default:
-        // Bare positional becomes the prompt (quality-of-life).
+
         if (arg && !arg.startsWith("-") && !options.prompt) {
           options.prompt = arg;
           break;
@@ -169,7 +146,6 @@ const log = (message: string): void => {
   process.stderr.write(`[headless] ${message}\n`);
 };
 
-/** Default Convex URLs from the same checked-in env file the desktop uses. */
 const readDesktopUiEnvDefaults = (
   stellaAppDir: string,
 ): { convexUrl: string | null; convexSiteUrl: string | null } => {
@@ -186,7 +162,7 @@ const readDesktopUiEnvDefaults = (
       else result.convexSiteUrl = match[2] ?? null;
     }
   } catch {
-    // No defaults available; Stella-managed models then require --convex-url.
+
   }
   return result;
 };
@@ -198,18 +174,13 @@ const main = async (): Promise<void> => {
     return;
   }
 
-  // Resolve roots BEFORE loading any runtime module that caches
-  // STELLA_APP_DIR, then pin the env so both this host process and the
-  // spawned worker agree on them — even when this CLI is launched from a
-  // shell that inherited a packaged Stella app's environment.
   const moduleDir = import.meta.dirname;
   const defaultAppDir = path.resolve(moduleDir, "..", "..", "..");
   const stellaAppDir = options.stellaAppDir ?? defaultAppDir;
   process.env.STELLA_APP_DIR = stellaAppDir;
   const resourcesPath = process.env.STELLA_APP_RESOURCES_PATH?.trim();
   if (resourcesPath && !resourcesPath.startsWith(stellaAppDir)) {
-    // Inherited from a packaged install; it would hijack bundled-file
-    // resolution away from this checkout.
+
     delete process.env.STELLA_APP_RESOURCES_PATH;
   }
 
@@ -274,7 +245,7 @@ const main = async (): Promise<void> => {
     try {
       await host.stop();
     } catch {
-      // Best effort — the child worker dies with our stdin regardless.
+
     }
     process.exit(exitCode);
   };
@@ -333,11 +304,6 @@ const main = async (): Promise<void> => {
     await shutdown(0);
   }
 
-  // chat mode: a full orchestrator turn with streamed run events. With
-  // --model the turn goes through the automation path (the scheduler's turn
-  // surface), which is the runtime's supported way to pin a model for a
-  // single orchestrator run; without it, routing follows the user's
-  // preferences exactly like a composer send.
   const conversationId =
     options.conversationId ?? `headless-${Date.now().toString(36)}`;
   let rootRunId: string | null = null;

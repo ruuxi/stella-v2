@@ -1,5 +1,4 @@
 #!/bin/bash
-# Build script for native helpers (macOS)
 set -e
 
 cd "$(dirname "$0")"
@@ -11,8 +10,6 @@ MACOS_MIN_VERSION="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-# Pinned parakeet.cpp (C++/ggml ASR) revision used for the Intel-macOS local
-# dictation helper. Bump deliberately and re-verify a transcription.
 PARAKEET_CPP_REPO="https://github.com/mudler/parakeet.cpp"
 PARAKEET_CPP_COMMIT="9edf17c3ada66e0f881dcff155492867db7ac4cf"
 
@@ -85,11 +82,6 @@ build_c_app_universal() {
   fi
 }
 
-# parakeet_cpp_transcriber — local dictation for Intel macOS (arm64 uses the
-# CoreML helper below). Builds parakeet.cpp + ggml statically and links our
-# wrapper into one self-contained x86_64 binary. Every step is non-fatal: a
-# failure here just leaves Intel Macs on cloud dictation instead of blocking the
-# whole native build.
 build_parakeet_cpp_x64() {
   if ! command -v cmake >/dev/null 2>&1; then
     echo "Skipping parakeet_cpp_transcriber: cmake not on PATH."
@@ -106,17 +98,13 @@ build_parakeet_cpp_x64() {
     return 0
   fi
 
-  # Register our wrapper inside the parakeet.cpp tree so CMake links it against
-  # the in-tree `parakeet` target (and its transitive ggml + BLAS graph).
   mkdir -p "$src/examples/stella"
   cp "src/parakeet-cpp/main.cpp" "$src/examples/stella/main.cpp"
   cp "src/parakeet-cpp/CMakeLists.txt" "$src/examples/stella/CMakeLists.txt"
   echo "add_subdirectory(examples/stella)" >> "$src/CMakeLists.txt"
 
   echo "Building parakeet_cpp_transcriber (static, x86_64)..."
-  # -include cstdint: parakeet.cpp's backend.hpp uses int64_t without including
-  # <cstdint>; Apple clang pulls it in transitively but stricter toolchains do
-  # not. Force-include keeps the build compiler-portable without patching source.
+
   if ! cmake -S "$src" -B "$src/build" \
       -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_OSX_ARCHITECTURES=x86_64 \
@@ -242,9 +230,6 @@ fi
 
 build_parakeet_cpp_x64
 
-# wakeword_listener — Rust binary, universal macOS via cargo + lipo. Skipped
-# silently if cargo is unavailable so this file is not a hard-dependency on
-# rustup for contributors who only touch the C++/Swift helpers.
 if command -v cargo >/dev/null 2>&1; then
   echo "Building wakeword_listener (macOS universal)..."
   pushd wakeword >/dev/null

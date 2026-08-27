@@ -37,7 +37,7 @@ describe("activity expansion store", () => {
     for (let index = 0; index < 10; index += 1) {
       activityExpansionStore.save(`conv-${index}`, snapshot(String(index)));
     }
-    // First two saves are the oldest and fall out of the LRU cap of 8.
+
     expect(activityExpansionStore.load("conv-0")).toEqual(
       EMPTY_ACTIVITY_EXPANSION,
     );
@@ -61,7 +61,6 @@ describe("activity expansion store", () => {
       EMPTY_ACTIVITY_EXPANSION,
     );
 
-    // A valid entry next to a broken one still loads.
     uiState.setItem(
       STORAGE_KEY,
       JSON.stringify({

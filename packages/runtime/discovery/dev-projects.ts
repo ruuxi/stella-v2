@@ -1,23 +1,3 @@
-/**
- * Dev Projects Discovery
- *
- * Finds active development projects from real usage signals. The goal is not
- * to enumerate every repo on disk; it is to rank the projects the user is most
- * likely to mean when they say "open my project".
- *
- * Sources:
- * 1. macOS Spotlight (mdfind) — broad git repo discovery when indexed
- * 2. GitHub Desktop repositories.json — repos the user has cloned/opened
- * 3. JetBrains recent projects — WebStorm, IntelliJ, PyCharm, etc.
- * 4. VS Code / Cursor recent workspaces and repository tracker
- * 5. Shell history `cd` targets
- * 6. Shallow scan of common development roots
- *
- * Candidates are resolved to git repository roots, scored, and filtered by
- * confidence. Recent authored commits help, but are not required: editor and
- * shell activity are often better onboarding signals than commit authorship.
- */
-
 import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
@@ -28,10 +8,6 @@ import { z } from "zod";
 import type { DevProject } from "./types.js";
 
 const log = (...args: unknown[]) => console.error("[dev-projects]", ...args);
-
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
 
 const RECENCY_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -76,10 +52,6 @@ const PROJECT_MANIFESTS = [
   "src-tauri",
 ];
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 type GitIdentity = {
   name?: string;
   email?: string;
@@ -116,10 +88,6 @@ type SqliteDatabase = {
   close(): void;
 };
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 const normalizeCandidatePath = (candidatePath: string): string | null => {
   let normalized = candidatePath.trim();
   if (!normalized) return null;
@@ -127,7 +95,7 @@ const normalizeCandidatePath = (candidatePath: string): string | null => {
   try {
     normalized = decodeURIComponent(normalized);
   } catch {
-    // Keep the original path if decoding fails.
+
   }
 
   normalized = normalized
@@ -244,10 +212,6 @@ const daysAgo = (timestamp: number): number =>
 const sourceList = (sources: Map<string, number>): string[] =>
   Array.from(sources.keys()).sort();
 
-// ---------------------------------------------------------------------------
-// Git Identity
-// ---------------------------------------------------------------------------
-
 const parseGitIdentity = (content: string): GitIdentity => {
   const identity: GitIdentity = {};
   let inUserSection = false;
@@ -294,7 +258,7 @@ const readRepoGitIdentity = async (repoPath: string): Promise<GitIdentity> => {
     );
     if (email) identity.email = email;
   } catch {
-    // Missing local config is fine.
+
   }
 
   try {
@@ -305,15 +269,11 @@ const readRepoGitIdentity = async (repoPath: string): Promise<GitIdentity> => {
     );
     if (name) identity.name = name;
   } catch {
-    // Missing local config is fine.
+
   }
 
   return identity;
 };
-
-// ---------------------------------------------------------------------------
-// Git Repo Validation
-// ---------------------------------------------------------------------------
 
 const resolveGitRoot = async (
   candidatePath: string,
@@ -398,7 +358,7 @@ const hasRecentAuthoredCommit = async (
       );
       if (output.length > 0) return true;
     } catch {
-      // Try the next available identity.
+
     }
   }
 
@@ -413,10 +373,6 @@ const countProjectManifests = async (repoPath: string): Promise<number> => {
   );
   return hits.filter(Boolean).length;
 };
-
-// ---------------------------------------------------------------------------
-// Source 1: macOS Spotlight (mdfind)
-// ---------------------------------------------------------------------------
 
 const collectFromSpotlight = async (): Promise<string[]> => {
   if (process.platform !== "darwin") return [];
@@ -437,10 +393,6 @@ const collectFromSpotlight = async (): Promise<string[]> => {
     return [];
   }
 };
-
-// ---------------------------------------------------------------------------
-// Source 2: GitHub Desktop repositories.json
-// ---------------------------------------------------------------------------
 
 type GHDesktopRepo = {
   path?: string;
@@ -487,10 +439,6 @@ const collectFromGitHubDesktop = async (): Promise<string[]> => {
     return [];
   }
 };
-
-// ---------------------------------------------------------------------------
-// Source 3: JetBrains Recent Projects
-// ---------------------------------------------------------------------------
 
 const JETBRAINS_IDES = [
   "IntelliJIdea",
@@ -556,7 +504,7 @@ const collectFromJetBrains = async (): Promise<string[]> => {
           }
         }
       } catch {
-        // Can't read this IDE's recent projects, skip.
+
       }
     }
   } catch {
@@ -565,10 +513,6 @@ const collectFromJetBrains = async (): Promise<string[]> => {
 
   return results;
 };
-
-// ---------------------------------------------------------------------------
-// Source 4: VS Code / Cursor state
-// ---------------------------------------------------------------------------
 
 const getEditorConfigs = (): { name: string; dbPath: string }[] => {
   const home = os.homedir();
@@ -671,8 +615,7 @@ const collectFromEditors = async (
 
     let db: SqliteDatabase | null = null;
     try {
-      // Read the live DB directly via an immutable URI: editors hold a WAL
-      // lock on state.vscdb while running; immutable skips locking.
+
       const uri = `${pathToFileURL(config.dbPath).href}?immutable=1`;
       db = new Database(uri, { readonly: true }) as SqliteDatabase;
 
@@ -721,10 +664,6 @@ const collectFromEditors = async (
 
   return count;
 };
-
-// ---------------------------------------------------------------------------
-// Source 5: Shell history
-// ---------------------------------------------------------------------------
 
 const getHistoryPaths = (): string[] => {
   const home = os.homedir();
@@ -820,10 +759,6 @@ const collectFromShellHistory = async (
   return count;
 };
 
-// ---------------------------------------------------------------------------
-// Source 6: Common dev roots
-// ---------------------------------------------------------------------------
-
 const shouldSkipScanDir = (name: string): boolean =>
   name.startsWith(".") ||
   [
@@ -885,10 +820,6 @@ const collectFromCommonDevRoots = async (
 
   return reposFound;
 };
-
-// ---------------------------------------------------------------------------
-// Scoring
-// ---------------------------------------------------------------------------
 
 const resolveCandidates = async (
   candidates: ProjectCandidate[],
@@ -978,12 +909,6 @@ const scoreProject = async (
   };
 };
 
-// ---------------------------------------------------------------------------
-// Tech Detection (languages + frameworks per project)
-// ---------------------------------------------------------------------------
-
-// Framework labels keyed by their npm dependency name. Ordered so the most
-// specific match wins when several are present (Next.js before React, etc.).
 const PACKAGE_FRAMEWORKS: { dep: string; label: string }[] = [
   { dep: "next", label: "Next.js" },
   { dep: "react-native", label: "React Native" },
@@ -1029,8 +954,6 @@ const readJsonSafe = async (
   }
 };
 
-// Child dirs that never hold the "real" project manifest when scanning a
-// monorepo/app-in-subdir layout.
 const TECH_SCAN_SKIP_DIRS = new Set([
   "node_modules",
   ".git",
@@ -1044,7 +967,6 @@ const TECH_SCAN_SKIP_DIRS = new Set([
   "app-store-screenshots",
 ]);
 
-/** Detect languages/frameworks from the manifests directly inside `dir`. */
 const detectTechAtDir = async (
   dir: string,
   entries: string[],
@@ -1089,7 +1011,7 @@ const detectTechAtDir = async (
           if (reqs.includes(needle)) tech.add(label);
         }
       } catch {
-        // requirements unreadable — language is still recorded.
+
       }
     }
   }
@@ -1109,7 +1031,7 @@ const detectTechAtDir = async (
       ).toLowerCase();
       if (gemfile.includes("rails")) tech.add("Rails");
     } catch {
-      // Gemfile unreadable — language is still recorded.
+
     }
   }
 
@@ -1120,13 +1042,6 @@ const detectTechAtDir = async (
   return tech;
 };
 
-/**
- * Detect a project's languages + frameworks from its manifest files. Bounded
- * and cheap (a readdir + a few small file reads), cross-platform. Reads
- * manifests rather than scanning every source file. When the repo root has no
- * manifest (monorepo / app-in-subdir like `mobile/`), falls back to a bounded
- * one-level scan of immediate child directories.
- */
 const detectProjectTech = async (projectPath: string): Promise<string[]> => {
   let entries: string[] = [];
   try {
@@ -1158,10 +1073,6 @@ const detectProjectTech = async (projectPath: string): Promise<string[]> => {
 
   return Array.from(tech);
 };
-
-// ---------------------------------------------------------------------------
-// Main Collection
-// ---------------------------------------------------------------------------
 
 export const collectDevProjects = async (): Promise<DevProject[]> => {
   log("Starting dev projects discovery...");
@@ -1219,11 +1130,6 @@ export const collectDevProjects = async (): Promise<DevProject[]> => {
     log(`Git identity: ${identity.name || "?"} <${identity.email || "?"}>`);
   }
 
-  // Cap by confidence, not Map insertion order: high-weight sources
-  // (spotlight/github-desktop/jetbrains) are added after the unbounded
-  // shell-history/editor sources, so slicing raw insertion order would drop
-  // the most trustworthy candidates first. Sum each candidate's source
-  // weights (the same signal the scorer folds in) and keep the heaviest.
   const candidateWeight = (candidate: ProjectCandidate): number => {
     let total = 0;
     for (const weight of candidate.sources.values()) total += weight;
@@ -1286,17 +1192,6 @@ export const collectDevProjects = async (): Promise<DevProject[]> => {
   return limited;
 };
 
-// ---------------------------------------------------------------------------
-// Formatting
-// ---------------------------------------------------------------------------
-
-/**
- * Format dev projects for LLM synthesis.
- *
- * Projects are already sorted by confidence and activity from collection.
- * We cap at 8 for synthesis — enough to show active work, not so many that
- * stale projects dilute the signal.
- */
 export const formatDevProjectsForSynthesis = (
   projects: DevProject[],
 ): string => {

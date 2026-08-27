@@ -41,7 +41,7 @@ export class CaptureService {
         }
         this.lastBroadcastChatContextVersion = this.chatContextVersion;
     }
-    /** Preserves region screenshots but resets everything else to null. */
+
     clearTransientContext() {
         const current = this.pendingChatContext;
         if (current?.regionScreenshots?.length) {
@@ -70,12 +70,7 @@ export class CaptureService {
             regionScreenshots: next,
         });
     }
-    /**
-     * Merge a finished capture into the pending chat context, surfacing an
-     * error to the renderer when the flow completed but produced nothing
-     * (native capture failed end-to-end). A `null` result means the user
-     * cancelled — stays silent.
-     */
+
     commitRegionCaptureResult(result) {
         if (result === null) {
             return false;
@@ -96,11 +91,7 @@ export class CaptureService {
         const isWindowClick = Boolean(result.window && result.screenshot);
         const isRegionSelection = Boolean(result.screenshot && !result.window);
         const existing = ctx.regionScreenshots ?? [];
-        // Always append: when a new window screenshot arrives (window-click) and
-        // an existing window screenshot is already attached, push the old one
-        // onto regionScreenshots so it survives as a stacked chip rather than
-        // being replaced silently. Plain region selections also append and must
-        // NOT clear the existing window context.
+
         const carriedPreviousWindowShot = isWindowClick && ctx.windowScreenshot ? [ctx.windowScreenshot] : [];
         const nextScreenshots = result.screenshot
             ? isWindowClick
@@ -159,8 +150,7 @@ export class CaptureService {
             thumbnailSize,
         });
         let source = pickSource(sources);
-        // A short retry lets the compositor settle when desktopCapturer initially
-        // returns an empty source or an unpopulated thumbnail.
+
         if (!source || source.thumbnail.isEmpty()) {
             await new Promise((r) => setTimeout(r, 120));
             sources = await desktopCapturer.getSources({
@@ -217,9 +207,7 @@ export class CaptureService {
         };
     }
     async captureRegionScreenshot(display, selection) {
-        // Windows: BitBlt just the selected rect from the screen DC (native helper)
-        // instead of capturing every display at full resolution and cropping. Falls
-        // through to desktopCapturer below when the native path is unavailable.
+
         if (process.platform === 'win32') {
             const scaleFactor = this.getDisplayScaleFactor(display);
             const native = await captureRegionScreenshotNative((display.bounds.x + selection.x) * scaleFactor, (display.bounds.y + selection.y) * scaleFactor, selection.width * scaleFactor, selection.height * scaleFactor);
@@ -267,7 +255,7 @@ export class CaptureService {
             this.options.overlay.restoreRegionCaptureAfterScreenshot();
         }
     }
-    /** Converts an overlay-relative point to native screen coordinates. */
+
     toScreenPoint(overlayRelative) {
         const regionBounds = this.options.overlay.getOverlayBounds();
         if (!regionBounds)
@@ -287,7 +275,7 @@ export class CaptureService {
             globalShortcut.unregister('Escape');
         }
         catch {
-            // Shortcut may already be gone if capture was interrupted externally.
+
         }
         this.options.overlay.endRegionCapture();
     }
@@ -403,9 +391,7 @@ export class CaptureService {
         catch (error) {
             console.debug('[capture] window capture at point failed:', error.message);
         }
-        // Native window capture failed (missing/broken helper, PrintWindow
-        // refusal). Fall back to a desktopCapturer shot of the display under the
-        // click so the user still gets an attachment instead of a silent no-op.
+
         let fallbackScreenshot = null;
         if (!capture?.screenshot) {
             const dipPoint = {

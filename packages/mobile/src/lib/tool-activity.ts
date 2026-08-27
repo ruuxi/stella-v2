@@ -1,16 +1,3 @@
-/**
- * Tool-activity trace derivation — a mobile port of the desktop
- * `src/features/chat/lib/tool-activity.ts` phrasing.
- *
- * The desktop bridge pairs each turn's `tool_request`/`tool_result` events and
- * sends the *settled* steps (see `deriveMobileToolSteps` in
- * `local-chat-artifacts.ts`); this module folds them into the collapsible
- * "Read 3 files and searched code" summary plus per-call titles, exactly like
- * the desktop trace. Pairing already happened on the bridge, so this side only
- * does the (pure) categorisation, titling, and summarisation.
- */
-
-/** Coarse tool family the leading icon + summary phrasing key off. */
 export type ToolActivityCategory =
   | "read"
   | "edit"
@@ -25,19 +12,15 @@ export type ToolActivityCategory =
 
 export type ToolActivityStatus = "running" | "completed" | "error" | "canceled";
 
-/** Settled step as it arrives over the bridge. */
 export type ToolStep = {
   id: string;
   toolName: string;
   status: ToolActivityStatus;
-  /** Pruned string args used to build the per-call title. */
+
   args?: Record<string, string>;
-  /**
-   * Bounded tool-result preview, carried only for tools whose result the UI
-   * renders directly (Schedule receipts). Never the raw unbounded result.
-   */
+
   resultPreview?: string;
-  /** Immutable chronology metadata captured when chat observed the call. */
+
   textOffset?: number;
 };
 
@@ -45,7 +28,7 @@ export type ToolActivityStep = {
   id: string;
   toolName: string;
   category: ToolActivityCategory;
-  /** Friendly per-call title (filename, pattern, command snippet, …). */
+
   title: string;
   status: ToolActivityStatus;
   textOffset?: number;
@@ -53,13 +36,12 @@ export type ToolActivityStep = {
 
 export type ToolActivityGroup = {
   steps: ToolActivityStep[];
-  /** Settled summary, e.g. "Read 3 files and searched code". */
+
   summary: string;
-  /** Leading-icon category (the run's dominant family). */
+
   icon: ToolActivityCategory;
 };
 
-// Owned by other surfaces / not real calls — never shown in the trace.
 const EXCLUDED_TOOLS = new Set([
   "spawn_agent",
   "send_input",
@@ -161,7 +143,6 @@ const TOOL_DESCRIPTORS: Record<string, ToolDescriptor> = {
   requestcredential: { category: "other", phrase: () => "requested access" },
 };
 
-/** snake_case / CamelCase → "lower spaced words" for the generic fallback. */
 const humanizeToolName = (toolName: string): string =>
   toolName
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
@@ -220,7 +201,6 @@ const basename = (path: string): string => path.split(/[\\/]/).pop() || path;
 const clamp = (text: string, max: number): string =>
   text.length > max ? `${text.slice(0, max)}…` : text;
 
-/** Per-call title shown in the expanded step list. */
 const titleForCall = (
   toolName: string,
   args: Record<string, string> | undefined,
@@ -278,7 +258,6 @@ const titleForCall = (
 const capitalize = (text: string): string =>
   text.length === 0 ? text : text[0].toUpperCase() + text.slice(1);
 
-/** Join clauses in first-appearance order: "A", "A and B", "A, B and C". */
 const joinPhrases = (phrases: string[]): string => {
   if (phrases.length === 0) return "";
   if (phrases.length === 1) return capitalize(phrases[0]);
@@ -286,10 +265,6 @@ const joinPhrases = (phrases: string[]): string => {
   return capitalize(`${head} and ${phrases[phrases.length - 1]}`);
 };
 
-/**
- * Fold the bridge's settled tool steps into one trace group, or `undefined`
- * when none survive exclusion.
- */
 export function deriveToolActivity(
   rawSteps: readonly ToolStep[],
 ): ToolActivityGroup | undefined {
@@ -309,7 +284,6 @@ export function deriveToolActivity(
   }
   if (settled.length === 0) return undefined;
 
-  // Aggregate clauses by key, in first-appearance order.
   const order: string[] = [];
   const groupCount = new Map<string, number>();
   const groupSample = new Map<string, ToolActivityStep>();
@@ -349,7 +323,6 @@ export function deriveToolActivity(
       ? failedSummary(failed)
       : summary;
 
-  // Leading icon: dominant aggregation group (most calls; ties keep order).
   let iconKey = order[0];
   let best = -1;
   for (const key of order) {

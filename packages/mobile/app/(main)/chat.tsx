@@ -16,21 +16,13 @@ import { ArtifactViewer } from "../../src/components/ArtifactViewer";
 import type { ChatArtifact } from "../../src/types";
 import { useT } from "../../src/i18n";
 
-/**
- * The Chat tab: a cloud conversation with Stella that works anywhere, with no
- * dependency on the paired computer. Computer-routed chat lives on the Computer
- * tab; the two transcripts stay separate so neither's context bleeds into the
- * other.
- */
 export default function ChatScreen() {
   const colors = useColors();
   const t = useT();
   const guest = isGuest();
   const offline = useIsOffline();
   const [mobileDeviceId, setMobileDeviceId] = useState<string | null>(null);
-  // A tapped file artifact (e.g. a PDF the `pdf` tool generated on-device),
-  // previewed + saved/shared from the standalone artifact viewer. The cloud
-  // chat is self-contained, so the viewer runs with no desktop bridge.
+
   const [selectedArtifact, setSelectedArtifact] = useState<ChatArtifact | null>(
     null,
   );
@@ -44,8 +36,6 @@ export default function ChatScreen() {
     void getOrCreateMobileDeviceId().then(setMobileDeviceId);
   }, [guest]);
 
-  // Content shared in from another app prefills the composer (it never
-  // auto-sends — the user confirms with the send button).
   useEffect(() => {
     const applyShare = () => {
       const share = consumePendingShare();

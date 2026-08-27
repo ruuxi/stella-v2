@@ -1,9 +1,3 @@
-/**
- * Selector resolution for element targeting.
- * Supports ref-based selectors (@e1, e1), structured semantic selectors, and CSS.
- */
-
-// Snapshot refs are scoped to the logical command owner and tab.
 const refMaps = new Map();
 const SEMANTIC_SELECTOR_PREFIX = "aria=";
 const MAX_SEMANTIC_SELECTOR_LENGTH = 8192;
@@ -177,29 +171,17 @@ function getOwnerRefMap(ownerId, createIfMissing = false) {
   return refMaps.get(normalized);
 }
 
-/**
- * Update the ref map (called after snapshot).
- * @param {string} ownerId
- * @param {number} tabId
- * @param {Record<string, {selector: string, role: string, name?: string, nth?: number}>} refs
- */
 export function setRefMap(ownerId, tabId, refs) {
   if (!Number.isInteger(tabId)) return;
   const ownerMap = getOwnerRefMap(ownerId, true);
   ownerMap.set(tabId, refs || {});
 }
 
-/**
- * Get the current ref map.
- */
 export function getRefMap(ownerId, tabId) {
   if (!Number.isInteger(tabId)) return {};
   return getOwnerRefMap(ownerId)?.get(tabId) || {};
 }
 
-/**
- * Clear refs for a single owner.
- */
 export function clearOwnerRefMaps(ownerId) {
   if (ownerId === undefined) {
     refMaps.clear();
@@ -208,9 +190,6 @@ export function clearOwnerRefMaps(ownerId) {
   refMaps.delete(normalizeOwnerId(ownerId));
 }
 
-/**
- * Clear refs for a single owner/tab pair.
- */
 export function clearTabRefMap(ownerId, tabId) {
   if (!Number.isInteger(tabId)) return;
   const ownerMap = getOwnerRefMap(ownerId);
@@ -221,11 +200,6 @@ export function clearTabRefMap(ownerId, tabId) {
   }
 }
 
-/**
- * Check if a string is a ref selector.
- * @param {string} selector
- * @returns {boolean}
- */
 export function isRef(selector) {
   if (typeof selector !== "string") return false;
   if (selector.startsWith("@")) return true;
@@ -234,11 +208,6 @@ export function isRef(selector) {
   return false;
 }
 
-/**
- * Parse a ref string to its key (e.g., "@e1" -> "e1", "ref=e3" -> "e3").
- * @param {string} selector
- * @returns {string|null}
- */
 export function parseRef(selector) {
   if (typeof selector !== "string") return null;
   if (selector.startsWith("@")) return selector.slice(1);
@@ -247,15 +216,6 @@ export function parseRef(selector) {
   return null;
 }
 
-/**
- * Resolve a selector (ref or CSS) to a CSS selector that can be used with querySelector.
- * For refs, also returns role/name info for getByRole-style matching.
- *
- * @param {string} selector
- * @param {string} ownerId
- * @param {number} tabId
- * @returns {{ css: string|null, role?: string, name?: string, nth?: number, isRef: boolean }}
- */
 export function resolveSelector(selector, ownerId, tabId) {
   if (typeof selector !== "string" || selector.length === 0) {
     throw new Error("Selector must be a non-empty string");
@@ -283,7 +243,7 @@ export function resolveSelector(selector, ownerId, tabId) {
       );
     }
     return {
-      css: null, // Use role-based matching instead
+      css: null,
       role: data.role,
       name: data.name,
       nth: data.nth,
@@ -291,16 +251,9 @@ export function resolveSelector(selector, ownerId, tabId) {
     };
   }
 
-  // Plain CSS selector
   return { css: selector, isRef: false };
 }
 
-/**
- * Build page-context JS that returns every element matching a CSS selector in
- * composed document order. Unlike querySelectorAll(), this crosses open shadow
- * roots and same-origin frame documents while leaving closed/cross-origin roots
- * opaque.
- */
 export function buildComposedCssMatcherAllScript(selector) {
   if (typeof selector !== "string" || selector.length === 0) {
     throw new Error("CSS selector must be a non-empty string");
@@ -309,7 +262,7 @@ export function buildComposedCssMatcherAllScript(selector) {
   return `
     (() => {
       const selector = ${JSON.stringify(selector)};
-      // Validate once so an invalid selector fails even when the document is empty.
+
       document.querySelectorAll(selector);
       const matches = [];
       const seen = new Set();
@@ -321,7 +274,7 @@ export function buildComposedCssMatcherAllScript(selector) {
             const frameRoot = el.contentDocument && el.contentDocument.documentElement;
             if (frameRoot) children.push(frameRoot);
           } catch (_) {
-            // Cross-origin frames are intentionally opaque.
+
           }
         }
         return children;
@@ -338,7 +291,6 @@ export function buildComposedCssMatcherAllScript(selector) {
   `;
 }
 
-/** Build page-context JS that returns the first composed CSS match or null. */
 export function buildComposedCssMatcherScript(selector) {
   const allMatches = buildComposedCssMatcherAllScript(selector);
   return `
@@ -349,18 +301,12 @@ export function buildComposedCssMatcherScript(selector) {
   `;
 }
 
-/** Build page-context JS for either a semantic/ref locator or composed CSS. */
 export function buildResolvedElementMatcherScript(resolved) {
   return resolved.isRef
     ? buildRoleMatcherScript(resolved.role, resolved.name, resolved.nth)
     : buildComposedCssMatcherScript(resolved.css);
 }
 
-/**
- * Page-context statements that calculate an element box in top-frame viewport
- * coordinates. Frame client borders are included because child viewport (0,0)
- * begins inside the frame element's border box.
- */
 export function buildTopLevelRectSource(elementName = "el") {
   return `
     const localRect = ${elementName}.getBoundingClientRect();
@@ -383,28 +329,15 @@ export function buildTopLevelRectSource(elementName = "el") {
   `;
 }
 
-/**
- * Build an injectable script that finds an element by role+name (like Playwright's getByRole).
- * Returns a function body string to be used with chrome.scripting.executeScript.
- *
- * @param {string} role
- * @param {string} [name]
- * @param {number} [nth]
- * @returns {string} - JS code that returns the matched element or throws
- */
 function normalizeRoleMatcher(role, name, nth) {
   return isPlainObject(role) && SEMANTIC_KINDS.has(role.kind)
     ? normalizeSemanticSelector(role)
     : { kind: "role", role, name, nth, exact: true };
 }
 
-/**
- * Build page-context JS that returns every element matching a semantic locator.
- */
 export function buildRoleMatcherAllScript(role, name) {
   const matcher = normalizeRoleMatcher(role, name, undefined);
 
-  // This script runs in the page context
   return `
     (() => {
       const ROLE_TAG_MAP = {
@@ -454,7 +387,7 @@ export function buildRoleMatcherAllScript(role, name) {
             const frameBody = el.contentDocument && el.contentDocument.body;
             if (frameBody) children.push(frameBody);
           } catch (_) {
-            // Cross-origin frames are intentionally opaque.
+
           }
         }
         return children;
@@ -501,7 +434,7 @@ export function buildRoleMatcherAllScript(role, name) {
             try {
               if (el.matches(selector)) return true;
             } catch (_) {
-              // Ignore an invalid selector and continue checking the remainder.
+
             }
           }
           return false;
@@ -577,9 +510,6 @@ export function buildRoleMatcherAllScript(role, name) {
   `;
 }
 
-/**
- * Build page-context JS that returns one semantic match or throws.
- */
 export function buildRoleMatcherScript(role, name, nth) {
   const matcher = normalizeRoleMatcher(role, name, nth);
   const allMatches = buildRoleMatcherAllScript(matcher);

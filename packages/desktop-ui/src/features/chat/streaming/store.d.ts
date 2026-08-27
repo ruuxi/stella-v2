@@ -1,11 +1,3 @@
-/**
- * Pure reducer + types for the local agent stream.
- *
- * All side-effecting concerns (timers, IPC subscriptions, rAF batching,
- * React state) live in the surrounding hooks; this module is a plain
- * data transition layer so the same shapes are usable from tests
- * without a React renderer.
- */
 import type { AttachmentRef } from './chat-types';
 export type RunRecord = {
     runId: string;
@@ -17,7 +9,7 @@ export type RunRecord = {
     outcome?: 'completed' | 'error' | 'canceled';
     statusText: string | null;
     hasToolActivity: boolean;
-    /** True between a preamble's `assistant-message` and the tool it precedes. */
+
     pendingToolAfterPreamble: boolean;
     activeToolCalls: Record<string, {
         toolName: string;
@@ -50,10 +42,7 @@ export type StreamStoreAction = {
 } | {
     type: 'assistant-message-boundary';
     runId: string;
-    /**
-     * True when the message that just finalized ends with a tool call
-     * (an interim preamble, not the run's final answer).
-     */
+
     followedByToolCall?: boolean;
 } | {
     type: 'tool-start';

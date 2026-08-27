@@ -126,14 +126,14 @@ describe("installConnectWorkerApi (in-REPL surface)", () => {
     );
     expect(connect.documentation()).toContain("connect.addMcp(");
     expect(connect.documentation()).toContain("connect.remove(id)");
-    // One example each for the two transports.
+
     expect(connect.documentation()).toContain(
       'transport: { url: "https://mcp.linear.app/mcp" }',
     );
     expect(connect.documentation()).toContain(
       'transport: { command: "npx", args: ["-y", "my-mcp-server"] }',
     );
-    // The doc must not claim the client can only call connectors.
+
     expect(connect.documentation()).toContain("manages connectors too");
     expect(connect.documentation()).not.toContain("stella-connect");
 
@@ -277,7 +277,6 @@ describe("createReplConnectClient catalog surface", () => {
     await enable(root, ["outlook", "gmail"]);
     const client = createReplConnectClient({ stellaAppDir: root });
 
-    // Bundled Outlook is planning metadata only: listing works, calling fails.
     const outlookActions = (await client.actions("outlook", {
       limit: 5,
     })) as { total: number };
@@ -654,7 +653,6 @@ rl.on("line", (line) => {
     expect(skill).toContain('await connect.actions("fixture-mcp"');
     expect(skill).not.toContain("stella-connect ");
 
-    // The imported connector is immediately listable through the client.
     const actions = (await client.actions("fixture-mcp")) as {
       actions: Array<{ name: string }>;
     };
@@ -745,8 +743,6 @@ rl.on("line", (line) => {
         hint?: string;
       };
 
-      // No bridge socket → no credential dialog → the probe defers but the
-      // import is preserved (the user declared the auth shape on purpose).
       expect(result.probeDeferred).toBe(true);
       expect(result.toolCount).toBe(0);
       expect(result.hint).toContain('connect.actions("hosted-fixture")');
@@ -762,8 +758,6 @@ rl.on("line", (line) => {
         "Action list deferred until credentials are configured",
       );
 
-      // The credential lands (out of band here); the next successful tools
-      // listing rewrites the stub skill with real actions + instructions.
       await saveConnectorAccessToken(root, "hosted-fixture", "secret-token");
       const actions = (await client.actions("hosted-fixture")) as {
         actions: Array<{ name: string }>;
@@ -791,7 +785,7 @@ rl.on("line", (line) => {
       transport: { command: process.execPath, args: [serverPath] },
       auth: { type: "api_key" },
     })) as { skillPath: string; probeDeferred?: true };
-    // auth.tokenKey defaults to the connector id.
+
     await saveConnectorAccessToken(root, "fixture-mcp", "stored-secret");
     await expect(
       loadConnectorAccessToken(root, "fixture-mcp"),

@@ -1,30 +1,13 @@
 import path from 'path'
 import { spawn } from 'child_process'
 
-/**
- * Single source of truth for the directory and runtime contract used by
- * `payload.kind === 'script'` cron jobs and the `ScriptDraft` tool that
- * authors them. Keeping the dirname here means the Schedule subagent
- * never picks the path — `ScriptDraft` assigns it and the scheduler tick
- * reads it back without any string drift between the two paths.
- */
 export const SCHEDULE_SCRIPTS_DIRNAME = 'schedule-scripts'
 
-/** Resolve the absolute scripts directory under a Stella home. */
 export const scheduleScriptsDir = (stellaDataDir: string): string =>
   path.join(stellaDataDir, SCHEDULE_SCRIPTS_DIRNAME)
 
-/**
- * Wall-clock cap for both the `ScriptDraft` dry-run and every scheduled
- * fire. 30s is enough for an HTTP fetch + parse but tight enough that a
- * runaway script can't block the scheduler tick (which serializes work).
- */
 export const SCRIPT_RUN_TIMEOUT_MS = 30_000
 
-/**
- * Cap captured stdout/stderr to keep tool replies and `lastError` payloads
- * small. The script should print its message body, not log spew.
- */
 export const SCRIPT_CAPTURE_BYTES = 16 * 1024
 
 export type ScriptRunResult = {
@@ -61,12 +44,6 @@ export const createScheduleScriptAuthEnv = (
   }
 }
 
-/**
- * Run a schedule script via `bun run` with the contract documented in
- * `LocalCronPayload['script']`. Centralizes timeout, capture limits, and
- * cwd so the dry-run from `ScriptDraft` and the scheduled fire produce
- * identical execution semantics.
- */
 export const runScheduleScript = (
   scriptPath: string,
   options?: {

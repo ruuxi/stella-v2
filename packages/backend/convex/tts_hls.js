@@ -6,44 +6,15 @@ import {
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
-// ---------------------------------------------------------------------------
-// Mobile HLS progressive read-aloud transport.
-//
-// Native players (AVPlayer/ExoPlayer) cannot progressively consume a chunked,
-// length-less `audio/mpeg` stream — they need either a seekable resource or an
-// HLS playlist. The buffered GET path solved the "seekable" case but only by
-// synthesizing the WHOLE clip before serving any bytes, so audio never began
-// until Inworld had finished generating.
-//
-// This module makes mobile genuinely progressive: `prepare` schedules ONE
-// background synthesis (`synthesizeHls`) that streams Inworld once, cuts the
-// CBR MP3 into short HLS "packed audio" segments as bytes arrive, and appends
-// them to `tts_hls_segments`. The client plays a live `#EXT-X-PLAYLIST-TYPE:
-// EVENT` playlist that grows as segments land, so the first segment is audible
-// within a second — while Inworld is still generating the rest. The org key
-// never leaves this action; provider spend is metered once to the internal
-// ledger; a cooperative cancel beacon ends spend early on stop.
-// ---------------------------------------------------------------------------
-
 const INWORLD_TTS_STREAM_URL = "https://api.inworld.ai/tts/v1/voice:stream";
 
-// HLS sessions live longer than the 2-minute buffered ticket because a long
-// clip is played back in real time (a ~3-minute clip must still resolve its
-// tail segments near the end of playback). Bounded and swept by the cron.
 const HLS_TTL_MS = 15 * 60 * 1000;
 const MAX_TEXT_CHARS = 8000;
 
-// Target segment length. Short enough that the first segment is audible almost
-// immediately; long enough to keep per-segment overhead and playlist churn low.
 const TARGET_SEGMENT_SEC = 2.0;
-// Defensive ceilings so a runaway stream can't fill the table. ~600 segments of
-// ~2 s ≈ 20 minutes of audio; the input cap makes this unreachable in practice.
+
 const MAX_HLS_SEGMENTS = 600;
 const MAX_TOTAL_AUDIO_BYTES = 24 * 1024 * 1024;
-
-// ---------------------------------------------------------------------------
-// Encoding helpers
-// ---------------------------------------------------------------------------
 
 const bytesToBase64 = (bytes) => {
   let binary = "";
@@ -73,7 +44,6 @@ const concatBytes = (chunks) => {
   return out;
 };
 
-// Pull the decoded MP3 bytes out of one Inworld NDJSON line.
 const extractInworldAudioChunk = (line) => {
   let obj;
   try {
@@ -95,10 +65,6 @@ const extractInworldAudioChunk = (line) => {
   }
 };
 
-// ---------------------------------------------------------------------------
-// MP3 (MPEG audio Layer III) frame parsing
-// ---------------------------------------------------------------------------
-
 const MPEG1_L3_BITRATES = [
   0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0,
 ];
@@ -111,15 +77,13 @@ const SAMPLE_RATES = {
   2.5: [11025, 12000, 8000, 0],
 };
 
-// Parse the frame header at `i`. Returns { frameLen, durationSec } for a valid
-// Layer III frame, or null when the bytes there are not a valid frame header.
 const readFrame = (buf, i) => {
   if (i + 4 > buf.length) return null;
   if (buf[i] !== 0xff || (buf[i + 1] & 0xe0) !== 0xe0) return null;
   const versionBits = (buf[i + 1] >> 3) & 0x03;
   const layerBits = (buf[i + 1] >> 1) & 0x03;
-  if (versionBits === 1) return null; // reserved MPEG version
-  if (layerBits !== 1) return null; // require Layer III
+  if (versionBits === 1) return null;
+  if (layerBits !== 1) return null;
   const version = versionBits === 3 ? "1" : versionBits === 2 ? "2" : "2.5";
   const bitrateIndex = (buf[i + 2] >> 4) & 0x0f;
   const srIndex = (buf[i + 2] >> 2) & 0x03;
@@ -140,12 +104,9 @@ const readFrame = (buf, i) => {
   return { frameLen, durationSec: samplesPerFrame / sampleRate };
 };
 
-// If `buf` begins with an ID3v2 tag, return the offset just past it (so leading
-// metadata is skipped before frame alignment). Returns 0 when there is none or
-// the tag is not yet fully buffered.
 const id3v2Length = (buf) => {
   if (buf.length < 10) return 0;
-  if (buf[0] !== 0x49 || buf[1] !== 0x44 || buf[2] !== 0x33) return 0; // "ID3"
+  if (buf[0] !== 0x49 || buf[1] !== 0x44 || buf[2] !== 0x33) return 0;
   const size =
     ((buf[6] & 0x7f) << 21) |
     ((buf[7] & 0x7f) << 14) |
@@ -154,10 +115,6 @@ const id3v2Length = (buf) => {
   const total = 10 + size;
   return total <= buf.length ? total : 0;
 };
-
-// ---------------------------------------------------------------------------
-// ID3 transport-stream-timestamp tag (required for HLS packed audio)
-// ---------------------------------------------------------------------------
 
 const HLS_TS_OWNER = "com.apple.streaming.transportStreamTimestamp";
 
@@ -168,9 +125,6 @@ const syncsafe4 = (n) => [
   n & 0x7f,
 ];
 
-// An ID3v2.4 tag carrying a single PRIV frame with the 90 kHz MPEG-2 timestamp
-// of the segment's first sample. Every HLS packed-audio (elementary MP3)
-// segment MUST begin with this so the player can place it on the timeline.
 const buildId3Timestamp = (startSec) => {
   const owner = new TextEncoder().encode(HLS_TS_OWNER);
   const body = new Uint8Array(owner.length + 1 + 8);
@@ -183,24 +137,18 @@ const buildId3Timestamp = (startSec) => {
 
   const frameHeader = new Uint8Array(10);
   frameHeader.set(new TextEncoder().encode("PRIV"), 0);
-  // Frame body length (< 128, so synchsafe == plain here).
+
   frameHeader.set(syncsafe4(body.length), 4);
 
   const tagBodyLen = frameHeader.length + body.length;
   const tagHeader = new Uint8Array(10);
   tagHeader.set(new TextEncoder().encode("ID3"), 0);
-  tagHeader[3] = 0x04; // ID3v2.4
+  tagHeader[3] = 0x04;
   tagHeader.set(syncsafe4(tagBodyLen), 6);
 
   return concatBytes([tagHeader, frameHeader, body]);
 };
 
-// ---------------------------------------------------------------------------
-// Mutations / queries
-// ---------------------------------------------------------------------------
-
-// Create the HLS ticket row and schedule the single background synthesis. Used
-// by the mobile `prepare` route in place of the buffered `storeTicket`.
 export const startHlsSession = internalMutation({
   args: {
     ticket: v.string(),
@@ -238,7 +186,6 @@ export const startHlsSession = internalMutation({
   },
 });
 
-// Read the synthesis job for a ticket (params + owner + expiry). Owner-bound.
 export const readHlsJob = internalQuery({
   args: { ticket: v.string(), ownerId: v.string() },
   handler: async (ctx, args) => {
@@ -273,8 +220,6 @@ export const markHlsSynthesizing = internalMutation({
   },
 });
 
-// Append one finished segment: store its audio in the side table and push its
-// {seq,durationSec} onto the ticket's live manifest.
 export const appendHlsSegment = internalMutation({
   args: {
     ticket: v.string(),
@@ -332,8 +277,6 @@ export const finishHlsSession = internalMutation({
   },
 });
 
-// Cooperative stop beacon: the client posts this on "stop"; the synthesis loop
-// polls it and ends provider spend early (metered as interrupted).
 export const cancelHlsSession = internalMutation({
   args: { ticket: v.string(), ownerId: v.string(), nowMs: v.number() },
   returns: v.null(),
@@ -361,8 +304,6 @@ export const readHlsCancelFlag = internalQuery({
   },
 });
 
-// Live playlist manifest for a ticket. Returns only {seq,durationSec} metadata,
-// never segment audio. Owner-bound + TTL-checked.
 export const readHlsPlaylist = internalQuery({
   args: { ticket: v.string(), ownerId: v.string(), nowMs: v.number() },
   handler: async (ctx, args) => {
@@ -395,10 +336,6 @@ export const readHlsSegment = internalQuery({
   },
 });
 
-// ---------------------------------------------------------------------------
-// Background synthesis action
-// ---------------------------------------------------------------------------
-
 export const synthesizeHls = internalAction({
   args: { ticket: v.string(), ownerId: v.string() },
   returns: v.null(),
@@ -414,8 +351,6 @@ export const synthesizeHls = internalAction({
     const startedAt = Date.now();
     const expiresAt = job.expiresAt;
 
-    // Insert a pessimistic "interrupted" ledger row up front so a crash mid-run
-    // still records provider spend; finalized to the true terminal status.
     const usage = await ctx
       .runMutation(internal.billing.recordInternalTtsUsage, {
         ownerId: args.ownerId,
@@ -509,11 +444,10 @@ export const synthesizeHls = internalAction({
       return null;
     }
 
-    // ---- Streaming segmenter ------------------------------------------------
     const reader = upstream.body.getReader();
     const decoder = new TextDecoder();
     let textBuffer = "";
-    let mp3 = new Uint8Array(0); // unparsed MP3 bytes
+    let mp3 = new Uint8Array(0);
     let aligned = false;
     let segFrames = [];
     let segDuration = 0;
@@ -542,8 +476,6 @@ export const synthesizeHls = internalAction({
       segDuration = 0;
     };
 
-    // Consume every whole frame currently buffered, flushing segments when they
-    // reach the target duration. Leaves any trailing partial frame in `mp3`.
     const drainFrames = async () => {
       let cursor = 0;
       if (!aligned) {
@@ -557,12 +489,12 @@ export const synthesizeHls = internalAction({
         }
         const frame = readFrame(mp3, cursor);
         if (!frame) {
-          if (cursor + 4 > mp3.length) break; // need more bytes to decide
-          if (aligned) break; // stay aligned; wait for the rest of this frame
-          cursor += 1; // resync past leading junk
+          if (cursor + 4 > mp3.length) break;
+          if (aligned) break;
+          cursor += 1;
           continue;
         }
-        if (cursor + frame.frameLen > mp3.length) break; // frame not fully in yet
+        if (cursor + frame.frameLen > mp3.length) break;
         aligned = true;
         segFrames.push(mp3.slice(cursor, cursor + frame.frameLen));
         segDuration += frame.durationSec;
@@ -596,7 +528,7 @@ export const synthesizeHls = internalAction({
           textBuffer = textBuffer.slice(nl + 1);
           if (line) await takeLine(line);
         }
-        // Poll the cooperative stop beacon between network chunks.
+
         const flag = await ctx.runQuery(internal.tts_hls.readHlsCancelFlag, {
           ticket: args.ticket,
         });
@@ -623,7 +555,6 @@ export const synthesizeHls = internalAction({
       );
     }
 
-    // Flush whatever trailing audio remains as the final segment.
     await flushSegment().catch(() => undefined);
 
     const producedAudio = seq > 0;

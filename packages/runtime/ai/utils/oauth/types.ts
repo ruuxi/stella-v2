@@ -9,7 +9,6 @@ export type OAuthCredentials = {
 
 export type OAuthProviderId = string;
 
-/** @deprecated Use OAuthProviderId instead */
 export type OAuthProvider = OAuthProviderId;
 
 export type OAuthPrompt = {
@@ -28,7 +27,7 @@ export interface OAuthLoginCallbacks {
 	onPrompt: (prompt: OAuthPrompt) => Promise<string>;
 	onProgress?: (message: string) => void;
 	onManualCodeInput?: () => Promise<string>;
-	/** Persist credentials before a callback-based provider reports success. */
+
 	onCredentialsReady?: (credentials: OAuthCredentials) => Promise<void>;
 	signal?: AbortSignal;
 }
@@ -37,23 +36,17 @@ export interface OAuthProviderInterface {
 	readonly id: OAuthProviderId;
 	readonly name: string;
 
-	/** Run the login flow, return credentials to persist */
 	login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials>;
 
-	/** Whether login uses a local callback server and supports manual code input. */
 	usesCallbackServer?: boolean;
 
-	/** Refresh expired credentials, return updated credentials to persist */
 	refreshToken(credentials: OAuthCredentials): Promise<OAuthCredentials>;
 
-	/** Convert credentials to API key string for the provider */
 	getApiKey(credentials: OAuthCredentials): string;
 
-	/** Optional: modify models for this provider (e.g., update baseUrl) */
 	modifyModels?(models: Model<Api>[], credentials: OAuthCredentials): Model<Api>[];
 }
 
-/** @deprecated Use OAuthProviderInterface instead */
 export interface OAuthProviderInfo {
 	id: OAuthProviderId;
 	name: string;

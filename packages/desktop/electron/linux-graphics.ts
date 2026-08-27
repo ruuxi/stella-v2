@@ -5,13 +5,6 @@ type LinuxGraphicsOptions = {
   platform?: NodeJS.Platform;
 };
 
-/**
- * Keep hardware acceleration enabled on Linux while selecting ANGLE's OpenGL
- * backend explicitly.
- *
- * Must run before Electron's `ready` event so the switches reach the GPU
- * process. macOS and Windows retain Electron's default graphics configuration.
- */
 export const configureLinuxGraphics = ({
   commandLine,
   platform = process.platform,

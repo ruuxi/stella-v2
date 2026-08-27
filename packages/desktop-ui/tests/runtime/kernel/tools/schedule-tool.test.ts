@@ -21,7 +21,6 @@ const context: ToolContext = {
   requestId: "r1",
 };
 
-/** In-memory ScheduleToolApi double mirroring LocalSchedulerService semantics. */
 const makeApi = (
   seed: LocalCronJobRecord[] = [],
   seedHeartbeats: LocalHeartbeatConfigRecord[] = [],
@@ -320,7 +319,6 @@ describe("heartbeat editing through the schedule tools", () => {
     expect(result.error).toBeUndefined();
     expect(api.heartbeats[0]?.intervalMs).toBe(24 * 60 * 60_000);
 
-    // A patch that doesn't touch cadence keeps the current interval.
     await handleScheduleUpdate(api, {
       jobId: "heartbeat:hb-1",
       prompt: "Check the deploy queue",

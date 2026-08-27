@@ -13,25 +13,6 @@ import {
 import { resolveRuntimePaths } from "../worker/runtime-paths.js";
 import type { WorkerConnection } from "./worker-lifecycle.js";
 
-/**
- * Production WorkerConnection factory: spawns or reattaches to the
- * detached UDS worker via `runtime/host/lifecycle.ts`, then wraps the
- * resulting Socket in a JsonRpcPeer plus a thin EventEmitter facade so
- * the existing `RuntimeWorkerLifecycleController` shape (which expects
- * `connection.process` to look like a `ChildProcessWithoutNullStreams`)
- * keeps working without any controller changes.
- *
- * The kill semantics are deliberately lenient: `process.kill()` on the
- * adapter just closes the socket. The worker self-shuts-down 10s after
- * the last client disconnect, so a clean Electron exit naturally
- * reaches "worker is gone" within 10s without a signal kill — and a
- * dirty Electron exit (crash) lets the worker keep running for the
- * next host to attach.
- *
- * `restart` callers that genuinely need a fresh worker call
- * `killUnderlyingWorker(stellaAppDir)` directly.
- */
-
 export type UdsWorkerConnectionFactoryOptions = {
   stellaAppDir: string;
   bunBinaryPath?: string;
@@ -48,7 +29,6 @@ const buildProcessShim = (
 ): WorkerConnection["process"] => {
   const emitter = new EventEmitter() as WorkerConnection["process"];
 
-  // The lifecycle controller reads these directly.
   Object.assign(emitter, {
     pid: workerPid,
     exitCode: null as number | null,
@@ -58,10 +38,6 @@ const buildProcessShim = (
     stderr: new EventEmitter() as unknown as WorkerConnection["process"]["stderr"],
   });
 
-  // Calling .kill() on the adapter closes the socket — does NOT kill the
-  // worker process. That is intentional: the UDS worker is detached and
-  // self-supervises; if we want the worker dead we go through the
-  // explicit lifecycle.killWorker() path.
   emitter.kill = ((_signal?: string): boolean => {
     try {
       socket.end();
@@ -71,10 +47,6 @@ const buildProcessShim = (
     }
   }) as WorkerConnection["process"]["kill"];
 
-  // ChildProcess types `exitCode` / `signalCode` as readonly. Our shim
-  // assigns these via the same Object.assign-with-mutable-cast trick we
-  // used during the initial setup so the lifecycle controller's
-  // `connection.process.exitCode` reads work.
   const writableShim = emitter as unknown as {
     exitCode: number | null;
     signalCode: NodeJS.Signals | null;
@@ -93,11 +65,6 @@ const buildProcessShim = (
   return emitter;
 };
 
-/**
- * Returns a `createConnectionAsync` factory the lifecycle controller can
- * call. Each invocation either reuses an existing detached worker or
- * spawns a new one, then returns a connection wired to the JSON-RPC peer.
- */
 export const buildUdsConnectionFactory = (
   options: UdsWorkerConnectionFactoryOptions,
 ) => {
@@ -135,23 +102,12 @@ export const buildUdsConnectionFactory = (
   };
 };
 
-/**
- * Explicit kill path — used by restart-relevant flows (runtime code
- * reload, user-triggered "Restart Stella runtime"). Does NOT touch the
- * connection; the controller's stop("restart") does that separately.
- */
 export const killDetachedWorker = async (
   stellaAppDir: string,
 ): Promise<void> => {
   await stopRunningWorker(stellaAppDir, { graceMs: 1_500 });
 };
 
-/**
- * Permanently retire a worker identity that will no longer be addressed.
- * Unlike a normal restart, migration must also remove the old hash-keyed
- * control files so an `app.asar`-keyed worker cannot be left detached after
- * packaged builds move to their directory-valued Resources root.
- */
 export const retireDetachedWorkerRoot = async (
   stellaAppDir: string,
 ): Promise<{ stopped: boolean; pid: number | null }> => {

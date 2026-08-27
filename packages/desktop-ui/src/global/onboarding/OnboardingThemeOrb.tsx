@@ -9,11 +9,6 @@ type ThemeOrbProps = {
   onPreviewEnter: () => void;
 };
 
-/**
- * Onboarding's hit target around the shared theme swatch. The swatch itself
- * (and the palette it paints) lives in `@/ui/theme-orb`, shared with the
- * settings theme picker.
- */
 export function OnboardingThemeOrb({
   theme,
   isDark,

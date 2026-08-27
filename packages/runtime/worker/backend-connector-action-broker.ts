@@ -215,13 +215,7 @@ export const createBackendConnectorActionBroker =
         requestId,
       };
     }
-    // The live backend catalog endpoint returns connector entries without
-    // an `actions` array (action schemas live server-side and are enforced
-    // by the backend on /run). When the catalog does carry actions, validate
-    // against that allowlist and each action's input schema; when it does
-    // not, fall back to the toolkit-prefix check so the broker still refuses
-    // cross-connector and arbitrary action names instead of rejecting every
-    // action against an empty allowlist.
+
     const catalogActions = entry.actions ?? [];
     const canonicalAction = catalogActions.find(
       (candidate) => candidate.name === action,

@@ -56,7 +56,7 @@ describe("resolveAnchor", () => {
 
   it("relocates by hash when lines shifted", () => {
     const shifted = ["inserted", ...lines];
-    // Anchor was taken when "gamma" sat on line 3; it now sits on line 4.
+
     expect(resolveAnchor(shifted, anchorFor(lines, 3))).toBe(3);
   });
 
@@ -180,7 +180,6 @@ describe("Read/Edit anchor round trip", () => {
         .split("\t")[0]!
         .trim();
 
-    // First edit inserts above, shifting every later line down.
     const first = await handleEdit({
       file_path: filePath,
       anchor: anchorOf("header"),
@@ -188,7 +187,6 @@ describe("Read/Edit anchor round trip", () => {
     });
     expect(first.error).toBeUndefined();
 
-    // Stale anchor for "gamma" (originally line 4, now line 5) relocates.
     const second = await handleEdit({
       file_path: filePath,
       anchor: anchorOf("gamma"),

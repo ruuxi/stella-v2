@@ -177,9 +177,6 @@ export const MOBILE_CHAT_TOOLS: Tool[] = [
   },
 ];
 
-// Four mobile tool rounds can each contain one assistant message plus up to
-// eight results. Keep the whole bounded loop so earlier calls never become
-// orphaned when a later round uses parallel tools.
 const MAX_TOOL_MESSAGES = 40;
 const MAX_TOOL_CALLS_PER_MESSAGE = 8;
 const MAX_TOOL_ID_CHARS = 256;
@@ -286,7 +283,6 @@ export const parseMobileChatToolMessages = (
   return messages;
 };
 
-/** Tool-only responses are actionable output; whitespace-only responses are not. */
 export const assistantMessageHasMobileOutput = (
   message: AssistantMessage,
 ): boolean =>

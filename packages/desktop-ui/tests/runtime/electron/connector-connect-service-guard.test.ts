@@ -67,9 +67,6 @@ const waitFor = async (predicate: () => boolean) => {
   throw new Error("condition not reached");
 };
 
-// `waitFor` for fake-timer tests: `setImmediate` stays real when only
-// `setTimeout`/`clearTimeout` are faked, so real async I/O (fs, catalog
-// reads) still progresses without advancing the faked clock.
 const flushUntil = async (predicate: () => boolean) => {
   for (let attempt = 0; attempt < 500; attempt += 1) {
     if (predicate()) return;
@@ -268,11 +265,7 @@ describe("ConnectorConnectService canonical guards", () => {
   });
 
   it("resolves a backend Composio card via the completion status poll", async () => {
-    // The Composio-hosted OAuth page never redirects back into the app —
-    // the only completion signal is the backend's connected-account
-    // status endpoint. The accepted card must stay in "connecting" until
-    // that poll confirms, then settle connected and leave the connector
-    // locally enabled/executable for subsequent connector_status checks.
+
     const root = mkdtempSync(path.join(os.tmpdir(), "stella-connect-service-"));
     roots.push(root);
     await writeCachedServerCatalog(root, [
@@ -340,12 +333,7 @@ describe("ConnectorConnectService canonical guards", () => {
   });
 
   it("backstops a wedged connecting flow at the card timeout", async () => {
-    // Regression: the card timeout used to fire only for unanswered
-    // ("pending") cards, on the assumption that an accepted flow is
-    // always settled by a downstream owner. A wedged await inside the
-    // connect flow (e.g. a hung completion probe) therefore stranded the
-    // card on "Waiting for …" forever — and with it the blocked
-    // CLI/tool call. The timeout must settle "connecting" flows too.
+
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       const root = mkdtempSync(
@@ -379,8 +367,7 @@ describe("ConnectorConnectService canonical guards", () => {
       let approvalRequested = false;
       credentialService.requestExternalOAuthApproval.mockImplementation(() => {
         approvalRequested = true;
-        // Never settles — models a wedged network await downstream of
-        // the accepted card.
+
         return new Promise(() => undefined);
       });
 

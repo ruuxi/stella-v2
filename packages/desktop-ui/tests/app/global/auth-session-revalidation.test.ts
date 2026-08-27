@@ -1,11 +1,7 @@
-// @vitest-environment jsdom
-
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// The auth-session store calls `configurePiRuntime` before every network read;
-// stub it so the test never touches the real Electron bridge.
 vi.mock("@/platform/electron/device", () => ({
   configurePiRuntime: vi.fn().mockResolvedValue(undefined),
 }));
@@ -64,7 +60,7 @@ describe("desktop auth session revalidation", () => {
 
   it("revalidates on window focus without flashing the session back to loading", async () => {
     await mountHook();
-    // Cold-start mount already issued at least one authoritative read.
+
     expect(getAuthSession).toHaveBeenCalled();
     expect(mod.getAuthSessionSnapshot().isPending).toBe(false);
     getAuthSession.mockClear();
@@ -73,7 +69,7 @@ describe("desktop auth session revalidation", () => {
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
     });
-    // Background revalidation is silent: the signed-in gating stays put.
+
     expect(mod.getAuthSessionSnapshot().isPending).toBe(false);
 
     await flush();
@@ -92,14 +88,12 @@ describe("desktop auth session revalidation", () => {
     const afterFirst = getAuthSession.mock.calls.length;
     expect(afterFirst).toBeGreaterThan(0);
 
-    // Second focus inside the throttle window: no additional network reads.
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
     });
     await flush();
     expect(getAuthSession.mock.calls.length).toBe(afterFirst);
 
-    // Network reconnect after the throttle window elapses: revalidates again.
     nowMs += 120_000;
     await act(async () => {
       window.dispatchEvent(new Event("online"));

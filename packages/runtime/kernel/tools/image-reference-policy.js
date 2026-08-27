@@ -104,8 +104,7 @@ export const readValidatedImageFileNoFollow = async (filePath, options = {}) => 
         }
         const bytes = await readBoundedFromHandle(handle);
         await options.hooks?.afterFirstRead?.();
-        // A second descriptor-positioned read prevents a same-length overwrite
-        // from producing a mixed snapshot even on coarse-timestamp filesystems.
+
         const verificationBytes = await readBoundedFromHandle(handle);
         const finalStat = await handle.stat();
         if (finalStat.nlink !== 1 ||

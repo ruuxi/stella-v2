@@ -1,10 +1,6 @@
 import { type Validator, type Value, v } from "convex/values";
 import { ConvexError } from "convex/values";
 
-/**
- * Runtime bounded-string check. Convex has no v.custom(), so we validate
- * inside handlers and throw a structured ConvexError on violation.
- */
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -48,8 +44,6 @@ export const clampPageLimit = (
 
 type JsonValidator = Validator<Value, "required", string>;
 
-// Build a JSON validator without using v.any().
-// Depth is bounded to keep validator construction finite.
 const jsonPrimitiveValidator = v.union(v.null(), v.boolean(), v.number(), v.string());
 const buildJsonValueValidator = (depth: number): JsonValidator => {
   if (depth <= 0) return jsonPrimitiveValidator as JsonValidator;
@@ -104,7 +98,6 @@ export const channelEnvelopeValidator = v.object({
 });
 export const optionalChannelEnvelopeValidator = v.optional(channelEnvelopeValidator);
 
-// Shared validators for skill secret mounts.
 export const secretMountSpecValidator = v.object({
   provider: v.string(),
   label: v.optional(v.string()),

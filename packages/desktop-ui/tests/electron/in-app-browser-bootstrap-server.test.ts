@@ -133,8 +133,6 @@ describe("InAppBrowserBootstrapServer", () => {
       servers.push(first, replacement);
       await first.start();
 
-      // Model a legacy/external takeover: Unix permits unlinking a live socket
-      // and rebinding its pathname while the old server remains open.
       unlinkSync(endpoint.path);
       await replacement.start();
       await first.stop();

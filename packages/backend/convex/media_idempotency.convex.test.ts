@@ -1,5 +1,3 @@
-/// <reference types="vite/client" />
-
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -12,12 +10,6 @@ const modules = import.meta.glob("./**/*.ts");
 
 const MEDIA_OWNER_ID = "https://issuer.test|media-owner";
 
-/**
- * Every fixture here runs on Pro because image/video/audio/3D generation
- * are Pro capabilities (`capability_contract.ts`). This file is about
- * idempotency, reservation, and cancellation — the entitlement gate itself
- * is covered by `media_capability_gate.convex.test.ts`.
- */
 const createTest = async () => {
   const t = convexTest(schema, modules);
   rateLimiterTest.register(t);

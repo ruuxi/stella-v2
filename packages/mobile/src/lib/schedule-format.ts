@@ -1,11 +1,3 @@
-/**
- * Rendering helpers for schedule rows — a mobile port of the desktop
- * `global/schedule/format-schedule.ts`, trimmed to the two strings the
- * Schedule tab needs per row: a natural-language cadence line
- * (`Daily 09:00`, `Every 30 min`, `Once at Apr 14, 09:00`) and a short
- * next-run badge (`in 2h`, `tomorrow 9:00 AM`, `due`).
- */
-
 export type MobileScheduleShape =
   | { kind: "at"; atMs: number }
   | { kind: "every"; everyMs: number; anchorMs?: number }
@@ -42,7 +34,6 @@ const SHORT_MONTHS = [
 const padTime = (h: number, m: number): string =>
   `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 
-/** 12-hour clock with `AM`/`PM` — matches the desktop badge style. */
 const formatClock12 = (h: number, m: number): string => {
   const period = h >= 12 ? "PM" : "AM";
   const displayHour = h % 12 === 0 ? 12 : h % 12;
@@ -54,7 +45,6 @@ const isSameCalendarDay = (a: Date, b: Date): boolean =>
   a.getMonth() === b.getMonth() &&
   a.getDate() === b.getDate();
 
-/** Short right-aligned next-run text, e.g. `in 2h` or `tomorrow 9:00 AM`. */
 export const formatNextRun = (nextRunAtMs: number, nowMs: number): string => {
   if (!Number.isFinite(nextRunAtMs)) return "";
   const delta = nextRunAtMs - nowMs;
@@ -115,7 +105,7 @@ const parseClockTimeFromCron = (
 
 const summarizeCron = (expr: string): string => {
   const parts = expr.trim().split(/\s+/);
-  // Accept both 5-field (m h dom mon dow) and 6-field (s m h dom mon dow).
+
   const fields = parts.length === 6 ? parts.slice(1) : parts;
   if (fields.length !== 5) return expr;
   const [minute, hour, dom, mon, dow] = fields;
@@ -158,11 +148,6 @@ const summarizeCron = (expr: string): string => {
   return expr;
 };
 
-/**
- * Natural-language one-liner for a stored schedule shape (or a heartbeat
- * interval). Falls back to the raw cron expression when the pattern is too
- * custom to summarize cheaply.
- */
 export const summarizeSchedule = (
   schedule: MobileScheduleShape | null | undefined,
   intervalMs?: number,
@@ -181,7 +166,6 @@ export const summarizeSchedule = (
   return summarizeCron(schedule.expr);
 };
 
-/** Best-effort parse of the runtime's serialized LocalCronSchedule JSON. */
 export const parseStoredSchedule = (
   value: string,
 ): MobileScheduleShape | null => {

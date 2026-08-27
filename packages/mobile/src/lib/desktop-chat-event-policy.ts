@@ -1,9 +1,3 @@
-/**
- * Match one conversation-level mobile observer to runtime events. Before the
- * root run is known, request identity rejects stale broadcasts from a previous
- * send. Once known, the run is authoritative because consumed steers retain
- * the root run while callback/request ownership advances.
- */
 export const desktopBridgeEventMatchesActiveRun = (args: {
   conversationId: string;
   requestId: string;

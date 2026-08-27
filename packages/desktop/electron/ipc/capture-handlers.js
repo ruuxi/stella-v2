@@ -105,8 +105,7 @@ export const registerCaptureHandlers = (options) => {
         const image = await win.webContents.capturePage();
         return image.toDataURL();
     });
-    // Composer capture entry point: hide the full shell, run the overlay, merge
-    // any capture, then restore the shell's previous visibility/focus state.
+
     ipcMain.handle("capture:beginRegionCapture", async (event) => {
         requirePrivileged(event, "capture:beginRegionCapture");
         if (!(await ensureScreenCapturePermission())) {

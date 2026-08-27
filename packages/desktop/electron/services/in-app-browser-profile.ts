@@ -199,7 +199,7 @@ const readProfileMetadata = async (browserRoot: string) => {
       names.set(id, name);
     }
   } catch {
-    // Local State is optional and can be changing while the browser is open.
+
   }
   return { lastUsed, names };
 };
@@ -225,8 +225,6 @@ const listProfileCandidates = async (
       continue;
     }
 
-    // Chromium profiles normally use Default/Profile N. Opera occasionally
-    // stores its profile directly in the root, which we represent as Default.
     const profileIds = names.filter(
       (name) => name === "Default" || /^Profile \d+$/.test(name),
     );
@@ -253,7 +251,7 @@ const listProfileCandidates = async (
           modifiedAt: sourceStat.mtimeMs,
         });
       } catch {
-        // A profile may disappear during browser update/cleanup.
+
       }
     }
 
@@ -364,9 +362,6 @@ export const importBrowserProfileSnapshot = async (options: {
     }
   }
 
-  // The marker is intentionally written only after all best-effort copies have
-  // settled. From this point forward Electron owns the destination and never
-  // reads live browser files again.
   await writeFile(
     markerPath,
     `${JSON.stringify(

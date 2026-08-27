@@ -1,9 +1,3 @@
-/**
- * Per-section collapse state for the consolidated left sidebar (Apps,
- * Activity, Files, Schedule). Persisted so a user's collapsed
- * sections survive reloads. Keyed by a stable section id string.
- */
-
 import { useSyncExternalStore } from "react";
 import { uiState } from "@/platform/ui-state";
 
@@ -31,7 +25,7 @@ const persist = (): void => {
 };
 
 const emit = (): void => {
-  // New Set reference so `useSyncExternalStore` consumers re-render.
+
   collapsed = new Set(collapsed);
   persist();
   for (const listener of listeners) listener();

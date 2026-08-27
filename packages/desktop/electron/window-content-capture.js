@@ -26,7 +26,7 @@ export async function captureWindowContent(x, y, options) {
     if (!windowCapture)
         return null;
     const effectiveWindowInfo = windowCapture.windowInfo;
-    // Use Vision framework layout detection for content-area cropping
+
     const contentBounds = await detectContentColumn(windowCapture, { cursorX: x, cursorY: y });
     const screenshot = cropWindowCapture(windowCapture, contentBounds);
     if (!screenshot)
@@ -37,20 +37,15 @@ export async function captureWindowContent(x, y, options) {
         axTree: windowCapture.axTree ?? effectiveWindowInfo.axTree ?? null,
     };
 }
-/**
- * Detect the content column at the cursor position using Vision framework.
- * Writes the window screenshot to a temp file, runs the native layout detector
- * which finds text block positions and uses band detection to identify the
- * column the cursor is in. Returns crop bounds or null (= use full window).
- */
+
 async function detectContentColumn(windowCapture, cursor) {
     const { bounds } = windowCapture.windowInfo;
     if (bounds.width <= 0 || bounds.height <= 0)
         return null;
-    // Compute normalized cursor position relative to window
+
     const normX = Math.max(0, Math.min(1, (cursor.cursorX - bounds.x) / bounds.width));
     const normY = Math.max(0, Math.min(1, (cursor.cursorY - bounds.y) / bounds.height));
-    // Write screenshot to temp file for the native helper
+
     const tempPath = path.join(tmpdir(), `stella_layout_${randomBytes(8).toString('hex')}.png`);
     try {
         const base64Data = windowCapture.screenshot.dataUrl.replace(/^data:image\/\w+;base64,/, '');
@@ -67,7 +62,7 @@ async function detectContentColumn(windowCapture, cursor) {
         const crop = JSON.parse(stdout);
         if (crop.width <= 0 || crop.height <= 0)
             return null;
-        // Convert normalized crop bounds back to screen coordinates
+
         return {
             x: bounds.x + crop.x * bounds.width,
             y: bounds.y + crop.y * bounds.height,

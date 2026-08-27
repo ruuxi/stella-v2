@@ -7,11 +7,7 @@ const DEFAULT_STATUS = {
     isLoading: false,
 };
 let latestStatus = DEFAULT_STATUS;
-/**
- * Single live registration. We refuse to register twice because the
- * first call already grabbed `ipcMain.handle("pet:getState")` — calling
- * `handle` a second time on the same channel throws.
- */
+
 let activeDisposer = null;
 const PET_OVERLAY_STATES = new Set([
     "idle",
@@ -38,33 +34,12 @@ const broadcast = (windowManager, channel, payload) => {
         window.webContents.send(channel, payload);
     }
 };
-/**
- * Pet IPC handlers — main process owns the canonical visibility +
- * status broadcast so any window can toggle the pet and any window can
- * push status updates that every renderer (including the dedicated
- * pet window) sees instantly. Mirrors the same fan-out pattern
- * UiStateService uses.
- *
- * Returns a disposer that removes every registered handler/listener
- * and resets the module-level state caches. The bootstrap quit-cleanup
- * calls it on app shutdown; it's also safe to call manually for
- * testing or before re-registering on a fresh `ipcMain` (e.g. in a
- * test harness). Calling `registerPetHandlers` while a previous
- * registration is still live is treated as a programmer error and
- * throws — `ipcMain.handle` would throw on its own anyway because
- * `pet:getState` is an `invoke` channel that can only have one
- * handler.
- */
+
 export const registerPetHandlers = ({ windowManager, getPetController, toggleVoiceRtc, startPetDictation, assertPrivilegedSender, }) => {
     if (activeDisposer) {
         throw new Error("registerPetHandlers called twice; dispose the previous registration first");
     }
-    // The pet's open state is whatever the controller's window
-    // currently is. Keeping it derived (rather than caching a separate
-    // `petOpen` flag) means `setOpen` calls coming from outside the
-    // pet IPC plumbing — e.g. the centralized voice toggle that opens
-    // the pet alongside activating voice — stay in sync without an
-    // extra writeback path.
+
     const isPetOpen = () => Boolean(getPetController()?.isVisible());
     const onGetState = () => ({
         open: isPetOpen(),
@@ -169,13 +144,11 @@ export const registerPetHandlers = ({ windowManager, getPetController, toggleVoi
     activeDisposer = dispose;
     return dispose;
 };
-/** Re-broadcast for cases (e.g. main-driven dismissal) where the renderer
- * isn't the originator. Kept tiny so the bootstrap layer can call it from
- * lifecycle hooks without re-importing the IPC constants. */
+
 export const broadcastPetSetOpen = (windowManager, open) => {
     broadcast(windowManager, IPC_PET_SET_OPEN, open);
 };
-/** Convenience for testing or scheduled status pushes from main itself. */
+
 export const broadcastPetStatus = (windowManager, status) => {
     if (!isPetOverlayStatus(status))
         return;

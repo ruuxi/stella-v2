@@ -10,10 +10,6 @@ import { getClientAddressKey } from "../lib/http_utils";
 
 const STRIPE_API_VERSION = "2026-05-27.dahlia";
 
-// Caps used for the Stripe webhook surface. The per-IP limit stops a
-// leaked endpoint from being used to exhaust Convex transaction budget
-// by spamming malformed payloads — it runs before Stripe's signature
-// verification, so we gate on the source IP.
 const STRIPE_WEBHOOK_PER_IP_LIMIT = 120;
 const STRIPE_WEBHOOK_PER_IP_WINDOW_MS = 60_000;
 
@@ -103,9 +99,7 @@ export const registerStripeRoutes = (http: HttpRouter) => {
     path: "/api/stripe/webhook",
     method: "POST",
     handler: httpAction(async (ctx, request) => {
-      // Per-IP guard runs *before* signature verification so a leaked
-      // endpoint or random scanner can't drive unlimited Stripe SDK
-      // verification work.
+
       const clientAddress = getClientAddressKey(request);
       if (clientAddress) {
         const ipRateLimit = await consumeWebhookRateLimit(ctx, {
@@ -158,10 +152,6 @@ export const registerStripeRoutes = (http: HttpRouter) => {
             : undefined,
       );
 
-      // Dedup via billing_stripe_events: Stripe's retry policy can fire the
-      // same event id repeatedly. The record is deleted again in the failure
-      // path below so a Stripe retry can reprocess the event — do not add a
-      // non-releasable dedup layer in front of this.
       const dedup = await ctx.runMutation(internal.billing.recordStripeEvent, {
         eventId: event.id,
         eventType: event.type,

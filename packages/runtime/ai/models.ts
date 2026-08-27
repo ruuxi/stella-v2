@@ -30,29 +30,14 @@ export function getAllModels(): Model<Api>[] {
 	return modelRuntime.getAllModels();
 }
 
-/**
- * Whether a user-facing model reference names an entry already present in the
- * registry. Both the registry namespace and the model's provider namespace
- * are accepted because routing supports both shapes.
- */
 export function isRegisteredModelReference(rawReference: string): boolean {
 	return modelRuntime.isRegisteredReference(rawReference);
 }
 
-/**
- * Register a model at runtime (e.g., from extensions).
- * If the provider doesn't exist in the registry, it is created.
- */
 export function registerModel(provider: string, model: Model<Api>): void {
 	modelRuntime.registerModel(provider, model);
 }
 
-/**
- * Remove a model from the runtime registry.
- *
- * Used by extension hot-reload so deleted or renamed extension models do not
- * linger until the worker restarts.
- */
 export function unregisterModel(provider: string, modelId: string): void {
 	modelRuntime.unregisterModel(provider, modelId);
 }
@@ -100,10 +85,6 @@ export function clampThinkingLevel<TApi extends Api>(
 	return availableLevels[0] ?? "off";
 }
 
-/**
- * Backwards-compatible xhigh check for Stella code that has not migrated to
- * model-level thinkingLevelMap yet.
- */
 export function supportsXhigh<TApi extends Api>(model: Model<TApi>): boolean {
 	if (model.thinkingLevelMap?.xhigh !== undefined) return model.thinkingLevelMap.xhigh !== null;
 	if (

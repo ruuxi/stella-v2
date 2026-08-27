@@ -75,16 +75,6 @@ import type {
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { sanitizeSensitiveData } from "@stella/contracts/sensitive-data";
 
-/**
- * External engines run node_repl through the same host dispatcher, so the
- * tool contexts they build must include context-visible demoted tool names:
- * demoted tools are deliberately absent from the direct/MCP tool list and
- * are reachable only as `tools.<name>` inside node_repl, which is gated on
- * `context.allowedToolNames`. Mirrors createPiTools' two-sided gate:
- * node_repl must be in the allowlist AND in the resolved catalog. Note
- * external engines have NO never-strand fallback — without node_repl in
- * scope, demoted tools are simply unreachable on this surface.
- */
 const widenAllowlistWithDemotedTools = (
   toolsAllowlist: string[] | undefined,
   toolCatalog: readonly { name: string }[] | undefined,
@@ -139,17 +129,6 @@ const buildToolCallPayload = (args: {
   timestamp: now(),
 });
 
-/**
- * Build an interim assistant message pairing streamed preamble text with the
- * tool call it precedes. Passing this through `recordAssistantMessageEnd`
- * stamps the emitted stream event with `followedByToolCall` (the recorder sets
- * it whenever a message carries a tool-call block), so the renderer keeps the
- * working indicator up across the preamble→tool gap instead of handing off to
- * the painted preamble text. External engines stream a visible preamble but,
- * unlike the default runtime, never record a message-end boundary before a
- * tool — so without this the indicator would dismiss on the preamble and only
- * reappear at tool-start.
- */
 export const buildPreambleToolBoundaryMessage = (args: {
   preamble: string;
   toolCallId: string;
@@ -215,7 +194,6 @@ type ExternalEngineSessionKind =
 
 type ExternalOrchestratorEngine = "claude_code_local";
 
-/** Legacy snapshots omit the field and therefore remain on native runtimes. */
 export const usesManagedSubscriptionHarness = (
   snapshot: { subscriptionHarnessEnabled?: boolean } | undefined,
 ): boolean => snapshot?.subscriptionHarnessEnabled === true;
@@ -240,9 +218,7 @@ export const selectExternalOrchestratorEngine = (
 
 const EXTERNAL_ENGINE_SESSION_PREFIXES: readonly string[] = [
   "claude_code_local:",
-  // Vanilla per-spawn Claude Code sessions are persisted under their own
-  // namespace so a takeover run never `--resume`s a vanilla conversation
-  // (and vice versa).
+
   "claude_code_local_vanilla:",
   "codex_cli:",
 ];
@@ -264,7 +240,7 @@ export const getExternalEngineSessionId = (args: {
   ) {
     return undefined;
   }
-  // Existing Claude Code sessions were stored before engine namespacing.
+
   return args.engine === "claude_code_local" ? raw : undefined;
 };
 
@@ -437,19 +413,6 @@ export const buildExternalStellaHistoryPromptMessage = (args: {
   };
 };
 
-/**
- * Build the per-turn Claude Code prompt pair.
- *
- * The stored Stella history (already checkpoint-compacted by
- * `loadThreadMessages`) is prepended to the main prompt only when there is no
- * resumable CLI session for this thread — a brand-new session or an
- * engine-switch takeover. Resumed turns must NOT re-send it: the resumed CLI
- * conversation already contains everything from prior turns, and re-injecting
- * the full history every turn grows the session transcript quadratically
- * until Claude Code's own auto-compaction fires on every turn (an endless
- * "Compacting context" loop). A lost or looping session still reseeds from
- * the checkpoint-style history through `resumeFallbackPrompt`.
- */
 export const buildClaudeCodeTurnPrompts = (args: {
   historyPromptMessage: RuntimePromptMessage | null;
   promptMessages: RuntimePromptMessage[];
@@ -515,14 +478,6 @@ const attachmentsFromQueuedMessages = (
     );
   });
 
-/**
- * Live facade for an external engine.
- *
- * Steering is queued durably at this boundary and also wakes the active
- * engine-specific delivery hook. Codex consumes the queued entries through
- * `turn/steer`; Claude Code leaves them queued, interrupts its current query,
- * and consumes them as the next message on the same streaming session.
- */
 export const createExternalLiveAgent = () => {
   const queued: ExternalQueuedMessage[] = [];
   const state = { isStreaming: true };
@@ -585,8 +540,7 @@ const runClaudeHostedTurn = async (args: {
   fileChanges?: SubagentRunResult["fileChanges"];
 }> => {
   const { runId, threadKey, runEvents } = args.session;
-  // Orchestrator sessions own the response-target tracker; subagent sessions
-  // do not (they don't drive the user-facing chat surface).
+
   const responseTargetTracker =
     args.session.kind === "orchestrator"
       ? args.session.responseTargetTracker
@@ -603,10 +557,7 @@ const runClaudeHostedTurn = async (args: {
     agentType: args.opts.agentType,
     stellaAppDir: args.opts.stellaAppDir,
   });
-  // General Claude runs are role-split at this boundary. A newly sampled
-  // durable snapshot selects Stella's harness by default; false or a legacy
-  // absent field selects vanilla Claude Code. The root Orchestrator retains
-  // the existing takeover integration.
+
   const spawnEngine = args.opts.agentContext.spawnEngine;
   const usesSubscriptionHarness =
     args.session.kind === "subagent" &&
@@ -619,11 +570,9 @@ const runClaudeHostedTurn = async (args: {
   const baseSessionKey = args.opts.agentContext.activeThreadId
     ? `${args.opts.conversationId}:${args.opts.agentContext.activeThreadId}`
     : `${args.opts.conversationId}:run:${runId}`;
-  // Mode-suffixed so a later default-engine run on the same thread never
-  // reuses a CLI process that was started with vanilla arguments.
+
   const sessionKey = vanilla ? `${baseSessionKey}:vanilla` : baseSessionKey;
-  // The persisted CLI session id is namespaced by mode too, so a takeover
-  // run never resumes a vanilla conversation on the same thread.
+
   const sessionEngine: "claude_code_local" | "claude_code_local_vanilla" =
     vanilla ? "claude_code_local_vanilla" : "claude_code_local";
   const persistedSessionId = getExternalEngineSessionId({
@@ -631,10 +580,7 @@ const runClaudeHostedTurn = async (args: {
     threadKey,
     engine: sessionEngine,
   });
-  // Parity with createPiTools: node_repl's description carries the demoted
-  // workflow text + signature catalog here too, so demoted tools stay
-  // discoverable under external engines (appendDemotedCatalogToNodeRepl is
-  // a no-op when node_repl is absent or nothing is demoted).
+
   const toolMetadata = vanilla
     ? []
     : appendDemotedCatalogToNodeRepl(
@@ -672,13 +618,7 @@ const runClaudeHostedTurn = async (args: {
       args.callbacks?.onStatus?.(runEvents.recordStatus(statusText));
     }
   };
-  // Buffers the assistant text Claude Code has streamed since the last
-  // message boundary (mirrors runCodexHostedTurn.flushPreambleBeforeTool).
-  // Claude Code CAN stream a natural-text preamble before a structured
-  // tool-request step resolves; without a boundary event the next step's text
-  // would append to the same overlay slot with no separator — visually fusing
-  // the preamble's last word with the answer's first word — and the working
-  // indicator would dismiss on the preamble across the preamble->tool gap.
+
   const attemptGeneration = Reflect.get(
     args.opts.agentContext,
     "attemptGeneration",
@@ -718,8 +658,7 @@ const runClaudeHostedTurn = async (args: {
     signal?: AbortSignal,
     onUpdate?: ToolUpdateCallback,
   ) => {
-    // The Claude Code engine runs on Anthropic; tool-result screenshots get
-    // Anthropic's high-resolution-tier caps (2576px long edge).
+
     const imageCapTarget: ImageCapTarget = { provider: "anthropic" };
     flushPreambleBeforeTool({ toolCallId, toolName, toolArgs });
     responseTargetTracker?.noteToolStart(toolName, toolArgs);
@@ -816,8 +755,6 @@ const runClaudeHostedTurn = async (args: {
       : args.opts.agentContext.spawnReasoningEffort,
   );
 
-  // Native-tool file writes (vanilla mode) accumulated across the main turn
-  // and any queued follow-up turns, deduped by path + change kind.
   const collectedFileChanges: NonNullable<SubagentRunResult["fileChanges"]> =
     [];
   const collectedFileChangeKeys = new Set<string>();
@@ -870,9 +807,7 @@ const runClaudeHostedTurn = async (args: {
           args.liveAgent?.beginSteerableTurn(() => {
             if (wasSteered) return;
             wasSteered = true;
-            // The message remains in the live queue. Claude Code's native
-            // control protocol ends this query; the loop below then writes
-            // that queued steering message to the same streaming session.
+
             nativeInterrupt = interrupt().catch(() => undefined);
           }),
         onSessionId: (sessionId: string) => {
@@ -884,9 +819,7 @@ const runClaudeHostedTurn = async (args: {
           );
         },
         onStream: (chunk) => {
-          // Text is delivered whole via `onAssistantMessage`; the buffer feeds
-          // preamble persistence and the delta only stamps the segment's
-          // first-text anchor.
+
           assistantUpdateBuffer.append(chunk);
           runEvents.noteAssistantTextChunk(chunk);
         },
@@ -900,8 +833,7 @@ const runClaudeHostedTurn = async (args: {
       completedThisTurn = true;
     } catch (error) {
       if (wasSteered && !args.opts.abortSignal?.aborted) {
-        // The partial reply belonged to the superseded instruction. The
-        // queued steering message starts a new visible response boundary.
+
         if (error instanceof ClaudeCodeSteeringInterruptError) {
           collectTurnFileChanges(error.fileChanges);
         }
@@ -911,17 +843,13 @@ const runClaudeHostedTurn = async (args: {
         throw error;
       }
     }
-    // Attach a rejection handler immediately above; do not delay the next
-    // prompt on a stale/missing control acknowledgement. The queued message
-    // remains a safe post-turn fallback if native interruption is unavailable.
+
     void nativeInterrupt;
 
     const queued = args.liveAgent?.drain() ?? [];
     if (queued.length === 0) {
       if (completedThisTurn && finalResult) {
-        // Close the live facade synchronously before the persistence awaits
-        // below. A message arriving after this point is routed into a fresh
-        // turn instead of being queued onto a turn that can no longer drain.
+
         args.liveAgent?.finish();
         break;
       }
@@ -938,9 +866,7 @@ const runClaudeHostedTurn = async (args: {
       opts: args.opts,
       promptMessages: queuedPromptMessages,
     });
-    // A queued steer continues the same external conversation. If the first
-    // turn was interrupted before Claude emitted a session id, the fallback
-    // prompt safely reseeds from Stella's durable history.
+
     const {
       prompt: queuedPrompt,
       resumeFallbackPrompt: queuedResumeFallbackPrompt,
@@ -1050,10 +976,7 @@ const runCodexHostedTurn = async (args: {
       args.callbacks?.onStatus?.(runEvents.recordStatus(statusText));
     }
   };
-  // Buffers the assistant text Codex has streamed since the last message
-  // boundary. When a tool call starts we flush it as an interim, tool-call-
-  // bearing message (see `flushPreambleBeforeTool`) so the working indicator
-  // does not dismiss on the preamble across the gap before the tool starts.
+
   const attemptGeneration = Reflect.get(
     args.opts.agentContext,
     "attemptGeneration",
@@ -1093,8 +1016,7 @@ const runCodexHostedTurn = async (args: {
     signal?: AbortSignal,
     onUpdate?: ToolUpdateCallback,
   ) => {
-    // The Codex engine runs on OpenAI; tool-result screenshots get OpenAI's
-    // image caps (2048px long edge for high detail).
+
     const imageCapTarget: ImageCapTarget = { provider: "openai" };
     flushPreambleBeforeTool({ toolCallId, toolName, toolArgs });
     responseTargetTracker?.noteToolStart(toolName, toolArgs);
@@ -1257,8 +1179,7 @@ const runCodexHostedTurn = async (args: {
         ...(activeSessionId ? { persistedSessionId: activeSessionId } : {}),
         prompt: nextPrompt,
         systemPrompt: args.systemPrompt,
-        // Scope this durability change to image_gen. Codex persists dynamic
-        // tool definitions on the engine thread, including across resume.
+
         tools: imageToolMetadata,
         cwd: localCliCwd,
         stellaDataDir: args.opts.stellaDataDir,
@@ -1297,19 +1218,14 @@ const runCodexHostedTurn = async (args: {
                   prompt: buildCodexPromptFromMessages({ promptMessages }),
                   attachments: attachmentsFromQueuedMessages(entries),
                 });
-                // Codex consumed these entries inside the current turn, so
-                // advance callback ownership/user attribution immediately.
-                // Waiting for turn completion would misattribute the reply to
-                // the hidden lifecycle message that preceded this steer.
+
                 publishQueuedUserMessageStarts({
                   entries,
                   runEvents,
                   callbacks: args.callbacks,
                 });
               } catch {
-                // The turn may have completed between notification and the
-                // app-server request. Preserve exact ordering and fall back to
-                // a normal next turn rather than losing the steering input.
+
                 args.liveAgent?.prepend(entries);
               }
             });
@@ -1323,9 +1239,7 @@ const runCodexHostedTurn = async (args: {
         },
         onCommandExecution: emitCodexCommandExecution,
         onStream: (chunk) => {
-          // Text is delivered whole via `onAssistantMessage`; the buffer feeds
-          // preamble persistence, `onProgress` feeds the Activity feed, and the
-          // delta only stamps the segment's first-text anchor.
+
           assistantUpdateBuffer.append(chunk);
           args.opts.onProgress?.(chunk);
           runEvents.noteAssistantTextChunk(chunk);
@@ -1352,8 +1266,7 @@ const runCodexHostedTurn = async (args: {
     const queued = args.liveAgent?.drain() ?? [];
     if (queued.length === 0) {
       if (completedThisTurn && finalResult) {
-        // Atomically make late input ineligible for this completed engine
-        // turn before assistant persistence yields back to the event loop.
+
         args.liveAgent?.finish();
         break;
       }
@@ -1415,8 +1328,7 @@ export const runExternalOrchestratorTurn = async (
   const liveAgent = createExternalLiveAgent();
 
   try {
-    // Thread `session.runId` into the prompt build so lifecycle hooks receive
-    // the same run identity as the native engine path.
+
     const systemPrompt = await buildRuntimeSystemPrompt({
       ...opts,
       runId: session.runId,
@@ -1464,15 +1376,7 @@ export const runExternalOrchestratorTurn = async (
     throw markOrchestratorErrorReported(error);
   } finally {
     liveAgent.finish();
-    // The external engine persisted this turn's user + assistant messages to
-    // the shared durable thread but ran entirely outside the held-over Pi
-    // `OrchestratorSession`, so that session's in-memory `state.messages`
-    // still reflects only its own prior turns. Flag it for a history refresh
-    // so a later default-engine turn on this conversation re-syncs from the
-    // store instead of prompting with stale context that omits these Claude
-    // Code turns. Mirrors how realtime voice — another out-of-band writer to
-    // the same thread — calls `notifyHistoryChanged()`. No-op when no live Pi
-    // agent exists yet (it seeds fresh from the store on first construction).
+
     opts.orchestratorSession?.notifyHistoryChanged();
   }
 };
@@ -1585,7 +1489,7 @@ export const runExternalSubagentTurn = async (
         ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
       },
     });
-    // Thread session.runId so subagent hooks receive stable run identity.
+
     const systemPrompt = await buildSubagentSystemPrompt({
       ...opts,
       runId: session.runId,
@@ -1599,10 +1503,7 @@ export const runExternalSubagentTurn = async (
       liveAgent,
     });
     const finalized = await session.finalizeSuccess(result.finalText);
-    // Vanilla-mode Claude Code executes its own file tools, so no Stella
-    // tool-end events carry these writes — surface them on the run result
-    // (same contract as the Codex branch above) so the agent-completed
-    // rollup and the chat finish card get the produced artifacts.
+
     if (result.fileChanges?.length) {
       finalized.fileChanges = result.fileChanges;
     }

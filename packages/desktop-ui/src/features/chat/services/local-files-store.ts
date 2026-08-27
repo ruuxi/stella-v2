@@ -1,22 +1,8 @@
-/**
- * Renderer-side client for the file-events window IPC
- * (`localChat:listFiles`). Same shape as `local-activity-store.ts`:
- * one entry per `(conversationId, limit)` key, refetched on every
- * `localChat:updated` notification, with a `pendingRefetch` flag so
- * updates that fire mid-read don't get dropped.
- *
- * Growing into a larger limit (ActivityHistoryDialog's "files"
- * `loadOlder`) seeds the new entry from the largest already-loaded
- * smaller window so the Recent Files list never visibly empties
- * during a grow-fetch.
- */
 import type {
   EventRecord,
   LocalChatUpdatedPayload,
 } from "@stella/contracts/local-chat";
 
-// Absent outside Electron (plain-browser `bun run dev`): degrade to an
-// empty, update-free files window instead of erroring.
 const getLocalChatApi = () => window.electronAPI?.localChat ?? null;
 
 export type LocalFilesWindow = {
@@ -125,28 +111,11 @@ const refreshEntry = (entry: LocalFilesWindowEntry): Promise<void> => {
   return entry.loading;
 };
 
-/**
- * The only event types that can carry `fileChanges` / `producedFiles` (or the
- * html canvas artifact, which is itself a `tool_result`), i.e. the only events
- * a files window is ever derived from (mirrors the backend `listFiles` filter
- * and `deriveConversationFiles`).
- */
 const FILE_BEARING_EVENT_TYPES = new Set<EventRecord["type"]>([
   "tool_result",
   "agent-completed",
 ]);
 
-/**
- * Whether a `localChat:updated` notification could possibly change a files
- * window. Each notification carries the single event that was just appended
- * (see `notifyLocalChatUpdated`), so a file window — derived solely from
- * file-carrying events — cannot have changed unless that event is a
- * `tool_result` / `agent-completed`. During streaming the notification flood
- * is overwhelmingly non-file events (assistant text chunks, reasoning,
- * progress, tool requests, user messages); refetching the whole window for
- * each of those returns identical data, so we skip them. Bulk / unknown
- * updates (no event attached) are refetched conservatively.
- */
 const updateMayAffectFilesWindow = (
   payload: LocalChatUpdatedPayload | null,
 ): boolean => {
@@ -156,11 +125,7 @@ const updateMayAffectFilesWindow = (
 };
 
 const handleLocalChatUpdated = (payload: LocalChatUpdatedPayload | null) => {
-  // Skip the (expensive: full-window IPC refetch + deserialize + snapshot
-  // clone + re-render) refresh for updates that cannot touch a files window.
-  // This is what kept the files store refetching its entire window on every
-  // streamed delta and flooding microtasks; file events are rare, so the
-  // visible window is unchanged the vast majority of updates.
+
   if (!updateMayAffectFilesWindow(payload)) return;
   for (const entry of localFilesWindows.values()) {
     if (
@@ -186,10 +151,7 @@ const getOrCreateEntry = (
   const key = localFilesWindowKey(options);
   const existing = localFilesWindows.get(key);
   if (existing) return existing;
-  // Seed from the largest already-loaded smaller window so growing
-  // the limit (ActivityHistoryDialog files loadOlder) doesn't briefly
-  // empty the visible list during the grow-fetch. Mirrors
-  // `local-activity-store`.
+
   const seed = [...localFilesWindows.values()]
     .filter(
       (entry) =>

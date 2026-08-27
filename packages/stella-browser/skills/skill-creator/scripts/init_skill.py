@@ -14,7 +14,6 @@ Examples:
 import sys
 from pathlib import Path
 
-
 SKILL_TEMPLATE = """---
 name: {skill_name}
 description: [TODO: Complete and informative explanation of what the skill does and when to use it. Include WHEN to use this skill - specific scenarios, file types, or tasks that trigger it.]
@@ -185,11 +184,9 @@ Example asset files from other skills:
 Note: This is a text placeholder. Actual assets can be any file type.
 """
 
-
 def title_case_skill_name(skill_name):
     """Convert hyphenated skill name to Title Case for display."""
     return ' '.join(word.capitalize() for word in skill_name.split('-'))
-
 
 def init_skill(skill_name, path):
     """
@@ -202,15 +199,13 @@ def init_skill(skill_name, path):
     Returns:
         Path to created skill directory, or None if error
     """
-    # Determine skill directory path
+
     skill_dir = Path(path).resolve() / skill_name
 
-    # Check if directory already exists
     if skill_dir.exists():
         print(f"[x] Error: Skill directory already exists: {skill_dir}")
         return None
 
-    # Create skill directory
     try:
         skill_dir.mkdir(parents=True, exist_ok=False)
         print(f"[OK] Created skill directory: {skill_dir}")
@@ -218,7 +213,6 @@ def init_skill(skill_name, path):
         print(f"[x] Error creating directory: {e}")
         return None
 
-    # Create SKILL.md from template
     skill_title = title_case_skill_name(skill_name)
     skill_content = SKILL_TEMPLATE.format(
         skill_name=skill_name,
@@ -233,9 +227,8 @@ def init_skill(skill_name, path):
         print(f"[x] Error creating SKILL.md: {e}")
         return None
 
-    # Create resource directories with example files
     try:
-        # Create scripts/ directory with example script
+
         scripts_dir = skill_dir / 'scripts'
         scripts_dir.mkdir(exist_ok=True)
         example_script = scripts_dir / 'example.py'
@@ -243,14 +236,12 @@ def init_skill(skill_name, path):
         example_script.chmod(0o755)
         print("[OK] Created scripts/example.py")
 
-        # Create references/ directory with example reference doc
         references_dir = skill_dir / 'references'
         references_dir.mkdir(exist_ok=True)
         example_reference = references_dir / 'api_reference.md'
         example_reference.write_text(EXAMPLE_REFERENCE.format(skill_title=skill_title))
         print("[OK] Created references/api_reference.md")
 
-        # Create assets/ directory with example asset placeholder
         assets_dir = skill_dir / 'assets'
         assets_dir.mkdir(exist_ok=True)
         example_asset = assets_dir / 'example_asset.txt'
@@ -260,7 +251,6 @@ def init_skill(skill_name, path):
         print(f"[x] Error creating resource directories: {e}")
         return None
 
-    # Print next steps
     print(f"\n[OK] Skill '{skill_name}' initialized successfully at {skill_dir}")
     print("\nNext steps:")
     print("1. Edit SKILL.md to complete the TODO items and update the description")
@@ -268,7 +258,6 @@ def init_skill(skill_name, path):
     print("3. Run the validator when ready to check the skill structure")
 
     return skill_dir
-
 
 def main():
     if len(sys.argv) < 4 or sys.argv[2] != '--path':
@@ -297,7 +286,6 @@ def main():
         sys.exit(0)
     else:
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()

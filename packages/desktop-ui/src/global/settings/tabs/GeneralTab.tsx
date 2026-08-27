@@ -528,11 +528,6 @@ export function GeneralTab() {
     [memoryEnabled, t],
   );
 
-  // Developer mode is the single gate for every power-user surface (Models
-  // picker, BYOK providers, composer mini picker/mentions, spawn_agent model
-  // routing). The write goes through the shared local-model-preferences IPC
-  // and the change event re-gates mounted surfaces immediately; agent-side
-  // effects (prompt/tool schema) apply from the next turn.
   const handleDeveloperModeChange = useCallback(
     async (enabled: boolean) => {
       const preferencesApi = window.electronAPI?.system;
@@ -568,10 +563,7 @@ export function GeneralTab() {
       getSettingsErrorMessage(error, t("settings.errors.loadPermissions")),
     [t],
   );
-  // macOS reports Screen Capture as off in-process until Stella is relaunched.
-  // screenSettingsOpenedRef tracks that we sent the user to System Settings for
-  // it; screenRestartPendingRef records that they came back with it still off
-  // (so they almost certainly enabled it and just need a relaunch).
+
   const screenSettingsOpenedRef = useRef(false);
   const screenRestartPendingRef = useRef(false);
   const normalizePermissionStatus = useCallback(
@@ -603,11 +595,6 @@ export function GeneralTab() {
     errorMessage: formatPermissionLoadError,
   });
 
-  // Returning from System Settings frequently does not fire a visibilitychange
-  // (the window was never occluded), so also listen for window focus. When the
-  // user comes back and Screen Capture still reads off, promote it to
-  // "pending restart" so the restart affordance appears instead of a row that
-  // is stuck at "Enable" forever.
   useEffect(() => {
     if (platform !== "darwin") return;
 
@@ -644,9 +631,6 @@ export function GeneralTab() {
     };
   }, [platform, refreshPermissions]);
 
-  // Clear a stale "still off / turn it on in System Settings" banner the moment
-  // a live poll detects a permission flipping on, so the user is never told a
-  // permission is off after they have already enabled it.
   const prevPermissionStatusRef = useRef(permissionStatus);
   useEffect(() => {
     const prev = prevPermissionStatusRef.current;
@@ -662,10 +646,7 @@ export function GeneralTab() {
 
   const [requestingMicrophonePermission, setRequestingMicrophonePermission] =
     useState(false);
-  // Guard + cooldown so repeated clicks can't stack openExternal calls against
-  // the System Settings URL (which corrupts its view). The ref reads the live
-  // busy state without a stale closure; the button stays disabled until the
-  // cooldown clears.
+
   const microphoneBusyRef = useRef(false);
   const microphoneCooldownTimerRef = useRef<number | null>(null);
 
@@ -717,9 +698,7 @@ export function GeneralTab() {
           await requestMicrophonePermission();
         } else if (kind === "screen") {
           const nextStatus = await requestWithSettingsFallback("screen");
-          // We've sent the user to System Settings for Screen Capture. Record
-          // that so the focus/visibility listener can promote it to "granted —
-          // restart to finish" when they return and macOS still reports it off.
+
           if (!nextStatus.screen) {
             screenSettingsOpenedRef.current = true;
           }
@@ -801,8 +780,6 @@ export function GeneralTab() {
     [confirmingAccessibilityReset, setPermissionsError, t],
   );
 
-  // Single-row toggle cards: collapse the eyebrow into the card title so
-  // we don't stack title → eyebrow → sublabel for one switch.
   const renderToggleCard = (args: {
     title: string;
     description: string;
@@ -1015,9 +992,9 @@ export function GeneralTab() {
             <h3 className="settings-card-title">
               {t("settings.workingMode.title")}
             </h3>
-            {/* Open to every plan. Orchestrator mode costs more usage
-                than a single agent, which is why the Pro card lists it,
-                but it is not gated and must not be nagged about here. */}
+            {
+
+}
             <Switch
               checked={assistantWorkingMode === "orchestrated"}
               disabled={
@@ -1248,9 +1225,6 @@ export function GeneralTab() {
   );
 }
 
-// Reset is rare and slightly destructive — render it as a small icon-style
-// affordance next to Enable rather than a co-equal pill so users don't
-// nuke their TCC entry by accident.
 function PermissionResetButton({
   disabled,
   onClick,

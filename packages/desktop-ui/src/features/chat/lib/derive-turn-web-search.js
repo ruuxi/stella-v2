@@ -1,26 +1,8 @@
-/**
- * Per-turn web-search image derivation.
- *
- * The `web` tool (search mode) persists its structured hits onto the
- * `tool_result` payload (see `runtime/kernel/tools/defs/web.ts` and the
- * worker spread in `runtime/worker/server.ts`). Each hit may carry an
- * `image`/`favicon` URL supplied by Exa. We surface those as an inline
- * "Results from the web" strip, Claude-style — but only for hits that
- * actually have a thumbnail, since the cards are image-first.
- *
- * The model never sees these URLs (the text result stays clean); this is
- * purely a renderer affordance derived from already-persisted events.
- */
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
-/** Cap so the strip stays a single tidy row regardless of result count. */
+
 const MAX_WEB_SEARCH_IMAGE_CARDS = 4;
 const isHttpUrl = (value) => typeof value === "string" && /^https?:\/\//i.test(value.trim());
-/**
- * Dedupe key for an image URL: host + path with the query string and hash
- * dropped, lowercased. Collapses the common case of the same asset served
- * at different sizes via query params (e.g. `?w=800` vs `?w=1500`) or with
- * tracking params, without false-merging same-named files across hosts.
- */
+
 const imageDedupeKey = (image) => {
     try {
         const parsed = new URL(image);
@@ -45,11 +27,7 @@ const readResultsArray = (payload) => {
     }
     return null;
 };
-/**
- * Pick the most recent `web` search result on this turn and return its
- * image-bearing hits (deduped by URL, capped). Returns `[]` for turns
- * with no web search or no thumbnailable results.
- */
+
 export const deriveTurnWebSearchResults = (events) => {
     for (let index = events.length - 1; index >= 0; index -= 1) {
         const event = events[index];
@@ -62,11 +40,7 @@ export const deriveTurnWebSearchResults = (events) => {
             continue;
         if (payload.mode !== undefined && payload.mode !== "search")
             continue;
-        // The inline "Results from the web" image strip is an orchestrator-only
-        // affordance. The general (and other sub-) agents run web searches as part
-        // of background work and must not splash thumbnails into the chat. An
-        // absent `agentType` means the orchestrator (mirrors the worker's
-        // `?? AGENT_IDS.ORCHESTRATOR` default when persisting events).
+
         const agentType = typeof payload.agentType === "string" ? payload.agentType : undefined;
         if (agentType !== undefined && agentType !== AGENT_IDS.ORCHESTRATOR) {
             continue;
@@ -101,8 +75,7 @@ export const deriveTurnWebSearchResults = (events) => {
             if (hits.length >= MAX_WEB_SEARCH_IMAGE_CARDS)
                 break;
         }
-        // First (most recent) web search on the turn wins; don't merge older
-        // searches into the same strip.
+
         return hits;
     }
     return [];

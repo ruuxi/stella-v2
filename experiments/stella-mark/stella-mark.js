@@ -1,32 +1,8 @@
-/**
- * Stella's character mark.
- *
- * A six-ray star with a face, driven the way Grok Bot drives its blob: render
- * the SVG once, then run one rAF loop that writes `d` / `transform` / `opacity`
- * straight onto the nodes. No per-frame framework work, no CSS keyframes for
- * anything that has to stay in step, and the loop parks itself when every
- * spring has settled.
- *
- * What is borrowed: the architecture (spring envelopes at a fixed substep,
- * ring-lerp morphing, a pooled node set, activity crossfades) and the
- * three-slot Gaussian bounce, where the character itself becomes the middle
- * dot.
- *
- * What is Stella's: the geometry comes from the shipping six-ray brand star;
- * the star stays a star for every activity except thinking, because a star has
- * rays you can animate and a blob does not; `twinkle` runs a light wave around
- * those rays for the default busy state; and `loading` is a band of compression
- * travelling up the body rather than a coin-flip, because a flip only reads on
- * a shape that looks the same from every angle and a star does not.
- */
-
 import { TAU, clamp, toPath, polyPath, lerpRing, spanAt, profileMax } from "./geometry.js";
 import { N, C, BLEED, VIEWBOX, VIEW_CENTER, SHAPES, ORB_RING, SPARKLE_PATH } from "./shapes.js";
 import { EYE_POSES, lerpPose } from "./eyes.js";
 
 const SVGNS = "http://www.w3.org/2000/svg";
-
-/* ------------------------------------------------------------------ physics */
 
 const spring = (v) => ({ x: v, v: 0, t: v });
 const stepSpring = (s, w, z, dt) => {
@@ -42,20 +18,17 @@ const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2
 const smoothstep = (t) => t * t * (3 - 2 * t);
 const rand = (a, b) => a + Math.random() * (b - a);
 
-/* -------------------------------------------------------------- motion spec */
-
-/** The bounce. Slot 1 is the star; slots 0 and 2 are the flanking dots. */
 const CYCLE = 1400, PHASE0 = 0.119, SIGMA = 0.15;
 const LIFT = 9, POP_LO = 0.84, POP_K = 0.22;
 const DOT_R = 22, DOT_X = 62, DOT_FUDGE = 1.02, DOT_STAGGER = 0.12;
 const DOTS_ZOOM = 1.5;
-/** Below this rendered width the mark zooms during `dots`; above it, never. */
+
 const ZOOM_SMALL_PX = 44, ZOOM_LARGE_PX = 134;
-/** The star is fully balled up by the time the envelope reaches this. */
+
 const MORPH_END = 0.62;
 
-const ENV_W = 14, ENV_Z = 1;      // activity envelope
-const FADE_W = 11, FADE_Z = 1;    // crossfade between two activities
+const ENV_W = 14, ENV_Z = 1;
+const FADE_W = 11, FADE_Z = 1;
 
 function wave(now, slot, amount, t0) {
   let p = (((now - t0) / CYCLE + PHASE0) % 1 + 1) % 1;
@@ -65,39 +38,21 @@ function wave(now, slot, amount, t0) {
   return { g, lift: g * LIFT * amount, pop: POP_LO + POP_K * g, tone: 1 - 0.5 * (1 - g) };
 }
 
-/**
- * `squeeze` — a band of compression travelling up the body, bottom to top.
- *
- * This replaces a Y-axis coin-flip, which is the obvious move for a mark and
- * the wrong one for this one. A flip only reads on a shape whose silhouette is
- * roughly the same at every angle; a six-ray star turned 40° is a different
- * star, and at 90° it is a stick. A squeeze is the opposite bet — it deforms
- * the silhouette on purpose and stays unmistakably a star the whole way.
- *
- * Everything is a function of the band's height `b`, in normalised y where -1
- * is the top tip and +1 the bottom. It starts and ends well outside the body so
- * the loop has a beat of rest instead of a seam.
- */
 const SQ_CYCLE = 1500;
-const SQ_SIGMA = 0.30;        // band width, normalised y
-const SQ_PINCH = 0.34;        // how far the waist narrows at the band
-const SQ_BULGE = 0.16;        // how far it swells just ahead of the band
-const SQ_LEAD = 0.62;         // distance from band to swell
-const SQ_LIFT = 0.052;        // how much the displaced mass rides upward
-const SQ_TRAVEL = 1.78;       // start/end height; > 1 keeps the loop seamless
-const SQ_TIP_RELIEF = 0.55;   // how much the tips are spared
-const SQ_FACE_GIVE = 0.62;    // the face deforms less than the body around it
+const SQ_SIGMA = 0.30;
+const SQ_PINCH = 0.34;
+const SQ_BULGE = 0.16;
+const SQ_LEAD = 0.62;
+const SQ_LIFT = 0.052;
+const SQ_TRAVEL = 1.78;
+const SQ_TIP_RELIEF = 0.55;
+const SQ_FACE_GIVE = 0.62;
 
 function squeezeBand(now, startedAt) {
   const p = (((now - startedAt) / SQ_CYCLE) % 1 + 1) % 1;
   return SQ_TRAVEL - 2 * SQ_TRAVEL * p;
 }
 
-/**
- * The deformation, as a point warp. Applied to the outline and to the eyes
- * alike, so the face compresses along with the body it is painted on rather
- * than floating over a shape that is moving underneath it.
- */
 function squeezeWarp(band, amount, scale = 1) {
   const lead = band - SQ_LEAD;
   return (px, py) => {
@@ -106,9 +61,7 @@ function squeezeWarp(band, amount, scale = 1) {
     const b = (ny - lead) / SQ_SIGMA;
     const pinch = Math.exp(-a * a);
     const swell = Math.exp(-b * b);
-    // Ease the pinch off toward the tips. A ray is thin to begin with, and
-    // squeezing it by the full amount turns it into a needle that reads as a
-    // rendering glitch rather than as a squeeze.
+
     const ease = 1 - SQ_TIP_RELIEF * ny * ny * ny * ny;
     const k = amount * scale;
     const sx = 1 - (SQ_PINCH * pinch * ease - SQ_BULGE * swell) * k;
@@ -116,11 +69,8 @@ function squeezeWarp(band, amount, scale = 1) {
   };
 }
 
-/* --------------------------------------------------------------- state maps */
-
 export const ACTIVITIES = ["dots", "twinkle", "orbit", "radar", "progress", "squeeze", "standby"];
 
-/** Which overlay each state runs. Absent means "just the face". */
 const ACTIVITY_OF = {
   thinking: "dots",
   working: "twinkle",
@@ -137,7 +87,6 @@ const ACTIVITY_OF = {
   "powering-down": "standby",
 };
 
-/** Body radius while an activity runs. Only `dots` collapses the star. */
 const BODY_R = {
   dots: DOT_R,
   twinkle: C,
@@ -148,7 +97,6 @@ const BODY_R = {
   standby: C,
 };
 
-/** Eye pose pools. Picked at random, never the same one twice running. */
 const POSES = {
   idle: ["neutral", "open", "neutral", "curious"],
   listening: ["wide", "open", "neutral"],
@@ -171,7 +119,6 @@ const POSES = {
   "powering-down": ["sleepy"],
 };
 
-/** How often the pose changes, per state. */
 const POSE_EVERY = {
   idle: [9000, 16000], listening: [2800, 5000], thinking: [2000, 3600],
   working: [1800, 3200], writing: [2400, 4200], searching: [1000, 1800],
@@ -182,7 +129,6 @@ const POSE_EVERY = {
   "powering-down": [6000, 9000],
 };
 
-/** How often it blinks. `null` means never. */
 const BLINK_EVERY = {
   idle: [6000, 14000], listening: [3000, 7000], thinking: [3500, 7000],
   working: [2800, 5500], writing: [3000, 6000], searching: [1600, 4000],
@@ -192,7 +138,6 @@ const BLINK_EVERY = {
   sad: [4000, 8000], sleeping: null, waking: [900, 1600], "powering-down": null,
 };
 
-/** Per-state face tuning: eye size, the gap between them, and their height. */
 const FACE_TUNE = {
   idle: [1, 1, 1],
   listening: [1.08, 1.03, 1.06],
@@ -211,16 +156,12 @@ const FACE_TUNE = {
 };
 const FACE_DEFAULT = [1, 1, 1];
 
-/* ------------------------------------------------------------------ palette */
-
 const INKS = {
-  /** The working-indicator ramp already shipping in the app. Bottom to top. */
+
   aurora: [["#00aad8", 0], ["#3493d9", 0.25], ["#4878db", 0.5], ["#7449c5", 0.75], ["#be57a4", 1]],
-  /** The logo's ramp. Louder; good on large surfaces, shouty at 24px. */
+
   vivid: [["#4ffff7", 0], ["#00b5ff", 0.22], ["#3164ff", 0.45], ["#703cff", 0.68], ["#ff45c3", 1]],
 };
-
-/* -------------------------------------------------------------------- rig */
 
 let uid = 0;
 
@@ -243,7 +184,6 @@ export function createStellaMark(host, opts = {}) {
   const reduced = typeof matchMedia === "function" &&
     matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  /* ---- DOM, built once ---- */
   const svg = document.createElementNS(SVGNS, "svg");
   svg.setAttribute("viewBox", VIEWBOX);
   svg.setAttribute("aria-hidden", "true");
@@ -299,9 +239,6 @@ export function createStellaMark(host, opts = {}) {
   }
   svg.appendChild(defs);
 
-  // Hit area that survives the group transforms. `fill:none` with
-  // `pointer-events:all` paints nothing at all — no near-transparent rectangle
-  // to band into visibility on light surfaces.
   const hit = document.createElementNS(SVGNS, "rect");
   hit.setAttribute("x", -BLEED); hit.setAttribute("y", -BLEED);
   hit.setAttribute("width", C * 2 + BLEED * 2); hit.setAttribute("height", C * 2 + BLEED * 2);
@@ -323,7 +260,6 @@ export function createStellaMark(host, opts = {}) {
 
   const inkFill = o.flat ? "var(--fg)" : stops ? `url(#${id}-ink)` : "var(--fg)";
 
-  // Flanking dots for `dots` — orb outlines, so they are the same object as the star.
   const dots = [0, 1].map(() => {
     const p = document.createElementNS(SVGNS, "path");
     p.setAttribute("d", toPath(ORB_RING));
@@ -332,8 +268,7 @@ export function createStellaMark(host, opts = {}) {
     zoomG.appendChild(p);
     return p;
   });
-  // Pooled satellites: filled sparkles for `orbit`, stroked rings for `radar`
-  // and `progress`. Hidden every frame, then re-shown by whichever activity wants them.
+
   const sparks = Array.from({ length: 5 }, () => {
     const p = document.createElementNS(SVGNS, "path");
     p.setAttribute("d", SPARKLE_PATH);
@@ -362,9 +297,7 @@ export function createStellaMark(host, opts = {}) {
     coreEl.setAttribute("fill", `url(#${id}-core)`);
     bodyG.appendChild(coreEl);
   }
-  // The light that rides the squeeze. A moving gradient inside a rect clipped
-  // to the body, so it can never spill past the silhouette while the silhouette
-  // is itself being deformed.
+
   const sweepGrad = document.createElementNS(SVGNS, "linearGradient");
   sweepGrad.id = `${id}-sweep`;
   sweepGrad.setAttribute("gradientUnits", "userSpaceOnUse");
@@ -404,15 +337,14 @@ export function createStellaMark(host, opts = {}) {
 
   host.appendChild(svg);
 
-  /* ---- mutable state ---- */
   let state = o.state;
   let shapeName = o.shape;
   let shape = SHAPES[shapeName] ?? SHAPES.star;
   let shapeFrom = shape, shapeMix = spring(1);
 
-  const env = spring(0);          // is any activity running
-  const fade = spring(1);         // crossfade current activity over previous
-  const blink = spring(1);        // eye height multiplier
+  const env = spring(0);
+  const fade = spring(1);
+  const blink = spring(1);
   const eyeSize = spring(1);
   const gazeX = spring(0), gazeY = spring(0);
   const bobX = spring(0), bobY = spring(0);
@@ -426,7 +358,7 @@ export function createStellaMark(host, opts = {}) {
   let poseMix = 1, poseDur = 160, poseAt = 0, poseIdx = 0;
   let nextPoseAt = 0, nextBlinkAt = 0;
 
-  let pointer = null;             // {x, y} in client coords
+  let pointer = null;
   let paused = o.paused;
   let running = false, raf = 0, last = 0, clock = 0;
   let boxW = o.size ?? 28, measuredAt = -1e9;
@@ -434,8 +366,6 @@ export function createStellaMark(host, opts = {}) {
   let squeezeStart = 0;
   let particles = [];
   let destroyed = false;
-
-  /* ---- derived helpers ---- */
 
   const weightOf = (name) => {
     const e = clamp(env.x, 0, 1);
@@ -486,8 +416,6 @@ export function createStellaMark(host, opts = {}) {
     wake();
   }
 
-  /* ---- particles: a sparkle burst ---- */
-
   function burst(count = 16) {
     if (reduced) return;
     for (let i = 0; i < count; i++) {
@@ -527,8 +455,6 @@ export function createStellaMark(host, opts = {}) {
     particles = next;
   }
 
-  /* ---- the ring, rebuilt only when it actually changes ---- */
-
   const workProfile = new Float64Array(N);
   const workRing = new Array(N);
   let ringCache = null;
@@ -539,11 +465,9 @@ export function createStellaMark(host, opts = {}) {
     const mixing = shapeMix.x < 0.999;
     const m = easeInOutCubic(clamp(shapeMix.x, 0, 1));
 
-    // Idle starlight: a very slow three-lobe swell running around the rays.
-    // Small enough that you register it as "alive", not as an animation.
     const shimmerAmp = paused || reduced ? 0 : 0.012 * (1 - twinkleW);
     const shimmerPhase = now * 0.0009;
-    // `twinkle`: a bright wave travelling around the star, one lap per 1.9 s.
+
     const sweep = ((now - activityStart) / 1900) * TAU;
 
     for (let i = 0; i < N; i++) {
@@ -552,7 +476,7 @@ export function createStellaMark(host, opts = {}) {
       if (shimmerAmp) r *= 1 + shimmerAmp * Math.sin(th * 3 + shimmerPhase);
       if (twinkleW > 0.004) {
         let d = Math.abs(((th - sweep) % TAU + TAU) % TAU - Math.PI);
-        d = Math.PI - d;                       // 0 at the crest
+        d = Math.PI - d;
         const g = Math.exp(-(d * d) / (2 * 0.55 * 0.55));
         r *= 1 + 0.17 * twinkleW * g;
       }
@@ -568,8 +492,6 @@ export function createStellaMark(host, opts = {}) {
     return workRing;
   }
 
-  /* ---- one frame ---- */
-
   function frame(now) {
     if (destroyed) return;
     const dtReal = Math.min((now - (last || now)) / 1000, 0.1);
@@ -584,7 +506,6 @@ export function createStellaMark(host, opts = {}) {
       if (w > 0) boxW = w;
     }
 
-    /* springs */
     env.t = activity ? 1 : 0;
     if (reduced) {
       env.x = env.t; fade.x = 1; shapeMix.x = 1;
@@ -608,7 +529,6 @@ export function createStellaMark(host, opts = {}) {
     if (fade.x > 0.996) prevActivity = null;
     if (poseMix < 1) poseMix = reduced ? 1 : clamp((t - poseAt) / poseDur, 0, 1);
 
-    /* scheduled face beats */
     if (!paused && !reduced) {
       if (t >= nextPoseAt) { pickPose(); const e = POSE_EVERY[state] ?? POSE_EVERY.idle; nextPoseAt = t + rand(e[0], e[1]); }
       if (t >= nextBlinkAt) {
@@ -617,13 +537,12 @@ export function createStellaMark(host, opts = {}) {
         const b = BLINK_EVERY[state];
         nextBlinkAt = b ? t + rand(b[0], b[1]) : Infinity;
       }
-      // Slow idle drift, two detuned sines so it never visibly repeats.
+
       bobX.t = Math.sin(t * 0.00042) * 2.6 + Math.sin(t * 0.001) * 0.9;
       bobY.t = Math.sin(t * 0.00058) * 2.0 + Math.sin(t * 0.0013) * 0.7;
       breathe.t = 1 + 0.013 * Math.sin(t * 0.0016);
     }
 
-    /* gaze */
     if (pointer) {
       const r = svg.getBoundingClientRect();
       if (r.width > 0) {
@@ -645,7 +564,6 @@ export function createStellaMark(host, opts = {}) {
     const wSqueeze = weightOf("squeeze");
     const wStandby = weightOf("standby");
 
-    /* ---- squeeze: resolved before anything is drawn, so the eyes can ride it ---- */
     let band = 0, warp = null, faceWarp = null;
     if (wSqueeze > 0.004) {
       band = squeezeBand(t, squeezeStart);
@@ -653,14 +571,12 @@ export function createStellaMark(host, opts = {}) {
       faceWarp = squeezeWarp(band, wSqueeze, SQ_FACE_GIVE);
     }
 
-    /* ---- body outline ---- */
     const ring = buildRing(t, wTwinkle);
     const morph = clamp(wDots / MORPH_END, 0, 1);
     let finalRing = morph <= 0 ? ring
       : morph >= 1 ? ORB_RING
       : lerpRing(ring, ORB_RING, easeInOutCubic(morph));
-    // Eye placement measures the undeformed silhouette: the face is painted on
-    // the star's surface and is then squeezed along with it.
+
     const layoutRing = finalRing;
     if (warp) finalRing = finalRing.map(([x, y]) => warp(x, y));
     const d = toPath(finalRing);
@@ -671,7 +587,7 @@ export function createStellaMark(host, opts = {}) {
       lastPath = d;
     }
     if (warp) {
-      // The light sits just ahead of the pinch, where the body is swelling.
+
       const y = C + (band - SQ_LEAD * 0.5) * C;
       const h = SQ_SIGMA * C * 1.5;
       sweepG.style.display = "";
@@ -682,7 +598,6 @@ export function createStellaMark(host, opts = {}) {
       sweepG.style.display = "none";
     }
 
-    /* ---- body transform: slot 1 of the bounce, plus every other activity ---- */
     const w1 = wave(t, 1, act, activityStart);
     const bodyR = activity
       ? (BODY_R[activity] ?? C) * clamp(fade.x, 0, 1) +
@@ -698,7 +613,7 @@ export function createStellaMark(host, opts = {}) {
     let bodyAlpha = 1 - (1 - w1.tone) * wDots;
 
     if (wSqueeze > 0.004) {
-      // A pinched tube gets taller. Peaks as the band crosses the middle.
+
       const inside = Math.exp(-(band * band) / (2 * 0.72 * 0.72));
       scaleY *= 1 + 0.04 * inside * wSqueeze;
       scaleX *= 1 - 0.014 * inside * wSqueeze;
@@ -719,7 +634,6 @@ export function createStellaMark(host, opts = {}) {
       glowEl.style.opacity = (0.55 + 0.45 * wTwinkle).toFixed(3);
     }
 
-    /* ---- eyes ---- */
     const face = shape.face;
     const [fSize, fGap, fHeight] = FACE_TUNE[state] ?? FACE_DEFAULT;
     const hideEyes = wDots > 0.5;
@@ -727,9 +641,8 @@ export function createStellaMark(host, opts = {}) {
     if (!hideEyes) {
       const pts = currentPosePoints();
       const socketX = C + face.dx;
-      const socketY = C + face.dy - face.ry * 0.05;   // a touch high reads friendlier
-      // `ew`/`eh` are the socket the pose is drawn into; a pose carries its own
-      // width, so `neutral` at 0.60 fills 60% of the socket's width.
+      const socketY = C + face.dy - face.ry * 0.05;
+
       const half = face.rx * 0.42 * fGap;
       const ew = face.rx * 0.78 * fSize * eyeSize.x;
       const eh = face.ry * 0.62 * fSize * fHeight * eyeSize.x * Math.max(blink.x, 0.04);
@@ -738,7 +651,7 @@ export function createStellaMark(host, opts = {}) {
         const dir = i === 0 ? -1 : 1;
         let cx = socketX + dir * half + gazeX.x;
         const cy = socketY + gazeY.x + bobY.x * 0.25;
-        // Never let an eye ride out onto a ray.
+
         cx = clamp(cx, l + ew * 0.8, r - ew * 0.8);
         let placed = pts.map(([x, y]) => [cx + x * ew, cy + y * eh]);
         if (faceWarp) placed = placed.map(([x, y]) => faceWarp(x, y));
@@ -746,7 +659,6 @@ export function createStellaMark(host, opts = {}) {
       }
     }
 
-    /* ---- overlays ---- */
     for (const s of sparks) s.style.display = "none";
     for (const r of rings) r.style.display = "none";
     for (const p of dots) p.style.display = "none";
@@ -758,14 +670,12 @@ export function createStellaMark(host, opts = {}) {
 
     stepParticles(dt);
 
-    /* ---- zoom, so the dots stay legible on small marks ---- */
     const small = 1 - smoothstep(clamp((boxW - ZOOM_SMALL_PX) / (ZOOM_LARGE_PX - ZOOM_SMALL_PX), 0, 1));
     const z = 1 + (DOTS_ZOOM - 1) * wDots * small;
     const zt = z === 1 ? "" :
       `translate(${VIEW_CENTER} ${VIEW_CENTER}) scale(${z.toFixed(4)}) translate(${-VIEW_CENTER} ${-VIEW_CENTER})`;
     if (zt !== lastZoom) { zoomG.setAttribute("transform", zt); lastZoom = zt; }
 
-    /* ---- park when there is nothing left to do ---- */
     const settled = !particles.length &&
       Math.abs(env.x - env.t) < 0.001 && Math.abs(env.v) < 0.001 &&
       poseMix >= 1 && blink.t === 1 && Math.abs(blink.x - 1) < 0.002 &&
@@ -773,8 +683,6 @@ export function createStellaMark(host, opts = {}) {
     if (reduced && settled) { running = false; raf = 0; return; }
     raf = requestAnimationFrame(frame);
   }
-
-  /* ---- activity painters ---- */
 
   function drawDots(w, t) {
     const xs = [C - DOT_X, C + DOT_X];
@@ -832,8 +740,6 @@ export function createStellaMark(host, opts = {}) {
     track.setAttribute("stroke-linecap", "round");
     track.setAttribute("opacity", (w * 0.9).toFixed(3));
   }
-
-  /* ---- lifecycle ---- */
 
   function wake() {
     if (destroyed || running) return;

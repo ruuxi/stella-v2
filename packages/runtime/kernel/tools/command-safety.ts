@@ -1,40 +1,13 @@
-/**
- * Security hardening utilities for the local tool system.
- *
- * - isDangerousCommand(): blocklist of destructive shell commands
- * - isBlockedPath(): system directory path guard for file operations
- */
-
 import path from "path";
 import os from "os";
 import { getDangerousCommandReason } from "./schemas.js";
 import { resolveHomeRelative } from "./safety.js";
 
-// ---------------------------------------------------------------------------
-// 1. Dangerous Command Blocklist
-// ---------------------------------------------------------------------------
-
-// Normal file and directory deletion commands run directly in the selected shell.
-// This blocklist remains intentionally narrow: it catches filesystem-level
-// destruction, fork bombs, and system power commands.
-
-/**
- * Check if a command string contains dangerous/destructive patterns.
- * Returns `null` if safe, or a reason string if blocked.
- */
 export const isDangerousCommand = getDangerousCommandReason;
 
-// ---------------------------------------------------------------------------
-// 2. Workspace Path Guards
-// ---------------------------------------------------------------------------
-
-/**
- * Normalized list of blocked system directory prefixes.
- * All comparisons are done case-insensitively with forward slashes.
- */
 const BLOCKED_WRITE_PATH_PREFIXES: string[] = (() => {
   const prefixes: string[] = [
-    // Unix system directories
+
     "/etc/",
     "/etc",
     "/usr/",
@@ -63,7 +36,6 @@ const BLOCKED_WRITE_PATH_PREFIXES: string[] = (() => {
     path.join(os.homedir(), ".config", "gcloud"),
   ];
 
-  // Windows system directories — normalized with forward slashes
   if (typeof process !== "undefined" && process.platform === "win32") {
     prefixes.push(
       "c:/windows/",
@@ -74,7 +46,6 @@ const BLOCKED_WRITE_PATH_PREFIXES: string[] = (() => {
       "c:/program files (x86)",
     );
 
-    // Also catch the System32 directory specifically
     prefixes.push("c:/windows/system32/", "c:/windows/system32");
   }
 
@@ -122,11 +93,8 @@ const STELLA_CREDENTIAL_FILES = [
   "connectors/.credentials.json",
 ];
 
-/**
- * Normalize a path for comparison: resolve, lower-case, forward slashes.
- */
 const normalizePath = (filePath: string): string => {
-  // Expand ~ to home dir
+
   const expanded = resolveHomeRelative(filePath);
   const resolved = path.resolve(expanded);
   return resolved.replace(/\\/g, "/").toLowerCase();
@@ -189,10 +157,6 @@ const isSensitiveStellaPath = (
   return false;
 };
 
-/**
- * Check if a file path targets a blocked system directory.
- * Returns `null` if allowed, or an error message if blocked.
- */
 export const isBlockedPath = (
   filePath: string,
   context?: { stellaDataDir?: string; stellaAppDir?: string },

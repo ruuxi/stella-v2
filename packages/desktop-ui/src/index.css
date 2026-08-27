@@ -3,23 +3,13 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* Streamdown ships pre-built JS whose markup carries Tailwind utility
- * classes (`flex-col`, `gap-2`, `-mt-10`, `rounded-xl`, …). Nothing in
- * our own source uses utility classes, so this `@source` is the ONLY
- * thing that makes Tailwind emit them — and it must resolve to the real
- * package. `../../` lands on `packages/` (no node_modules there); the
- * install is hoisted to the repo root, three levels up from `src/`.
- * With the wrong path Tailwind scanned nothing, the utilities layer came
- * out empty, and every code block rendered as a bare `display: flex` row
- * — language label, copy/download buttons and the code side by side. */
 @source "../../../node_modules/streamdown/dist/*.js";
 @import "streamdown/styles.css";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  /* Softer, macOS-native radii — generous enough to read as approachable,
-     restrained enough to stay precise. */
+
   --radius-xs: 4px;
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -63,8 +53,7 @@
 }
 
 :root {
-  /* Font families with metric-adjusted fallbacks. Manrope for UI/body;
-     Cormorant Garamond for display headings and brand voice. */
+
   --font-family-sans: "Manrope", "Manrope Fallback", system-ui, sans-serif;
   --font-family-sans--font-feature-settings: normal;
   --font-family-sans--default-weight: 400;
@@ -74,14 +63,10 @@
   --font-family-mono--font-feature-settings: "ss01" 1;
   --font-family-display: "Cormorant Garamond", Georgia, serif;
 
-  /* Accent ramp for incidental data viz (Apple system colors). */
   --stella-animation-color-1: #0a84ff;
   --stella-animation-color-2: #34c759;
   --stella-animation-color-3: #ff9f0a;
 
-  /* ── Elevation: one calm, soft family. No banding to fight now that the
-        substrate is a single flat surface, so a tight contact layer plus one
-        soft ambient layer is enough. ── */
   --shadow-subtle: 0 1px 2px rgba(0, 0, 0, 0.04);
   --shadow-sm:
     0 1px 2px rgba(0, 0, 0, 0.05),
@@ -96,7 +81,6 @@
     0 4px 12px rgba(0, 0, 0, 0.08),
     0 24px 56px rgba(0, 0, 0, 0.16);
 
-  /* Hairline-bordered control elevation. */
   --shadow-xs-border:
     0 0 0 1px rgba(0, 0, 0, 0.08),
     0 1px 2px rgba(0, 0, 0, 0.05);
@@ -106,32 +90,18 @@
     0 0 0 2px var(--background),
     0 0 0 4px var(--ring);
 
-  /* Transient overlay elevation (menus, popovers, dialogs). macOS-style
-     hairline lip + one soft drop. */
   --shadow-overlay:
     0 0 0 0.5px rgba(0, 0, 0, 0.06),
     0 10px 30px -6px rgba(0, 0, 0, 0.16);
 
-  /* Secondary button surface — subtle neutral fill that shifts on hover via
-     color, never opacity. */
   --button-secondary-base: color-mix(in srgb, var(--foreground) 5%, var(--card));
   --button-secondary-hover: color-mix(in srgb, var(--foreground) 9%, var(--card));
 
-  /* Overlays (dropdowns, popovers, dialogs, command palette, toasts) carry the
-     same soft "panel surface" tint as the sidebars / composer, but composited
-     over an OPAQUE base (`--card`) — floating overlays sit over a scrim / live
-     content, so they must never be see-through. In the flat themes this
-     resolves to clean opaque card; in colorful themes the tint blends through.
-     No backdrop-filter: the blur tokens resolve to `none`. */
   --glass-bg: var(--panel-surface-bg-gradient), var(--card);
   --glass-blur: none;
   --panel-glass-bg: var(--panel-surface-bg-gradient), var(--card);
   --panel-glass-blur: none;
 
-  /* Tint-only shell panels (workspace panel, chat sidebar, composer) — a
-     semi-transparent theme tint + soft top-to-bottom gradient and an inset
-     top highlight. No backdrop-filter, so it reads like soft glass over the
-     shifting gradient while staying cheap to paint. */
   --panel-surface-bg: color-mix(in srgb, var(--background) 50%, transparent);
   --panel-surface-bg-gradient: linear-gradient(
     to bottom,
@@ -147,16 +117,11 @@
   --panel-surface-highlight: inset 0 1px 0
     color-mix(in oklch, white 42%, transparent);
 
-  /* Opaque surface ladder. */
   --surface-inset: color-mix(in srgb, var(--foreground) 5%, var(--background));
   --surface-raised: var(--card);
   --surface-raised-hover: color-mix(in srgb, var(--foreground) 4%, var(--card));
   --surface-raised-stronger-non-alpha: var(--card);
 
-  /* Floating chrome that must stay discoverable over live content.
-     `--card` / `--border` track the page too closely (and several colorful
-     themes give `--card` an alpha channel), so overlays that sit on selected
-     text need a dedicated opaque surface + high-contrast silhouette. */
   --overlay-surface: var(--background-strong);
   --overlay-border: color-mix(in srgb, var(--foreground) 32%, var(--background));
   --overlay-border-strong: color-mix(
@@ -166,25 +131,18 @@
   );
   --overlay-shadow: 0 8px 22px -10px rgba(0, 0, 0, 0.28);
 
-  /* Text hierarchy — SOLID, opaque colors mixed toward the background so
-     contrast is deterministic (always WCAG-checked), never composited over a
-     moving substrate. Still theme-tracking via --foreground/--background. */
   --text-strong: var(--foreground);
   --text-base: color-mix(in srgb, var(--foreground) 80%, var(--background));
   --text-weak: color-mix(in srgb, var(--foreground) 58%, var(--background));
   --text-weaker: color-mix(in srgb, var(--foreground) 40%, var(--background));
   --text-interactive-base: var(--primary);
 
-  /* Color scheme */
   color-scheme: light;
 
-  /* Border tokens — derived from foreground over the opaque background so they
-     read as solid hairlines. */
   --border-strong: color-mix(in srgb, var(--foreground) 20%, var(--background));
   --border-base: color-mix(in srgb, var(--foreground) 12%, var(--background));
   --border-weak: color-mix(in srgb, var(--foreground) 7%, var(--background));
 
-  /* ── Semantic colors — macOS-native light. ── */
   --background: #ffffff;
   --background-strong: #ffffff;
   --foreground: #1d1d1f;
@@ -219,22 +177,8 @@
   --sidebar-ring: var(--ring);
 }
 
-/* ═══════════════════════════════════════════════════════════════════════
-   DESIGN SYSTEM — scales + semantic aliases
-
-   Two jobs:
-   1. Semantic aliases: many tokens were referenced but never defined
-      (--interactive, --danger, --success, --shadow-soft, …). Each is defined
-      here as a theme-aware var() alias so every call site lights up correctly
-      in light / dark at once.
-   2. Scales: type / spacing / weight / line-height / motion — the shared
-      vocabulary every component CSS migrates onto. Never raw px/weights.
-
-   NOTE: --text-base/-strong/-weak/-weaker are COLOR tokens (text hierarchy)
-   defined above. Type sizes use --font-size-*.
-   ═══════════════════════════════════════════════════════════════════════ */
 :root {
-  /* ── Semantic color aliases (resolve through the theme-driven tokens) ── */
+
   --interactive: var(--ring);
   --interactive-foreground: var(--primary-foreground);
   --success: var(--stella-animation-color-2);
@@ -245,54 +189,20 @@
   --diff-add: var(--success);
   --diff-del: var(--destructive);
 
-  /* Aliases for tokens components reached for that didn't exist */
   --text-muted: var(--text-weak);
   --surface-base: var(--background);
   --shadow-soft: var(--shadow-overlay);
   --font-mono: var(--font-family-mono);
 
-  /* ── Canonical "selected" state ───────────────────────────────────────
-     One accent recipe shared by every selection surface (tabs, segmented
-     controls, picker rows, theme/option swatches) so "you are here" reads
-     the same everywhere.
-
-     The fill + border are OPAQUE (mixed into the raised surface, not an
-     alpha tint over transparent) on purpose: an alpha tint composites over
-     whatever sits behind each element — white cards, the darker inset
-     tracks, popovers, the transparent top bar — and the same token then
-     looks like a different shade on every surface ("desynced"). An opaque
-     fill renders the identical color everywhere. `--select-fill-raised` is
-     kept as an alias so segmented thumbs and rows match exactly. */
   --select-fill: color-mix(in oklch, var(--primary) 15%, var(--surface-raised));
   --select-fill-raised: var(--select-fill);
   --select-border: color-mix(in oklch, var(--primary) 38%, var(--surface-raised));
   --select-text: var(--text-strong);
   --select-chip-shadow: var(--shadow-sm);
 
-  /* ── Quiet "selected" state — the composer's surface recipe ──────────
-     Neutral counterpart to `--select-fill` for ambient chrome (the right
-     sidebar's tabs, pickers, and rows) where an accent-tinted fill would
-     shout. Same tint + hairline the composer shell carries, so "you are
-     here" reads as the same material as the input the user already knows. */
   --select-surface-bg: var(--panel-surface-bg-gradient);
   --select-surface-border: var(--panel-surface-border);
 
-  /* ── User chat bubble ─────────────────────────────────────────────────
-     Derived from `--primary` so the bubble always carries the theme's
-     accent, but with legibility guaranteed by construction rather than by
-     trusting each theme's hand-paired `--primary-foreground` (several
-     themes pair a mid-lightness primary with white, which lands well below
-     readable contrast — and a derived fill can drift from what the pair
-     was authored against).
-
-     How: a lightness gate decides whether the fill is a "dark bubble"
-     (white text) or a "light bubble" (near-black text). Fills whose
-     primary sits in the ambiguous mid band (oklch L 0.56–0.70, where
-     NEITHER black nor white text reads well) are snapped to the nearest
-     edge of the band: L ≤ 0.65 clamps down to 0.55, L > 0.65 clamps up
-     to 0.70. The text token then flips off the same 0.65 threshold, so
-     fill and text can never disagree. Worst-case contrast ≈ 4.6:1
-     (L 0.55 fill + white text); every other theme lands higher. */
   --chat-user-bubble-fill: oklch(
     from var(--primary)
     calc(
@@ -302,8 +212,7 @@
     calc(c * 0.75)
     h
   );
-  /* Near-white on dark fills, near-black on light fills; keeps a whisper
-     of the fill's hue so the text doesn't read as foreign. */
+
   --chat-user-bubble-text: oklch(
     from var(--chat-user-bubble-fill)
     calc(0.985 - clamp(0, (l - 0.65) * 10000, 1) * 0.835)
@@ -311,20 +220,17 @@
     h
   );
 
-  /* ── Type scale (fixed px — native, never viewport-scaled). ── */
-  --font-size-2xs: 10px; /* micro labels, badge counts, mono timestamps */
-  --font-size-xs: 11px; /* secondary metadata, captions, chip sub-labels */
-  --font-size-sm: 12px; /* dense UI: sidebar items, menus, buttons, labels */
-  --font-size-base: 13px; /* body / list rows / comfortable controls (macOS body) */
-  --font-size-md: 14px; /* emphasized body, prose */
-  --font-size-lg: 15px; /* inline subheadings, prominent rows, larger inputs */
-  --font-size-xl: 17px; /* card / panel / dialog titles */
-  --font-size-2xl: 20px; /* page / section headings */
-  --font-size-3xl: 24px; /* display headings */
-  --font-size-4xl: 32px; /* hero / empty-state display type */
+  --font-size-2xs: 10px;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-base: 13px;
+  --font-size-md: 14px;
+  --font-size-lg: 15px;
+  --font-size-xl: 17px;
+  --font-size-2xl: 20px;
+  --font-size-3xl: 24px;
+  --font-size-4xl: 32px;
 
-  /* ── Spacing scale (4px grid + the three half-steps that are too common to
-        round away: 2 / 6 / 10). ── */
   --space-1: 4px;
   --space-1_5: 6px;
   --space-2: 8px;
@@ -333,28 +239,24 @@
   --space-5: 20px;
   --space-6: 24px;
 
-  /* ── Weight scale. Manrope is variable (200–800); these are the real stops. ── */
   --weight-light: 300;
   --weight-regular: 400;
   --weight-medium: 500;
   --weight-semibold: 600;
   --weight-bold: 700;
 
-  /* ── Line-height scale ── */
-  --lh-tight: 1.2; /* headings */
-  --lh-normal: 1.45; /* default body/UI */
+  --lh-tight: 1.2;
+  --lh-normal: 1.45;
 
-  /* One canonical focus ring: offset background gap + ring. */
   --focus-ring: 0 0 0 2px var(--background), 0 0 0 4px var(--ring);
 }
 
 .dark {
-  /* Dark mode accent ramp (Apple system colors, dark). */
+
   --stella-animation-color-1: #0a84ff;
   --stella-animation-color-2: #30d158;
   --stella-animation-color-3: #ff9f0a;
 
-  /* Dark elevation — slightly stronger so soft shadows read on dark surfaces. */
   --shadow-subtle: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-sm:
     0 1px 2px rgba(0, 0, 0, 0.35),
@@ -417,7 +319,6 @@
   );
   --overlay-shadow: 0 10px 24px -8px rgba(0, 0, 0, 0.5);
 
-  /* Solid, theme-tracking text ramp (mixed toward the dark background). */
   --text-strong: var(--foreground);
   --text-base: color-mix(in srgb, var(--foreground) 82%, var(--background));
   --text-weak: color-mix(in srgb, var(--foreground) 60%, var(--background));
@@ -430,7 +331,6 @@
   --border-base: color-mix(in srgb, var(--foreground) 16%, var(--background));
   --border-weak: color-mix(in srgb, var(--foreground) 10%, var(--background));
 
-  /* ── Semantic colors — macOS-native dark. ── */
   --background: #1c1c1e;
   --background-strong: #2c2c2e;
   --foreground: #f5f5f7;
@@ -476,8 +376,7 @@
     overflow: hidden;
     height: 100%;
   }
-  /* Native macOS font anti-aliasing. Forces grayscale AA to match what AppKit
-   * apps render; toggled from Settings → General. */
+
   html[data-native-font-smoothing="on"],
   html[data-native-font-smoothing="on"] body {
     -webkit-font-smoothing: antialiased;
@@ -491,13 +390,9 @@
     scroll-behavior: auto !important;
     transition-duration: 0.001ms !important;
   }
-  /* Follow the native macOS convention: hovering interactive elements shows
-   * the arrow, never the pointing-hand. */
+
 }
 
-/* The main window is a transparent, frameless Electron BrowserWindow so the
-   renderer can paint rounded corners. The shell itself paints the solid
-   surface (no gradient shows through anymore). */
 html:has(.window-shell),
 html:has(.window-shell) body,
 html:has(.window-shell) #root,
@@ -509,7 +404,6 @@ html:has(.window-shell) .app {
   background: var(--background);
 }
 
-/* Floating overlay surfaces paint their own transparent window shapes. */
 html[data-stella-window="overlay"],
 html[data-stella-window="overlay"] body,
 html[data-stella-window="overlay"] #root {

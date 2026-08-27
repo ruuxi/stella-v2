@@ -1,12 +1,3 @@
-/**
- * Push-to-talk dictation that records audio with expo-audio, ships it to the
- * Stella backend (`/api/mobile/transcribe`), and returns the transcript text.
- *
- * Mirrors desktop's dictation UX: while recording the leaf recording bar polls
- * this recorder for its waveform/timer, and on stop we wait for the transcript
- * before resolving so the caller can paste it into the composer.
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AudioModule,
@@ -25,19 +16,18 @@ import {
 } from "./mobile-audio-session";
 import { stopReadAloudForDictation } from "./read-aloud";
 
-/** Minimum elapsed time before we bother round-tripping audio to the server. */
 const MIN_RECORDING_MS = 300;
 
 export type DictationStatus = "idle" | "recording" | "transcribing";
 
 export type UseDictationOptions = {
-  /** When true, the request goes anonymously (mobile-device-id only). */
+
   anonymous: boolean;
-  /** Headers to forward (e.g. X-Stella-Mobile-Device-Id for guests). */
+
   headers?: Record<string, string>;
-  /** Optional BCP-47 hint forwarded to xAI STT. */
+
   language?: string;
-  /** Fired once a transcript comes back. */
+
   onTranscript: (text: string) => void;
 };
 
@@ -46,9 +36,9 @@ export type UseDictationResult = {
   isRecording: boolean;
   isTranscribing: boolean;
   recorder: AudioRecorder;
-  /** Resolves `true` only if recording actually began (consent + mic granted). */
+
   start: () => Promise<boolean>;
-  /** Resolves with the complete committed transcript, or null on no result. */
+
   stop: () => Promise<string | null>;
   cancel: () => Promise<string | null>;
   toggle: () => Promise<void>;
@@ -79,7 +69,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     try {
       await releaseRecordingAudioSession(lease);
     } catch {
-      // best-effort; the OS will reset on app suspension regardless.
+
     }
   }, []);
 
@@ -87,13 +77,10 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     if (statusRef.current !== "idle" || operationInFlightRef.current) {
       return false;
     }
-    // Terminal TTS stop before any permission/consent work so a late chunk
-    // cannot restart playback after the user has already asked to speak.
+
     stopReadAloudForDictation();
     operationInFlightRef.current = true;
-    // Apple 5.1.1(i): voice audio is sent to a third-party AI transcription
-    // service (xAI). Don't even start the recorder until the
-    // user has explicitly agreed to the data-sharing disclosure.
+
     if (!hasAiConsent()) {
       requestAiConsent();
       operationInFlightRef.current = false;
@@ -102,10 +89,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     try {
       const perm = await AudioModule.requestRecordingPermissionsAsync();
       if (!perm.granted) {
-        // If the user previously denied the system prompt, iOS will not
-        // show it again — the only way back is the system Settings app.
-        // Give them a one-tap path there so they can re-enable the mic
-        // without hunting through Settings manually.
+
         const canAskAgain =
           (perm as { canAskAgain?: boolean }).canAskAgain !== false;
         Alert.alert(
@@ -193,12 +177,12 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
 
       if (!commit || !uri || durationMs < MIN_RECORDING_MS) {
         safeSetStatus("idle");
-        // Cleanup the empty/cancelled clip best-effort.
+
         if (uri) {
           try {
             new File(uri).delete();
           } catch {
-            /* ignore */
+
           }
         }
         operationInFlightRef.current = false;
@@ -209,7 +193,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         try {
           new File(uri).delete();
         } catch {
-          /* ignore */
+
         }
         operationInFlightRef.current = false;
         return null;
@@ -225,7 +209,6 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         const body: Record<string, unknown> = { audio, format };
         if (options.language) body.language = options.language;
 
-        // Audio uploads can be large; allow more than the default 15s.
         const response = options.anonymous
           ? await postJsonAnonymous(path, body, {
               headers: options.headers,
@@ -259,7 +242,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         try {
           file?.delete();
         } catch {
-          /* ignore */
+
         }
         safeSetStatus("idle");
         operationInFlightRef.current = false;
@@ -279,10 +262,6 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
     }
   }, [status, start, stop]);
 
-  // On unmount, release the audio session so the mic light goes away.
-  // `useAudioRecorder` disposes the native shared object on unmount — never
-  // read `recorder.*` or `recorderState.*` in this cleanup (that throws
-  // NativeSharedObjectNotFoundException on Fast Refresh).
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -304,11 +283,6 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
   };
 }
 
-/**
- * Best-effort container inference from a file URI. The HIGH_QUALITY preset
- * emits `.m4a` on iOS / Android; web records `audio/webm`. We just need the
- * format string OpenRouter expects in `input_audio.format`.
- */
 function inferAudioFormat(uri: string): string {
   const lower = uri.toLowerCase();
   if (lower.endsWith(".m4a") || lower.endsWith(".mp4")) return "m4a";
@@ -318,6 +292,6 @@ function inferAudioFormat(uri: string): string {
   if (lower.endsWith(".ogg")) return "ogg";
   if (lower.endsWith(".webm")) return "webm";
   if (lower.endsWith(".aac")) return "aac";
-  if (lower.endsWith(".3gp")) return "m4a"; // LOW_QUALITY Android container, fallback
+  if (lower.endsWith(".3gp")) return "m4a";
   return Platform.OS === "web" ? "webm" : "m4a";
 }

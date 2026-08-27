@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-
 import { createHash } from "node:crypto";
 import {
   cpSync,

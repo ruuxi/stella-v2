@@ -336,7 +336,7 @@ describe("Codex agent runtime", () => {
         getCodexRuntimePreferences(stellaDataDir, undefined, "gpt-5.4-codex")
           .model,
       ).toBe("gpt-5.4-codex");
-      // The pin is per-run only — without it the existing order holds.
+
       expect(getCodexRuntimePreferences(stellaDataDir, undefined).model).toBe(
         "env-codex-model",
       );
@@ -351,9 +351,7 @@ describe("Codex agent runtime", () => {
   });
 
   it("honors an explicitly-picked Codex model for Stella Light agents", () => {
-    // Provenance marker set => the user actively picked this model, so a
-    // Stella Light spawn honors it instead of downgrading, and full spawns
-    // honor it too.
+
     const previousModel = process.env.STELLA_CODEX_MODEL;
     delete process.env.STELLA_CODEX_MODEL;
     const stellaDataDir = fs.mkdtempSync(
@@ -381,8 +379,7 @@ describe("Codex agent runtime", () => {
   });
 
   it("honors an explicit gpt-5.5 pick for Stella Light (marker set)", () => {
-    // Same string as the legacy baked default, but with the explicit marker
-    // it is an intentional pick and must NOT downgrade light spawns.
+
     const previousModel = process.env.STELLA_CODEX_MODEL;
     delete process.env.STELLA_CODEX_MODEL;
     const stellaDataDir = fs.mkdtempSync(
@@ -410,9 +407,7 @@ describe("Codex agent runtime", () => {
   });
 
   it("treats a legacy default codexModel as non-explicit for Stella Light", () => {
-    // Pre-upgrade prefs.json bakes the OLD materialized default (gpt-5.5) into
-    // codexModel with NO marker. It must not read as an explicit pick, so
-    // Stella Light still downgrades while full spawns keep the legacy model.
+
     const previousModel = process.env.STELLA_CODEX_MODEL;
     delete process.env.STELLA_CODEX_MODEL;
     const stellaDataDir = fs.mkdtempSync(
@@ -722,9 +717,7 @@ describe("Codex agent runtime", () => {
         "completed",
       ]);
       expect(commands[0]?.command).toContain("API_TOKEN=[REDACTED]");
-      // Guard against a silently vacuous redaction test: the fixture script
-      // must genuinely emit every secret so the not.toContain checks below are
-      // meaningful (secret present in raw input, absent after redaction).
+
       const fixtureScript = fs.readFileSync(fakeCodex, "utf8");
       for (const secret of [
         "reasoning-secret",
@@ -806,12 +799,11 @@ describe("Codex agent runtime", () => {
 
       expect(result.text).toBe("done");
       const joined = reasoning.join("");
-      // Plain short numeric/identifier assignments must survive redaction so
-      // the reasoning the feature exists to surface stays readable.
+
       expect(joined).toContain("retries=3");
       expect(joined).toContain("count=0");
       expect(joined).toContain("timeout=30");
-      // A genuinely sensitive assignment in the same delta is still redacted.
+
       expect(joined).not.toContain("leak-me");
       expect(joined).toContain("[REDACTED]");
     } finally {
@@ -1063,17 +1055,15 @@ describe("Codex agent runtime", () => {
         "    const completedTurn = { id: turn.id, status: 'completed' };",
         "    send({ id: message.id, result: { turn } });",
         "    send({ method: 'turn/started', params: { threadId, turn } });",
-        // Commentary preamble streamed as deltas (external-engines flushes it as
-        // its own bubble). These must NOT accumulate into finalText.
+
         "    send({ method: 'item/started', params: { threadId, turnId: turn.id, item: { type: 'agentMessage', id: 'msg-pre', text: '', phase: 'commentary' } } });",
         "    send({ method: 'item/agentMessage/delta', params: { threadId, turnId: turn.id, itemId: 'msg-pre', delta: 'Let me look that up. ' } });",
         "    send({ method: 'item/completed', params: { threadId, turnId: turn.id, item: { type: 'agentMessage', id: 'msg-pre', text: 'Let me look that up.', phase: 'commentary' } } });",
-        // The authoritative final answer.
+
         "    send({ method: 'item/started', params: { threadId, turnId: turn.id, item: { type: 'agentMessage', id: 'msg-final', text: '', phase: 'final_answer' } } });",
         "    send({ method: 'item/agentMessage/delta', params: { threadId, turnId: turn.id, itemId: 'msg-final', delta: 'The answer is 42.' } });",
         "    send({ method: 'item/completed', params: { threadId, turnId: turn.id, item: { type: 'agentMessage', id: 'msg-final', text: 'The answer is 42.', phase: 'final_answer' } } });",
-        // Trailing commentary streamed after the final item lands (arrives during
-        // the completion grace window) must also stay out of finalText.
+
         "    send({ method: 'item/started', params: { threadId, turnId: turn.id, item: { type: 'agentMessage', id: 'msg-note', text: '', phase: 'commentary' } } });",
         "    send({ method: 'item/agentMessage/delta', params: { threadId, turnId: turn.id, itemId: 'msg-note', delta: ' Let me know if you need more.' } });",
         "    send({ method: 'turn/completed', params: { threadId, turn: completedTurn } });",
@@ -1093,11 +1083,8 @@ describe("Codex agent runtime", () => {
         onStream: (chunk) => streamed.push(chunk),
       });
 
-      // Persisted answer is the final answer only — never the commentary
-      // preamble or the trailing commentary.
       expect(result.text).toBe("The answer is 42.");
-      // Streaming still surfaces every delta live (that is how the preamble
-      // bubble gets painted); only finalText excludes commentary.
+
       expect(streamed).toContain("Let me look that up. ");
       expect(streamed).toContain("The answer is 42.");
     } finally {

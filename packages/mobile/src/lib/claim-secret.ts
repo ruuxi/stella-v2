@@ -1,10 +1,3 @@
-/**
- * Client half of the browser -> app session handoff, for React Native.
- *
- * Mirrors `desktop-ui/src/global/auth/lib/claim-secret.ts`. The client keeps a
- * `claimSecret` in memory and sends only its SHA-256, so `/api/auth/link/status`
- * never has to return a usable credential.
- */
 import * as Crypto from "expo-crypto";
 
 const toBase64Url = (bytes: Uint8Array): string => {
@@ -19,11 +12,9 @@ const toBase64Url = (bytes: Uint8Array): string => {
     .replace(/=+$/, "");
 };
 
-/** A fresh 32-byte secret, never persisted. */
 export const generateClaimSecret = (): string =>
   toBase64Url(Crypto.getRandomBytes(32));
 
-/** base64url(SHA-256(secret)), unpadded — what the server stores. */
 export const hashClaimSecret = async (secret: string): Promise<string> => {
   const hex = await Crypto.digestStringAsync(
     Crypto.CryptoDigestAlgorithm.SHA256,
@@ -36,7 +27,6 @@ export const hashClaimSecret = async (secret: string): Promise<string> => {
   return toBase64Url(bytes);
 };
 
-/** Exchange a completed handoff for its bearer token. Single-use server-side. */
 export const claimSessionToken = async (
   convexSiteUrl: string,
   requestId: string,

@@ -112,7 +112,7 @@ describe("progress-aware context overflow recovery", () => {
   });
 
   it("scales the compaction trigger with the window while preflight uses the real window", () => {
-    // 0.5 x the model's real context window.
+
     expect(
       getCompactionTriggerTokens({
         model: { contextWindow: 1_000_000 },

@@ -1,30 +1,10 @@
-/**
- * Sub-agent management tools.
- *
- * Four tools cover the durable agent thread surface: `spawn_agent`,
- * `send_input`, and `pause_agent` manipulate threads, and `agent_status` is
- * a read-only, non-interrupting status snapshot. Exposure is two-tier and
- * depends on who owns the running thread, not only on its agent type:
- *
- *   - the orchestrator and a top-level (root-spawned) General agent get all
- *     four, so a General agent can run its own subagents;
- *   - a parent-owned General agent — one spawned BY another agent — gets the
- *     same toolset as a top-level General MINUS these four.
- *
- * The second tier is enforced by absence from the catalog rather than by the
- * depth-limit tool error, so a subagent cannot attempt a third level or steer
- * a sibling thread at all. See `getToolCatalog`'s `parentOwned` option.
- */
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { handleAgentStatus, handleSendInput, handleSpawnAgent, } from "../state.js";
 const AGENT_SPAWNERS = [
     AGENT_IDS.ORCHESTRATOR,
     AGENT_IDS.GENERAL,
 ];
-/**
- * Tools withheld from a parent-owned agent. Kept as one exported list so the
- * catalog filter and the execute-time gate can never drift apart.
- */
+
 export const AGENT_ORCHESTRATION_TOOL_NAMES = [
     "spawn_agent",
     "send_input",
@@ -32,13 +12,7 @@ export const AGENT_ORCHESTRATION_TOOL_NAMES = [
     "agent_status",
 ];
 export const SPAWN_AGENT_TOOL_NAME = "spawn_agent";
-/**
- * Developer-mode-off view of a spawn_agent definition: the same tool with the
- * `model` property removed from its schema so the model never sees a
- * model/engine override parameter. Handlers are untouched — routing machinery
- * stays intact and spawns keep using the configured default. Non-spawn tools
- * and schemas without a `model` property pass through unchanged.
- */
+
 export const withoutSpawnAgentModelParam = (tool) => {
     if (tool.name !== SPAWN_AGENT_TOOL_NAME)
         return tool;

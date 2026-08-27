@@ -41,9 +41,7 @@ describe("deriveTurnResource", () => {
   });
 
   it("surfaces orchestrator apply_patch writes to ~/.stella/outputs/html/* as canvas-html", () => {
-    // Delegated agents' html writes fold into their completion card instead
-    // (see the mid-run leak tests below); the orchestrator's own writes to
-    // the conventional output dir still surface as an inline canvas.
+
     expect(
       deriveTurnResource([
         event({
@@ -97,9 +95,7 @@ describe("deriveTurnResource", () => {
   });
 
   it("surfaces html reports written anywhere under ~/.stella/outputs/ as canvas-html", () => {
-    // Not just `outputs/html/<slug>.html` — a report dropped straight into
-    // the declared deliverables dir (e.g. `outputs/recall-report.html`) is a
-    // user-facing document, not developer source, and must get a card.
+
     expect(
       deriveTurnResource([
         event({
@@ -158,9 +154,7 @@ describe("deriveTurnResource", () => {
   });
 
   it("drops profile/log noise from producedFiles and cards the real deliverable", () => {
-    // Shell snapshot detection sweeps up incidental writes (launch logs,
-    // browser profile state) alongside the actual output — those must never
-    // become or block a card.
+
     expect(
       deriveTurnResource([
         event({
@@ -224,8 +218,7 @@ describe("deriveTurnResource", () => {
   });
 
   it("ranks ~/.stella/outputs/ deliverables above incidental produced files", () => {
-    // Both are preferred-extension media, but the declared deliverable wins
-    // the card even when the scratch file was detected first.
+
     expect(
       deriveTurnResource([
         event({
@@ -373,9 +366,7 @@ describe("deriveTurnResource", () => {
   });
 
   it("does NOT surface agent-completed producedFiles as an inline canvas (they belong on the agent completion card)", () => {
-    // Delegated-agent outputs ride `agent-completed` events; they must not
-    // roll up into the orchestrator's inline artifact card (the jumpy pop).
-    // They surface as pills on the agent's own completion card instead.
+
     expect(
       deriveTurnResource([
         event({
@@ -436,11 +427,7 @@ describe("deriveTurnResource", () => {
   });
 
   it("does NOT surface a delegated agent's MID-RUN tool_result files inline (loose-pill leak)", () => {
-    // A subagent's own tool calls are forwarded into the conversation stream
-    // as tool_result events stamped with the subagent's agentType (no
-    // agentId). They must not pop standalone pills on the orchestrator's
-    // row — the same files reach the agent-completed rollup and surface on
-    // the agent's completion card.
+
     expect(
       deriveTurnResource([
         event({
@@ -537,8 +524,7 @@ describe("deriveTurnResource", () => {
   });
 
   it("still surfaces orchestrator-DIRECT tool_result producedFiles inline (unchanged)", () => {
-    // The orchestrator ran the tool itself → files ride a `tool_result`
-    // event and must keep rendering exactly as before.
+
     expect(
       deriveTurnResource([
         event({
@@ -982,9 +968,9 @@ describe("deriveTurnResource", () => {
           payload: {
             toolName: "Write",
             fileChanges: [
-              { path: "", kind: { type: "add" } }, // empty path
-              "not an object", // invalid entry
-              { path: "/out/x.txt", kind: { type: "rename" } }, // unknown kind
+              { path: "", kind: { type: "add" } },
+              "not an object",
+              { path: "/out/x.txt", kind: { type: "rename" } },
             ],
           },
         }),

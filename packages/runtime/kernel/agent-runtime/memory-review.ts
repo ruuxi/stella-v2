@@ -1,22 +1,3 @@
-/**
- * Background Orchestrator memory review.
- *
- * Fires after the Orchestrator finalizes a successful turn whenever the
- * memory-review user-turn counter has reached the threshold (default 20) or a
- * compaction is imminent. The review is a one-shot, fire-and-forget completion
- * that:
- *
- *   1. Sees the recent Orchestrator transcript (windowed to the delta since
- *      the last review), only user and assistant text.
- *   2. Applies a conversational-continuity gate (what the user would expect
- *      Stella to recall later), excluding restated delegated agent work.
- *   3. Queues a candidate row in the Dream inbox for Dream to consolidate
- *      later.
- *
- * Errors are swallowed - this is best-effort; user already has their reply
- * by the time this fires.
- */
-
 import { completeSimple, readAssistantText } from "../../ai/stream.js";
 import { parseJsonWithRepair } from "../../ai/utils/json-parse.js";
 import type { AssistantMessage, Context, Message } from "../../ai/types.js";
@@ -97,10 +78,6 @@ const isCheckpointMessage = (msg: AgentMessage): boolean => {
   return text ? parseThreadCheckpoint(text) !== null : false;
 };
 
-/**
- * Newest message timestamp in a snapshot, or 0 when none carry one. Used as
- * the review watermark so the next pass only sees messages created after it.
- */
 export const maxMessageTimestamp = (messages: AgentMessage[]): number =>
   messages.reduce(
     (max, msg) =>
@@ -110,15 +87,6 @@ export const maxMessageTimestamp = (messages: AgentMessage[]): number =>
     0,
   );
 
-/**
- * Slice a snapshot down to the messages a review should actually read:
- * only those newer than the previous review watermark, with compaction
- * checkpoint/summary messages dropped so a post-compaction summary never
- * masquerades as fresh user signal. Because the watermark is a message
- * timestamp (not an array index), this stays correct across compaction
- * rebuilds and worker restarts — no separate "discard on compaction" reset
- * is needed.
- */
 export const sliceMessagesSinceReview = (
   messages: AgentMessage[],
   sinceMessageTs: number,
@@ -152,13 +120,6 @@ export const buildMemoryReviewUserPrompt = (
   ].join("\n");
 };
 
-/**
- * Compact "already recorded / recently proposed" context so the gate can skip
- * duplicates at the source. Combines Dream's routing map (`memory_map.md`)
- * with the most recent orchestrator-review candidate
- * notes (which may not be consolidated yet). Best-effort and bounded; returns
- * an empty string when nothing is available.
- */
 export const buildKnownMemoryContext = async (args: {
   stellaDataDir: string;
   store: RuntimeStore;
@@ -260,17 +221,11 @@ const runReview = async (args: {
   stellaDataDir: string;
   stellaAppDir: string;
   messagesSnapshot: AgentMessage[];
-  /** Only messages newer than this watermark are reviewed (0 = review all). */
+
   sinceMessageTs: number;
   resolvedLlm: ResolvedLlmRoute;
   store: RuntimeStore;
-  /**
-   * Resolves `true` when the review reached a clean terminal state (ran and
-   * parsed, even with no candidate, or had nothing new to review) so the
-   * caller may safely advance the watermark; `false` when a transient failure
-   * (no api key, LLM outage, parse/write error) means those messages should be
-   * reviewed again on a later pass.
-   */
+
 }): Promise<boolean> => {
   const useClaudeCode = shouldUseClaudeCodeAgentRuntime({
     stellaAppDir: args.stellaAppDir,
@@ -379,10 +334,7 @@ const runReview = async (args: {
       inboxId: written.id,
       title: candidate.title,
     });
-    // The candidate persists as a durable inbox row; Dream folds it on its
-    // next token-interval or pre-compaction run. We deliberately do not ping
-    // Dream here — consolidation cadence is driven by orchestrator context
-    // growth, not by each candidate write.
+
     return true;
   } catch (error) {
     logger.debug("memory-review.write-failed", {
@@ -392,16 +344,6 @@ const runReview = async (args: {
   }
 };
 
-/**
- * Fire-and-forget background memory review. Never throws; never blocks the
- * caller. Resets the user-turn counter immediately so a fast follow-up turn
- * does not double-trigger, but advances the review watermark only after the
- * review actually completes — a transient failure (provider outage, parse
- * error) must not permanently exclude those messages from a future pass.
- *
- * `sinceMessageTs` is the previous watermark (read by the caller before this
- * fires); `runReview` slices the snapshot to messages newer than it.
- */
 export const spawnMemoryReview = (args: {
   conversationId: string;
   stellaDataDir: string;
@@ -412,11 +354,10 @@ export const spawnMemoryReview = (args: {
   store: RuntimeStore;
 }): void => {
   try {
-    // Reset the counter (preserve the watermark) so a fast follow-up turn does
-    // not re-trigger while this review is in flight.
+
     args.store.resetUserTurnsSinceMemoryReview(args.conversationId);
   } catch {
-    // counter reset is best-effort
+
   }
   void runReview(args)
     .then((reviewed) => {
@@ -429,7 +370,7 @@ export const spawnMemoryReview = (args: {
           reviewedThroughTs,
         );
       } catch {
-        // watermark advance is best-effort
+
       }
     })
     .catch((error) => {

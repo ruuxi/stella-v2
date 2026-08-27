@@ -1,19 +1,3 @@
-/**
- * Built-in tool definitions.
- *
- * One file per tool under this directory exports either:
- *   - a `ToolDefinition` directly (stateless tools), or
- *   - a `createXxxTool(options)` factory returning a `ToolDefinition`
- *     (tools that need wired runtime dependencies).
- *
- * `buildBuiltinTools(options)` instantiates every built-in for a tool host.
- * The host then drops these into a single `Map<name, ToolDefinition>`
- * that drives both the catalog the model sees AND the handler dispatcher.
- *
- * No central description/schema map. No name-string lookup with a placeholder
- * fallback. If a tool isn't in the registry, the agent loop never sees it.
- */
-
 import type { ShellState } from "../shell.js";
 import type {
   ToolContext,
@@ -51,24 +35,15 @@ import type { StateContext } from "../state.js";
 import type { NodeReplKernelRegistry } from "../../computer-use/kernel.js";
 
 export type BuildBuiltinToolsContext = ToolHostOptions & {
-  /**
-   * Resolved durable state root (`stellaDataDir`, falling back to
-   * `stellaAppDir` only at the host boundary for tests). Required here so
-   * tools that persist artifacts (html, remember, script_draft) can never
-   * silently fall back to the install/repo root.
-   */
+
   stellaDataDir: string;
-  /** Initialized PTY shell state shared by exec_command / write_stdin. */
+
   shellState: ShellState;
-  /** Initialized state context for the durable spawn_agent / send_input / pause_agent tools. */
+
   stateContext: StateContext;
-  /** ToolHost-owned persistent Node kernels, disposed with the host. */
+
   nodeReplRegistry: NodeReplKernelRegistry;
-  /**
-   * Re-entrant tool dispatcher used by `multi_tool_use_parallel` to invoke
-   * sibling tools. Provided by the host since the parallel tool needs a
-   * reference to the same dispatcher it lives behind.
-   */
+
   executeTool: (
     toolName: string,
     args: Record<string, unknown>,
@@ -78,16 +53,11 @@ export type BuildBuiltinToolsContext = ToolHostOptions & {
   ) => Promise<ToolResult>;
 };
 
-/**
- * Construct every built-in tool for a host. The returned array order doesn't
- * matter — the host indexes them by name.
- */
 export const buildBuiltinTools = (
   options: BuildBuiltinToolsContext,
 ): ToolDefinition[] => {
   const tools: ToolDefinition[] = [];
 
-  // General-agent surface
   tools.push(
     createExecCommandTool(options.shellState, {
       ...(options.requestBrowserExtensionConnect
@@ -133,7 +103,6 @@ export const buildBuiltinTools = (
   );
   tools.push(createWebTool({ webSearch: options.webSearch }));
 
-  // Orchestrator coordination surface
   tools.push(createHtmlTool({ stellaDataDir: options.stellaDataDir }));
   tools.push(createMapTool());
   tools.push(createRecallTool({ contextProvider: options.contextProvider }));
@@ -144,8 +113,6 @@ export const buildBuiltinTools = (
   );
   tools.push(...createAgentTools(options.stateContext));
 
-  // Direct scheduling surface (deferred/demoted): reminder / task / watch
-  // triggers plus the sensor-script authoring tool.
   tools.push(
     ...createScheduleManageTools({ scheduleApi: options.scheduleApi }),
   );
@@ -158,13 +125,8 @@ export const buildBuiltinTools = (
     }),
   );
 
-  // (Store agent moved to backend — no local tools.)
-
-  // Fashion subagent surface
   tools.push(...createFashionControlTools({ fashionApi: options.fashionApi }));
 
-  // Demoted orchestrator connector check + inline connect card. Surfaced
-  // situationally by the connector-availability system reminder.
   tools.push(
     createConnectorStatusTool({
       stellaDataDir: options.stellaDataDir,
@@ -177,10 +139,6 @@ export const buildBuiltinTools = (
     }),
   );
 
-  // Shared file/search/dream surface
-  // Read & Grep have unrestricted handlers in the host; StrReplace and Dream
-  // are intercepted by `dispatchLocalTool` inside the Dream subagent and
-  // simply error out from the host path.
   tools.push(readTool);
   tools.push(grepTool);
   tools.push(strReplaceTool);

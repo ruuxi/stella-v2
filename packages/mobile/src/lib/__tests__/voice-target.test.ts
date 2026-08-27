@@ -1,7 +1,5 @@
 import { describe, expect, test } from "bun:test";
 
-// AsyncStorage's non-native fallback talks to `window.localStorage`; give the
-// bun test runtime an in-memory one before the storage module is exercised.
 const memoryStore = new Map<string, string>();
 (globalThis as Record<string, unknown>).window = {
   localStorage: {

@@ -1,10 +1,3 @@
-/**
- * Per-turn "end-resource" pill rendered after the assistant content.
- *
- * Clickable badge that points at the primary file the agent edited,
- * generated, or read in the turn. Click opens (or re-activates) the matching
- * tab in the workspace panel via the singleton `displayTabs` store.
- */
 import { useCallback, useMemo } from "react";
 import { getDisplayPayloadTitle } from "@stella/contracts/desktop/display-payload";
 import { DisplayTabIcon } from "@/features/workspace-display/icons";
@@ -14,14 +7,7 @@ import { basenameOf, extensionOf, isDeveloperResourceExtension, localFilePathFor
 import { OpenWithMenu } from "./OpenWithMenu";
 import { useT, useTPlural } from "@/shared/i18n";
 import "./end-resource-card.css";
-/**
- * Subtitle for an artifact card formatted as "Category · FORMAT".
- *
- * Mirrors the way macOS Finder describes a file (kind + uppercase
- * extension). The "Category" half comes from the `DisplayPayload`
- * kind (as a catalog key the caller resolves with `t()`), the "FORMAT"
- * half from the actual file extension.
- */
+
 const categoryAndFormatForPayload = (payload) => {
     const fmtFromPath = (filePath) => {
         const ext = extensionOf(filePath);
@@ -168,15 +154,10 @@ export const EndResourceCard = ({ payload }) => {
     const label = labelForPayload(payload, tPlural);
     const tooltip = tooltipForPayload(payload);
     const handleClick = useCallback(() => {
-        // Opening is deferred until click because payload-backed media/canvas
-        // registration has side effects in the shell tab adapter.
+
         openDisplayPayloadTab(payload);
     }, [payload]);
-    // Source-diff payloads must always flow through `SourceDiffEndResource`
-    // so the batches store is populated before the singleton tab is opened.
-    // Routing them through `EndResourceCard` would open an empty / stale
-    // "Code changes" tab. Guard placed after hooks so React's hook order
-    // stays stable across renders.
+
     if (payload.kind === "source-diff")
         return null;
     const localFilePath = localFilePathForPayload(payload);
@@ -203,19 +184,7 @@ export const EndResourceCard = ({ payload }) => {
       {localFilePath && <OpenWithMenu filePath={localFilePath}/>}
     </div>);
 };
-/**
- * Inline + card surface for per-turn developer file changes.
- *
- * - `batchId` keys the source-diff batch (use the assistant row's
- *   stable id so re-renders of the same turn replace the batch in
- *   place instead of stacking duplicates in the footer).
- * - When `payloads.length === 1`, renders as a quiet underlined
- *   filename.
- * - When `payloads.length > 1`, renders as the artifact card
- *   labeled "N file changes".
- * Either path pushes the batch into the source-diff store and
- * opens (or activates) the singleton "Code changes" tab.
- */
+
 export const SourceDiffEndResource = ({ batchId, payloads, }) => {
     const t = useT();
     const tPlural = useTPlural();

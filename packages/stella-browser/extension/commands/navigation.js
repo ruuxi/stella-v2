@@ -1,6 +1,3 @@
-/**
- * Navigation command handlers.
- */
 import { getActiveTab } from "./tabs.js";
 import { ensureDebugger } from "../lib/debugger.js";
 import {
@@ -10,12 +7,6 @@ import {
   throwIfCommandAborted,
 } from "./cancellation.js";
 
-/**
- * Wait for a tab to finish loading.
- * @param {number} tabId
- * @param {number} [timeout=30000]
- * @returns {Promise<void>}
- */
 function waitForLoad(tabId, timeout = 30000, signal) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -60,11 +51,9 @@ export async function handleNavigate(command) {
 
   if (!url) throw new Error("URL is required for navigate");
 
-  // Start navigation
   markCommandMutationDispatched(command);
   await chrome.tabs.update(tab.id, { url });
 
-  // Wait for load unless explicitly told not to
   if (command.waitUntil !== "none") {
     await waitForLoad(tab.id, command.timeout || 30000, command.signal);
   }
@@ -73,7 +62,6 @@ export async function handleNavigate(command) {
   const updated = await chrome.tabs.get(tab.id);
   markCommandMutationOutcomeKnown(command);
 
-  // Pre-warm debugger for subsequent commands (click, fill, eval, etc.)
   try {
     await ensureDebugger(updated.id);
   } catch {}
@@ -90,7 +78,7 @@ export async function handleBack(command) {
   const tab = await getActiveTab(command);
   markCommandMutationDispatched(command);
   await chrome.tabs.goBack(tab.id);
-  // Small delay for navigation to start
+
   await abortableCommandDelay(command, 500);
   throwIfCommandAborted(command);
   const updated = await chrome.tabs.get(tab.id);
@@ -128,7 +116,6 @@ export async function handleReload(command) {
   const updated = await chrome.tabs.get(tab.id);
   markCommandMutationOutcomeKnown(command);
 
-  // Pre-warm debugger for subsequent commands
   try {
     await ensureDebugger(updated.id);
   } catch {}

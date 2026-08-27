@@ -12,26 +12,10 @@ import { fadeHex } from "../theme/oklch";
 import type { Colors } from "../theme/colors";
 import { fonts } from "../theme/fonts";
 
-/** Sweep duration for the title shimmer — a touch quicker than the base
- *  ShimmerText so the in-progress state reads as lively (desktop parity). */
 const TITLE_SHIMMER_MS = 1900;
 
-/** Resting strength of the running title — the shimmer's bright band lifts
- *  the dimmed glyphs up to full ink as it passes (inverted polarity). Sits
- *  at the settled title's own strength (desktop `--text-shimmer-from:
- *  --text-base`) so settled and running rows agree; the passing wave alone
- *  carries the motion. */
 const RUNNING_REST_ALPHA = AGENT_ACTIVITY_INK.runningRestAlpha;
 
-/**
- * One minimal, chrome-less agent activity line — the mobile analogue of the
- * desktop `agent-activity-row`. No card surface, no border, no badges, no
- * provider icons: a leading slot that doubles as the status tell (static
- * star while the shimmering title carries the running motion, a quiet grey
- * check once done, an arrow for `send_input` follow-ups; failed rows keep
- * the plain star), the task DESCRIPTION on a single line, and a trailing
- * chevron as the tap-through affordance.
- */
 export function AgentActivityRow({
   title,
   glyph,
@@ -43,12 +27,11 @@ export function AgentActivityRow({
   glyph: AgentActivityGlyph;
   working: boolean;
   colors: Colors;
-  /** Opens the agent detail (activity hub). Row is inert when absent. */
+
   onPress?: () => void;
 }) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  // OS reduce-motion: the sweep stills entirely — static dimmed text remains
-  // the running tell (the star still marks the row as agent work).
+
   const reduceMotion = useReducedMotion();
   const shimmerActive = working && !reduceMotion;
   return (
@@ -59,9 +42,9 @@ export function AgentActivityRow({
       onPress={onPress}
       style={({ pressed }) => [styles.row, pressed && onPress ? styles.rowPressed : null]}
     >
-      {/* Status glyph at FULL strength — solid strong ink, no dimming
-          (desktop parity); only the description keeps the muted/shimmer
-          treatment. */}
+      {
+
+}
       <View style={styles.glyph}>
         {glyph === "star" ? (
           <StellaStarGlyph size={13} color={colors[AGENT_ACTIVITY_INK.glyphInk]} />
@@ -78,15 +61,10 @@ export function AgentActivityRow({
           text={title}
           active={shimmerActive}
           variant="highlight"
-          // Sweep peak lifts to full strong ink (desktop
-          // `--text-shimmer-via: --text-strong`); the resting base below is
-          // the same ink faded to the settled title's strength.
+
           color={colors.textStrong}
           textStyle={
-            // Running rows rest at the settled title's strength and the
-            // sweep lifts them to full strong ink; with the sweep stilled
-            // (reduce motion) the same resting color renders statically so
-            // the state still reads as in-progress.
+
             working
               ? [
                   styles.title,
@@ -135,13 +113,10 @@ const makeStyles = (colors: Colors) =>
       minWidth: 0,
     },
     title: {
-      // One notch up from muted (desktop --text-weak -> --text-base):
-      // comfortably readable, still clearly secondary to main-chat body
-      // text, and matching the running shimmer's resting base.
+
       color: colors[AGENT_ACTIVITY_INK.titleInk],
       fontFamily: fonts.sans.medium,
-      // Matches desktop's bumped row text size — one step up from the old
-      // 14pt so the description reads comfortably without moving the glyphs.
+
       fontSize: 15,
       lineHeight: 20,
       letterSpacing: -0.2,

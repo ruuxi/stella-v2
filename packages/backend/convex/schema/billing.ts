@@ -43,17 +43,9 @@ export const billingSchema = {
     weeklyWindowStartedAt: v.number(),
     monthlyUsageMicroCents: v.number(),
     monthlyWindowStartedAt: v.number(),
-    /**
-     * Cumulative managed-model spend that never resets. Doubles as the
-     * counter the Free plan's lifetime allowance
-     * (`STELLA_FREE_LIFETIME_LIMIT_USD`) is checked against.
-     */
+
     totalUsageMicroCents: v.number(),
-    /**
-     * Cumulative billed requests, never reset. Measurement only — pairing it
-     * with `totalUsageMicroCents` is what makes requests-per-dollar
-     * answerable. Optional because rows predate the counter.
-     */
+
     totalRequestCount: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -94,14 +86,9 @@ export const billingSchema = {
     cacheReadPerMillionUsd: v.number(),
     cacheWritePerMillionUsd: v.number(),
     reasoningPerMillionUsd: v.number(),
-    /**
-     * Input modalities advertised by models.dev (or its fallback). Optional
-     * because pre-existing rows pre-date the modality sync; readers default
-     * to ["text"] when missing so unknown models drop images at the gateway
-     * boundary instead of being silently forwarded as data URLs.
-     */
+
     modalitiesInput: v.optional(v.array(v.string())),
-    /** Output modalities advertised by models.dev. Defaults to ["text"]. */
+
     modalitiesOutput: v.optional(v.array(v.string())),
     sourceUpdatedAt: v.string(),
     syncedAt: v.number(),
@@ -216,18 +203,6 @@ export const billingSchema = {
     .index("by_stripeInvoiceId", ["stripeInvoiceId"])
     .index("by_stripePaymentIntentId", ["stripePaymentIntentId"]),
 
-  // Short-lived, single-use tickets that bridge a POSTed read-aloud request
-  // to a GET audio stream. Mobile's native audio player (AVPlayer/ExoPlayer)
-  // fetches a seekable resource and issues multiple (ranged) requests per
-  // playback, and the assistant text is far too long to place in a query
-  // string — so the client POSTs the text to `/api/voice/tts/stream/prepare`,
-  // receives an opaque ticket, and the player GETs
-  // `/api/voice/tts/stream/audio/reply.mp3?ticket=…`. Rows are owner-bound,
-  // expire in ~2 minutes, are reusable within that window (so the player's
-  // range requests all succeed), and are swept by a cron — so the assistant
-  // text never lands in a URL, log, or long-lived store. `audio` caches the
-  // synthesized MP3 (base64) after the first request so the player's follow-up
-  // range requests are served from cache instead of re-synthesizing.
   tts_stream_tickets: defineTable({
     ticket: v.string(),
     ownerId: v.string(),
@@ -237,14 +212,7 @@ export const billingSchema = {
     speed: v.optional(v.number()),
     conversationId: v.optional(v.id("conversations")),
     audio: v.optional(v.string()),
-    // HLS progressive-playback session state (mobile). A background action
-    // streams Inworld once and appends MP3 segments to `tts_hls_segments`; this
-    // row holds the live playlist manifest so a `playlist.m3u8` read never has
-    // to load segment audio. `hlsStatus` walks pending → synthesizing → done
-    // (or error). `hlsSegments` grows as segments land; the playlist gains
-    // `#EXT-X-ENDLIST` once `hlsDone` is set. `hlsCanceledAt` is a cooperative
-    // stop beacon the synthesis loop polls so a user "stop" ends provider spend
-    // early and is metered as interrupted.
+
     hlsStatus: v.optional(
       v.union(
         v.literal("pending"),
@@ -264,11 +232,6 @@ export const billingSchema = {
     .index("by_ticket", ["ticket"])
     .index("by_expiresAt", ["expiresAt"]),
 
-  // Per-segment MP3 payloads for the mobile HLS transport. Each row is one
-  // packed-audio segment (ID3 transport-stream-timestamp tag + whole MP3
-  // frames), base64-encoded. Owner-bound + short TTL like the parent ticket,
-  // swept by the same cron. Kept in a side table (not on the ticket row) so a
-  // playlist read stays tiny and only a segment GET pays for the audio bytes.
   tts_hls_segments: defineTable({
     ticket: v.string(),
     ownerId: v.string(),
@@ -281,17 +244,6 @@ export const billingSchema = {
     .index("by_ticket_and_seq", ["ticket", "seq"])
     .index("by_expiresAt", ["expiresAt"]),
 
-  // Internal provider-spend ledger for read-aloud / TTS synthesis.
-  //
-  // Read-aloud is user-facing FREE on every plan, so its provider cost must
-  // never touch the user's usage windows, credit balance, or plan
-  // entitlements. This table is write-only telemetry consumed by internal
-  // spend reporting only — it is deliberately NOT wired into
-  // `persistManagedUsage`, `usage_logs`, or any capability gate. One row is
-  // written per synthesis attempt, capturing whether it completed, failed
-  // before audio, was interrupted by the client, or ended partial, so
-  // provider spend (including cancellations) can be reconstructed without
-  // ever charging a user.
   internal_tts_usage: defineTable({
     ownerId: v.string(),
     provider: v.union(v.literal("inworld"), v.literal("openai")),
@@ -299,26 +251,22 @@ export const billingSchema = {
     voice: v.optional(v.string()),
     conversationId: v.optional(v.id("conversations")),
     streaming: v.boolean(),
-    // completed  → full text synthesized and delivered.
-    // failed     → provider/setup error before any audio was delivered.
-    // interrupted→ client aborted mid-stream (stop / navigate / unmount).
-    // partial    → upstream ended early or errored after some audio.
+
     status: v.union(
       v.literal("completed"),
       v.literal("failed"),
       v.literal("interrupted"),
       v.literal("partial"),
     ),
-    // Characters submitted to the provider (bounded input).
+
     requestChars: v.number(),
-    // Best estimate of characters actually synthesized (== requestChars on a
-    // clean completion; scaled down by delivered audio on interrupt/partial).
+
     synthesizedChars: v.number(),
-    // Audio bytes delivered downstream, a provider-agnostic progress proxy.
+
     audioBytes: v.number(),
     textInputTokens: v.number(),
     audioOutputTokens: v.number(),
-    // Internal provider-cost estimate in micro-cents. NOT billed to the user.
+
     costMicroCents: v.number(),
     durationMs: v.number(),
     createdAt: v.number(),

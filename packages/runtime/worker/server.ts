@@ -3,8 +3,7 @@ import { existsSync, promises as fsPromises } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveBundledRuntimeFile } from "../kernel/shared/runtime-paths.js";
-// Photon itself is lazy-loaded inside resizeImage, so this import adds no
-// WASM parse cost to the worker-ready path.
+
 import { resizeImage } from "../kernel/shared/image-resize.js";
 import {
   resolveImageCaps,
@@ -24,12 +23,6 @@ type ConnectCardOutcome =
       reason: "declined" | "cancelled" | "timeout" | "unsupported" | string;
     };
 
-/**
- * Host hop for the inline connect cards (connector + browser extension).
- * Attaches a worker-generated `offerId` so a turn abort can cancel the
- * pending desktop card via `host.connectorConnect.cancel` instead of
- * leaving it up until the desktop's own timeout.
- */
 const requestConnectCardFromHost = async (
   peer: WorkerPeerLike,
   method: string,
@@ -58,11 +51,11 @@ const requestConnectCardFromHost = async (
   try {
     const winner = await Promise.race([request, aborted]);
     if (winner !== "aborted") return winner;
-    // Best-effort: settle the desktop card as cancelled right away.
+
     void peer
       .request(METHOD_NAMES.HOST_CONNECTOR_CONNECT_CANCEL, { offerId })
       .catch(() => undefined);
-    // Swallow the eventual host response — the turn is gone.
+
     void request.catch(() => undefined);
     return { ok: false, reason: "cancelled" };
   } finally {
@@ -115,10 +108,7 @@ import {
   collectBrowserData,
   formatBrowserDataForSynthesis,
 } from "../discovery/browser-data.js";
-// Runner subgraph imported as types only — the values are loaded lazily (see
-// loadOneShotCompletion / loadChatPromptContext and the dynamic import in
-// buildRunner) so this ~68%-of-bundle subgraph isn't parsed on the worker-ready
-// path.
+
 import type {
   createStellaHostRunner,
   StellaHostRunnerOptions,
@@ -256,31 +246,16 @@ type WorkerState = {
   userAppProjectService: UserAppProjectService | null;
   voiceService: VoiceRuntimeService | null;
   runner: RuntimeRunner | null;
-  // Shared promise for the background runner build (lazy chunk import). Null
-  // when no build is in flight; resolves to the runner once constructed.
+
   runnerReadyPromise: Promise<RuntimeRunner> | null;
   runnerReadyError: string | null;
   deviceId: string | null;
-  /**
-   * Persistent ring buffer for streaming run events. Every event we emit
-   * via NOTIFICATION_NAMES.RUN_EVENT also gets persisted here so that a
-   * reconnecting host (for example, after an Electron restart)
-   * can replay anything past its `lastSeq` without losing in-flight work.
-   * See runtime/kernel/storage/run-event-log.ts.
-   */
+
   runEventLog: RunEventLog | null;
-  /**
-   * UDS bridge the worker exposes for sidecar processes (the
-   * `stella-computer` daemon spawn path) and the in-process node_repl
-   * `connect` client that need to call back into the host without the full
-   * runtime JSON-RPC protocol. Started on first init, restarted if
-   * the worker re-inits with a new stellaAppDir, stopped on shutdown.
-   * See `cli-bridge-server.ts`.
-   */
+
   cliBridgeServer: CliBridgeServer | null;
 };
 
-// Resolve a runtime CLI bundled into desktop/dist-electron/runtime/kernel/cli/.
 const resolveRuntimeCliPath = (fileName: string) =>
   resolveBundledRuntimeFile(`kernel/cli/${fileName}`);
 
@@ -316,14 +291,6 @@ const isImageMimeType = (mimeType: string): boolean =>
 const encodeImageDataUrl = (mimeType: string, data: ArrayBuffer): string =>
   `data:${mimeType};base64,${Buffer.from(data).toString("base64")}`;
 
-/**
- * Pi-style attachment sizing: resize each composer image to fit the
- * per-image vision budget before it ever reaches the prompt. With every
- * image ≤4.5MB base64 (typically a few hundred KB), whole batches inline
- * directly and the spill-to-disk + Read fallback only triggers for
- * genuinely huge sets. Falls back to the original bytes when Photon
- * can't decode the format.
- */
 const resizeImageDataUrl = async (
   dataUrl: string,
   mimeType: string,
@@ -378,9 +345,7 @@ const materializeImageAttachments = async (
   target?: ImageCapTarget,
 ): Promise<MaterializedImageAttachment[]> => {
   const materialized: MaterializedImageAttachment[] = [];
-  // Resize composer attachments to the resolved target provider's limits
-  // (e.g. Anthropic's 2576px high-res tier) rather than a blunt global cap.
-  // Falls back to the safe conservative profile when the target is unknown.
+
   const caps = resolveImageCaps({
     ...(target ?? {}),
     imageCount: (attachments ?? []).length,
@@ -392,8 +357,6 @@ const materializeImageAttachments = async (
       continue;
     }
 
-    // Path-backed composer attachments: the renderer keeps only the
-    // path + preview; the original bytes are read and resized here.
     if (isLocalFileAttachmentUrl(url)) {
       try {
         const localImage = await materializeLocalFileImage(url, caps);
@@ -483,14 +446,7 @@ const stopWorkerServices = async (state: WorkerState) => {
   await state.userAppProjectService?.shutdown().catch(() => undefined);
   state.userAppProjectService = null;
   state.voiceService = null;
-  // `runner.stop()` now awaits a bounded drain of the background
-  // compaction scheduler so SQLite writes complete before we close
-  // `state.db`. Without this await, an in-flight `compactThread` could
-  // race the `db.close()` below.
-  // If the runner is still building in the background (lazy chunk import), wait
-  // for it to finish so we don't strand a started-but-unreferenced runner after
-  // nulling state.runner. The build's own supersede guard (state.db !== db) may
-  // already have stopped it; awaiting here is still safe (stop is idempotent).
+
   const pendingRunnerReady = state.runnerReadyPromise;
   state.runnerReadyPromise = null;
   state.runnerReadyError = null;
@@ -545,12 +501,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     cliBridgeServer: null,
   };
 
-  // Lazy loaders for the runner subgraph. runner.ts, one-shot-completion.ts and
-  // chat-prompt-context.ts share ~80 files and together are ~68% of the worker
-  // bundle's eager parse, yet are only needed once a turn/review actually runs.
-  // Importing them on first use (and building the runner in the post-ready
-  // background slot) keeps that parse off the worker-ready path. The dynamic
-  // import()s are also what let esbuild split them into their own chunk.
   let oneShotCompletionModule: Promise<
     typeof import("../kernel/agent-runtime/one-shot-completion.js")
   > | null = null;
@@ -565,11 +515,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     (chatPromptContextModule ??= import("../kernel/chat-prompt-context.js"));
 
   const emitRunEvent = (event: AgentEventPayload) => {
-    // Persist to the run event log BEFORE emitting on the wire so a host
-    // that disconnects mid-notify still sees the event on reconnect.
-    // INSERT OR IGNORE collapses (runId, seq) collisions for the rare
-    // synthetic terminal markers (e.g. seq=MAX_SAFE_INTEGER) — both copies
-    // describe the same terminal state, so retaining the first is fine.
+
     state.runEventLog?.append({
       runId: event.runId,
       seq: event.seq,
@@ -586,8 +532,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
   };
 
   const hasActiveWork = (): boolean => {
-    // Keep this in sync with host-side shouldKeepWorkerAlive plus
-    // worker-only work that the host cannot observe after disconnect.
+
     const voicePinned =
       (state.voiceService?.isBusy() ?? false) ||
       (state.voiceService?.getPendingRequestCount() ?? 0) > 0;
@@ -602,16 +547,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     );
   };
 
-  /**
-   * Append a fresh persisted assistant row for one completed assistant
-   * message within a run. A Pi orchestrator run may emit several
-   * assistant messages (preamble, post-tool answer, …); each gets its
-   * own row keyed by `(runId, seq)` so they render linearly in
-   * chronological order rather than collapsing into a single
-   * `assistant-for-<userMessageId>` row that overwrites itself.
-   *
-   * Returns the persisted eventId so callers can track the latest row.
-   */
   const appendAssistantMessageForTurn = (args: {
     conversationId: string;
     text: string;
@@ -704,18 +639,14 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
   };
 
   const joinRunnerBuild = async () => {
-    // The runner is built in the background after the worker reports ready, so
-    // the first request can arrive before state.runner exists. Join the shared
-    // build promise (swallow its error; ensureRunner() then surfaces the real
-    // failure or returns the built runner).
+
     if (!state.runner && state.runnerReadyPromise) {
       await state.runnerReadyPromise.catch(() => undefined);
     }
   };
 
   const ensureRunnerInitialized = async () => {
-    // Join the background build (see joinRunnerBuild), then ensureRunner()
-    // returns the runner or throws if it failed or was superseded.
+
     await joinRunnerBuild();
     const runner = ensureRunner();
     await runner.waitUntilInitialized();
@@ -914,8 +845,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
           reason?: string;
         }>(METHOD_NAMES.HOST_CONNECTOR_TOKEN_STORE_REQUEST, request);
 
-      // Protected connector credentials stay on owner-only local IPC. The
-      // worker and shipped CLI receive plaintext only in memory for a request.
       setConnectorTokenStoreBroker({
         load: async (tokenKey) => {
           const result = await requestHostConnectorTokenStore({
@@ -1144,30 +1073,19 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
       stellaComputerCliPath: resolveRuntimeCliPath("stella-computer.js"),
       stellaMediaCliPath: resolveRuntimeCliPath("stella-media.js"),
       stellaXApiCliPath: resolveRuntimeCliPath("stella-x-api.js"),
-      // The bridge listens in post-ready startup. Advertise the stable socket
-      // path up front so shells spawned after the bridge comes online can call
-      // back into the host without rebuilding the runner.
+
       ...(cliBridgeSocketPath ? { cliBridgeSocketPath } : {}),
     };
 
-    // Build the runner in the background instead of on the worker-ready path:
-    // its module subgraph is ~68% of the bundle's eager parse and is only
-    // needed once a turn runs. initializeWorker returns "ready" without awaiting
-    // this; turn handlers join the same promise via ensureRunnerInitialized().
-    // The dynamic import() is also what lets esbuild split the runner into its
-    // own chunk (see dev-electron-build.mjs).
     const buildRunner = async (): Promise<RuntimeRunner> => {
       const { createStellaHostRunner } = await import("../kernel/runner.js");
       const runner = createStellaHostRunner(runnerOptions);
-      // A re-init may have superseded this generation while the chunk imported.
-      // `db` is replaced only on re-init (config patches keep it), so it's the
-      // safe supersede token — discard rather than clobber the new generation.
+
       if (state.db !== db) {
         await runner.stop().catch(() => undefined);
         return runner;
       }
-      // Apply the latest config (config patches that arrived during the import
-      // no-op'd against a null state.runner, so re-apply from state.init).
+
       const cfg = state.init ?? init;
       runner.setConvexUrl(cfg.convexUrl);
       runner.setConvexSiteUrl(cfg.convexSiteUrl);
@@ -1190,9 +1108,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
       throw error;
     });
     state.runnerReadyPromise = runnerReadyPromise;
-    // Prevent an unobserved rejection from crashing the worker; real awaiters
-    // (ensureRunnerInitialized / stopWorkerServices / the post-ready block)
-    // surface the error.
+
     runnerReadyPromise.catch(() => undefined);
 
     const userAppProjectService = new UserAppProjectService({
@@ -1231,14 +1147,12 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
         `[connector-bridge] Stopped ${connectorSweep.stopped} stale connector helper(s).`,
       );
     }
-    // Connector-capable children may launch immediately after initialize
-    // returns. The private bridge must therefore be listening and secured
-    // before the worker reports ready; startup failures are fatal.
+
     return await afterRequiredCliBridgeReady(startCliBridge, () => {
       setTimeout(() => {
         void (async () => {
           const startupStartedAt = Date.now();
-          // These post-ready warmups do not gate connector-capable child launch.
+
           await Promise.allSettled([
             (async () => runEventLogStartupBackfill())(),
             (async () => {
@@ -1268,8 +1182,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
   peer.registerRequestHandler(
     METHOD_NAMES.INTERNAL_WORKER_INITIALIZE,
     async (params) => {
-      // Subscribe before the runner loads extensions or models.json so every
-      // successful initial/hot registry composition reaches the renderer.
+
       await ensureModelRuntimeSubscription();
       const result = await initializeWorker(
         params as WorkerInitializationState,
@@ -1278,10 +1191,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
         applyConfigPatch(pendingConfigPatch);
         pendingConfigPatch = null;
       }
-      // Warm the catalog against whatever config the worker initialized
-      // with so a restart/reattach (module-level catalog cache is empty in
-      // a fresh worker process) doesn't make the next chat pay the cold
-      // fetch. Best-effort.
+
       scheduleModelCatalogWarm();
       return result;
     },
@@ -1289,15 +1199,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
 
   let pendingConfigPatch: Partial<WorkerInitializationState> | null = null;
 
-  // Warm the Stella model catalog in the background whenever an input to its
-  // cache key changes. The catalog cache is keyed by auth identity + device +
-  // `modelCatalogUpdatedAt`. `modelCatalogUpdatedAt` is pushed down by the
-  // renderer after it mounts, so the warm fired at worker init (under a
-  // `null` updated-at) is followed by one under the real key once config
-  // arrives — both off the open burst, since the worker itself now spawns
-  // after first paint. Debounced so a `configure` call touching multiple
-  // fields only warms once, and best-effort so a network failure never
-  // affects config application.
   let warmTimer: ReturnType<typeof setTimeout> | null = null;
   const scheduleModelCatalogWarm = () => {
     if (!state.runner) return;
@@ -1337,8 +1238,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     if (patch.modelCatalogUpdatedAt !== undefined) {
       state.runner?.setModelCatalogUpdatedAt(patch.modelCatalogUpdatedAt);
     }
-    // Auth identity and the catalog version are the two cache-key inputs
-    // the runtime controls; re-warm when either moves.
+
     if (
       patch.authToken !== undefined ||
       patch.modelCatalogUpdatedAt !== undefined
@@ -1352,7 +1252,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     async (params) => {
       const patch = params as Partial<WorkerInitializationState>;
       if (!state.init) {
-        // Queue the patch — it will be applied after initialization
+
         pendingConfigPatch = { ...pendingConfigPatch, ...patch };
         return { ok: true, queued: true };
       }
@@ -1405,8 +1305,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
   peer.registerRequestHandler(
     METHOD_NAMES.INTERNAL_WORKER_GET_ACTIVE,
     async () => {
-      // Tolerate the runner still building (post-ready window): no runner ⇒ no
-      // active run.
+
       return state.runner?.getActiveOrchestratorRun() ?? null;
     },
   );
@@ -1422,9 +1321,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
         asTrimmedString(
           (payload as RuntimeChatPayload & { requestId?: string }).requestId,
         ) || undefined;
-      // Resolve the provider/model this turn will run on so composer images are
-      // sized to that provider's real limits (best-effort; falls back to the
-      // safe conservative profile when no route resolves).
+
       let composerImageTarget: ImageCapTarget | undefined;
       try {
         composerImageTarget =
@@ -1542,10 +1439,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
             type: "user_message",
             payload: {
               text: visibleUserPrompt,
-              // Store the display copy preview-weight: full-resolution data
-              // URLs are for the model request only — persisting them here
-              // bloats the chat store and makes every render of the user
-              // row decode the originals.
+
               ...(payload.attachments?.length
                 ? {
                     attachments: payload.attachments.map(
@@ -1651,11 +1545,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
             .some((agentRun) => agentRun.runId === runId) ?? false
         );
       };
-      /**
-       * Tracks the most-recently persisted orchestrator assistant message for
-       * this run. Successful completion patches this final segment with the
-       * durable turn-complete receipt used to retire direct-mode preambles.
-       */
+
       let lastAssistantMessageEvent: LocalChatEventRecord | null = null;
       const mergedAttachments = [
         ...modelImageAttachments,
@@ -1704,14 +1594,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
             ) {
               return;
             }
-            // Chronological anchor for this text block: the moment the
-            // segment produced its first character. Assistant text no longer
-            // streams chunk-by-chunk, so the runtime recorder stamps this on
-            // the segment (`firstTextAtMs`) instead of the worker deriving it
-            // from the first STREAM chunk it forwarded. Persisted as
-            // `metadata.runtime.streamStartedAtMs`, which is what orders
-            // lifecycle cards before/after the block. Falls back to now() so
-            // an engine that never reports deltas still gets an anchor.
+
             const streamStartedAtMs = ev.firstTextAtMs ?? Date.now();
             const assistantEvent = appendAssistantMessageForTurn({
               conversationId: payload.conversationId,
@@ -1728,20 +1611,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
             if (assistantEvent) {
               lastAssistantMessageEvent = assistantEvent;
             }
-            // Sole text-delivery event: one per completed assistant message
-            // segment, carrying the full canonical text plus the persisted
-            // row id. A run may emit several (preamble → post-tool answer),
-            // and the renderer paints each whole.
-            //
-            // Use the recorder's own seq for this event (`ev.seq`) — the
-            // renderer's per-conversation seq guard drops any event whose
-            // seq is `<= previousSeq`. A `Date.now()`-style synthetic seq
-            // here would clobber the cursor with a huge number and silently
-            // drop every subsequent small-seq event in the run. For the
-            // rare hidden→visible mirror path the boundary seq has to
-            // belong to the visible run's cursor; fall back to a
-            // synthetic value there since the visible recorder is not
-            // reachable from this closure.
+
             const isHiddenRun = hiddenSystemRunIds.has(ev.runId);
             const targetRunId = isHiddenRun ? lastVisibleRunId : ev.runId;
             const targetRequestId = isHiddenRun
@@ -1765,10 +1635,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
                 ...(ev.responseTarget
                   ? { responseTarget: ev.responseTarget }
                   : {}),
-                // Preamble → tool-call handoff: when this finalized message
-                // ends with a tool call, the renderer keeps the working
-                // indicator up across the gap until the tool starts, instead
-                // of dismissing on the painted preamble text.
+
                 ...(ev.followedByToolCall ? { followedByToolCall: true } : {}),
               });
             }
@@ -1901,9 +1768,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
                   ? { producedFiles: ev.producedFiles }
                   : {}),
                 ...(ev.agentType ? { agentType: ev.agentType } : {}),
-                // Attributes the tool result to a spawned agent's thread so
-                // per-agent file lists (left sidebar Activity tray) can pick
-                // up file changes live, before `agent-completed` rolls up.
+
                 ...(ev.agentId ? { agentId: ev.agentId } : {}),
               },
             });
@@ -2032,13 +1897,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
               (ev.agentType ?? AGENT_IDS.ORCHESTRATOR) ===
               AGENT_IDS.ORCHESTRATOR
             ) {
-              // Each assistant message in the run was already persisted
-              // by `onAssistantMessage` as its own row, so end-of-run no
-              // longer writes a new row from `finalText` (doing so would
-              // append a duplicate of the last message).
-              // Mark only the last segment terminal. In direct mode the
-              // renderer uses that receipt to remove earlier preamble text
-              // after the successful turn has actually finished.
+
               lastAssistantMessageEvent = markAssistantTurnComplete({
                 conversationId: payload.conversationId,
                 event: lastAssistantMessageEvent,
@@ -2189,8 +2048,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
   peer.registerRequestHandler(
     METHOD_NAMES.INTERNAL_WORKER_CANCEL,
     async (params) => {
-      // Tolerate the runner still building (post-ready window): nothing to
-      // cancel if it hasn't started yet.
+
       state.runner?.cancelLocalChat((params as { runId: string }).runId);
       return { ok: true };
     },
@@ -2207,10 +2065,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     },
   );
 
-  // Worker-side replay: read everything past `lastSeq` for `runId` from
-  // the persistent ring buffer. This is the path Electron takes after a
-  // restart — by the time the host reconnects, the in-memory host buffer
-  // is gone but the worker still has every event.
   peer.registerRequestHandler(
     METHOD_NAMES.INTERNAL_WORKER_RESUME_EVENTS,
     async (params) => {
@@ -2235,11 +2089,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     },
   );
 
-  // Host ack — every event the host successfully forwards to the renderer
-  // gets acked back so the worker can prune. Best-effort: under-acking
-  // just retains rows longer; over-acking before the renderer actually
-  // saw an event would lose it on reconnect, so the host should only
-  // ack after `webContents.send` resolves.
   peer.registerRequestHandler(
     METHOD_NAMES.INTERNAL_WORKER_ACK_EVENTS,
     async (params) => {
@@ -2257,10 +2106,6 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
     },
   );
 
-  // Probe used by a reconnecting host to discover which runs are still
-  // worth subscribing to — combines the live runner's active run with
-  // retained event-log rows (a run that just completed but whose terminal
-  // event hasn't been acked is still resumable).
   peer.registerRequestHandler(
     METHOD_NAMES.INTERNAL_WORKER_LIST_ACTIVE_RUNS,
     async () => {
@@ -2382,8 +2227,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
   peer.registerRequestHandler(
     METHOD_NAMES.INTERNAL_WORKER_GET_AGENT_SNAPSHOT,
     async (params) => {
-      // Tolerate the runner still building (post-ready window): a fresh worker
-      // has no in-memory agent yet, so a missing snapshot is the right answer.
+
       return state.runner
         ? await state.runner.getLocalAgentSnapshot(
             (params as { agentId: string }).agentId,
@@ -2395,8 +2239,7 @@ export const createRuntimeWorkerServer = (peer: WorkerPeerLike) => {
   peer.registerRequestHandler(
     METHOD_NAMES.INTERNAL_WORKER_APPEND_THREAD_MESSAGE,
     async (params) => {
-      // Don't drop the message if the runner is still building (post-ready
-      // window) — wait for the background build, then append.
+
       await joinRunnerBuild();
       ensureRunner().appendThreadMessage(
         params as {

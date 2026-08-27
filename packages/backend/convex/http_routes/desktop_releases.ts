@@ -5,12 +5,6 @@ import { constantTimeEqual } from "../lib/crypto_utils";
 
 const DESKTOP_RELEASE_PUBLISH_PATH = "/api/desktop-releases/publish";
 
-/**
- * Shared CI secret. Set in Convex deployment env via
- * `bunx convex env set DESKTOP_RELEASE_PUBLISH_SECRET <random>`. The CI
- * workflow passes the same value as `Authorization: Bearer <secret>`
- * after uploading the clone-install manifest to R2.
- */
 const getPublishSecret = () =>
   process.env.DESKTOP_RELEASE_PUBLISH_SECRET?.trim() ?? "";
 

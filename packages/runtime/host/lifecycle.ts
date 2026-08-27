@@ -27,33 +27,8 @@ import {
 import { rotateLogIfOversized } from "../observability/rotate-file.js";
 import { getFileLogger } from "../observability/file-logger.js";
 
-/**
- * Host-side lifecycle: discover or launch the detached worker and
- * return a connected local-IPC Socket the caller can wrap with a JSON-RPC
- * peer.
- *
- * Discovery flow:
- *   1. Resolve ~/.stella/runtime/<rootHash>/runtime.{pid,sock}
- *      or the equivalent Windows named pipe path.
- *   2. If pidfile points to a live process AND we can connect to the
- *      socket, reuse it. This is the "Electron just restarted, reattach"
- *      path. Protocol or host-executable mismatch is a hard worker restart;
- *      in-flight work is not preserved across that compatibility boundary.
- *   3. Otherwise (no pidfile, dead pid, or socket refusing connections),
- *      spawn a fresh detached worker pointed at the same paths and poll
- *      until it answers a lightweight RPC readiness probe.
- *
- * Lifecycle ops are serialized per-stellaAppDir via a flock-style file
- * (`runtime.host.lock`) so concurrent host starts don't race the spawn.
- */
-
 const START_POLL_INTERVAL_MS = 50;
-// The Bun worker cold-starts by loading the bundled kernel entry, which on
-// low-end Windows machines has been observed at ~9.5s (worker startupMs≈9466).
-// A 10s budget left effectively no margin, so a slightly slower boot timed out
-// and triggered a spawn-retry cascade (worker not "ready" until ~40s, plus a
-// failed startup source-history record that waits on it). 30s gives ample
-// headroom on slow machines while still surfacing a genuinely stuck worker.
+
 const START_TIMEOUT_MS = 30_000;
 const SOCKET_CONNECT_TIMEOUT_MS = 1_000;
 const HOST_LOCK_TIMEOUT_MS = 75_000;
@@ -65,7 +40,7 @@ export type LifecycleConnection = {
   socket: Socket;
   pid: number;
   paths: RuntimePaths;
-  /** True if we spawned the worker; false if we attached to an existing one. */
+
   spawned: boolean;
 };
 
@@ -74,10 +49,7 @@ export type LifecycleStartOptions = {
   workerEntryPath: string;
   bunBinaryPath?: string;
   idleShutdownMs?: number;
-  /**
-   * Extra env merged onto the child process. The host adapter passes
-   * NODE_ENV, custom debug flags, etc.
-   */
+
   env?: NodeJS.ProcessEnv;
   expectedProtocolVersion?: string;
   hostExecutablePath?: string;
@@ -106,7 +78,7 @@ const tryConnectSocket = async (
         try {
           socket.destroy();
         } catch {
-          // ignore
+
         }
       }
       resolve(result);
@@ -173,7 +145,7 @@ const probeWorkerRpcReadiness = async (
               return;
             }
           } catch {
-            // Ignore unrelated malformed probe data and keep waiting.
+
           }
         }
         newlineIndex = buffer.indexOf("\n");
@@ -210,8 +182,7 @@ const tryConnectReadySocket = async (
   );
   probeSocket.destroy();
   if (ready !== "ready") return { status: ready };
-  // Return a clean socket with no probe listeners or consumed data so the
-  // normal JSON-RPC peer owns the stream from byte zero.
+
   const socket = await tryConnectSocket(socketPath, timeoutMs);
   return socket ? { status: "ready", socket } : { status: "unavailable" };
 };
@@ -246,36 +217,30 @@ const acquireHostLock = async (lockFile: string): Promise<number> => {
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== "EEXIST") throw error;
       await delay(50);
-      // If the holder died, take over the stale lock and try again.
+
       try {
         const raw = await fsPromises.readFile(lockFile, "utf-8");
         const pid = Number.parseInt(raw.trim(), 10);
         if (Number.isInteger(pid) && pid > 0) {
           try {
             process.kill(pid, 0);
-            // Holder is alive, keep waiting.
+
             continue;
           } catch {
-            // Holder is dead — fall through to the atomic takeover below.
+
           }
         }
-        // Stale lock (dead holder or unparseable pid): rename it to a
-        // per-contender temp name instead of unlinking it directly. rename()
-        // is atomic, so only one racing host wins the takeover; the loser's
-        // rename fails (ENOENT) and it simply retries the acquire loop rather
-        // than blindly deleting what may already be another host's freshly
-        // created lock. This closes the TOCTOU window where two hosts could
-        // both unlink the lock and both enter the spawn critical section.
+
         const stalePath = `${lockFile}.${process.pid}.stale`;
         try {
           await fsPromises.rename(lockFile, stalePath);
         } catch {
-          // Lost the takeover race (or the lock was already gone); retry.
+
           continue;
         }
         await fsPromises.unlink(stalePath).catch(() => undefined);
       } catch {
-        // Lock removed by another process; try again.
+
       }
     }
   }
@@ -291,20 +256,11 @@ const releaseHostLock = async (
   try {
     closeSync(fd);
   } catch {
-    // Ignore close errors during release.
+
   }
   await fsPromises.unlink(lockFile).catch(() => undefined);
 };
 
-/**
- * Resolve the `bun` executable to an absolute path once, falling back to the
- * bare `"bun"` PATH lookup when no known install location exists. Spawning a
- * bare command name on Windows forces a PATHEXT + every-PATH-entry filesystem
- * probe to locate `bun.exe`; pointing `spawn` at an absolute path skips that.
- * Packaged Stella ships Bun under resources/bin; development also honors
- * STELLA_BUN_PATH / BUN_PATH / ~/.bun/bin. Only an existing absolute path is
- * used, so source checkouts can still fall back to the normal PATH lookup.
- */
 let cachedBunBinaryPath: string | null = null;
 export const resolveBunBinaryPath = (): string => {
   if (cachedBunBinaryPath) return cachedBunBinaryPath;
@@ -360,16 +316,11 @@ const spawnDetachedWorker = (
   if (options.idleShutdownMs && options.idleShutdownMs > 0) {
     args.push("--idle-shutdown-ms", String(options.idleShutdownMs));
   }
-  // Bound the raw stdout/stderr sink before the fresh worker appends to it.
-  // The log dir is separate from the runtime control dir, so ensure it exists.
+
   mkdirSync(paths.logDir, { recursive: true });
   rotateLogIfOversized(paths.logFile);
   const logFd = openSync(paths.logFile, "a");
-  // bun ignores NODE_COMPILE_CACHE, so every cold spawn re-parses the ~2.5MB
-  // kernel entry bundle from scratch. Point bun's runtime transpiler cache at a
-  // dedicated per-root dir so re-spawns (the common Electron-restart churn case)
-  // skip re-transpiling. Best-effort: if the dir can't be created we simply fall
-  // back to the uncached spawn, so behavior is otherwise unchanged.
+
   let transpilerCachePath: string | undefined;
   try {
     transpilerCachePath = join(paths.rootDir, "bun-transpiler-cache");
@@ -413,8 +364,7 @@ const waitForWorkerSpawn = ({
   new Promise<void>((resolve, reject) => {
     const onSpawn = () => {
       child.off("error", onError);
-      // A post-spawn child-process error should be diagnostic, never an
-      // uncaught Electron main-process exception.
+
       child.on("error", (error) => {
         console.error("[runtime-host] Detached worker process error:", error);
       });
@@ -552,14 +502,6 @@ const findSameRootWorkerPids = async (
   return pids;
 };
 
-/**
- * SIGTERM a worker pid, poll up to `graceMs` for a clean exit, then SIGKILL
- * and confirm the pid is actually dead before returning. The single shared
- * implementation behind both `stopPids` (orphan reaping) and
- * `stopRunningWorker` (restart/teardown) — callers differ only in their grace
- * budget. Returns whether the process is gone and whether SIGKILL was needed
- * (the latter feeds restart-grace instrumentation).
- */
 const killWorkerProcess = async (
   pid: number,
   graceMs: number,
@@ -567,7 +509,7 @@ const killWorkerProcess = async (
   try {
     process.kill(pid, "SIGTERM");
   } catch {
-    // SIGTERM failed: the pid is already gone (or not ours).
+
     return { stopped: false, escalatedToSigkill: false };
   }
   const graceDeadline = Date.now() + graceMs;
@@ -593,24 +535,16 @@ const killWorkerProcess = async (
       return { stopped: true, escalatedToSigkill: true };
     }
   }
-  // SIGKILL was sent but the pid never confirmed dead within the budget. Report
-  // stopped:false so `worker.kill-latency` doesn't misreport a failed kill as a
-  // clean stop.
+
   return { stopped: false, escalatedToSigkill: true };
 };
 
 const stopPids = async (pids: number[], graceMs = 750): Promise<void> => {
   if (pids.length === 0) return;
-  // Each pid runs its own SIGTERM→grace→SIGKILL concurrently, so the batch
-  // wall-clock is the slowest single exit rather than the sum.
+
   await Promise.all(pids.map((pid) => killWorkerProcess(pid, graceMs)));
 };
 
-/**
- * Resolve a connected socket to the runtime worker, spawning a new
- * worker if one is not already running for `stellaAppDir`. Idempotent
- * across hosts thanks to the host-side lock.
- */
 export const startOrAttachWorker = async (
   options: LifecycleStartOptions,
 ): Promise<LifecycleConnection> => {
@@ -647,8 +581,7 @@ export const startOrAttachWorker = async (
           await stopRunningWorker(options.stellaAppDir);
           await removeStaleRuntimeArtifacts(options.stellaAppDir);
         } else {
-          // Pid is alive but socket isn't reachable — likely a worker that's
-          // still binding the socket. Wait briefly before declaring it stale.
+
           const retry = await pollForWorkerReady(
             paths,
             2_000,
@@ -657,9 +590,7 @@ export const startOrAttachWorker = async (
           if (retry) {
             return { socket: retry, pid: existingPid, paths, spawned: false };
           }
-          // Truly stale; only reap processes whose command line still matches
-          // this Stella root. A pidfile can outlive the original worker, and
-          // the OS may have reused that pid for an unrelated process.
+
           const orphanPids = await findSameRootWorkerPids(
             options.workerEntryPath,
             options.stellaAppDir,
@@ -679,15 +610,7 @@ export const startOrAttachWorker = async (
         }
       }
     } else {
-      // No pidfile for this root: the overwhelmingly common case is a clean
-      // fresh boot with no worker to reap, so we skip the process scan here.
-      // On Windows that scan is a PowerShell cold start + full WMI/CIM
-      // Win32_Process enumeration (commonly 0.5-2s) that would otherwise be
-      // paid on EVERY launch with no live worker, for nothing. A genuinely
-      // orphaned worker that lost its pidfile is exceedingly rare (clean
-      // shutdown removes the pidfile; a crash leaves a stale one, which is
-      // handled by the stale-pidfile branch above); spawning a fresh worker
-      // binds the socket and supersedes it regardless.
+
       await removeStaleRuntimeArtifacts(options.stellaAppDir);
     }
 
@@ -704,11 +627,6 @@ export const startOrAttachWorker = async (
   }
 };
 
-/**
- * Stop a running worker by SIGTERM-then-SIGKILL. The worker also has its
- * own self-shutdown-on-idle timer, so this is mostly used by tests and
- * by `runtime restart` flows that want a synchronous tear-down.
- */
 export const stopRunningWorker = async (
   stellaAppDir: string,
   options?: { graceMs?: number },
@@ -717,8 +635,7 @@ export const stopRunningWorker = async (
   if (pid == null) return { stopped: false, pid: null };
   const startedAt = Date.now();
   const result = await killWorkerProcess(pid, options?.graceMs ?? 1_500);
-  // Instrumentation for the restart-grace decision: how long SIGTERM→exit
-  // actually takes, and whether the worker needed a SIGKILL escalation.
+
   getFileLogger()?.process("worker.kill-latency", {
     pid,
     ms: Date.now() - startedAt,

@@ -1,5 +1,3 @@
-/// <reference types="vite/client" />
-
 import { register as registerRateLimiter } from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";

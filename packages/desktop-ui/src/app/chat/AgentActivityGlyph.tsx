@@ -1,16 +1,3 @@
-/**
- * Star glyph for the minimal in-chat agent activity rows.
- *
- * A lightweight static echo of the working-indicator's aurora star — a soft
- * four-pointed sparkle with concave curved edges, drawn as plain SVG in
- * `currentColor`. No WebGL, no animation; while a row is running the title
- * shimmer carries the motion, the star just sits quietly in the leading
- * slot.
- *
- * This is the locked-in "candidate A" from the glyph sampler — 13px, same
- * path as sampled; ink comes from the glyph slot's solid full-strength
- * `color` (see `.agent-activity-row__glyph` in agent-activity-row.css).
- */
 export function StellaStarGlyph({ size = 13 }: { size?: number }) {
   return (
     <svg

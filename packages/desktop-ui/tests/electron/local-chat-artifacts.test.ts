@@ -144,14 +144,14 @@ describe("local chat mobile artifacts", () => {
             payload: { toolName: "map", map },
           },
           {
-            // Duplicate payload on the same turn dedupes to one card.
+
             _id: "tool-2",
             timestamp: 1_200,
             type: "tool_result",
             payload: { toolName: "map", map },
           },
           {
-            // Errored map calls never become cards.
+
             _id: "tool-3",
             timestamp: 1_300,
             type: "tool_result",
@@ -421,8 +421,7 @@ describe("local chat mobile artifacts", () => {
     );
 
     expect(rows[0]?.artifacts?.[0]).toMatchObject({
-      // The first spawned agent is the aggregate card's stable insertion id;
-      // adding t2 updates the visible card instead of replacing/remounting it.
+
       id: "agent-work:t1",
       payload: {
         kind: "agent-work",
@@ -529,7 +528,7 @@ describe("local chat mobile artifacts", () => {
       "reading flight options",
       "comparing fares",
     ]);
-    // Legacy wire alias remains authored text for older mobile clients.
+
     expect(task?.reasoningSummaries).toEqual([
       "reading flight options",
       "comparing fares",
@@ -564,9 +563,7 @@ describe("local chat mobile artifacts", () => {
   });
 
   it("bridges live decoration statusText onto the running task", () => {
-    // `agent-progress` rows are no longer persisted, so a running task's
-    // current statusText only exists in the renderer's decoration snapshot —
-    // the serializer must prefer it over the folded spawn statusText.
+
     const now = Date.now();
     const rows = buildMobileSyncMessages(
       [
@@ -721,8 +718,7 @@ describe("local chat mobile artifacts", () => {
 
     const a1 = rows.find((row) => row.localMessageId === "a1");
     const a3 = rows.find((row) => row.localMessageId === "a3");
-    // The original card saw a completion at/after its spawn → done. The
-    // reactivation card's only completion predates its spawn → still running.
+
     expect(a1?.artifacts?.[0]).toMatchObject({
       id: "agent-work:t1",
       payload: {
@@ -789,8 +785,7 @@ describe("local chat mobile artifacts", () => {
       title: "Book flights",
       status: "error",
     });
-    // Delta catch-up replays the original anchor row, but the card keeps the
-    // same id and first-start timestamp used by the earlier running snapshot.
+
     expect(anchor?.artifacts?.[0]).toMatchObject({
       id: "agent-work:t1",
       payload: { state: "done", createdAt: now - 10_000 },
@@ -865,8 +860,7 @@ describe("local chat mobile artifacts", () => {
             },
           },
           {
-            // Legacy events predate the agentType stamp and were always
-            // orchestrator-direct — they keep rendering inline.
+
             _id: "tool-3",
             timestamp: 1_300,
             type: "tool_result",
@@ -930,8 +924,7 @@ describe("local chat mobile artifacts", () => {
                   path: "/Users/me/.stella/outputs/recall-report.html",
                   kind: { type: "add" },
                 },
-                // Outside the outputs tree stays a developer resource
-                // (omitted unless developer artifacts are enabled).
+
                 { path: "/Users/me/site/index.html", kind: { type: "add" } },
               ],
             },
@@ -979,7 +972,7 @@ describe("local chat mobile artifacts", () => {
                     kind: { type: "add" },
                   },
                   {
-                    // Snapshot noise never reaches the section.
+
                     path: "/Users/me/.brave-profile/cache.pdf",
                     kind: { type: "add" },
                   },
@@ -994,7 +987,7 @@ describe("local chat mobile artifacts", () => {
 
     expect(rows).toHaveLength(1);
     const artifacts = rows[0]?.artifacts ?? [];
-    // The rollup's files never appear loose — only inside the card.
+
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0]).toMatchObject({
       id: "agent-work:t1",
@@ -1006,7 +999,7 @@ describe("local chat mobile artifacts", () => {
             agentId: "t1",
             title: "Write the report",
             files: [
-              // Declared deliverables lead the section.
+
               {
                 kind: "pdf",
                 filePath: "/Users/me/.stella/outputs/report.pdf",
@@ -1144,7 +1137,7 @@ describe("local chat mobile artifacts", () => {
       "u1:agent",
       "a2",
     ]);
-    // The completion row itself ships no loose copy of the rollup files.
+
     expect(rows[2]?.artifacts).toBeUndefined();
     expect(rows[1]?.artifacts?.[0]).toMatchObject({
       id: "agent-work:t1",

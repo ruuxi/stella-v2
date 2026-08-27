@@ -15,12 +15,6 @@ import {
 import { computeRuntimeBuildStamp } from "@stella/runtime/worker/runtime-build-stamp";
 import { resolveRuntimePaths } from "@stella/runtime/worker/runtime-paths";
 
-/**
- * Staleness handshake + idle/deferred restart tests. These drive the host's
- * private machinery directly (same style as reload-deferral.test.ts): the
- * "connection" objects are minimal fakes and restartWorker is stubbed.
- */
-
 const tempDirs: string[] = [];
 const runtimeRootDirs: string[] = [];
 const hosts: StellaRuntimeHost[] = [];
@@ -101,7 +95,7 @@ const setupRoot = () => {
 
 const drain = async (anyHost: any) => {
   await anyHost.reloadQueue;
-  // requestStaleWorkerRestart chains through the queue; settle microtasks.
+
   await Promise.resolve();
   await anyHost.reloadQueue;
 };
@@ -172,7 +166,6 @@ describe("stale worker staleness handshake", () => {
     );
     expect(existsSync(paths.pendingWorkerRestartFile)).toBe(true);
 
-    // Idle path: the unified restart gate flushes the pending intent.
     await anyHost.flushWorkerRestart();
     await drain(anyHost);
     expect(anyHost.restartWorker).toHaveBeenCalledTimes(1);
@@ -231,12 +224,11 @@ describe("stale worker staleness handshake", () => {
     expect(anyHost.pendingStaleWorkerRestart?.reason).toBe(
       "build-stamp-mismatch",
     );
-    // Busy: the unified restart gate must not restart.
+
     await anyHost.flushWorkerRestart();
     await drain(anyHost);
     expect(anyHost.restartWorker).not.toHaveBeenCalled();
 
-    // Run finishes -> worker reports idle -> restart fires.
     anyHost.getWorkerHealth = vi.fn().mockResolvedValue(IDLE_HEALTH);
     await anyHost.flushWorkerRestart();
     await drain(anyHost);
@@ -255,8 +247,6 @@ describe("stale worker staleness handshake", () => {
       attachedToExistingWorker: true,
     });
 
-    // Quiescence check sees idle, but by the time the queued restart runs a
-    // new run has started.
     anyHost.getWorkerHealth = vi
       .fn()
       .mockResolvedValueOnce(IDLE_HEALTH)
@@ -264,7 +254,7 @@ describe("stale worker staleness handshake", () => {
     await anyHost.flushWorkerRestart();
     await drain(anyHost);
     expect(anyHost.restartWorker).not.toHaveBeenCalled();
-    // Pending state survives for the next quiescent moment.
+
     expect(anyHost.pendingStaleWorkerRestart).not.toBeNull();
   });
 
@@ -276,8 +266,6 @@ describe("stale worker staleness handshake", () => {
     await anyHostA.markPendingWorkerRestart("runtime-update");
     expect(existsSync(paths.pendingWorkerRestartFile)).toBe(true);
 
-    // "Electron restarts": a brand-new host attaches to the same worker.
-    // The stamp matches (nothing rebuilt) but the flag forces staleness.
     writeFileSync(
       paths.buildStampFile,
       `${computeRuntimeBuildStamp(workerEntryPath)}\n`,

@@ -1,16 +1,3 @@
-/**
- * Per-integration chat-connect preferences — currently just "the user
- * declined an in-chat connect offer". Persisted so agents never re-offer
- * an integration the user already said no to; Connections remains the
- * user-driven path to change their mind (enabling there clears the
- * decline via `clearConnectorDecline`).
- *
- * Single-writer discipline: the runtime records declines
- * when its bridge round-trip resolves `declined`, and the enable paths
- * (Connections IPC, `enable-native`, chat connect card) clear them. The
- * desktop reads it only indirectly through CLI output.
- */
-
 import path from "node:path";
 
 import {
@@ -23,7 +10,7 @@ const PREFERENCES_FILE = "connect-preferences.json";
 
 export type ConnectorDeclineEntry = {
   declinedAt: number;
-  /** How many times an in-chat offer has been declined in total. */
+
   count: number;
 };
 
@@ -38,7 +25,7 @@ const preferencesPath = (stellaAppDir: string) =>
 const parsePreferences = (raw: unknown): ConnectPreferencesFile => {
   const parsed = raw as ConnectPreferencesFile | undefined;
   if (parsed?.version === 1 && parsed.declined) return parsed;
-  // Missing/corrupt file is an empty preference set.
+
   return { version: 1, declined: {} };
 };
 

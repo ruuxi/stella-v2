@@ -1,5 +1,3 @@
-/** Windows-style chrome glyphs for custom frameless controls on win32. */
-
 export const WindowsMaximizeIcon = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true">
     <rect

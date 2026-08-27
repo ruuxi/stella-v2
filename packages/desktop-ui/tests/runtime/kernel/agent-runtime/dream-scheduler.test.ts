@@ -99,7 +99,7 @@ const buildFakeRoute = (args: {
   return {
     model,
     route: "direct-provider",
-    // The fake model points at a local test server: constructed credentialless.
+
     credentialless: true,
     getApiKey: () => args.apiKey ?? "",
   };

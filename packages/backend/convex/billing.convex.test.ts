@@ -1,5 +1,3 @@
-/// <reference types="vite/client" />
-
 import { convexTest } from "convex-test";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
@@ -28,11 +26,6 @@ beforeAll(() => {
   delete process.env.STELLA_ANON_MAX_REQUESTS_PER_IP;
 });
 
-/**
- * Seeds a usage row directly so a test can start from "this account has
- * already spent X" without replaying hundreds of relay calls. The windows are
- * left at zero and un-started, so only the lifetime total is in play.
- */
 const seedLifetimeSpend = async (
   t: ReturnType<typeof convexTest>,
   args: { ownerId: string; plan?: "free" | "go"; spentUsd: number; requests?: number },
@@ -84,7 +77,7 @@ describe("billing subscription status", () => {
       usagePolicy: {
         kind: "anonymous_requests",
         requestLimit: ANON_MAX_REQUESTS,
-        // Defaults to 10x the device cap when the IP env is unset.
+
         perIpRequestLimit: ANON_MAX_REQUESTS * 10,
         resetAfterInactivityDays: 7,
       },
@@ -133,8 +126,6 @@ describe("billing subscription status", () => {
       usagePolicy: { kind: "managed_cost" },
     });
 
-    // The windowed snapshot path (`now` supplied) must agree with the
-    // stored-value path above.
     expect(
       await signedIn.query(api.billing.getSubscriptionStatus, { now: Date.now() }),
     ).toMatchObject({
@@ -176,7 +167,7 @@ describe("free lifetime allowance", () => {
       plan: "free",
       message: "You've used your free Stella allowance. Upgrade to keep going.",
     });
-    // Nothing resets, so the advertised retry is a back-off hint, not a reset.
+
     expect(limit.retryAfterMs).toBeGreaterThan(60 * 60 * 1000);
 
     const access = await t.mutation(internal.billing.resolveManagedModelAccess, {
@@ -200,8 +191,6 @@ describe("free lifetime allowance", () => {
     const ownerId = "lifetime-stale-owner";
     await seedLifetimeSpend(t, { ownerId, spentUsd: FREE_LIFETIME_LIMIT_USD });
 
-    // Roll every window start far into the past — the monthly reset that
-    // would revive a windowed limit must not revive this one.
     await t.run(async (ctx) => {
       const usage = await ctx.db
         .query("billing_usage_windows")
@@ -222,8 +211,7 @@ describe("free lifetime allowance", () => {
   it("leaves paid plans unaffected by the lifetime allowance", async () => {
     const t = convexTest(schema, modules);
     const ownerId = "go-lifetime-owner";
-    // Far past the Free allowance; Go sets no lifetime limit, so the windows
-    // (all empty here) are the only thing that can block.
+
     await seedLifetimeSpend(t, { ownerId, plan: "go", spentUsd: 100 });
 
     expect(
@@ -307,8 +295,6 @@ describe("anonymous request allowance", () => {
         clientAddressKey,
       });
 
-    // The device cap is 1, but the network ceiling must outlast it so a
-    // shared address is not starved by one install's trial.
     for (let i = 0; i < ANON_MAX_REQUESTS * 10; i += 1) {
       expect((await consumeIp()).allowed).toBe(true);
     }
@@ -329,7 +315,6 @@ describe("anonymous request allowance", () => {
       }),
     ).toMatchObject({ allowed: false });
 
-    // Backdate past the 7-day retention window.
     await t.run(async (ctx) => {
       const row = await ctx.db.query("anon_device_usage").first();
       await ctx.db.patch(row!._id, {
@@ -374,7 +359,6 @@ describe("trial budget measurement", () => {
   it("reports requests-per-dollar and exhaustion for the Free cohort", async () => {
     const t = convexTest(schema, modules);
 
-    // Two Free accounts: one exhausted at 20 requests, one halfway at 10.
     await seedLifetimeSpend(t, {
       ownerId: "measured-exhausted",
       spentUsd: FREE_LIFETIME_LIMIT_USD,
@@ -397,7 +381,7 @@ describe("trial budget measurement", () => {
       activeSampleSize: 2,
       totalRequests: 30,
       totalUsd: 0.75,
-      // 20 requests per $0.50 and 10 per $0.25 are both 40/dollar.
+
       requestsPerDollar: 40,
       medianRequestsPerDollar: 40,
       exhaustedCount: 1,
@@ -439,7 +423,6 @@ describe("managed model billing", () => {
       outputTokens: 1_000_000,
     });
 
-    // $0.07 uncached input + $0.014 cached input + $0.28 output.
     expect(result.costMicroCents).toBe(36_400_000);
   });
 
@@ -477,7 +460,6 @@ describe("managed model billing", () => {
       outputPerMillionUsd: 0.21,
     });
 
-    // The Wafer-hosted Fast variant persists the same way.
     const waferRow = await t.run(async (ctx) =>
       ctx.db
         .query("billing_model_prices")
@@ -495,8 +477,6 @@ describe("managed model billing", () => {
       cacheReadPerMillionUsd: 0.07,
     });
 
-    // The new default is not on models.dev yet; its static override must
-    // persist the same way so billing never falls back to $0.
     const museRow = await t.run(async (ctx) =>
       ctx.db
         .query("billing_model_prices")

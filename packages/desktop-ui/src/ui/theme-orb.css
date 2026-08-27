@@ -1,6 +1,3 @@
-/* The swatch fill only. Sizing, hit target and selected state belong to the
- * surface that wraps it, which is why this positions itself against the
- * nearest positioned ancestor rather than carrying dimensions of its own. */
 .theme-orb {
   display: block;
   position: absolute;

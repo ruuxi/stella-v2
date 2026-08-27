@@ -1,8 +1,3 @@
-/* Home launcher options — see `HomeLauncherSection.tsx`.
-
-   The vertically-centered destination picker shown under the search field when
-   nothing is being searched (the browser-tab "new tab" empty state). */
-
 .home-launcher {
   flex: 1;
   min-height: 0;

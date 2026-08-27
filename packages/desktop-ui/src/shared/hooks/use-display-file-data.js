@@ -13,16 +13,7 @@ const readDisplayFileRaw = async (filePath, unavailableMessage, conversationId, 
 };
 const cache = new Map();
 const CACHE_GRACE_MS = 750;
-/**
- * Cache key for a display-file read. A `version` token (e.g. the artifact's
- * `createdAt`/mtime) is folded in so that re-reading the SAME path after it was
- * overwritten in place — the canvas `html` tool rewrites `<slug>.html` on every
- * iteration — misses the previously-resolved entry and re-reads fresh bytes
- * from disk instead of serving the stale cached content.
- *
- * `maxBytes` is part of the key so a spreadsheet preview's 2MB prefix
- * never collides with a full-file PDF/canvas read of the same path.
- */
+
 const displayFileCacheKey = (filePath, conversationId, version, maxBytes) => `${conversationId ?? ""}\0${filePath}\0${version ?? ""}\0${maxBytes ?? ""}`;
 const blobFromBytes = (entry) => {
     if (entry.blob)
@@ -30,8 +21,7 @@ const blobFromBytes = (entry) => {
     const resolved = entry.resolved;
     if (!resolved || resolved.missing)
         return null;
-    // Allocate a fresh `ArrayBuffer` for the Blob so it owns memory
-    // independent of any other view derived from `resolved.bytes`.
+
     const buffer = new ArrayBuffer(resolved.bytes.byteLength);
     new Uint8Array(buffer).set(resolved.bytes);
     const blob = new Blob([buffer], {
@@ -55,9 +45,7 @@ const finalizeEvict = (filePath, entry) => {
         entry.url = null;
     }
     entry.blob = null;
-    // Only drop the map slot if it still points at this entry — a retry may
-    // have replaced it (e.g. after a rejected/missing read) while stale
-    // consumers of the old entry were still winding down their refs.
+
     if (cache.get(filePath) === entry)
         cache.delete(filePath);
 };
@@ -77,25 +65,18 @@ const acquire = (filePath, unavailableMessage, conversationId, version, maxBytes
         cache.set(cacheKey, entry);
         void promise
             .then((result) => {
-            // Guard against the entry having been evicted while the IPC was
-            // in flight (no consumers ever subscribed).
+
             if (cache.get(cacheKey) !== entry)
                 return;
             if (result.missing) {
-                // A missing file may appear on disk moments later, so don't cache
-                // the negative result. Drop the entry so the next acquire()
-                // re-reads; current awaiters still observe `missing` via the
-                // settled promise they already hold.
+
                 cache.delete(cacheKey);
                 return;
             }
             entry.resolved = result;
         })
             .catch(() => {
-            // A transient IPC failure must not be cached forever. Drop the entry
-            // so the next acquire() retries. Current awaiters still surface the
-            // error via the promise they already hold; swallowing here only
-            // prevents an unhandled rejection.
+
             if (cache.get(cacheKey) === entry)
                 cache.delete(cacheKey);
         });
@@ -118,11 +99,7 @@ const release = (filePath, entry) => {
             finalizeEvict(filePath, entry);
     }, CACHE_GRACE_MS);
 };
-/**
- * Read a file's bytes through the cache. The returned promise resolves
- * once the underlying IPC completes; subsequent callers piggyback on
- * the in-flight or already-resolved entry.
- */
+
 export function useDisplayFileBytes(filePath, unavailableMessage, conversationIdOverride, version, maxBytes) {
     const uiState = useOptionalUiState();
     const conversationId = conversationIdOverride !== undefined
@@ -178,7 +155,7 @@ export function useDisplayFileBlobs(filePaths, unavailableMessage, conversationI
     const [missing, setMissing] = useState(() => filePaths.map(() => false));
     const [error, setError] = useState(null);
     const [loading, setLoading] = useState(true);
-    // `filePaths` reference changes on every render, so key off contents.
+
     const key = useMemo(() => `${conversationId ?? ""}\0${filePaths.join("|")}`, [conversationId, filePaths]);
     useEffect(() => {
         let cancelled = false;
@@ -186,11 +163,7 @@ export function useDisplayFileBlobs(filePaths, unavailableMessage, conversationI
             cacheKey: displayFileCacheKey(filePath, conversationId),
             entry: acquire(filePath, unavailableMessage, conversationId),
         }));
-        // Synchronous fast-path: when every requested file is already
-        // resolved in the cache, seed state directly instead of blanking to
-        // null first. Blanking would unmount the consuming media element
-        // (e.g. <audio>/<video>/<img>) on every selection change and force a
-        // visible remount/flash; seeding keeps it mounted and just swaps src.
+
         const seeded = acquired.map(({ entry }) => {
             const resolved = entry.resolved;
             if (!resolved)
@@ -256,10 +229,7 @@ export function useDisplayFileBlobs(filePaths, unavailableMessage, conversationI
         });
         return () => {
             cancelled = true;
-            // Pair each acquire with its release. The cache's eviction grace
-            // window lets a quick remount (e.g. parent re-render flicker)
-            // reuse the same Blob/URL instead of re-fetching, so consumers
-            // don't see broken images during transient unmount/remount.
+
             for (const { cacheKey, entry } of acquired)
                 release(cacheKey, entry);
         };

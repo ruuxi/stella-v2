@@ -12,7 +12,7 @@ import { readDesktopBridgeRegistrationDescriptor } from "./desktop-bridge-discov
 const MOBILE_DEVICE_ID_KEY = "stella-mobile_phone-access.mobile-device-id";
 const PREFERRED_DESKTOP_DEVICE_ID_KEY =
   "stella-mobile_phone-access.preferred-desktop-device-id";
-/** JSON string array of desktop device ids (multiple computers per account). */
+
 const PAIRED_DESKTOP_IDS_KEY = "stella-mobile_phone-access.paired-desktop-ids";
 const DESKTOP_ACCESS_KEY_PREFIX = "stella-mobile_phone-access.desktop.";
 
@@ -219,9 +219,6 @@ export async function getPreferredPhoneAccess() {
   return readStoredPhoneAccess(stored);
 }
 
-/**
- * All desktops this phone has paired with (same account can have several machines).
- */
 export async function listStoredPairedPhoneAccess(): Promise<
   StoredPhoneAccess[]
 > {
@@ -327,14 +324,6 @@ export async function requestDesktopConnection(access: StoredPhoneAccess) {
   );
 }
 
-/**
- * Re-file this phone's stored pairing under the desktop's current device id.
- *
- * A desktop mints a new device id whenever its local keypair stops being
- * readable, and the backend moves the pairing onto the replacement. Until the
- * phone follows, it keeps asking about an id that will never register a bridge
- * again — which reads here as a desktop that is permanently offline.
- */
 export async function adoptDesktopDeviceIdSuccession(
   previousDesktopDeviceId: string,
   nextDesktopDeviceId: string,
@@ -352,8 +341,6 @@ export async function adoptDesktopDeviceIdSuccession(
     return null;
   }
 
-  // The pair secret is unchanged by a desktop rotation — only the id it is
-  // filed under moves.
   const migrated: StoredPhoneAccess = { ...stored, desktopDeviceId: next };
   await SecureStore.setItemAsync(
     desktopAccessKey(next),
@@ -385,9 +372,6 @@ export async function getDesktopBridgeStatus(desktopDeviceId?: string) {
     await getJson(`/api/mobile/desktop-bridge${query}`),
   );
 
-  // Only meaningful when we asked about a specific desktop: with no id the
-  // backend answers with the account's latest desktop, which is not a
-  // succession and must not rewrite this phone's pairing.
   const resolved = status.lastKnownRegistration?.desktopDeviceId;
   if (desktopDeviceId && resolved && resolved !== desktopDeviceId) {
     await adoptDesktopDeviceIdSuccession(desktopDeviceId, resolved).catch(

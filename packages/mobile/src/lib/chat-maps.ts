@@ -1,21 +1,6 @@
 import type { ChatArtifact, MobileDisplayPayload } from "../types";
 import { artifactId, isMobileDisplayPayload } from "./mobile-artifacts";
 
-/**
- * Client-side maps resolver for the offline chat — the mobile analog of the
- * desktop runtime's `map` tool (`runtime/kernel/tools/defs/map.ts`). It takes
- * natural inputs (place names, addresses, origin -> destination) and POSTs them
- * to the hosted stella.sh resolve endpoint, which geocodes/routes with a
- * server-side Google key (no API key ever ships in the app). The resolved
- * `map-route` payload is the same shared artifact the desktop bridge already
- * renders inline via `MapRouteCard`, so a resolved map just rides the assistant
- * message's `artifacts` and shows up as an interactive card.
- *
- * The offline responder requests this resolver through a native tool call; the
- * lookup still runs on-device because the resulting artifact belongs to the
- * local mobile conversation.
- */
-
 const MAPS_RESOLVE_URL = "https://stella.sh/api/maps/resolve";
 const RESOLVE_TIMEOUT_MS = 25_000;
 const MAX_PLACES = 8;
@@ -32,7 +17,7 @@ type MapRoutePayload = Extract<MobileDisplayPayload, { kind: "map-route" }>;
 
 export type MapResolveResult = {
   payload: MapRoutePayload;
-  /** Compact text the model answers from; the card shows the map itself. */
+
   summary: string;
 };
 
@@ -60,7 +45,6 @@ const formatDuration = (seconds: number): string => {
   return rest > 0 ? `${hours} hr ${rest} min` : `${hours} hr`;
 };
 
-/** Mirror of the desktop map tool's `summarizeArtifact`. */
 const summarizeMap = (map: MapRoutePayload, unresolved: string[]): string => {
   const lines: string[] = [];
   if (map.route) {
@@ -106,7 +90,6 @@ export type MapResolveOutcome =
   | { ok: true; result: MapResolveResult }
   | { ok: false; error: string };
 
-/** Resolve a map request to a renderable payload + summary, or an error. */
 export async function resolveMap(
   input: MapToolInput,
 ): Promise<MapResolveOutcome> {
@@ -149,7 +132,7 @@ export async function resolveMap(
     try {
       body = await response.json();
     } catch {
-      // Non-JSON error body; fall through to the status message.
+
     }
     const record =
       body && typeof body === "object" ? (body as Record<string, unknown>) : {};
@@ -183,7 +166,6 @@ export async function resolveMap(
   }
 }
 
-/** Wrap a resolved map payload as a ChatArtifact for an assistant message. */
 export function mapArtifactFor(
   payload: MapRoutePayload,
   conversationId: string,

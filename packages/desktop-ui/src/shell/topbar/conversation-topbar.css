@@ -9,12 +9,6 @@
   -webkit-app-region: drag;
 }
 
-/*
- * Orchestrated (single-chat) mode has no tab strip and no standalone new-chat
- * control, so the 140px floor reserved for tabs would leave phantom empty space
- * to the right of the History/Home controls. Collapse the reservation so the
- * bar hugs its actual content. Direct mode keeps the tab-strip floor untouched.
- */
 .conversation-topbar[data-working-mode="orchestrated"] {
   min-width: 0;
 }
@@ -283,11 +277,6 @@
   opacity: 0.72;
 }
 
-/*
- * Unread notice for background tabs. It shares the close button's slot:
- * the dot is the resting state, the close button takes over on hover so the
- * two never sit on top of each other.
- */
 .conversation-topbar__tab-unread {
   position: absolute;
   right: 11px;
@@ -551,7 +540,6 @@
     opacity: 0;
   }
 
-  /* No title to sit beside, so the dot stands in for the tab icon. */
   .conversation-topbar__tab[data-unread="true"]
     .conversation-topbar__tab-target {
     padding-right: 0;

@@ -99,11 +99,9 @@ describe("skill catalog", () => {
       );
     }
 
-    // The budget-aware renderer degrades to a placeholder above the threshold.
     const placeholder = await renderSkillCatalogBlock(stellaAppDir);
     expect(placeholder).toContain("over the inline limit");
 
-    // Explore's renderer always inlines every entry instead.
     const full = await renderFullSkillCatalogBlock(stellaAppDir);
     expect(full).not.toContain("over the inline limit");
     expect(full).toContain("`skill-000`");

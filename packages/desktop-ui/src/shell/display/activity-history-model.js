@@ -9,12 +9,7 @@ const appendCompletedRow = (row, depth, items) => {
         appendCompletedRow(child, depth + 1, items);
     }
 };
-/**
- * Build the Completed dialog from the full ownership projection, then select
- * terminal roots. Filtering tasks before nesting would orphan a completed
- * child whose owner is still running and make it reappear as a top-level
- * history row.
- */
+
 export function buildCompletedActivityList(tasks, needle = "") {
     const normalizedNeedle = needle.trim().toLowerCase();
     const roots = groupActivityTasks(tasks)

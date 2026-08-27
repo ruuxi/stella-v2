@@ -8,29 +8,6 @@ export type DisplayFileArtifactKind =
   | "office-slides"
   | "delimited-table";
 
-/**
- * Tagged union for resources Stella can surface in chat or the workspace panel.
- *
- * - `canvas-html` — file-backed self-contained HTML written by the orchestrator's
- *              `html` tool to `~/.stella/outputs/html/<slug>.html`. Rendered as an
- *              inline artifact card in chat AND opened in the Canvas panel tab.
- * - `office` — docx/xlsx/pptx live-preview produced by `stella-office preview`.
- *              Renders the existing OfficePreviewCard (iframe + auto-refresh).
- * - `markdown` — local Markdown / MDX files rendered in the panel.
- * - `source-diff` — developer-gated code-file change preview.
- * - `file-artifact` — a previewable local file without an existing live
- *              preview ref. The sidebar resolves it into the right viewer.
- * - `pdf`    — local PDF file rendered with react-pdf in the renderer.
- * - `media`  — generated media (image/video/audio/3d/text) materialized to
- *              `~/.stella/media/outputs/`. Emitted by the media materializer when
- *              any media job for the current owner succeeds.
- * - `trash`  — Stella's deferred-delete trash. The actual UI is intentionally
- *              owned by the future tab implementation; this payload wires the
- *              display tab, list, and force-delete contracts.
- *
- * The IPC channel `display:update` carries structured, tab-compatible
- * `DisplayPayload` objects.
- */
 export type DisplayPayload =
   | {
       kind: "canvas-html";
@@ -40,10 +17,7 @@ export type DisplayPayload =
       createdAt: number;
     }
   | {
-      /**
-       * Live URL preview (e.g., a user-app project's Vite dev server).
-       * Rendered as an iframe in its own dedicated tab.
-       */
+
       kind: "url";
       url: string;
       title: string;
@@ -86,31 +60,21 @@ export type DisplayPayload =
       aspectRatio?: string;
       requestedSize?: { width: number; height: number };
       presentation?: "inline-image";
-      /** Which image from a multi-image job this inline card represents. */
+
       imageIndex?: number;
-      /** Expected image count for in-flight jobs (placeholders). */
+
       numImages?: number;
-      /** Mobile bridge identity used to replace the matching pending card. */
+
       toolCallId?: string;
-      /** Mobile-only lifecycle metadata; desktop rendering remains unchanged. */
+
       generationState?: "running" | "completed" | "failed" | "canceled";
-      /** Mobile chat insertion position within the owning assistant segment. */
+
       textOffset?: number;
       createdAt: number;
     };
 
-/**
- * All current display payload kinds can render in the workspace panel as a
- * tab. The historical `html` (inline-only) kind has been replaced by
- * `canvas-html`, which is file-backed and lives in the Canvas tab.
- */
 export type DisplayTabPayload = DisplayPayload;
 
-/**
- * What was generated. Mirrors the shape of `OutputMedia` in
- * `desktop/src/app/media/media-store.ts` but uses local file paths instead of
- * remote URLs so we don't depend on time-bounded provider URLs at view time.
- */
 export type MediaAsset =
   | { kind: "image"; filePaths: string[] }
   | { kind: "video"; filePath: string }
@@ -194,12 +158,10 @@ export const isDisplayTabPayload = (
   value: unknown,
 ): value is DisplayTabPayload => isDisplayPayload(value);
 
-/** Validate payloads accepted by the workspace panel's display channel. */
 export const normalizeDisplayPayload = (
   value: unknown,
 ): DisplayTabPayload | null => (isDisplayTabPayload(value) ? value : null);
 
-/** Quick title helper for the sidebar header / external open. */
 export const getDisplayPayloadTitle = (payload: DisplayPayload): string => {
   if (payload.kind === "canvas-html") {
     return payload.title ?? payload.filePath.split("/").pop() ?? "Canvas";
@@ -220,7 +182,7 @@ export const getDisplayPayloadTitle = (payload: DisplayPayload): string => {
   if (payload.kind === "trash") {
     return payload.title ?? "Trash";
   }
-  // payload.kind === "media"
+
   if (payload.prompt) return payload.prompt;
   if (payload.capability) return payload.capability.replace(/_/g, " ");
   switch (payload.asset.kind) {

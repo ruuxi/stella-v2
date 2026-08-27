@@ -28,7 +28,7 @@ export interface ToastOptions {
   variant?: "default" | "success" | "error" | "loading";
   duration?: number;
   action?: ToastAction;
-  /** Optional secondary CTA rendered next to `action` (e.g. "Use my own key"). */
+
   secondaryAction?: ToastAction;
 }
 
@@ -228,8 +228,6 @@ export function dismissToast(id: string): void {
   dismissToastFn?.(id);
 }
 
-// Window hook so we can fire toasts from the DevTools console while
-// iterating on copy / styling.
 if (typeof window !== "undefined") {
   (window as unknown as { showToast?: typeof showToast }).showToast = showToast;
 }

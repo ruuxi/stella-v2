@@ -1,18 +1,3 @@
-/**
- * Shared UI state store — owns `~/.stella/ui-state.json`, the renderer's
- * durable key/value state (formerly per-origin localStorage).
- *
- * Two hosts run an instance of this store against the same file at once: the
- * Electron main process and the Vite dev server (for plain-browser tabs).
- * Convergence model:
- *   - Writes are per-key read-merge-write: a flush re-reads the file and
- *     applies only this host's pending deltas on top, so concurrent hosts
- *     converge last-write-wins per key instead of clobbering whole maps.
- *   - Each host watches the file and emits external diffs to its renderers.
- *     Self-writes never emit: after a flush the file equals memory, so the
- *     watcher's diff is empty (content-based suppression, no timing games).
- */
-
 import fs from "fs";
 import path from "path";
 import { ensurePrivateDirSync } from "@stella/runtime/kernel/shared/private-fs";
@@ -76,10 +61,6 @@ export class UiStateStore {
     return this.memory.get(key) ?? null;
   }
 
-  /**
-   * Applies a batch of changes (null = remove). Returns the subset that
-   * actually changed in-memory state, for broadcasting to renderers.
-   */
   apply(changes: UiStateChanges): UiStateChanges {
     const applied: UiStateChanges = {};
     for (const [key, value] of Object.entries(changes)) {
@@ -99,7 +80,6 @@ export class UiStateStore {
     return applied;
   }
 
-  /** Removes every key. Returns the removal change set for broadcasting. */
   clear(): UiStateChanges {
     const removed: UiStateChanges = {};
     for (const key of this.memory.keys()) {
@@ -112,7 +92,6 @@ export class UiStateStore {
     return removed;
   }
 
-  /** Listener for changes written by another host (or another process). */
   onExternalChange(listener: (changes: UiStateChanges) => void): () => void {
     this.listeners.add(listener);
     return () => {
@@ -120,7 +99,6 @@ export class UiStateStore {
     };
   }
 
-  /** Synchronously persists pending deltas (shutdown path). */
   flushSync(): void {
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
@@ -153,9 +131,7 @@ export class UiStateStore {
   }
 
   private flush() {
-    // Read-merge-write: start from the file's current state (another host
-    // may have flushed since our last read) unless this flush carries a
-    // clear, then layer only our pending deltas on top.
+
     const next = this.pendingClear
       ? new Map<string, string>()
       : readUiStateFile(this.filePath);
@@ -179,8 +155,6 @@ export class UiStateStore {
       return;
     }
 
-    // The merge may have pulled in another host's keys; sync memory to the
-    // written state and surface those external diffs to our renderers.
     this.reconcileMemory(next);
   }
 
@@ -201,10 +175,6 @@ export class UiStateStore {
     }
   }
 
-  /**
-   * Syncs memory to `next` (the authoritative on-disk state plus our pending
-   * deltas) and emits the diff. Self-writes produce an empty diff.
-   */
   private reconcileMemory(next: Map<string, string>) {
     const changes: UiStateChanges = {};
     for (const [key, value] of next) {
@@ -240,11 +210,7 @@ export class UiStateStore {
 
   private startWatcher() {
     try {
-      // Watch the directory, not the file: atomic renames replace the inode,
-      // which silently kills direct file watches on some platforms. The
-      // prefix match (not equality) is deliberate — Bun's fs.watch reports a
-      // rename only under the *source* tmp name (`ui-state.json.<pid>….tmp`),
-      // never the destination, so an exact-name filter drops every event.
+
       this.watcher = fs.watch(path.dirname(this.filePath), (_event, filename) => {
         if (filename && !filename.startsWith(UI_STATE_FILE_NAME)) return;
         this.scheduleWatchRead();
@@ -255,8 +221,7 @@ export class UiStateStore {
         (error as Error).message,
       );
     }
-    // Stat-poll fallback: FSEvents/inotify can silently drop or coalesce
-    // events; a 1s mtime poll guarantees eventual cross-host convergence.
+
     fs.watchFile(
       this.filePath,
       { interval: 1_000, persistent: false },
@@ -272,10 +237,7 @@ export class UiStateStore {
     if (this.watchTimer || this.disposed) return;
     this.watchTimer = setTimeout(() => {
       this.watchTimer = null;
-      // Expected state = on-disk content with our unflushed deltas on top.
-      // Diffing that against memory means our own flushes (file == memory)
-      // and pending-key overlaps never emit; only genuinely external
-      // changes do.
+
       const next = this.pendingClear
         ? new Map<string, string>()
         : readUiStateFile(this.filePath);

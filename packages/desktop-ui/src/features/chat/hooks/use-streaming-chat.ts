@@ -10,10 +10,7 @@ export type { QueuedUserMessage }
 
 type UseStreamingChatOptions = {
   conversationId: string | null
-  /**
-   * SQLite-persisted message stream (no optimistic / scheduled overlay).
-   * Used to detect when optimistic rows and queued follow-ups have landed.
-   */
+
   persistedMessages: MessageRecord[]
 }
 

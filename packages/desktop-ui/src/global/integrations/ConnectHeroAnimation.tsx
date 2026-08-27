@@ -1,9 +1,6 @@
 import { useId } from "react";
 import "./ConnectHeroAnimation.css";
 
-/**
- * Phone ↔ desktop bridge hero — same illustration as the Connect dialog grid.
- */
 export function ConnectHeroAnimation() {
   const uid = useId().replace(/:/g, "");
   const gradId = `signal-grad-${uid}`;

@@ -4,22 +4,6 @@ import path from "node:path";
 
 const __dirname = import.meta.dirname;
 
-/**
- * Locate the Stella browser service and extension directory.
- *
- * In development the service lives at `packages/stella-browser/`. Packaged
- * builds copy its command shim, native binaries, and extension into Electron's
- * resources directory.
- *
- * The source helper and bundled Electron main both sit three levels below the
- * `packages/` directory, so the workspace path is stable in both layouts.
- *
- *   packages/desktop/dist-electron/electron/stella-browser-paths.js
- *                                           ^ __dirname
- *   ../../../stella-browser = packages/stella-browser
- *
- * If the layout changes, fix it here once.
- */
 const workspaceStellaBrowserRoot = path.resolve(
   __dirname,
   "..",
@@ -33,9 +17,6 @@ export const resolveStellaBrowserRoot = (): string => {
     return workspaceStellaBrowserRoot;
   }
 
-  // Production: electron-builder copies stella-browser next to the asar at
-  // Contents/Resources/stella-browser. `process.resourcesPath` is only defined
-  // inside the Electron main process, which is where this helper runs.
   const resourcesPath = process.resourcesPath;
   if (resourcesPath) {
     const packaged = path.join(resourcesPath, "stella-browser");
@@ -101,7 +82,6 @@ export const resolveLegacyStellaBrowserBinaryPath = (
   );
 };
 
-/** Prefer the hydrated artifact, with a temporary tracked-bin fallback. */
 export const resolveStellaBrowserBinaryPath = (
   stellaBrowserRoot = resolveStellaBrowserRoot(),
 ): string | null => {
@@ -127,7 +107,7 @@ const promoteStagedBinary = (binaryPath: string): boolean => {
       try {
         renameSync(previousPath, binaryPath);
       } catch {
-        // Preserve the original activation failure below.
+
       }
     }
     throw new Error(
@@ -136,15 +116,13 @@ const promoteStagedBinary = (binaryPath: string): boolean => {
   }
 };
 
-/** Promote a verified browser artifact before any service/native-host spawn. */
 export const activateStagedStellaBrowserBinary = (
   stellaBrowserRoot = resolveStellaBrowserRoot(),
 ): boolean => {
   const hydrated = resolveHydratedStellaBrowserBinaryPath(stellaBrowserRoot);
   const legacy = resolveLegacyStellaBrowserBinaryPath(stellaBrowserRoot);
   if (!hydrated || !legacy) return false;
-  // Browser binary hydration stages into ignored out/<platform>. Also finish
-  // any legacy bin/<platform>.update left during the binary-layout migration.
+
   const hydratedActivated = promoteStagedBinary(hydrated);
   const legacyActivated = promoteStagedBinary(legacy);
   return hydratedActivated || legacyActivated;

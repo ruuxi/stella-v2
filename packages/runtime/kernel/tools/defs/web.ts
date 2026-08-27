@@ -1,18 +1,3 @@
-/**
- * `web` tool — unified web search + fetch.
- *
- * Pass exactly one of `query` or `url`. Search routes through the optionally
- * injected `webSearch` capability; fetch always uses the local readable-text
- * extractor (`localWebFetch`). Search results flow back as plain text /
- * structured `details.results` for the model to summarize — the chat
- * surface never auto-renders them.
- *
- * One file owns everything for this tool: name, description, parameters,
- * prompt snippet, and the executable handler. Agents don't reach for tool
- * names through a central catalog — the host imports this file and the
- * registry exposes the resulting `ToolDefinition` directly.
- */
-
 import { localWebFetch } from "../local-tool-overrides.js";
 import type { ToolDefinition } from "../types.js";
 

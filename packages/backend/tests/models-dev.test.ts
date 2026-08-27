@@ -77,8 +77,7 @@ describe("managed model price entries", () => {
   });
 
   it("uses Wafer's published V4 Flash Fast rates", () => {
-    // Mirrors wafer's own /v1/models pricing: $0.28 in / $0.56 out /
-    // $0.07 cache-read per 1M, reasoning at the output rate. Text-only.
+
     const {
       entries: [entry],
       missingModels,
@@ -102,7 +101,7 @@ describe("managed model price entries", () => {
   });
 
   it("fills in Muse Spark 1.2 Contributor statically until catalogs list it", () => {
-    // Released today: absent from models.dev entirely.
+
     const {
       entries: [entry],
       missingModels,
@@ -132,7 +131,7 @@ describe("managed model price entries", () => {
       data: {
         openrouter: {
           models: {
-            // models.dev keys OpenRouter rows by the full vendor/model slug.
+
             "meta/muse-spark-1.2-contributor": {
               id: "meta/muse-spark-1.2-contributor",
               cost: { input: 2, output: 8, cache_read: 0.2 },
@@ -220,7 +219,7 @@ describe("managed model price entries", () => {
         inputPerMillionUsd: 0.14,
         outputPerMillionUsd: 0.28,
         cacheReadPerMillionUsd: 0.0028,
-        // DeepSeek never charges to populate the cache.
+
         cacheWritePerMillionUsd: 0,
       }),
     ]);

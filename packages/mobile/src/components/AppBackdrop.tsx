@@ -3,17 +3,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useColors, useTheme } from "../theme/theme-context";
 import { soften } from "../theme/oklch";
 
-/** Height of the top-bar row itself (added on top of the safe-area inset). */
 export const TOP_BAR_BAR_HEIGHT = 36;
 
-/**
- * The app's canvas backdrop. In flat mode (or a forced-mode theme like
- * Pearl/Noir) it paints the plain theme background; in soft mode it paints the
- * diagonal accent → background → ok blob, matching the desktop Gradient → Flat
- * setting. Rendered as an absolute fill so it can sit behind any layer and be
- * reused anywhere the same canvas must show through (shell, foreground, and the
- * chat top taper) without drifting between surfaces.
- */
 export function AppBackdrop({ style }: { style?: StyleProp<ViewStyle> }) {
   const colors = useColors();
   const { isDark, gradientMode } = useTheme();

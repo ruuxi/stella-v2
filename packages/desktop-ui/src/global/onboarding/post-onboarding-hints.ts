@@ -1,23 +1,6 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { uiState } from "@/platform/ui-state";
 
-/**
- * Tiny one-shot "look here" markers shown in the display panel after a fresh
- * onboarding finishes. The user sees a small red dot on the surfaces
- * we want to highlight until they actually visit each one — at which
- * point the dot is dismissed and never returns.
- *
- * Storage shape (single shared-UI-state key):
- *   {
- *     seededAt: number,             // ms epoch when the set was first seeded
- *     active: { [hintId]: true }    // ids still un-dismissed
- *   }
- *
- * The `seededAt` marker exists so we only seed hints once per install.
- * If a user dismisses both hints and then resets onboarding, the next
- * `complete()` will re-seed because we clear the marker on reset.
- */
-
 const STORAGE_KEY = "stella:post-onboarding-hints";
 const CHANGE_EVENT = "stella:post-onboarding-hints-changed";
 
@@ -99,11 +82,6 @@ const notifyAll = () => {
   for (const notify of subscribers) notify();
 };
 
-/**
- * Seed the hints set once per install. Idempotent — re-running does
- * nothing as long as `seededAt` is already populated. Safe to call
- * unconditionally from the onboarding-complete handler.
- */
 export const seedPostOnboardingHints = (): void => {
   const state = safeRead();
   if (state.seededAt > 0) return;
@@ -113,11 +91,6 @@ export const seedPostOnboardingHints = (): void => {
   notifyAll();
 };
 
-/**
- * Reset the seeded marker so the next `seedPostOnboardingHints()` call
- * re-shows the dots. Wired into `useOnboardingState.reset()` so
- * `bun run reset` flows behave like a brand-new install.
- */
 export const clearPostOnboardingHints = (): void => {
   safeWrite(EMPTY_STATE);
   notifyAll();
@@ -138,10 +111,6 @@ const getHintSnapshot = (id: PostOnboardingHintId): boolean => {
 
 const getServerSnapshot = () => false;
 
-/**
- * Subscribe a single hint dot. Returns true while the dot should show,
- * plus a stable `dismiss` callback to call on click.
- */
 export function usePostOnboardingHint(
   id: PostOnboardingHintId,
 ): { active: boolean; dismiss: () => void } {

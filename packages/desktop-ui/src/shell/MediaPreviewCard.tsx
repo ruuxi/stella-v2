@@ -1,10 +1,3 @@
-/**
- * Renders a `DisplayPayload { kind: "media" }` inside the workspace panel.
- * Loads each file via `display.readFile` (the same privileged IPC the PDF
- * viewer uses) and turns the bytes into a Blob URL so videos/audio can
- * stream rather than living entirely in a base64 string.
- */
-
 import { useCallback, useState, type ReactNode } from "react";
 import type { MediaAsset } from "@stella/contracts/desktop/display-payload";
 import {
@@ -140,10 +133,6 @@ const ImageGallery = ({
   );
   const [activeIndex, setActiveIndex] = useState(initialIndex ?? 0);
 
-  // Clamp on render rather than syncing via effect — when a new batch with
-  // fewer files arrives we want the active selection to slide back into
-  // range, but we don't want to schedule an extra render for the common
-  // case where file count is stable.
   const safeIndex = Math.max(0, Math.min(activeIndex, files.length - 1));
   const active = files[safeIndex];
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-
 import { spawnSync } from "node:child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync } from "node:fs";
 import os from "node:os";
@@ -69,9 +68,6 @@ const hydrateCheckedOutSource = () => {
   return true;
 };
 
-// Development must run the checked-out Rust implementation. Downloading the
-// last published artifact here can silently pair a new Electron/UI protocol
-// with an older daemon that does not recognize its commands.
 if (buildFromSource) {
   if (hydrateCheckedOutSource()) {
     process.exit(0);

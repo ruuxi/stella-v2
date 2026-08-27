@@ -33,12 +33,6 @@ type RunAgentTurnArgs = {
   modelOverride?: string | null;
 };
 
-/**
- * Module-level cache for ensureBuiltins. In Convex's serverless environment,
- * cold starts reset this state — that's fine because the fallback (re-running
- * ensureBuiltins) is idempotent and safe. The cache simply avoids redundant
- * DB writes within the same warm instance.
- */
 const BUILTIN_ENSURE_CACHE_TTL_MS = 5 * 60 * 1000;
 let builtinEnsurePromise: Promise<void> | null = null;
 let builtinEnsureSucceededAt = 0;
@@ -133,7 +127,6 @@ export async function runAgentTurn({
   const text = await result.text;
   const { noResponseCalled, usageSummary } = streamLifecycle.getState();
 
-  // Fire afterChat hook asynchronously for usage logging + token tracking
   if (!transient) {
     const usageByModel = await result.usageByModel;
     const durationMs = Date.now() - runnerStartTime;

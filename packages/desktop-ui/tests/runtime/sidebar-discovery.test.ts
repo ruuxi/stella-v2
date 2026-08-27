@@ -7,9 +7,6 @@ const ROUTES_DIR = join(import.meta.dirname, "../../src/routes");
 
 const VALID_SLOTS = new Set(["top", "bottom"]);
 
-// Only feature folders that opt into the sidebar (i.e. ship a `metadata.ts`)
-// participate. `home`, `media`, `workspace`, etc. are sub-surfaces and are
-// silently skipped — same rule the runtime glob uses.
 const listAppDirs = () =>
   readdirSync(APPS_DIR).filter((entry) => {
     if (entry.startsWith("_")) return false;
@@ -48,10 +45,6 @@ describe("sidebar app discovery", () => {
     }
     expect((metadata.route as string).startsWith("/")).toBe(true);
 
-    // The directory name *is* the app id. Diverging makes discovery + the
-    // routes/<id>.tsx convention quietly inconsistent (e.g. an `app/chat`
-    // folder declaring `id: "home"` would still appear in the sidebar but
-    // would not match its directory or the route filename).
     expect(
       metadata.id,
       `app/${dirName}/metadata.ts must declare id: "${dirName}" (matches the directory name)`,

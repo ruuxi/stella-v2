@@ -32,9 +32,7 @@ const PAIRING_CODE_LENGTH = 8;
 const PAIR_SECRET_ALPHABET =
   "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
 const PAIR_SECRET_LENGTH = 48;
-// Bounded reads keep these helpers safe even if (owner, desktop) accumulates
-// historical rows over time. Pairing sessions are short-lived and paired
-// devices are typically a handful per desktop, so these caps are generous.
+
 const PAIRING_SESSION_SCAN_LIMIT = 50;
 const PAIRED_DEVICE_SCAN_LIMIT = 100;
 const CONNECT_INTENT_SCAN_LIMIT = 20;
@@ -105,10 +103,7 @@ const loadMostRecentUnusedPairingSession = async (
   ctx: QueryCtx | MutationCtx,
   args: { ownerId: string; desktopDeviceId: string },
 ) => {
-  // Pairing sessions accumulate historically; bound the scan and pick the
-  // most recent unused row. Callers in mutation contexts apply the live
-  // expiry check against `Date.now()` themselves so query handlers stay
-  // deterministic.
+
   const sessions = await ctx.db
     .query("mobile_pairing_sessions")
     .withIndex("by_ownerId_and_desktopDeviceId", (q) =>
@@ -221,9 +216,7 @@ export const getPhoneAccessState = query({
     if (!identity || isAnonymousIdentity(identity)) {
       return { activePairing: null, pairedDevices: [] };
     }
-    // This query exposes the live pairing code; a revoked session must not
-    // be able to read it. Return the signed-out shape instead of throwing so
-    // UI subscriptions degrade gracefully.
+
     try {
       await assertSensitiveSessionPolicy(ctx, identity);
     } catch {
@@ -272,8 +265,7 @@ export const createPairingSession = mutation({
   }),
   handler: async (ctx, args) => {
     const ownerId = await requireSensitiveUserId(ctx);
-    // Each pairing session writes a new row + cleanup work. Tight cap so a
-    // hijacked session can't churn pairing codes.
+
     await enforceMutationRateLimit(
       ctx,
       "mobile_access_create_pairing_session",
@@ -298,10 +290,6 @@ export const createPairingSession = mutation({
     const expiresAt = createdAt + MOBILE_PAIRING_SESSION_TTL_MS;
     let pairingCode = randomPairingCode();
 
-    // Regenerate on ANY existing row with this code (even expired/used ones):
-    // historical rows are never deleted, and inserting a second row with the
-    // same code would make the `.unique()` lookup in `completePairingSession`
-    // throw for both.
     let codeIsFree = false;
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const conflict = await ctx.db
@@ -369,13 +357,7 @@ export const revokePairedMobileDevice = mutation({
 export const watchIncomingConnectIntent = query({
   args: {
     desktopDeviceId: v.string(),
-    // Optional legacy polling clock. When a caller passes a per-tick timestamp
-    // it becomes part of the query args, so every poll is a unique
-    // (uncacheable) subscription that re-executes on every tick instead of only
-    // when the underlying intents change. Newer clients omit it and gate on the
-    // returned `expiresAt` themselves, which lets Convex serve this reactive
-    // subscription from cache. Kept optional so existing desktops keep working
-    // unchanged during rollout.
+
     nowMs: v.optional(v.number()),
   },
   returns: connectIntentValidator,
@@ -385,12 +367,7 @@ export const watchIncomingConnectIntent = query({
       return null;
     }
     const ownerId = identity.tokenIdentifier;
-    // Scan by the stable (ownerId, desktopDeviceId) prefix, newest first. When
-    // a caller supplies `nowMs` we additionally bound the range to un-expired
-    // intents for backward-compatible behavior; otherwise we return the
-    // freshest unacknowledged intent and let the caller apply the live expiry
-    // check against `expiresAt` (consistent with the pairing-session queries in
-    // this module, which also delegate live expiry to their callers).
+
     const intents = await ctx.db
       .query("mobile_connect_intents")
       .withIndex("by_ownerId_and_desktopDeviceId_and_expiresAt", (q) => {

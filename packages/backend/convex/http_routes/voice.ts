@@ -15,16 +15,8 @@ import { requireSignedInAccountAction } from "../http_shared/auth";
 import { rateLimitResponse } from "../http_shared/webhook_controls";
 import { buildXaiRealtimeClientSecretRequest } from "../http_shared/xai_realtime";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const VOICE_SESSION_RATE_LIMIT = 10; // per minute
+const VOICE_SESSION_RATE_LIMIT = 10;
 const VOICE_SESSION_RATE_WINDOW_MS = 60_000;
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 const normalizeConversationId = async (
   ctx: ActionCtx,
@@ -270,22 +262,16 @@ const estimateTtsAudioOutputTokens = (
     speed <= 4
       ? speed
       : 1;
-  // OpenAI does not return usage for /audio/speech. Estimate spoken duration
-  // from text length, then use the Realtime audio-output rate of 1 token / 50ms.
+
   const estimatedSeconds = text.length / 13 / normalizedSpeed;
   return Math.max(1, Math.ceil(estimatedSeconds * 20));
 };
-
-// ---------------------------------------------------------------------------
-// Read-aloud streaming TTS
-// ---------------------------------------------------------------------------
 
 const INWORLD_TTS_STREAM_URL = "https://api.inworld.ai/tts/v1/voice:stream";
 const DEFAULT_INWORLD_TTS_MODEL = "inworld-tts-2-flash";
 const DEFAULT_INWORLD_TTS_VOICE = "Brooke";
 const TTS_MAX_INPUT_CHARS = 8000;
-// Read-aloud fires per assistant message; give it more headroom than session
-// mints but still cap to prevent accidental loops.
+
 const TTS_RATE_LIMIT = 120;
 
 type TtsSynthesisParams = {
@@ -334,7 +320,7 @@ const resolveTtsRequest = async (
   if (!text) {
     return { ok: false, status: 400, message: "text is required" };
   }
-  // Bound the input so a runaway prompt can't blow the provider budget.
+
   const truncated =
     text.length > TTS_MAX_INPUT_CHARS
       ? text.slice(0, TTS_MAX_INPUT_CHARS)
@@ -379,10 +365,6 @@ const decodeBase64ToBytes = (b64: string): Uint8Array => {
   return bytes;
 };
 
-// Inworld's streaming TTS returns newline-delimited JSON: one object per line,
-// each carrying a base64 audio chunk under `result.audioContent` (the
-// non-streaming endpoint uses a bare `audioContent`). Return the decoded audio
-// bytes for a line, or null when the line has no audio.
 const extractInworldAudioChunk = (line: string): Uint8Array | null => {
   let parsed: unknown;
   try {
@@ -431,25 +413,12 @@ const bytesToBase64 = (bytes: Uint8Array): string => {
   return btoa(binary);
 };
 
-// Cap the per-ticket audio cache so a doc stays well under Convex's 1 MiB
-// limit; longer clips simply re-synthesize on a range request (rare for
-// read-aloud).
 const MAX_TICKET_AUDIO_CACHE_BYTES = 700_000;
 
 type BufferedTtsResult =
   | { ok: true; bytes: Uint8Array }
   | { ok: false; status: number; message: string };
 
-/**
- * Synthesize a full Inworld MP3 into a single buffer.
- *
- * Used for the mobile GET transport: native players (AVPlayer/ExoPlayer)
- * fetch a seekable resource and issue several ranged requests, which a
- * chunked, length-less stream cannot satisfy — so the GET serves a complete,
- * range-capable body instead. Internally this still consumes Inworld's fast
- * streaming endpoint (so the buffer fills quickly); the org key never leaves
- * the action, and spend is metered once to the internal ledger.
- */
 const synthesizeInworldTtsBuffered = async (
   ctx: ActionCtx,
   params: TtsSynthesisParams,
@@ -565,12 +534,6 @@ const synthesizeInworldTtsBuffered = async (
 
 const AUDIO_RANGE_RE = /^bytes=(\d*)-(\d*)$/;
 
-// Build a live HLS media playlist for a mobile read-aloud session. Uses an
-// EVENT playlist (segments are only ever appended) so the player keeps
-// re-fetching and playing new segments as the background synthesis produces
-// them; `#EXT-X-ENDLIST` is added once synthesis is done. Segment URIs are
-// relative, so the player resolves them against this playlist's own path and
-// carries the same `Authorization` header to each segment request.
 const HLS_TARGET_DURATION = 3;
 const buildHlsPlaylist = (
   segments: ReadonlyArray<{ seq: number; durationSec: number }>,
@@ -593,9 +556,6 @@ const buildHlsPlaylist = (
   return `${lines.join("\n")}\n`;
 };
 
-// Serve a complete MP3 buffer with byte-range support so native players can
-// probe and seek. Answers `Range` with 206 + `Content-Range`; otherwise 200 +
-// `Content-Length`. Always advertises `Accept-Ranges: bytes`.
 const serveAudioWithRange = (
   bytes: Uint8Array,
   rangeHeader: string | null,
@@ -644,15 +604,6 @@ const serveAudioWithRange = (
   );
 };
 
-/**
- * Proxy Inworld's streaming TTS back to the caller as a single progressive
- * `audio/mpeg` stream. The org Inworld key never leaves this action — the
- * client only ever sees decoded MP3 bytes. Provider spend (including
- * cancellations and partial synthesis) is recorded to the internal ledger via
- * `recordInternalTtsUsage`, which never charges the user or grants any plan
- * entitlement. Mirrors the relay-stream lifecycle in `stella_provider.ts`:
- * downstream cancellation promptly cancels the upstream read.
- */
 const streamInworldTts = async (
   ctx: ActionCtx,
   origin: string | null,
@@ -671,7 +622,6 @@ const streamInworldTts = async (
   const requestChars = params.text.length;
   const startedAt = Date.now();
 
-  // Insert a "failed" ledger row directly (used when synthesis never starts).
   const recordFailure = (): Promise<unknown> =>
     ctx
       .runMutation(internal.billing.recordInternalTtsUsage, {
@@ -714,8 +664,7 @@ const streamInworldTts = async (
   }
 
   if (!upstream.ok || !upstream.body) {
-    // Drain + discard the error body so the socket frees; never forward a
-    // provider error body to the client.
+
     await upstream.text().catch(() => undefined);
     console.error("[voice/tts/stream] Inworld TTS failed:", upstream.status);
     await recordFailure();
@@ -724,10 +673,6 @@ const streamInworldTts = async (
     return errorResponse(status, "Inworld TTS failed", origin);
   }
 
-  // Synthesis is under way. Record a pessimistic "interrupted" row up front so
-  // that a client disconnect (which terminates this action before the stream
-  // ends) still leaves accurate provider spend; it is finalized to the real
-  // terminal status when the stream completes.
   const usage = await ctx
     .runMutation(internal.billing.recordInternalTtsUsage, {
       ownerId: meta.ownerId,
@@ -759,21 +704,12 @@ const streamInworldTts = async (
   let upstreamDone = false;
   let recorded = false;
 
-  // Finalize the up-front "interrupted" row exactly once. A pull-based stream
-  // lets Convex stop pulling and invoke `cancel()` the moment the client
-  // disconnects, so upstream synthesis is closed promptly and the ledger row
-  // is finalized with the true terminal status. If the disconnect kills the
-  // action before finalize runs, the row correctly stays "interrupted".
   const finalizeUsage = async (
     status: "completed" | "failed" | "interrupted" | "partial",
   ) => {
     if (recorded || !usageId) return;
     recorded = true;
-    // Conservative accounting: any run that produced audio is charged for the
-    // full submitted text (the provider meters by input character);
-    // `audioBytes` + `status` are retained so an interrupted run's true share
-    // can be reconstructed. Only a run that produced no audio at all is
-    // charged nothing.
+
     const synthesizedChars = status === "failed" ? 0 : requestChars;
     await ctx
       .runMutation(internal.billing.finalizeInternalTtsUsage, {
@@ -791,9 +727,6 @@ const streamInworldTts = async (
       });
   };
 
-  // Pull the next decoded audio chunk out of the NDJSON buffer, reading more
-  // from Inworld only as the downstream consumer asks for it (backpressure →
-  // bounded buffering).
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
@@ -844,15 +777,12 @@ const streamInworldTts = async (
         try {
           controller.error(error);
         } catch {
-          // Ignore downstream error races.
+
         }
       }
     },
     async cancel(reason) {
-      // Client went away — stop pulling from Inworld and record the
-      // interrupted outcome. (On platforms that drain the response server-side
-      // this may resolve as "completed", which is the correct spend since the
-      // provider meters the full submitted text.)
+
       await reader.cancel(reason).catch(() => undefined);
       await finalizeUsage("interrupted");
     },
@@ -870,12 +800,7 @@ const streamInworldTts = async (
   );
 };
 
-// ---------------------------------------------------------------------------
-// Route Registration
-// ---------------------------------------------------------------------------
-
 export const registerVoiceRoutes = (http: HttpRouter) => {
-  // --- Voice Session ---
 
   registerCorsOptions(http, [
     "/api/voice/session",
@@ -900,13 +825,6 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         if (!auth.ok) return auth.response;
         const ownerId = auth.ownerId;
 
-        // Realtime voice synthesizes Stella's replies, so it is a
-        // generative-audio surface even though the user also speaks into it:
-        // it needs the rate-limit, capability, and managed-usage gates. These
-        // used to be three serial mutations (three commits) before the session
-        // could be minted; the combined gate runs them in one transaction, in
-        // the same precedence (rate -> capability -> usage), so the 429/402 a
-        // client sees is unchanged. Every gate is still enforced pre-spend.
         const gate = await runManagedGate(ctx, origin, {
           ownerId,
           order: ["rate", "capability", "usage"],
@@ -926,16 +844,13 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           conversationId?: string;
           voice?: string;
           model?: string;
-          /** Inworld realtime TTS model; server default applied when omitted. */
+
           ttsModel?: string;
           tools?: unknown;
           turnDetection?: "semantic_vad" | "server_vad";
           turnEagerness?: "low" | "medium" | "high";
           instructions?: string;
-          /**
-           * Which voice family the renderer wants Stella to mint for.
-           * Defaults to "openai" so older clients keep working.
-           */
+
           voiceProvider?: "openai" | "xai" | "inworld";
         };
         let body: VoiceSessionBody | null = null;
@@ -963,11 +878,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         );
 
         if (voiceProvider === "xai") {
-          // ── xAI Grok Voice Agent path ────────────────────────────────
-          // Stella mints an ephemeral token against api.x.ai using the
-          // Stella org's XAI_API_KEY. We never return the org key to the
-          // client; if the ephemeral endpoint is unavailable we fail
-          // closed rather than leaking the key.
+
           const xaiApiKey = process.env.XAI_API_KEY ?? null;
           if (!xaiApiKey) {
             return errorResponse(
@@ -1084,13 +995,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         }
 
         if (voiceProvider === "inworld") {
-          // ── Inworld Realtime path ─────────────────────────────────
-          // Inworld doesn't have an ephemeral-token concept — the org
-          // API key is the Bearer for the SDP exchange. To avoid
-          // leaking it to the renderer, the Stella path returns no
-          // client secret; the renderer instead routes the SDP offer
-          // through /api/voice/inworld/sdp, which is auth-gated by the
-          // user's Convex session.
+
           const inworldApiKey = process.env.INWORLD_API_KEY ?? null;
           if (!inworldApiKey) {
             return errorResponse(
@@ -1101,9 +1006,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           }
           const inworldModel = body.model ?? "openai/gpt-4o-mini";
           const inworldVoice = body.voice ?? "Brooke";
-          // TTS model is server-authoritative: honor an explicit override
-          // (backward compat) but default here so the renderer's session.update
-          // uses the backend's default without needing a client release.
+
           const inworldTtsModel =
             typeof body.ttsModel === "string" && body.ttsModel.trim().length > 0
               ? body.ttsModel.trim()
@@ -1127,10 +1030,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
               origin,
             );
           }
-          // Inworld's WebRTC SDP endpoint expects a complete offer
-          // (ICE candidates baked in), so the renderer needs Inworld's
-          // STUN/TURN config to gather candidates correctly. Fetch
-          // server-side so the org API key never leaves the backend.
+
           let iceServers: unknown[] = [];
           try {
             const iceResponse = await fetch(
@@ -1169,8 +1069,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             {
               voiceProvider: "inworld" as const,
               transport: "inworld-webrtc" as const,
-              // No clientSecret: SDP is proxied through the backend
-              // route so the org key never reaches the renderer.
+
               clientSecret: "",
               model: inworldModel,
               voice: inworldVoice,
@@ -1184,7 +1083,6 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           );
         }
 
-        // ── OpenAI Realtime path (default) ───────────────────────────
         const resolveOpenAiApiKey = async (): Promise<string | null> =>
           process.env.OPENAI_API_KEY ?? null;
 
@@ -1233,7 +1131,6 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           );
         }
 
-        // Request ephemeral client secret from OpenAI
         const turnDetection =
           body?.turnDetection === "semantic_vad"
             ? {
@@ -1244,7 +1141,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
               }
             : {
                 type: "server_vad",
-                // Faster end-of-turn detection profile.
+
                 threshold: 0.5,
                 prefix_padding_ms: 120,
                 silence_duration_ms: 220,
@@ -1362,11 +1259,6 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
     ),
   });
 
-  // ── Inworld SDP proxy ────────────────────────────────────────────
-  // The renderer POSTs its WebRTC SDP offer here (Content-Type:
-  // application/sdp). We forward to Inworld using the org API key and
-  // return the SDP answer text. This keeps the org Inworld key
-  // server-side — the renderer never receives it.
   http.route({
     path: "/api/voice/inworld/sdp",
     method: "POST",
@@ -1378,9 +1270,6 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         });
         if (!auth.ok) return auth.response;
 
-        // Same generative-audio gauntlet as /api/voice/session (rate ->
-        // capability -> usage), collapsed into one transaction/commit while
-        // keeping identical enforcement and response precedence.
         const gate = await runManagedGate(ctx, origin, {
           ownerId: auth.ownerId,
           order: ["rate", "capability", "usage"],
@@ -1473,13 +1362,6 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
     ),
   });
 
-  // ── Read-aloud streaming TTS (desktop) ───────────────────────────
-  // Progressive text-to-speech: proxies Inworld's streaming synthesis back
-  // as a single `audio/mpeg` stream so playback can begin before the whole
-  // reply is synthesized. Read-aloud is FREE on every plan, so — unlike
-  // realtime voice — there is deliberately no capability or managed-usage
-  // gate here; auth, rate limiting, bounded input, and safe provider-error
-  // handling remain. Provider spend is tracked internally only.
   http.route({
     path: "/api/voice/tts/stream",
     method: "POST",
@@ -1520,14 +1402,6 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
     ),
   });
 
-  // ── Read-aloud streaming TTS: prepare a mobile HLS session ────────
-  // Mobile's native player can only progressively stream from a GET URL, but
-  // the assistant text is too long for a query string. The client POSTs the
-  // text here and gets back a short-lived opaque ticket; it then plays the live
-  // HLS playlist at `/api/voice/tts/stream/hls/<ticket>/playlist.m3u8`. This
-  // schedules ONE background synthesis that streams Inworld and appends MP3
-  // segments as they are produced, so audio begins while Inworld is still
-  // generating. The text never appears in a URL, log, or client-visible store.
   http.route({
     path: "/api/voice/tts/stream/prepare",
     method: "POST",
@@ -1582,16 +1456,6 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
     ),
   });
 
-  // ── Read-aloud streaming TTS: serve a ticketed clip (mobile GET) ──
-  // Registered as a prefix so the request URL can carry a `.mp3` suffix (which
-  // nudges native players to treat the response as an MP3) without a dot in the
-  // registered route path. Native players (AVPlayer/ExoPlayer) fetch a seekable
-  // resource and issue several ranged requests per playback, so — unlike the
-  // desktop POST stream — this serves a complete, `Range`-capable MP3 from a
-  // reusable, owner-bound ticket. The first request synthesizes and caches the
-  // audio; the player's follow-up range requests are served from that cache.
-  // Auth is still enforced (Bearer header). GET has no side effects the browser
-  // needs to preflight, so there is no CORS OPTIONS route for this path.
   http.route({
     pathPrefix: "/api/voice/tts/stream/audio/",
     method: "GET",
@@ -1623,7 +1487,6 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
 
         const rangeHeader = request.headers.get("range");
 
-        // Serve the cached clip if a prior request already synthesized it.
         if (consumed.audio) {
           try {
             return serveAudioWithRange(
@@ -1632,7 +1495,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
               origin,
             );
           } catch {
-            // Corrupt cache — fall through and re-synthesize.
+
           }
         }
 
@@ -1670,14 +1533,6 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
     ),
   });
 
-  // ── Read-aloud streaming TTS: mobile HLS transport (playlist + segments) ──
-  // The mobile player streams a live HLS playlist so audio begins while Inworld
-  // is still generating. One prefix serves both the growing `playlist.m3u8`
-  // (built from the ticket's manifest — no audio loaded) and each `<seq>.mp3`
-  // packed-audio segment. Auth is enforced per request (Bearer header, which
-  // native players attach to every playlist + segment fetch); segments are
-  // owner-bound to the ticket. Registered as a prefix so the `.m3u8`/`.mp3`
-  // suffixes reach native players without a dot in the route path.
   http.route({
     pathPrefix: "/api/voice/tts/stream/hls/",
     method: "GET",
@@ -1751,10 +1606,6 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
     ),
   });
 
-  // ── Read-aloud streaming TTS: stop beacon (mobile) ────────────────
-  // Posted when the user stops read-aloud. Sets a cooperative cancel flag the
-  // background synthesis polls so provider spend ends early and is metered as
-  // interrupted. Best-effort: a missing/expired ticket is a no-op.
   http.route({
     path: "/api/voice/tts/stream/cancel",
     method: "POST",
@@ -1787,13 +1638,6 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
     ),
   });
 
-  // ── Read-aloud TTS (non-streamed fallback) ───────────────────────
-  // One-shot text-to-speech for the renderer's "read assistant replies
-  // aloud" toggle. Returns binary audio (mp3 for OpenAI, wav for
-  // Inworld) so the renderer can decode + play through Web Audio API
-  // without an extra JSON unwrap. Kept as the graceful fallback for when
-  // true streaming is unavailable (e.g. the OpenAI voice family, or a
-  // client that cannot consume a progressive stream). Free on every plan.
   http.route({
     path: "/api/voice/tts",
     method: "POST",
@@ -1810,9 +1654,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           internal.rate_limits.consumeWebhookRateLimit,
           {
             scope: "voice_tts",
-            // Read-aloud fires per assistant message; give it more
-            // headroom than session mints but still cap to prevent
-            // accidental loops.
+
             key: identity.tokenIdentifier,
             limit: 120,
             windowMs: VOICE_SESSION_RATE_WINDOW_MS,
@@ -1822,10 +1664,6 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         if (!rateLimit.allowed) {
           return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
         }
-
-        // Read-aloud is free on every plan: no capability or managed-usage
-        // gate here (that would restrict it to paid plans). Auth + rate
-        // limiting above remain; provider spend is tracked internally below.
 
         type TtsBody = {
           text?: string;
@@ -1846,7 +1684,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
         if (!text) {
           return errorResponse(400, "text is required", origin);
         }
-        // Cap at ~8k chars so a runaway prompt can't blow the budget.
+
         const truncated = text.length > 8000 ? text.slice(0, 8000) : text;
 
         const voiceProvider: "openai" | "inworld" =
@@ -1910,7 +1748,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
                 origin,
               );
             }
-            // Inworld returns JSON { audioContent: <base64 wav> }.
+
             let audioBase64: string | null = null;
             try {
               const parsed = JSON.parse(raw) as { audioContent?: string };
@@ -1923,13 +1761,12 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
             if (!audioBase64) {
               return errorResponse(502, "Inworld returned no audio", origin);
             }
-            // Decode base64 → bytes for the response body.
+
             const bytes = Uint8Array.from(atob(audioBase64), (c) =>
               c.charCodeAt(0),
             );
             try {
-              // Internal spend tracking only — read-aloud is free, so this
-              // never touches the user's usage windows, credits, or plan.
+
               await ctx.runMutation(internal.billing.recordInternalTtsUsage, {
                 ownerId: identity.tokenIdentifier,
                 provider: "inworld" as const,
@@ -1943,7 +1780,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
                 audioBytes: bytes.byteLength,
               });
             } catch {
-              // Best-effort metering should not block audio playback.
+
             }
             return withCors(
               new Response(bytes, {
@@ -1961,7 +1798,6 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           }
         }
 
-        // ── OpenAI TTS (default) ─────────────────────────────────────
         const openaiApiKey = process.env.OPENAI_API_KEY ?? null;
         if (!openaiApiKey) {
           return errorResponse(503, "Voice TTS is not configured yet.", origin);
@@ -2006,8 +1842,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
           }
           const audio = await openaiResponse.arrayBuffer();
           try {
-            // Internal spend tracking only — read-aloud is free, so this
-            // never touches the user's usage windows, credits, or plan.
+
             await ctx.runMutation(internal.billing.recordInternalTtsUsage, {
               ownerId: identity.tokenIdentifier,
               provider: "openai" as const,
@@ -2026,7 +1861,7 @@ export const registerVoiceRoutes = (http: HttpRouter) => {
               ),
             });
           } catch {
-            // Best-effort metering should not block audio playback.
+
           }
           return withCors(
             new Response(audio, {

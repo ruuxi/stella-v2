@@ -1,8 +1,3 @@
-/**
- * Tiny singleton store for the Models picker's open state. Callers like
- * `openModelPicker()` and `stella:open-model-picker` flip this on; whichever
- * footer is on screen anchors the popover. Nothing here moves the sidebar.
- */
 import { useSyncExternalStore } from "react";
 import { uiState } from "@/platform/ui-state";
 
@@ -21,8 +16,6 @@ const writePersistedOpen = (next: boolean): void => {
   else uiState.removeItem(STORAGE_KEY);
 };
 
-// Restored from the shared UI state store so programmatic open requests
-// and the user's last open/closed choice survive panel close + reopen.
 let isOpen = readPersistedOpen();
 const listeners = new Set<Listener>();
 

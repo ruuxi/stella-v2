@@ -1,18 +1,3 @@
-/**
- * Surface a "this model isn't available on your plan" toast when a user on
- * a restricted tier (anonymous / free / go) submits a chat with a saved
- * non-default Stella model override AND Stella's own runtime is the
- * committed engine.
- *
- * The picker (`AgentModelPicker`) toasts at selection time, but a user
- * whose plan downgrades AFTER they picked a model would never see the
- * picker again before sending — this hook catches that case at submit
- * time. Deduped per (audience, agent, model) combo so it doesn't spam on
- * every send.
- *
- * Backend (`stella_provider/request.ts`) silently coerces the model in
- * either case — this is purely a UX notice.
- */
 import { useCallback, useEffect, useRef } from "react";
 import { router } from "@/router";
 import {
@@ -41,16 +26,11 @@ const buildToastDedupeKey = (
 ): string => `${audience}|${agent}|${model}`;
 
 export function useTierRestrictedModelToast() {
-  // Shares the app's single capability/billing subscription rather than
-  // opening a second one — and mounting it here is what keeps the
-  // audience snapshot fresh for the non-React streaming error path,
-  // since this hook is on every chat send.
+
   const { audience } = useCapabilityAccess();
   const audienceRef = useRef<ManagedModelAudience | null>(audience);
   audienceRef.current = audience;
 
-  // Reset dedupe set whenever audience changes — re-upgrading should clear
-  // prior toasts so a re-downgrade re-notifies.
   const seenRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     seenRef.current = new Set();

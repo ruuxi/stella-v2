@@ -1,9 +1,3 @@
-/**
- * Proxy stream function for apps that route LLM calls through a server.
- * The server manages auth and proxies requests to LLM providers.
- */
-
-// Internal import for JSON parsing utility
 import type {
 	Api,
 	AssistantMessage,
@@ -19,7 +13,6 @@ import { parseStreamingJson } from "../../ai/utils/json-parse.js";
 
 type StreamingToolCall = ToolCall & { partialJson?: string };
 
-// Create stream class matching ProxyMessageEventStream
 class ProxyMessageEventStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
 	constructor() {
 		super(
@@ -33,9 +26,6 @@ class ProxyMessageEventStream extends EventStream<AssistantMessageEvent, Assista
 	}
 }
 
-/**
- * Proxy event types - server sends these with partial field stripped to reduce bandwidth.
- */
 export type ProxyAssistantMessageEvent =
 	| { type: "start" }
 	| { type: "text_start"; contentIndex: number }
@@ -60,36 +50,17 @@ export type ProxyAssistantMessageEvent =
 	  };
 
 export interface ProxyStreamOptions extends SimpleStreamOptions {
-	/** Auth token for the proxy server */
+
 	authToken: string;
-	/** Proxy server URL (e.g., "https://genai.example.com") */
+
 	proxyUrl: string;
 }
 
-/**
- * Stream function that proxies through a server instead of calling LLM providers directly.
- * The server strips the partial field from delta events to reduce bandwidth.
- * We reconstruct the partial message client-side.
- *
- * Use this as the `streamFn` option when creating an Agent that needs to go through a proxy.
- *
- * @example
- * ```typescript
- * const agent = new Agent({
- *   streamFn: (model, context, options) =>
- *     streamProxy(model, context, {
- *       ...options,
- *       authToken: await getAuthToken(),
- *       proxyUrl: "https://genai.example.com",
- *     }),
- * });
- * ```
- */
 export function streamProxy(model: Model<Api>, context: Context, options: ProxyStreamOptions): ProxyMessageEventStream {
 	const stream = new ProxyMessageEventStream();
 
 	(async () => {
-		// Initialize the partial message that we'll build up from events
+
 		const partial: AssistantMessage = {
 			role: "assistant",
 			stopReason: "stop",
@@ -147,7 +118,7 @@ export function streamProxy(model: Model<Api>, context: Context, options: ProxyS
 						errorMessage = `Proxy error: ${errorData.error}`;
 					}
 				} catch {
-					// Couldn't parse error response
+
 				}
 				throw new Error(errorMessage);
 			}
@@ -208,9 +179,6 @@ export function streamProxy(model: Model<Api>, context: Context, options: ProxyS
 	return stream;
 }
 
-/**
- * Process a proxy event and update the partial message.
- */
 function processProxyEvent(
 	proxyEvent: ProxyAssistantMessageEvent,
 	partial: AssistantMessage,
@@ -302,7 +270,7 @@ function processProxyEvent(
 				const streamingContent = content as StreamingToolCall;
 				streamingContent.partialJson = `${streamingContent.partialJson ?? ""}${proxyEvent.delta}`;
 				content.arguments = parseStreamingJson<Record<string, unknown>>(streamingContent.partialJson) || {};
-				partial.content[proxyEvent.contentIndex] = { ...content }; // Trigger reactivity
+				partial.content[proxyEvent.contentIndex] = { ...content };
 				return {
 					type: "toolcall_delta",
 					contentIndex: proxyEvent.contentIndex,

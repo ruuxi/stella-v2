@@ -1,54 +1,15 @@
-/**
- * Automatic wake on background command exit.
- *
- * An agent's turn is the only place its own code runs. `exec_command`
- * sessions deliberately outlive the run that started them (see the
- * teardown comment in `tools/host.ts`), so a build, benchmark, or training
- * job the agent left running keeps running after the turn ends — but
- * nothing it prints can start a new turn. The thread just stops, and the
- * work finishes into a void. That is how a GPU pod once idle-billed for
- * hours against a monitor whose output nobody read.
- *
- * So the runtime watches instead of asking the agent to. When a run ends
- * with sessions it started still alive, we attach exit watchers here. When
- * they exit, the exits are coalesced into one message and delivered to the
- * owning thread through the same `send_input` path a human or the
- * orchestrator would use — which rehydrates an evicted or finished thread
- * with its full history. The agent picks up where it left off, holding the
- * command, its exit code, and its output.
- *
- * Borrowed from Codex's session model: a "durably asleep" thread is one
- * that ended with work outstanding, and only such a thread is woken by
- * incoming mail. Here the arm IS the sleep marker — it is set at teardown
- * and replaced or dropped whenever the thread runs again, so a thread that
- * has already moved on is never woken by a stale exit.
- */
 import fs from "node:fs";
 import path from "node:path";
 const EXIT_LOG_DIRNAME = "background-exits";
-/** Spilled logs are a debugging aid for one wake, not an archive. */
+
 const EXIT_LOG_TTL_MS = 24 * 60 * 60 * 1000;
-/**
- * How long to hold the first exit before delivering, waiting for siblings.
- * `make -j` style fan-out and `wait`-ed pipelines land within a few hundred
- * ms of each other; one wake carrying four results is worth far more than
- * four turns carrying one each.
- */
+
 const COALESCE_WINDOW_MS = 2_000;
-/**
- * Ceiling on the coalescing window. Without it a session exiting every
- * 1.9s could defer the wake indefinitely.
- */
+
 const MAX_COALESCE_MS = 15_000;
-/** Inline output budget per exited command, before the log file takes over. */
+
 const INLINE_OUTPUT_CHARS = 2_000;
-/**
- * Head/tail split for a command whose output exceeds the inline budget.
- * Weighted toward the tail — the failure is usually at the end — but the
- * head is kept because that is where the command says what it is doing.
- * Adopted from Codex's middle-truncation policy, which keeps both ends
- * rather than Stella's usual tail-only shell drain.
- */
+
 const HEAD_SHARE = 0.3;
 const formatDuration = (ms) => {
     const seconds = Math.max(0, Math.round(ms / 1000));
@@ -59,10 +20,7 @@ const formatDuration = (ms) => {
         return `${minutes}m`;
     return `${(minutes / 60).toFixed(1)}h`;
 };
-/**
- * Keep the head and the tail, drop the middle. A truncation notice sits at
- * the seam so the agent can tell missing output from short output.
- */
+
 export const truncateMiddle = (value, max = INLINE_OUTPUT_CHARS) => {
     if (value.length <= max)
         return value;
@@ -108,13 +66,7 @@ const buildWakeText = (exits, logPaths) => {
         "You were resumed for this. Continue the work that was waiting on it, or say what you found.",
     ].join("\n");
 };
-/**
- * Spill a command's captured output so the wake can cite a path instead of
- * inlining tens of kilobytes. Unlike a tool result, a wake is a one-shot
- * injection — the agent can't ask for the rest — so the rest has to live
- * somewhere it can read. Codex has no equivalent because its model always
- * re-polls for output; ours only gets told once.
- */
+
 export const writeBackgroundExitLog = (stellaDataDir, sessionId, contents) => {
     try {
         const dir = path.join(stellaDataDir, EXIT_LOG_DIRNAME);
@@ -127,7 +79,7 @@ export const writeBackgroundExitLog = (stellaDataDir, sessionId, contents) => {
                     fs.rmSync(stale, { force: true });
             }
             catch {
-                // A file that vanished under us needs no pruning.
+
             }
         }
         const logPath = path.join(dir, `${sessionId}.log`);
@@ -135,7 +87,7 @@ export const writeBackgroundExitLog = (stellaDataDir, sessionId, contents) => {
         return logPath;
     }
     catch {
-        // Losing the spill only costs detail; the wake still carries head+tail.
+
         return null;
     }
 };
@@ -158,8 +110,7 @@ export const createBackgroundExitWake = (deps) => {
         if (!entry)
             return;
         const exits = entry.collected.splice(0);
-        // Sessions still running keep their watchers; the arm survives until
-        // every one of them has reported or the thread runs again.
+
         entry.timer = null;
         entry.firstExitAt = null;
         if (entry.disposers.size === 0)
@@ -170,14 +121,13 @@ export const createBackgroundExitWake = (deps) => {
             try {
                 const status = await deps.getThreadStatus(agentId);
                 if (status === "canceled") {
-                    // The user stopped this thread on purpose. Its leftovers finishing
-                    // is not a reason to start it up again.
+
                     disarm(agentId);
                     return;
                 }
             }
             catch {
-                // Status is an optimization; deliver rather than drop the wake.
+
             }
         }
         const logPaths = new Map();
@@ -213,8 +163,7 @@ export const createBackgroundExitWake = (deps) => {
         entry.firstExitAt = startedAt;
         if (entry.timer)
             clearTimeout(entry.timer);
-        // Extend for late siblings, but never past the ceiling measured from
-        // the first exit.
+
         const remaining = Math.max(0, startedAt + MAX_COALESCE_MS - now());
         const delay = Math.min(COALESCE_WINDOW_MS, remaining);
         entry.timer = setTimeout(() => {
@@ -223,18 +172,11 @@ export const createBackgroundExitWake = (deps) => {
         entry.timer.unref?.();
     };
     return {
-        /**
-         * Arm exit wakes for the sessions a finished run left running.
-         *
-         * Called once per run teardown. Re-arming replaces any previous arm for
-         * the thread, which is what keeps a stale exit from waking a thread
-         * that has already moved on.
-         */
+
         arm: (args) => {
             const { agentId } = args;
             if (!agentId) {
-                // No durable thread to resume — an orchestrator or one-shot caller.
-                // Nothing to arm; the caller logs this case.
+
                 return [];
             }
             disarm(agentId);
@@ -264,11 +206,11 @@ export const createBackgroundExitWake = (deps) => {
             }
             return [...entry.disposers.keys()];
         },
-        /** Drop a thread's arm — it is running again, so it can poll for itself. */
+
         disarm,
-        /** Test seam: force any buffered exits out without waiting on the timer. */
+
         flushNow: flush,
-        /** Test/diagnostic: threads currently waiting on a background exit. */
+
         armedThreadIds: () => [...armed.keys()],
         dispose: () => {
             for (const agentId of [...armed.keys()])

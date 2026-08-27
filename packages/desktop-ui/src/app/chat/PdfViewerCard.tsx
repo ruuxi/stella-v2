@@ -15,10 +15,6 @@ import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import "./pdf-viewer-card.css";
 
-// The pdf-worker-asset Vite plugin (see vite.config.ts) copies the pdfjs
-// worker into `public/vendor/pdfjs/` so we can serve it as a static asset.
-// `BASE_URL` is `./` for our build, so the resolved URL works under both
-// the dev server and the packaged Electron renderer.
 const PDF_WORKER_URL = `${import.meta.env.BASE_URL}vendor/pdfjs/pdf.worker.min.mjs`;
 
 if (pdfjs.GlobalWorkerOptions.workerSrc !== PDF_WORKER_URL) {
@@ -58,7 +54,6 @@ function PdfViewerCardContent({ filePath, title }: PdfViewerCardProps) {
   const status: LoadStatus = fileError ? "error" : loadStatus;
   const errorMessage = fileError ?? loadErrorMessage;
 
-  // Track container width so PDF pages render at the right resolution.
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container || typeof ResizeObserver === "undefined") return;
@@ -111,7 +106,6 @@ function PdfViewerCardContent({ filePath, title }: PdfViewerCardProps) {
 
   const documentFile = useMemo(() => (bytes ? { data: bytes } : null), [bytes]);
 
-  // Track which page is currently in view by intersection with [data-pdf-page].
   useEffect(() => {
     const container = containerRef.current;
     if (

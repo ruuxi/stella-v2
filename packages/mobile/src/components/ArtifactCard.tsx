@@ -24,8 +24,7 @@ export function ArtifactCard({ artifact, colors, onPress }: ArtifactCardProps) {
   const title = artifactTitle(payload);
   const subtitle = artifactSubtitle(payload);
   const iconName = artifactIconName(payload) as IconName;
-  // On-device PDFs open to a viewer with a save/share action, so hint that with
-  // a share glyph instead of the generic open chevron.
+
   const trailingIcon: IconName =
     payload.kind === "pdf" && payload.localUri ? "share" : "chevron-right";
 

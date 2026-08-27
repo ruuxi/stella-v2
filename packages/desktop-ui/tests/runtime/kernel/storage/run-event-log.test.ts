@@ -52,7 +52,6 @@ describe("RunEventLog", () => {
     log.append({ runId: "run-1", seq: 5, payload: { type: "stream" } });
     log.append({ runId: "run-1", seq: 6, payload: { type: "stream" } });
 
-    // We pruned events 1..4 at some point (or never had them).
     const result = log.resumeAfter({ runId: "run-1", lastSeq: 1 });
     expect(result.exhausted).toBe(true);
   });

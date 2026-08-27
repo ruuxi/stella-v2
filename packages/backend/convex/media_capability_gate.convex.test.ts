@@ -1,5 +1,3 @@
-/// <reference types="vite/client" />
-
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -103,8 +101,7 @@ describe("media capability gating", () => {
 
     await expectDenial(response, "image_generation", "go");
     expect(providerFetch).not.toHaveBeenCalled();
-    // Entitlement is checked before reservation, so a denial leaves no
-    // half-created job behind for the cost accounting to reconcile.
+
     expect(
       await t.run(async (ctx) => await ctx.db.query("media_jobs").collect()),
     ).toEqual([]);
@@ -156,7 +153,7 @@ describe("media capability gating", () => {
           "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=",
       }),
     });
-    // Whatever happens downstream, it must not be an entitlement denial.
+
     expect(response.status).not.toBe(402);
   });
 
@@ -288,15 +285,7 @@ describe("media capability gating", () => {
 });
 
 describe("orchestrator mode is not a capability", () => {
-  // The owner decided orchestrator mode stays open to every plan: it costs
-  // more usage, which is why Pro suits it, but usage is the billing axis and
-  // this table is the entitlement one. Pro lists it as marketing copy only.
-  //
-  // This test exists to keep it that way. `agentType: "orchestrator"` is what
-  // every ordinary desktop chat already sends, so anyone who wires the string
-  // into the capability path would silently lock Free and Go out of chat
-  // entirely — a failure that would otherwise surface as a support ticket
-  // rather than a red test.
+
   it("never denies a relay turn on the free plan for orchestrator", async () => {
     ensureEnv();
     const t = createTest();

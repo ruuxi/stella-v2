@@ -86,13 +86,6 @@ const LOCALE_ENGLISH_NAMES: Record<string, string> = {
   he: "Hebrew",
 };
 
-/**
- * Returns a one-line "respond in X" directive for the user's locale,
- * or an empty string for English (or unknown tags). Mirrors the runtime
- * helper at `runtime/kernel/runner/locale-prompt.ts` — keep both in
- * sync when adding locales. The directive is composable: callers
- * append it to whatever system-prompt array they already build.
- */
 export const getResponseLanguageSystemPrompt = (
   locale: string | null | undefined,
 ): string => {

@@ -1,7 +1,3 @@
-/**
- * Data access for AI proxy rate limiting (anon_device_usage table).
- */
-
 import { ConvexError, v } from 'convex/values'
 import { internalMutation } from './_generated/server'
 import { internal } from './_generated/api'
@@ -42,13 +38,6 @@ async function hashDeviceId(
   return `sha256:${hashHex}`
 }
 
-/**
- * Retention sweep for `anon_device_usage`. Rows whose `lastRequestAt` is older
- * than the retention window are already treated as stale (the count resets on
- * the next request), so deleting them only reclaims storage and never changes
- * rate-limiting behavior. Batched + index-scanned; the cron re-runs until the
- * backlog is drained.
- */
 export const purgeStaleDeviceUsage = internalMutation({
   args: {
     batchSize: v.optional(v.number()),
@@ -64,8 +53,7 @@ export const purgeStaleDeviceUsage = internalMutation({
     await Promise.all(stale.map((row) => ctx.db.delete(row._id)))
     const hasMore = stale.length === batchSize
     if (hasMore) {
-      // The cron only fires once per interval; reschedule ourselves so a
-      // backlog larger than one batch still drains within the same sweep.
+
       await ctx.scheduler.runAfter(0, internal.ai_proxy_data.purgeStaleDeviceUsage, {
         batchSize: args.batchSize,
       })
@@ -74,9 +62,6 @@ export const purgeStaleDeviceUsage = internalMutation({
   },
 })
 
-/**
- * Atomically checks and consumes one anonymous request allowance.
- */
 export const consumeDeviceAllowance = internalMutation({
   args: {
     deviceId: v.string(),

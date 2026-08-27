@@ -95,7 +95,7 @@ export const registerMeetingCaptureHandlers = (
     try {
       await fs.mkdir(dir, { recursive: true });
     } catch {
-      // best-effort
+
     }
     shell.openPath(dir);
     return { ok: true } as const;

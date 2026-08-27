@@ -5,12 +5,6 @@ import { streamAnthropic } from "@stella/runtime/ai/providers/anthropic";
 import type { AssistantMessageEvent, Context, Model } from "@stella/runtime/ai/types";
 import { anomalousStreamStopError, providerAbortedStopMessage } from "@stella/runtime/ai/utils/provider-stop";
 
-/**
- * Layer-1 regression tests for the "An unknown error occurred" swallow:
- * a provider-side refusal/safety stop must surface the raw stop reason in
- * the terminal error instead of an opaque generic message.
- */
-
 const model: Model<"anthropic-messages"> = {
 	id: "claude-fable-5",
 	name: "Claude Fable 5",
@@ -30,7 +24,6 @@ const context: Context = {
 	tools: [],
 };
 
-/** Fake Anthropic SDK client that streams SSE events we push manually. */
 function makeFakeClient() {
 	let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
 	const encoder = new TextEncoder();

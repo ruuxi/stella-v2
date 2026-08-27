@@ -35,10 +35,6 @@ import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
 import { normalizeProviderToolInputSchema } from "../utils/tool-schema.js";
 import { transformMessages } from "./transform-messages.js";
 
-// =============================================================================
-// Utilities
-// =============================================================================
-
 function encodeTextSignatureV1(id: string, phase?: TextSignatureV1["phase"]): string {
 	const payload: TextSignatureV1 = { v: 1, id };
 	if (phase) payload.phase = phase;
@@ -59,7 +55,7 @@ function parseTextSignature(
 				return { id: parsed.id };
 			}
 		} catch {
-			// Fall through to legacy plain-string handling.
+
 		}
 	}
 	return { id: signature };
@@ -98,10 +94,6 @@ export function normalizeOpenAIFunctionName(name: string): string {
 	return migrated;
 }
 
-// =============================================================================
-// Message conversion
-// =============================================================================
-
 export function convertResponsesMessages<TApi extends Api>(
 	model: Model<TApi>,
 	context: Context,
@@ -128,7 +120,7 @@ export function convertResponsesMessages<TApi extends Api>(
 		const normalizedCallId = normalizeIdPart(callId);
 		const isForeignToolCall = source.provider !== model.provider || source.api !== model.api;
 		let normalizedItemId = isForeignToolCall ? buildForeignResponsesItemId(itemId) : normalizeIdPart(itemId);
-		// OpenAI Responses API requires item id to start with "fc"
+
 		if (!normalizedItemId.startsWith("fc_")) {
 			normalizedItemId = normalizeIdPart(`fc_${normalizedItemId}`);
 		}
@@ -176,8 +168,7 @@ export function convertResponsesMessages<TApi extends Api>(
 			}
 		} else if (msg.role === "assistant") {
 			const output: ResponseInput = [];
-			// Counts unsigned text blocks within this single assistant message so
-			// 2nd+ fallback ids don't collide (OpenAI rejects duplicate input ids).
+
 			let textBlockIndex = 0;
 			const assistantMsg = msg as AssistantMessage;
 			const isDifferentModel =
@@ -193,14 +184,7 @@ export function convertResponsesMessages<TApi extends Api>(
 					}
 			} else if (block.type === "text") {
 				const textBlock = block as TextContent;
-				// Fireworks routers (kimi-k2p6, kimi-k2p5) do NOT understand the Responses
-				// `{type: "message", content: [{type: "output_text", ...}]}`
-				// replay shape for prior assistant turns — they echo the
-				// entire content array back to the user as literal Python-
-				// repr text (e.g. `[{'type': 'output_text', 'text': '…'}]`).
-				// Send the prior assistant text as a chat-completions-style
-				// `{role: "assistant", content: [{type: "input_text", …}]}`
-				// instead, mirroring the backend's `openai_responses_shared`.
+
 				if (model.provider === "fireworks") {
 					messages.push({
 						role: "assistant",
@@ -209,7 +193,7 @@ export function convertResponsesMessages<TApi extends Api>(
 					continue;
 				}
 				const parsedSignature = parseTextSignature(textBlock.textSignature);
-				// OpenAI requires id to be max 64 characters
+
 				const fallbackMsgId =
 					textBlockIndex === 0 ? `msg_${msgIndex}` : `msg_${msgIndex}_${textBlockIndex}`;
 				textBlockIndex++;
@@ -232,9 +216,6 @@ export function convertResponsesMessages<TApi extends Api>(
 					const [callId, itemIdRaw] = toolCall.id.split("|");
 					let itemId: string | undefined = itemIdRaw;
 
-					// For different-model messages, set id to undefined to avoid pairing validation.
-					// OpenAI tracks which fc_xxx IDs were paired with rs_xxx reasoning items.
-					// By omitting the id, we avoid triggering that validation (like cross-provider does).
 					if (isDifferentModel && itemId?.startsWith("fc_")) {
 						itemId = undefined;
 					}
@@ -259,14 +240,6 @@ export function convertResponsesMessages<TApi extends Api>(
 			const hasText = textResult.length > 0;
 			const [callId] = msg.toolCallId.split("|");
 
-			// `function_call_output.output` is always a string. Several
-			// OpenAI-Responses-compatible providers (Fireworks routers
-			// including kimi-k2p6 and kimi-k2p5) cannot parse
-			// `input_image` parts inside the output array — they
-			// stringify the entire array (data URL included) and tokenize
-			// it as raw text, blowing past the model's context window.
-			// The image is forwarded as a follow-up user message instead,
-			// matching `openai_completions.ts` and the backend variant.
 			messages.push({
 				type: "function_call_output",
 				call_id: callId,
@@ -303,10 +276,6 @@ export function convertResponsesMessages<TApi extends Api>(
 	return messages;
 }
 
-// =============================================================================
-// Tool conversion
-// =============================================================================
-
 export function convertResponsesTools(tools: Tool[], options?: ConvertResponsesToolsOptions): OpenAITool[] {
 	const strict = options?.strict === undefined ? false : options.strict;
 	return tools.map((tool) => ({
@@ -320,10 +289,6 @@ export function convertResponsesTools(tools: Tool[], options?: ConvertResponsesT
 	}));
 }
 
-// =============================================================================
-// Stream processing
-// =============================================================================
-
 export async function processResponsesStream<TApi extends Api>(
 	openaiStream: AsyncIterable<ResponseStreamEvent>,
 	output: AssistantMessage,
@@ -336,19 +301,6 @@ export async function processResponsesStream<TApi extends Api>(
 	const blocks = output.content;
 	const blockIndex = () => blocks.length - 1;
 
-	// Fireworks's Responses API for kimi-k2p6 and kimi-k2p5 sometimes emits
-	// `response.output_text.delta`
-	// BEFORE the matching `response.output_item.added` for the message
-	// they belong to. Without this helper, those early deltas would be
-	// silently dropped — the assistant reply still ends up correct
-	// (because `response.output_item.done` writes the full text from
-	// `item.content` at the end), but no `text_delta` events are emitted
-	// during streaming and the reply pops in all at once instead of
-	// typewriter-ing. `ensureTextBlock` lazy-creates the text block + a
-	// matching `output_text` part on the first delta. The
-	// `response.output_item.added` handler below then ADOPTS this
-	// already-existing block instead of allocating a second one, which
-	// would otherwise render the reply twice in the UI.
 	const ensureTextBlock = (): TextContent => {
 		if (currentItem?.type === "message" && currentBlock?.type === "text") {
 			return currentBlock;
@@ -377,13 +329,7 @@ export async function processResponsesStream<TApi extends Api>(
 				output.content.push(currentBlock);
 				stream.push({ type: "thinking_start", contentIndex: blockIndex(), partial: output });
 			} else if (item.type === "message") {
-				// If the delta handler already lazy-created a text block
-				// for this message (Fireworks kimi-k2p6 ordering quirk —
-				// see `ensureTextBlock`), adopt it instead of pushing a
-				// duplicate. Without this guard we'd end up with two
-				// text blocks: the lazy one accumulating deltas and a
-				// fresh one that `output_item.done` would write the full
-				// text into, rendering the assistant reply twice.
+
 				if (currentBlock?.type === "text") {
 					currentItem = item;
 				} else {
@@ -452,17 +398,13 @@ export async function processResponsesStream<TApi extends Api>(
 		} else if (event.type === "response.content_part.added") {
 			if (currentItem?.type === "message") {
 				currentItem.content = currentItem.content || [];
-				// Filter out ReasoningText, only accept output_text and refusal
+
 				if (event.part.type === "output_text" || event.part.type === "refusal") {
 					currentItem.content.push(event.part);
 				}
 			}
 		} else if (event.type === "response.output_text.delta") {
-			// Lazy-create the text block if the delta arrived before
-			// `output_item.added` (Fireworks kimi-k2p6 ordering). Mirror
-			// the delta into `currentItem.content` so the existing
-			// `content_part.added` invariants stay intact for the OpenAI
-			// path.
+
 			const textBlock = ensureTextBlock();
 			textBlock.text += event.delta;
 			if (currentItem?.type === "message") {
@@ -567,8 +509,7 @@ export async function processResponsesStream<TApi extends Api>(
 
 				let toolCall: ToolCall;
 				if (currentBlock?.type === "toolCall") {
-					// Finalize in-place and strip the scratch buffer so replay only
-					// carries parsed arguments.
+
 					currentBlock.arguments = args;
 					delete (currentBlock as { partialJson?: string }).partialJson;
 					toolCall = currentBlock;
@@ -592,7 +533,7 @@ export async function processResponsesStream<TApi extends Api>(
 			if (response?.usage) {
 				const cachedTokens = response.usage.input_tokens_details?.cached_tokens || 0;
 				output.usage = {
-					// OpenAI includes cached tokens in input_tokens, so subtract to get non-cached input
+
 					input: (response.usage.input_tokens || 0) - cachedTokens,
 					output: response.usage.output_tokens || 0,
 					reasoning: response.usage.output_tokens_details?.reasoning_tokens || 0,
@@ -609,13 +550,12 @@ export async function processResponsesStream<TApi extends Api>(
 					: (response?.service_tier ?? options.serviceTier);
 				options.applyServiceTierPricing(output.usage, serviceTier);
 			}
-			// Map status to stop reason
+
 			output.stopReason = mapStopReason(response?.status);
 			if (output.content.some((b) => b.type === "toolCall") && output.stopReason === "stop") {
 				output.stopReason = "toolUse";
 			}
-			// Keep the raw terminal status (and any error/incomplete detail on the
-			// response) so the surfaced error explains why the stream died.
+
 			if (output.stopReason === "error" && !output.errorMessage) {
 				const responseError = response?.error;
 				const incompleteReason = response?.incomplete_details?.reason;
@@ -651,7 +591,7 @@ function mapStopReason(status: OpenAI.Responses.ResponseStatus | undefined): Sto
 		case "failed":
 		case "cancelled":
 			return "error";
-		// These two are wonky ...
+
 		case "in_progress":
 		case "queued":
 			return "stop";

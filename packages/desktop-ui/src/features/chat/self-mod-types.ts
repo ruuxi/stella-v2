@@ -1,4 +1,3 @@
-/** Legacy transcript payload retained only for reading historical rows. */
 export type SelfModApplied = {
   applyId?: string;
   changeSetId?: string;

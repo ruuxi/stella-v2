@@ -8,13 +8,6 @@ import {
   useResourceStore,
 } from "@/shared/lib/resource-cache";
 
-/**
- * Fired the first time a non-Stella LLM provider transitions from "not
- * connected" to "connected" on this device. Listeners (notably the
- * `ProviderConnectedDialog` mounted at the app root) can offer to route the
- * Assistant / Image / Voice surfaces through the newly connected provider
- * in one click instead of forcing the user to flip each setting by hand.
- */
 export const PROVIDER_CONNECTED_EVENT = "stella:llm-provider-connected";
 
 export interface ProviderConnectedEventDetail {
@@ -87,12 +80,6 @@ const credentialStore = createResourceStore<
   },
 });
 
-/**
- * Tracks providers we've already seen as "active" so a re-mount against an
- * already-connected provider doesn't false-fire the connect event. Lives at
- * module scope alongside the credential cache so every consumer of the hook
- * shares the same view.
- */
 const knownConnected = new Set<string>();
 let knownConnectedSeeded = false;
 
@@ -138,12 +125,6 @@ const dispatchConnected = (
   );
 };
 
-/**
- * Single source of truth for the local LLM credential surface. Every model
- * picker / settings view that needs to know which providers are signed in
- * shares this hook so we don't hand-roll the same `listLlmCredentials` /
- * `listLlmOAuthCredentials` plumbing in three places.
- */
 export function useLlmCredentials(): LlmCredentials {
   const { data, error, isLoading, refresh } = useResourceStore(
     credentialStore,

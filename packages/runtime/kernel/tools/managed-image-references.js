@@ -22,12 +22,7 @@ const validatedDataUriBytes = async (value) => {
     }
     return { bytes, mimeType: decoded.mimeType };
 };
-/**
- * Managed references use a deliberately smaller wire representation than the
- * 20 MiB safe-read allowance. Small images remain byte-identical. Larger
- * images are bounded to 1600 px and progressively JPEG-encoded until they fit
- * the per-item share of the aggregate request envelope.
- */
+
 export const normalizeManagedImageReferenceBytes = async (bytes, mimeType, maxBytes = MAX_MANAGED_IMAGE_REFERENCE_ITEM_BYTES) => {
     if (maxBytes < 1 || maxBytes > MAX_MANAGED_IMAGE_REFERENCE_ITEM_BYTES) {
         throw new Error("managed reference normalization budget is invalid");

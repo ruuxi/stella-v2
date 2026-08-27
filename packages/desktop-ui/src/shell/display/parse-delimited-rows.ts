@@ -66,7 +66,6 @@ export const parseDelimitedRows = (
   return { rows, hitLimit: false };
 };
 
-/** Drop the last row when a byte cap may have torn it mid-line. */
 export const rowsForDelimitedPreview = (
   parsed: DelimitedParseResult,
   truncated: boolean,

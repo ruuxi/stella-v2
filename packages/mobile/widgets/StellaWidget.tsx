@@ -3,10 +3,6 @@ import { font, foregroundStyle, padding } from "@expo/ui/swift-ui/modifiers";
 import { createWidget } from "expo-widgets";
 import type { WidgetEnvironment } from "expo-widgets/build/Widgets.types";
 
-/**
- * Snapshot the app pushes to the home-screen widget: whether a desktop is
- * paired and the last known bridge availability.
- */
 export type StellaWidgetProps = {
   paired: boolean;
   online: boolean;

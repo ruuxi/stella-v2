@@ -18,24 +18,12 @@ import type {
   SubagentRunResult,
 } from "./types.js";
 
-/**
- * Engine-independent per-run state.
- *
- * External engines (Claude Code, future CLIs) own one of these because their
- * loop is provided by the engine binary, not the Pi `Agent`. Pi execution now
- * routes exclusively through long-lived `OrchestratorSession` /
- * `SubagentSession` instances.
- */
 export type RuntimeExecutionSessionBase = {
   runId: string;
   threadKey: string;
   runEvents: ReturnType<typeof createRunEventRecorder>;
 };
 
-/**
- * Engine-agnostic finalize surface used by every run-flow caller. Both
- * external orchestrator/subagent paths get a session that satisfies this base.
- */
 export type OrchestratorRunSessionBase = RuntimeExecutionSessionBase & {
   kind: "orchestrator";
   responseTargetTracker: OrchestratorResponseTargetTracker;
@@ -55,17 +43,6 @@ export type SubagentRunSessionBase = RuntimeExecutionSessionBase & {
 
 export type ExternalSubagentRunSession = SubagentRunSessionBase;
 
-/**
- * External-engine orchestrator session (Claude Code, etc.).
- *
- * Builds `runEvents` + threadKey + response-target tracker the same way the
- * Pi factory does, and binds the same finalize helpers. Skips Pi-only
- * fields (`agent`, `tools`) because the engine loop is provided by the
- * external binary, not by the Pi `Agent`. The internal `agent` stub passed
- * to `finalizeOrchestratorSuccess` carries an empty messages array for
- * `before_compact`'s message-count payload — same behavior as the prior
- * inline call site in `external-engines.ts`.
- */
 const EMPTY_AGENT_STUB = {
   state: { messages: [] as never[] },
 } as const;
@@ -135,10 +112,6 @@ export const createExternalOrchestratorRunSession = (
   };
 };
 
-/**
- * External-engine subagent session. Same shape as the Pi subagent factory
- * minus the `agent`/`tools` Pi-only fields.
- */
 export const createExternalSubagentRunSession = (
   opts: SubagentRunOptions,
   args: { runId: string },

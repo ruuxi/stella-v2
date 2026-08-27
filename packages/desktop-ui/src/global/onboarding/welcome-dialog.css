@@ -32,7 +32,6 @@
   max-width: 400px;
 }
 
-/* Tip cards */
 .welcome-dialog-cards {
   display: flex;
   flex-direction: column;
@@ -119,7 +118,6 @@
   color: var(--foreground);
 }
 
-/* CTA button */
 .welcome-dialog-cta {
   width: 100%;
   padding: 12px 24px;

@@ -54,7 +54,6 @@ export function useLyriaMusic() {
     [],
   )
 
-  // Keep analyser ref in sync
   useEffect(() => {
     if (state.status === "playing" || state.status === "paused") {
       analyserRef.current = serviceRef.current?.getAnalyser() ?? null
@@ -88,7 +87,6 @@ export function useLyriaMusic() {
     })
   }, [runWithService, state.status])
 
-  // Play always starts/cross-fades with current settings
   const handlePlay = useCallback(() => {
     runWithService((service) => {
       service.play()

@@ -1,5 +1,3 @@
-/** Personality preset metadata shared by the runtime and desktop renderer. */
-
 export type PersonalityId = "stella" | "professional";
 
 export const DEFAULT_PERSONALITY_ID: PersonalityId = "stella";

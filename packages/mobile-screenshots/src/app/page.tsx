@@ -96,9 +96,8 @@ const SC_RY = (126 / 1990) * 100;
 const IMAGE_PATHS = ["/mockup.png", "/app-icon.png", "/splash-icon.png"] as const;
 const imageCache: Record<string, string> = {};
 
-/** Marketing chrome outside the device frame (badges, floating cards, pills). */
 const MARKETING_FONT_SCALE = 1.08;
-/** Keep fixture type close to the production mobile scale. */
+
 const SCREEN_MOCK_FONT_SCALE = 1;
 const MOCK_PAD_SCALE = 1;
 
@@ -120,7 +119,7 @@ const THEMES = {
     card: "rgba(255,255,255,0.86)",
     cardBorder: "rgba(15, 98, 254, 0.10)",
     shadow: "0 32px 80px rgba(15, 23, 42, 0.18)",
-    // Mirrors mobile's current default Pearl theme.
+
     screenBg: "#ffffff",
     screenSurface: "#fbfbfb",
     screenPanel: "#f6f6f6",
@@ -1464,7 +1463,7 @@ function HeroSlide({ canvas, device, theme }: SlideRenderContext) {
         radial-gradient(circle at 78% 58%, ${theme.accent}10 0%, transparent 18%),
         linear-gradient(180deg, ${theme.bg} 0%, ${theme.bgAlt} 60%, ${theme.bgDeep} 100%)`}
     >
-      {/* Large Stella logo — top left, bleeds off edge */}
+      {}
       <StellaMark
         color={theme.text}
         style={{
@@ -1477,7 +1476,7 @@ function HeroSlide({ canvas, device, theme }: SlideRenderContext) {
         }}
       />
 
-      {/* Headline overlapping the logo */}
+      {}
       <div
         style={{
           position: "absolute",
@@ -1522,7 +1521,7 @@ function HeroSlide({ canvas, device, theme }: SlideRenderContext) {
         </p>
       </div>
 
-      {/* Phone mock at bottom */}
+      {}
       <DeviceFrame
         device={device}
         style={{

@@ -1,25 +1,3 @@
-/**
- * Shared "realistic Stella window" used by the capabilities demo.
- *
- * One faithful mock of the current shell instead of per-scene
- * approximations, so what users watch in onboarding is what they get in
- * the app:
- *
- *  - the app's own shifting gradient behind everything, in whatever
- *    theme the user picked two phases earlier;
- *  - a transparent top bar carrying the traffic-light inset, the
- *    conversation controls (history / home / New chat) on the left, and
- *    Settings plus the display-panel toggle on the right;
- *  - no left sidebar — the shell redesign removed it, moving navigation
- *    into the top bar and the right-hand display panel;
- *  - a single centered column holding the Cormorant greeting over a
- *    centered composer, which on send drops to the bottom and hands the
- *    column to the message stream — the real home-to-chat morph.
- *
- * Everything is presentation-only: demos drive visibility through the
- * `use-choreography` cues and pass state down as props.
- */
-
 import type { CSSProperties, ReactNode } from "react";
 import {
   ArrowUp,
@@ -53,10 +31,9 @@ export function DemoShell({
       style={style}
       aria-hidden="true"
     >
-      {/* The real window backdrop, scoped to the mock — same component and
-          same props `FullShell` passes, so the demo can't drift from the
-          theme the user just chose. It paints once per mount (no animation
-          loop) and self-downgrades to a CSS gradient on low-power machines. */}
+      {
+
+}
       <ShiftingGradient
         contained
         lightweight={false}
@@ -96,13 +73,6 @@ export function DemoShell({
   );
 }
 
-/* ── Chat column ─────────────────────────────────────────────────── */
-
-/**
- * The message stream plus its composer. `started` runs the home-to-chat
- * morph: the greeting fades and the trailing spacer collapses, gliding
- * the composer from its centered home position down to the bottom.
- */
 export function DemoChat({
   started,
   greeting = "What's on your mind?",
@@ -117,8 +87,8 @@ export function DemoChat({
   return (
     <div className="odemo-chat" data-started={started || undefined}>
       <div className="odemo-chat__stream">
-        {/* Declared first so arriving messages paint over the greeting
-            while it is still fading out. */}
+        {
+}
         <div className="odemo-chat__greeting">{greeting}</div>
         {children}
       </div>
@@ -148,10 +118,6 @@ export function DemoBubble({
   );
 }
 
-/**
- * The inline working indicator: small Stella mark plus a shimmering
- * status line on an inset pill, exactly where it lives in the real chat.
- */
 export function DemoWorking({
   visible,
   label,
@@ -167,11 +133,6 @@ export function DemoWorking({
   );
 }
 
-/**
- * One agent-activity receipt row — "Opening opentable.com", "Reserved
- * 8:00 PM" — on the same soft panel surface the real in-chat work cards
- * use. `running` shimmers, `done` settles with a check.
- */
 export function DemoWorkCard({
   visible,
   done,
@@ -198,8 +159,6 @@ export function DemoWorkCard({
   );
 }
 
-/* ── Composer ────────────────────────────────────────────────────── */
-
 export function DemoComposer({
   value,
   typing,
@@ -208,7 +167,7 @@ export function DemoComposer({
 }: {
   value: string;
   typing?: boolean;
-  /** Briefly highlights the send button as the prompt "goes out". */
+
   sending?: boolean;
   placeholder?: string;
 }) {

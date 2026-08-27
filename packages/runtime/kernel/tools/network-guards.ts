@@ -1,33 +1,3 @@
-/**
- * SSRF guard for every outbound fetch of a model- or user-supplied URL.
- *
- * Two halves, and both have to hold:
- *
- * 1. LITERAL classification — what the hostname says it is. The WHATWG URL
- *    parser already canonicalizes exotic IPv4 spellings (decimal
- *    `2130706433`, hex `0x7f000001`, octal `0177.0.0.1`, short `127.1`) into
- *    dotted-quad before this module sees them. IPv6 needs real parsing:
- *    IPv4-mapped (`::ffff:127.0.0.1`), IPv4-COMPATIBLE (`::7f00:1`), and
- *    NAT64 (`64:ff9b::/96`) all embed a v4 address that must be classified as
- *    v4. Prefix string matching misses every one of them.
- *
- * 2. RESOLVED classification — what the hostname actually points at. A name
- *    the attacker controls can resolve anywhere, so without this the literal
- *    checks are close to decorative.
- *
- * Historically the resolved half was disabled wholesale whenever
- * `NODE_ENV === "development"`, which meant a dev-mode Stella — the way this
- * app is normally run — had no protection beyond a six-entry hostname set.
- * It is now always on, with a NAMED-HOST escape hatch instead of a blanket
- * off switch, so a split-DNS setup can be accommodated without disarming the
- * guard for every other host. See `STELLA_ALLOW_PRIVATE_HOSTS`.
- *
- * Known limit, stated rather than implied: this is resolve-then-fetch, and
- * `fetch` performs its own lookup. A rebinding record (TTL 0, second answer
- * private) is not fully closed by any check expressible through the fetch
- * API. Callers that follow redirects MUST re-run this on every hop.
- */
-
 import dns from "dns/promises";
 
 const BLOCKED_HOSTNAMES = new Set([
@@ -39,15 +9,6 @@ const BLOCKED_HOSTNAMES = new Set([
   "host.docker.internal",
 ]);
 
-/**
- * Hosts the operator has explicitly declared safe despite resolving into
- * private space — the split-DNS / VPN case the old dev-mode skip existed
- * for. Comma-separated exact hostnames, e.g.
- * `STELLA_ALLOW_PRIVATE_HOSTS=internal.corp.example,staging.local`.
- *
- * Read per call, not cached: this is not hot, and a cached copy would ignore
- * an env change until restart.
- */
 const allowedPrivateHosts = (): Set<string> =>
   new Set(
     (process.env.STELLA_ALLOW_PRIVATE_HOSTS ?? "")
@@ -56,12 +17,6 @@ const allowedPrivateHosts = (): Set<string> =>
       .filter((entry) => entry.length > 0),
   );
 
-/**
- * Canonical form for hostname comparison: lowercased, brackets stripped, and
- * a single trailing dot removed. `localhost.` is the same host as `localhost`
- * to DNS but a different string to a Set, so without this the name blocklist
- * is bypassed by typing one extra dot.
- */
 const normalizeHostForClassification = (host: string): string =>
   host
     .trim()
@@ -85,22 +40,17 @@ const parseDottedQuad = (host: string): number[] | null => {
 const isBlockedIpv4Bytes = (bytes: number[]): boolean => {
   const [a, b] = bytes;
   return (
-    a === 0 || // "this network", including 0.0.0.0
-    a === 10 || // RFC1918
-    a === 127 || // loopback
-    (a === 100 && b >= 64 && b <= 127) || // CGNAT 100.64/10
-    (a === 169 && b === 254) || // link-local — cloud metadata lives here
-    (a === 172 && b >= 16 && b <= 31) || // RFC1918
-    (a === 192 && b === 168) || // RFC1918
-    a >= 240 // reserved 240/4 + broadcast
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    a >= 240
   );
 };
 
-/**
- * Expand an IPv6 literal into its eight 16-bit groups, or null when the
- * string is not valid IPv6. Accepts the trailing-dotted-quad form
- * (`::ffff:127.0.0.1`) the URL parser preserves.
- */
 const parseIpv6Groups = (host: string): number[] | null => {
   let input = host;
   const v4TailMatch = input.match(/^(.*:)(\d{1,3}(?:\.\d{1,3}){3})$/);
@@ -141,15 +91,13 @@ const parseIpv6Groups = (host: string): number[] | null => {
 const isBlockedIpv6Groups = (groups: number[]): boolean => {
   const isZeroThrough = (count: number) =>
     groups.slice(0, count).every((group) => group === 0);
-  // Unspecified (::) and loopback (::1).
+
   if (isZeroThrough(7) && (groups[7] === 0 || groups[7] === 1)) return true;
-  // ULA fc00::/7.
+
   if ((groups[0] & 0xfe00) === 0xfc00) return true;
-  // Link-local fe80::/10.
+
   if ((groups[0] & 0xffc0) === 0xfe80) return true;
-  // Embedded-IPv4 forms: mapped ::ffff:x/96, translated ::ffff:0:x/96,
-  // NAT64 64:ff9b::/96, and the deprecated IPv4-COMPATIBLE ::a.b.c.d. In all
-  // of them the effective target is the embedded v4 address.
+
   const embeddedV4 =
     (isZeroThrough(5) && groups[5] === 0xffff) ||
     (isZeroThrough(4) && groups[4] === 0xffff && groups[5] === 0) ||
@@ -171,18 +119,13 @@ const isBlockedIpv6Groups = (groups: number[]): boolean => {
   return false;
 };
 
-/**
- * True for literal IP strings targeting loopback, private, link-local,
- * CGNAT, reserved, or embedded-v4-blocked space. Domain names return false —
- * resolution is the caller's job.
- */
 export const isBlockedIpAddress = (ip: string): boolean => {
   const trimmed = normalizeHostForClassification(ip);
   const v4 = parseDottedQuad(trimmed);
   if (v4) return isBlockedIpv4Bytes(v4);
   if (trimmed.includes(":")) {
     const groups = parseIpv6Groups(trimmed);
-    // An unparseable bracketed literal is refused rather than resolved.
+
     if (!groups) return true;
     return isBlockedIpv6Groups(groups);
   }
@@ -213,8 +156,6 @@ const assertPublicHostname = async (hostname: string) => {
     throw privateTargetError("");
   }
 
-  // Always resolved, never skipped. A name is only as safe as what it points
-  // at, and the attacker picks the name.
   const results = await dns.lookup(normalized, { all: true });
   if (results.length === 0) {
     throw new Error(`Could not resolve hostname "${normalized}".`);

@@ -1,7 +1,3 @@
-/**
- * Desktop Tab hero animation — shows the phone screen mirroring the desktop app.
- * Reverses the visual flow compared to ConnectHeroAnimation.
- */
 import { useEffect, useId } from "react";
 import { View, useWindowDimensions } from "react-native";
 import Animated, {
@@ -28,7 +24,6 @@ const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 const VB_W = 400;
 const VB_H = 140;
-// cardFill derived per-theme inside the component
 
 export function DesktopTabAnimation() {
   const colors = useColors();
@@ -39,18 +34,17 @@ export function DesktopTabAnimation() {
   const maxW = Math.min(windowWidth - 32, 440);
   const scale = maxW / VB_W;
 
-  /* ── animation drivers ── */
   const signalOffset = useSharedValue(0);
   const cursorVal = useSharedValue(0);
 
   useEffect(() => {
-    // Signal dashes flow: 1.5s linear (moving leftward, from Monitor to Phone)
+
     signalOffset.value = withRepeat(
       withTiming(-10, { duration: 1500, easing: Easing.linear }),
       -1,
       false,
     );
-    // Cursor + ripple: 4s linear cycle
+
     cursorVal.value = withRepeat(
       withTiming(1, { duration: 4000, easing: Easing.linear }),
       -1,
@@ -58,14 +52,10 @@ export function DesktopTabAnimation() {
     );
   }, []);
 
-  /* ── animated props ── */
-
-  // Signal line: flowing dashes
   const signalLineProps = useAnimatedProps(() => ({
     strokeDashoffset: signalOffset.value,
   }));
 
-  // Monitor cursor: animate path d (all absolute coords)
   const monitorCursorProps = useAnimatedProps(() => {
     const p = cursorVal.value;
     const tx = interpolate(
@@ -83,7 +73,6 @@ export function DesktopTabAnimation() {
     };
   });
 
-  // Monitor click ripple
   const monitorRippleProps = useAnimatedProps(() => {
     const p = cursorVal.value;
     const tx = interpolate(
@@ -104,7 +93,6 @@ export function DesktopTabAnimation() {
     };
   });
 
-  // Phone mirrored cursor (scaled to fit letterboxed display)
   const phoneCursorProps = useAnimatedProps(() => {
     const p = cursorVal.value;
     const tx = interpolate(
@@ -124,7 +112,6 @@ export function DesktopTabAnimation() {
     };
   });
 
-  // Phone mirrored ripple
   const phoneRippleProps = useAnimatedProps(() => {
     const p = cursorVal.value;
     const tx = interpolate(
@@ -172,7 +159,7 @@ export function DesktopTabAnimation() {
           </LinearGradient>
         </Defs>
 
-        {/* ── Signal line (flowing from Monitor to Phone) ── */}
+        {}
         <AnimatedPath
           d="M 235 65 Q 190 50 145 78"
           fill="none"
@@ -182,7 +169,7 @@ export function DesktopTabAnimation() {
           animatedProps={signalLineProps}
         />
 
-        {/* ── Phone ── */}
+        {}
         <G>
           <Rect
             x="80"
@@ -205,7 +192,7 @@ export function DesktopTabAnimation() {
             strokeWidth="1"
           />
 
-          {/* Desktop App UI on Phone (scaled and letterboxed) */}
+          {}
           <Rect
             x="84"
             y="62"
@@ -247,7 +234,7 @@ export function DesktopTabAnimation() {
             fill={colors.border}
           />
 
-          {/* Phone header speaker hole */}
+          {}
           <Rect
             x="94"
             y="38"
@@ -270,7 +257,7 @@ export function DesktopTabAnimation() {
           />
         </G>
 
-        {/* ── Monitor ── */}
+        {}
         <G>
           <Path
             d="M285 95 L275 115 H315 L305 95"
@@ -305,8 +292,8 @@ export function DesktopTabAnimation() {
             stroke={colors.border}
             strokeWidth="1"
           />
-          
-          {/* Desktop App UI on Monitor */}
+
+          {}
           <Rect
             x="244"
             y="29"

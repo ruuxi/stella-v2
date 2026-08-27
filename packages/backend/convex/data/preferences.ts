@@ -6,11 +6,6 @@ import {
   RATE_SETTINGS,
 } from "../lib/rate_limits";
 
-/**
- * Shared per-owner cap for every settings mutation in this file. Settings
- * toggles aren't a hot path, so we want any single user to be unable to
- * churn more than ~one update per second.
- */
 const PREFERENCE_RATE_SCOPE = "user_preferences_set";
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set([
   "active",
@@ -24,11 +19,6 @@ const syncModeValidator = v.union(v.literal("on"), v.literal("off"));
 const SYNC_MODE_KEY = "sync_mode";
 export const PREFERRED_BROWSER_KEY = "preferred_browser";
 
-/**
- * BCP-47 locale tag for the user's preferred app language. Mirrors
- * `desktop/src/shared/i18n/locales.ts::SUPPORTED_LOCALES`. Validated at
- * the mutation boundary; absence means "English / OS default".
- */
 export const LOCALE_KEY = "locale";
 const SUPPORTED_LOCALE_TAGS = [
   "en",
@@ -278,15 +268,6 @@ export const getPreferenceForOwner = internalQuery({
   },
 });
 
-// ---------------------------------------------------------------------------
-// Locale
-// ---------------------------------------------------------------------------
-
-/**
- * Read the active locale for the signed-in user. Returns `null` when
- * the user is not signed in or has no stored locale, letting the
- * desktop fall back to localStorage / `navigator.language`.
- */
 export const getLocale = query({
   args: {},
   returns: v.union(localeValidator, v.null()),
@@ -305,10 +286,6 @@ export const getLocale = query({
   },
 });
 
-/**
- * Persist the user's preferred locale. Validated against the supported
- * set at the boundary so unknown tags can't leak into the database.
- */
 export const setLocale = mutation({
   args: {
     locale: localeValidator,
@@ -327,11 +304,6 @@ export const setLocale = mutation({
   },
 });
 
-/**
- * Internal helper used by Convex code (email senders, offline
- * responder) that already has the user's `ownerId` in hand and needs
- * their preferred locale.
- */
 export const getLocaleForOwner = internalQuery({
   args: {
     ownerId: v.string(),

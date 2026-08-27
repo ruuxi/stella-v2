@@ -27,11 +27,6 @@ export const isUnauthorizedProviderError = (error: unknown): boolean => {
 	return /(?:^|\b)401(?:\b|$)|\bunauthorized\b/i.test(message);
 };
 
-/**
- * Retry one provider request with a freshly minted short-lived credential.
- * The retry happens before a stream is exposed to callers, so it cannot
- * duplicate model text or tool calls.
- */
 export const requestWithAuthRefresh = async <T>(args: {
 	apiKey: string;
 	refreshApiKey?: StreamOptions["refreshApiKey"];

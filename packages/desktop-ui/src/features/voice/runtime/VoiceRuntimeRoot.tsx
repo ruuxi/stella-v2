@@ -51,18 +51,7 @@ export function VoiceRuntimeRoot() {
   const [bootConversationId, setBootConversationId] = useState<string | null>(
     state.conversationId,
   );
-  /**
-   * Pre-warm: when the wake word is enabled we keep a Realtime WebRTC
-   * session open with the mic gated off (`inputActive=false`). OpenAI
-   * Realtime only bills for streamed audio tokens, so an idle
-   * connection costs nothing — but it removes the ~1s cold-start cost
-   * between "Hey Stella" and Stella starting to listen for real.
-   *
-   * When voice activates (via wake word or keybind), we flip
-   * `inputActive=true` and the existing session takes
-   * over. When voice ends, we drop back to pre-warm rather than
-   * tearing down the connection.
-   */
+
   const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
   const sessionShouldRun = state.isVoiceRtcActive || wakeWordEnabled;
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -76,9 +65,7 @@ export function VoiceRuntimeRoot() {
   const speakingRef = useRef(false);
   const userSpeakingRef = useRef(false);
   const sessionStateRef = useRef<VoiceSessionState>("idle");
-  // Dedupe the actionable voice-error toast: the manager re-emits "error" on
-  // every retry tick, so only toast once per distinct error message until the
-  // session recovers (leaves the error state).
+
   const lastVoiceErrorToastRef = useRef<string | null>(null);
   const resolvedConversationId = state.conversationId ?? bootConversationId;
 
@@ -195,9 +182,6 @@ export function VoiceRuntimeRoot() {
     });
   }, []);
 
-  // The wake-word IPC isn't broadcast on toggle today — re-read the
-  // setting whenever the window regains focus. That's enough to pick
-  // up settings-panel changes without adding a dedicated push channel.
   useEffect(() => {
     const refresh = () => {
       void window.electronAPI?.system
@@ -248,14 +232,7 @@ export function VoiceRuntimeRoot() {
       onStateChange: (sessionState, errorMessage) => {
         sessionStateRef.current = sessionState;
         if (sessionState === "error") {
-          // This runtime lives in the hidden overlay window, so a local
-          // `showToast` would paint where the user can't see it. Forward
-          // actionable errors to the main process, which shows the toast in
-          // the visible app window (where the sign-in / settings CTA also
-          // routes correctly). Only forward failures the user must act on
-          // (not signed in / provider not connected) — transient blips ride
-          // the silent auto-retry. Dedupe per distinct message so retries
-          // don't restack the toast.
+
           const toast = resolveVoiceErrorToast(errorMessage, t);
           if (toast && lastVoiceErrorToastRef.current !== (errorMessage ?? "")) {
             lastVoiceErrorToastRef.current = errorMessage ?? "";

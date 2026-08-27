@@ -57,13 +57,7 @@ const isDirectory = (value) => {
     return false;
   }
 };
-/**
- * Resolve the filesystem root an agent should operate from. The install root
- * remains a separate absolute path for bundled assets; it is only selected
- * here for the legacy `frontend` mode when it is a real directory. Packaged
- * Electron builds expose `app.asar` as the install root, but child-process
- * `cwd` must be a directory, so those builds fall back to the user's home.
- */
+
 export const resolveLocalCliCwd = ({
   agentType,
   stellaAppDir,
@@ -167,13 +161,7 @@ export const extractAssistantText = (message) => {
     .map((block) => block.text)
     .join("");
 };
-/**
- * True when an assistant message carries at least one tool call. Such a
- * message is *interim* — the agent loop runs the tools and then produces a
- * further message — so any visible preamble text it contains is not the
- * final answer. The working indicator uses this to avoid handing off (and
- * disappearing) between a preamble and the tool call it precedes.
- */
+
 export const assistantMessageHasToolCall = (message) => {
   if (!message || message.role !== "assistant") return false;
   const blocks = Array.isArray(message.content) ? message.content : [];
@@ -181,15 +169,7 @@ export const assistantMessageHasToolCall = (message) => {
 };
 const getLatestAssistantMessage = (messages) =>
   [...messages].reverse().find((message) => message.role === "assistant");
-/**
- * True when the run's final assistant message is a truncated reasoning
- * trace: `stopReason: "length"` with neither visible text nor a tool call
- * (typically thinking-only). The provider hit its output-token cap while
- * the model was still reasoning, so no reply was ever produced. This is a
- * failure, not a success — without this check the run would finalize as
- * "success" with an empty result and surface only the generic
- * empty-result sentinel to the caller.
- */
+
 const isTruncatedReasoningCompletion = (message) => {
   if (!message || message.role !== "assistant") return false;
   if (message.stopReason !== "length") return false;
@@ -205,10 +185,7 @@ export const getAgentCompletion = (agent) => {
   const finalText = extractAssistantText(latestAssistant);
   if (latestAssistant?.role === "assistant") {
     const assistantError = latestAssistant.errorMessage?.trim();
-    // The provider adapter parked the failing response's Retry-After here
-    // before flattening the error to a string. Carry it into the turn
-    // result so the run-level retry can back off for as long as the
-    // provider actually asked for.
+
     const retryAfter =
       typeof latestAssistant.retryAfterMs === "number" &&
       Number.isFinite(latestAssistant.retryAfterMs)
@@ -283,15 +260,12 @@ export const createRuntimeAgent = (args) => {
     sessionId: args.cacheSessionId ?? args.agentType,
     promptCacheKey: args.promptCacheKey,
     serviceTier: args.serviceTier,
-    // Per-tool inactivity bound (default 10 min in agent-core): a tool that
-    // goes fully silent is cancelled with an error tool result instead of
-    // tripping the run-level idle watchdog and killing the whole agent.
+
     ...(Number.isFinite(toolInactivityParsed)
       ? { toolInactivityTimeoutMs: toolInactivityParsed }
       : {}),
     convertToLlm: PI_AGENT_MESSAGE_FILTER,
-    // Only pass steering / follow-up modes when the agent opts out of
-    // the Pi default ("one-at-a-time").
+
     ...(getAgentSteeringMode(args.agentType) === "all"
       ? { steeringMode: "all" }
       : {}),
@@ -299,10 +273,7 @@ export const createRuntimeAgent = (args) => {
       ? { followUpMode: "all" }
       : {}),
     getApiKey: () => resolveLlm().getApiKey(),
-    // Always defined when an override is in play, since the *current*
-    // route may have a refresher even if the original didn't (and vice
-    // versa). The inner `?.()` returns `undefined` when the route lacks
-    // one, which the agent loop already handles.
+
     refreshApiKey: () => resolveLlm().refreshApiKey?.(),
     onPayload: async (payload, model) => {
       const transform = createBeforeProviderPayloadTransform(
@@ -326,12 +297,7 @@ export const createRuntimeAgent = (args) => {
       : undefined,
   });
 };
-/**
- * Resolve the `thinkingLevel` an Agent should run with for a given turn.
- *
- * Long-lived sessions refresh this between turns when the user changes
- * reasoning-effort preferences or model routes.
- */
+
 export const resolveAgentThinkingLevel = (args) => {
   if (
     args.agentContextReasoningEffort &&

@@ -1,22 +1,3 @@
-/**
- * Shared UI state Vite plugin — gives plain-browser dev tabs (`bun run dev`)
- * the same durable renderer state as the Electron app.
- *
- * The dev server runs its own `UiStateStore` instance against
- * `~/.stella/ui-state.json` (the Electron main process runs another; the two
- * converge through per-key read-merge-write flushes plus file watching):
- *
- *   - Every served HTML page gets an inline `window.__stellaUiState` snapshot
- *     injected ahead of `stella-boot.js`, so synchronous pre-paint reads
- *     (theme, panel width, last route) work exactly like the Electron preload
- *     path. Inline (not a script URL) so a cross-site page can never read the
- *     state via script inclusion.
- *   - Browser tabs write through `POST /__stella/ui-state`, gated to loopback
- *     peers whose Origin (when present) is this dev server.
- *   - Changes — from other tabs or from the Electron host via the file
- *     watcher — are pushed over Vite's WS as a custom event.
- */
-
 import type { Plugin, ViteDevServer } from "vite";
 import { UiStateStore } from "@stella/runtime/kernel/ui-state/store";
 import { resolveRuntimeStatePath } from "@stella/runtime/kernel/home/stella-paths";
@@ -68,9 +49,7 @@ export function uiStateSharedStore(): Plugin {
   ): boolean => {
     if (!LOOPBACK_ADDRESSES.has(req.socket.remoteAddress ?? "")) return false;
     const origin = req.headers.origin;
-    // No Origin = Node-side caller on loopback (browser fetches always send
-    // Origin on POST). With Origin, require this dev server itself — tunnel
-    // clients and other sites are rejected and degrade to in-memory state.
+
     if (origin == null) return true;
     let parsed: URL;
     try {
@@ -116,8 +95,6 @@ export function uiStateSharedStore(): Plugin {
         });
       };
 
-      // Changes flushed by the other host (Electron main) or another process
-      // surface through the file watcher.
       const unsubscribe = sharedStore.onExternalChange(
         (changes: UiStateChanges) => broadcast({ clientId: null, changes }),
       );

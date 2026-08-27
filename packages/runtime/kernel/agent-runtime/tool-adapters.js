@@ -33,10 +33,7 @@ const NODE_REPL_TOOL_NAME = "node_repl";
 const COMMAND_OUTPUT_TOOL_NAMES = new Set(["exec_command", "write_stdin"]);
 const MULTI_TOOL_USE_PARALLEL_TOOL_NAME = "multi_tool_use_parallel";
 export const MODEL_VISIBLE_COMMAND_RESULT_MAX_BYTES = 10_000;
-// Codex's ExecCommandToolOutput::model_output_policy compares the model's
-// truncation policy with max_output_tokens at four approximate bytes/token.
-// Keep Stella's approved 10KB model policy as the outer cap and let smaller
-// per-call token requests reduce only the command preview inside that cap.
+
 const APPROX_COMMAND_OUTPUT_BYTES_PER_TOKEN = 4;
 const COMMAND_RESULT_LIMITS = Object.freeze({
   maxBytes: MODEL_VISIBLE_COMMAND_RESULT_MAX_BYTES,
@@ -93,15 +90,7 @@ export const getRequestedRuntimeToolNames = (toolsAllowlist) =>
   Array.isArray(toolsAllowlist) && toolsAllowlist.length > 0
     ? toolsAllowlist
     : [...STELLA_LOCAL_TOOLS];
-/**
- * Resolve the agent's tool allowlist against the host's catalog.
- *
- * The catalog is the single source of truth for tool metadata — every tool
- * lives as a self-contained `ToolDefinition` under
- * `runtime/kernel/tools/defs/` and is registered into the catalog by the
- * host. If a name in the allowlist isn't in the catalog, it's silently
- * dropped and a warning is logged.
- */
+
 export const getRuntimeToolMetadata = (opts) => {
   const catalog = new Map(
     (opts.toolCatalog ?? []).map((tool) => [tool.name, tool]),
@@ -120,7 +109,7 @@ export const getRuntimeToolMetadata = (opts) => {
     resolved.push(entry);
   }
   if (missing.length > 0) {
-    // eslint-disable-next-line no-console
+
     console.warn(
       `[tool-adapters] dropped unknown tools from allowlist: ${missing.join(", ")}`,
     );
@@ -145,9 +134,7 @@ const mergeToolSideEffectsIntoDetails = (
   if (details && typeof details === "object" && !Array.isArray(details)) {
     return { ...details, ...sideEffects };
   }
-  // Wrap non-object details so the worker server hoists structured side
-  // effects to the top level of the persisted event payload while
-  // still preserving the original details under `result`.
+
   if (details === undefined || details === null) return sideEffects;
   return { result: details, ...sideEffects };
 };
@@ -176,9 +163,7 @@ const formatToolResult = (toolResult, toolName) => {
     ),
   };
 };
-// Model-visible tool text is bounded once, before the tool-result message is
-// appended to history. That exact content is then reused until compaction.
-// Dual limits match the Pi harness: 2000 lines or 50KB UTF-8, first hit wins.
+
 export const MODEL_VISIBLE_TOOL_RESULT_MAX_LINES = DEFAULT_MAX_LINES;
 export const MODEL_VISIBLE_TOOL_RESULT_MAX_BYTES = DEFAULT_MAX_BYTES;
 export const MODEL_VISIBLE_TOOL_RESULT_MAX_CHARS = DEFAULT_MAX_BYTES;
@@ -306,27 +291,7 @@ export const preserveModelVisibleToolText = async (text, context, limits) => {
     artifact,
   };
 };
-// Inline-image attach contract used by diagnostic tool output and other
-// runtime emitters: when tool output contains a substring of the form
-//
-//     [stella-attach-image][ <WxH>][ <N>KB][ inline=image/png] <PATH>
-//     [stella-attach-image] ... path="<JSON-escaped absolute path>"
-//
-// the runtime reads the file at <PATH> and emits an image content block
-// alongside the text result, so the model sees the screenshot on its very
-// next turn without having to call a separate Read.
-//
-// The marker is stripped from the text we forward to the model so the
-// model doesn't waste tokens describing a path it doesn't need to see.
-//
-// We intentionally do NOT trust the model to emit these markers itself —
-// only output that flowed through a runtime tool (e.g. `exec_command`)
-// goes through this transform. The marker can appear anywhere in the
-// tool result text, including inside a JSON-stringified `output` field
-// where real newlines are escaped as `\n` — that's why this regex is
-// position-agnostic. New emitters should use `path=${JSON.stringify(path)}`
-// so spaces, quotes, non-ASCII, and Windows separators survive transport.
-// Legacy whitespace-delimited paths remain supported.
+
 const STELLA_ATTACH_IMAGE_MARKER = "[stella-attach-image]";
 const ATTACH_IMAGE_EXTENSION_RE = /\.(?:png|jpg|jpeg|gif|webp)$/i;
 const ABSOLUTE_IMAGE_PATH_RE = /^(?:\/|[A-Za-z]:[\\/])/;
@@ -397,41 +362,26 @@ const unreadableAttachImageNote = (imgPath) =>
   `[Image omitted: ${imgPath} could not be decoded as a valid image (it may be corrupt or truncated) and was skipped.]`;
 const normalizeAttachImagePath = (filePath) =>
   /^[A-Za-z]:\\\\/.test(filePath) ? filePath.replace(/\\\\/g, "\\") : filePath;
-/**
- * Context-visible demoted tools for an (already agent-scoped) catalog:
- * a demoted tool whose `requiredConnectorProvider` doesn't match the turn's
- * connector-delivery provider is invisible everywhere — catalog section,
- * REPL-allowed union, and the direct-list fallback alike.
- */
+
 export const collectVisibleDemotedTools = (toolCatalog, connectorProvider) =>
   (toolCatalog ?? []).filter((tool) => {
     if (!tool.demoted) return false;
     const requiredProvider = tool.demoted.requiredConnectorProvider;
     return !requiredProvider || requiredProvider === connectorProvider;
   });
-/**
- * Names to widen `allowedToolNames` with so node_repl's nested dispatcher
- * (and multi_tool_use_parallel) can reach demoted tools. Only meaningful
- * for contexts that actually have node_repl.
- */
+
 export const collectDemotedToolNames = (toolCatalog, connectorProvider) =>
   collectVisibleDemotedTools(toolCatalog, connectorProvider).map(
     (tool) => tool.name,
   );
 const DEMOTED_WORKFLOW_TEXT =
   'Some tools are demoted from your direct tool list and callable only here via tools.<name>(args). The catalog below lists their exact signatures. When it is marked COMPLETE, call listed tools directly. When PARTIAL, first run await tools.$search({ query: "<intent + key nouns>" }) — it returns full callable signatures, so search once and call in the same or next cell. Do not guess tool names.';
-/** Workflow paragraph + budgeted signature catalog; "" for an empty set. */
+
 const buildDemotedNodeReplSuffix = (demotedTools) =>
   demotedTools.length > 0
     ? `\n\n${DEMOTED_WORKFLOW_TEXT}\n\n${buildCatalogSection(demotedTools)}`
     : "";
-/**
- * External-engine parity for the node_repl catalog: engines that build their
- * tool list through `getRuntimeToolMetadata` (never `createPiTools`) still
- * get the workflow text + signature catalog appended to node_repl's
- * description, so demoted tools are discoverable there the same way. No-op
- * when node_repl is absent from the metadata or nothing is demoted.
- */
+
 export const appendDemotedCatalogToNodeRepl = (
   toolMetadata,
   toolCatalog,
@@ -447,7 +397,7 @@ export const appendDemotedCatalogToNodeRepl = (
       : tool,
   );
 };
-// Exported for tests. See `desktop/tests/runtime/kernel/agent-runtime/stella-attach-image.test.ts`.
+
 export const extractAttachImageBlocks = async (text, target = {}) => {
   if (!text || !text.includes("[stella-attach-image]")) {
     return { text, images: [] };
@@ -474,16 +424,10 @@ export const extractAttachImageBlocks = async (text, target = {}) => {
   if (matches.length === 0) return { text, images: [] };
   const images = [];
   const markerReplacements = [];
-  // Read sequentially to keep failure messages deterministic; screenshots are
-  // small and there's typically 1-2 per call.
+
   for (const { full, path: imgPath, detailOriginal } of matches) {
     try {
-      // Settle the read against the capture -> read race: a screenshot the
-      // agent just captured can still be mid-flush when its path reaches us,
-      // and reading it early yields a truncated PNG that 400s Anthropic
-      // fatally. `readImageFileSettled` re-reads until the bytes complete (or
-      // the file stops growing / the budget is spent); the completeness gate
-      // below stays as defense-in-depth for genuinely corrupt files.
+
       const buf = await readImageFileSettled(imgPath);
       const mimeType = resolveImageMimeType(imgPath, buf);
       if (!mimeType) {
@@ -493,14 +437,7 @@ export const extractAttachImageBlocks = async (text, target = {}) => {
         });
         continue;
       }
-      // Provider-aware auto-resize: pass-through when the image already fits
-      // the resolved target's dimension + byte caps (e.g. computer-use
-      // screenshots that the native service pre-caps at 1024px, so screenshot
-      // coordinates stay 1:1), otherwise shrink to fit that target.
-      // `detail=original` lifts the caps to the provider's
-      // hard ceiling so a deliberate full-res read isn't downscaled. The
-      // dimension note tells the model how to map coordinates back when a
-      // resize did happen.
+
       const caps = resolveImageCaps({
         ...target,
         imageCount: matches.length,
@@ -520,13 +457,7 @@ export const extractAttachImageBlocks = async (text, target = {}) => {
         });
         continue;
       }
-      // Resize unavailable: either Photon is missing (image is likely fine)
-      // OR Photon threw because the bytes can't be decoded — which is exactly
-      // what a truncated/corrupt capture (e.g. a screenshot read mid-write)
-      // looks like. Only attach the raw file when it's a structurally
-      // complete, supported image; a broken payload inlined into the request
-      // 400s fatally ("Could not process image") and, because it lands in
-      // thread history, poisons every subsequent resume.
+
       const detected = detectImageMediaType(buf);
       if (!detected || !isCompleteImage(buf, detected)) {
         markerReplacements.push({
@@ -535,14 +466,7 @@ export const extractAttachImageBlocks = async (text, target = {}) => {
         });
         continue;
       }
-      // We already prefer resizing-to-fit above: `resizeImage` shrinks any
-      // large image well under the ceiling, so this raw-attach fallback is
-      // only reached when resize is unavailable (Photon missing) or returned
-      // null. Guard it against the *shared* per-image ceiling
-      // (`MAX_IMAGE_BASE64_BYTES`, the same value the Anthropic send boundary
-      // enforces): swap the marker for a note rather than inline an over-cap
-      // image. Using the shared constant means an image can't pass here and
-      // then be silently dropped at the wire.
+
       if (base64Length(buf.length) > MAX_IMAGE_BASE64_BYTES) {
         markerReplacements.push({
           full,
@@ -558,15 +482,12 @@ export const extractAttachImageBlocks = async (text, target = {}) => {
         sourcePath: imgPath,
       });
     } catch {
-      // If the file vanished between CLI exit and our read, leave the marker
-      // in the text so the model can still see what was attempted, but keep
-      // processing sibling markers so one missing image cannot discard them.
+
       markerReplacements.push({ full, replacement: full });
       continue;
     }
   }
-  // Strip attached markers (and swap oversized ones for their notes) so we
-  // don't double-send paths the model no longer needs.
+
   let stripped = text;
   if (jsonStrings.length > 0) {
     let replacementIndex = 0;
@@ -604,11 +525,7 @@ export const extractAttachImageBlocks = async (text, target = {}) => {
   stripped = stripped.replace(/[ \t]+\n/g, "\n").trim();
   return { text: stripped, images };
 };
-/**
- * Materialize typed node_repl image items without converting them back into
- * model-visible marker strings. Audio remains in structured details because
- * the current ToolResultMessage content union supports text and images only.
- */
+
 export const extractNodeReplImageBlocks = async (details, target = {}) => {
   const nodeRepl =
     details && typeof details === "object" && !Array.isArray(details)
@@ -668,13 +585,9 @@ export const extractNodeReplImageBlocks = async (details, target = {}) => {
         sourcePath: item.path,
       });
     } catch {
-      // A vanished or invalid typed image is omitted without degrading
-      // sibling items; its path remains available in tool details.
+
     } finally {
-      // Browser screenshots created by the Node kernel transfer ownership
-      // here before a reset closes that kernel. Reading the bytes is the
-      // acknowledgement boundary; only kernel-marked temporary files are
-      // removed, never user-provided nodeRepl.emitImage paths.
+
       if (item.deleteAfterAttach === true) {
         await fs.rm(item.path, { force: true }).catch(() => undefined);
       }
@@ -775,16 +688,10 @@ export const createPiTools = (opts) => {
     (opts.toolCatalog ?? []).map((tool) => [tool.name, tool]),
   );
   const connectorProvider = opts.connectorDeliveryTarget?.provider;
-  // Never-strand rule: demoted tools leave the direct list ONLY when
-  // node_repl is actually part of this turn's resolved active set.
-  // Agents without node_repl (e.g. the orchestrated coordinator variant)
-  // keep demoted tools as plain direct tools with full schemas.
+
   const nodeReplAvailable =
     requested.includes(NODE_REPL_TOOL_NAME) && catalog.has(NODE_REPL_TOOL_NAME);
-  // Demoted reachability requires an explicit per-agent allowlist. The
-  // empty-allowlist STELLA_LOCAL_TOOLS fallback is a minimal device-tool
-  // surface that could never reach deferred tools before the clean cut,
-  // and it must not start direct-listing demoted tools now.
+
   const hasExplicitAllowlist =
     Array.isArray(opts.toolsAllowlist) && opts.toolsAllowlist.length > 0;
   const visibleDemotedTools = hasExplicitAllowlist
@@ -793,9 +700,7 @@ export const createPiTools = (opts) => {
   const demotedToolNames = new Set(
     visibleDemotedTools.map((tool) => tool.name),
   );
-  // Catalog section is generated fresh each turn from the live catalog
-  // snapshot; with no demoted tools in scope the node_repl description
-  // stays byte-identical and the whole feature is inert.
+
   const nodeReplDescriptionSuffix = nodeReplAvailable
     ? buildDemotedNodeReplSuffix(visibleDemotedTools)
     : "";
@@ -842,11 +747,7 @@ export const createPiTools = (opts) => {
           maxAgentDepth: opts.maxAgentDepth,
           modelConfigSnapshot: opts.modelConfigSnapshot,
           connectorDeliveryTarget: opts.connectorDeliveryTarget,
-          // REPL-reachable union: nested node_repl dispatch (and
-          // multi_tool_use_parallel) must pass the host allowlist
-          // gate for demoted tools that are absent from the direct
-          // list. Without node_repl the union collapses to the
-          // active set — demoted tools were registered directly.
+
           allowedToolNames: contextAllowedToolNames(),
           store: opts.store,
           toolExecutor: opts.toolExecutor,
@@ -870,9 +771,7 @@ export const createPiTools = (opts) => {
             : undefined,
         });
         const formatted = formatToolResult(toolResult, toolName);
-        // Detect [stella-attach-image] markers in diagnostic tool output and
-        // read the referenced PNG(s) into image content blocks. The model sees
-        // the screenshot on the very next turn with no extra Read step.
+
         const { text: forwardedText, images: legacyImages } =
           await extractAttachImageBlocks(formatted.text, opts.imageCapTarget);
         const nodeReplImages = await extractNodeReplImageBlocks(
@@ -934,17 +833,15 @@ export const createPiTools = (opts) => {
     if (activeToolNames.has(toolName)) continue;
     const demotedMeta = catalog.get(toolName)?.demoted;
     if (demotedMeta) {
-      // Connector-gated demoted tools that fail the gate are invisible
-      // everywhere, including the direct-list fallback.
+
       if (!demotedToolNames.has(toolName)) continue;
-      // REPL-only this turn; reachable via tools.<name> inside node_repl.
+
       if (nodeReplAvailable) continue;
     }
     activeToolNames.add(toolName);
     activeTools.push(registerTool(toolName));
   }
-  // Demoted tools outside the frontmatter allowlist surface directly when
-  // node_repl is unavailable, so nothing reachable becomes stranded.
+
   if (!nodeReplAvailable) {
     for (const tool of visibleDemotedTools) {
       if (activeToolNames.has(tool.name)) continue;

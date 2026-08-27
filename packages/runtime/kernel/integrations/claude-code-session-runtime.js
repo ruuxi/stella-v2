@@ -20,27 +20,12 @@ import {
 } from "./external-cli-resolution.js";
 import { createClaudeCodeToolMcpHost } from "./claude-code-tool-mcp-host.js";
 const CLAUDE_CODE_MODEL_PREFIX = "claude-code/";
-/**
- * Model the fable fallback policy switches a turn to after the configured
- * fable model exhausts its attempts (matches the stella engine's
- * safety-swap target in provider-abort-containment.ts).
- */
+
 const CLAUDE_CODE_FALLBACK_MODEL = "claude-opus-4-8";
-/**
- * CLI error text for a model-side refusal (safety / Usage Policy stop) or
- * an exhausted-overload failure — the two failures where retrying the
- * configured model, then falling back, makes sense. Wording verified
- * against CLI 2.1.32; anything else propagates as a normal turn error.
- */
+
 export const isClaudeCodeModelRefusalOrOverloadError = (message) =>
   /unable to respond to this request|usage policy|overloaded/i.test(message);
-/**
- * Model aliases the `claude` CLI accepts via `--model` — canonical list in
- * claude-code-resolved-models.ts. `default` is special: it clears any
- * override and runs the recommended model for the account, so we pass no
- * `--model` flag for it and surface the CLI-reported resolved model next
- * to it in pickers when known.
- */
+
 const CLAUDE_CODE_ALIASES = CLAUDE_CODE_MODEL_ALIASES;
 const CLAUDE_CODE_ALIAS_LABELS = {
   default: {
@@ -86,42 +71,16 @@ const SIGKILL_TIMEOUT_MS = 4_000;
 const MAX_STDERR_CAPTURE = 4_000;
 const DEFAULT_STEP_STARTUP_IDLE_TIMEOUT_MS = 15 * 1000;
 const DEFAULT_STEP_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
-// Ceiling while native tool_use blocks are unresolved. Native tools run
-// inside the CLI where we cannot cancel just the tool, so this is the only
-// bound on a turn whose tool never reports a result — long enough for real
-// silent work, finite so a wedged CLI can't hang the session forever.
-// (Bridged Stella tools are separately bounded at 10 min by
-// executeToolWithInactivityBound; this only backstops native tools and
-// leaked tracking.)
+
 const DEFAULT_STEP_TOOL_IDLE_TIMEOUT_MS = 20 * 60 * 1000;
 const DEFAULT_CONTROL_REQUEST_TIMEOUT_MS = 60 * 1000;
 const CLAUDE_CODE_COMPACTING_TEXT = "Compacting context";
 const CLAUDE_CODE_RUNNING_TEXT = "Working";
-/**
- * Loop breaker for Claude Code's own auto-compaction. A healthy turn compacts
- * at most once; repeated compactions within one Stella turn mean the session
- * context can no longer fit and compaction will keep re-triggering forever.
- * Past this count the session process is killed and the turn restarts on a
- * fresh session seeded from `resumeFallbackPrompt` (the checkpoint-compacted
- * Stella history).
- */
+
 const MAX_COMPACTIONS_PER_TURN = 3;
 const CLAUDE_CODE_COMPACTION_LOOP_MESSAGE =
   "Claude Code entered a compaction loop.";
-/**
- * Recovery budget for flaky step endings within one Stella turn. Covers two
- * observed CLI failure shapes:
- *
- * - The CLI process ends (often cleanly, exit code 0) while a step prompt is
- *   still in flight, without ever emitting its `result` line. Recovery
- *   respawns the CLI and resends the same step prompt — `--resume` restores
- *   the on-disk transcript when one exists, and the missing-resume fallback
- *   reseeds from the checkpoint history otherwise.
- * - The step's `result` arrives without final text. Recovery nudges the
- *   still-live session to restate the answer.
- *
- * Past the budget the turn fails to the caller with an actionable message.
- */
+
 const MAX_STEP_RECOVERIES_PER_TURN = 2;
 const summarizeMcpLedgerValue = (value, maxChars) => {
   let serialized;
@@ -134,18 +93,10 @@ const summarizeMcpLedgerValue = (value, maxChars) => {
     ? `${serialized.slice(0, maxChars)}...[truncated]`
     : serialized;
 };
-/**
- * The CLI process ended (exit, spawn stream teardown) while a step was still
- * waiting on its `result` line. `exitCode` 0 means a clean-but-early exit.
- */
+
 export class ClaudeCodeProcessEndedError extends Error {
   exitCode;
-  /**
-   * Native-tool file writes observed on the failed step before the process
-   * ended (vanilla mode only; takeover mode strips CC's file tools). Recovery
-   * merges these into the eventual turn result and switches to a
-   * non-mutating reconciliation prompt instead of replaying the step.
-   */
+
   fileChanges;
   mcpCalls;
   constructor(message, exitCode = null, fileChanges = [], mcpCalls = []) {
@@ -156,12 +107,10 @@ export class ClaudeCodeProcessEndedError extends Error {
     this.mcpCalls = mcpCalls;
   }
 }
-/**
- * The step completed but its `result` payload contained no final text.
- */
+
 export class ClaudeCodeMalformedResultError extends Error {
   kind;
-  /** Native-tool file writes observed on the failed step (vanilla mode). */
+
   fileChanges;
   mcpCalls;
   constructor(message, kind, fileChanges = [], mcpCalls = []) {
@@ -172,12 +121,7 @@ export class ClaudeCodeMalformedResultError extends Error {
     this.mcpCalls = mcpCalls;
   }
 }
-/**
- * The active Claude Code query was deliberately interrupted so Stella can
- * send steering input on the same long-lived stream. This is a control-flow
- * boundary, not a malformed result and therefore must never enter the normal
- * retry/nudge path.
- */
+
 export class ClaudeCodeSteeringInterruptError extends Error {
   fileChanges;
   mcpCalls;
@@ -188,13 +132,7 @@ export class ClaudeCodeSteeringInterruptError extends Error {
     this.mcpCalls = mcpCalls;
   }
 }
-/**
- * The CLI re-compacted past `MAX_COMPACTIONS_PER_TURN` within one Stella
- * turn. Handled inside `executeStepWithMode` (fresh-session
- * reseed), NOT by the step-recovery budget — a reseeded session that loops
- * again fails loudly. Carries the failed step's observed native file writes
- * so the reseed can reconcile instead of replaying them.
- */
+
 export class ClaudeCodeCompactionLoopError extends Error {
   fileChanges;
   mcpCalls;
@@ -210,22 +148,7 @@ const asRecoverableStepError = (error) =>
   error instanceof ClaudeCodeMalformedResultError
     ? error
     : null;
-/**
- * Corrective prompt for a malformed step result. The CLI session is still
- * alive and already has the full step context (including any tool result we
- * just forwarded), so the nudge only needs to ask for a well-formed restate.
- */
-/**
- * Recovery prompt for a step that died AFTER native file writes were already
- * observed. Blind-replaying the original prompt (or the history-seeded
- * `resumeFallbackPrompt`) could re-run those mutations, so the retry must
- * reconcile instead of redo. Names the affected paths so the model can
- * verify what already landed.
- *
- * `referenceContext` is included (framed as reference-only) when the retry
- * lands on a FRESH session that has no transcript — a bare reconciliation
- * directive would otherwise arrive without any task context.
- */
+
 const buildSideEffectReconciliationPrompt = (
   mutations,
   mcpCalls = [],
@@ -277,8 +200,7 @@ const withStepRecoveryExhausted = (error) =>
 const buildClaudeCodeHookSettings = () => {
   const command = `"${process.execPath}" -e ""`;
   return JSON.stringify({
-    // Keep the CLI's built-in workflow/keyword-trigger feature from hijacking
-    // sub-agent turns whose prompts merely mention workflow-related keywords.
+
     workflowKeywordTriggerEnabled: false,
     disableWorkflows: true,
     hooks: {
@@ -288,27 +210,9 @@ const buildClaudeCodeHookSettings = () => {
   });
 };
 const CLAUDE_CODE_HOOK_SETTINGS = buildClaudeCodeHookSettings();
-/**
- * Message-level stop reasons that mean the model's stream ended BEFORE the
- * content block it was generating was complete. `refusal` is a mid-stream
- * safety stop (the API cuts generation the moment a classifier fires);
- * `max_tokens` is the output budget running out. In both cases the CLI still
- * repairs the partial `input_json_delta` into syntactically valid JSON and
- * dispatches the tool call, so a half-written string argument arrives here
- * looking exactly like a complete one.
- */
+
 const TRUNCATING_STOP_REASONS = new Set(["refusal", "max_tokens"]);
-/**
- * Detects an `assistant` stream event whose trailing content block is a
- * `tool_use` that was cut off mid-generation.
- *
- * The CLI emits one `assistant` event per finalized content block, stamping
- * each with the message-level `stop_reason`. A truncating stop always cuts the
- * block that was in flight, which is the LAST block of the message — so a
- * `tool_use` that is followed by another block completed normally and must not
- * be flagged. Requiring the tool_use to be last keeps this free of false
- * positives on multi-block messages.
- */
+
 export const getClaudeCodeTruncatedToolUseFromStreamEvent = (event) => {
   if (event.type !== "assistant") return null;
   const message = asObject(event.message);
@@ -364,13 +268,7 @@ const claudeToolKey = (toolName, toolArgs) => {
     .update(stableToolArgs(toolArgs))
     .digest("hex");
 };
-/**
- * Re-creates the CLI's own repair of a cut-off `input_json_delta` stream:
- * close the string the cursor was inside and every open bracket, so a partial
- * argument blob parses to exactly the object the CLI would dispatch. Returns
- * undefined when no such repair parses — callers must then fail open, never
- * guess.
- */
+
 export const repairPartialToolInputJson = (text) => {
   const attempt = (candidate) => {
     const stack = [];
@@ -387,7 +285,7 @@ export const repairPartialToolInputJson = (text) => {
       else if (ch === "{" || ch === "[") stack.push(ch === "{" ? "}" : "]");
       else if (ch === "}" || ch === "]") stack.pop();
     }
-    // A dangling escape backslash would swallow the closing quote we append.
+
     let repaired = escaped ? candidate.slice(0, -1) : candidate;
     if (inString) repaired += '"';
     while (stack.length) repaired += stack.pop();
@@ -400,32 +298,20 @@ export const repairPartialToolInputJson = (text) => {
   };
   const direct = attempt(text);
   if (direct !== undefined) return direct;
-  // A trailing structural fragment (`,`, `:`, or an unfinished bare literal
-  // like `tru`) keeps the closers from parsing; strip it and retry once.
+
   const trimmed = text.replace(/[\s,]*[A-Za-z0-9+\-.]*[\s,]*$/, "");
   if (trimmed && trimmed !== text) return attempt(trimmed);
   return undefined;
 };
-/**
- * How long an inbound MCP call waits for the finalized `assistant` event that
- * carries its `stop_reason` before giving up and running anyway.
- *
- * The CLI writes that event to stdout immediately before issuing the MCP HTTP
- * call, so in practice the verdict is already recorded and the wait is zero.
- * The ceiling only covers the window where the HTTP request beats the pipe
- * read; it stays modest because the gate FAILS OPEN — an unmatched call must
- * never be delayed or blocked on the strength of missing evidence. (Raised
- * 3x from the original 250ms after live truncations slipped through the
- * fail-open window.)
- */
+
 const TOOL_USE_INTEGRITY_SETTLE_MS = 750;
 export const createClaudeNativeToolUseCorrelator = () => {
   const queued = new Map();
   const waiters = new Map();
   const observedIds = new Set();
-  /** Keys of tool_use blocks a finalized assistant event proved truncated. */
+
   const truncatedKeys = new Map();
-  /** Keys a finalized assistant event has adjudicated (truncated or clean). */
+
   const settledKeys = new Set();
   const integrityWaiters = new Map();
   const settleKey = (key) => {
@@ -435,13 +321,7 @@ export const createClaudeNativeToolUseCorrelator = () => {
     for (const resolve of pending ?? []) resolve();
   };
   const streamingBlocks = new Map();
-  /**
-   * Blocks whose `content_block_stop` arrived with UNPARSEABLE accumulated
-   * JSON — the stream was cut mid-argument (turn abort, steering interrupt,
-   * CLI restart) with a stop_reason the finalized-event gate never sees. The
-   * CLI still repairs and dispatches such calls; keep the raw partials so the
-   * integrity gate can match the dispatched args against their repair.
-   */
+
   const interruptedBlocks = [];
   const MAX_INTERRUPTED_BLOCKS = 16;
   const recordInterruptedBlock = (pending) => {
@@ -450,14 +330,7 @@ export const createClaudeNativeToolUseCorrelator = () => {
       interruptedBlocks.shift();
     }
   };
-  /**
-   * Truncation verdict from raw stream evidence, for calls no finalized
-   * assistant event adjudicated. A block whose accumulated partial JSON does
-   * NOT parse as-is, but whose repaired form matches the inbound call's args
-   * exactly, proves the CLI dispatched a repaired half-written call. Blocks
-   * whose raw JSON already parses are complete — a call matching one is just
-   * the benign pipe-read race and must stay fail-open.
-   */
+
   const findInterruptedTruncation = (toolName, key) => {
     const normalizedName = normalizeClaudeToolName(toolName);
     for (const pending of [...streamingBlocks.values(), ...interruptedBlocks]) {
@@ -467,9 +340,9 @@ export const createClaudeNativeToolUseCorrelator = () => {
       if (!pending.partialJson.trim()) continue;
       try {
         JSON.parse(pending.partialJson);
-        continue; // Complete args; never refuse on the settle race.
+        continue;
       } catch {
-        // Unparseable partial: candidate for a repaired dispatch.
+
       }
       const repaired = asObject(repairPartialToolInputJson(pending.partialJson));
       if (!repaired) continue;
@@ -501,12 +374,7 @@ export const createClaudeNativeToolUseCorrelator = () => {
   };
   return {
     observe,
-    /**
-     * Records the integrity verdict a finalized `assistant` event carries for
-     * the tool_use blocks it contains. Returns the truncation when this event
-     * proved one, so the caller can also surface it to the user (the call may
-     * already be executing, in which case the gate below cannot stop it).
-     */
+
     observeAssistantMessage(event) {
       if (event.type !== "assistant") return null;
       const content = asObject(event.message)?.content;
@@ -525,11 +393,7 @@ export const createClaudeNativeToolUseCorrelator = () => {
       }
       return truncated;
     },
-    /**
-     * Verdict for an inbound MCP call: the truncation that cut its arguments,
-     * or undefined when the arguments are whole OR when no finalized event
-     * arrived in time to say. Fails open by design — see the settle constant.
-     */
+
     async resolveToolUseIntegrity(
       toolName,
       toolArgs,
@@ -557,12 +421,7 @@ export const createClaudeNativeToolUseCorrelator = () => {
       }
       const adjudicated = truncatedKeys.get(key);
       if (adjudicated) return adjudicated;
-      // No finalized-event verdict. Before failing open, check the raw stream
-      // evidence: an interrupted turn (abort/steering/process exit) never
-      // emits a `refusal`/`max_tokens` assistant event, yet the CLI still
-      // repairs the half-streamed arguments and dispatches the call. Matching
-      // the inbound args against a repaired unfinished block catches exactly
-      // that case — LOUD refusal instead of silently executing clipped args.
+
       if (!settledKeys.has(key)) {
         return findInterruptedTruncation(toolName, key);
       }
@@ -609,10 +468,7 @@ export const createClaudeNativeToolUseCorrelator = () => {
           const parsed = JSON.parse(pending.partialJson);
           toolArgs = asObject(parsed) ?? pending.initialInput;
         } catch {
-          // Malformed accumulated JSON at block stop means the stream was cut
-          // mid-argument. Never bind an MCP mutation to it — but retain the
-          // partial so the integrity gate can refuse the repaired call the
-          // CLI dispatches for it.
+
           recordInterruptedBlock(pending);
           return;
         }
@@ -685,13 +541,7 @@ const configuredTimeoutMs = (envName, fallbackMs) => {
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackMs;
 };
-/**
- * True only when the child has actually terminated. `child.killed` must
- * NOT be used for ladder guards: it flips true as soon as any signal was
- * SENT, which previously made every later rung unreachable — after the
- * SIGINT in `abortProcess`, neither SIGTERM nor SIGKILL could ever fire,
- * so a signal-ignoring CLI survived cancellation.
- */
+
 const processIsDead = (child) =>
   child.exitCode !== null || child.signalCode !== null;
 const killProcess = (child) => {
@@ -699,14 +549,14 @@ const killProcess = (child) => {
   try {
     child.kill("SIGTERM");
   } catch {
-    // Process may have already exited.
+
   }
   const sigkillTimer = setTimeout(() => {
     if (processIsDead(child)) return;
     try {
       child.kill("SIGKILL");
     } catch {
-      // Process may have already exited.
+
     }
   }, SIGKILL_TIMEOUT_MS);
   child.once("exit", () => clearTimeout(sigkillTimer));
@@ -716,7 +566,7 @@ const abortProcess = (child) => {
   try {
     child.kill("SIGINT");
   } catch {
-    // Ignore and fall through to SIGTERM/SIGKILL.
+
   }
   setTimeout(() => {
     killProcess(child);
@@ -852,24 +702,14 @@ export const getClaudeCodeTextDeltaFromStreamEvent = (event) => {
   }
   return null;
 };
-/**
- * Claude Code native file tools whose stream-json `tool_use` inputs name the
- * file they touch. `Write` may create or overwrite; without a filesystem
- * probe we call it an `add` (the chat artifact card treats add/update the
- * same for display). Bash writes are inherently untrackable from the stream.
- */
+
 const CLAUDE_CODE_NATIVE_FILE_TOOLS = {
   Write: { pathKey: "file_path", kind: { type: "add" } },
   Edit: { pathKey: "file_path", kind: { type: "update" } },
   MultiEdit: { pathKey: "file_path", kind: { type: "update" } },
   NotebookEdit: { pathKey: "notebook_path", kind: { type: "update" } },
 };
-/**
- * Extract native-tool file writes from one parsed stream-json line. Vanilla
- * mode is the only mode where Claude Code runs its own Write/Edit tools, but
- * the collector is safe to run on every line: takeover mode strips CC's
- * tools (`--tools ""`), so its assistant messages never carry these blocks.
- */
+
 export const collectClaudeCodeNativeFileChanges = (event) => {
   if (event.type !== "assistant") return [];
   const message = asObject(event.message);
@@ -1033,7 +873,7 @@ export const getClaudeCodeStatusChangeFromStreamEvent = (event) => {
   }
   return null;
 };
-/** Diagnostic boundary: one finalized Claude assistant message is one model round. */
+
 export const getClaudeCodeModelRoundFromStreamEvent = (event) => {
   if (event.type !== "assistant") return null;
   const message = asObject(event.message);
@@ -1051,27 +891,10 @@ export const getClaudeCodeModelRoundFromStreamEvent = (event) => {
       .length,
   };
 };
-/**
- * The CLI has no structured event for a model fallback — it announces it as
- * a `system`/`informational` message with exactly this content (verified
- * against the CLI bundle: `Model fallback triggered: switching from ${X} to
- * ${Y}`). Text match is brittle across CLI versions by nature; if the
- * wording drops the model ids we still detect the switch and fall back to
- * generic labels.
- */
+
 const CLAUDE_CODE_MODEL_FALLBACK_RE =
   /^Model fallback triggered(?::? switching from (\S+) to (\S+))?/;
-/**
- * Detect the CLI's model-fallback announcement on the stream. When the
- * configured model errors as overloaded (529) and a `--fallback-model` is
- * in play (e.g. from the user's own CLI settings — we don't pass one; our
- * fable fallback policy lives in `applyFableFallbackPolicy`), the CLI
- * stickily switches the session's main-loop model to the fallback for the
- * rest of the session — the model actually answering is no longer the
- * configured one. We surface that switch as a visible toast,
- * pretty-printing the from/to ids parsed out of the message. Returns null
- * for any other event.
- */
+
 export const getClaudeCodeModelFallbackFromStreamEvent = (event) => {
   if (event.type !== "system" || event.subtype !== "informational") {
     return null;
@@ -1100,13 +923,13 @@ const cleanupSessionArtifacts = (session) => {
   try {
     fs.rmSync(session.artifactDir, { recursive: true, force: true });
   } catch {
-    // Ignore cleanup failures.
+
   }
   session.artifactDir = undefined;
 };
 const resetSessionMcpClients = (session, reason) => {
   void session.mcpHost?.resetClientSessions(reason).catch(() => {
-    // Process teardown must continue even if a stale transport resists close.
+
   });
 };
 const cleanupSessionProcess = (session) => {
@@ -1128,7 +951,7 @@ const cleanupSessionMcpHost = (session) => {
   session.activeMcpTurn = undefined;
   if (host) {
     void host.close().catch(() => {
-      // The private loopback listener is best-effort cleanup on teardown.
+
     });
   }
 };
@@ -1194,11 +1017,7 @@ class ClaudeCodeSessionRuntime {
       this.pumpSession(request.sessionKey, session);
     });
   }
-  /**
-   * Diagnostic/test hook: whether a live CLI child is tracked for the
-   * session key. Guards against restart races where a stale close handler
-   * would otherwise evict the replacement child from tracking.
-   */
+
   hasActiveProcess(sessionKey) {
     const child = this.activeProcesses.get(sessionKey);
     return Boolean(child && !child.killed && child.exitCode === null);
@@ -1288,22 +1107,18 @@ class ClaudeCodeSessionRuntime {
       });
   }
   async executeTurn(session, request) {
-    // Vanilla mode sends the prompt to stock Claude Code untouched: no
-    // Stella runtime contract, no system-prompt override.
+
     const effectiveSystemPrompt = request.vanilla
       ? ""
       : buildClaudeCodeNativeToolRuntimePrompt(request.systemPrompt);
     const turnFileChanges = [];
     const turnFileChangeKeys = new Set();
     const prompt = buildInitialPrompt(session, request);
-    // Every user message reattempts the configured model: a fallback from a
-    // previous turn does not stick to the session. The next
-    // ensureStreamingProcess sees the config change and restarts the CLI on
-    // the configured model with --resume.
+
     session.modelOverride = undefined;
     session.fableSafetyFailures = 0;
     session.allowEmptyNativeFinal = false;
-    // The compaction loop breaker counts per Stella turn.
+
     if (session.process) {
       session.process.compacting = false;
       session.process.compactionCount = 0;
@@ -1312,9 +1127,7 @@ class ClaudeCodeSessionRuntime {
       const nativeToolUseCorrelator = createClaudeNativeToolUseCorrelator();
       session.activeNativeToolUseCorrelator = nativeToolUseCorrelator;
       session.activeMcpTurn = {
-        // The persisted Claude session is the conversation boundary. Native
-        // tool_use.id distinguishes invocations within it; Stella run IDs can
-        // change during crash recovery and must not alter replay identity.
+
         identityScope: request.sessionKey,
         claimNativeToolUseId: (toolName, toolArgs, signal) =>
           nativeToolUseCorrelator.claim(toolName, toolArgs, signal),
@@ -1420,23 +1233,7 @@ class ClaudeCodeSessionRuntime {
       session.allowEmptyNativeFinal = false;
     }
   }
-  /**
-   * Run one Claude Code turn, absorbing recoverable CLI flakiness within the
-   * turn's shared recovery budget:
-   *
-   * - `process_ended`: the CLI died (or exited cleanly) before delivering the
-   *   step's result. Respawn and resend the same prompt; the spawn path
-   *   resumes the persisted transcript when possible and otherwise falls back
-   *   to reseeding from `resumeFallbackPrompt`. If the failed attempt had
-   *   already applied native file writes, the retry switches to a
-   *   non-mutating reconciliation prompt so those edits are never replayed.
-   * - `malformed_result`: the CLI answered without final text. The session
-   *   process is still alive with full context, so send a corrective nudge.
-   *
-   * Native file writes observed on failed attempts are merged into the
-   * eventual step result so recoveries never drop artifacts. Aborted runs
-   * never retry; exhausted budgets rethrow with an actionable message.
-   */
+
   async executeStepWithRecovery(
     session,
     request,
@@ -1480,9 +1277,7 @@ class ClaudeCodeSessionRuntime {
             (recoverable.fileChanges.length > 0 ||
               recoverable.mcpCalls.length > 0),
         );
-        // A normal refusal/overload can retry the configured model and then
-        // fall back. Once any tool call started, the same prompt is never
-        // replayed: even an aborted/errored call may already have committed.
+
         if (
           !hasPossibleSideEffects &&
           this.applyFableFallbackPolicy(session, request, error)
@@ -1504,10 +1299,7 @@ class ClaudeCodeSessionRuntime {
         recoveryBudget.remaining -= 1;
         if (recoverable instanceof ClaudeCodeProcessEndedError) {
           this.resetStreamingProcess(request.sessionKey, session);
-          // Never blind-replay a prompt whose attempt already mutated files:
-          // the respawned session must reconcile, not redo. (Bash-side writes
-          // stay invisible to this guard — the stream only names file-tool
-          // paths.)
+
           if (
             failedAttemptFileChanges.length > 0 ||
             failedAttemptMcpCalls.length > 0
@@ -1530,18 +1322,7 @@ class ClaudeCodeSessionRuntime {
       }
     }
   }
-  /**
-   * Fable refusal/overload policy, mirroring the stella engine's safety
-   * swap: give the configured fable model SAFETY_ABORT_FABLE_ATTEMPTS
-   * consecutive attempts at the failing step, then switch the REST OF THIS
-   * TURN to CLAUDE_CODE_FALLBACK_MODEL via `session.modelOverride` (the
-   * next ensureStreamingProcess sees the config change and restarts on the
-   * fallback with --resume, keeping the CLI conversation). executeTurn
-   * clears the override at every turn start, so each new user message
-   * reattempts fable. Returns true when the caller should resend the same
-   * prompt; false when the policy doesn't apply (including a failure on the
-   * fallback itself) and the error should propagate.
-   */
+
   applyFableFallbackPolicy(session, request, error) {
     if (session.modelOverride) return false;
     const modelName = parseClaudeCodeModel(request.modelId);
@@ -1595,13 +1376,7 @@ class ClaudeCodeSessionRuntime {
       observedMcpCalls,
     );
   }
-  /**
-   * `observedMutations` carries native file writes already applied by
-   * earlier attempts of THIS step. Every reseed path below (missing resume,
-   * compaction loop) must honor it: once mutations are known, the reseed
-   * prompt is the reconciliation prompt — never `resumeFallbackPrompt`,
-   * whose history+request would replay the mutations on the fresh session.
-   */
+
   async executeStepWithMode(
     session,
     request,
@@ -1613,8 +1388,7 @@ class ClaudeCodeSessionRuntime {
     observedMutations = [],
     observedMcpCalls = [],
   ) {
-    // Reseeded sessions have no transcript, so a mutation-guarded reseed
-    // embeds the would-be seed prompt as reference-only context.
+
     const buildReseedPrompt = (mutations, mcpCalls) =>
       mutations.length > 0 || mcpCalls.length > 0
         ? buildSideEffectReconciliationPrompt(
@@ -1674,14 +1448,7 @@ class ClaudeCodeSessionRuntime {
         allowCompactionLoopRestart &&
         error instanceof ClaudeCodeCompactionLoopError
       ) {
-        // The session context can no longer fit and Claude Code keeps
-        // re-compacting. Abandon the CLI conversation and restart the turn on
-        // a fresh session seeded from the checkpoint-compacted Stella
-        // history — or, if this or an earlier attempt already applied native
-        // file writes, from the reconciliation prompt so they never replay.
-        // The caller persists the fresh session id at turn end, replacing
-        // the looping one. At most once per step, so a fresh session that
-        // still loops fails loudly instead of cycling.
+
         const mutations = [...observedMutations];
         const mutationKeys = new Set(mutations.map(fileChangeDedupeKey));
         mergeFileChanges(mutations, mutationKeys, error.fileChanges);
@@ -1705,7 +1472,7 @@ class ClaudeCodeSessionRuntime {
         if (error.fileChanges.length === 0) {
           return result;
         }
-        // Keep the interrupted attempt's writes on the step result.
+
         const combined = [...error.fileChanges];
         const combinedKeys = new Set(combined.map(fileChangeDedupeKey));
         mergeFileChanges(combined, combinedKeys, result.fileChanges);
@@ -1721,8 +1488,7 @@ class ClaudeCodeSessionRuntime {
     useResume,
     mcpHost,
   ) {
-    // A turn-scoped fallback override (fable exhausted its attempts) beats
-    // the configured model; executeTurn clears it at every turn start.
+
     const modelName =
       session.modelOverride ?? parseClaudeCodeModel(request.modelId);
     const args = [
@@ -1742,9 +1508,7 @@ class ClaudeCodeSessionRuntime {
       if (!mcpHost || !session.mcpConfigPath) {
         throw new Error("Claude Code native tool host is unavailable.");
       }
-      // Native takeover: Claude owns the tool loop. Its built-ins and all
-      // ambient/user MCP servers remain disabled; only this run-private,
-      // token-authenticated Stella server is visible.
+
       const allowedStellaTools = request.tools
         .map((tool) => `mcp__stella__${tool.name}`)
         .join(",");
@@ -1799,9 +1563,7 @@ class ClaudeCodeSessionRuntime {
     if (session.mcpHost && session.mcpToolCatalogKey === catalogKey) {
       return session.mcpHost;
     }
-    // A process spawned against the old immutable catalog cannot be pointed
-    // at a replacement listener in place. Stop it before rotating the host;
-    // the caller resumes the same Claude conversation on the new process.
+
     this.resetStreamingProcess(request.sessionKey, session);
     if (session.mcpHost) {
       await session.mcpHost.close().catch(() => undefined);
@@ -1823,7 +1585,7 @@ class ClaudeCodeSessionRuntime {
       }),
       { encoding: "utf8", mode: 0o600 },
     );
-    // writeFile's mode does not tighten an existing path after host rotation.
+
     fs.chmodSync(session.mcpConfigPath, 0o600);
     return session.mcpHost;
   }
@@ -1843,12 +1605,7 @@ class ClaudeCodeSessionRuntime {
     if (
       session.process &&
       !session.process.closed &&
-      // Dying-process fence: a child that has been signaled (`killed` is
-      // "signal sent") or already terminated must never take new prompts —
-      // a late reuse would write into a process the kill ladder is tearing
-      // down. Its exit handler rejects the pendings and clears
-      // `session.process`; respawning below (same resume id) is the
-      // correct successor.
+
       !session.process.child.killed &&
       !processIsDead(session.process.child)
     ) {
@@ -1856,15 +1613,10 @@ class ClaudeCodeSessionRuntime {
         return session.process;
       }
       if (session.process.pending.length > 0) {
-        // Prompts are still in flight on the old configuration; swapping
-        // now would fail them. Keep the process — the next idle step
-        // picks the new configuration up.
+
         return session.process;
       }
-      // The request wants a different CLI configuration (the user changed
-      // the model / effort mid-session, or the mode flipped). Restart the
-      // process; `useResume` continues the same CLI conversation on the
-      // new configuration.
+
       this.resetStreamingProcess(request.sessionKey, session);
     }
     const executablePath = resolveExternalCliPath("claude");
@@ -1982,8 +1734,7 @@ class ClaudeCodeSessionRuntime {
           session.resumeReady = true;
           request.onSessionId?.(session.sessionId);
         }
-        // The init event names the model the CLI actually resolved the
-        // requested alias to (e.g. default -> claude-opus-4-8[1m]).
+
         if (
           parsedLine.type === "system" &&
           parsedLine.subtype === "init" &&
@@ -2022,8 +1773,7 @@ class ClaudeCodeSessionRuntime {
         }
         const status = getClaudeCodeStatusChangeFromStreamEvent(parsedLine);
         if (status) {
-          // Count discrete compactions (compacting -> running transitions),
-          // not every compaction-related stream event.
+
           if (status.state === "compacting" && !processState.compacting) {
             processState.compacting = true;
             processState.compactionCount += 1;
@@ -2039,10 +1789,7 @@ class ClaudeCodeSessionRuntime {
             processState.compacting = false;
           }
         }
-        // The CLI switched the session to the --fallback-model (configured
-        // model overloaded). The switch is sticky for the session, so
-        // surface it once as a heads-up toast (latch on the session so we
-        // don't spam).
+
         const modelFallback =
           getClaudeCodeModelFallbackFromStreamEvent(parsedLine);
         const current = processState.pending[0];
@@ -2052,7 +1799,7 @@ class ClaudeCodeSessionRuntime {
             try {
               current.request.onModelRound?.(modelRound);
             } catch {
-              // Diagnostic observers must never disrupt the engine stream.
+
             }
           }
           if (
@@ -2110,8 +1857,7 @@ class ClaudeCodeSessionRuntime {
                 : stepResult,
             );
           } catch (error) {
-            // Carry file writes observed during the failed step so a nudge
-            // recovery still reports them on the eventual turn result.
+
             if (
               error instanceof ClaudeCodeMalformedResultError &&
               completed.fileChanges.length > 0
@@ -2152,8 +1898,7 @@ class ClaudeCodeSessionRuntime {
         resetSessionMcpClients(session, wrapped);
         session.process = undefined;
       }
-      // A restart may already have registered a replacement child under this
-      // session key; only remove OUR child from tracking.
+
       if (this.activeProcesses.get(request.sessionKey) === child) {
         this.activeProcesses.delete(request.sessionKey);
       }
@@ -2181,8 +1926,7 @@ class ClaudeCodeSessionRuntime {
         );
         session.process = undefined;
       }
-      // A restart may already have registered a replacement child under this
-      // session key; only remove OUR child from tracking.
+
       if (this.activeProcesses.get(request.sessionKey) === child) {
         this.activeProcesses.delete(request.sessionKey);
       }
@@ -2251,9 +1995,7 @@ class ClaudeCodeSessionRuntime {
         }
       }
       processState.pending.push(pending);
-      // Claude Code's stream-json input accepts Anthropic image content
-      // blocks directly, so screenshots reach vision without enabling any
-      // Claude-native file or shell tools outside Stella's tool boundary.
+
       const content =
         promptImages.length > 0
           ? [
@@ -2286,8 +2028,7 @@ class ClaudeCodeSessionRuntime {
           processState.pending.splice(index, 1);
         }
         this.detachAbortListener(pending);
-        // A failed stdin write means the process died under us (EPIPE);
-        // classify it as process-ended so the step recovery can respawn.
+
         reject(
           new ClaudeCodeProcessEndedError(
             `Failed to write Claude Code prompt: ${normalizeErrorMessage(error)}`,
@@ -2313,7 +2054,7 @@ class ClaudeCodeSessionRuntime {
             },
           });
         } catch {
-          // A host-side steering observer must not break the engine turn.
+
         }
       }
     });
@@ -2388,12 +2129,7 @@ class ClaudeCodeSessionRuntime {
       clearTimeout(pending.idleTimer);
     }
     pending.idleTimer = undefined;
-    // Vanilla Claude Code runs native tools inside the CLI. Their stream-json
-    // lifecycle is edge-triggered, so a silent Bash/Task invocation is still
-    // confirmed live work and must not be mistaken for a dead output stream.
-    // We cannot cancel an individual native tool from out here, so instead of
-    // disarming entirely (an unresolved tool_use would hang the session
-    // forever), arm the watchdog with the much longer tool ceiling.
+
     const toolsInFlight = pending.activeNativeToolUseIds.size > 0;
     const timeoutMs = toolsInFlight
       ? configuredTimeoutMs(
@@ -2467,11 +2203,7 @@ class ClaudeCodeSessionRuntime {
       usage,
     };
   }
-  /**
-   * Kill a session process stuck in a compaction loop and fail its in-flight
-   * prompts with a recognizable error so `executeStepWithMode` can
-   * restart the turn on a fresh session seeded from the checkpoint history.
-   */
+
   failCompactionLoop(sessionKey, session, processState) {
     processState.closed = true;
     if (session.process === processState) {
@@ -2485,9 +2217,7 @@ class ClaudeCodeSessionRuntime {
     killProcess(processState.child);
     for (const pending of failed) {
       this.detachAbortListener(pending);
-      // Typed and file-change-aware: the reseed path must know which native
-      // writes this step already applied so it reconciles instead of
-      // replaying them, and reports them on the eventual result.
+
       pending.reject(
         new ClaudeCodeCompactionLoopError(
           pending.fileChanges,
@@ -2517,7 +2247,7 @@ export const isClaudeCodeModel = (modelId) =>
   modelId.trim().startsWith(CLAUDE_CODE_MODEL_PREFIX);
 export const runClaudeCodeTurn = async (request) =>
   await runtime.runTurn(request);
-/** Diagnostic/test hook: is a live CLI process tracked for this session key? */
+
 export const claudeCodeSessionHasActiveProcess = (sessionKey) =>
   runtime.hasActiveProcess(sessionKey);
 export const closeClaudeCodeSessionWhenIdle = (sessionKey) => {
@@ -2539,8 +2269,7 @@ export const listClaudeCodeModels = async (auth, stellaAppDir) => {
     const resolved = resolvedModels[alias];
     models.set(alias, {
       id: alias,
-      // Show the CLI-reported real model behind the alias when we've seen
-      // one (e.g. "Default · Opus 4.8 (1M context)").
+
       displayName: resolved
         ? `${labels.displayName} · ${formatClaudeCodeResolvedModel(resolved)}`
         : labels.displayName,

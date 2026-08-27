@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/api";
-// Imported from the module rather than the `@/shared/i18n` barrel on
-// purpose: the barrel re-exports `RemoteI18nProvider`, which pulls in
-// `convex/react` and the auth provider. This component only needs the
-// active locale string, and the deep import keeps that dependency out.
+
 import { useLocale, useT } from "@/shared/i18n/I18nProvider";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { openExternalUrl } from "@/platform/electron/open-external";
@@ -12,17 +9,6 @@ import { Check } from "@/ui/icons";
 import { CAPABILITIES, hasCapability } from "./capabilities";
 import { resolveFreeAllowance } from "./audience";
 import "./BillingScreen.css";
-
-/**
- * Native Plan & Billing surface.
- *
- * This used to be an embedded stella.sh `<webview>` (a holdover from the
- * self-modifying-app era, when billing had to live out of the agent's
- * reach). It now talks to the same Convex `billing` module the website
- * uses; the only surfaces that leave the app are Stripe-hosted Checkout
- * and the Stripe Customer Portal, which open in the system browser. Plan
- * changes land back here reactively via Stripe webhooks → Convex.
- */
 
 type BillingPlan = "free" | "go" | "pro";
 type PaidBillingPlan = Exclude<BillingPlan, "free">;
@@ -45,7 +31,7 @@ type BillingUsage = {
   weeklyLimitUsd: number;
   monthlyUsedUsd: number;
   monthlyLimitUsd: number;
-  /** Cumulative spend and the one-shot Free allowance it counts against. */
+
   lifetimeUsedUsd: number;
   lifetimeLimitUsd: number | null;
 };
@@ -103,20 +89,10 @@ type UsageMeter = {
   limitUsd: number;
 };
 
-/**
- * One matrix, one order. Each card renders only the rows it includes —
- * a card never shows a feature struck through or dashed out, so every
- * line on this surface is something you get.
- *
- * The matrix is still the single source of truth rather than three hand
- * -written lists: keeping the order shared means the rows all three
- * plans have in common land in the same sequence in every column, so a
- * card that includes more simply runs longer than the one beside it.
- */
 type PlanFeature = { key: string; plans: readonly BillingPlan[] };
 
 const ALL_PLANS: readonly BillingPlan[] = ["free", "go", "pro"];
-/** All-plan features that the paid media capability matrix doesn't model. */
+
 const BASE_PLAN_FEATURES: readonly PlanFeature[] = [
   { key: "billing.features.assistant", plans: ALL_PLANS },
   { key: "billing.features.codingAgent", plans: ALL_PLANS },
@@ -124,21 +100,10 @@ const BASE_PLAN_FEATURES: readonly PlanFeature[] = [
   { key: "billing.features.dictationReadAloud", plans: ALL_PLANS },
 ];
 
-/**
- * Available across plans, but intentionally marketed only with Pro.
- * This is presentation, not an entitlement gate.
- */
 const MARKETED_PLAN_FEATURES: readonly PlanFeature[] = [
   { key: "billing.features.multipleAgents", plans: ["pro"] },
 ];
 
-/**
- * Capability rows are *derived* from the shared matrix, so the copy on
- * this screen cannot drift from what the app enforces: a capability
- * appears on exactly the cards whose plan the matrix grants it to. This
- * is why Pro reads as "more things", not "more tokens" — the rows that
- * only Pro carries are the capabilities themselves.
- */
 const CAPABILITY_PLAN_FEATURES: readonly PlanFeature[] = CAPABILITIES.map(
   (capability) => ({
     key: `billing.capability.${capability}`,
@@ -146,11 +111,6 @@ const CAPABILITY_PLAN_FEATURES: readonly PlanFeature[] = CAPABILITIES.map(
   }),
 ).filter((feature) => feature.plans.length > 0);
 
-/**
- * Widest reach first (stable within a tier). That single rule is what
- * keeps the columns nested — every row a cheaper plan has appears above
- * every row it doesn't — no matter how the matrix is later re-cut.
- */
 const PLAN_FEATURE_MATRIX: readonly PlanFeature[] = [
   ...BASE_PLAN_FEATURES,
   ...MARKETED_PLAN_FEATURES,
@@ -163,24 +123,16 @@ const PLAN_FEATURE_MATRIX: readonly PlanFeature[] = [
   )
   .map(({ feature }) => feature);
 
-/**
- * Amounts are denominated in USD regardless of where the user is —
- * that's a billing fact, not a display choice — but the *presentation*
- * (digit grouping, decimal separator, symbol placement, calendar order)
- * belongs to the reader's locale. So the currency stays "USD" while the
- * formatter's locale tracks the active UI language: a German user sees
- * `1.234,56 $` and `5. Januar 2026`, not `$1,234.56` and `January 5, 2026`.
- */
 const useBillingFormatters = (locale: string) =>
   useMemo(
     () => ({
-      /** Whole-dollar plan prices. */
+
       currency: new Intl.NumberFormat(locale, {
         style: "currency",
         currency: "USD",
         maximumFractionDigits: 0,
       }),
-      /** Cent-precise balances and usage meters. */
+
       usd: new Intl.NumberFormat(locale, {
         style: "currency",
         currency: "USD",
@@ -209,19 +161,13 @@ const toUsagePercent = (usedUsd: number, limitUsd: number) => {
 const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error && error.message ? error.message : fallback;
 
-/**
- * Stripe redirects back to the website's /billing after Checkout/Portal —
- * the browser tab shows the confirmation while the plan flows into the app
- * reactively over the Convex socket. Base URL comes from main, so env
- * overrides (STELLA_WEB_URL) keep working in dev.
- */
 const getBillingReturnUrl = async (): Promise<string> => {
   let baseUrl = "https://stella.sh";
   try {
     const resolved = await window.electronAPI?.website?.getBaseUrl?.();
     if (resolved) baseUrl = resolved;
   } catch {
-    // Fall through to the production default.
+
   }
   return new URL("/billing", baseUrl).toString();
 };
@@ -246,11 +192,9 @@ export function BillingPanel() {
 
   const formatUsagePercent = useCallback(
     (usedUsd: number, limitUsd: number) => {
-      // Intl percent formatting takes a fraction, not 0-100.
+
       const fraction = toUsagePercent(usedUsd, limitUsd) / 100;
-      // Any nonzero usage should read as "some", never as a rounded-down
-      // 0%. `<` is a math symbol, so it needs no translation and the bidi
-      // algorithm places it correctly under `dir="rtl"`.
+
       if (fraction > 0 && fraction < 0.01) {
         return `<${formatters.percent.format(0.01)}`;
       }
@@ -259,8 +203,6 @@ export function BillingPanel() {
     [formatters],
   );
 
-  // Bucketed clock for usage-window recomputation: refreshing every 60s
-  // keeps the query cache stable between ticks (see getSubscriptionStatus).
   const [billingNowMs, setBillingNowMs] = useState(() => Date.now());
   useEffect(() => {
     const id = window.setInterval(() => setBillingNowMs(Date.now()), 60_000);
@@ -306,8 +248,7 @@ export function BillingPanel() {
     !billingStatus.isAnonymous,
   );
   const isLoadingStatus = hasConnectedAccount && billingStatus === undefined;
-  // Active paid subscribers change/cancel plans through the Stripe portal —
-  // createCheckoutSession rejects them with CONFLICT.
+
   const isActivePaidSubscriber = hasAccount && currentPlan !== "free";
   const currentPlanRank = PLAN_ORDER.indexOf(currentPlan);
 
@@ -472,13 +413,6 @@ export function BillingPanel() {
   const currentPlanCatalogEntry = planCatalog?.[currentPlan];
   const rollingWindowHours = currentPlanCatalogEntry?.rollingWindowHours ?? 5;
 
-  /**
-   * The Free plan's allowance is a lifetime budget, so it must not be
-   * shown through the rolling / weekly / monthly windows: three bars
-   * that visibly refill would promise a reset that never comes. When an
-   * allowance is present it replaces the windows entirely with a single
-   * meter that only ever fills.
-   */
   const freeAllowance = usage
     ? resolveFreeAllowance({ plan: currentPlan, usage })
     : null;
@@ -529,18 +463,6 @@ export function BillingPanel() {
       : t("billing.renewal.renews", { date: periodEndLabel })
     : null;
 
-  /**
-   * Cancelling does not cut access — Stripe keeps the plan live to the
-   * end of the paid period. What happens *after* is the part worth
-   * saying out loud: the Free allowance is granted once, so a subscriber
-   * whose cumulative spend already passed it lands on a plan with
-   * nothing left in it and Stella simply stops. Better read here, while
-   * the plan is still running, than discovered the morning it lapses.
-   *
-   * Gated on the actual numbers rather than assumed: a subscriber still
-   * under the Free cap really does keep a usable remainder, and telling
-   * them otherwise would be wrong.
-   */
   const freeLifetimeCapUsd = billingStatus?.plans.free.lifetimeLimitUsd ?? null;
   const lapseEndsAccess =
     billingStatus?.cancelAtPeriodEnd === true &&
@@ -589,10 +511,9 @@ export function BillingPanel() {
               const percent = toUsagePercent(meter.usedUsd, meter.limitUsd);
               return (
                 <div key={meter.key} className="billing-meter">
-                  {/* The bar communicates relative usage without exposing
-                      the internal dollar-denominated accounting. The
-                      percentage stays in the accessible name, where a bar
-                      cannot communicate its scale visually. */}
+                  {
+
+}
                   <div className="billing-meter-head">
                     <span className="billing-meter-label">{meter.label}</span>
                   </div>
@@ -619,10 +540,9 @@ export function BillingPanel() {
           </div>
         ) : null}
 
-        {/* A spent lifetime allowance is a terminal state, not a wait.
-            Say so plainly and point at the only thing that resolves it —
-            "try again later" would be a lie about a quota with no
-            reset. */}
+        {
+
+}
         {freeAllowance ? (
           freeAllowance.exhausted ? (
             <div
@@ -678,10 +598,7 @@ export function BillingPanel() {
         {PLAN_ORDER.map((plan) => {
           const display = getPlanDisplay(plan);
           const isCurrentPlan = plan === currentPlan;
-          // An intro rate is a first-subscription offer. Showing it to
-          // someone who already pays turns the Go card into "downgrade
-          // and get a discount" — an offer Stripe would not honour
-          // through the portal anyway.
+
           const introCents =
             plan === "go" &&
             typeof display.introFirstMonthPriceCents === "number" &&
@@ -719,7 +636,7 @@ export function BillingPanel() {
           const handlePlanClick = () => {
             if (isCurrentPlan) return;
             if (isActivePaidSubscriber) {
-              // Plan changes and cancellation both go through the portal.
+
               void handleOpenPortal();
               return;
             }
@@ -752,21 +669,9 @@ export function BillingPanel() {
                 ) : null}
               </div>
 
-              {/* A discounted plan leads with the price you actually pay
-                  and demotes the standard rate to a struck-through
-                  reference beside it. Free renders as $0 rather than the
-                  word "Free": the card is already named Free, and a word
-                  among numbers breaks the row.
+              {
 
-                  The term is welded to the number, never whispered under
-                  it. The discount this app can issue is a Stripe coupon
-                  created `duration=once` (see STRIPE_COUPON_GO_FIRST_MONTH)
-                  — it comes off the first invoice and renewals bill at the
-                  standard rate. So "$1" never appears without "first
-                  month" on the same line, and the renewal rate gets its
-                  own line directly beneath. A headline reading "$5" with
-                  the term buried is a price the billing system will not
-                  honour on the second invoice. */}
+}
               <div className="billing-plan-price">
                 <span className="billing-plan-price-row">
                   <span className="billing-plan-amount">
@@ -838,9 +743,9 @@ export function BillingPanel() {
       </section>
 
       <section className="billing-credit" aria-label="Extra usage credit">
-        {/* Copy and balance on the top line, the whole instrument on the
-            second: presets, amount and action read left-to-right as one
-            sentence instead of three stacked controls in a box. */}
+        {
+
+}
         <div className="billing-credit-head">
           <div className="billing-credit-copy">
             <h2 className="billing-section-title">Extra usage credit</h2>

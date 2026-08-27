@@ -1,9 +1,3 @@
-/**
- * Canvas viewer for one HTML artifact the orchestrator produced via the
- * `html` tool: a share bar over a sandboxed iframe rendering the file as
- * `srcdoc`. Which canvas is showing is the Files section's business, so this
- * takes the item it should render rather than picking one.
- */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDisplayPanelOpen } from "@/features/workspace-display/tab-store";
 import { useDisplayFileBytes } from "@/shared/hooks/use-display-file-data";
@@ -38,7 +32,7 @@ const CANVAS_SELECTION_BRIDGE_SCRIPT = String.raw `
         parent.postMessage({ type: "stella:canvas-open-external", url: url.href }, "*");
       }
     } catch {
-      // A relative destination cannot exist outside this single srcdoc file.
+
     }
   };
 
@@ -196,10 +190,7 @@ const CanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => {
     const loadCountRef = useRef(0);
     const [navigationReset, setNavigationReset] = useState(0);
     const { bytes, error, loading } = useDisplayFileBytes(item.filePath, "Canvas preview requires the Stella desktop app.", undefined,
-    // Same-slug canvases overwrite the same file in place; folding
-    // `createdAt` into the read forces a fresh disk read (and iframe
-    // remount below) so a re-opened/re-rendered canvas never shows stale
-    // content served from the display-file cache.
+
     item.createdAt);
     const html = useMemo(() => (bytes ? decoder.decode(bytes) : ""), [bytes]);
     const srcDoc = useMemo(() => (html ? injectCanvasSelectionBridge(html) : ""), [html]);
@@ -232,9 +223,7 @@ const CanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => {
     }
     return (<div className="canvas-tab__frame-wrap">
       <iframe key={`${item.id}:${item.createdAt}:${navigationReset}`} ref={iframeRef} title={item.title} className="canvas-tab__iframe" srcDoc={srcDoc} sandbox="allow-scripts allow-popups allow-modals allow-forms" referrerPolicy="no-referrer" onLoad={() => {
-            // The first load is srcdoc. Any later load means script-driven or
-            // otherwise uncaught navigation escaped the click/form bridge;
-            // remount the original document instead of leaving a broken frame.
+
             loadCountRef.current += 1;
             if (loadCountRef.current > 1) {
                 loadCountRef.current = 0;
@@ -252,12 +241,7 @@ const CanvasHeroFrame = ({ item, panelOpen, }: {
     useEffect(() => {
         if (!panelOpen || ready)
             return;
-        // A canvas can already be mounted in the hidden keep-alive host when a
-        // sidebar artifact is clicked. Starting its file read (or replacing its
-        // srcdoc iframe) during that click blocks Chromium's renderer before the
-        // panel gets a chance to paint. Wait for a frame of the open shell first;
-        // the keyed boundary below also makes a same-path overwrite start from
-        // this lightweight loading state instead of remounting with stale bytes.
+
         let frame = requestAnimationFrame(() => {
             frame = requestAnimationFrame(() => setReady(true));
         });

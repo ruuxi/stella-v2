@@ -29,11 +29,6 @@ const OWNER_TABLES = [
 
 type OwnerTable = (typeof OWNER_TABLES)[number];
 
-/**
- * Mobile pairing/bridge/push tables hold device credentials and push tokens
- * that must not survive account deletion. Drained here because
- * `reset._deleteOwnerTableBatch` does not cover them.
- */
 const MOBILE_TABLES = [
   "mobile_pairing_sessions",
   "paired_mobile_devices",
@@ -163,12 +158,6 @@ const drainMobileTable = async (
   }
 };
 
-/**
- * Owner-keyed tables not covered by `reset._deleteOwnerTableBatch` (whose
- * list doubles as the user-facing "reset my data" scope). Account deletion
- * must additionally wipe private/user-content tables: secrets, integrations,
- * media, channel links, billing receipts, and fashion.
- */
 const EXTRA_TABLES = [
   "secrets",
   "secret_access_audit",
@@ -259,15 +248,13 @@ async function deleteOneExtraTableBatch(
       break;
     }
     case "media_jobs": {
-      // Output payloads can be large — keep the per-transaction read small.
+
       batch = 50;
       const rows = await ctx.db
         .query("media_jobs")
         .withIndex("by_ownerId_and_createdAt", (q) => q.eq("ownerId", ownerId))
         .take(batch);
-      // Scheduler writes commit atomically with this mutation. A transaction
-      // retry cannot orphan an encrypted blob or schedule cleanup for a row
-      // whose state change did not commit.
+
       let deleted = 0;
       for (const row of rows) {
         const canceledAt = Date.now();
@@ -404,10 +391,7 @@ async function deleteOneExtraTableBatch(
         await ctx.db.delete(row._id);
         deleted += 1;
       }
-      // A claimed POST with no provider response is irreducibly ambiguous.
-      // Leave its canceled tombstone for markSubmitted/a webhook to attach a
-      // provider id, but stop this drain instead of hot-looping until the
-      // action timeout. The outer purge fails closed and is safe to retry.
+
       return deleted > 0;
     }
     case "media_webhook_events": {
@@ -559,8 +543,6 @@ const drainExtraTable = async (
   }
 };
 
-// ─── Emoji packs (tag membership/facet cleanup per pack) ────────────────────
-
 const EMOJI_PACK_BATCH = 5;
 
 export const _deleteEmojiPackBatch = internalMutation({
@@ -572,8 +554,7 @@ export const _deleteEmojiPackBatch = internalMutation({
       .withIndex("by_ownerId_and_updatedAt", (q) => q.eq("ownerId", ownerId))
       .take(EMOJI_PACK_BATCH);
     for (const pack of packs) {
-      // Clears tag membership rows and decrements public facet counts the
-      // same way the user-facing `deletePack` mutation does.
+
       await syncTagMembership(ctx, pack, [], {
         visibility: pack.visibility,
         displayName: pack.displayName,
@@ -584,8 +565,6 @@ export const _deleteEmojiPackBatch = internalMutation({
     return { hasMore: packs.length === EMOJI_PACK_BATCH };
   },
 });
-
-// ─── Backups (R2 blobs + rows) ───────────────────────────────────────────────
 
 const BACKUP_BATCH = 100;
 
@@ -637,8 +616,7 @@ const drainBackups = async (ctx: ActionCtx, ownerId: string) => {
         ownerId,
       });
     if (batch.length === 0) break;
-    // Best-effort R2 cleanup first; rows are deleted regardless so the purge
-    // terminates even when individual R2 deletes fail.
+
     await Promise.all(
       batch.map(({ r2Key }) =>
         r2.deleteObject(ctx, r2Key).catch((error) => {
@@ -677,12 +655,6 @@ const drainBackups = async (ctx: ActionCtx, ownerId: string) => {
   }
 };
 
-/**
- * Drain a single owner-scoped table by repeatedly invoking
- * `_deleteOwnerTableBatch` until `hasMore: false`. Each invocation is its
- * own Convex transaction so the per-mutation read/write limits stay
- * respected.
- */
 const drainOwnerTable = async (
   ctx: ActionCtx,
   ownerId: string,
@@ -698,18 +670,11 @@ const drainOwnerTable = async (
   }
 };
 
-/**
- * Removes Convex-owned data for an owner before Better Auth deletes the user
- * row. Mirrors `reset.resetAllUserData` but takes an explicit owner id (used
- * at account-deletion time, when there is no `ctx.auth.getUserIdentity()`).
- */
 export const purgeOwnerCloudData = internalAction({
   args: { ownerId: v.string() },
   returns: v.null(),
   handler: async (ctx, { ownerId }) => {
-    // Open the media gate before any other deletion work or parallel drain.
-    // Reservations and dispatch claims observe this same durable row
-    // transactionally, so no new provider work can cross the purge boundary.
+
     await ctx.runMutation(internal.media_jobs.beginOwnerMediaPurge, {
       ownerId,
       startedAt: Date.now(),
@@ -735,7 +700,6 @@ export const purgeOwnerCloudData = internalAction({
       cursor = page.nextCursor;
     }
 
-    // Owner-scoped tables are independent — drain them concurrently.
     await Promise.all([
       ...OWNER_TABLES.map((table) => drainOwnerTable(ctx, ownerId, table)),
       ...MOBILE_TABLES.map((table) => drainMobileTable(ctx, ownerId, table)),
@@ -751,7 +715,7 @@ export const purgeOwnerCloudData = internalAction({
         }
       })(),
       drainBackups(ctx, ownerId),
-      // Canvas shares: delete R2 objects + rows for this owner.
+
       ctx.runAction(internal.data.canvas_shares_actions.purgeOwnerShares, {
         ownerUserId: ownerId,
       }),

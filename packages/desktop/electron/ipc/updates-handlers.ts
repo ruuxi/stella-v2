@@ -33,8 +33,7 @@ type UpdatesHandlersOptions = {
     event: IpcMainInvokeEvent,
     channel: string,
   ) => boolean;
-  // Invoked synchronously on the main process when a restart-to-install is
-  // accepted, before the updater begins quitting. See DesktopUpdater.
+
   onBeforeRestart?: () => void;
 };
 
@@ -69,10 +68,7 @@ export const registerUpdatesHandlers = (
     enabled: app.isPackaged,
     onStateChanged: broadcast,
     onBeforeRestart: () => {
-      // Windows installs run the NSIS installer fully silent (/S), so this
-      // detached, staged-outside-the-install-dir splash is the only thing on
-      // screen while the install directory is swapped. Best-effort by design:
-      // launchWindowsUpdateSplash never throws and is a no-op off Windows.
+
       launchWindowsUpdateSplash({
         platform: process.platform,
         resolveHelperPath: resolveNativeHelperPath,

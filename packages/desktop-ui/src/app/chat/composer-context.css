@@ -6,21 +6,11 @@
   width: 100%;
 }
 
-/* Floating suggestion row that sits ABOVE the composer shell (the chat
- * sidebar opts into this). Left inset nudges the icon chips slightly right
- * so they align with the attached chip row in the shell.
- *
- * `min-height` keeps the strip's vertical footprint reserved even when
- * every lane is empty / hidden, so the composer doesn't pop up and down
- * when chips appear or disappear. The reserved height matches one chip
- * (~24px) plus the row's bottom padding. */
 .composer-context-actions--suggestions {
   position: relative;
   flex-wrap: nowrap;
   overflow: hidden;
-  /* No row gap: the leading task chip supplies its own trailing space
-   * (which collapses with it), so a collapsed chip leaves no phantom gap
-   * before the suggestion lanes. */
+
   gap: 0;
   padding: 0 4px 4px 20px;
   min-height: calc(24px + 4px);
@@ -36,12 +26,6 @@
   min-width: 0;
 }
 
-/* A lane = one fixed slot in the suggestion strip. Renders up to two
- * occupants (current + outgoing) stacked in the same grid cell so a chip
- * swap looks like a smooth crossfade rather than pop-out / pop-in. The
- * cell auto-sizes to the wider of the two during the transition; once the
- * outgoing chip is dropped the lane snaps back to the current chip's
- * natural width. */
 .composer-context-suggestion-lane {
   flex: 0 0 auto;
   display: inline-grid;
@@ -60,9 +44,6 @@
   grid-area: stack;
 }
 
-/* Suggestion chips — auto-detected context Stella offers but hasn't yet
- * attached. Distinct from "attached" chips above: dashed border, smaller
- * type, no remove button (click attaches). */
 .composer-context-suggestion {
   display: inline-flex;
   align-items: center;
@@ -89,11 +70,6 @@
     background 120ms ease;
 }
 
-/* Slot lifecycle states. The reducer drives `data-phase`:
- *   - "entering": rendered immediately at opacity 0; advancePhase flips to
- *      "stable" on the next frame so the transition kicks in.
- *   - "stable": fully visible, normal hover behavior.
- *   - "leaving": fade out before the slot is removed. */
 .composer-context-suggestion[data-phase="entering"] {
   opacity: 0;
   transform: translateY(-2px);
@@ -132,10 +108,6 @@
     opacity 200ms ease;
 }
 
-/* App / browser icon glyph rendered in place of the text label when we
- * have a base64 PNG from the native helper. Square, slight radius, sized
- * to match the chip's text height so the chip pill stays the same height
- * whether icon or fallback label is rendered. */
 .composer-context-suggestion__icon {
   width: 16px;
   height: 16px;
@@ -162,8 +134,6 @@
     color 120ms ease;
 }
 
-/* Subtle hover affordance — chip bodies open a larger preview on click;
- * removal is the × pinned to the chip's top-right corner. */
 button.chat-composer-context-chip:hover,
 button.composer-context-chip:hover,
 button.compact-context-chip:hover {
@@ -241,11 +211,6 @@ button.compact-context-chip:focus-visible {
   );
 }
 
-/* ── Canonical context pill ──
- * One visual system for attached-context pills before (composer) and
- * after (sent message) send: leading type glyph, primary-tinted fill and
- * border, compact medium type. Mirrors the sent-row treatment that also
- * covers the channel badges and the "+N" overflow pill. */
 .context-pill {
   flex: 0 0 auto;
   display: inline-flex;
@@ -282,7 +247,6 @@ button.compact-context-chip:focus-visible {
   white-space: nowrap;
 }
 
-/* Quoted selections carry more text pre-send; give them extra room. */
 .context-pill--selected-text {
   max-width: min(520px, 70vw);
 }
@@ -291,9 +255,6 @@ button.compact-context-chip:focus-visible {
   max-width: 200px;
 }
 
-/* Same subtle strengthen-on-hover as the sent row's hovercard chips —
- * applied when the surrounding shell (composer) or hovercard (sent row)
- * is hovered or holds focus. */
 button.context-pill:hover,
 .composer-chip-shell:hover .context-pill,
 .composer-chip-shell:focus-within .context-pill,
@@ -308,12 +269,6 @@ button.context-pill:focus-visible {
   box-shadow: var(--focus-ring);
 }
 
-/* ── Chip shell + top-right × remove control ──
- * The chip body is the preview click target (enlarge image / open file);
- * removal lives on a small × pinned to the chip's top-right corner. The
- * shell only supplies relative positioning — all visual chip styling
- * stays on the inner body element so pill/card shapes, hover, and focus
- * rules are untouched. */
 .composer-chip-shell {
   position: relative;
   display: inline-flex;
@@ -322,7 +277,6 @@ button.context-pill:focus-visible {
   max-width: 100%;
 }
 
-/* Chip bodies that open a larger preview when clicked. */
 button.composer-chip-previewable,
 .composer-context-window-toggle.composer-chip-previewable {
   cursor: zoom-in;
@@ -332,9 +286,6 @@ button.chat-composer-file-chip.composer-chip-previewable {
   cursor: pointer;
 }
 
-/* Subtle until the chip is hovered or anything inside the shell holds
- * focus, but always reachable — tabbing onto the × reveals it via
- * :focus-within. */
 .composer-chip-remove {
   position: absolute;
   top: -4px;
@@ -378,8 +329,6 @@ button.chat-composer-file-chip.composer-chip-previewable {
   box-shadow: var(--focus-ring);
 }
 
-/* Window chip while its screenshot capture is still in flight: subtle
- * pulse so the user knows we're working on it without blocking input. */
 .chat-composer-context-chip--window[data-capture-pending="true"],
 .composer-context-chip--window[data-capture-pending="true"],
 .composer-chip-shell[data-capture-pending="true"] .context-pill {
@@ -430,11 +379,6 @@ button.chat-composer-file-chip.composer-chip-previewable {
   text-align: left;
 }
 
-/* Visual shell of the hover preview. The portal in ChipPreviewPortal
- * controls position/visibility; this rule purely styles the floating box.
- * Older selectors that flipped opacity on hover are gone — the portal
- * mounts only while hovered, so the chip CSS no longer needs to participate
- * in the visibility decision. */
 .composer-context-preview {
   width: min(460px, calc(100vw - 64px));
   max-height: 180px;
@@ -509,10 +453,6 @@ button.chat-composer-file-chip.composer-chip-previewable {
   max-width: min(320px, 45vw);
 }
 
-/* Window chip with an inline screenshot thumbnail: combine the screenshot
- * thumb stack with the app/title label as one card-shaped chip. The
- * wrapper's pill shape is overridden to a rounded card so the column
- * layout reads as a single unit instead of a stretched pill. */
 .chat-composer-context-chip--window[data-with-thumb="true"],
 .composer-context-chip--window[data-with-thumb="true"],
 .chat-composer-context-chip--screenshot[data-region-card="true"],
@@ -543,7 +483,6 @@ button.chat-composer-file-chip.composer-chip-previewable {
   height: 54px;
 }
 
-/* ── File attachment chips ── */
 .chat-composer-file-chip {
   position: relative;
   display: inline-flex;

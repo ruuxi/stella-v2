@@ -1,29 +1,5 @@
-/**
- * Slim renderer-side wrappers for the few non-timeline consumers that
- * still need raw event-log access. The chat surfaces themselves read
- * from `local-message-timeline-store.ts` / `local-activity-store.ts` /
- * `local-files-store.ts` — this module is intentionally tiny:
- *
- *   - `getOrCreateLocalConversationId` — bootstrap helper used before
- *     any conversation context exists.
- *   - `listLocalEvents` — used by onboarding (`WelcomeDialog` reads the
- *     welcome `assistant_message`) and a few auxiliary event readers that
- *     aren't part of the message/activity/files streams.
- *   - `subscribeToLocalChatUpdates` — push notifications backing both
- *     of the above so they refresh when the runtime persists a new
- *     auxiliary event.
- *
- * Anything that wants the chat timeline should use the purpose-built
- * stream hooks instead — don't reach for `listLocalEvents` to render
- * messages.
- */
 import {} from "@/features/chat/lib/event-transforms";
-/**
- * Absent outside Electron (plain-browser `bun run dev`): chat persistence
- * lives in main-process SQLite. Reads degrade to empty, the update
- * subscription no-ops, and conversation creation fails loudly — a browser
- * tab has no chat backend to create against.
- */
+
 export const isLocalChatApiAvailable = () => Boolean(window.electronAPI?.localChat);
 const getLocalChatApi = () => {
     const api = window.electronAPI?.localChat;
@@ -34,11 +10,7 @@ const getLocalChatApi = () => {
 };
 export const getOrCreateLocalConversationId = async () => getLocalChatApi().getOrCreateDefaultConversationId();
 export const createNewLocalConversationId = async () => getLocalChatApi().createNewDefaultConversationId();
-/**
- * Record `conversationId` as the durable active-conversation pointer. This
- * is the single source of truth the app restores from on boot, so it's
- * written whenever the router's active conversation changes.
- */
+
 export const setActiveLocalConversationId = async (conversationId) => {
     if (!conversationId)
         return;
@@ -57,28 +29,20 @@ export const deleteLocalConversation = async (conversationId) => {
     const result = await getLocalChatApi().deleteConversation({ conversationId });
     return result.deleted;
 };
-/**
- * Truncate the current conversation at (and including) a user message —
- * backs the desktop "Rewind here" action. Removes the anchor event and
- * every event after it; returns the number of removed events.
- */
+
 export const truncateLocalConversation = async (conversationId, eventId) => {
     if (!conversationId || !eventId)
         return { removed: 0 };
     return getLocalChatApi().truncateConversation({ conversationId, eventId });
 };
-/**
- * Branch a conversation's prefix (everything before a user message) into a
- * brand-new conversation — backs the desktop "Fork to new chat" action.
- * Resolves to the new conversation id (or null when the anchor is gone).
- */
+
 export const forkLocalConversation = async (conversationId, eventId) => {
     if (!conversationId || !eventId)
         return null;
     const result = await getLocalChatApi().forkConversation({ conversationId, eventId });
     return result?.conversationId ?? null;
 };
-/** Derives a tab-title update only from a complete persisted chat message. */
+
 export const conversationTitleFromUpdate = (payload) => {
     const conversationId = payload?.conversationId?.trim();
     const event = payload?.event;

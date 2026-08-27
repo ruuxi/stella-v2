@@ -204,9 +204,6 @@ describe("local-activity-store", () => {
         ).toEqual(["ev-1"]);
       });
 
-      // Growing the limit (e.g. ActivityHistoryDialog loadOlder fired)
-      // must NOT visibly empty the list while the larger fetch is in
-      // flight.
       const largerSnapshots: LocalActivityWindowSnapshot[] = [];
       const unsubscribeLarger = subscribeToLocalActivityWindow(
         { conversationId: "c1", limit: 1000 },

@@ -1,11 +1,3 @@
-/**
- * Renderer-side type declarations for `window.electronAPI`.
- *
- * Channel name constants live in `@/shared/contracts/ipc-channels.ts`.
- * When adding a new IPC channel, add the constant there first, then wire
- * the preload bridge (electron/preload.ts) and handler (electron/ipc/*.ts)
- * using that constant — never raw strings.
- */
 import type { UiState } from "./ui";
 import type { Theme } from "@/shared/theme/themes/types";
 import type { AgentStreamEvent } from "@stella/contracts/agent-stream";
@@ -90,8 +82,7 @@ type MobileAgentWorkPayloadForSync = {
   title: string;
   subtitle: string;
   createdAt: number;
-  /** Per-agent completion-file sections (see `MobileAgentWorkFileSection`
-   *  in `local-chat-artifacts.ts`). */
+
   agents?: Array<{
     agentId: string;
     title: string;
@@ -153,10 +144,6 @@ export type VoiceShortcutRegistrationResult = {
   activeShortcut: string;
   error?: string;
 };
-
-// ---------------------------------------------------------------------------
-// Namespaced API sub-types
-// ---------------------------------------------------------------------------
 
 export type ElectronWindowApi = {
   minimize: () => void;
@@ -272,13 +259,7 @@ export type ElectronCaptureApi = {
     scaleFactor: number;
   }>;
   cancelRegion: () => void;
-  /**
-   * Composer "+ menu" capture entry point. Minimizes the active Stella
-   * window, opens the region
-   * overlay (click=window, drag=region), merges the result into
-   * `chatContext`, then restores the window. Resolves with `{ cancelled }`
-   * if the user dismissed the overlay (Esc / right-click).
-   */
+
   beginRegionCapture: () => Promise<{ ok: true } | { cancelled: true }>;
 };
 
@@ -335,16 +316,10 @@ export type ElectronThemeApi = {
   listInstalled: () => Promise<Theme[]>;
 };
 
-/** Base origin of the Stella website, used for Stripe return URLs. */
 export type ElectronWebsiteApi = {
   getBaseUrl: () => Promise<string>;
 };
 
-/**
- * Shared UI state KV (~/.stella/ui-state.json) — the renderer's durable
- * key/value state. The boot snapshot is exposed separately as
- * `window.__stellaUiState`; this API carries writes and remote changes.
- */
 export type ElectronUiStateKvApi = {
   apply: (changes: Record<string, string | null>) => void;
   clear: () => void;
@@ -413,54 +388,37 @@ export type ElectronVoiceApi = {
     shortcut: string,
   ) => Promise<VoiceShortcutRegistrationResult>;
   getRtcShortcut: () => Promise<string>;
-  /**
-   * Report an actionable voice session error from the (hidden) overlay voice
-   * runtime so the main process can surface a toast in the visible app window.
-   */
+
   reportSessionError: (message: string) => void;
-  /** Subscribe to voice session error toasts routed to this window. */
+
   onSessionError: (callback: (message: string) => void) => () => void;
-  /** Realtime provider/auth route changed; recycle any warm session. */
+
   onPreferencesChanged: (
     callback: (preferences: RealtimeVoicePreferences) => void,
   ) => () => void;
 };
 
 export type ElectronDictationApi = {
-  /**
-   * Subscribe to global Cmd/Ctrl+Shift+M presses (or any other registered
-   * dictation shortcut). The renderer dispatches the in-window event the
-   * `useDictation` hook listens to so the active composer toggles its
-   * speech-to-text session.
-   */
+
   onToggle: (
     callback: (data: {
       startId?: string;
       action?: "toggle" | "start" | "reveal" | "stop" | "cancel";
     }) => void,
   ) => () => void;
-  /** Returns the currently registered global shortcut accelerator. */
+
   getShortcut: () => Promise<string>;
-  /**
-   * Replace the global shortcut accelerator. Pass an empty string to
-   * disable the shortcut entirely.
-   */
+
   setShortcut: (shortcut: string) => Promise<VoiceShortcutRegistrationResult>;
-  /** Returns whether dictation start/stop sound effects are enabled. */
+
   getSoundEffectsEnabled: () => Promise<boolean>;
-  /** Enable or disable dictation start/stop sound effects. */
+
   setSoundEffectsEnabled: (enabled: boolean) => Promise<{ enabled: boolean }>;
   localStatus: () => Promise<{
     available: boolean;
     model: string;
     reason?: string;
-    /**
-     * Whether on-device dictation can actually run on this machine — the native
-     * helper is present so a model download can make it available. False on
-     * platforms/builds where the helper isn't shipped (e.g. Windows today), so
-     * the UI must not offer a "Download voice feature" affordance that can't
-     * succeed and should stay on cloud transcription instead.
-     */
+
     installable?: boolean;
   }>;
   downloadLocalModel: () => Promise<{
@@ -525,7 +483,7 @@ export type ElectronAgentApi = {
     deviceId?: string;
     platform?: string;
     timezone?: string;
-    /** BCP-47 locale for the user's preferred response language. */
+
     locale?: string;
     mode?: string;
     messageMetadata?: Record<string, unknown>;
@@ -567,17 +525,13 @@ export type ElectronAgentApi = {
     events: AgentStreamIpcEvent[];
   }>;
   onStream: (callback: (event: AgentStreamIpcEvent) => void) => () => void;
-  /**
-   * Runtime availability transitions (worker disconnected / reconnected).
-   * Renderer hooks subscribe so they can re-resume chat replay after the
-   * detached worker reattaches following an Electron restart.
-   */
+
   onAvailability: (
     callback: (snapshot: {
       connected: boolean;
       ready: boolean;
       reason?: string;
-      /** Runtime update detected but deferred until current work finishes. */
+
       pendingRuntimeRestart?: boolean;
     }) => void,
   ) => () => void;
@@ -1253,7 +1207,7 @@ export type ElectronFashionApi = {
   pickTryOnImages: () => Promise<
     { canceled: true; paths: string[] } | { canceled: false; paths: string[] }
   >;
-  /** Returns the absolute on-disk path for a dropped File, or "" if unavailable. */
+
   getDroppedFilePath: (file: File) => string;
   startTryOn: (payload: {
     prompt?: string;
@@ -1279,11 +1233,7 @@ export type ElectronUserAppsApi = {
 export type ElectronLocalChatApi = {
   getOrCreateDefaultConversationId: () => Promise<string>;
   createNewDefaultConversationId: () => Promise<string>;
-  /**
-   * Record the conversation the user is actively viewing as the durable
-   * "active conversation" pointer (the single source of truth restored on
-   * boot). Does not mint a new id.
-   */
+
   setActiveConversationId: (payload: {
     conversationId: string;
   }) => Promise<{ ok: true }>;
@@ -1294,33 +1244,17 @@ export type ElectronLocalChatApi = {
   deleteConversation: (payload: {
     conversationId: string;
   }) => Promise<{ deleted: boolean }>;
-  /**
-   * Truncate a conversation at (and including) a user message — the
-   * desktop "Rewind here" action. Removes the target event and every
-   * event after it, then notifies listeners with a full-refresh update.
-   */
+
   truncateConversation: (payload: {
     conversationId: string;
     eventId: string;
   }) => Promise<{ removed: number }>;
-  /**
-   * Branch a conversation's prefix (everything before a user message)
-   * into a brand-new conversation — the desktop "Fork to new chat"
-   * action. Resolves to the new conversation id, or null when the anchor
-   * event no longer exists.
-   */
+
   forkConversation: (payload: {
     conversationId: string;
     eventId: string;
   }) => Promise<{ conversationId: string } | null>;
-  /**
-   * Raw event-stream read kept for the few non-timeline consumers that
-   * look for specific auxiliary event types (the welcome dialog reads
-   * `assistant_message`), and for the mobile bridge which proxies the
-   * channel to phone clients.
-   * Renderer chat surfaces use `listMessages` / `listActivity` /
-   * `listFiles` instead.
-   */
+
   listEvents: (payload: {
     conversationId: string;
     maxItems?: number;
@@ -1335,13 +1269,7 @@ export type ElectronLocalChatApi = {
     beforeId: string;
     maxVisibleMessages?: number;
   }) => Promise<LocalChatMessageWindow>;
-  /**
-   * Changed rows strictly after the `(afterTimestampMs, afterId)` cursor:
-   * new user/assistant messages plus existing rows whose turn gained
-   * tool-derived artifacts after the cursor. Drives the chat's tail-only
-   * refresh on `localChat:updated` so streaming doesn't re-serialize the
-   * whole loaded window per event.
-   */
+
   listMessagesAfter: (payload: {
     conversationId: string;
     afterTimestampMs: number;
@@ -1367,11 +1295,7 @@ export type ElectronLocalChatApi = {
   }) => Promise<{
     activities: EventRecord[];
   }>;
-  /**
-   * Authoritative Activity read: one row per background-agent thread,
-   * projected straight from the runtime's `runtime_agents` table. Paired
-   * with `onThreadActivityUpdated` for refetch-on-write.
-   */
+
   listThreadActivity: (payload: {
     conversationId: string;
   }) => Promise<ThreadActivityRecord[]>;
@@ -1484,13 +1408,7 @@ export type ElectronLocalChatApi = {
       }>;
     }>;
   }>;
-  /**
-   * Mirror the renderer's per-thread mid-run statusText (task-decoration
-   * store) into the main-process snapshot behind the desktop→mobile sync:
-   * attached to running tasks on sync pages and broadcast to the phone as
-   * `localChat:taskDecorationUpdated`. Replaced wholesale per publish; only
-   * running threads are present.
-   */
+
   publishTaskDecoration: (payload: {
     statusTextByAgentId: Record<string, string>;
   }) => Promise<{ ok: true }>;
@@ -1509,7 +1427,6 @@ export type ElectronLocalChatApi = {
   ) => () => void;
 };
 
-// ---------------------------------------------------------------------------
 export type ElectronNativeIntegration = {
   id: string;
   name: string;
@@ -1547,17 +1464,8 @@ export type ElectronNativeIntegrationsApi = {
   disable: (payload: { id: string }) => Promise<ElectronNativeIntegration>;
 };
 
-// ---------------------------------------------------------------------------
-// Home dashboard signals
-// ---------------------------------------------------------------------------
-
 export type ElectronHomeApi = {
-  /**
-   * Returns a snapshot of currently running user-facing apps with the
-   * frontmost app marked `isActive: true`. Resolves with an empty `apps`
-   * list when the native helper is unavailable (e.g. non-darwin) so the
-   * UI can render an empty state without special-casing.
-   */
+
   listRecentApps: (limit?: number) => Promise<{
     apps: Array<{
       name: string;
@@ -1568,14 +1476,7 @@ export type ElectronHomeApi = {
       iconDataUrl?: string;
     }>;
   }>;
-  /**
-   * Captures a screenshot of the named app's topmost window via Electron's
-   * desktopCapturer, and returns the title we matched against. Returns
-   * `{ capture: null }` when no matching window source is available or
-   * screen recording permission is denied. Used by the auto-context chip
-   * "lazy capture" path: chip attaches eagerly with metadata, then we
-   * patch in this screenshot when it lands.
-   */
+
   captureAppWindow: (
     target: string | { appName?: string | null; pid?: number | null },
   ) => Promise<{
@@ -1589,11 +1490,7 @@ export type ElectronHomeApi = {
       };
     } | null;
   }>;
-  /**
-   * Looks up the active tab for the given browser bundle id. Returns
-   * `{ tab: null }` when the bundle id isn't a known browser, the browser
-   * has no windows, or AppleScript permission was denied.
-   */
+
   getActiveBrowserTab: (bundleId: string) => Promise<{
     tab: {
       browser: string;
@@ -1616,25 +1513,10 @@ export type ElectronScreenGuideApi = {
   hide: () => void;
 };
 
-// ---------------------------------------------------------------------------
-// Main ElectronApi â€” composed from namespaced sub-types
-// ---------------------------------------------------------------------------
-
 export type ElectronDisplayApi = {
-  /**
-   * Subscribes to runtime-driven workspace panel updates.
-   *
-   * Payload is a structured `DisplayPayload` object describing what to render.
-   * Callers should pass through `normalizeDisplayPayload` from
-   * `@/shared/contracts/display-payload` before routing it to the panel.
-   */
+
   onUpdate: (callback: (payload: unknown) => void) => () => void;
-  /**
-   * Reads a file's raw bytes from the main process. Used by the PDF
-   * viewer / canvas / media previewers to load local files without
-   * giving the renderer file:// access. Bytes are transferred directly
-   * via Electron's structured-clone IPC (no base64 round-trip).
-   */
+
   readFile: (
     filePath: string,
     options?: { conversationId?: string | null; maxBytes?: number },
@@ -1656,13 +1538,7 @@ export type ElectronDisplayApi = {
       createdAt: number;
     }>
   >;
-  /**
-   * Fetches a shared canvas (`<CANVAS_SHARE_BASE_URL>/c/<slug>`) in the main
-   * process, materializes its HTML into the local canvas store, and returns a
-   * file-backed `canvas-html` payload the renderer can render through the
-   * usual sandboxed canvas path. Resolves `null` when the URL is not a valid
-   * share link or the fetch fails.
-   */
+
   openSharedCanvas: (payload: { url: string }) => Promise<{
     kind: "canvas-html";
     filePath: string;
@@ -1717,7 +1593,7 @@ export type ElectronApi = {
   platform: string;
   arch: string;
   files: {
-    /** Absolute on-disk path for a picker/drag-drop File, or "" if unavailable. */
+
     getPathForFile: (file: File) => string;
   };
   display: ElectronDisplayApi;
@@ -1747,11 +1623,7 @@ export type ElectronApi = {
     ) => Promise<{ ok: boolean; path?: string; error?: string }>;
     getStellaMediaDir: () => Promise<string | null>;
     copyImage: (pngBase64: string) => Promise<{ ok: boolean; error?: string }>;
-    /**
-     * Copy a sent message's attachment to the system clipboard: an image
-     * (from its on-disk path or data URL) as a real image, or a non-image
-     * file's path as text. `mode` reports which path was taken.
-     */
+
     copyAttachment: (payload: {
       path?: string;
       url?: string;
@@ -1823,57 +1695,43 @@ type PetOverlayStatusPayload = {
 };
 
 type ElectronPetApi = {
-  /** Read the main-process canonical visibility/status. Used by the overlay
-   *  renderer on mount because it can be loaded after the original broadcast. */
+
   getState: () => Promise<{
     open: boolean;
     status: PetOverlayStatusPayload;
   }>;
-  /** Toggle the floating pet visibility from any window. */
+
   setOpen: (open: boolean) => void;
-  /** Move the dedicated pet window to an absolute screen-coords
-   *  position. Used by the renderer's drag handler. */
+
   moveWindow: (position: { x: number; y: number }) => void;
-  /** Toggle the inline chat composer next to the pet. Main grows the
-   *  pet window leftward to make room for the composer and flips
-   *  `focusable` on so the textarea can receive keystrokes. Pass
-   *  `false` to collapse the composer and restore the resting
-   *  footprint. */
+
   setComposerActive: (active: boolean) => void;
-  /** Renderer-driven mouse passthrough toggle. Defaults to click-through
-   *  on the empty pixels of the pet window; the renderer flips this to
-   *  `true` while the cursor is over a visibly-interactive element so
-   *  clicks land on the pet, not the app below. */
+
   setInteractive: (active: boolean) => void;
-  /** Pet voice button — ask main to enter voice (RTC) mode. */
+
   requestVoice: () => void;
-  /** Pet mic button — start a dictation overlay whose transcript is
-   *  delivered to Stella's chat instead of pasted into the focused app. */
+
   requestDictation: () => void;
-  /** Subscribe to pet-mic dictation start/stop broadcasts. */
+
   onDictationActive: (callback: (active: boolean) => void) => () => void;
-  /** Subscribe to visibility broadcasts coming back from main. */
+
   onSetOpen: (callback: (open: boolean) => void) => () => void;
-  /** Push a derived `PetOverlayStatus` to every renderer. */
+
   pushStatus: (status: PetOverlayStatusPayload) => void;
-  /** Subscribe to status broadcasts (fan-out from `pushStatus`). */
+
   onStatus: (callback: (status: PetOverlayStatusPayload) => void) => () => void;
-  /** Ask main to focus the full window and open the chat sidebar. */
+
   openChat: () => void;
-  /** Forward a popover-composer message to the full window's chat. */
+
   sendMessage: (text: string) => void;
-  /** Receive `pet:sendMessage` payloads (full window only). */
+
   onSendMessage: (callback: (text: string) => void) => () => void;
 };
 
 declare global {
   interface Window {
     electronAPI?: ElectronApi;
-    /**
-     * Boot snapshot of the shared UI state KV, delivered before any app code
-     * runs (Electron preload `sendSync`, or the Vite dev server's injected
-     * inline script for plain-browser tabs).
-     */
+
     __stellaUiState?: Record<string, string>;
   }
 }

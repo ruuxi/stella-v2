@@ -1,29 +1,3 @@
-/**
- * Electron-main / preload / worker / CLI bundle builds.
- *
- * Historically this script kept four esbuild watch contexts (plus the esbuild
- * service process) resident for the whole app session — ~200MB of steady-state
- * memory paid purely so rarely-changing host bundles could rebuild on source
- * change. It now builds on demand instead:
- *
- *   - One-shot builds via the esbuild API, with `write: false` + manual
- *     write-if-changed so byte-identical outputs never touch disk. That gate
- *     matters: the host's dist watcher (`startDevWatcher` in
- *     `runtime/host/index.ts`) restarts the worker on any mtime bump under
- *     `dist-electron/runtime/`, so rewriting unchanged worker bundles when
- *     only electron-main changed would cold-respawn the worker for nothing.
- *   - `esbuild.stop()` after every build so the service process exits instead
- *     of idling resident.
- *   - A bare `fs.watch` over the source roots (native fs events, ~0 cost)
- *     drives debounced rebuilds while the app runs — manual user edits land
- *     through it.
- *   - A stat fingerprint of the source roots persisted next to the outputs
- *     lets a warm launch skip the startup build entirely when nothing changed
- *     since the last successful build.
- *
- * Run directly (postinstall, low-resource build) it performs the historical
- * `--once` behavior: clean outdir, full build, exit.
- */
 import { build as runEsbuildBuild, stop as stopEsbuildService } from "esbuild";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -52,14 +26,7 @@ const verifyIdentifiers = process.argv.includes("--verify-identifiers");
 const runtimeStaticAssetRoots = [
   "packages/runtime/extensions/stella-runtime/agent-metadata",
 ];
-/**
- * Static assets copied next to the compiled electron-main bundle. The
- * renderer's `src/` tree is not part of a packaged build (electron-builder
- * ships `dist-electron/electron/**` plus the renderer's *built* output), so
- * the translation catalogs electron-main reads at runtime — tray menu, native
- * dialogs, notifications — have to land under `dist-electron/electron/`, which
- * `files` already includes. See `electron/services/i18n-service.ts`.
- */
+
 const electronStaticAssetCopies = [
   {
     from: "packages/desktop-ui/src/shared/i18n/locales",
@@ -79,11 +46,7 @@ const electronRuntimeEntryPoints = {
   "runtime/kernel/cli/stella-media":
     "packages/runtime/kernel/cli/stella-media.ts",
 };
-// The worker builds on its own so we can code-split it: the heavy runner
-// subgraph is lazily imported in server.ts, and splitting lands it in a
-// separate chunk instead of inflating entry.js — so the worker reaches "ready"
-// without parsing it. Kept apart from main/CLIs to limit splitting's blast
-// radius to the worker.
+
 const workerEntryPoints = {
   "runtime/worker/entry": "packages/runtime/worker/entry.ts",
   "runtime/extensions/stella-runtime/index":
@@ -92,9 +55,7 @@ const workerEntryPoints = {
 const preloadEntryPoints = {
   "electron/preload": "packages/desktop/electron/preload.ts",
 };
-// Workspace packages are source inputs in this monorepo, not installed
-// runtime dependencies. Resolve them before `packages: "external"` is applied
-// so Electron never attempts to execute their TypeScript sources directly.
+
 const workspaceAliases = {
   "@stella/contracts": path.join(repoRootDir, "packages", "contracts"),
   "@stella/runtime": path.join(repoRootDir, "packages", "runtime"),
@@ -105,15 +66,6 @@ const fingerprintFilePath = path.join(
   ".dev-electron-bundle-fingerprint.json",
 );
 
-/**
- * Everything the four bundles can pull in. `desktop/src/shared/` is included
- * because electron-main/preload import contracts and lib shims from there
- * (see e.g. `desktop/electron/preload.ts`). `runtime/home-seed/` is seed
- * data, never bundled, and excluded so seeding churn doesn't trigger builds.
- * `desktop-ui/src/shared/i18n` is the renderer-owned locale set: electron-main
- * imports `locales.ts` and copies the JSON catalogs out of it, so edits there
- * must invalidate the fingerprint and retrigger the copy.
- */
 const bundleSourceRoots = [
   "packages/contracts",
   "packages/desktop/electron",
@@ -151,9 +103,6 @@ const isBundleSourceRelPath = (relPosixPath) => {
   return bundleSourceExtensions.has(path.posix.extname(relPosixPath));
 };
 
-// Some dependencies import their own package.json for name/version metadata.
-// Keep that runtime metadata without embedding upstream development scripts and
-// devDependencies into Stella's production JavaScript bundle.
 const pruneDependencyPackageMetadataPlugin = {
   name: "prune-dependency-package-metadata",
   setup(build) {
@@ -205,20 +154,15 @@ const createBuildOptions = () => [
     external: [
       "electron",
       "bun:*",
-      // Keep packages whose runtime behavior depends on their installed-file
-      // layout external. electron-builder copies these two small trees next
-      // to the packaged worker; everything else is bundled so the sidecar
-      // never depends on app.asar/node_modules.
+
       "undici",
       "@silvia-odwyer/photon-node",
     ],
     format: "esm",
-    // Split the lazily-imported runner subgraph into its own chunk(s). Chunks
-    // sit next to entry.js (under runtime/worker/chunks/) so Bun resolves them
-    // relatively at runtime; entry.js stays at its existing path.
+
     splitting: true,
     chunkNames: "runtime/worker/chunks/[name]-[hash]",
-    // Consumed by assertWorkerBundleBoundary after each build.
+
     metafile: true,
     logLevel: "warning",
     plugins: [pruneDependencyPackageMetadataPlugin],
@@ -243,16 +187,6 @@ const createBuildOptions = () => [
   },
 ];
 
-/**
- * Modules that must never reach the worker bundle. The worker runs under
- * Bun, detached from Electron; these modules are Electron-main-owned (home
- * seeding, remote prompt sync + its sqlite update lock). In desktop-v0.0.409
- * a static `node:sqlite` import leaked in through this exact path — worker
- * tools imported path helpers from `stella-home.ts`, which statically drags
- * in the whole sync graph — and every new worker crashed on runner load
- * while its socket still looked healthy. Worker code needing path helpers
- * imports `runtime/kernel/home/stella-paths.ts` instead.
- */
 const workerBannedInputs = [
   "packages/runtime/kernel/home/stella-home.ts",
   "packages/runtime/kernel/home/bundled-skills.ts",
@@ -285,7 +219,7 @@ const writeOutputIfChanged = (absPath, contents) => {
       return false;
     }
   } catch {
-    // Missing file — fall through to the write.
+
   }
   mkdirSync(path.dirname(absPath), { recursive: true });
   writeFileSync(absPath, contents);
@@ -339,13 +273,6 @@ const copyElectronStaticAssets = async () => {
   );
 };
 
-/**
- * One-shot build of all four bundles. Outputs are produced with
- * `write: false` and written manually only when their bytes differ from
- * what's on disk, so downstream watchers (Electron restart gate, host worker
- * watcher) only ever see genuine changes. The esbuild service process is
- * stopped afterwards so nothing stays resident between builds.
- */
 export const buildElectronBundles = async () => {
   try {
     const optionsList = createBuildOptions();
@@ -458,7 +385,7 @@ const writeBundleFingerprint = (fingerprint) => {
       ),
     );
   } catch {
-    // Best-effort; a missing fingerprint just means the next launch rebuilds.
+
   }
 };
 
@@ -477,13 +404,6 @@ export const cleanOutdir = async () => {
   });
 };
 
-/**
- * Startup path: skip the build entirely when the outputs exist and the source
- * fingerprint matches the last successful build (the common warm launch).
- * A missing-output cold start cleans the outdir first for a deterministic
- * from-scratch build; a stale fingerprint rebuilds in place and relies on the
- * write-if-changed gate to keep untouched outputs byte-stable.
- */
 export const ensureElectronBundlesFresh = async ({ log } = {}) => {
   const fingerprint = computeBundleInputsFingerprint();
   if (requiredOutputsExist() && readBundleFingerprint() === fingerprint) {
@@ -499,11 +419,6 @@ export const ensureElectronBundlesFresh = async ({ log } = {}) => {
   return { built: true };
 };
 
-/**
- * Watches the bundle source roots with bare fs.watch and runs debounced
- * one-shot rebuilds. Returns a close() handle. Build failures are logged and
- * leave the persisted fingerprint stale so the next launch rebuilds.
- */
 export const watchElectronBundleSources = ({
   debounceMs = 300,
   log,
@@ -582,7 +497,6 @@ export const watchElectronBundleSources = ({
   };
 };
 
-// Same candidate order as the host's worker spawn (runtime/host/lifecycle.ts).
 const resolveBunBinary = () => {
   const candidates = [
     process.env.STELLA_BUN_PATH?.trim(),
@@ -607,17 +521,6 @@ const resolveBunBinary = () => {
   return "bun";
 };
 
-/**
- * Import every worker chunk under Bun — the runtime the detached worker
- * actually runs on, unlike the Node-based test suite. Chunks execute their
- * module scope on import, which is exactly where the desktop-v0.0.409 outage
- * lived (a static `node:sqlite` import Node accepts but Bun rejects): the
- * worker's socket came up, but the lazy runner chunk crashed on load and
- * every send failed. `entry.js` is excluded — importing it starts the stdio
- * transport — and is covered by the static boundary check instead. One-shot
- * (postinstall/release) builds only; dev rebuilds skip this to keep worker
- * reloads fast.
- */
 const smokeTestWorkerChunksUnderBun = () => {
   const chunksDir = path.join(
     desktopDir,
@@ -633,8 +536,7 @@ const smokeTestWorkerChunksUnderBun = () => {
     return;
   }
   const chunkPaths = chunkFiles.map((f) => path.join(chunksDir, f));
-  // One Bun process for the whole set: chunks import each other anyway, and
-  // per-chunk spawns would add ~10s of process startup to release builds.
+
   const importScript = [
     `const chunks = ${JSON.stringify(chunkPaths)};`,
     "for (const chunk of chunks) {",
@@ -741,9 +643,7 @@ const isRunDirectly = (() => {
 })();
 
 if (isRunDirectly) {
-  // Historical `--once` behavior (postinstall, low-resource build): clean
-  // outdir, deterministic from-scratch build, exit. The flag is accepted for
-  // existing callers but one-shot is now the only direct-invocation mode.
+
   try {
     await cleanOutdir();
     await buildElectronBundles();

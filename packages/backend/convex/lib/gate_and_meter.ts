@@ -1,35 +1,3 @@
-/**
- * Shared "gate + meter" helper for the managed HTTP audio routes.
- *
- * Background: routes like dictation (STT), realtime voice session mint, and
- * the Inworld SDP exchange used to run their pre-checks as a sequence of
- * separate `ctx.runMutation` calls — usage-limit, then rate-limit, and for the
- * voice routes a capability gate too. Each `runMutation` from an action is its
- * own Convex transaction with its own commit, so a route paid for two-to-three
- * serial round-trips before it could even start the upstream provider request.
- * On a latency-sensitive path (stop-to-text dictation, time-to-first-audio for
- * voice) that overhead is pure dead time.
- *
- * `enforceManagedGate` collapses those pre-checks into a SINGLE transaction:
- * one action->mutation round-trip, one commit. Every gate is still enforced,
- * and each gate runs in the exact order the caller specifies, returning on the
- * first failure — so the HTTP status/body a client sees for an over-limit,
- * rate-limited, or off-plan request is byte-for-byte identical to the old
- * multi-mutation flow. The only thing that changes is how many commits happen.
- *
- * `runManagedGate` is the action-side wrapper: it maps a gate failure onto the
- * same `Response` the routes built by hand (429 rate-limit, 429 usage-limit,
- * 402 capability), so a route replaces ~15 lines of serial checks with one
- * call.
- *
- * `meterManagedUsage` centralises post-response accounting. Convex requires the
- * scheduling of an off-path write to be awaited to be durable (a dangling,
- * un-awaited promise "might or might not complete" — Convex docs), and this is
- * a paid-by-the-second surface, so we do NOT fire-and-forget the billing write
- * (that would risk silently under-billing). Instead the write is committed via
- * the scheduler exactly as before, but wrapped so a metering failure can never
- * turn a successful transcription/synthesis into an error response.
- */
 import { v } from "convex/values";
 import { internalMutation, type ActionCtx, type MutationCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
@@ -63,20 +31,10 @@ type GateSuccess = { ok: true; access: ManagedModelAccessResult | null };
 
 export type ManagedGateResult = GateSuccess | GateFailure;
 
-// Mirror of `capabilityAudienceFor` in `lib/managed_billing.ts`: fail closed
-// onto the weakest plan for an audience we cannot place, rather than handing
-// out a paid surface on a vocabulary drift.
 const collapseAudience = (
   audience: ManagedModelAccessResult["modelAudience"],
 ): CapabilityAudience => toCapabilityAudience(audience) ?? "free";
 
-/**
- * Runs the usage-limit + rate-limit (+ optional capability) gates for a
- * managed HTTP route in ONE transaction. Reads billing at most once per gate
- * that needs it; every gate is still enforced. Checks run in `order` and the
- * first failure short-circuits, so response precedence matches the legacy
- * serial flow exactly.
- */
 export const enforceManagedGate = internalMutation({
   args: {
     ownerId: v.string(),
@@ -158,7 +116,7 @@ export const enforceManagedGate = internalMutation({
 
 export type ManagedGateSpec = {
   ownerId: string;
-  /** Gate execution order; first failure wins. Preserves response precedence. */
+
   order: ManagedGateStep[];
   isAnonymous?: boolean;
   rateLimit?: {
@@ -177,13 +135,6 @@ export type ManagedGateOutcome =
   | { ok: true; access: ManagedModelAccessResult | null }
   | { ok: false; response: Response };
 
-/**
- * Action-side entry point. Runs the combined gate mutation and, on failure,
- * returns the exact `Response` the route would have built for that gate:
- *   - rate       -> 429 with `Retry-After` (same as `rateLimitResponse`)
- *   - usage      -> 429 `{ error: <limit message> }` (same as `errorResponse`)
- *   - capability -> 402 machine-readable denial (same as capability route)
- */
 export const runManagedGate = async (
   ctx: { runMutation: ActionCtx["runMutation"] },
   origin: string | null,
@@ -220,16 +171,6 @@ export const runManagedGate = async (
   }
 };
 
-/**
- * Commit managed usage accounting off the response path.
- *
- * The scheduler enqueue is still awaited (Convex only guarantees a scheduled
- * write once its scheduling promise resolves), so the accounting is durable —
- * this is a paid surface and we must never drop a billing write. What this
- * wrapper adds is isolation: a metering failure is logged and swallowed rather
- * than propagated, so it can never convert a successful upstream response into
- * an error for the user.
- */
 export const meterManagedUsage = async (
   ctx: { scheduler: ActionCtx["scheduler"] },
   args: ManagedUsageLogArgs,

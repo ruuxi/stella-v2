@@ -7,24 +7,10 @@ import { usePetStatusBroadcast } from "@/shell/pet/use-pet-status-broadcast";
 import { useTaskDecorationPublisher } from "@/features/chat/streaming/use-task-decoration-publisher";
 import { isTraceDiagnosticsEnabled } from "@/platform/diagnostics/trace-store";
 
-/**
- * Hoists `useFullShellChat`'s output into a single Context so the chat
- * route (`app/chat`) and the floating ChatSidebar / RightSidebar overlays
- * mounted by `__root.tsx` all consume the same conversation state. Running
- * the hook once also keeps Convex subscriptions deduplicated.
- *
- * The matching `useChatRuntime` hook lives in
- * `@/context/use-chat-runtime` — they are deliberately split so this file
- * exports *only* the Provider component and stays Fast-Refresh eligible.
- */
 type ChatRuntimeProviderProps = {
   activeConversationId: string | null;
   isOnChatRoute: boolean;
-  /**
-   * Opens + navigates to a conversation (tab + router). Threaded from the
-   * root layout (which owns the router) so the Fork action can jump to the
-   * newly branched conversation.
-   */
+
   navigateToConversation?: (conversationId: string, title?: string) => void;
   children: ReactNode;
 };
@@ -35,22 +21,15 @@ export function ChatRuntimeProvider({
   navigateToConversation,
   children,
 }: ChatRuntimeProviderProps) {
-  // `runtime` is the stable slice (identity changes only at tool/text
-  // boundaries); `messages` is the high-frequency timeline, published on its
-  // own context so only the timeline renderers re-render per streamed frame.
+
   const { runtime, messages } = useFullShellChat({
     activeConversationId,
     isOnChatRoute,
     navigateToConversation,
-    // Stella ships as a Vite dev server, so `import.meta.env.DEV` is TRUE for
-    // real users — gating trace diagnostics on it would run (and leak) them in
-    // production. Use an explicit opt-in flag that defaults OFF instead.
+
     traceEnabled: isTraceDiagnosticsEnabled(),
   });
 
-  // Broadcast a derived PetOverlayStatus alongside the existing working
-  // indicator so the floating pet always mirrors the same agent state
-  // the chat surface displays.
   usePetStatusBroadcast({
     messages,
     tasks: runtime.conversation.tasks,
@@ -59,7 +38,6 @@ export function ChatRuntimeProvider({
     pendingUserMessageId: runtime.conversation.pendingUserMessageId ?? null,
   });
 
-  // Mirror mid-run statusText ticks to main for the desktop→mobile bridge.
   useTaskDecorationPublisher();
 
   return (

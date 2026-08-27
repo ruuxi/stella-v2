@@ -529,8 +529,6 @@ describe("Stella model catalog metadata", () => {
       await callWithVersion(1);
       invalidateStellaModelCatalogCache();
 
-      // Version bumped: the v1 disk copy answers immediately (stale) while
-      // the refresh happens behind the caller's back.
       const staleServed = await callWithVersion(2);
       expect(staleServed.toolPolicyModel?.id).toBe("openai/gpt-5.5");
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
@@ -575,8 +573,6 @@ describe("Stella model catalog metadata", () => {
       expect(first.toolPolicyModel?.id).toBe("openai/gpt-5.5");
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
 
-      // Refresh failed; later calls still answer from the stale copy and
-      // the failed attempt's spacing stops an immediate re-fetch.
       const second = await callWithVersion(2);
       expect(second.toolPolicyModel?.id).toBe("openai/gpt-5.5");
       expect(fetchMock).toHaveBeenCalledTimes(2);

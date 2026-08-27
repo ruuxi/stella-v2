@@ -63,7 +63,6 @@ const toolResultMessage = (
   timestamp,
 });
 
-// The safety-worded layer-1 form emitted for safety-class stop reasons.
 const PROVIDER_ABORT_MESSAGE = providerAbortedStopMessage("refusal");
 
 describe("isProviderContentAbortMessage", () => {
@@ -85,22 +84,20 @@ describe("isProviderContentAbortMessage", () => {
   });
 
   it("does not match non-safety terminal stops or the no-detail fallback", () => {
-    // Neutral wording for failed/cancelled/OTHER-style stops.
+
     expect(
       isProviderContentAbortMessage(providerAbortedStopMessage("cancelled")),
     ).toBe(false);
     expect(
       isProviderContentAbortMessage(providerAbortedStopMessage("failed")),
     ).toBe(false);
-    // The no-detail fallback fires on ANY error/aborted stream end
-    // (proxy/mid-stream truncation included) and must not classify.
+
     expect(
       isProviderContentAbortMessage(
         'Provider stream ended with stopReason "error" but the provider supplied no error detail.',
       ),
     ).toBe(false);
-    // The pre-fix opaque string no longer classifies either: post-fix runs
-    // never produce it, and it says nothing about content.
+
     expect(isProviderContentAbortMessage("An unknown error occurred")).toBe(
       false,
     );
@@ -184,7 +181,7 @@ describe("ProviderAbortContainment deterministic-abort detection", () => {
     );
     expect(surfaced).toMatch(/deterministically/i);
     expect(surfaced).toContain(PROVIDER_ABORT_MESSAGE);
-    // Suspect turn range: the trailing entries of the replayed history.
+
     expect(surfaced).toContain("toolResult:read_email");
     expect(surfaced).toMatch(/quarantine/i);
   });
@@ -235,7 +232,7 @@ describe("ProviderAbortContainment deterministic-abort detection", () => {
       errorMessage: "tool blew up",
     });
     expect(containment.consecutiveInstantAbortCount).toBe(0);
-    // A fresh pair is needed again before containment engages.
+
     expect(failedRun(containment)).toBe(PROVIDER_ABORT_MESSAGE);
   });
 });
@@ -285,7 +282,7 @@ describe("ProviderAbortContainment quarantine", () => {
       );
       expect(masked.details).toBeUndefined();
     }
-    // Older sibling untouched.
+
     const older = messages[1];
     if (older.role === "toolResult") {
       expect((older.content[0] as { text: string }).text).toBe(
@@ -323,7 +320,6 @@ describe("ProviderAbortContainment quarantine", () => {
     const application = containment.applyQuarantine(buildMessages());
     expect(application.newlyQuarantined).not.toBeNull();
 
-    // Round-trip through the persisted custom-message form.
     const serialized = serializeQuarantineRecord(application.newlyQuarantined!);
     const parsed = parseQuarantineRecord([{ type: "text", text: serialized }]);
     expect(parsed).toEqual(application.newlyQuarantined);
@@ -333,8 +329,6 @@ describe("ProviderAbortContainment quarantine", () => {
     expect(parseQuarantineRecord("not json")).toBeNull();
     expect(parseQuarantineRecord(undefined)).toBeNull();
 
-    // Fresh containment = app restart. Seeding restores the mask without
-    // needing a new abort streak.
     const restarted = new ProviderAbortContainment();
     restarted.seedQuarantined([parsed!]);
     const reloaded = buildMessages();
@@ -354,7 +348,6 @@ describe("ProviderAbortContainment quarantine", () => {
     reachThreshold(containment);
     containment.applyQuarantine(buildMessages());
 
-    // Still failing → next resume rebuilds the array from the intact store.
     reachThreshold(containment);
     const reloaded = buildMessages();
     const application = containment.applyQuarantine(reloaded);
@@ -410,10 +403,10 @@ describe("safety abort model swap (fable-5 → opus-4.8)", () => {
       (swap!.route.model as Model<Api> & { upstreamModelId?: string })
         .upstreamModelId,
     ).toBe("claude-opus-4.8");
-    // Auth path preserved.
+
     expect(swap!.route.model.baseUrl).toBe(current.model.baseUrl);
     expect(swap!.route.getApiKey).toBe(current.getApiKey);
-    // Original route untouched (per-run swap, not a preference change).
+
     expect(current.model.id).toBe("stella/max");
   });
 
@@ -459,8 +452,6 @@ describe("safety abort model swap (fable-5 → opus-4.8)", () => {
     });
     expect(nonFable).toBeNull();
 
-    // The swapped route itself is not fable, so a second failure on the
-    // swap target can never trigger another swap.
     const first = buildSafetyAbortSwapRoute(stellaRoute());
     expect(first).not.toBeNull();
     expect(buildSafetyAbortSwapRoute(first!.route)).toBeNull();

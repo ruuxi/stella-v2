@@ -84,11 +84,11 @@ pub fn list_real_devices() -> Result<Vec<IosDevice>, String> {
         if !in_devices || trimmed.is_empty() {
             continue;
         }
-        // Format: "Device Name (OS Version) (UDID)"
+
         if let Some(udid_start) = trimmed.rfind('(') {
             let udid_end = trimmed.len() - 1;
             let udid = &trimmed[udid_start + 1..udid_end];
-            // Validate it looks like a UDID (contains hyphens)
+
             if udid.contains('-') && udid.len() > 20 {
                 let name_part = trimmed[..udid_start].trim();
                 let name = if let Some(paren_pos) = name_part.rfind('(') {
@@ -165,7 +165,6 @@ pub fn select_device(device_name: Option<&str>, udid: Option<&str>) -> Result<Io
             .ok_or_else(|| format!("Device '{}' not found", name));
     }
 
-    // Default: prefer most recent iPhone, prefer Pro
     let devices = list_simulators()?;
     let iphone_devices: Vec<&IosDevice> = devices
         .iter()
@@ -179,7 +178,6 @@ pub fn select_device(device_name: Option<&str>, udid: Option<&str>) -> Result<Io
             .ok_or("No iOS simulators found".to_string());
     }
 
-    // Prefer Pro models
     if let Some(pro) = iphone_devices.iter().find(|d| d.name.contains("Pro")) {
         return Ok((*pro).clone());
     }

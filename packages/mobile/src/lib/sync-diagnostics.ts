@@ -1,21 +1,13 @@
-/**
- * Lightweight diagnostics for the desktop transcript sync. Production reports
- * so far have been blind ("it just doesn't sync") — every pull now records
- * what it asked for and what came back, both to the console (visible in
- * device logs / `npx expo run` output) and to an in-memory ring buffer that a
- * debug surface can dump later.
- */
-
 export interface SyncDiagnosticEntry {
   at: number;
-  /** What initiated the pull (landing, resume, force-sync, poll, push, send). */
+
   trigger: string;
   catchUp: boolean;
-  /** Delta cursor sent, or null for a full-window pull. */
+
   sinceCursor: string | null;
   fullWindow: boolean;
   outcome: "ok" | "offline" | "error" | "deferred" | "stale-generation";
-  /** Rows the desktop returned (before merge de-dupe). */
+
   rows?: number;
   cursorOut?: string | null;
   conversationChanged?: boolean;
@@ -45,7 +37,6 @@ export function recordSyncDiagnostic(entry: SyncDiagnosticEntry): void {
   console.log(parts.join(" "));
 }
 
-/** Most-recent-last snapshot for a future debug surface. */
 export function getSyncDiagnostics(): readonly SyncDiagnosticEntry[] {
   return entries.slice();
 }

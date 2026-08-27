@@ -1,17 +1,8 @@
-/// <reference types="vite/client" />
-
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { internal } from "./_generated/api";
 import schema from "./schema";
-
-// Proves that voice/TTS defaults are server-authoritative: when the client
-// omits `voice` and `model` (the new client behavior — send only explicit user
-// selections), the backend applies its own default voice (Brooke) and model
-// (inworld-tts-2-flash) on the outbound Inworld request. This is the omitted-
-// field path the ownership refactor depends on, exercised end-to-end through
-// the real `/api/voice/tts` httpAction with a mocked Inworld provider call.
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -85,8 +76,6 @@ describe("voice/tts server-authoritative defaults", () => {
       },
     );
 
-    // Client sends only the genuine selection (provider) + text — no voice, no
-    // model — exactly as the refactored read-aloud clients now do.
     const response = await owner.fetch("/api/voice/tts", {
       method: "POST",
       headers: { "content-type": "application/json" },

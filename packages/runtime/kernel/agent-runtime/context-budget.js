@@ -6,7 +6,7 @@ const forcedCompactions = new Map();
 
 const MAX_INPUT_FRACTION = 0.7;
 const ESTIMATED_BYTES_PER_TOKEN = 3;
-/** Fallback when an image-bearing provider item does not expose dimensions. */
+
 export const DEFAULT_ESTIMATED_IMAGE_TOKENS = 1_200;
 const IMAGE_TILE_EDGE_PX = 512;
 const IMAGE_DETAIL_MAX_EDGE_PX = 2_048;
@@ -29,13 +29,6 @@ export const clearProviderContextWindow = (threadKey) => {
   providerPayloadEstimates.delete(threadKey);
 };
 
-/**
- * Last full outbound-payload token estimate `preflightProviderPayload` measured for
- * a thread — system prompt + tool schemas + resident context + history, the same
- * bytes the provider receives. Compaction reads this so its trigger tracks the real
- * request size instead of the history-only estimate, which on large-toolset engines
- * (e.g. the Codex Responses path) runs ~2x smaller than the dispatched payload.
- */
 export const getLastProviderPayloadTokens = (threadKey) => {
   const value = providerPayloadEstimates.get(threadKey);
   return typeof value === "number" && Number.isFinite(value)
@@ -48,11 +41,6 @@ const positiveDimension = (value) => {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : undefined;
 };
 
-/**
- * Dimension-aware vision estimate shared by provider preflight and persisted
- * thread accounting. The tile formula is intentionally provider-neutral; an
- * unknown-size image uses the same conservative fallback in both paths.
- */
 export const estimateModelVisibleImageTokens = (value) => {
   const width = positiveDimension(value?.width ?? value?.widthPx);
   const height = positiveDimension(value?.height ?? value?.heightPx);
@@ -66,7 +54,6 @@ export const estimateModelVisibleImageTokens = (value) => {
   return IMAGE_BASE_TOKENS + IMAGE_TILE_TOKENS * tiles;
 };
 
-/** Exact decoded size for ordinary padded or unpadded base64 payloads. */
 export const decodedBase64ByteLength = (value) => {
   if (typeof value !== "string" || value.length === 0) return 0;
   const comma = value.startsWith("data:") ? value.indexOf(",") : -1;
@@ -87,11 +74,6 @@ const binaryByteLength = (value) => {
   return 0;
 };
 
-/**
- * Normalize provider-specific image envelopes before recursively measuring
- * their generic object/string fields. This prevents Google inlineData and
- * Bedrock source.bytes from being charged as enormous text/number arrays.
- */
 const normalizeImageValue = (key, value, parent) => {
   const normalizedKey = key.toLowerCase();
   if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -265,23 +247,12 @@ export const getProviderPayloadImageStats = (payload) => {
   };
 };
 
-/**
- * Safe per-request input budget for a context window: the same ~70% bound
- * (with a small-window floor) that `preflightProviderPayload` enforces,
- * exported so overflow recovery can re-derive it when re-checking whether a
- * failed request was demonstrably over budget.
- */
 export const providerInputBudgetTokens = (contextWindow) => {
   const parsed = Number(contextWindow);
   if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
   return Math.max(8_000, Math.floor(parsed * MAX_INPUT_FRACTION));
 };
 
-/**
- * Estimate the model-visible tokens of an arbitrary provider payload (same
- * heuristic preflight uses: quick byte-based upper bound, exact JSON
- * measurement only when the quick pass lands near the budget).
- */
 export const estimateProviderPayloadTokens = (payload, inputBudget) =>
   estimatePayloadTokens(
     payload,
@@ -303,8 +274,7 @@ export const preflightProviderPayload = (threadKey, payload, model) => {
     Math.floor(contextWindow * MAX_INPUT_FRACTION),
   );
   const estimatedTokens = estimatePayloadTokens(payload, inputBudget);
-  // Capture the measured full-payload size so proactive compaction and overflow
-  // recovery can reason about the real request rather than the history-only estimate.
+
   if (threadKey) {
     providerPayloadEstimates.set(threadKey, estimatedTokens);
   }

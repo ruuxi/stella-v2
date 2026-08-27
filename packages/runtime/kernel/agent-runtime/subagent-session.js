@@ -30,7 +30,7 @@ export class SubagentSession extends PiSessionCore {
             context.callbacks?.onStatus?.(event);
         }
         catch {
-            // Recovery must not fail because a status listener did.
+
         }
     };
     constructor(threadId, conversationId, agentType) {
@@ -76,11 +76,7 @@ export class SubagentSession extends PiSessionCore {
         }
         return this.steerLiveAgent(message);
     }
-    /**
-     * Attach the engine-neutral steering facade used by Claude Code/Codex to
-     * this durable subagent session. LocalAgentManager can then steer an
-     * external General agent through the same `session.steer()` path as Pi.
-     */
+
     attachExternalLiveAgent(agent, context) {
         this.externalLiveAgent = agent;
         this.currentSteeringContext = context;
@@ -93,18 +89,13 @@ export class SubagentSession extends PiSessionCore {
     }
     async runTurn(opts) {
         const prompt = opts.userPrompt.trim();
-        // Generate the runId BEFORE building the system prompt so the
-        // `before_agent_start` hook payload carries it. Same pattern as
-        // `OrchestratorSession.runTurn`. Without the runId in the payload,
-        // any hook that keys on it (e.g. a baseline cache) silently fails
-        // to set up its run-scoped state.
+
         const runId = opts.runId ?? `local:sub:${crypto.randomUUID()}`;
         const effectiveSystemPrompt = await buildSubagentSystemPrompt({
             ...opts,
             runId,
         });
-        // The recorder is side-effect-free to create and is needed this early
-        // so the compaction waits below can surface a "compacting" indicator.
+
         const runEvents = createRunEventRecorder({
             store: opts.store,
             runId,
@@ -118,28 +109,23 @@ export class SubagentSession extends PiSessionCore {
                 opts.callbacks?.onStatus?.(runEvents.recordStatus("Compacting context", "compacting"));
             }
             catch {
-                // Best-effort UI signal; never let a status emit block the turn.
+
             }
         };
-        // Shrinking model switch: while the outgoing (larger-window) route is
-        // still current, run a blocking compaction with it so the incoming
-        // smaller-window route starts on a context it can actually hold.
+
         await this.maybeCompactForModelSwitch({
             opts,
             runId,
             onCompacting: emitCompactingStatus,
             logContext: { threadId: this.threadId, runId },
         });
-        // Keep the reused Agent pointed at the current model route.
+
         this.setResolvedLlm(opts.resolvedLlm);
         this.currentImageDescriptionContext = {
             model: opts.resolvedLlm.model,
             ...(opts.describeImages ? { describeImages: opts.describeImages } : {}),
         };
-        // Overflow-during-compaction guard: general agents and subagents do
-        // real tool work and can burn a lot of tokens fast, so block on any
-        // in-flight background compaction and resume this turn on the compacted
-        // context instead of accumulating onto the uncompacted tail.
+
         await this.awaitPendingCompactionBeforeTurn({
             compactionScheduler: opts.compactionScheduler,
             mode: "blocking",
@@ -163,11 +149,7 @@ export class SubagentSession extends PiSessionCore {
             maxAgentDepth: opts.agentContext.maxAgentDepth,
             parentAgentId: opts.agentContext.parentAgentId,
             modelConfigSnapshot: opts.agentContext.modelConfigSnapshot,
-            // Inherited from the spawning orchestrator's run so subagent-side
-            // tools that opt in (none today — `image_gen` is orchestrator-only)
-            // can route their outputs back to the same connector. Subagents
-            // don't *need* this for the current toolset; carry it so future
-            // connector-aware tools work without another round of plumbing.
+
             connectorDeliveryTarget: opts.connectorDeliveryTarget,
             toolsAllowlist: opts.agentContext.toolsAllowlist,
             toolCatalog: opts.toolCatalog,
@@ -211,7 +193,7 @@ export class SubagentSession extends PiSessionCore {
             runId,
         });
         if (containmentTurn.newlyQuarantined) {
-            // Durable record so the quarantine survives session/app restarts.
+
             persistThreadCustomMessage(opts.store, {
                 threadKey: this.threadKey,
                 customType: QUARANTINE_CUSTOM_TYPE,
@@ -250,8 +232,7 @@ export class SubagentSession extends PiSessionCore {
                 : {}),
         };
         try {
-            // Frozen-context drift notes (queued by createOrReuseAgent) ride as
-            // hidden appends ahead of any caller-supplied prompt messages.
+
             const contextDeltaMessages = this.takePendingContextDeltaMessages();
             const combinedPromptMessages = contextDeltaMessages.length > 0
                 ? [...contextDeltaMessages, ...(opts.promptMessages ?? [])]
@@ -324,10 +305,7 @@ export class SubagentSession extends PiSessionCore {
                 runEvents,
                 session: this,
             });
-            // Safety containment: a fable-5 refusal/safety abort first gets
-            // retried on the configured model — refusals are often transient — up
-            // to SAFETY_ABORT_FABLE_ATTEMPTS consecutive attempts total. Only when
-            // every attempt fails does the turn swap to opus-4.8 below.
+
             let fableAttempts = 1;
             while (execution.errorMessage &&
                 !opts.abortSignal?.aborted &&
@@ -352,10 +330,7 @@ export class SubagentSession extends PiSessionCore {
                 }), "running"));
                 execution = await executeWithTransientRetry(true);
             }
-            // Safety model swap: after the fable attempts are exhausted, one retry
-            // on opus-4.8 (same auth path, per-run only). `prepareSafetyModelSwap`
-            // returns null for anything else, and this block runs at most once per
-            // turn, so there is no swap ping-pong.
+
             if (execution.errorMessage &&
                 !opts.abortSignal?.aborted &&
                 hasAgentRunAttemptBudget(retryState, AGENT_RUN_MAX_ATTEMPTS)) {
@@ -454,10 +429,7 @@ export class SubagentSession extends PiSessionCore {
         this.currentImageDescriptionContext = null;
     }
 }
-/**
- * Look up an existing session for the durable subagent threadId, or build
- * a new one and store it on the provided map.
- */
+
 export const getOrCreateSubagentSession = (sessions, threadId, conversationId, agentType) => {
     let session = sessions.get(threadId);
     if (!session) {

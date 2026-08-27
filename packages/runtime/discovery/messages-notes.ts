@@ -15,27 +15,20 @@ const log = (...args: unknown[]) => console.error("[messages-notes]", ...args);
 const getErrorCode = (error: unknown): string | undefined =>
   (error as NodeJS.ErrnoException | undefined)?.code;
 
-// Timeout wrapper
 const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> =>
   Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
 
-// SQLite helper
 type SqliteDatabase = {
   prepare(sql: string): { all(...params: unknown[]): unknown[] };
   close(): void;
 };
 const openDatabase = async (dbPath: string): Promise<SqliteDatabase> => {
   const { Database } = await import("bun:sqlite");
-  // Read the live DB directly via an immutable URI: skips locking and reads
-  // the main file without its WAL sidecars. Best-effort one-time snapshot.
+
   const uri = `${pathToFileURL(dbPath).href}?immutable=1`;
   return new Database(uri, { readonly: true }) as SqliteDatabase;
 };
 
-/**
- * Collect iMessage metadata (contacts and group chats)
- * macOS only - requires Full Disk Access
- */
 async function collectIMessageMetadata(): Promise<{
   contacts: ContactFrequency[];
   groupChats: GroupChat[];
@@ -47,11 +40,11 @@ async function collectIMessageMetadata(): Promise<{
   const sourceDb = path.join(os.homedir(), "Library/Messages/chat.db");
 
   try {
-    // Open the live database directly
+
     const db = await openDatabase(sourceDb);
 
     try {
-      // Query contact frequency (NO message body - only handle + count)
+
       const contactQuery = `
         SELECT
           h.id as identifier,
@@ -80,7 +73,6 @@ async function collectIMessageMetadata(): Promise<{
         messageCount: row.msg_count,
       }));
 
-      // Query group chats
       const groupQuery = `
         SELECT
           c.display_name as name,
@@ -116,10 +108,6 @@ async function collectIMessageMetadata(): Promise<{
   }
 }
 
-/**
- * Collect Apple Notes metadata (folders and counts)
- * macOS only - requires Full Disk Access
- */
 async function collectAppleNotes(): Promise<NoteFolder[]> {
   if (process.platform !== "darwin") {
     return [];
@@ -134,7 +122,7 @@ async function collectAppleNotes(): Promise<NoteFolder[]> {
     const db = await openDatabase(sourceDb);
 
     try {
-      // Try primary query first
+
       let query = `
         SELECT
           COALESCE(folder.ZTITLE2, 'Uncategorized') as folder_name,
@@ -152,7 +140,7 @@ async function collectAppleNotes(): Promise<NoteFolder[]> {
       try {
         rows = db.prepare(query).all() as Array<{ folder_name: string; note_count: number }>;
       } catch {
-        // Try fallback with alternative column names
+
         log("Primary Notes query failed, trying fallback");
         query = `
           SELECT
@@ -169,7 +157,7 @@ async function collectAppleNotes(): Promise<NoteFolder[]> {
         try {
           rows = db.prepare(query).all() as Array<{ folder_name: string; note_count: number }>;
         } catch {
-          // Final fallback - just count notes
+
           log("Alternative Notes query failed, using simple fallback");
           query = `
             SELECT 'Notes' as folder_name, COUNT(*) as note_count
@@ -204,18 +192,8 @@ async function collectAppleNotes(): Promise<NoteFolder[]> {
   }
 }
 
-// Reminders lists managed by the OS/Siri, not the user — filtered out.
 const REMINDERS_SYSTEM_LISTS = new Set(["SiriFoundInApps"]);
 
-/**
- * Collect Reminders metadata (list names + active item counts).
- *
- * macOS only. Modern Reminders keeps one SQLite store per account under the
- * group container (Data-local.sqlite + Data-<accountUUID>.sqlite), so we read
- * every store and merge by list name. Schema: ZREMCDBASELIST holds the lists
- * (ZNAME), ZREMCDREMINDER holds items linked via ZLIST. The legacy
- * ~/Library/Reminders path is kept as a fallback for old macOS.
- */
 async function collectReminders(): Promise<NoteFolder[]> {
   if (process.platform !== "darwin") {
     return [];
@@ -250,7 +228,6 @@ async function collectReminders(): Promise<NoteFolder[]> {
     return [];
   }
 
-  // List name -> active reminder count, merged across account stores.
   const listCounts = new Map<string, number>();
 
   for (let index = 0; index < storeFiles.length; index += 1) {
@@ -296,10 +273,6 @@ async function collectReminders(): Promise<NoteFolder[]> {
   return reminders;
 }
 
-/**
- * Collect Calendar metadata
- * macOS only - requires Full Disk Access
- */
 async function collectCalendar(): Promise<CalendarSummary[]> {
   if (process.platform !== "darwin") {
     return [];
@@ -311,7 +284,7 @@ async function collectCalendar(): Promise<CalendarSummary[]> {
     const db = await openDatabase(sourceDb);
 
     try {
-      // Query for calendar names and event counts
+
       const calendarQuery = `
         SELECT
           c.ZTITLE as calendar_name,
@@ -327,7 +300,6 @@ async function collectCalendar(): Promise<CalendarSummary[]> {
         event_count: number;
       }>;
 
-      // Query for recurring event titles (high signal — reveals habits)
       const recurringQuery = `
         SELECT DISTINCT ci.ZTITLE as title, c.ZTITLE as calendar_name
         FROM ZCALENDARITEM ci
@@ -342,7 +314,6 @@ async function collectCalendar(): Promise<CalendarSummary[]> {
         calendar_name: string;
       }>;
 
-      // Build calendar summaries
       const calendars: CalendarSummary[] = calendarRows.map((row) => {
         const recurringTitles = recurringRows
           .filter((r) => r.calendar_name === row.calendar_name)
@@ -374,10 +345,6 @@ async function collectCalendar(): Promise<CalendarSummary[]> {
   }
 }
 
-/**
- * Collect Windows Sticky Notes metadata
- * Windows only
- */
 async function collectStickyNotes(): Promise<NoteFolder[]> {
   if (process.platform !== "win32") {
     return [];
@@ -405,14 +372,14 @@ async function collectStickyNotes(): Promise<NoteFolder[]> {
     const db = await openDatabase(sourceDb);
 
     try {
-      // Try primary query first
+
       let query = `SELECT 'Sticky Notes' as name, COUNT(*) as note_count FROM Note WHERE IsDeleted = 0`;
       let rows: Array<{ name: string; note_count: number }>;
 
       try {
         rows = db.prepare(query).all() as Array<{ name: string; note_count: number }>;
       } catch {
-        // Fallback if schema is different
+
         query = `SELECT 'Sticky Notes' as name, COUNT(*) as note_count FROM Note`;
         rows = db.prepare(query).all() as Array<{ name: string; note_count: number }>;
       }
@@ -434,9 +401,6 @@ async function collectStickyNotes(): Promise<NoteFolder[]> {
   }
 }
 
-/**
- * Main collection function
- */
 export async function collectMessagesNotes(): Promise<MessagesNotesSignals> {
   const platform = process.platform;
 
@@ -463,13 +427,9 @@ export async function collectMessagesNotes(): Promise<MessagesNotesSignals> {
   return { contacts: [], groupChats: [], noteFolders: [], calendars: [] };
 }
 
-/**
- * Format messages and notes signals for synthesis
- */
 export function formatMessagesNotesForSynthesis(data: MessagesNotesSignals): string {
   const sections: string[] = [];
 
-  // Communication Patterns
   if (data.contacts.length > 0) {
     const contactLines = data.contacts.map(
       (c) => `- ${c.displayName} (${c.messageCount} messages)`
@@ -477,19 +437,16 @@ export function formatMessagesNotesForSynthesis(data: MessagesNotesSignals): str
     sections.push(`### Communication Patterns\nTop contacts by message frequency:\n${contactLines.join("\n")}`);
   }
 
-  // Group Chats
   if (data.groupChats.length > 0) {
     const groupLines = data.groupChats.map((g) => `- ${g.name} (${g.participantCount} members)`);
     sections.push(`### Group Chats\n${groupLines.join("\n")}`);
   }
 
-  // Note Organization
   if (data.noteFolders.length > 0) {
     const folderLines = data.noteFolders.map((f) => `- ${f.name}: ${f.noteCount} notes`);
     sections.push(`### Note Organization\n${folderLines.join("\n")}`);
   }
 
-  // Calendars
   if (data.calendars.length > 0) {
     const calendarLines = data.calendars.map((cal) => {
       let line = `- ${cal.calendarName}: ${cal.eventCount} events`;

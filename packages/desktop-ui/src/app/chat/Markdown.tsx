@@ -25,8 +25,7 @@ interface MarkdownProps {
   text: string;
   cacheKey?: string;
   className?: string;
-  /** Suppress GFM horizontal rules (`---`). Used in chat bubbles where
-   *  models often append a trailing rule that reads as a message divider. */
+
   hideHorizontalRules?: boolean;
 }
 
@@ -34,65 +33,15 @@ type MarkdownImageProps = ImgHTMLAttributes<HTMLImageElement> & {
   node?: unknown;
 };
 
-/*
- * Streamdown's `remarkPlugins` prop *replaces* its defaults (which
- * include `remark-gfm` for tables/strikethrough/task lists), so we
- * have to spread its defaults back in alongside our additions.
- * `defaultRemarkPlugins` is exported as a `Record<string, Pluggable>`
- * map; the prop wants an array, so unwrap with `Object.values`.
- *
- * `BASE_REMARK_PLUGINS` is the default Streamdown set plus the
- * stella-file link rewriter (always on — assistant messages may reference
- * local files anywhere). The emoji sprite plugin is added only when a
- * complete active pack is present; otherwise native Unicode emoji must
- * remain visible.
- */
 const DEFAULT_REMARK_PLUGINS = Object.values(defaultRemarkPlugins);
 const BASE_REMARK_PLUGINS = [...DEFAULT_REMARK_PLUGINS, remarkStellaFileLinks];
 
-/*
- * `stella://file/...` references are rewritten by `remarkStellaFileLinks`
- * into custom `<stella-file>` elements (a plain `<a href="stella://…">`
- * would be stripped by rehype-sanitize's protocol allow-list). Streamdown's
- * `allowedTags` prop threads the tag + attributes through its sanitize
- * schema — but ONLY when the `rehypePlugins` prop is left at Streamdown's
- * own default array (it compares by identity), which is why no
- * `rehypePlugins` prop is passed below; the defaults (raw / sanitize /
- * harden) apply either way.
- */
 const ALLOWED_TAGS: Record<string, string[]> = {
   [STELLA_FILE_TAG]: [...STELLA_FILE_TAG_ATTRIBUTES],
 };
 
-/*
- * Disable Streamdown's built-in "Open external link?" confirmation modal.
- *
- * We don't need it because the Electron main process already gates every
- * external open through `ExternalLinkService.setupExternalLinkHandlers`
- * (`setWindowOpenHandler` + `will-navigate` → `shell.openExternal`), so
- * a chat link click is already routed safely to the OS browser without
- * any in-renderer confirmation.
- *
- * Leaving it enabled caused three regressions in the chat surface:
- *   1. Streamdown rendered each link as a `<button>` and called
- *      `preventDefault()`, which made the surrounding message bubble pick
- *      up button focus / active styling on click ("the message gets
- *      highlighted").
- *   2. Streamdown's modal uses `position: fixed`, but our chat list is
- *      virtualized by `@legendapp/list` which applies `transform` to row
- *      containers — a transformed ancestor traps `position: fixed`, so
- *      the modal would render centered on the clicked *message* instead
- *      of the viewport.
- *   3. The modal carried Streamdown's own card chrome, not the
- *      Connect-dialog aesthetic the rest of the app uses.
- *
- * With `enabled: false`, links render as plain `<a target="_blank">` and
- * Electron's main-process handlers take over.
- */
 const LINK_SAFETY = { enabled: false } as const;
 
-// Streamdown 2.6 bounds code blocks and tables by default. Keep Stella's
-// existing unbounded chat layout instead of introducing nested scrolling.
 const UNBOUNDED_STREAMDOWN_HEIGHT = Number.POSITIVE_INFINITY;
 
 const areMarkdownPropsEqual = (
@@ -149,11 +98,7 @@ export const Markdown = memo(function Markdown({
   className,
   hideHorizontalRules = false,
 }: MarkdownProps) {
-  /*
-   * Stable per-instance fallback when the caller didn't supply one,
-   * matching Streamdown's per-row parse/cache expectations. Bumped
-   * lazily so server-side / first-render parity stays intact.
-   */
+
   const anonCacheKeyRef = useRef<string | null>(null);
   if (anonCacheKeyRef.current === null) {
     anonCacheKeyRef.current = `markdown-anon-${nextAnonCacheKey++}`;
@@ -172,14 +117,7 @@ export const Markdown = memo(function Markdown({
         : BASE_REMARK_PLUGINS,
     [emojiSpritesEnabled],
   );
-  /*
-   * `emojiVars` is memoized so the outer `<div>`'s `style` reference is
-   * stable across renders when the active emoji pack hasn't changed.
-   * Otherwise React would diff the style object identity every commit
-   * and write the same custom-property declarations back to the DOM —
-   * harmless but pointless work that can mask other identity issues
-   * during debugging.
-   */
+
   const emojiVars = useMemo<CSSProperties | undefined>(() => {
     if (!emojiSpritesEnabled || !activeEmojiPack) return undefined;
     return Object.fromEntries(
@@ -190,11 +128,7 @@ export const Markdown = memo(function Markdown({
     ) as CSSProperties;
   }, [activeEmojiPack, emojiSpritesEnabled]);
   const streamdownKey = `${effectiveCacheKey}:${emojiSpritesEnabled ? "emoji" : "plain"}`;
-  // Streamdown parsing is intentionally a hard-bounded main-thread task.
-  // Parsing separate fragments changes document-level Markdown semantics
-  // (references, lists), while one pathological paragraph or fence defeats
-  // blank-line chunking. Preserve the complete authored text as plaintext
-  // once the bounded parser budget is exceeded.
+
   const useBoundedPlaintext = shouldUseBoundedMarkdownPlaintext(text.length);
   return (
     <div style={emojiVars}>

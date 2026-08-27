@@ -19,7 +19,7 @@ type JsonRequest =
 
 type StreamRequestOptions = {
   headers?: Record<string, string>;
-  /** Aborts the in-flight XHR. Callers receive an `AbortError` rejection. */
+
   signal?: AbortSignal;
   onToolCall?: (toolCall: MobileChatStreamToolCall) => void;
 };
@@ -51,8 +51,6 @@ const readErrorMessage = async (response: Response) => {
   return "Could not complete that request. Try again.";
 };
 
-// Without an explicit timeout, a black-holed connection (captive portal,
-// cellular handoff) pins callers for the OS default (~60s on iOS).
 const REQUEST_TIMEOUT_MS = 15_000;
 
 async function requestJson(
@@ -95,8 +93,6 @@ async function requestJson(
     throw new Error(await readErrorMessage(response));
   }
 
-  // Guarded parse: a 200 with a non-JSON body (proxy/error interstitial)
-  // must surface as clean copy, never a raw "JSON Parse error: …".
   const text = await response.text();
   try {
     return JSON.parse(text) as unknown;
@@ -145,17 +141,6 @@ export const postJsonAnonymous = (
     { anonymous: true, timeoutMs: options?.timeoutMs },
   );
 
-/**
- * Drive the offline-chat SSE lane.
- *
- * The transport is unchanged, but the payload contract is: a `{"t": …}` frame
- * now arrives exactly ONCE per completed assistant text segment and carries
- * that segment's full text (tool-loop interleaving preserved). So `onSegment`
- * fires per whole message segment, not per token — there is nothing to smooth
- * or reassemble on this side. The only buffering left is at the LINE level:
- * progress events fire on arbitrary network-buffer boundaries, so a frame can
- * still arrive split in two.
- */
 function executeStream(
   path: string,
   body: unknown,
@@ -185,7 +170,7 @@ function executeStream(
       try {
         xhr.abort();
       } catch {
-        // ignore: xhr may already be done
+
       }
       reject(new StreamAbortError());
     };
@@ -201,7 +186,6 @@ function executeStream(
     let pending = "";
     let finished = false;
 
-    // Returns false once the stream is finished ([DONE] or an error frame).
     const handleLine = (line: string): boolean => {
       if (!line.startsWith("data: ")) return true;
       const payload = line.slice(6);
@@ -217,10 +201,6 @@ function executeStream(
       return true;
     };
 
-    // Progress events fire on arbitrary network-buffer boundaries, so a frame
-    // can arrive split across two events. Only complete lines are parseable:
-    // hold the trailing partial line until the next chunk (or the final flush
-    // in onload), otherwise its delta is silently lost.
     const consume = (flush: boolean) => {
       if (finished) return;
       pending += xhr.responseText.slice(processed);
@@ -262,7 +242,7 @@ function executeStream(
           if (typeof parsed.error === "string") msg = parsed.error;
           else if (typeof parsed.message === "string") msg = parsed.message;
         } catch {
-          /* use default */
+
         }
         reject(new Error(msg));
       }

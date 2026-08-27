@@ -46,8 +46,6 @@ export const runLifecycleVerificationFromArgs = async (
     throw new Error("Lifecycle verification output path must be absolute.");
   }
 
-  // Keep ad-hoc verification builds from sharing a Keychain item with the
-  // normally installed app. Production uses the ordinary application name.
   app.setName("Stella Lifecycle Verification");
   await app.whenReady();
   const stellaDataDir =

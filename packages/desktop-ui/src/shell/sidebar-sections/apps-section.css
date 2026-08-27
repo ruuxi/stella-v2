@@ -1,9 +1,3 @@
-/* Apps section — the library list and the stage the user apps render on.
-   See `AppsSection.tsx` for why the stage is a fixed sibling of the list. */
-
-/* Positioning context shared by the library and every app surface, so the two
-   occupy the same box without either one being unmounted or moved to make
-   room for the other. */
 .apps-section__body {
   position: relative;
   flex: 1 1 auto;
@@ -185,11 +179,6 @@
   box-shadow: var(--focus-ring);
 }
 
-/* App surfaces. Every retained app is stacked here at full size; only the one
-   the user opened is visible. `content-visibility: hidden` on the rest keeps
-   their DOM state — unlike `display: none` — while rendering work is skipped
-   and element-visibility signals (IntersectionObserver, element timing) read
-   as offscreen, so visible-only work in hidden apps pauses naturally. */
 .persistent-user-app-surface {
   position: absolute;
   inset: 0;

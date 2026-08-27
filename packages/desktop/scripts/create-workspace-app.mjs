@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-/** Compatibility wrapper for the canonical external Stella app scaffold. */
-
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 

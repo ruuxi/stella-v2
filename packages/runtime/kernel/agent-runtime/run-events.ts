@@ -107,17 +107,7 @@ export const createRunEventRecorder = ({
   let seq = 0;
   let currentUserMessageId = userMessageId;
   let currentUiVisibility = uiVisibility;
-  /**
-   * Wall-clock time of the first text delta of the assistant segment that is
-   * currently being generated, or null between segments.
-   *
-   * Assistant text no longer travels as per-chunk STREAM events, so this is
-   * the only surviving reason to watch deltas at all: it is the chronological
-   * anchor the renderer uses to order lifecycle cards (tool cards, status
-   * rows) against the finished text block. It rides out on the
-   * `assistant-message` event as `firstTextAtMs`; the worker previously
-   * derived the same value from the first `onStream` chunk it saw.
-   */
+
   let pendingSegmentFirstTextAtMs: number | null = null;
   const queuedUserMessageStarts: Array<{
     userMessageId: string;
@@ -134,9 +124,7 @@ export const createRunEventRecorder = ({
       return null;
     }
     const firstTextAtMs = pendingSegmentFirstTextAtMs;
-    // Only consumed once: the next segment starts a fresh anchor. Left set
-    // when the segment produced no persistable text so an empty flush cannot
-    // steal the anchor from the text that follows it.
+
     pendingSegmentFirstTextAtMs = null;
     const responseTarget = getResponseTarget?.();
     return {
@@ -211,17 +199,6 @@ export const createRunEventRecorder = ({
       });
     },
 
-    /**
-     * Observe one assistant text delta.
-     *
-     * Assistant text is delivered whole (one `assistant-message` event per
-     * segment), so a delta produces no event and consumes no recorder seq.
-     * All this does is stamp the segment's first-text time — see
-     * `pendingSegmentFirstTextAtMs`. Per-chunk `run_event` rows are
-     * deliberately NOT persisted any more: nothing ever read them back
-     * (`run_event` rows are excluded from every history query) and they cost
-     * one SQLite transaction per token.
-     */
     noteAssistantTextChunk(chunk: string): void {
       if (!chunk || pendingSegmentFirstTextAtMs !== null) {
         return;
@@ -309,8 +286,7 @@ export const createRunEventRecorder = ({
       const resultPreview = redactSensitiveText(
         getToolResultPreview(
           toolName,
-          // Structured side-channels (schedule receipts, image metadata, etc.)
-          // live in `details`; previews must stay human-readable.
+
           sanitizedResult ?? sanitizedDetails,
         ),
       );
@@ -433,14 +409,6 @@ const emitHook = <E extends HookEvent>(
   void hookEmitter.emit(event, payload, filterContext).catch(() => undefined);
 };
 
-/**
- * Build the common runtime context block injected into hook payloads.
- *
- * Centralized so every hook emission inside the run loop carries a consistent
- * shape (conversationId, threadKey, runId, isUserTurn, uiVisibility) without
- * each call site reconstructing it. Hooks that don't care can ignore the
- * extras; hooks that do care don't have to root around for them.
- */
 const buildHookRuntimeContext = (args: {
   conversationId?: string;
   threadKey?: string;
@@ -490,8 +458,7 @@ const extractToolUpdateStatusText = (
     return undefined;
   }
   const text = firstTextBlock.text.trim();
-  // Progress payloads (exec_command results, pretty-printed objects) are
-  // model-facing, not working-indicator copy.
+
   return looksLikeMachineStatusText(text) ? undefined : text;
 };
 
@@ -526,7 +493,7 @@ export const subscribeRuntimeAgentEvents = ({
   attemptGeneration?: number;
   onThreadPersistenceError?: (error: unknown, retry: () => void) => void;
 }) => {
-  // Stable run-level fields shared by every hook payload from this subscription.
+
   const hookContext = buildHookRuntimeContext({
     ...(conversationId ? { conversationId } : {}),
     ...(threadKey ? { threadKey } : {}),
@@ -547,7 +514,7 @@ export const subscribeRuntimeAgentEvents = ({
     }
 
     if (event.type === "message_start") {
-      // Keep queued user-message ids consistent between recorder and hooks.
+
       if (event.message.role === "user") {
         const runStartedEvent = recorder.recordQueuedUserMessageStart();
         if (runStartedEvent) {
@@ -590,7 +557,6 @@ export const subscribeRuntimeAgentEvents = ({
         }
       }
 
-      // Observation-only; this fires after persistence and cannot replace the message.
       emitHook(
         hookEmitter,
         "message_end",
@@ -601,8 +567,7 @@ export const subscribeRuntimeAgentEvents = ({
     }
 
     if (event.type === "message_update") {
-      // Assistant text is delivered whole on `message_end`; deltas only feed
-      // the segment first-text anchor and the subagent Activity feed.
+
       if (event.assistantMessageEvent.type === "text_delta") {
         const chunk = event.assistantMessageEvent.delta;
         if (chunk) {
@@ -610,17 +575,16 @@ export const subscribeRuntimeAgentEvents = ({
           onProgress?.(chunk);
         }
       } else if (event.assistantMessageEvent.type === "thinking_delta") {
-        // Reasoning deltas stream to the per-agent reasoning section, not chat text.
+
         const chunk = event.assistantMessageEvent.delta;
         if (chunk) {
           const reasoningEvent = recorder.recordReasoning(chunk);
           callbacks?.onReasoning?.(reasoningEvent);
         }
       } else if (event.assistantMessageEvent.type === "thinking_end") {
-        // Persisted on the assistant message; no user-facing event.
+
       }
 
-      // Avoid per-token hook payload work when no hook consumes message updates.
       if (hookEmitter && hookEmitter.has("message_update")) {
         emitHook(
           hookEmitter,
@@ -816,7 +780,6 @@ const toPersistedThreadPayload = (
       timestamp: message.timestamp,
     };
   }
-  // runtimeInternal messages are not universally durable; producers persist
-  // durable cases at emit time, before queueing them into the agent loop.
+
   return null;
 };

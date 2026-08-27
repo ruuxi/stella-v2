@@ -1,8 +1,3 @@
-/**
- * Agent class that uses the agent-loop directly.
- * No transport abstraction - calls streamSimple via the loop.
- */
-
 import type {
 	Api,
 	AssistantMessage,
@@ -35,9 +30,6 @@ import type {
 	ToolExecutionMode,
 } from "./types.js";
 
-/**
- * Default convertToLlm: Keep only LLM-compatible messages, convert attachments.
- */
 function isBaseMessage(message: AgentMessage): message is Message {
 	return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
 }
@@ -57,104 +49,49 @@ function errorMessageOf(error: unknown): string {
 export interface AgentOptions {
 	initialState?: Partial<AgentState>;
 
-	/**
-	 * Converts AgentMessage[] to LLM-compatible Message[] before each LLM call.
-	 * Default filters to user/assistant/toolResult and converts attachments.
-	 */
 	convertToLlm?: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 
-	/**
-	 * Optional transform applied to context before convertToLlm.
-	 * Use for context pruning, injecting external context, etc.
-	 */
 	transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
 
-	/**
-	 * Steering mode: "all" = send all steering messages at once, "one-at-a-time" = one per turn
-	 */
 	steeringMode?: "all" | "one-at-a-time";
 
-	/**
-	 * Follow-up mode: "all" = send all follow-up messages at once, "one-at-a-time" = one per turn
-	 */
 	followUpMode?: "all" | "one-at-a-time";
 
-	/**
-	 * Custom stream function (for proxy backends, etc.). Default uses streamSimple.
-	 */
 	streamFn?: StreamFn;
 
-	/**
-	 * Optional session identifier forwarded to LLM providers.
-	 * Used by providers that support session-based caching.
-	 */
 	sessionId?: string;
 
-	/** Prompt-cache affinity independent from per-agent transport resources. */
 	promptCacheKey?: string;
 
-	/**
-	 * Resolves an API key dynamically for each LLM call.
-	 * Useful for expiring tokens (e.g., GitHub Copilot OAuth).
-	 */
 	getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
 	refreshApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
 
-	/**
-	 * Inspect or replace provider payloads before they are sent.
-	 */
 	onPayload?: SimpleStreamOptions["onPayload"];
 
-	/**
-	 * Surface a transient "trying again in X" status when the provider
-	 * adapter retries a recoverable failure (e.g. 429, 5xx, network blip).
-	 */
 	onProviderRetry?: SimpleStreamOptions["onProviderRetry"];
 
-	/**
-	 * Custom token budgets for thinking levels (token-based providers only).
-	 */
 	thinkingBudgets?: ThinkingBudgets;
 
-	/**
-	 * Preferred transport for providers that support multiple transports.
-	 */
 	transport?: Transport;
 
-	/** Provider request tier, such as ChatGPT/Codex Standard or Fast. */
 	serviceTier?: ServiceTier;
 
-	/**
-	 * Maximum delay in milliseconds to wait for a retry when the server requests a long wait.
-	 * If the server's requested delay exceeds this value, the request fails immediately,
-	 * allowing higher-level retry logic to handle it with user visibility.
-	 * Default: 60000 (60 seconds). Set to 0 to disable the cap.
-	 */
 	maxRetryDelayMs?: number;
 
-	/** Tool execution mode. Default: "parallel" */
 	toolExecution?: ToolExecutionMode;
 
-	/**
-	 * Cancel a tool call with no `onUpdate` progress for this many
-	 * milliseconds; the loop reports an error tool result and the agent
-	 * keeps running. <= 0 disables the bound. Default: 30 minutes.
-	 */
 	toolInactivityTimeoutMs?: number;
 
-	/** Called at a quiescent boundary before another provider request. */
 	onTurnBoundary?: (
 		context: AgentTurnBoundaryContext,
 		signal?: AbortSignal,
 	) => Promise<AgentMessage[] | undefined>;
 
-	/** Called before a tool is executed, after arguments have been validated. */
 	beforeToolCall?: (
 		context: BeforeToolCallContext,
 		signal?: AbortSignal,
 	) => Promise<BeforeToolCallResult | undefined>;
 
-	/** Called after a tool finishes executing, before final tool events are emitted. */
 	afterToolCall?: (
 		context: AfterToolCallContext,
 		signal?: AbortSignal,
@@ -234,60 +171,34 @@ export class Agent {
 		this._afterToolCall = opts.afterToolCall;
 	}
 
-	/**
-	 * Get the current session ID used for provider caching.
-	 */
 	get sessionId(): string | undefined {
 		return this._sessionId;
 	}
 
-	/**
-	 * Set the session ID for provider caching.
-	 * Call this when switching sessions (new session, branch, resume).
-	 */
 	set sessionId(value: string | undefined) {
 		this._sessionId = value;
 	}
 
-	/**
-	 * Get the current thinking budgets.
-	 */
 	get thinkingBudgets(): ThinkingBudgets | undefined {
 		return this._thinkingBudgets;
 	}
 
-	/**
-	 * Set custom thinking budgets for token-based providers.
-	 */
 	set thinkingBudgets(value: ThinkingBudgets | undefined) {
 		this._thinkingBudgets = value;
 	}
 
-	/**
-	 * Get the current preferred transport.
-	 */
 	get transport(): Transport {
 		return this._transport;
 	}
 
-	/**
-	 * Set the preferred transport.
-	 */
 	setTransport(value: Transport) {
 		this._transport = value;
 	}
 
-	/**
-	 * Get the current max retry delay in milliseconds.
-	 */
 	get maxRetryDelayMs(): number | undefined {
 		return this._maxRetryDelayMs;
 	}
 
-	/**
-	 * Set the maximum delay to wait for server-requested retries.
-	 * Set to 0 to disable the cap.
-	 */
 	set maxRetryDelayMs(value: number | undefined) {
 		this._maxRetryDelayMs = value;
 	}
@@ -325,7 +236,6 @@ export class Agent {
 		return () => this.listeners.delete(fn);
 	}
 
-	// State mutators
 	setSystemPrompt(v: string) {
 		this._state.systemPrompt = v;
 	}
@@ -370,18 +280,10 @@ export class Agent {
 		this._state.messages = [...this._state.messages, m];
 	}
 
-	/**
-	 * Queue a steering message for the next safe turn boundary.
-	 * Delivered after the current model response and issued tools finish.
-	 */
 	steer(m: AgentMessage) {
 		this.steeringQueue.push(m);
 	}
 
-	/**
-	 * Queue a follow-up message to be processed after the agent finishes.
-	 * Delivered only when agent has no more tool calls or steering messages.
-	 */
 	followUp(m: AgentMessage) {
 		this.followUpQueue.push(m);
 	}
@@ -455,7 +357,6 @@ export class Agent {
 		this.followUpQueue = [];
 	}
 
-	/** Send a prompt with an AgentMessage */
 	async prompt(message: AgentMessage | AgentMessage[]): Promise<void>;
 	async prompt(input: string, images?: ImageContent[]): Promise<void>;
 	async prompt(input: string | AgentMessage | AgentMessage[], images?: ImageContent[]) {
@@ -491,9 +392,6 @@ export class Agent {
 		await this._runLoop(msgs);
 	}
 
-	/**
-	 * Continue from current context (used for retries and resuming queued messages).
-	 */
 	async continue() {
 		if (this._state.isStreaming) {
 			throw new Error("Agent is already processing. Wait for completion before continuing.");
@@ -567,11 +465,6 @@ export class Agent {
 		this.emit(event);
 	}
 
-	/**
-	 * Run the agent loop.
-	 * If messages are provided, starts a new conversation turn with those messages.
-	 * Otherwise, continues from existing context.
-	 */
 	private async _runLoop(messages?: AgentMessage[], options?: { skipInitialSteeringPoll?: boolean }) {
 		const model = this._state.model;
 		if (!model) throw new Error("No model configured");
@@ -709,23 +602,16 @@ export class Agent {
 					this.streamFn,
 				);
 			}
-			// The loop can intentionally discard a provider attempt before retrying.
-			// Reconcile from its authoritative context so event-only diagnostic rows
-			// do not remain resident in the long-lived Agent working set.
+
 			this._state.messages = context.messages.slice();
 			} catch (err: unknown) {
-				// A defensive in-loop retry can emit a failed diagnostic attempt before
-				// its replacement call throws. Keep those discarded attempts out of the
-				// resident mirror just as the successful reconciliation path above does.
+
 				this._state.messages = this._state.messages.filter(
 					(message) =>
 						message.role !== "assistant" ||
 						(message.stopReason !== "error" && message.stopReason !== "aborted"),
 				);
-				// Empty-content placeholder with stopReason: "aborted" | "error" is
-			// intentional. It marks the failed turn for the UI / introspection
-			// helpers; transformMessages strips any aborted/errored assistant
-			// before serializing to providers, so the model never sees it.
+
 			const errorMessage = errorMessageOf(err);
 			const errorMsg: AssistantMessage = {
 				role: "assistant",

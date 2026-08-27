@@ -3,13 +3,6 @@ import { showToast } from "@/ui/toast";
 import { resolveVoiceErrorToast } from "@/features/voice/runtime/voice-error-toast";
 import { useT } from "@/shared/i18n";
 
-/**
- * The realtime voice runtime runs in the hidden overlay window, so it can't
- * surface its own user-visible toast. It forwards actionable session errors
- * (not signed in, provider not connected) to the main process, which routes
- * them to the visible app window. This listener turns that into a real toast
- * with a working sign-in or settings action.
- */
 export function VoiceErrorToastListener() {
   const t = useT();
   useEffect(() => {

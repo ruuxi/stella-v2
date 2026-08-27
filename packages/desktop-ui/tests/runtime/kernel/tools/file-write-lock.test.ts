@@ -41,7 +41,6 @@ describe("withFileWriteLock", () => {
       ),
     );
 
-    // Every section must complete before the next one starts (FIFO order).
     expect(events).toEqual([
       "start-0",
       "end-0",
@@ -68,7 +67,7 @@ describe("withFileWriteLock", () => {
     });
 
     await b;
-    expect(bRan).toBe(true); // B finished while A's lock is still held.
+    expect(bRan).toBe(true);
     releaseA();
     await a;
   });
@@ -204,7 +203,7 @@ describe("concurrent Edit stress", () => {
     }
 
     const final = await readFile(filePath, "utf-8");
-    expect(payloads).toContain(final); // one intact payload, no interleaving
+    expect(payloads).toContain(final);
     expect(final.includes("\u0000")).toBe(false);
   });
 });
@@ -236,7 +235,7 @@ describe("writeFileWithNulGuard", () => {
         await realWriteFile(target, data as string, options as never);
         if (!corrupted && target === filePath) {
           corrupted = true;
-          // Simulate the observed corruption: NUL-padded tail.
+
           await realWriteFile(
             target,
             String(data) + "\u0000\u0000\u0000\u0000",

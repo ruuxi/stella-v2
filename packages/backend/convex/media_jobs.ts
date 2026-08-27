@@ -586,9 +586,7 @@ export const deletePrivateBlobCleanup = internalMutation({
       .withIndex("by_storageId", (q) => q.eq("storageId", args.storageId))
       .unique();
     if (row) {
-      // Storage deletion and outbox acknowledgement share one Convex
-      // transaction. A thrown storage error retains both the object pointer
-      // and retry record.
+
       await ctx.storage.delete(args.storageId);
       await ctx.db.delete(row._id);
     }
@@ -695,15 +693,6 @@ export const listDueProviderCancellations = internalQuery({
       .take(Math.max(1, Math.min(args.limit, 100))),
 });
 
-/**
- * Cheap cron gate for the three media cleanup retry queues. The drain
- * `internalAction`s are expensive to spin up (Node isolates) yet their queues
- * are empty in the overwhelming majority of sweeps, so mirror the
- * `sweepOrphanedTurns` pattern: run the bounded "is there work?" index reads
- * in a single mutation and only schedule a drain action when its queue
- * actually has due rows. Preserves all real cleanup behavior — only the idle
- * per-minute action spin is cut.
- */
 export const sweepMediaCleanupQueues = internalMutation({
   args: { limit: v.optional(v.number()) },
   returns: v.object({
@@ -859,11 +848,6 @@ export const summarizeMediaRequestForStorage = (
   };
 };
 
-/**
- * Hard cap on how many child-table log entries we hydrate per job response.
- * Long-running jobs may accumulate many webhook entries; clients only need
- * the most recent few for display.
- */
 const MAX_JOB_LOGS_RETURNED = 100;
 const DEFAULT_STALE_MEDIA_JOB_LIMIT = 100;
 const STALE_IMAGE_JOB_CAPABILITIES = [
@@ -933,11 +917,6 @@ const toStoredMediaJobResponse = (
   };
 };
 
-/**
- * Load the most recent webhook log entries for a job from the child
- * `media_job_logs` table. Returns chronologically-ordered entries (oldest
- * first) so callers can render them top-to-bottom.
- */
 const loadJobLogs = async (
   ctx: Pick<QueryCtx, "db">,
   jobId: string,
@@ -961,11 +940,6 @@ const toViewerOwnerId = async (ctx: QueryCtx): Promise<string> => {
   return ownerId;
 };
 
-/**
- * Read-side variant: returns null when no identity is attached so subscribed
- * queries can return empty/null instead of throwing into the React error
- * boundary during sign-in / sign-out transitions.
- */
 const toViewerOwnerIdOrNull = async (ctx: QueryCtx): Promise<string | null> => {
   const identity = await ctx.auth.getUserIdentity();
   if (identity?.tokenIdentifier) {
@@ -1140,27 +1114,11 @@ export const getImageSubmissionPayload = internalQuery({
   },
 });
 
-/**
- * Reactive feed of every succeeded media job for the current viewer that
- * completed at-or-after `since`. The desktop renderer subscribes to this on
- * boot so the Display sidebar can surface any media output regardless of who
- * started the job (MediaStudio, the agent's `MediaGenerate` tool, a CLI…).
- *
- * `since` is a `completedAt` lower bound (millis). Pass `Date.now()` on first
- * subscribe to get only jobs that finish after the app launches, or pass a
- * smaller value (e.g., last-seen timestamp from local storage) to also
- * back-fill recently missed completions.
- */
 export const listSucceededSince = query({
   args: {
     since: v.number(),
     limit: v.optional(v.number()),
-    /**
-     * When `true`, hydrate the per-job webhook log entries from
-     * `media_job_logs`. Defaults to `false` because the desktop materializer
-     * (the primary subscriber) only consumes `output`/`status`/`request` and
-     * doesn't need the noisy log array.
-     */
+
     includeLogs: v.optional(v.boolean()),
   },
   returns: v.array(mediaJobResponseValidator),
@@ -1170,8 +1128,7 @@ export const listSucceededSince = query({
       return [];
     }
     const limit = Math.max(1, Math.min(args.limit ?? 50, 200));
-    // Indexed on `(ownerId, status, completedAt)` so we read only succeeded
-    // rows in completion order — no JS-side status filter and no over-fetch.
+
     const succeeded = await ctx.db
       .query("media_jobs")
       .withIndex("by_ownerId_and_status_and_completedAt", (q) =>
@@ -1244,9 +1201,7 @@ export const getWebhookJob = internalQuery({
     providerRequestId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // Fal webhook URLs normally embed `?jobId=`, but fall back to the
-    // provider request id so a webhook that lost the query param still
-    // resolves the job (and therefore still meters usage).
+
     const job =
       (args.jobId ? await getJobByJobId(ctx, args.jobId) : null) ??
       (args.providerRequestId
@@ -1345,11 +1300,6 @@ const reserveIdempotentJobResultValidator = v.union(
   v.object({ state: v.literal("owner_purged") }),
 );
 
-/**
- * Atomically reserve an owner-scoped media request identity. Retried POSTs
- * attach to the existing row and never repeat provider submission. A
- * cancellation tombstone wins even when DELETE arrives before this mutation.
- */
 export const reserveIdempotentJob = internalMutation({
   args: {
     ownerId: v.string(),
@@ -1534,9 +1484,7 @@ export const reserveIdempotentJob = internalMutation({
           updatedAt: now,
         });
       } else {
-        // Backward-compatible callers/tests that already hold a storage id
-        // still gain the outbox transactionally with reservation. The HTTP
-        // path registers before this mutation to close store->reserve errors.
+
         await ctx.db.insert("media_private_blob_cleanup", {
           ownerId: args.ownerId,
           storageId: args.submissionPayloadStorageId,
@@ -1610,12 +1558,6 @@ const submissionClaimResultValidator = v.union(
   v.object({ state: v.literal("skip") }),
 );
 
-/**
- * The only durable Stella-controlled gate before a Fal POST. Convex
- * serializes concurrent claims; only the transaction that moves pending to
- * dispatching may touch the provider. We intentionally do not reclaim a
- * dispatching row because Fal has no supported client idempotency key.
- */
 export const claimImageSubmission = internalMutation({
   args: { jobId: v.string(), attemptId: v.string(), claimedAt: v.number() },
   returns: submissionClaimResultValidator,
@@ -1705,7 +1647,6 @@ export const markImageSubmissionUnknown = internalMutation({
   },
 });
 
-/** Reschedule only rows that provably never crossed the provider boundary. */
 export const reconcilePendingImageSubmissions = internalMutation({
   args: {
     pendingBefore: v.optional(v.number()),
@@ -1884,7 +1825,6 @@ const cancelIdempotentRequestResultValidator = v.object({
   submissionPayloadManifestId: v.optional(v.string()),
 });
 
-/** Persist cancellation before attempting provider cancellation. */
 export const cancelIdempotentRequest = internalMutation({
   args: {
     ownerId: v.string(),
@@ -2056,9 +1996,7 @@ export const markSubmitted = internalMutation({
         (!args.submissionAttemptId ||
           job.submissionAttemptId === args.submissionAttemptId)
       ) {
-        // Account deletion can win immediately after the durable dispatch
-        // claim. Retain the accepted provider identity without reversing the
-        // canceled terminal state so the action can issue Fal cancellation.
+
         await ctx.db.patch(job._id, {
           providerRequestId: args.providerRequestId,
           ...(args.providerGatewayRequestId
@@ -2280,13 +2218,7 @@ export const markGenerated = internalMutation({
     if (isTerminalMediaJobStatus(job.status)) return null;
     const now = Date.now();
     const output = sanitizeJsonValue(args.output);
-    // `connectorMediaDeliveryScheduledAt` is the dedup gate: we set it in
-    // the same patch that schedules `deliverMediaJobToConnector`, so a
-    // duplicate `markGenerated` / `applyFalWebhook` for the same job won't
-    // re-schedule. `connectorMediaDeliveredAt` is set by the delivery
-    // action itself on success — keeping the two flags separate means a
-    // transient delivery failure leaves a clear `scheduledAt && !deliveredAt`
-    // state for the watchdog (or manual recovery) to retry.
+
     const shouldScheduleConnectorDelivery =
       Boolean(job.connectorRequestId) &&
       !job.connectorMediaDeliveredAt &&
@@ -2319,10 +2251,7 @@ export const markGenerated = internalMutation({
         },
       );
     }
-    // The fal path charges usage from the webhook handler; jobs completed
-    // via `markGenerated` (e.g. Lyria) must charge here or the generation
-    // never counts against the owner's usage windows. The receipt table in
-    // `recordMediaCompletedUsage` makes this idempotent per job.
+
     if (args.billing) {
       await ctx.scheduler.runAfter(
         0,
@@ -2392,8 +2321,6 @@ export const applyFalWebhook = internalMutation({
       }
     }
 
-    // All terminal states are immutable. Duplicate/opposite/late provider
-    // events are retained as audit logs but can never reverse the result.
     if (isTerminalMediaJobStatus(job.status)) {
       if (
         job.status === "canceled" &&
@@ -2401,10 +2328,7 @@ export const applyFalWebhook = internalMutation({
         args.providerRequestId &&
         !job.providerRequestId
       ) {
-        // A response-lost POST can first reveal its provider identity in the
-        // webhook. Persist only reconciliation metadata and a cancellation
-        // outbox entry; the terminal cancellation and billing state remain
-        // immutable.
+
         await ctx.db.patch(job._id, {
           providerRequestId: args.providerRequestId,
           updatedAt: args.receivedAt,
@@ -2436,10 +2360,6 @@ export const applyFalWebhook = internalMutation({
       return { updated: false, jobId: job.jobId };
     }
 
-    // Append log entries to the child `media_job_logs` table instead of
-    // mutating an inline array on the job document. This keeps the job doc
-    // small (and within the 1MB limit) regardless of how many webhook
-    // deliveries arrive over the lifetime of a long-running generation.
     if (args.logs && args.logs.length > 0) {
       const existingLogCount = await ctx.db
         .query("media_job_logs")
@@ -2543,9 +2463,6 @@ export const applyFalWebhook = internalMutation({
       );
     }
 
-    // Scheduling is transactional in Convex. This billing receipt work is
-    // committed only with the allowed success transition and is absent for
-    // duplicate, canceled, unknown, timed-out, or otherwise late events.
     if (status === "succeeded" && args.billing) {
       await ctx.scheduler.runAfter(
         0,
@@ -2568,13 +2485,6 @@ export const applyFalWebhook = internalMutation({
   },
 });
 
-/**
- * Patch a media job to record a successful connector media delivery.
- * Called from `deliverMediaJobToConnector` after the connector POST
- * succeeded, separately from the `markGenerated` / `applyFalWebhook`
- * mutations so a transient delivery failure doesn't leave the row
- * marked "delivered" forever.
- */
 export const markConnectorMediaDelivered = internalMutation({
   args: { jobId: v.string(), deliveredAt: v.number() },
   returns: v.null(),
@@ -2592,12 +2502,6 @@ export const markConnectorMediaDelivered = internalMutation({
   },
 });
 
-/**
- * Record the most recent connector media delivery failure on the job.
- * Leaves `connectorMediaDeliveryScheduledAt` set so the dedup gate keeps
- * holding — recovery is via manual re-trigger or a future watchdog rather
- * than spontaneous re-fire on the next mutation.
- */
 export const markConnectorMediaDeliveryFailed = internalMutation({
   args: { jobId: v.string(), error: v.string() },
   returns: v.null(),
@@ -2612,7 +2516,6 @@ export const markConnectorMediaDeliveryFailed = internalMutation({
   },
 });
 
-/** Restart-durable watchdog for terminal image connector delivery. */
 export const retryStuckImageConnectorDeliveries = internalMutation({
   args: {
     staleMs: v.optional(v.number()),

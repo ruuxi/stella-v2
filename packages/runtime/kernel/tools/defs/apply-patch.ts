@@ -1,11 +1,3 @@
-/**
- * `apply_patch` tool — JSON wrapper around Stella's patch envelope.
- *
- * Accepts a single `input` string with the full
- * `*** Begin Patch` ... `*** End Patch` envelope. File paths in the envelope
- * MUST be absolute; the file tools do not resolve relative to any cwd.
- */
-
 import { handleApplyPatch } from "../apply-patch.js";
 import type { ToolDefinition } from "../types.js";
 

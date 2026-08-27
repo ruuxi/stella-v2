@@ -171,7 +171,7 @@ describe("spawn-anchored background task lifecycle", () => {
     );
     expect(descriptor.startEventIdsByThread.researcher).toBe("start-old");
     expect(resolved.terminalEventIdsByThread.researcher).toBe("done-old");
-    // Completion is payload on the one start card, never a second card state.
+
     expect(index.byStartEventId).toHaveLength(1);
   });
 
@@ -266,8 +266,6 @@ describe("spawn-anchored background task lifecycle", () => {
       followUpCard.index.startEventIdByLifecycleEventId.get("done-follow-up"),
     ).toBe("start-follow-up");
 
-    // Completion cards are projected at their own timeline anchors, using
-    // exact completion/start identity rather than mutating either start card.
     expect(
       projectAgentCompletionSections([originalDone], originalCard.index),
     ).toMatchObject([

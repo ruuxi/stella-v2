@@ -244,9 +244,9 @@ export type SearchHit = {
   title: string;
   url: string;
   snippet: string;
-  /** Representative thumbnail/hero image URL, when Exa returns one. */
+
   image?: string;
-  /** Site favicon URL, when Exa returns one. */
+
   favicon?: string;
 };
 

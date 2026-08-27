@@ -1,10 +1,3 @@
-/**
- * `RequestCredential` tool — secure credential elicitation.
- *
- * Returns a `secretId` handle that other tools/integrations can pass through
- * without the secret value ever entering model context.
- */
-
 import { handleRequestCredential, type UserToolsConfig } from "../user.js";
 import type { ToolDefinition } from "../types.js";
 

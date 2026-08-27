@@ -1,13 +1,6 @@
 import { useEffect, useState } from "react";
 import { getDesktopBridgeStatus, type StoredPhoneAccess } from "./phone-access";
 
-/**
- * Resolve each paired desktop's platform label ("macOS", "Windows", …) from
- * the bridge status, keyed by desktopDeviceId. Shared by the Account and
- * View-computer screens so the two surfaces can't disagree about which
- * computers exist and what they're called. Lookups run once per device; a
- * failed lookup is recorded as null so it isn't retried in a loop.
- */
 export function useDesktopPlatforms(
   pairedDesktops: StoredPhoneAccess[],
 ): Record<string, string | null> {

@@ -92,10 +92,6 @@ export type LocalToolDeps = {
 
 type DispatchResult = { handled: true; text: string } | { handled: false };
 
-/**
- * Dispatch tools that execute locally (no backend round-trip).
- * Shared between the agent tool-adapter pipeline and the voice service.
- */
 export async function dispatchLocalTool(
   toolName: string,
   args: Record<string, unknown>,
@@ -176,8 +172,7 @@ export async function dispatchLocalTool(
       const resolvedPath = deps.dream
         ? await ensureDreamWritePath(deps.dream, filePath)
         : filePath;
-      // Same per-path lock as Edit/Write: the read-modify-write cycle must
-      // not interleave with sibling edits of the same file.
+
       return await withFileWriteLock(resolvedPath, async () => {
         const original = await fs.readFile(resolvedPath, "utf-8");
         if (!original.includes(oldString)) {

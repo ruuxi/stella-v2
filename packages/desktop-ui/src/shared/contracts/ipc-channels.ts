@@ -1,19 +1,3 @@
-/**
- * IPC Channel Constants
- *
- * Single source of truth for all Electron IPC channel names used between the
- * main process (electron/ipc/*.ts, electron/preload.ts) and the renderer.
- *
- * Import these constants instead of using raw channel-name strings so that:
- *   1. Typos are caught at compile time.
- *   2. Renaming a channel is a single-point change.
- *   3. "Find all references" works across both processes.
- *
- * Naming convention:  `<namespace>:<verb|noun>` in camelCase.
- */
-
-// ── Window ──────────────────────────────────────────────────────────────────
-
 export const IPC_WINDOW_MINIMIZE = "window:minimize" as const;
 export const IPC_WINDOW_MAXIMIZE = "window:maximize" as const;
 export const IPC_WINDOW_CLOSE = "window:close" as const;
@@ -21,8 +5,6 @@ export const IPC_WINDOW_IS_MAXIMIZED = "window:isMaximized" as const;
 export const IPC_WINDOW_SHOW = "window:show" as const;
 export const IPC_WINDOW_SET_NATIVE_BUTTONS_VISIBLE =
   "window:setNativeButtonsVisible" as const;
-
-// ── Display ─────────────────────────────────────────────────────────────────
 
 export const IPC_DISPLAY_UPDATE = "display:update" as const;
 export const IPC_DISPLAY_READ_FILE = "display:readFile" as const;
@@ -36,13 +18,9 @@ export const IPC_OFFICE_PREVIEW_LIST = "officePreview:list" as const;
 export const IPC_OFFICE_PREVIEW_START = "officePreview:start" as const;
 export const IPC_OFFICE_PREVIEW_UPDATE = "officePreview:update" as const;
 
-// ── UI State ────────────────────────────────────────────────────────────────
-
 export const IPC_UI_GET_STATE = "ui:getState" as const;
 export const IPC_UI_SET_STATE = "ui:setState" as const;
 export const IPC_UI_STATE = "ui:state" as const;
-
-// ── Shared UI state KV (~/.stella/ui-state.json) ───────────────────────────
 
 export const IPC_UI_STATE_KV_SNAPSHOT = "uiState:snapshot" as const;
 export const IPC_UI_STATE_KV_APPLY = "uiState:apply" as const;
@@ -52,8 +30,6 @@ export const IPC_APP_SET_READY = "app:setReady" as const;
 export const IPC_APP_RELOAD = "app:reload" as const;
 export const IPC_APP_RELAUNCH = "app:relaunch" as const;
 export const IPC_APP_HARD_RESET = "app:hardResetLocalState" as const;
-
-// ── Capture ─────────────────────────────────────────────────────────────────
 
 export const IPC_CHAT_CONTEXT_GET = "chatContext:get" as const;
 export const IPC_CHAT_CONTEXT_UPDATED = "chatContext:updated" as const;
@@ -67,8 +43,6 @@ export const IPC_REGION_GET_WINDOW_CAPTURE = "region:getWindowCapture" as const;
 export const IPC_REGION_CANCEL = "region:cancel" as const;
 export const IPC_CAPTURE_PAGE_DATA_URL = "capture:pageDataUrl" as const;
 export const IPC_CAPTURE_REGION_FAILED = "capture:regionCaptureFailed" as const;
-
-// ── Overlay ─────────────────────────────────────────────────────────────────
 
 export const IPC_OVERLAY_SET_INTERACTIVE = "overlay:setInteractive" as const;
 export const IPC_OVERLAY_START_REGION_CAPTURE =
@@ -84,15 +58,9 @@ export const IPC_OVERLAY_HIDE_WINDOW_HIGHLIGHT =
 export const IPC_OVERLAY_PREVIEW_WINDOW_HIGHLIGHT_AT_POINT =
   "overlay:previewWindowHighlightAtPoint" as const;
 
-// ── Theme ───────────────────────────────────────────────────────────────────
-
 export const IPC_THEME_LIST_INSTALLED = "theme:listInstalled" as const;
 
-// ── Website ─────────────────────────────────────────────────────────────────
-
 export const IPC_WEBSITE_GET_BASE_URL = "website:getBaseUrl" as const;
-
-// ── Voice ───────────────────────────────────────────────────────────────────
 
 export const IPC_VOICE_PERSIST_TRANSCRIPT = "voice:persistTranscript" as const;
 export const IPC_VOICE_ORCHESTRATOR_CHAT = "voice:orchestratorChat" as const;
@@ -110,22 +78,18 @@ export const IPC_VOICE_GET_RUNTIME_STATE = "voice:getRuntimeState" as const;
 export const IPC_VOICE_RUNTIME_STATE = "voice:runtimeState" as const;
 export const IPC_VOICE_RTC_SET_SHORTCUT = "voice-rtc:setShortcut" as const;
 export const IPC_VOICE_RTC_GET_SHORTCUT = "voice-rtc:getShortcut" as const;
-/** Renderer (overlay voice runtime) → main: an actionable voice session error. */
+
 export const IPC_VOICE_REPORT_SESSION_ERROR =
   "voice:reportSessionError" as const;
-/** Main → renderer (visible app window): show a voice session error toast. */
+
 export const IPC_VOICE_SESSION_ERROR = "voice:sessionError" as const;
-/** Main → renderer: the effective realtime provider route changed. */
+
 export const IPC_VOICE_PREFERENCES_CHANGED =
   "voice:preferencesChanged" as const;
-
-// ── Dictation ───────────────────────────────────────────────────────────────
 
 export const IPC_DICTATION_TOGGLE = "dictation:toggle" as const;
 export const IPC_DICTATION_SET_SHORTCUT = "dictation:setShortcut" as const;
 export const IPC_DICTATION_GET_SHORTCUT = "dictation:getShortcut" as const;
-
-// ── Agent ───────────────────────────────────────────────────────────────────
 
 export const IPC_AGENT_ONE_SHOT_COMPLETION = "agent:oneShotCompletion" as const;
 export const IPC_AGENT_HEALTH_CHECK = "agent:healthCheck" as const;
@@ -137,22 +101,13 @@ export const IPC_AGENT_SEND_INPUT = "agent:sendInput" as const;
 export const IPC_AGENT_CANCEL_CHAT = "agent:cancelChat" as const;
 export const IPC_AGENT_RESUME = "agent:resume" as const;
 export const IPC_AGENT_EVENT = "agent:event" as const;
-/**
- * Fired by the main process whenever the runtime client transitions
- * between connected and disconnected — most importantly after the
- * detached worker reattaches following an Electron restart. The
- * renderer subscribes so the chat-side `useResumeAgentRun` hook can
- * re-trigger replay without waiting for the user to navigate away
- * and back.
- */
+
 export const IPC_RUNTIME_AVAILABILITY = "runtime:availability" as const;
 export const IPC_PREFERENCES_MODELS_UPDATED =
   "preferences:modelsUpdated" as const;
 export const IPC_DEVTEST_TRIGGER_VITE_ERROR =
   "devtest:triggerViteError" as const;
 export const IPC_DEVTEST_FIX_VITE_ERROR = "devtest:fixViteError" as const;
-
-// ── System ──────────────────────────────────────────────────────────────────
 
 export const IPC_DEVICE_GET_ID = "device:getId" as const;
 export const IPC_PHONE_ACCESS_START = "phoneAccess:startSession" as const;
@@ -242,8 +197,7 @@ export const IPC_CUSTOMIZATIONS_RESET = "customizations:reset" as const;
 export const IPC_PREFERENCES_GET_WAKE_WORD = "preferences:getWakeWord" as const;
 export const IPC_PREFERENCES_SET_WAKE_WORD = "preferences:setWakeWord" as const;
 export const IPC_PET_REQUEST_DICTATION = "pet:requestDictation" as const;
-/** Main → renderer broadcast: pet-mic dictation is currently
- *  recording. Drives the pet's "Sending to Stella…" status pill. */
+
 export const IPC_PET_DICTATION_ACTIVE = "pet:dictationActive" as const;
 export const IPC_BACKUP_GET_STATUS = "backup:getStatus" as const;
 export const IPC_BACKUP_RUN_NOW = "backup:runNow" as const;
@@ -265,8 +219,6 @@ export const IPC_CREDENTIAL_REQUEST = "credential:request" as const;
 export const IPC_CREDENTIAL_SUBMIT = "credential:submit" as const;
 export const IPC_CREDENTIAL_CANCEL = "credential:cancel" as const;
 
-// ── Packaged desktop updates (electron-updater) ─────────────────────────────
-
 export const IPC_UPDATES_GET_STATE = "updates:getState" as const;
 export const IPC_UPDATES_CHECK = "updates:check" as const;
 export const IPC_UPDATES_DOWNLOAD = "updates:download" as const;
@@ -274,12 +226,8 @@ export const IPC_UPDATES_RESTART_AND_INSTALL =
   "updates:restartAndInstall" as const;
 export const IPC_UPDATES_STATE_CHANGED = "updates:stateChanged" as const;
 
-// ── Onboarding ──────────────────────────────────────────────────────────────
-
 export const IPC_ONBOARDING_SYNTHESIZE =
   "onboarding:synthesizeCoreMemory" as const;
-
-// ── Discovery ───────────────────────────────────────────────────────────────
 
 export const IPC_DISCOVERY_CORE_MEMORY_EXISTS =
   "discovery:coreMemoryExists" as const;
@@ -298,26 +246,18 @@ export const IPC_DISCOVERY_WRITE_KNOWLEDGE =
 export const IPC_DISCOVERY_COLLECT_ALL_SIGNALS =
   "discovery:collectAllSignals" as const;
 
-// ── Browser ─────────────────────────────────────────────────────────────────
-
 export const IPC_BROWSER_FETCH_JSON = "browser:fetchJson" as const;
 export const IPC_BROWSER_FETCH_TEXT = "browser:fetchText" as const;
 export const IPC_BROWSER_BRIDGE_STATUS = "browser:bridgeStatus" as const;
-
-// ── Home ────────────────────────────────────────────────────────────────────
 
 export const IPC_HOME_LIST_RECENT_APPS = "home:listRecentApps" as const;
 export const IPC_HOME_GET_ACTIVE_BROWSER_TAB =
   "home:getActiveBrowserTab" as const;
 export const IPC_HOME_CAPTURE_APP_WINDOW = "home:captureAppWindow" as const;
 
-// ── Media ───────────────────────────────────────────────────────────────────
-
 export const IPC_MEDIA_SAVE_OUTPUT = "media:saveOutput" as const;
 export const IPC_MEDIA_GET_DIR = "media:getStellaMediaDir" as const;
 export const IPC_MEDIA_COPY_IMAGE = "media:copyImage" as const;
-
-// ── Schedule ────────────────────────────────────────────────────────────────
 
 export const IPC_SCHEDULE_LIST_CRON_JOBS = "schedule:listCronJobs" as const;
 export const IPC_SCHEDULE_LIST_HEARTBEATS = "schedule:listHeartbeats" as const;
@@ -327,12 +267,6 @@ export const IPC_SCHEDULE_GET_EVENT_COUNT =
   "schedule:getConversationEventCount" as const;
 export const IPC_SCHEDULE_UPDATED = "schedule:updated" as const;
 
-// ── Fashion ─────────────────────────────────────────────────────────────────
-//
-// The body photo intentionally does NOT round-trip through Convex storage —
-// we keep raw bytes on disk under `~/.stella/fashion/body.<ext>` and only persist
-// a `hasBodyPhoto` flag to the backend (see `backend/convex/data/fashion.ts`).
-// These IPC channels expose the local file lifecycle to the renderer.
 export const IPC_FASHION_PICK_AND_SAVE_BODY_PHOTO =
   "fashion:pickAndSaveBodyPhoto" as const;
 export const IPC_FASHION_GET_BODY_PHOTO_INFO =
@@ -347,8 +281,6 @@ export const IPC_FASHION_PICK_TRY_ON_IMAGES =
   "fashion:pickTryOnImages" as const;
 export const IPC_FASHION_GET_LOCAL_IMAGE_DATA_URL =
   "fashion:getLocalImageDataUrl" as const;
-
-// ── Local Chat ──────────────────────────────────────────────────────────────
 
 export const IPC_LOCAL_CHAT_GET_OR_CREATE_ID =
   "localChat:getOrCreateDefaultConversationId" as const;
@@ -394,39 +326,15 @@ export const IPC_USER_APPS_START = "userApps:start" as const;
 export const IPC_USER_APPS_STOP = "userApps:stop" as const;
 export const IPC_USER_APPS_UPDATED = "userApps:updated" as const;
 
-// ── Pet Overlay ─────────────────────────────────────────────────────────────
-//
-// The pet renders inside the existing transparent overlay window. State is
-// owned by the main process so toggles from any window (the pet's own
-// context menu, the shell) reach every renderer; agent status is produced
-// by the full-shell chat surface and broadcast to all renderers via
-// `pet:status` so the overlay can drive the right animation and bubble.
-//
-//   pet:setOpen      any window → main → all renderers (toggle visibility)
-//   pet:status       full window → main → all renderers (mood + bubble copy)
-//   pet:openChat     pet → main (focus full window + open the sidebar chat)
-//   pet:sendMessage  pet → main → full window (deliver popover-composer text)
-
 export const IPC_PET_SET_OPEN = "pet:setOpen" as const;
 export const IPC_PET_GET_STATE = "pet:getState" as const;
-/** Renderer drag handler: move the dedicated pet window to an absolute
- *  screen-coords position. Sent on every pointermove so the window
- *  follows the cursor smoothly during a drag gesture. */
+
 export const IPC_PET_MOVE_WINDOW = "pet:moveWindow" as const;
-/** Pet renderer toggles the inline chat composer. Main grows the
- *  dedicated pet window to make room for the composer to the left of
- *  the sprite *and* flips `focusable` on so the textarea can receive
- *  keystrokes (the resting pet window is non-focusable so it never
- *  steals focus from the active app). */
+
 export const IPC_PET_SET_COMPOSER_ACTIVE = "pet:setComposerActive" as const;
-/** Pet voice button: ask main to enter voice (RTC) mode. */
+
 export const IPC_PET_REQUEST_VOICE = "pet:requestVoice" as const;
-/** Renderer-driven mouse passthrough toggle. The pet window is small
- *  but most of its rectangle is transparent space around the sprite +
- *  action arc; we keep `setIgnoreMouseEvents(true, { forward: true })`
- *  by default and let the renderer flip it to `false` only while the
- *  cursor is over a visibly-interactive element. Without this empty
- *  pixels of the pet window block clicks to whatever app is below. */
+
 export const IPC_PET_SET_INTERACTIVE = "pet:setInteractive" as const;
 export const IPC_PET_STATUS = "pet:status" as const;
 export const IPC_PET_OPEN_CHAT = "pet:openChat" as const;

@@ -39,9 +39,7 @@ const fetchWithBrowserSession = async (payload) => {
     return response.text();
 };
 const assertStellaInitialized = (options) => {
-    // The browser bridge is gated on the app being far enough along that a
-    // stellaAppDir has been resolved; the value itself isn't needed here because
-    // the browser service lives inside the desktop tree.
+
     const stellaAppDir = options.getStellaAppDir();
     if (!stellaAppDir?.trim()) {
         throw new Error("Stella root not available; restart the app.");
@@ -104,7 +102,7 @@ export const registerBrowserHandlers = (options) => {
             init: payload.init,
         });
     });
-    // ── Media file operations ──
+
     ipcMain.handle(IPC_MEDIA_SAVE_OUTPUT, async (event, payload) => {
         if (!options.assertPrivilegedSender(event, IPC_MEDIA_SAVE_OUTPUT)) {
             return { ok: false, error: "Blocked untrusted request." };
@@ -130,10 +128,7 @@ export const registerBrowserHandlers = (options) => {
             const validateExisting = expectedImageMime
                 ? async (candidate) => await validateDecodedImageFile(candidate, expectedImageMime)
                 : undefined;
-            // The terminal image_gen path materializes the same deterministic
-            // jobId-based filename before the renderer sees completion. Reuse the
-            // durable file so the sidebar/inline materializers do not download or
-            // create a second artifact for the same media job.
+
             const dataUriMatch = payload.url.match(/^data:([^;,]+);base64,(.+)$/is);
             if (dataUriMatch) {
                 const bytes = decodeBase64ImageBounded(dataUriMatch[2]);
@@ -249,11 +244,7 @@ export const registerBrowserHandlers = (options) => {
             return { ok: false, error: error.message };
         }
     });
-    // Copy a sent message's attachment to the clipboard. Images go on as a
-    // real image (built from the on-disk path, falling back to a data URL);
-    // everything else falls back to writing the file path as text — Electron
-    // exposes no cross-platform "put a file object on the clipboard" API, so
-    // a path-as-text drop is the least-surprising, most-portable behavior.
+
     ipcMain.handle(IPC_MEDIA_COPY_ATTACHMENT, async (event, payload) => {
         if (!options.assertPrivilegedSender(event, IPC_MEDIA_COPY_ATTACHMENT)) {
             return { ok: false, error: "Blocked untrusted request." };
@@ -266,8 +257,7 @@ export const registerBrowserHandlers = (options) => {
                 typeof payload?.mimeType === "string" ? payload.mimeType : "";
             const kind = typeof payload?.kind === "string" ? payload.kind : "";
             const dataUrl = url.startsWith("data:") ? url : "";
-            // A path either comes explicitly (disk-backed files) or as the
-            // attachment `url` when it isn't a data/remote URL.
+
             const filePath =
                 explicitPath ||
                 (url && !dataUrl && !/^https?:\/\//i.test(url) ? url : "");

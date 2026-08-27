@@ -36,9 +36,7 @@ const triggerDreamWhenAgentReady = (context, trigger) => {
 };
 const scheduleOverlayWarmup = (context) => {
     const { state } = context;
-    // The overlay self-creates on demand via `ensureReady()`, so skipping the
-    // warm on a low-memory Windows device only trades first-summon latency for
-    // not carrying a second renderer the session may never use.
+
     if (isLowMemoryWindowsDevice()) {
         getMainLogger()?.process("startup.overlay-warmup.skipped-low-memory-windows", {
             totalMemoryMb: getTotalSystemMemoryMb(),
@@ -62,17 +60,10 @@ const scheduleOverlayWarmup = (context) => {
 };
 const createDeferredStartupTasks = (context) => {
     const { config, state } = context;
-    // Perf: the overlay's cold second-renderer is no longer eagerly built here.
-    // Every overlay show entrypoint (voice/region-capture/screen-guide/
-    // window-highlight) self-creates the window via
-    // `OverlayWindowController.ensureReady()`. Startup schedules a delayed warm
-    // so first use is usually ready without competing with first paint.
+
     return [
         {
-            // Spin up the runtime worker (and warm the model catalog) only after
-            // the renderer has painted, so the spawn + catalog fetch don't contend
-            // with first paint. `startHostRunner` is idempotent and the worker is
-            // spawned on demand if a chat beats this, so deferring is safe.
+
             label: "host-runner",
             run: () => {
                 getMainLogger()?.process("startup.host-runner.kickoff", {
@@ -88,9 +79,7 @@ const createDeferredStartupTasks = (context) => {
             },
         },
         {
-            // One-shot catch-up sweep: anything left in the Dream inbox from the
-            // prior session should get folded immediately on startup, not 60
-            // seconds later.
+
             label: "dream-startup-sweep",
             delayMs: config.startupStageDelayMs,
             run: () => {

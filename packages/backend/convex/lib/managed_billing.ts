@@ -108,21 +108,6 @@ export async function assertManagedUsageAllowed(
   return result;
 }
 
-/**
- * Capability gating — "is this surface on your plan at all".
- *
- * Strictly layered on top of usage accounting, never a replacement for it:
- * a denial here does not touch the per-user media cost tracking in
- * `media_billing.ts`, and passing here says nothing about whether the
- * caller is still inside their spend window. Routes run both checks.
- */
-
-/**
- * Fail closed on an audience we cannot place. `toCapabilityAudience`
- * returns `null` only for a value outside the managed union, which means
- * the audience vocabulary drifted — treat that as the weakest plan rather
- * than handing out Pro surfaces on a typo.
- */
 const capabilityAudienceFor = (
   audience: ManagedModelAudience,
 ): CapabilityAudience => toCapabilityAudience(audience) ?? "free";
@@ -157,11 +142,6 @@ export async function resolveCapabilityAccess(
   };
 }
 
-/**
- * Throwing variant for Convex actions/mutations, which have no Response to
- * return. The `ConvexError` data is the same payload the HTTP routes put in
- * their 402 body, so the desktop parses one shape either way.
- */
 export async function assertPaidMediaTier(
   ctx: BillingMutationCtx,
   ownerId: string,

@@ -39,12 +39,6 @@ const CATEGORY_ICON: Record<ToolActivityCategory, IconName> = {
   other: "box",
 };
 
-/**
- * Inline tool-activity trace — the muted, collapsible "Read 3 files and
- * searched code" line under an assistant turn (mobile port of the desktop
- * `ToolActivityTrace`). Tapping the summary expands the individual settled
- * tool calls; the in-flight call is owned by the working indicator.
- */
 export const ToolActivityTrace = memo(function ToolActivityTrace({
   group,
   colors,

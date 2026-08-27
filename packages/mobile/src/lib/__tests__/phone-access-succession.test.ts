@@ -1,14 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-/**
- * A desktop mints a new device id whenever its local keypair stops being
- * readable. The backend moves the pairing onto the replacement and reports the
- * current id; until this phone re-files its stored pairing under that id it
- * keeps asking about a device that will never register a bridge again, which
- * shows up here as a desktop that is permanently offline.
- */
-
-// Expo's module setup runs on import and expects the RN global.
 (globalThis as Record<string, unknown>).__DEV__ = false;
 
 const store = new Map<string, string>();
@@ -25,8 +16,6 @@ mock.module("expo-secure-store", () => ({
 
 mock.module("react-native", () => ({ Platform: { OS: "ios" } }));
 
-// Pairing crypto is unrelated to succession, and importing it for real drags in
-// expo-crypto's native module chain.
 mock.module("../bridge-crypto", () => ({
   createBridgeProofChallenge: () => "challenge",
   createMobileBridgePairProof: () => ({ issuedAt: 1, proof: "proof" }),
@@ -93,7 +82,7 @@ describe("desktop device id succession on the phone", () => {
     expect(store.has(`${ACCESS_PREFIX}${OLD_ID}`)).toBe(false);
     const preferred = await getPreferredPhoneAccess();
     expect(preferred?.desktopDeviceId).toBe(NEW_ID);
-    // The pair secret is unchanged by a desktop rotation.
+
     expect(preferred?.pairSecret).toBe("pair-secret");
     expect(store.get(PREFERRED_KEY)).toBe(NEW_ID);
   });
@@ -120,8 +109,7 @@ describe("desktop device id succession on the phone", () => {
 
   test("does not re-file when no specific desktop was requested", async () => {
     seedPairing(OLD_ID);
-    // With no id the backend answers with the account's latest desktop, which
-    // is a different machine rather than a succession.
+
     bridgeResponse = bridgePayload("some-other-desktop");
 
     await getDesktopBridgeStatus();

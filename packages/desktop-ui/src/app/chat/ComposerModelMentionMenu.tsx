@@ -34,10 +34,7 @@ export type ComposerModelMentionOption = {
 export type RankedComposerModelMentionOption = ComposerModelMentionOption;
 
 export type ComposerModelMentionMenuHandle = {
-  /**
-   * Returns true when the open menu consumed the key and the composer should
-   * skip its normal Enter-to-send behavior.
-   */
+
   handleKeyDown: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => boolean;
 };
 
@@ -109,10 +106,6 @@ function normalizeRecentMentionValue(value: string): string {
   return value;
 }
 
-/**
- * Finds the @token currently being edited. A trigger must begin at a word
- * boundary, so email addresses do not unexpectedly open the engine menu.
- */
 export function findComposerModelMentionTrigger(
   value: string,
   caret: number | null,
@@ -161,11 +154,6 @@ function compactSearchText(value: string): string {
   return normalizeSearchText(value).replace(/[^a-z0-9]+/g, "");
 }
 
-/**
- * Small deterministic fuzzy scorer. Prefix and word-prefix matches dominate,
- * followed by substrings, then compact/subsequence matches for abbreviated
- * input such as "cld" → "Claude Code".
- */
 export function scoreComposerModelMentionMatch(
   text: string,
   query: string,

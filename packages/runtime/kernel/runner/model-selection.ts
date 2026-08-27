@@ -102,12 +102,6 @@ export const createRunnerImageDescriptionService = (
       ),
   });
 
-/**
- * Resolve Recall through the active run's provider/model selection. Recall is
- * an automatic utility pass, so it still forces low reasoning at execution,
- * but it must not silently cross the user's provider boundary (for example,
- * from OpenRouter to Stella's managed relay and its separate quota).
- */
 export const resolveRunnerRecallLlmRoute = async (
   context: RunnerContext,
   agentType: string,
@@ -116,12 +110,7 @@ export const resolveRunnerRecallLlmRoute = async (
   const activeEngine =
     modelConfigSnapshot?.engine ?? getAgentRuntimeEngine(context.stellaDataDir);
   if (activeEngine === "claude_code_local") {
-    // The Claude Code engine executes Recall synthesis through its own CLI
-    // subscription auth (Haiku light tier). A direct `anthropic/...` provider
-    // route is deliberately NOT attempted here: a saved Anthropic credential
-    // record can exist while its key is unreadable at call time (Keychain
-    // lock, stale entry), and the native adapter then fails with the raw
-    // "No API key for provider: anthropic" instead of degrading to the CLI.
+
     return {
       activeEngine,
       executionEngine: "claude-code",
@@ -171,27 +160,8 @@ export const resolveRunnerRecallLlmRoute = async (
   };
 };
 
-/**
- * Cheap pinned model for internal utility passes (Recall). Same pin the
- * lightweight one-shot helpers use (`stella/light` — DeepSeek V4
- * Flash via the managed relay; the Claude Code engine maps it to its own
- * light model downstream).
- */
 export const RUNNER_UTILITY_PINNED_MODEL = "stella/light";
 
-/**
- * Resolve the route for an internal utility pass, pinned to
- * `RUNNER_UTILITY_PINNED_MODEL`. Candidate order mirrors
- * `runOneShotCompletion` (one-shot-completion.ts): the explicit cheap pin
- * first, then the caller's fallback model (the agent's own configured pick)
- * for signed-out / pure-BYOK users who can't resolve a `stella/*` route.
- *
- * A candidate is usable when it resolves AND either the Claude Code engine
- * handles it (no route credential needed), a credential is available, or the
- * route supports credentialless calls (local/direct provider with a baseUrl).
- * When no candidate is usable we resolve the fallback model verbatim so the
- * caller keeps the exact pre-pin behavior, including its failure modes.
- */
 export const resolveRunnerUtilityLlmRoute = async (
   context: RunnerContext,
   agentType: string,
@@ -207,12 +177,7 @@ export const resolveRunnerUtilityLlmRoute = async (
     } catch {
       continue;
     }
-    // Engine check FIRST, on the synchronous credential-free route: the
-    // Claude Code engine maps the pinned utility model to its own light
-    // model downstream and needs neither a route credential nor catalog
-    // metadata. Resolving metadata before this check put a network fetch
-    // (the stella model catalog) on every utility pass even when the
-    // engine never talks to the stella provider at all.
+
     if (
       shouldUseClaudeCodeAgentRuntime({
         stellaAppDir: context.stellaDataDir,

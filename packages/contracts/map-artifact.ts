@@ -1,34 +1,17 @@
-/**
- * `map-route` artifact — the renderer-agnostic payload behind Stella's inline
- * chat map cards, plus the shared config for the services that power them.
- *
- * Producer: the runtime `map` tool (`runtime/kernel/tools/defs/map.ts`) POSTs
- * natural inputs (place queries, origin → destination) to the stella.sh
- * resolve endpoint, which turns them into this artifact via Google Places /
- * Directions using a server-side key. No API key ever ships in the client.
- *
- * Renderers: the desktop chat card (`desktop/src/app/chat/MapRouteCard.tsx`)
- * and the mobile chat card embed the hosted stella.sh map page with the
- * artifact encoded into the URL; the page draws the interactive Google Map
- * with a referrer-restricted browser key. The same payload shape is mirrored
- * in the stella-website repo (`src/lib/maps/map-artifact.ts`) and the mobile
- * repo; keep them in sync.
- */
-
 import { z } from "zod";
 
 export type MapTravelMode = "driving" | "walking" | "cycling" | "transit";
 
 export type MapArtifactMarker = {
-  /** Stable id within the artifact (e.g. "p1", "origin"). */
+
   id: string;
   name: string;
   lat: number;
   lng: number;
   address?: string;
-  /** Google place id when the marker came from Places resolution. */
+
   placeId?: string;
-  /** Google rating (1–5) when available. */
+
   rating?: number;
   ratingCount?: number;
   role?: "origin" | "destination" | "place";
@@ -41,16 +24,16 @@ export type MapArtifactRouteStep = {
 
 export type MapArtifactRoute = {
   mode: MapTravelMode;
-  /** Marker ids for the endpoints. */
+
   originId: string;
   destinationId: string;
   distanceMeters: number;
   durationSeconds: number;
-  /** Human route summary, e.g. "via US-101 N". */
+
   summary?: string;
-  /** Google encoded overview polyline. */
+
   polyline: string;
-  /** Plain-text turn summary (capped); not required to draw the map. */
+
   steps?: MapArtifactRouteStep[];
 };
 
@@ -61,12 +44,6 @@ export type MapRouteArtifact = {
   markers: MapArtifactMarker[];
   route?: MapArtifactRoute;
 };
-
-/* -------------------------------------------------------------------------
- * Provider config — the one obvious spot to retarget the hosted map service.
- * The website base can be overridden for dev (e.g. a local `next dev` of
- * stella-website) via STELLA_MAPS_SITE_URL in the runtime process.
- * ---------------------------------------------------------------------- */
 
 export const MAPS_SITE_BASE_URL = "https://stella.sh";
 export const MAPS_SITE_URL_ENV = "STELLA_MAPS_SITE_URL";
@@ -97,7 +74,6 @@ export const isMapRouteArtifact = (
 ): value is MapRouteArtifact =>
   mapRouteArtifactSchema.safeParse(value).success;
 
-/** base64url without padding; works in both Node and browser contexts. */
 const toBase64Url = (json: string): string => {
   const bytes = new TextEncoder().encode(json);
   let binary = "";
@@ -109,11 +85,6 @@ const toBase64Url = (json: string): string => {
   return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 };
 
-/**
- * URL of the hosted interactive map for this artifact (the stella.sh embed
- * page). Route steps are stripped — the page doesn't need them and they eat
- * URL budget.
- */
 export const mapsEmbedUrl = (
   artifact: MapRouteArtifact,
   options?: { mode?: "light" | "dark"; siteBaseUrl?: string },
@@ -137,10 +108,6 @@ const APPLE_MAPS_DIRFLG: Record<MapTravelMode, string> = {
   transit: "r",
 };
 
-/**
- * Apple Maps deep link for the card's handoff affordance: a route opens
- * turn-by-turn endpoints, a single/multi pin map opens the first marker.
- */
 export const appleMapsUrl = (artifact: MapRouteArtifact): string => {
   const params = new URLSearchParams();
   if (artifact.route) {

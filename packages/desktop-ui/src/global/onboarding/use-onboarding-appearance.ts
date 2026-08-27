@@ -25,7 +25,7 @@ export function useOnboardingAppearance() {
           );
         }
       } catch {
-        // Preference load is best-effort; fall back to null (no selection yet).
+
       }
     };
     void load();
@@ -36,11 +36,9 @@ export function useOnboardingAppearance() {
 
   const { selectedThemeId, themes, colorMode, gradientMode, gradientColor, forcedMode } =
     useTheme();
-  // While Custom is unpopulated the user is always on it; surface the stock
-  // theme it's displaying as the "selected" one for the onboarding pills.
+
   const themeId = selectedThemeId;
-  // Overlay themes (Custom) inherit their forced mode from the base; the
-  // context resolves this for us.
+
   const isForcedTheme = forcedMode !== undefined;
   const {
     setTheme,
@@ -73,8 +71,7 @@ export function useOnboardingAppearance() {
     const api = window.electronAPI?.system;
     if (!api?.setPersonalityVoice) return;
     void api.setPersonalityVoice(voiceId).catch(() => {
-      // Swallow — preference save is best-effort; the next orchestrator turn
-      // will re-seed from whatever is on disk.
+
     });
   }, []);
 

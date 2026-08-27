@@ -41,7 +41,6 @@ pub async fn save_state(
 ) -> Result<String, String> {
     let cookies = cookies::get_cookies(client, session_id, None).await?;
 
-    // Get current origin's storage
     let origin_js = r#"(() => {
         const result = { origin: location.origin, localStorage: [], sessionStorage: [] };
         try {
@@ -162,7 +161,6 @@ pub async fn load_state(client: &CdpClient, session_id: &str, path: &str) -> Res
     let state: StorageState =
         serde_json::from_str(&json_str).map_err(|e| format!("Invalid state file: {}", e))?;
 
-    // Load cookies
     if !state.cookies.is_empty() {
         let cookie_values: Vec<Value> = state
             .cookies
@@ -172,13 +170,11 @@ pub async fn load_state(client: &CdpClient, session_id: &str, path: &str) -> Res
         cookies::set_cookies(client, session_id, cookie_values, None).await?;
     }
 
-    // Load storage per origin
     for origin in &state.origins {
         if origin.local_storage.is_empty() && origin.session_storage.is_empty() {
             continue;
         }
 
-        // Navigate to origin to set storage
         let navigate_url = format!("{}/", origin.origin.trim_end_matches('/'));
         client
             .send_command(
@@ -188,7 +184,6 @@ pub async fn load_state(client: &CdpClient, session_id: &str, path: &str) -> Res
             )
             .await?;
 
-        // Brief wait for navigation
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
         for entry in &origin.local_storage {

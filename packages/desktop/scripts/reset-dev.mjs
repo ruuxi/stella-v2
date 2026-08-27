@@ -8,9 +8,6 @@ import {
   stopDevProcesses,
 } from './lib/dev-reset.mjs';
 
-// Dev now runs under com.stella.app.dev (see lib/macos-dev-permission-identity.mjs).
-// Reset the dev identity, and keep the legacy com.stella.app so machines that were
-// granted permissions before the split still get cleaned up.
 const macPermissionBundleIds = ['com.stella.app.dev', 'com.stella.app'];
 const macPermissionServices = [
   'Accessibility',
@@ -30,7 +27,7 @@ const resetMacPermissions = () => {
         execFileSync('tccutil', ['reset', service], { stdio: 'ignore' });
         resetPairs.push(`${service}:ALL_APPS`);
       } catch {
-        // No-op if the reset fails on this machine.
+
       }
       continue;
     }
@@ -40,7 +37,7 @@ const resetMacPermissions = () => {
         execFileSync('tccutil', ['reset', service, bundleId], { stdio: 'ignore' });
         resetPairs.push(`${service}:${bundleId}`);
       } catch {
-        // Some services may be unsupported or absent for a given identity.
+
       }
     }
   }

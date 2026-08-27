@@ -19,12 +19,6 @@ type ExtensionReloadResult = {
 
 export type ExtensionWatchScope = "resource-tree" | "data-dir";
 
-/**
- * The non-recursive data-directory watcher exists only to observe the atomic
- * replacement of the `system` mirror. SQLite databases and their WAL/SHM
- * files live beside it, so treating every sibling write as an extension edit
- * creates a permanent reload loop while agents are active.
- */
 export const isExtensionWatchChangeRelevant = (
   scope: ExtensionWatchScope,
   filename: string | Buffer | null,
@@ -37,11 +31,6 @@ export const isExtensionWatchChangeRelevant = (
   return !basename.startsWith(".") && !basename.endsWith("~");
 };
 
-/**
- * Coalesce filesystem bursts into one reload. A busy runtime is retried, but
- * only the first busy result in a pending reload cycle is allowed to log;
- * silent retries keep the runtime log useful during long-running agents.
- */
 export const createExtensionReloadScheduler = (
   reload: (options: { logBusy: boolean }) => Promise<ExtensionReloadResult>,
   options: { debounceMs?: number; busyRetryMs?: number } = {},
@@ -75,8 +64,7 @@ export const createExtensionReloadScheduler = (
       failed = true;
       failure = error;
     } finally {
-      // A rejected reload must never leave the scheduler permanently busy.
-      // Future filesystem changes need to be able to start a fresh cycle.
+
       inFlight = false;
     }
     if (!pending) return;
@@ -86,10 +74,7 @@ export const createExtensionReloadScheduler = (
         error: failure instanceof Error ? failure.message : String(failure),
       });
       if (generation !== attemptedGeneration) {
-        // A real change arrived while the failed attempt was in flight. Its
-        // debounce timer may already have fired and observed `inFlight`, so
-        // explicitly preserve that newer generation without auto-retrying the
-        // failed one forever.
+
         queueAttempt(debounceMs);
       } else {
         pending = false;
@@ -139,10 +124,7 @@ export const createRuntimeInitialization = (
     shutdownTasks: () => void;
   },
 ) => {
-  /**
-   * Keep extension registry swaps synchronous so the orchestrator queue never
-   * observes a partially installed extension set.
-   */
+
   const installLoadedExtensions = (
     extensions: Awaited<ReturnType<typeof loadExtensions>>,
   ): void => {
@@ -150,14 +132,7 @@ export const createRuntimeInitialization = (
       extensions.agents,
     );
     for (const hook of extensions.hooks) {
-      // Force `source: "extension"` even if the disk-loaded hook
-      // declared something else. Bundled hooks register through
-      // `registerBundledHooks` (a separate code path that runs at
-      // worker startup), so anything coming out of `loadExtensions`
-      // is by definition user-installable. Without this clamp, a
-      // hook that exported `{ source: "bundled", ... }` would survive
-      // every subsequent `clearBySource("extension")` sweep and
-      // accumulate duplicate registrations on each F1 reload.
+
       context.hookEmitter.register({
         ...hook,
         source: "extension",
@@ -178,23 +153,12 @@ export const createRuntimeInitialization = (
     });
   };
 
-  /**
-   * Build the runtime services object once. Forwarded to every extension
-   * factory invocation (initial load + every F1 reload) so factories can
-   * close over the services they need at registration time.
-   */
   const buildExtensionServices = (): ExtensionServices => ({
     stellaDataDir: context.stellaDataDir,
     stellaAppDir: context.stellaAppDir,
     store: context.runtimeStore,
   });
 
-  /**
-   * Load extensions from disk and register hooks/tools/providers/agents.
-   * Used by initial startup. The F1 reload path uses
-   * `loadExtensions` + `installLoadedExtensions` directly so it can
-   * sandwich the sweep+install inside one synchronous block.
-   */
   const loadAndRegisterExtensions = async (): Promise<void> => {
     try {
       const extensions = await loadExtensions(
@@ -212,12 +176,7 @@ export const createRuntimeInitialization = (
   };
 
   const initializeRuntime = () => {
-    // Stella's lifecycle hooks (memory, scheduling, and others) live in the
-    // stella-runtime extension and register through the same loader path
-    // as user extensions. There's no separate "bundled" registration
-    // step — the loader is the one place hooks/tools/providers/agents
-    // get installed. Stella-runtime is just an extension that ships in
-    // the source tree.
+
     const extensionsLoad = loadAndRegisterExtensions();
     const modelsLoad = modelRuntime.initialize({
       stellaDataDir: context.stellaDataDir,
@@ -246,22 +205,11 @@ export const createRuntimeInitialization = (
     return context.state.initializationPromise;
   };
 
-  /**
-   * F1: idle gate for the hot-reload path. A reload is safe when no
-   * orchestrator session is streaming and no subagent task is running.
-   * Returns the first reason the runtime is busy so callers can log /
-   * retry intelligently.
-   */
   const computeBusyReason = (): string | null => {
     if (context.state.activeOrchestratorRunId) {
       return `orchestrator run ${context.state.activeOrchestratorRunId} is active`;
     }
-    // Long-lived `OrchestratorSession`s are intentionally NOT a busy
-    // signal: the underlying Pi Agent is idle between turns, and
-    // hot-reloaded extensions don't need it torn down — the next
-    // `runTurn` picks up the new tool catalog / hooks naturally. The
-    // only orchestrator-side busy condition is an active run, gated
-    // above by `activeOrchestratorRunId`.
+
     const activeAgents =
       context.state.localAgentManager?.getActiveAgentCount() ?? 0;
     if (activeAgents > 0) {
@@ -272,18 +220,6 @@ export const createRuntimeInitialization = (
     return null;
   };
 
-  /**
-   * F1 entry point. Idle-checks, sweeps user-extension hooks/tools, and
-   * re-runs the loader. Bundled hooks and built-in tools are untouched.
-   * Returns one of:
-   *   - "reloaded"        success
-   *   - "busy"            runtime is mid-run; caller may retry on idle
-   *   - "not-initialized" runtime hasn't finished startup yet
-   *   - "load-failed"     disk read failed; old extensions stay live and
-   *                       `reason` carries the underlying error message
-   *                       so callers (UI, IPC) can surface it instead of
-   *                       silently treating it as a successful reload.
-   */
   const reloadUserExtensions = async (
     options: { logBusy?: boolean } = {},
   ): Promise<ExtensionReloadResult> => {
@@ -298,16 +234,7 @@ export const createRuntimeInitialization = (
       return { status: "busy", reason: busyReason };
     }
     logger.info("extensions.reload.start");
-    // Load-then-swap to keep the reload atomic w.r.t. the orchestrator
-    // queue. If we swept first and awaited the disk load between sweep
-    // and install, a user message landing during the await would
-    // dequeue against an empty extension registry: missing tools,
-    // missing extension-provided model providers, mid-flight provider
-    // resolution failing over to fallbacks. Doing the disk read FIRST
-    // (the only async step) means the OLD registry stays intact during
-    // I/O; only the synchronous sweep+install block below mutates live
-    // state, and the orchestrator queue can't slip a turn into the
-    // middle of a synchronous block.
+
     let extensions: Awaited<ReturnType<typeof loadExtensions>>;
     try {
       extensions = await loadExtensions(
@@ -315,19 +242,12 @@ export const createRuntimeInitialization = (
         buildExtensionServices(),
       );
     } catch (error) {
-      // Disk-read failure: leave the old extension state in place. The
-      // initial-load behavior of falling back to bundled agents only
-      // applies to startup; a partial reload that wipes the running
-      // registry would be worse than no reload. Surface the failure
-      // distinctly from "reloaded" so the watcher's busy-retry loop
-      // doesn't masquerade a persistent disk problem as success and so
-      // any future UI-driven reload affordance can show the error.
+
       const reason = error instanceof Error ? error.message : String(error);
       logger.warn("extensions.reload.load-failed", { error: reason });
       return { status: "load-failed", reason };
     }
-    // Synchronous swap: clear old + install new in one block. No
-    // awaits between these statements.
+
     context.hookEmitter.clearBySource("extension");
     context.toolHost.unregisterExtensionTools();
     installLoadedExtensions(extensions);
@@ -336,12 +256,6 @@ export const createRuntimeInitialization = (
     return { status: "reloaded" };
   };
 
-  /**
-   * F1 file watcher. Debounces filesystem events on the extensions
-   * directory and calls `reloadUserExtensions`. If the runtime is busy
-   * when a change lands, the watcher schedules a retry on a short timer
-   * so the reload eventually applies after the in-flight run completes.
-   */
   let resourceWatchers: FSWatcher[] = [];
   let modelConfigWatcher: FSWatcher | null = null;
   let modelConfigDebounce: NodeJS.Timeout | null = null;
@@ -357,15 +271,9 @@ export const createRuntimeInitialization = (
 
   const startExtensionWatcher = () => {
     if (resourceWatchers.length > 0) return;
-    // Watch both the extension code tree and the user-editable agent prompts
-    // under `~/.stella/agents/`. A change in either triggers the same reload,
-    // which re-registers agents with fresh prompt body AND frontmatter
-    // (tools / model / maxAgentDepth) — so prompt edits apply without a
-    // restart, mirroring pi's watch→reload model.
+
     const agentsPath = path.join(context.stellaDataDir, "agents");
-    // A brand-new/private harness data directory may not have user agents yet.
-    // Create the watched directory so startup is quiet and later agent-file
-    // creation is observed without requiring a runtime restart.
+
     try {
       mkdirSync(agentsPath, { recursive: true });
     } catch (error) {
@@ -385,9 +293,7 @@ export const createRuntimeInitialization = (
         recursive: true,
         scope: "resource-tree" as const,
       },
-      // The system mirror is replaced by an atomic directory swap, which a
-      // recursive watcher on the old inode would miss — watch the data dir
-      // itself (non-recursive) so the `system` entry rename triggers a reload.
+
       {
         path: context.stellaDataDir,
         recursive: false,
@@ -481,14 +387,14 @@ export const createRuntimeInitialization = (
     try {
       modelConfigWatcher?.close();
     } catch {
-      // Best-effort.
+
     }
     modelConfigWatcher = null;
     for (const watcher of resourceWatchers) {
       try {
         watcher.close();
       } catch {
-        // Best-effort.
+
       }
     }
     resourceWatchers = [];
@@ -499,21 +405,12 @@ export const createRuntimeInitialization = (
     context.state.isRunning = true;
     context.state.isInitialized = false;
     void initializeRuntime().finally(() => {
-      // Start the extensions watcher only after initial load completes,
-      // so we don't race with the first registration.
+
       startExtensionWatcher();
       startModelConfigWatcher();
     });
   };
 
-  /**
-   * Hard cap on how long shutdown will wait for background compactions
-   * to settle. Cracked summarization LLM calls or network stalls would
-   * otherwise pin the worker indefinitely; after this deadline we
-   * proceed with SQLite teardown and any unfinished compaction's write
-   * will fail-and-log against the closed handle (the run was already
-   * "fire-and-forget" from the user's POV — it had nothing to lose).
-   */
   const COMPACTION_DRAIN_TIMEOUT_MS = 5_000;
 
   const drainCompactionsWithTimeout = async (): Promise<void> => {
@@ -558,10 +455,7 @@ export const createRuntimeInitialization = (
     context.state.activeOrchestratorConversationId = null;
     context.state.activeOrchestratorUiVisibility = "visible";
     context.state.activeOrchestratorSession = null;
-    // Tear down all long-lived per-conversation orchestrator sessions
-    // (E1). Each session disposes its underlying Pi `Agent` so message
-    // arrays + closures get reclaimed; future startups rebuild them lazily
-    // when the next turn lands.
+
     for (const session of context.state.orchestratorSessions.values()) {
       try {
         session.dispose();
@@ -580,9 +474,7 @@ export const createRuntimeInitialization = (
     context.state.conversationCallbacks.clear();
     context.state.runCallbacksByRunId.clear();
     await context.toolHost.shutdown();
-    // Drain any in-flight background compactions so SQLite writes
-    // complete before the worker tears down its store handle. Bounded
-    // timeout ensures shutdown doesn't pin on a stalled LLM call.
+
     await drainCompactionsWithTimeout();
   };
 

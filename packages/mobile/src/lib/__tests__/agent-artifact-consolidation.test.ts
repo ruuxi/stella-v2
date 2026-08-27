@@ -160,9 +160,7 @@ describe("consolidateRowArtifacts", () => {
   });
 
   test("bridge-consolidated rows keep remaining files loose (orchestrator-direct)", () => {
-    // A card carrying `agents` (even empty) marks the new bridge contract:
-    // agent files ride the card's sections, so the row's loose artifacts are
-    // orchestrator-direct and must NOT be folded.
+
     const work = agentWork("agent-work:a1", "done", []);
     const direct = markdown("direct", "/docs/notes.md");
     const result = consolidateRowArtifacts([direct, work]);
@@ -211,7 +209,7 @@ describe("agentWorkCardSections", () => {
         filePath: "/Users/u/.stella/outputs/report.pdf",
       },
     });
-    // Path-keyed id so the same file dedupes against the artifacts browser.
+
     expect(sections?.[0]?.files[0]?.id).toBe(
       "conv:pdf:/Users/u/.stella/outputs/report.pdf",
     );
@@ -232,9 +230,7 @@ describe("inlineAgentWorkCardSections", () => {
   };
 
   test("hides files while the card is still running (finish-only inline)", () => {
-    // A running card can already carry sections: a multi-agent group with
-    // stragglers, or a thread resumed via send_input keeps a prior run's
-    // rollup files. Inline chat must not show them mid-run.
+
     expect(inlineAgentWorkCardSections(work("running"))).toBe(null);
   });
 
@@ -334,8 +330,7 @@ describe("settledAgentWorkCards", () => {
       ]),
     );
     expect(cards).toHaveLength(2);
-    // The first completion retains the running aggregate's mounted identity;
-    // only the additional completion enters as a new sibling card.
+
     expect(cards.map((card) => card.key)).toEqual(["grp", "agent-work:a2"]);
     for (const card of cards) {
       expect(card.payload.state).toBe("done");
@@ -401,7 +396,7 @@ describe("settledAgentWorkCards", () => {
     expect(cards).toHaveLength(2);
     expect(cards[0]?.payload.failed).toBe(undefined);
     expect(cards[1]?.payload.failed).toBe(true);
-    // Multi-thread tallies are plain spawns — never the follow-up variant.
+
     expect(cards.every((card) => card.payload.followUp === undefined)).toBe(
       true,
     );

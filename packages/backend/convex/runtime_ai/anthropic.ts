@@ -189,14 +189,6 @@ function normalizeAnthropicModelId(modelId: string): string {
   return nativeId.replace(/-(\d+)\.(\d+)$/u, "-$1-$2");
 }
 
-/**
- * Anthropic deprecated the `temperature` parameter for every Claude model from
- * 4.6 onward (Opus 4.6+/4.7/4.8, Sonnet 4.6+, …). A value of 1.0 is tolerated
- * for backwards compatibility, but any other value — and on the current rollout,
- * sending the field at all — is rejected with a 400 (`temperature is deprecated
- * for this model`). Parse the family version from the normalized id and omit
- * `temperature` for >= 4.6 so new minors are covered without edits.
- */
 function modelDeprecatesTemperature(modelId: string): boolean {
   const id = normalizeAnthropicModelId(modelId);
   const match = /(?:opus|sonnet|haiku)-(\d+)(?:-(\d+))?/.exec(id);
@@ -409,19 +401,6 @@ function reasoningBudget(
   }
 }
 
-/**
- * Apply prompt-caching breakpoints. Anthropic caches everything before each
- * `cache_control` marker; up to 4 breakpoints per request. Strategy:
- *
- *  1. Mark the last tool definition (caches `system` + tool defs).
- *  2. If there are no tools but a system prompt exists, mark the system block.
- *  3. Mark the last block of the last user/tool_result message (caches the
- *     full conversation history through the most recent turn).
- *
- * This produces a stable cacheable prefix across multi-turn agent runs where
- * tool defs and system prompt don't change, and the only delta turn-to-turn
- * is the new tool result + assistant turn appended at the end.
- */
 function applyCacheBreakpoints(body: AnthropicRequestBody): void {
   if (Array.isArray(body.tools) && body.tools.length > 0) {
     body.tools[body.tools.length - 1].cache_control = EPHEMERAL_CACHE;
@@ -462,8 +441,7 @@ function buildRequestBody(
     max_tokens: maxTokens,
     messages: convertMessages(model, context),
     system,
-    // Anthropic deprecated `temperature` for models after Opus 4.6 — sending it
-    // (even at 1.0, on the current rollout) returns a 400. Omit it for those.
+
     temperature: modelDeprecatesTemperature(model.id)
       ? undefined
       : options?.temperature,
@@ -693,7 +671,7 @@ export const streamAnthropic: StreamFunction<
                 next,
               );
             } catch {
-              // Keep streaming partial JSON as deltas; parse when complete.
+
             }
             stream.push({
               type: "toolcall_delta",

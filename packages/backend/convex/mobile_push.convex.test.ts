@@ -1,5 +1,3 @@
-/// <reference types="vite/client" />
-
 import { register as registerRateLimiter } from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
@@ -41,9 +39,6 @@ describe("mobile_push.upsertToken idempotency", () => {
       nowMs: t0,
     });
 
-    // Re-register the same token slightly later (well within the refresh
-    // interval): the row must stay byte-identical so the call is a pure read
-    // and can't produce an OCC write conflict.
     await t.mutation(internal.mobile_push.upsertToken, {
       ownerId: OWNER,
       mobileDeviceId: DEVICE,
@@ -87,7 +82,7 @@ describe("mobile_push.upsertToken idempotency", () => {
   it("refreshes the stamp once it goes stale even if the token is unchanged", async () => {
     const t = createTest();
     const t0 = 1_000_000;
-    const stale = t0 + 7 * 60 * 60 * 1000; // > 6h refresh interval
+    const stale = t0 + 7 * 60 * 60 * 1000;
 
     await t.mutation(internal.mobile_push.upsertToken, {
       ownerId: OWNER,

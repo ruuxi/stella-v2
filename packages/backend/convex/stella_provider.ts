@@ -184,8 +184,6 @@ export const cloneForwardHeaders = (
     headers.set("X-OpenRouter-Title", "Stella");
   }
 
-  // Per-gateway requirements (Wafer's per-request ZDR opt-in) come from the
-  // gateway config so the relay and runtime_ai share one definition.
   const extraHeaders = getManagedGatewayConfig(provider).extraHeaders;
   if (extraHeaders) {
     for (const [key, value] of Object.entries(extraHeaders)) {
@@ -211,10 +209,7 @@ export const upstreamUrl = (
         ? `${base}/chat/completions`
         : `${base}/responses`;
     case "google": {
-      // Preserve whatever verb the desktop adapter asked for —
-      // `:streamGenerateContent`, `:generateContent`, `:countTokens`,
-      // `:embedContent`, etc. Hardcoding stream broke non-streaming
-      // utility calls.
+
       const verbMatch = /:([A-Za-z][A-Za-z0-9]*)$/u.exec(requestUrl.pathname);
       const verb = verbMatch?.[1] ?? "streamGenerateContent";
       return `${base}/v1beta/models/${encodeURIComponent(upstreamModel)}:${verb}${requestUrl.search}`;
@@ -222,33 +217,26 @@ export const upstreamUrl = (
     case "fireworks":
       return `${base}/responses`;
     case "deepseek":
-      // DeepSeek serves both APIs off the root. Honor whichever the client
-      // asked for: desktop builds that predate the `deepseek/` prefix infer
-      // `openrouter` and post chat completions, and they must keep working.
+
       return requestUrl.pathname.endsWith("/chat/completions")
         ? `${base}/chat/completions`
         : `${base}/responses`;
     case "crof":
       return `${base}/chat/completions`;
     case "wafer":
-      // Wafer is OpenAI-compatible chat completions only.
+
       return `${base}/chat/completions`;
     case "xai":
       return requestUrl.pathname.endsWith("/chat/completions")
         ? `${base}/chat/completions`
         : `${base}/responses`;
     case "openrouter":
-      // OpenRouter serves both APIs under /api/v1. Muse Spark 1.2
-      // Contributor (the Stella default) goes through the Responses API;
-      // every other OpenRouter-hosted model stays on chat completions.
-      // Honor whichever the client asked for, mirroring the deepseek/xai
-      // dual-API handling.
+
       return requestUrl.pathname.endsWith("/chat/completions")
         ? `${base}/chat/completions`
         : `${base}/responses`;
     case "meta":
-      // Meta Model API is OpenAI-compatible. Prefer chat/completions when the
-      // client asked for it; otherwise use Responses (Meta's agentic default).
+
       return requestUrl.pathname.endsWith("/chat/completions")
         ? `${base}/chat/completions`
         : `${base}/responses`;
@@ -269,9 +257,7 @@ const isResponsesRequest = (
     provider !== "deepseek" &&
     provider !== "xai" &&
     provider !== "meta" &&
-    // OpenRouter hosts the Responses API for Muse Spark 1.2 Contributor;
-    // the request path (not the model) decides, so any OpenRouter client
-    // that asks for /responses gets Responses end to end.
+
     provider !== "openrouter"
   ) {
     return false;
@@ -480,8 +466,7 @@ const normalizeChatReasoning = (
       ? (body.reasoning as Record<string, unknown>)
       : null;
   const effort = reasoning?.effort;
-  // Accept either incoming representation. The endpoint-specific normalization
-  // below keeps only the wire shape that the selected Meta API accepts.
+
   const topLevelEffort = body.reasoning_effort;
 
   if (resolvedModel === "x-ai/grok-4.5") {
@@ -497,8 +482,6 @@ const normalizeChatReasoning = (
     return;
   }
 
-  // Muse Spark always reasons: `reasoning_effort: "none"` 400s. Map Stella's
-  // "none"/"off" efforts (and missing effort) to a safe default of "low".
   if (
     resolvedModel.startsWith("meta/muse-spark") ||
     resolvedModel.startsWith("muse-spark")
@@ -510,8 +493,7 @@ const normalizeChatReasoning = (
           ? topLevelEffort
           : undefined;
     const safe = raw && raw !== "none" && raw !== "off" ? raw : "low";
-    // Materialize both forms here so endpoint-specific normalization can retain
-    // the one accepted by its upstream API.
+
     body.reasoning_effort = safe;
     body.reasoning = { effort: safe };
     return;
@@ -524,12 +506,6 @@ const normalizeChatReasoning = (
   }
 };
 
-/**
- * Params DeepSeek documents as silently ignored. They cost nothing upstream,
- * but `store: true` in particular is a lie — the Responses API is stateless,
- * so `previous_response_id` continuations would fail. Dropping them keeps the
- * relayed body an honest description of what DeepSeek will actually do.
- */
 const DEEPSEEK_IGNORED_PARAMS = [
   "store",
   "include",
@@ -543,16 +519,6 @@ const DEEPSEEK_IGNORED_PARAMS = [
   "parallel_tool_calls",
 ] as const;
 
-/**
- * DeepSeek V4 Flash's native effort ladder is `low | high | max`, so Stella's
- * wider set has to be clamped. This runs on the relay rather than only in the
- * client's `thinkingLevelMap` because already-shipped desktop builds send
- * efforts (`"medium"`, `"xhigh"`) that are not in DeepSeek's ladder.
- *
- * Stella runs this model at `max` unless the caller asked for something
- * cheaper, so anything unspecified or unrecognized lands there rather than on
- * DeepSeek's own `high` default.
- */
 const deepSeekReasoningEffort = (raw: unknown): string => {
   const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
   switch (value) {
@@ -565,7 +531,7 @@ const deepSeekReasoningEffort = (raw: unknown): string => {
     case "medium":
       return "high";
     default:
-      // "high", "xhigh", "max", and anything unrecognized or absent.
+
       return "max";
   }
 };
@@ -619,14 +585,12 @@ const normalizeDeepSeekBody = (
   );
 
   if (isResponses) {
-    // `summary` is accepted but never generated; sending it is noise.
+
     body.reasoning = { effort };
     delete body.reasoning_effort;
     return;
   }
 
-  // Chat completions use DeepSeek's own `thinking` object plus a top-level
-  // `reasoning_effort`; the nested Responses-style object is not understood.
   body.thinking = { type: effort === "none" ? "disabled" : "enabled" };
   delete body.reasoning;
   if (effort === "none") {
@@ -689,7 +653,7 @@ export const bodyForUpstream = (
   };
   delete (body as Record<string, unknown>).agentType;
   if (provider === "google") {
-    // Google REST puts the model in the URL path, not the body.
+
     delete body.model;
   }
   if (provider === "fireworks" && authorized.serviceTier !== undefined) {
@@ -698,10 +662,7 @@ export const bodyForUpstream = (
   if (isResponsesRequest(provider, request)) {
     normalizeResponsesBody(body);
     if (provider !== "deepseek" && provider !== "openrouter") {
-      // Keep provider-side response state available for Responses
-      // continuations. DeepSeek is stateless and ignores `store` entirely;
-      // OpenRouter's stateful behavior is unverified for this model, so the
-      // relayed body stays limited to the verified request shape.
+
       body.store = true;
     }
   }
@@ -716,16 +677,11 @@ export const bodyForUpstream = (
     }
     normalizeDeepSeekBody(body, !pathIsChatCompletions);
   } else if (provider === "crof" || provider === "wafer") {
-    // Wafer serves the same DeepSeek V4 Flash family over an OpenAI-
-    // compatible chat completions API, so it shares Crof's effort ladder
-    // and body normalization.
+
     normalizeChatCompletionsBody(body, authorized.resolvedModel);
     normalizeCrofBody(body);
   } else if (provider === "openrouter" && !pathIsChatCompletions) {
-    // OpenRouter Responses (Muse Spark 1.2 Contributor): nested `reasoning`
-    // only, same as Meta/xAI Responses. `normalizeChatReasoning` keeps the
-    // model's mandatory reasoning present (mapping none/off to a safe low)
-    // and materializes both wire forms; drop the chat-only one.
+
     normalizeChatReasoning(body, authorized.resolvedModel);
     delete body.reasoning_effort;
   } else if (
@@ -734,18 +690,17 @@ export const bodyForUpstream = (
   ) {
     normalizeChatCompletionsBody(body, authorized.resolvedModel);
     if (provider === "meta" || provider === "xai") {
-      // Direct Meta/xAI chat completions accept top-level `reasoning_effort`.
+
       delete body.reasoning;
     } else {
-      // OpenRouter uses its normalized nested reasoning object.
+
       delete body.reasoning_effort;
     }
   } else if (
     (provider === "meta" || provider === "xai") &&
     !pathIsChatCompletions
   ) {
-    // Meta/xAI Responses use nested `reasoning`, not top-level
-    // `reasoning_effort`.
+
     normalizeChatReasoning(body, authorized.resolvedModel);
     delete body.reasoning_effort;
   }
@@ -831,8 +786,6 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
     responseHeaders.set("Vary", "Origin");
     responseHeaders.delete("content-length");
 
-    // Preserve the upstream body for the client while logging a short error
-    // excerpt for provider diagnostics.
     if (!upstreamResponse.ok && upstreamResponse.body) {
       const [forErrorLog, forForward] = upstreamResponse.body.tee();
       upstreamResponse = new Response(forForward, {
@@ -857,7 +810,7 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
             `[stella-provider] upstream ${relayProvider} returned ${upstreamResponse.status}: ${collected.slice(0, 2048)}`,
           );
         } catch {
-          // Best-effort logging only.
+
         }
       })();
     }
@@ -926,8 +879,7 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
             await ctx.scheduler.runAfter(0, internal.billing.logManagedUsage, {
               ownerId: authorized.ownerId,
               agentType: authorized.agentType,
-              // Billing resolves prices from the canonical managed model so
-              // aliases and provider-native names cannot bypass catalog rates.
+
               model: authorized.resolvedModel,
               durationMs: Date.now() - startedAt,
               success: upstreamResponse.ok && !downstreamCanceled,
@@ -957,7 +909,7 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
               try {
                 controller.error(error);
               } catch {
-                // Ignore downstream error races.
+
               }
             }
           } finally {
@@ -966,7 +918,7 @@ export const stellaProviderRelay = (provider?: ManagedGatewayProvider) =>
               try {
                 controller.close();
               } catch {
-                // Ignore downstream close races.
+
               }
             }
           }

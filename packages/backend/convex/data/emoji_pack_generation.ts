@@ -171,8 +171,7 @@ export const generatePack = action({
   returns: emoji_pack_validator,
   handler: async (ctx, args): Promise<Doc<"emoji_packs">> => {
     const ownerId = await requireConnectedUserIdAction(ctx);
-    // Emoji packs are fal image generations like any other, so they sit
-    // behind the same capability as the media pipeline.
+
     await assertPaidMediaTier(ctx, ownerId, "image_generation");
     const usageLimit = await checkManagedUsageLimit(ctx, ownerId);
     if (!usageLimit.allowed) {

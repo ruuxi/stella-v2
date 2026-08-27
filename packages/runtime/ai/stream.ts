@@ -16,12 +16,6 @@ import type {
 
 export { getEnvApiKey } from "./env-api-keys.js";
 
-/**
- * Build a synthetic terminal error message for a provider that could not
- * be resolved/loaded. Pushed as an `error` event so the stream's
- * `result()` settles and async iteration terminates, matching the
- * provider-level error protocol instead of leaving the stream hung.
- */
 function makeProviderErrorMessage(
 	model: Model<Api>,
 	errorMessage: string,
@@ -46,12 +40,6 @@ function makeProviderErrorMessage(
 	};
 }
 
-/**
- * Drive `inner` (the real provider stream, produced after the lazy
- * provider load resolves) into `out` (the stream returned synchronously
- * to callers). Forwarding every event preserves both consumption modes:
- * async iteration over `out` and `out.result()`.
- */
 async function pipeStream(
 	model: Model<Api>,
 	out: AssistantMessageEventStream,

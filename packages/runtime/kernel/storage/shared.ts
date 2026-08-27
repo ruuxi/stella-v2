@@ -27,13 +27,6 @@ export type LocalChatRecentActivityRecord = LocalChatEventRecord & {
   conversationId: string;
 };
 
-/**
- * Read shape backing `SessionStore.listMessages` — the same fields as
- * `LocalChatEventRecord` plus the turn-scoped `toolEvents` projection.
- * Renderer-facing contract lives at `runtime/contracts/local-chat.ts`
- * (`MessageRecord`); this is the storage-side mirror so callers in the
- * worker can construct one without depending on the contracts module.
- */
 export type LocalChatMessageRecord = LocalChatEventRecord & {
   toolEvents: LocalChatEventRecord[];
   toolEventSummary?: {
@@ -48,52 +41,18 @@ export type LocalChatMessageRecord = LocalChatEventRecord & {
 export type LocalChatMessageWindow = {
   messages: LocalChatMessageRecord[];
   nextCursor?: { timestamp: number; id: string; sequence?: number };
-  /**
-   * Count of user/assistant entries in `messages` whose payload is not
-   * UI-hidden (see `isUiHiddenChatMessagePayload`). The chat hook bases
-   * pagination state on this rather than raw `messages.length` so hidden
-   * system reminders / workspace-creation requests don't keep
-   * `hasOlderMessages` / `isLoadingOlder` stuck against the wrong
-   * threshold.
-   */
+
   visibleMessageCount: number;
 };
 
-/**
- * Read shape backing `SessionStore.listActivity` — the persisted agent-*
- * lifecycle events. Kept separate from the message stream so consumers
- * never need to walk the (much larger) raw event stream.
- *
- * `activities` are ordered ASC by `(timestamp, _id)` so consumers see
- * events in the same order a flat replay would. Task STATE no longer
- * derives from these events (that's `listThreadActivity`); the remaining
- * consumers are file-derived surfaces and the inline chat cards.
- */
 export type LocalChatActivityWindow = {
   activities: LocalChatEventRecord[];
 };
 
-/**
- * Read shape backing `SessionStore.listFiles` — the `tool_result` and
- * `agent-completed` events whose payloads actually carry
- * `fileChanges` / `producedFiles` arrays. The Recent Files surfaces
- * (Chat tab Recent Files, ActivityHistoryDialog "files" section)
- * derive their list from this without scanning the full event stream.
- *
- * Events are ordered ASC by `(timestamp, _id)`. The renderer reuses
- * `deriveConversationFiles` to dedup by path; the storage layer's job
- * is just to surface the candidate events efficiently (the SQL
- * pre-filter on JSON payloads keeps the window genuinely scoped to
- * file-carrying events, so a `limit` of 500 buys 500 file events
- * rather than 500 arbitrary tool results that may or may not touch
- * disk).
- */
 export type LocalChatFilesWindow = {
   files: LocalChatEventRecord[];
 };
 
-/** `(timestamp, id)` cursor used to page chat messages. `null` means
- *  "no cursor" (start at the beginning of the conversation). */
 export type TimelineCursor = { timestamp: number; id: string } | null;
 
 export type LocalChatAppendEventArgs = {
@@ -184,7 +143,7 @@ export type RuntimeThreadCustomMessageEntry = RuntimeThreadSessionEntryBase & {
   customType: string;
   content: string | (TextContent | ImageContent)[];
   display: boolean;
-  /** Structured lifecycle dedup key; never inferred from message text. */
+
   eventId?: string;
 };
 
@@ -250,7 +209,7 @@ export type RuntimeRunEvent = {
   toolCallId?: string;
   toolName?: string;
   resultPreview?: string;
-  /** Optional for compatibility with historical run-event rows. */
+
   isError?: boolean;
   error?: string;
   fatal?: boolean;
@@ -438,23 +397,6 @@ const isStopReason = (
 ): value is AssistantMessage["stopReason"] =>
   stopReasonSchema.safeParse(value).success;
 
-// Reconstructor strategy: validate the shape of fields the runtime currently
-// reads (role, content, timestamps, usage, etc.) so callers can rely on those
-// being well-typed, but pass through any *unlisted* extras unchanged so future
-// fields added to AssistantMessage / ToolResultMessage / UserMessage survive a
-// round-trip without an edit here. The previous strict reconstructor silently
-// dropped unknown fields, which made adding e.g. cache-control or reasoning
-// metadata a multi-file change.
-//
-// The known-key arrays below are linked to the source-of-truth types via a
-// `satisfies (keyof X)[]` annotation. When `UserMessage` /
-// `AssistantMessage` / `ToolResultMessage` add or remove fields, the
-// compiler errors here until the array is updated — which prevents the
-// passthrough path from drifting into "implicitly accept anything." Only
-// fields the parser explicitly validates above need to land in these
-// arrays; any genuinely new field that isn't yet validated (e.g. a future
-// `cacheControl` on AssistantMessage) is preserved through the
-// `collectUnknownExtras` passthrough until validation is added.
 const KNOWN_USER_KEYS_LIST = [
   "role",
   "content",
@@ -478,10 +420,6 @@ const KNOWN_ASSISTANT_KEYS: ReadonlySet<string> = new Set(
   KNOWN_ASSISTANT_KEYS_LIST,
 );
 
-// `addedToolNames` (tool_search era) is intentionally NOT listed: with the
-// producer removed it is no longer part of ToolResultMessage, and leaving it
-// unknown lets `collectUnknownExtras` round-trip the key on old persisted
-// threads untouched.
 const KNOWN_TOOL_RESULT_KEYS_LIST = [
   "role",
   "toolCallId",
@@ -495,19 +433,6 @@ const KNOWN_TOOL_RESULT_KEYS: ReadonlySet<string> = new Set(
   KNOWN_TOOL_RESULT_KEYS_LIST,
 );
 
-/**
- * Type-erased index signature for the unlisted fields preserved by
- * `parseRuntimeThreadPayload`. The discriminated union
- * `PersistedRuntimeThreadPayload` doesn't have an index signature
- * (each branch is a closed object type), so the only way to splice
- * future-added fields back into the round trip is to widen the
- * returned object to "this branch + arbitrary unlisted keys" via a
- * cast at the boundary. Naming the partial shape makes the cast
- * narrower than a flat `as unknown as PersistedRuntimeThreadPayload`:
- * the spread can't smuggle in a field whose value type is not
- * `unknown`-compatible (e.g. a function — JSON.parse can't produce
- * one, but the type system shouldn't have to know that).
- */
 type ThreadPayloadExtras = { readonly [key: string]: unknown };
 
 const collectUnknownExtras = (
@@ -612,11 +537,6 @@ export const eventTextFromPayload = (
   return typeof text === "string" ? text.trim() : "";
 };
 
-/**
- * Chat-events subset the runtime inspects for runtime reminders (stale-user,
- * connector-transition), recall lookups, and the deprecated pre-transition
- * history shim. Structurally a narrowing of `LocalChatEventRecord`.
- */
 export type LocalContextEvent = {
   _id: string;
   timestamp: number;
@@ -625,7 +545,6 @@ export type LocalContextEvent = {
   requestId?: string;
 };
 
-/** Event types that describe conversation content (vs lifecycle noise). */
 export const LOCAL_CONTEXT_EVENT_TYPES = new Set<string>([
   "user_message",
   "assistant_message",
@@ -633,11 +552,6 @@ export const LOCAL_CONTEXT_EVENT_TYPES = new Set<string>([
   "tool_result",
 ]);
 
-/**
- * Walk a newest-first list and keep items until the token budget (or the
- * optional item cap) is exhausted. The newest item is always kept even when
- * it alone exceeds the budget.
- */
 export const selectRecentByTokenBudget = <T>(args: {
   itemsNewestFirst: T[];
   maxTokens: number;

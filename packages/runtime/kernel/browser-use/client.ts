@@ -27,10 +27,6 @@ const MAX_BROWSER_TURN_CLEANUP_TIMEOUT_MS = 2_000;
 const BROWSER_COMMAND_TIMEOUT_GRACE_MS = 5_000;
 let lastBrowserOwnerLeaseIssuedAt = Date.now();
 
-// Contract-checked against packages/stella-browser/protocol/actions.json
-// ("chain": true) by tests/runtime/kernel/browser-use/action-contract.test.ts:
-// adding, removing, or renaming an entry fails that test until the manifest
-// and the Rust daemon (is_chain_allowed_action) agree.
 export const BROWSER_CHAIN_ACTIONS = [
   "healthcheck",
   "navigate",
@@ -190,7 +186,7 @@ export type BrowserChainOptions = BrowserCommandOptions &
     waitTimeoutMs?: number;
     returnSnapshot?: boolean;
     returnScreenshot?: boolean;
-    /** @internal Routes a worker handle without changing the session default. */
+
     __stellaBrowserBackend?: BrowserBackend;
   }>;
 
@@ -365,10 +361,7 @@ const BROWSER_OWNER_LIFECYCLE_ACTIONS = new Set<string>([
   "close_owner",
   "release_owner_lease",
 ]);
-// These requests can be repeated after a managed daemon is replaced without
-// changing page/browser state. Mutations and arbitrary evaluation are
-// deliberately absent: the old daemon may have executed them before its
-// response was lost, and replay protection is daemon-local.
+
 const BROWSER_REPLACEMENT_REPLAY_SAFE_ACTIONS = new Set<string>([
   "healthcheck",
   "url",
@@ -1007,10 +1000,6 @@ const getCommandDeadline = (
     });
   }
 
-  // The daemon/action timeout is an inner deadline. Leave a small transport
-  // grace period so a caller asking waitForURL(..., { timeout: 120_000 }) does
-  // not get cut off by the client's historical 30-second default (or race the
-  // response at exactly 120 seconds).
   const timeoutMs = Math.max(
     commandTimeoutMs,
     requestedTimeout + BROWSER_COMMAND_TIMEOUT_GRACE_MS,
@@ -1275,15 +1264,10 @@ export class BrowserSession implements BrowserSessionClient {
       const releaseLease = this.enqueue(async () => {
         if (!turn) return;
         try {
-          // A kernel/worker generation can disappear after an ordinary command
-          // rejection or transport timeout. Releasing only this exact lease
-          // lets a replacement generation for the same durable task reclaim
-          // the tabs. End-of-task cleanup still runs through endTurn(), which
-          // explicitly finalizes the task's tabs.
+
           await this.cleanupTurn(turn, true, false);
         } catch {
-          // Stale disposal and unavailable transports are best-effort. Rust
-          // lease fencing prevents this cleanup from touching a newer turn.
+
         } finally {
           if (this.activeTurn === turn) this.activeTurn = undefined;
           this.activeTurnBackends.clear();
@@ -1848,10 +1832,7 @@ export class BrowserSession implements BrowserSessionClient {
     ) {
       return;
     }
-    // A timed-out command may leave the single-threaded per-owner daemon
-    // alive but wedged in page evaluation. Dropping only the socket causes
-    // every follow-up to reconnect to that same process. Poison the cached
-    // capability so bootstrap replaces the backend on the next attempt/call.
+
     this.ownerRoute = undefined;
     this.recoverInAppBrowserCapability = true;
   }

@@ -157,15 +157,6 @@ const sendJson = (socket: WebSocket, payload: unknown) => {
   socket.send(JSON.stringify(payload));
 };
 
-/**
- * A deliberately narrow CDP facade over Stella-owned browser tabs.
- *
- * Electron's global remote-debugging switch exposes every Stella renderer on a
- * local unauthenticated port. This adapter instead publishes only targets the
- * in-app browser controller owns, behind an unguessable loopback WebSocket
- * path. Page-domain commands are forwarded through `webContents.debugger` by
- * the controller; browser-level Target commands are virtualized here.
- */
 export class InAppBrowserCdpAdapter {
   private readonly controller: InAppBrowserDebuggerController;
   private readonly commandTimeoutMs: number;
@@ -232,8 +223,7 @@ export class InAppBrowserCdpAdapter {
         return;
       }
       const ownerId = route.ownerId;
-      // Owner routes are bearer capabilities: consume them on the first
-      // successful upgrade so a copied URL cannot attach a second daemon.
+
       this.ownerRoutes.delete(requestPath);
       webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
         Reflect.set(webSocket, "__stellaOwnerId", ownerId);
@@ -359,8 +349,7 @@ export class InAppBrowserCdpAdapter {
           protocolVersion: "1.3",
           product: "Stella/InAppBrowser",
           revision: "0",
-          // Mirror the session-level UA so any CDP client that derives the page
-          // UA from Browser.getVersion sees the real Chrome UA, not "Stella".
+
           userAgent:
             this.controller.getDebuggerUserAgent?.() ??
             buildInAppBrowserUserAgent(undefined),
@@ -518,10 +507,6 @@ export class InAppBrowserCdpAdapter {
         );
       }
 
-      // A replacement daemon enables Page/Runtime while attaching to every
-      // retained tab, and network tooling enables Network on demand. Retry
-      // them once after terminating/reloading a poisoned renderer so
-      // bootstrap does not repeatedly kill healthy new daemons.
       if (BOOTSTRAP_PAGE_METHODS.has(method)) {
         return await send();
       }

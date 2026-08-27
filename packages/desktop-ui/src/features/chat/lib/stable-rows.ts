@@ -1,22 +1,3 @@
-/**
- * Structural-sharing helpers for the chat pipeline.
- *
- * The chat surface re-runs its IPC subscriptions whenever SQLite
- * updates. Each fetch hands back a fresh `MessageRecord[]` of fresh
- * objects, which would invalidate every downstream `useMemo` that
- * depends on the array — derived display state, per-row view models,
- * the row components themselves. With long chats that's O(N) work per
- * stream chunk and forces React to walk the full list on every
- * keystroke worth of streamed text.
- *
- * `stabilizeMessageList` and `stabilizeTurnRows` are the t3code-style
- * fix: keep a `byId` map across renders, reuse the prior reference for
- * any entry whose content hasn't changed, and reuse the entire result
- * array when nothing changed at all. Downstream `useMemo` chains then
- * bail out cheaply, and each row component's `memo(..., areEqual)`
- * short-circuits on the `prev.row === next.row` reference check rather
- * than running a deep compare per row.
- */
 import type {
   EventRecord,
   MessageRecord,
@@ -27,16 +8,6 @@ export type StableTurnRowsState<T extends { id: string }> = {
   result: T[];
 };
 
-/**
- * Returns a stable `T[]` (typically `EventRowViewModel[]`) derived from
- * `current`, reusing prior references for entries whose content is
- * shallow-equal under `isEqual`. Mirrors t3code's
- * `computeStableMessagesTimelineRows`.
- *
- * `isEqual` is called per-row only when the incoming reference differs
- * from the previously stored one; supply a fast field-wise comparison
- * (the chat pipeline uses `eventRowEqual` from `lib/row-equality`).
- */
 export const stabilizeTurnRows = <T extends { id: string }>(
   current: T[],
   previous: StableTurnRowsState<T> | null,
@@ -124,14 +95,6 @@ const sameToolEventSummary = (
     (a?.detailCursor?.sequence ?? null) ===
       (b?.detailCursor?.sequence ?? null));
 
-/**
- * Structural-sharing for `MessageRecord[]` (the messages-stream shape).
- * Reuses prior message refs when `_id`, `timestamp`, `payload` ref, and
- * `toolEvents` id sequence all match. The IPC layer returns fresh objects
- * on every refresh, so without this every `useMemo` downstream would
- * invalidate per stream tick — same problem `stabilizeEventList` solves
- * for the legacy raw-event stream.
- */
 export const stabilizeMessageList = (
   current: MessageRecord[],
   previous: StableMessageListState | null,

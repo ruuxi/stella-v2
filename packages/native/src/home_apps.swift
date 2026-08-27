@@ -1,46 +1,7 @@
-// home_apps - List running user-facing apps for the Stella home suggestion
-// chip strip. Returns each app with its topmost on-screen window title in
-// most-recent-used order.
-//
-// Usage:
-//   home_apps list
-//
-// Output (JSON to stdout):
-//   {
-//     "ok": true,
-//     "apps": [
-//       {
-//         "name": "Cursor",
-//         "bundleId": "com.todesktop...",
-//         "pid": 42308,
-//         "isActive": true,
-//         "windowTitle": "use-auto-context-chips.ts — desktop"
-//       },
-//       …
-//     ],
-//     "warnings": ["titles: cg=2 ax=4 needsAx=5 axTrusted=true"]
-//   }
-//
-// Why this is its own binary instead of a desktop_automation subcommand:
-// the home chip strip is a renderer-side affordance that wants particular
-// behavior (MRU sort, AX title fallback, regular-apps-only AX scope, per
-// element messaging timeouts, diagnostics in warnings). Those choices
-// don't belong in the agent-facing `desktop_automation list-apps` tool,
-// which is contractually a stable list of every running app in a sensible
-// default order.
-//
-// Build: swiftc -O -o out/darwin/home_apps src/home_apps.swift \
-//   -framework AppKit -framework ApplicationServices \
-//   -framework CoreGraphics -framework Foundation
-
 import AppKit
 import ApplicationServices
 import CoreGraphics
 import Foundation
-
-// ---------------------------------------------------------------------------
-// JSON output
-// ---------------------------------------------------------------------------
 
 struct ListedAppPayload: Codable {
     let name: String
@@ -48,9 +9,7 @@ struct ListedAppPayload: Codable {
     let pid: Int32
     let isActive: Bool
     let windowTitle: String
-    /// Base64-encoded PNG data URL of the app's Dock icon, downsized to 32×32.
-    /// `nil` when the app exposes no icon (rare) or encoding failed. The
-    /// renderer falls back to the app name when missing.
+
     let iconDataUrl: String?
 }
 
@@ -70,20 +29,6 @@ func emitJson<T: Encodable>(_ value: T) {
         print("{\"ok\":false,\"apps\":[],\"warnings\":[\"encode failed\"]}")
     }
 }
-
-// ---------------------------------------------------------------------------
-// App icon → base64 PNG data URL
-//
-// `NSRunningApplication.icon` returns a multi-representation NSImage; we
-// downsize to 32×32 and PNG-encode so the renderer can paint a crisp 16px
-// chip on retina without paying for a full-size icon (~256×256, 30+ KB).
-// Encoded payload is ~1–3 KB per app, base64 included.
-//
-// We deliberately avoid `NSImage.lockFocus()` / `tiffRepresentation` here:
-// they need a live NSApplication run loop and noisily fail with
-// `CGImageDestinationFinalize failed` when run from a CLI helper. The
-// CGContext path below is fully Core Graphics and works headless.
-// ---------------------------------------------------------------------------
 
 func encodeAppIconAsBase64(_ icon: NSImage?) -> String? {
     guard let icon, icon.size.width > 0, icon.size.height > 0 else { return nil }
@@ -124,11 +69,6 @@ func encodeAppIconAsBase64(_ icon: NSImage?) -> String? {
     return "data:image/png;base64,\(base64)"
 }
 
-// ---------------------------------------------------------------------------
-// AX helpers (minimal — we only need title reads)
-// ---------------------------------------------------------------------------
-
-/// Read an attribute value as `AnyObject` (or nil if absent / error).
 func axAttributeValue(_ element: AXUIElement, _ attribute: String) -> AnyObject? {
     var value: AnyObject?
     let status = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
@@ -136,7 +76,6 @@ func axAttributeValue(_ element: AXUIElement, _ attribute: String) -> AnyObject?
     return value
 }
 
-/// Read a string attribute, trimmed; nil if absent or empty after trim.
 func axStringValue(_ element: AXUIElement, _ attribute: String) -> String? {
     guard let raw = axAttributeValue(element, attribute) else { return nil }
     if let s = raw as? String {
@@ -146,13 +85,11 @@ func axStringValue(_ element: AXUIElement, _ attribute: String) -> String? {
     return nil
 }
 
-/// Read an attribute that returns an AXUIElement (focused window, etc.).
 func axElementValue(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
     guard let raw = axAttributeValue(element, attribute) else { return nil }
     return unsafeBitCast(raw, to: AXUIElement.self)
 }
 
-/// Read an attribute that returns an array of AXUIElements (windows, etc.).
 func axElementArrayValue(_ element: AXUIElement, _ attribute: String) -> [AXUIElement] {
     guard let raw = axAttributeValue(element, attribute) else { return [] }
     guard CFGetTypeID(raw) == CFArrayGetTypeID() else { return [] }
@@ -167,10 +104,6 @@ func axElementArrayValue(_ element: AXUIElement, _ attribute: String) -> [AXUIEl
     return results
 }
 
-// ---------------------------------------------------------------------------
-// Title collection: CG path + AX fallback
-// ---------------------------------------------------------------------------
-
 struct TitleCollectionResult {
     let titles: [Int32: String]
     let cgFilledCount: Int
@@ -179,18 +112,6 @@ struct TitleCollectionResult {
     let axFilledCount: Int
 }
 
-/// Build a pid → topmost-window-title map for the given pids.
-///
-/// Two-stage:
-///   1. CG path — `CGWindowListCopyWindowInfo` is fastest when it works,
-///      but `kCGWindowName` is silently empty for any background app
-///      under modern macOS Screen Recording privacy gates. That's most
-///      apps in practice, hence the fallback.
-///   2. AX path — `AXUIElementCreateApplication(pid)` + `AXTitle` works
-///      for every app the user has granted Stella's bundle Accessibility
-///      permission for. We constrain to caller-supplied pids (the regular
-///      apps the chip strip will actually display) so the loop stays
-///      bounded.
 func collectTopWindowTitlesByPid(targetPids: Set<Int32>) -> TitleCollectionResult {
     var titles: [Int32: String] = [:]
 
@@ -204,7 +125,7 @@ func collectTopWindowTitlesByPid(targetPids: Set<Int32>) -> TitleCollectionResul
             }
             if !targetPids.contains(pid32) { continue }
             if titles[pid32] != nil { continue }
-            // Layer 0 is normal-priority window content; >0 is chrome.
+
             if let layer = window[kCGWindowLayer as String] as? Int, layer > 0 { continue }
             let rawTitle = (window[kCGWindowName as String] as? String) ?? ""
             let trimmed = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -215,10 +136,6 @@ func collectTopWindowTitlesByPid(targetPids: Set<Int32>) -> TitleCollectionResul
 
     let cgFilledCount = titles.count
 
-    // AX fallback for every target pid CG didn't fill. Per-element
-    // messaging timeouts cap the worst case at ~0.5s per pid (focused
-    // window query + first-window query) so a single beachballed app
-    // can't stall the whole snapshot past the renderer's IPC deadline.
     let needsAxLookup = targetPids.subtracting(titles.keys)
     let axTrusted = AXIsProcessTrusted()
     var axFilledCount = 0
@@ -248,10 +165,6 @@ func collectTopWindowTitlesByPid(targetPids: Set<Int32>) -> TitleCollectionResul
     )
 }
 
-// ---------------------------------------------------------------------------
-// MRU rank: front-to-back z-order of on-screen layer-0 windows
-// ---------------------------------------------------------------------------
-
 func mruRankByPid() -> [Int32: Int] {
     var rank: [Int32: Int] = [:]
     var nextRank = 0
@@ -273,10 +186,6 @@ func mruRankByPid() -> [Int32: Int] {
     return rank
 }
 
-// ---------------------------------------------------------------------------
-// Activation-policy ranking — used to tiebreak unranked apps deterministically.
-// ---------------------------------------------------------------------------
-
 func activationPolicyRank(_ policy: NSApplication.ActivationPolicy) -> Int {
     switch policy {
     case .regular:
@@ -294,19 +203,11 @@ func normalized(_ s: String?) -> String {
     return (s ?? "").lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
-// ---------------------------------------------------------------------------
-// Command
-// ---------------------------------------------------------------------------
-
 func runListCommand() {
     let frontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier
     let runningApps = NSWorkspace.shared.runningApplications
         .filter { $0.activationPolicy != .prohibited && $0.processIdentifier > 0 }
 
-    // Only ask AX for titles of regular apps — the only ones the renderer
-    // ever shows as suggestion chips. Skipping accessory/agent apps
-    // (menubar widgets, login items, helpers) bounds the AX loop so the
-    // helper doesn't get killed for taking too long.
     let targetPids = Set(
         runningApps
             .filter { $0.activationPolicy == .regular }
@@ -319,10 +220,7 @@ func runListCommand() {
 
     let sorted = runningApps
         .sorted { lhs, rhs in
-            // Strict MRU: front-to-back window stack order. Frontmost is
-            // marked separately via `isActive` but doesn't get pinned to
-            // slot 0 — pure recency wins so the strip stays stable when
-            // focus moves around.
+
             let lhsRank = mruRank[lhs.processIdentifier] ?? unrankedSentinel
             let rhsRank = mruRank[rhs.processIdentifier] ?? unrankedSentinel
             if lhsRank != rhsRank { return lhsRank < rhsRank }
@@ -341,11 +239,6 @@ func runListCommand() {
             return lhs.processIdentifier < rhs.processIdentifier
         }
 
-    // The renderer only ever surfaces the top handful of apps as chips,
-    // but we emit the full sorted list so the JS-side noise filters can
-    // run before slicing. Icon encoding (~5ms per app) is by far the
-    // hottest cost in this binary, so cap it to the first N entries the
-    // renderer could plausibly show.
     let iconBudget = 12
     let apps = sorted.enumerated().map { (index, app) -> ListedAppPayload in
         let iconDataUrl = index < iconBudget ? encodeAppIconAsBase64(app.icon) : nil
@@ -364,10 +257,6 @@ func runListCommand() {
     ]
     emitJson(ListAppsPayload(ok: true, apps: apps, warnings: diagnostics))
 }
-
-// ---------------------------------------------------------------------------
-// Entry
-// ---------------------------------------------------------------------------
 
 let args = Array(CommandLine.arguments.dropFirst())
 let command = args.first ?? "list"

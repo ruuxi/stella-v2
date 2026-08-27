@@ -259,11 +259,7 @@ describe("backend OpenAI Responses stream conversion", () => {
           status: "completed",
         },
       },
-      // Fireworks occasionally re-emits the entire reply as a second wave
-      // of `output_text.delta` events (plus a duplicate `output_item.added`
-      // for the same `msg_id`) AFTER `output_item.done`. Without the
-      // finalized-id guard these would resurrect a second text block and
-      // render the assistant reply twice.
+
       {
         type: "response.output_item.added",
         item: {

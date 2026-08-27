@@ -1,30 +1,14 @@
-/**
- * canvas-share serving Worker.
- *
- * Serves published canvas HTML documents from the `stella-canvas-shares` R2
- * bucket at `GET /c/:slug`.
- *
- * Security model: every share is served with a `Content-Security-Policy:
- * sandbox` header. `allow-scripts` is REQUIRED (canvases run JS — Chart.js,
- * D3, etc.), but `allow-same-origin` is deliberately OMITTED. Without
- * `allow-same-origin` the document gets an opaque origin, so shares cannot
- * read cookies/localStorage or reach across to each other. Never add
- * `allow-same-origin` alongside `allow-scripts` — that pairing is the classic
- * sandbox escape.
- */
-
 export interface Env {
-  /** R2 bucket binding for `stella-canvas-shares`. */
+
   SHARES_BUCKET: R2Bucket;
-  /** Global kill-switch. Any truthy value returns 503 for all shares. */
+
   SHARES_DISABLED?: string;
 }
 
 const KEY_PREFIX = "shares";
-/** Slugs are 128-bit base64url tokens (~22 chars); be lenient but strict. */
+
 const SLUG_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 
-/** Content-Security-Policy applied to every served share. */
 const SHARE_CSP =
   "sandbox allow-scripts allow-popups allow-forms allow-downloads;";
 
@@ -51,7 +35,7 @@ const textResponse = (
 const notFound = (): Response => textResponse(404, "Not found");
 
 const parseSlug = (pathname: string): string | null => {
-  // Expect exactly `/c/<slug>`.
+
   const match = /^\/c\/([^/]+)\/?$/.exec(pathname);
   if (!match) return null;
   const slug = decodeURIComponent(match[1]);
@@ -81,8 +65,6 @@ export default {
     const object = await env.SHARES_BUCKET.get(key);
     if (!object) return notFound();
 
-    // Enforce expiry from custom metadata (epoch-ms string). Past-due objects
-    // 404 and are lazily deleted so storage doesn't linger before the cron.
     const expiresAtRaw = object.customMetadata?.["expires-at"];
     if (expiresAtRaw) {
       const expiresAt = Number(expiresAtRaw);

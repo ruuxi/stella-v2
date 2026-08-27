@@ -10,13 +10,7 @@ export type WorkerConnection = {
   process: ChildProcessWithoutNullStreams;
   peer: JsonRpcPeer;
   pid: number;
-  /**
-   * True when the connection factory attached to an already-running
-   * detached worker instead of spawning a fresh one. Reattached workers may
-   * be running stale runtime code (the desktop restarted across a
-   * apply or update), so the host runs the staleness handshake on them;
-   * freshly spawned workers are by definition current.
-   */
+
   attachedToExistingWorker?: boolean;
 };
 
@@ -67,25 +61,16 @@ export const waitForWorkerProcessExit = async (
   });
 };
 
-/**
- * Close the IPC channel without killing the worker process. Used when
- * the worker self-supervises (UDS detached mode) so an Electron restart
- * leaves the worker running for the next host to attach.
- */
 export const disconnectWorker = async (
   child: ChildProcessWithoutNullStreams,
   timeoutMs = 1_500,
 ) => {
-  // Fast path: the process already exited (e.g. an explicit killWorker() just
-  // confirmed it dead, so its socket is already closing). The shim's `exit`
-  // event has likely fired before we could attach a listener, which would make
-  // the loop below sit out the entire timeout fallback waiting for an event
-  // that won't come again. Closing stdin is a no-op on a dead socket.
+
   if (child.exitCode != null || child.signalCode != null) {
     try {
       child.stdin?.end();
     } catch {
-      // Best effort.
+
     }
     return;
   }
@@ -97,15 +82,11 @@ export const disconnectWorker = async (
       resolve();
     };
     child.once("exit", finish);
-    // For UDS adapters, buildProcessShim intentionally maps stdin to the
-    // underlying Socket; ending stdin is the IPC-disconnect operation. For
-    // real ChildProcessWithoutNullStreams, ending stdin makes the child read
-    // EOF and exit naturally — but we give it a timeout fallback so a
-    // noncooperative worker doesn't hang the host.
+
     try {
       child.stdin?.end();
     } catch {
-      // Best effort.
+
     }
     const timer = setTimeout(finish, timeoutMs);
     timer.unref?.();
@@ -115,14 +96,7 @@ export const disconnectWorker = async (
 export type RuntimeWorkerLifecycleControllerOptions = {
   workerEntryPath: string;
   isHostStarted: () => boolean;
-  /**
-   * Connection factory. Production path: spawns or attaches to the
-   * detached worker via `runtime/host/lifecycle.ts`, then wraps the
-   * resulting Unix-domain-socket in a JsonRpcPeer. Returns a
-   * `WorkerConnection` whose `process.kill()` only kills the worker if
-   * `killWorkerOnStop?.(reason)` is true (so an Electron restart leaves
-   * the worker running for the next host). Tests inject a mock here.
-   */
+
   createConnectionAsync: (workerEntryPath: string) => Promise<WorkerConnection>;
   initializeConnection: (connection: WorkerConnection) => Promise<void>;
   onConnectionStarted: (connection: WorkerConnection) => Promise<void>;
@@ -132,24 +106,9 @@ export type RuntimeWorkerLifecycleControllerOptions = {
   fetchHealth: (
     connection: WorkerConnection,
   ) => Promise<WorkerHealthSnapshot | null>;
-  /**
-   * Decide whether `stop(reason)` should also kill the underlying worker
-   * process via SIGTERM/SIGKILL, or whether closing the IPC channel is
-   * enough because the worker self-supervises (UDS-detached path).
-   * Defaults to "always kill" (legacy stdio-child semantics).
-   *
-   * Production passes `(reason) => reason === "restart"` so:
-   *   - "stopped" / "idle" close the socket; worker stays alive ~10s
-   *     so the next Electron host can reattach without loss.
-   *   - "restart" actually kills the worker pid (e.g. runtime code
-   *     reload that needs a fresh process).
-   */
+
   killWorkerOnStop?: (reason: "idle" | "restart" | "stopped") => boolean;
-  /**
-   * Optional explicit worker kill — used by the UDS path when
-   * `killWorkerOnStop` returns true. Falls back to
-   * `connection.process.kill("SIGTERM")` when omitted.
-   */
+
   killWorker?: () => Promise<void>;
 };
 
@@ -234,8 +193,7 @@ export class RuntimeWorkerLifecycleController {
 
     this.setState("starting");
     this.startupPromise = (async () => {
-      // The detached-UDS factory manages its own lifecycle (single-instance
-      // via flock, idempotent attach), so there is no stale-child sweep here.
+
       const connection = await this.options.createConnectionAsync(
         this.options.workerEntryPath,
       );

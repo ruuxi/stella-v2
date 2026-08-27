@@ -59,7 +59,7 @@ type Translate = ReturnType<typeof useT>;
 
 const startDesktopSocialAuth = async (t: Translate) => {
   const convexSiteUrl = getConvexSiteUrl();
-  // Held in memory for this attempt only; the server stores just the hash.
+
   const claimSecret = generateClaimSecret();
   const response = await fetch(`${convexSiteUrl}/api/auth/desktop-social/start`, {
     method: "POST",
@@ -104,8 +104,7 @@ const pollDesktopSocialAuth = async (
       status?: string;
     } | null;
     if (data?.status === "completed") {
-      // The credential is never returned by /link/status — exchange the
-      // secret for it.
+
       const token = await claimSessionToken(
         convexSiteUrl,
         requestId,

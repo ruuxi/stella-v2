@@ -2,11 +2,6 @@ import { Platform, View, type ViewStyle, type StyleProp } from "react-native";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import Feather from "@expo/vector-icons/Feather";
 
-/**
- * Cross-platform icon wrapper that renders SF Symbols on iOS and falls
- * back to Feather on Android / web. Every call site passes a single
- * `name` from `IconName` which we translate to both libraries.
- */
 export type IconName =
   | "menu"
   | "plus"
@@ -90,8 +85,7 @@ const FEATHER_NAMES: Record<
   "volume-x": "volume-x",
   pause: "pause",
   play: "play",
-  // Feather has no "skip back 15 seconds" glyph; the rotate arrows are the
-  // closest thing to the SF Symbol's circular seek affordance.
+
   "rewind-15": "rotate-ccw",
   "forward-15": "rotate-cw",
   waveform: "activity",
@@ -114,8 +108,7 @@ const FEATHER_NAMES: Record<
   clock: "clock",
   "refresh-cw": "refresh-cw",
   "rotate-ccw": "rotate-ccw",
-  // Feather has no dedicated "select text" glyph; the "type" (T) glyph reads as
-  // text, and "corner-up-left" is the closest reply/quote affordance.
+
   "text-cursor": "type",
   quote: "corner-up-left",
   "alert-circle": "alert-circle",
@@ -179,11 +172,11 @@ type IconProps = {
   name: IconName;
   size: number;
   color: string;
-  /** Pass "monochrome" (default), "hierarchical", or "multicolor" for SF Symbols. */
+
   tintMode?: "monochrome" | "hierarchical" | "multicolor";
-  /** Symbol effect for SF Symbols (e.g. "bounce", "pulse"). iOS 17+. */
+
   effect?: "bounce" | "pulse";
-  /** Use the filled variant on iOS when available (we tack on `.fill`). */
+
   filled?: boolean;
   weight?: SymbolViewProps["weight"];
   style?: StyleProp<ViewStyle>;
@@ -201,8 +194,7 @@ export function Icon({
 }: IconProps) {
   if (Platform.OS === "ios") {
     const base = SYMBOL_NAMES[name];
-    // SF Symbol filled variants follow the `<name>.fill` convention; we only
-    // tack it on for symbols that genuinely have a filled glyph.
+
     const filledName =
       filled &&
       (name === "mic" ||

@@ -1,10 +1,3 @@
-/**
- * Model resolver - resolves backend managed model config.
- *
- * Backend execution is Stella-managed. Local/runtime BYOK happens in the
- * desktop runtime, not here.
- */
-
 import type { ActionCtx } from "../_generated/server";
 import type { ManagedProtocol } from "../runtime_ai/managed";
 import { internal } from "../_generated/api";
@@ -22,21 +15,13 @@ import {
 export type ResolvedModelConfig = {
   model: string;
   managedGatewayProvider?: ManagedGatewayProvider;
-  /** Wire-protocol override carried from the mode/pin config (see
-   * `ManagedModelConfig.api`). */
+
   api?: ManagedProtocol;
   temperature?: number;
   maxOutputTokens?: number;
   serviceTier?: string;
   providerOptions?: Record<string, Record<string, unknown>>;
-  /**
-   * Input modalities resolved from `billing_model_prices` (synced from
-   * models.dev). Forwarded to `buildManagedModel` so unsupported parts
-   * (image/audio/video/pdf) are dropped at the gateway boundary instead of
-   * being shipped to providers that may tokenize the data URLs as raw
-   * characters. Defaults to ["text"] when the row is missing or
-   * unpopulated.
-   */
+
   modalitiesInput?: ("text" | "image" | "audio" | "video" | "pdf")[];
 };
 
@@ -109,9 +94,7 @@ export async function resolveModelConfig(
 ): Promise<ResolvedModelConfig> {
   const audience =
     options?.access?.modelAudience ?? options?.audience ?? "free";
-  // Shared with the relay request path so an override resolves to the same
-  // model + gateway provider on both (a mode carries its own provider/options;
-  // an upstream pick infers its provider; everything else is the agent default).
+
   const { config } = resolveStellaModelConfigForSelection(
     options?.modelOverride,
     agentType,

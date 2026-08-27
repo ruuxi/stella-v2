@@ -1,21 +1,3 @@
-/**
- * Remark plugin: replace known emojis in text nodes with image nodes
- * pointing at the AI sprite-sheet cell that should render in their
- * place.
- *
- * Runs as part of Streamdown's normal parse, so the swap happens before
- * the markdown AST becomes hast/HTML — there's no post-render DOM walk
- * and no extra rerender path. Streamdown's parse cache reuses the
- * unchanged spans from previous chunks during streaming.
- *
- * The injected nodes are real `image` mdast nodes with a sentinel URL
- * (see `buildEmojiSpriteUrl`); the markdown `img` component override
- * detects that URL shape and renders a CSS-sprite `<span>` instead of
- * an `<img>`. Falling back to `<img>` if the override is bypassed
- * still yields a valid (if oversized) image, since the URL points at
- * the real sprite asset.
- */
-
 import type { Plugin } from "unified";
 import type { Image, Parent, Root, RootContent, Text } from "mdast";
 import {
@@ -66,7 +48,7 @@ const splitTextNode = (node: Text): RootContent[] | null => {
 };
 
 const transformChildren = (parent: Parent): void => {
-  // Walk in reverse so splice indices stay correct as we replace nodes.
+
   for (let index = parent.children.length - 1; index >= 0; index -= 1) {
     const child = parent.children[index]!;
     if (isText(child as RootContent)) {
@@ -76,9 +58,7 @@ const transformChildren = (parent: Parent): void => {
       }
       continue;
     }
-    // Don't recurse into nodes whose textual children should remain
-    // literal (code, inline code, math, html). For everything else,
-    // walk the subtree.
+
     const type = String((child as RootContent).type);
     if (
       type === "code" ||

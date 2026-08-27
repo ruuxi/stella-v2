@@ -5,13 +5,6 @@ import { bin as bundledBin, install } from "cloudflared";
 import { stopChildProcessTree } from "../../process-runtime.js";
 import { probeBridgePublicHealth } from "./public-health.js";
 
-/**
- * After cloudflared reports a registered connection we don't immediately trust
- * that the public hostname is routable — the Cloudflare edge can take a moment
- * to start routing to a freshly (re)connected connector. We probe the public
- * `/bridge/health` endpoint and only advertise the tunnel URL once it answers,
- * so the phone never receives a URL that isn't actually reachable yet.
- */
 const PUBLIC_READINESS_TIMEOUT_MS = 15_000;
 const PUBLIC_READINESS_PROBE_TIMEOUT_MS = 2_000;
 const PUBLIC_READINESS_RETRY_MS = 3_000;
@@ -30,13 +23,7 @@ export class CloudflareTunnelService {
       getAuthToken: () => Promise<string | null>;
       getConvexSiteUrl: () => string | null;
       getDeviceId: () => string | null;
-      /**
-       * Writable directory the cloudflared binary is installed into. Required
-       * in the packaged app: the `cloudflared` package resolves its default
-       * binary path relative to its own bundled location, which lands inside
-       * the read-only `app.asar`, so neither the existence check nor the
-       * download can ever succeed there.
-       */
+
       getCloudflaredBinDir?: () => string | null;
       onTunnelUrl: (
         url: string | null,
@@ -141,22 +128,10 @@ export class CloudflareTunnelService {
     this.options.onTunnelUrl(null);
   }
 
-  /**
-   * Resolve the cloudflared executable, downloading it on first use.
-   *
-   * The `cloudflared` package's default `bin` is computed from its own module
-   * location. Once bundled into `main.js` that resolves to
-   * `<app>/dist-electron/bin/cloudflared`, which in a packaged build lives
-   * inside `app.asar` — a read-only archive with no `bin` directory. So the
-   * default path can neither be found nor written, and every packaged desktop
-   * fails here before the tunnel ever starts. Installing into an app-data
-   * directory keeps the binary writable and lets it survive app updates.
-   */
   private async ensureCloudflaredBinary(): Promise<string> {
     const binDir = this.options.getCloudflaredBinDir?.()?.trim();
     if (!binDir) {
-      // No writable location configured — fall back to the package default so
-      // unpackaged/dev runs keep working exactly as before.
+
       if (!fs.existsSync(bundledBin)) {
         console.log("[cloudflare-tunnel] Installing cloudflared binary...");
         await install(bundledBin);
@@ -172,7 +147,6 @@ export class CloudflareTunnelService {
       return target;
     }
 
-    // `install` writes straight to the target path and does not create parents.
     fs.mkdirSync(binDir, { recursive: true });
     console.log(`[cloudflare-tunnel] Installing cloudflared to ${target}...`);
     await install(target);
@@ -182,15 +156,9 @@ export class CloudflareTunnelService {
     return target;
   }
 
-  /**
-   * Wait until the public tunnel URL actually serves `/bridge/health`, then
-   * advertise it. If it never becomes reachable within the timeout we advertise
-   * anyway as a last resort, so a working-but-slow edge doesn't leave the phone
-   * permanently unable to connect.
-   */
   private async announceWhenReachable(url: string) {
     const reachable = await this.waitForPublicReadiness(url);
-    // Bail if the tunnel was stopped or the process exited while we probed.
+
     if (!this.started || !this.process) return;
     if (reachable) {
       console.log(`[cloudflare-tunnel] Connected: ${url}`);

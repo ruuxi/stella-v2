@@ -8,11 +8,6 @@ import {
   topSheetMaxHeight,
 } from "../top-sheet-metrics";
 
-// Regression pins for the bottom-tab activity hub redesign, which briefly
-// shipped the hub as a BOTTOM-anchored, 0.94-height sheet: essentially full
-// phone height, with no open band left to tap or drag for dismissal. The hub
-// must stay a TOP-anchored sheet capped at 0.8, leaving the dismiss gap at
-// the BOTTOM of the screen.
 describe("activity sheet anchor + height", () => {
   const activityHubSource = readFileSync(
     join(
@@ -36,11 +31,11 @@ describe("activity sheet anchor + height", () => {
   });
 
   test("default sizing leaves a dismissable gap below the sheet", () => {
-    const windowHeight = 852; // iPhone 15 points
+    const windowHeight = 852;
     const sheetHeight = topSheetMaxHeight(windowHeight);
     expect(sheetHeight).toBe(682);
     expect(sheetHeight).toBeLessThan(windowHeight);
-    // At least ~15% of the screen stays open scrim below the sheet.
+
     expect(windowHeight - sheetHeight).toBeGreaterThan(windowHeight * 0.15);
   });
 

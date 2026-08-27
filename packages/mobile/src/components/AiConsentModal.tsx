@@ -30,9 +30,7 @@ export function AiConsentModal({ visible, onAccept, onDecline }: Props) {
       animationType="slide"
       presentationStyle="fullScreen"
       onRequestClose={() => {
-        // Apple guideline 5.1.1: consent must be explicit and cannot be
-        // dismissed silently. Decline path is handled by the dedicated
-        // button below.
+
       }}
     >
       <SafeAreaView style={styles.container}>

@@ -25,7 +25,6 @@ pub struct AuthProfile {
     pub last_login_at: Option<String>,
 }
 
-// Keep legacy Credential alias for backward compatibility
 pub type Credential = AuthProfile;
 
 fn validate_profile_name(name: &str) -> Result<(), String> {
@@ -80,8 +79,6 @@ fn parse_key_hex(hex_str: &str) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
-/// Read the encryption key from STELLA_BROWSER_ENCRYPTION_KEY env var or
-/// ~/.stella-browser/.encryption-key file (matching the Node.js implementation).
 fn get_encryption_key() -> Result<Vec<u8>, String> {
     if let Ok(key_hex) = std::env::var(ENCRYPTION_KEY_ENV) {
         return parse_key_hex(&key_hex).ok_or_else(|| {
@@ -111,7 +108,6 @@ fn get_encryption_key() -> Result<Vec<u8>, String> {
     ))
 }
 
-/// Ensure an encryption key exists, auto-generating one if needed.
 fn ensure_encryption_key() -> Result<Vec<u8>, String> {
     if let Ok(key) = get_encryption_key() {
         return Ok(key);
@@ -148,7 +144,6 @@ fn ensure_encryption_key() -> Result<Vec<u8>, String> {
     Ok(key.to_vec())
 }
 
-/// Encrypt a profile to the JSON+base64 format compatible with Node.js.
 fn encrypt_profile(profile: &AuthProfile) -> Result<String, String> {
     let key = ensure_encryption_key()?;
     let cipher =
@@ -160,7 +155,6 @@ fn encrypt_profile(profile: &AuthProfile) -> Result<String, String> {
     let mut iv = [0u8; 12];
     getrandom::getrandom(&mut iv).map_err(|e| format!("Failed to generate IV: {}", e))?;
 
-    // aes_gcm appends the 16-byte auth tag to the ciphertext
     let encrypted = cipher
         .encrypt(aes_gcm::Nonce::from_slice(&iv), plaintext.as_bytes())
         .map_err(|e| format!("Encryption failed: {}", e))?;
@@ -181,7 +175,6 @@ fn encrypt_profile(profile: &AuthProfile) -> Result<String, String> {
         .map_err(|e| format!("Failed to serialize payload: {}", e))
 }
 
-/// JSON envelope written by Node.js encryption (src/encryption.ts).
 #[derive(Deserialize)]
 struct EncryptedPayload {
     #[allow(dead_code)]
@@ -212,7 +205,6 @@ fn decrypt_profile(data: &[u8]) -> Result<AuthProfile, String> {
             .decode(&payload.data)
             .map_err(|e| format!("Invalid base64 data: {}", e))?;
 
-        // aes_gcm expects ciphertext || auth_tag as input to decrypt
         let mut combined = Vec::with_capacity(ciphertext.len() + auth_tag.len());
         combined.extend_from_slice(&ciphertext);
         combined.extend_from_slice(&auth_tag);
@@ -228,7 +220,6 @@ fn decrypt_profile(data: &[u8]) -> Result<AuthProfile, String> {
         return serde_json::from_str(&json_str).map_err(|e| format!("Invalid profile data: {}", e));
     }
 
-    // Fallback: try as plain unencrypted JSON profile
     serde_json::from_str::<AuthProfile>(text)
         .map_err(|_| "Profile is not a valid encrypted or unencrypted payload".to_string())
 }
@@ -397,10 +388,10 @@ mod tests {
         let _lock = AUTH_TEST_MUTEX.lock().unwrap();
         let original = std::env::var(ENCRYPTION_KEY_ENV).ok();
         let test_key = "a".repeat(64);
-        // SAFETY: TEST_MUTEX serializes all test access so no concurrent mutation.
+
         unsafe { std::env::set_var(ENCRYPTION_KEY_ENV, &test_key) };
         f();
-        // SAFETY: TEST_MUTEX serializes all test access so no concurrent mutation.
+
         match original {
             Some(val) => unsafe { std::env::set_var(ENCRYPTION_KEY_ENV, val) },
             None => unsafe { std::env::remove_var(ENCRYPTION_KEY_ENV) },
@@ -502,8 +493,6 @@ mod tests {
                 last_login_at: None,
             };
 
-            // Encrypt with aes_gcm, then manually build the JSON payload
-            // to simulate what Node.js would produce
             let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
             let mut iv = [0u8; 12];
             getrandom::getrandom(&mut iv).unwrap();

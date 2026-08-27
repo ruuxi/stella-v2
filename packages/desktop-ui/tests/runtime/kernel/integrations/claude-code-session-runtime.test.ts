@@ -103,7 +103,7 @@ describe("claude-code-session-runtime", () => {
       "sonnet[1m]",
       "opus[1m]",
     ]);
-    // Aliases surface friendly names + descriptions, not raw CLI tokens.
+
     const defaultOption = models.find((model) => model.id === "default");
     expect(defaultOption?.displayName).toBe("Default");
     expect(defaultOption?.description).toContain("Recommended");
@@ -191,7 +191,7 @@ describe("claude-code-session-runtime", () => {
   });
 
   it("classifies refusal/overload CLI errors for the fable fallback policy", () => {
-    // Refusal wording verified against CLI 2.1.32.
+
     expect(
       isClaudeCodeModelRefusalOrOverloadError(
         "API Error: Claude Code is unable to respond to this request, " +
@@ -214,8 +214,7 @@ describe("claude-code-session-runtime", () => {
   });
 
   it("detects the CLI's model-fallback announcement with pretty from/to names", () => {
-    // Real shape (CLI 2.1.32): the fallback is announced as a
-    // system/informational message, not a structured event.
+
     const fallback = getClaudeCodeModelFallbackFromStreamEvent({
       type: "system",
       subtype: "informational",
@@ -230,7 +229,6 @@ describe("claude-code-session-runtime", () => {
     expect(fallback?.text).toContain("Fable 5");
     expect(fallback?.text).toContain("Opus 4.8");
 
-    // 1M-context variants pretty-print too.
     expect(
       getClaudeCodeModelFallbackFromStreamEvent({
         type: "system",
@@ -240,8 +238,6 @@ describe("claude-code-session-runtime", () => {
       })?.fromModel,
     ).toBe("Fable 5 (1M context)");
 
-    // Wording that drops the model ids still detects the switch with safe
-    // generic labels.
     const generic = getClaudeCodeModelFallbackFromStreamEvent({
       type: "system",
       subtype: "informational",
@@ -250,7 +246,6 @@ describe("claude-code-session-runtime", () => {
     expect(generic?.fromModel).toBe("the configured model");
     expect(generic?.toModel).toBe("a fallback model");
 
-    // Unrelated informational messages and other system events are ignored.
     expect(
       getClaudeCodeModelFallbackFromStreamEvent({
         type: "system",
@@ -325,8 +320,7 @@ describe("claude-code-session-runtime", () => {
       emit(messageStart());
       emit(textBlockStart());
       emit(textDelta("First message ends here."));
-      // Claude Code streams the next assistant message through the same
-      // step emitter with no separator of its own.
+
       emit(messageStart());
       emit(textBlockStart());
       emit(textDelta("Second message starts here."));
@@ -565,22 +559,21 @@ describe("claude-code-session-runtime", () => {
         prompt: "First turn.",
         modelId: "claude-code/sonnet",
       });
-      // Same session, new model: the streaming process must restart with
-      // the new --model (resuming the same CLI conversation).
+
       await runClaudeCodeTurn({
         ...baseRequest,
         runId: "run-2",
         prompt: "Second turn.",
         modelId: "claude-code/opus",
       });
-      // Unchanged config: the process is reused, not respawned.
+
       await runClaudeCodeTurn({
         ...baseRequest,
         runId: "run-3",
         prompt: "Third turn.",
         modelId: "claude-code/opus",
       });
-      // Effort change alone also forces a restart (env-var config).
+
       await runClaudeCodeTurn({
         ...baseRequest,
         runId: "run-4",
@@ -712,8 +705,7 @@ describe("claude-code-session-runtime", () => {
       };
       expect(inlineSettings.workflowKeywordTriggerEnabled).toBe(false);
       expect(inlineSettings.disableWorkflows).toBe(true);
-      // Claude's built-ins and every ambient/user MCP server stay disabled;
-      // only the run-private Stella server is visible.
+
       const toolsIndex = argv.indexOf("--tools");
       expect(argv[toolsIndex + 1]).toBe("mcp__stella__*");
       const mcpConfigIndex = argv.indexOf("--mcp-config");
@@ -1124,13 +1116,11 @@ describe("claude-code-session-runtime", () => {
         .trim()
         .split("\n")
         .map((line) => JSON.parse(line) as { argv: string[]; content: string });
-      // Vanilla answers pass through verbatim — even JSON-looking text is the
-      // final answer, never a structured Stella decision.
+
       expect(result.text).toBe('{"final": "answer that looks like JSON"}');
       expect(records).toHaveLength(1);
       const argv = records[0]?.argv ?? [];
-      // Stock Claude Code: no built-in-tool strip, no Stella decision schema,
-      // no MCP override, no injected system prompt.
+
       expect(argv).toContain("--dangerously-skip-permissions");
       expect(argv).toContain("--model");
       expect(argv).toContain("opus");
@@ -1232,7 +1222,7 @@ describe("claude-code-session-runtime", () => {
         engine: "claude_code_local_vanilla",
       }),
     ).toBe("vanilla-session");
-    // A takeover run on the same thread must never resume the vanilla id.
+
     expect(
       getExternalEngineSessionId({
         store,
@@ -1254,7 +1244,7 @@ describe("claude-code-session-runtime", () => {
         engine: "claude_code_local",
       }),
     ).toBe("takeover-session");
-    // ...and the reverse holds once the takeover id overwrites the slot.
+
     expect(
       getExternalEngineSessionId({
         store,
@@ -1397,7 +1387,7 @@ describe("claude-code-session-runtime", () => {
         .split("\n")
         .map((line) => JSON.parse(line) as { argv: string[] });
       expect(spawns).toHaveLength(2);
-      // The respawn resumes the transcript the first process reported.
+
       expect(spawns[1]?.argv).toContain("--resume");
       expect(spawns[1]?.argv).toContain("fake-session");
     } finally {
@@ -1530,7 +1520,7 @@ describe("claude-code-session-runtime", () => {
       });
 
       expect(result.text).toBe("Reconciled without redoing edits.");
-      // The interrupted attempt's file write still reaches the turn result.
+
       expect(result.fileChanges).toEqual([
         { path: "/tmp/mutated.md", kind: { type: "update" } },
       ]);
@@ -1542,7 +1532,7 @@ describe("claude-code-session-runtime", () => {
           (line) => JSON.parse(line) as { spawnCount: number; content: string },
         );
       expect(prompts).toHaveLength(2);
-      // The retry must NOT replay the original (mutating) prompt.
+
       expect(prompts[1]?.content).not.toContain("Apply the hardening edits.");
       expect(prompts[1]?.content).toContain(
         "Do NOT redo, repeat, or revert those tool calls or file operations",
@@ -1616,7 +1606,7 @@ describe("claude-code-session-runtime", () => {
       });
 
       expect(result.text).toBe("Recovered final answer.");
-      // Files written during the malformed attempt are not dropped.
+
       expect(result.fileChanges).toEqual([
         { path: "/tmp/report.md", kind: { type: "add" } },
       ]);
@@ -1721,7 +1711,7 @@ describe("claude-code-session-runtime", () => {
       expect(records).toHaveLength(3);
       expect(records[1]?.argv).toContain("--resume");
       expect(records[2]?.argv).not.toContain("--resume");
-      // The reseed must reconcile, never replay the fallback wholesale.
+
       expect(
         records[2]?.content.startsWith("The previous step was interrupted"),
       ).toBe(true);
@@ -1729,7 +1719,7 @@ describe("claude-code-session-runtime", () => {
         "Do NOT redo, repeat, or revert those tool calls or file operations",
       );
       expect(records[2]?.content).toContain("/tmp/guarded.md");
-      // Task context survives as reference-only material.
+
       expect(records[2]?.content).toContain("for reference only");
       expect(records[2]?.content).toContain("HISTORY SEED");
     } finally {
@@ -1818,7 +1808,7 @@ describe("claude-code-session-runtime", () => {
       });
 
       expect(result.text).toBe("Recovered after loop.");
-      // The interrupted attempt's write survives onto the turn result.
+
       expect(result.fileChanges).toEqual([
         { path: "/tmp/looped.md", kind: { type: "update" } },
       ]);
@@ -1836,7 +1826,7 @@ describe("claude-code-session-runtime", () => {
         );
       expect(records).toHaveLength(2);
       expect(records[1]?.argv).not.toContain("--resume");
-      // The reseed reconciles instead of replaying resumeFallbackPrompt.
+
       expect(
         records[1]?.content.startsWith("The previous step was interrupted"),
       ).toBe(true);
@@ -1898,23 +1888,22 @@ describe("claude-code-session-runtime", () => {
         tools: [],
         executeTool: async () => ({ result: "unused" }),
       };
-      // Turn 1 leaves an idle process behind…
+
       await runClaudeCodeTurn({
         ...baseRequest,
         modelId: "claude-code/sonnet",
       });
-      // …turn 2's model change restarts it, registering a replacement child
-      // under the same session key while the old child is still closing.
+
       const second = await runClaudeCodeTurn({
         ...baseRequest,
         modelId: "claude-code/opus",
       });
       expect(second.text).toBe("ok");
-      // Let the old child's close event fire.
+
       await new Promise((resolve) => setTimeout(resolve, 400));
-      // The stale close handler must not evict the NEW child from tracking.
+
       expect(claudeCodeSessionHasActiveProcess(sessionKey)).toBe(true);
-      // And the replacement still serves turns.
+
       const third = await runClaudeCodeTurn({
         ...baseRequest,
         modelId: "claude-code/opus",
@@ -2360,7 +2349,7 @@ describe("claude-code-session-runtime", () => {
 
     expect(prompt).toContain("What should I do next?");
     expect(prompt).not.toContain("<stella_thread_history");
-    // A lost resume still reseeds the fresh session from the history.
+
     expect(resumeFallbackPrompt).toContain("<stella_thread_history");
     expect(resumeFallbackPrompt).toContain("What should I do next?");
   });
@@ -2443,9 +2432,6 @@ describe("claude-code-session-runtime", () => {
         timestamp: 1_100,
       });
 
-      // The claude-code engine hydrates through the same overlay-applying
-      // `loadThreadMessages` the native engine uses: pre-checkpoint messages
-      // are replaced by the checkpoint summary.
       const threadHistory = store.loadThreadMessages(threadKey);
       const historyPromptMessage = buildExternalStellaHistoryPromptMessage({
         opts: {
@@ -2719,7 +2705,7 @@ describe("claude native tool-use integrity gate", () => {
   it("refuses a call whose args match the repair of an interrupted stream", async () => {
     const correlator = createClaudeNativeToolUseCorrelator();
     const fullJson = JSON.stringify({ description: "Fix the runtime", prompt: longPrompt });
-    const cut = fullJson.slice(0, 900); // mid prompt string, no stop event
+    const cut = fullJson.slice(0, 900);
     streamToolUse(correlator, {
       id: "toolu_interrupted",
       name: "mcp__stella__spawn_agent",

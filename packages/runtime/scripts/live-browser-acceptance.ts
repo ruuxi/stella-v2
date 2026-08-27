@@ -320,10 +320,7 @@ try {
   report.disposableTabId = disposable.tabId;
   completedSuccessfully = true;
 } finally {
-  // A timed-out tab_new can have an unknown outcome. Finalizing the owner in
-  // this outer boundary closes both known and outcome-unknown creations before
-  // dispose releases the lease. The explicit preserve-marked mode is the only
-  // successful-run exception because its purpose is manual tab inspection.
+
   if (!completedSuccessfully || !leaveDeliverableTab) {
     try {
       const cleanup = data(

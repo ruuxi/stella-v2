@@ -18,11 +18,6 @@ const normalizeDeviceId = (value: unknown): string => {
   return value.trim().slice(0, MAX_DEVICE_ID_LENGTH);
 };
 
-/**
- * Legacy public chat action retained for older mobile builds.
- * Current mobile Computer chat goes over the authenticated desktop bridge
- * and this action deliberately does not enqueue or persist message content.
- */
 export const sendChat = action({
   args: {
     message: v.string(),
@@ -106,16 +101,6 @@ export const sendChat = action({
   },
 });
 
-/**
- * Cancel a previously-deferred remote turn (the `pending` requestId returned
- * by `sendChat`). Patches the request row to `cancelled`; the local device's
- * remote-turn bridge subscribes to a dedicated cancel feed and aborts the
- * active orchestrator run when it sees the matching requestId.
- *
- * Idempotent and best-effort: if the desktop already published a reply the
- * cancel becomes a no-op. Auth mirrors `sendChat` — same pair-secret check
- * so an unrelated device can't cancel someone else's turn.
- */
 export const cancelChat = action({
   args: {
     requestId: v.string(),

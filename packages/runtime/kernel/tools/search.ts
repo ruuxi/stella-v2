@@ -1,7 +1,3 @@
-/**
- * Search tools: Grep handler.
- */
-
 import { promises as fs } from "fs";
 import path from "path";
 import { spawn } from "child_process";
@@ -270,7 +266,6 @@ export const handleGrep = async (
     : undefined;
   const maxResults = args.max_results ? Number(args.max_results) : 100;
 
-  // Safety check: block system directories
   const pathBlock = isBlockedPath(basePath);
   if (pathBlock) return { error: pathBlock };
   if (scopedRoot && !isPathInsideRoot(basePath, scopedRoot)) {
@@ -330,7 +325,6 @@ export const handleGrep = async (
     };
   }
 
-  // Fallback: simple scan.
   const files = baseStat.isFile() ? [basePath] : await walkFiles(basePath);
   let regex: RegExp;
   try {
@@ -370,7 +364,7 @@ export const handleGrep = async (
         }
       }
     } catch {
-      // Skip unreadable files.
+
     }
     if (results.length >= maxResults) break;
   }

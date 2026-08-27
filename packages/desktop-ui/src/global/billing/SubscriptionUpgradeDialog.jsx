@@ -19,41 +19,18 @@ const DEFAULT_PLAN_LABEL = {
 };
 const planLabelOf = (plan, status) => status?.plans?.[plan]?.label ?? DEFAULT_PLAN_LABEL[plan];
 const storageKeyFor = (accountKey) => `stella-billing-last-seen-plan:${accountKey}`;
-/** Fired after the dialog persists a new paid plan so other surfaces (the
- *  sidebar account pill, for example) can refetch their cached billing
- *  status without holding a live `useQuery` watcher of their own. */
+
 export const SUBSCRIPTION_UPGRADED_EVENT = "stella:subscription-upgraded";
-/**
- * Mounted once near the app root. Watches the Convex `billing` query (which
- * is already updated reactively by Stripe webhooks on the backend) and
- * surfaces a celebratory dialog the first time the user's plan transitions
- * from one value to a different paid value.
- *
- * The "first read after sign-in" is treated as a silent seed so existing
- * paid users don't see the dialog every cold start. Downgrades and
- * cancellations are also silent — we just update the stored baseline so a
- * future upgrade re-celebrates.
- *
- * Convex is reactive end-to-end here: Stripe's `checkout.session.completed`
- * (and `customer.subscription.*`) webhook lands in
- * `backend/convex/http_routes/stripe.ts`, which writes the new plan to the
- * user's billing row; this `useQuery` pushes the change to the desktop
- * over the existing Convex WebSocket within ~1s. No extra IPC or deep-link
- * channel is needed.
- */
+
 export function SubscriptionUpgradeDialog() {
     const t = useT();
     const { hasConnectedAccount } = useAuthSessionState();
     const { user } = useCurrentUser();
-    // Scope the "last seen plan" to the signed-in account so switching
-    // accounts on the same machine doesn't cross-fire (or silently mask) a
-    // celebration that belongs to the other identity.
+
     const accountKey = user?.email?.toLowerCase() ?? "";
     const billingStatus = useQuery(api.billing.getSubscriptionStatus, hasConnectedAccount ? {} : "skip");
     const [shownPlan, setShownPlan] = useState(null);
-    // Guard against the React 18 StrictMode double-effect in dev firing the
-    // seed/celebrate logic twice for the same account+plan tuple. We only
-    // need to act once per change.
+
     const lastProcessedRef = useRef(null);
     useEffect(() => {
         if (!hasConnectedAccount) {
@@ -80,12 +57,10 @@ export function SubscriptionUpgradeDialog() {
         if (stored === plan)
             return;
         uiState.setItem(storageKey, plan);
-        // First read after sign-in (no baseline) is a silent seed so we don't
-        // celebrate plans the user has been on for months.
+
         if (stored === null)
             return;
-        // Downgrades / cancellations: update the baseline so a re-upgrade
-        // re-celebrates, but stay silent.
+
         if (!PAID_PLANS.has(plan))
             return;
         setShownPlan(plan);

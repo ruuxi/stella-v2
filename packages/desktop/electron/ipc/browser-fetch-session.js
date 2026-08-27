@@ -4,24 +4,8 @@ import { getStellaBrowserBridgeEnv } from "@stella/runtime/kernel/tools/stella-b
 import { resolveStellaBrowserRoot } from "../utils/stella-browser-paths.js";
 import { PRIVILEGED_RENDERER_FETCH_TIMEOUT_MS } from "./renderer-safe-url.js";
 
-/**
- * Stable command owner for all privileged renderer fetches.
- *
- * The Stella Browser extension (≤1.2.6) creates a fresh `about:blank` owner
- * tab as a side effect of `cookies_get` whenever the command owner has no
- * tabs yet, and only reaps owner tabs after 24 hours of inactivity. The old
- * one-shot `BrowserSession(randomUUID())` per fetch therefore leaked one
- * blank tab per `browser:fetchJson`/`browser:fetchText` call — apps that
- * poll an API (e.g. Tower Reader loading MangaDex/Atsumaru chapters) piled
- * up dozens of blank spinner tabs.
- *
- * Reusing one owner bounds the side effect to at most a single blank tab,
- * and the idle reaper below finalizes (closes) that tab shortly after the
- * fetch burst ends.
- */
 const FETCH_OWNER_ID = "stella-desktop-privileged-fetch";
 
-/** How long after the last fetch the owner's helper tab is closed. */
 const IDLE_TAB_REAP_MS = 10_000;
 
 let sharedSession = null;
@@ -30,10 +14,7 @@ let lastLeaseIssuedAt = 0;
 
 const createSession = () => {
   const stellaBrowserRoot = resolveStellaBrowserRoot();
-  // The extension tracks one lease per owner and rejects a lease whose
-  // timestamp is not strictly newer than the last one it accepted. Sessions
-  // for this stable owner are recreated after errors and idle reaps, so keep
-  // the issued-at strictly monotonic even within one millisecond.
+
   lastLeaseIssuedAt = Math.max(Date.now(), lastLeaseIssuedAt + 1);
   return new BrowserSession({
     sessionId: FETCH_OWNER_ID,
@@ -57,11 +38,6 @@ const dropSharedSession = (session) => {
   void session.dispose().catch(() => {});
 };
 
-/**
- * Close the shared owner's helper tab(s) and transport. Best-effort: a
- * wedged bridge must never propagate out of the reaper, but failures are
- * logged — a silent failure here is how helper tabs leak forever.
- */
 export const reapBrowserFetchTabs = async () => {
   if (reapTimer) {
     clearTimeout(reapTimer);
@@ -71,9 +47,7 @@ export const reapBrowserFetchTabs = async () => {
   if (!session) return;
   sharedSession = null;
   try {
-    // The CDP backend closes every tab recorded for this owner and returns
-    // { closedTabIds, releasedTabIds, kept }. Already-closed tabs are
-    // success, so an idle reap after the browser went away stays quiet.
+
     await session.command("finalize_tabs", { keep: [] });
   } catch (error) {
     console.warn(
@@ -106,8 +80,7 @@ export const getBrowserCookieHeader = async (targetUrl) => {
     if (cookies.length === 0) return null;
     return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
   } catch (error) {
-    // Do not reuse a session after a failure: transport wedges and protocol
-    // errors must not poison subsequent fetches.
+
     dropSharedSession(session);
     throw error;
   } finally {

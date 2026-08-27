@@ -1,9 +1,3 @@
-/**
- * Home full-chat surface.
- *
- * Projects local `EventRecord[]` into row view models via `useEventRows`
- * and mounts the shared `<ChatTimeline>`.
- */
 import {
   memo,
   useEffect,
@@ -26,11 +20,6 @@ import type { EventRowViewModel } from "@/features/chat/conversation-row-types";
 const USER_MESSAGE_ENTER_MS = 360;
 const ASSISTANT_MESSAGE_ENTER_MS = 300;
 
-/**
- * Tracks message ids whose enter animation has already played. Module
- * scope so a home→chat transition (ConversationEvents remount) or a
- * dev remount doesn't replay the fade/grow on the same bubble.
- */
 const justSentPlayedIds = new Set<string>();
 const justSentActiveUntil = new Map<string, number>();
 const assistantEnterPlayedIds = new Set<string>();
@@ -43,29 +32,20 @@ type Props = {
   maxItems?: number;
   pendingUserMessageId?: string | null;
   queuedUserMessages?: QueuedUserMessage[];
-  /** Reveals a hover "X" on each queued bubble to cancel + restore its text. */
+
   onCancelQueued?: (message: QueuedUserMessage) => void;
-  /** Working/agent indicator rendered below the last assistant message. */
+
   indicator?: InlineWorkingIndicatorMountProps;
   hasOlderMessages?: boolean;
   isLoadingOlder?: boolean;
   isLoadingHistory?: boolean;
-  /** Threaded through to `<ChatTimeline>` → `<LegendList>`. */
+
   listRef?: RefObject<LegendListRef | null>;
   className?: string;
   contentContainerStyle?: CSSProperties;
   estimatedItemSize?: number;
 };
 
-/**
- * Returns the set of row ids that should carry `justSent` this frame.
- * Registration runs synchronously during render so the CSS enter
- * animation starts on the bubble's first paint — the previous
- * `useEffect` path painted the row at full opacity, then added the
- * class a frame later, which read as a double appear/re-render on
- * the first send after a cold load (especially when ConversationEvents
- * mounts for the first time on home→chat).
- */
 function useOneShotIds(
   ids: readonly string[],
   durationMs: number,
@@ -76,8 +56,7 @@ function useOneShotIds(
   const [tick, setTick] = useState(0);
 
   const active = useMemo(() => {
-    // `tick` is an explicit clock revision: the timeout below advances it to
-    // expire IDs even when the input list itself has not changed.
+
     void tick;
     const now = performance.now();
     const set = new Set<string>();
@@ -112,15 +91,6 @@ function useOneShotIds(
   return active;
 }
 
-/**
- * Ids of assistant rows that should play the one-shot arrival entrance.
- *
- * Only the LAST row qualifies: a live reply always lands at the tail, while
- * a history mount or an older-page prepend never does — so scrollback and
- * the initial paint stay animation-free without a separate "seen" pass. The
- * per-conversation seed registers whatever is already at the tail as played
- * so switching threads doesn't replay its last reply.
- */
 function useAssistantArrivalIds(
   rows: readonly EventRowViewModel[],
   conversationId: string | null | undefined,

@@ -22,16 +22,11 @@ const DEFAULT_CODEX_REQUEST_TIMEOUT_MS = 60 * 1000;
 const DEFAULT_CODEX_EFFORT_MODEL_LIST_TIMEOUT_MS = 2_000;
 const DEFAULT_CODEX_TURN_STARTUP_IDLE_TIMEOUT_MS = 15 * 1000;
 const DEFAULT_CODEX_TURN_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
-// Ceiling while confirmed turn work (native command / Stella tool) is in
-// flight. A native command that never leaves inProgress, or a Stella tool
-// whose bookkeeping leaked, would otherwise disarm the watchdog forever.
-// (Bridged Stella tools are separately bounded at 10 min by
-// executeToolWithInactivityBound; this only backstops native commands and
-// leaked tracking.)
+
 const DEFAULT_CODEX_TURN_TOOL_IDLE_TIMEOUT_MS = 20 * 60 * 1000;
 const CODEX_AGENT_MESSAGE_COMPLETION_GRACE_MS = 750;
 export const CODEX_LIGHT_MODEL = "gpt-5.4-mini";
-/** Cheap model reserved for automatic utility work, not explicit agent spawns. */
+
 export const CODEX_UTILITY_MODEL = "gpt-5.6-luna";
 const execFileAsync = promisify(execFile);
 const stableJson = (value) => {
@@ -271,16 +266,11 @@ export const getCodexRuntimePreferences = (stellaDataDir, stellaModel, modelOver
     const prefs = stellaDataDir ? loadLocalPreferences(stellaDataDir) : null;
     const lightDefault = stellaModel?.trim() === "stella/light" ? CODEX_LIGHT_MODEL : undefined;
     const preferredModel = prefs?.codexModel;
-    // Provenance, not string-matching: only an explicit pick (marker set at
-    // selection time) makes a Stella Light spawn honor the saved model. Legacy
-    // prefs.json without the marker read as non-explicit, so a baked default
-    // (including gpt-5.5) still downgrades light spawns to CODEX_LIGHT_MODEL.
+
     const userSelectedModel = prefs?.codexModelExplicit === true && preferredModel
         ? preferredModel
         : undefined;
-    // A per-spawn pin (spawn_agent `model: codex/<model>`) is an explicit user
-    // request for this one run — it outranks the env escape hatch and the saved
-    // codexModel preference, neither of which it modifies.
+
     const model = modelOverride?.trim() ||
         process.env.STELLA_CODEX_MODEL?.trim() ||
         userSelectedModel ||
@@ -366,12 +356,7 @@ const truncateStderr = (chunks) => {
         return text;
     return text.slice(text.length - MAX_STDERR_CAPTURE);
 };
-/**
- * True only when the child has actually terminated. `child.killed` is
- * "a signal was SENT", not "the process died" — using it as a ladder
- * guard made SIGTERM/SIGKILL unreachable after the SIGINT in
- * `abortCodexProcess`, so a signal-ignoring app-server survived.
- */
+
 const codexProcessIsDead = (child) => child.exitCode !== null || child.signalCode !== null;
 const killCodexProcess = (child) => {
     if (codexProcessIsDead(child))
@@ -380,7 +365,7 @@ const killCodexProcess = (child) => {
         child.kill("SIGTERM");
     }
     catch {
-        // Process may have already exited.
+
     }
     const sigkillTimer = setTimeout(() => {
         if (codexProcessIsDead(child))
@@ -389,7 +374,7 @@ const killCodexProcess = (child) => {
             child.kill("SIGKILL");
         }
         catch {
-            // Process may have already exited.
+
         }
     }, SIGKILL_TIMEOUT_MS);
     child.once("exit", () => clearTimeout(sigkillTimer));
@@ -401,7 +386,7 @@ const abortCodexProcess = (child) => {
         child.kill("SIGINT");
     }
     catch {
-        // Fall through to the harder kill path.
+
     }
     setTimeout(() => killCodexProcess(child), SIGTERM_TIMEOUT_MS);
 };
@@ -564,9 +549,7 @@ class CodexAppServerClient {
         this.child.stderr.on("data", (chunk) => {
             this.stderrChunks.push(chunk);
         });
-        // stdin is a separate EventEmitter from ChildProcess. If app-server
-        // exits between the liveness check and write, EPIPE lands here; owning
-        // it keeps the runtime worker alive and rejects in-flight RPC calls.
+
         this.child.stdin.on("error", (error) => {
             this.rejectAll(new Error(`Codex app-server write failed: ${error.message}`));
         });
@@ -594,9 +577,7 @@ class CodexAppServerClient {
         return () => this.closeHandlers.delete(handler);
     }
     isClosed() {
-        // A signaled (dying) child counts as closed for reuse: the shared
-        // client must not accept new work while the kill ladder tears the
-        // app-server down.
+
         return (Boolean(this.closedError) ||
             this.child.killed ||
             codexProcessIsDead(this.child));
@@ -660,7 +641,7 @@ class CodexAppServerClient {
             await this.request("turn/interrupt", { threadId, turnId });
         }
         catch {
-            // The process may already be shutting down.
+
         }
     }
     async steer(threadId, turnId, input) {
@@ -923,7 +904,7 @@ const startOrResumeCodexThread = async (args) => {
             return response.thread.id;
         }
         catch {
-            // Fall through to a fresh Codex thread when the persisted id is stale.
+
         }
     }
     const response = await args.client.request("thread/start", buildCodexThreadStartParams({
@@ -1002,13 +983,7 @@ export const runCodexAgentTurn = async (request) => {
         : null;
     const fileChanges = [];
     let finalText = "";
-    // Tracks whether each streamed agentMessage item is a commentary preamble
-    // (keyed by item id). Codex streams a visible commentary preamble before a
-    // tool; external-engines flushes that preamble separately as its own bubble
-    // (see flushPreambleBeforeTool), so its deltas must not also accumulate into
-    // finalText — otherwise the same commentary can surface twice (once as the
-    // flushed preamble, once inside the persisted final answer) whenever no
-    // final-answer item overwrites finalText.
+
     const agentMessageIsCommentary = new Map();
     let threadId;
     let turnId;
@@ -1094,11 +1069,7 @@ export const runCodexAgentTurn = async (request) => {
             if (turnIdleTimer)
                 clearTimeout(turnIdleTimer);
             turnIdleTimer = undefined;
-            // App-server notifications are edge-triggered. A native command or a
-            // Stella tool may remain silent while it legitimately runs beyond the
-            // stream idle window, so while confirmed work is in flight the watchdog
-            // is armed with the much longer tool ceiling instead of disarming —
-            // work that never reports completion must not hang the turn forever.
+
             const workInFlight = activeTurnWork.size > 0;
             const timeoutMs = workInFlight
                 ? configuredTimeoutMs("STELLA_CODEX_TURN_TOOL_IDLE_TIMEOUT_MS", DEFAULT_CODEX_TURN_TOOL_IDLE_TIMEOUT_MS)
@@ -1115,9 +1086,7 @@ export const runCodexAgentTurn = async (request) => {
                 reject(new Error(workInFlight
                     ? `Codex app-server reported no turn progress for ${Math.round(timeoutMs / 1000)}s with ${activeTurnWork.size} work item(s) still marked in flight.`
                     : `Codex app-server did not report turn progress for ${Math.round(timeoutMs / 1000)}s.`));
-                // Shared-client guard (same policy as the abort handler): one
-                // turn's idleness must interrupt only ITS turn, never tear down a
-                // shared app-server that other turns are using.
+
                 if (threadId && turnId) {
                     void client.interrupt(threadId, turnId).catch(() => { });
                 }
@@ -1167,10 +1136,7 @@ export const runCodexAgentTurn = async (request) => {
                     reject(new Error(turnFailure ?? "Codex run failed."));
                     return;
                 case "item/agentMessage/delta":
-                    // Only final-answer deltas accumulate into finalText. Commentary
-                    // preambles are streamed live and flushed as their own bubble, so
-                    // accumulating them here would duplicate the commentary in the
-                    // persisted final answer when no final item overwrites finalText.
+
                     if (agentMessageIsCommentary.get(notification.params.itemId) !== true) {
                         finalText += notification.params.delta;
                     }
@@ -1267,9 +1233,7 @@ export const runCodexAgentTurn = async (request) => {
                 refreshTurnIdleTimer?.();
                 let toolResult;
                 try {
-                    // Same per-tool inactivity bound as the native loop: a Stella tool
-                    // that never settles gets cancelled with an error result instead of
-                    // holding the turn open until the run-level ceiling kills it.
+
                     toolResult = await executeToolWithInactivityBound({
                         toolName,
                         signal: request.abortSignal,

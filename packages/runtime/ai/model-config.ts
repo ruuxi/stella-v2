@@ -1,7 +1,3 @@
-// STELLA-GUARD: model-provider-config
-// This file resolves model-provider credentials and headers from user-owned
-// configuration. Do not log resolved values or weaken secret handling.
-
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { Type } from "@sinclair/typebox";
@@ -161,8 +157,7 @@ const compatSchema = Type.Object({
   sendSessionIdHeader: Type.Optional(Type.Boolean()),
   supportsLongCacheRetention: Type.Optional(Type.Boolean()),
   supportsEagerToolInputStreaming: Type.Optional(Type.Boolean()),
-  // dormant: nothing reads these since tool_search removal; kept only so
-  // generated model catalogs (contracts/models.generated.ts) still validate.
+
   supportsToolReferences: Type.Optional(Type.Boolean()),
   supportsToolSearch: Type.Optional(Type.Boolean()),
   deferredToolsMode: Type.Optional(Type.Literal("kimi")),
@@ -211,7 +206,6 @@ const modelsJsonSchema = Type.Object({
   providers: Type.Record(Type.String(), providerSchema),
 });
 
-/** Strip JSONC line comments and trailing commas without touching strings. */
 const stripJsonComments = (value: string): string =>
   value
     .replace(/"(?:\\.|[^"\\])*"|\/\/[^\n]*/gu, (match) =>

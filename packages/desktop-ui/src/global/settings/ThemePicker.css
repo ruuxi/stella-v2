@@ -1,8 +1,3 @@
-/* ThemePicker - Aura-style theme dropdown */
-
-/* Wide enough for eight swatches on a row, matching the onboarding theme
- * step. Still a large net saving: this replaces a scrolling sixteen-row list
- * with two rows. */
 [data-theme-picker] {
   width: 296px;
 }
@@ -17,16 +12,11 @@
   padding: 4px 2px 16px;
 }
 
-/* The inline settings surface is full-width, so it can fit more per row than
- * the fixed-width popover. */
 [data-theme-picker][data-theme-picker-inline="true"]
   [data-slot="theme-picker-theme-grid"] {
   grid-template-columns: repeat(auto-fill, 26px);
 }
 
-/* Selected appearance / gradient / theme rows use the secondary variant;
-   re-skin them to the canonical accent selected state so theme selection
-   matches every other "you are here" surface. */
 [data-theme-picker] [data-component="button"][data-variant="secondary"] {
   background-color: var(--select-fill);
   border-color: var(--select-border);
@@ -101,10 +91,6 @@
   padding: 0 8px;
 }
 
-/* Themes are swatches of the surface they produce rather than a list of
- * names — see @/ui/theme-orb. Eight to a row, so the stock sixteen make an
- * even 8x2 and a seventeenth (a populated Custom) starts a short third row
- * instead of reflowing everything. */
 [data-slot="theme-picker-theme-grid"] {
   display: grid;
   grid-template-columns: repeat(8, 26px);
@@ -121,8 +107,7 @@
   border-radius: 50%;
   border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent);
   background: none;
-  /* Barely dimmed: dimming a swatch falsifies the one thing it exists to
-   * show, so selection is carried by the ring below instead. */
+
   opacity: 0.82;
   cursor: pointer;
   transition:
@@ -154,7 +139,6 @@
   transform: scale(0.94);
 }
 
-/* The label row doubles as the name readout for the hovered swatch. */
 [data-slot="theme-picker-label"][data-row] {
   display: flex;
   align-items: baseline;
@@ -170,7 +154,6 @@
   font-weight: var(--weight-medium);
 }
 
-/* Trigger button styling */
 [data-slot="theme-picker-trigger"] {
   padding: 0 12px;
   font-size: var(--font-size-sm);

@@ -122,10 +122,6 @@ impl RefMap {
         self.next_ref = 1;
     }
 
-    /// Drop ref entries that were not included in the snapshot returned to
-    /// the caller. Snapshot generation can discover more nodes than fit in
-    /// the public output budget; keeping those refs would expose handles the
-    /// caller never saw and cannot reason about.
     pub fn retain_ids(&mut self, visible_ids: &HashSet<String>) {
         self.map.retain(|ref_id, _| visible_ids.contains(ref_id));
     }
@@ -175,7 +171,6 @@ pub async fn resolve_element_center(
             .get(&ref_id)
             .ok_or_else(|| format!("Unknown ref: {}", ref_id))?;
 
-        // Try cached backend_node_id first (fast path)
         if let Some(backend_node_id) = entry.backend_node_id {
             let result: Result<DomGetBoxModelResult, String> = client
                 .send_command_typed(
@@ -192,10 +187,9 @@ pub async fn resolve_element_center(
             if let Ok(r) = result {
                 return Ok(box_model_center(&r.model));
             }
-            // backend_node_id is stale; re-query the accessibility tree below
+
         }
 
-        // Fallback: re-query the accessibility tree to find a fresh node by role/name
         let fresh_id = find_node_id_by_ref_entry(client, session_id, entry).await?;
         let result: DomGetBoxModelResult = client
             .send_command_typed(
@@ -211,8 +205,6 @@ pub async fn resolve_element_center(
         return Ok(box_model_center(&result.model));
     }
 
-    // Semantic (aria=) or CSS selector: resolve via the unified resolver,
-    // then compute the center of the bounding rect.
     let object_id = resolve_selector_object_id(client, session_id, selector_or_ref).await?;
     let result: EvaluateResult = client
         .send_command_typed(
@@ -242,12 +234,6 @@ pub async fn resolve_element_center(
     }
 }
 
-/// Resolve any non-ref selector string (semantic `aria=` payloads or plain
-/// CSS) to a Runtime objectId via a single injected resolver script.
-///
-/// The injected expression evaluates to the matched ELEMENT on success or to
-/// a plain STRING error message on failure; the RemoteObject type
-/// distinguishes the two.
 pub async fn resolve_selector_object_id(
     client: &CdpClient,
     session_id: &str,
@@ -302,7 +288,6 @@ pub async fn resolve_element_object_id(
             .get(&ref_id)
             .ok_or_else(|| format!("Unknown ref: {}", ref_id))?;
 
-        // Try cached backend_node_id first (fast path)
         if let Some(backend_node_id) = entry.backend_node_id {
             let result: Result<DomResolveNodeResult, String> = client
                 .send_command_typed(
@@ -321,10 +306,9 @@ pub async fn resolve_element_object_id(
                     return Ok(oid);
                 }
             }
-            // backend_node_id is stale; re-query the accessibility tree below
+
         }
 
-        // Fallback: re-query the accessibility tree to find a fresh node by role/name
         let fresh_id = find_node_id_by_ref_entry(client, session_id, entry).await?;
         let result: DomResolveNodeResult = client
             .send_command_typed(
@@ -343,7 +327,6 @@ pub async fn resolve_element_object_id(
             .ok_or_else(|| format!("No objectId for ref {}", ref_id));
     }
 
-    // Semantic (aria=) or CSS selector fallback via the unified resolver.
     resolve_selector_object_id(client, session_id, selector_or_ref).await
 }
 
@@ -357,10 +340,6 @@ struct RefCandidate {
     ancestor_path: Vec<String>,
 }
 
-/// Re-query the accessibility tree and resolve a fresh backendDOMNodeId using
-/// progressively broader heuristics:
-/// 1. exact role/name/nth parity with the original snapshot
-/// 2. scored role-preserving fuzzy match using description/value/ancestor path
 async fn find_node_id_by_ref_entry(
     client: &CdpClient,
     session_id: &str,
@@ -604,7 +583,7 @@ fn select_best_candidate<'a>(
 }
 
 fn box_model_center(model: &BoxModel) -> (f64, f64) {
-    // content quad: [x1,y1, x2,y2, x3,y3, x4,y4]
+
     if model.content.len() >= 8 {
         let x = (model.content[0] + model.content[2] + model.content[4] + model.content[6]) / 4.0;
         let y = (model.content[1] + model.content[3] + model.content[5] + model.content[7]) / 4.0;
@@ -747,29 +726,24 @@ pub async fn is_element_checked(
 ) -> Result<bool, String> {
     let object_id = resolve_element_object_id(client, session_id, ref_map, selector_or_ref).await?;
 
-    // Mirrors Playwright's getChecked() with follow-label retargeting:
-    // 1. If element is a native checkbox/radio input, return .checked
-    // 2. If element has an ARIA checked role, return aria-checked
-    // 3. Follow label → input association (label.control)
-    // 4. Check for nested checkbox/radio input as last resort
     let result: EvaluateResult = client
         .send_command_typed(
             "Runtime.callFunctionOn",
             &CallFunctionOnParams {
                 function_declaration: r#"function() {
                     var el = this;
-                    // Native checkbox/radio input
+
                     var tag = el.tagName && el.tagName.toUpperCase();
                     if (tag === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio')) {
                         return el.checked;
                     }
-                    // ARIA role-based checked state
+
                     var role = el.getAttribute && el.getAttribute('role');
                     var ariaCheckedRoles = ['checkbox','radio','switch','menuitemcheckbox','menuitemradio','option','treeitem'];
                     if (role && ariaCheckedRoles.indexOf(role) !== -1) {
                         return el.getAttribute('aria-checked') === 'true';
                     }
-                    // Follow label association (Playwright follow-label retarget)
+
                     var label = el;
                     if (tag !== 'LABEL') {
                         label = el.closest && el.closest('label');
@@ -780,7 +754,7 @@ pub async fn is_element_checked(
                             return ctrl.checked;
                         }
                     }
-                    // Check for nested native input
+
                     var input = el.querySelector && el.querySelector('input[type="checkbox"], input[type="radio"]');
                     if (input) return input.checked;
                     return false;
@@ -949,10 +923,6 @@ pub async fn get_element_bounding_box(
         .ok_or_else(|| format!("Could not get bounding box for: {}", selector_or_ref))
 }
 
-/// Return geometry in top-viewport coordinates, matching coordinate actions
-/// and the extension backend. `getBoundingClientRect()` is frame-local, so a
-/// same-origin iframe result must accumulate every ancestor frame's content
-/// offset and border before it is exposed to callers.
 const BOUNDING_BOX_JS: &str = r#"function() {
     const r = this.getBoundingClientRect();
     let x = r.x;
@@ -975,9 +945,7 @@ pub async fn get_element_count(
     session_id: &str,
     selector: &str,
 ) -> Result<i64, String> {
-    // Semantic selectors (aria=) count matches through the unified resolver;
-    // plain CSS counts across every reachable document (top document,
-    // same-origin iframes, open shadow roots) via the same root walk.
+
     let js = match super::selector::parse_semantic_selector(selector)? {
         Some(semantic) => super::selector::count_expression(&semantic),
         None => format!(

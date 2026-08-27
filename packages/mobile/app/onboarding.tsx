@@ -24,10 +24,6 @@ import { useT } from "../src/i18n";
 const STEP_COUNT = 3;
 const SWAP_MS = 260;
 
-/**
- * Three quiet steps after first sign-in: meet Stella, pick a theme, connect
- * the desktop. Skippable at every point; never shown again once finished.
- */
 export default function OnboardingScreen() {
   const colors = useColors();
   const t = useT();

@@ -15,18 +15,6 @@ import { useOnboardingFlow } from "./use-onboarding-flow";
 import { useT } from "@/shared/i18n";
 import "./Onboarding.css";
 
-/* Phases are eager imports because the entire onboarding flow already
- * lives inside a single dynamically-imported "onboarding chunk" loaded
- * by FullShell when `!appReady` (see desktop/src/shell/FullShell.tsx).
- * Once that chunk has resolved, every phase module is in memory, so
- * splitting per-phase here would only re-introduce mid-flow Suspense
- * boundaries with no bundle-size win — and the original failure mode
- * was exactly that: the title would render against an empty
- * `.onboarding-split-stage` while the next phase's chunk loaded, the
- * Suspense fallback resolved with content, and the centered title
- * jumped upward. The split-stage layout is also pinned in
- * `Onboarding.css` so any future async content (data fetches, etc.)
- * can't reproduce the jump. */
 import { OnboardingCapabilitiesPhase } from "./OnboardingCapabilitiesPhase";
 import { OnboardingEnginePhase } from "./OnboardingEnginePhase";
 import { OnboardingPermissions } from "./OnboardingPermissions";
@@ -38,12 +26,6 @@ import { OnboardingVoicePhase } from "./OnboardingVoicePhase";
 import { OnboardingEnterPhase } from "./OnboardingEnterPhase";
 import { OnboardingMockWindows } from "./OnboardingMockWindows";
 
-/**
- * Translation keys for each split-phase title. The capabilities phase
- * renders its own per-chapter title inside the phase body so the
- * changing line sits where the static step title would otherwise be —
- * that's why it's omitted here.
- */
 const STEP_TITLE_KEYS: Partial<Record<Phase, string>> = {
   engine: "onboarding.stepTitles.engine",
   extension: "onboarding.stepTitles.extension",
@@ -87,12 +69,6 @@ export const OnboardingStep1 = ({
 }: OnboardingStep1Props) => {
   const t = useT();
 
-  // The engine phase (Stella / Claude Code / BYOK provider) is only useful
-  // for users who already run other AI dev tooling. Detection is a one-shot
-  // filesystem probe in the main process — see
-  // `system:detectTechnicalUserSignals` — and defaults to "skip" until
-  // resolved so non-technical users never even see the phase. Detection
-  // completes in milliseconds, long before navigation can reach `engine`.
   const [showEnginePhase, setShowEnginePhase] = useState(false);
   useEffect(() => {
     let cancelled = false;
@@ -103,7 +79,7 @@ export const OnboardingStep1 = ({
         if (cancelled) return;
         setShowEnginePhase(Boolean(result?.signals?.length));
       } catch {
-        // Best-effort; default-to-skip stays in effect on failure.
+
       }
     };
     void probe();
@@ -153,9 +129,6 @@ export const OnboardingStep1 = ({
   });
   discoverySelectionsRef.current = discovery.hasSelections;
 
-  // Transitions notify their owner in the initiating transaction. The
-  // initial phase has no initiating event, so mount is the one legitimate
-  // lifecycle synchronization.
   useEffect(() => {
     if (initialNotificationSentRef.current) return;
     initialNotificationSentRef.current = true;
@@ -176,8 +149,7 @@ export const OnboardingStep1 = ({
         previousSuspended = previous?.suspended === true;
         await api?.setGlobalShortcutsSuspended?.(true);
       } catch {
-        // Onboarding demos should still run even if shortcut suspension is
-        // unavailable in a dev shell.
+
       }
     })();
 
@@ -187,11 +159,6 @@ export const OnboardingStep1 = ({
     };
   }, []);
 
-  /**
-   * The progress strip groups its dots by act so the bottom of the
-   * screen quietly mirrors the five-act story. Only steps the user
-   * will actually see contribute dots.
-   */
   const progressGroups = useMemo(() => {
     const groups: { act: OnboardingAct; steps: Phase[] }[] = [];
     for (const step of visibleSteps) {

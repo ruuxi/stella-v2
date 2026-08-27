@@ -1,53 +1,19 @@
 import type { SettingsTab } from "@/global/settings/settings-tabs";
 
-/**
- * Translate function shape (matches `useT()` / `i18n.t`). The search
- * catalog is i18n-driven: entries reference catalog keys and are
- * resolved against the active locale at query time so results — and the
- * scroll-to-card matching — work in every supported language.
- */
 export type SettingsSearchTranslate = (key: string) => string;
 
-/**
- * Definition of a searchable Settings entry. One entry per
- * `.settings-card` (or logical row) so users find a card by its heading,
- * description, or any row label / sublabel inside it.
- *
- * This catalog drives the global "Search settings" results view: every
- * tab can be searched at once because the catalog covers them all, even
- * the tabs that haven't been lazy-loaded yet.
- *
- * Two layers of synonym handling:
- *   - Per-entry `keywords` — the strongest signal. Use this for
- *     setting-specific aliases ("byok", "anthropic oauth", "rtl").
- *     Keywords stay English; localized search still matches via the
- *     translated title/description.
- *   - Global `SEARCH_SYNONYMS` map below — for words that should match
- *     across many settings ("mute" → sound/audio/volume/notification).
- *
- * `titleKey` MUST resolve to the same string rendered in the matching
- * `<h3 className="settings-card-title">…</h3>` (or `cardTitleKey` for
- * row-level entries) — that resolved title is what we use to scroll the
- * user to the section after jumping to its tab, so reusing the card's
- * own catalog key keeps it correct in every locale automatically.
- */
 export interface SettingsSearchEntryDef {
   tab: SettingsTab;
-  /** Catalog key for the title shown in results (card heading OR row label). */
+
   titleKey: string;
-  /** Catalog key for the description shown under the title. */
+
   descriptionKey: string;
-  /**
-   * Optional catalog key for the card heading to scroll to after the
-   * user picks this entry. Defaults to `titleKey`. Use this for
-   * row-level entries whose title is a control inside a larger card.
-   */
+
   cardTitleKey?: string;
-  /** Extra free-form (English) text users might type. */
+
   keywords: string[];
 }
 
-/** A catalog entry resolved against the active locale. */
 export interface ResolvedSettingsSearchEntry {
   tab: SettingsTab;
   title: string;
@@ -57,7 +23,7 @@ export interface ResolvedSettingsSearchEntry {
 }
 
 export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
-  // ---------- General ----------
+
   {
     tab: "general",
     titleKey: "settings.language.title",
@@ -255,7 +221,6 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
     ],
   },
 
-  // ---------- Shortcuts ----------
   {
     tab: "shortcuts",
     titleKey: "settings.shortcuts.title",
@@ -271,7 +236,6 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
     ],
   },
 
-  // ---------- Backup ----------
   {
     tab: "backup",
     titleKey: "settings.backup.title",
@@ -291,7 +255,6 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
     ],
   },
 
-  // ---------- Account & Legal ----------
   {
     tab: "account",
     titleKey: "settings.account.title",
@@ -317,7 +280,6 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
     keywords: ["terms of service", "tos", "privacy policy", "license"],
   },
 
-  // ---------- Audio ----------
   {
     tab: "audio",
     titleKey: "settings.audio.microphone.title",
@@ -357,12 +319,6 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
       "sound output",
     ],
   },
-
-  // ---------- Row-level entries -----------------------------------------
-  //
-  // Surface popular toggles as their own results so search lands on the
-  // setting the user named, not just the card it lives in. Each carries
-  // `cardTitleKey` so we still scroll to the right card on jump.
 
   {
     tab: "audio",
@@ -415,25 +371,8 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Global synonym map
-// ---------------------------------------------------------------------------
-
-/**
- * Bidirectional synonym map. Each key expands to other words the search
- * should also accept for that token (and vice-versa). Use this for
- * cross-cutting words ("mute" → sound/audio/volume) rather than
- * setting-specific aliases — those belong in the entry's `keywords`.
- *
- * Rules of thumb when adding:
- *   - Keep terms lowercase and single-word where possible.
- *   - Bias toward true synonyms, not "related concepts" — false
- *     positives erode trust faster than misses do.
- *   - Keep total expansions small per word (≤ ~6) so an over-eager
- *     synonym doesn't blow scoring out of proportion.
- */
 const SEARCH_SYNONYMS_RAW: Record<string, string[]> = {
-  // ---- Sound / notifications ----
+
   mute: ["sound", "audio", "volume", "silence", "quiet", "notification"],
   silence: ["mute", "quiet", "sound", "notification"],
   quiet: ["mute", "silence", "sound"],
@@ -443,7 +382,6 @@ const SEARCH_SYNONYMS_RAW: Record<string, string[]> = {
   notification: ["alert", "sound", "ping"],
   alert: ["notification", "ping"],
 
-  // ---- Mic / voice / dictation ----
   mic: ["microphone", "audio", "voice"],
   microphone: ["mic", "audio", "voice"],
   voice: ["microphone", "dictation", "speech"],
@@ -451,19 +389,16 @@ const SEARCH_SYNONYMS_RAW: Record<string, string[]> = {
   speech: ["voice", "dictation"],
   transcribe: ["dictation", "transcription"],
 
-  // ---- Speakers / output ----
   speaker: ["audio", "output", "headphones", "sound"],
   speakers: ["speaker", "audio", "output", "headphones"],
   headphones: ["speaker", "audio", "output"],
 
-  // ---- Appearance / display ----
   dark: ["theme", "appearance", "color"],
   light: ["theme", "appearance", "color"],
   theme: ["appearance", "color"],
   appearance: ["theme", "color", "display"],
   font: ["text", "typography"],
 
-  // ---- Account / auth ----
   login: ["sign in", "account"],
   logout: ["sign out", "account"],
   signin: ["sign in", "account"],
@@ -472,60 +407,47 @@ const SEARCH_SYNONYMS_RAW: Record<string, string[]> = {
   user: ["account", "profile"],
   profile: ["account", "user"],
 
-  // ---- Privacy / safety ----
   privacy: ["permissions", "security", "private"],
   security: ["privacy", "permissions", "safety"],
   safety: ["privacy", "security"],
   allow: ["permissions", "grant", "enable"],
 
-  // ---- Memory / data ----
   history: ["memory", "log"],
   delete: ["erase", "remove", "wipe"],
   remove: ["delete", "erase", "wipe"],
   erase: ["delete", "wipe", "remove"],
   forget: ["erase", "delete", "memory"],
 
-  // ---- Backups / sync ----
   save: ["backup", "snapshot"],
   recovery: ["backup", "restore"],
   restore: ["backup", "recovery"],
   sync: ["backup", "remote"],
 
-  // ---- Models / AI ----
   ai: ["model", "llm"],
   llm: ["model", "ai"],
   gpt: ["openai", "model"],
   claude: ["anthropic", "model"],
   chatbot: ["model", "ai"],
 
-  // ---- Power ----
   sleep: ["power", "idle"],
   battery: ["power"],
   awake: ["power", "sleep"],
   energy: ["power", "battery"],
 
-  // ---- Browser ----
   plugin: ["extension", "addon"],
   addon: ["extension", "plugin"],
   browser: ["chrome", "extension"],
 
-  // ---- Shortcuts ----
   hotkey: ["shortcut", "keybinding"],
   hotkeys: ["shortcut", "keybinding"],
   keybind: ["shortcut", "keybinding"],
   keyboard: ["shortcut", "keybinding"],
 
-  // ---- Misc / accessibility ----
   camera: ["screen", "capture", "permissions"],
   caption: ["transcription"],
   captions: ["transcription"],
 };
 
-/**
- * Build a normalized + symmetric synonym graph at module load. Symmetry
- * means if you defined `mute → sound`, `sound` also expands to `mute`
- * without you having to write both directions by hand.
- */
 const SEARCH_SYNONYMS: Map<string, ReadonlySet<string>> = (() => {
   const graph = new Map<string, Set<string>>();
   const add = (a: string, b: string) => {
@@ -542,7 +464,7 @@ const SEARCH_SYNONYMS: Map<string, ReadonlySet<string>> = (() => {
       add(b, a);
     }
   }
-  // Freeze each entry as a ReadonlySet for safer downstream usage.
+
   const frozen = new Map<string, ReadonlySet<string>>();
   for (const [key, set] of graph) {
     frozen.set(key, set);
@@ -550,14 +472,6 @@ const SEARCH_SYNONYMS: Map<string, ReadonlySet<string>> = (() => {
   return frozen;
 })();
 
-// ---------------------------------------------------------------------------
-// Tokenization + matching
-// ---------------------------------------------------------------------------
-
-/**
- * Lowercase, strip diacritics, collapse whitespace. Cheap enough to run
- * inline on every keystroke for the small settings catalog (~20 entries).
- */
 export function normalizeSearchText(input: string): string {
   if (!input) return "";
   return input
@@ -568,22 +482,12 @@ export function normalizeSearchText(input: string): string {
     .trim();
 }
 
-/**
- * Split the user's query into tokens. AND-semantics: every token must
- * appear (or have a synonym that appears) for a result to match.
- */
 export function tokenizeQuery(query: string): string[] {
   const normalized = normalizeSearchText(query);
   if (!normalized) return [];
   return normalized.split(" ").filter(Boolean);
 }
 
-/**
- * A token group is the user's typed token plus its global synonyms.
- * Matching a token = at least one member of its group appears in the
- * target text. Empty / very short tokens (1 char) skip synonym
- * expansion to avoid noisy matches.
- */
 export type TokenGroup = readonly string[];
 
 export function expandTokens(tokens: string[]): TokenGroup[] {
@@ -591,8 +495,7 @@ export function expandTokens(tokens: string[]): TokenGroup[] {
     if (token.length <= 1) return [token];
     const synonyms = SEARCH_SYNONYMS.get(token);
     if (!synonyms || synonyms.size === 0) return [token];
-    // De-dupe in case the synonym list happens to contain the token
-    // itself after normalization.
+
     const seen = new Set<string>([token]);
     const group: string[] = [token];
     for (const synonym of synonyms) {
@@ -604,17 +507,6 @@ export function expandTokens(tokens: string[]): TokenGroup[] {
   });
 }
 
-/**
- * Word-start substring match: returns true iff `term` appears in `text`
- * at the start of a word (start of string or right after a non-word
- * character). This is what Spotlight / System Settings / VS Code's
- * settings search do — typing "wake" matches "wake word" but not
- * "awake", and "back" matches "Backups" but not "feedback".
- *
- * Hot path. Implemented without regex for cheapness; the catalog is
- * tiny but we still get called once per (token × candidate text) on
- * every keystroke.
- */
 export function includesAsWordStart(text: string, term: string): boolean {
   if (!term) return false;
   const termLen = term.length;
@@ -627,10 +519,7 @@ export function includesAsWordStart(text: string, term: string): boolean {
     if (idx === -1) return false;
     if (idx === 0) return true;
     const prev = text.charCodeAt(idx - 1);
-    // Word characters: lowercase ASCII letters (a-z), digits (0-9).
-    // `text` is already lower-cased and diacritic-stripped, so this is
-    // sufficient. Any other character (space, hyphen, slash, etc.)
-    // counts as a word boundary.
+
     const isAlphanum =
       (prev >= 97 && prev <= 122) || (prev >= 48 && prev <= 57);
     if (!isAlphanum) return true;
@@ -639,7 +528,6 @@ export function includesAsWordStart(text: string, term: string): boolean {
   return false;
 }
 
-/** True iff every token group has at least one member appearing in `text`. */
 export function matchesAllTokenGroups(
   text: string,
   groups: TokenGroup[],
@@ -662,11 +550,10 @@ interface NormalizedEntry {
   entry: ResolvedSettingsSearchEntry;
   titleText: string;
   descriptionText: string;
-  /** Title + description + keywords + tab key. */
+
   searchText: string;
 }
 
-/** Resolve every catalog def against the active locale's translator. */
 function resolveEntries(
   t: SettingsSearchTranslate,
 ): ResolvedSettingsSearchEntry[] {
@@ -682,9 +569,6 @@ function resolveEntries(
   });
 }
 
-// Resolve + normalize the catalog per translator. The active locale's
-// `t` is stable between renders, so we memoize on its identity and only
-// rebuild when the language actually changes.
 let normalizedCacheKey: SettingsSearchTranslate | null = null;
 let normalizedCache: NormalizedEntry[] = [];
 
@@ -702,21 +586,6 @@ function getNormalizedEntries(t: SettingsSearchTranslate): NormalizedEntry[] {
   return normalizedCache;
 }
 
-/**
- * Score an entry against expanded token groups. Higher is better.
- *
- *   - Whole-query exact title match  → 1000
- *   - Title starts with whole query  → 500
- *   - All groups hit title           → 250 + earlier-position bonus
- *   - All groups hit description     → 100
- *   - All groups hit anywhere        → 50
- *
- * Synonym-driven hits get a small penalty so literal matches always
- * outrank synonym matches at the same tier — users typing "voice" want
- * the Voice card above any synonym-driven hit on "audio".
- *
- * Returns -1 when the entry doesn't match.
- */
 function scoreEntry(normalized: NormalizedEntry, tokens: string[]): number {
   if (tokens.length === 0) return 0;
 
@@ -724,7 +593,6 @@ function scoreEntry(normalized: NormalizedEntry, tokens: string[]): number {
   const { titleText, descriptionText, searchText } = normalized;
   const fullQuery = tokens.join(" ");
 
-  // Literal-only checks first (cheap path, best score).
   if (titleText === fullQuery) return 1000;
   if (titleText.startsWith(fullQuery)) return 500;
 
@@ -740,8 +608,7 @@ function scoreEntry(normalized: NormalizedEntry, tokens: string[]): number {
     return 250 + Math.max(0, 50 - firstTokenIndex);
   }
   if (matchesAllTokenGroups(titleText, groups)) {
-    // Title matched only via synonyms — solid hit, but rank below
-    // literal title matches.
+
     return 200;
   }
 
@@ -758,12 +625,6 @@ export interface ScoredSettingsSearchEntry extends ResolvedSettingsSearchEntry {
   score: number;
 }
 
-/**
- * Returns matched catalog entries, best-scoring first. Stable secondary
- * sort by catalog order so equal-score results don't shuffle as the
- * user types. Entries are resolved against `t` so both the displayed
- * copy and the scroll-to-card title match the active locale.
- */
 export function searchSettings(
   query: string,
   t: SettingsSearchTranslate,
@@ -792,13 +653,6 @@ export function searchSettings(
   return indexed.map((item) => item.scored);
 }
 
-/**
- * Returns the flattened, de-duplicated set of all terms that would
- * count as a match for the given query — the user's literal tokens
- * plus their expansions. Used by the results UI to highlight the
- * actual word that made each result match (e.g. typing "mute"
- * highlights "sound" and "notification" in the description).
- */
 export function expandedMatchTerms(query: string): string[] {
   const groups = expandTokens(tokenizeQuery(query));
   const seen = new Set<string>();

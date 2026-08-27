@@ -39,7 +39,7 @@ const FRIENDLY_TOOL_LABELS: Record<string, FriendlyToolLabels> = {
   find: { active: "Searching files", done: "Searched files" },
   glob: { active: "Searching files", done: "Searched files" },
   grep: { active: "Searching files", done: "Searched files" },
-  // legacy — tool removed; keep for old-transcript rendering.
+
   tool_search: { active: "Finding a tool", done: "Found a tool" },
   web: { active: "Searching the web", done: "Searched the web" },
   web_search: { active: "Searching the web", done: "Searched the web" },

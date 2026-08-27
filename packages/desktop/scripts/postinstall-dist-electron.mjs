@@ -19,9 +19,6 @@ if (process.env.STELLA_SKIP_POSTINSTALL_DIST_ELECTRON === "1") {
   process.exit(0);
 }
 
-// Self-heal a broken Electron binary install before anything else; cheap when
-// healthy, re-extracts the cached zip natively when `extract-zip` left it
-// half-written.
 try {
   await ensureElectronBinary();
 } catch (error) {

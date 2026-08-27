@@ -19,22 +19,6 @@ import {
   runtimeIpcPathUsesFilesystem,
 } from "./runtime-paths.js";
 
-/**
- * Worker transport selection. The runtime worker can listen on:
- *
- *   --listen stdio://         (default, parent-spawned-child topology)
- *   --listen unix://PATH      (detached topology, host attaches via Unix socket)
- *   --listen pipe://PIPE      (detached topology, host attaches via Windows named pipe)
- *
- * Both share the same JSON-RPC protocol — only the byte stream changes.
- * Shared worker transport names for Stella app-server connections.
- *
- * Stdio mode supports a single connection over stdin/stdout for the lifetime
- * of the process; IPC-listener mode accepts an arbitrary number of sequential
- * or concurrent connections, which is what makes survival-across-host-restart
- * possible.
- */
-
 export type WorkerTransport =
   | { kind: "stdio" }
   | { kind: "unix"; socketPath: string }
@@ -115,9 +99,9 @@ export type StartTransportArgs = {
 };
 
 export type StartTransportResult = {
-  /** Stop accepting new connections and close the listener. */
+
   close: () => Promise<void>;
-  /** Whichever socket address the listener bound to (IPC path for detached mode, "stdio" for stdio). */
+
   describe: () => string;
 };
 
@@ -165,7 +149,7 @@ const removeIfStaleSocket = async (socketPath: string) => {
   if (liveSocket) {
     throw new Error(`Runtime socket is already in use: ${socketPath}`);
   }
-  // Best-effort cleanup for crashed workers that left a dead socket file.
+
   if (usesFilesystem) {
     await fsPromises.unlink(socketPath).catch(() => undefined);
   }
@@ -193,8 +177,7 @@ const startIpcSocketTransport = async (
       sockets.delete(socket);
     });
     socket.on("error", () => {
-      // Connection-level errors (e.g. host crashed) just close the socket;
-      // peer.dispose runs via the readline 'close' handler downstream.
+
     });
 
     let buffered = "";
@@ -220,8 +203,7 @@ const startIpcSocketTransport = async (
       buffered += chunk.toString("utf-8");
       const newlineIndex = buffered.indexOf("\n");
       if (newlineIndex < 0) {
-        // Do not let a malformed probe/client accumulate unbounded data before
-        // the first JSON-RPC line.
+
         if (buffered.length > 64 * 1024) {
           attachSocket(buffered);
         }
@@ -246,8 +228,7 @@ const startIpcSocketTransport = async (
             return;
           }
         } catch {
-          // Fall through to the normal JSON-RPC parser so it reports the
-          // parse error consistently.
+
         }
       }
       socket.pause();
@@ -269,7 +250,7 @@ const startIpcSocketTransport = async (
   });
 
   if (usesFilesystem) {
-    // 0o600 — readable/writable only by the owning user.
+
     await fsPromises.chmod(socketPath, 0o600).catch(() => undefined);
   }
 

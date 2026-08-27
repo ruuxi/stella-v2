@@ -7,11 +7,6 @@ import {
   RATE_HOT_PATH,
 } from "../lib/rate_limits";
 
-/**
- * Backend cron scheduling was removed. The remaining responsibility here is
- * completing cron-originated remote turn requests that were already handed to
- * a desktop device before the backend scheduler was retired.
- */
 export const BACKEND_CRON_RUNTIME_REMOVED = true;
 
 type CompleteCronTurnStatus = "ok" | "error";
@@ -97,8 +92,7 @@ async function completeCronTurnResultCore(
   });
 
   if (status === "error" && args.error) {
-    // Persist the error inline on the request payload so callers can
-    // surface it without poking at separate event rows.
+
     const nextPayload = {
       ...(requestPayload as Record<string, unknown>),
       lastError: args.error,

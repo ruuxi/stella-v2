@@ -98,10 +98,7 @@ describe("runtime host device identity recovery", () => {
   });
 
   it("claims succession on the heartbeat path, which usually wins the race", async () => {
-    // `registerHostDevice` waits before registering, so a successful heartbeat
-    // normally flips `hostDeviceRegistered` first and makes registration return
-    // early. A claim hung only off registration would therefore never fire, and
-    // every paired phone would stay stranded on the retired id.
+
     const identity = {
       deviceId: "new-device",
       publicKey: "new-public",
@@ -147,9 +144,7 @@ describe("runtime host device identity recovery", () => {
     anyHost.getHostDeviceName = vi.fn(() => "Mac");
 
     await anyHost.sendHostHeartbeat();
-    // The heartbeat fires the claim without awaiting it, so let the microtask
-    // chain drain. Deliberately not calling the claim directly — that would
-    // pass even if the heartbeat never triggered it, which is the whole bug.
+
     for (let i = 0; i < 8; i += 1) {
       await Promise.resolve();
     }
@@ -158,7 +153,7 @@ describe("runtime host device identity recovery", () => {
       previousDeviceId: "old-device",
       deviceId: "new-device",
     });
-    // Cleared only after the backend accepts, so an offline claim is retried.
+
     expect(clearSupersededDeviceId).toHaveBeenCalledTimes(1);
     expect(anyHost.deviceIdentity.supersededDeviceId).toBeUndefined();
   });

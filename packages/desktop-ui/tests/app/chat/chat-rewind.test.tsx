@@ -1,23 +1,3 @@
-// @vitest-environment jsdom
-/**
- * Chat Rewind regression tests (0.1.69 bug: clicking Rewind only prefilled
- * the composer; the conversation never truncated).
- *
- * Pins the two halves of the fix:
- *
- *   1. `local-message-timeline-store` — a destructive `localChat:updated`
- *      notification (no appended event) triggers a full latest-page re-read
- *      of the timeline, not the append-only tail read that cannot observe
- *      removed rows. This is the root cause: the store's incremental
- *      strictly-after cursor can never see deletions, so the truncated
- *      suffix stayed painted after main had already deleted it.
- *   2. `MessageActions` — the armed confirm state is visible on the first
- *      click: icon swaps to the "confirm?" affordance, an inline hint
- *      ("Click again to rewind") renders, and the button is exposed to
- *      assistive tech as a two-step control (`aria-expanded` +
- *      aria-label swap). The double-click-to-execute design itself is
- *      intentional and unchanged.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -58,8 +38,7 @@ const installFakeLocalChatApi = () => {
           afterId: string;
           maxVisibleMessages?: number;
         }) => {
-          // Mirrors the storage contract: rows at-or-after the cursor
-          // (replacement detection) plus strictly-after rows.
+
           const cursorIndex = currentDb.findIndex(
             (message) => message._id === afterId,
           );
@@ -84,8 +63,6 @@ const installFakeLocalChatApi = () => {
   });
 };
 
-// Minimal stand-in for isUiHiddenChatMessagePayload: hidden rows carry
-// metadata.ui.visibility === "hidden" in their payload.
 const isUiHidden = (message: MessageRecord): boolean =>
   Boolean(
     (message.payload?.metadata as { ui?: { visibility?: string } } | undefined)
@@ -106,7 +83,6 @@ const emitUpdate = (payload: Record<string, unknown>) => {
   for (const listener of [...installedListeners]) listener(payload);
 };
 
-/** currentDb models what SQLite holds RIGHT NOW. */
 let currentDb: MessageRecord[] = [];
 
 describe("local-message-timeline-store destructive updates", () => {
@@ -120,7 +96,7 @@ describe("local-message-timeline-store destructive updates", () => {
 
   afterEach(() => {
     timelineTesting.reset();
-    // @ts-expect-error test shim teardown
+
     delete window.electronAPI;
   });
 
@@ -134,14 +110,12 @@ describe("local-message-timeline-store destructive updates", () => {
     const unsubscribe = subscribeToLocalMessageTimeline("conv-1", () => {
       listenerCount += 1;
     });
-    // Initial read lands asynchronously.
+
     await act(async () => {});
     expect(
       getLocalMessageTimelineSnapshot("conv-1").messages.map((m) => m._id),
     ).toEqual(["u1", "u2", "u3"]);
 
-    // Main truncates at u2 (removes u2 + u3) and broadcasts WITHOUT an event —
-    // the shape truncateConversation emits.
     currentDb = [userMessage("u1", "first")];
     emitUpdate({ conversationId: "conv-1" });
     await act(async () => {});
@@ -161,10 +135,6 @@ describe("local-message-timeline-store destructive updates", () => {
       getLocalMessageTimelineSnapshot("conv-1").messages.map((m) => m._id),
     ).toEqual(["u1", "u3"]);
 
-    // Normal streaming-era append: the notification carries the appended
-    // event, so the cheap tail read stays on the hot path. The appended row
-    // is strictly AFTER the newest loaded cursor, so the incremental path
-    // must pick it up.
     const appended = userMessage("u4", "fourth");
     currentDb = [...currentDb, appended];
     emitUpdate({ conversationId: "conv-1", event: appended });
@@ -215,20 +185,18 @@ describe("MessageActions rewind confirm affordance", () => {
     const button = rewindButton();
     expect(button).not.toBeNull();
 
-    // First click ARMS ONLY — no truncation call, no visual silence.
     await act(async () => button!.click());
     expect(rewinds).toHaveLength(0);
     const armed = rewindButton()!;
     expect(armed.dataset.armed).toBe("true");
     expect(armed.getAttribute("aria-expanded")).toBe("true");
     expect(armed.getAttribute("title")).toBe("Click again to rewind");
-    // Icon swapped to the "confirm?" affordance…
+
     expect(armed.querySelector(".stella-icon-alert-circle")).not.toBeNull();
     expect(armed.querySelector(".stella-icon-rotate-ccw")).toBeNull();
-    // …plus the inline hint next to the icon.
+
     expect(container.textContent).toContain("Click again to rewind");
 
-    // Second click EXECUTES.
     await act(async () => armed.click());
     expect(rewinds).toHaveLength(1);
     const disarmed = rewindButton()!;
@@ -245,9 +213,7 @@ describe("MessageActions rewind confirm affordance", () => {
     expect(button.dataset.armed).toBe("true");
 
     await act(async () => {
-      // The strip itself carries the disarm-on-leave handler; the button
-      // stays armed because jsdom never synthesizes blur from a synthetic
-      // mouseleave (real browsers do when focus leaves with the pointer).
+
       container
         .querySelector(".message-actions")!
         .dispatchEvent(new MouseEvent("mouseleave", { bubbles: false }));
@@ -261,7 +227,6 @@ describe("MessageActions rewind confirm affordance", () => {
     expect(armedAgain.dataset.armed).toBeUndefined();
     expect(container.textContent).not.toContain("Click again to rewind");
 
-    // Re-arm, then Escape disarms WITHOUT executing.
     const rewindsBeforeEscape = rewinds.length;
     await act(async () => armedAgain.click());
     expect(rewindButton()?.dataset.armed).toBe("true");
@@ -281,7 +246,6 @@ describe("MessageActions rewind confirm affordance", () => {
     const row = container.querySelector<HTMLElement>(".message-actions");
     expect(row?.dataset.confirming).toBe("true");
 
-    // Disarm via timeout path (fire the pending timer).
     await act(async () => {
       vi.advanceTimersByTime(3_500);
     });

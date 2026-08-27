@@ -1,8 +1,3 @@
-/**
- * Shared cryptographic / encoding utilities used across the backend to
- * eliminate duplicated base64/hashing/constant-time-compare helpers.
- */
-
 export function base64UrlDecode(str: string): Uint8Array {
   const base64 = str.replace(/-/g, "+").replace(/_/g, "/");
   const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
@@ -14,11 +9,6 @@ export function base64UrlDecode(str: string): Uint8Array {
   return bytes;
 }
 
-/**
- * Constant-time string comparison to prevent timing attacks.
- * The early length check is acceptable for HMAC verification where both
- * inputs are hex-encoded digests of fixed length (not attacker-controlled).
- */
 export const constantTimeEqual = (a: string, b: string): boolean => {
   if (a.length !== b.length) return false;
   let diff = 0;
@@ -28,11 +18,9 @@ export const constantTimeEqual = (a: string, b: string): boolean => {
   return diff === 0;
 };
 
-/** Convert a Uint8Array to a lowercase hex string. */
 export const bytesToHex = (bytes: Uint8Array): string =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 
-/** Convert a hex string to a Uint8Array. */
 export const hexToUint8Array = (hex: string): Uint8Array => {
   const bytes = new Uint8Array(hex.length / 2);
   for (let i = 0; i < hex.length; i += 2) {
@@ -41,20 +29,12 @@ export const hexToUint8Array = (hex: string): Uint8Array => {
   return bytes;
 };
 
-/** SHA-256 hash returning a lowercase hex string. */
 export async function hashSha256Hex(data: string): Promise<string> {
   const encoded = new TextEncoder().encode(data);
   const digest = await crypto.subtle.digest("SHA-256", encoded);
   return bytesToHex(new Uint8Array(digest));
 }
 
-/**
- * HMAC-SHA256 returning a lowercase hex string. Use this (not raw SHA-256)
- * when hashing values from a *small* preimage space — phone numbers, email
- * addresses, link codes — where a leaked plain-SHA hash would be trivially
- * brute-forceable. The server-only `key` (a pepper) is what keeps a DB
- * attacker from rebuilding the inputs.
- */
 export async function hmacSha256Hex(
   key: string,
   message: string,

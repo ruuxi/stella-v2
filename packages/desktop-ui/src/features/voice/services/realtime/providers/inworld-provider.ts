@@ -1,19 +1,3 @@
-/**
- * User-BYOK Inworld Realtime provider.
- *
- * Inworld's Realtime API is OpenAI-Realtime-compatible at the event
- * level, runs over WebRTC, and accepts a raw API key as the Bearer for
- * the SDP exchange (no ephemeral-token concept). In BYOK mode we hand
- * the user's own key to the renderer because it's their key on their
- * machine. (Stella-managed Inworld goes through a backend SDP proxy
- * instead — see stella-provider.ts.)
- *
- * Session config (model / voice / TTS model) is sent client-side via
- * `session.update` after the data channel opens — Inworld does not
- * configure the session at token-mint time the way OpenAI Realtime
- * does. The transport's `initialSessionConfig` hook handles this.
- */
-
 import {
   DEFAULT_INWORLD_REALTIME_MODEL,
   DEFAULT_INWORLD_REALTIME_VOICE,

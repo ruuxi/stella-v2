@@ -1,13 +1,3 @@
-/**
- * Voice phase — two lightweight, one-shot demos instead of static cards.
- *
- * Left: the wake-word conversation beat ("Hey Stella" → listening →
- * reply → "Bye") plays once around the pet sprite.
- * Right: dictation actually happens — the key is held, the recording
- * pill pops over a mail draft, and the sentence types itself into the
- * body before the pill confirms away. Both run once on the shared
- * choreography engine with reserved slots so nothing ever shifts.
- */
 import { Check, X } from "@/ui/icons";
 import { getPlatform } from "@/platform/electron/platform";
 import { BUILT_IN_PET } from "@/shell/pet/built-in-pet";
@@ -15,8 +5,7 @@ import { PetSprite } from "@/shell/pet/PetSprite";
 import { Keychord } from "./Keychord";
 import { useChoreography, useTypedText, } from "./demo/use-choreography";
 import "./OnboardingVoicePhase.css";
-// On macOS the default dictation shortcut is push-to-talk: hold the Option
-// key. Other platforms keep the Ctrl+M toggle.
+
 const DICTATE_KEY_BY_PLATFORM = {
     darwin: { glyphs: ["⌥"], aria: "Hold Option", name: "Option" },
     win32: { glyphs: ["Ctrl", "M"], aria: "Control M", name: "Ctrl M" },
@@ -132,7 +121,7 @@ export function OnboardingVoicePhase({ splitTransitionActive, onContinue, }) {
                   </div>
                 </div>
 
-                {/* Faithful mock of the real `.dictation-overlay` pill. */}
+                {}
                 <div className="ovoice-pill" data-visible={pillVisible || undefined}>
                   <FakeWaveform active={pillVisible}/>
                   <span className="ovoice-pill__timer">0:04</span>
@@ -158,9 +147,7 @@ export function OnboardingVoicePhase({ splitTransitionActive, onContinue, }) {
       </button>
     </div>);
 }
-/* Animated waveform replica matching the right-aligned scrolling bars
- * the real DictationRecordingBar renders to canvas — DOM bars with
- * phase-shifted CSS animations so the demo needs no audio session. */
+
 const WAVEFORM_BAR_COUNT = 22;
 const WAVEFORM_BARS = Array.from({ length: WAVEFORM_BAR_COUNT }, (_, i) => {
     const seed = (i * 37) % 100;

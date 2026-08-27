@@ -1,11 +1,3 @@
-/**
- * Phone ↔ desktop bridge hero — same SVG layout as desktop ConnectHeroAnimation,
- * with matching animations driven by Reanimated.
- *
- * Transform props (translateX/Y, rotation) on react-native-svg G elements are NOT
- * natively settable, so useAnimatedProps silently ignores them. Instead we animate
- * only true native SVG props: d, cx, cy, r, opacity, strokeDashoffset.
- */
 import { useEffect, useId } from "react";
 import { View, useWindowDimensions } from "react-native";
 import Animated, {
@@ -32,7 +24,6 @@ const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 const VB_W = 400;
 const VB_H = 140;
-// Derived per-theme in each component that uses it
 
 export function ConnectHeroAnimation() {
   const colors = useColors();
@@ -43,25 +34,24 @@ export function ConnectHeroAnimation() {
   const maxW = Math.min(windowWidth - 32, 440);
   const scale = maxW / VB_W;
 
-  /* ── animation drivers ── */
   const signalOffset = useSharedValue(0);
   const pulseVal = useSharedValue(0);
   const cursorVal = useSharedValue(0);
 
   useEffect(() => {
-    // Signal dashes flow: 1.5s linear
+
     signalOffset.value = withRepeat(
       withTiming(-10, { duration: 1500, easing: Easing.linear }),
       -1,
       false,
     );
-    // Pulse circle: 2s (1s each way)
+
     pulseVal.value = withRepeat(
       withTiming(1, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
       -1,
       true,
     );
-    // Cursor + ripple: 4s linear cycle
+
     cursorVal.value = withRepeat(
       withTiming(1, { duration: 4000, easing: Easing.linear }),
       -1,
@@ -69,20 +59,15 @@ export function ConnectHeroAnimation() {
     );
   }, []);
 
-  /* ── animated props ── */
-
-  // Signal line: flowing dashes
   const signalLineProps = useAnimatedProps(() => ({
     strokeDashoffset: signalOffset.value,
   }));
 
-  // Pulse circle: breathing r + opacity
   const pulseCircleProps = useAnimatedProps(() => ({
     r: interpolate(pulseVal.value, [0, 1], [14, 21]),
     opacity: interpolate(pulseVal.value, [0, 1], [0.1, 0.25]),
   }));
 
-  // Monitor cursor: animate path d (all absolute coords)
   const monitorCursorProps = useAnimatedProps(() => {
     const p = cursorVal.value;
     const tx = interpolate(
@@ -100,7 +85,6 @@ export function ConnectHeroAnimation() {
     };
   });
 
-  // Monitor click ripple (fires at 20-35%)
   const monitorRippleProps = useAnimatedProps(() => {
     const p = cursorVal.value;
     const tx = interpolate(
@@ -121,7 +105,6 @@ export function ConnectHeroAnimation() {
     };
   });
 
-  // Phone cursor (finger): animate path d (M is absolute, rest relative)
   const phoneCursorProps = useAnimatedProps(() => {
     const p = cursorVal.value;
     const tx = interpolate(
@@ -139,7 +122,6 @@ export function ConnectHeroAnimation() {
     };
   });
 
-  // Phone click ripple (offset by 50% = 2s delay in 4s cycle)
   const phoneRippleProps = useAnimatedProps(() => {
     const p = cursorVal.value;
     const tx = interpolate(
@@ -186,7 +168,7 @@ export function ConnectHeroAnimation() {
           </LinearGradient>
         </Defs>
 
-        {/* ── Phone ── */}
+        {}
         <G>
           <Rect
             x="80"
@@ -246,7 +228,7 @@ export function ConnectHeroAnimation() {
           />
         </G>
 
-        {/* ── Signal line ── */}
+        {}
         <AnimatedPath
           d="M 145 78 Q 190 50 235 65"
           fill="none"
@@ -256,7 +238,7 @@ export function ConnectHeroAnimation() {
           animatedProps={signalLineProps}
         />
 
-        {/* ── Monitor ── */}
+        {}
         <G>
           <Path
             d="M285 95 L275 115 H315 L305 95"

@@ -50,10 +50,7 @@ export type DesktopUpdaterOptions = {
   checkIntervalMs?: number;
   restartStallMs?: number;
   onStateChanged?: (snapshot: DesktopUpdateSnapshot) => void;
-  // Runs synchronously on the main process the instant a restart-to-install is
-  // accepted, before quitAndInstall triggers the updater's window-close sweep.
-  // Used to arm the quit (set isQuitting, tear down close-vetoing auxiliary
-  // windows) so nothing can cancel the shutdown and strand the update.
+
   onBeforeRestart?: () => void;
   log?: {
     info: (message: string) => void;
@@ -64,10 +61,7 @@ export type DesktopUpdaterOptions = {
 
 const DEFAULT_STARTUP_DELAY_MS = 6_000;
 const DEFAULT_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1_000;
-// Squirrel hands the install off to a helper process and then terminates the
-// app, so a healthy restart never gets to run this timer. If it does fire we
-// are still alive with no windows, which the user reads as "nothing happened" —
-// surface that instead of leaving the pill stuck on "Restarting…".
+
 const DEFAULT_RESTART_STALL_MS = 20_000;
 
 const asErrorMessage = (value: unknown): string => {
@@ -194,8 +188,7 @@ export class DesktopUpdater {
       channel: STELLA_V2_UPDATE_CHANNEL,
       useMultipleRangeRequest: false,
     });
-    // Setting a channel can enable downgrades in electron-updater. The v2
-    // stable feed is forward-only, so pin the safety setting afterwards.
+
     this.client.allowDowngrade = false;
     for (const [event, listener] of this.listeners) {
       this.client.on(event, listener);
@@ -233,7 +226,7 @@ export class DesktopUpdater {
 
   checkNow(): Promise<DesktopUpdateSnapshot> {
     if (!this.enabled) return Promise.resolve(this.getState());
-    // The periodic check must not overwrite an in-flight restart.
+
     if (this.snapshot.status === "restarting") {
       return Promise.resolve(this.getState());
     }
@@ -281,24 +274,14 @@ export class DesktopUpdater {
   }
 
   restartAndInstall(): { accepted: true } {
-    // A second click while the restart is already in flight must not register
-    // another quit: on macOS the installer can take several seconds to tear the
-    // app down, and re-entering quitAndInstall stacks native listeners.
+
     if (this.snapshot.status === "restarting") {
       return { accepted: true };
     }
     if (this.snapshot.status !== "downloaded") {
       throw new Error("Download the Stella desktop update before restarting.");
     }
-    // Arm the shutdown before anything can quit. quitAndInstall makes the
-    // updater close every window and then waits for THIS process to exit
-    // before it swaps the bundle in and relaunches. The always-on-top overlay
-    // and pet windows preventDefault their `close` unless `isQuitting` is
-    // already set, so if that window sweep runs before `before-quit-for-update`
-    // lands (not guaranteed on macOS) they cancel the quit — the app lingers
-    // in the Dock with the update staged and never relaunches. Do it here,
-    // synchronously and before the quit is scheduled, so the shutdown can't be
-    // vetoed. Best-effort: a failure must never abort the restart.
+
     try {
       this.onBeforeRestart?.();
     } catch (error) {
@@ -306,8 +289,7 @@ export class DesktopUpdater {
         `Desktop update restart preparation failed: ${asErrorMessage(error)}`,
       );
     }
-    // Held across the quit so a window recreated mid-shutdown (dock click on
-    // macOS) renders "Restarting…" instead of offering the restart again.
+
     this.patch({ status: "restarting", error: null });
     this.log.info(
       `Restarting to install desktop update ${this.snapshot.downloadedVersion ?? "unknown"}.`,
@@ -324,16 +306,7 @@ export class DesktopUpdater {
       });
     }, this.restartStallMs);
     this.restartStallTimer.unref?.();
-    // Windows uses the first argument to decide whether to show the NSIS
-    // installer UI. Run it silent (`/S`): no native "Stella Setup" window may
-    // ever appear — the app quits, installs invisibly, and `--force-run`
-    // relaunches Stella when the swap finishes, matching the macOS flow.
-    // The 30-60+ second install gap is covered by the Stella-branded splash
-    // helper (stella-update-splash.exe) that the onBeforeRestart wiring
-    // spawns detached before the quit; if that helper is unavailable the gap
-    // is simply blank — never fall back to a non-silent install (owner
-    // decision, 2026-08-18). MacUpdater and AppImageUpdater ignore the first
-    // argument and keep their native update flows.
+
     setImmediate(() => this.client.quitAndInstall(true, true));
     return { accepted: true };
   }

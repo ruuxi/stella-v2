@@ -135,9 +135,7 @@ export function RealtimeVoiceOverlay({
   useEffect(() => {
     if (!visible) return;
     const subscription = AppState.addEventListener("change", (state) => {
-      // iOS becomes briefly `inactive` while its microphone permission sheet
-      // owns focus. Keep the voice surface alive through that system prompt;
-      // actual backgrounding still closes capture immediately.
+
       if (state === "background") closeRef.current();
     });
     return () => subscription.remove();

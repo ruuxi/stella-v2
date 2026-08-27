@@ -14,14 +14,7 @@ export const initializeBootstrapApplication = async (context) => {
         initializeStellaHostRunner: () => initializeStellaHostRunner(context),
     }));
     launchBootstrapAppShell(context);
-    // Defer the host runner (worker spawn + model-catalog warm) off the open
-    // burst. Starting it inline here makes the Bun worker spawn + catalog fetch
-    // contend with the renderer's first paint, which reads as a multi-second
-    // stall right after the window appears. Instead we hand the starter to the
-    // deferred-startup sequence, which fires once the renderer has painted
-    // (did-finish-load, or the short fallback timeout). A chat started before
-    // the warm completes still spawns the worker on demand, so this only
-    // affects perceived open smoothness, not first-chat latency.
+
     const hostRunnerResource = createManagedResource({
         processRuntime: context.state.processRuntime,
         canStart: () => !context.state.isQuitting,

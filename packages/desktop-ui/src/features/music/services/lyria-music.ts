@@ -139,13 +139,13 @@ function stopCurrentSource() {
     currentSource.onended = null;
     currentSource.stop();
   } catch {
-    // Source may already be stopped.
+
   }
 
   try {
     currentSource.disconnect();
   } catch {
-    // Ignore disconnect failures.
+
   }
 
   currentSource = null;

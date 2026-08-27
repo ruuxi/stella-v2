@@ -12,12 +12,6 @@ use super::cdp::discovery::discover_cdp_url;
 use super::cdp::lightpanda::{launch_lightpanda, LightpandaLaunchOptions, LightpandaProcess};
 use super::cdp::types::*;
 
-// ---------------------------------------------------------------------------
-// Launch validation
-// ---------------------------------------------------------------------------
-
-/// Validates launch/connect options for incompatible combinations.
-/// Returns `Ok(())` if valid, or `Err(msg)` with a user-friendly error.
 pub fn validate_launch_options(
     extensions: Option<&[String]>,
     has_cdp: bool,
@@ -58,7 +52,6 @@ pub fn validate_launch_options(
     Ok(())
 }
 
-/// Validates that Chrome-only options are not used with Lightpanda.
 fn validate_lightpanda_options(options: &LaunchOptions) -> Result<(), String> {
     if options
         .extensions
@@ -88,15 +81,12 @@ fn validate_lightpanda_options(options: &LaunchOptions) -> Result<(), String> {
     Ok(())
 }
 
-/// Returns true for Chrome internal targets that should not be selected
-/// during auto-connect (e.g. chrome://, chrome-extension://, devtools://).
 fn is_internal_chrome_target(url: &str) -> bool {
     url.starts_with("chrome://")
         || url.starts_with("chrome-extension://")
         || url.starts_with("devtools://")
 }
 
-/// Converts common error messages into AI-friendly, actionable descriptions.
 pub fn to_ai_friendly_error(error: &str) -> String {
     let lower = error.to_lowercase();
     if lower.contains("strict mode violation") {
@@ -125,19 +115,13 @@ pub fn to_ai_friendly_error(error: &str) -> String {
 pub struct PageInfo {
     pub target_id: String,
     pub session_id: String,
-    /// Stable positive integer id reported to protocol clients as `tabId`.
-    /// Derived from the CDP targetId (see `BrowserManager::tab_id_for_target`)
-    /// so it survives reordering and re-attachment, unlike the positional
-    /// index. Always assigned by `BrowserManager`; caller-provided values are
-    /// overwritten by `add_page`.
+
     pub tab_id: u64,
-    /// Opaque generation paired with `tab_id`. It is derived from the CDP
-    /// targetId so retained managed tabs keep the same handle across daemon
-    /// replacement, while a colliding/replaced target gets a distinct value.
+
     pub tab_generation: String,
     pub url: String,
     pub title: String,
-    pub target_type: String, // "page" or "webview"
+    pub target_type: String,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -185,23 +169,13 @@ pub struct BrowserManager {
     pages: Vec<PageInfo>,
     active_page_index: usize,
     default_timeout_ms: u64,
-    /// Maps CDP targetIds to deterministic positive integer tab ids exposed as
-    /// `tabId`. Never pruned for the life of the manager so collision checks
-    /// remain valid across detach/re-attach cycles and list calls.
+
     target_tab_ids: HashMap<String, u64>,
     target_tab_generations: HashMap<String, String>,
-    /// Which stable tab ids each command owner created. Lives and dies with
-    /// the manager, matching the lifetime of the tabs themselves, so a
-    /// relaunch can never resurrect stale ownership over freshly numbered
-    /// tabs.
+
     owner_tabs: OwnerTabRegistry,
 }
 
-/// Tracks which stable tab ids each command owner created so
-/// `finalize_tabs`/`close_owner` can reap exactly that owner's tabs. This is
-/// the CDP replacement for the extension's owner-tab bookkeeping
-/// (extension/commands/tabs.js). The daemon's separate owner-lease registry
-/// authenticates each turn before this owner-scoped tab registry is touched.
 #[derive(Default)]
 pub struct OwnerTabRegistry {
     tabs_by_owner: HashMap<String, Vec<u64>>,
@@ -209,8 +183,7 @@ pub struct OwnerTabRegistry {
 }
 
 impl OwnerTabRegistry {
-    /// Records a tab for an owner. Empty/blank owner ids and duplicate tab
-    /// ids are ignored.
+
     pub fn record(&mut self, owner_id: &str, tab_id: u64) {
         let owner_id = owner_id.trim();
         if owner_id.is_empty() || tab_id == 0 {
@@ -224,7 +197,6 @@ impl OwnerTabRegistry {
         }
     }
 
-    /// Tab ids recorded for an owner, in creation order.
     pub fn tab_ids(&self, owner_id: &str) -> Vec<u64> {
         self.tabs_by_owner
             .get(owner_id.trim())
@@ -232,7 +204,6 @@ impl OwnerTabRegistry {
             .unwrap_or_default()
     }
 
-    /// Which owner (if any) a tab is recorded under.
     pub fn owner_of(&self, tab_id: u64) -> Option<&str> {
         self.tabs_by_owner
             .iter()
@@ -240,23 +211,18 @@ impl OwnerTabRegistry {
             .map(|(owner_id, _)| owner_id.as_str())
     }
 
-    /// Whether a tab is recorded under any command owner.
     pub fn is_owned(&self, tab_id: u64) -> bool {
         self.tabs_by_owner
             .values()
             .any(|tabs| tabs.contains(&tab_id))
     }
 
-    /// Whether a tab is recorded under the specified command owner.
     pub fn is_owned_by(&self, owner_id: &str, tab_id: u64) -> bool {
         self.tabs_by_owner
             .get(owner_id.trim())
             .is_some_and(|tabs| tabs.contains(&tab_id))
     }
 
-    /// Commands without an owner are legacy/manual and unrestricted. An
-    /// owner-scoped command may use only tabs recorded for that exact owner.
-    /// Released deliverables and handoffs are no longer agent-controlled.
     pub fn can_access(&self, owner_id: Option<&str>, tab_id: u64) -> bool {
         let Some(owner_id) = owner_id else {
             return true;
@@ -264,8 +230,6 @@ impl OwnerTabRegistry {
         self.is_owned_by(owner_id, tab_id)
     }
 
-    /// Marks one of an owner's tabs as its logical active tab. Foreign and
-    /// unowned tabs are ignored rather than adopted implicitly.
     pub fn mark_active(&mut self, owner_id: &str, tab_id: u64) {
         let owner_id = owner_id.trim();
         if self.is_owned_by(owner_id, tab_id) {
@@ -278,8 +242,6 @@ impl OwnerTabRegistry {
         self.active_tab_by_owner.get(owner_id.trim()).copied()
     }
 
-    /// Releases one tab from one owner without touching other owners
-    /// (finalize `keep` entries hand the tab off without closing it).
     pub fn release(&mut self, owner_id: &str, tab_id: u64) {
         let owner_id = owner_id.trim();
         if let Some(tabs) = self.tabs_by_owner.get_mut(owner_id) {
@@ -296,8 +258,6 @@ impl OwnerTabRegistry {
         }
     }
 
-    /// Drops a tab from every owner's set once the tab no longer exists.
-    /// Idempotent: forgetting an unknown tab is a no-op.
     pub fn forget_tab(&mut self, tab_id: u64) {
         self.tabs_by_owner.retain(|owner_id, tabs| {
             tabs.retain(|candidate| *candidate != tab_id);
@@ -477,12 +437,6 @@ impl BrowserManager {
             )
             .await?;
 
-        // Replacement daemons reconnect to tabs that are still owned by the
-        // durable browser session. A tab may disappear while the replacement
-        // is walking getTargets -> attach -> Page.enable (for example because
-        // the user closed it, or a timed-out page finally navigated away).
-        // Treat that as ordinary target churn: rescan and attach the survivors
-        // instead of failing the whole daemon and stranding every healthy tab.
         const MAX_DISCOVERY_PASSES: usize = 3;
         let mut last_error: Option<String> = None;
         let mut quarantined_target_ids = HashSet::new();
@@ -507,9 +461,6 @@ impl BrowserManager {
                 .map(|target| target.target_id.clone())
                 .collect();
 
-            // An earlier pass may have attached a target that vanished before
-            // its domains could be enabled. Forget only that stale attachment;
-            // stable ids for surviving targetIds remain unchanged.
             let stale_target_ids: Vec<String> = self
                 .pages
                 .iter()
@@ -565,9 +516,7 @@ impl BrowserManager {
             self.active_page_index = 0;
             let Some(active_page) = self.pages.first() else {
                 if live_target_ids.is_empty() {
-                    // A connected Stella in-app browser is intentionally
-                    // allowed to be empty. The first page-needing command will
-                    // create an owned tab through `ensure_page`.
+
                     return Ok(());
                 }
                 continue;
@@ -582,9 +531,7 @@ impl BrowserManager {
                         return Err(error);
                     }
                     last_error = Some(error);
-                    // Rescan before deciding whether this was target churn or
-                    // a real domain/bootstrap failure. If the target remains,
-                    // the next pass retries once with its current attachment.
+
                     self.remove_page_by_target_id(&active_target_id);
                     quarantined_target_ids.insert(active_target_id);
                 }
@@ -605,12 +552,6 @@ impl BrowserManager {
         self.enable_domains(session_id).await
     }
 
-    /// Default per-tab bootstrap. Deliberately excludes the Network domain:
-    /// most sessions only navigate, read, and click, and always-on network
-    /// instrumentation would make every default session carry per-request
-    /// devtools tracking. Callers that need Network events (network-idle
-    /// waits, request tracking, HAR capture, header/network-condition
-    /// emulation) enable it on demand via `ensure_network_domain`.
     async fn enable_domains(&self, session_id: &str) -> Result<(), String> {
         self.client
             .send_command_no_params("Page.enable", Some(session_id))
@@ -621,8 +562,6 @@ impl BrowserManager {
         Ok(())
     }
 
-    /// Attach the CDP Network domain to a session on demand. Safe to call
-    /// repeatedly; Network.enable is idempotent.
     pub async fn ensure_network_domain(&self, session_id: &str) -> Result<(), String> {
         self.client
             .send_command_no_params("Network.enable", Some(session_id))
@@ -630,8 +569,6 @@ impl BrowserManager {
         Ok(())
     }
 
-    /// Best-effort release of on-demand network instrumentation so a session
-    /// returns to the uninstrumented default once a capture is finished.
     pub async fn disable_network_domain(&self, session_id: &str) {
         let _ = self
             .client
@@ -648,8 +585,7 @@ impl BrowserManager {
 
     pub async fn navigate(&mut self, url: &str, wait_until: WaitUntil) -> Result<Value, String> {
         let session_id = self.active_session_id()?.to_string();
-        // Network events are opt-in; a network-idle wait needs them flowing
-        // before the navigation starts so the initial request burst is counted.
+
         if matches!(wait_until, WaitUntil::NetworkIdle) {
             self.ensure_network_domain(&session_id).await?;
         }
@@ -740,9 +676,6 @@ impl BrowserManager {
             .unwrap_or_default()
     }
 
-    /// Read the active document URL from the Page domain without executing
-    /// JavaScript in the renderer. This remains responsive when Runtime
-    /// evaluation is saturated and is suitable for origin checks.
     pub async fn active_url_protocol(&self) -> Result<String, String> {
         let session_id = self.active_session_id()?.to_string();
         let history = self
@@ -804,11 +737,6 @@ impl BrowserManager {
         Ok(result.result.value.unwrap_or(Value::Null))
     }
 
-    /// Schedule page-side work without awaiting a returned promise. This is
-    /// intentionally separate from `evaluate`: callers use it for work that
-    /// should continue in the renderer after the protocol command has
-    /// returned (for example, a delayed export or a fetch observed through
-    /// the Network domain).
     pub async fn evaluate_detached(&self, script: &str) -> Result<(), String> {
         let session_id = self.active_session_id()?.to_string();
         let result: EvaluateResult = self
@@ -844,7 +772,7 @@ impl BrowserManager {
         wait_until: WaitUntil,
         session_id: &str,
     ) -> Result<(), String> {
-        // The Network domain is lazy; a network-idle wait needs its events.
+
         if matches!(wait_until, WaitUntil::NetworkIdle) {
             self.ensure_network_domain(session_id).await?;
         }
@@ -855,9 +783,7 @@ impl BrowserManager {
 
     pub async fn close(&mut self) -> Result<(), String> {
         if self.browser_process.is_some() {
-            // Only send Browser.close when we launched the browser ourselves.
-            // For external connections (--auto-connect, --cdp) we just disconnect
-            // without shutting down the user's browser.
+
             let _ = self
                 .client
                 .send_command_no_params("Browser.close", None)
@@ -879,8 +805,6 @@ impl BrowserManager {
         !self.pages.is_empty()
     }
 
-    /// Checks if the CDP connection is alive by sending a simple command.
-    /// Returns false if the command times out or fails.
     pub async fn is_connection_alive(&self) -> bool {
         let timeout = tokio::time::Duration::from_secs(3);
         let result = tokio::time::timeout(
@@ -900,7 +824,6 @@ impl BrowserManager {
         &self.ws_url
     }
 
-    /// Returns the Chrome debug server address as "host:port".
     pub fn chrome_host_port(&self) -> &str {
         let stripped = self
             .ws_url
@@ -917,16 +840,10 @@ impl BrowserManager {
             .ok_or_else(|| "No active page".to_string())
     }
 
-    /// Returns true if this manager was connected via CDP (as opposed to local launch).
     pub fn is_cdp_connection(&self) -> bool {
         self.browser_process.is_none()
     }
 
-    /// Ensures the browser has at least one page. If `pages` is empty, creates a new
-    /// about:blank page and attaches to it. Returns the stable tab id of the
-    /// page it created, or `None` when a page already existed, so the caller
-    /// can attribute the implicit tab to the command owner that forced it
-    /// into existence.
     pub async fn ensure_page(&mut self) -> Result<Option<u64>, String> {
         if !self.pages.is_empty() {
             return Ok(None);
@@ -972,12 +889,6 @@ impl BrowserManager {
         Ok(Some(tab_id))
     }
 
-    // -----------------------------------------------------------------------
-    // Tab management
-    // -----------------------------------------------------------------------
-
-    /// Checks if `active_page_index` is still valid and adjusts it if not
-    /// (e.g., after a tab was closed).
     pub fn update_active_page_if_needed(&mut self) {
         if self.pages.is_empty() {
             self.active_page_index = 0;
@@ -988,11 +899,6 @@ impl BrowserManager {
         }
     }
 
-    /// Returns a stable positive integer tab id derived from the CDP targetId.
-    /// Managed in-app targetIds survive daemon replacement, so deriving the
-    /// public id instead of numbering discovery order keeps existing Node REPL
-    /// tab handles valid across a recovered backend. Collisions are detected
-    /// against the manager's reverse mapping and deterministically rehashed.
     fn tab_id_for_target(&mut self, target_id: &str) -> u64 {
         if let Some(id) = self.target_tab_ids.get(target_id) {
             return *id;
@@ -1003,7 +909,7 @@ impl BrowserManager {
             hasher.update(target_id.as_bytes());
             hasher.update(attempt.to_be_bytes());
             let digest = hasher.finalize();
-            // Keep the id within the protocol's positive-u32 contract.
+
             let candidate =
                 (u32::from_be_bytes(digest[..4].try_into().unwrap()) & 0x7fff_ffff) as u64;
             if candidate == 0 {
@@ -1033,19 +939,14 @@ impl BrowserManager {
         generation
     }
 
-    /// Stable `tabId` of the currently active page, if any.
     pub fn active_tab_id(&self) -> Option<u64> {
         self.pages.get(self.active_page_index).map(|p| p.tab_id)
     }
 
-    /// Resolves a stable `tabId` back to the current positional index.
     pub fn tab_index_by_id(&self, tab_id: u64) -> Option<usize> {
         self.pages.iter().position(|p| p.tab_id == tab_id)
     }
 
-    /// Makes the tab with the given stable id the active page. Returns
-    /// `Ok(true)` when a switch happened and `Ok(false)` when the tab was
-    /// already active.
     pub async fn select_tab_by_id(&mut self, tab_id: u64) -> Result<bool, String> {
         let index = self.tab_index_by_id(tab_id).ok_or_else(|| {
             format!(
@@ -1060,8 +961,6 @@ impl BrowserManager {
         Ok(true)
     }
 
-    /// Stable tab id already assigned to a CDP target, without allocating a
-    /// new one for unknown targets.
     pub fn known_tab_id_for_target(&self, target_id: &str) -> Option<u64> {
         self.target_tab_ids.get(target_id).copied()
     }
@@ -1073,16 +972,10 @@ impl BrowserManager {
             .map(|page| page.tab_generation.as_str())
     }
 
-    /// Records that a command owner created (or forced into existence) the
-    /// given tab, so `finalize_tabs`/`close_owner` can reap it later.
     pub fn record_owner_tab(&mut self, owner_id: &str, tab_id: u64) {
         self.owner_tabs.record(owner_id, tab_id);
     }
 
-    /// A protected per-owner CDP route exposes only that durable task's tabs.
-    /// When a replacement daemon/client generation reconnects, reclaim every
-    /// discovered target for the same owner instead of manufacturing a fresh
-    /// tab and orphaning the existing ones.
     pub fn adopt_all_tabs_for_owner(&mut self, owner_id: &str) {
         let tab_ids: Vec<u64> = self.pages.iter().map(|page| page.tab_id).collect();
         for tab_id in tab_ids {
@@ -1090,7 +983,6 @@ impl BrowserManager {
         }
     }
 
-    /// Tab ids currently recorded for an owner, in creation order.
     pub fn owner_tab_ids(&self, owner_id: &str) -> Vec<u64> {
         self.owner_tabs.tab_ids(owner_id)
     }
@@ -1099,7 +991,6 @@ impl BrowserManager {
         self.owner_tabs.mark_active(owner_id, tab_id);
     }
 
-    /// The owner a tab is recorded under, if any.
     pub fn owner_of_tab(&self, tab_id: u64) -> Option<String> {
         self.owner_tabs.owner_of(tab_id).map(str::to_string)
     }
@@ -1108,23 +999,14 @@ impl BrowserManager {
         self.pages.iter().any(|page| page.session_id == session_id)
     }
 
-    /// Owner-scoped commands may address only their own tabs. Commands without
-    /// an owner retain the legacy unrestricted manual/UI behavior.
     pub fn can_owner_access_tab(&self, owner_id: Option<&str>, tab_id: u64) -> bool {
         self.owner_tabs.can_access(owner_id, tab_id)
     }
 
-    /// Releases a tab from an owner's set without closing it (finalize
-    /// `keep` entries).
     pub fn release_owner_tab(&mut self, owner_id: &str, tab_id: u64) {
         self.owner_tabs.release(owner_id, tab_id);
     }
 
-    /// Closes the tab with the given stable id. Unlike `tab_close`, this may
-    /// close the last remaining tab: owner finalization must be able to reap
-    /// every helper tab, and `ensure_page` recreates a blank page for the
-    /// next command that needs one. Returns `Ok(false)` when the tab is
-    /// already gone — the goal state (tab closed) already holds.
     pub async fn close_tab_by_id(&mut self, tab_id: u64) -> Result<bool, String> {
         let Some(index) = self.tab_index_by_id(tab_id) else {
             self.owner_tabs.forget_tab(tab_id);
@@ -1170,9 +1052,6 @@ impl BrowserManager {
             .collect()
     }
 
-    /// Owner-scoped tab discovery exposes only that owner's tabs. Unowned
-    /// tabs remain available to the UI and legacy/manual callers through the
-    /// unscoped `tab_list`, but are not advertised to another agent.
     pub fn tab_list_for_owner(&self, owner_id: Option<&str>) -> Vec<Value> {
         let Some(owner_id) = owner_id else {
             return self.tab_list();
@@ -1191,7 +1070,6 @@ impl BrowserManager {
             .collect()
     }
 
-    /// The active tab id only when it belongs to the requesting owner.
     pub fn active_tab_id_for_owner(&self, owner_id: Option<&str>) -> Option<u64> {
         match owner_id {
             Some(owner_id) => self.owner_tabs.active_tab_id(owner_id),
@@ -1259,7 +1137,6 @@ impl BrowserManager {
         let session_id = self.pages[index].session_id.clone();
         self.enable_domains(&session_id).await?;
 
-        // Bring tab to front
         let _ = self
             .client
             .send_command("Page.bringToFront", None, Some(&session_id))
@@ -1319,10 +1196,6 @@ impl BrowserManager {
             "activeTabId": self.active_tab_id(),
         }))
     }
-
-    // -----------------------------------------------------------------------
-    // Emulation
-    // -----------------------------------------------------------------------
 
     pub async fn set_viewport(
         &self,
@@ -1481,7 +1354,6 @@ impl BrowserManager {
             )
             .await;
 
-        // Alternative: resolve via JS
         let result: EvaluateResult = self
             .client
             .send_command_typed(
@@ -1503,7 +1375,6 @@ impl BrowserManager {
             .object_id
             .ok_or("File input element not found")?;
 
-        // Get the DOM node from the remote object
         let describe: Value = self
             .client
             .send_command(
@@ -1519,7 +1390,6 @@ impl BrowserManager {
             .and_then(|v| v.as_i64())
             .ok_or("Could not get backendNodeId for file input")?;
 
-        // Suppress unused variable warning
         let _ = node_result;
 
         self.client
@@ -1553,9 +1423,6 @@ impl BrowserManager {
             .to_string())
     }
 
-    /// Registers a page and makes it active. The stable `tab_id` is always
-    /// (re)assigned here from the page's targetId; any value the caller put in
-    /// `page.tab_id` is ignored.
     pub fn add_page(&mut self, mut page: PageInfo) -> u64 {
         page.tab_id = self.tab_id_for_target(&page.target_id);
         page.tab_generation = self.tab_generation_for_target(&page.target_id);
@@ -1603,11 +1470,6 @@ impl BrowserManager {
     }
 }
 
-/// Core network-idle polling loop, extracted so it can be unit-tested without a
-/// full `BrowserManager` / CDP connection.
-///
-/// Returns `Ok(())` once no network requests have been in-flight for at least
-/// 500 ms, or `Err` if `overall_timeout` elapses first.
 async fn poll_network_idle(
     session_id: &str,
     rx: &mut broadcast::Receiver<CdpEvent>,
@@ -1654,11 +1516,7 @@ async fn poll_network_idle(
                 Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
                 Ok(Err(_)) => break,
                 Err(_) => {
-                    // Timeout on recv -- if no pending requests, start (or
-                    // continue) the idle timer instead of returning
-                    // immediately.  This prevents false-positive idle
-                    // detection when the subscription starts after the page
-                    // has already loaded (e.g. cached pages).
+
                     let p = pending.lock().await;
                     if p.is_empty() && idle_start.is_none() {
                         idle_start = Some(tokio::time::Instant::now());
@@ -1810,7 +1668,6 @@ async fn resolve_cdp_url(input: &str) -> Result<String, String> {
         return discover_cdp_url(host, port).await;
     }
 
-    // Try as numeric port
     if let Ok(port) = input.parse::<u16>() {
         return discover_cdp_url("127.0.0.1", port).await;
     }
@@ -1913,10 +1770,6 @@ mod tests {
         server.abort();
     }
 
-    /// Serve a single retained target, recording every CDP method received.
-    /// When `fail_network` is set, any Network-domain command is answered with
-    /// an error so a regression that re-adds Network.enable to bootstrap makes
-    /// connect fail loudly instead of silently re-instrumenting sessions.
     async fn serve_recording_target(
         listener: TcpListener,
         records: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
@@ -1956,8 +1809,6 @@ mod tests {
         }
     }
 
-    /// Default sessions must carry no network instrumentation: bootstrap may
-    /// enable Page/Runtime but must never enable the Network domain.
     #[tokio::test]
     async fn default_bootstrap_leaves_network_domain_detached() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1983,8 +1834,6 @@ mod tests {
         server.abort();
     }
 
-    /// The on-demand path attaches the Network domain when a tool needs it and
-    /// detaches it again when the tool is done.
     #[tokio::test]
     async fn network_domain_attaches_on_demand_and_detaches() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -2030,7 +1879,6 @@ mod tests {
         assert_eq!(registry.owner_of(7), Some("worker-2"));
         assert_eq!(registry.owner_of(99), None);
 
-        // Owner ids are trimmed so transport whitespace cannot fork the set.
         registry.record(" worker-1 ", 5);
         assert_eq!(registry.tab_ids("worker-1"), vec![3, 1, 5]);
     }
@@ -2052,7 +1900,6 @@ mod tests {
         registry.record("worker-1", 2);
         registry.record("worker-2", 2);
 
-        // Release touches exactly one owner.
         registry.release("worker-1", 2);
         assert_eq!(registry.tab_ids("worker-1"), vec![1]);
         assert_eq!(registry.tab_ids("worker-2"), vec![2]);
@@ -2061,14 +1908,12 @@ mod tests {
         registry.release("unknown", 2);
         assert_eq!(registry.tab_ids("worker-2"), vec![2]);
 
-        // Forget removes the tab from every owner; repeating is a no-op.
         registry.forget_tab(2);
         registry.forget_tab(2);
         assert_eq!(registry.tab_ids("worker-2"), Vec::<u64>::new());
         assert_eq!(registry.owner_of(2), None);
         assert_eq!(registry.active_tab_id("worker-2"), None);
 
-        // Draining an owner's last tab drops the owner entry entirely.
         registry.release("worker-1", 1);
         assert_eq!(registry.owner_of(1), None);
         assert_eq!(registry.tab_ids("worker-1"), Vec::<u64>::new());
@@ -2194,7 +2039,6 @@ mod tests {
         assert_eq!(to_ai_friendly_error(msg), msg);
     }
 
-    /// Errors containing "not found" but NOT "element" should pass through unchanged.
     #[test]
     fn test_to_ai_friendly_error_ignores_non_element_not_found() {
         let err = "Chrome not found. Install Chrome or use --executable-path.";
@@ -2280,10 +2124,6 @@ mod tests {
         assert!(!is_internal_chrome_target("about:blank"));
     }
 
-    // -----------------------------------------------------------------------
-    // poll_network_idle tests
-    // -----------------------------------------------------------------------
-
     fn cdp_event(method: &str, session_id: &str, params: Value) -> CdpEvent {
         CdpEvent {
             method: method.to_string(),
@@ -2292,9 +2132,6 @@ mod tests {
         }
     }
 
-    /// Regression test for #846: when no network events arrive at all (e.g.
-    /// page fully served from cache), poll_network_idle must NOT return
-    /// instantly.  It should observe at least 500 ms of idle before resolving.
     #[tokio::test]
     async fn test_network_idle_no_events_does_not_return_instantly() {
         let (tx, mut rx) = broadcast::channel::<CdpEvent>(16);
@@ -2319,8 +2156,6 @@ mod tests {
         drop(tx);
     }
 
-    /// Normal flow: requests start and finish, idle is detected after the last
-    /// request completes and 500 ms of silence passes.
     #[tokio::test]
     async fn test_network_idle_after_requests_complete() {
         let (tx, mut rx) = broadcast::channel::<CdpEvent>(16);
@@ -2359,7 +2194,6 @@ mod tests {
         );
     }
 
-    /// A new request arriving during the idle window resets the timer.
     #[tokio::test]
     async fn test_network_idle_resets_on_new_request() {
         let (tx, mut rx) = broadcast::channel::<CdpEvent>(16);
@@ -2379,7 +2213,7 @@ mod tests {
                 session,
                 json!({ "requestId": "r1" }),
             ));
-            // Wait 200ms (< 500ms idle window), then fire another request
+
             sleep(Duration::from_millis(200)).await;
             let _ = tx.send(cdp_event(
                 "Network.requestWillBeSent",
@@ -2404,7 +2238,7 @@ mod tests {
 
         assert!(result.is_ok());
         let elapsed = start.elapsed();
-        // r2 finishes at ~400ms; idle should be detected at ~900ms
+
         assert!(
             elapsed >= Duration::from_millis(800),
             "should wait for idle after second request, got {:?}",
@@ -2412,14 +2246,11 @@ mod tests {
         );
     }
 
-    /// When the overall timeout expires before idle is reached, the function
-    /// returns an error.
     #[tokio::test]
     async fn test_network_idle_overall_timeout() {
         let (tx, mut rx) = broadcast::channel::<CdpEvent>(16);
         let session = "s1";
 
-        // Keep sending requests so idle is never reached
         tokio::spawn(async move {
             for i in 0u64.. {
                 let _ = tx.send(cdp_event(

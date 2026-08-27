@@ -19,12 +19,6 @@ import {
 import { readConfiguredStellaSiteUrl } from "@stella/contracts/convex-urls";
 import type { ResolvedLlmRoute } from "./model-routing.js";
 
-/**
- * Fallback context window for Stella-managed relay routes, used only when the
- * resolved upstream model isn't found in the registry. When the model *is* in
- * the registry, `createRelayModel` carries its real provider-catalog-derived
- * context window instead — which the orchestrator compaction trigger keys off.
- */
 export const STELLA_CONTEXT_WINDOW = 80_000;
 const STELLA_MAX_TOKENS = 16_384;
 const STELLA_AUTH_REFRESH_SKEW_MS = 15_000;
@@ -107,18 +101,14 @@ const managedUpstreamForBareStellaModel = (
   bareModelId: string,
 ): string | null => {
   const matches = findRegistryModelsById(bareModelId);
-  // Opaque backend-owned aliases are not in the local registry. Preserve the
-  // exact id as a provisional route so catalog enrichment can resolve it; if
-  // the catalog is unavailable, the relay sees that exact id and fails loudly
-  // upstream instead of silently substituting another model family.
+
   if (matches.length === 0) return bareModelId;
 
   return resolveManagedStellaRegistryMatches(matches);
 };
 
 export const resolveOfflineStellaModelId = (modelId: string): string | null => {
-  // Offline fallback for legacy aliases when the server catalog metadata is
-  // unavailable. All aliases now resolve to Stella's single supported model.
+
   switch (modelId) {
     case "stella/light":
     case "stella/priority":
@@ -206,13 +196,10 @@ const apiForRelay = (
     case "crof":
       return "openai-completions";
     case "wafer":
-      // Wafer is OpenAI-compatible chat completions only.
+
       return "openai-completions";
     case "openrouter":
-      // OpenRouter hosts a mix of protocols: Muse Spark 1.2 Contributor
-      // (the Stella default) requires the Responses API; every other
-      // OpenRouter-hosted model (kimi synthesis, custom picks) stays on
-      // chat completions.
+
       return resolvedModelId && isMuseSpark12ContributorModel(resolvedModelId)
         ? "openai-responses"
         : "openai-completions";
@@ -284,7 +271,7 @@ const createRelayModel = (args: {
             ...registryModel?.thinkingLevelMap,
             ...(args.provider === "crof" || args.provider === "wafer"
               ? {
-                  // CrofAI and Wafer accept none | low | medium | high.
+
                   minimal: "low",
                   low: "low",
                   medium: "medium",
@@ -293,8 +280,7 @@ const createRelayModel = (args: {
                   off: "none",
                 }
               : {
-                  // DeepSeek's native ladder is low | high | max. The relay
-                  // applies the same clamp for older builds without this map.
+
                   minimal: "low",
                   low: "low",
                   medium: "high",
@@ -307,9 +293,7 @@ const createRelayModel = (args: {
       : {}),
     ...(isMuseSpark12ContributorModel(args.resolvedModelId)
       ? {
-          // Muse Spark 1.2 Contributor accepts xhigh on the Responses API
-          // and reasoning is mandatory for it. Without this map the runtime
-          // clamps Stella's default `xhigh` effort down to `high`.
+
           thinkingLevelMap: {
             ...registryModel?.thinkingLevelMap,
             xhigh: "xhigh",
@@ -318,22 +302,11 @@ const createRelayModel = (args: {
       : {}),
     headers: {
       ...(registryModel?.headers ?? {}),
-      // `X-Stella-Agent-Type` lets the relay attribute usage to the
-      // right per-agent bucket. The relay strips this header before
-      // forwarding upstream. The previous `X-Stella-Relay: 1` sentinel
-      // is gone — provider adapters now detect the relay by baseUrl
-      // (so a missing header can never accidentally route native auth
-      // headers through to providers that wouldn't accept Stella's
-      // token shape).
+
       "X-Stella-Agent-Type": args.agentType,
     },
   } as Model<Api>;
 
-  // Stash the resolved upstream model id so provider adapters can make
-  // model-capability decisions (e.g. Anthropic adaptive vs budget-based
-  // thinking, which Opus 4.7 rejects in budget form) when `model.id`
-  // carries a user-facing Stella alias like `stella/designer` that doesn't
-  // include the underlying model slug.
   (model as Model<Api> & { upstreamModelId?: string }).upstreamModelId =
     nativeId;
   return model;

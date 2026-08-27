@@ -67,13 +67,6 @@ const EMPTY_MANAGED: ManagedRuntimeCatalogPayload = {
   directModels: [],
 };
 
-/**
- * Per-(audience, catalog-version) Stella catalog. Keyed by
- * `${authAudienceKey}::${modelCatalogUpdatedAt}` — the service-request
- * endpoint and device id come from `createServiceRequest` inside the
- * fetcher and don't shift within a renderer-process session, so they
- * don't need to participate in the cache key.
- */
 const stellaCatalogStore = createResourceStore<string, StellaCatalogPayload>({
   staleMs: MODEL_CATALOG_REFRESH_INTERVAL_MS,
   fetcher: async () => {
@@ -88,11 +81,6 @@ const stellaCatalogStore = createResourceStore<string, StellaCatalogPayload>({
   },
 });
 
-/**
- * Single worker-owned catalog for direct providers. The runtime restores its
- * persisted last-good catalog immediately and refreshes pi.dev in the
- * background, so the renderer never maintains a second provider registry.
- */
 const managedGatewayStore = createResourceStore<"default", ManagedRuntimeCatalogPayload>({
   staleMs: MODEL_CATALOG_REFRESH_INTERVAL_MS,
   accept: (next, current) => next.revision > current.revision,
@@ -100,9 +88,7 @@ const managedGatewayStore = createResourceStore<"default", ManagedRuntimeCatalog
     const data = await window.electronAPI?.system?.listLlmModels?.({
       forceRefresh: context.force,
     });
-    // Do not normalize a missing response into an empty catalog — that would
-    // cache `{revision: 0, directModels: []}` as a successful fetch for the
-    // whole stale window. Surface the missing bridge as an error instead.
+
     if (!data) throw new Error("Model catalog IPC bridge is unavailable.");
     return normalizeRuntimeCatalogSnapshot(data);
   },
@@ -146,9 +132,7 @@ function getSessionCacheKey(sessionData: AuthSessionData): string {
 
 export function useModelCatalog() {
   const session = useDesktopAuthSession();
-  // Read the catalog updated-at from the shared provider rather than
-  // opening a second `useQuery` subscription — `__root.tsx` already
-  // mounts `ModelCatalogUpdatedAtProvider` for the whole tree.
+
   const modelCatalogUpdatedAt = useModelCatalogUpdatedAt();
   const sessionData = session.data as AuthSessionData;
   const user = sessionData?.user ?? null;
@@ -176,14 +160,7 @@ export function useModelCatalog() {
   const authAudienceKey = useMemo(() => {
     if (session.isPending) return null;
     if (!hasConnectedAccount) return `${sessionCacheScope}:audience:anonymous`;
-    // Once billing resolves we key by the precise audience. Until then fetch
-    // under a provisional key rather than returning null — the backend derives
-    // the real audience (and `allowedForAudience`) from the auth token, not
-    // from this client cache key, so the fetched data is already correct; the
-    // audience only busts the cache so restricted styling re-evaluates on plan
-    // change. Returning null here previously left the picker stuck on
-    // "Loading Stella models…" forever whenever the billing query was slow or
-    // failed (it swallows errors and never resolves).
+
     return `${sessionCacheScope}:audience:${billingAudienceKey ?? "pending"}`;
   }, [
     billingAudienceKey,
@@ -194,9 +171,7 @@ export function useModelCatalog() {
 
   const stellaCacheKey = useMemo(() => {
     if (!authAudienceKey) return null;
-    // The updated-at marker is only a cache-bust hint, not a prerequisite.
-    // Fall back to a stable token so the catalog loads even if the marker
-    // query hasn't resolved yet, then re-fetch when it does.
+
     return `${authAudienceKey}::${modelCatalogUpdatedAt ?? "pending"}`;
   }, [authAudienceKey, modelCatalogUpdatedAt]);
 
@@ -207,9 +182,7 @@ export function useModelCatalog() {
   const managedPayload = managedQuery.data ?? EMPTY_MANAGED;
 
   const localModels = useMemo(() => listLocalCatalogModels(), []);
-  // The curated Stella preset modes always render from a local fallback, so the
-  // compact picker is never blank while the catalog loads / on a fetch failure.
-  // Fetched entries override the fallbacks with authoritative metadata.
+
   const stellaModels = useMemo(
     () => withStellaPresetFallbacks(stellaPayload.models),
     [stellaPayload.models],
@@ -271,7 +244,6 @@ function buildAnonymousStellaCatalogKey(
   return `${getSessionCacheKey(sessionData)}:audience:anonymous::${modelCatalogUpdatedAt}`;
 }
 
-/** Intent-hover warm for the sidebar Models popover and composer entry points. */
 export function preloadModelCatalogCache(): void {
   void managedGatewayStore.ensure("default");
 

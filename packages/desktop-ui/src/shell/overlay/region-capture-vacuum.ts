@@ -22,13 +22,11 @@ void main() {
   float n = dist / 2.0;
   float nc = clamp(n, 0.0, 1.0);
 
-  // Vortex — subtle spiral, stronger near center
   float angle = u_strength * 0.8 * (1.0 - nc);
   float sn = sin(angle);
   float cs = cos(angle);
   d = vec2(d.x * cs - d.y * sn, d.x * sn + d.y * cs);
 
-  // Differential inward pull — center moves faster than edges = visible morph
   float exp = 1.0 / (1.0 + u_strength * 4.0);
   d *= min(pow(max(n, 0.001), exp - 1.0), 20.0);
   d.x /= u_aspect;
@@ -38,12 +36,9 @@ void main() {
   vec4 col = texture2D(u_tex, clamp(uv, 0.0, 1.0));
   col *= inB;
 
-  // Shrinking visible radius — edges go transparent as content vacuums inward.
   float fadeR = max(1.0 - u_strength * u_strength * 3.0, 0.02);
   col.a *= 1.0 - smoothstep(fadeR * 0.5, fadeR, nc);
 
-  // Center fade — let the core dissolve via alpha instead of darkening RGB,
-  // so the animation collapses into transparency rather than a black point.
   col.a *= max(1.0 - u_strength * u_strength * (1.0 - nc), 0.0);
 
   gl_FragColor = col;

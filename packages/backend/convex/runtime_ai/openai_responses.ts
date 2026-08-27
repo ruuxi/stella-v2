@@ -312,9 +312,7 @@ function buildParams(
       model.compat?.supportsLongCacheRetention === false
         ? undefined
         : getPromptCacheRetention(model.baseUrl, cacheRetention),
-    // OpenRouter rejects `store: true` for the Muse Spark Responses path
-    // ("Invalid Responses API request"); its Responses API is stateless, so
-    // omit the flag there and keep it for providers that support it.
+
     store: model.provider !== "openrouter",
   };
 

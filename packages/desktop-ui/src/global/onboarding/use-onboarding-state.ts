@@ -7,13 +7,7 @@ import {
 } from "./post-onboarding-hints";
 
 const ONBOARDING_COMPLETE_KEY = "stella-onboarding-complete";
-/**
- * Persists the current onboarding phase so a user who quits the app
- * mid-flow lands back on the same step instead of the very first
- * "Start Stella" screen. Cleared on completion and on hard reset.
- * Only split-flow phases are persisted (intro is the entry surface
- * itself, and `complete`/`done` mean we're already past onboarding).
- */
+
 const ONBOARDING_PHASE_KEY = "stella-onboarding-phase";
 const ONBOARDING_COMPLETE_EVENT = "stella:onboarding-complete-changed";
 
@@ -49,13 +43,6 @@ const writeOnboardingPhase = (phase: Phase | null) => {
   uiState.setItem(ONBOARDING_PHASE_KEY, phase);
 };
 
-/**
- * Module-level subscription so multiple consumers (`FullShell`, the
- * onboarding overlay hook, anything else) share a single pair of
- * `storage`/custom-event listeners on `window`. Previously each call
- * site registered its own pair, racing two independent boolean copies
- * for the same flag.
- */
 const subscribers = new Set<() => void>();
 let listenersAttached = false;
 let durableHydrated = false;
@@ -181,8 +168,7 @@ export function useOnboardingState() {
     durableHydrated = true;
     writeLocalOnboardingCompleted(true);
     writeOnboardingPhase(null);
-    // Seed the one-time post-onboarding sidebar hints.
-    // Idempotent — re-completing onboarding without a reset is a no-op.
+
     seedPostOnboardingHints();
     window.dispatchEvent(new Event(ONBOARDING_COMPLETE_EVENT));
     notifyAll();
@@ -199,8 +185,7 @@ export function useOnboardingState() {
     durableHydrated = true;
     writeLocalOnboardingCompleted(false);
     writeOnboardingPhase(null);
-    // Reset clears the seeded marker too so the next completion re-shows
-    // the post-onboarding hints, matching brand-new-install behavior.
+
     clearPostOnboardingHints();
     window.dispatchEvent(new Event(ONBOARDING_COMPLETE_EVENT));
     notifyAll();

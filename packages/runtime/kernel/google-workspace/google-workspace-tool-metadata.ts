@@ -1,8 +1,3 @@
-/**
- * Tool descriptions and JSON Schema parameters for the Google Workspace agent.
- * Descriptions align with gemini-cli-extensions/workspace (v0.0.7).
- */
-
 export type GoogleWorkspaceToolMeta = {
   description: string;
   parameters: Record<string, unknown>;

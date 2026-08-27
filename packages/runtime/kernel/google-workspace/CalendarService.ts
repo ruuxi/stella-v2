@@ -1,9 +1,3 @@
-/**
- * @license
- * Copyright 2025 Google LLC
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import crypto from 'node:crypto';
 import { calendar_v3, google } from 'googleapis';
 import type { AuthManager } from "./AuthManager.js";
@@ -12,10 +6,6 @@ import { createGoogleClientOptions } from './GaxiosConfig.js';
 import { iso8601DateTimeSchema, emailArraySchema } from './validation.js';
 import { z } from 'zod';
 
-/**
- * Google Drive file attachment for calendar events.
- * Attachments are fully replaced (not appended) when provided.
- */
 interface EventAttachment {
   fileUrl: string;
   title?: string;
@@ -83,12 +73,6 @@ export class CalendarService {
 
   constructor(private authManager: AuthManager) {}
 
-  /**
-   * Adds conferenceData and attachments to an event body and its API params.
-   *
-   * IMPORTANT: Attachments are fully REPLACED, not appended. When attachments
-   * are provided, any existing attachments on the event will be removed.
-   */
   private applyMeetAndAttachments(
     event: calendar_v3.Schema$Event,
     params: { conferenceDataVersion?: number; supportsAttachments?: boolean },
@@ -221,7 +205,6 @@ export class CalendarService {
       attachments,
     } = input;
 
-    // Validate datetime formats
     try {
       iso8601DateTimeSchema.parse(start.dateTime);
       iso8601DateTimeSchema.parse(end.dateTime);
@@ -243,7 +226,6 @@ export class CalendarService {
     if (attachments?.length)
       logToFile(`Attachments: ${attachments.length} file(s)`);
 
-    // Determine sendUpdates value
     let finalSendUpdates = sendUpdates;
     if (finalSendUpdates === undefined) {
       finalSendUpdates = attendees?.length ? 'all' : 'none';
@@ -330,14 +312,14 @@ export class CalendarService {
         ?.filter((event) => event.status !== 'cancelled' && !!event.summary)
         .filter((event) => {
           if (!event.attendees || event.attendees.length === 0) {
-            return true; // No attendees, so we can't filter, include it
+            return true;
           }
           if (event.attendees.length === 1 && event.attendees[0].self) {
-            return true; // I'm the only one, always include it
+            return true;
           }
           const self = event.attendees.find((a) => a.self);
           if (!self) {
-            return true; // We are not an attendee, include it
+            return true;
           }
           return attendeeResponseStatus.includes(
             self.responseStatus || 'needsAction',
@@ -461,7 +443,6 @@ export class CalendarService {
       attachments,
     } = input;
 
-    // Validate datetime formats if provided
     try {
       if (start) {
         iso8601DateTimeSchema.parse(start.dateTime);
@@ -485,7 +466,6 @@ export class CalendarService {
     try {
       const calendar = await this.getCalendar();
 
-      // Build request body with only the fields to update (patch semantics)
       const requestBody: calendar_v3.Schema$Event = {};
       if (summary !== undefined) requestBody.summary = summary;
       if (description !== undefined) requestBody.description = description;
@@ -552,7 +532,6 @@ export class CalendarService {
     try {
       const calendar = await this.getCalendar();
 
-      // First, get the current event to find the attendee entry
       const event = await calendar.events.get({
         calendarId: finalCalendarId,
         eventId,
@@ -570,7 +549,6 @@ export class CalendarService {
         };
       }
 
-      // Find the current user's attendee entry
       const selfAttendee = event.data.attendees.find((a) => a.self === true);
       if (!selfAttendee) {
         logToFile('User is not an attendee of this event');
@@ -586,13 +564,11 @@ export class CalendarService {
         };
       }
 
-      // Update the response status for the current user
       selfAttendee.responseStatus = responseStatus;
       if (responseMessage !== undefined) {
         selfAttendee.comment = responseMessage;
       }
 
-      // Patch the event with the updated attendee list
       const res = await calendar.events.patch({
         calendarId: finalCalendarId,
         eventId,
@@ -637,11 +613,10 @@ export class CalendarService {
   findFreeTime = async (input: FindFreeTimeInput) => {
     const { attendees, timeMin, timeMax, duration } = input;
 
-    // Validate datetime formats
     try {
       iso8601DateTimeSchema.parse(timeMin);
       iso8601DateTimeSchema.parse(timeMax);
-      // Note: attendees can include 'me' as a special value, so we don't validate as emails
+
     } catch (error) {
       return this.createValidationErrorResponse(error);
     }
@@ -692,7 +667,6 @@ export class CalendarService {
         };
       }
 
-      // Sort and merge overlapping busy intervals for better performance
       const sortedBusyTimes = busyTimes
         .filter((busy) => busy.start && busy.end)
         .map((busy) => ({
@@ -708,7 +682,7 @@ export class CalendarService {
         } else {
           const last = mergedBusyTimes[mergedBusyTimes.length - 1];
           if (busy.start <= last.end) {
-            // Overlapping or adjacent intervals - merge them
+
             last.end = Math.max(last.end, busy.end);
           } else {
             mergedBusyTimes.push(busy);
@@ -720,7 +694,6 @@ export class CalendarService {
       const endTime = new Date(timeMax).getTime();
       const durationMs = duration * 60000;
 
-      // If no busy times, return the start of the range
       if (mergedBusyTimes.length === 0) {
         const slotEnd = new Date(startTime + durationMs);
         logToFile(
@@ -739,7 +712,6 @@ export class CalendarService {
         };
       }
 
-      // Check if we can fit the meeting before the first busy slot
       if (startTime + durationMs <= mergedBusyTimes[0].start) {
         const slotEnd = new Date(startTime + durationMs);
         logToFile(`Found free time: ${timeMin} - ${slotEnd.toISOString()}`);
@@ -756,7 +728,6 @@ export class CalendarService {
         };
       }
 
-      // Check gaps between busy slots
       for (let i = 0; i < mergedBusyTimes.length - 1; i++) {
         const gapStart = mergedBusyTimes[i].end;
         const gapEnd = mergedBusyTimes[i + 1].start;
@@ -781,7 +752,6 @@ export class CalendarService {
         }
       }
 
-      // Check if we can fit after the last busy slot
       const lastBusyEnd = mergedBusyTimes[mergedBusyTimes.length - 1].end;
       if (lastBusyEnd + durationMs <= endTime) {
         const slotStart = new Date(lastBusyEnd);

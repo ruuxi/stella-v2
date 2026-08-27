@@ -1,14 +1,3 @@
-/**
- * System Signals Collector
- *
- * Gathers behavioral data:
- * - Screen Time / app usage (knowledgeC.db on macOS, ActivitiesCache.db on Windows)
- * - Dock pins (macOS) / Taskbar pins (Windows)
- * - OS account identity
- *
- * NO theme/accessibility/appearance signals — only behavioral data.
- */
-
 import path from "path";
 import os from "os";
 import { exec } from "child_process";
@@ -23,10 +12,6 @@ import type {
 } from "./discovery-types.js";
 
 const log = (...args: unknown[]) => console.error("[system-signals]", ...args);
-
-// ---------------------------------------------------------------------------
-// Utilities
-// ---------------------------------------------------------------------------
 
 const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> =>
   Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
@@ -43,10 +28,6 @@ const execAsync = (command: string): Promise<string> => {
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-// ---------------------------------------------------------------------------
-// SQLite Helper
-// ---------------------------------------------------------------------------
-
 type SqliteDatabase = {
   prepare(sql: string): { all(...params: unknown[]): unknown[] };
   close(): void;
@@ -54,15 +35,10 @@ type SqliteDatabase = {
 
 const openDatabase = async (dbPath: string): Promise<SqliteDatabase> => {
   const { Database } = await import("bun:sqlite");
-  // Read the live DB directly via an immutable URI: skips locking and reads
-  // the main file without its WAL sidecars. Best-effort one-time snapshot.
+
   const uri = `${pathToFileURL(dbPath).href}?immutable=1`;
   return new Database(uri, { readonly: true }) as SqliteDatabase;
 };
-
-// ---------------------------------------------------------------------------
-// User Identity
-// ---------------------------------------------------------------------------
 
 async function collectUserIdentity(): Promise<UserIdentitySignal | null> {
   const identity: UserIdentitySignal = {};
@@ -84,17 +60,13 @@ async function collectUserIdentity(): Promise<UserIdentitySignal | null> {
       if (fullName) identity.fullName = fullName;
     }
   } catch {
-    // OS account display names are best-effort evidence, not required.
+
   }
 
   return identity.username || identity.fullName || identity.homeDirectory
     ? identity
     : null;
 }
-
-// ---------------------------------------------------------------------------
-// Dock Pins (macOS)
-// ---------------------------------------------------------------------------
 
 async function collectDockPins(): Promise<DockPin[]> {
   if (os.platform() !== "darwin") {
@@ -134,10 +106,6 @@ async function collectDockPins(): Promise<DockPin[]> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// App Usage
-// ---------------------------------------------------------------------------
-
 async function collectAppUsageMacOS(): Promise<AppUsageSummary[]> {
   try {
     const sourceDb = path.join(
@@ -174,22 +142,18 @@ async function collectAppUsageMacOS(): Promise<AppUsageSummary[]> {
     const rows = db.prepare(query).all() as Array<{ app: string; total_seconds: number }>;
     db.close();
 
-    // Process results
     const appUsage: AppUsageSummary[] = rows.map((row) => {
       let appName = row.app;
 
-      // Clean up app names
       if (appName.startsWith("com.apple.")) {
         appName = appName.replace("com.apple.", "");
       }
 
-      // Extract last component of bundle IDs
       const parts = appName.split(".");
       if (parts.length > 1) {
         appName = parts[parts.length - 1];
       }
 
-      // Capitalize first letter
       appName = appName.charAt(0).toUpperCase() + appName.slice(1);
 
       const durationMinutes = Math.round(row.total_seconds / 60);
@@ -214,7 +178,6 @@ async function collectAppUsageWindows(): Promise<AppUsageSummary[]> {
       "AppData/Local/ConnectedDevicesPlatform"
     );
 
-    // Find ActivitiesCache.db (check all subdirs in parallel)
     const dirs = await fs.readdir(cdpBase);
     const dbResults = await Promise.all(
       dirs.map(async (dir) => {
@@ -238,7 +201,7 @@ async function collectAppUsageWindows(): Promise<AppUsageSummary[]> {
 
     let rows: Array<{ AppId: string; total_seconds: number }>;
     try {
-      // Preferred query when ActiveDurationSeconds is available.
+
       const query = `
         SELECT
           AppId,
@@ -251,7 +214,7 @@ async function collectAppUsageWindows(): Promise<AppUsageSummary[]> {
       `;
       rows = db.prepare(query).all() as Array<{ AppId: string; total_seconds: number }>;
     } catch {
-      // Fallback for schema variants where duration columns differ.
+
       const fallbackQuery = `
         SELECT
           AppId,
@@ -266,22 +229,19 @@ async function collectAppUsageWindows(): Promise<AppUsageSummary[]> {
     }
     db.close();
 
-    // Process results
     const appUsage: AppUsageSummary[] = rows
       .map((row) => {
         let appName = row.AppId;
 
-        // Try to parse as JSON
         try {
           const parsed = JSON.parse(appName);
           if (parsed.application) {
             appName = parsed.application;
           }
         } catch {
-          // Not JSON, use as-is
+
         }
 
-        // Clean up app names
         if (appName.startsWith("Microsoft.")) {
           appName = appName.replace("Microsoft.", "");
         }
@@ -309,15 +269,6 @@ async function collectAppUsage(): Promise<AppUsageSummary[]> {
   return [];
 }
 
-// ---------------------------------------------------------------------------
-// Device / Hardware
-// ---------------------------------------------------------------------------
-
-/**
- * Device + hardware profile. Most fields come from Node's `os` module (instant,
- * cross-platform); OS marketing version and hardware model are enriched per
- * platform best-effort.
- */
 async function collectDevice(): Promise<DeviceSignals> {
   const platform = os.platform();
   const cpus = os.cpus();
@@ -340,12 +291,12 @@ async function collectDevice(): Promise<DeviceSignals> {
       const product = (await execAsync("sw_vers -productVersion")).trim();
       if (product) osLabel = `macOS ${product}`;
     } catch {
-      // Keep the os.release() fallback.
+
     }
     try {
       model = (await execAsync("sysctl -n hw.model")).trim() || undefined;
     } catch {
-      // Model is optional.
+
     }
   } else if (platform === "win32") {
     try {
@@ -356,7 +307,7 @@ async function collectDevice(): Promise<DeviceSignals> {
       ).trim();
       if (caption) osLabel = caption;
     } catch {
-      // Keep the os.release() fallback.
+
     }
     try {
       const winModel = (
@@ -366,16 +317,12 @@ async function collectDevice(): Promise<DeviceSignals> {
       ).trim();
       model = winModel || undefined;
     } catch {
-      // Model is optional.
+
     }
   }
 
   return { os: osLabel, arch, model, cpu, cpuCores, memoryGB };
 }
-
-// ---------------------------------------------------------------------------
-// Main Collector
-// ---------------------------------------------------------------------------
 
 export async function collectSystemSignals(): Promise<SystemSignals> {
   const [userIdentity, dockPins, appUsage, device] = await Promise.all([
@@ -387,10 +334,6 @@ export async function collectSystemSignals(): Promise<SystemSignals> {
 
   return { userIdentity, dockPins, appUsage, device };
 }
-
-// ---------------------------------------------------------------------------
-// Format for Synthesis
-// ---------------------------------------------------------------------------
 
 export function formatSystemSignalsForSynthesis(data: SystemSignals): string {
   const sections: string[] = [];
@@ -409,7 +352,6 @@ export function formatSystemSignalsForSynthesis(data: SystemSignals): string {
     sections.push(identitySection.join("\n"));
   }
 
-  // Device & Hardware
   if (data.device) {
     const d = data.device;
     const deviceLines = ["### Device"];
@@ -423,7 +365,6 @@ export function formatSystemSignalsForSynthesis(data: SystemSignals): string {
     if (deviceLines.length > 1) sections.push(deviceLines.join("\n"));
   }
 
-  // Dock/Pinned Apps
   if (data.dockPins.length > 0) {
     const dockSection = ["### Dock/Pinned Apps"];
     for (const pin of data.dockPins) {
@@ -432,7 +373,6 @@ export function formatSystemSignalsForSynthesis(data: SystemSignals): string {
     sections.push(dockSection.join("\n"));
   }
 
-  // App Usage
   if (data.appUsage.length > 0) {
     const appSection = ["### App Usage (Screen Time)"];
     for (const app of data.appUsage) {

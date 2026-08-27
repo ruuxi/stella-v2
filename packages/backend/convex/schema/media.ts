@@ -104,20 +104,11 @@ export const mediaSchema = {
     ),
     endpointId: v.string(),
     request: mediaRequestSummaryValidator,
-    /**
-     * Opt-in owner-scoped identity supplied through Idempotency-Key. Only
-     * clients that need durable retry/reattachment (currently image_gen) set
-     * this; existing Media Studio/video/audio/3D behavior is unchanged.
-     */
+
     clientRequestKey: v.optional(v.string()),
-    /** Hash of the exact request body. Reusing a key with another payload is
-     * rejected instead of silently attaching to the wrong generation. */
+
     clientRequestHash: v.optional(v.string()),
-    /**
-     * Durable image_gen submission outbox. New encrypted payloads live in the
-     * owner-scoped manifest/chunk tables below; submissionPayloadStorageId is
-     * retained only to read and clean legacy Convex file-storage rows.
-     */
+
     submissionState: v.optional(
       v.union(
         v.literal("pending"),
@@ -129,7 +120,7 @@ export const mediaSchema = {
       ),
     ),
     submissionPayloadStorageId: v.optional(v.id("_storage")),
-    /** Transactionally tracked replacement for new managed image payloads. */
+
     submissionPayloadManifestId: v.optional(v.string()),
     submissionAttemptId: v.optional(v.string()),
     submissionClaimedAt: v.optional(v.number()),
@@ -149,22 +140,11 @@ export const mediaSchema = {
     startedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
     lastWebhookAt: v.optional(v.number()),
-    /**
-     * Set when the connector-media delivery has been scheduled (in the
-     * same mutation that calls `ctx.scheduler.runAfter(deliverMediaJobToConnector)`).
-     * Acts as the dedup gate against duplicate `markGenerated` / `applyFalWebhook`
-     * invocations for the same job — once set, subsequent terminal-success
-     * patches skip re-scheduling.
-     */
+
     connectorMediaDeliveryScheduledAt: v.optional(v.number()),
-    /**
-     * Set by `deliverMediaJobToConnector` *after* the connector POST
-     * succeeded. A `scheduledAt && !deliveredAt && error` triple is the
-     * signal that a delivery attempt was made but failed; recovery is
-     * via manual re-trigger or a future watchdog.
-     */
+
     connectorMediaDeliveredAt: v.optional(v.number()),
-    /** Last delivery error message, if the most recent attempt failed. */
+
     connectorMediaDeliveryError: v.optional(v.string()),
     connectorMediaDeliveryAttempts: v.optional(v.number()),
     connectorMediaDeliveryAbandonedAt: v.optional(v.number()),
@@ -173,11 +153,7 @@ export const mediaSchema = {
     .index("by_ownerId_and_jobId", ["ownerId", "jobId"])
     .index("by_ownerId_and_clientRequestKey", ["ownerId", "clientRequestKey"])
     .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
-    // The desktop materializer subscribes via `listSucceededSince`, which
-    // wants succeeded jobs in completion order. Adding `(status, completedAt)`
-    // as a compound index lets that query return only succeeded rows
-    // directly, rather than over-fetching `(ownerId, createdAt)` and JS
-    // filtering by `status === "succeeded"`.
+
     .index("by_ownerId_and_status_and_completedAt", [
       "ownerId",
       "status",
@@ -198,12 +174,6 @@ export const mediaSchema = {
       "providerRequestId",
     ]),
 
-  /**
-   * Per-job webhook log entries split out from `media_jobs.logs`. Each fal
-   * webhook delivery appends one row per log entry, so a long-running media
-   * generation can accumulate many entries without rewriting the job
-   * document or hitting the 1MB document size limit.
-   */
   media_job_logs: defineTable({
     ownerId: v.string(),
     jobId: v.string(),
@@ -214,28 +184,17 @@ export const mediaSchema = {
     .index("by_jobId_and_ordinal", ["jobId", "ordinal"])
     .index("by_ownerId_and_jobId", ["ownerId", "jobId"]),
 
-  /**
-   * A user abort may reach the gateway before its matching POST reserves a
-   * media_jobs row. This tombstone makes cancellation win that race durably,
-   * so an automatic retry cannot allocate upstream work after cancellation.
-   */
   media_request_cancellations: defineTable({
     ownerId: v.string(),
     clientRequestKey: v.string(),
     createdAt: v.number(),
   }).index("by_ownerId_and_clientRequestKey", ["ownerId", "clientRequestKey"]),
 
-  /** Durable account-deletion gate. Media reservation and dispatch both fail closed. */
   media_owner_purges: defineTable({
     ownerId: v.string(),
     startedAt: v.number(),
   }).index("by_ownerId", ["ownerId"]),
 
-  /**
-   * Durable deletion outbox for encrypted submission payloads. A row is
-   * inserted immediately after storage.store and is retained until
-   * storage.delete succeeds, including scheduler/action failures.
-   */
   media_private_blob_cleanup: defineTable({
     ownerId: v.string(),
     storageId: v.id("_storage"),
@@ -251,11 +210,6 @@ export const mediaSchema = {
     .index("by_ownerId_and_state", ["ownerId", "state"])
     .index("by_state_and_nextAttemptAt", ["state", "nextAttemptAt"]),
 
-  /**
-   * Owner/operation manifest created before the first encrypted payload chunk.
-   * Every new managed image payload is discoverable from this table even if
-   * its HTTP action crashes between any two chunk writes.
-   */
   media_private_payload_manifests: defineTable({
     ownerId: v.string(),
     manifestId: v.string(),
@@ -279,7 +233,6 @@ export const mediaSchema = {
     .index("by_ownerId_and_state", ["ownerId", "state"])
     .index("by_state_and_nextAttemptAt", ["state", "nextAttemptAt"]),
 
-  /** Encrypted bounded chunks; owner and operation identity live on every row. */
   media_private_payload_chunks: defineTable({
     ownerId: v.string(),
     manifestId: v.string(),
@@ -291,7 +244,6 @@ export const mediaSchema = {
     .index("by_manifestId_and_index", ["manifestId", "index"])
     .index("by_ownerId_and_manifestId", ["ownerId", "manifestId"]),
 
-  /** Durable Fal cancellation outbox used by account deletion races. */
   media_provider_cancellations: defineTable({
     ownerId: v.string(),
     jobId: v.string(),
@@ -307,7 +259,6 @@ export const mediaSchema = {
     .index("by_ownerId", ["ownerId"])
     .index("by_nextAttemptAt", ["nextAttemptAt"]),
 
-  /** Fal webhook receipt and transition are written in one transaction. */
   media_webhook_events: defineTable({
     ownerId: v.optional(v.string()),
     scope: v.string(),

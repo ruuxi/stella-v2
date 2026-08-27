@@ -327,6 +327,8 @@ jobs:
 
       - name: Build Authenticode-signed Windows release
         if: runner.os == 'Windows'
+        env:
+          SM_KEYPAIR_ALIAS: ${{ vars.SM_KEYPAIR_ALIAS }}
         shell: bash
         run: |
           set -euo pipefail

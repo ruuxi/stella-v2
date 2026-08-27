@@ -39,8 +39,13 @@ const WRANGLER = path.join(
   process.platform === "win32" ? "wrangler.cmd" : "wrangler",
 );
 const CONFIG = path.join(WORKER_ROOT, "wrangler.jsonc");
-const EXPECTED_DEPLOYMENT = "dev:impartial-crab-34";
-const EXPECTED_WORKER_NAME = "stella-v2-apps-host-dev";
+const WRANGLER_ENV = "bn118";
+const EXPECTED_DEPLOYMENT = "preview:basic-nightingale-118";
+const EXPECTED_WORKER_NAME =
+  "stella-v2-apps-host-basic-nightingale-118";
+const EXPECTED_CONVEX_SITE_ORIGIN =
+  "https://basic-nightingale-118.convex.site";
+const APP_BUILDS_BUCKET = "stella-v2-app-builds-basic-nightingale-118";
 const MAX_COMMAND_OUTPUT_BYTES = 4 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 10_000;
 const START_TIMEOUT_MS = 45_000;
@@ -195,6 +200,8 @@ const startWorkerd = async ({ persistenceDirectory, extraVars = [] }) => {
       "--local",
       "--config",
       CONFIG,
+      "--env",
+      WRANGLER_ENV,
       "--persist-to",
       persistenceDirectory,
       "--ip",
@@ -384,6 +391,8 @@ export const runAppsHostWorkerdAcceptance = async ({
       bundleDirectory,
       "--config",
       CONFIG,
+      "--env",
+      WRANGLER_ENV,
     ]);
     const bundlePath = path.join(bundleDirectory, "index.js");
     const bundleBytes = await readFile(bundlePath);
@@ -426,6 +435,8 @@ export const runAppsHostWorkerdAcceptance = async ({
         persistenceDirectory,
         "--config",
         CONFIG,
+        "--env",
+        WRANGLER_ENV,
       ]);
     }
     receipts.push(
@@ -451,7 +462,7 @@ export const runAppsHostWorkerdAcceptance = async ({
         "r2",
         "object",
         "put",
-        `stella-v2-app-builds-dev/${key}`,
+        `${APP_BUILDS_BUCKET}/${key}`,
         "--file",
         file,
         "--content-type",
@@ -461,6 +472,8 @@ export const runAppsHostWorkerdAcceptance = async ({
         persistenceDirectory,
         "--config",
         CONFIG,
+        "--env",
+        WRANGLER_ENV,
       ]);
     }
     receipts.push(
@@ -524,11 +537,13 @@ export const runAppsHostWorkerdAcceptance = async ({
       "Apps Host CSP omitted its self boundary.",
     );
     assert(
-      csp.includes("https://impartial-crab-34.convex.site"),
+      csp.includes(EXPECTED_CONVEX_SITE_ORIGIN),
       "Apps Host CSP omitted pinned Convex.",
     );
     assert(
-      !/flexible-panther-999|benevolent-minnow-586/iu.test(csp),
+      !/impartial-crab-34|flexible-panther-999|benevolent-minnow-586/iu.test(
+        csp,
+      ),
       "Apps Host CSP retained a forbidden target.",
     );
     receipts.push(
@@ -697,7 +712,7 @@ export const runAppsHostWorkerdAcceptance = async ({
 
     invalidWorkerd = await startWorkerd({
       persistenceDirectory,
-      extraVars: [["STELLA_DEPLOYMENT_IDENTITY", "dev:rejected-target"]],
+      extraVars: [["STELLA_DEPLOYMENT_IDENTITY", "preview:rejected-target"]],
     });
     const rejected = await readResponse(invalidWorkerd.origin, "/healthz");
     assert(

@@ -3,6 +3,7 @@ import {
   acceptanceConversationTitle,
   acceptanceOwnerMarkerSha256,
   authorizeDevAcceptanceProbe,
+  DEV_ACCEPTANCE_DEPLOYMENT_IDENTITY,
   DEV_ACCEPTANCE_PROBE_VERSION,
   parseDevAcceptanceProbeRequest,
   recordDevAcceptanceProbeReceipt,
@@ -26,7 +27,7 @@ const serviceSecret = "acceptance-service-secret";
 const enabledEnv: DevAcceptanceProbeEnvironment = {
   BUILDER_SERVICE_SECRET: serviceSecret,
   ENABLE_DEV_ACCEPTANCE_PROBES: "1",
-  STELLA_DEPLOYMENT_IDENTITY: "dev:impartial-crab-34",
+  STELLA_DEPLOYMENT_IDENTITY: DEV_ACCEPTANCE_DEPLOYMENT_IDENTITY,
 };
 
 const body = async (
@@ -68,11 +69,16 @@ const authorize = async (
     },
   });
 
-describe("dev-only cloud acceptance probes", () => {
+describe("dedicated preview cloud acceptance probes", () => {
   test("production and ungated deployments hide the route", async () => {
     for (const env of [
       { ...enabledEnv, ENABLE_DEV_ACCEPTANCE_PROBES: undefined },
       { ...enabledEnv, ENABLE_DEV_ACCEPTANCE_PROBES: "0" },
+      { ...enabledEnv, STELLA_DEPLOYMENT_IDENTITY: "dev:impartial-crab-34" },
+      {
+        ...enabledEnv,
+        STELLA_DEPLOYMENT_IDENTITY: "preview:another-preview-123",
+      },
       { ...enabledEnv, STELLA_DEPLOYMENT_IDENTITY: "production:main" },
       { ...enabledEnv, STELLA_DEPLOYMENT_IDENTITY: "prod:main" },
     ]) {

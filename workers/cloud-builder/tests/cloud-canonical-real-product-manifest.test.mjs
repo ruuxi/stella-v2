@@ -114,7 +114,7 @@ const EXPECTED_CANONICAL_PROMPT_SOURCES = [
 
 describe("real-product acceptance manifest generator", () => {
   test("derives the Convex owner fence from the issuer-qualified JWT subject", () => {
-    const issuer = "https://impartial-crab-34.convex.site";
+    const issuer = "https://basic-nightingale-118.convex.site";
     const subject = "better-auth-user-1";
     const encoded = (value) =>
       Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -305,6 +305,14 @@ describe("real-product acceptance manifest generator", () => {
       "const accountScope = `account:${owner.ownerId}`",
     );
     expect(source).toContain("STELLA_DATA_DIR: dataDir");
+    expect(source).toMatch(
+      /"deploy",\s*"--dry-run",\s*"--env",\s*REQUIRED_CLOUDFLARE_ENVIRONMENT/u,
+    );
+    expect(source).toContain("REQUIRED_AGENT_HOME_BUCKET_NAME");
+    expect(source).toContain("REQUIRED_CONVERSATION_ARCHIVE_BUCKET_NAME");
+    expect(source).not.toMatch(
+      /["']stella-v2-(?:app-builds|agent-home|conversation-archive)-dev["']/u,
+    );
     expect(source).toContain(
       'path.join(paths.profileDirectory, "vite-server", "data")',
     );
@@ -530,11 +538,11 @@ describe("real-product acceptance manifest generator", () => {
       expect(manifest.version).toBe(3);
       expect(manifest.stepCount).toBe(REQUIRED_STEP_IDS.length);
       expect(REAL_PRODUCT_TARGET).toEqual({
-        convexDeployment: "dev:impartial-crab-34",
-        convexUrl: "https://impartial-crab-34.convex.cloud",
-        convexSiteUrl: "https://impartial-crab-34.convex.site",
+        convexDeployment: "preview:basic-nightingale-118",
+        convexUrl: "https://basic-nightingale-118.convex.cloud",
+        convexSiteUrl: "https://basic-nightingale-118.convex.site",
         cloudBuilderUrl:
-          "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev",
+          "https://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev",
       });
       expect(manifest.target).toEqual(REAL_PRODUCT_TARGET);
       expect(manifest.isolatedRoots).toEqual([root]);
@@ -596,7 +604,7 @@ describe("real-product acceptance manifest generator", () => {
       expect(checked.stderr.toString()).toBe("");
       expect(checked.exitCode).toBe(0);
       expect(checked.stdout.toString()).toContain(
-        "structurally valid for dev:impartial-crab-34",
+        "structurally valid for preview:basic-nightingale-118",
       );
     } finally {
       await rm(declaredRoot, { recursive: true, force: true });

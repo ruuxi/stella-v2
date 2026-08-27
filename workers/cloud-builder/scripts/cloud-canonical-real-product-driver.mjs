@@ -46,6 +46,13 @@ import { fileURLToPath } from "node:url";
 import {
   CloudProofError,
   FORBIDDEN_TARGET_PATTERN,
+  REQUIRED_AGENT_HOME_BUCKET_NAME,
+  REQUIRED_APPS_HOST_ORIGIN,
+  REQUIRED_APPS_HOST_WORKER_NAME,
+  REQUIRED_CLOUDFLARE_ENVIRONMENT,
+  REQUIRED_CLOUD_BUILDER_WORKER_NAME,
+  REQUIRED_CONVERSATION_ARCHIVE_BUCKET_NAME,
+  REQUIRED_CONVEX,
   assert,
   poll,
   requestJson,
@@ -97,7 +104,7 @@ const REPO_ROOT = realpathSync(
   path.resolve(path.dirname(SCRIPT_FILE), "../../.."),
 );
 const LIVE_STELLA_ROOT = path.resolve(homedir(), ".stella");
-const WORKER_NAME = "stella-v2-cloud-builder-dev";
+const WORKER_NAME = REQUIRED_CLOUD_BUILDER_WORKER_NAME;
 const STATE_VERSION = 3;
 const PRIMARY_AUTH_HANDOFF_PREPARE_CONTRACT =
   "stella-cloud-primary-auth-handoff-prepare-v1";
@@ -2164,6 +2171,8 @@ const workerDeploymentIdentity = async (secrets, paths, rawLog) => {
     [
       "deploy",
       "--dry-run",
+      "--env",
+      REQUIRED_CLOUDFLARE_ENVIRONMENT,
       "--outdir",
       bundleRoot,
       "--config",
@@ -2247,7 +2256,7 @@ const convexDeploymentIdentity = async (secrets, rawLog) => {
   assert(existsSync(executable), "Pinned Convex CLI is unavailable.");
   const result = await commandResult(
     executable,
-    ["function-spec", "--deployment", "impartial-crab-34"],
+    ["function-spec", "--deployment", REQUIRED_CONVEX.deploymentName],
     {
       cwd: path.join(REPO_ROOT, "packages/backend"),
       env: { ...process.env, CONVEX_DEPLOY_KEY: secrets.convexDeployKey },
@@ -2592,8 +2601,9 @@ const launchVite = async (context, paths) => {
       env: {
         ...isolatedElectronEnvironment(),
         STELLA_DATA_DIR: dataDir,
-        VITE_CONVEX_URL: "https://impartial-crab-34.convex.cloud",
-        VITE_CONVEX_SITE_URL: "https://impartial-crab-34.convex.site",
+        VITE_CONVEX_URL: context.target.convexUrl,
+        VITE_CONVEX_SITE_URL: context.target.convexSiteUrl,
+        VITE_STELLA_APPS_HOST: REQUIRED_APPS_HOST_ORIGIN,
       },
       logFile,
     },
@@ -7434,7 +7444,7 @@ const stepProjectionAndR2 = async ({ context, secrets, state, rawLog }) => {
   const prefix = `conversations/${state.identity.ownerIdSha256}/${owner.conversationId}/seg/`;
   const objects = await r2ListObjects(
     secrets,
-    "stella-v2-conversation-archive-dev",
+    REQUIRED_CONVERSATION_ARCHIVE_BUCKET_NAME,
     prefix,
     rawLog,
   );
@@ -7651,7 +7661,7 @@ const stepCancellation = async ({ context, secrets, state, rawLog }) => {
 const convexInternalRun = async (secrets, functionPath, args, rawLog) => {
   assert(
     secrets.convexDeployKey,
-    "CONVEX_DEPLOY_KEY is required for internal dev acceptance inspection.",
+    "CONVEX_DEPLOY_KEY is required for internal preview acceptance inspection.",
   );
   const executable = path.join(REPO_ROOT, "node_modules/.bin/convex");
   const result = await commandResult(
@@ -7661,7 +7671,7 @@ const convexInternalRun = async (secrets, functionPath, args, rawLog) => {
       functionPath,
       JSON.stringify(args),
       "--deployment",
-      "impartial-crab-34",
+      REQUIRED_CONVEX.deploymentName,
     ],
     {
       cwd: path.join(REPO_ROOT, "packages/backend"),
@@ -11948,7 +11958,7 @@ const stepMemoryRestartRecall = async ({
   );
   const profileR2 = await exactR2Object(
     secrets,
-    "stella-v2-agent-home-dev",
+    REQUIRED_AGENT_HOME_BUCKET_NAME,
     requireString(profileHead.r2Key, "Profile R2 key", 1_024),
     rawLog,
   );
@@ -12024,7 +12034,7 @@ const stepMemoryRestartRecall = async ({
   );
   const memoryObject = await exactR2Object(
     secrets,
-    "stella-v2-agent-home-dev",
+    REQUIRED_AGENT_HOME_BUCKET_NAME,
     requireString(memoryHead.r2Key, "MEMORY R2 key", 1_024),
     rawLog,
   );
@@ -12460,7 +12470,7 @@ const stepDreamRotationMemoryMap = async ({
   );
   const archiveObject = await exactR2Object(
     secrets,
-    "stella-v2-agent-home-dev",
+    REQUIRED_AGENT_HOME_BUCKET_NAME,
     archiveHead.r2Key,
     rawLog,
   );
@@ -12685,13 +12695,13 @@ const stepCloudSkillDiscoveryUse = async ({
   );
   const manifestObject = await exactR2Object(
     secrets,
-    "stella-v2-agent-home-dev",
+    REQUIRED_AGENT_HOME_BUCKET_NAME,
     requireString(skill.manifestR2Key, "Cloud skill manifest R2 key", 1_024),
     rawLog,
   );
   const assetObject = await exactR2Object(
     secrets,
-    "stella-v2-agent-home-dev",
+    REQUIRED_AGENT_HOME_BUCKET_NAME,
     requireString(asset.r2Key, "Cloud skill asset R2 key", 1_024),
     rawLog,
   );
@@ -13767,7 +13777,7 @@ const stepOwnerResetMemoryReimport = async ({
   );
   await exactR2Object(
     secrets,
-    "stella-v2-agent-home-dev",
+    REQUIRED_AGENT_HOME_BUCKET_NAME,
     requireString(initialHead.r2Key, "Initial imported-memory R2 key", 1_024),
     rawLog,
   );
@@ -13827,7 +13837,7 @@ const stepOwnerResetMemoryReimport = async ({
   );
   const oldObjectAfterWipe = await r2ListObjects(
     secrets,
-    "stella-v2-agent-home-dev",
+    REQUIRED_AGENT_HOME_BUCKET_NAME,
     initialHead.r2Key,
     rawLog,
   );
@@ -13905,7 +13915,7 @@ const stepOwnerResetMemoryReimport = async ({
   );
   const reimportObject = await exactR2Object(
     secrets,
-    "stella-v2-agent-home-dev",
+    REQUIRED_AGENT_HOME_BUCKET_NAME,
     requireString(reimportHead.r2Key, "Explicit reimport R2 key", 1_024),
     rawLog,
   );
@@ -14124,7 +14134,7 @@ const stepOwnerResetMemoryReimport = async ({
     const oldGenerationPrefix = `agent-home/${state.identity.ownerIdSha256}/generations/${sha256(owner.ownerGeneration)}/`;
     const oldGenerationObjects = await r2ListObjects(
       secrets,
-      "stella-v2-agent-home-dev",
+      REQUIRED_AGENT_HOME_BUCKET_NAME,
       oldGenerationPrefix,
       rawLog,
     );
@@ -14499,7 +14509,7 @@ const stepOwnerResetMemoryReimport = async ({
     );
     const postResetObject = await exactR2Object(
       secrets,
-      "stella-v2-agent-home-dev",
+      REQUIRED_AGENT_HOME_BUCKET_NAME,
       requireString(
         postResetHead.r2Key,
         "Post-reset imported-memory R2 key",
@@ -14674,8 +14684,8 @@ const stepAppsHostWorkerdRuntime = async ({
     rawLog.push(checked);
   }
   assert(
-    observations.workerName === "stella-v2-apps-host-dev" &&
-      observations.deploymentIdentity === "dev:impartial-crab-34" &&
+    observations.workerName === REQUIRED_APPS_HOST_WORKER_NAME &&
+      observations.deploymentIdentity === REQUIRED_CONVEX.deployment &&
       observations.runtimeEngine === "workerd" &&
       observations.wranglerVersion === "4.113.0",
     "Apps Host Workerd acceptance used an unreviewed runtime identity.",
@@ -15326,7 +15336,7 @@ const stepCleanup = async ({
       );
       await purgeR2Prefix(
         secrets,
-        "stella-v2-conversation-archive-dev",
+        REQUIRED_CONVERSATION_ARCHIVE_BUCKET_NAME,
         prefix,
         rawLog,
       );
@@ -15346,7 +15356,7 @@ const stepCleanup = async ({
         async () =>
           await purgeR2Prefix(
             secrets,
-            "stella-v2-agent-home-dev",
+            REQUIRED_AGENT_HOME_BUCKET_NAME,
             prefix,
             rawLog,
           ),
@@ -15356,7 +15366,7 @@ const stepCleanup = async ({
         async () =>
           await r2ListObjects(
             secrets,
-            "stella-v2-agent-home-dev",
+            REQUIRED_AGENT_HOME_BUCKET_NAME,
             prefix,
             rawLog,
           ),
@@ -16204,7 +16214,7 @@ const stepCleanup = async ({
       async () =>
         await r2ListObjects(
           secrets,
-          "stella-v2-conversation-archive-dev",
+          REQUIRED_CONVERSATION_ARCHIVE_BUCKET_NAME,
           prefix,
           rawLog,
         ),
@@ -16217,7 +16227,7 @@ const stepCleanup = async ({
       async () =>
         await r2ListObjects(
           secrets,
-          "stella-v2-agent-home-dev",
+          REQUIRED_AGENT_HOME_BUCKET_NAME,
           prefix,
           rawLog,
         ),

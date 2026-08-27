@@ -1,7 +1,8 @@
 import { sha256Hex } from "./hash.js";
 
 /**
- * Deliberately narrow, dev-only controls used by the impartial acceptance run.
+ * Deliberately narrow controls used only by the dedicated preview acceptance
+ * deployment.
  *
  * The service secret remains the authentication boundary. These checks are a
  * second, fail-closed scope fence: even a correctly authenticated internal
@@ -14,12 +15,13 @@ export const DEV_ACCEPTANCE_PROVIDER_DISPATCH_COUNT_KEY =
   "devAcceptanceProviderDispatchCount:v1";
 export const DEV_ACCEPTANCE_CONVERSATION_TITLE_PREFIX =
   "stella-cloud-acceptance:";
+export const DEV_ACCEPTANCE_DEPLOYMENT_IDENTITY =
+  "preview:basic-nightingale-118" as const;
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const BOUNDED_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/u;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
-const NON_PRODUCTION_DEPLOYMENT_PATTERN = /^(?:dev|preview|staging|local):/u;
 
 export type DevAcceptanceProbeEnvironment = {
   BUILDER_SERVICE_SECRET?: string;
@@ -177,8 +179,7 @@ export const devAcceptanceProbesEnabled = (
   const deploymentIdentity = env.STELLA_DEPLOYMENT_IDENTITY?.trim() ?? "";
   return (
     env.ENABLE_DEV_ACCEPTANCE_PROBES === "1" &&
-    NON_PRODUCTION_DEPLOYMENT_PATTERN.test(deploymentIdentity) &&
-    !/prod(?:uction)?/iu.test(deploymentIdentity)
+    deploymentIdentity === DEV_ACCEPTANCE_DEPLOYMENT_IDENTITY
   );
 };
 

@@ -5,16 +5,37 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 export const REQUIRED_CONVEX = Object.freeze({
-  deployment: "dev:impartial-crab-34",
-  cloudUrl: "https://impartial-crab-34.convex.cloud",
-  siteUrl: "https://impartial-crab-34.convex.site",
+  deployment: "preview:basic-nightingale-118",
+  deploymentName: "basic-nightingale-118",
+  deploymentReference: "preview/cloud-effect-browser-acceptance",
+  cloudUrl: "https://basic-nightingale-118.convex.cloud",
+  siteUrl: "https://basic-nightingale-118.convex.site",
 });
 
+export const REQUIRED_CLOUD_BUILDER_WORKER_NAME =
+  "stella-v2-cloud-builder-basic-nightingale-118";
 export const REQUIRED_CLOUD_BUILDER_ORIGIN =
-  "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev";
+  `https://${REQUIRED_CLOUD_BUILDER_WORKER_NAME}.lolruuxi.workers.dev`;
+export const REQUIRED_APPS_HOST_WORKER_NAME =
+  "stella-v2-apps-host-basic-nightingale-118";
+export const REQUIRED_APPS_HOST_ORIGIN =
+  `https://${REQUIRED_APPS_HOST_WORKER_NAME}.lolruuxi.workers.dev`;
+
+export const REQUIRED_CLOUDFLARE_ENVIRONMENT = "bn118";
+export const REQUIRED_APP_BUILDS_BUCKET_NAME =
+  "stella-v2-app-builds-basic-nightingale-118";
+export const REQUIRED_AGENT_HOME_BUCKET_NAME =
+  "stella-v2-agent-home-basic-nightingale-118";
+export const REQUIRED_CONVERSATION_ARCHIVE_BUCKET_NAME =
+  "stella-v2-conversation-archive-basic-nightingale-118";
+
+export const REQUIRED_PROTOCOL_PROOF_CONFIRMATION =
+  "mutate-preview:basic-nightingale-118";
+export const REQUIRED_REAL_PRODUCT_CONFIRMATION =
+  "run-real-preview:basic-nightingale-118";
 
 export const FORBIDDEN_TARGET_PATTERN =
-  /(?:flexible-panther-999|benevolent-minnow-586)/i;
+  /(?:flexible-panther-999|benevolent-minnow-586|impartial-crab-34|stella-v2-cloud-builder-dev|stella-v2-apps-host-dev|stella-v2-(?:app-builds|agent-home|conversation-archive)-dev)/i;
 
 const SECRET_KEY_PATTERN =
   /(?:authorization|cookie|credential|jwt|password|secret|session|token)/i;
@@ -122,10 +143,10 @@ export const loadProtocolProofConfig = (env) => {
   );
   if (
     required(env, "STELLA_CLOUD_PROOF_CONFIRM") !==
-    "mutate-dev:impartial-crab-34"
+    REQUIRED_PROTOCOL_PROOF_CONFIRMATION
   ) {
     throw new CloudProofError(
-      "Set STELLA_CLOUD_PROOF_CONFIRM=mutate-dev:impartial-crab-34 to acknowledge disposable dev writes.",
+      `Set STELLA_CLOUD_PROOF_CONFIRM=${REQUIRED_PROTOCOL_PROOF_CONFIRMATION} to acknowledge disposable preview writes.`,
     );
   }
   if (required(env, "STELLA_CLOUD_PROOF_IDENTITY_KIND") !== "disposable") {
@@ -180,10 +201,11 @@ export const assertSafeAcceptanceEnvironment = (manifest, env) => {
     cloudBuilderUrl: target.cloudBuilderUrl,
   });
   if (
-    env.STELLA_CLOUD_ACCEPTANCE_CONFIRM !== "run-real-dev:impartial-crab-34"
+    env.STELLA_CLOUD_ACCEPTANCE_CONFIRM !==
+    REQUIRED_REAL_PRODUCT_CONFIRMATION
   ) {
     throw new CloudProofError(
-      "Set STELLA_CLOUD_ACCEPTANCE_CONFIRM=run-real-dev:impartial-crab-34 before invoking real product commands.",
+      `Set STELLA_CLOUD_ACCEPTANCE_CONFIRM=${REQUIRED_REAL_PRODUCT_CONFIRMATION} before invoking real product commands.`,
     );
   }
   return checked;

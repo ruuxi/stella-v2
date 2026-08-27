@@ -6,6 +6,7 @@
   "scripts": {
     "image:prepare": "node scripts/prepare-image.mjs",
     "deploy:dev": "bun run image:prepare && wrangler deploy",
+    "deploy:acceptance": "bun run image:prepare && wrangler deploy --env bn118 --strict",
     "typecheck": "tsc --noEmit",
     "test:unit": "bun test tests",
     "test": "bun run test:unit && bun run test:code-workerd",

@@ -16,7 +16,7 @@
  *   node cloud-canonical-acceptance.mjs --list
  *   node cloud-canonical-acceptance.mjs --check /abs/manifest.json
  *   node cloud-canonical-acceptance.mjs --prepare-auth /abs/manifest.json
- *   STELLA_CLOUD_ACCEPTANCE_CONFIRM=run-real-dev:impartial-crab-34 \
+ *   STELLA_CLOUD_ACCEPTANCE_CONFIRM=run-real-preview:basic-nightingale-118 \
  *     node cloud-canonical-acceptance.mjs --run /abs/manifest.json
  */
 
@@ -39,6 +39,9 @@ import { fileURLToPath } from "node:url";
 import {
   CloudProofError,
   FORBIDDEN_TARGET_PATTERN,
+  REQUIRED_APPS_HOST_WORKER_NAME,
+  REQUIRED_CLOUD_BUILDER_WORKER_NAME,
+  REQUIRED_CONVEX,
   assert,
   assertSafeAcceptanceEnvironment,
   loadNonMutatingTarget,
@@ -1209,7 +1212,7 @@ const validators = {
     );
     const workerName = exactLiteral(
       observation.workerName,
-      "stella-v2-cloud-builder-dev",
+      REQUIRED_CLOUD_BUILDER_WORKER_NAME,
       "workerName",
     );
     const workerVersionId = uuidValue(
@@ -4795,12 +4798,12 @@ const validators = {
     const normalized = {
       workerName: exactLiteral(
         observation.workerName,
-        "stella-v2-apps-host-dev",
+        REQUIRED_APPS_HOST_WORKER_NAME,
         "workerName",
       ),
       deploymentIdentity: exactLiteral(
         observation.deploymentIdentity,
-        "dev:impartial-crab-34",
+        REQUIRED_CONVEX.deployment,
         "deploymentIdentity",
       ),
       runtimeEngine: exactLiteral(

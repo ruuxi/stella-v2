@@ -17,8 +17,8 @@ describe("production bundle in workerd", () => {
         runId: "00000000-0000-4000-8000-000000000001",
       });
       expect(result.observations).toMatchObject({
-        workerName: "stella-v2-apps-host-dev",
-        deploymentIdentity: "dev:impartial-crab-34",
+        workerName: "stella-v2-apps-host-basic-nightingale-118",
+        deploymentIdentity: "preview:basic-nightingale-118",
         runtimeEngine: "workerd",
         wranglerVersion: "4.113.0",
         healthStatus: 200,

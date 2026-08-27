@@ -67,10 +67,11 @@ const expectedStepIds = [
 ];
 
 const target = {
-  deployment: "dev:impartial-crab-34",
-  convexUrl: "https://impartial-crab-34.convex.cloud",
-  convexSiteUrl: "https://impartial-crab-34.convex.site",
-  cloudBuilderUrl: "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev",
+  deployment: "preview:basic-nightingale-118",
+  convexUrl: "https://basic-nightingale-118.convex.cloud",
+  convexSiteUrl: "https://basic-nightingale-118.convex.site",
+  cloudBuilderUrl:
+    "https://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev",
 };
 
 test("strips every inherited acceptance JWT before a driver process", () => {
@@ -368,7 +369,7 @@ const deploymentObservation = () => ({
   repoTreeSha: "b".repeat(40),
   sourceTreeSha256: identity.sourceTreeSha256,
   cloudBuilderUrl: target.cloudBuilderUrl,
-  workerName: "stella-v2-cloud-builder-dev",
+  workerName: "stella-v2-cloud-builder-basic-nightingale-118",
   workerVersionId,
   workerScriptSha256: digest("4"),
   workerDeployedAt: startedAt,
@@ -1164,8 +1165,8 @@ const skillObservation = () => ({
 });
 
 const appsHostWorkerdObservation = () => ({
-  workerName: "stella-v2-apps-host-dev",
-  deploymentIdentity: "dev:impartial-crab-34",
+  workerName: "stella-v2-apps-host-basic-nightingale-118",
+  deploymentIdentity: "preview:basic-nightingale-118",
   runtimeEngine: "workerd",
   wranglerVersion: "4.113.0",
   bundleSha256: digest("1"),
@@ -1406,12 +1407,12 @@ describe("cloud canonical acceptance manifest", () => {
     }
   });
 
-  test("accepts a complete isolated manifest for the pinned dev target", async () => {
+  test("accepts a complete isolated manifest for the pinned preview target", async () => {
     const result = await checkManifest(makeManifest);
     expect(result.stderr.toString()).toBe("");
     expect(result.exitCode).toBe(0);
     expect(result.stdout.toString()).toContain(
-      "structurally valid for dev:impartial-crab-34",
+      "structurally valid for preview:basic-nightingale-118",
     );
   });
 

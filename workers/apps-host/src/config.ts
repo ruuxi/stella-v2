@@ -13,13 +13,13 @@ export type AppsHostEnv = {
 export type AppsHostConfig = {
   appBuilds: R2Bucket;
   appRoutes: KVNamespace;
-  deploymentIdentity: typeof DEV_DEPLOYMENT_IDENTITY;
+  deploymentIdentity: AppsHostDeploymentIdentity;
   sharesDisabled: boolean;
-  convexSiteOrigin: typeof DEV_CONVEX_SITE_ORIGIN;
-  convexCloudOrigin: typeof DEV_CONVEX_CLOUD_ORIGIN;
-  appsHostOrigin: typeof DEV_APPS_HOST_ORIGIN;
-  cloudBuilderOrigin: typeof DEV_CLOUD_BUILDER_ORIGIN;
-  cloudBuilderWebSocketOrigin: typeof DEV_CLOUD_BUILDER_WEBSOCKET_ORIGIN;
+  convexSiteOrigin: AppsHostConvexSiteOrigin;
+  convexCloudOrigin: AppsHostConvexCloudOrigin;
+  appsHostOrigin: AppsHostOrigin;
+  cloudBuilderOrigin: AppsHostCloudBuilderOrigin;
+  cloudBuilderWebSocketOrigin: AppsHostCloudBuilderWebSocketOrigin;
   builderServiceSecret: string;
 };
 
@@ -35,6 +35,51 @@ export const DEV_CLOUD_BUILDER_ORIGIN =
 export const DEV_CLOUD_BUILDER_WEBSOCKET_ORIGIN =
   "wss://stella-v2-cloud-builder-dev.lolruuxi.workers.dev" as const;
 
+export const ACCEPTANCE_DEPLOYMENT_IDENTITY =
+  "preview:basic-nightingale-118" as const;
+export const ACCEPTANCE_CONVEX_SITE_ORIGIN =
+  "https://basic-nightingale-118.convex.site" as const;
+export const ACCEPTANCE_CONVEX_CLOUD_ORIGIN =
+  "https://basic-nightingale-118.convex.cloud" as const;
+export const ACCEPTANCE_APPS_HOST_ORIGIN =
+  "https://stella-v2-apps-host-basic-nightingale-118.lolruuxi.workers.dev" as const;
+export const ACCEPTANCE_CLOUD_BUILDER_ORIGIN =
+  "https://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev" as const;
+export const ACCEPTANCE_CLOUD_BUILDER_WEBSOCKET_ORIGIN =
+  "wss://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev" as const;
+
+const AUTHORIZED_PROFILES = [
+  {
+    deploymentIdentity: DEV_DEPLOYMENT_IDENTITY,
+    convexSiteOrigin: DEV_CONVEX_SITE_ORIGIN,
+    convexCloudOrigin: DEV_CONVEX_CLOUD_ORIGIN,
+    appsHostOrigin: DEV_APPS_HOST_ORIGIN,
+    cloudBuilderOrigin: DEV_CLOUD_BUILDER_ORIGIN,
+    cloudBuilderWebSocketOrigin: DEV_CLOUD_BUILDER_WEBSOCKET_ORIGIN,
+  },
+  {
+    deploymentIdentity: ACCEPTANCE_DEPLOYMENT_IDENTITY,
+    convexSiteOrigin: ACCEPTANCE_CONVEX_SITE_ORIGIN,
+    convexCloudOrigin: ACCEPTANCE_CONVEX_CLOUD_ORIGIN,
+    appsHostOrigin: ACCEPTANCE_APPS_HOST_ORIGIN,
+    cloudBuilderOrigin: ACCEPTANCE_CLOUD_BUILDER_ORIGIN,
+    cloudBuilderWebSocketOrigin: ACCEPTANCE_CLOUD_BUILDER_WEBSOCKET_ORIGIN,
+  },
+] as const;
+
+export type AppsHostDeploymentIdentity =
+  (typeof AUTHORIZED_PROFILES)[number]["deploymentIdentity"];
+export type AppsHostConvexSiteOrigin =
+  (typeof AUTHORIZED_PROFILES)[number]["convexSiteOrigin"];
+export type AppsHostConvexCloudOrigin =
+  (typeof AUTHORIZED_PROFILES)[number]["convexCloudOrigin"];
+export type AppsHostOrigin =
+  (typeof AUTHORIZED_PROFILES)[number]["appsHostOrigin"];
+export type AppsHostCloudBuilderOrigin =
+  (typeof AUTHORIZED_PROFILES)[number]["cloudBuilderOrigin"];
+export type AppsHostCloudBuilderWebSocketOrigin =
+  (typeof AUTHORIZED_PROFILES)[number]["cloudBuilderWebSocketOrigin"];
+
 const MIN_SERVICE_SECRET_LENGTH = 32;
 const MAX_SERVICE_SECRET_LENGTH = 4_096;
 
@@ -42,7 +87,7 @@ export class AppsHostConfigurationError extends Error {
   readonly fields: readonly string[];
 
   constructor(fields: string[]) {
-    super("The Stella Apps host development configuration is invalid.");
+    super("The Stella Apps host non-production configuration is invalid.");
     this.name = "AppsHostConfigurationError";
     this.fields = fields;
   }
@@ -74,32 +119,48 @@ const isExactHttpsOrigin = (value: unknown, expected: string): boolean => {
 };
 
 /**
- * This Worker is deliberately a development-only authority. It must never
- * infer a Convex target from the request host, a generic environment name, or
- * a fallback URL: every control-plane origin is checked against the one
- * authorized development deployment before any route is served.
+ * This Worker is deliberately a non-production authority. It must never infer
+ * a Convex target from the request host, a generic environment name, or a
+ * fallback URL: every control-plane origin is checked against one exact
+ * checked-in deployment tuple before any route is served.
  */
 export const readAppsHostConfig = (env: AppsHostEnv): AppsHostConfig => {
   const invalid: string[] = [];
+  const profile = AUTHORIZED_PROFILES.find(
+    (candidate) =>
+      candidate.deploymentIdentity === env.STELLA_DEPLOYMENT_IDENTITY,
+  );
 
   if (!isBindingWithGet(env.APP_BUILDS)) invalid.push("APP_BUILDS");
   if (!isBindingWithGet(env.APP_ROUTES)) invalid.push("APP_ROUTES");
-  if (env.STELLA_DEPLOYMENT_IDENTITY !== DEV_DEPLOYMENT_IDENTITY) {
+  if (!profile) {
     invalid.push("STELLA_DEPLOYMENT_IDENTITY");
   }
   if (env.SHARES_DISABLED !== "true" && env.SHARES_DISABLED !== "false") {
     invalid.push("SHARES_DISABLED");
   }
-  if (!isExactHttpsOrigin(env.CONVEX_SITE_URL, DEV_CONVEX_SITE_ORIGIN)) {
+  if (
+    !profile ||
+    !isExactHttpsOrigin(env.CONVEX_SITE_URL, profile.convexSiteOrigin)
+  ) {
     invalid.push("CONVEX_SITE_URL");
   }
-  if (!isExactHttpsOrigin(env.CONVEX_CLOUD_URL, DEV_CONVEX_CLOUD_ORIGIN)) {
+  if (
+    !profile ||
+    !isExactHttpsOrigin(env.CONVEX_CLOUD_URL, profile.convexCloudOrigin)
+  ) {
     invalid.push("CONVEX_CLOUD_URL");
   }
-  if (!isExactHttpsOrigin(env.APPS_HOST_ORIGIN, DEV_APPS_HOST_ORIGIN)) {
+  if (
+    !profile ||
+    !isExactHttpsOrigin(env.APPS_HOST_ORIGIN, profile.appsHostOrigin)
+  ) {
     invalid.push("APPS_HOST_ORIGIN");
   }
-  if (!isExactHttpsOrigin(env.CLOUD_BUILDER_ORIGIN, DEV_CLOUD_BUILDER_ORIGIN)) {
+  if (
+    !profile ||
+    !isExactHttpsOrigin(env.CLOUD_BUILDER_ORIGIN, profile.cloudBuilderOrigin)
+  ) {
     invalid.push("CLOUD_BUILDER_ORIGIN");
   }
   const secret =
@@ -115,20 +176,20 @@ export const readAppsHostConfig = (env: AppsHostEnv): AppsHostConfig => {
     invalid.push("BUILDER_SERVICE_SECRET");
   }
 
-  if (invalid.length > 0) {
+  if (invalid.length > 0 || !profile) {
     throw new AppsHostConfigurationError(invalid);
   }
 
   return {
     appBuilds: env.APP_BUILDS,
     appRoutes: env.APP_ROUTES,
-    deploymentIdentity: DEV_DEPLOYMENT_IDENTITY,
+    deploymentIdentity: profile.deploymentIdentity,
     sharesDisabled: env.SHARES_DISABLED === "true",
-    convexSiteOrigin: DEV_CONVEX_SITE_ORIGIN,
-    convexCloudOrigin: DEV_CONVEX_CLOUD_ORIGIN,
-    appsHostOrigin: DEV_APPS_HOST_ORIGIN,
-    cloudBuilderOrigin: DEV_CLOUD_BUILDER_ORIGIN,
-    cloudBuilderWebSocketOrigin: DEV_CLOUD_BUILDER_WEBSOCKET_ORIGIN,
+    convexSiteOrigin: profile.convexSiteOrigin,
+    convexCloudOrigin: profile.convexCloudOrigin,
+    appsHostOrigin: profile.appsHostOrigin,
+    cloudBuilderOrigin: profile.cloudBuilderOrigin,
+    cloudBuilderWebSocketOrigin: profile.cloudBuilderWebSocketOrigin,
     builderServiceSecret: secret,
   };
 };

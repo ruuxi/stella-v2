@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "deploy:dev": "wrangler deploy --config wrangler.jsonc",
+    "deploy:acceptance": "wrangler deploy --config wrangler.jsonc --env bn118 --strict",
     "typecheck": "tsc --noEmit",
     "test": "bun test tests",
     "build:dry-run": "node scripts/check-production-bundle.mjs"

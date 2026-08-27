@@ -5,6 +5,11 @@ import path from "node:path";
 
 import {
   CloudProofError,
+  FORBIDDEN_TARGET_PATTERN,
+  REQUIRED_AGENT_HOME_BUCKET_NAME,
+  REQUIRED_APP_BUILDS_BUCKET_NAME,
+  REQUIRED_CLOUDFLARE_ENVIRONMENT,
+  REQUIRED_CONVERSATION_ARCHIVE_BUCKET_NAME,
   loadNonMutatingTarget,
   loadProtocolProofConfig,
   requestJson,
@@ -19,11 +24,12 @@ afterEach(() => {
 });
 
 const validEnv = () => ({
-  CONVEX_DEPLOYMENT: "dev:impartial-crab-34",
-  CONVEX_URL: "https://impartial-crab-34.convex.cloud",
-  CONVEX_SITE_URL: "https://impartial-crab-34.convex.site",
-  CLOUD_BUILDER_URL: "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev",
-  STELLA_CLOUD_PROOF_CONFIRM: "mutate-dev:impartial-crab-34",
+  CONVEX_DEPLOYMENT: "preview:basic-nightingale-118",
+  CONVEX_URL: "https://basic-nightingale-118.convex.cloud",
+  CONVEX_SITE_URL: "https://basic-nightingale-118.convex.site",
+  CLOUD_BUILDER_URL:
+    "https://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev",
+  STELLA_CLOUD_PROOF_CONFIRM: "mutate-preview:basic-nightingale-118",
   STELLA_CLOUD_PROOF_IDENTITY_KIND: "disposable",
   STELLA_CLOUD_PROOF_JWT: "short-lived-disposable-jwt",
   BUILDER_SERVICE_SECRET: "development-service-secret",
@@ -34,13 +40,35 @@ const validEnv = () => ({
 });
 
 describe("cloud proof target fencing", () => {
-  test("accepts only the explicitly confirmed impartial-crab development target", () => {
+  test("pins the dedicated Cloudflare environment and isolated R2 buckets", () => {
+    expect(REQUIRED_CLOUDFLARE_ENVIRONMENT).toBe("bn118");
+    expect(REQUIRED_APP_BUILDS_BUCKET_NAME).toBe(
+      "stella-v2-app-builds-basic-nightingale-118",
+    );
+    expect(REQUIRED_AGENT_HOME_BUCKET_NAME).toBe(
+      "stella-v2-agent-home-basic-nightingale-118",
+    );
+    expect(REQUIRED_CONVERSATION_ARCHIVE_BUCKET_NAME).toBe(
+      "stella-v2-conversation-archive-basic-nightingale-118",
+    );
+    for (const oldSharedDevBucket of [
+      "stella-v2-app-builds-dev",
+      "stella-v2-agent-home-dev",
+      "stella-v2-conversation-archive-dev",
+    ]) {
+      expect(FORBIDDEN_TARGET_PATTERN.test(oldSharedDevBucket)).toBe(true);
+    }
+  });
+
+  test("accepts only the explicitly confirmed dedicated preview target", () => {
     const config = loadProtocolProofConfig(validEnv());
-    expect(config.deployment).toBe("dev:impartial-crab-34");
-    expect(config.convexUrl).toBe("https://impartial-crab-34.convex.cloud");
-    expect(config.convexSiteUrl).toBe("https://impartial-crab-34.convex.site");
+    expect(config.deployment).toBe("preview:basic-nightingale-118");
+    expect(config.convexUrl).toBe("https://basic-nightingale-118.convex.cloud");
+    expect(config.convexSiteUrl).toBe(
+      "https://basic-nightingale-118.convex.site",
+    );
     expect(config.cloudBuilderUrl).toBe(
-      "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev",
+      "https://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev",
     );
   });
 
@@ -48,6 +76,10 @@ describe("cloud proof target fencing", () => {
     [
       "historical deployment",
       { CONVEX_DEPLOYMENT: "dev:flexible-panther-999" },
+    ],
+    [
+      "previous shared dev deployment",
+      { CONVEX_DEPLOYMENT: "dev:impartial-crab-34" },
     ],
     [
       "production deployment",
@@ -76,13 +108,17 @@ describe("cloud proof target fencing", () => {
       },
     ],
     [
-      "lookalike dev worker",
+      "lookalike acceptance worker",
       {
         CLOUD_BUILDER_URL:
-          "https://stella-v2-cloud-builder-dev.attacker.workers.dev",
+          "https://stella-v2-cloud-builder-basic-nightingale-118.attacker.workers.dev",
       },
     ],
     ["missing confirmation", { STELLA_CLOUD_PROOF_CONFIRM: "" }],
+    [
+      "previous dev confirmation",
+      { STELLA_CLOUD_PROOF_CONFIRM: "mutate-dev:impartial-crab-34" },
+    ],
     ["shared identity", { STELLA_CLOUD_PROOF_IDENTITY_KIND: "personal" }],
     [
       "live Stella evidence path",
@@ -103,18 +139,18 @@ describe("cloud proof target fencing", () => {
   test("validates the same target for non-mutating manifest checks", () => {
     expect(
       loadNonMutatingTarget({
-        deployment: "dev:impartial-crab-34",
-        convexUrl: "https://impartial-crab-34.convex.cloud",
-        convexSiteUrl: "https://impartial-crab-34.convex.site",
+        deployment: "preview:basic-nightingale-118",
+        convexUrl: "https://basic-nightingale-118.convex.cloud",
+        convexSiteUrl: "https://basic-nightingale-118.convex.site",
         cloudBuilderUrl:
-          "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev",
+          "https://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev",
       }),
     ).toEqual({
-      deployment: "dev:impartial-crab-34",
-      convexUrl: "https://impartial-crab-34.convex.cloud",
-      convexSiteUrl: "https://impartial-crab-34.convex.site",
+      deployment: "preview:basic-nightingale-118",
+      convexUrl: "https://basic-nightingale-118.convex.cloud",
+      convexSiteUrl: "https://basic-nightingale-118.convex.site",
       cloudBuilderUrl:
-        "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev",
+        "https://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev",
     });
   });
 });

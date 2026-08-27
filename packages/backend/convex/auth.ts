@@ -36,8 +36,8 @@ import {
   assertOwnerDataWriteAllowed,
 } from "./owner_lifecycle";
 import {
-  getTrustedDevAppsHostOrigin,
-  resolvesToDevAppsHostOrigin,
+  getTrustedAppsHostOrigin,
+  resolvesToManagedAppsHostOrigin,
 } from "./lib/dev_apps_host_origin";
 import { importPKCS8, SignJWT } from "jose";
 
@@ -448,14 +448,14 @@ const authUserIdFromVerificationPayload = async (
 export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
   const siteUrl = getRequiredEnv("SITE_URL");
   const authBaseUrl = getAuthBaseUrl();
-  const trustedDevAppsHostOrigin = getTrustedDevAppsHostOrigin(process.env);
+  const trustedAppsHostOrigin = getTrustedAppsHostOrigin(process.env);
   if (
-    !trustedDevAppsHostOrigin &&
-    (resolvesToDevAppsHostOrigin(siteUrl) ||
-      resolvesToDevAppsHostOrigin(authBaseUrl))
+    !trustedAppsHostOrigin &&
+    (resolvesToManagedAppsHostOrigin(siteUrl) ||
+      resolvesToManagedAppsHostOrigin(authBaseUrl))
   ) {
     throw new Error(
-      "The development Apps host cannot be an auth origin without the exact deployment contract.",
+      "A managed non-production Apps host cannot be an auth origin without its exact deployment contract.",
     );
   }
   const googleClientId =
@@ -474,7 +474,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
         ...getMobileDeepLinkOrigins(),
         "https://appleid.apple.com",
         ...extraTrustedOrigins,
-        trustedDevAppsHostOrigin,
+        trustedAppsHostOrigin,
       ].filter((origin): origin is string => Boolean(origin)),
     ),
   );

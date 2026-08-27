@@ -36,4 +36,34 @@
       "id": "dc5c7bac2bd04ec7bbd6a89f18a04ee7",
     },
   ],
+  "env": {
+    "bn118": {
+      "name": "stella-v2-apps-host-basic-nightingale-118",
+      "workers_dev": true,
+      "preview_urls": false,
+      "vars": {
+        "STELLA_DEPLOYMENT_IDENTITY": "preview:basic-nightingale-118",
+        "SHARES_DISABLED": "false",
+        "CONVEX_SITE_URL": "https://basic-nightingale-118.convex.site",
+        "CONVEX_CLOUD_URL": "https://basic-nightingale-118.convex.cloud",
+        "APPS_HOST_ORIGIN": "https://stella-v2-apps-host-basic-nightingale-118.lolruuxi.workers.dev",
+        "CLOUD_BUILDER_ORIGIN": "https://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev",
+      },
+      "secrets": {
+        "required": ["BUILDER_SERVICE_SECRET"],
+      },
+      "r2_buckets": [
+        {
+          "binding": "APP_BUILDS",
+          "bucket_name": "stella-v2-app-builds-basic-nightingale-118",
+        },
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "APP_ROUTES",
+          "id": "7a0ed79419de4637aba5b8c3ff248c0e",
+        },
+      ],
+    },
+  },
 }

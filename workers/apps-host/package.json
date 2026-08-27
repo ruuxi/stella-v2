@@ -1,0 +1,17 @@
+{
+  "name": "@stella/apps-host",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy:dev": "wrangler deploy --config wrangler.jsonc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test tests",
+    "build:dry-run": "node scripts/check-production-bundle.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260723.1",
+    "typescript": "^6.0.3",
+    "wrangler": "4.113.0"
+  }
+}

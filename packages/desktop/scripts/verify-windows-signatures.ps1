@@ -135,6 +135,18 @@ if ($browserExecutables.Count -ne 1) {
 }
 Assert-SignedFile $browserExecutables[0].FullName "stella-browser-helper"
 
+$managedRuntimeRoot = Join-Path $AppDirectory "resources\bin"
+$managedRuntimeNames = @("bun.exe", "rg.exe", "uv.exe")
+$managedRuntimeExecutables = @(Get-ChildItem $managedRuntimeRoot -Filter *.exe -File)
+if ($managedRuntimeExecutables.Count -ne $managedRuntimeNames.Count) {
+  throw "The packaged managed CLI executable set is unexpected"
+}
+foreach ($runtimeName in $managedRuntimeNames) {
+  Assert-SignedFile (Join-Path $managedRuntimeRoot $runtimeName) "managed-cli-runtime"
+}
+
+Assert-SignedFile (Join-Path $AppDirectory "resources\elevate.exe") "nsis-elevation-helper"
+
 Assert-SignedFile $InstallerPath "nsis-installer"
 
 $installDirectory = Join-Path $env:RUNNER_TEMP "StellaSignatureValidation"

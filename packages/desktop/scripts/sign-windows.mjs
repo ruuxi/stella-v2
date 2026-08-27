@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
-import { basename } from "node:path";
+import { basename, win32 } from "node:path";
+
+const managedRuntimeExecutables = new Set(["bun.exe", "rg.exe", "uv.exe"]);
 
 function requireEnvironment(name) {
   const value = process.env[name]?.trim();
@@ -31,12 +33,58 @@ function runSignTool(executable, args) {
   });
 }
 
+export function signingPolicy(filePath) {
+  const normalized = filePath.replaceAll("/", "\\");
+  const lowerPath = normalized.toLowerCase();
+  const fileName = win32.basename(normalized).toLowerCase();
+
+  if (fileName === "stella.exe") {
+    return "application-executable";
+  }
+  if (/^stella-.+-windows-.+(?:\.__uninstaller)?\.exe$/iu.test(fileName)) {
+    return "nsis-package";
+  }
+  if (lowerPath.endsWith("\\resources\\elevate.exe")) {
+    return "nsis-helper";
+  }
+  if (lowerPath.includes("\\resources\\native\\out\\win32\\")) {
+    return "native-helper";
+  }
+  if (lowerPath.includes("\\resources\\stella-browser\\out\\win-x64\\")) {
+    return "stella-browser-helper";
+  }
+  if (
+    lowerPath.includes("\\resources\\bin\\") &&
+    managedRuntimeExecutables.has(fileName)
+  ) {
+    return "managed-cli-runtime";
+  }
+  if (
+    lowerPath.includes("\\resources\\runtimes\\git\\") ||
+    lowerPath.includes("\\resources\\runtimes\\node\\") ||
+    lowerPath.includes("\\resources\\runtimes\\python\\")
+  ) {
+    return null;
+  }
+  throw new Error(
+    `Unexpected Windows signing candidate: ${basename(filePath)}`,
+  );
+}
+
 export async function sign(configuration) {
   if (process.platform !== "win32") {
     throw new Error("DigiCert KeyLocker signing requires Windows");
   }
   if (configuration.hash?.toLowerCase() !== "sha256") {
     throw new Error("Windows artifacts must be signed with SHA-256");
+  }
+
+  const artifactType = signingPolicy(configuration.path);
+  if (!artifactType) {
+    console.log(
+      `Preserving upstream Authenticode identity for ${basename(configuration.path)}`,
+    );
+    return;
   }
 
   const signTool = requireEnvironment("STELLA_WINDOWS_SIGNTOOL_PATH");
@@ -49,7 +97,7 @@ export async function sign(configuration) {
   ]);
 
   console.log(
-    `Authenticode signing ${basename(configuration.path)} with DigiCert KeyLocker`,
+    `Authenticode signing ${artifactType} ${basename(configuration.path)} with DigiCert KeyLocker`,
   );
   await runSignTool(signTool, [
     "sign",

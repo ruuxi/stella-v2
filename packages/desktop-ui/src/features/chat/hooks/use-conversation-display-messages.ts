@@ -111,6 +111,29 @@ const getAssistantUserMessageId = (
     : undefined;
 };
 
+const collectLiveUserMessageIds = (
+  persistedMessages: MessageRecord[],
+  overlayMessages: MessageRecord[],
+): Set<string> => {
+  const ids = new Set<string>();
+  for (const message of persistedMessages) {
+    if (message.type === "user_message") ids.add(message._id);
+  }
+  for (const message of overlayMessages) {
+    if (message.type === "user_message") ids.add(message._id);
+  }
+  return ids;
+};
+
+const assistantBelongsToLiveUser = (
+  message: MessageRecord,
+  liveUserIds: Set<string>,
+): boolean => {
+  const ownerId = getAssistantUserMessageId(message);
+  if (ownerId === undefined) return true;
+  return liveUserIds.has(ownerId);
+};
+
 const isUserTurnAssistant = (message: MessageRecord): boolean => {
   const payload = message.payload as
     | {
@@ -271,11 +294,25 @@ export const mergeConversationDisplayMessageSources = (args: {
 }): MessageRecord[] => {
   const {
     persistedMessages,
-    overlayMessages,
-    streamingAssistants,
+    overlayMessages: overlayMessagesInput,
+    streamingAssistants: streamingAssistantsInput,
     persistedAssistantSlots,
     getSortTimestamp = defaultSortTimestamp,
   } = args;
+  // Rewind deletes the SQLite suffix, including the owning user row, but
+  // locked streaming overlays stay in renderer memory until the next
+  // conversation switch. Drop assistant overlays whose user turn is gone
+  // so they cannot paint after the truncate.
+  const liveUserIds = collectLiveUserMessageIds(
+    persistedMessages,
+    overlayMessagesInput,
+  );
+  const overlayMessages = overlayMessagesInput.filter((message) =>
+    assistantBelongsToLiveUser(message, liveUserIds),
+  );
+  const streamingAssistants = streamingAssistantsInput.filter((slot) =>
+    liveUserIds.has(slot.userMessageId),
+  );
   const effectiveSortTimestamp =
     createOwningUserClampedSortTimestampResolver(
       overlayMessages.length > 0

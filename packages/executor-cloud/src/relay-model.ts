@@ -236,7 +236,9 @@ const managedRelayModel = async (args: {
   siteUrl: string;
   turnToken: string;
   agentType: string;
+  signal?: AbortSignal;
 }): Promise<Model<Api>> => {
+  const timeoutSignal = AbortSignal.timeout(15_000);
   const response = await fetch(
     stellaCloudModelEndpointFromSiteUrl(args.siteUrl),
     {
@@ -246,7 +248,9 @@ const managedRelayModel = async (args: {
         [CLOUD_TURN_TOKEN_HEADER]: args.turnToken,
       },
       body: JSON.stringify({ model: args.execution.model }),
-      signal: AbortSignal.timeout(15_000),
+      signal: args.signal
+        ? AbortSignal.any([args.signal, timeoutSignal])
+        : timeoutSignal,
     },
   );
   if (!response.ok) {
@@ -291,6 +295,8 @@ export const createCloudRelayModel = async (args: {
   turnToken: string;
   agentType: string;
   execution: CloudExecutionSelection;
+  /** Exact turn fiber cancellation; connected routes are synchronous/local. */
+  signal?: AbortSignal;
 }): Promise<Model<Api>> => {
   const execution = validateCloudExecutionSelection(args.execution);
   return execution.engine === "stella"

@@ -1850,6 +1850,8 @@ export async function sendDesktopBridgeChat({
 
   // ── Run state shared across reconnect attempts ──────────────────────────
   let lastSeq = 0;
+  let lastSourceSeq = 0;
+  const seenSourceEventKeys = new Set<string>();
   let runId = "";
   let requestId = "";
   let submittedUserMessageId = "";
@@ -2182,9 +2184,19 @@ export async function sendDesktopBridgeChat({
     if (eventRunId) runStarted = true;
 
     const seq = typeof event.seq === "number" ? event.seq : null;
+    const sourceSeq =
+      typeof event.sourceSeq === "number" ? event.sourceSeq : seq;
+    if (eventRunId && typeof sourceSeq === "number" && sourceSeq > 0) {
+      const sourceKey = `${eventRunId}:${sourceSeq}:${asString(event.type)}`;
+      if (seenSourceEventKeys.has(sourceKey)) return false;
+      seenSourceEventKeys.add(sourceKey);
+    }
     if (seq !== null) {
       if (seq <= lastSeq) return false;
       lastSeq = seq;
+    }
+    if (typeof sourceSeq === "number" && sourceSeq > 0 && sourceSeq < 10_000_000_000) {
+      if (sourceSeq > lastSourceSeq) lastSourceSeq = sourceSeq;
     }
 
     if (event.type === "run-started") {
@@ -2595,6 +2607,7 @@ export async function sendDesktopBridgeChat({
                     {
                       conversationId,
                       lastSeq,
+                      lastSourceSeq,
                       maxEvents: BRIDGE_RESUME_PAGE_EVENTS,
                     },
                   ],

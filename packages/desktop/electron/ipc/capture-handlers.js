@@ -1,6 +1,12 @@
 import { BrowserWindow, ipcMain, screen, shell, } from "electron";
 import { hasMacPermission, requestMacPermission, } from "../utils/macos-permissions.js";
 export const registerCaptureHandlers = (options) => {
+    const requirePrivileged = (event, channel) => {
+        if (!options.assertPrivilegedSender(event, channel)) {
+            throw new Error("Blocked untrusted request.");
+        }
+    };
+    const requirePrivilegedSender = (event, channel) => options.assertPrivilegedSender(event, channel);
     const ensureScreenCapturePermission = async () => {
         if (process.platform !== "darwin") {
             return true;
@@ -15,58 +21,72 @@ export const registerCaptureHandlers = (options) => {
         await shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture");
         return false;
     };
-    ipcMain.handle("chatContext:get", () => options.captureService.getChatContextSnapshot());
-    ipcMain.on("chatContext:set", (_event, context) => {
+    ipcMain.handle("chatContext:get", (event) => {
+        requirePrivileged(event, "chatContext:get");
+        return options.captureService.getChatContextSnapshot();
+    });
+    ipcMain.on("chatContext:set", (event, context) => {
+        if (!requirePrivilegedSender(event, "chatContext:set"))
+            return;
         options.captureService.setPendingChatContext(context ?? null);
         options.captureService.broadcastChatContext();
     });
-    ipcMain.on("chatContext:removeScreenshot", (_event, index) => {
+    ipcMain.on("chatContext:removeScreenshot", (event, index) => {
+        if (!requirePrivilegedSender(event, "chatContext:removeScreenshot"))
+            return;
         options.captureService.removeScreenshot(index);
         options.captureService.broadcastChatContext();
     });
-    ipcMain.on("region:select", (_event, selection) => {
+    ipcMain.on("region:select", (event, selection) => {
+        if (!requirePrivilegedSender(event, "region:select"))
+            return;
         void options.captureService.finalizeRegionCapture(selection);
     });
-    ipcMain.on("region:commitPrepared", (_event, result) => {
+    ipcMain.on("region:commitPrepared", (event, result) => {
+        if (!requirePrivilegedSender(event, "region:commitPrepared"))
+            return;
         options.captureService.commitPreparedRegionCapture(result);
     });
-    ipcMain.on("region:cancel", () => {
+    ipcMain.on("region:cancel", (event) => {
+        if (!requirePrivilegedSender(event, "region:cancel"))
+            return;
         options.captureService.cancelRegionCapture();
     });
-    ipcMain.handle("region:prepareSelection", async (_event, selection) => {
+    ipcMain.handle("region:prepareSelection", async (event, selection) => {
+        requirePrivileged(event, "region:prepareSelection");
         if (!(await ensureScreenCapturePermission())) {
             return null;
         }
         return options.captureService.prepareRegionSelection(selection);
     });
-    ipcMain.handle("region:getWindowCapture", async (_event, point) => {
+    ipcMain.handle("region:getWindowCapture", async (event, point) => {
+        requirePrivileged(event, "region:getWindowCapture");
         if (!(await ensureScreenCapturePermission())) {
             return null;
         }
         return options.captureService.getRegionWindowCapture(point);
     });
-    ipcMain.on("region:click", async (_event, point) => {
+    ipcMain.on("region:click", async (event, point) => {
+        if (!requirePrivilegedSender(event, "region:click"))
+            return;
         await options.captureService.handleRegionClick(point);
     });
     ipcMain.handle("screenshot:capture", async (event, point) => {
-        if (!options.assertPrivilegedSender(event, "screenshot:capture")) {
-            throw new Error("Blocked untrusted request.");
-        }
+        requirePrivileged(event, "screenshot:capture");
         if (!(await ensureScreenCapturePermission())) {
             return null;
         }
         return options.captureService.captureScreenshot(point);
     });
     ipcMain.handle("screenshot:captureVision", async (event, point) => {
-        if (!options.assertPrivilegedSender(event, "screenshot:captureVision")) {
-            throw new Error("Blocked untrusted request.");
-        }
+        requirePrivileged(event, "screenshot:captureVision");
         if (!(await ensureScreenCapturePermission())) {
             return [];
         }
         return options.captureService.captureVisionScreenshots(point);
     });
-    ipcMain.handle("capture:cursorDisplayInfo", () => {
+    ipcMain.handle("capture:cursorDisplayInfo", (event) => {
+        requirePrivileged(event, "capture:cursorDisplayInfo");
         const cursor = screen.getCursorScreenPoint();
         const display = screen.getDisplayNearestPoint(cursor);
         return {
@@ -78,6 +98,7 @@ export const registerCaptureHandlers = (options) => {
         };
     });
     ipcMain.handle("capture:pageDataUrl", async (event) => {
+        requirePrivileged(event, "capture:pageDataUrl");
         const win = BrowserWindow.fromWebContents(event.sender);
         if (!win)
             return null;
@@ -87,9 +108,7 @@ export const registerCaptureHandlers = (options) => {
     // Composer capture entry point: hide the full shell, run the overlay, merge
     // any capture, then restore the shell's previous visibility/focus state.
     ipcMain.handle("capture:beginRegionCapture", async (event) => {
-        if (!options.assertPrivilegedSender(event, "capture:beginRegionCapture")) {
-            throw new Error("Blocked untrusted request.");
-        }
+        requirePrivileged(event, "capture:beginRegionCapture");
         if (!(await ensureScreenCapturePermission())) {
             return { cancelled: true };
         }

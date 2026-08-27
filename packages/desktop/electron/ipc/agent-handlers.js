@@ -2,9 +2,12 @@ import { ipcMain, webContents, } from "electron";
 import crypto from "node:crypto";
 import { promises as fs } from "fs";
 import path from "path";
-import { AGENT_RUN_FINISH_OUTCOMES, AGENT_STREAM_EVENT_TYPES, } from "@stella/contracts/agent-runtime";
+import { AGENT_RUN_FINISH_OUTCOMES, AGENT_STREAM_EVENT_TYPES, isTaskLifecycleTerminalType, } from "@stella/contracts/agent-runtime";
 import { IPC_AGENT_ONE_SHOT_COMPLETION } from "@stella/contracts/desktop/ipc-channels";
 import { createMonotonicSeqGenerator } from "./monotonic-seq.js";
+import { stampAgentEventMainSeq, workerResumeLastSeq, } from "./agent-event-seq.js";
+import { createLocalChatStreamCallbacks } from "./agent-stream-callbacks.js";
+import { registerPrivilegedHandle } from "./privileged-ipc.js";
 const redactSensitiveLogText = (value) => value
     .replace(/\b(sk-[A-Za-z0-9_-]{12,})\b/g, "[redacted-token]")
     .replace(/\b(Bearer\s+[A-Za-z0-9._-]{12,})\b/gi, "[redacted-token]")
@@ -67,7 +70,6 @@ export const pageMobileAgentReplayEvents = (events, requestedMaxEvents) => {
 export const registerAgentHandlers = (options) => {
     const runOwners = new Map();
     const requestOwners = new Map();
-    const runToConversationId = new Map();
     const runToRequestId = new Map();
     const requestToRunId = new Map();
     const terminalRunIds = new Set();
@@ -147,9 +149,7 @@ export const registerAgentHandlers = (options) => {
             runningAgentsByRunId.set(runId, running);
             return;
         }
-        if (event.type === AGENT_STREAM_EVENT_TYPES.AGENT_COMPLETED ||
-            event.type === AGENT_STREAM_EVENT_TYPES.AGENT_FAILED ||
-            event.type === AGENT_STREAM_EVENT_TYPES.AGENT_CANCELED) {
+        if (isTaskLifecycleTerminalType(event.type)) {
             const running = runningAgentsByRunId.get(runId);
             if (!running)
                 return;
@@ -159,14 +159,8 @@ export const registerAgentHandlers = (options) => {
         }
     };
     const emitAgentEvent = (event, targetWebContentsId) => {
-        const sourceSeq = Number.isFinite(event.seq) ? event.seq : undefined;
-        const normalizedEvent = {
-            ...event,
-            ...(sourceSeq !== undefined ? { sourceSeq } : {}),
-            seq: nextAgentEventSeq(),
-        };
+        const normalizedEvent = stampAgentEventMainSeq(event, nextAgentEventSeq());
         const trackedRunId = normalizedEvent.rootRunId ?? normalizedEvent.runId;
-        runToConversationId.set(trackedRunId, normalizedEvent.conversationId);
         if (normalizedEvent.requestId) {
             runToRequestId.set(trackedRunId, normalizedEvent.requestId);
         }
@@ -239,7 +233,6 @@ export const registerAgentHandlers = (options) => {
                 return;
             }
             runOwners.delete(runId);
-            runToConversationId.delete(runId);
             runningAgentsByRunId.delete(runId);
             terminalRunIds.delete(runId);
             const linkedRequestId = requestId ?? runToRequestId.get(runId);
@@ -257,14 +250,14 @@ export const registerAgentHandlers = (options) => {
             pruneConversationEventBuffers();
         }, 60_000);
     };
-    ipcMain.handle(IPC_AGENT_ONE_SHOT_COMPLETION, async (_event, payload) => {
+    registerPrivilegedHandle(options, IPC_AGENT_ONE_SHOT_COMPLETION, async (_event, payload) => {
         const stellaHostRunner = options.getStellaHostRunner();
         if (!stellaHostRunner) {
             throw new Error("Stella runtime is not ready.");
         }
         return await stellaHostRunner.runOneShotCompletion(payload);
     });
-    ipcMain.handle("agent:healthCheck", async () => {
+    registerPrivilegedHandle(options, "agent:healthCheck", async () => {
         const stellaHostRunner = options.getStellaHostRunner();
         if (!stellaHostRunner) {
             return null;
@@ -277,7 +270,7 @@ export const registerAgentHandlers = (options) => {
             : rawResult;
         return result;
     });
-    ipcMain.handle("agent:getActiveRun", async () => {
+    registerPrivilegedHandle(options, "agent:getActiveRun", async () => {
         const stellaHostRunner = options.getStellaHostRunner();
         if (!stellaHostRunner)
             return null;
@@ -286,10 +279,10 @@ export const registerAgentHandlers = (options) => {
             return null;
         return await stellaHostRunner.getActiveOrchestratorRun();
     });
-    ipcMain.handle("agent:getAppSessionStartedAt", async () => {
+    registerPrivilegedHandle(options, "agent:getAppSessionStartedAt", async () => {
         return options.getAppSessionStartedAt();
     });
-    ipcMain.handle("agent:resume", async (event, payload) => {
+    registerPrivilegedHandle(options, "agent:resume", async (event, payload) => {
         pruneConversationEventBuffers();
         const conversationId = typeof payload.conversationId === "string"
             ? payload.conversationId.trim()
@@ -322,7 +315,6 @@ export const registerAgentHandlers = (options) => {
                     };
                     activeRunByConversation.set(conversationId, activeRun);
                 }
-                runToConversationId.set(match.runId, conversationId);
             }
         }
         const bufferedEvents = buffer
@@ -335,14 +327,18 @@ export const registerAgentHandlers = (options) => {
                 try {
                     const replay = await stellaHostRunner.resumeRunEvents({
                         runId: resumeRunId,
-                        lastSeq,
+                        lastSeq: workerResumeLastSeq(payload),
                     });
                     if (!replay.exhausted) {
-                        events = replay.events.map((event) => ({
-                            ...event,
-                            type: event.type,
-                            conversationId: event.conversationId ?? conversationId,
-                        }));
+                        events = replay.events.map((event) => {
+                            const remapped = stampAgentEventMainSeq({
+                                ...event,
+                                type: event.type,
+                                conversationId: event.conversationId ?? conversationId,
+                            }, nextAgentEventSeq());
+                            bufferConversationEvent(remapped.conversationId, remapped);
+                            return remapped;
+                        });
                     }
                 }
                 catch {
@@ -366,7 +362,6 @@ export const registerAgentHandlers = (options) => {
             };
             activeRunByConversation.set(conversationId, activeRun);
             runOwners.set(resumeRunId, senderWebContentsId);
-            runToConversationId.set(resumeRunId, conversationId);
             runToRequestId.set(resumeRunId, requestId);
             requestOwners.set(requestId, senderWebContentsId);
             requestToRunId.set(requestId, resumeRunId);
@@ -381,125 +376,18 @@ export const registerAgentHandlers = (options) => {
                     ? { uiVisibility: activeRun.uiVisibility }
                     : {}),
                 active: true,
-            }, {
-                onRunStarted: (ev) => {
-                    if (ev.uiVisibility === "hidden") {
-                        return;
-                    }
-                    terminalRunIds.delete(ev.runId);
-                    runOwners.set(ev.runId, senderWebContentsId);
-                    runToConversationId.set(ev.runId, conversationId);
-                    runToRequestId.set(ev.runId, requestId);
-                    requestToRunId.set(requestId, ev.runId);
-                    activeRunByConversation.set(conversationId, {
-                        runId: ev.runId,
-                        conversationId,
-                        requestId,
-                        userMessageId: ev.userMessageId,
-                        uiVisibility: ev.uiVisibility,
-                    });
-                    emitAgentEvent({
-                        type: AGENT_STREAM_EVENT_TYPES.RUN_STARTED,
-                        runId: ev.runId,
-                        conversationId,
-                        requestId,
-                        ...(ev.userMessageId
-                            ? { userMessageId: ev.userMessageId }
-                            : {}),
-                        ...(ev.uiVisibility ? { uiVisibility: ev.uiVisibility } : {}),
-                        ...(ev.agentType ? { agentType: ev.agentType } : {}),
-                    }, senderWebContentsId);
-                },
-                onStream: (ev) => emitAgentEvent({
-                    ...ev,
-                    type: AGENT_STREAM_EVENT_TYPES.STREAM,
-                    conversationId,
-                    requestId,
-                }, senderWebContentsId),
-                onAssistantMessage: (ev) => emitAgentEvent({
-                    ...ev,
-                    type: AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE,
-                    conversationId,
-                    requestId,
-                }, senderWebContentsId),
-                onStatus: (ev) => emitAgentEvent({
-                    ...ev,
-                    type: AGENT_STREAM_EVENT_TYPES.STATUS,
-                    conversationId,
-                    requestId,
-                }, senderWebContentsId),
-                onToolStart: (ev) => emitAgentEvent({
-                    ...ev,
-                    type: AGENT_STREAM_EVENT_TYPES.TOOL_START,
-                    conversationId,
-                    requestId,
-                }, senderWebContentsId),
-                onToolEnd: (ev) => emitAgentEvent({
-                    ...ev,
-                    type: AGENT_STREAM_EVENT_TYPES.TOOL_END,
-                    conversationId,
-                    requestId,
-                }, senderWebContentsId),
-                onRunFinished: (ev) => {
-                    if (terminalRunIds.has(ev.runId)) {
-                        return;
-                    }
-                    terminalRunIds.add(ev.runId);
-                    emitAgentEvent({
-                        type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
-                        runId: ev.runId,
-                        conversationId,
-                        requestId,
-                        agentType: ev.agentType,
-                        userMessageId: ev.userMessageId,
-                        finalText: ev.finalText,
-                        persisted: ev.persisted,
-                        error: ev.error,
-                        outcome: ev.outcome ?? AGENT_RUN_FINISH_OUTCOMES.ERROR,
-                        reason: ev.reason ?? ev.error,
-                    }, senderWebContentsId);
-                    scheduleRunCleanup(ev.runId, requestId);
-                },
-                onAgentEvent: (ev) => {
-                    if (!ev.rootRunId) {
-                        return;
-                    }
-                    emitAgentEvent({
-                        type: ev.type,
-                        runId: ev.rootRunId,
-                        rootRunId: ev.rootRunId,
-                        conversationId,
-                        requestId,
-                        userMessageId: ev.userMessageId,
-                        agentId: ev.agentId,
-                        agentType: ev.agentType,
-                        description: ev.description,
-                        parentAgentId: ev.parentAgentId,
-                        result: ev.result,
-                        error: ev.error,
-                        statusText: ev.statusText,
-                        groupKey: ev.groupKey,
-                        groupLabel: ev.groupLabel,
-                    }, senderWebContentsId);
-                },
-                onAgentReasoning: (ev) => {
-                    if (!ev.agentId) {
-                        return;
-                    }
-                    const runId = ev.rootRunId ?? ev.runId;
-                    emitAgentEvent({
-                        type: AGENT_STREAM_EVENT_TYPES.AGENT_REASONING,
-                        runId,
-                        rootRunId: runId,
-                        conversationId,
-                        requestId,
-                        userMessageId: ev.userMessageId,
-                        agentId: ev.agentId,
-                        agentType: ev.agentType,
-                        chunk: ev.chunk,
-                    }, senderWebContentsId);
-                },
-            });
+            }, createLocalChatStreamCallbacks({
+                conversationId,
+                requestId,
+                senderWebContentsId,
+                emitAgentEvent,
+                terminalRunIds,
+                runOwners,
+                runToRequestId,
+                requestToRunId,
+                activeRunByConversation,
+                scheduleRunCleanup,
+            }));
         }
         return {
             activeRun,
@@ -507,10 +395,7 @@ export const registerAgentHandlers = (options) => {
             hasMore: page.hasMore,
         };
     });
-    ipcMain.handle("agent:startChat", async (event, payload) => {
-        if (!options.assertPrivilegedSender(event, "agent:startChat")) {
-            throw new Error("Blocked untrusted request.");
-        }
+    registerPrivilegedHandle(options, "agent:startChat", async (event, payload) => {
         const stellaHostRunner = options.getStellaHostRunner();
         if (!stellaHostRunner) {
             throw new Error("Stella runtime not available");
@@ -598,145 +483,32 @@ export const registerAgentHandlers = (options) => {
             throw error;
         }
         console.log(`[stella:trace] IPC agent:startChat | convId=${payload.conversationId} | prompt=${redactSensitiveLogText(payload.userPrompt.slice(0, 200))}`);
-        const emitRunFinished = (args) => {
-            if (terminalRunIds.has(args.runId)) {
-                return;
-            }
-            terminalRunIds.add(args.runId);
-            emitAgentEvent({
-                type: AGENT_STREAM_EVENT_TYPES.RUN_FINISHED,
-                runId: args.runId,
-                conversationId: payload.conversationId,
-                requestId,
-                agentType: args.agentType,
-                userMessageId: args.userMessageId,
-                finalText: args.finalText,
-                persisted: args.persisted,
-                error: args.error,
-                outcome: args.outcome,
-                reason: args.reason ?? args.error,
-            }, senderWebContentsId);
-            scheduleRunCleanup(args.runId, requestId);
-        };
+        const streamCallbacks = createLocalChatStreamCallbacks({
+            conversationId: payload.conversationId,
+            requestId,
+            senderWebContentsId,
+            emitAgentEvent,
+            terminalRunIds,
+            runOwners,
+            runToRequestId,
+            requestToRunId,
+            activeRunByConversation,
+            scheduleRunCleanup,
+            afterRunStarted: (runId) => {
+                if (pendingCancelRequestIds.delete(requestId)) {
+                    stellaHostRunner.cancelLocalChat(runId);
+                }
+            },
+            onMissingRootRunId: (ev) => {
+                console.warn("[chat] Dropping task event without rootRunId:", ev.type, ev.agentId);
+            },
+        });
+        const emitRunFinished = (args) => streamCallbacks.onRunFinished(args);
         const localChatStartPromise = stellaHostRunner
             .handleLocalChat({
             ...payload,
             requestId,
-        }, {
-            onRunStarted: (ev) => {
-                if (ev.uiVisibility === "hidden") {
-                    return;
-                }
-                terminalRunIds.delete(ev.runId);
-                runOwners.set(ev.runId, senderWebContentsId);
-                runToConversationId.set(ev.runId, payload.conversationId);
-                runToRequestId.set(ev.runId, requestId);
-                requestToRunId.set(requestId, ev.runId);
-                activeRunByConversation.set(payload.conversationId, {
-                    runId: ev.runId,
-                    conversationId: payload.conversationId,
-                    requestId,
-                    userMessageId: ev.userMessageId,
-                    uiVisibility: ev.uiVisibility,
-                });
-                emitAgentEvent({
-                    type: AGENT_STREAM_EVENT_TYPES.RUN_STARTED,
-                    runId: ev.runId,
-                    conversationId: payload.conversationId,
-                    requestId,
-                    ...(ev.userMessageId
-                        ? { userMessageId: ev.userMessageId }
-                        : {}),
-                    ...(ev.uiVisibility ? { uiVisibility: ev.uiVisibility } : {}),
-                    ...(ev.agentType ? { agentType: ev.agentType } : {}),
-                }, senderWebContentsId);
-                if (pendingCancelRequestIds.delete(requestId)) {
-                    stellaHostRunner.cancelLocalChat(ev.runId);
-                }
-            },
-            onStream: (ev) => emitAgentEvent({
-                ...ev,
-                type: AGENT_STREAM_EVENT_TYPES.STREAM,
-                conversationId: payload.conversationId,
-                requestId,
-            }, senderWebContentsId),
-            onAssistantMessage: (ev) => emitAgentEvent({
-                ...ev,
-                type: AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE,
-                conversationId: payload.conversationId,
-                requestId,
-            }, senderWebContentsId),
-            onStatus: (ev) => emitAgentEvent({
-                ...ev,
-                type: AGENT_STREAM_EVENT_TYPES.STATUS,
-                conversationId: payload.conversationId,
-                requestId,
-            }, senderWebContentsId),
-            onToolStart: (ev) => emitAgentEvent({
-                ...ev,
-                type: AGENT_STREAM_EVENT_TYPES.TOOL_START,
-                conversationId: payload.conversationId,
-                requestId,
-            }, senderWebContentsId),
-            onToolEnd: (ev) => emitAgentEvent({
-                ...ev,
-                type: AGENT_STREAM_EVENT_TYPES.TOOL_END,
-                conversationId: payload.conversationId,
-                requestId,
-            }, senderWebContentsId),
-            onRunFinished: (ev) => {
-                emitRunFinished({
-                    runId: ev.runId,
-                    outcome: ev.outcome ?? AGENT_RUN_FINISH_OUTCOMES.ERROR,
-                    agentType: ev.agentType,
-                    userMessageId: ev.userMessageId,
-                    finalText: ev.finalText,
-                    persisted: ev.persisted,
-                    error: ev.error,
-                    reason: ev.reason,
-                });
-            },
-            onAgentEvent: (ev) => {
-                if (!ev.rootRunId) {
-                    console.warn("[chat] Dropping task event without rootRunId:", ev.type, ev.agentId);
-                    return;
-                }
-                emitAgentEvent({
-                    type: ev.type,
-                    runId: ev.rootRunId,
-                    rootRunId: ev.rootRunId,
-                    conversationId: payload.conversationId,
-                    requestId,
-                    userMessageId: ev.userMessageId,
-                    agentId: ev.agentId,
-                    agentType: ev.agentType,
-                    description: ev.description,
-                    parentAgentId: ev.parentAgentId,
-                    result: ev.result,
-                    error: ev.error,
-                    statusText: ev.statusText,
-                    groupKey: ev.groupKey,
-                    groupLabel: ev.groupLabel,
-                }, senderWebContentsId);
-            },
-            onAgentReasoning: (ev) => {
-                if (!ev.agentId) {
-                    return;
-                }
-                const runId = ev.rootRunId ?? ev.runId;
-                emitAgentEvent({
-                    type: AGENT_STREAM_EVENT_TYPES.AGENT_REASONING,
-                    runId,
-                    rootRunId: runId,
-                    conversationId: payload.conversationId,
-                    requestId,
-                    userMessageId: ev.userMessageId,
-                    agentId: ev.agentId,
-                    agentType: ev.agentType,
-                    chunk: ev.chunk,
-                }, senderWebContentsId);
-            },
-        })
+        }, streamCallbacks)
             .catch((error) => {
             const message = error instanceof Error ? error.message : "Stella runtime failed";
             const startedRunId = requestToRunId.get(requestId);
@@ -788,10 +560,7 @@ export const registerAgentHandlers = (options) => {
                 : {}),
         };
     });
-    ipcMain.handle("agent:sendInput", async (event, payload) => {
-        if (!options.assertPrivilegedSender(event, "agent:sendInput")) {
-            throw new Error("Blocked untrusted request.");
-        }
+    registerPrivilegedHandle(options, "agent:sendInput", async (_event, payload) => {
         const stellaHostRunner = options.getStellaHostRunner();
         if (!stellaHostRunner) {
             throw new Error("Stella runtime not available");
@@ -831,18 +600,12 @@ export const registerAgentHandlers = (options) => {
     });
     // Dev-only: trigger/fix a Vite compile error for testing the error overlay
     const TEST_BROKEN_FILE = path.join(options.stellaAppDir, "src", "testing", "__vite_error_trigger.tsx");
-    ipcMain.handle("devtest:triggerViteError", async (event) => {
-        if (!options.assertPrivilegedSender(event, "devtest:triggerViteError")) {
-            throw new Error("Blocked untrusted request.");
-        }
+    registerPrivilegedHandle(options, "devtest:triggerViteError", async () => {
         await fs.mkdir(path.dirname(TEST_BROKEN_FILE), { recursive: true });
         await fs.writeFile(TEST_BROKEN_FILE, "const x: number = {\n// deliberately broken syntax\n", "utf-8");
         return { ok: true };
     });
-    ipcMain.handle("devtest:fixViteError", async (event) => {
-        if (!options.assertPrivilegedSender(event, "devtest:fixViteError")) {
-            throw new Error("Blocked untrusted request.");
-        }
+    registerPrivilegedHandle(options, "devtest:fixViteError", async () => {
         try {
             await fs.unlink(TEST_BROKEN_FILE);
         }

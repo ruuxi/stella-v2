@@ -416,6 +416,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         getOverlayController: () => state.overlayController ?? null,
         stellaAppDir: state.stellaAppDir,
         stellaDataDirPath: state.stellaDataDirPath,
+        assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     // Register dictation first so we can pass `startPetDictation` into
     // the pet handlers — the pet's mic action is dictation now (voice

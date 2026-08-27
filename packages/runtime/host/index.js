@@ -11,7 +11,7 @@ import { LocalSchedulerService } from "../kernel/local-scheduler-service.js";
 import { createScheduleScriptAuthEnv } from "../kernel/shared/schedule-scripts.js";
 import { createRemoteTurnBridge } from "../kernel/remote-turn-bridge.js";
 import { getConvexErrorCode, isConvexDeviceKeyMismatchError, isConvexUnauthenticatedError, shouldStopRemoteTurnForAuthFailure, } from "../kernel/runner/remote-turn-auth.js";
-import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
+import { AGENT_RECORDER_SEQ_CEILING, AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
 import { resolveConnectorFollowupAction } from "./connector-followup.js";
 import { METHOD_NAMES, NOTIFICATION_NAMES, STELLA_RUNTIME_PROTOCOL_VERSION, } from "@stella/contracts/protocol";
 import { createRuntimeUnavailableError, } from "@stella/contracts/protocol/rpc-peer";
@@ -24,7 +24,7 @@ const AGENT_EVENT_BUFFER_LIMIT = 1_000;
 const AGENT_EVENT_BUFFER_TTL_MS = 10 * 60 * 1_000;
 const DEVICE_HEARTBEAT_INTERVAL_MS = 30_000;
 export { retireDetachedWorkerRoot };
-const SYNTHETIC_RUN_EVENT_SEQ_FLOOR = 1e10;
+const SYNTHETIC_RUN_EVENT_SEQ_FLOOR = AGENT_RECORDER_SEQ_CEILING;
 const parseDisplayUpdateParams = (params) => {
     if (params && typeof params === "object") {
         const record = params;

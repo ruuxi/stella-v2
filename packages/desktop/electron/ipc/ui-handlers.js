@@ -48,14 +48,26 @@ export const applyOnboardingWindowPresentation = ({ win, active, platform, getDi
     }
 };
 export const registerUiHandlers = (options) => {
-    ipcMain.on("app:setReady", (_event, ready) => {
+    const requirePrivileged = (event, channel) => {
+        if (!options.assertPrivilegedSender(event, channel)) {
+            throw new Error(`Blocked untrusted ${channel} request.`);
+        }
+    };
+    const requirePrivilegedSender = (event, channel) => options.assertPrivilegedSender(event, channel);
+    ipcMain.on("app:setReady", (event, ready) => {
+        if (!requirePrivilegedSender(event, "app:setReady"))
+            return;
         options.setAppReady(!!ready);
     });
     ipcMain.on("window:minimize", (event) => {
+        if (!requirePrivilegedSender(event, "window:minimize"))
+            return;
         const win = BrowserWindow.fromWebContents(event.sender);
         win?.minimize();
     });
     ipcMain.on("window:maximize", (event) => {
+        if (!requirePrivilegedSender(event, "window:maximize"))
+            return;
         const win = BrowserWindow.fromWebContents(event.sender);
         if (win?.isMaximized()) {
             win.unmaximize();
@@ -65,16 +77,21 @@ export const registerUiHandlers = (options) => {
         }
     });
     ipcMain.on("window:close", (event) => {
+        if (!requirePrivilegedSender(event, "window:close"))
+            return;
         const win = BrowserWindow.fromWebContents(event.sender);
         if (!win)
             return;
         win.close();
     });
     ipcMain.handle("window:isMaximized", (event) => {
+        requirePrivileged(event, "window:isMaximized");
         const win = BrowserWindow.fromWebContents(event.sender);
         return win?.isMaximized() ?? false;
     });
     ipcMain.on(IPC_WINDOW_SET_NATIVE_BUTTONS_VISIBLE, (event, visible) => {
+        if (!requirePrivilegedSender(event, IPC_WINDOW_SET_NATIVE_BUTTONS_VISIBLE))
+            return;
         const win = BrowserWindow.fromWebContents(event.sender);
         if (!win || process.platform !== "darwin")
             return;
@@ -83,6 +100,7 @@ export const registerUiHandlers = (options) => {
     // Onboarding presentation expands the main window to cover the current
     // display, then restores the standard centered size on exit.
     ipcMain.handle("window:setOnboardingPresentation", (event, active) => {
+        requirePrivileged(event, "window:setOnboardingPresentation");
         const win = BrowserWindow.fromWebContents(event.sender);
         if (!win)
             return { ok: false };
@@ -94,10 +112,12 @@ export const registerUiHandlers = (options) => {
         });
         return { ok: true };
     });
-    ipcMain.handle("ui:getState", () => options.uiState);
+    ipcMain.handle("ui:getState", (event) => {
+        requirePrivileged(event, "ui:getState");
+        return options.uiState;
+    });
     ipcMain.handle("ui:setState", (event, partial) => {
-        if (!options.assertPrivilegedSender(event, "ui:setState"))
-            return options.uiState;
+        requirePrivileged(event, "ui:setState");
         const { isVoiceRtcActive, ...rest } = partial;
         if (isVoiceRtcActive !== undefined) {
             if (isVoiceRtcActive) {
@@ -118,12 +138,12 @@ export const registerUiHandlers = (options) => {
         return options.uiState;
     });
     ipcMain.on("window:show", (event) => {
-        if (!options.assertPrivilegedSender(event, "window:show"))
+        if (!requirePrivilegedSender(event, "window:show"))
             return;
         options.windowManager.showWindow();
     });
     ipcMain.on("app:reload", (event) => {
-        if (!options.assertPrivilegedSender(event, "app:reload"))
+        if (!requirePrivilegedSender(event, "app:reload"))
             return;
         options.windowManager.reloadFullWindow();
     });
@@ -132,7 +152,7 @@ export const registerUiHandlers = (options) => {
     // to help. Packaged builds re-exec Electron; dev builds ask the supervisor
     // to spawn a fresh Electron process without tearing down Vite.
     ipcMain.on("app:relaunch", (event) => {
-        if (!options.assertPrivilegedSender(event, "app:relaunch"))
+        if (!requirePrivilegedSender(event, "app:relaunch"))
             return;
         const devRestartRequestFile = process.env.STELLA_DEV_RESTART_REQUEST_FILE;
         if (process.env.NODE_ENV === "development" && devRestartRequestFile) {

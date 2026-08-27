@@ -525,10 +525,14 @@ export function generateShimScript(
     display: {
       onUpdate: function(cb) { return subscribe('display:update', cb); },
       readFile: function(filePath, options) {
-        return invokeCapability('display.readFile', 'display:readFile', {
+        var payload = {
           filePath: filePath,
           conversationId: options && options.conversationId,
-        });
+        };
+        if (options && options.maxBytes != null) {
+          payload.maxBytes = options.maxBytes;
+        }
+        return invokeCapability('display.readFile', 'display:readFile', payload);
       },
     },
 

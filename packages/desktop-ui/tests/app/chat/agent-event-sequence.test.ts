@@ -44,6 +44,16 @@ describe('desktop agent event replay deduplication', () => {
       }),
     ).toBe(false)
   })
+
+  it('drops an unmapped recorder seq after a remapped live seq', () => {
+    const cursors = new Map<string, number>()
+    expect(
+      acceptConversationAgentEventSequence(cursors, 'conv-1', 1_800_000_000_001),
+    ).toBe(true)
+    expect(acceptConversationAgentEventSequence(cursors, 'conv-1', 5)).toBe(
+      false,
+    )
+  })
 })
 
 describe('assistant optimistic/canonical linkage', () => {

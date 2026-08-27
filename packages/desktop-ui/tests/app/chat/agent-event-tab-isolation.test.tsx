@@ -10,7 +10,7 @@ type Handler = ReturnType<typeof useAgentEventHandler>
 type ProbeApi = {
   current: Handler | null
   beginStreamingRun?: ReturnType<typeof vi.fn>
-  acceptStreamChunk?: ReturnType<typeof vi.fn>
+  finalizeMessageBoundary?: ReturnType<typeof vi.fn>
   activeRunIdByConversationRef?: {
     current: Record<string, string | null>
   }
@@ -27,7 +27,7 @@ function Probe({ api }: { api: ProbeApi }) {
   }
   const terminalRunIdsRef = { current: new Set<string>() }
   const beginStreamingRun = vi.fn()
-  const acceptStreamChunk = vi.fn()
+  const finalizeMessageBoundary = vi.fn()
 
   api.current = useAgentEventHandler({
     dispatch: vi.fn(),
@@ -44,8 +44,7 @@ function Probe({ api }: { api: ProbeApi }) {
     streaming: {
       setPendingUserMessageId: vi.fn(),
       beginStreamingRun,
-      acceptStreamChunk,
-      finalizeMessageBoundary: vi.fn(),
+      finalizeMessageBoundary,
       finalizeRunOnFinish: vi.fn(),
     },
     reasoning: {
@@ -56,7 +55,7 @@ function Probe({ api }: { api: ProbeApi }) {
   })
 
   api.beginStreamingRun = beginStreamingRun
-  api.acceptStreamChunk = acceptStreamChunk
+  api.finalizeMessageBoundary = finalizeMessageBoundary
   api.activeRunIdByConversationRef = activeRunIdByConversationRef
   api.terminalRunIdsRef = terminalRunIdsRef
   return null
@@ -80,45 +79,48 @@ describe('agent stream tab isolation', () => {
     container.remove()
     api.current = null
     api.beginStreamingRun = undefined
-    api.acceptStreamChunk = undefined
+    api.finalizeMessageBoundary = undefined
     api.activeRunIdByConversationRef = undefined
     api.terminalRunIdsRef = undefined
   })
 
-  it('does not paint a background conversation stream into the active tab', () => {
+  it('does not paint a background conversation message into the active tab', () => {
     act(() => {
       api.current?.({
-        type: AGENT_STREAM_EVENT_TYPES.STREAM,
+        type: AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE,
         conversationId: 'conversation-a',
         runId: 'run-a',
         userMessageId: 'user-a',
         agentType: 'orchestrator',
-        chunk: 'background response',
+        assistantMessageEventId: 'assistant-a-1',
+        assistantMessageText: 'background response',
         seq: 1,
       })
     })
 
-    expect(api.acceptStreamChunk).not.toHaveBeenCalled()
+    expect(api.finalizeMessageBoundary).not.toHaveBeenCalled()
     expect(api.beginStreamingRun).not.toHaveBeenCalled()
   })
 
-  it('continues painting the active conversation stream', () => {
+  it('continues painting the active conversation message', () => {
     act(() => {
       api.current?.({
-        type: AGENT_STREAM_EVENT_TYPES.STREAM,
+        type: AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE,
         conversationId: 'conversation-b',
         runId: 'run-b',
         userMessageId: 'user-b',
         agentType: 'orchestrator',
-        chunk: 'visible response',
+        assistantMessageEventId: 'assistant-b-1',
+        assistantMessageText: 'visible response',
         seq: 1,
       })
     })
 
-    expect(api.acceptStreamChunk).toHaveBeenCalledWith({
+    expect(api.finalizeMessageBoundary).toHaveBeenCalledWith({
       runId: 'run-b',
       userMessageId: 'user-b',
-      chunk: 'visible response',
+      canonicalMessageId: 'assistant-b-1',
+      canonicalText: 'visible response',
     })
   })
 
@@ -128,17 +130,18 @@ describe('agent stream tab isolation', () => {
 
     act(() => {
       api.current?.({
-        type: AGENT_STREAM_EVENT_TYPES.STREAM,
+        type: AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE,
         conversationId: 'conversation-a',
         runId: 'run-a',
         userMessageId: 'user-a',
         agentType: 'orchestrator',
-        chunk: 'reactivated background response',
+        assistantMessageEventId: 'assistant-a-2',
+        assistantMessageText: 'reactivated background response',
         seq: 1,
       })
     })
 
     expect(api.beginStreamingRun).not.toHaveBeenCalled()
-    expect(api.acceptStreamChunk).not.toHaveBeenCalled()
+    expect(api.finalizeMessageBoundary).not.toHaveBeenCalled()
   })
 })

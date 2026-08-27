@@ -6,11 +6,9 @@
  * grow/shrink on hover or when streaming finalizes. Visibility is purely an
  * opacity fade.
  *
- * It is mounted for the whole life of an assistant message, including while
- * it streams. While the row is streaming (`.event-row--streaming` ancestor)
- * the reveal is suppressed below so it stays invisible; the component also
- * marks it `inert` so it's non-focusable / non-interactive / a11y-hidden
- * until it settles. */
+ * It is mounted for the whole life of an assistant message. Assistant
+ * messages arrive whole, so the strip is interactive from the row's first
+ * paint. */
 .message-actions {
   display: flex;
   align-items: flex-start;
@@ -18,13 +16,8 @@
   height: 24px;
   opacity: 0;
   transition: opacity 0.12s ease;
-  /* Streaming rows stay non-interactive; settled rows opt back in below so
-     their dedicated hover target can reveal the controls. */
-  pointer-events: none;
-}
-
-/* Give the settled action strip its own hover target. */
-.message-actions:not([data-streaming="true"]) {
+  /* The strip is its own hover target so the controls can reveal even when
+     the pointer is over the buttons rather than the row. */
   pointer-events: auto;
 }
 
@@ -41,14 +34,11 @@
   margin-top: calc(2px - var(--chat-item-part-gap, 8px));
 }
 
-/* Reveal only once the message has settled. The `:not(.event-row--streaming)`
- * guard keeps a still-streaming row's (mounted, height-reserving) action row
- * invisible — it must not flash in on hover while the answer is still
- * arriving, and it has nothing to copy/read yet. `data-active` (read-aloud
- * playing) can only be true on a finalized message, so it needs no guard. */
-.event-row:not(.event-row--streaming):hover .message-actions,
-.event-row:not(.event-row--streaming):focus-within .message-actions,
-.message-actions:not([data-streaming="true"]):hover,
+/* Reveal on row hover / keyboard focus, on the strip's own hover, or while
+ * read-aloud is playing. */
+.event-row:hover .message-actions,
+.event-row:focus-within .message-actions,
+.message-actions:hover,
 .message-actions[data-active="true"] {
   opacity: 1;
   pointer-events: auto;
@@ -123,7 +113,6 @@
 /* While armed, the strip stays fully revealed (even off-hover) and grows to
    the RIGHT only — user actions are right-aligned — so revealing the hint
    never shifts the bubble above or rows around it. */
-.event-row:not(.event-row--streaming) .message-actions[data-confirming="true"],
 .message-actions[data-confirming="true"] {
   opacity: 1;
   pointer-events: auto;

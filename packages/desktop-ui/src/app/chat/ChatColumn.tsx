@@ -30,12 +30,10 @@ import { useChatMessages } from "@/context/use-chat-messages";
 import { Composer } from "./Composer";
 import { HomeContent } from "@/app/home/HomeContent";
 import { buildInlineWorkingIndicatorProps } from "@/features/chat/working-indicator-state";
-import { prewarmAurora } from "@/shell/aurora/renderer-pool";
 import { useFileDrop } from "@/features/chat/hooks/use-file-drop";
 import { useReadAloud } from "@/features/voice/services/read-aloud/use-read-aloud";
 import type { ChatColumnProps } from "@/features/chat/chat-column-types";
 import { useAssistantReplyPeek } from "@/features/chat/hooks/use-assistant-reply-peek";
-import { useDeferredChatMessages } from "@/features/chat/hooks/use-deferred-chat-messages";
 import { useAgentModelConfigs } from "@/features/chat/hooks/use-agent-model-configs";
 import {
   restoreQueuedTextToComposer,
@@ -137,19 +135,12 @@ export const ChatColumn = memo(function ChatColumn({
     listRef,
     isFollowingLatest,
     isNearBottom,
-    isUserScrolling,
   } = scroll;
 
-  // Live timeline. At rest it paints every streamed update. During direct
-  // user scrolling, keep the last painted array stable and flush the newest
-  // one after the short scroll settle; this keeps provider cadence from
-  // reconciling the virtual list inside the scroll frame budget.
-  const liveMessages = useChatMessages();
-  const messages = useDeferredChatMessages(
-    liveMessages,
-    isUserScrolling,
-    conversationId,
-  );
+  // Live timeline. Assistant messages arrive whole, so the list only
+  // reconciles on real membership changes — there is no provider cadence to
+  // throttle against the scroll frame budget any more.
+  const messages = useChatMessages();
   const agentModelConfigByThread = useAgentModelConfigs(conversation.tasks);
 
   const assistantReplyPeek = useAssistantReplyPeek({
@@ -185,49 +176,15 @@ export const ChatColumn = memo(function ChatColumn({
 
   useReadAloud(messages);
 
-  // Pre-warm the working-indicator aurora's WebGL context during idle, so
-  // the first message send doesn't pay the cold ~200ms GL spin-up (context +
-  // shader compile) on the main thread. Matches the indicator's exact spec
-  // (see WorkingIndicator: the spinning star at 10x7.15, rendered into a 30x30
-  // CSS footprint at maxDpr 1) so the pooled renderer's key lines up and the
-  // real mount reuses it. The variant is part of that key, so it has to be
-  // named here too. Runs once per chat surface.
-  useEffect(() => {
-    const scheduleIdle =
-      window.requestIdleCallback ??
-      ((callback: IdleRequestCallback) =>
-        window.setTimeout(
-          () => callback({ didTimeout: false, timeRemaining: () => 0 }),
-          200,
-        ));
-    const cancelIdle =
-      window.cancelIdleCallback ??
-      ((handle: number) => window.clearTimeout(handle));
-    const handle = scheduleIdle(() =>
-      prewarmAurora({
-        variant: "star-spin",
-        width: 10,
-        height: 7.15,
-        displayWidth: 30,
-        displayHeight: 30,
-        maxDpr: 1,
-      }),
-    );
-    return () => cancelIdle(handle as number);
-  }, []);
-  // Memoize over the primitive streaming inputs so the indicator mount
-  // props keep a stable object identity across streaming re-renders
-  // driven by streaming text growth. Without this, a fresh object every
-  // render invalidates `ChatTimeline`'s `ListFooter` useMemo and forces the
-  // whole working-indicator subtree (WorkingIndicator -> SwapText ->
-  // StellaAnimation wrapper) to reconcile on every provider chunk.
+  // Memoize over the primitive streaming inputs so the indicator mount props
+  // keep a stable object identity across unrelated re-renders. A fresh object
+  // every render invalidates `ChatTimeline`'s `ListFooter` useMemo and forces
+  // the whole working-indicator subtree (WorkingIndicator -> StellaCharacter
+  // -> SwapText) to reconcile.
   const indicatorProps = useMemo(
     () =>
       buildInlineWorkingIndicatorProps({
         isStreaming: Boolean(conversation.streaming.isStreaming),
-        isStreamingResponseText: Boolean(
-          conversation.streaming.isStreamingResponseText,
-        ),
         isToolActive: Boolean(conversation.streaming.isToolActive),
         activeToolName: conversation.streaming.activeToolName,
         activeToolCallId: conversation.streaming.activeToolCallId,
@@ -235,7 +192,6 @@ export const ChatColumn = memo(function ChatColumn({
       }),
     [
       conversation.streaming.isStreaming,
-      conversation.streaming.isStreamingResponseText,
       conversation.streaming.isToolActive,
       conversation.streaming.activeToolName,
       conversation.streaming.activeToolCallId,

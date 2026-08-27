@@ -57,8 +57,6 @@ export type ChatColumnConversation = {
   streaming: {
     reasoningText: string;
     isStreaming: boolean;
-    /** True once the in-flight run has streamed any visible assistant text. */
-    isStreamingResponseText: boolean;
     runtimeStatusText?: string | null;
     activeToolCallId?: string | null;
     activeToolName?: string | null;

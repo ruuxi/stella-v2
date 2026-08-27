@@ -40,9 +40,6 @@ function ChatDisplayTab({
       wideLayout={panelExpanded}
       messages={messages}
       isStreaming={chat.conversation.isStreaming}
-      isStreamingResponseText={
-        chat.conversation.streaming.isStreamingResponseText
-      }
       runtimeStatusText={chat.conversation.streaming.runtimeStatusText}
       activeToolCallId={chat.conversation.streaming.activeToolCallId}
       activeToolName={chat.conversation.streaming.activeToolName}

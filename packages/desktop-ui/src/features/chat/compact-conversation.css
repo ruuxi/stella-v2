@@ -32,12 +32,16 @@
   --compact-chat-user-tail-radius: var(--compact-chat-user-radius);
   --compact-chat-user-max-width: 85%;
   --compact-chat-user-color: var(--text-strong);
-  --compact-chat-assistant-bg: transparent;
-  --compact-chat-assistant-border-width: 0px;
-  --compact-chat-assistant-border-color: transparent;
-  --compact-chat-assistant-radius: 0px;
-  --compact-chat-assistant-tail-radius: var(--compact-chat-assistant-radius);
-  --compact-chat-assistant-max-width: 100%;
+  /* Assistant bubble — the user bubble mirrored left, same as the full
+     chat. Applied to `.assistant-message-text` (the text container) so
+     cards/artifacts stay full-width outside it. */
+  --compact-chat-assistant-bg: var(--surface-inset);
+  --compact-chat-assistant-border-width: 1px;
+  --compact-chat-assistant-border-color: var(--border);
+  --compact-chat-assistant-radius: 14px;
+  --compact-chat-assistant-tail-radius: 4px;
+  --compact-chat-assistant-max-width: 85%;
+  --compact-chat-assistant-padding: 6px 12px;
 }
 
 /*
@@ -90,10 +94,8 @@
   --compact-chat-user-tail-radius: 4px;
   --compact-chat-user-max-width: 88%;
   --compact-chat-assistant-bg: var(--orb-assistant-surface, var(--surface-raised));
-  --compact-chat-assistant-border-width: 1px;
   --compact-chat-assistant-border-color: var(--orb-assistant-border-color, var(--border));
-  --compact-chat-assistant-radius: 14px;
-  --compact-chat-assistant-tail-radius: 4px;
+  --compact-chat-assistant-max-width: 88%;
 }
 
 .chat-conversation-surface--sidebar {
@@ -142,7 +144,18 @@
   padding: var(--compact-chat-user-padding);
 }
 
+/* The assistant ITEM stays chrome-less and full width — it wraps the text
+   bubble plus any inline cards / artifacts / action strip. */
 .chat-conversation-surface .event-item.assistant {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  max-width: 100%;
+  width: 100%;
+  padding-block: 0;
+}
+
+.chat-conversation-surface .assistant-message-text {
   background: var(--compact-chat-assistant-bg);
   border-style: solid;
   border-width: var(--compact-chat-assistant-border-width);
@@ -150,7 +163,9 @@
   border-radius: var(--compact-chat-assistant-radius);
   border-bottom-left-radius: var(--compact-chat-assistant-tail-radius);
   max-width: var(--compact-chat-assistant-max-width);
-  width: 100%;
+  width: fit-content;
+  min-width: 0;
+  padding: var(--compact-chat-assistant-padding);
 }
 
 /*

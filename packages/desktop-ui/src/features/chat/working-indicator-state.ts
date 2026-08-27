@@ -19,11 +19,13 @@ export type InlineWorkingIndicatorProps = {
 
 export type InlineWorkingIndicatorMountProps = InlineWorkingIndicatorProps & {
   /**
-   * `true` while the orchestrator is thinking or running a tool (and not
-   * yet streaming answer text). Flipping to `false` triggers the grow-out
-   * exit; the component stays mounted until the exit completes. If
-   * `active` flips back to true mid-exit, the exit is canceled and the
-   * indicator resumes live updates.
+   * `true` while the run is active — i.e. the orchestrator is thinking or
+   * running a tool. Assistant text arrives as a whole message, so there is
+   * no "answer is streaming" middle state to hand off to: the indicator is
+   * up for the life of the run and the message appears beneath it.
+   * Flipping to `false` triggers the grow-out exit; the component stays
+   * mounted until the exit completes. If `active` flips back to true
+   * mid-exit, the exit is canceled and the indicator resumes live updates.
    */
   active: boolean;
   /** Skip the `MIN_VISIBLE_MS` floor on deactivation. */
@@ -38,15 +40,12 @@ export type InlineWorkingIndicatorMountProps = InlineWorkingIndicatorProps & {
  */
 export function buildInlineWorkingIndicatorProps({
   isStreaming,
-  isStreamingResponseText,
   isToolActive,
   activeToolName,
   activeToolCallId,
   runtimeStatusText,
 }: {
   isStreaming: boolean;
-  /** True once the in-flight run emits its first visible provider delta. */
-  isStreamingResponseText: boolean;
   isToolActive: boolean;
   activeToolName?: string | null;
   activeToolCallId?: string | null;
@@ -54,16 +53,14 @@ export function buildInlineWorkingIndicatorProps({
 }): InlineWorkingIndicatorMountProps {
   const active = getInlineWorkingIndicatorActive({
     isStreaming,
-    isStreamingResponseText,
     isToolActive,
   });
-  const isThinking =
-    isStreaming && !isStreamingResponseText && !isToolActive;
+  const isThinking = isStreaming && !isToolActive;
   return {
     active,
-    ...(!isStreaming || isStreamingResponseText
-      ? { exitImmediately: true }
-      : {}),
+    // The run going terminal is the end of the work — drop the
+    // minimum-visible hold so no stale row trails the settled turn.
+    ...(!isStreaming ? { exitImmediately: true } : {}),
     runningTool: isToolActive ? (activeToolName ?? undefined) : undefined,
     runningToolId: isToolActive ? (activeToolCallId ?? undefined) : undefined,
     status: isThinking ? (runtimeStatusText ?? null) : null,
@@ -71,36 +68,43 @@ export function buildInlineWorkingIndicatorProps({
 }
 
 /**
- * On run resume/reactivation the assistant's already-streamed answer is
- * rehydrated from persistence (a real `assistant_message` row) with no live
- * stream event to mark response text. Because the resume snapshot seeds the
- * active run with
- * `isStreamingText: false`, the inline working indicator would otherwise
- * hang "Thinking" *under* the fully-visible resumed answer until the run
- * finally goes terminal.
+ * Rig state for the working indicator's Stella character.
  *
- * Detect exactly that shape — the run is still active, the indicator has
- * not handed off yet, there is no live streaming overlay (a live turn
- * always has at least a placeholder overlay), and the active turn's answer
- * is already on screen — so the caller can treat the resumed text as started.
- * It is a no-op for live streaming, where `hasLiveStreamingOverlay` is true
- * (or `isStreamingResponseText` already flipped by a provider delta).
+ * | indicator state              | rig state   |
+ * |------------------------------|-------------|
+ * | no tool, reasoning           | "thinking"  |
+ * | no tool, not reasoning       | "working"   |
+ * | tool matches search / web    | "searching" |
+ * | tool matches read / fetch    | "reading"   |
+ * | tool matches write / edit    | "writing"   |
+ * | tool matches shell / command | "working"   |
+ * | any other tool               | "working"   |
+ *
+ * Matching is substring-based on the normalized tool name so runtime tool
+ * families (`web`, `tool_search`, `str_replace`, `exec_command`, …) land on
+ * the right animation without an exhaustive table.
  */
-export function shouldTreatResumedAnswerAsStarted({
-  isStreaming,
-  isStreamingResponseText,
-  hasLiveStreamingOverlay,
-  activeTurnAnswerVisible,
+export type WorkingIndicatorCharacterState =
+  | "thinking"
+  | "working"
+  | "writing"
+  | "searching"
+  | "reading";
+
+export function getWorkingIndicatorCharacterState({
+  toolName,
+  isReasoning,
 }: {
-  isStreaming: boolean;
-  isStreamingResponseText: boolean;
-  hasLiveStreamingOverlay: boolean;
-  activeTurnAnswerVisible: boolean;
-}): boolean {
-  if (!isStreaming) return false;
-  if (isStreamingResponseText) return false;
-  if (hasLiveStreamingOverlay) return false;
-  return activeTurnAnswerVisible;
+  toolName?: string;
+  isReasoning?: boolean;
+}): WorkingIndicatorCharacterState {
+  const tool = toolName?.trim().toLowerCase() ?? "";
+  if (!tool) return isReasoning ? "thinking" : "working";
+  if (/search|web/.test(tool)) return "searching";
+  if (/read|fetch/.test(tool)) return "reading";
+  if (/write|edit/.test(tool)) return "writing";
+  if (/shell|command/.test(tool)) return "working";
+  return "working";
 }
 
 export function getRunningTaskIndicatorText(
@@ -113,18 +117,20 @@ export function getRunningTaskIndicatorText(
   return statusText;
 }
 
+/**
+ * The indicator is up whenever there is work in flight. Assistant text is
+ * delivered as one whole message, so there is no partial-answer state that
+ * could dismiss it early: it stays up for the life of the run and naturally
+ * reappears between a preamble and the tool call that follows it.
+ */
 export function getInlineWorkingIndicatorActive({
   isStreaming,
-  isStreamingResponseText,
   isToolActive,
 }: {
   isStreaming: boolean;
-  /** True once the assistant emits its first visible provider delta. */
-  isStreamingResponseText: boolean;
   isToolActive: boolean;
 }): boolean {
-  if (isToolActive) return true;
-  return isStreaming && !isStreamingResponseText;
+  return isStreaming || isToolActive;
 }
 
 export function getInlineWorkingIndicatorExitDelayMs({

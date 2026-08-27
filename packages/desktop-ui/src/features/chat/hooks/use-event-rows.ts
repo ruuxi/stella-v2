@@ -48,13 +48,6 @@ import {
   type AgentResponseTarget,
 } from "@/features/chat/streaming/streaming-types";
 
-/**
- * Synthetic `_id` prefix carried by `StreamingAssistantOverlay` rows
- * merged into `displayMessages` by `useConversationDisplayMessages`.
- * The row builder uses this prefix to tag rows as `isStreaming: true`.
- */
-const STREAMING_OVERLAY_ID_PREFIX = "stream-overlay:";
-
 const getMessagePayload = (
   event?: EventRecord | MessageRecord,
 ): MessagePayload | null => {
@@ -299,7 +292,6 @@ export const assistantRowHasNonBackgroundContent = (
   row: AssistantRowViewModel,
 ): boolean =>
   row.text.trim().length > 0 ||
-  Boolean(row.isStreaming) ||
   Boolean(row.officePreviewRef) ||
   Boolean(row.resourcePayload) ||
   (row.inlineImagePayloads?.length ?? 0) > 0 ||
@@ -753,15 +745,9 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           payload?.metadata as
             | {
                 runtime?: {
-                  isStreaming?: boolean;
                   responseTarget?: AgentResponseTarget;
                   followedByToolCall?: boolean;
                   turnComplete?: boolean;
-                  assistantTextTransition?:
-                    | "holding"
-                    | "queued"
-                    | "fading"
-                    | "hidden";
                 };
               }
             | undefined
@@ -798,33 +784,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           toolEvents,
           lifecycleIndex,
         );
-        const isStreamingOverlay =
-          message._id.startsWith(STREAMING_OVERLAY_ID_PREFIX) &&
-          runtimeMetadata?.isStreaming !== false;
         const isIntraTurn = isIntraTurnAssistantRuntime(runtimeMetadata);
-        const isFadingOut =
-          runtimeMetadata?.assistantTextTransition === "fading";
-        // A direct-mode slot the handoff controller already replaced. Its
-        // overlay stays unlocked (so it keeps masking the persisted preamble
-        // row), but it must not read as "streaming" to the timeline:
-        // `eventRowRendersContent` keeps every streaming row as a placeholder
-        // item, so each replaced slot would otherwise stack 1px + the
-        // assistant-run gap of blank space above the live message — one line
-        // per replacement across a tool-heavy turn.
-        const isHiddenTransition =
-          runtimeMetadata?.assistantTextTransition === "hidden";
-        // Inline artifact cards (generated images, html/canvas + tool-output
-        // resource previews, office files, source diffs, and the web-search
-        // image strip) only render once their owning
-        // assistant message is finalized — never on the live in-progress
-        // overlay row while the turn is still streaming / thinking / running
-        // tools. The same tool events resurface on the persisted (terminal)
-        // row once the overlay locks or clears, so the cards appear there.
-        // Non-artifact receipts (voice-session summary, schedule receipt,
-        // self-mod notice, background-work card) keep rendering live.
-        const showInlineArtifacts =
-          !isStreamingOverlay &&
-          runtimeMetadata?.assistantTextTransition !== "queued";
         const row: AssistantRowViewModel = {
           kind: "assistant",
           id: stableKey,
@@ -841,31 +801,15 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           ...(message.toolEventSummary
             ? { toolEventSummary: message.toolEventSummary }
             : {}),
-          ...(isStreamingOverlay && !isHiddenTransition
-            ? { isStreaming: true }
-            : {}),
-          ...(isFadingOut ? { isFadingOut: true } : {}),
           ...(isIntraTurn ? { isIntraTurn: true } : {}),
           ...(responseTarget ? { responseTarget } : {}),
           ...(replyToUserMessageId ? { replyToUserMessageId } : {}),
-          ...(showInlineArtifacts && officePreviewRef
-            ? { officePreviewRef }
-            : {}),
-          ...(showInlineArtifacts && resourcePayload
-            ? { resourcePayload }
-            : {}),
-          ...(showInlineArtifacts && inlineImagePayloads.length > 0
-            ? { inlineImagePayloads }
-            : {}),
-          ...(showInlineArtifacts && webSearchResults.length > 0
-            ? { webSearchResults }
-            : {}),
-          ...(showInlineArtifacts && mapArtifacts.length > 0
-            ? { mapArtifacts }
-            : {}),
-          ...(showInlineArtifacts && sourceDiffPayloads.length > 0
-            ? { sourceDiffPayloads }
-            : {}),
+          ...(officePreviewRef ? { officePreviewRef } : {}),
+          ...(resourcePayload ? { resourcePayload } : {}),
+          ...(inlineImagePayloads.length > 0 ? { inlineImagePayloads } : {}),
+          ...(webSearchResults.length > 0 ? { webSearchResults } : {}),
+          ...(mapArtifacts.length > 0 ? { mapArtifacts } : {}),
+          ...(sourceDiffPayloads.length > 0 ? { sourceDiffPayloads } : {}),
           ...(voiceSession ? { voiceSession } : {}),
           ...(backgroundWork ? { backgroundWork } : {}),
           ...(agentCompletionSections.length > 0
@@ -901,11 +845,9 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
     }
 
     // No synthetic trailing artifact row: a `user_message` carrying inline-
-    // image tool events with no assistant reply yet is an in-progress turn,
-    // and inline artifact cards only render once their owning assistant
-    // message is finalized. The images resurface on that assistant row's
-    // tool events once it lands (see `showInlineArtifacts` above), so the
-    // fire-and-forget stand-in is no longer projected mid-flight.
+    // image tool events with no assistant reply yet is an in-progress turn.
+    // The images surface on that turn's assistant row's tool events once the
+    // message lands, so no fire-and-forget stand-in is projected mid-flight.
 
     // Reconcile a thread that surfaces on more than one row. Exact duplicate
     // copies share the canonical `agent-started` event id. A different start

@@ -1,0 +1,331 @@
+<title>Stella Mark</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --paper:#f7f7f6; --card:#fff; --stage:#eeeef0;
+  --ink:#16171b; --ink-2:#4e535c; --ink-3:#7f858f;
+  --rule:#e0e0dd; --rule-2:#c9c9c5;
+  --accent:#5243ff; --accent-soft:#5243ff16;
+  --mark-bg:#eeeef0;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0b0c10; --card:#131519; --stage:#08090c;
+    --ink:#e9eaee; --ink-2:#a3a9b4; --ink-3:#6c727c;
+    --rule:#20232a; --rule-2:#2d323a;
+    --accent:#8f86ff; --accent-soft:#8f86ff1f;
+    --mark-bg:#08090c;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0b0c10; --card:#131519; --stage:#08090c;
+  --ink:#e9eaee; --ink-2:#a3a9b4; --ink-3:#6c727c;
+  --rule:#20232a; --rule-2:#2d323a;
+  --accent:#8f86ff; --accent-soft:#8f86ff1f;
+  --mark-bg:#08090c;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:15px;line-height:1.6}
+.wrap{max-width:1000px;margin:0 auto;padding:0 26px 90px}
+header{padding:52px 0 26px;border-bottom:1px solid var(--rule);display:flex;flex-direction:column;gap:16px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-3)}
+h1{margin:0;font-size:clamp(28px,4vw,40px);line-height:1.08;letter-spacing:-.03em;font-weight:600;text-wrap:balance}
+.dek{margin:0;max-width:62ch;color:var(--ink-2)}
+section{padding-top:52px}
+h2{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:19px;letter-spacing:-.02em;margin:0 0 12px}
+h3{font-family:"IBM Plex Sans",sans-serif;font-weight:600;font-size:11.5px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--ink-3);margin:30px 0 10px}
+p{margin:0 0 14px;max-width:70ch;color:var(--ink-2)}
+p strong{color:var(--ink);font-weight:600}
+code{font-family:"IBM Plex Mono",monospace;font-size:.88em;background:var(--stage);
+  border:1px solid var(--rule);padding:.08em .34em;border-radius:2px}
+.panel{border:1px solid var(--rule);background:var(--card);margin:18px 0 24px}
+.stage{background:var(--stage);padding:40px 24px;display:flex;align-items:center;
+  justify-content:center;gap:46px;flex-wrap:wrap;min-height:200px;
+  --stella-mark-bg:var(--stage)}
+.hero{min-height:300px}
+.specimen{display:grid;grid-template-rows:186px auto;justify-items:center;align-items:center;gap:12px}
+.cap{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-3)}
+.bar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:12px 16px;border-top:1px solid var(--rule)}
+.bar+.bar{border-top:1px dashed var(--rule)}
+.lbl{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-3);margin-right:2px}
+button{font:inherit;font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-2);
+  background:transparent;border:1px solid var(--rule-2);padding:4px 10px;border-radius:2px;cursor:pointer}
+button:hover{border-color:var(--ink-3);color:var(--ink)}
+button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.line{display:flex;align-items:center;gap:9px;color:var(--ink-2);font-size:15px}
+.line .mk{width:26px;height:26px;flex:none}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:1px;
+  background:var(--rule);border:1px solid var(--rule)}
+.cell{background:var(--card);padding:16px 8px 12px;display:grid;grid-template-rows:1fr auto;
+  justify-items:center;gap:10px;--stella-mark-bg:var(--card)}
+pre{margin:0 0 22px;padding:15px 17px;background:var(--stage);border:1px solid var(--rule);
+  overflow-x:auto;font-family:"IBM Plex Mono",monospace;font-size:12.5px;line-height:1.6;color:var(--ink)}
+pre b{color:var(--accent);font-weight:400}
+pre i{color:var(--ink-3);font-style:normal}
+.note{border-left:2px solid var(--accent);background:var(--accent-soft);padding:11px 15px;
+  margin:0 0 20px;max-width:70ch;font-size:14px;color:var(--ink-2)}
+.note strong{color:var(--ink)}
+ul{margin:0 0 14px;padding-left:1.1em;max-width:70ch;color:var(--ink-2)}
+li{margin-bottom:6px}
+li strong{color:var(--ink);font-weight:600}
+footer{margin-top:64px;padding-top:20px;border-top:1px solid var(--rule);
+  font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-3);line-height:1.7}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Stella · character mark · prototype</div>
+  <h1>A star with a face</h1>
+  <p class="dek">Stella's six-ray brand star, rigged the way Grok Bot rigs its blob: one render, one rAF loop, springs at a fixed substep, and the character itself becoming the middle dot when it thinks. Standalone — nothing here is wired into the app.</p>
+</header>
+
+<section>
+  <h2>Live</h2>
+  <div class="panel">
+    <div class="stage hero" id="hero"></div>
+    <div class="bar" id="states"><span class="lbl">state</span></div>
+    <div class="bar">
+      <span class="lbl">shape</span><span id="shapes"></span>
+      <span class="lbl" style="margin-left:14px">eyes</span>
+      <button id="follow" aria-pressed="false">follow pointer</button>
+      <button id="spark">sparkle</button>
+    </div>
+  </div>
+  <div class="note"><strong>Try thinking.</strong> The star balls up, drops its face, and joins a three-slot bounce as the middle dot. Then <code>working</code>: the star stays a star and a light wave runs around its rays. Then <code>loading</code>, where a band of compression travels up the body and the face squeezes along with it.</div>
+</section>
+
+<section>
+  <h2>Every state</h2>
+  <p>Sixteen states, each with its own eye-pose pool, blink cadence and face tuning. Seven of them add an overlay; the rest just change expression.</p>
+  <div class="grid" id="gallery"></div>
+</section>
+
+<section>
+  <h2>At the sizes it has to work</h2>
+  <p>The rig measures its own rendered width every 500&nbsp;ms. Below 44&nbsp;px the thinking dots zoom 1.5×, above 134&nbsp;px they don't — so one component covers a 16&nbsp;px sidebar chip and a 200&nbsp;px empty state.</p>
+  <div class="panel">
+    <div class="stage" id="sizes"></div>
+    <div class="bar"><span class="lbl">state</span><span id="sizeStates"></span></div>
+  </div>
+  <div class="panel">
+    <div class="stage" style="gap:34px">
+      <div class="line"><span class="mk" id="l1"></span><span>Thinking</span></div>
+      <div class="line"><span class="mk" id="l2"></span><span>Searching the web</span></div>
+      <div class="line"><span class="mk" id="l3"></span><span>Running commands</span></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Where the shape comes from</h2>
+  <p>One source of truth: the six-ray star already shipping in <code>WorkingStar.tsx</code>. But the logo is not a tidy six. Its vertical pair runs to full length while the four side rays reach barely half, and those four sit in two close pairs about 37&deg; apart rather than evenly around the circle. Gorgeous as a flare at 512&nbsp;px. Shrink it to 24&nbsp;px and put a face in it and the long pair dominates while the close pairs merge into horizontal arms — <strong>it reads as a kite, not a star.</strong></p>
+  <p>So the character profile is rebuilt from the logo's own ray set, one correction at a time:</p>
+  <div class="panel">
+    <div class="stage" id="derivation"></div>
+    <div class="bar"><span class="lbl">morph</span>
+      <span id="puffLabel" class="lbl" style="color:var(--ink-2);min-width:78px">puff 1.00</span>
+      <input type="range" id="puff" min="0" max="100" value="100" style="width:240px;accent-color:var(--accent)">
+      <span class="lbl" style="margin-left:6px">logo &rarr; character</span></div>
+  </div>
+  <p><code>puff</code> crossfades the rebuilt profile against the untouched logo, which is why the rig can <em>morph</em> between the character and the brand mark instead of swapping one asset for another.</p>
+</section>
+
+<section>
+  <h2>Using it</h2>
+<pre><b>import</b> { createStellaMark } <b>from</b> <i>"./stella-mark.js"</i>;
+
+<b>const</b> mark = createStellaMark(el, {
+  size: <b>28</b>,
+  state: <i>"idle"</i>,
+  shape: <i>"star"</i>,          <i>// star | pebble | brand | orb</i>
+  ink: <i>"aurora"</i>,          <i>// the shipping WorkingStar ramp</i>
+  followPointer: <b>true</b>,
+});
+
+mark.setState(<i>"thinking"</i>);
+mark.setShape(<i>"brand"</i>);     <i>// morphs, does not swap</i>
+mark.sparkle(<b>18</b>);           <i>// one-off burst</i>
+mark.destroy();</pre>
+
+  <h3>What it inherits from the Grok rig</h3>
+  <ul>
+    <li><strong>One render, one loop.</strong> A fixed node pool — 2 dots, 3 dot-sparkles, 5 orbit sparkles, 4 rings, 2 eyes — created once and then shown, hidden and re-transformed by hand.</li>
+    <li><strong>Springs at a fixed 1/120&nbsp;s substep</strong>, <code>dt</code> clamped to 0.1&nbsp;s, so a slow frame doesn't launch the star off screen.</li>
+    <li><strong>It parks itself.</strong> When every spring has settled and no particles are alive, the loop stops instead of burning a frame to redraw the same picture.</li>
+    <li><strong>Ring-lerp morphing.</strong> Every outline is 96 points on 96 rays from the centre, so any shape lerps into any other and re-emits as one Catmull-Rom path.</li>
+    <li><strong>The three-slot Gaussian bounce</strong>, 1400&nbsp;ms, σ 0.15, with the body as slot 1 — the character does not sit beside the dots, it becomes the middle one.</li>
+    <li><strong>Reduced motion is read once at mount</strong> and short-circuits the physics rather than being a class you can forget to apply.</li>
+  </ul>
+
+  <h3>What is Stella's</h3>
+  <ul>
+    <li><strong>The star stays a star.</strong> Grok collapses to a dot for all fourteen of its activities. Here only <code>thinking</code> does — a star has rays worth animating, so <code>working</code> runs a light wave around them instead.</li>
+    <li><strong>The silhouette is derived, not drawn.</strong> Four knobs turn the shipping logo into a character and back, so there is no second asset to keep in sync when the brand mark changes.</li>
+    <li><strong><code>squeeze</code> instead of a spin.</strong> A Y-axis flip is the obvious motion for a mark and the wrong one here: a flip only reads on a shape whose silhouette is roughly the same at every angle, and a six-ray star at 40&deg; is a different star while at 90&deg; it is a stick. So <code>loading</code> runs a band of compression up the body instead — the waist pinches, the material ahead of it swells and rides upward, and the whole star stretches a little as the band crosses the middle. It deforms the silhouette on purpose and never stops being a star.</li>
+    <li><strong>Star eyes</strong> for <code>celebrate</code>, and an ambient glow that swells with the ray wave.</li>
+    <li><strong>Idle starlight.</strong> A 1.2&nbsp;% three-lobe swell drifting around the rays — below the threshold of "animation", above the threshold of "alive".</li>
+  </ul>
+</section>
+
+<footer>
+  Geometry from <code>packages/mobile/src/components/WorkingStar.tsx</code> — the same six-ray path and aurora ramp already shipping.<br>
+  Source: <code>experiments/stella-mark/</code> — <code>geometry.js</code>, <code>shapes.js</code>, <code>eyes.js</code>, <code>stella-mark.js</code>. No dependencies, no framework.
+</footer>
+</div>
+
+<script type="module">
+/*__STELLA_MARK__*/
+
+const STATES = ["idle","listening","thinking","working","writing","searching","reading",
+  "loading","generating","speaking","uploading","happy","celebrate","confused","sad","sleeping"];
+
+/* ---- hero ---- */
+const hero = document.getElementById("hero");
+const heroHost = document.createElement("span");
+heroHost.style.cssText = "width:200px;height:200px;display:block";
+hero.appendChild(heroHost);
+const heroMark = createStellaMark(heroHost, { size: 200, state: "thinking", followPointer: false });
+window.__hero = heroMark;
+window.__sizes = [];
+
+const statesBar = document.getElementById("states");
+const stateBtns = STATES.map((s) => {
+  const b = document.createElement("button");
+  b.textContent = s;
+  b.setAttribute("aria-pressed", String(s === "thinking"));
+  b.addEventListener("click", () => {
+    heroMark.setState(s);
+    stateBtns.forEach((x) => x.setAttribute("aria-pressed", String(x.textContent === s)));
+  });
+  statesBar.appendChild(b);
+  return b;
+});
+
+const shapesBar = document.getElementById("shapes");
+["star","pebble","brand","orb"].forEach((s) => {
+  const b = document.createElement("button");
+  b.textContent = s;
+  b.setAttribute("aria-pressed", String(s === "star"));
+  b.addEventListener("click", () => {
+    heroMark.setShape(s);
+    [...shapesBar.children].forEach((x) => x.setAttribute("aria-pressed", String(x.textContent === s)));
+  });
+  shapesBar.appendChild(b);
+});
+
+let following = false;
+const followBtn = document.getElementById("follow");
+followBtn.addEventListener("click", () => {
+  following = !following;
+  followBtn.setAttribute("aria-pressed", String(following));
+  if (!following) heroMark.setGaze(null);
+});
+window.addEventListener("pointermove", (e) => {
+  if (following) heroMark.setGaze({ x: e.clientX, y: e.clientY });
+}, { passive: true });
+document.getElementById("spark").addEventListener("click", () => heroMark.sparkle(20));
+
+/* ---- gallery ---- */
+const gallery = document.getElementById("gallery");
+for (const s of STATES) {
+  const cell = document.createElement("div");
+  cell.className = "cell";
+  const host = document.createElement("span");
+  host.style.cssText = "width:56px;height:56px;display:block";
+  const cap = document.createElement("span");
+  cap.className = "cap";
+  cap.textContent = s;
+  cell.appendChild(host); cell.appendChild(cap);
+  gallery.appendChild(cell);
+  createStellaMark(host, { size: 56, state: s });
+}
+
+/* ---- sizes ---- */
+const sizesStage = document.getElementById("sizes");
+const sizeMarks = [16, 22, 28, 44, 96, 168].map((px) => {
+  const wrap = document.createElement("div");
+  wrap.className = "specimen";
+  const host = document.createElement("span");
+  host.style.cssText = `width:${px}px;height:${px}px;display:block`;
+  const cap = document.createElement("span");
+  cap.className = "cap";
+  cap.textContent = px + " px";
+  wrap.appendChild(host); wrap.appendChild(cap);
+  sizesStage.appendChild(wrap);
+  const m = createStellaMark(host, { size: px, state: "thinking" }); window.__sizes.push(m); return m;
+});
+const sizeBar = document.getElementById("sizeStates");
+["thinking","working","searching","loading","idle"].forEach((s, i) => {
+  const b = document.createElement("button");
+  b.textContent = s;
+  b.setAttribute("aria-pressed", String(i === 0));
+  b.addEventListener("click", () => {
+    sizeMarks.forEach((m) => m.setState(s));
+    [...sizeBar.children].forEach((x) => x.setAttribute("aria-pressed", String(x.textContent === s)));
+  });
+  sizeBar.appendChild(b);
+});
+
+/* ---- activity lines ---- */
+createStellaMark(document.getElementById("l1"), { size: 26, state: "thinking" });
+createStellaMark(document.getElementById("l2"), { size: 26, state: "searching" });
+createStellaMark(document.getElementById("l3"), { size: 26, state: "working" });
+
+/* ---- derivation ---- */
+const STEPS = [
+  ["the logo", { core: 0.3, gamma: 1, sharp: 1, even: 0, balance: 0, smooth: 0.4 }, 0.1],
+  ["+ balance", { core: 0.3, gamma: 1, sharp: 1, even: 0, balance: 0.94, smooth: 0.4 }, 1],
+  ["+ even", { core: 0.3, gamma: 1, sharp: 1, even: 1, balance: 0.94, smooth: 0.4 }, 1],
+  ["+ core, gamma", { core: 0.46, gamma: 1.15, sharp: 1.2, even: 1, balance: 0.94, smooth: 0.7 }, 1],
+];
+const derivation = document.getElementById("derivation");
+for (const [name, opts, puff] of STEPS) {
+  const wrap = document.createElement("div");
+  wrap.className = "specimen";
+  wrap.style.gridTemplateRows = "132px auto";
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", VIEWBOX);
+  svg.style.cssText = "width:118px;height:118px;display:block";
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("fill", "var(--ink-3)");
+  path.setAttribute("d", toPath(profileToRing(starProfile(puff, opts), C, [C, C])));
+  svg.appendChild(path);
+  const cap = document.createElement("span");
+  cap.className = "cap"; cap.textContent = name;
+  wrap.appendChild(svg); wrap.appendChild(cap);
+  derivation.appendChild(wrap);
+}
+
+const liveWrap = document.createElement("div");
+liveWrap.className = "specimen";
+liveWrap.style.gridTemplateRows = "132px auto";
+const puffSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+puffSvg.setAttribute("viewBox", VIEWBOX);
+puffSvg.style.cssText = "width:118px;height:118px;display:block";
+const puffPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+puffPath.setAttribute("fill", "var(--accent)");
+puffSvg.appendChild(puffPath);
+const liveCap = document.createElement("span");
+liveCap.className = "cap"; liveCap.textContent = "morph";
+liveWrap.appendChild(puffSvg); liveWrap.appendChild(liveCap);
+derivation.appendChild(liveWrap);
+
+const puffInput = document.getElementById("puff");
+const puffLabel = document.getElementById("puffLabel");
+function drawPuff() {
+  const v = puffInput.value / 100;
+  puffPath.setAttribute("d", toPath(profileToRing(
+    starProfile(v, { core: 0.46, gamma: 1.15, sharp: 1.2, even: 1, balance: 0.94, smooth: 0.7 }), C, [C, C])));
+  puffLabel.textContent = "puff " + v.toFixed(2);
+}
+puffInput.addEventListener("input", drawPuff);
+drawPuff();
+</script>

@@ -2,8 +2,7 @@
  * Whether an assistant row paints ANYTHING on screen.
  *
  * Single source of truth shared by:
- *  - `AssistantMessageRow` — a row with no visible content renders `null`
- *    (or a bare streaming placeholder while the first token is pending);
+ *  - `AssistantMessageRow` — a row with no visible content renders `null`;
  *  - `ChatTimeline` — rows that render nothing are dropped BEFORE the
  *    virtualized list is built, so they can't occupy an item slot or
  *    accumulate per-row separator gaps as invisible spacers between
@@ -28,10 +27,8 @@ export const assistantRowHasVisibleContent = (row) => row.text.trim().length > 0
     (row.agentCompletion?.sections.length ?? 0) > 0;
 /**
  * Whether a timeline row produces a rendered box at all. User rows always
- * render; assistant rows render when they have visible content, or while
- * streaming pre-first-token (the placeholder that gives scroll-follow its
- * `[data-scroll-follow-key]` target).
+ * render; assistant rows render when they have visible content. (Assistant
+ * messages arrive whole, so there is no pre-first-token placeholder.)
  */
 export const eventRowRendersContent = (row) => row.kind !== "assistant" ||
-    Boolean(row.isStreaming) ||
     assistantRowHasVisibleContent(row);

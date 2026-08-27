@@ -42,7 +42,6 @@ import type { ChatContext } from "@/shared/types/electron";
 import type { MessageRecord } from "@stella/contracts/local-chat";
 import type { QueuedUserMessage } from "@/features/chat/hooks/use-streaming-chat";
 import { restoreQueuedTextToComposer } from "@/features/chat/hooks/queued-user-messages";
-import { getAssistantScrollFollowKey } from "@/shell/chat-scroll-follow";
 import { useCapturedChatContext } from "./use-captured-chat-context";
 import {
   updateComposerTextareaExpansion,
@@ -90,8 +89,6 @@ interface ChatPanelTabProps {
   messages: MessageRecord[];
   conversationId?: string | null;
   isStreaming: boolean;
-  /** True once the in-flight run has streamed any visible assistant text. */
-  isStreamingResponseText?: boolean;
   runtimeStatusText?: string | null;
   activeToolCallId?: string | null;
   activeToolName?: string | null;
@@ -130,7 +127,6 @@ export function ChatPanelTab({
   messages,
   conversationId,
   isStreaming,
-  isStreamingResponseText,
   runtimeStatusText,
   activeToolCallId,
   activeToolName,
@@ -276,7 +272,6 @@ export function ChatPanelTab({
   useReadAloud(messages);
   const indicatorProps = buildInlineWorkingIndicatorProps({
     isStreaming: Boolean(isStreaming),
-    isStreamingResponseText: Boolean(isStreamingResponseText),
     isToolActive: Boolean(isToolActive),
     activeToolName,
     activeToolCallId,
@@ -387,7 +382,6 @@ export function ChatPanelTab({
     // applying Codex's 300px near-bottom threshold, so a visually-bottomed
     // short reply still reframes while deliberate scrollback stays put.
     const shouldNudgeAfterSend = sidebarScroll.getShouldPlaceLatestTurn();
-    const followKeyBeforeSend = getAssistantScrollFollowKey();
     const accepted = await onSend(trimmedMessage, chatContext, selectedText);
     if (!accepted) return;
     setInputText("");
@@ -405,7 +399,7 @@ export function ChatPanelTab({
     } else if (shouldNudgeAfterSend) {
       // Place the newest user turn above the viewport-derived response
       // spacer, using the same gentle loop as stream-follow.
-      sidebarScroll.nudgeAfterSend(followKeyBeforeSend);
+      sidebarScroll.nudgeAfterSend();
     } else {
       sidebarScroll.releaseFollow();
     }

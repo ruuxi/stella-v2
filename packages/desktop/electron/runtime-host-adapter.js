@@ -6,9 +6,9 @@ const isRunTerminalEvent = (type) => type === AGENT_STREAM_EVENT_TYPES.RUN_FINIS
 /**
  * Worker recorder seqs are small (event count per run). Hidden→visible
  * mirrors and similar paths use `Date.now()`-scale synthetic seqs. If
- * those advance `lastSeqByScope`, every subsequent recorder-seq STREAM
- * chunk in the same run is dropped — post-tool / hidden replies stop
- * streaming live and pop in only once persisted.
+ * those advance `lastSeqByScope`, every subsequent recorder-seq event in
+ * the same run is dropped — post-tool / hidden replies never reach the
+ * renderer live and pop in only once persisted.
  */
 const SYNTHETIC_RUN_EVENT_SEQ_FLOOR = AGENT_RECORDER_SEQ_CEILING;
 const isTaskScopedEvent = (type) => type === AGENT_STREAM_EVENT_TYPES.AGENT_REASONING ||
@@ -204,12 +204,13 @@ export class RuntimeHostAdapter {
         else if (isTaskLifecycleTerminalType(event.type) && taskKey) {
             session.activeTaskIds.delete(taskKey);
         }
+        // NOTE: `stream` (per-token assistant text) is intentionally absent.
+        // Assistant text is delivered whole on `assistant-message`. A stale
+        // worker that still emits `stream` falls through to `default` and is
+        // dropped, which is the desired behaviour.
         switch (event.type) {
             case AGENT_STREAM_EVENT_TYPES.RUN_STARTED:
                 session.callbacks.onRunStarted?.(event);
-                break;
-            case AGENT_STREAM_EVENT_TYPES.STREAM:
-                session.callbacks.onStream(event);
                 break;
             case AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE:
                 session.callbacks.onAssistantMessage?.(event);
@@ -609,9 +610,6 @@ export class RuntimeHostAdapter {
                 activeTaskIds.delete(event.agentId);
             }
             switch (event.type) {
-                case AGENT_STREAM_EVENT_TYPES.STREAM:
-                    callbacks.onStream(event);
-                    break;
                 case AGENT_STREAM_EVENT_TYPES.STATUS:
                     callbacks.onStatus?.(event);
                     break;

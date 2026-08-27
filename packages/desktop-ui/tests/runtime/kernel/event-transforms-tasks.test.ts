@@ -17,7 +17,7 @@ import {
   buildInlineWorkingIndicatorProps,
   getInlineWorkingIndicatorActive,
   getInlineWorkingIndicatorExitDelayMs,
-  shouldTreatResumedAnswerAsStarted,
+  getWorkingIndicatorCharacterState,
 } from "@/features/chat/working-indicator-state";
 
 const event = (
@@ -225,12 +225,11 @@ describe("extractStepsFromEvents", () => {
 });
 
 describe("getInlineWorkingIndicatorActive", () => {
-  it("stays visible through thinking, tools and spawned agents until text starts", () => {
+  it("stays visible for the whole run — text lands as a whole message", () => {
     // Pre-tool thinking.
     expect(
       getInlineWorkingIndicatorActive({
         isStreaming: true,
-        isStreamingResponseText: false,
         isToolActive: false,
       }),
     ).toBe(true);
@@ -239,35 +238,14 @@ describe("getInlineWorkingIndicatorActive", () => {
     expect(
       getInlineWorkingIndicatorActive({
         isStreaming: true,
-        isStreamingResponseText: false,
         isToolActive: true,
       }),
     ).toBe(true);
 
-    // Gap after a fast tool returns, before the next tool/answer: keep the
-    // thinking label up instead of going blank.
+    // A tool still in flight after the run record went terminal.
     expect(
       getInlineWorkingIndicatorActive({
-        isStreaming: true,
-        isStreamingResponseText: false,
-        isToolActive: false,
-      }),
-    ).toBe(true);
-
-    // First visible provider delta: hand off.
-    expect(
-      getInlineWorkingIndicatorActive({
-        isStreaming: true,
-        isStreamingResponseText: true,
-        isToolActive: false,
-      }),
-    ).toBe(false);
-
-    // A later tool after text has started: show again.
-    expect(
-      getInlineWorkingIndicatorActive({
-        isStreaming: true,
-        isStreamingResponseText: true,
+        isStreaming: false,
         isToolActive: true,
       }),
     ).toBe(true);
@@ -276,7 +254,6 @@ describe("getInlineWorkingIndicatorActive", () => {
     expect(
       getInlineWorkingIndicatorActive({
         isStreaming: false,
-        isStreamingResponseText: false,
         isToolActive: false,
       }),
     ).toBe(false);
@@ -284,10 +261,9 @@ describe("getInlineWorkingIndicatorActive", () => {
 });
 
 describe("buildInlineWorkingIndicatorProps", () => {
-  it("stays visible during pre-text thinking", () => {
+  it("stays visible during pre-message thinking", () => {
     const props = buildInlineWorkingIndicatorProps({
       isStreaming: true,
-      isStreamingResponseText: false,
       isToolActive: false,
     });
     expect(props.active).toBe(true);
@@ -298,7 +274,6 @@ describe("buildInlineWorkingIndicatorProps", () => {
   it("stays visible while a tool / spawned agent is the turn's first action", () => {
     const props = buildInlineWorkingIndicatorProps({
       isStreaming: true,
-      isStreamingResponseText: false,
       isToolActive: true,
       activeToolName: "spawn_agent",
       activeToolCallId: "call-1",
@@ -307,19 +282,9 @@ describe("buildInlineWorkingIndicatorProps", () => {
     expect(props.runningTool).toBe("spawn_agent");
   });
 
-  it("stays visible before the first visible delta arrives", () => {
+  it("exits immediately once the run goes terminal", () => {
     const props = buildInlineWorkingIndicatorProps({
-      isStreaming: true,
-      isStreamingResponseText: false,
-      isToolActive: false,
-    });
-    expect(props.active).toBe(true);
-  });
-
-  it("hands off on the first visible provider delta", () => {
-    const props = buildInlineWorkingIndicatorProps({
-      isStreaming: true,
-      isStreamingResponseText: true,
+      isStreaming: false,
       isToolActive: false,
     });
     expect(props.active).toBe(false);
@@ -327,57 +292,33 @@ describe("buildInlineWorkingIndicatorProps", () => {
   });
 });
 
-describe("shouldTreatResumedAnswerAsStarted", () => {
-  it("treats a resumed, already-visible answer with no live overlay as started", () => {
-    expect(
-      shouldTreatResumedAnswerAsStarted({
-        isStreaming: true,
-        isStreamingResponseText: false,
-        hasLiveStreamingOverlay: false,
-        activeTurnAnswerVisible: true,
-      }),
-    ).toBe(true);
-  });
-
-  it("is a no-op while a live overlay is streaming the answer", () => {
-    expect(
-      shouldTreatResumedAnswerAsStarted({
-        isStreaming: true,
-        isStreamingResponseText: false,
-        hasLiveStreamingOverlay: true,
-        activeTurnAnswerVisible: true,
-      }),
-    ).toBe(false);
-  });
-
-  it("does not fire when the resumed run has no visible answer yet (still thinking)", () => {
-    expect(
-      shouldTreatResumedAnswerAsStarted({
-        isStreaming: true,
-        isStreamingResponseText: false,
-        hasLiveStreamingOverlay: false,
-        activeTurnAnswerVisible: false,
-      }),
-    ).toBe(false);
-  });
-
-  it("is a no-op once the indicator already handed off, or when no run is active", () => {
-    expect(
-      shouldTreatResumedAnswerAsStarted({
-        isStreaming: true,
-        isStreamingResponseText: true,
-        hasLiveStreamingOverlay: false,
-        activeTurnAnswerVisible: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldTreatResumedAnswerAsStarted({
-        isStreaming: false,
-        isStreamingResponseText: false,
-        hasLiveStreamingOverlay: false,
-        activeTurnAnswerVisible: true,
-      }),
-    ).toBe(false);
+describe("getWorkingIndicatorCharacterState", () => {
+  it("maps the indicator's state onto the character rig", () => {
+    expect(getWorkingIndicatorCharacterState({ isReasoning: true })).toBe(
+      "thinking",
+    );
+    expect(getWorkingIndicatorCharacterState({})).toBe("working");
+    expect(getWorkingIndicatorCharacterState({ toolName: "web" })).toBe(
+      "searching",
+    );
+    expect(getWorkingIndicatorCharacterState({ toolName: "tool_search" })).toBe(
+      "searching",
+    );
+    expect(getWorkingIndicatorCharacterState({ toolName: "read" })).toBe(
+      "reading",
+    );
+    expect(getWorkingIndicatorCharacterState({ toolName: "write" })).toBe(
+      "writing",
+    );
+    expect(getWorkingIndicatorCharacterState({ toolName: "edit" })).toBe(
+      "writing",
+    );
+    expect(getWorkingIndicatorCharacterState({ toolName: "exec_command" })).toBe(
+      "working",
+    );
+    expect(getWorkingIndicatorCharacterState({ toolName: "image_gen" })).toBe(
+      "working",
+    );
   });
 });
 

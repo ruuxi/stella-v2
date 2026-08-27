@@ -6,12 +6,16 @@
  * type) so the hook can be composed with the rest of
  * `useLocalAgentStream` without duplicating the reducer's source of
  * truth. Per-thread task decoration writes go straight to the module
- * `task-decoration-store`, not through the reducer. The slot-management callbacks (`beginStreamingRun`,
- * `acceptStreamChunk`, `finalizeMessageBoundary`,
- * `finalizeRunOnFinish`) own the in-memory
- * `streamingAssistants` overlay array — see `useLocalAgentStream` for
- * the lifecycle, and `useConversationDisplayMessages` for the merge
- * with persisted SQLite-backed messages.
+ * `task-decoration-store`, not through the reducer. The slot-management
+ * callbacks (`beginStreamingRun`, `finalizeMessageBoundary`,
+ * `finalizeRunOnFinish`) own the in-memory `streamingAssistants` overlay
+ * array — see `useLocalAgentStream` for the lifecycle, and
+ * `useConversationDisplayMessages` for the merge with persisted
+ * SQLite-backed messages.
+ *
+ * Assistant TEXT never streams: there is no `type: "stream"` event to
+ * handle. `assistant-message` is the sole text delivery and carries the
+ * whole canonical message.
  */
 import { useCallback, type Dispatch, type MutableRefObject } from 'react'
 import { showToast } from '@/ui/toast'
@@ -70,26 +74,19 @@ type UseAgentEventHandlerOptions = {
      * exactly one of these so the in-memory `streamingAssistants`
      * array stays consistent with the runtime's view of the world:
      *
-     *   - RUN_STARTED  → beginStreamingRun
-     *   - STREAM       → acceptStreamChunk
-     *   - ASSISTANT_MESSAGE boundary → finalizeMessageBoundary
-     *   - RUN_FINISHED → finalizeRunOnFinish
+     *   - RUN_STARTED       → beginStreamingRun
+     *   - ASSISTANT_MESSAGE → finalizeMessageBoundary
+     *   - RUN_FINISHED      → finalizeRunOnFinish
      */
     beginStreamingRun: (args: {
       runId: string
       userMessageId: string | null
       workingMode?: 'direct' | 'orchestrated'
     }) => void
-    acceptStreamChunk: (args: {
-      runId: string
-      userMessageId: string | null
-      responseTarget?: AgentResponseTarget | null
-      chunk: string
-      workingMode?: 'direct' | 'orchestrated'
-    }) => void
     finalizeMessageBoundary: (args: {
       runId: string
       userMessageId: string | null
+      responseTarget?: AgentResponseTarget | null
       canonicalMessageId?: string
       canonicalText?: string
       workingMode?: 'direct' | 'orchestrated'
@@ -177,7 +174,6 @@ export function useAgentEventHandler({
   const {
     setPendingUserMessageId,
     beginStreamingRun,
-    acceptStreamChunk,
     finalizeMessageBoundary,
     finalizeRunOnFinish,
   } = streaming
@@ -342,7 +338,14 @@ export function useAgentEventHandler({
           }
           break
         }
-        case AGENT_STREAM_EVENT_TYPES.STREAM: {
+        case AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE: {
+          // The runtime finished one whole assistant message and handed over
+          // its canonical text (`assistantMessageText`) plus the persisted
+          // SQLite row id. This is the ONLY way assistant text reaches the
+          // renderer — there are no text deltas — so this case also carries
+          // the side effects the old per-delta STREAM case owned: reviving a
+          // run the renderer already marked terminal, and clearing the
+          // transient run status line.
           const isReactivation =
             !isPrimaryRun &&
             isOrchestratorEvent &&
@@ -370,44 +373,18 @@ export function useAgentEventHandler({
             runId: event.runId,
             statusText: null,
           })
-          if (
-            (isPrimaryRun || isReactivation) &&
-            isOrchestratorEvent &&
-            isActiveConversation &&
-            event.chunk
-          ) {
-            acceptStreamChunk({
+          // Lock the message into its overlay slot and advance the per-turn
+          // slot index so the next message in the run lands on a fresh slot.
+          // The overlay stays visible in the chat even after its persisted
+          // counterpart lands; the display merge masks the persisted twin and
+          // borrows its metadata.
+          if ((isPrimaryRun || isOrchestratorEvent) && isActiveConversation) {
+            finalizeMessageBoundary({
               runId: event.runId,
               userMessageId: event.userMessageId ?? null,
               ...(event.responseTarget
                 ? { responseTarget: event.responseTarget }
                 : {}),
-              chunk: event.chunk,
-              ...(event.workingMode ? { workingMode: event.workingMode } : {}),
-            })
-            // The first accepted text delta starts the visual stream; its
-            // first animation frame follows immediately after this handoff.
-            if (/\S/.test(event.chunk)) {
-              dispatch({ type: 'mark-streaming-text', runId: event.runId })
-            }
-          }
-          break
-        }
-        case AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE: {
-          // Boundary between two assistant messages within the same run
-          // (e.g. preamble finalized → post-tool answer about to stream).
-          // Lock the current overlay slot's text and advance the
-          // per-turn slot index so the next chunk lands on a fresh
-          // slot. The locked slot stays visible in the chat even after
-          // its persisted counterpart lands; the display merge masks
-          // the persisted twin and borrows its metadata.
-          if (
-            (isPrimaryRun || isOrchestratorEvent) &&
-            conversationId === activeConversationIdRef.current
-          ) {
-            finalizeMessageBoundary({
-              runId: event.runId,
-              userMessageId: event.userMessageId ?? null,
               ...(event.assistantMessageEventId
                 ? { canonicalMessageId: event.assistantMessageEventId }
                 : {}),
@@ -416,11 +393,10 @@ export function useAgentEventHandler({
                 : {}),
               ...(event.workingMode ? { workingMode: event.workingMode } : {}),
             })
-            // Preamble → tool-call handoff: if this finalized message ends
-            // with a tool call, clear the streaming-text flag now so the
-            // working indicator re-appears at the boundary and stays up
-            // across the gap until `tool-start` arrives, instead of
-            // lingering dismissed over the visible preamble text.
+            // Preamble → tool-call handoff: a message that ends with a tool
+            // call is interim, so the working indicator has to come back up
+            // at the boundary and stay up across the gap until `tool-start`
+            // arrives.
             if (event.followedByToolCall) {
               dispatch({
                 type: 'assistant-message-boundary',
@@ -588,7 +564,6 @@ export function useAgentEventHandler({
       }
     },
     [
-      acceptStreamChunk,
       activeConversationIdRef,
       activeRunIdByConversationRef,
       beginStreamingRun,

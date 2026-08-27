@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, StyleSheet, View } from "react-native";
 import { ShimmerText } from "./ShimmerText";
-import { WorkingStarSkia } from "./WorkingStarSkia";
+import { StellaMarkIndicator } from "./stella-mark/StellaMarkIndicator";
 import { computeWorkingIndicatorStatus } from "./working-indicator-status";
 import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
@@ -16,7 +16,7 @@ const INDICATOR_PAD_BOTTOM = 0;
 const INDICATOR_VIEWPORT_SIZE = 34;
 
 /**
- * Reserved vertical space above the composer for the native working pulse.
+ * Reserved vertical space above the composer for the working mark.
  */
 export const WORKING_INDICATOR_SLOT_HEIGHT = INDICATOR_VIEWPORT_SIZE;
 
@@ -29,9 +29,9 @@ interface WorkingIndicatorProps {
   toolCallId?: string;
   isReasoning?: boolean;
   /**
-   * Skip the brief exit hold when deactivating. Set once answer text starts
-   * streaming so the indicator gets out of the way immediately instead of
-   * trailing the growing reply (mirrors the desktop handoff).
+   * Skip the brief exit hold when deactivating. Set once this turn's answer
+   * message has landed, so the indicator gets out of the way immediately
+   * instead of trailing a reply the user can already read.
    */
   exitImmediately?: boolean;
 }
@@ -154,7 +154,7 @@ function SwapText({
 }
 
 /**
- * Stella's working state above the composer.
+ * Stella's working state at the chat tail.
  *
  * Entrance/exit is a plain opacity fade on the whole row, and the row is
  * unmounted after the desktop-matched hold so no animation remains active.
@@ -234,9 +234,9 @@ export const WorkingIndicator = memo(function WorkingIndicator({
       }, EXIT_ANIMATION_MS);
     };
 
-    // Skip the hold when answer text has started streaming so the indicator
-    // doesn't trail the growing reply; otherwise hold briefly so a fast turn
-    // still flashes the indicator.
+    // Skip the hold once the answer message is on screen so the indicator
+    // doesn't trail it; otherwise hold briefly so a fast turn still flashes
+    // the indicator.
     if (exitImmediately) {
       startExit();
     } else {
@@ -258,7 +258,7 @@ export const WorkingIndicator = memo(function WorkingIndicator({
     >
       {renderShell ? (
         <Animated.View style={[styles.row, shellStyle]} collapsable={false}>
-          <WorkingStarSkia active={active} size={INDICATOR_VIEWPORT_SIZE} />
+          <StellaMarkIndicator active={active} size={INDICATOR_VIEWPORT_SIZE} />
           <SwapText
             text={displayStatus}
             active={active}

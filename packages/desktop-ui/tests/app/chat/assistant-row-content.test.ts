@@ -23,7 +23,6 @@ const baseRow = (): AssistantRowViewModel => ({
 describe("assistantRowHasNonBackgroundContent", () => {
   const contentFieldCases: Array<[string, Partial<AssistantRowViewModel>]> = [
     ["text", { text: "hello" }],
-    ["isStreaming", { isStreaming: true }],
     ["officePreviewRef", { officePreviewRef: {} as never }],
     ["resourcePayload", { resourcePayload: {} as never }],
     ["inlineImagePayloads", { inlineImagePayloads: [{} as never] }],
@@ -139,13 +138,7 @@ describe("eventRowRendersContent", () => {
     ).toBe(true);
   });
 
-  it("keeps an empty assistant row while it streams (scroll-follow target)", () => {
-    expect(eventRowRendersContent({ ...baseRow(), isStreaming: true })).toBe(
-      true,
-    );
-  });
-
-  it("drops a settled assistant row that paints nothing", () => {
+  it("drops an assistant row that paints nothing", () => {
     expect(eventRowRendersContent(baseRow())).toBe(false);
   });
 });

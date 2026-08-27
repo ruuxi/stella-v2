@@ -56,7 +56,6 @@ const createEmptyRunRecord = (args) => ({
     statusText: args.statusText ?? null,
     hasToolActivity: false,
     latestCompletedTool: null,
-    isStreamingText: false,
     pendingToolAfterPreamble: false,
     activeToolCalls: {},
 });
@@ -105,35 +104,12 @@ export function streamStoreReducer(state, action) {
                 },
             };
         }
-        case 'mark-streaming-text': {
-            const current = state.runsById[action.runId];
-            if (!current ||
-                current.terminal ||
-                current.isStreamingText ||
-                // A preamble→tool boundary just fired: this marker belongs to the
-                // finalized preamble, not a fresh answer, so it must not re-suppress
-                // the working indicator across the gap before the tool starts.
-                current.pendingToolAfterPreamble) {
-                return state;
-            }
-            return {
-                ...state,
-                runsById: {
-                    ...state.runsById,
-                    [action.runId]: {
-                        ...current,
-                        isStreamingText: true,
-                    },
-                },
-            };
-        }
         case 'assistant-message-boundary': {
             // A preamble message that ends with a tool call is interim, not the
-            // final answer. Clear `isStreamingText` here so the working indicator
-            // re-appears immediately at the boundary and stays up across the gap
-            // before `tool-start` arrives — otherwise it lingers dismissed over
-            // the visible preamble text, making it look like nothing is happening.
-            // No-op for a plain boundary (final answer): keep its existing hand-off.
+            // final answer. Record that a tool is expected next so the working
+            // indicator's label/tool tracking stays coherent across the gap
+            // before `tool-start` arrives.
+            // No-op for a plain boundary (the run's final answer).
             if (!action.followedByToolCall) {
                 return state;
             }
@@ -141,15 +117,12 @@ export function streamStoreReducer(state, action) {
             if (!current || current.terminal) {
                 return state;
             }
-            // Set the suppression flag unconditionally so a stale marker cannot
-            // reopen the gap regardless of event ordering.
             return {
                 ...state,
                 runsById: {
                     ...state.runsById,
                     [action.runId]: {
                         ...current,
-                        isStreamingText: false,
                         pendingToolAfterPreamble: true,
                     },
                 },
@@ -172,22 +145,9 @@ export function streamStoreReducer(state, action) {
                     [action.runId]: {
                         ...current,
                         hasToolActivity: true,
-                        // The model has stopped emitting text to run a tool; clear the
-                        // streaming-text flag so the post-tool reasoning gap shows the
-                        // working indicator again. Re-arming is safe: the post-tool
-                        // answer is a new assistant message (the agent loop emits the
-                        // `message_end` boundary before this tool start), so it streams
-                        // into a fresh overlay slot and its first visible provider delta
-                        // sets `isStreamingText` back to true.
-                        isStreamingText: false,
-                        // Deliberately DO NOT release `pendingToolAfterPreamble` here.
-                        // An out-of-order preamble marker could arrive after this
-                        // `tool-start`. Clearing the flag here would let that marker set
-                        // `isStreamingText: true`; it stays masked by `isToolActive`
-                        // while the tool runs, but sticks true after `tool-end`, blanking
-                        // the indicator across the post-tool reasoning gap (dead air,
-                        // most visible after `spawn_agent`). The suppression is released
-                        // in `tool-end` instead, once the tool phase is fully over.
+                        // `pendingToolAfterPreamble` is released in `tool-end`, once
+                        // the whole tool phase is over — not here, so parallel tool
+                        // calls keep it set for the duration.
                         statusText: action.statusText ?? current.statusText,
                         latestCompletedTool: null,
                         activeToolCalls: {
@@ -223,12 +183,9 @@ export function streamStoreReducer(state, action) {
                     [action.runId]: {
                         ...current,
                         hasToolActivity: true,
-                        // Release stale-marker suppression only once the whole tool phase
-                        // is over (no tool still in flight), so an out-of-order preamble
-                        // marker cannot set `isStreamingText: true` and blank the indicator in the
-                        // post-tool reasoning gap. Keeping it set until the last tool ends
-                        // also covers parallel tool calls. The post-tool answer's first
-                        // visible delta then hands off normally.
+                        // Release the preamble marker only once the whole tool phase is
+                        // over (no tool still in flight); that also covers parallel
+                        // tool calls.
                         ...(toolPhaseOver ? { pendingToolAfterPreamble: false } : {}),
                         statusText: nextActiveTool?.statusText ?? null,
                         latestCompletedTool: action.toolName || endedTool?.toolName

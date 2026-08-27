@@ -295,18 +295,16 @@ export const getPersistedAssistantSlots = (
 };
 
 /**
- * Materialize a streaming overlay slot into a `MessageRecord` so it
- * slots into the timeline alongside persisted assistant messages.
- * While streaming, keep the live text. Once locked, prefer canonical text too,
- * so optimistic provider deltas cannot survive finalization.
+ * Materialize an assistant overlay slot into a `MessageRecord` so it slots
+ * into the timeline alongside persisted assistant messages. The overlay
+ * always carries the runtime's canonical text for the message; once the
+ * persisted twin has landed its saved text wins (identical content, but it
+ * keeps a single source of truth after the handoff).
  */
 export const overlayToMessageRecord = (
   overlay: StreamingAssistantOverlay,
   persisted?: MessageRecord,
 ): MessageRecord => {
-  const hidesText =
-    overlay.textTransition === "queued" ||
-    overlay.textTransition === "hidden";
   return {
     ...(persisted ?? {}),
     _id: overlay._id,
@@ -314,9 +312,8 @@ export const overlayToMessageRecord = (
     type: "assistant_message",
     payload: {
       ...(persisted?.payload ?? {}),
-      text: hidesText
-        ? ""
-        : overlay.locked && typeof persisted?.payload?.text === "string"
+      text:
+        typeof persisted?.payload?.text === "string"
           ? persisted.payload.text
           : overlay.text,
       userMessageId: overlay.userMessageId,
@@ -332,11 +329,6 @@ export const overlayToMessageRecord = (
               | { metadata?: { runtime?: Record<string, unknown> } }
               | undefined
           )?.metadata?.runtime ?? {}),
-          isStreaming:
-            !overlay.locked && overlay.textTransition !== "queued",
-          ...(overlay.textTransition
-            ? { assistantTextTransition: overlay.textTransition }
-            : {}),
           ...(overlay.responseTarget
             ? { responseTarget: overlay.responseTarget }
             : {}),
@@ -422,106 +414,6 @@ export const mergeConversationDisplayMessageSources = (args: {
     persistedMessagesForDisplay,
     overlayMessages,
   );
-};
-
-/* -------------------------------------------------------------------------
- * Structural-sharing fast path for the per-delta merge.
- *
- * `mergeConversationDisplayMessageSources` builds a dedup Map, runs a full
- * O(n log n) sort, and (when masking) allocates a filtered copy — all of it
- * on EVERY streamed delta, because the live overlay grows each frame and
- * `streamingAssistants` / `overlayMessages` change identity. In a long thread
- * that O(n log n) + allocations is the largest length-scaling cost on the
- * auto-scroll critical path.
- *
- * But during pure text streaming the ONLY thing that changes is the live
- * overlay's CONTENT. The persisted set keeps a stable array reference
- * (`stabilizeMessageList`), and every participant's `_id` / `timestamp` /
- * `type` — hence the dedup outcome, the sort order, the membership, and the
- * masking (overlay ids encode `userMessageId:indexInTurn`) — is identical to
- * the previous delta. So the merged ordering can be reused wholesale and only
- * the overlay objects swapped in by id, skipping the dedup + sort + filter.
- *
- * The three helpers below are pure so the equivalence is unit-testable.
- * ----------------------------------------------------------------------- */
-
-/**
- * Positions in a merged `result` that were contributed by an overlay message
- * (vs a persisted message), identified by object reference — the merge stores
- * the actual winning object, so an element that is one of `overlayMessages`
- * is exactly an overlay winner. Recomputed only on a full merge.
- */
-export const findOverlayWinnerIndices = (
-  result: MessageRecord[],
-  overlayMessages: MessageRecord[],
-): number[] => {
-  if (overlayMessages.length === 0) return [];
-  const overlaySet = new Set<MessageRecord>(overlayMessages);
-  const indices: number[] = [];
-  for (let i = 0; i < result.length; i += 1) {
-    if (overlaySet.has(result[i]!)) indices.push(i);
-  }
-  return indices;
-};
-
-/**
- * Whether two overlay-message lists describe the same MERGE SHAPE — same
- * length and same `(_id, timestamp, type)` at each position. Overlay objects
- * are rebuilt every streamed delta (their text grows), but while only content
- * changed the id/timestamp/type sequence is identical. Combined with a stable
- * persisted set, that guarantees the dedup outcome, sort order, membership,
- * and masking are unchanged, so the cached merged order may be reused.
- */
-export const overlayMergeShapeUnchanged = (
-  prev: MessageRecord[],
-  next: MessageRecord[],
-): boolean => {
-  if (prev === next) return true;
-  if (prev.length !== next.length) return false;
-  for (let i = 0; i < next.length; i += 1) {
-    const a = prev[i]!;
-    const b = next[i]!;
-    if (a._id !== b._id || a.timestamp !== b.timestamp || a.type !== b.type) {
-      return false;
-    }
-  }
-  return true;
-};
-
-/**
- * Rebuild a merged list from a cached sorted order, replacing only the
- * overlay-winner positions with the CURRENT overlay objects (looked up by id)
- * so the grown text/metadata is reflected — without re-running dedup or sort.
- * Persisted-winner positions keep their cached object (stable reference under
- * the caller's preconditions). Returns `null` if any overlay-winner id is
- * absent from the current overlay set (an anomaly the precondition should
- * prevent), so the caller can fall back to a full merge.
- */
-export const rebuildDisplayMessagesFromCachedOrder = (
-  cachedResult: MessageRecord[],
-  overlayWinnerIndices: number[],
-  currentOverlayMessages: MessageRecord[],
-): MessageRecord[] | null => {
-  // No overlay contributed to the output (e.g. nothing streaming): the result
-  // is purely persisted objects, unchanged under the caller's preconditions.
-  if (overlayWinnerIndices.length === 0) return cachedResult;
-  const currentOverlayById = new Map<string, MessageRecord>();
-  for (const m of currentOverlayMessages) currentOverlayById.set(m._id, m);
-  const next = cachedResult.slice();
-  for (const idx of overlayWinnerIndices) {
-    const current = currentOverlayById.get(next[idx]!._id);
-    if (!current) return null;
-    next[idx] = current;
-  }
-  return next;
-};
-
-type DisplayMessagesCache = {
-  persistedMessages: MessageRecord[];
-  persistedAssistantSlots: Map<string, MessageRecord[]>;
-  overlayMessages: MessageRecord[];
-  overlayWinnerIndices: number[];
-  result: MessageRecord[];
 };
 
 export const useConversationDisplayMessages = ({
@@ -640,57 +532,19 @@ export const useConversationDisplayMessages = ({
     streamingAssistants,
   ]);
 
-  const cacheRef = useRef<DisplayMessagesCache | null>(null);
-
+  // Assistant messages arrive whole, so this merge only re-runs when the
+  // timeline's MEMBERSHIP changes (a message landed, a persisted twin
+  // arrived, an optimistic row cleared) — never per text delta. `useMemo`
+  // over the four inputs is therefore the whole optimization; the old
+  // per-delta structural-sharing cache had nothing left to save.
   const merged = useMemo(() => {
-    const cache = cacheRef.current;
-    // Fast path: only the live overlay's content changed since the last
-    // delta. Preconditions guaranteeing an identical merge ORDER + membership
-    // + masking (so only overlay objects need swapping in):
-    //   - persisted set is the same array reference (stabilizeMessageList
-    //     yields a new reference on ANY membership/order/identity change, so
-    //     this also catches an edited persisted message that kept its id);
-    //   - the persisted assistant-slot index (the masking input) is the same
-    //     reference;
-    //   - the overlay list has the same (_id, timestamp, type) sequence
-    //     (overlay ids encode userMessageId:indexInTurn, so this also pins the
-    //     masking inputs and the sort keys).
-    if (
-      cache &&
-      cache.persistedMessages === persistedMessages &&
-      cache.persistedAssistantSlots === persistedAssistantSlots &&
-      overlayMergeShapeUnchanged(cache.overlayMessages, overlayMessages)
-    ) {
-      const reused = rebuildDisplayMessagesFromCachedOrder(
-        cache.result,
-        cache.overlayWinnerIndices,
-        overlayMessages,
-      );
-      if (reused) {
-        // Keep the cache aligned with the freshest overlay objects/arrays so
-        // the next delta diffs + swaps against current state. The winner
-        // indices are unchanged (order/membership identical).
-        cache.result = reused;
-        cache.overlayMessages = overlayMessages;
-        return reused;
-      }
-    }
-
-    const result = mergeConversationDisplayMessageSources({
+    return mergeConversationDisplayMessageSources({
       persistedMessages,
       overlayMessages,
       streamingAssistants,
       persistedAssistantSlots,
       ...(getSortTimestamp ? { getSortTimestamp } : {}),
     });
-    cacheRef.current = {
-      persistedMessages,
-      persistedAssistantSlots,
-      overlayMessages,
-      overlayWinnerIndices: findOverlayWinnerIndices(result, overlayMessages),
-      result,
-    };
-    return result;
   }, [
     getSortTimestamp,
     overlayMessages,

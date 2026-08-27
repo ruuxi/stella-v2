@@ -397,11 +397,9 @@ const mergeCanonicalMessage = (
   const canonicalCreatedAt =
     existing.canonicalCreatedAt ?? canonicalStampOf(canonical);
   const artifacts = mergeArtifacts(existing.artifacts, canonical.artifacts);
-  // When the canonical text is just a whitespace normalization of what already
-  // streamed into this row, keep the existing string (same reference): the
-  // incremental markdown renderer resets — and replays its stream fade over
-  // the whole message — on any non-prefix text change, so a cosmetic rewrite
-  // must not reach it.
+  // When the canonical text is just a whitespace normalization of what this
+  // row already holds, keep the existing string (same reference) so a purely
+  // cosmetic rewrite never re-renders a message the user is already reading.
   const keepExistingText =
     existing.text !== canonical.text &&
     partialTextKey(existing.text) === partialTextKey(canonical.text);
@@ -508,48 +506,48 @@ const collapseRequestLinkedAssistantDuplicates = (
 };
 
 /** Whitespace-insensitive text key for the superseded-partial sweep below:
- * streamed chunks and the canonical row can disagree on newline/trailing
- * whitespace normalization without being different responses. */
+ * a locally-assembled turn and the canonical row can disagree on newline /
+ * trailing whitespace normalization without being different responses. */
 const partialTextKey = (text: string): string =>
   text.replace(/\s+/g, " ").trim();
 
 /**
- * Pick the reply row's text when a streamed desktop turn settles.
+ * Pick the reply row's text when a desktop turn settles.
  *
  * The bridge's finished event carries only the turn's LAST canonical assistant
- * message (normalized/trimmed), while the row accumulated the raw streamed
- * chunks of the whole turn. Overwriting the streamed text with that final text
- * used to rewrite the row wholesale — a non-prefix text change resets the
- * incremental markdown session, so the entire already-visible reply re-rendered
- * and replayed its stream fade the moment streaming ended.
+ * message (normalized/trimmed), while the row holds every assistant-message
+ * segment the turn delivered. Overwriting the assembled text with that final
+ * text would rewrite the row wholesale and re-render the whole already-visible
+ * reply at end of turn.
  *
- * Keep the streamed string (same reference — the renderer sees no change) when
+ * Keep the assembled string (same reference — the renderer sees no change) when
  * it already contains the final text: identical modulo whitespace, or the final
- * text is a normalized cut of the streamed turn (multi-message turns stream
+ * text is a normalized tail of the turn (a multi-segment turn concatenates
  * preamble + answer into one row; the background reconcile splits them into
  * their canonical rows in one atomic merge). Fall back to the final text only
- * when the stream genuinely missed content (empty or a strict earlier cut).
+ * when delivery genuinely missed content (empty row, or a strict earlier cut —
+ * e.g. the terminal event arrived after a reconnect that dropped a segment).
  */
-export const finalizeStreamedAssistantText = (
-  streamedText: string,
+export const finalizeAssistantTurnText = (
+  assembledText: string,
   finalText: string,
 ): string => {
-  if (!streamedText.trim()) return finalText;
-  if (!finalText.trim()) return streamedText;
-  const streamed = partialTextKey(streamedText);
+  if (!assembledText.trim()) return finalText;
+  if (!finalText.trim()) return assembledText;
+  const assembled = partialTextKey(assembledText);
   const final = partialTextKey(finalText);
-  if (streamed === final || streamed.endsWith(final)) return streamedText;
+  if (assembled === final || assembled.endsWith(final)) return assembledText;
   return finalText;
 };
 
 /**
- * Drop interrupted streaming snapshots that a canonical-backed row of the SAME
- * turn has superseded.
+ * Drop interrupted partial-turn snapshots that a canonical-backed row of the
+ * SAME turn has superseded.
  *
- * An assistant reply row can die mid-stream (app kill/suspension, dropped
- * bridge socket) with only partial text — cut off mid-word by the stream
- * smoother — and a replayed dispatch then streams the continuation into a NEW
- * reply row. Each interruption strands one partial row; once the turn's
+ * An assistant reply row can die mid-turn (app kill/suspension, dropped bridge
+ * socket) holding only the segments that had landed so far, and a replayed
+ * dispatch then assembles the whole turn into a NEW reply row. Each
+ * interruption strands one partial row; once the turn's
  * canonical reply lands (adopted by one of the rows via `requestId`, or merged
  * as its own row), those leftovers render as extra assistant messages above
  * the full reply, forever.
@@ -558,7 +556,7 @@ export const finalizeStreamedAssistantText = (
  * are never deleted:
  *  - it is an assistant row linked to a turn (`requestId`) but NOT to a
  *    canonical desktop row (no `canonicalId`, no `canonicalCreatedAt`) — i.e.
- *    a local streaming snapshot, not desktop history;
+ *    a local in-flight snapshot, not desktop history;
  *  - some OTHER row of the same turn IS canonical-backed and its text starts
  *    with the snapshot's text (whitespace-insensitive) — the snapshot is a
  *    strict earlier cut of that very response. A multi-message turn's other
@@ -646,7 +644,7 @@ const sweepSupersededPartialReplies = (
  *
  * This pass heals either pair structurally, whatever created it: the local row
  * wins (stable id, anchored timestamp) and adopts canonical content. It then
- * sweeps interrupted streaming snapshots the turn's canonical reply superseded
+ * sweeps interrupted partial snapshots the turn's canonical reply superseded
  * (see {@link sweepSupersededPartialReplies}). Returns the input array
  * unchanged (same reference) when there is nothing to collapse.
  */
@@ -708,10 +706,10 @@ const collapseLinkedTwinDuplicates = (
  * Merge canonical desktop messages into the local transcript by id without ever
  * discarding local-only rows (e.g. cloud-answered turns). Rows the transcript
  * already reconciled keep their local id (`canonicalId` links them to the
- * desktop row) so streaming bubbles never remount.
+ * desktop row) so live reply rows never remount.
  *
  * Matching is by id / `canonicalId`, plus — for real assistant rows only — the
- * turn `requestId` the streamed reply was stamped with at turn end, so a
+ * turn `requestId` the optimistic reply was stamped with at turn end, so a
  * canonical reply that arrives in a later delta (e.g. the reconcile pull beat
  * the desktop persisting it) updates the bubble instead of duplicating it.
  * Content (role+text) is deliberately NOT used to link rows here: this generic
@@ -914,20 +912,20 @@ export const retargetOptimisticReplyToUser = (
 
 /**
  * After a phone-sent desktop turn completes, swap the optimistic local user
- * bubble and streamed reply for their canonical desktop rows (keeping local
+ * bubble and its assembled reply for their canonical desktop rows (keeping local
  * ids stable), then merge any other turns that happened on the desktop.
  *
  * `canonicalUserMessageId` — the desktop id the bridge reported for the
  * submitted user message — links the turn precisely when present: the user row
  * by its id, the assistant row by `requestId` (the desktop stamps replies with
  * their turn's user-message id). Text/last-assistant matching remains only as
- * a fallback for older desktops that don't report it. When a streamed turn
+ * a fallback for older desktops that don't report it. When a turn
  * produced several assistant rows, the canonical row carrying the same agent
  * card wins over the generic last-assistant match. That keeps the optimistic
  * card anchored to its desktop spawn position while later assistant rows slot
  * in below it. Stand-in artifact rows (`<id>:artifacts` / `<id>:agent` — role
  * "assistant", empty text) are never eligible: adopting one would blank the
- * streamed reply and orphan the real one.
+ * delivered reply and orphan the real one.
  */
 export const reconcileSentDesktopTurn = ({
   current,

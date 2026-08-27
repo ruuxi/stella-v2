@@ -101,7 +101,6 @@ export const createOrchestratorCoordinator = (context: RunnerContext) => {
       onRunStarted: callbacks.onRunStarted,
       onUserMessage: callbacks.onUserMessage,
       onAssistantMessage: callbacks.onAssistantMessage,
-      onStream: callbacks.onStream,
       onStatus: callbacks.onStatus,
       onToolStart: callbacks.onToolStart,
       onToolEnd: callbacks.onToolEnd,

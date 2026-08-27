@@ -884,8 +884,11 @@ const runClaudeHostedTurn = async (args: {
           );
         },
         onStream: (chunk) => {
+          // Text is delivered whole via `onAssistantMessage`; the buffer feeds
+          // preamble persistence and the delta only stamps the segment's
+          // first-text anchor.
           assistantUpdateBuffer.append(chunk);
-          args.callbacks?.onStream?.(runEvents.recordStream(chunk));
+          runEvents.noteAssistantTextChunk(chunk);
         },
         onToolUpdate: ({ update }) => emitToolUpdateStatus(update),
         executeTool: executeClaudeTool,
@@ -1320,9 +1323,12 @@ const runCodexHostedTurn = async (args: {
         },
         onCommandExecution: emitCodexCommandExecution,
         onStream: (chunk) => {
+          // Text is delivered whole via `onAssistantMessage`; the buffer feeds
+          // preamble persistence, `onProgress` feeds the Activity feed, and the
+          // delta only stamps the segment's first-text anchor.
           assistantUpdateBuffer.append(chunk);
           args.opts.onProgress?.(chunk);
-          args.callbacks?.onStream?.(runEvents.recordStream(chunk));
+          runEvents.noteAssistantTextChunk(chunk);
         },
         onSessionId: (sessionId) => {
           activeSessionId = sessionId;

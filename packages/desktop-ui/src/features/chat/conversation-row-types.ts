@@ -71,13 +71,11 @@ export type AssistantRowViewModel = {
     livePinsPending?: boolean;
   };
   /**
-   * Set when this row is sourced from a live `StreamingAssistantOverlay`
-   * (text still growing). Scroll follow uses `data-scroll-follow-key`
-   * + runtime signals from `useLocalAgentStream`.
+   * Tagged for one frame-window when this assistant message arrives LIVE
+   * (not on a history mount) so the bubble plays its one-shot entrance.
+   * Mirrors `justSent` on the user row.
    */
-  isStreaming?: boolean;
-  /** Old direct-mode segment currently running its fade-only handoff. */
-  isFadingOut?: boolean;
+  justArrived?: boolean;
   /** True for a pre-tool assistant segment within a still-running turn. */
   isIntraTurn?: boolean;
   responseTarget?: AgentResponseTarget;

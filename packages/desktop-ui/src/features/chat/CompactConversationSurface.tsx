@@ -1,5 +1,4 @@
 import { cn } from "@/shared/lib/utils";
-import { useDeferredChatMessages } from "@/features/chat/hooks/use-deferred-chat-messages";
 import type { MessageRecord } from "@stella/contracts/local-chat";
 import type { QueuedUserMessage } from "@/features/chat/hooks/use-streaming-chat";
 import type { ChatColumnScroll } from "@/features/chat/chat-column-types";
@@ -66,11 +65,6 @@ export function CompactConversationSurface({
   showConversation = true,
   estimatedItemSize = 96,
 }: CompactConversationSurfaceProps) {
-  const paintedMessages = useDeferredChatMessages(
-    messages,
-    scroll.isUserScrolling,
-    conversationId,
-  );
   return (
     <div
       className={cn(
@@ -87,7 +81,7 @@ export function CompactConversationSurface({
           )}
         >
           <ConversationEvents
-            messages={paintedMessages}
+            messages={messages}
             conversationId={conversationId}
             agentModelConfigByThread={agentModelConfigByThread}
             maxItems={maxItems}

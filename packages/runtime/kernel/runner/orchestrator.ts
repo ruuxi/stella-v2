@@ -122,7 +122,6 @@ export const createOrchestratorController = (
       onUserMessage: (event) => currentCallbacks.onUserMessage?.(event),
       onAssistantMessage: (event) =>
         currentCallbacks.onAssistantMessage?.(event),
-      onStream: (event) => currentCallbacks.onStream(event),
       onAgentReasoning: (event) => currentCallbacks.onAgentReasoning?.(event),
       onStatus: (event) => currentCallbacks.onStatus?.(event),
       onToolStart: (event) => currentCallbacks.onToolStart(event),

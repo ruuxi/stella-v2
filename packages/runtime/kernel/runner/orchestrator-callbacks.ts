@@ -39,7 +39,6 @@ export const createAutomationAgentCallbacks = (
     onEnd?: (event: RuntimeEndEvent) => void;
   },
 ): AgentCallbacks => ({
-  onStream: () => {},
   onToolStart: () => {},
   onToolEnd: () => {},
   onError: (event) => {

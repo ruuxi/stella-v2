@@ -16,14 +16,11 @@
  * conversation in parallel.
  *
  * De-duplication uses a stable `userMessageId + final text` key rather
- * than the message `_id`. A streaming reply is shown first as a synthetic
- * overlay row (one `_id`) and later as its persisted twin (a different,
- * real `_id`); keying on the turn + finalized text means whichever
- * representation we see first speaks the reply, and the other is ignored.
- *
- * We also skip rows that are still streaming (`metadata.runtime.isStreaming`)
- * so we never read partial text — that was the cause of the reply's first
- * word being spoken twice (partial overlay, then full persisted message).
+ * than the message `_id`. A reply is shown first as a synthetic overlay row
+ * (one `_id`) and later as its persisted twin (a different, real `_id`);
+ * keying on the turn + text means whichever representation we see first
+ * speaks the reply, and the other is ignored. Assistant text is delivered
+ * whole, so both representations always carry the same final text.
  *
  * Voice-sourced assistant messages (`payload.source === "voice"`) are
  * skipped so the realtime voice agent never gets double-spoken.
@@ -47,30 +44,24 @@ type MessagePayload = {
   text?: unknown;
   source?: unknown;
   userMessageId?: unknown;
-  metadata?: {
-    runtime?: {
-      isStreaming?: unknown;
-    };
-  };
 };
 
 type FinalizedReply = {
   /** Trimmed assistant text to speak. */
   text: string;
-  /** Stable key shared by the streaming overlay and its persisted twin. */
+  /** Stable key shared by the live overlay and its persisted twin. */
   key: string;
 };
 
 /**
- * Returns the speakable text + dedupe key for a finalized assistant
- * reply, or null when the message should be skipped (not an assistant
- * reply, voice-sourced, empty, or still streaming).
+ * Returns the speakable text + dedupe key for an assistant reply, or null
+ * when the message should be skipped (not an assistant reply, voice-sourced,
+ * or empty). Assistant messages arrive whole, so every row is final.
  */
 const getFinalizedReply = (message: MessageRecord): FinalizedReply | null => {
   if (message.type !== "assistant_message") return null;
   const payload = (message.payload ?? {}) as MessagePayload;
   if (payload.source === "voice") return null;
-  if (payload.metadata?.runtime?.isStreaming === true) return null;
   const text = typeof payload.text === "string" ? payload.text.trim() : "";
   if (!text) return null;
   const turnId =

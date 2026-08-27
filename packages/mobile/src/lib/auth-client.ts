@@ -1,35 +1,22 @@
-import { expoClient } from "@better-auth/expo/client";
 import { convexClient } from "@convex-dev/better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import { jwtClient, magicLinkClient } from "better-auth/client/plugins";
-import type { BetterFetchPlugin } from "@better-fetch/fetch";
-import * as SecureStore from "expo-secure-store";
 import { env } from "../config/env";
 import { assert } from "./assert";
+import { nativeBearerClient } from "./native-auth-client";
+
+export {
+  clearMobileAuthStorage,
+  MOBILE_SESSION_TOKEN_KEY,
+} from "./native-auth-client";
 
 const plugins = [
-  expoClient({
+  nativeBearerClient({
     scheme: env.mobileScheme,
-    storage: SecureStore,
-    storagePrefix: "stella-mobile",
   }),
   convexClient(),
   magicLinkClient(),
   jwtClient(),
-  {
-    id: "rn-origin",
-    fetchPlugins: [{
-      id: "rn-origin",
-      name: "RN Origin",
-      async init(url, options) {
-        const headers = (options?.headers ?? {}) as Record<string, string>;
-        return {
-          url,
-          options: { ...options, headers: { ...headers, origin: env.convexSiteUrl } },
-        };
-      },
-    } satisfies BetterFetchPlugin],
-  },
 ];
 
 type AuthClient = ReturnType<typeof createAuthClient<{ plugins: typeof plugins }>>;

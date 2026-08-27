@@ -1,12 +1,13 @@
 import { createClient, type GenericCtx } from "@convex-dev/better-auth";
-import { convex, crossDomain } from "@convex-dev/better-auth/plugins";
+import { convex } from "@convex-dev/better-auth/plugins";
 import { requireActionCtx } from "@convex-dev/better-auth/utils";
 import { Resend } from "@convex-dev/resend";
-import { expo } from "@better-auth/expo";
 import { betterAuth, type BetterAuthOptions } from "better-auth/minimal";
-import { anonymous, magicLink } from "better-auth/plugins";
+import { anonymous, bearer, magicLink, oneTimeToken } from "better-auth/plugins";
 import {
+  action,
   internalAction,
+  internalMutation,
   internalQuery,
   mutation,
   query,
@@ -23,11 +24,12 @@ import {
   buildMagicLinkEmail,
   getMagicLinkSubject,
 } from "./lib/email_templates";
-import { appReviewAuth } from "./lib/app_review_auth";
 import {
-  enforceMutationRateLimit,
+  enforceActionRateLimit,
   RATE_SENSITIVE,
 } from "./lib/rate_limits";
+import { expoOAuthProxy } from "./lib/expo_oauth_proxy";
+import { nativeOttRedirect } from "./lib/native_ott_redirect";
 import { importPKCS8, SignJWT } from "jose";
 
 const getRequiredEnv = (name: string) => {
@@ -87,32 +89,29 @@ const getEmailLogoSrc = (siteUrl: string) => {
 };
 
 const extraTrustedOrigins = [
+  // The Vite dev server port, and the origin the Electron main process
+  // declares on every auth request (see DESKTOP_AUTH_ORIGIN in
+  // desktop/electron/services/auth-service.ts).
   "http://localhost:57314",
   "http://127.0.0.1:57314",
   "https://stella.sh",
-  // Mobile WebView loads the desktop UI via Cloudflare tunnel
-  "*.stellatunnel.com",
+  // `*.stellatunnel.com` was here for the mobile WebView that loaded the
+  // desktop UI over a Cloudflare tunnel and called signIn.social from that
+  // origin. That screen is gone. The tunnel itself is still used by the
+  // desktop bridge, but that transport authenticates with a Convex JWT
+  // bearer and never touches Better Auth, so it needs no trusted origin.
 ];
 
-const getDeepLinkOrigin = () => {
-  const raw = process.env.STELLA_PROTOCOL;
-  if (!raw) {
-    return "stella://auth";
-  }
-  const protocol = raw.replace("://", "").replace(":", "").trim().toLowerCase();
-  return `${protocol}://auth`;
-};
-
-/** Matches `EXPO_PUBLIC_STELLA_MOBILE_SCHEME` default in `packages/mobile/src/config/env.ts` (magic-link callback). */
+/** Matches `EXPO_PUBLIC_STELLA_MOBILE_SCHEME` for native OAuth callbacks. */
 const getMobileDeepLinkOrigins = () => {
   const scheme =
     process.env.EXPO_PUBLIC_STELLA_MOBILE_SCHEME?.trim()
     || process.env.STELLA_MOBILE_SCHEME?.trim()
     || "stella-mobile";
-  // expoClient sends `Linking.createURL("", { scheme })` as expo-origin,
-  // which varies by platform (e.g. "stella-mobile://", "stella-mobile:///").
-  // Include both with and without the /auth path.
-  return [`${scheme}://auth`, `${scheme}://`, `${scheme}:///`];
+  // The native bearer client sends `Linking.createURL("", { scheme })` as
+  // expo-origin and returns browser OAuth to a route under the same origin.
+  // Platform URL serialization varies between two and three slashes.
+  return [`${scheme}://`, `${scheme}:///`];
 };
 
 const DEFAULT_JWT_EXPIRATION_SECONDS = 30 * 60;
@@ -146,6 +145,25 @@ const parseExpirationSeconds = (raw: string | undefined): number => {
 
 const JWT_EXPIRATION_SECONDS = parseExpirationSeconds(
   process.env.STELLA_JWT_EXPIRATION,
+);
+
+/**
+ * Better Auth session lifetime. The session token is the long-lived
+ * credential — desktop and mobile hold it on disk — so it is set explicitly
+ * rather than inheriting the default. `updateAge` is how often an in-use
+ * session gets its expiry pushed forward.
+ *
+ * The value is deliberately the same 7 days Better Auth would have defaulted
+ * to: the point of pinning it is that it is now chosen and tunable via env,
+ * not inherited. Shortening it is a UX call (it signs idle users out sooner),
+ * and the actual gap here was that revocation did not work — which it now
+ * does.
+ */
+const SESSION_EXPIRES_IN_SECONDS = parseExpirationSeconds(
+  process.env.STELLA_SESSION_EXPIRATION ?? "7d",
+);
+const SESSION_UPDATE_AGE_SECONDS = parseExpirationSeconds(
+  process.env.STELLA_SESSION_UPDATE_AGE ?? "1d",
 );
 const STATIC_JWKS = process.env.JWKS?.trim();
 
@@ -201,36 +219,12 @@ const createAppleProviderOptions = async () => {
   };
 };
 
-const sessionPolicyValidator = v.object({
-  minIssuedAtSec: v.number(),
-  updatedAt: v.number(),
-});
-
-/**
- * Parse a numeric JWT claim (e.g. `iat`) off the `UserIdentity` object
- * returned by `ctx.auth.getUserIdentity()`. Convex preserves claim values
- * as-is from the JWT; depending on the claim and signer they can arrive as
- * either `number` or numeric `string`, so we accept both.
- */
-const parseNumericClaim = (
-  identity: Awaited<ReturnType<QueryCtx["auth"]["getUserIdentity"]>>,
-  claim: string,
-): number | null => {
-  if (!identity || typeof identity !== "object") {
-    return null;
-  }
-  const value = (identity as Record<string, unknown>)[claim];
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === "string" && value.trim() !== "") {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-  return null;
-};
+// NOTE: a `parseNumericClaim` helper used to live here, reading the `iat`
+// claim off `UserIdentity`. It always returned null: Convex's `customJwt`
+// provider decodes with biscuit, whose `RegisteredClaims` consumes the
+// registered claims (`iss`/`sub`/`aud`/`exp`/`nbf`/`iat`/`jti`) before custom
+// claims are extracted, so `iat` never reaches the identity object. Session
+// revocation now keys on the non-registered `sessionId` claim instead.
 
 export const authComponent = createClient<DataModel, typeof betterAuthSchema>(
   components.betterAuth,
@@ -243,38 +237,59 @@ export const authComponent = createClient<DataModel, typeof betterAuthSchema>(
 const resend = new Resend(components.resend, { testMode: false });
 
 /**
- * Read the session-revocation marker for an owner, if one has been written.
- * Absence means "no revocations on file" — a JWT for this owner is allowed
- * regardless of `iat`.
+ * The `sessionId` claim the Convex plugin stamps on every JWT
+ * (`@convex-dev/better-auth` `plugins/convex` `definePayload`). Returns null
+ * when absent, which is treated as "cannot prove this session wasn't revoked".
  */
-const getSessionPolicyFromDb = async (
-  ctx: QueryCtx | MutationCtx,
-  ownerId: string,
-) => {
-  const policy = await ctx.db
-    .query("auth_session_policies")
-    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-    .unique();
-  if (!policy) {
+const readSessionIdClaim = (
+  identity: Awaited<ReturnType<QueryCtx["auth"]["getUserIdentity"]>>,
+): string | null => {
+  if (!identity || typeof identity !== "object") {
     return null;
   }
-  return {
-    minIssuedAtSec: policy.minIssuedAtSec,
-    updatedAt: policy.updatedAt,
-  };
+  const value = (identity as Record<string, unknown>).sessionId;
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 };
 
-const enforceMinIssuedAt = (
-  identity: Awaited<ReturnType<QueryCtx["auth"]["getUserIdentity"]>>,
-  minIssuedAtSec: number,
+const revokedSessionError = () =>
+  new ConvexError({
+    code: "UNAUTHENTICATED",
+    message: "Session has been revoked. Please sign in again.",
+  });
+
+/**
+ * Whether this owner has a live tombstone for `sessionId`. Expired tombstones
+ * are ignored (the JWT they covered can no longer be valid anyway); the
+ * `purgeExpiredRevokedSessions` cron deletes them lazily.
+ *
+ * `sessionId === null` means the token carried no `sessionId` claim, so the
+ * session cannot be identified. That is only treated as a denial when the
+ * owner has at least one live tombstone — i.e. they actually revoked
+ * something. An owner who has never revoked is unaffected, so a future
+ * regression in the claim can never mass-lock accounts the way keying on the
+ * (always-absent) `iat` claim did.
+ */
+const isSessionRevokedInDb = async (
+  ctx: QueryCtx | MutationCtx,
+  ownerId: string,
+  sessionId: string | null,
+  nowMs: number,
 ) => {
-  const issuedAtSec = parseNumericClaim(identity, "iat");
-  if (issuedAtSec === null || issuedAtSec < minIssuedAtSec) {
-    throw new ConvexError({
-      code: "UNAUTHENTICATED",
-      message: "Session has been revoked. Please sign in again.",
-    });
+  if (sessionId === null) {
+    const anyLive = await ctx.db
+      .query("auth_revoked_sessions")
+      .withIndex("by_ownerId_and_sessionId", (q) => q.eq("ownerId", ownerId))
+      .filter((q) => q.gt(q.field("expiresAt"), nowMs))
+      .first();
+    return anyLive !== null;
   }
+  const row = await ctx.db
+    .query("auth_revoked_sessions")
+    .withIndex("by_ownerId_and_sessionId", (q) =>
+      q.eq("ownerId", ownerId).eq("sessionId", sessionId),
+    )
+    .unique();
+  return row !== null && row.expiresAt > nowMs;
 };
 
 export const assertSensitiveSessionPolicy = async (
@@ -282,9 +297,16 @@ export const assertSensitiveSessionPolicy = async (
   identity: Awaited<ReturnType<QueryCtx["auth"]["getUserIdentity"]>>,
 ) => {
   if (!identity) return;
-  const policy = await getSessionPolicyFromDb(ctx, identity.tokenIdentifier);
-  if (!policy) return;
-  enforceMinIssuedAt(identity, policy.minIssuedAtSec);
+  if (
+    await isSessionRevokedInDb(
+      ctx,
+      identity.tokenIdentifier,
+      readSessionIdClaim(identity),
+      Date.now(),
+    )
+  ) {
+    throw revokedSessionError();
+  }
 };
 
 export const assertSensitiveSessionPolicyAction = async (
@@ -292,12 +314,13 @@ export const assertSensitiveSessionPolicyAction = async (
   identity: Awaited<ReturnType<QueryCtx["auth"]["getUserIdentity"]>>,
 ) => {
   if (!identity) return;
-  const policy = await ctx.runQuery(
-    internal.auth.getSessionPolicyByOwnerInternal,
-    { ownerId: identity.tokenIdentifier },
-  );
-  if (!policy) return;
-  enforceMinIssuedAt(identity, policy.minIssuedAtSec);
+  const revoked = await ctx.runQuery(internal.auth.isSessionRevokedInternal, {
+    ownerId: identity.tokenIdentifier,
+    sessionId: readSessionIdClaim(identity),
+  });
+  if (revoked) {
+    throw revokedSessionError();
+  }
 };
 
 export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
@@ -315,7 +338,6 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
       [
         siteUrl,
         authBaseUrl,
-        getDeepLinkOrigin(),
         ...getMobileDeepLinkOrigins(),
         "https://appleid.apple.com",
         ...extraTrustedOrigins,
@@ -327,6 +349,30 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
     baseURL: authBaseUrl,
     trustedOrigins,
     database: authComponent.adapter(ctx),
+    // Explicit rather than inherited. Better Auth's default is a 7-day
+    // sliding window, which is a long life for a credential that desktop and
+    // mobile hold on disk. `updateAge` still refreshes an in-use session, so
+    // active users are not signed out on a fixed schedule.
+    session: {
+      expiresIn: SESSION_EXPIRES_IN_SECONDS,
+      updateAge: SESSION_UPDATE_AGE_SECONDS,
+    },
+    // Better Auth's own rate limiter is enabled by default in production
+    // (Convex's bundler hard-defines NODE_ENV=production) but silently does
+    // nothing here: it keys on `x-forwarded-for`, and Convex does not forward
+    // a client IP to HTTP actions, so `getIp` returns null and both hooks
+    // bail. Turning it off explicitly removes the illusion of coverage —
+    // auth-route limiting goes through `enforceHttpRateLimit`, keyed on
+    // email/device/owner instead of IP.
+    rateLimit: { enabled: false },
+    // The desktop Google flow starts in the app and completes in the system
+    // browser, so the oauth_state cookie is never present in the completing
+    // browser. State is still verified against the `verification` table; only
+    // the cookie echo is skipped.
+    account: {
+      storeStateStrategy: "database" as const,
+      skipStateCookieCheck: true,
+    },
     user: {
       deleteUser: {
         enabled: true,
@@ -347,8 +393,25 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
       apple: createAppleProviderOptions,
     },
     plugins: [
-      expo(),
-      crossDomain({ siteUrl }),
+      // Keep Expo's browser-driving authorization proxy, but not its native
+      // redirect hook: that hook puts the full session cookie in `?cookie=`.
+      // The first-party OTT plugin below carries only a short-lived exchange
+      // token through the native callback.
+      expoOAuthProxy(),
+      // The request half of this already shipped: @convex-dev/better-auth's
+      // convex() plugin spreads bearer's before-hook, so `Authorization:
+      // Bearer` was already accepted. This adds the response half so clients
+      // can obtain a token without parsing cookies.
+      bearer({ requireSignature: true }),
+      oneTimeToken({
+        storeToken: "hashed",
+        expiresIn: 3,
+        disableClientRequest: true,
+        setOttHeaderOnNewSession: true,
+      }),
+      // Must follow oneTimeToken(): its after-hook moves `set-ott` into the
+      // callback Location so the native auth session can return it to Stella.
+      nativeOttRedirect(),
       anonymous({
         emailDomainName: "anon.stella.local",
         disableDeleteAnonymousUser: true,
@@ -384,7 +447,6 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
           });
         },
       }),
-      appReviewAuth(),
       // The `convex({...})` plugin owns the JWT subsystem we actually use:
       // it issues `/convex/token` (consumed by desktop via `convex.token()`)
       // and `/convex/jwks` (used by Convex to verify the bearer token), with
@@ -471,55 +533,126 @@ export const getLatestJwks = internalAction({
   },
 });
 
-export const getSessionPolicyByOwnerInternal = internalQuery({
-  args: { ownerId: v.string() },
-  returns: v.union(v.null(), sessionPolicyValidator),
+export const isSessionRevokedInternal = internalQuery({
+  args: { ownerId: v.string(), sessionId: v.union(v.string(), v.null()) },
+  returns: v.boolean(),
+  handler: async (ctx, args) =>
+    isSessionRevokedInDb(ctx, args.ownerId, args.sessionId, Date.now()),
+});
+
+/** Write the tombstones for a set of just-killed sessions. */
+export const recordRevokedSessionsInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    sessionIds: v.array(v.string()),
+    expiresAt: v.number(),
+  },
+  returns: v.null(),
   handler: async (ctx, args) => {
-    const policy = await ctx.db
-      .query("auth_session_policies")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
-      .unique();
-    if (!policy) {
-      return null;
+    const now = Date.now();
+    for (const sessionId of args.sessionIds) {
+      const existing = await ctx.db
+        .query("auth_revoked_sessions")
+        .withIndex("by_ownerId_and_sessionId", (q) =>
+          q.eq("ownerId", args.ownerId).eq("sessionId", sessionId),
+        )
+        .unique();
+      if (existing) {
+        await ctx.db.patch(existing._id, {
+          revokedAt: now,
+          expiresAt: args.expiresAt,
+        });
+        continue;
+      }
+      await ctx.db.insert("auth_revoked_sessions", {
+        ownerId: args.ownerId,
+        sessionId,
+        revokedAt: now,
+        expiresAt: args.expiresAt,
+      });
     }
-    return {
-      minIssuedAtSec: policy.minIssuedAtSec,
-      updatedAt: policy.updatedAt,
-    };
+    return null;
   },
 });
 
-export const revokeActiveSessions = mutation({
+/** Drop tombstones whose covered JWTs have expired. */
+export const purgeExpiredRevokedSessions = internalMutation({
+  args: { batchSize: v.optional(v.number()) },
+  returns: v.object({ deleted: v.number() }),
+  handler: async (ctx, args) => {
+    const limit = args.batchSize ?? 200;
+    const stale = await ctx.db
+      .query("auth_revoked_sessions")
+      .withIndex("by_expiresAt", (q) => q.lte("expiresAt", Date.now()))
+      .take(limit);
+    for (const row of stale) {
+      await ctx.db.delete(row._id);
+    }
+    return { deleted: stale.length };
+  },
+});
+
+/**
+ * Sign out every device on this account.
+ *
+ * Deletes the Better Auth session rows — that is the actual revocation, since
+ * `/api/auth/convex/token` refuses to mint once the session is gone — and
+ * tombstones their ids so JWTs already in flight are rejected for the
+ * remainder of their (short) lifetime.
+ *
+ * This is an action, not a mutation, because it has to reach the Better Auth
+ * adapter. The previous mutation only wrote an `iat` floor and revoked
+ * nothing: a cookie holder called `/convex/token`, got a token stamped with
+ * the current second, and sailed straight past the check.
+ */
+export const revokeActiveSessions = action({
   args: {},
-  returns: sessionPolicyValidator,
-  handler: async (ctx) => {
-    const ownerId = await requireUserId(ctx);
-    // Sensitive op: invalidates JWTs for the whole account. A hijacked
-    // session shouldn't be able to churn this either.
-    await enforceMutationRateLimit(
+  returns: v.object({ revokedCount: v.number(), expiresAt: v.number() }),
+  handler: async (ctx): Promise<{ revokedCount: number; expiresAt: number }> => {
+    const identity = await requireSensitiveUserIdentityAction(ctx);
+    const ownerId = identity.tokenIdentifier;
+    // Sensitive op: kills every session on the account. A hijacked session
+    // shouldn't be able to churn this either.
+    await enforceActionRateLimit(
       ctx,
       "auth_revoke_active_sessions",
       ownerId,
       RATE_SENSITIVE,
       "Too many session revocation requests. Please wait a minute and try again.",
     );
-    const now = Date.now();
-    const minIssuedAtSec = Math.floor(now / 1000);
-    const existing = await ctx.db
-      .query("auth_session_policies")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-      .unique();
-    if (existing) {
-      const next = { minIssuedAtSec, updatedAt: now };
-      await ctx.db.patch(existing._id, next);
-      return next;
+
+    const auth = createAuth(ctx);
+    const authCtx = await auth.$context;
+    const userId = identity.subject;
+
+    // List before deleting — afterwards there is nothing left to enumerate.
+    const sessions = await authCtx.internalAdapter.listSessions(userId);
+    const sessionIds = sessions
+      .map((session: { id?: unknown }) =>
+        typeof session.id === "string" ? session.id : null,
+      )
+      .filter((id: string | null): id is string => id !== null);
+
+    // Cover the current token too when it names a session the adapter no
+    // longer lists (e.g. it expired between mint and now).
+    const currentSessionId = readSessionIdClaim(identity);
+    if (currentSessionId !== null && !sessionIds.includes(currentSessionId)) {
+      sessionIds.push(currentSessionId);
     }
-    await ctx.db.insert("auth_session_policies", {
-      ownerId,
-      minIssuedAtSec,
-      updatedAt: now,
-    });
-    return { minIssuedAtSec, updatedAt: now };
+
+    const expiresAt = Date.now() + JWT_EXPIRATION_SECONDS * 1000;
+    if (sessionIds.length > 0) {
+      await ctx.runMutation(internal.auth.recordRevokedSessionsInternal, {
+        ownerId,
+        sessionIds,
+        expiresAt,
+      });
+    }
+
+    // The real revocation.
+    await authCtx.internalAdapter.deleteSessions(userId);
+
+    return { revokedCount: sessionIds.length, expiresAt };
   },
 });
 

@@ -37,7 +37,6 @@ export const createBootstrapResetFlows = (context, options) => ({
         services.localChatHistoryService.closeForReset();
         services.authService.setHostAuthState(false);
         state.appReady = false;
-        services.authService.clearPendingAuthCallback();
         services.uiStateService.state.isVoiceRtcActive = false;
         services.captureService.resetForHardReset();
         state.windowManager?.restoreFullSize();

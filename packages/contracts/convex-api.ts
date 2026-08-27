@@ -35,7 +35,7 @@ export type PublicApiType = {
   "auth": {
     "getAuthUser": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "getCurrentUser": FunctionReference<'query', 'public', {}, any, string | undefined>;
-    "revokeActiveSessions": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
+    "revokeActiveSessions": FunctionReference<'action', 'public', {}, any, string | undefined>;
   };
   "billing": {
     "getSubscriptionStatus": FunctionReference<'query', 'public', { now?: number | undefined; }, any, string | undefined>;
@@ -125,6 +125,9 @@ export type PublicApiType = {
       "listSecrets": FunctionReference<'query', 'public', { provider?: string | undefined; }, any, string | undefined>;
       "deleteSecret": FunctionReference<'mutation', 'public', { secretId: Id<'secrets'>; }, any, string | undefined>;
     };
+  };
+  "debug_identity_probe": {
+    "probeIdentityClaims": FunctionReference<'query', 'public', {}, any, string | undefined>;
   };
   "device_identity": {
     "adoptDeviceIdentitySuccession": FunctionReference<'mutation', 'public', { deviceId: string; previousDeviceId: string; }, any, string | undefined>;

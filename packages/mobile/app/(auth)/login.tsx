@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -16,10 +16,18 @@ import {
 import * as SecureStore from "expo-secure-store";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
-import { getSetCookie } from "@better-auth/expo/client";
 import { useRouter } from "expo-router";
 import Svg, { Path } from "react-native-svg";
-import { authClient } from "../../src/lib/auth-client";
+import {
+  authClient,
+  clearMobileAuthStorage,
+  MOBILE_SESSION_TOKEN_KEY,
+} from "../../src/lib/auth-client";
+import {
+  claimSessionToken,
+  generateClaimSecret,
+  hashClaimSecret,
+} from "../../src/lib/claim-secret";
 import { clearCachedToken } from "../../src/lib/auth-token";
 import { clearCachedDesktopBridge } from "../../src/lib/desktop-bridge-chat";
 import { env } from "../../src/config/env";
@@ -63,10 +71,13 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [submitState, setSubmitState] = useState<SubmitState>({ type: "idle" });
   const [activeLegal, setActiveLegal] = useState<LegalDoc>(null);
+  // Claim secret for the in-flight handoff. A ref so it never re-renders and
+  // is never persisted.
+  const claimSecretRef = useRef<string | null>(null);
   const [canResend, setCanResend] = useState(false);
 
   const continueAsGuest = async () => {
-    await SecureStore.deleteItemAsync("stella-mobile_cookie");
+    await clearMobileAuthStorage();
     clearCachedToken();
     clearCachedDesktopBridge();
     const store = (authClient as unknown as {
@@ -90,12 +101,18 @@ export default function LoginScreen() {
     setSubmitState({ type: "sending" });
 
     try {
+      // In memory for this attempt only; the server stores just the hash.
+      const claimSecret = generateClaimSecret();
+      claimSecretRef.current = claimSecret;
       const response = await fetch(
         `${env.convexSiteUrl}/api/auth/link/send`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: trimmed }),
+          body: JSON.stringify({
+            email: trimmed,
+            claimHash: await hashClaimSecret(claimSecret),
+          }),
         },
       );
       const data = (await response.json()) as {
@@ -257,22 +274,28 @@ export default function LoginScreen() {
             `${env.convexSiteUrl}/api/auth/link/status?requestId=${encodeURIComponent(requestId)}`,
           );
           if (!res.ok) continue;
-          const data = (await res.json()) as {
-            status: string;
-            ott?: string;
-            sessionCookie?: string;
-          };
+          const data = (await res.json()) as { status: string };
 
-          if (data.status === "completed" && data.sessionCookie) {
+          if (data.status === "completed") {
             if (cancelled) return;
             setSubmitState({ type: "verifying" });
             try {
-              const prev = await SecureStore.getItemAsync("stella-mobile_cookie");
-              const parsed = getSetCookie(data.sessionCookie, prev ?? undefined);
-              await SecureStore.setItemAsync("stella-mobile_cookie", parsed);
-              // Notify the session signal so useSession() re-fetches with the
-              // newly-stored cookie. The expo plugin's init hook attaches it to
-              // the request, and the server returns valid session data.
+              const secret = claimSecretRef.current;
+              const token = secret
+                ? await claimSessionToken(
+                    env.convexSiteUrl,
+                    requestId,
+                    secret,
+                  )
+                : null;
+              if (!token) {
+                throw new Error("Handoff could not be claimed.");
+              }
+              // The native auth client attaches this bearer token to every
+              // request.
+              await SecureStore.setItemAsync(MOBILE_SESSION_TOKEN_KEY, token);
+              claimSecretRef.current = null;
+              // Nudge useSession() to re-fetch now that a credential exists.
               const store = (authClient as unknown as { $store?: { notify: (s: string) => void } }).$store;
               store?.notify("$sessionSignal");
             } catch {
@@ -281,14 +304,6 @@ export default function LoginScreen() {
                 message: t("mobile.login.finishFailed"),
               });
             }
-            return;
-          }
-          if (data.status === "completed") {
-            if (cancelled) return;
-            setSubmitState({
-              type: "error",
-              message: t("mobile.login.incomplete"),
-            });
             return;
           }
 

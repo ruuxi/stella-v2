@@ -65,8 +65,7 @@ import type {
 import type { DiscoveryKnowledgeSeedPayload } from "@stella/contracts/discovery";
 import {
   IPC_APP_QUIT_FOR_RESTART,
-  IPC_AUTH_APPLY_SESSION_COOKIE,
-  IPC_AUTH_CONSUME_PENDING_CALLBACK,
+  IPC_AUTH_APPLY_SESSION_TOKEN,
   IPC_AUTH_DELETE_USER,
   IPC_AUTH_GET_CONVEX_TOKEN,
   IPC_AUTH_GET_SESSION,
@@ -74,7 +73,6 @@ import {
   IPC_AUTH_RUNTIME_REFRESH_REQUESTED,
   IPC_AUTH_SIGN_IN_ANONYMOUS,
   IPC_AUTH_SIGN_OUT,
-  IPC_AUTH_VERIFY_CALLBACK_URL,
   IPC_BACKUP_GET_STATUS,
   IPC_BACKUP_LIST,
   IPC_BACKUP_RESTORE,
@@ -882,13 +880,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke(IPC_AUTH_SIGN_OUT) as Promise<{ ok: boolean }>,
     deleteAuthUser: () =>
       ipcRenderer.invoke(IPC_AUTH_DELETE_USER) as Promise<{ ok: boolean }>,
-    verifyAuthCallbackUrl: (url: string) =>
-      ipcRenderer.invoke(IPC_AUTH_VERIFY_CALLBACK_URL, { url }) as Promise<{
-        ok: boolean;
-      }>,
-    applyAuthSessionCookie: (sessionCookie: string) =>
-      ipcRenderer.invoke(IPC_AUTH_APPLY_SESSION_COOKIE, {
-        sessionCookie,
+    applyAuthSessionToken: (sessionToken: string) =>
+      ipcRenderer.invoke(IPC_AUTH_APPLY_SESSION_TOKEN, {
+        sessionToken,
       }) as Promise<{ ok: boolean }>,
     getConvexAuthToken: () =>
       ipcRenderer.invoke(IPC_AUTH_GET_CONVEX_TOKEN) as Promise<string | null>,
@@ -902,11 +896,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("host:setCloudSyncEnabled", payload),
     setModelCatalogUpdatedAt: (payload: { updatedAt: number | null }) =>
       ipcRenderer.invoke(IPC_HOST_SET_MODEL_CATALOG_UPDATED_AT, payload),
-    onAuthCallback: onIpc<{ url: string }>("auth:callback"),
-    consumePendingAuthCallback: () =>
-      ipcRenderer.invoke(IPC_AUTH_CONSUME_PENDING_CALLBACK) as Promise<
-        string | null
-      >,
     onRuntimeAuthRefreshRequested: onIpc<{
       requestId: string;
       source: "heartbeat" | "subscription" | "register";

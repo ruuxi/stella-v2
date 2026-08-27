@@ -82,13 +82,9 @@ export const createBootstrapServices = (options) => {
         sessionPartition: config.sessionPartition,
         runnerTarget: lifecycle,
         onAuthCallback: (url) => {
-            // External connector OAuth callbacks (`stella://oauth/callback/...`)
-            // belong to the connector credential flow, not app sign-in.
-            if (connectorCredentialService?.handleExternalOAuthCallback(url)) {
-                return;
+            if (!connectorCredentialService?.handleExternalOAuthCallback(url)) {
+                console.warn("[security] Rejected unhandled protocol callback URL.");
             }
-            state.windowManager?.showWindow();
-            options.onAuthCallback(url);
         },
         onSecondInstanceFocus: () => {
             state.windowManager?.getFullWindow()?.focus();

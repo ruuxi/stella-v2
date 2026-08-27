@@ -85,16 +85,6 @@ export function ComputerDeviceSheet({
     trailing?: string;
     onPress: () => void;
   }[] = [
-    {
-      id: "view",
-      icon: "monitor",
-      label: "View screen",
-      onPress: () => {
-        tapLight();
-        onClose();
-        router.push("/stella");
-      },
-    },
     ...(modelControlsHidden
       ? []
       : [

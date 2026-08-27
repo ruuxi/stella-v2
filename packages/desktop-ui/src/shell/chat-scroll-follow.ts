@@ -38,7 +38,10 @@ export const endAssistantScrollFollow = (key?: string): void => {
   notify()
 }
 
-export const clearAssistantScrollFollow = (): void => {
+export const clearAssistantScrollFollow = (
+  expectedKey?: string | null,
+): void => {
+  if (expectedKey !== undefined && activeFollowKey !== expectedKey) return
   if (activeFollowKey === null) return
   activeFollowKey = null
   notify()

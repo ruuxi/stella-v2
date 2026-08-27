@@ -777,10 +777,10 @@ export function useChatScrollManagement({
    * sits below it — not just a fixed ~48px bump that leaves tall bubbles
    * clipped at the top while empty space exists off-screen below.
    */
-  const nudgeAfterSend = useCallback(() => {
+  const nudgeAfterSend = useCallback((followKeyBeforeSend?: string | null) => {
     responseSpacerExpandedRef.current = true;
     setFollow(true);
-    clearAssistantScrollFollow();
+    clearAssistantScrollFollow(followKeyBeforeSend);
     followApi.current?.activateResponseSpacer();
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {

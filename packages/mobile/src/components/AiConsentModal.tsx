@@ -79,10 +79,11 @@ export function AiConsentModal({ visible, onAccept, onDecline }: Props) {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>How it's handled</Text>
             <Text style={styles.body}>
-              Stella does not permanently store your messages on its servers.
-              Your data passes through in transit to generate a response, and
-              the third-party AI services listed above process that data under
-              their own privacy policies.
+              Your cloud-authoritative conversation record and saved memory are
+              stored by Stella so they can sync across your devices. Model
+              inputs also pass through the services above to generate a
+              response, and those third-party AI services process and may retain
+              that data under their own privacy policies.
             </Text>
           </View>
 

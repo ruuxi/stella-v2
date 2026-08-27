@@ -227,48 +227,61 @@ describe("LocalAgentManager lifecycle observability", () => {
       getAgentRecord: (threadId) => persisted.get(threadId) ?? null,
     });
 
-    const created = await manager.createAgent({
-      conversationId: "abort-ignoring-eviction",
-      description: "hung task",
-      prompt: "wait forever",
-      agentType: AGENT_IDS.GENERAL,
-      storageMode: "local",
-    });
-    await firstRunStartedPromise;
-    await manager.cancelAgent(created.threadId, "Canceled for regression test");
+    try {
+      const created = await manager.createAgent({
+        conversationId: "abort-ignoring-eviction",
+        description: "hung task",
+        prompt: "wait forever",
+        agentType: AGENT_IDS.GENERAL,
+        storageMode: "local",
+      });
+      await firstRunStartedPromise;
+      await expect(
+        manager.cancelAgentAndJoin(
+          created.threadId,
+          "Canceled for regression test",
+        ),
+      ).rejects.toThrow("did not reach its bounded cancellation barrier");
 
-    expect(
-      (manager as unknown as { tasks: Map<string, unknown> }).tasks.size,
-    ).toBe(0);
-    const unrelated = await manager.createAgent({
-      conversationId: "abort-ignoring-eviction",
-      description: "unrelated task",
-      prompt: "must not remain blocked",
-      agentType: AGENT_IDS.GENERAL,
-      storageMode: "local",
-    });
-    await waitForAgentSettled(manager, unrelated.threadId);
-    expect(runCount).toBe(2);
-    await expect(
-      manager.sendAgentMessage(
-        created.threadId,
-        "continue after cancellation",
-        "orchestrator",
-      ),
-    ).resolves.toEqual({ delivered: true });
+      expect(
+        (manager as unknown as { tasks: Map<string, unknown> }).tasks.size,
+      ).toBe(0);
+      const unrelated = await manager.createAgent({
+        conversationId: "abort-ignoring-eviction",
+        description: "unrelated task",
+        prompt: "must not remain blocked",
+        agentType: AGENT_IDS.GENERAL,
+        storageMode: "local",
+      });
+      await waitForAgentSettled(manager, unrelated.threadId);
+      expect(runCount).toBe(2);
+      await expect(
+        manager.sendAgentMessage(
+          created.threadId,
+          "continue after cancellation",
+          "orchestrator",
+        ),
+      ).resolves.toEqual({ delivered: true });
 
-    await waitForAgentSettled(manager, created.threadId);
-    expect(runCount).toBe(3);
-    await expect(manager.getAgent(created.threadId)).resolves.toMatchObject({
-      status: "completed",
-      result: "resumed",
-    });
-    settleFirstRun?.();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(persisted.get(created.threadId)).toMatchObject({
-      status: "completed",
-      result: "resumed",
-    });
+      // Releasing the global scheduler slot is not physical quiescence: the
+      // same thread remains fenced until its abort-ignoring provider settles.
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(runCount).toBe(2);
+      settleFirstRun?.();
+      await waitForAgentSettled(manager, created.threadId);
+      expect(runCount).toBe(3);
+      await expect(manager.getAgent(created.threadId)).resolves.toMatchObject({
+        status: "completed",
+        result: "resumed",
+      });
+      expect(persisted.get(created.threadId)).toMatchObject({
+        status: "completed",
+        result: "resumed",
+      });
+    } finally {
+      settleFirstRun?.();
+      await manager.shutdown();
+    }
   });
 });
 

@@ -10,6 +10,12 @@ import {
   writeFileWithNulGuard,
 } from "./file-write-lock.js";
 import {
+  readWorkspaceFileNoFollow,
+  unlinkWorkspaceFileNoFollow,
+  writeWorkspaceFileNoFollow,
+} from "./workspace-file-boundary.js";
+import { MAX_FILE_BYTES } from "./utils.js";
+import {
   type FileChangeRecord,
   fileChange,
 } from "@stella/contracts/file-changes";
@@ -573,6 +579,66 @@ const applyReplacements = (
   return fileLines;
 };
 
+const scopedWorkspaceRoot = (context?: ToolContext): string | undefined =>
+  context?.toolWorkspaceRoot?.trim() || undefined;
+
+const readPatchText = async (
+  filePath: string,
+  context?: ToolContext,
+): Promise<string> => {
+  const workspaceRoot = scopedWorkspaceRoot(context);
+  if (!workspaceRoot) return await fs.readFile(filePath, "utf8");
+  const read = await readWorkspaceFileNoFollow(
+    filePath,
+    workspaceRoot,
+    MAX_FILE_BYTES,
+    context?.toolProcessIdentity
+      ? { owner: context.toolProcessIdentity }
+      : undefined,
+  );
+  return read.bytes.toString("utf8");
+};
+
+const writePatchText = async (
+  filePath: string,
+  content: string,
+  context?: ToolContext,
+  exclusive = false,
+): Promise<void> => {
+  const workspaceRoot = scopedWorkspaceRoot(context);
+  if (workspaceRoot) {
+    await writeWorkspaceFileNoFollow(filePath, workspaceRoot, content, {
+      exclusive,
+      ...(context?.toolProcessIdentity
+        ? { owner: context.toolProcessIdentity }
+        : {}),
+    });
+    return;
+  }
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await writeFileWithNulGuard(filePath, content, {
+    ...(exclusive ? { flag: "wx" } : {}),
+  });
+};
+
+const deletePatchFile = async (
+  filePath: string,
+  context?: ToolContext,
+): Promise<void> => {
+  const workspaceRoot = scopedWorkspaceRoot(context);
+  if (workspaceRoot) {
+    await unlinkWorkspaceFileNoFollow(
+      filePath,
+      workspaceRoot,
+      context?.toolProcessIdentity
+        ? { owner: context.toolProcessIdentity }
+        : undefined,
+    );
+    return;
+  }
+  await fs.unlink(filePath);
+};
+
 const applyUpdate = async (
   op: Extract<FileOp, { kind: "update" }>,
   context?: ToolContext,
@@ -586,7 +652,7 @@ const applyUpdate = async (
   return withFileWriteLocks(lockPaths, async () => {
     let original: string;
     try {
-      original = await fs.readFile(op.path, "utf-8");
+      original = await readPatchText(op.path, context);
     } catch {
       throw new Error(`apply_patch: file not found for Update: ${op.path}`);
     }
@@ -614,11 +680,10 @@ const applyUpdate = async (
     if (op.moveTo) {
       const moveBlock = isBlockedPath(op.moveTo, context);
       if (moveBlock) throw new Error(moveBlock);
-      await fs.mkdir(path.dirname(op.moveTo), { recursive: true });
-      await writeFileWithNulGuard(op.moveTo, newContent);
+      await writePatchText(op.moveTo, newContent, context);
       if (op.moveTo !== op.path) {
         try {
-          await fs.unlink(op.path);
+          await deletePatchFile(op.path, context);
         } catch {
           throw new Error(
             `apply_patch: failed to remove original '${op.path}' after move to '${op.moveTo}'.`,
@@ -626,7 +691,7 @@ const applyUpdate = async (
         }
       }
     } else {
-      await writeFileWithNulGuard(op.path, newContent);
+      await writePatchText(op.path, newContent, context);
     }
 
     return {
@@ -645,9 +710,8 @@ const applyAdd = async (
   const block = isBlockedPath(op.path, context);
   if (block) throw new Error(block);
   return withFileWriteLock(op.path, async () => {
-    await fs.mkdir(path.dirname(op.path), { recursive: true });
     const content = op.lines.join("\n") + (op.lines.length > 0 ? "\n" : "");
-    await writeFileWithNulGuard(op.path, content, { flag: "wx" });
+    await writePatchText(op.path, content, context, true);
     return { kind: "add" as const, path: op.path };
   });
 };
@@ -659,7 +723,7 @@ const applyDelete = async (
   const block = isBlockedPath(op.path, context);
   if (block) throw new Error(block);
   return withFileWriteLock(op.path, async () => {
-    await fs.unlink(op.path);
+    await deletePatchFile(op.path, context);
     return { kind: "delete" as const, path: op.path };
   });
 };

@@ -45,6 +45,7 @@ import {
   handleShellStatus,
   handleWriteStdin,
   listRunningShellSessionsOwnedBy,
+  resolveToolProcessIdentity,
   runShell,
   startShell,
 } from "@stella/runtime/kernel/tools/shell";
@@ -90,6 +91,94 @@ afterEach(() => {
 });
 
 describe("shell hardening", () => {
+  it("rejects privileged or workspace-escaping tool process identities", () => {
+    const root = createTempDir();
+    expect(() =>
+      resolveToolProcessIdentity({
+        ...toolContext("identity-root"),
+        toolWorkspaceRoot: root,
+        toolProcessIdentity: {
+          uid: 0,
+          gid: 42424,
+          home: root,
+          user: "stella-tools",
+        },
+      }),
+    ).toThrow("invalid or privileged");
+    expect(() =>
+      resolveToolProcessIdentity({
+        ...toolContext("identity-escape"),
+        toolWorkspaceRoot: root,
+        toolProcessIdentity: {
+          uid: 42424,
+          gid: 42424,
+          home: path.dirname(root),
+          user: "stella-tools",
+        },
+      }),
+    ).toThrow("must stay inside the workspace");
+    expect(() =>
+      resolveToolProcessIdentity(
+        {
+          ...toolContext("identity-windows"),
+          toolWorkspaceRoot: root,
+          toolProcessIdentity: {
+            uid: 42424,
+            gid: 42424,
+            home: root,
+            user: "stella-tools",
+          },
+        },
+        "win32",
+      ),
+    ).toThrow("only on POSIX");
+  });
+
+  it("drops shell credentials and moves its writable home into the workspace", async () => {
+    const uid = process.getuid?.();
+    const gid = process.getgid?.();
+    if (!uid || !gid) return;
+    const root = createTempDir();
+    const home = path.join(root, ".tool-home");
+    fs.mkdirSync(home);
+    const context: ToolContext = {
+      ...toolContext("identity-spawn"),
+      toolWorkspaceRoot: root,
+      toolProcessIdentity: {
+        uid,
+        gid,
+        home,
+        user: "stella-tools",
+      },
+    };
+    const result = await handleExecCommand(
+      createShellState(root),
+      {
+        cmd: "printf identity-boundary",
+        workdir: root,
+        yield_time_ms: 1_000,
+      },
+      context,
+    );
+    expect(result.result).toContain("identity-boundary");
+    const spawnOptions = mocks.spawn.mock.calls.at(-1)?.[2] as
+      | {
+          uid?: number;
+          gid?: number;
+          env?: NodeJS.ProcessEnv;
+        }
+      | undefined;
+    expect(spawnOptions).toMatchObject({ uid, gid });
+    expect(spawnOptions?.env).toMatchObject({
+      HOME: home,
+      USER: "stella-tools",
+      LOGNAME: "stella-tools",
+      XDG_CONFIG_HOME: path.join(home, ".config"),
+      XDG_CACHE_HOME: path.join(home, ".cache"),
+      XDG_STATE_HOME: path.join(home, ".local", "state"),
+    });
+  });
+
   it("sets deterministic non-TTY output environment defaults", async () => {
     const root = createTempDir();
     const result = await handleExecCommand(createShellState(root), {
@@ -770,9 +859,7 @@ describe("shell hardening", () => {
     // synthetic children. `mockImplementationOnce` preserves the suite's
     // real-fs default for every later test.
     for (let phase = 0; phase < 2; phase += 1) {
-      mocks.readdir.mockImplementationOnce(
-        async () => directories as never,
-      );
+      mocks.readdir.mockImplementationOnce(async () => directories as never);
       for (let index = 0; index < directories.length; index += 1) {
         mocks.readdir.mockImplementationOnce(readChildDirectory);
       }

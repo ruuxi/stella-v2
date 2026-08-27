@@ -9,7 +9,7 @@
  */
 
 import { configurePiRuntime } from "@/platform/electron/device";
-import { getJwtExpMs } from "@/shared/lib/jwt";
+import { getJwtExpMs, parseJwtPayload } from "@/shared/lib/jwt";
 import { authClient } from "@/global/auth/lib/auth-client";
 
 let cachedToken: string | null = null;
@@ -106,6 +106,39 @@ export async function getConvexToken(
   })();
 
   return inflightTokenPromise;
+}
+
+const tokenIdentifier = (token: string): string | null => {
+  try {
+    const payload = parseJwtPayload<{ iss?: unknown; sub?: unknown }>(token);
+    if (
+      typeof payload.iss !== "string" ||
+      !payload.iss ||
+      typeof payload.sub !== "string" ||
+      !payload.sub
+    ) {
+      return null;
+    }
+    return `${payload.iss.replace(/\/+$/, "")}|${payload.sub}`;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Returns a bearer token only when its signed issuer+subject matches the
+ * renderer's immutable cloud owner. One forced refresh closes the common
+ * account-switch cache race; a second mismatch fails closed.
+ */
+export async function getConvexTokenForSubject(
+  expectedSubject: string,
+): Promise<string | null> {
+  const expected = expectedSubject.trim();
+  if (!expected || expected !== expectedSubject) return null;
+  let token = await getConvexToken();
+  if (token && tokenIdentifier(token) === expected) return token;
+  token = await getConvexToken({ forceRefresh: true });
+  return token && tokenIdentifier(token) === expected ? token : null;
 }
 
 /**

@@ -81,11 +81,4 @@ export const createBootstrapResetFlows = (context, options) => ({
         broadcastLocalChatUpdated(context);
         return { ok: true };
     },
-    shutdownRuntime: async () => {
-        await shutdownBootstrapRuntime(context, { stopScheduler: true });
-    },
-    restartRuntime: async () => {
-        await shutdownBootstrapRuntime(context, { stopScheduler: true });
-        await options.initializeStellaHostRunner();
-    },
 });

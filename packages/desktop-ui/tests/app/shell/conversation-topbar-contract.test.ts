@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   isConversationTabTitleOverflowing,
   measureConversationTabOverflow,
+  mergeCloudConversationHistory,
   resolveHistoryDeleteActivation,
   resolveConversationTabShortcut,
   shouldMarkConversationUnread,
@@ -222,6 +223,45 @@ describe("conversation top-bar contracts", () => {
     expect(shouldMarkConversationUnread(null, "first", "second")).toBe(false);
   });
 
+  it("keeps a row that crosses the frozen history bound visible through the recent slice", () => {
+    const frozen = [
+      {
+        conversationId: "older",
+        ownerId: "owner",
+        title: "Older title",
+        createdAt: 1,
+        updatedAt: 10,
+      },
+      {
+        conversationId: "stable",
+        ownerId: "owner",
+        title: "Stable",
+        createdAt: 2,
+        updatedAt: 20,
+      },
+    ];
+    const recent = [
+      {
+        ...frozen[0]!,
+        title: "Updated title",
+        updatedAt: 100,
+      },
+      {
+        conversationId: "new",
+        ownerId: "owner",
+        title: "New",
+        createdAt: 3,
+        updatedAt: 100,
+      },
+    ];
+
+    expect(mergeCloudConversationHistory(frozen, recent)).toEqual([
+      recent[0],
+      recent[1],
+      frozen[1],
+    ]);
+  });
+
   it("renders the unread dot only on inactive tabs", () => {
     const source = fs.readFileSync(
       path.join(SOURCE_ROOT, "shell/topbar/ConversationTopBar.tsx"),
@@ -400,11 +440,11 @@ describe("conversation top-bar contracts", () => {
       path.join(SOURCE_ROOT, "shell/use-full-shell-chat.js"),
       "utf8",
     );
+    expect(topBar).toContain("useMutation(cloudApi.createMyConversation)");
+    expect(topBar).toContain("await createCloudConversation({");
+    expect(topBar).toContain("clientCreateId,");
     expect(topBar).toContain(
-      "useMutation(cloudApi.createMyConversation)",
-    );
-    expect(topBar).toContain(
-      "await createCloudConversation({ clientCreateId })",
+      "expectedOwnerGeneration: request.ownerGeneration",
     );
     expect(topBar).toContain("markCloudConversationCreated(");
     expect(topBar).not.toContain("createNewLocalConversationId");

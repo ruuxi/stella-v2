@@ -35,6 +35,7 @@ export type UserPetUploadTarget = {
 
 export type UserPetUploadUrl = {
   uploadId: string;
+  ownerGeneration: string;
   spritesheet: UserPetUploadTarget;
   preview?: UserPetUploadTarget;
 };

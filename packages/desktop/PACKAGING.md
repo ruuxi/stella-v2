@@ -72,11 +72,20 @@ orphaned helpers.
 
 ## Public service configuration
 
-Connected builds supply `VITE_CONVEX_URL` and `VITE_CONVEX_SITE_URL` at Vite
-build time. They are public service locations, not credentials. An
-unconfigured local package still mounts the offline shell and Bun runtime; its
-cloud-backed auth and synchronization features stay unavailable until those
-public URLs are supplied. Electron-main public configuration is baked from
+Connected builds supply `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, and
+`VITE_STELLA_APPS_HOST` at Vite build time. They are public service locations,
+not credentials. An unconfigured local package still mounts the offline shell
+and Bun runtime; its cloud-backed auth, synchronization, or Apps features stay
+unavailable until the corresponding public URLs are supplied. The known
+`stella-v2-apps-host-dev` origin is restricted to the CI/development harness.
+The release workflow rejects a missing, invalid, or development Apps origin;
+it must be given a reviewed production HTTPS origin through the
+`VITE_STELLA_APPS_HOST` repository variable once that deployment exists.
+CI's production-mode Vite harness opts into the development origin with the
+exact `VITE_STELLA_DEV_APPS_HOST_HARNESS=1` compile flag. Release packaging
+does not set that flag, and the renderer rejects the known development origin
+when neither Vite development mode nor that explicit harness mode is active.
+Electron-main public configuration is baked from
 `packages/desktop/config/app-config.json`; the app never reads or writes a
 source-checkout environment file at runtime.
 
@@ -162,10 +171,12 @@ M4 stops locally. To run the real release:
    `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, and `R2_ENDPOINT`. The R2 principal
    should be least-privilege for the v2 desktop and retained binary-pin
    prefixes and must not be used to write the v1 `desktop/**` namespace.
-3. Add public repository variables `VITE_CONVEX_URL` and
-   `VITE_CONVEX_SITE_URL` for connected release builds. Confirm the configured
-   R2 public base URL serves byte ranges and exposes only the intended
-   `desktop-v2/stable/<platform>` feeds to this client.
+3. Add public repository variables `VITE_CONVEX_URL`,
+   `VITE_CONVEX_SITE_URL`, and `VITE_STELLA_APPS_HOST` for connected release
+   builds. The Apps value must be a reviewed production HTTPS origin; the
+   release validator explicitly rejects the development Apps host. Confirm the
+   configured R2 public base URL serves byte ranges and exposes only the
+   intended `desktop-v2/stable/<platform>` feeds to this client.
 4. Run the retained native-helper and Stella Browser workflows first so their
    immutable manifests contain `darwin-arm64`, `darwin-x64`, `win-x64`, and
    `linux-x64`.

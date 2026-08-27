@@ -12,7 +12,11 @@
  */
 import { useSyncExternalStore } from "react";
 import { stripMarkdownForTts } from "./markdown-strip";
-import { fetchReadAloudAudio, openReadAloudStream } from "./tts-client";
+import {
+  createReadAloudOperationId,
+  fetchReadAloudAudio,
+  openReadAloudStream,
+} from "./tts-client";
 import {
   canStreamReadAloud,
   playReadAloud,
@@ -72,6 +76,7 @@ export async function toggleManualReadAloud(
     goIdle();
     return;
   }
+  const operationId = createReadAloudOperationId();
 
   setState({ key, status: "loading" });
   const onEnded = () => {
@@ -88,6 +93,7 @@ export async function toggleManualReadAloud(
     if (prefs.family === "inworld" && canStreamReadAloud()) {
       try {
         const response = await openReadAloudStream({
+          operationId,
           text: clean,
           voice: prefs.voice,
           speed: prefs.speed,
@@ -109,6 +115,7 @@ export async function toggleManualReadAloud(
     }
 
     const { audio } = await fetchReadAloudAudio({
+      operationId,
       text: clean,
       voiceProvider: prefs.family,
       voice: prefs.voice,

@@ -118,10 +118,10 @@ export const activeCloudUserMessageIds = (
  * Projects the Durable Object's canonical AgentMessage journal into the
  * renderer's existing timeline contract.
  *
- * This is a view only. It never writes the journal back into desktop SQLite:
- * signed-in history remains owned by the conversation Durable Object, while
- * the local rows can continue to serve as an execution cache and an in-flight
- * overlay before the corresponding canonical rows arrive.
+ * This is a view only. It never writes journal rows into the authoritative
+ * local transcript tables: signed-in history remains owned by the conversation
+ * Durable Object. Desktop may separately retain a bounded raw-journal cache for
+ * explicitly stale reconnect paint; that cache is never runtime/server input.
  */
 export const journalRecordsToMessageRecords = (
   records: readonly JournalRecord[],

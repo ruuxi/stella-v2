@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import { buildOpenAIRealtimeSessionConfig } from "@/features/voice/services/realtime/providers/openai-provider";
 import { buildStellaVoiceSessionRequest } from "@/features/voice/services/realtime/providers/stella-provider";
 import { toRealtimeProviderTool } from "@/features/voice/services/realtime/providers/tool-schema";
-import type { RealtimeSessionTool } from "@/features/voice/services/realtime/providers/types";
+import {
+  requireVoiceSessionAuthority,
+  type RealtimeSessionTool,
+} from "@/features/voice/services/realtime/providers/types";
 
 const tools: RealtimeSessionTool[] = [
   {
@@ -65,6 +68,39 @@ describe("realtime provider tool contract", () => {
     ).toEqual({
       ...tools[0],
       name: "image_gen",
+    });
+  });
+
+  it("requires the complete managed-session authority tuple", () => {
+    expect(() =>
+      requireVoiceSessionAuthority({
+        ownerGeneration: "owner-generation-1",
+        stellaSessionId: "voice-session-1",
+        providerDispatchId: "provider-dispatch-1",
+        providerAttemptId: "provider-attempt-1",
+        authorityLeaseId: "authority-lease-1",
+        authorityEpoch: 1,
+      }),
+    ).toThrow("did not include valid authority fields");
+
+    expect(
+      requireVoiceSessionAuthority({
+        ownerGeneration: " owner-generation-1 ",
+        stellaSessionId: " voice-session-1 ",
+        providerDispatchId: " provider-dispatch-1 ",
+        providerAttemptId: " provider-attempt-1 ",
+        authorityLeaseId: " authority-lease-1 ",
+        authorityEpoch: 1,
+        authorityExpiresAt: 123_456,
+      }),
+    ).toEqual({
+      ownerGeneration: "owner-generation-1",
+      stellaSessionId: "voice-session-1",
+      providerDispatchId: "provider-dispatch-1",
+      providerAttemptId: "provider-attempt-1",
+      authorityLeaseId: "authority-lease-1",
+      authorityEpoch: 1,
+      authorityExpiresAt: 123_456,
     });
   });
 });

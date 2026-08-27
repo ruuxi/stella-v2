@@ -13,6 +13,8 @@ import { useOnboardingAppearance } from "./use-onboarding-appearance";
 import { useOnboardingDiscovery } from "./use-onboarding-discovery";
 import { useOnboardingFlow } from "./use-onboarding-flow";
 import { useT } from "@/shared/i18n";
+import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { useCloudMemoryPreference } from "@/features/cloud/use-cloud-memory-preference";
 import "./Onboarding.css";
 
 /* Phases are eager imports because the entire onboarding flow already
@@ -35,6 +37,7 @@ import { OnboardingBrowserPhase } from "./OnboardingBrowserPhase";
 import { OnboardingThemePhase } from "./OnboardingThemePhase";
 import { OnboardingPersonalityPhase } from "./OnboardingPersonalityPhase";
 import { OnboardingVoicePhase } from "./OnboardingVoicePhase";
+import { OnboardingMemoryPhase } from "./OnboardingMemoryPhase";
 import { OnboardingEnterPhase } from "./OnboardingEnterPhase";
 import { OnboardingMockWindows } from "./OnboardingMockWindows";
 
@@ -51,6 +54,7 @@ const STEP_TITLE_KEYS: Partial<Record<Phase, string>> = {
   theme: "onboarding.stepTitles.theme",
   personality: "onboarding.stepTitles.personality",
   voice: "onboarding.stepTitles.voice",
+  memory: "settings.memory.title",
   enter: "onboarding.stepTitles.enter",
 };
 
@@ -86,6 +90,8 @@ export const OnboardingStep1 = ({
   discoveryWelcomeReady = false,
 }: OnboardingStep1Props) => {
   const t = useT();
+  const cloudMode = useCloudMode();
+  const memory = useCloudMemoryPreference();
 
   // The engine phase (Stella / Claude Code / BYOK provider) is only useful
   // for users who already run other AI dev tooling. Detection is a one-shot
@@ -217,7 +223,9 @@ export const OnboardingStep1 = ({
   const canGoPrev = splitStepIndex > 0;
   const canGoNext = splitStepIndex < SPLIT_STEP_ORDER.length - 1;
   const canReturnNext =
-    canGoNext && maxVisitedSplitStepIndex >= splitStepIndex + 1;
+    phase !== "memory" &&
+    canGoNext &&
+    maxVisitedSplitStepIndex >= splitStepIndex + 1;
   const platform = getPlatform();
   const phaseAct = PHASE_ACTS[phase];
 
@@ -305,6 +313,17 @@ export const OnboardingStep1 = ({
             onContinue={nextSplitStep}
           />
         );
+      case "memory":
+        return (
+          <OnboardingMemoryPhase
+            key={`${cloudMode.accountScope}:${cloudMode.identityRevision}`}
+            authError={cloudMode.error}
+            memory={memory}
+            splitTransitionActive={leaving}
+            onContinue={nextSplitStep}
+            onRetryAuthBootstrap={cloudMode.retryAuthBootstrap}
+          />
+        );
       case "enter":
         return (
           <OnboardingEnterPhase
@@ -380,7 +399,11 @@ export const OnboardingStep1 = ({
             <button
               type="button"
               className="onboarding-phase-nav-btn onboarding-phase-nav-btn--prev"
-              disabled={!canGoPrev || leaving}
+              disabled={
+                !canGoPrev ||
+                leaving ||
+                (phase === "memory" && memory.status === "saving")
+              }
               onClick={prevSplitStep}
               aria-label={t("onboarding.previousStep")}
             >

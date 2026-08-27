@@ -24,6 +24,7 @@ export const SPLIT_PHASES = new Set<Phase>([
   "extension",
   "engine",
   "voice",
+  "memory",
   "enter",
 ]);
 
@@ -33,7 +34,7 @@ export const SPLIT_PHASES = new Set<Phase>([
  *   Discover      — what Stella can do
  *   Make it yours — theme and personality
  *   Connect       — permissions, browser discovery, extension, engine
- *   Your flow     — voice
+ *   Your flow     — voice and memory
  *   Ready         — the final gate
  *
  * The act label renders as a small eyebrow above each step title so the
@@ -49,6 +50,7 @@ export const SPLIT_STEP_ORDER: Phase[] = [
   "extension",
   "engine",
   "voice",
+  "memory",
   "enter",
 ];
 
@@ -68,6 +70,7 @@ export const PHASE_ACTS: Partial<Record<Phase, OnboardingAct>> = {
   extension: "connect",
   engine: "connect",
   voice: "flow",
+  memory: "flow",
   enter: "ready",
 };
 

@@ -111,15 +111,38 @@ describe("cloud runtime operational state", () => {
       agentDepth: 1,
       status: "running",
       attemptGeneration: 1,
+      cloudTerminalReceiptGeneration: 1,
+      terminalLifecycleReceiptGeneration: 1,
+      descendantBoundaryState: {
+        consumedEventIds: ["child:1:agent-completed"],
+        wakePending: true,
+      },
       startedAt: 100,
       completedAt: null,
       updatedAt: 101,
     });
 
     expect(store.getAgentRecord("thread-cloud")?.storageMode).toBe("cloud");
+    expect(
+      store.getAgentRecord("thread-cloud")?.cloudTerminalReceiptGeneration,
+    ).toBe(1);
+    expect(
+      store.getAgentRecord("thread-cloud")
+        ?.terminalLifecycleReceiptGeneration,
+    ).toBe(1);
+    expect(
+      store.getAgentRecord("thread-cloud")?.descendantBoundaryState,
+    ).toEqual({
+      consumedEventIds: ["child:1:agent-completed"],
+      wakePending: true,
+    });
     expect(store.listAgentRecordsByStatus("running")[0]?.storageMode).toBe(
       "cloud",
     );
+    expect(
+      store.listAgentRecordsByStatus("running")[0]
+        ?.cloudTerminalReceiptGeneration,
+    ).toBe(1);
     database.close();
   });
 

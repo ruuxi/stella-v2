@@ -324,4 +324,89 @@ describe("cloud conversation journal compatibility", () => {
       socket.stop();
     }
   });
+
+  test("retries an empty incomplete canonical range and then fails explicitly", async () => {
+    Object.defineProperty(globalThis, "WebSocket", {
+      configurable: true,
+      writable: true,
+      value: FakeWebSocket,
+    });
+    const events: ConversationSocketEvent[] = [];
+    const socket = new ConversationSocket({
+      conversationId: "conversation-incomplete",
+      baseUrl: "https://builder.example.test",
+      getToken: async () => "header.payload.signature",
+      onEvent: (event) => events.push(event),
+    });
+
+    try {
+      socket.start();
+      await Promise.resolve();
+      await Promise.resolve();
+      const transport = FakeWebSocket.instances[0];
+      if (!transport) throw new Error("socket was not created");
+      transport.open();
+      transport.receive({
+        type: "ready",
+        protocol: 1,
+        conversationId: "conversation-incomplete",
+        epoch: 1,
+        headSeq: 2,
+        windowStartSeq: 1,
+        floorSeq: 1,
+        title: "Incomplete",
+        activity: "idle",
+        authExpiresAtMs: 3_600_000,
+        serverTimeMs: 0,
+        live: null,
+      });
+      // The opening window promised seq 1. Receiving seq 2 first must repair
+      // that prefix rather than adopting 2 as an arbitrary fresh start.
+      transport.receive({
+        type: "record",
+        seq: 2,
+        turnId: "turn-incomplete",
+        createdAtMs: 2,
+        kind: "message",
+        role: "assistant",
+        hidden: false,
+        payload: { role: "assistant", content: "two" },
+      });
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const requests = transport.sent
+          .map((entry) => JSON.parse(entry) as Record<string, unknown>)
+          .filter((entry) => entry.type === "backfill");
+        expect(requests).toHaveLength(attempt + 1);
+        const request = requests.at(-1);
+        transport.receive({
+          type: "backfill",
+          requestId: request?.requestId,
+          fromSeq: 1,
+          toSeq: 1,
+          complete: false,
+          records: [],
+        });
+      }
+
+      expect(
+        events.findLast(
+          (
+            event,
+          ): event is Extract<ConversationSocketEvent, { type: "status" }> =>
+            event.type === "status",
+        ),
+      ).toMatchObject({
+        type: "status",
+        status: "blocked",
+        retryable: true,
+        message:
+          "Stella couldn't recover part of this conversation. Retry to load it safely.",
+      });
+      expect(events.some((event) => event.type === "records")).toBe(false);
+      expect(transport.readyState).toBe(FakeWebSocket.CLOSED);
+    } finally {
+      socket.stop();
+    }
+  });
 });

@@ -9,6 +9,15 @@ import { uiStateSharedStore } from "./vite/ui-state-plugin.ts";
 
 const __dirname = import.meta.dirname;
 
+const ROUTER_CONFIG = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, "tsr.config.json"), "utf8"),
+) as {
+  target: "react";
+  autoCodeSplitting: boolean;
+  routesDirectory: string;
+  generatedRouteTree: string;
+};
+
 // Written by the supervisor after every electron-bundle build; not a renderer
 // module, and its write cadence would only churn the watcher.
 const BUNDLE_FINGERPRINT_FILE = path.resolve(
@@ -241,12 +250,7 @@ const packageChunkName = (packageName: string): string =>
 
 export default defineConfig({
   plugins: [
-    TanStackRouterVite({
-      target: "react",
-      autoCodeSplitting: true,
-      routesDirectory: "./src/routes",
-      generatedRouteTree: "./src/routeTree.gen.ts",
-    }),
+    TanStackRouterVite(ROUTER_CONFIG),
     react(),
     tailwindcss(),
     devCspRelax(),

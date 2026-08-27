@@ -31,7 +31,13 @@ import path from "path";
 import os from "os";
 import { StringDecoder } from "node:string_decoder";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from "fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  realpathSync,
+  writeFileSync,
+} from "fs";
 import { readdir, stat } from "fs/promises";
 import {
   fileChange,
@@ -43,6 +49,7 @@ import {
 import type {
   ProducedFilesOmission,
   ToolContext,
+  ToolProcessIdentity,
   ToolResult,
   ShellRecord,
   ToolUpdateCallback,
@@ -64,6 +71,7 @@ import { sanitizeToolVisibleText } from "./safety.js";
 import type { OfficePreviewRef } from "@stella/contracts/office-preview";
 import { purgeExpiredDeferredDeletes } from "./deferred-delete.js";
 import { resolveToolFallbackCwd } from "./cwd.js";
+import { isolateToolProcessLaunch } from "./process-isolation.js";
 
 type PrunedProducedFilesRecovery = {
   prunedAt: number;
@@ -99,6 +107,7 @@ export type ShellState = {
 };
 
 type ShellStateOptions = {
+  enableShellShims?: boolean;
   stellaBrowserBinPath?: string;
   stellaOfficeBinPath?: string;
   stellaComputerCliPath?: string;
@@ -351,8 +360,7 @@ const createSnapshotBudget = (
   // Convert the caller's public wall-clock deadline exactly once. Snapshot
   // progress thereafter uses the monotonic clock, so a wall-clock adjustment
   // cannot prematurely expire or indefinitely extend a filesystem walk.
-  deadlineAtMonotonic:
-    performance.now() + Math.max(0, deadlineAt - Date.now()),
+  deadlineAtMonotonic: performance.now() + Math.max(0, deadlineAt - Date.now()),
   ...(signal ? { signal } : {}),
 });
 
@@ -548,6 +556,13 @@ const resolveShellSnapshotRoot = (
   cwd: string,
   context?: ToolContext,
 ): string => {
+  if (context?.storageMode === "cloud") {
+    const workspaceRoot = context.toolWorkspaceRoot?.trim();
+    if (!workspaceRoot || !path.isAbsolute(workspaceRoot)) {
+      throw new Error("Cloud shell snapshots require a workspace boundary.");
+    }
+    return normalizeSnapshotRoot(workspaceRoot);
+  }
   const resolvedCwd = normalizeSnapshotRoot(cwd);
   const resolvedStellaAppDir = context?.stellaAppDir?.trim()
     ? normalizeSnapshotRoot(context.stellaAppDir)
@@ -902,11 +917,14 @@ const snapshotShellSideEffects = async (
   externalCandidateSnapshots?: ExternalCandidateSnapshot[];
 }> => {
   const rootSnapshot = await snapshotFiles(snapshotRoot, budget);
-  const externalCandidateSnapshots = await snapshotExternalCandidates(
-    inferShellMentionedPaths(args, context),
-    snapshotRoot,
-    budget,
-  );
+  const externalCandidateSnapshots =
+    context?.storageMode === "cloud"
+      ? undefined
+      : await snapshotExternalCandidates(
+          inferShellMentionedPaths(args, context),
+          snapshotRoot,
+          budget,
+        );
   return { rootSnapshot, externalCandidateSnapshots };
 };
 
@@ -1507,9 +1525,12 @@ export function createShellState(
     throw new Error("createShellState requires a secretStateRoot.");
   }
 
-  const nodeShimDir = ensureNodeShim(secretStateRoot, options);
+  const nodeShimDir =
+    options?.enableShellShims === false
+      ? undefined
+      : ensureNodeShim(secretStateRoot, options);
   const windowsCliShimDir =
-    process.platform === "win32"
+    options?.enableShellShims !== false && process.platform === "win32"
       ? ensureWindowsCliShims(secretStateRoot, options)
       : undefined;
 
@@ -2348,8 +2369,14 @@ const spawnShellProcess = (
   cwd: string,
   env: NodeJS.ProcessEnv,
   windowsVerbatimArguments = false,
-) =>
-  spawn(shell, args, {
+  processIdentity?: ToolProcessIdentity,
+) => {
+  const launch = isolateToolProcessLaunch({
+    command: shell,
+    commandArgs: args,
+    identity: processIdentity,
+  });
+  return spawn(launch.command, launch.args, {
     cwd,
     env,
     stdio: ["pipe", "pipe", "pipe"],
@@ -2358,7 +2385,14 @@ const spawnShellProcess = (
     // On Unix, make the shell the leader of its own process group so timeouts
     // and manual kills can terminate the entire command tree.
     detached: process.platform !== "win32",
+    ...(launch.nativeIdentity
+      ? {
+          uid: launch.nativeIdentity.uid,
+          gid: launch.nativeIdentity.gid,
+        }
+      : {}),
   });
+};
 
 const DEFAULT_PTY_COLUMNS = 80;
 const DEFAULT_PTY_ROWS = 24;
@@ -2390,6 +2424,7 @@ const spawnPtyShellProcess = (
   env: NodeJS.ProcessEnv,
   windowsVerbatimArguments: boolean,
   callbacks: PtyShellCallbacks,
+  processIdentity?: ToolProcessIdentity,
 ): SpawnedPtyShell => {
   const bunRuntime = (globalThis as typeof globalThis & { Bun?: typeof Bun })
     .Bun;
@@ -2423,9 +2458,14 @@ const spawnPtyShellProcess = (
     },
   });
 
+  const launch = isolateToolProcessLaunch({
+    command: shell,
+    commandArgs: args,
+    identity: processIdentity,
+  });
   let subprocess: Bun.Subprocess;
   try {
-    subprocess = bunRuntime.spawn([shell, ...args], {
+    subprocess = bunRuntime.spawn([launch.command, ...launch.args], {
       cwd,
       env: {
         ...env,
@@ -2435,6 +2475,12 @@ const spawnPtyShellProcess = (
       windowsHide: true,
       windowsVerbatimArguments,
       detached: process.platform !== "win32",
+      ...(launch.nativeIdentity
+        ? {
+            uid: launch.nativeIdentity.uid,
+            gid: launch.nativeIdentity.gid,
+          }
+        : {}),
       onExit: (_subprocess, exitCode, signalCode, error) => {
         const normalizedError = error
           ? error instanceof Error
@@ -2626,6 +2672,58 @@ const shouldUseStellaMedia = (command: string): boolean =>
 const shouldUseStellaXApi = (command: string): boolean =>
   /\bstella-x-api\b/.test(command);
 
+const pathInside = (candidate: string, root: string): boolean => {
+  const relative = path.relative(root, candidate);
+  return (
+    relative === "" ||
+    (relative !== ".." &&
+      !relative.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relative))
+  );
+};
+
+/** Validate the trusted host's child credential drop before any spawn. */
+export const resolveToolProcessIdentity = (
+  context?: ToolContext,
+  platform: NodeJS.Platform = process.platform,
+): ToolProcessIdentity | undefined => {
+  const identity = context?.toolProcessIdentity;
+  if (!identity) return undefined;
+  if (platform === "win32") {
+    throw new Error("Tool process identity is available only on POSIX hosts.");
+  }
+  if (
+    !Number.isSafeInteger(identity.uid) ||
+    identity.uid <= 0 ||
+    identity.uid > 2_147_483_647 ||
+    !Number.isSafeInteger(identity.gid) ||
+    identity.gid <= 0 ||
+    identity.gid > 2_147_483_647 ||
+    !/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(identity.user)
+  ) {
+    throw new Error("Tool process identity is invalid or privileged.");
+  }
+  const workspaceRoot = context?.toolWorkspaceRoot?.trim();
+  if (!workspaceRoot || !path.isAbsolute(workspaceRoot)) {
+    throw new Error(
+      "Tool process identity requires an absolute workspace boundary.",
+    );
+  }
+  const home = path.resolve(identity.home);
+  const roots = [workspaceRoot, context?.stellaDataDir]
+    .filter((candidate): candidate is string => Boolean(candidate?.trim()))
+    .map((candidate) => path.resolve(candidate));
+  if (
+    !path.isAbsolute(identity.home) ||
+    !roots.some((root) => pathInside(home, root))
+  ) {
+    throw new Error(
+      "Tool process home must stay inside the workspace or its trusted tool-state directory.",
+    );
+  }
+  return { ...identity, home };
+};
+
 export const startShell = (
   state: ShellState,
   command: string,
@@ -2637,6 +2735,7 @@ export const startShell = (
   onActivity?: (record: ManagedShellRecord, delta?: ShellOutputDelta) => void,
   launchOptions: ShellLaunchOptions = {},
   producedFileLimit: number = MAX_PRODUCED_FILES_PER_COMMAND,
+  processIdentity?: ToolProcessIdentity,
 ) => {
   maybeSweepDeferredDeletes(state);
   const id = crypto.randomUUID();
@@ -2815,6 +2914,7 @@ export const startShell = (
             }
           },
         },
+        processIdentity,
       );
       record.pty = pty;
       record.stdinOpen = true;
@@ -2840,6 +2940,7 @@ export const startShell = (
         cwd,
         shellEnv,
         launch.windowsVerbatimArguments,
+        processIdentity,
       );
     } catch (error) {
       return failedRecord(
@@ -2957,6 +3058,7 @@ export const runShell = async (
   timeoutMs: number,
   envOverrides?: Record<string, string>,
   launchOptions: ShellLaunchOptions = {},
+  processIdentity?: ToolProcessIdentity,
 ) => {
   maybeSweepDeferredDeletes(state);
   const launch = resolveStateShellLaunch(command, state, launchOptions);
@@ -2993,6 +3095,7 @@ export const runShell = async (
             cwd,
             buildShellEnv(envOverrides, state, launchOptions.tty === true),
             launch.windowsVerbatimArguments,
+            processIdentity,
           );
         } catch (error) {
           return describeShellSpawnFailure(
@@ -3082,16 +3185,59 @@ const resolveManagedShellCommand = (
   cwd: string;
   envOverrides: Record<string, string>;
   launchOptions: ShellLaunchOptions;
+  processIdentity?: ToolProcessIdentity;
 } => {
   const command = String(args.cmd ?? args.command ?? "");
   const explicitCwd = args.workdir ?? args.working_directory;
-  const cwd =
+  let cwd =
     explicitCwd !== undefined && explicitCwd !== null
       ? String(explicitCwd)
       : resolveToolFallbackCwd(
           context?.toolWorkspaceRoot ?? context?.stellaAppDir,
         );
+  if (context?.storageMode === "cloud") {
+    const workspaceRoot = context.toolWorkspaceRoot?.trim();
+    if (!workspaceRoot || !path.isAbsolute(workspaceRoot)) {
+      throw new Error("Cloud shell commands require a workspace boundary.");
+    }
+    const lexicalRoot = path.resolve(workspaceRoot);
+    const lexicalCwd = path.resolve(cwd);
+    if (!pathInside(lexicalCwd, lexicalRoot)) {
+      throw new Error("Cloud shell workdir must stay inside the workspace.");
+    }
+    let canonicalRoot: string;
+    let canonicalCwd: string;
+    try {
+      canonicalRoot = realpathSync.native(lexicalRoot);
+      canonicalCwd = realpathSync.native(lexicalCwd);
+    } catch {
+      throw new Error("Cloud shell workdir must be an existing real directory.");
+    }
+    if (
+      canonicalRoot !== lexicalRoot ||
+      canonicalCwd !== lexicalCwd ||
+      !pathInside(canonicalCwd, canonicalRoot)
+    ) {
+      throw new Error(
+        "Cloud shell workdir must be canonical and contain no symbolic links.",
+      );
+    }
+    cwd = canonicalCwd;
+  }
   const envOverrides: Record<string, string> = {};
+  const processIdentity = resolveToolProcessIdentity(context);
+  if (processIdentity) {
+    envOverrides.HOME = processIdentity.home;
+    envOverrides.USER = processIdentity.user;
+    envOverrides.LOGNAME = processIdentity.user;
+    envOverrides.XDG_CONFIG_HOME = path.join(processIdentity.home, ".config");
+    envOverrides.XDG_CACHE_HOME = path.join(processIdentity.home, ".cache");
+    envOverrides.XDG_STATE_HOME = path.join(
+      processIdentity.home,
+      ".local",
+      "state",
+    );
+  }
   const stellaComputerSessionId = getStellaComputerSessionId(context);
   const localBinPaths = [
     ...(context?.stellaDataDir
@@ -3143,6 +3289,7 @@ const resolveManagedShellCommand = (
     command,
     cwd,
     envOverrides,
+    ...(processIdentity ? { processIdentity } : {}),
     launchOptions: {
       ...(requestedShell ? { shell: requestedShell } : {}),
       login: args.login !== false,
@@ -3622,6 +3769,7 @@ export const handleExecCommand = async (
     emitUpdate,
     prepared.launchOptions,
     resolveProducedFileLimit(context),
+    prepared.processIdentity,
   );
   setShellOwner(record, context);
   let interaction: ShellInteractionLease;
@@ -3995,6 +4143,7 @@ export const handleBash = async (
       undefined,
       prepared.launchOptions,
       resolveProducedFileLimit(context),
+      prepared.processIdentity,
     );
     setShellOwner(record, context);
     const extracted = extractOfficePreviewRef(record.output || "");
@@ -4015,7 +4164,15 @@ export const handleBash = async (
     };
   }
 
-  const output = await runShell(state, command, cwd, timeout, envOverrides);
+  const output = await runShell(
+    state,
+    command,
+    cwd,
+    timeout,
+    envOverrides,
+    prepared.launchOptions,
+    prepared.processIdentity,
+  );
   let produced: ProducedFilesOutcome = {};
   if (shouldSnapshotSideEffects && snapshotRoot) {
     const snapshotDeadlineAt = Date.now() + PRODUCED_FILE_COLLECTION_ATTEMPT_MS;

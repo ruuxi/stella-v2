@@ -3,12 +3,25 @@ import { Database } from "bun:sqlite";
 import { initializeDesktopDatabase } from "../storage/database-init.js";
 import { RuntimeStore } from "../storage/runtime-store.js";
 import type { SqliteDatabase } from "../storage/shared.js";
-import { createLegacyChatCloudImporter } from "./legacy-chat-cloud-import.js";
+import {
+  createLegacyChatCloudImporter as createLegacyChatCloudImporterImpl,
+  type LegacyChatCloudImporter,
+} from "./legacy-chat-cloud-import.js";
 import {
   CloudTranscriptAlreadyAdmittedError,
   type CloudTranscriptBeginRequest,
   type CloudTranscriptFinishRequest,
 } from "./cloud-transcript-write.js";
+
+const OWNER_GENERATION = "owner-generation-1";
+const importers: LegacyChatCloudImporter[] = [];
+const createLegacyChatCloudImporter = (
+  args: Parameters<typeof createLegacyChatCloudImporterImpl>[0],
+): LegacyChatCloudImporter => {
+  const importer = createLegacyChatCloudImporterImpl(args);
+  importers.push(importer);
+  return importer;
+};
 
 const openedStores: Array<{
   database: Database;
@@ -36,6 +49,7 @@ const waitFor = async (predicate: () => boolean): Promise<void> => {
 };
 
 afterEach(() => {
+  while (importers.length) importers.pop()?.stop();
   while (openedStores.length) openedStores.pop()?.database.close();
 });
 
@@ -73,6 +87,7 @@ describe("legacy chat cloud import", () => {
       store,
       hasAuthToken: () => true,
       cloud: {
+        getOwnerGeneration: async () => OWNER_GENERATION,
         getOwnershipMigrationStatus: async () => null,
         getConversation: async () => null,
         createConversation: async () => {
@@ -104,6 +119,16 @@ describe("legacy chat cloud import", () => {
 
     expect(creates).toBe(1);
     expect(begins).toHaveLength(2);
+    expect(begins.every((begin) => begin.ownerGeneration === OWNER_GENERATION)).toBe(
+      true,
+    );
+    expect(
+      finishes.every((finish) => finish.ownerGeneration === OWNER_GENERATION),
+    ).toBe(true);
+    expect(store.getLegacyChatCloudImport(localConversationId)).toMatchObject({
+      ownerGeneration: OWNER_GENERATION,
+      status: "complete",
+    });
     expect(
       begins.map((begin) => JSON.parse(begin.userMessageJson).content[0].text),
     ).toEqual(["First question", "Second question"]);
@@ -145,6 +170,7 @@ describe("legacy chat cloud import", () => {
       store,
       hasAuthToken: () => true,
       cloud: {
+        getOwnerGeneration: async () => OWNER_GENERATION,
         getOwnershipMigrationStatus: async () => null,
         getConversation: async () => null,
         createConversation: async () => {
@@ -196,12 +222,14 @@ describe("legacy chat cloud import", () => {
     });
 
     const beginIdentities: Array<{
+      ownerGeneration: string;
       localTurnId: string;
       clientMsgId: string;
     }> = [];
     const createIds: string[] = [];
     let finishAttempts = 0;
     const cloud = {
+      getOwnerGeneration: async () => OWNER_GENERATION,
       getOwnershipMigrationStatus: async () => null,
       getConversation: async () => null,
       createConversation: async (args: { clientCreateId: string }) => {
@@ -217,6 +245,7 @@ describe("legacy chat cloud import", () => {
       cloudTranscript: {
         begin: async (request) => {
           beginIdentities.push({
+            ownerGeneration: request.ownerGeneration,
             localTurnId: request.localTurnId,
             clientMsgId: request.clientMsgId,
           });
@@ -249,6 +278,7 @@ describe("legacy chat cloud import", () => {
       cloudTranscript: {
         begin: async (request) => {
           beginIdentities.push({
+            ownerGeneration: request.ownerGeneration,
             localTurnId: request.localTurnId,
             clientMsgId: request.clientMsgId,
           });
@@ -282,5 +312,67 @@ describe("legacy chat cloud import", () => {
       { id: "crash-assistant", text: "Answer before crash" },
     ]);
     secondImporter.stop();
+  });
+
+  test("restart never resumes generation N import after owner generation N+1", async () => {
+    const { store } = openStore();
+    const localConversationId = "01JLEGACYGENERATIONROTATE";
+    store.appendEvent({
+      conversationId: localConversationId,
+      eventId: "generation-user",
+      type: "user_message",
+      timestamp: 1,
+      payload: { text: "Do not cross the reset boundary" },
+    });
+    store.saveLegacyChatCloudImport({
+      localConversationId,
+      cloudConversationId: "cloud-generation-1",
+      ownerGeneration: OWNER_GENERATION,
+      nextTurnIndex: 0,
+      status: "pending",
+    });
+    let cloudCalls = 0;
+    let transcriptCalls = 0;
+    const importer = createLegacyChatCloudImporter({
+      deviceId: "device-1",
+      store,
+      hasAuthToken: () => true,
+      cloud: {
+        getOwnerGeneration: async () => "owner-generation-2",
+        getOwnershipMigrationStatus: async () => null,
+        getConversation: async () => {
+          cloudCalls += 1;
+          return null;
+        },
+        createConversation: async () => {
+          cloudCalls += 1;
+          return { conversationId: "must-not-be-created" };
+        },
+      },
+      cloudTranscript: {
+        begin: async () => {
+          transcriptCalls += 1;
+          throw new Error("stale import must not begin");
+        },
+        finish: async () => {
+          transcriptCalls += 1;
+          return { queued: true };
+        },
+      },
+    });
+
+    importer.resume();
+    await waitFor(
+      () =>
+        store.getLegacyChatCloudImport(localConversationId)?.status ===
+        "skipped",
+    );
+    expect(cloudCalls).toBe(0);
+    expect(transcriptCalls).toBe(0);
+    expect(store.getLegacyChatCloudImport(localConversationId)).toMatchObject({
+      ownerGeneration: OWNER_GENERATION,
+      status: "skipped",
+      detail: "owner-generation-changed",
+    });
   });
 });

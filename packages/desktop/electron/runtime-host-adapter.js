@@ -221,6 +221,9 @@ export class RuntimeHostAdapter {
             case AGENT_STREAM_EVENT_TYPES.STATUS:
                 session.callbacks.onStatus?.(event);
                 break;
+            case AGENT_STREAM_EVENT_TYPES.PROVIDER_LIFECYCLE:
+                session.callbacks.onProviderLifecycle?.(event);
+                break;
             case AGENT_STREAM_EVENT_TYPES.TOOL_START:
                 session.callbacks.onToolStart(event);
                 break;

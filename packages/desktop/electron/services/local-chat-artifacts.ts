@@ -258,10 +258,11 @@ const considerNewestSource = (
     typeof currentSequence === "number" &&
     typeof candidateSequence === "number";
   return !current ||
-  (useSequence
-    ? candidateSequence > currentSequence
-    : candidate.timestamp > current.timestamp ||
-      (candidate.timestamp === current.timestamp && candidate.id > current.id))
+    (useSequence
+      ? candidateSequence > currentSequence
+      : candidate.timestamp > current.timestamp ||
+        (candidate.timestamp === current.timestamp &&
+          candidate.id > current.id))
     ? candidate
     : current;
 };
@@ -1215,8 +1216,9 @@ export const deriveMobileToolSteps = (
 };
 
 /**
- * Lift successful direct or node_repl-deferred `map-route` artifacts (see
- * `runtime/kernel/tools/defs/map.ts`) for mobile inline map cards.
+ * Lift successful direct or code-deferred `map-route` artifacts (see
+ * `runtime/kernel/tools/defs/map.ts`) for mobile inline map cards. Legacy
+ * `node_repl` rows remain readable after the public rename.
  */
 const mapArtifactPayloads = (
   event: ArtifactEventRecord,
@@ -1225,7 +1227,9 @@ const mapArtifactPayloads = (
   const payload = event.payload;
   if (
     !payload ||
-    (payload.toolName !== "map" && payload.toolName !== "node_repl") ||
+    (payload.toolName !== "map" &&
+      payload.toolName !== "code" &&
+      payload.toolName !== "node_repl") ||
     payload.error
   ) {
     return [];
@@ -1237,8 +1241,7 @@ const mapArtifactPayloads = (
 export const deriveMobileArtifactsForMessage = (
   message: Pick<ArtifactMessageRecord, "toolEvents">,
   options?: MobileArtifactOptions,
-): MobileSyncArtifact[] =>
-  deriveMobileArtifactsForMessages([message], options);
+): MobileSyncArtifact[] => deriveMobileArtifactsForMessages([message], options);
 
 /**
  * File/media artifacts across a group of message records (one turn's
@@ -1253,7 +1256,12 @@ export const deriveMobileArtifactsForMessages = (
   const seen = new Set<string>();
 
   for (const message of messages) {
-    collectMobileArtifactsFromEvents(message.toolEvents, artifacts, seen, options);
+    collectMobileArtifactsFromEvents(
+      message.toolEvents,
+      artifacts,
+      seen,
+      options,
+    );
   }
 
   return artifacts.slice(0, ARTIFACT_LIMIT_PER_MESSAGE);
@@ -1416,21 +1424,26 @@ export const buildMobileSyncMessages = (
               const candidate = imageGenPayload(event);
               if (!candidate || candidate.kind !== "media") return false;
               const artifactCallId =
-                "toolCallId" in artifact && typeof artifact.toolCallId === "string"
+                "toolCallId" in artifact &&
+                typeof artifact.toolCallId === "string"
                   ? artifact.toolCallId
                   : undefined;
               const candidateCallId =
-                "toolCallId" in candidate && typeof candidate.toolCallId === "string"
+                "toolCallId" in candidate &&
+                typeof candidate.toolCallId === "string"
                   ? candidate.toolCallId
                   : undefined;
               if (artifactCallId && candidateCallId) {
                 return artifactCallId === candidateCallId;
               }
-              return candidate.asset.kind === "image" &&
-                candidate.asset.filePaths.some((path) =>
-                  artifact.asset.kind === "image" &&
-                  artifact.asset.filePaths.includes(path),
-                );
+              return (
+                candidate.asset.kind === "image" &&
+                candidate.asset.filePaths.some(
+                  (path) =>
+                    artifact.asset.kind === "image" &&
+                    artifact.asset.filePaths.includes(path),
+                )
+              );
             }),
           );
           // Tool results anchored to an earlier assistant segment happened
@@ -1448,9 +1461,7 @@ export const buildMobileSyncMessages = (
         for (const segment of turnSegments) {
           fileArtifactsByMessageId.set(
             segment._id,
-            segment === anchor
-              ? turnArtifacts
-              : [],
+            segment === anchor ? turnArtifacts : [],
           );
         }
       }

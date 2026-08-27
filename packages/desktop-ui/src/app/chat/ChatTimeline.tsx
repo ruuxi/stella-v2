@@ -344,6 +344,10 @@ export const ChatTimeline = memo(function ChatTimeline({
       };
     });
   }, [indicator, queuedUserMessages, rows]);
+  const renderedMessageRowCount = listItems.reduce(
+    (count, item) => count + (item.type === "message" ? 1 : 0),
+    0,
+  );
 
   const renderItem = useCallback(
     ({ item }: LegendListRenderItemProps<TimelineListItem>) => {
@@ -453,6 +457,7 @@ export const ChatTimeline = memo(function ChatTimeline({
       estimatedItemSize={estimatedItemSize}
       drawDistance={drawDistance}
       recycleItems={recycleItems}
+      data-rendered-row-count={renderedMessageRowCount}
       alignItemsAtEnd={alignItemsAtEnd}
       maintainVisibleContentPosition
       initialScrollAtEnd

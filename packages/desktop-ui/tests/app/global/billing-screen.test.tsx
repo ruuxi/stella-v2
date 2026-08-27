@@ -239,7 +239,9 @@ describe("billing panel", () => {
     });
     await render();
 
-    expect(container.textContent).toContain("You've reached the Free plan limit");
+    expect(container.textContent).toContain(
+      "You've reached the Free plan limit",
+    );
     expect(container.textContent).toContain("10× higher usage");
     expect(container.textContent).not.toContain("try again");
 
@@ -250,6 +252,7 @@ describe("billing panel", () => {
     expect(mocks.startCheckout).toHaveBeenCalledWith({
       plan: "go",
       returnUrl: "https://stella.sh/billing",
+      requestId: expect.any(String),
     });
   });
 
@@ -379,11 +382,38 @@ describe("billing panel", () => {
     expect(mocks.startCheckout).toHaveBeenCalledWith({
       plan: "pro",
       returnUrl: "https://stella.sh/billing",
+      requestId: expect.any(String),
     });
     expect(mocks.openExternalUrl).toHaveBeenCalledWith(
       "https://checkout.stripe.com/session",
     );
     expect(container.textContent).toContain("Checkout opened in your browser");
+  });
+
+  it("reuses the logical checkout request id after an ambiguous failure", async () => {
+    seedQueries(subscriptionStatus());
+    mocks.startCheckout
+      .mockRejectedValueOnce(new Error("network response lost"))
+      .mockResolvedValueOnce({
+        url: "https://checkout.stripe.com/session-retry",
+        sessionId: "cs_retry",
+      });
+    await render();
+
+    await act(async () => {
+      findButton("Choose Pro")?.click();
+    });
+    const firstRequest = mocks.startCheckout.mock.calls[0]?.[0];
+    await act(async () => {
+      findButton("Choose Pro")?.click();
+    });
+    const secondRequest = mocks.startCheckout.mock.calls[1]?.[0];
+
+    expect(firstRequest.requestId).toEqual(expect.any(String));
+    expect(secondRequest.requestId).toBe(firstRequest.requestId);
+    expect(mocks.openExternalUrl).toHaveBeenCalledWith(
+      "https://checkout.stripe.com/session-retry",
+    );
   });
 
   it("routes paid subscribers to the Stripe portal for plan changes", async () => {
@@ -411,6 +441,7 @@ describe("billing panel", () => {
     expect(mocks.startCheckout).not.toHaveBeenCalled();
     expect(mocks.openPortal).toHaveBeenCalledWith({
       returnUrl: "https://stella.sh/billing",
+      requestId: expect.any(String),
     });
     expect(mocks.openExternalUrl).toHaveBeenCalledWith(
       "https://billing.stripe.com/portal",

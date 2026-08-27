@@ -22,12 +22,15 @@ export type RealtimeTransportProvider = "openai" | "xai" | "inworld";
 
 /**
  * Provider-specific SDP answer fetcher used by the WebRTC transport.
- * Takes the local SDP offer (string) and returns the remote SDP answer.
- * The provider module is responsible for choosing the endpoint, auth
- * scheme, and any proxy/wrapper (e.g. Stella's backend SDP proxy that
- * keeps the org Inworld key server-side).
+ * Takes the local SDP offer plus the transport-owned cancellation signal and
+ * returns the remote SDP answer. The provider module is responsible for
+ * choosing the endpoint, auth scheme, and any proxy/wrapper (e.g. Stella's
+ * backend SDP proxy that keeps the org Inworld key server-side).
  */
-export type SdpAnswerFetcher = (sdpOffer: string) => Promise<string>;
+export type SdpAnswerFetcher = (
+  sdpOffer: string,
+  signal: AbortSignal,
+) => Promise<string>;
 
 export interface RealtimeTransportEvents {
   /** Raw JSON event from the server (normalised to OpenAI Realtime shape). */

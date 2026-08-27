@@ -116,6 +116,48 @@ const hasPersistedThreadCustomEvent = (
 // stella-cloud-side callers use the shorter name for the same check.
 const hasPersistedThreadEvent = hasPersistedThreadCustomEvent;
 
+const resolveLifecycleParentOwner = (
+  context: RunnerContext,
+  event: AgentLifecycleEvent,
+): string | null | undefined => {
+  const installedManager = context.state.localAgentManager;
+  return installedManager
+    ? installedManager.resolveOwningParentThread(
+        event.agentId,
+        event.parentAgentId,
+      )
+    : event.parentAgentId;
+};
+
+export const hasDurableAgentLifecycleEvent = (
+  context: RunnerContext,
+  event: AgentLifecycleEvent,
+): boolean => {
+  const eventId = event.eventId?.trim();
+  if (!eventId) return false;
+  const parentOwner = resolveLifecycleParentOwner(context, event);
+  if (parentOwner === null) return false;
+  if (typeof parentOwner === "string") {
+    const parent = context.runtimeStore.getAgentRecord?.(parentOwner);
+    const wakeAccepted =
+      parent?.descendantBoundaryState?.consumedEventIds.includes(eventId) ===
+      true;
+    return (
+      wakeAccepted && hasPersistedThreadEvent(context, parentOwner, eventId)
+    );
+  }
+  const orchestratorThreadKey = resolveOrchestratorThreadKey(
+    event.conversationId,
+  );
+  if (event.audience === "orchestrator-only") {
+    return hasPersistedThreadEvent(context, orchestratorThreadKey, eventId);
+  }
+  return (
+    context.runtimeStore.hasEvent(event.conversationId, eventId, event.type) &&
+    hasPersistedThreadEvent(context, orchestratorThreadKey, eventId)
+  );
+};
+
 const getShellExecutionState = (
   result: ToolResult,
 ): { sessionId: string | null; running: boolean } | null => {
@@ -416,6 +458,7 @@ export const createAgentOrchestration = (
       text: string;
       uiVisibility?: "visible" | "hidden";
       agentType?: string;
+      ownerGeneration?: string;
       deliverAs?: "steer" | "followUp";
       callbackRunId?: string;
       responseTarget?: import("@stella/contracts/protocol").RuntimeAgentEventPayload["responseTarget"];
@@ -432,12 +475,7 @@ export const createAgentOrchestration = (
   const inFlightLifecycleEventIds = new Set<string>();
   const handleAgentLifecycleEvent = async (event: AgentLifecycleEvent) => {
     const installedManager = context.state.localAgentManager;
-    const parentOwner = installedManager
-      ? installedManager.resolveOwningParentThread(
-          event.agentId,
-          event.parentAgentId,
-        )
-      : event.parentAgentId;
+    const parentOwner = resolveLifecycleParentOwner(context, event);
     const parentThreadId =
       typeof parentOwner === "string" ? parentOwner : undefined;
     const isParentOwned = parentThreadId !== undefined;
@@ -541,19 +579,18 @@ export const createAgentOrchestration = (
       // completion produces no root card and no OS notification.
       try {
         if (
-          hasPersistedThreadCustomEvent(context, parentThreadId, event.eventId)
+          !hasPersistedThreadCustomEvent(context, parentThreadId, event.eventId)
         ) {
-          return;
+          persistThreadCustomMessage(context.runtimeStore, {
+            threadKey: parentThreadId,
+            customType: "runtime.task_lifecycle",
+            content: [{ type: "text", text: userPrompt }],
+            display: false,
+            timestamp: Date.now(),
+            ...(deliveryEventId ? { eventId: deliveryEventId } : {}),
+          });
         }
-        persistThreadCustomMessage(context.runtimeStore, {
-          threadKey: parentThreadId,
-          customType: "runtime.task_lifecycle",
-          content: [{ type: "text", text: userPrompt }],
-          display: false,
-          timestamp: Date.now(),
-          ...(deliveryEventId ? { eventId: deliveryEventId } : {}),
-        });
-        await context.state.localAgentManager?.sendAgentMessage(
+        const wake = await context.state.localAgentManager?.sendAgentMessage(
           parentThreadId,
           userPrompt,
           "orchestrator",
@@ -562,6 +599,11 @@ export const createAgentOrchestration = (
             ...(deliveryEventId ? { deliveryEventId } : {}),
           },
         );
+        if (wake?.delivered !== true) {
+          throw new Error(
+            `Unable to durably admit terminal wake for parent ${parentThreadId}.`,
+          );
+        }
       } finally {
         if (deliveryEventId) inFlightLifecycleEventIds.delete(deliveryEventId);
       }
@@ -588,6 +630,9 @@ export const createAgentOrchestration = (
         deliverAs: "steer",
         callbackRunId: event.rootRunId,
         customType: "runtime.task_lifecycle",
+        ...(event.ownerGeneration
+          ? { ownerGeneration: event.ownerGeneration }
+          : {}),
         ...(deliveryEventId ? { eventId: deliveryEventId } : {}),
         display: false,
         responseTarget: createAgentLifecycleResponseTarget({
@@ -648,7 +693,22 @@ export const createAgentOrchestration = (
       context.runtimeStore.listActiveThreads(conversationId),
     onAgentEvent: (event: AgentLifecycleEvent) => {
       reconcileBackgroundExitWake(context, event);
-      void handleAgentLifecycleEvent(event).catch(() => undefined);
+      const delivery = handleAgentLifecycleEvent(event);
+      if (
+        event.type === "agent-completed" ||
+        event.type === "agent-failed" ||
+        event.type === "agent-canceled"
+      ) {
+        // Terminal callers await this promise. Their durable local/cloud receipt
+        // remains unacknowledged until this exact lifecycle event is persisted.
+        return delivery;
+      }
+      void delivery.catch((error) => {
+        console.warn(
+          "[runner] non-terminal agent lifecycle delivery failed",
+          error instanceof Error ? error.message : error,
+        );
+      });
     },
     fetchAgentContext: deps.buildAgentContext,
     ...(deps.resolveAgentModelConfig
@@ -670,6 +730,7 @@ export const createAgentOrchestration = (
       taskDescription,
       taskPrompt,
       persistToConvex,
+      ownerGeneration,
       abortSignal,
       subagentSession,
       onProgress,
@@ -782,6 +843,7 @@ export const createAgentOrchestration = (
       const result = await runSubagentTask({
         conversationId,
         storageMode: persistToConvex ? "cloud" : "local",
+        ownerGeneration,
         userMessageId,
         runId,
         agentId,
@@ -1050,10 +1112,19 @@ export const createAgentOrchestration = (
         resolveOrchestratorThreadKey(conversationId),
         eventId,
       );
-      if (type === "agent-completed") {
-        // A Manager completion is delivered only when both durable artifacts
+      if (
+        type === "agent-completed" ||
+        type === "agent-failed" ||
+        type === "agent-canceled"
+      ) {
+        // A wake-bearing terminal is delivered only when both durable artifacts
         // exist. Recovery re-enters the idempotent lifecycle handler to repair
-        // either half of an interrupted two-write completion.
+        // either half of an interrupted two-write delivery. This must cover
+        // failures and cancellations too: their Activity row is written before
+        // the hidden reminder, so treating that row alone as a receipt can lose
+        // the orchestrator wake forever after a crash. Cancellation paths that
+        // deliberately suppress a wake safely return false here until their
+        // exact-generation receipt is stamped after idempotent handler re-entry.
         return hasActivityEvent && hasOrchestratorReminder;
       }
       return (
@@ -1214,32 +1285,8 @@ export const createAgentOrchestration = (
     cancelLocalAgent,
     cancelBlockingLocalAgent,
     handleExternalAgentLifecycleEvent: handleAgentLifecycleEvent,
-    hasDurableExternalLifecycleEvent: (event: AgentLifecycleEvent) => {
-      if (!event.eventId) return false;
-      if (event.audience === "orchestrator-only") {
-        return hasPersistedThreadEvent(
-          context,
-          resolveOrchestratorThreadKey(event.conversationId),
-          event.eventId,
-        );
-      }
-      const hasActivityEvent = context.runtimeStore.hasEvent(
-        event.conversationId,
-        event.eventId,
-        event.type,
-      );
-      if (event.type === "agent-started") {
-        return hasActivityEvent;
-      }
-      return (
-        hasActivityEvent &&
-        hasPersistedThreadEvent(
-          context,
-          resolveOrchestratorThreadKey(event.conversationId),
-          event.eventId,
-        )
-      );
-    },
+    hasDurableExternalLifecycleEvent: (event: AgentLifecycleEvent) =>
+      hasDurableAgentLifecycleEvent(context, event),
     shutdown,
   };
 };

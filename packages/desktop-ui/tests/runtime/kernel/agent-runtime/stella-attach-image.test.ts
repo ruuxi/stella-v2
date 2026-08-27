@@ -1,13 +1,16 @@
 import path from "node:path";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { afterEach, describe, expect, it } from "vitest";
+import fs, { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createPiTools,
   extractAttachImageBlocks,
   extractCodeImageBlocks,
+  neutralizeLegacyAttachImageMarkers,
+  prepareAuthorizedToolImageBlocks,
   truncateModelVisibleToolText,
 } from "@stella/runtime/kernel/agent-runtime/tool-adapters";
 import { MAX_IMAGE_BASE64_BYTES } from "@stella/runtime/ai/utils/image-payload";
+import { TOOL_RESULT_AUTHORIZED_IMAGES } from "@stella/runtime/kernel/tools/types";
 import { createSyncTempDirTracker } from "../../../helpers/temp.js";
 
 const tempDirs = createSyncTempDirTracker();
@@ -315,6 +318,94 @@ App=com.apple.finder (pid 504)
   });
 });
 
+describe("descriptor-authorized cloud images", () => {
+  it("neutralizes raw and JSON-wrapped legacy markers without exposing their paths", () => {
+    const privatePath = "/home/stella-native-state/anthropic/private.png";
+    const raw = neutralizeLegacyAttachImageMarkers(
+      `visible tree\n[stella-attach-image] inline=image/png path=${JSON.stringify(privatePath)}\nafter`,
+    );
+    expect(raw).toContain("visible tree");
+    expect(raw).toContain("descriptor-authorized image bytes");
+    expect(raw).toContain("after");
+    expect(raw).not.toContain("[stella-attach-image]");
+    expect(raw).not.toContain(privatePath);
+
+    const wrapped = neutralizeLegacyAttachImageMarkers(
+      JSON.stringify({
+        output: `[stella-attach-image] inline=image/png ${privatePath}\n`,
+      }),
+    );
+    expect(wrapped).toContain("descriptor-authorized image bytes");
+    expect(wrapped).not.toContain("[stella-attach-image]");
+    expect(wrapped).not.toContain(privatePath);
+  });
+
+  it("materializes already-authorized bytes without reopening sourcePath", async () => {
+    const missingPath = "/definitely/missing/authorized-image.png";
+    const images = await prepareAuthorizedToolImageBlocks(
+      [
+        {
+          data: ONE_BY_ONE_PNG,
+          mimeType: "image/png",
+          sourcePath: missingPath,
+        },
+      ],
+      { provider: "anthropic", modelId: "claude-opus-4-8" },
+    );
+
+    expect(existsSync(missingPath)).toBe(false);
+    expect(images).toEqual([
+      {
+        type: "image",
+        data: ONE_BY_ONE_PNG.toString("base64"),
+        mimeType: "image/png",
+        sourcePath: missingPath,
+        width: 1,
+        height: 1,
+      },
+    ]);
+  });
+
+  it("applies the resolved provider dimension cap to authorized bytes", async () => {
+    const photon = await import("@silvia-odwyer/photon-node");
+    const width = 2_100;
+    const raw = new Uint8Array(width * 4);
+    for (let index = 0; index < width; index += 1) {
+      raw[index * 4] = index % 256;
+      raw[index * 4 + 1] = (index * 3) % 256;
+      raw[index * 4 + 2] = (index * 7) % 256;
+      raw[index * 4 + 3] = 255;
+    }
+    const source = new photon.PhotonImage(raw, width, 1);
+    const bytes = Buffer.from(source.get_bytes());
+    source.free();
+
+    const images = await prepareAuthorizedToolImageBlocks(
+      [{ data: bytes, mimeType: "image/png", sourcePath: "/missing/wide.png" }],
+      { provider: "anthropic", modelId: "claude-3-5-sonnet" },
+    );
+
+    expect(images).toHaveLength(1);
+    expect(images[0]).toMatchObject({
+      type: "image",
+      width: 1_568,
+      height: 1,
+    });
+    expect(images[0]!.data.length).toBeLessThan(10 * 1024 * 1024);
+  });
+
+  it("rejects typed bytes whose declared MIME does not match their content", async () => {
+    const images = await prepareAuthorizedToolImageBlocks([
+      {
+        data: ONE_BY_ONE_PNG,
+        mimeType: "image/jpeg",
+        sourcePath: "/missing/mislabeled.jpg",
+      },
+    ]);
+    expect(images).toEqual([]);
+  });
+});
+
 describe("typed code images", () => {
   it("materializes structured images without compatibility markers", async () => {
     const tempDir = createTempDir();
@@ -397,6 +488,77 @@ describe("truncateModelVisibleToolText", () => {
 });
 
 describe("native tool-result persistence boundary", () => {
+  it("allows only descriptor-authorized image bytes in cloud tool output", async () => {
+    const tempDir = createTempDir();
+    const legacyPath = writePng(tempDir, "legacy-marker.png");
+    const typedCodePath = writePng(tempDir, "typed-code-path.png");
+    const readFile = vi.spyOn(fs.promises, "readFile");
+    try {
+      const [tool] = createPiTools({
+        runId: "run-cloud-authorized-image",
+        rootRunId: "run-cloud-authorized-image",
+        conversationId: "conversation-1",
+        storageMode: "cloud",
+        agentType: "general",
+        deviceId: "cloud",
+        stellaAppDir: tempDir,
+        stellaDataDir: tempDir,
+        agentDepth: 1,
+        toolsAllowlist: ["Read"],
+        toolCatalog: [
+          {
+            name: "Read",
+            description: "Read a file",
+            parameters: { type: "object", properties: {} },
+          },
+        ],
+        store: {} as never,
+        toolExecutor: async () => ({
+          result: `[stella-attach-image] inline=image/png ${legacyPath}`,
+          details: {
+            code: {
+              content: [{ type: "image", path: typedCodePath }],
+            },
+          },
+          [TOOL_RESULT_AUTHORIZED_IMAGES]: [
+            {
+              data: ONE_BY_ONE_PNG,
+              mimeType: "image/png",
+              sourcePath: "/workspace/authorized.png",
+            },
+          ],
+        }),
+      });
+
+      const result = await tool!.execute(
+        "call-cloud-read",
+        {},
+        undefined,
+        undefined,
+      );
+      expect(result.content).toHaveLength(2);
+      expect(result.content[0]).toEqual({
+        type: "text",
+        text: expect.stringContaining("descriptor-authorized image bytes"),
+      });
+      expect(result.content[1]).toMatchObject({
+        type: "image",
+        data: ONE_BY_ONE_PNG.toString("base64"),
+        mimeType: "image/png",
+        sourcePath: "/workspace/authorized.png",
+      });
+      expect(JSON.stringify(result.content)).not.toContain(legacyPath);
+      expect(JSON.stringify(result.content)).not.toContain(typedCodePath);
+      expect(
+        readFile.mock.calls.some(([candidate]) =>
+          [legacyPath, typedCodePath].includes(String(candidate)),
+        ),
+      ).toBe(false);
+    } finally {
+      readFile.mockRestore();
+    }
+  });
+
   it("forwards typed code images as native model content", async () => {
     const tempDir = createTempDir();
     const imgPath = writePng(tempDir, "native typed image.png");

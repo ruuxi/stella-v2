@@ -18,7 +18,6 @@ import {
   type SettingsTab,
 } from "@/global/settings/settings-tabs";
 import { AccountTab } from "./tabs/AccountTab";
-import { BackupTab } from "./tabs/BackupTab";
 import { GeneralTab } from "./tabs/GeneralTab";
 import { ShortcutsTab } from "./tabs/ShortcutsTab";
 import type { ScoredSettingsSearchEntry } from "@/global/settings/lib/settings-search-index";
@@ -128,7 +127,9 @@ export const SettingsScreen = ({
       >
         <div
           className={`settings-layout ${
-            embedded ? "settings-layout--sidebar" : "settings-layout--standalone"
+            embedded
+              ? "settings-layout--sidebar"
+              : "settings-layout--standalone"
           }`}
         >
           {/* Header: title row above, then horizontal tab strip. No
@@ -299,8 +300,6 @@ function SettingsTabContent({
         <GeneralTab />
       ) : activeTab === "shortcuts" ? (
         <ShortcutsTab />
-      ) : activeTab === "backup" ? (
-        <BackupTab />
       ) : activeTab === "account" ? (
         <AccountTab onSignOut={onSignOut} onOpenLegal={onOpenLegal} />
       ) : activeTab === "audio" ? (

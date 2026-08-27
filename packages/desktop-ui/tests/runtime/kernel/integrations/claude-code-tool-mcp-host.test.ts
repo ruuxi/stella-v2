@@ -11,6 +11,7 @@ import {
   type ClaudeCodeToolMcpActiveTurn,
   type ClaudeCodeToolMcpHost,
 } from "@stella/runtime/kernel/integrations/claude-code-tool-mcp-host";
+import { TOOL_RESULT_AUTHORIZED_IMAGES } from "@stella/runtime/kernel/tools/types";
 
 const tools = [
   {
@@ -61,9 +62,7 @@ describe("claude-code-tool-mcp-host", () => {
         return {
           result: `${name}:${String(args.city)}`,
           details: { source: "test" },
-          fileChanges: [
-            { path: "/tmp/weather.txt", kind: { type: "update" } },
-          ],
+          fileChanges: [{ path: "/tmp/weather.txt", kind: { type: "update" } }],
         };
       },
     );
@@ -263,9 +262,7 @@ describe("claude-code-tool-mcp-host", () => {
       arguments: { city: "Phoenix" },
     });
     expect(result.isError).not.toBe(true);
-    expect(result.content).toEqual([
-      { type: "text", text: "weather:Phoenix" },
-    ]);
+    expect(result.content).toEqual([{ type: "text", text: "weather:Phoenix" }]);
     expect(executeTool).toHaveBeenCalledOnce();
   });
 
@@ -518,12 +515,121 @@ describe("claude-code-tool-mcp-host", () => {
       });
       expect(result.content).toEqual([
         { type: "text", text: "visible tree" },
-        { type: "image", data: bytes.toString("base64"), mimeType: "image/png" },
+        {
+          type: "image",
+          data: bytes.toString("base64"),
+          mimeType: "image/png",
+        },
       ]);
       expect(JSON.stringify(result.content)).not.toContain(
         "[stella-attach-image]",
       );
     } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("sends descriptor-authorized image bytes without reopening their source path", async () => {
+    const bytes = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=",
+      "base64",
+    );
+    const host = await createClaudeCodeToolMcpHost({
+      tools,
+      allowLegacyImagePathReopen: false,
+      getActiveTurn: () => ({
+        executeTool: async () => ({
+          result: "Image file: /workspace/pixel.png (1x1)",
+          [TOOL_RESULT_AUTHORIZED_IMAGES]: [
+            {
+              data: bytes,
+              mimeType: "image/png",
+              sourcePath: "/workspace/pixel.png",
+            },
+          ],
+        }),
+      }),
+    });
+    hosts.add(host);
+    const client = await connect(host);
+    clients.add(client);
+
+    const result = await client.callTool({
+      name: "get_weather",
+      arguments: { city: "Paris" },
+    });
+    expect(result.content).toEqual([
+      { type: "text", text: "Image file: /workspace/pixel.png (1x1)" },
+      { type: "image", data: bytes.toString("base64"), mimeType: "image/png" },
+    ]);
+  });
+
+  it("never reopens legacy image-marker paths when the cloud policy is disabled", async () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "stella-mcp-cloud-image-"),
+    );
+    const readFile = vi.spyOn(fs.promises, "readFile");
+    try {
+      const legacyPath = path.join(dir, "legacy.png");
+      const legacyBytes = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lPZP5QAAAABJRU5ErkJggg==",
+        "base64",
+      );
+      const authorizedBytes = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=",
+        "base64",
+      );
+      fs.writeFileSync(legacyPath, legacyBytes);
+      const host = await createClaudeCodeToolMcpHost({
+        tools,
+        allowLegacyImagePathReopen: false,
+        getActiveTurn: () => ({
+          executeTool: async () => ({
+            result:
+              "visible tree\n" +
+              `[stella-attach-image] inline=image/png path=${JSON.stringify(legacyPath)}`,
+            [TOOL_RESULT_AUTHORIZED_IMAGES]: [
+              {
+                data: authorizedBytes,
+                mimeType: "image/png",
+                sourcePath: "/workspace/authorized.png",
+              },
+            ],
+          }),
+        }),
+      });
+      hosts.add(host);
+      const client = await connect(host);
+      clients.add(client);
+
+      const result = await client.callTool({
+        name: "get_weather",
+        arguments: { city: "Paris" },
+      });
+      expect(result.content).toEqual([
+        {
+          type: "text",
+          text:
+            "visible tree\n" +
+            "[Path-based tool image attachment ignored; this runtime accepts only descriptor-authorized image bytes.]",
+        },
+        {
+          type: "image",
+          data: authorizedBytes.toString("base64"),
+          mimeType: "image/png",
+        },
+      ]);
+      expect(JSON.stringify(result.content)).not.toContain(legacyPath);
+      expect(JSON.stringify(result.content)).not.toContain(
+        legacyBytes.toString("base64"),
+      );
+      expect(
+        readFile.mock.calls.some(
+          ([candidate]) => String(candidate) === legacyPath,
+        ),
+      ).toBe(false);
+    } finally {
+      readFile.mockRestore();
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });

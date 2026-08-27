@@ -6,6 +6,8 @@ import { AppBootstrap } from "./bootstrap/AppBootstrap";
 import { ChatStoreProvider } from "@/context/chat-store";
 import { CredentialRequestLayer } from "./global/auth/CredentialRequestLayer";
 import { FullShell } from "./shell/FullShell";
+import { CloudHomeSyncBridge } from "./features/cloud/CloudHomeSyncBridge";
+import { CloudMemoryPreferenceBridge } from "./features/cloud/CloudMemoryPreferenceBridge";
 import {
   readPetOpenPreference,
   writePetOpenPreference,
@@ -45,6 +47,8 @@ function App() {
       <div className="app window-full">
         <ChatStoreProvider>
           <AppBootstrap />
+          <CloudMemoryPreferenceBridge />
+          <CloudHomeSyncBridge />
           <PhoneAccessBridge />
           <CredentialRequestLayer />
           <SocialInviteLayer />

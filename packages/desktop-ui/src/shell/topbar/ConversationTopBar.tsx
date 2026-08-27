@@ -125,6 +125,30 @@ export const cloudConversationToSummary = (
 });
 
 /**
+ * A frozen history walk and the live recent slice deliberately overlap. Merge
+ * by immutable conversation id, prefer the live projection, and reapply the
+ * backend's declared `(updatedAt, conversationId)` order. A row that moves
+ * above the walk's timestamp bound therefore stays discoverable without
+ * perturbing or duplicating the cursor walk itself.
+ */
+export const mergeCloudConversationHistory = (
+  frozen: readonly CloudConversation[],
+  recent: readonly CloudConversation[],
+): CloudConversation[] => {
+  const byId = new Map(
+    frozen.map((conversation) => [conversation.conversationId, conversation]),
+  );
+  for (const conversation of recent) {
+    byId.set(conversation.conversationId, conversation);
+  }
+  return [...byId.values()].sort(
+    (left, right) =>
+      right.updatedAt - left.updatedAt ||
+      right.conversationId.localeCompare(left.conversationId),
+  );
+};
+
+/**
  * A background tab earns its unread dot from a persisted assistant message
  * only. User turns are always the user's own doing, and the conversation the
  * user is currently reading is by definition already read.
@@ -211,20 +235,41 @@ export function ConversationTopBar() {
   const t = useT();
   const router = useRouter();
   const chat = useChatRuntime();
-  const { cloudMode, accountScope } = useCloudMode();
+  const { cloudMode, accountScope, ownerSubject } = useCloudMode();
   const tabSnapshot = useConversationTabs();
   // A scope change clears the backing store in RootLayout's layout effect.
   // Filter during the transition too so a previous owner's ids cannot enter
   // this render tree for even one frame.
   const tabs =
     tabSnapshot.accountScope === accountScope ? tabSnapshot.tabs : [];
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historySnapshot, setHistorySnapshot] = useState<{
+    accountScope: string;
+    snapshotUpdatedAt: number;
+  } | null>(null);
+  const frozenHistorySnapshot =
+    historySnapshot?.accountScope === accountScope ? historySnapshot : null;
   const recentCloudConversations = useQuery(
     cloudApi.listMyConversations,
     cloudMode ? {} : "skip",
   );
+  const placementIdentity = useQuery(
+    cloudApi.getMyExecutionPlacementIdentity,
+    cloudMode ? {} : "skip",
+  );
+  const ownerGeneration =
+    placementIdentity?.ownerId === ownerSubject
+      ? placementIdentity.ownerGeneration
+      : null;
+  const historySnapshotCandidate = useQuery(
+    cloudApi.getMyConversationHistorySnapshot,
+    cloudMode && historyOpen && frozenHistorySnapshot === null ? {} : "skip",
+  );
   const paginatedHistory = usePaginatedQuery(
     cloudApi.listMyConversationsPage,
-    cloudMode ? {} : "skip",
+    cloudMode && frozenHistorySnapshot
+      ? { snapshotUpdatedAt: frozenHistorySnapshot.snapshotUpdatedAt }
+      : "skip",
     { initialNumItems: HISTORY_PAGE_SIZE },
   );
   const scopedRecentCloudConversations = useMemo(
@@ -241,9 +286,9 @@ export function ConversationTopBar() {
   const activeConversationId = chat.conversation.conversationId;
   const activeConversationIsRecent = Boolean(
     activeConversationId &&
-      scopedRecentCloudConversations.some(
-        (conversation) => conversation.conversationId === activeConversationId,
-      ),
+    scopedRecentCloudConversations.some(
+      (conversation) => conversation.conversationId === activeConversationId,
+    ),
   );
   const activeCloudConversation = useQuery(
     cloudApi.getMyConversation,
@@ -259,7 +304,6 @@ export function ConversationTopBar() {
     )
       ? activeCloudConversation
       : null;
-  const [historyOpen, setHistoryOpen] = useState(false);
   const [historyState, setHistoryState] = useState<{
     accountScope: string;
     items: ConversationSummary[];
@@ -270,6 +314,7 @@ export function ConversationTopBar() {
     paginatedHistory.status === "CanLoadMore" ||
     paginatedHistory.status === "LoadingMore";
   const historyLoading =
+    (historyOpen && frozenHistorySnapshot === null) ||
     paginatedHistory.status === "LoadingFirstPage" ||
     paginatedHistory.status === "LoadingMore";
   const historyError = false;
@@ -282,10 +327,15 @@ export function ConversationTopBar() {
   const [historyDeleteErrorId, setHistoryDeleteErrorId] = useState<
     string | null
   >(null);
-  const createRequestIdRef = useRef<string | null>(null);
+  const createRequestRef = useRef<{
+    id: string;
+    ownerGeneration: string;
+  } | null>(null);
   const createInFlightRef = useRef(false);
   const activeAccountScopeRef = useRef(accountScope);
   activeAccountScopeRef.current = accountScope;
+  const activeOwnerGenerationRef = useRef(ownerGeneration);
+  activeOwnerGenerationRef.current = ownerGeneration;
   const cloudUpdatedAtRef = useRef<{
     accountScope: string;
     values: Map<string, number>;
@@ -348,26 +398,36 @@ export function ConversationTopBar() {
   );
 
   const createConversation = useCallback(async () => {
-    if (!cloudMode || createInFlightRef.current) return;
-    const clientCreateId = createRequestIdRef.current ?? crypto.randomUUID();
-    createRequestIdRef.current = clientCreateId;
+    if (!cloudMode || !ownerGeneration || createInFlightRef.current) return;
+    const prior = createRequestRef.current;
+    const request =
+      prior?.ownerGeneration === ownerGeneration
+        ? prior
+        : { id: crypto.randomUUID(), ownerGeneration };
+    const clientCreateId = request.id;
+    createRequestRef.current = request;
     createInFlightRef.current = true;
     try {
-      const created = await createCloudConversation({ clientCreateId });
+      const created = await createCloudConversation({
+        clientCreateId,
+        expectedOwnerGeneration: request.ownerGeneration,
+      });
       if (
         activeAccountScopeRef.current !== accountScope ||
-        createRequestIdRef.current !== clientCreateId
+        activeOwnerGenerationRef.current !== request.ownerGeneration ||
+        createRequestRef.current !== request
       ) {
         return;
       }
       createInFlightRef.current = false;
-      createRequestIdRef.current = null;
+      createRequestRef.current = null;
       markCloudConversationCreated(created.conversationId, accountScope);
       navigateToConversation(created.conversationId, created.title);
     } catch (error) {
       if (
         activeAccountScopeRef.current !== accountScope ||
-        createRequestIdRef.current !== clientCreateId
+        activeOwnerGenerationRef.current !== request.ownerGeneration ||
+        createRequestRef.current !== request
       ) {
         return;
       }
@@ -384,7 +444,8 @@ export function ConversationTopBar() {
     } finally {
       if (
         activeAccountScopeRef.current === accountScope &&
-        createRequestIdRef.current === clientCreateId
+        activeOwnerGenerationRef.current === request.ownerGeneration &&
+        createRequestRef.current === request
       ) {
         createInFlightRef.current = false;
       }
@@ -394,6 +455,7 @@ export function ConversationTopBar() {
     cloudMode,
     createCloudConversation,
     navigateToConversation,
+    ownerGeneration,
   ]);
 
   const loadHistory = useCallback(
@@ -405,29 +467,51 @@ export function ConversationTopBar() {
     [paginatedHistory],
   );
 
-  const historyFromServer = useMemo(
-    () =>
-      cloudConversationsForAccountScope(
-        paginatedHistory.results as CloudConversation[],
-        accountScope,
-      ).map(cloudConversationToSummary),
-    [accountScope, paginatedHistory.results],
-  );
+  const historyFromServer = useMemo(() => {
+    const frozen = cloudConversationsForAccountScope(
+      paginatedHistory.results as CloudConversation[],
+      accountScope,
+    );
+    return mergeCloudConversationHistory(
+      frozen,
+      scopedRecentCloudConversations,
+    ).map(cloudConversationToSummary);
+  }, [accountScope, paginatedHistory.results, scopedRecentCloudConversations]);
+
+  useEffect(() => {
+    if (!historyOpen) {
+      // Reopening is the explicit refresh boundary: it obtains a new server
+      // clock anchor and starts a new cursor walk.
+      setHistorySnapshot(null);
+      return;
+    }
+    if (!historySnapshotCandidate || frozenHistorySnapshot !== null) return;
+    setHistorySnapshot({
+      accountScope,
+      snapshotUpdatedAt: historySnapshotCandidate.snapshotUpdatedAt,
+    });
+  }, [
+    accountScope,
+    frozenHistorySnapshot,
+    historyOpen,
+    historySnapshotCandidate,
+  ]);
 
   useEffect(() => {
     for (const timerRef of [historyDeleteTimerRef, historyHoverCloseTimerRef]) {
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-    createRequestIdRef.current = null;
+    createRequestRef.current = null;
     createInFlightRef.current = false;
     cloudUpdatedAtRef.current = { accountScope, values: new Map() };
+    setHistorySnapshot(null);
     setHistoryState({ accountScope, items: [] });
     setHistoryDeleteArmedId(null);
     setHistoryDeletingId(null);
     setHistoryDeleteErrorId(null);
     setHistoryOpen(false);
-  }, [accountScope]);
+  }, [accountScope, ownerGeneration]);
 
   useEffect(() => {
     setHistoryState({ accountScope, items: historyFromServer });
@@ -800,6 +884,7 @@ export function ConversationTopBar() {
       return (
         <div
           className="conversation-history-popover__item"
+          data-conversation-id={summary.conversationId}
           data-active={
             summary.conversationId === activeConversationId ? "true" : undefined
           }
@@ -905,7 +990,11 @@ export function ConversationTopBar() {
   const showHomeLauncher = shouldRenderConversationHomeLauncher(tabs.length);
 
   return (
-    <div className="conversation-topbar" data-testid="conversation-topbar">
+    <div
+      className="conversation-topbar"
+      data-testid="conversation-topbar"
+      data-active-conversation-id={activeConversationId ?? undefined}
+    >
       <Popover
         open={historyOpen}
         onOpenChange={(open) => {
@@ -945,6 +1034,8 @@ export function ConversationTopBar() {
         </Popover.Trigger>
         <ConversationHistoryPopoverContent
           className="conversation-history-popover"
+          data-history-has-more={historyHasMore ? "true" : "false"}
+          data-history-loading={historyLoading ? "true" : "false"}
           align="start"
           side="bottom"
           sideOffset={6}
@@ -1037,6 +1128,7 @@ export function ConversationTopBar() {
               return (
                 <div
                   key={tab.conversationId}
+                  data-conversation-id={tab.conversationId}
                   ref={(element) => {
                     if (element)
                       tabRefs.current.set(tab.conversationId, element);

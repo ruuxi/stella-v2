@@ -1,6 +1,5 @@
 import path from "path";
 import { AuthService } from "../services/auth-service.js";
-import { BackupService } from "../services/backup-service.js";
 import { CaptureService } from "../services/capture-service.js";
 import { MouseHookManager } from "../input/mouse-hook.js";
 import { CredentialService } from "../services/credential-service.js";
@@ -131,19 +130,9 @@ export const createBootstrapServices = (options) => {
         },
         updateUiState: (partial) => uiStateService.update(partial),
     });
-    const backupService = new BackupService({
-        stellaAppDir: config.stellaAppDir,
-        getStellaAppDir: () => state.stellaDataDirPath,
-        getRunner: () => lifecycle.getRunner(),
-        getAuthToken: () => authService.getAuthToken(),
-        getConvexSiteUrl: () => authService.getConvexSiteUrl(),
-        getDeviceId: () => state.deviceId,
-        processRuntime: state.processRuntime,
-    });
     const globalInputHook = new MouseHookManager();
     return {
         authService,
-        backupService,
         captureService,
         globalInputHook,
         credentialService,

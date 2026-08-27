@@ -1,6 +1,11 @@
 import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import type { ConversationSummaryCursor } from "@stella/contracts/local-chat";
 import {
+  IPC_CLOUD_CONVERSATION_CACHE_ACTIVATE_AUTHORITY,
+  IPC_CLOUD_CONVERSATION_CACHE_PURGE_CONVERSATION,
+  IPC_CLOUD_CONVERSATION_CACHE_READ,
+  IPC_CLOUD_CONVERSATION_CACHE_REPLACE,
+  IPC_CLOUD_CONVERSATION_CACHE_RETAIN_ACCOUNT,
   IPC_LOCAL_CHAT_DELETE_CONVERSATION,
   IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION,
   IPC_LOCAL_CHAT_FORK_CONVERSATION,
@@ -11,6 +16,12 @@ import {
   IPC_LOCAL_CHAT_LIST_SYNC_MESSAGES_BEFORE,
 } from "@stella/contracts/desktop/ipc-channels";
 import type { LocalChatHistoryService } from "../services/local-chat-history-service.js";
+import {
+  parseCloudConversationCacheAccountScope,
+  parseCloudConversationCacheAuthority,
+  parseCloudConversationCacheLifecycleAuthority,
+  parseCloudConversationCacheReplaceInput,
+} from "../services/cloud-conversation-cache-store.js";
 import { assertPrivilegedRequest } from "./privileged-ipc.js";
 
 type LocalChatHandlersOptions = {
@@ -34,6 +45,77 @@ const withLocalChatClient = async <T>(
 export const registerLocalChatHandlers = (
   options: LocalChatHandlersOptions,
 ) => {
+  ipcMain.handle(
+    IPC_CLOUD_CONVERSATION_CACHE_RETAIN_ACCOUNT,
+    async (event, payload: unknown) =>
+      await withLocalChatClient(
+        options,
+        event,
+        IPC_CLOUD_CONVERSATION_CACHE_RETAIN_ACCOUNT,
+        (client) =>
+          client.retainCloudConversationCacheAccount(
+            parseCloudConversationCacheAccountScope(payload),
+          ),
+      ),
+  );
+
+  ipcMain.handle(
+    IPC_CLOUD_CONVERSATION_CACHE_ACTIVATE_AUTHORITY,
+    async (event, payload: unknown) =>
+      await withLocalChatClient(
+        options,
+        event,
+        IPC_CLOUD_CONVERSATION_CACHE_ACTIVATE_AUTHORITY,
+        (client) =>
+          client.activateCloudConversationCacheAuthority(
+            parseCloudConversationCacheLifecycleAuthority(payload),
+          ),
+      ),
+  );
+
+  ipcMain.handle(
+    IPC_CLOUD_CONVERSATION_CACHE_READ,
+    async (event, payload: unknown) =>
+      await withLocalChatClient(
+        options,
+        event,
+        IPC_CLOUD_CONVERSATION_CACHE_READ,
+        (client) =>
+          client.readCloudConversationCache(
+            parseCloudConversationCacheAuthority(payload),
+          ),
+      ),
+  );
+
+  ipcMain.handle(
+    IPC_CLOUD_CONVERSATION_CACHE_REPLACE,
+    async (event, payload: unknown) =>
+      await withLocalChatClient(
+        options,
+        event,
+        IPC_CLOUD_CONVERSATION_CACHE_REPLACE,
+        (client) => {
+          const { serializedRecords: _validatedBytes, ...input } =
+            parseCloudConversationCacheReplaceInput(payload);
+          return client.replaceCloudConversationCache(input);
+        },
+      ),
+  );
+
+  ipcMain.handle(
+    IPC_CLOUD_CONVERSATION_CACHE_PURGE_CONVERSATION,
+    async (event, payload: unknown) =>
+      await withLocalChatClient(
+        options,
+        event,
+        IPC_CLOUD_CONVERSATION_CACHE_PURGE_CONVERSATION,
+        (client) =>
+          client.purgeCloudConversationCacheConversation(
+            parseCloudConversationCacheAuthority(payload),
+          ),
+      ),
+  );
+
   ipcMain.handle(
     "localChat:getOrCreateDefaultConversationId",
     async (event) => {
@@ -101,10 +183,7 @@ export const registerLocalChatHandlers = (
 
   ipcMain.handle(
     IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION,
-    async (
-      event,
-      payload: { conversationId?: string; eventId?: string },
-    ) =>
+    async (event, payload: { conversationId?: string; eventId?: string }) =>
       await withLocalChatClient(
         options,
         event,
@@ -119,10 +198,7 @@ export const registerLocalChatHandlers = (
 
   ipcMain.handle(
     IPC_LOCAL_CHAT_FORK_CONVERSATION,
-    async (
-      event,
-      payload: { conversationId?: string; eventId?: string },
-    ) =>
+    async (event, payload: { conversationId?: string; eventId?: string }) =>
       await withLocalChatClient(
         options,
         event,

@@ -4,6 +4,10 @@ import {
   type PaginationResult,
 } from "convex/server";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import type {
+  BrowserExecutionDispatch,
+  BrowserExecutionSubmitArgs,
+} from "./browser-execution-placement";
 
 export type CloudConversation = {
   conversationId: string;
@@ -157,15 +161,21 @@ export const cloudApi = {
     Record<string, never>,
     CloudConversation[]
   >("cloud_apps:listMyConversations"),
+  getMyConversationHistorySnapshot: makeFunctionReference<
+    "query",
+    Record<string, never>,
+    { snapshotUpdatedAt: number }
+  >("cloud_apps:getMyConversationHistorySnapshot"),
   listMyConversationsPage: makeFunctionReference<
     "query",
-    { paginationOpts: PaginationOptions },
+    { snapshotUpdatedAt: number; paginationOpts: PaginationOptions },
     PaginationResult<CloudConversation>
   >("cloud_apps:listMyConversationsPage"),
   createMyConversation: makeFunctionReference<
     "mutation",
     {
       clientCreateId: string;
+      expectedOwnerGeneration: string;
       title?: string;
       execution?: CloudExecutionSelection;
     },
@@ -195,11 +205,57 @@ export const cloudApi = {
       protocol: number;
     }
   >("cloud_apps:getCloudRealtimeConfig"),
+  getMyExecutionPlacementIdentity: makeFunctionReference<
+    "query",
+    Record<string, never>,
+    {
+      ownerId: string;
+      ownerGeneration: string;
+      protocolVersion: number;
+      serverTime: number;
+    }
+  >("execution_placement:getMyExecutionPlacementIdentity"),
   deleteMyConversation: makeFunctionReference<
     "action",
     { conversationId: string },
     { ok: boolean }
   >("cloud_apps:deleteMyConversation"),
+  forkMyConversation: makeFunctionReference<
+    "action",
+    {
+      sourceConversationId: string;
+      throughSeq: number;
+      expectedEpoch: number;
+      expectedLastSeq: number;
+      requestId: string;
+    },
+    {
+      conversationId: string;
+      sourceEpoch: number;
+      throughSeq: number;
+      targetEpoch: number;
+      lastSeq: number;
+      replayed: boolean;
+    }
+  >("cloud_conversation_edits:forkMyConversation"),
+  rewindMyConversation: makeFunctionReference<
+    "action",
+    {
+      conversationId: string;
+      throughSeq: number;
+      expectedEpoch: number;
+      expectedLastSeq: number;
+      requestId: string;
+      activeTurnPolicy: "conflict" | "cancel";
+    },
+    {
+      conversationId: string;
+      previousEpoch: number;
+      nextEpoch: number;
+      lastSeq: number;
+      replayed: boolean;
+    }
+  >("cloud_conversation_edits:rewindMyConversation"),
   listMyAppBuilds: makeFunctionReference<
     "query",
     { appId: string },
@@ -209,6 +265,7 @@ export const cloudApi = {
     "mutation",
     {
       prompt: string;
+      expectedOwnerGeneration: string;
       conversationId?: string;
       appId?: string;
       // Idempotency key for the optimistic echo: it rides through to the
@@ -226,6 +283,21 @@ export const cloudApi = {
     // appId is absent for chat-lane turns (plain conversation, no app).
     { conversationId: string; appId?: string; turnId: string }
   >("cloud_apps:startCloudChat"),
+  submitBrowserExecution: makeFunctionReference<
+    "mutation",
+    BrowserExecutionSubmitArgs,
+    BrowserExecutionDispatch
+  >("execution_placement:submitMyBrowserExecution"),
+  getExecutionDispatchStatus: makeFunctionReference<
+    "query",
+    { dispatchId: string },
+    BrowserExecutionDispatch | null
+  >("execution_placement:getMyExecutionDispatchStatus"),
+  cancelExecutionDispatch: makeFunctionReference<
+    "mutation",
+    { dispatchId: string; cancelRequestId: string; reason?: string },
+    BrowserExecutionDispatch
+  >("execution_placement:cancelMyExecutionDispatch"),
   applyMyBuild: makeFunctionReference<
     "action",
     { buildId: string },
@@ -309,6 +381,20 @@ export const cloudApi = {
     { conversationId: string },
     CloudAgentThread[]
   >("cloud_apps:listMyAgentThreads"),
+  listMyAgentThreadsPage: makeFunctionReference<
+    "query",
+    {
+      conversationId: string;
+      identityRevision: number;
+      paginationOpts: PaginationOptions;
+    },
+    PaginationResult<CloudAgentThread>
+  >("cloud_apps:listMyAgentThreadsPage"),
+  listMyRunningAgentThreads: makeFunctionReference<
+    "query",
+    { conversationId: string; identityRevision: number },
+    CloudAgentThread[]
+  >("cloud_apps:listMyRunningAgentThreads"),
   // Activity is owner-scoped, not conversation-scoped: a cloud thread the
   // desktop dispatched, a scheduled run, and a thread the phone started all
   // live in different cloud conversations and all belong in the same list.
@@ -380,11 +466,21 @@ export const driveApi = {
   prepareDriveUpload: makeFunctionReference<
     "action",
     { path: string; sizeBytes: number; contentType?: string },
-    { path: string; uploadUrl: string; contentType: string }
+    {
+      path: string;
+      uploadId: string;
+      uploadUrl: string;
+      contentType: string;
+    }
   >("cloud_drive:prepareDriveUpload"),
   finalizeDriveUpload: makeFunctionReference<
     "action",
-    { path: string; contentType?: string; source?: string },
+    {
+      path: string;
+      uploadId: string;
+      contentType?: string;
+      source?: string;
+    },
     {
       path: string;
       name: string;

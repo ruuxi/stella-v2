@@ -31,7 +31,11 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { MessageRecord } from "@stella/contracts/local-chat";
 import { stripMarkdownForTts } from "./markdown-strip";
-import { fetchReadAloudAudio, openReadAloudStream } from "./tts-client";
+import {
+  createReadAloudOperationId,
+  fetchReadAloudAudio,
+  openReadAloudStream,
+} from "./tts-client";
 import {
   canStreamReadAloud,
   playReadAloud,
@@ -119,6 +123,7 @@ export function useReadAloud(messages: readonly MessageRecord[]): void {
       const clean = stripMarkdownForTts(reply.text);
       if (!clean) continue;
       void (async () => {
+        const operationId = createReadAloudOperationId();
         try {
           const prefs = await resolveReadAloudVoicePrefs();
           if (!enabledRef.current) return;
@@ -129,6 +134,7 @@ export function useReadAloud(messages: readonly MessageRecord[]): void {
           if (prefs.family === "inworld" && canStreamReadAloud()) {
             try {
               const response = await openReadAloudStream({
+                operationId,
                 text: clean,
                 voice: prefs.voice,
                 speed: prefs.speed,
@@ -149,6 +155,7 @@ export function useReadAloud(messages: readonly MessageRecord[]): void {
           }
 
           const { audio } = await fetchReadAloudAudio({
+            operationId,
             text: clean,
             voiceProvider: prefs.family,
             voice: prefs.voice,

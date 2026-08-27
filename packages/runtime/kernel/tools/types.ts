@@ -27,6 +27,42 @@ import type {
 import type { PersistedRuntimeThreadPayload } from "../storage/shared.js";
 import type { RecallLookupResult } from "../agent-runtime/recall-run-cache.js";
 
+/**
+ * Trusted-host-only OS identity for model-authored child processes. This is
+ * never a tool argument: a cloud host can drop shell privileges while its
+ * executor retains access to private orchestration state.
+ */
+export type ToolProcessIdentity = {
+  uid: number;
+  gid: number;
+  /** Writable home contained by `toolWorkspaceRoot`. */
+  home: string;
+  user: string;
+  /**
+   * Linux cloud boundary: launch through the fixed `setpriv` trampoline so
+   * the child has no supplementary groups, capability sets, or privilege
+   * regain path. The trusted host sets this; it is never a tool argument.
+   */
+  requireNoNewPrivileges?: true;
+};
+
+/**
+ * Bytes already read through a trusted workspace descriptor boundary.
+ *
+ * This is intentionally carried on a symbol-keyed ToolResult field: normal
+ * result serialization must never turn an authorized byte read back into a
+ * pathname that a more-privileged adapter reopens later.
+ */
+export type AuthorizedToolImage = {
+  data: Uint8Array;
+  mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  sourcePath: string;
+};
+
+export const TOOL_RESULT_AUTHORIZED_IMAGES = Symbol(
+  "stella.tool-result.authorized-images",
+);
+
 export type ToolContext = {
   conversationId: string;
   deviceId: string;
@@ -41,7 +77,11 @@ export type ToolContext = {
   stellaAppDir?: string;
   stellaDataDir?: string;
   toolWorkspaceRoot?: string;
+  /** POSIX child credential drop selected only by the trusted runtime host. */
+  toolProcessIdentity?: ToolProcessIdentity;
   storageMode?: "cloud" | "local";
+  /** Exact owner-data epoch for cloud computer-agent lifecycle writes. */
+  ownerGeneration?: string;
   agentId?: string;
   /**
    * Thread of the agent that spawned this one. Set only for a parent-owned
@@ -107,6 +147,8 @@ export type ToolResult = {
    * rather than showing nothing and implying the command produced nothing.
    */
   producedFilesOmitted?: ProducedFilesOmission;
+  /** Trusted-host-only image bytes; omitted from JSON, logs, and transcripts. */
+  [TOOL_RESULT_AUTHORIZED_IMAGES]?: readonly AuthorizedToolImage[];
 };
 
 /** See `ToolResult.producedFilesOmitted`. */
@@ -222,6 +264,8 @@ export type AgentToolRequest = {
   parentAgentId?: string;
   threadId?: string;
   storageMode: "cloud" | "local";
+  /** Required by the local manager whenever storageMode is cloud. */
+  ownerGeneration?: string;
 };
 
 /**
@@ -233,13 +277,25 @@ export type CloudDispatchRequest = {
   workspace: string;
   /** Local conversation the spawn came from, used to keep cloud threads together. */
   conversationId: string;
+  /** Stable tool-call identity used as the cloud mutation's replay key. */
+  requestId: string;
+  /** Immutable owner-data epoch when the caller already runs in cloud mode. */
+  ownerGeneration?: string;
   description: string;
   prompt: string;
   /** Exact route selected on desktop; the cloud validates it without fallback. */
   execution: CloudExecutionSelection;
 };
 
-export type CloudDispatchResult = {
+export type CloudAgentControlReceipt = {
+  threadId: string;
+  ownerGeneration: string;
+  attemptGeneration: number;
+  threadUpdatedAt: number;
+  status: "running" | "completed" | "failed" | "canceled";
+};
+
+export type CloudDispatchResult = CloudAgentControlReceipt & {
   /** Cloud thread id, addressable by desktop send_input and pause_agent. */
   threadId: string;
   /** Cloud conversation the agent reports into. */
@@ -359,13 +415,23 @@ export type AgentToolApi = {
     message: string;
     conversationId: string;
     requestId: string;
-  }) => Promise<{ delivered: boolean; reason?: string }>;
+    ownerGeneration?: string;
+  }) => Promise<{
+    delivered: boolean;
+    reason?: string;
+    control?: CloudAgentControlReceipt;
+  }>;
   /** Stop the current turn of an owned cloud thread. */
   cloudCancel?: (request: {
     threadId: string;
     conversationId: string;
     requestId: string;
-  }) => Promise<{ canceled: boolean; reason?: string }>;
+    ownerGeneration?: string;
+  }) => Promise<{
+    canceled: boolean;
+    reason?: string;
+    control?: CloudAgentControlReceipt;
+  }>;
   /** Manager-only upward reporting channel. */
   reportManager?: (request: {
     threadId: string;
@@ -382,6 +448,18 @@ export type AgentToolApi = {
 
 export type ToolHostOptions = {
   stellaAppDir: string;
+  /**
+   * Disable startup recovery of stale credential mounts. Cloud hosts keep
+   * their model-writable HOME separate from this root and must never let a
+   * prior turn plant recovery records for the privileged host to consume.
+   */
+  recoverStaleSecrets?: boolean;
+  /**
+   * Disable host-written command shims. A cloud image already provides its
+   * fixed binaries and keeps host state root-owned, so model shells must not
+   * depend on files materialized by the privileged process.
+   */
+  enableShellShims?: boolean;
   stellaBrowserBinPath?: string;
   stellaOfficeBinPath?: string;
   stellaComputerCliPath?: string;

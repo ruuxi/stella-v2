@@ -36,6 +36,7 @@ import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { AGENT_ORCHESTRATION_TOOL_NAMES } from "../tools/defs/task.js";
 import { sanitizeForLogs, truncate } from "../tools/utils.js";
 import { getOrCreateSubagentSession } from "../agent-runtime/subagent-session.js";
+import { isCloudAgentStartAdmissionError } from "../runner/computer-agent-cloud-records.js";
 const formatTaskUpdateStatusText = (text) => truncate(text.replace(/\s+/g, " ").trim(), 200);
 const fileRecordKey = (record) =>
     `${record.kind.type}:${record.path}:${record.kind.type === "update" ? (record.kind.move_path ?? "") : ""}`;
@@ -290,10 +291,22 @@ export class LocalAgentManager {
     bootInterruptedThreads = [];
     /** Episode id the boot capture was authorized under (see opts). */
     bootInterruptionEpisodeId = null;
+    /** Owned restart replays from terminal runtime rows into the cloud outbox. */
+    terminalReceiptRecoveries = new Set();
+    /** Concurrent lifecycle deliveries keyed by their stable durable identity. */
+    lifecycleEventDeliveries = new Map();
+    /**
+     * Small process-local bridge between a successful callback and the caller
+     * stamping its durable receipt. Without it, cancelAgent and executeTask can
+     * both observe terminalEventEmitted=false around the same awaited callback.
+     */
+    deliveredLifecycleEventIds = new Set();
     constructor(opts) {
         this.opts = opts;
         this.defaultMaxConcurrent = Math.max(1, opts.maxConcurrent ?? 3);
-        this.recoverOrCancelOrphanedPersistedAgents();
+        const orphanedRecords = this.recoverOrCancelOrphanedPersistedAgents();
+        this.recoverPersistedCloudTerminalReceipts(orphanedRecords);
+        this.recoverPersistedLocalTerminalLifecycleReceipts(orphanedRecords);
     }
     /** Threads that were running at the previous shutdown (pre-sweep snapshot). */
     getBootInterruptedThreads() {
@@ -309,6 +322,7 @@ export class LocalAgentManager {
     recoverOrCancelOrphanedPersistedAgents() {
         const now = Date.now();
         const runningRecords = this.opts.listAgentRecordsByStatus?.("running") ?? [];
+        const orphanedRecords = [];
         for (const record of runningRecords) {
             this.bootInterruptedThreads.push({
                 threadId: record.threadId,
@@ -332,42 +346,166 @@ export class LocalAgentManager {
         }
         for (const record of runningRecords) {
             const error = AGENT_ORPHANED_RESTART_CANCEL_REASON;
-            const cancellationEventId = `${record.threadId}:${record.attemptGeneration}:agent-canceled`;
-            this.opts.saveAgentRecord?.({
+            // Pre-generation local rows are still safe to retire as generation
+            // one: their lifecycle event is display-only and never authorizes a
+            // provider or remote mutation. Unknown cloud generations stay
+            // unknown and are deliberately excluded from remote recovery.
+            const attemptGeneration = Number.isInteger(record.attemptGeneration) && record.attemptGeneration > 0
+                ? record.attemptGeneration
+                : (record.storageMode ?? "local") === "local"
+                    ? 1
+                    : record.attemptGeneration;
+            const orphaned = {
                 ...record,
                 status: "canceled",
+                ...(attemptGeneration ? { attemptGeneration } : {}),
                 completedAt: now,
                 error,
                 updatedAt: now,
+            };
+            this.opts.saveAgentRecord?.(orphaned);
+            orphanedRecords.push(orphaned);
+        }
+        return orphanedRecords;
+    }
+    recoverPersistedCloudTerminalReceipts(additionalRecords = []) {
+        if (!this.opts.completeCloudAgentRecord)
+            return;
+        const terminalRecords = [
+            ...additionalRecords,
+            ...["completed", "error", "canceled"].flatMap((status) => this.opts.listAgentRecordsByStatus?.(status) ?? []),
+        ];
+        const seen = new Set();
+        for (const record of terminalRecords) {
+            const generation = record.attemptGeneration ?? 0;
+            const recoveryKey = `${record.threadId}:${generation}:${record.status}`;
+            if (record.storageMode !== "cloud" ||
+                generation < 1 ||
+                !record.ownerGeneration ||
+                (record.terminalLifecycleReceiptGeneration === generation &&
+                    record.cloudTerminalReceiptGeneration !== generation) ||
+                record.cloudTerminalReceiptGeneration === generation ||
+                seen.has(recoveryKey)) {
+                continue;
+            }
+            seen.add(recoveryKey);
+            const status = record.status === "completed"
+                ? "completed"
+                : record.status === "canceled"
+                    ? "canceled"
+                    : "error";
+            const recovery = Promise.resolve()
+                .then(async () => {
+                // Re-admit the deterministic start before its terminal. A crash
+                // during the original start write must never leave a terminal-only
+                // poison row that Convex can never apply.
+                if (this.opts.createCloudAgentRecord) {
+                    await this.opts.createCloudAgentRecord({
+                        agentId: record.threadId,
+                        conversationId: record.conversationId,
+                        description: record.description,
+                        prompt: record.prompt ?? record.description,
+                        agentType: record.agentType,
+                        attemptGeneration: generation,
+                        ownerGeneration: record.ownerGeneration,
+                        ...(record.parentAgentId ? { parentAgentId: record.parentAgentId } : {}),
+                    });
+                }
+                await this.opts.completeCloudAgentRecord({
+                    agentId: record.threadId,
+                    attemptGeneration: generation,
+                    ownerGeneration: record.ownerGeneration,
+                    status,
+                    result: record.result ? truncate(record.result, 30_000) : undefined,
+                    error: record.error ? truncate(record.error, 10_000) : undefined,
+                });
+            })
+                .then(() => {
+                const current = this.opts.getAgentRecord?.(record.threadId);
+                if (!current ||
+                    current.attemptGeneration !== generation ||
+                    current.status !== record.status) {
+                    return;
+                }
+                this.opts.saveAgentRecord?.({
+                    ...current,
+                    cloudTerminalReceiptGeneration: generation,
+                });
+            })
+                .catch((error) => {
+                // The terminal runtime row remains the restart receipt. A later
+                // boot retries the same generation without fabricating an ACK.
+                console.warn("[runtime] cloud terminal receipt recovery failed", error instanceof Error ? error.message : error);
+            })
+                .finally(() => {
+                this.terminalReceiptRecoveries.delete(recovery);
             });
-            // The runtime worker, not Electron's renderer/main process, owns agent
-            // execution. Persist the matching lifecycle transition here so every
-            // Activity consumer observes the real worker restart. Renderer code
-            // must not guess that an old `agent-started` event stopped merely
-            // because the desktop window restarted: the detached worker may still
-            // be running it.
-            this.opts.onAgentEvent?.({
-                type: "agent-canceled",
+            this.terminalReceiptRecoveries.add(recovery);
+        }
+    }
+    recoverPersistedLocalTerminalLifecycleReceipts(additionalRecords = []) {
+        const terminalRecords = [
+            ...additionalRecords,
+            ...["completed", "error", "canceled"].flatMap((status) => this.opts.listAgentRecordsByStatus?.(status) ?? []),
+        ];
+        const seen = new Set();
+        for (const record of terminalRecords) {
+            const generation = record.attemptGeneration ?? 0;
+            const recoveryKey = `${record.threadId}:${generation}:${record.status}`;
+            if (record.storageMode === "cloud" ||
+                generation < 1 ||
+                record.terminalLifecycleReceiptGeneration === generation ||
+                seen.has(recoveryKey)) {
+                continue;
+            }
+            seen.add(recoveryKey);
+            const type = record.status === "completed"
+                ? "agent-completed"
+                : record.status === "canceled"
+                    ? "agent-canceled"
+                    : "agent-failed";
+            const event = {
+                type,
                 conversationId: record.conversationId,
-                eventId: cancellationEventId,
+                eventId: `${record.threadId}:${generation}:${type}`,
+                rootRunId: record.rootRunId,
                 agentId: record.threadId,
                 agentType: record.agentType,
                 description: record.description,
                 parentAgentId: record.parentAgentId,
-                attemptGeneration: record.attemptGeneration,
-                error,
-                audience: "display-only",
+                attemptGeneration: generation,
+                ...(record.status === "completed" ? { result: record.result } : { error: record.error }),
+                ...(record.status === "canceled" && record.error === AGENT_ORPHANED_RESTART_CANCEL_REASON
+                    ? { audience: "display-only" }
+                    : {}),
+            };
+            // Begin delivery immediately. The callback itself therefore runs in
+            // this constructor turn (matching the historical boot-sweep
+            // contract), while its durable receipt remains asynchronously owned
+            // and joined during shutdown.
+            const recovery = this.emitAgentLifecycleEventOnce(event)
+                .then(() => {
+                const current = this.opts.getAgentRecord?.(record.threadId);
+                if (!current ||
+                    current.storageMode === "cloud" ||
+                    current.attemptGeneration !== generation ||
+                    current.status !== record.status) {
+                    return;
+                }
+                this.opts.saveAgentRecord?.({
+                    ...current,
+                    terminalLifecycleReceiptGeneration: generation,
+                });
+            })
+                .catch((error) => {
+                // The terminal runtime row remains the restart receipt. The next
+                // boot replays this same stable event id.
+                console.warn("[runtime] local terminal lifecycle recovery failed", error instanceof Error ? error.message : error);
+            })
+                .finally(() => {
+                this.terminalReceiptRecoveries.delete(recovery);
             });
-            if (record.storageMode === "cloud") {
-                void this.opts
-                    .completeCloudAgentRecord?.({
-                    agentId: record.threadId,
-                    attemptGeneration: record.attemptGeneration,
-                    status: "canceled",
-                    error,
-                })
-                    .catch(() => undefined);
-            }
+            this.terminalReceiptRecoveries.add(recovery);
         }
     }
     /**
@@ -554,6 +692,7 @@ export class LocalAgentManager {
             threadId: task.threadId,
             conversationId: task.conversationId,
             storageMode: task.storageMode,
+            ...(task.ownerGeneration ? { ownerGeneration: task.ownerGeneration } : {}),
             agentType: task.agentType,
             description: task.description,
             ...(task.initialPrompt
@@ -571,6 +710,12 @@ export class LocalAgentManager {
             status: task.status === "pending" || isParked ? "running" : task.status,
             attemptGeneration: task.attemptGeneration,
             ...(task.rootRunId ? { rootRunId: task.rootRunId } : {}),
+            ...(typeof task.cloudTerminalReceiptGeneration === "number"
+                ? { cloudTerminalReceiptGeneration: task.cloudTerminalReceiptGeneration }
+                : {}),
+            ...(typeof task.terminalLifecycleReceiptGeneration === "number"
+                ? { terminalLifecycleReceiptGeneration: task.terminalLifecycleReceiptGeneration }
+                : {}),
             startedAt: task.startedAt,
             completedAt: isParked ? null : task.completedAt,
             ...(typeof task.result === "string" ? { result: task.result } : {}),
@@ -691,6 +836,17 @@ export class LocalAgentManager {
         ) {
             return;
         }
+        const hasDurableTerminalReceipt = task.storageMode === "cloud"
+            ? persisted.cloudTerminalReceiptGeneration === task.attemptGeneration ||
+                (task.cloudStartAdmissionRejectedGeneration === task.attemptGeneration &&
+                    persisted.terminalLifecycleReceiptGeneration === task.attemptGeneration)
+            : persisted.terminalLifecycleReceiptGeneration === task.attemptGeneration;
+        if (!hasDurableTerminalReceipt) {
+            // A terminal SQLite row is the restart receipt, but the in-memory
+            // owner must stay resident until that exact generation has reached
+            // either the cloud outbox or the local lifecycle transcript.
+            return;
+        }
         // The authoritative record, queues, and thread transcript now live in
         // SQLite. Keeping the terminal task object would retain result/file
         // payloads forever and makes this map grow with the lifetime chat.
@@ -704,14 +860,59 @@ export class LocalAgentManager {
         );
     }
     lifecycleEventId(task, type) {
-        return `${task.threadId}:${task.attemptGeneration}:${type}`;
+        return task.storageMode === "cloud" && task.ownerGeneration
+            ? `${task.threadId}:${task.ownerGeneration}:${task.attemptGeneration}:${type}`
+            : `${task.threadId}:${task.attemptGeneration}:${type}`;
     }
-    emitAgentLifecycleEventOnce(event) {
+    async emitAgentLifecycleEventOnce(event) {
         const eventId = event.eventId?.trim();
         if (eventId && this.opts.hasAgentLifecycleEvent?.(event.conversationId, eventId, event.type)) {
             return;
         }
-        this.opts.onAgentEvent?.(event);
+        if (!eventId) {
+            await this.opts.onAgentEvent?.(event);
+            return;
+        }
+        const deliveryKey = `${event.conversationId}\u0000${event.type}\u0000${eventId}`;
+        if (this.deliveredLifecycleEventIds.has(deliveryKey)) {
+            return;
+        }
+        const existing = this.lifecycleEventDeliveries.get(deliveryKey);
+        if (existing) {
+            await existing;
+            return;
+        }
+        let resolveDelivery;
+        let rejectDelivery;
+        const delivery = new Promise((resolve, reject) => {
+            resolveDelivery = resolve;
+            rejectDelivery = reject;
+        });
+        // Publish the reservation before invoking user code so even a
+        // synchronous/re-entrant terminal callback observes the same delivery.
+        this.lifecycleEventDeliveries.set(deliveryKey, delivery);
+        try {
+            try {
+                Promise.resolve(this.opts.onAgentEvent?.(event)).then(resolveDelivery, rejectDelivery);
+            }
+            catch (error) {
+                rejectDelivery(error);
+            }
+            await delivery;
+            this.deliveredLifecycleEventIds.add(deliveryKey);
+            // Bound the volatile bridge; the durable hasAgentLifecycleEvent
+            // check is authoritative after the receipt is stamped.
+            if (this.deliveredLifecycleEventIds.size > 4_096) {
+                const oldest = this.deliveredLifecycleEventIds.values().next().value;
+                if (oldest)
+                    this.deliveredLifecycleEventIds.delete(oldest);
+            }
+        }
+        finally {
+            if (this.lifecycleEventDeliveries.get(deliveryKey) === delivery) {
+                this.lifecycleEventDeliveries.delete(deliveryKey);
+            }
+        }
     }
     assertActiveParentChain(request) {
         if (!request.parentAgentId) return;
@@ -757,6 +958,11 @@ export class LocalAgentManager {
         // the plain-TS agent session/tools; each new attempt gets a fresh one.
         task.controller = new AbortController();
         task.terminalEventEmitted = false;
+        task.cloudTerminalReceiptGeneration = undefined;
+        task.terminalLifecycleReceiptGeneration = undefined;
+        task.cloudStartReceiptGeneration = undefined;
+        task.cloudStartAdmissionRejectedGeneration = undefined;
+        task.cloudStartAdmissionPendingGeneration = undefined;
         task.pendingStartStatusText = undefined;
         task.pendingStartAudience = undefined;
         // Cleared here so a bare reset reads as a spawn; the follow-up callers
@@ -779,6 +985,7 @@ export class LocalAgentManager {
             // resetTaskForNextAttempt above).
             controller: new AbortController(),
             storageMode: record.storageMode ?? "local",
+            ...(record.ownerGeneration ? { ownerGeneration: record.ownerGeneration } : {}),
             parentAgentId: record.parentAgentId,
             descendantFinalParked: false,
             consumedDescendantEventIds: [...(record.descendantBoundaryState?.consumedEventIds ?? [])],
@@ -866,6 +1073,8 @@ export class LocalAgentManager {
         pending.fiber.interruptUnsafe();
     }
     scheduleAttemptTakeover(task, activeAttempt) {
+        if (activeAttempt.slotReleased)
+            return;
         const existing = this.attemptTakeoverDeadlines.get(task.threadId);
         if (existing?.generation === activeAttempt.generation &&
             existing.promise === activeAttempt.promise) {
@@ -894,11 +1103,12 @@ export class LocalAgentManager {
                 return;
             }
             // The old promise may never settle (for example a bridge/tool that
-            // ignored abort). Release its scheduler slot and remove its ownership
-            // record. Generation/controller checks fence every later callback and
-            // state write from that promise if it eventually returns.
+            // ignored abort). Release only its global scheduler slot so unrelated
+            // work can proceed. Keep exact physical ownership until the promise
+            // settles: a same-thread successor and a placement cancellation ACK
+            // must never treat generation fencing as provider/tool quiescence.
             this.attemptTakeoverDeadlines.delete(task.threadId);
-            this.inFlightAttempts.delete(task.threadId);
+            inFlight.slotReleased = true;
             this.runningCount = Math.max(0, this.runningCount - 1);
             this.tryStartNext();
         });
@@ -910,6 +1120,8 @@ export class LocalAgentManager {
         });
     }
     scheduleCanceledAttemptRelease(task, activeAttempt) {
+        if (activeAttempt.slotReleased)
+            return;
         this.clearAttemptTakeoverTimer(task.threadId);
         if (this.supervisoryScopeClosed) {
             return;
@@ -927,12 +1139,12 @@ export class LocalAgentManager {
                 this.clearAttemptTakeoverTimer(task.threadId, activeAttempt.generation, activeAttempt.promise);
                 return;
             }
-            // Cancellation has already disposed the live Pi session and fenced
-            // durable writes by generation. A bridge/tool that ignores abort
-            // must not retain the global scheduler slot forever even when this
-            // thread is never resumed.
+            // Cancellation has disposed the live Pi session and fenced durable
+            // writes, but that is not physical quiescence. Release only the
+            // global slot; retain this exact attempt as the same-thread and
+            // placement-ACK barrier until its provider/tool promise settles.
             this.attemptTakeoverDeadlines.delete(task.threadId);
-            this.inFlightAttempts.delete(task.threadId);
+            inFlight.slotReleased = true;
             this.runningCount = Math.max(0, this.runningCount - 1);
             this.tryStartNext();
         });
@@ -988,34 +1200,47 @@ export class LocalAgentManager {
             task.pendingStartIsFollowUp = undefined;
             task.pendingStartAudience = undefined;
             this.persistTask(task);
+            let cloudStartAdmission = null;
             if (task.storageMode === "cloud") {
                 // The local thread id is also the canonical cloud Activity id. Publish
                 // every attempt (including send_input continuations) with its
                 // generation so a late terminal from the prior attempt cannot close
                 // the newly-running row.
                 task.cloudAgentId = task.threadId;
-                task.cloudCreatePromise = this.opts
-                    .createCloudAgentRecord({
+                task.cloudCreatePromise = Promise.resolve()
+                    .then(() => {
+                    if (!this.opts.createCloudAgentRecord) {
+                        throw new Error("Cloud agent start admission is unavailable.");
+                    }
+                    return this.opts.createCloudAgentRecord({
                     agentId: task.threadId,
                     conversationId: task.conversationId,
                     description: task.description,
                     prompt: task.prompt,
                     agentType: task.agentType,
                     attemptGeneration: generation,
+                    ownerGeneration: task.ownerGeneration,
                     ...(task.parentAgentId
                         ? { parentAgentId: task.parentAgentId }
                         : {}),
                     ...(typeof task.maxAgentDepth === "number"
                         ? { maxAgentDepth: task.maxAgentDepth }
                         : {}),
+                    });
                 })
                     .then((created) => {
-                    task.cloudAgentId = created.agentId;
+                    return { generation, admitted: true, agentId: created.agentId };
                 })
-                    .catch(() => {
-                    // The agent still runs on this computer. A later attempt republishes
-                    // the row; terminal sync below remains best-effort for this one.
+                    .catch((error) => {
+                    // Keep the rejection owned and observable by the terminal path.
+                    // That path must re-admit this start before it may publish a
+                    // terminal row or evict the local task.
+                    return { generation, admitted: false, error };
                 });
+                // Capture the exact promise on the physical attempt. A later
+                // send_input generation replaces task.cloudCreatePromise, but it
+                // must never let this generation adopt the successor's admission.
+                cloudStartAdmission = task.cloudCreatePromise;
             }
             this.opts.onAgentEvent?.({
                 type: "agent-started",
@@ -1033,8 +1258,13 @@ export class LocalAgentManager {
             const execution = this.executeTask(task, {
                 generation,
                 controller,
+                cloudStartAdmission,
             }).catch(() => undefined);
-            this.inFlightAttempts.set(threadId, { generation, promise: execution });
+            this.inFlightAttempts.set(threadId, {
+                generation,
+                promise: execution,
+                slotReleased: false,
+            });
             this.opts.superviseAttempt?.({
                 threadId,
                 ...(task.rootRunId ? { rootRunId: task.rootRunId } : {}),
@@ -1057,7 +1287,9 @@ export class LocalAgentManager {
                 if (activeAttempt?.generation === generation && activeAttempt.promise === execution) {
                     this.clearAttemptTakeoverTimer(threadId, generation, execution);
                     this.inFlightAttempts.delete(threadId);
-                    this.runningCount = Math.max(0, this.runningCount - 1);
+                    if (!activeAttempt.slotReleased) {
+                        this.runningCount = Math.max(0, this.runningCount - 1);
+                    }
                     this.tryStartNext();
                 }
             };
@@ -1117,6 +1349,20 @@ export class LocalAgentManager {
             task.attemptGeneration === attempt.generation &&
             task.controller === attempt.controller;
         try {
+            if (task.storageMode === "cloud") {
+                const admission = await attempt.cloudStartAdmission;
+                if (!isCurrentAttempt())
+                    return;
+                if (admission?.generation !== attempt.generation || !admission.admitted) {
+                    const error = admission?.error;
+                    throw error instanceof Error
+                        ? error
+                        : new Error("Cloud agent start admission was rejected.");
+                }
+                task.cloudAgentId = admission.agentId;
+                task.cloudStartReceiptGeneration = attempt.generation;
+                this.persistTask(task);
+            }
             const runId = `run:${task.threadId}:${++this.nextId}`;
             // Create the session before the context load. A managed-child report
             // can persist while that async load (or prompt hooks) is in flight;
@@ -1178,6 +1424,7 @@ export class LocalAgentManager {
                 agentContext: context,
                 subagentSession,
                 persistToConvex: task.storageMode === "cloud",
+                ownerGeneration: task.ownerGeneration,
                 enableRemoteTools: true,
                 abortSignal: attempt.controller.signal,
                 onProgress: (chunk) => {
@@ -1214,6 +1461,7 @@ export class LocalAgentManager {
                         description: task.description,
                         parentAgentId: task.parentAgentId,
                         attemptGeneration: attempt.generation,
+                        ownerGeneration: task.ownerGeneration,
                         statusText: compact,
                     });
                 },
@@ -1343,11 +1591,33 @@ export class LocalAgentManager {
                 task.error = task.error ?? "Canceled";
             } else {
                 task.status = "error";
-                task.error = error.message ?? "Task failed";
+                if (task.storageMode === "cloud" && isCloudAgentStartAdmissionError(error)) {
+                    if (error.retryable) {
+                        // The durable start row remains the recovery owner. Do
+                        // not fabricate a terminal or a local lifecycle event:
+                        // this process never received authority to run.
+                        task.cloudStartAdmissionPendingGeneration = attempt.generation;
+                        task.error = "Waiting for cloud start acknowledgement.";
+                    }
+                    else {
+                        // Canonical rejection means no remote attempt exists.
+                        // Retire only the local started card below; never create
+                        // or complete a replacement cloud row.
+                        task.cloudStartAdmissionRejectedGeneration = attempt.generation;
+                        task.error = "Cloud agent start was rejected.";
+                    }
+                }
+                else {
+                    task.error = error.message ?? "Task failed";
+                }
             }
         }
         if (!isCurrentAttempt()) return;
-        if (this.shouldParkFinalForDescendants(task)) {
+        const cloudStartAdmissionRejected =
+            task.cloudStartAdmissionRejectedGeneration === attempt.generation;
+        const cloudStartAdmissionPending =
+            task.cloudStartAdmissionPendingGeneration === attempt.generation;
+        if (!cloudStartAdmissionRejected && !cloudStartAdmissionPending && this.shouldParkFinalForDescendants(task)) {
             // The model is allowed to yield while background descendants continue,
             // but that text is not a root completion. A child terminal report will
             // resume this same thread; its next natural final becomes root-facing
@@ -1375,6 +1645,74 @@ export class LocalAgentManager {
             }
         }
         this.persistTask(task);
+        if (cloudStartAdmissionPending) {
+            // A later resume/restart retries the exact durable start. Provider,
+            // tools, remote terminal, and lifecycle delivery all remain zero.
+            return;
+        }
+        // The cloud terminal row is the restart-safe delivery receipt. Admit it
+        // to the local SQLite outbox before the in-memory task can be evicted or
+        // the direct orchestrator wake is attempted. The outbox preserves start
+        // -> terminal order and the device monitor ACKs only after the exact
+        // generation/revision is durable in the orchestrator transcript.
+        if (task.storageMode === "cloud" && !task.descendantFinalParked && !cloudStartAdmissionRejected) {
+            if (!this.opts.createCloudAgentRecord || !this.opts.completeCloudAgentRecord) {
+                return;
+            }
+            let startReceipt = null;
+            if (task.cloudCreatePromise) {
+                startReceipt = await task.cloudCreatePromise;
+            }
+            if (startReceipt?.generation !== attempt.generation || !startReceipt.admitted) {
+                try {
+                    const created = await this.opts.createCloudAgentRecord({
+                        agentId: task.threadId,
+                        conversationId: task.conversationId,
+                        description: task.description,
+                        prompt: task.prompt,
+                        agentType: task.agentType,
+                        attemptGeneration: attempt.generation,
+                        ownerGeneration: task.ownerGeneration,
+                        ...(task.parentAgentId ? { parentAgentId: task.parentAgentId } : {}),
+                    });
+                    if (!isCurrentAttempt()) return;
+                    task.cloudAgentId = created.agentId;
+                    task.cloudStartReceiptGeneration = attempt.generation;
+                    startReceipt = {
+                        generation: attempt.generation,
+                        admitted: true,
+                        agentId: created.agentId,
+                    };
+                }
+                catch {
+                    // The terminal runtime row remains the restart receipt. Never
+                    // enqueue a terminal transition without its deterministic start.
+                    return;
+                }
+            }
+            const status = task.status === "completed"
+                ? "completed"
+                : task.status === "canceled"
+                    ? "canceled"
+                    : "error";
+            try {
+                await this.opts.completeCloudAgentRecord({
+                    agentId: task.cloudAgentId ?? task.threadId,
+                    attemptGeneration: attempt.generation,
+                    ownerGeneration: task.ownerGeneration,
+                    status,
+                    result: task.result ? truncate(task.result, 30_000) : undefined,
+                    error: task.error ? truncate(task.error, 10_000) : undefined,
+                });
+                task.cloudTerminalReceiptGeneration = attempt.generation;
+                this.persistTask(task);
+            }
+            catch {
+                // `runtime_agents` remains the terminal receipt and the task stays
+                // resident. Never evict across a failed local-outbox admission.
+                return;
+            }
+        }
         // Emit task lifecycle event
         if (!task.terminalEventEmitted) {
             if (task.status === "completed") {
@@ -1390,20 +1728,32 @@ export class LocalAgentManager {
                         description: task.description,
                         parentAgentId: task.parentAgentId,
                         attemptGeneration: task.attemptGeneration,
+                        ...(task.ownerGeneration ? { ownerGeneration: task.ownerGeneration } : {}),
                         result: task.result,
                         ...(task.fileChanges?.length ? { fileChanges: task.fileChanges } : {}),
                         ...(task.producedFiles?.length ? { producedFiles: task.producedFiles } : {}),
                     };
                     // The rollup is now captured on the event — drain the bank so a
                     // send_input re-run's later completion only reveals new files.
-                    this.emitAgentLifecycleEventOnce(completedEvent);
+                    try {
+                        await this.emitAgentLifecycleEventOnce(completedEvent);
+                        if (!isCurrentAttempt()) return;
+                        task.terminalEventEmitted = true;
+                        task.terminalLifecycleReceiptGeneration = attempt.generation;
+                    }
+                    catch (error) {
+                        if (task.storageMode !== "cloud")
+                            throw error;
+                        // The unacknowledged cloud terminal receipt is now the
+                        // delivery owner. Its monitor retries this same event id.
+                    }
                     task.bankedFileChanges = undefined;
                     task.bankedProducedFiles = undefined;
                     task.descendantWakePending = false;
                     this.persistTask(task);
                 }
             } else if (task.status === "error") {
-                this.opts.onAgentEvent?.({
+                const failedEvent = {
                     type: "agent-failed",
                     conversationId: task.conversationId,
                     eventId: this.lifecycleEventId(task, "agent-failed"),
@@ -1413,10 +1763,23 @@ export class LocalAgentManager {
                     description: task.description,
                     parentAgentId: task.parentAgentId,
                     attemptGeneration: task.attemptGeneration,
+                    ...(task.ownerGeneration ? { ownerGeneration: task.ownerGeneration } : {}),
+                    ...(cloudStartAdmissionRejected ? { audience: "display-only" } : {}),
                     error: task.error,
-                });
+                };
+                try {
+                    await this.emitAgentLifecycleEventOnce(failedEvent);
+                    if (!isCurrentAttempt()) return;
+                    task.terminalEventEmitted = true;
+                    task.terminalLifecycleReceiptGeneration = attempt.generation;
+                    this.persistTask(task);
+                }
+                catch (error) {
+                    if (task.storageMode !== "cloud")
+                        throw error;
+                }
             } else if (task.status === "canceled") {
-                this.opts.onAgentEvent?.({
+                const canceledEvent = {
                     type: "agent-canceled",
                     conversationId: task.conversationId,
                     eventId: this.lifecycleEventId(task, "agent-canceled"),
@@ -1426,39 +1789,21 @@ export class LocalAgentManager {
                     description: task.description,
                     parentAgentId: task.parentAgentId,
                     attemptGeneration: task.attemptGeneration,
+                    ...(task.ownerGeneration ? { ownerGeneration: task.ownerGeneration } : {}),
                     error: task.error,
-                });
-            }
-            task.terminalEventEmitted = true;
-        }
-        // Sync task completion to Convex in background (non-blocking). A parked
-        // final is not a real terminal — the thread resumes when its descendants
-        // settle, and that later real finish syncs with its own generation.
-        if (task.storageMode === "cloud" && !task.descendantFinalParked) {
-            void (async () => {
-                // Wait for cloud task creation to finish so we have the cloudAgentId
-                if (task.cloudCreatePromise) {
-                    await task.cloudCreatePromise.catch(() => { });
+                };
+                try {
+                    await this.emitAgentLifecycleEventOnce(canceledEvent);
+                    if (!isCurrentAttempt()) return;
+                    task.terminalEventEmitted = true;
+                    task.terminalLifecycleReceiptGeneration = attempt.generation;
+                    this.persistTask(task);
                 }
-                if (!task.cloudAgentId)
-                    return;
-                const status = task.status === "completed"
-                    ? "completed"
-                    : task.status === "canceled"
-                        ? "canceled"
-                        : "error";
-                await this.opts
-                    .completeCloudAgentRecord?.({
-                    agentId: task.cloudAgentId,
-                    attemptGeneration: attempt.generation,
-                    status,
-                    result: task.result ? truncate(task.result, 30_000) : undefined,
-                    error: task.error ? truncate(task.error, 10_000) : undefined,
-                })
-                    .catch(() => {
-                    // Background sync failure — task is still tracked locally
-                });
-            })();
+                catch (error) {
+                    if (task.storageMode !== "cloud")
+                        throw error;
+                }
+            }
         }
         this.evictTerminalTaskIfDurable(task);
     }
@@ -1476,6 +1821,11 @@ export class LocalAgentManager {
                 nameHint: request.description,
             }) ?? null;
         const threadId = resolvedThread?.threadId ?? request.threadId ?? `thread-${++this.nextId}`;
+        const storageMode = request.storageMode ?? "local";
+        const ownerGeneration = request.ownerGeneration?.trim();
+        if (storageMode === "cloud" && !ownerGeneration) {
+            throw new Error("Cloud computer-agent creation requires an owner generation.");
+        }
         const createdAt = Date.now();
         const task = {
             threadId,
@@ -1498,7 +1848,8 @@ export class LocalAgentManager {
             startedAt: createdAt,
             completedAt: null,
             controller,
-            storageMode: request.storageMode ?? "local",
+            storageMode,
+            ...(ownerGeneration ? { ownerGeneration } : {}),
             parentAgentId: request.parentAgentId,
             descendantFinalParked: false,
             consumedDescendantEventIds: [],
@@ -1691,6 +2042,7 @@ export class LocalAgentManager {
             cancels.push(this.cancelAgent(task.threadId, reason).catch(() => undefined));
         }
         await Promise.allSettled(cancels);
+        await Promise.allSettled([...this.terminalReceiptRecoveries]);
         // Close the supervisory scope last: every remaining supervision fiber
         // (attempt joins whose underlying promise ignored abort, stray
         // deadlines) is interrupted, and their `ensuring` bookkeeping runs.
@@ -1726,7 +2078,21 @@ export class LocalAgentManager {
                 return { canceled: true };
             }
             const previousStatus = local.status;
-            local.error = reason ?? "Canceled";
+            const canceledGeneration = local.attemptGeneration;
+            const canceledError = reason ?? "Canceled";
+            const canceledCloudCreatePromise = local.cloudCreatePromise;
+            const canceledCloudAgentId = local.cloudAgentId ?? local.threadId;
+            const canceledCloudStart = {
+                agentId: local.threadId,
+                conversationId: local.conversationId,
+                description: local.description,
+                prompt: local.prompt,
+                agentType: local.agentType,
+                attemptGeneration: canceledGeneration,
+                ownerGeneration: local.ownerGeneration,
+                ...(local.parentAgentId ? { parentAgentId: local.parentAgentId } : {}),
+            };
+            local.error = canceledError;
             local.status = "canceled";
             local.descendantFinalParked = false;
             local.descendantWakePending = false;
@@ -1742,7 +2108,7 @@ export class LocalAgentManager {
                 agentType: local.agentType,
                 description: local.description,
                 parentAgentId: local.parentAgentId,
-                attemptGeneration: local.attemptGeneration,
+                attemptGeneration: canceledGeneration,
                 statusText: "Pausing",
             });
             local.controller.abort(new Error(local.error));
@@ -1771,13 +2137,14 @@ export class LocalAgentManager {
                     // Best-effort.
                 }
             }
+            let cancellationEvent;
             if (
                 (!local.terminalEventEmitted || wasParked) &&
                 (previousStatus === "pending" || previousStatus === "running" || wasParked)
             ) {
                 const cancellationEventId = this.lifecycleEventId(local, "agent-canceled");
                 this.persistTask(local);
-                this.opts.onAgentEvent?.({
+                cancellationEvent = {
                     type: "agent-canceled",
                     conversationId: local.conversationId,
                     eventId: cancellationEventId,
@@ -1786,27 +2153,73 @@ export class LocalAgentManager {
                     agentType: local.agentType,
                     description: local.description,
                     parentAgentId: local.parentAgentId,
-                    attemptGeneration: local.attemptGeneration,
-                    error: local.error,
-                });
-                local.terminalEventEmitted = true;
+                    attemptGeneration: canceledGeneration,
+                    ...(local.ownerGeneration ? { ownerGeneration: local.ownerGeneration } : {}),
+                    error: canceledError,
+                };
             }
             this.persistTask(local);
-            await this.cascadeCancelChildren(agentId, local.error);
-            if (local.storageMode === "cloud" && local.cloudAgentId) {
+            await this.cascadeCancelChildren(agentId, canceledError);
+            if (local.storageMode === "cloud") {
                 // Never mirror a cancel before the running row is published: the
                 // start enqueue and this cancel share the attempt generation, so
                 // ordering is what keeps the canonical row from resurrecting.
-                if (local.cloudCreatePromise) {
-                    await local.cloudCreatePromise.catch(() => undefined);
+                let startReceipt = canceledCloudCreatePromise
+                    ? await canceledCloudCreatePromise
+                    : null;
+                if (startReceipt?.generation !== canceledGeneration || !startReceipt.admitted) {
+                    if (!this.opts.createCloudAgentRecord) {
+                        throw new Error("Cloud agent start receipt is unavailable.");
+                    }
+                    await this.opts.createCloudAgentRecord(canceledCloudStart);
+                    startReceipt = {
+                        generation: canceledGeneration,
+                        admitted: true,
+                        agentId: canceledCloudAgentId,
+                    };
                 }
-                await this.opts.cancelCloudAgentRecord?.(local.cloudAgentId, local.error, local.attemptGeneration);
+                if (!this.opts.cancelCloudAgentRecord) {
+                    throw new Error("Cloud agent cancel receipt is unavailable.");
+                }
+                await this.opts.cancelCloudAgentRecord(canceledCloudAgentId, canceledError, canceledGeneration, local.ownerGeneration);
+                if (local.attemptGeneration === canceledGeneration && local.status === "canceled") {
+                    local.cloudStartReceiptGeneration = canceledGeneration;
+                    local.cloudTerminalReceiptGeneration = canceledGeneration;
+                    this.persistTask(local);
+                }
+            }
+            if (cancellationEvent) {
+                try {
+                    await this.emitAgentLifecycleEventOnce(cancellationEvent);
+                    if (local.attemptGeneration === canceledGeneration && local.status === "canceled") {
+                        local.terminalEventEmitted = true;
+                        local.terminalLifecycleReceiptGeneration = canceledGeneration;
+                        this.persistTask(local);
+                    }
+                }
+                catch (error) {
+                    if (local.storageMode !== "cloud")
+                        throw error;
+                    // The unacknowledged cloud terminal row remains the retry
+                    // owner when the direct lifecycle wake cannot be admitted.
+                }
             }
             this.evictTerminalTaskIfDurable(local);
             return { canceled: true };
         }
         const persisted = this.opts.getAgentRecord?.(agentId);
         if (persisted) {
+            if (persisted.storageMode === "cloud" && !persisted.ownerGeneration) {
+                this.opts.saveAgentRecord?.({
+                    ...persisted,
+                    status: "canceled",
+                    completedAt: persisted.completedAt ?? Date.now(),
+                    error: "Cloud task retired because its owner generation is unavailable.",
+                    updatedAt: Date.now(),
+                });
+                this.settleAgentThread(agentId);
+                return { canceled: true };
+            }
             const wasActive = persisted.status === "running";
             if (wasActive) {
                 const consumedEventIds = persisted.descendantBoundaryState?.consumedEventIds ?? [];
@@ -1824,20 +2237,66 @@ export class LocalAgentManager {
                 this.settleAgentThread(agentId);
             }
             await this.cascadeCancelChildren(agentId, reason ?? "Canceled");
+            if (persisted.storageMode !== "cloud" && wasActive) {
+                const generation = persisted.attemptGeneration;
+                await this.emitAgentLifecycleEventOnce({
+                    type: "agent-canceled",
+                    conversationId: persisted.conversationId,
+                    eventId: `${persisted.threadId}:${generation}:agent-canceled`,
+                    rootRunId: persisted.rootRunId,
+                    agentId: persisted.threadId,
+                    agentType: persisted.agentType,
+                    description: persisted.description,
+                    parentAgentId: persisted.parentAgentId,
+                    attemptGeneration: generation,
+                    error: reason ?? "Canceled",
+                });
+                const current = this.opts.getAgentRecord?.(persisted.threadId);
+                if (current &&
+                    current.attemptGeneration === generation &&
+                    current.status === "canceled") {
+                    this.opts.saveAgentRecord?.({
+                        ...current,
+                        terminalLifecycleReceiptGeneration: generation,
+                    });
+                }
+            }
             if (persisted.storageMode === "cloud" && wasActive) {
-                await this.opts.cancelCloudAgentRecord?.(persisted.threadId, reason ?? "Canceled", persisted.attemptGeneration);
+                if (this.opts.createCloudAgentRecord) {
+                    await this.opts.createCloudAgentRecord({
+                        agentId: persisted.threadId,
+                        conversationId: persisted.conversationId,
+                        description: persisted.description,
+                        prompt: persisted.prompt ?? persisted.description,
+                        agentType: persisted.agentType,
+                        attemptGeneration: persisted.attemptGeneration,
+                        ownerGeneration: persisted.ownerGeneration,
+                        ...(persisted.parentAgentId ? { parentAgentId: persisted.parentAgentId } : {}),
+                    });
+                }
+                await this.opts.cancelCloudAgentRecord?.(persisted.threadId, reason ?? "Canceled", persisted.attemptGeneration, persisted.ownerGeneration);
+                const current = this.opts.getAgentRecord?.(persisted.threadId);
+                if (current &&
+                    current.attemptGeneration === persisted.attemptGeneration &&
+                    current.status === "canceled") {
+                    this.opts.saveAgentRecord?.({
+                        ...current,
+                        cloudTerminalReceiptGeneration: persisted.attemptGeneration,
+                    });
+                }
             }
             return { canceled: true };
         }
-        return (await this.opts.cancelCloudAgentRecord?.(agentId, reason)) ?? {
-            canceled: false,
-        };
+        // No local or durable row means there is no exact physical attempt
+        // generation to cancel. Never let an unversioned Stop adopt whichever
+        // cloud attempt currently owns a reused thread id.
+        return { canceled: false };
     }
     /**
      * Placement-only exact cancel barrier. Capture the physical attempt before
-     * the durable terminal transition, then wait until it settles or the
-     * manager's existing bounded generation-fenced abandonment removes its
-     * ownership. Callers may acknowledge cancellation only after this returns.
+     * the durable terminal transition, then wait until it physically settles.
+     * The bounded scheduler release can admit unrelated work, but it is
+     * deliberately not a placement/quiescence acknowledgement.
      */
     async cancelAgentAndJoin(agentId, reason) {
         const ownedAttempt = this.inFlightAttempts.get(agentId);
@@ -1847,13 +2306,13 @@ export class LocalAgentManager {
         }
         const timeoutMs = Math.max(1, this.opts.attemptTeardownTimeoutMs ??
             DEFAULT_AGENT_ATTEMPT_TEARDOWN_TIMEOUT_MS);
-        await Promise.race([
-            ownedAttempt.promise,
-            managerRuntime.runPromise(Effect.sleep(timeoutMs + 50)),
+        const settled = await Promise.race([
+            ownedAttempt.promise.then(() => true),
+            managerRuntime
+                .runPromise(Effect.sleep(timeoutMs + 50))
+                .then(() => false),
         ]);
-        const current = this.inFlightAttempts.get(agentId);
-        if (current?.generation === ownedAttempt.generation &&
-            current.promise === ownedAttempt.promise) {
+        if (!settled) {
             throw new Error(`Local agent ${agentId} did not reach its bounded cancellation barrier.`);
         }
         return result;
@@ -1897,6 +2356,19 @@ export class LocalAgentManager {
             }
             const persisted = this.opts.getAgentRecord?.(agentId);
             if (!persisted) {
+                return { delivered: false };
+            }
+            if (persisted.storageMode === "cloud" && !persisted.ownerGeneration) {
+                // A pre-generation cloud row has no authority that can be
+                // safely rebound after reset/sign-in. Quarantine it locally;
+                // never replay or resume it under the current account epoch.
+                this.opts.saveAgentRecord?.({
+                    ...persisted,
+                    status: "canceled",
+                    completedAt: persisted.completedAt ?? Date.now(),
+                    error: "Cloud task retired because its owner generation is unavailable.",
+                    updatedAt: Date.now(),
+                });
                 return { delivered: false };
             }
             if (deliveryEventId && persisted.descendantBoundaryState?.consumedEventIds.includes(deliveryEventId)) {

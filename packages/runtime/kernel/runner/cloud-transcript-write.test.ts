@@ -8,8 +8,48 @@ import type {
 } from "../storage/shared.js";
 import {
   CloudTranscriptAlreadyAdmittedError,
-  createCloudTranscriptWriter,
+  createCloudTranscriptWriter as createCloudTranscriptWriterImpl,
+  type CloudTranscriptWriter,
 } from "./cloud-transcript-write.js";
+
+const OWNER_GENERATION = "owner-generation-1";
+const writers: CloudTranscriptWriter[] = [];
+const createCloudTranscriptWriter = (
+  options: Parameters<typeof createCloudTranscriptWriterImpl>[0],
+): CloudTranscriptWriter => {
+  const writer = createCloudTranscriptWriterImpl(options);
+  writers.push(writer);
+  return writer;
+};
+
+const seedAdmittedBegin = (
+  store: RuntimeStore,
+  conversationId: string,
+  localTurnId: string,
+  ownerGeneration = OWNER_GENERATION,
+): void => {
+  store.putCloudTranscriptOutbox({
+    id: `cloud-transcript:${JSON.stringify([
+      "begin",
+      "device-1",
+      conversationId,
+      localTurnId,
+    ])}`,
+    kind: "begin",
+    conversationId,
+    deviceId: "device-1",
+    ownerGeneration,
+    localTurnId,
+    payloadJson: JSON.stringify({
+      deviceId: "device-1",
+      expectedOwnerGeneration: ownerGeneration,
+      localTurnId,
+      clientMsgId: "message-seeded",
+      userMessageJson: '{"role":"user","content":[]}',
+    }),
+    recoveryJson: null,
+  });
+};
 
 const openStore = () => {
   const database = new Database(":memory:");
@@ -41,6 +81,7 @@ const waitFor = async (predicate: () => boolean): Promise<void> => {
 const stores: Array<ReturnType<typeof openStore>> = [];
 
 afterEach(() => {
+  while (writers.length) writers.pop()?.stop();
   while (stores.length) stores.pop()?.database.close();
 });
 
@@ -115,6 +156,7 @@ describe("cloud transcript writer", () => {
 
     const beginPromise = writer.begin({
       conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
       localTurnId: "local-turn-1",
       clientMsgId: "message-1",
       userMessageJson: JSON.stringify({
@@ -131,16 +173,19 @@ describe("cloud transcript writer", () => {
       clientMsgId: "message-1",
     });
 
+    const expiresAt = Date.now() + 60_000;
     responseGate.resolve(
       Response.json({
         turnId: "turn-1",
         leaseToken: "lease-1",
+        expiresAt,
         history: ['{"role":"user","content":"older","timestamp":0}'],
       }),
     );
     await expect(beginPromise).resolves.toEqual({
       turnId: "turn-1",
       leaseToken: "lease-1",
+      expiresAt,
       history: ['{"role":"user","content":"older","timestamp":0}'],
     });
     // The acknowledged begin remains as the in-flight crash marker, but the
@@ -174,6 +219,7 @@ describe("cloud transcript writer", () => {
         return Response.json({
           turnId: "turn-1",
           leaseToken: "lease-1",
+          expiresAt: Date.now() + 60_000,
           history: [],
         });
       }) as unknown as typeof fetch,
@@ -181,6 +227,7 @@ describe("cloud transcript writer", () => {
 
     await writer.begin({
       conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
       localTurnId: "local-turn-1",
       clientMsgId: "message-1",
       userMessageJson: JSON.stringify({
@@ -218,6 +265,7 @@ describe("cloud transcript writer", () => {
     await expect(
       writer.begin({
         conversationId: "conversation-1",
+        ownerGeneration: OWNER_GENERATION,
         localTurnId: "local-turn-1",
         clientMsgId: "message-1",
         userMessageJson: '{"role":"user","content":[],"timestamp":1}',
@@ -246,6 +294,7 @@ describe("cloud transcript writer", () => {
     await expect(
       writer.begin({
         conversationId: "conversation-1",
+        ownerGeneration: OWNER_GENERATION,
         localTurnId: "replacement-local-turn",
         clientMsgId: "message-1",
         userMessageJson: '{"role":"user","content":[],"timestamp":2}',
@@ -273,6 +322,7 @@ describe("cloud transcript writer", () => {
 
     const result = writer.begin({
       conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
       localTurnId: "replacement-local-turn",
       clientMsgId: "message-1",
       userMessageJson: '{"role":"user","content":[],"timestamp":2}',
@@ -299,6 +349,7 @@ describe("cloud transcript writer", () => {
           return Response.json({
             turnId: "turn-1",
             leaseToken: "lease-1",
+            expiresAt: Date.now() + 60_000,
             history: [],
           });
         }
@@ -309,6 +360,7 @@ describe("cloud transcript writer", () => {
 
     await writer.begin({
       conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
       localTurnId: "local-turn-1",
       clientMsgId: "message-1",
       userMessageJson: '{"role":"user","content":[],"timestamp":1}',
@@ -316,6 +368,7 @@ describe("cloud transcript writer", () => {
     expect(writer.pending()).toBe(1);
     await writer.finish({
       conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
       localTurnId: "local-turn-1",
       leaseToken: "lease-1",
       records: [
@@ -359,6 +412,7 @@ describe("cloud transcript writer", () => {
           return Response.json({
             turnId: "turn-1",
             leaseToken: "lease-1",
+            expiresAt: Date.now() + 60_000,
             history: [],
           });
         }
@@ -369,6 +423,7 @@ describe("cloud transcript writer", () => {
 
     await writer.begin({
       conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
       localTurnId: "local-turn-1",
       clientMsgId: "message-1",
       userMessageJson: JSON.stringify({
@@ -383,6 +438,7 @@ describe("cloud transcript writer", () => {
     for (const [index, body] of beginBodies.slice(1).entries()) {
       expect(body).toEqual({
         deviceId: "device-1",
+        expectedOwnerGeneration: OWNER_GENERATION,
         localTurnId: "local-turn-1",
         leaseToken: "lease-1",
         renewOnly: true,
@@ -394,6 +450,7 @@ describe("cloud transcript writer", () => {
 
     await writer.finish({
       conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
       localTurnId: "local-turn-1",
       leaseToken: "lease-1",
       records: [],
@@ -424,6 +481,7 @@ describe("cloud transcript writer", () => {
           ? Response.json({
               turnId: "turn-1",
               leaseToken: "lease-1",
+              expiresAt: Date.now() + 60_000,
               history: [],
             })
           : Response.json({ code: "turn_finished" }, { status: 409 });
@@ -432,6 +490,7 @@ describe("cloud transcript writer", () => {
 
     await writer.begin({
       conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
       localTurnId: "local-turn-1",
       clientMsgId: "message-1",
       userMessageJson: '{"role":"user","content":[],"timestamp":1}',
@@ -444,6 +503,203 @@ describe("cloud transcript writer", () => {
     expect(beginRequests).toBe(2);
     expect(writer.pending()).toBe(0);
     writer.stop();
+  });
+
+  test("renewal silence revokes local authority before a hung request can overlap a replacement", async () => {
+    const opened = openStore();
+    stores.push(opened);
+    const hungRenewal = deferred<Response>();
+    let beginRequests = 0;
+    const leaseLostReasons: string[] = [];
+    const writer = createCloudTranscriptWriter({
+      deviceId: "device-1",
+      store: opened.store,
+      getAuthToken: () => "token",
+      getBaseUrl: async () => "https://builder.example",
+      heartbeatIntervalMs: 10,
+      authoritySilenceMs: 35,
+      authorityExpiryMarginMs: 0,
+      fetchImpl: (async (input: string | URL | Request) => {
+        if (String(input).endsWith("/finish")) {
+          return new Response(null, { status: 204 });
+        }
+        beginRequests += 1;
+        if (beginRequests === 1) {
+          return Response.json({
+            turnId: "turn-1",
+            leaseToken: "lease-1",
+            expiresAt: Date.now() + 60_000,
+            history: [],
+          });
+        }
+        // Deliberately ignores AbortSignal to prove the authority watchdog is
+        // independent of the renewal request and its transport timeout.
+        return await hungRenewal.promise;
+      }) as unknown as typeof fetch,
+    });
+
+    await writer.begin({
+      conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
+      localTurnId: "local-turn-1",
+      clientMsgId: "message-1",
+      userMessageJson: '{"role":"user","content":[]}',
+      onLeaseLost: (reason) => leaseLostReasons.push(reason),
+    });
+    await waitFor(() => beginRequests === 2);
+    await waitFor(() => leaseLostReasons.length === 1);
+    expect(leaseLostReasons).toEqual(["lease_renewal_silence"]);
+    expect(writer.pending()).toBe(1);
+
+    hungRenewal.resolve(
+      Response.json({
+        turnId: "turn-1",
+        leaseToken: "lease-1",
+        expiresAt: Date.now() + 60_000,
+        history: [],
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(leaseLostReasons).toEqual(["lease_renewal_silence"]);
+    expect(beginRequests).toBe(2);
+
+    await writer.finish({
+      conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
+      localTurnId: "local-turn-1",
+      leaseToken: "lease-1",
+      records: [],
+      phase: "canceled",
+    });
+    await waitFor(() => writer.pending() === 0);
+  });
+
+  test("a delayed renewal ACK cannot restart the purge-grace clock from response receipt", async () => {
+    const opened = openStore();
+    stores.push(opened);
+    const delayedRenewal = deferred<Response>();
+    let beginRequests = 0;
+    let renewalStartedAt = 0;
+    let leaseLostAt = 0;
+    let leaseLosses = 0;
+    const silenceMs = 120;
+    const writer = createCloudTranscriptWriter({
+      deviceId: "device-1",
+      store: opened.store,
+      getAuthToken: () => "token",
+      getBaseUrl: async () => "https://builder.example",
+      heartbeatIntervalMs: 10,
+      authoritySilenceMs: silenceMs,
+      authorityExpiryMarginMs: 0,
+      fetchImpl: (async () => {
+        beginRequests += 1;
+        if (beginRequests === 1) {
+          return Response.json({
+            turnId: "turn-1",
+            leaseToken: "lease-1",
+            expiresAt: Date.now() + 60_000,
+            history: [],
+          });
+        }
+        if (beginRequests === 2) {
+          renewalStartedAt = Date.now();
+          return await delayedRenewal.promise;
+        }
+        // A partition immediately after the delayed ACK: no later request may
+        // accidentally refresh the deadline under test.
+        return await new Promise<Response>(() => undefined);
+      }) as unknown as typeof fetch,
+    });
+
+    await writer.begin({
+      conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
+      localTurnId: "local-turn-delayed-ack",
+      clientMsgId: "message-delayed-ack",
+      userMessageJson: '{"role":"user","content":[]}',
+      onLeaseLost: () => {
+        leaseLosses += 1;
+        leaseLostAt = Date.now();
+      },
+    });
+    await waitFor(() => renewalStartedAt > 0);
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    delayedRenewal.resolve(
+      Response.json({
+        turnId: "turn-1",
+        leaseToken: "lease-1",
+        expiresAt: Date.now() + 60_000,
+        history: [],
+      }),
+    );
+    await waitFor(() => leaseLostAt > 0);
+    expect(leaseLostAt).toBeLessThanOrEqual(
+      renewalStartedAt + silenceMs + 30,
+    );
+    expect(beginRequests).toBeGreaterThanOrEqual(2);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(leaseLosses).toBe(1);
+  });
+
+  test("finish and stop cancel the independent authority watchdog", async () => {
+    const finishOpened = openStore();
+    const stopOpened = openStore();
+    stores.push(finishOpened, stopOpened);
+    const lostAfterFinish: string[] = [];
+    const lostAfterStop: string[] = [];
+    const createWriter = (store: RuntimeStore) =>
+      createCloudTranscriptWriter({
+        deviceId: "device-1",
+        store,
+        getAuthToken: () => "token",
+        getBaseUrl: async () => "https://builder.example",
+        heartbeatIntervalMs: 1_000,
+        authoritySilenceMs: 35,
+        authorityExpiryMarginMs: 0,
+        fetchImpl: (async (input: string | URL | Request) =>
+          String(input).endsWith("/finish")
+            ? new Response(null, { status: 204 })
+            : Response.json({
+                turnId: "turn-1",
+                leaseToken: "lease-1",
+                expiresAt: Date.now() + 60_000,
+                history: [],
+              })) as unknown as typeof fetch,
+      });
+
+    const finishWriter = createWriter(finishOpened.store);
+    await finishWriter.begin({
+      conversationId: "conversation-finish",
+      ownerGeneration: OWNER_GENERATION,
+      localTurnId: "local-turn-finish",
+      clientMsgId: "message-finish",
+      userMessageJson: '{"role":"user","content":[]}',
+      onLeaseLost: (reason) => lostAfterFinish.push(reason),
+    });
+    await finishWriter.finish({
+      conversationId: "conversation-finish",
+      ownerGeneration: OWNER_GENERATION,
+      localTurnId: "local-turn-finish",
+      leaseToken: "lease-1",
+      records: [],
+      phase: "completed",
+    });
+    await waitFor(() => finishWriter.pending() === 0);
+
+    const stopWriter = createWriter(stopOpened.store);
+    await stopWriter.begin({
+      conversationId: "conversation-stop",
+      ownerGeneration: OWNER_GENERATION,
+      localTurnId: "local-turn-stop",
+      clientMsgId: "message-stop",
+      userMessageJson: '{"role":"user","content":[]}',
+      onLeaseLost: (reason) => lostAfterStop.push(reason),
+    });
+    stopWriter.stop();
+
+    await new Promise((resolve) => setTimeout(resolve, 55));
+    expect(lostAfterFinish).toEqual([]);
+    expect(lostAfterStop).toEqual([]);
   });
 
   test("recovers a crash after begin ACK by canceling the retained marker", async () => {
@@ -460,12 +716,14 @@ describe("cloud transcript writer", () => {
         return Response.json({
           turnId: "turn-1",
           leaseToken: "lease-1",
+          expiresAt: Date.now() + 60_000,
           history: [],
         });
       }) as unknown as typeof fetch,
     });
     await firstWriter.begin({
       conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
       localTurnId: "local-turn-1",
       clientMsgId: "message-1",
       userMessageJson: '{"role":"user","content":[],"timestamp":1}',
@@ -489,6 +747,7 @@ describe("cloud transcript writer", () => {
           return Response.json({
             turnId: "turn-1",
             leaseToken: "lease-1",
+            expiresAt: Date.now() + 60_000,
             history: [],
           });
         }
@@ -505,6 +764,7 @@ describe("cloud transcript writer", () => {
     expect(recoveredFinishBodies).toEqual([
       {
         deviceId: "device-1",
+        expectedOwnerGeneration: OWNER_GENERATION,
         localTurnId: "local-turn-1",
         leaseToken: "lease-1",
         records: [],
@@ -538,11 +798,13 @@ describe("cloud transcript writer", () => {
         Response.json({
           turnId: "turn-1",
           leaseToken: "lease-1",
+          expiresAt: Date.now() + 60_000,
           history: [],
         })) as unknown as typeof fetch,
     });
     await firstWriter.begin({
       conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
       localTurnId: "legacy-turn-1",
       clientMsgId: "legacy-message-1",
       userMessageJson: '{"role":"user","content":[],"timestamp":1}',
@@ -565,6 +827,7 @@ describe("cloud transcript writer", () => {
           return Response.json({
             turnId: "turn-1",
             leaseToken: "lease-1",
+            expiresAt: Date.now() + 60_000,
             history: [],
           });
         }
@@ -577,6 +840,7 @@ describe("cloud transcript writer", () => {
     expect(finishBodies).toEqual([
       {
         deviceId: "device-1",
+        expectedOwnerGeneration: OWNER_GENERATION,
         localTurnId: "legacy-turn-1",
         leaseToken: "lease-1",
         records,
@@ -611,11 +875,13 @@ describe("cloud transcript writer", () => {
         Response.json({
           turnId: "turn-1",
           leaseToken: "lease-1",
+          expiresAt: Date.now() + 60_000,
           history: [],
         })) as unknown as typeof fetch,
     });
     await firstWriter.begin({
       conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
       localTurnId: "local-turn-1",
       clientMsgId: "message-1",
       userMessageJson: '{"role":"user","content":[],"timestamp":2}',
@@ -691,6 +957,7 @@ describe("cloud transcript writer", () => {
           return Response.json({
             turnId: "turn-1",
             leaseToken: "lease-1",
+            expiresAt: Date.now() + 60_000,
             history: [],
           });
         }
@@ -720,6 +987,7 @@ describe("cloud transcript writer", () => {
     const abandonedBegin = firstWriter
       .begin({
         conversationId: "conversation-1",
+        ownerGeneration: OWNER_GENERATION,
         localTurnId: "local-turn-1",
         clientMsgId: "message-1",
         userMessageJson: '{"role":"user","content":"hello","timestamp":1}',
@@ -743,6 +1011,7 @@ describe("cloud transcript writer", () => {
           return Response.json({
             turnId: "turn-1",
             leaseToken: "lease-1",
+            expiresAt: Date.now() + 60_000,
             history: [],
           });
         }
@@ -759,6 +1028,7 @@ describe("cloud transcript writer", () => {
     expect(finishBodies).toEqual([
       {
         deviceId: "device-1",
+        expectedOwnerGeneration: OWNER_GENERATION,
         localTurnId: "local-turn-1",
         leaseToken: "lease-1",
         records: [],
@@ -784,8 +1054,10 @@ describe("cloud transcript writer", () => {
       }) as unknown as typeof fetch,
     });
 
+    seedAdmittedBegin(opened.store, "deleted-conversation", "local-turn-1");
     await writer.finish({
       conversationId: "deleted-conversation",
+      ownerGeneration: OWNER_GENERATION,
       localTurnId: "local-turn-1",
       leaseToken: "lease-1",
       records: [],
@@ -811,8 +1083,10 @@ describe("cloud transcript writer", () => {
       }) as unknown as typeof fetch,
     });
 
+    seedAdmittedBegin(opened.store, "conversation-1", "local-turn-1");
     await writer.finish({
       conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
       localTurnId: "local-turn-1",
       leaseToken: "lease-1",
       records: [],
@@ -838,8 +1112,10 @@ describe("cloud transcript writer", () => {
       }) as unknown as typeof fetch,
     });
 
+    seedAdmittedBegin(opened.store, "conversation-1", "local-turn-1");
     const status = await writer.finish({
       conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
       localTurnId: "local-turn-1",
       leaseToken: "lease-1",
       records: Array.from({ length: 1025 }, (_, ordinal) => ({
@@ -900,8 +1176,10 @@ describe("cloud transcript writer", () => {
         )) as unknown as typeof fetch,
     });
 
+    seedAdmittedBegin(opened.store, "conversation-1", "local-turn-1");
     const status = await writer.finish({
       conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
       localTurnId: "local-turn-1",
       leaseToken: "lease-1",
       records: [],
@@ -938,8 +1216,10 @@ describe("cloud transcript writer", () => {
       getAuthToken: () => null,
       getBaseUrl: async () => "https://builder.example",
     });
+    seedAdmittedBegin(opened.store, "conversation-1", "local-turn-1");
     const status = await firstWriter.finish({
       conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
       localTurnId: "local-turn-1",
       leaseToken: "lease-1",
       records: [],
@@ -1041,6 +1321,7 @@ describe("cloud transcript writer", () => {
 
     await writer.append({
       conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
       appendId: "voice-event-1",
       records: [
         {
@@ -1052,6 +1333,7 @@ describe("cloud transcript writer", () => {
     });
     await writer.append({
       conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
       appendId: "voice-event-2",
       records: [
         {
@@ -1080,11 +1362,16 @@ describe("cloud transcript writer", () => {
   test("recovers a durable journal append after worker restart", async () => {
     const opened = openStore();
     stores.push(opened);
+    let generationCaptures = 0;
     const firstWriter = createCloudTranscriptWriter({
       deviceId: "device-1",
       store: opened.store,
       getAuthToken: () => null,
       getBaseUrl: async () => "https://builder.example",
+      getOwnerGeneration: async () => {
+        generationCaptures += 1;
+        return OWNER_GENERATION;
+      },
     });
     await firstWriter.append({
       conversationId: "conversation-1",
@@ -1106,6 +1393,9 @@ describe("cloud transcript writer", () => {
       store: opened.store,
       getAuthToken: () => "token",
       getBaseUrl: async () => "https://builder.example",
+      getOwnerGeneration: async () => {
+        throw new Error("restart must use the persisted generation");
+      },
       fetchImpl: (async (
         _input: string | URL | Request,
         init?: RequestInit,
@@ -1119,10 +1409,12 @@ describe("cloud transcript writer", () => {
     expect(payloads).toEqual([
       expect.objectContaining({
         deviceId: "device-1",
+        expectedOwnerGeneration: OWNER_GENERATION,
         localTurnId: "voice-event-1",
         source: "voice",
       }),
     ]);
+    expect(generationCaptures).toBe(1);
     recoveredWriter.stop();
   });
 
@@ -1137,6 +1429,7 @@ describe("cloud transcript writer", () => {
     });
     const request = {
       conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
       appendId: "voice-event-1",
       records: [
         {
@@ -1187,6 +1480,7 @@ describe("cloud transcript writer", () => {
     });
     const request = {
       conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
       appendId: "voice-event-after-ack",
       records: [
         {
@@ -1227,6 +1521,7 @@ describe("cloud transcript writer", () => {
 
     await writer.append({
       conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
       appendId: "voice-event-1",
       records: [
         {
@@ -1250,5 +1545,273 @@ describe("cloud transcript writer", () => {
       lastError: "idempotency_conflict",
     });
     writer.stop();
+  });
+
+  test("rejects generation ABA before a delayed begin can be rebound", async () => {
+    const opened = openStore();
+    stores.push(opened);
+    const writer = createCloudTranscriptWriter({
+      deviceId: "device-1",
+      store: opened.store,
+      getAuthToken: () => null,
+      getBaseUrl: async () => "https://builder.example",
+    });
+    const first = writer.begin({
+      conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
+      localTurnId: "local-turn-aba",
+      clientMsgId: "message-aba",
+      userMessageJson: '{"role":"user","content":[]}',
+    });
+    void first.catch(() => undefined);
+    await waitFor(() => writer.pending() === 1);
+
+    expect(() =>
+      writer.begin({
+        conversationId: "conversation-1",
+        ownerGeneration: "owner-generation-2",
+        localTurnId: "local-turn-aba",
+        clientMsgId: "message-aba",
+        userMessageJson: '{"role":"user","content":[]}',
+      }),
+    ).toThrow("different authority or payload");
+    expect(opened.store.listCloudTranscriptOutbox()[0]).toMatchObject({
+      ownerGeneration: OWNER_GENERATION,
+    });
+    expect(
+      JSON.parse(opened.store.listCloudTranscriptOutbox()[0]!.payloadJson),
+    ).toMatchObject({ expectedOwnerGeneration: OWNER_GENERATION });
+    writer.stop();
+    await expect(first).rejects.toThrow("stopped");
+  });
+
+  test("an acknowledged begin replays only for the exact immutable payload", async () => {
+    const opened = openStore();
+    stores.push(opened);
+    let requests = 0;
+    const writer = createCloudTranscriptWriter({
+      deviceId: "device-1",
+      store: opened.store,
+      getAuthToken: () => "token",
+      getBaseUrl: async () => "https://builder.example",
+      heartbeatIntervalMs: 60_000,
+      fetchImpl: (async () => {
+        requests += 1;
+        return Response.json({
+          turnId: "desktop:device-1:local-turn-active",
+          leaseToken: "lease-active",
+          expiresAt: Date.now() + 60_000,
+          history: [],
+        });
+      }) as unknown as typeof fetch,
+    });
+    const exact = {
+      conversationId: "conversation-1",
+      ownerGeneration: OWNER_GENERATION,
+      localTurnId: "local-turn-active",
+      clientMsgId: "message-active",
+      userMessageJson: '{"role":"user","content":[]}',
+    };
+    const ack = await writer.begin(exact);
+    await expect(writer.begin(exact)).resolves.toEqual(ack);
+    await expect(
+      writer.begin({ ...exact, clientMsgId: "message-replacement" }),
+    ).rejects.toThrow("different authority or payload");
+    await expect(
+      writer.begin({
+        ...exact,
+        recovery: {
+          kind: "precomputed-finish",
+          records: [],
+          phase: "completed",
+        },
+      }),
+    ).rejects.toThrow("different authority or payload");
+    expect(requests).toBe(1);
+  });
+
+  test("stale begin admission cannot start provider work", async () => {
+    const opened = openStore();
+    stores.push(opened);
+    let requests = 0;
+    let providerCalls = 0;
+    const writer = createCloudTranscriptWriter({
+      deviceId: "device-1",
+      store: opened.store,
+      getAuthToken: () => "token",
+      getBaseUrl: async () => "https://builder.example",
+      fetchImpl: (async () => {
+        requests += 1;
+        return Response.json(
+          { code: "OWNER_DATA_GENERATION_STALE" },
+          { status: 409 },
+        );
+      }) as unknown as typeof fetch,
+    });
+    const run = (async () => {
+      await writer.begin({
+        conversationId: "conversation-1",
+        ownerGeneration: OWNER_GENERATION,
+        localTurnId: "local-turn-stale",
+        clientMsgId: "message-stale",
+        userMessageJson: '{"role":"user","content":[]}',
+      });
+      providerCalls += 1;
+    })();
+
+    await expect(run).rejects.toThrow("no longer owns");
+    expect(requests).toBe(1);
+    expect(providerCalls).toBe(0);
+    expect(writer.pending()).toBe(0);
+  });
+
+  test("migrated NULL-generation outbox rows are tombstoned without network", async () => {
+    const database = new Database(":memory:");
+    database.exec(`
+      CREATE TABLE cloud_transcript_outbox (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        conversation_id TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        local_turn_id TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        recovery_json TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        dead_lettered_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      INSERT INTO cloud_transcript_outbox VALUES (
+        'legacy-transcript', 'begin', 'conversation-1', 'device-1',
+        'legacy-turn', '{}', NULL, 0, NULL, NULL, 1, 1
+      );
+      CREATE TABLE cloud_journal_outbox (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        conversation_id TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        append_id TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        dead_lettered_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      INSERT INTO cloud_journal_outbox (
+        id, conversation_id, device_id, append_id, payload_json,
+        attempts, last_error, dead_lettered_at, created_at, updated_at
+      ) VALUES (
+        'legacy-journal', 'conversation-1', 'device-1', 'legacy-append',
+        '{}', 0, NULL, NULL, 1, 1
+      );
+    `);
+    initializeDesktopDatabase(database as unknown as SqliteDatabase);
+    const store = new RuntimeStore(database as unknown as SqliteDatabase);
+    stores.push({ database, store });
+    let requests = 0;
+    const writer = createCloudTranscriptWriter({
+      deviceId: "device-1",
+      store,
+      getAuthToken: () => "token",
+      getBaseUrl: async () => "https://builder.example",
+      fetchImpl: (async () => {
+        requests += 1;
+        return new Response(null, { status: 204 });
+      }) as unknown as typeof fetch,
+    });
+
+    await waitFor(() => writer.pending() === 0);
+    expect(requests).toBe(0);
+    expect(
+      database
+        .query(
+          `SELECT owner_generation AS ownerGeneration,
+                  payload_json AS payloadJson,
+                  last_error AS lastError
+             FROM cloud_transcript_outbox`,
+        )
+        .get(),
+    ).toEqual({
+      ownerGeneration: null,
+      payloadJson: "{}",
+      lastError: "owner_generation_missing",
+    });
+    expect(
+      database
+        .query(
+          `SELECT owner_generation AS ownerGeneration,
+                  payload_json AS payloadJson,
+                  last_error AS lastError
+             FROM cloud_journal_outbox`,
+        )
+        .get(),
+    ).toEqual({
+      ownerGeneration: null,
+      payloadJson: "{}",
+      lastError: "owner_generation_missing",
+    });
+  });
+
+  test("journal generation is captured once and stale reset replay is permanent", async () => {
+    const opened = openStore();
+    stores.push(opened);
+    let generationCaptures = 0;
+    const payloads: Array<Record<string, unknown>> = [];
+    const writer = createCloudTranscriptWriter({
+      deviceId: "device-1",
+      store: opened.store,
+      getAuthToken: () => "token",
+      getBaseUrl: async () => "https://builder.example",
+      getOwnerGeneration: async () => {
+        generationCaptures += 1;
+        return OWNER_GENERATION;
+      },
+      fetchImpl: (async (
+        _input: string | URL | Request,
+        init?: RequestInit,
+      ) => {
+        payloads.push(JSON.parse(String(init?.body)));
+        return Response.json(
+          { code: "owner_generation_stale" },
+          { status: 409 },
+        );
+      }) as unknown as typeof fetch,
+    });
+
+    await writer.append({
+      conversationId: "conversation-1",
+      appendId: "voice-reset-stale",
+      records: [
+        {
+          kind: "message",
+          role: "user",
+          payloadJson: '{"role":"user","content":"hello"}',
+        },
+      ],
+    });
+    await waitFor(() => writer.pending() === 0);
+    expect(generationCaptures).toBe(1);
+    expect(payloads).toEqual([
+      expect.objectContaining({
+        expectedOwnerGeneration: OWNER_GENERATION,
+        localTurnId: "voice-reset-stale",
+      }),
+    ]);
+    expect(
+      opened.database
+        .query(
+          `SELECT owner_generation AS ownerGeneration,
+                  payload_json AS payloadJson,
+                  last_error AS lastError
+             FROM cloud_journal_outbox LIMIT 1`,
+        )
+        .get(),
+    ).toEqual({
+      ownerGeneration: OWNER_GENERATION,
+      payloadJson: "{}",
+      lastError: "owner_generation_stale",
+    });
   });
 });

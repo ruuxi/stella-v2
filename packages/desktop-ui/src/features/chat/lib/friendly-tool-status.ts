@@ -12,6 +12,8 @@ const FRIENDLY_TOOL_LABELS: Record<string, FriendlyToolLabels> = {
     done: "Ran command",
     failed: "Command failed",
   },
+  code: { active: "Running code", done: "Ran code" },
+  // Legacy transcript compatibility; never advertised to new turns.
   node_repl: { active: "Running code", done: "Ran code" },
   apply_patch: { active: "Editing files", done: "Edited files" },
   edit: { active: "Editing files", done: "Edited files" },

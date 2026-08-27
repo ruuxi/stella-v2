@@ -279,6 +279,7 @@ describe("voice conversation ownership", () => {
       store,
       getAuthToken: () => null,
       getBaseUrl: async () => null,
+      getOwnerGeneration: async () => "owner-generation-1",
     });
     const service = new VoiceRuntimeService({
       getRunner: () =>

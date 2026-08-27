@@ -1,26 +1,21 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from 'react'
-import type { Dispatch, SetStateAction } from 'react'
-import { getPlatform } from '@/platform/electron/platform'
-import { useChatStore } from '@/context/chat-store-context'
-import { getOrCreateDeviceId } from '@/platform/electron/device-id'
-import type { SendMessageArgs } from '../streaming/chat-types'
-import type { MessageMetadata } from '@/features/chat/lib/event-transforms'
-import type { EventRecord } from '@/features/chat/lib/event-transforms'
-import type { MessageRecord } from "@stella/contracts/local-chat"
-import { resolveComposerContextState } from '../composer-context'
-import { shouldTreatResumedAnswerAsStarted } from '@/features/chat/working-indicator-state'
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
+import { getPlatform } from "@/platform/electron/platform";
+import { useChatStore } from "@/context/chat-store-context";
+import { getOrCreateDeviceId } from "@/platform/electron/device-id";
+import type { SendMessageArgs } from "../streaming/chat-types";
+import type { MessageMetadata } from "@/features/chat/lib/event-transforms";
+import type { EventRecord } from "@/features/chat/lib/event-transforms";
+import type { MessageRecord } from "@stella/contracts/local-chat";
+import { resolveComposerContextState } from "../composer-context";
+import { shouldTreatResumedAnswerAsStarted } from "@/features/chat/working-indicator-state";
 import {
   buildAllLocalAttachments,
   toDisplayAttachments,
-} from '../streaming/message-context'
-import { toPastedTextDescriptor } from '../lib/paste-context'
-import { getComposerAppSelections } from '../composer-context'
-import { useLocalAgentStream } from '../streaming/use-local-agent-stream'
+} from "../streaming/message-context";
+import { toPastedTextDescriptor } from "../lib/paste-context";
+import { getComposerAppSelections } from "../composer-context";
+import { useLocalAgentStream } from "../streaming/use-local-agent-stream";
 import {
   combineQueuedSendPayloads,
   orderQueuedMessages,
@@ -28,15 +23,15 @@ import {
   restoreQueuedMessagesAfterFailedDrain,
   timestampQueuedOptimisticEventForDrain,
   type QueuedUserMessage,
-} from './queued-user-messages'
-import { useQueuedDequeueClock } from './use-queued-dequeue-clock'
+} from "./queued-user-messages";
+import { useQueuedDequeueClock } from "./use-queued-dequeue-clock";
 
-export type { QueuedUserMessage } from './queued-user-messages'
+export type { QueuedUserMessage } from "./queued-user-messages";
 
 type UseStreamingChatOptions = {
-  conversationId: string | null
-  locale: string
-  notifyTierRestrictedModel?: () => void | Promise<void>
+  conversationId: string | null;
+  locale: string;
+  notifyTierRestrictedModel?: () => void | Promise<void>;
   /**
    * SQLite-persisted message stream (no optimistic / scheduled overlay).
    * Used to detect (a) an assistant reply for the pending user message,
@@ -47,16 +42,15 @@ type UseStreamingChatOptions = {
    * stream would loop optimistic events through this hook into
    * displayMessages.
    */
-  persistedMessages: MessageRecord[]
-}
+  persistedMessages: MessageRecord[];
+};
 
-const createLocalMessageId = () =>
-  `local-${crypto.randomUUID()}`
+const createLocalMessageId = () => `local-${crypto.randomUUID()}`;
 
 const nextAnimationFrame = () =>
   new Promise<void>((resolve) => {
-    requestAnimationFrame(() => resolve())
-  })
+    requestAnimationFrame(() => resolve());
+  });
 
 /**
  * Bounded preview of quoted / "Ask Stella" context stored on the sent message.
@@ -64,24 +58,24 @@ const nextAnimationFrame = () =>
  * matches what persistence recomputes, keeping the chip stable across the
  * optimistic → persisted swap. See `runtime/kernel/chat-prompt-context.ts`.
  */
-const QUOTED_TEXT_PREVIEW_MAX_CHARS = 4_000
+const QUOTED_TEXT_PREVIEW_MAX_CHARS = 4_000;
 
 export const buildContextMessageMetadata = (
-  chatContext: SendMessageArgs['chatContext'],
-  selectedText: SendMessageArgs['selectedText'],
+  chatContext: SendMessageArgs["chatContext"],
+  selectedText: SendMessageArgs["selectedText"],
   base?: MessageMetadata,
 ): MessageMetadata | undefined => {
   const appSelectionLabels = getComposerAppSelections(chatContext)
-    .map((selection) => selection.label?.trim() ?? '')
-    .filter((label) => label.length > 0)
+    .map((selection) => selection.label?.trim() ?? "")
+    .filter((label) => label.length > 0);
   // Joined singular kept for legacy single-slot consumers.
   const appSelectionLabel =
-    appSelectionLabels.length > 0 ? appSelectionLabels.join(', ') : undefined
-  const activityLabel = chatContext?.activity?.label?.trim()
+    appSelectionLabels.length > 0 ? appSelectionLabels.join(", ") : undefined;
+  const activityLabel = chatContext?.activity?.label?.trim();
   const pastedTexts = (chatContext?.pastedTexts ?? [])
-    .map((text) => text?.trim() ?? '')
+    .map((text) => text?.trim() ?? "")
     .filter((text) => text.length > 0)
-    .map(toPastedTextDescriptor)
+    .map(toPastedTextDescriptor);
   // Quoted / "Ask Stella" selection. The runtime persists this same bounded
   // preview onto the user message once it lands, but the optimistic row is
   // rendered before then — without carrying it here the just-sent message drops
@@ -89,17 +83,17 @@ export const buildContextMessageMetadata = (
   // `selectedText` and falls back to `chatContext.selectedText`, matching the
   // runtime's own resolution order.
   const quotedSource =
-    selectedText?.trim() || chatContext?.selectedText?.trim() || ''
+    selectedText?.trim() || chatContext?.selectedText?.trim() || "";
   const quotedText = quotedSource
     ? quotedSource.slice(0, QUOTED_TEXT_PREVIEW_MAX_CHARS)
-    : undefined
+    : undefined;
   if (
     !appSelectionLabel &&
     !activityLabel &&
     pastedTexts.length === 0 &&
     !quotedText
   ) {
-    return base
+    return base;
   }
 
   return {
@@ -112,22 +106,22 @@ export const buildContextMessageMetadata = (
       ...(pastedTexts.length > 0 ? { pastedTexts } : {}),
       ...(quotedText ? { quotedText } : {}),
     },
-  }
-}
+  };
+};
 
 const buildOptimisticUserEvent = (args: {
-  id: string
-  text: string
-  timestamp: number
-  platform?: string
-  timezone?: string
-  locale?: string
-  metadata?: SendMessageArgs['metadata']
-  attachments: ReturnType<typeof buildAllLocalAttachments>
-  mode?: string
+  id: string;
+  text: string;
+  timestamp: number;
+  platform?: string;
+  timezone?: string;
+  locale?: string;
+  metadata?: SendMessageArgs["metadata"];
+  attachments: ReturnType<typeof buildAllLocalAttachments>;
+  mode?: string;
 }): EventRecord => ({
   _id: args.id,
-  type: 'user_message',
+  type: "user_message",
   timestamp: args.timestamp,
   payload: {
     text: args.text,
@@ -138,23 +132,23 @@ const buildOptimisticUserEvent = (args: {
     ...(args.metadata ? { metadata: args.metadata } : {}),
     ...(args.mode ? { mode: args.mode } : {}),
   },
-})
+});
 
 type QueuedStreamPayload = {
-  id: string
-  queueOrder: number
-  conversationId: string
-  userPrompt: string
-  selectedText: SendMessageArgs['selectedText']
-  chatContext: SendMessageArgs['chatContext']
-  deviceId: string
-  platform?: string
-  timezone?: string
-  locale?: string
-  messageMetadata?: SendMessageArgs['metadata']
-  attachments: ReturnType<typeof buildAllLocalAttachments>
-  optimisticEvent: EventRecord
-}
+  id: string;
+  queueOrder: number;
+  conversationId: string;
+  userPrompt: string;
+  selectedText: SendMessageArgs["selectedText"];
+  chatContext: SendMessageArgs["chatContext"];
+  deviceId: string;
+  platform?: string;
+  timezone?: string;
+  locale?: string;
+  messageMetadata?: SendMessageArgs["metadata"];
+  attachments: ReturnType<typeof buildAllLocalAttachments>;
+  optimisticEvent: EventRecord;
+};
 
 export function useStreamingChatCore({
   conversationId,
@@ -162,69 +156,66 @@ export function useStreamingChatCore({
   notifyTierRestrictedModel,
   persistedMessages,
 }: UseStreamingChatOptions) {
-  const activeConversationId = conversationId
-  const [optimisticEvents, setOptimisticEvents] = useState<EventRecord[]>([])
+  const activeConversationId = conversationId;
+  const [optimisticEvents, setOptimisticEvents] = useState<EventRecord[]>([]);
   const [queuedUserMessages, setQueuedUserMessages] = useState<
     QueuedUserMessage[]
-  >([])
-  const queuedStreamPayloadsRef = useRef<QueuedStreamPayload[]>([])
-  const drainingQueuedPayloadsRef = useRef<QueuedStreamPayload[]>([])
-  const drainingQueuedMessageIdRef = useRef<string | null>(null)
-  const queuedMessageOrderRef = useRef(0)
-  const queueDrainPausedRef = useRef(false)
-  const pendingSendRef = useRef<symbol | null>(null)
-  const activeConversationIdRef = useRef(activeConversationId)
-  activeConversationIdRef.current = activeConversationId
-  const {
-    isLocalStorage,
-    storageMode,
-  } = useChatStore()
+  >([]);
+  const queuedStreamPayloadsRef = useRef<QueuedStreamPayload[]>([]);
+  const drainingQueuedPayloadsRef = useRef<QueuedStreamPayload[]>([]);
+  const drainingQueuedMessageIdRef = useRef<string | null>(null);
+  const queuedMessageOrderRef = useRef(0);
+  const queueDrainPausedRef = useRef(false);
+  const pendingSendRef = useRef<symbol | null>(null);
+  const activeConversationIdRef = useRef(activeConversationId);
+  activeConversationIdRef.current = activeConversationId;
+  const { isLocalStorage, storageMode } = useChatStore();
   const issueDequeueTimestamp = useQueuedDequeueClock({
     conversationId: activeConversationId,
     persistedMessages,
     optimisticEvents,
-  })
+  });
 
   const removeQueuedUserMessage = useCallback((messageId: string) => {
     queuedStreamPayloadsRef.current = queuedStreamPayloadsRef.current.filter(
       (message) => message.id !== messageId,
-    )
+    );
     if (drainingQueuedMessageIdRef.current === messageId) {
-      drainingQueuedMessageIdRef.current = null
-      drainingQueuedPayloadsRef.current = []
+      drainingQueuedMessageIdRef.current = null;
+      drainingQueuedPayloadsRef.current = [];
     }
-    queueDrainPausedRef.current = false
+    queueDrainPausedRef.current = false;
     setQueuedUserMessages((current) =>
       removeQueuedUserMessageById(current, messageId),
-    )
-  }, [])
+    );
+  }, []);
 
   const handleRunStarted = useCallback((event: { userMessageId?: string }) => {
-    const userMessageId = event.userMessageId
-    if (!userMessageId) return
+    const userMessageId = event.userMessageId;
+    if (!userMessageId) return;
     queuedStreamPayloadsRef.current = queuedStreamPayloadsRef.current.filter(
       (message) => message.id !== userMessageId,
-    )
+    );
     if (drainingQueuedMessageIdRef.current === userMessageId) {
-      drainingQueuedMessageIdRef.current = null
-      drainingQueuedPayloadsRef.current = []
+      drainingQueuedMessageIdRef.current = null;
+      drainingQueuedPayloadsRef.current = [];
     }
     setQueuedUserMessages((current) =>
       removeQueuedUserMessageById(current, userMessageId),
-    )
-  }, [])
+    );
+  }, []);
 
   const handleRunFinished = useCallback(
     (event: {
-      userMessageId?: string
-      outcome: 'completed' | 'error' | 'canceled'
+      userMessageId?: string;
+      outcome: "completed" | "error" | "canceled";
     }) => {
       if (
         event.userMessageId &&
         drainingQueuedMessageIdRef.current === event.userMessageId
       ) {
-        drainingQueuedMessageIdRef.current = null
-        drainingQueuedPayloadsRef.current = []
+        drainingQueuedMessageIdRef.current = null;
+        drainingQueuedPayloadsRef.current = [];
       }
       // A terminal outcome for the active run must not discard renderer-owned
       // follow-ups. If they have not been accepted yet, the idle-drain effect
@@ -232,7 +223,7 @@ export function useStreamingChatCore({
       // `handleRunStarted`, so a later run error/cancel cannot replay it.
     },
     [],
-  )
+  );
 
   const {
     taskDecorations,
@@ -258,36 +249,39 @@ export function useStreamingChatCore({
     onRunFinished: handleRunFinished,
   }) as Omit<
     ReturnType<typeof useLocalAgentStream>,
-    'setPendingUserMessageId'
+    "setPendingUserMessageId"
   > & {
-    setPendingUserMessageId: Dispatch<SetStateAction<string | null>>
-  }
+    setPendingUserMessageId: Dispatch<SetStateAction<string | null>>;
+  };
 
   useEffect(() => {
-    queuedStreamPayloadsRef.current = []
-    drainingQueuedPayloadsRef.current = []
-    drainingQueuedMessageIdRef.current = null
-    queuedMessageOrderRef.current = 0
-    queueDrainPausedRef.current = false
-    pendingSendRef.current = null
-    setOptimisticEvents([])
-    setQueuedUserMessages([])
-    setPendingUserMessageId(null)
-  }, [activeConversationId, setPendingUserMessageId])
+    queuedStreamPayloadsRef.current = [];
+    drainingQueuedPayloadsRef.current = [];
+    drainingQueuedMessageIdRef.current = null;
+    queuedMessageOrderRef.current = 0;
+    queueDrainPausedRef.current = false;
+    pendingSendRef.current = null;
+    setOptimisticEvents([]);
+    setQueuedUserMessages([]);
+    setPendingUserMessageId(null);
+  }, [activeConversationId, setPendingUserMessageId]);
 
-  const clearOptimisticMessage = useCallback((messageId: string) => {
-    setOptimisticEvents((current) =>
-      current.filter((event) => event._id !== messageId),
-    )
-    setPendingUserMessageId((current) =>
-      current === messageId ? null : current,
-    )
-  }, [setPendingUserMessageId])
+  const clearOptimisticMessage = useCallback(
+    (messageId: string) => {
+      setOptimisticEvents((current) =>
+        current.filter((event) => event._id !== messageId),
+      );
+      setPendingUserMessageId((current) =>
+        current === messageId ? null : current,
+      );
+    },
+    [setPendingUserMessageId],
+  );
 
   const drainQueuedMessagesIfIdle = useCallback(() => {
-    if (isStreaming || !activeConversationId) return
-    if (drainingQueuedMessageIdRef.current) return
-    if (queueDrainPausedRef.current) return
+    if (isStreaming || !activeConversationId) return;
+    if (drainingQueuedMessageIdRef.current) return;
+    if (queueDrainPausedRef.current) return;
     // Flush the ENTIRE queue in one drain: every message still waiting when
     // the app goes idle is combined (in queue order) into a single turn so
     // the assistant answers them together instead of running one full
@@ -297,29 +291,29 @@ export function useStreamingChatCore({
       queuedStreamPayloadsRef.current.filter(
         (message) => message.conversationId === activeConversationId,
       ),
-    )
-    const combined = combineQueuedSendPayloads(drainable)
-    if (!combined) return
+    );
+    const combined = combineQueuedSendPayloads(drainable);
+    if (!combined) return;
 
-    const drainedIds = new Set(drainable.map((message) => message.id))
-    drainingQueuedMessageIdRef.current = combined.id
-    drainingQueuedPayloadsRef.current = drainable
+    const drainedIds = new Set(drainable.map((message) => message.id));
+    drainingQueuedMessageIdRef.current = combined.id;
+    drainingQueuedPayloadsRef.current = drainable;
     queuedStreamPayloadsRef.current = queuedStreamPayloadsRef.current.filter(
       (message) => !drainedIds.has(message.id),
-    )
+    );
     setQueuedUserMessages((current) =>
       current.filter((message) => !drainedIds.has(message.id)),
-    )
-    const dequeuedAtMs = issueDequeueTimestamp()
+    );
+    const dequeuedAtMs = issueDequeueTimestamp();
     const optimisticEventTemplate =
       drainable.length === 1
         ? combined.optimisticEvent
         : buildOptimisticUserEvent({
             id: combined.id,
             text:
-              combined.userPrompt
-              || combined.selectedText?.trim()
-              || 'Attached context',
+              combined.userPrompt ||
+              combined.selectedText?.trim() ||
+              "Attached context",
             timestamp: dequeuedAtMs,
             platform: combined.platform,
             timezone: combined.timezone,
@@ -328,17 +322,17 @@ export function useStreamingChatCore({
               ? { metadata: combined.messageMetadata }
               : {}),
             attachments: toDisplayAttachments(combined.attachments),
-          })
+          });
     const optimisticEvent = timestampQueuedOptimisticEventForDrain(
       optimisticEventTemplate,
       dequeuedAtMs,
-    )
+    );
     setOptimisticEvents((current) =>
       current.some((event) => event._id === combined.id)
         ? current
         : [...current, optimisticEvent],
-    )
-    setPendingUserMessageId(combined.id)
+    );
+    setPendingUserMessageId(combined.id);
 
     startStream({
       userPrompt: combined.userPrompt,
@@ -356,37 +350,37 @@ export function useStreamingChatCore({
       userMessageTimestamp: optimisticEvent.timestamp,
       onStartFailed: () => {
         if (drainingQueuedMessageIdRef.current === combined.id) {
-          drainingQueuedMessageIdRef.current = null
+          drainingQueuedMessageIdRef.current = null;
         }
-        const failedDrain = drainingQueuedPayloadsRef.current
-        drainingQueuedPayloadsRef.current = []
-        queueDrainPausedRef.current = true
+        const failedDrain = drainingQueuedPayloadsRef.current;
+        drainingQueuedPayloadsRef.current = [];
+        queueDrainPausedRef.current = true;
         queuedStreamPayloadsRef.current = restoreQueuedMessagesAfterFailedDrain(
           queuedStreamPayloadsRef.current,
           failedDrain,
-        )
-        clearOptimisticMessage(combined.id)
+        );
+        clearOptimisticMessage(combined.id);
         setQueuedUserMessages((current) =>
           restoreQueuedMessagesAfterFailedDrain(
             current,
             failedDrain.map((message) => {
               const payload = message.optimisticEvent.payload as
                 | { text?: unknown }
-                | undefined
+                | undefined;
               return {
                 id: message.id,
                 text:
-                  (typeof payload?.text === 'string' ? payload.text : '')
-                  || message.userPrompt
-                  || 'Attached context',
+                  (typeof payload?.text === "string" ? payload.text : "") ||
+                  message.userPrompt ||
+                  "Attached context",
                 timestamp: message.optimisticEvent.timestamp,
                 queueOrder: message.queueOrder,
-              }
+              };
             }),
           ),
-        )
+        );
       },
-    })
+    });
   }, [
     activeConversationId,
     clearOptimisticMessage,
@@ -394,10 +388,10 @@ export function useStreamingChatCore({
     issueDequeueTimestamp,
     setPendingUserMessageId,
     startStream,
-  ])
+  ]);
 
   useEffect(() => {
-    if (!pendingUserMessageId) return
+    if (!pendingUserMessageId) return;
 
     // Once the runtime is no longer streaming AND we've seen a
     // persisted assistant_message that targets the pending user
@@ -409,35 +403,38 @@ export function useStreamingChatCore({
     // as its own SQLite write, often across two `localChat:updated`
     // snapshots; clearing on the first snapshot would still drop the
     // second row's live stream for one tick.
-    if (isStreaming) return
+    if (isStreaming) return;
     const hasAssistantReply = persistedMessages.some((message) => {
-      if (message.type !== 'assistant_message') return false
-      if (!message.payload || typeof message.payload !== 'object') return false
-      const payload = message.payload as { userMessageId?: string }
-      return payload.userMessageId === pendingUserMessageId
-    })
+      if (message.type !== "assistant_message") return false;
+      if (!message.payload || typeof message.payload !== "object") return false;
+      const payload = message.payload as { userMessageId?: string };
+      return payload.userMessageId === pendingUserMessageId;
+    });
     if (hasAssistantReply) {
-      setPendingUserMessageId(null)
+      setPendingUserMessageId(null);
     }
   }, [
     isStreaming,
     pendingUserMessageId,
     persistedMessages,
     setPendingUserMessageId,
-  ])
+  ]);
 
   // Resume hand-off: an already-streamed answer can come back from persistence
   // with no live overlay. Mark it as response text so the inline working
   // indicator does not hang under the visible answer until the run terminates.
   useEffect(() => {
-    if (!pendingUserMessageId) return
+    if (!pendingUserMessageId) return;
     const activeTurnAnswerVisible = persistedMessages.some((message) => {
-      if (message.type !== 'assistant_message') return false
-      if (!message.payload || typeof message.payload !== 'object') return false
-      const payload = message.payload as { userMessageId?: string; text?: string }
-      if (payload.userMessageId !== pendingUserMessageId) return false
-      return typeof payload.text === 'string' && payload.text.trim().length > 0
-    })
+      if (message.type !== "assistant_message") return false;
+      if (!message.payload || typeof message.payload !== "object") return false;
+      const payload = message.payload as {
+        userMessageId?: string;
+        text?: string;
+      };
+      if (payload.userMessageId !== pendingUserMessageId) return false;
+      return typeof payload.text === "string" && payload.text.trim().length > 0;
+    });
     if (
       shouldTreatResumedAnswerAsStarted({
         isStreaming,
@@ -446,7 +443,7 @@ export function useStreamingChatCore({
         activeTurnAnswerVisible,
       })
     ) {
-      markAssistantResponseTextStarted()
+      markAssistantResponseTextStarted();
     }
   }, [
     isStreaming,
@@ -455,81 +452,89 @@ export function useStreamingChatCore({
     pendingUserMessageId,
     persistedMessages,
     markAssistantResponseTextStarted,
-  ])
+  ]);
 
   useEffect(() => {
-    if (optimisticEvents.length === 0) return
-    const persistedIds = new Set(persistedMessages.map((message) => message._id))
+    if (optimisticEvents.length === 0) return;
+    const persistedIds = new Set(
+      persistedMessages.map((message) => message._id),
+    );
     setOptimisticEvents((current) => {
-      const next = current.filter((event) => !persistedIds.has(event._id))
-      return next.length === current.length ? current : next
-    })
-  }, [optimisticEvents.length, persistedMessages])
+      const next = current.filter((event) => !persistedIds.has(event._id));
+      return next.length === current.length ? current : next;
+    });
+  }, [optimisticEvents.length, persistedMessages]);
 
   useEffect(() => {
-    const persistedIds = new Set(persistedMessages.map((message) => message._id))
+    const persistedIds = new Set(
+      persistedMessages.map((message) => message._id),
+    );
     const queuedPayloads = queuedStreamPayloadsRef.current.filter(
       (message) => !persistedIds.has(message.id),
-    )
+    );
     if (queuedPayloads.length !== queuedStreamPayloadsRef.current.length) {
-      queuedStreamPayloadsRef.current = queuedPayloads
+      queuedStreamPayloadsRef.current = queuedPayloads;
     }
     if (queuedUserMessages.length > 0) {
       setQueuedUserMessages((current) => {
-        const next = current.filter((message) => !persistedIds.has(message.id))
-        return next.length === current.length ? current : next
-      })
+        const next = current.filter((message) => !persistedIds.has(message.id));
+        return next.length === current.length ? current : next;
+      });
     }
-  }, [persistedMessages, queuedUserMessages.length])
+  }, [persistedMessages, queuedUserMessages.length]);
 
   useEffect(() => {
-    drainQueuedMessagesIfIdle()
-  }, [drainQueuedMessagesIfIdle, queuedUserMessages.length])
+    drainQueuedMessagesIfIdle();
+  }, [drainQueuedMessagesIfIdle, queuedUserMessages.length]);
 
   const sendMessage = useCallback(
     async (options: SendMessageArgs) => {
-      const resolvedConversationId = activeConversationId
-      const cleanedText = options.text.trim()
+      const resolvedConversationId = activeConversationId;
+      const cleanedText = options.text.trim();
       const contextState = resolveComposerContextState(
         options.chatContext,
         options.selectedText,
-      )
+      );
       const hasAttachments = Boolean(
-        options.chatContext?.regionScreenshots?.length
-          || options.chatContext?.files?.length,
-      )
+        options.chatContext?.regionScreenshots?.length ||
+        options.chatContext?.files?.length,
+      );
 
-      if (!resolvedConversationId || (!cleanedText && !contextState.hasSubmittableContext)) {
-        return false
+      if (
+        !resolvedConversationId ||
+        (!cleanedText && !contextState.hasSubmittableContext)
+      ) {
+        return false;
       }
       if (pendingSendRef.current) {
-        return false
+        return false;
       }
 
-      const sendAttempt = Symbol('composer-send')
-      pendingSendRef.current = sendAttempt
+      const sendAttempt = Symbol("composer-send");
+      pendingSendRef.current = sendAttempt;
 
-      const attachments = isLocalStorage && hasAttachments
-        ? buildAllLocalAttachments(options.chatContext)
-        : []
+      const attachments =
+        isLocalStorage && hasAttachments
+          ? buildAllLocalAttachments(options.chatContext)
+          : [];
       const messageMetadata = buildContextMessageMetadata(
         options.chatContext,
         options.selectedText,
         options.metadata,
-      )
-      const platform = getPlatform()
-      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-      const requestLocale = locale
-      const optimisticUserMessageId = createLocalMessageId()
+      );
+      const platform = getPlatform();
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const requestLocale = locale;
+      const optimisticUserMessageId = createLocalMessageId();
       const optimisticText =
-        cleanedText || options.selectedText?.trim() || 'Attached context'
+        cleanedText || options.selectedText?.trim() || "Attached context";
 
-      const messageTimestamp = Date.now()
+      const messageTimestamp = Date.now();
       try {
         // A turn is not accepted until the main-process runtime returns a
         // request id. Keep the draft and viewport untouched through transient
         // bootstrap/readiness failures so one retry is lossless.
-        const deviceId = await getOrCreateDeviceId()
+        const deviceId = await getOrCreateDeviceId();
         const accepted = await startStream({
           userPrompt: cleanedText,
           selectedText: options.selectedText,
@@ -542,11 +547,11 @@ export function useStreamingChatCore({
           attachments,
           userMessageEventId: optimisticUserMessageId,
           userMessageTimestamp: messageTimestamp,
-        })
-        if (!accepted) return false
+        });
+        if (!accepted) return false;
 
-        options.onClear()
-        await nextAnimationFrame()
+        options.onClear();
+        await nextAnimationFrame();
 
         // The accepted turn belongs to the captured conversation. If IPC was
         // pending across a tab switch, persistence will populate that tab; do
@@ -561,9 +566,9 @@ export function useStreamingChatCore({
             locale: requestLocale,
             ...(messageMetadata ? { metadata: messageMetadata } : {}),
             attachments: toDisplayAttachments(attachments),
-          })
-          setOptimisticEvents((current) => [...current, optimisticEvent])
-          setPendingUserMessageId(optimisticUserMessageId)
+          });
+          setOptimisticEvents((current) => [...current, optimisticEvent]);
+          setPendingUserMessageId(optimisticUserMessageId);
         }
 
         // Fire-and-forget: surface a "model not available on your plan"
@@ -571,21 +576,21 @@ export function useStreamingChatCore({
         // saved non-default override for orchestrator/general. The backend
         // silently coerces to the tier-default model regardless. Deduped so
         // it doesn't spam on every send.
-        void notifyTierRestrictedModel?.()
+        void notifyTierRestrictedModel?.();
 
         console.log(
-          `[stella:trace] sendMessage (steer) | convId=${resolvedConversationId} | text=${cleanedText.slice(0, 200)}`,
-        )
-        return true
+          `[stella:trace] sendMessage (steer) | textLength=${cleanedText.length}`,
+        );
+        return true;
       } catch (error) {
         console.error(
-          'Failed to prepare local agent chat:',
+          "Failed to prepare local agent chat:",
           error instanceof Error ? error.message : String(error),
-        )
-        return false
+        );
+        return false;
       } finally {
         if (pendingSendRef.current === sendAttempt) {
-          pendingSendRef.current = null
+          pendingSendRef.current = null;
         }
       }
     },
@@ -597,7 +602,7 @@ export function useStreamingChatCore({
       locale,
       setPendingUserMessageId,
     ],
-  )
+  );
 
   return {
     taskDecorations,
@@ -617,5 +622,5 @@ export function useStreamingChatCore({
     removeQueuedUserMessage,
     sendMessage,
     cancelCurrentStream,
-  }
+  };
 }

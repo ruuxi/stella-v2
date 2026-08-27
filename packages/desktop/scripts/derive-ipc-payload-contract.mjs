@@ -261,19 +261,48 @@ ${body}
 `;
 }
 
-const contracts = deriveContract();
-const rendered = render(contracts);
-
-if (process.argv.includes("--check")) {
-  const current = fs.existsSync(OUTPUT) ? fs.readFileSync(OUTPUT, "utf8") : "";
-  if (current !== rendered) {
-    console.error(
-      "ipc-payload-contract.generated.js is stale. Run: node scripts/derive-ipc-payload-contract.mjs",
-    );
-    process.exit(1);
+export const writeOrCheckIpcPayloadContract = ({
+  check,
+  expectedSource,
+  targetPath,
+  channelCount,
+  logger = console,
+}) => {
+  if (check) {
+    const current = fs.existsSync(targetPath)
+      ? fs.readFileSync(targetPath, "utf8")
+      : null;
+    if (current !== expectedSource) {
+      logger.error(
+        "ipc-payload-contract.generated.js is stale. Run: node scripts/derive-ipc-payload-contract.mjs",
+      );
+      return false;
+    }
+    logger.log(`ipc payload contract is current (${channelCount} channels).`);
+    return true;
   }
-  console.log(`ipc payload contract is current (${contracts.size} channels).`);
-} else {
-  fs.writeFileSync(OUTPUT, rendered);
-  console.log(`Wrote ${contracts.size} channel contracts to ${OUTPUT}`);
+
+  fs.writeFileSync(targetPath, expectedSource);
+  logger.log(`Wrote ${channelCount} channel contracts to ${targetPath}`);
+  return true;
+};
+
+const isMain =
+  typeof process.argv[1] === "string" &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isMain) {
+  const args = process.argv.slice(2);
+  const check = args.length === 1 && args[0] === "--check";
+  if (args.length > 0 && !check) {
+    throw new Error("Usage: derive-ipc-payload-contract.mjs [--check]");
+  }
+  const contracts = deriveContract();
+  const current = writeOrCheckIpcPayloadContract({
+    check,
+    expectedSource: render(contracts),
+    targetPath: OUTPUT,
+    channelCount: contracts.size,
+  });
+  if (!current) process.exitCode = 1;
 }

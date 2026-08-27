@@ -1,0 +1,73 @@
+.cloud-app-page {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--text-base);
+  background: var(--surface-base);
+}
+
+.cloud-app-page--state {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+}
+
+.cloud-app-page--state h1,
+.cloud-app-page--state p {
+  margin: 0;
+}
+
+.cloud-app-page--state h1 {
+  color: var(--text-strong);
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.cloud-app-page--state p {
+  max-width: 32rem;
+  color: var(--text-weak);
+  font-size: var(--font-size-sm);
+}
+
+.cloud-app-page__frame {
+  display: block;
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: var(--surface-base);
+}
+
+.cloud-app-page[data-state="loading"] .cloud-app-page__frame,
+.cloud-app-page[data-state="error"] .cloud-app-page__frame {
+  visibility: hidden;
+}
+
+.cloud-app-page__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  color: var(--text-weak);
+  background: var(--surface-base);
+  text-align: center;
+}
+
+.cloud-app-page__overlay strong {
+  color: var(--text-strong);
+}
+

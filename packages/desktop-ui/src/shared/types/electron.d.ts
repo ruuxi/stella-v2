@@ -80,6 +80,18 @@ import type {
 import type { DisplayPayload } from "@stella/contracts/display-payload";
 import type { DesktopUpdateSnapshot } from "@stella/contracts/desktop/update";
 import type {
+  CloudHomeImportOwnership,
+  LocalCloudHomeScan,
+} from "@stella/contracts/cloud-home-sync";
+import type {
+  CloudConversationCacheAuthority,
+  CloudConversationCacheLifecycleAuthority,
+  CloudConversationCachePurgeResult,
+  CloudConversationCacheReplaceInput,
+  CloudConversationCacheReplaceResult,
+  CloudConversationCacheSnapshot,
+} from "@stella/contracts/cloud-conversation-cache";
+import type {
   UserAppProjectListResult,
   UserAppProjectStartResult,
   UserAppProjectStopResult,
@@ -1211,9 +1223,7 @@ export type ElectronBrowserViewApi = {
   }) => Promise<BrowserViewState>;
   show: (payload: BrowserViewLayout) => Promise<BrowserViewState>;
   setVisibleOwner: (payload: { ownerId: string }) => Promise<BrowserViewState>;
-  setOwnerScope: (payload?: {
-    ownerId?: string;
-  }) => Promise<BrowserViewState>;
+  setOwnerScope: (payload?: { ownerId?: string }) => Promise<BrowserViewState>;
   setLayout: (payload: BrowserViewLayout) => Promise<BrowserViewState>;
   hide: () => Promise<BrowserViewState>;
   createTab: (payload?: {
@@ -1828,6 +1838,48 @@ export type ElectronApi = {
   files: {
     /** Absolute on-disk path for a picker/drag-drop File, or "" if unavailable. */
     getPathForFile: (file: File) => string;
+  };
+  cloudHome: {
+    scanLocal: (accountScope: string) => Promise<LocalCloudHomeScan>;
+    getImportOwnership: (
+      accountScope: string,
+    ) => Promise<CloudHomeImportOwnership>;
+    confirmImportOwnership: (accountScope: string) => Promise<boolean>;
+    beginMemoryExport: (payload: {
+      suggestedName: string;
+      expectedSubject: string;
+      ownerGeneration: string;
+      memoryEpoch: string;
+      lifecycleState: "open";
+    }) => Promise<
+      { ok: true; exportId: string } | { ok: false; canceled: true }
+    >;
+    commitMemoryExport: (payload: {
+      exportId: string;
+      content: string;
+      expectedSubject: string;
+      ownerGeneration: string;
+      memoryEpoch: string;
+      lifecycleState: "open";
+    }) => Promise<{ ok: true } | { ok: false; canceled: true }>;
+    cancelMemoryExport: (exportId: string) => Promise<{ ok: true }>;
+  };
+  cloudConversationCache: {
+    retainAccount: (
+      accountScope: string,
+    ) => Promise<CloudConversationCachePurgeResult>;
+    activateAuthority: (
+      authority: CloudConversationCacheLifecycleAuthority,
+    ) => Promise<CloudConversationCachePurgeResult>;
+    read: (
+      authority: CloudConversationCacheAuthority,
+    ) => Promise<CloudConversationCacheSnapshot | null>;
+    replace: (
+      input: CloudConversationCacheReplaceInput,
+    ) => Promise<CloudConversationCacheReplaceResult>;
+    purgeConversation: (
+      authority: CloudConversationCacheAuthority,
+    ) => Promise<CloudConversationCachePurgeResult>;
   };
   display: ElectronDisplayApi;
   officePreview: ElectronOfficePreviewApi;

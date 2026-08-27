@@ -141,6 +141,11 @@ describe("local chat mobile artifacts", () => {
         { id: "p2", name: "Ferry Building", lat: 37.7955, lng: -122.3937 },
       ],
     };
+    const legacyDeferredMap = {
+      kind: "map-route",
+      version: 1,
+      markers: [{ id: "p3", name: "Pier 39", lat: 37.8087, lng: -122.4098 }],
+    };
     const artifacts = deriveMobileArtifactsForMessage(
       baseMessage({
         toolEvents: [
@@ -168,12 +173,19 @@ describe("local chat mobile artifacts", () => {
             _id: "tool-4",
             timestamp: 1_400,
             type: "tool_result",
-            payload: { toolName: "node_repl", map: deferredMap },
+            payload: { toolName: "code", map: deferredMap },
+          },
+          {
+            // Persisted legacy tool rows remain readable after the rename.
+            _id: "tool-5",
+            timestamp: 1_500,
+            type: "tool_result",
+            payload: { toolName: "node_repl", map: legacyDeferredMap },
           },
         ],
       }),
     );
-    expect(artifacts).toEqual([map, deferredMap]);
+    expect(artifacts).toEqual([map, deferredMap, legacyDeferredMap]);
   });
 
   it("omits developer file artifacts unless explicitly enabled", () => {
@@ -400,7 +412,10 @@ describe("local chat mobile artifacts", () => {
     );
 
     const payload = rows[0]?.artifacts?.[0]?.payload;
-    expect(payload).toMatchObject({ kind: "agent-work", title: "Book flights" });
+    expect(payload).toMatchObject({
+      kind: "agent-work",
+      title: "Book flights",
+    });
     expect(
       payload && "followUp" in payload ? payload.followUp : undefined,
     ).toBeUndefined();

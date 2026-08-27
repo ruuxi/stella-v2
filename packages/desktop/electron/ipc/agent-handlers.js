@@ -408,6 +408,12 @@ export const registerAgentHandlers = (options) => {
                     conversationId,
                     requestId,
                 }, senderWebContentsId),
+                onProviderLifecycle: (ev) => emitAgentEvent({
+                    ...ev,
+                    type: AGENT_STREAM_EVENT_TYPES.PROVIDER_LIFECYCLE,
+                    conversationId,
+                    requestId,
+                }, senderWebContentsId),
                 onToolStart: (ev) => emitAgentEvent({
                     ...ev,
                     type: AGENT_STREAM_EVENT_TYPES.TOOL_START,
@@ -496,6 +502,13 @@ export const registerAgentHandlers = (options) => {
             throw new Error("Stella runtime not available");
         }
         const conversationId = requireMatchingCloudConversationId(payload?.conversationId, options.uiState?.conversationId);
+        const cloudAuthority = options.getActiveCloudConversationCacheAuthority?.();
+        const ownerGeneration = typeof cloudAuthority?.ownerGeneration === "string"
+            ? cloudAuthority.ownerGeneration.trim()
+            : "";
+        if (!ownerGeneration) {
+            throw new Error("Cloud conversation authority is not ready. Refresh and try again.");
+        }
         // Idempotent send: a client (e.g. mobile over a flaky tunnel) can retry
         // the same logical message with a stable `clientRequestId`. If we already
         // started a run for it, hand back the original `requestId` instead of
@@ -591,6 +604,7 @@ export const registerAgentHandlers = (options) => {
             ...payload,
             conversationId,
             requestId,
+            ownerGeneration,
         }), {
             onRunStarted: (ev) => {
                 if (ev.uiVisibility === "hidden") {
@@ -638,6 +652,12 @@ export const registerAgentHandlers = (options) => {
             onStatus: (ev) => emitAgentEvent({
                 ...ev,
                 type: AGENT_STREAM_EVENT_TYPES.STATUS,
+                conversationId,
+                requestId,
+            }, senderWebContentsId),
+            onProviderLifecycle: (ev) => emitAgentEvent({
+                ...ev,
+                type: AGENT_STREAM_EVENT_TYPES.PROVIDER_LIFECYCLE,
                 conversationId,
                 requestId,
             }, senderWebContentsId),

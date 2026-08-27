@@ -71,6 +71,7 @@ export interface Interface {
     rejectIfBusy?: boolean;
     remoteTurnAttemptId?: string;
     executionPlacementRunId?: string;
+    ownerGeneration?: string;
     agentType?: string;
     modelOverride?: string;
     toolWorkspaceRoot?: string;
@@ -210,6 +211,10 @@ export const layer = Layer.effect(
 
     const startChat: Interface["startChat"] = async (payload) => {
       const storageMode = resolveConversationStorageMode(payload.storageMode);
+      const ownerGeneration = asTrimmedString(payload.ownerGeneration);
+      if (storageMode === "cloud" && !ownerGeneration) {
+        throw new Error("Cloud owner generation is required for this turn.");
+      }
       const persistLocalTranscript =
         shouldPersistLocalChatTranscript(storageMode);
       const requestId =
@@ -493,6 +498,7 @@ export const layer = Layer.effect(
             mergedAttachments.length > 0 ? mergedAttachments : undefined,
           agentType: payload.agentType,
           storageMode,
+          ...(ownerGeneration ? { ownerGeneration } : {}),
         },
         {
           onAssistantMessage: (ev) => {

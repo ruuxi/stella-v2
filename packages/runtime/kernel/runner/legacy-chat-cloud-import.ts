@@ -17,6 +17,7 @@ type CloudConversation = {
 };
 
 type LegacyChatImportCloudApi = {
+  getOwnerGeneration: () => Promise<string>;
   getOwnershipMigrationStatus: () => Promise<{
     status: "pending" | "running" | "failed" | "complete";
   } | null>;
@@ -25,6 +26,7 @@ type LegacyChatImportCloudApi = {
   ) => Promise<CloudConversation | null>;
   createConversation: (args: {
     clientCreateId: string;
+    expectedOwnerGeneration: string;
     title?: string;
   }) => Promise<CloudConversation>;
 };
@@ -250,6 +252,7 @@ export const createLegacyChatCloudImporter = (args: {
     candidate: LegacyChatCloudImportCandidate,
     progress: LegacyChatCloudImportRecord | null,
     messages: LegacyChatVisibleMessage[],
+    ownerGeneration: string,
   ): Promise<string | null> => {
     if (progress?.cloudConversationId) {
       return progress.cloudConversationId;
@@ -269,11 +272,13 @@ export const createLegacyChatCloudImporter = (args: {
     const title = candidate.title.trim() || fallbackTitle(messages);
     const created = await args.cloud.createConversation({
       clientCreateId: stableCreateId(candidate.conversationId),
+      expectedOwnerGeneration: ownerGeneration,
       ...(title ? { title } : {}),
     });
     args.store.saveLegacyChatCloudImport({
       localConversationId: candidate.conversationId,
       cloudConversationId: created.conversationId,
+      ownerGeneration,
       nextTurnIndex: progress?.nextTurnIndex ?? 0,
       status: "pending",
     });
@@ -294,10 +299,31 @@ export const createLegacyChatCloudImporter = (args: {
     let progress = args.store.getLegacyChatCloudImport(
       candidate.conversationId,
     );
+    const currentOwnerGeneration = (await args.cloud.getOwnerGeneration()).trim();
+    if (
+      !currentOwnerGeneration ||
+      currentOwnerGeneration.length > 512 ||
+      /\s/.test(currentOwnerGeneration)
+    ) {
+      throw new Error("Cloud owner generation is unavailable for legacy import.");
+    }
+    if (progress && !progress.ownerGeneration) {
+      markSkipped(candidate, "missing-owner-generation");
+      return;
+    }
+    if (
+      progress?.ownerGeneration &&
+      progress.ownerGeneration !== currentOwnerGeneration
+    ) {
+      markSkipped(candidate, "owner-generation-changed");
+      return;
+    }
+    const ownerGeneration = progress?.ownerGeneration ?? currentOwnerGeneration;
     const cloudConversationId = await resolveDestination(
       candidate,
       progress,
       messages,
+      ownerGeneration,
     );
     if (!cloudConversationId) return;
     progress = args.store.getLegacyChatCloudImport(candidate.conversationId);
@@ -314,6 +340,7 @@ export const createLegacyChatCloudImporter = (args: {
       try {
         const begin = await args.cloudTranscript.begin({
           conversationId: cloudConversationId,
+          ownerGeneration,
           localTurnId,
           clientMsgId,
           userMessageJson: buildUserMessageJson(turn.user),
@@ -332,6 +359,7 @@ export const createLegacyChatCloudImporter = (args: {
       if (leaseToken) {
         const finish = await args.cloudTranscript.finish({
           conversationId: cloudConversationId,
+          ownerGeneration,
           localTurnId,
           leaseToken,
           records,
@@ -345,6 +373,7 @@ export const createLegacyChatCloudImporter = (args: {
       args.store.saveLegacyChatCloudImport({
         localConversationId: candidate.conversationId,
         cloudConversationId,
+        ownerGeneration,
         nextTurnIndex,
         status: nextTurnIndex === turns.length ? "complete" : "pending",
       });

@@ -279,9 +279,9 @@ export function useFullShellChat({
   const loadOlderMessages = cloudChat.conversation.loadOlder;
   const loadNewerMessages = NO_NEWER_CLOUD_MESSAGES;
   const loadLatestMessages = NO_NEWER_CLOUD_MESSAGES;
-  const hasOlderActivity = cloudChat.conversation.state.hasOlder;
-  const isLoadingOlderActivity = cloudChat.conversation.state.loadingOlder;
-  const loadOlderActivity = cloudChat.conversation.loadOlder;
+  const hasOlderActivity = cloudChat.hasOlderActivity;
+  const isLoadingOlderActivity = cloudChat.isLoadingOlderActivity;
+  const loadOlderActivity = cloudChat.loadOlderActivity;
   const hasOlderFiles = cloudChat.conversation.state.hasOlder;
   const isLoadingOlderFiles = cloudChat.conversation.state.loadingOlder;
   const loadOlderFiles = cloudChat.conversation.loadOlder;
@@ -570,9 +570,8 @@ export function useFullShellChat({
   });
   // Per-conversation model selection: mirror the global model preferences
   // to whichever conversation is active so each tab remembers its own
-  // engine/model/reasoning pick. Runs in both working modes — orchestrated
-  // still has a conversation strip / history replace, and the picker is
-  // the same global preference surface.
+  // engine/model/reasoning pick. Cloud and local conversations both retain
+  // their own selection while sharing the same global picker surface.
   useConversationModelSelection({
     activeConversationId,
     enabled: true,

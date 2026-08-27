@@ -20,7 +20,7 @@ import type { SdpAnswerFetcher } from "./types";
 /** POST SDP to a public endpoint using a Bearer token. */
 export const bearerSdpFetcher =
   (endpoint: string, bearerToken: string): SdpAnswerFetcher =>
-  async (sdpOffer) => {
+  async (sdpOffer, signal) => {
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
@@ -28,6 +28,7 @@ export const bearerSdpFetcher =
         "Content-Type": "application/sdp",
       },
       body: sdpOffer,
+      signal,
     });
     if (!response.ok) {
       throw new Error(
@@ -43,13 +44,28 @@ export const bearerSdpFetcher =
  * Inworld) so the org key never enters the renderer.
  */
 export const stellaProxiedSdpFetcher =
-  (path: string, stellaSessionId?: string): SdpAnswerFetcher =>
-  async (sdpOffer) => {
+  (
+    path: string,
+    stellaSessionId?: string,
+    authority?: {
+      ownerGeneration: string;
+      providerDispatchId: string;
+      providerAttemptId: string;
+    },
+  ): SdpAnswerFetcher =>
+  async (sdpOffer, signal) => {
     const requestHeaders: Record<string, string> = {
       "Content-Type": "application/sdp",
     };
     if (stellaSessionId) {
       requestHeaders["X-Stella-Voice-Session-ID"] = stellaSessionId;
+    }
+    if (authority) {
+      requestHeaders["X-Stella-Owner-Generation"] = authority.ownerGeneration;
+      requestHeaders["X-Stella-Provider-Dispatch-ID"] =
+        authority.providerDispatchId;
+      requestHeaders["X-Stella-Provider-Attempt-ID"] =
+        authority.providerAttemptId;
     }
     const { endpoint, headers } = await createServiceRequest(
       path,
@@ -59,6 +75,7 @@ export const stellaProxiedSdpFetcher =
       method: "POST",
       headers,
       body: sdpOffer,
+      signal,
     });
     if (!response.ok) {
       throw new Error(

@@ -169,6 +169,7 @@ export type ChatPayload = {
   attachments?: RuntimeAttachmentRef[];
   agentType?: string;
   storageMode?: "cloud" | "local";
+  ownerGeneration?: string;
 };
 
 export type RuntimeSendMessageInput = {
@@ -176,6 +177,7 @@ export type RuntimeSendMessageInput = {
   text: string;
   uiVisibility?: "visible" | "hidden";
   agentType?: string;
+  ownerGeneration?: string;
   deliverAs?: "steer" | "followUp";
   callbackRunId?: string;
   responseTarget?: RuntimeAgentEventPayload["responseTarget"];
@@ -193,6 +195,7 @@ export type ActiveOrchestratorSession = RuntimeExecutionSessionHandle & {
   conversationId: string;
   agentType: string;
   storageMode?: "cloud" | "local";
+  ownerGeneration?: string;
   uiVisibility: "visible" | "hidden";
   queueCallbackSwitch: (callbacks: AgentCallbacks) => void;
   queueMessage: (message: AgentMessage, delivery: "steer" | "followUp") => void;

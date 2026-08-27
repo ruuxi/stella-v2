@@ -82,6 +82,16 @@ export const cloudPendingPromptsToEvents = (
     payload: { text: entry.text },
   }));
 
+/**
+ * Only a prompt that is still awaiting canonical cloud progress may drive the
+ * queued-user entrance animation. Failed prompts remain visible for their
+ * Retry/Discard controls, but they are settled UI and must not stay "pending".
+ */
+export const latestInFlightCloudUserMessageId = (
+  pending: readonly PendingPrompt[],
+): string | null =>
+  pending.findLast((entry) => !entry.error)?.clientMsgId ?? null;
+
 const owningUserMessageId = (
   records: readonly JournalRecord[],
   pending: readonly PendingPrompt[],
@@ -151,10 +161,9 @@ export const cloudPromptFromSendArgs = (args: SendMessageArgs): string => {
 };
 
 /**
- * Local SQLite is only a transient overlay while the canonical socket is
- * live. Connecting, offline, and terminal/blocked states must render the
- * cloud projection (or an explicit error) instead of reviving cached rows as
- * an undeclared local authority.
+ * Local execution rows are only a transient overlay while the canonical
+ * socket is live. They are distinct from the explicitly labelled derived
+ * cloud-journal cache and can never revive as an undeclared authority.
  */
 export const shouldUseLocalCloudOverlay = (
   status: CloudConversationView["status"],
@@ -198,9 +207,28 @@ function CloudConversationStatusTail({
   const showConnection =
     state.status === "blocked" ||
     (state.status === "offline" && Boolean(state.statusMessage));
-  if (!showConnection && failed.length === 0 && !state.olderNotice) return null;
+  const showCached =
+    state.recordsSource === "cached-stale" && state.records.length > 0;
+  if (
+    !showConnection &&
+    !showCached &&
+    failed.length === 0 &&
+    !state.olderNotice
+  ) {
+    return null;
+  }
   return (
     <div className="cloud-chat-status-tail">
+      {showCached ? (
+        <div
+          className="cloud-chat-status-tail__notice"
+          data-status="cached-stale"
+          role="status"
+        >
+          Showing saved history while reconnecting. New activity still requires
+          Stella&apos;s cloud.
+        </div>
+      ) : null}
       {showConnection ? (
         <div
           className="cloud-chat-status-tail__notice"
@@ -286,6 +314,9 @@ export type CloudChatBridge = {
   activities: EventRecord[];
   files: EventRecord[];
   tasks: TaskItem[];
+  hasOlderActivity: boolean;
+  isLoadingOlderActivity: boolean;
+  loadOlderActivity: () => void;
   optimisticEvents: EventRecord[];
   streamingAssistants: StreamingAssistantOverlay[];
   isWebShell: boolean;
@@ -486,17 +517,23 @@ export function useCloudChatBridge({
 
   const cancelCurrentStream = useCallback(() => {
     if (!enabled || !webShell) return;
+    const pendingEntry = conversation.pending.findLast((entry) => !entry.error);
     const turnId =
       conversation.state.live?.turnId ??
-      conversation.pending.findLast(
-        (entry) => entry.turnId !== null && !entry.error,
-      )?.turnId ??
+      (pendingEntry?.turnId !== null ? pendingEntry?.turnId : null) ??
       null;
-    if (turnId && conversation.cancelTurn(turnId)) return;
-    showToast({
-      title: "Couldn’t stop this cloud turn",
-      description: "The stop could not be delivered. Try again in a moment.",
-      variant: "error",
+    const cancellation = turnId
+      ? conversation.cancelTurn(turnId)
+      : pendingEntry
+        ? conversation.cancelPending(pendingEntry.clientMsgId)
+        : Promise.resolve(false);
+    void cancellation.then((delivered) => {
+      if (delivered) return;
+      showToast({
+        title: "Couldn’t stop this cloud turn",
+        description: "The stop could not be delivered. Try again in a moment.",
+        variant: "error",
+      });
     });
   }, [conversation, enabled, webShell]);
 
@@ -507,7 +544,9 @@ export function useCloudChatBridge({
       ) : null,
     [conversation, enabled],
   );
-  const pendingUserMessageId = optimisticEvents.at(-1)?._id ?? null;
+  const pendingUserMessageId = latestInFlightCloudUserMessageId(
+    conversation.pending,
+  );
   const activeToolName = conversation.state.live?.toolName ?? null;
 
   return {
@@ -517,6 +556,9 @@ export function useCloudChatBridge({
     activities,
     files,
     tasks,
+    hasOlderActivity: cloudActivity.hasOlder,
+    isLoadingOlderActivity: cloudActivity.isLoadingOlder,
+    loadOlderActivity: cloudActivity.loadOlder,
     optimisticEvents,
     streamingAssistants,
     isWebShell: webShell,

@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { getMainLogger } from "../observability/main-logger.js";
 import { resolveLogPaths } from "@stella/runtime/observability/log-paths";
-import { getLocalModelPreferences, getOnboardingCompleted, getPersonalityVoiceId, setPersonalityVoiceId, getPreventComputerSleep, getReadAloudEnabled, setReadAloudEnabled, getSoundNotificationsEnabled, getSyncMode, loadLocalPreferences, normalizeImageGenerationPreferences, normalizeCodexServiceTier, normalizeRealtimeVoicePreferences, saveLocalPreferences, setOnboardingCompleted, updateLocalModelPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
+import { getLocalModelPreferences, getOnboardingCompleted, getPersonalityVoiceId, setPersonalityVoiceId, getPreventComputerSleep, getReadAloudEnabled, setReadAloudEnabled, getSoundNotificationsEnabled, loadLocalPreferences, normalizeImageGenerationPreferences, normalizeCodexServiceTier, normalizeRealtimeVoicePreferences, saveLocalPreferences, setOnboardingCompleted, updateLocalModelPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
 import { coerceAgentRuntimeEngine } from "@stella/contracts/agent-engine";
 import { hasRealtimeVoiceSessionRouteChanged, } from "@stella/contracts/local-preferences";
 import { coercePersonalityId, isKnownPersonalityId, } from "@stella/contracts/personality";
@@ -30,6 +30,7 @@ import { getGlobalShortcutsSuspended, setGlobalShortcutsSuspended, } from "./glo
 import { createRequire } from "node:module";
 import { t } from "../services/i18n-service.js";
 let _screenCapturePermissions;
+const LEGACY_BACKUP_DISABLED_MESSAGE = "Legacy backups are disabled.";
 const getScreenCapturePermissions = () => {
     if (_screenCapturePermissions !== undefined)
         return _screenCapturePermissions;
@@ -887,66 +888,41 @@ export const registerSystemHandlers = (options) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_BACKUP_GET_STATUS)) {
             throw new Error("Blocked untrusted backup:getStatus request.");
         }
-        return await options.backupService.getStatus();
+        return {
+            version: 1,
+            enabled: false,
+            lastError: LEGACY_BACKUP_DISABLED_MESSAGE,
+        };
     });
     ipcMain.handle(IPC_BACKUP_RUN_NOW, async (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_BACKUP_RUN_NOW)) {
             throw new Error("Blocked untrusted backup:runNow request.");
         }
-        return await options.backupService.backupNow();
+        throw new Error(LEGACY_BACKUP_DISABLED_MESSAGE);
     });
     ipcMain.handle(IPC_BACKUP_LIST, async (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_BACKUP_LIST)) {
             throw new Error("Blocked untrusted backup:list request.");
         }
-        const rawLimit = Number(payload?.limit);
-        const limit = Number.isFinite(rawLimit) && rawLimit > 0
-            ? Math.min(50, Math.floor(rawLimit))
-            : 25;
-        return await options.backupService.listBackups(limit);
+        throw new Error(LEGACY_BACKUP_DISABLED_MESSAGE);
     });
     ipcMain.handle(IPC_BACKUP_RESTORE, async (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_BACKUP_RESTORE)) {
             throw new Error("Blocked untrusted backup:restore request.");
         }
-        const snapshotId = asTrimmedString(payload?.snapshotId);
-        if (!snapshotId) {
-            throw new Error("Missing backup snapshot ID.");
-        }
-        const approved = await options.ensurePrivilegedActionApproval("backup.restore_remote", "Restore this backup and restart Stella?", "This replaces your current local Stella files with the selected backup, preserves this device's identity and local credentials, and then restarts the app.", event);
-        if (!approved) {
-            throw new Error("Backup restore was cancelled.");
-        }
-        const result = await options.backupService.restoreBackup(snapshotId, {
-            shutdownRuntime: options.shutdownRuntime,
-            restartRuntime: options.restartRuntime,
-        });
-        setTimeout(() => {
-            app.relaunch();
-            app.quit();
-        }, 500);
-        return result;
+        throw new Error(LEGACY_BACKUP_DISABLED_MESSAGE);
     });
     ipcMain.handle(IPC_PREFERENCES_GET_SYNC_MODE, (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_GET_SYNC_MODE)) {
             throw new Error("Blocked untrusted preferences:getSyncMode request.");
         }
-        const stellaAppDir = options.getStellaAppDir();
-        if (!stellaAppDir)
-            return "off";
-        return getSyncMode(stellaAppDir);
+        return "off";
     });
     ipcMain.handle(IPC_PREFERENCES_SET_SYNC_MODE, (event, mode) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_SET_SYNC_MODE)) {
             throw new Error("Blocked untrusted preferences:setSyncMode request.");
         }
-        const stellaAppDir = options.getStellaAppDir();
-        if (!stellaAppDir)
-            return;
-        const prefs = loadLocalPreferences(stellaAppDir);
-        prefs.syncMode = mode === "off" ? "off" : "on";
-        saveLocalPreferences(stellaAppDir, prefs);
-        return options.backupService.setMode(prefs.syncMode);
+        return "off";
     });
     ipcMain.handle(IPC_PREFERENCES_GET_PREVENT_SLEEP, (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_GET_PREVENT_SLEEP)) {

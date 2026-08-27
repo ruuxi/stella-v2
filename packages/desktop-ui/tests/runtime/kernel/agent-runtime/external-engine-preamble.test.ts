@@ -1,9 +1,14 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { createRunEventRecorder } from "@stella/runtime/kernel/agent-runtime/run-events";
 import { SubagentSession } from "@stella/runtime/kernel/agent-runtime/subagent-session";
 import {
   buildPreambleToolBoundaryMessage,
+  buildToolResultContent,
   createExternalLiveAgent,
   publishQueuedUserMessageStarts,
 } from "@stella/runtime/kernel/agent-runtime/external-engines";
@@ -69,6 +74,49 @@ describe("external-engine preamble→tool boundary", () => {
     );
     expect(finalEvent?.text).toBe("Tokyo has ~14 million.");
     expect(finalEvent?.followedByToolCall).toBeUndefined();
+  });
+});
+
+describe("external-engine cloud image authority", () => {
+  it("neutralizes path markers without reopening them", async () => {
+    const directory = fs.mkdtempSync(
+      path.join(os.tmpdir(), "stella-external-cloud-image-"),
+    );
+    const imagePath = path.join(directory, "legacy.png");
+    fs.writeFileSync(
+      imagePath,
+      Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=",
+        "base64",
+      ),
+    );
+    const readFile = vi.spyOn(fs.promises, "readFile");
+    try {
+      const content = await buildToolResultContent(
+        {
+          result: `[stella-attach-image] inline=image/png ${imagePath}`,
+        },
+        { provider: "anthropic" },
+        undefined,
+        "cloud",
+      );
+
+      expect(content).toEqual([
+        {
+          type: "text",
+          text: expect.stringContaining("descriptor-authorized image bytes"),
+        },
+      ]);
+      expect(JSON.stringify(content)).not.toContain(imagePath);
+      expect(
+        readFile.mock.calls.some(
+          ([candidate]) => String(candidate) === imagePath,
+        ),
+      ).toBe(false);
+    } finally {
+      readFile.mockRestore();
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
 

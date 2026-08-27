@@ -43,7 +43,6 @@ const initializeBootstrapLocalState = async (context) => {
     state.stellaAppDir = stellaDataDir.stellaAppDir;
     state.stellaDataDirPath = stellaDataDir.statePath;
     state.stellaWorkspacePath = stellaDataDir.workspacePath;
-    services.backupService.start();
     services.securityPolicyService.setSecurityPolicyPath(path.join(stellaDataDir.statePath, "security_policy.json"));
 };
 const initializeWindowShell = (context) => {

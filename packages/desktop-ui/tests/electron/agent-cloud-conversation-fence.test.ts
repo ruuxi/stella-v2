@@ -49,6 +49,10 @@ describe("agent IPC cloud conversation fence", () => {
     };
     registerAgentHandlers({
       getStellaHostRunner: () => runner,
+      getActiveCloudConversationCacheAuthority: () => ({
+        accountScope: "account:test",
+        ownerGeneration: "generation:test",
+      }),
       getAppSessionStartedAt: () => 0,
       isHostAuthAuthenticated: () => true,
       uiState,

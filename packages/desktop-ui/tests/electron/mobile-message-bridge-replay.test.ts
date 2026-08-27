@@ -120,6 +120,10 @@ describe("mobile bridge replay end to end", () => {
     const uiState = { conversationId: "conversation-1" };
     registerAgentHandlers({
       getStellaHostRunner: () => runner as never,
+      getActiveCloudConversationCacheAuthority: () => ({
+        accountScope: "account:test",
+        ownerGeneration: "generation:test",
+      }),
       getAppSessionStartedAt: () => 0,
       isHostAuthAuthenticated: () => true,
       uiState,
@@ -230,6 +234,10 @@ describe("mobile bridge replay end to end", () => {
 
     registerAgentHandlers({
       getStellaHostRunner: () => runner as never,
+      getActiveCloudConversationCacheAuthority: () => ({
+        accountScope: "account:test",
+        ownerGeneration: "generation:test",
+      }),
       getAppSessionStartedAt: () => 0,
       isHostAuthAuthenticated: () => true,
       uiState: { conversationId: "conversation-1" },
@@ -325,6 +333,10 @@ describe("mobile bridge replay end to end", () => {
 
     registerAgentHandlers({
       getStellaHostRunner: () => runner as never,
+      getActiveCloudConversationCacheAuthority: () => ({
+        accountScope: "account:test",
+        ownerGeneration: "generation:test",
+      }),
       getAppSessionStartedAt: () => 0,
       isHostAuthAuthenticated: () => true,
       uiState: { conversationId: "conversation-1" },

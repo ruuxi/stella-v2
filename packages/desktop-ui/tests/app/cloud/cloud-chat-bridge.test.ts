@@ -313,6 +313,12 @@ describe("cloud chat bridge authority", () => {
     expect(conversationSource).toContain(
       "submitBrowserExecution = useMutation(cloudApi.submitBrowserExecution)",
     );
+    expect(conversationSource).toContain(
+      "cloudApi.getMyCloudConversationIdentity",
+    );
+    expect(conversationSource).not.toContain(
+      "cloudApi.getMyExecutionPlacementIdentity",
+    );
     expect(conversationSource).toContain("await browserExecutionSubmitArgs({");
     expect(conversationSource).toContain(
       "__STELLA_RENDERED_ACCEPTANCE_BEFORE_BROWSER_DISPATCH__",
@@ -543,11 +549,15 @@ describe("cloud chat bridge authority", () => {
       "activeAccountScopeRef.current !== operation.accountScope",
     );
     expect(root).toContain("activeRouteIntentRef.current !== routeIntent");
+    expect(root).toContain("cloudApi.getMyCloudConversationIdentity");
+    expect(root).not.toContain("cloudApi.getMyExecutionPlacementIdentity");
     expect(root).toContain(
       "retireCloudConversationClientAuthority(accountScope)",
     );
     expect(root).toContain("retireCloudExecutionClientAuthority(accountScope)");
     expect(root).toContain("ownershipMigrationRetryRef.current !== operation");
     expect(topbar).toContain("activeAccountScopeRef.current !== accountScope");
+    expect(topbar).toContain("cloudApi.getMyCloudConversationIdentity");
+    expect(topbar).not.toContain("cloudApi.getMyExecutionPlacementIdentity");
   });
 });

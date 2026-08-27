@@ -142,6 +142,14 @@ export const cloudApi = {
     { expectedSubject: string; identityRevision: number },
     boolean
   >("cloud_apps:confirmMySessionIdentity"),
+  getMyCloudConversationIdentity: makeFunctionReference<
+    "query",
+    Record<string, never>,
+    {
+      ownerId: string;
+      ownerGeneration: string;
+    }
+  >("cloud_apps:getMyCloudConversationIdentity"),
   getMyOwnershipMigrationStatus: makeFunctionReference<
     "query",
     Record<string, never>,

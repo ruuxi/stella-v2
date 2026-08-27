@@ -17,6 +17,9 @@ const startCloudChatInternal = makeFunctionReference<"mutation">(
 const createMyConversation = makeFunctionReference<"mutation">(
   "cloud_apps:createMyConversation",
 );
+const getMyCloudConversationIdentity = makeFunctionReference<"query">(
+  "cloud_apps:getMyCloudConversationIdentity",
+);
 
 const createTest = () => {
   const t = convexTest(schema, modules);
@@ -31,6 +34,15 @@ const identity = (t: TestHarness, subject: string) =>
     issuer: "https://issuer.test",
     subject,
     tokenIdentifier: `https://issuer.test|${subject}`,
+    iat: 1_000,
+  });
+
+const anonymousIdentity = (t: TestHarness, subject: string) =>
+  t.withIdentity({
+    issuer: "https://issuer.test",
+    subject,
+    tokenIdentifier: `https://issuer.test|${subject}`,
+    isAnonymous: true,
     iat: 1_000,
   });
 
@@ -100,6 +112,28 @@ const scheduledForTurn = async (t: TestHarness, turnId: string) =>
   );
 
 describe("cloud chat reliable-delivery authority", () => {
+  it("publishes conversation lifecycle authority to anonymous onboarding owners", async () => {
+    const t = createTest();
+    const subject = "anonymous-conversation-owner";
+    const ownerId = ownerIdFor(subject);
+    await seedGeneration(t, ownerId, "generation-anonymous");
+
+    await expect(
+      anonymousIdentity(t, subject).query(getMyCloudConversationIdentity, {}),
+    ).resolves.toMatchObject({
+      ownerId,
+      ownerGeneration: "generation-anonymous",
+    });
+  });
+
+  it("rejects conversation lifecycle authority without a cloud session", async () => {
+    const t = createTest();
+
+    await expect(t.query(getMyCloudConversationIdentity, {})).rejects.toThrow(
+      /Authentication required/u,
+    );
+  });
+
   it("fences a delayed conversation create across an owner-generation reset", async () => {
     const t = createTest();
     const subject = "conversation-generation-owner";

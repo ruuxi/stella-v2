@@ -127,19 +127,24 @@ Trust Manager action. CI reconstructs the encrypted client-authentication P12
 only in the runner temp directory, installs the DigiCert KSP, synchronizes the
 approved certificate, and selects it by its configured SHA-1 certificate
 identifier. Electron Builder signs only with SHA-256 and uses DigiCert's RFC
-3161 timestamp service. Its normal executable signing covers the application,
-NSIS installer and uninstaller, NSIS helpers, and nested `.exe` resources; the
-additional `signExts` entry covers the Stella Browser helper even if an
-immutable manifest delivers it without an `.exe` suffix.
+3161 timestamp service. The signing policy covers the application, managed Bun,
+ripgrep, and uv command-line entry points, native helpers, Stella Browser, NSIS
+elevation helper, installer, and uninstaller. It deliberately preserves the
+upstream identity of the separately pinned Git, Node, and Python runtime trees
+instead of re-signing third-party binaries as FromYou. An unexpected signing
+candidate fails the build. The additional `signExts` entry covers the Stella
+Browser helper even if an immutable manifest delivers it without an `.exe`
+suffix.
 
 The Windows verification gate uses both `Get-AuthenticodeSignature` and
 Microsoft SignTool. It requires a valid chain, the exact configured certificate
 identifier and serial, the `FromYou, LLC` subject, and a DigiCert timestamp for
-the packaged application, every pinned native helper, Stella Browser, the final
-installer, and the uninstaller produced by a silent test install. It emits a
-redacted JSON verification report as a separate CI artifact. A manual workflow
-dispatch performs this full build and verification without publishing to R2 or
-creating a GitHub release.
+the packaged application, all three managed CLI entry points, every pinned
+native helper, Stella Browser, the NSIS elevation helper, the final installer,
+and the uninstaller produced by a silent test install. It emits a redacted JSON
+verification report as a separate CI artifact. A manual workflow dispatch
+performs this full build and verification without publishing to R2 or creating
+a GitHub release.
 
 ## Local updater verification
 

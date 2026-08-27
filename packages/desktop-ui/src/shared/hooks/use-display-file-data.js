@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useOptionalUiState } from "@/context/ui-state";
 const isDisplayFileApiAvailable = () => typeof window !== "undefined" &&
     typeof window.electronAPI?.display?.readFile === "function";
-const readDisplayFileRaw = async (filePath, unavailableMessage, conversationId) => {
+const readDisplayFileRaw = async (filePath, unavailableMessage, conversationId, maxBytes) => {
     if (!isDisplayFileApiAvailable()) {
         throw new Error(unavailableMessage ?? "File preview requires the Electron host runtime.");
     }
     return await window.electronAPI.display.readFile(filePath, {
         conversationId,
+        maxBytes,
     });
 };
 const cache = new Map();
@@ -18,8 +19,11 @@ const CACHE_GRACE_MS = 750;
  * overwritten in place — the canvas `html` tool rewrites `<slug>.html` on every
  * iteration — misses the previously-resolved entry and re-reads fresh bytes
  * from disk instead of serving the stale cached content.
+ *
+ * `maxBytes` is part of the key so a spreadsheet preview's 2MB prefix
+ * never collides with a full-file PDF/canvas read of the same path.
  */
-const displayFileCacheKey = (filePath, conversationId, version) => `${conversationId ?? ""}\0${filePath}\0${version ?? ""}`;
+const displayFileCacheKey = (filePath, conversationId, version, maxBytes) => `${conversationId ?? ""}\0${filePath}\0${version ?? ""}\0${maxBytes ?? ""}`;
 const blobFromBytes = (entry) => {
     if (entry.blob)
         return entry.blob;
@@ -57,11 +61,11 @@ const finalizeEvict = (filePath, entry) => {
     if (cache.get(filePath) === entry)
         cache.delete(filePath);
 };
-const acquire = (filePath, unavailableMessage, conversationId, version) => {
-    const cacheKey = displayFileCacheKey(filePath, conversationId, version);
+const acquire = (filePath, unavailableMessage, conversationId, version, maxBytes) => {
+    const cacheKey = displayFileCacheKey(filePath, conversationId, version, maxBytes);
     let entry = cache.get(cacheKey);
     if (!entry) {
-        const promise = readDisplayFileRaw(filePath, unavailableMessage, conversationId);
+        const promise = readDisplayFileRaw(filePath, unavailableMessage, conversationId, maxBytes);
         entry = {
             promise,
             resolved: null,
@@ -119,7 +123,7 @@ const release = (filePath, entry) => {
  * once the underlying IPC completes; subsequent callers piggyback on
  * the in-flight or already-resolved entry.
  */
-export function useDisplayFileBytes(filePath, unavailableMessage, conversationIdOverride, version) {
+export function useDisplayFileBytes(filePath, unavailableMessage, conversationIdOverride, version, maxBytes) {
     const uiState = useOptionalUiState();
     const conversationId = conversationIdOverride !== undefined
         ? conversationIdOverride
@@ -127,15 +131,17 @@ export function useDisplayFileBytes(filePath, unavailableMessage, conversationId
     const [bytes, setBytes] = useState(null);
     const [error, setError] = useState(null);
     const [missing, setMissing] = useState(false);
+    const [truncated, setTruncated] = useState(false);
     const [loading, setLoading] = useState(true);
     useEffect(() => {
         let cancelled = false;
         setLoading(true);
         setError(null);
         setMissing(false);
+        setTruncated(false);
         setBytes(null);
-        const cacheKey = displayFileCacheKey(filePath, conversationId, version);
-        const entry = acquire(filePath, unavailableMessage, conversationId, version);
+        const cacheKey = displayFileCacheKey(filePath, conversationId, version, maxBytes);
+        const entry = acquire(filePath, unavailableMessage, conversationId, version, maxBytes);
         void entry.promise
             .then((result) => {
             if (cancelled)
@@ -145,6 +151,7 @@ export function useDisplayFileBytes(filePath, unavailableMessage, conversationId
                 return;
             }
             setBytes(result.bytes);
+            setTruncated(result.truncated === true);
         })
             .catch((caught) => {
             if (cancelled)
@@ -159,8 +166,8 @@ export function useDisplayFileBytes(filePath, unavailableMessage, conversationId
             cancelled = true;
             release(cacheKey, entry);
         };
-    }, [conversationId, filePath, unavailableMessage, version]);
-    return { bytes, error, loading, missing };
+    }, [conversationId, filePath, maxBytes, unavailableMessage, version]);
+    return { bytes, error, loading, missing, truncated };
 }
 export function useDisplayFileBlobs(filePaths, unavailableMessage, conversationIdOverride) {
     const uiState = useOptionalUiState();

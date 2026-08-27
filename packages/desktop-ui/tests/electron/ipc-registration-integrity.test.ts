@@ -220,6 +220,32 @@ describe("Electron IPC registration integrity", () => {
     );
   });
 
+  it("gates previously ungated device and permission reads", async () => {
+    const assertPrivilegedSender = vi.fn(() => false);
+    const options = new Proxy(
+      {
+        getStellaAppDir: () => null,
+        getDeviceId: vi.fn(() => "device-1"),
+        externalLinkService: { assertPrivilegedSender },
+      },
+      {
+        get(target, property) {
+          if (property in target) return Reflect.get(target, property);
+          return vi.fn();
+        },
+      },
+    );
+    registerSystemHandlers(options);
+
+    const getId = ipc.handles.get("device:getId");
+    const getStatus = ipc.handles.get("permissions:getStatus");
+    expect(() => getId?.({})).toThrow("Blocked untrusted device:getId");
+    expect(() => getStatus?.({})).toThrow(
+      "Blocked untrusted permissions:getStatus",
+    );
+    expect(options.getDeviceId).not.toHaveBeenCalled();
+  });
+
   it("wires the connector credential service into system registration", () => {
     const bootstrap = readFileSync(
       path.join(repoRoot, "packages/desktop/electron/bootstrap/ipc.js"),
@@ -285,5 +311,18 @@ describe("Electron IPC registration integrity", () => {
     // The services object must expose it for ipc.js / host-runner.js /
     // resets.js consumers.
     expect(services).toMatch(/return \{[\s\S]*connectorCredentialService,/);
+  });
+
+  it("wires privileged sender checks into voice handler registration", () => {
+    const bootstrap = readFileSync(
+      path.join(repoRoot, "packages/desktop/electron/bootstrap/ipc.js"),
+      "utf8",
+    );
+    const voiceStart = bootstrap.indexOf("registerVoiceHandlers({");
+    const voiceEnd = bootstrap.indexOf("});", voiceStart);
+    expect(voiceStart).toBeGreaterThan(-1);
+    expect(bootstrap.slice(voiceStart, voiceEnd)).toContain(
+      "assertPrivilegedSender:",
+    );
   });
 });

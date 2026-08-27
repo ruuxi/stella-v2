@@ -44,6 +44,11 @@ const DEFAULT_RUNTIME_STATE = {
     outputLevel: 0,
 };
 export const registerVoiceHandlers = (options) => {
+    const requirePrivileged = (event, channel) => {
+        if (!options.assertPrivilegedSender(event, channel)) {
+            throw new Error(`Blocked untrusted ${channel} request.`);
+        }
+    };
     let currentVoiceRtcShortcut = "";
     let runtimeState = DEFAULT_RUNTIME_STATE;
     const nextTaskEventSeq = createMonotonicSeqGenerator();
@@ -154,7 +159,9 @@ export const registerVoiceHandlers = (options) => {
             target.webContents.send(IPC_VOICE_SESSION_ERROR, trimmed);
         }
     };
-    ipcMain.on(IPC_VOICE_REPORT_SESSION_ERROR, (_event, message) => {
+    ipcMain.on(IPC_VOICE_REPORT_SESSION_ERROR, (event, message) => {
+        if (!options.assertPrivilegedSender(event, IPC_VOICE_REPORT_SESSION_ERROR))
+            return;
         emitVoiceSessionErrorToast(message);
     });
     const toggleVoiceRtc = () => {
@@ -180,7 +187,8 @@ export const registerVoiceHandlers = (options) => {
     if (!initialVoiceRtcShortcut.ok) {
         console.warn("[voice]", initialVoiceRtcShortcut.error);
     }
-    ipcMain.handle("voice-rtc:setShortcut", (_event, shortcut) => {
+    ipcMain.handle("voice-rtc:setShortcut", (event, shortcut) => {
+        requirePrivileged(event, "voice-rtc:setShortcut");
         const result = applyShortcutRegistration({
             label: "Voice realtime",
             requestedShortcut: shortcut,
@@ -196,8 +204,12 @@ export const registerVoiceHandlers = (options) => {
         }
         return result;
     });
-    ipcMain.handle("voice-rtc:getShortcut", () => currentVoiceRtcShortcut);
-    ipcMain.handle("voice:getCoreMemory", async () => {
+    ipcMain.handle("voice-rtc:getShortcut", (event) => {
+        requirePrivileged(event, "voice-rtc:getShortcut");
+        return currentVoiceRtcShortcut;
+    });
+    ipcMain.handle("voice:getCoreMemory", async (event) => {
+        requirePrivileged(event, "voice:getCoreMemory");
         try {
             const content = await fs.readFile(path.join(options.stellaDataDirPath, "core-memory.md"), "utf-8");
             return redactMemoryText(content);
@@ -206,7 +218,8 @@ export const registerVoiceHandlers = (options) => {
             return null;
         }
     });
-    ipcMain.handle(IPC_VOICE_CREATE_OPENAI_SESSION, async (_event, payload) => {
+    ipcMain.handle(IPC_VOICE_CREATE_OPENAI_SESSION, async (event, payload) => {
+        requirePrivileged(event, IPC_VOICE_CREATE_OPENAI_SESSION);
         const preferences = getRealtimeVoicePreferences(options.stellaAppDir);
         if (preferences.provider !== "openai") {
             throw new Error("OpenAI is not selected for voice.");
@@ -269,7 +282,8 @@ export const registerVoiceHandlers = (options) => {
             sessionId: typeof data.session?.id === "string" ? data.session.id : undefined,
         };
     });
-    ipcMain.handle(IPC_VOICE_CREATE_XAI_SESSION, async (_event, _payload) => {
+    ipcMain.handle(IPC_VOICE_CREATE_XAI_SESSION, async (event, _payload) => {
+        requirePrivileged(event, IPC_VOICE_CREATE_XAI_SESSION);
         const preferences = getRealtimeVoicePreferences(options.stellaAppDir);
         if (preferences.provider !== "xai") {
             throw new Error("xAI is not selected for voice.");
@@ -324,7 +338,8 @@ export const registerVoiceHandlers = (options) => {
             expiresAt,
         };
     });
-    ipcMain.handle(IPC_VOICE_CREATE_INWORLD_SESSION, async (_event, _payload) => {
+    ipcMain.handle(IPC_VOICE_CREATE_INWORLD_SESSION, async (event, _payload) => {
+        requirePrivileged(event, IPC_VOICE_CREATE_INWORLD_SESSION);
         const preferences = getRealtimeVoicePreferences(options.stellaAppDir);
         if (preferences.provider !== "inworld") {
             throw new Error("Inworld is not selected for voice.");
@@ -354,7 +369,9 @@ export const registerVoiceHandlers = (options) => {
             iceServers,
         };
     });
-    ipcMain.on("voice:persistTranscript", (_event, payload) => {
+    ipcMain.on("voice:persistTranscript", (event, payload) => {
+        if (!options.assertPrivilegedSender(event, "voice:persistTranscript"))
+            return;
         console.log(`[${ts()}] [Voice RTC] ${payload.role.toUpperCase()}: ${payload.text}`);
         const stellaHostRunner = options.getStellaHostRunner();
         if (!stellaHostRunner) {
@@ -364,7 +381,8 @@ export const registerVoiceHandlers = (options) => {
             console.debug("[voice] transcript persistence failed (best-effort):", err.message);
         });
     });
-    ipcMain.handle("voice:orchestratorChat", async (_event, payload) => {
+    ipcMain.handle("voice:orchestratorChat", async (event, payload) => {
+        requirePrivileged(event, "voice:orchestratorChat");
         console.log(`[${ts()}] [Voice] orchestratorChat request:`, payload.message);
         if (!options.uiState.isVoiceRtcActive) {
             throw new Error("Voice mode is no longer active.");
@@ -403,7 +421,8 @@ export const registerVoiceHandlers = (options) => {
             },
         });
     });
-    ipcMain.handle(IPC_VOICE_ORCHESTRATOR_CONFIG, async (_event, payload) => {
+    ipcMain.handle(IPC_VOICE_ORCHESTRATOR_CONFIG, async (event, payload) => {
+        requirePrivileged(event, IPC_VOICE_ORCHESTRATOR_CONFIG);
         const stellaHostRunner = options.getStellaHostRunner();
         if (!stellaHostRunner) {
             throw new Error("Stella runtime not initialized");
@@ -434,24 +453,32 @@ export const registerVoiceHandlers = (options) => {
             throw error;
         }
     };
-    ipcMain.handle(IPC_VOICE_EXECUTE_TOOL, async (_event, payload) => {
+    ipcMain.handle(IPC_VOICE_EXECUTE_TOOL, async (event, payload) => {
+        requirePrivileged(event, IPC_VOICE_EXECUTE_TOOL);
         if (!options.uiState.isVoiceRtcActive) {
             throw new Error("Voice mode is no longer active.");
         }
         return await executeVoiceTool(payload);
     });
-    ipcMain.handle(IPC_VOICE_EXECUTE_MOBILE_TOOL, async (_event, payload) => {
+    ipcMain.handle(IPC_VOICE_EXECUTE_MOBILE_TOOL, async (event, payload) => {
+        requirePrivileged(event, IPC_VOICE_EXECUTE_MOBILE_TOOL);
         return await executeVoiceTool(payload);
     });
-    ipcMain.handle("voice:webSearch", async (_event, payload) => {
+    ipcMain.handle("voice:webSearch", async (event, payload) => {
+        requirePrivileged(event, "voice:webSearch");
         const stellaHostRunner = options.getStellaHostRunner();
         if (!stellaHostRunner) {
             return { text: "Stella runtime not initialized.", results: [] };
         }
         return await stellaHostRunner.voiceWebSearch(payload);
     });
-    ipcMain.handle("voice:getRuntimeState", () => runtimeState);
-    ipcMain.on("voice:runtimeState", (_event, nextState) => {
+    ipcMain.handle("voice:getRuntimeState", (event) => {
+        requirePrivileged(event, "voice:getRuntimeState");
+        return runtimeState;
+    });
+    ipcMain.on("voice:runtimeState", (event, nextState) => {
+        if (!options.assertPrivilegedSender(event, "voice:runtimeState"))
+            return;
         runtimeState = {
             sessionState: nextState?.sessionState ?? "idle",
             isConnected: Boolean(nextState?.isConnected),

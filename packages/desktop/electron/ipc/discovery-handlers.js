@@ -24,7 +24,13 @@ const collectWithRunnerEnvelope = async (options, event, channel, action) => {
     }
 };
 export const registerDiscoveryHandlers = (options) => {
-    ipcMain.handle(IPC_DISCOVERY_CORE_MEMORY_EXISTS, async () => {
+    const requirePrivileged = (event, channel) => {
+        if (!options.assertPrivilegedSender(event, channel)) {
+            throw new Error("Blocked untrusted request.");
+        }
+    };
+    ipcMain.handle(IPC_DISCOVERY_CORE_MEMORY_EXISTS, async (event) => {
+        requirePrivileged(event, IPC_DISCOVERY_CORE_MEMORY_EXISTS);
         const runner = options.getStellaHostRunner();
         if (!runner)
             return false;
@@ -35,7 +41,8 @@ export const registerDiscoveryHandlers = (options) => {
             return false;
         }
     });
-    ipcMain.handle(IPC_DISCOVERY_KNOWLEDGE_EXISTS, async () => {
+    ipcMain.handle(IPC_DISCOVERY_KNOWLEDGE_EXISTS, async (event) => {
+        requirePrivileged(event, IPC_DISCOVERY_KNOWLEDGE_EXISTS);
         const runner = options.getStellaHostRunner();
         if (!runner)
             return false;
@@ -81,7 +88,8 @@ export const registerDiscoveryHandlers = (options) => {
             return { ok: false, error: error.message };
         }
     });
-    ipcMain.handle(IPC_DISCOVERY_DETECT_PREFERRED_BROWSER, async () => {
+    ipcMain.handle(IPC_DISCOVERY_DETECT_PREFERRED_BROWSER, async (event) => {
+        requirePrivileged(event, IPC_DISCOVERY_DETECT_PREFERRED_BROWSER);
         try {
             const runner = await waitForDiscoveryRunner(options);
             return await runner.detectPreferredBrowserProfile();
@@ -90,7 +98,8 @@ export const registerDiscoveryHandlers = (options) => {
             return null;
         }
     });
-    ipcMain.handle(IPC_DISCOVERY_LIST_BROWSER_PROFILES, async (_event, browserType) => {
+    ipcMain.handle(IPC_DISCOVERY_LIST_BROWSER_PROFILES, async (event, browserType) => {
+        requirePrivileged(event, IPC_DISCOVERY_LIST_BROWSER_PROFILES);
         try {
             const runner = await waitForDiscoveryRunner(options);
             return await runner.listBrowserProfiles(browserType);

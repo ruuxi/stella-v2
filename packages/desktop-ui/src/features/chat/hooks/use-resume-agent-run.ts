@@ -34,6 +34,7 @@ export const shouldRetainResumedStreamingState = (args: {
 
 interface ResumeRefs {
   resumeSeqByConversationRef: MutableRefObject<Map<string, number>>;
+  resumeSourceSeqByConversationRef: MutableRefObject<Map<string, number>>;
 }
 
 interface ResumeActions {
@@ -67,7 +68,7 @@ export function useResumeAgentRun({
   refs,
   actions,
 }: UseResumeAgentRunOptions) {
-  const { resumeSeqByConversationRef } = refs;
+  const { resumeSeqByConversationRef, resumeSourceSeqByConversationRef } = refs;
   const {
     ensureAgentStreamSubscription,
     applyResumeSnapshot,
@@ -103,9 +104,13 @@ export function useResumeAgentRun({
         // a per-run cursor.
         const lastSeq =
           resumeSeqByConversationRef.current.get(activeConversationId) ?? 0;
+        const lastSourceSeq =
+          resumeSourceSeqByConversationRef.current.get(activeConversationId) ??
+          0;
         const replay = await window.electronAPI!.agent.resumeConversationExecution({
           conversationId: activeConversationId,
           lastSeq,
+          lastSourceSeq,
         });
         if (cancelled) return;
 
@@ -166,5 +171,6 @@ export function useResumeAgentRun({
     ensureAgentStreamSubscription,
     handleAgentEvent,
     resumeSeqByConversationRef,
+    resumeSourceSeqByConversationRef,
   ]);
 }

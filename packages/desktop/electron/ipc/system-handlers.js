@@ -475,7 +475,12 @@ export const registerSystemHandlers = (options) => {
     if (stellaAppDir) {
         cleanupRetiredLocalLlmOAuthCredentials(stellaAppDir);
     }
-    ipcMain.handle("device:getId", () => options.getDeviceId());
+    ipcMain.handle("device:getId", (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, "device:getId")) {
+            throw new Error("Blocked untrusted device:getId request.");
+        }
+        return options.getDeviceId();
+    });
     ipcMain.handle(IPC_APP_QUIT_FOR_RESTART, (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_APP_QUIT_FOR_RESTART)) {
             throw new Error("Blocked untrusted app:quitForRestart request.");
@@ -606,7 +611,10 @@ export const registerSystemHandlers = (options) => {
     // `useEffect`s flush, so the renderer-side `auth:callback` listener was
     // racy. The renderer now pulls explicitly from `AuthDeepLinkHandler` once
     // its subscription is live.
-    ipcMain.handle(IPC_AUTH_CONSUME_PENDING_CALLBACK, () => {
+    ipcMain.handle(IPC_AUTH_CONSUME_PENDING_CALLBACK, (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_AUTH_CONSUME_PENDING_CALLBACK)) {
+            throw new Error("Blocked untrusted auth:consumePendingCallback request.");
+        }
         return options.authService.consumePendingAuthCallback();
     });
     ipcMain.handle(IPC_AUTH_RUNTIME_REFRESH_COMPLETE, (event, payload) => {
@@ -1527,7 +1535,10 @@ export const registerSystemHandlers = (options) => {
         return result;
     });
     let lastAccessibilityStatus = false;
-    ipcMain.handle(IPC_PERMISSIONS_GET_STATUS, () => {
+    ipcMain.handle(IPC_PERMISSIONS_GET_STATUS, (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PERMISSIONS_GET_STATUS)) {
+            throw new Error("Blocked untrusted permissions:getStatus request.");
+        }
         const microphoneStatus = getMicrophonePermissionStatus();
         const microphoneGranted = microphoneStatus === "granted";
         if (process.platform !== "darwin") {

@@ -23,6 +23,7 @@ import {
   AGENT_IDS,
   AGENT_RUN_FINISH_OUTCOMES,
   AGENT_STREAM_EVENT_TYPES,
+  nextAgentRecorderSeqCursor,
 } from "@stella/contracts/agent-runtime"
 import type { StreamStoreAction } from './store'
 import {
@@ -58,6 +59,7 @@ type UseAgentEventHandlerOptions = {
     terminalRunIdsRef: MutableRefObject<Set<string>>
     pendingRequestIdsRef: MutableRefObject<Set<string>>
     resumeSeqByConversationRef: MutableRefObject<Map<string, number>>
+    resumeSourceSeqByConversationRef: MutableRefObject<Map<string, number>>
     seenSourceEventKeysRef: MutableRefObject<Set<string>>
   }
   streaming: {
@@ -167,6 +169,7 @@ export function useAgentEventHandler({
     activeRunIdByConversationRef,
     lastSeqByConversationRef,
     resumeSeqByConversationRef,
+    resumeSourceSeqByConversationRef,
     seenSourceEventKeysRef,
     terminalRunIdsRef,
     pendingRequestIdsRef,
@@ -201,6 +204,15 @@ export function useAgentEventHandler({
           resumeSeqByConversationRef.current.get(conversationId) ?? 0
         if (seq > previousResumeSeq) {
           resumeSeqByConversationRef.current.set(conversationId, seq)
+        }
+        const previousSourceSeq =
+          resumeSourceSeqByConversationRef.current.get(conversationId) ?? 0
+        const nextSourceSeq = nextAgentRecorderSeqCursor(previousSourceSeq, event)
+        if (nextSourceSeq > previousSourceSeq) {
+          resumeSourceSeqByConversationRef.current.set(
+            conversationId,
+            nextSourceSeq,
+          )
         }
       }
       if (
@@ -590,6 +602,7 @@ export function useAgentEventHandler({
       pendingRequestIdsRef,
       queueAgentReasoningChunk,
       resumeSeqByConversationRef,
+      resumeSourceSeqByConversationRef,
       seenSourceEventKeysRef,
       setPendingUserMessageId,
       terminalRunIdsRef,

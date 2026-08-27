@@ -36,6 +36,7 @@ function Probe({ api }: { api: ProbeApi }) {
       activeRunIdByConversationRef,
       lastSeqByConversationRef: { current: new Map() },
       resumeSeqByConversationRef: { current: new Map() },
+      resumeSourceSeqByConversationRef: { current: new Map() },
       seenSourceEventKeysRef: { current: new Set() },
       terminalRunIdsRef,
       pendingRequestIdsRef: { current: new Set() },

@@ -569,7 +569,14 @@ export const registerDictationHandlers = (options) => {
     if (!initial.ok) {
         console.warn("[dictation]", initial.error);
     }
-    ipcMain.handle("dictation:setShortcut", (_event, shortcut) => {
+    const requirePrivileged = (event, channel) => {
+        if (!options.assertPrivilegedSender(event, channel)) {
+            throw new Error(`Blocked untrusted ${channel} request.`);
+        }
+    };
+    const requirePrivilegedSender = (event, channel) => options.assertPrivilegedSender(event, channel);
+    ipcMain.handle("dictation:setShortcut", (event, shortcut) => {
+        requirePrivileged(event, "dictation:setShortcut");
         const result = applyDictationShortcutRegistration(shortcut);
         if (!result.ok) {
             console.warn("[dictation]", result.error);
@@ -579,9 +586,16 @@ export const registerDictationHandlers = (options) => {
         }
         return result;
     });
-    ipcMain.handle("dictation:getShortcut", () => currentShortcut);
-    ipcMain.handle("dictation:getSoundEffectsEnabled", () => areDictationSoundsEnabled());
-    ipcMain.handle("dictation:setSoundEffectsEnabled", (_event, enabled) => {
+    ipcMain.handle("dictation:getShortcut", (event) => {
+        requirePrivileged(event, "dictation:getShortcut");
+        return currentShortcut;
+    });
+    ipcMain.handle("dictation:getSoundEffectsEnabled", (event) => {
+        requirePrivileged(event, "dictation:getSoundEffectsEnabled");
+        return areDictationSoundsEnabled();
+    });
+    ipcMain.handle("dictation:setSoundEffectsEnabled", (event, enabled) => {
+        requirePrivileged(event, "dictation:setSoundEffectsEnabled");
         const nextEnabled = enabled === true;
         const stellaDataDir = options.getStellaDataDir();
         if (stellaDataDir) {
@@ -591,25 +605,32 @@ export const registerDictationHandlers = (options) => {
         }
         return { enabled: nextEnabled };
     });
-    ipcMain.handle("dictation:warmLocal", () => warmLocalParakeet());
-    ipcMain.handle("dictation:localStatus", () => getLocalParakeetStatus());
+    ipcMain.handle("dictation:warmLocal", (event) => {
+        requirePrivileged(event, "dictation:warmLocal");
+        return warmLocalParakeet();
+    });
+    ipcMain.handle("dictation:localStatus", (event) => {
+        requirePrivileged(event, "dictation:localStatus");
+        return getLocalParakeetStatus();
+    });
     const downloadLocalDictation = createLocalDictationDownloader({
         downloadModel: downloadLocalParakeet,
     });
     ipcMain.handle("dictation:downloadLocalModel", (event) => {
-        if (!options.assertPrivilegedSender(event, "dictation:downloadLocalModel")) {
-            throw new Error("Blocked untrusted local dictation download request.");
-        }
+        requirePrivileged(event, "dictation:downloadLocalModel");
         return downloadLocalDictation();
     });
-    ipcMain.handle("dictation:transcribeLocal", async (_event, payload) => {
+    ipcMain.handle("dictation:transcribeLocal", async (event, payload) => {
+        requirePrivileged(event, "dictation:transcribeLocal");
         const audioBase64 = payload?.audioBase64;
         if (!audioBase64) {
             throw new Error("Missing dictation audio.");
         }
         return transcribeWithLocalParakeet(audioBase64);
     });
-    ipcMain.on("dictation:inAppStarted", (_event, payload) => {
+    ipcMain.on("dictation:inAppStarted", (event, payload) => {
+        if (!requirePrivilegedSender(event, "dictation:inAppStarted"))
+            return;
         if (!payload?.startId)
             return;
         if (pendingInAppStartId === payload.startId) {
@@ -618,9 +639,13 @@ export const registerDictationHandlers = (options) => {
         setDictationSourceActive(`in-app:${payload.startId}`, false);
     });
     ipcMain.on("dictation:activeChanged", (event, payload) => {
+        if (!requirePrivilegedSender(event, "dictation:activeChanged"))
+            return;
         setDictationSourceActive(`renderer:${event.sender.id}`, payload?.active === true);
     });
-    ipcMain.on("dictation:playSound", (_event, payload) => {
+    ipcMain.on("dictation:playSound", (event, payload) => {
+        if (!requirePrivilegedSender(event, "dictation:playSound"))
+            return;
         if (payload?.sound !== "startRecording" &&
             payload?.sound !== "stopRecording" &&
             payload?.sound !== "cancel") {
@@ -628,7 +653,9 @@ export const registerDictationHandlers = (options) => {
         }
         playEnabledDictationSound(payload.sound);
     });
-    ipcMain.on("dictation:overlayCompleted", (_event, payload) => {
+    ipcMain.on("dictation:overlayCompleted", (event, payload) => {
+        if (!requirePrivilegedSender(event, "dictation:overlayCompleted"))
+            return;
         if (payload.sessionId !== activeOverlaySessionId)
             return;
         const route = activeOverlayRoute;
@@ -650,7 +677,9 @@ export const registerDictationHandlers = (options) => {
             console.warn("[dictation] OS-wide paste failed:", error);
         });
     });
-    ipcMain.on("dictation:overlayFailed", (_event, payload) => {
+    ipcMain.on("dictation:overlayFailed", (event, payload) => {
+        if (!requirePrivilegedSender(event, "dictation:overlayFailed"))
+            return;
         if (payload.sessionId !== activeOverlaySessionId)
             return;
         hideOverlaySession(payload.sessionId);

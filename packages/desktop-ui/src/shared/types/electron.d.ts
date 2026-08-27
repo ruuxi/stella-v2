@@ -555,6 +555,7 @@ export type ElectronAgentApi = {
   resumeConversationExecution: (payload: {
     conversationId: string;
     lastSeq: number;
+    lastSourceSeq?: number;
   }) => Promise<{
     activeRun: {
       runId: string;
@@ -1639,12 +1640,13 @@ export type ElectronDisplayApi = {
    */
   readFile: (
     filePath: string,
-    options?: { conversationId?: string | null },
+    options?: { conversationId?: string | null; maxBytes?: number },
   ) => Promise<
     | {
         bytes: Uint8Array;
         sizeBytes: number;
         mimeType: string;
+        truncated: boolean;
         missing: false;
       }
     | { missing: true; mimeType: string; path: string }

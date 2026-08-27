@@ -308,16 +308,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onUpdate: onIpc<string | unknown>("display:update"),
     readFile: (
       filePath: string,
-      options?: { conversationId?: string | null },
+      options?: { conversationId?: string | null; maxBytes?: number },
     ) =>
       ipcRenderer.invoke("display:readFile", {
         filePath,
         conversationId: options?.conversationId,
+        maxBytes: options?.maxBytes,
       }) as Promise<
         | {
             bytes: Uint8Array;
             sizeBytes: number;
             mimeType: string;
+            truncated: boolean;
             missing: false;
           }
         | { missing: true; mimeType: string; path: string }
@@ -820,6 +822,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     resumeConversationExecution: (payload: {
       conversationId: string;
       lastSeq: number;
+      lastSourceSeq?: number;
     }) =>
       ipcRenderer.invoke("agent:resume", payload) as Promise<{
         activeRun: {

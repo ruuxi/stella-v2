@@ -1,4 +1,4 @@
-import { AGENT_STREAM_EVENT_TYPES, isTaskLifecycleEventType, isTaskLifecycleTerminalType, } from "@stella/contracts/agent-runtime";
+import { AGENT_STREAM_EVENT_TYPES, isTaskLifecycleEventType, isTaskLifecycleTerminalType, AGENT_RECORDER_SEQ_CEILING, } from "@stella/contracts/agent-runtime";
 import { StellaRuntimeHost, } from "@stella/runtime/host";
 import { createRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
 import { readConfiguredStellaSiteUrl } from "@stella/contracts/convex-urls";
@@ -10,7 +10,7 @@ const isRunTerminalEvent = (type) => type === AGENT_STREAM_EVENT_TYPES.RUN_FINIS
  * chunk in the same run is dropped — post-tool / hidden replies stop
  * streaming live and pop in only once persisted.
  */
-const SYNTHETIC_RUN_EVENT_SEQ_FLOOR = 1e10;
+const SYNTHETIC_RUN_EVENT_SEQ_FLOOR = AGENT_RECORDER_SEQ_CEILING;
 const isTaskScopedEvent = (type) => type === AGENT_STREAM_EVENT_TYPES.AGENT_REASONING ||
     isTaskLifecycleEventType(type);
 const LOCAL_CHAT_SESSION_IDLE_CLEANUP_MS = 30_000;

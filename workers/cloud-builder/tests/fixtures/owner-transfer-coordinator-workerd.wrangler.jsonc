@@ -1,0 +1,37 @@
+{
+  "name": "stella-owner-transfer-coordinator-workerd-acceptance",
+  "main": "./owner-transfer-coordinator-workerd-worker.ts",
+  "compatibility_date": "2026-07-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BUILD_SESSIONS",
+        "class_name": "FakeOwnerFence",
+      },
+      {
+        "name": "OWNER_TRANSFER_COORDINATORS",
+        "class_name": "TestOwnerTransferCoordinator",
+      },
+      {
+        "name": "REAL_BUILD_SESSIONS",
+        "class_name": "BuildSession",
+      },
+      {
+        "name": "REAL_OWNER_TRANSFER_COORDINATORS",
+        "class_name": "RealFenceOwnerTransferCoordinator",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "FakeOwnerFence",
+        "TestOwnerTransferCoordinator",
+        "BuildSession",
+        "RealFenceOwnerTransferCoordinator",
+      ],
+    },
+  ],
+}

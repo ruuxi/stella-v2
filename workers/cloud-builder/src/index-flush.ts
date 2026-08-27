@@ -44,24 +44,37 @@ export const REINDEX_MAX_BATCHES = 200;
 export const REINDEX_BUDGET_MS = 45_000;
 
 type IndexVerdict = {
-  accepted?: boolean;
-  excerptsAccepted?: boolean;
+  accepted: boolean;
+  excerptsAccepted: boolean;
   reason?: string;
-  lastSeq?: number;
-  epoch?: number;
+  lastSeq: number;
+  epoch: number;
 };
 
 /**
- * An unreadable body is not a refusal. Treating it as one would strand the
- * excerpts of a deployment whose reply shape drifted, so an undecodable 2xx
- * degrades to the old "it stored" assumption.
+ * A 2xx is delivery, not acceptance. Only the complete, typed Convex verdict
+ * may advance either local projection cursor; HTML from a proxy, an empty
+ * response, or a drifted deployment must fail closed and remain retryable.
  */
-const readVerdict = async (response: Response): Promise<IndexVerdict> => {
+const readVerdict = async (
+  response: Response,
+): Promise<IndexVerdict | null> => {
   try {
-    const payload = (await response.json()) as IndexVerdict;
-    return payload && typeof payload === "object" ? payload : {};
+    const payload = (await response.json()) as Partial<IndexVerdict> | null;
+    if (
+      !payload ||
+      typeof payload !== "object" ||
+      typeof payload.accepted !== "boolean" ||
+      typeof payload.excerptsAccepted !== "boolean" ||
+      !Number.isSafeInteger(payload.lastSeq) ||
+      !Number.isSafeInteger(payload.epoch) ||
+      (payload.reason !== undefined && typeof payload.reason !== "string")
+    ) {
+      return null;
+    }
+    return payload as IndexVerdict;
   } catch {
-    return {};
+    return null;
   }
 };
 
@@ -120,7 +133,11 @@ export class ConversationIndex {
   constructor(
     private readonly journal: Journal,
     private readonly log: ConversationLogger,
-    private readonly resolveEndpoint: () => { base: string; secret: string } | null,
+    private readonly resolveEndpoint: () => {
+      base: string;
+      secret: string;
+      ownerGeneration: string;
+    } | null,
     private readonly fence: IndexDeletionFence,
   ) {}
 
@@ -201,6 +218,7 @@ export class ConversationIndex {
         {
           conversationId: meta.conversation_id,
           ownerId: meta.owner_id,
+          ownerGeneration: endpoint.ownerGeneration,
           epoch: meta.epoch,
           lastSeq,
           updatedAt: options.updatedAt,
@@ -220,6 +238,7 @@ export class ConversationIndex {
         },
         excerpts,
         lastSeq,
+        meta.epoch,
       );
       if (batch === 0) accepted = outcome.accepted;
       // A refusal that did not store the excerpts (unknown row, owner
@@ -245,6 +264,7 @@ export class ConversationIndex {
     body: unknown,
     excerpts: Array<{ turn_id: string }>,
     lastSeq: number,
+    epoch: number,
   ): Promise<BatchOutcome> {
     for (let attempt = 1; attempt <= FLUSH_ATTEMPTS; attempt += 1) {
       // The retry is the window. Attempt 1 can leave here with the
@@ -272,6 +292,23 @@ export class ConversationIndex {
           // a 4xx would make a stale fence indistinguishable from a contract
           // bug. Read the verdict rather than assuming 2xx meant "stored".
           const verdict = await readVerdict(response);
+          if (!verdict) {
+            if (attempt === FLUSH_ATTEMPTS) {
+              this.log("error", "conversation_index_invalid_verdict", {
+                lastSeq,
+                excerpts: excerpts.length,
+              });
+            }
+            // Stay on the retry ladder. In particular, do not stamp
+            // `index_synced_seq` or clear excerpt sync bits merely because an
+            // intermediary returned 200.
+            if (attempt < FLUSH_ATTEMPTS) {
+              await new Promise((resolve) =>
+                setTimeout(resolve, 250 * attempt),
+              );
+            }
+            continue;
+          }
           // Convex refuses a flush for a conversation id it has fenced as
           // purged. That is not a stale write to converge on — it is proof
           // this object is dead, and the isolate that is asking may never have
@@ -290,20 +327,30 @@ export class ConversationIndex {
               excerptsAccepted: false,
             };
           }
+          // A rewind can commit while this request is in flight. Convex fences
+          // the old epoch, but the local cursor needs the same fence: letting
+          // this old response stamp `index_synced_seq` above the new, shorter
+          // head would make the first message on the new branch look synced
+          // and suppress its projection indefinitely.
+          if (this.journal.meta().epoch !== epoch) {
+            return {
+              delivered: true,
+              accepted: false,
+              excerptsAccepted: false,
+            };
+          }
           // The fence may have rejected this flush as stale, in which case the
           // row is already ahead of us and `index_synced_seq` is honest as a
           // floor. It only ever gates whether we bother trying again, so the
           // row's own `lastSeq` is the better floor when it is ahead.
           this.journal.setIndexSyncedSeq(
-            verdict.lastSeq !== undefined && verdict.lastSeq > lastSeq
-              ? verdict.lastSeq
-              : lastSeq,
+            verdict.lastSeq > lastSeq ? verdict.lastSeq : lastSeq,
           );
           // Only clear `synced` when Convex says it wrote them. A refusal that
           // still landed the excerpts reports `excerptsAccepted: true`; one that
           // did not (unknown row, owner mismatch, tombstone) reports false, and
           // marking those synced would drop them from Recall permanently.
-          const excerptsAccepted = verdict.excerptsAccepted !== false;
+          const excerptsAccepted = verdict.excerptsAccepted;
           if (excerptsAccepted) {
             this.journal.markExcerptsSynced(excerpts.map((row) => row.turn_id));
           } else if (excerpts.length > 0) {
@@ -314,7 +361,7 @@ export class ConversationIndex {
           }
           return {
             delivered: true,
-            accepted: verdict.accepted !== false,
+            accepted: verdict.accepted,
             excerptsAccepted,
           };
         }

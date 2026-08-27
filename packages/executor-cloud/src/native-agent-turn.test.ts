@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -8,14 +8,95 @@ import { createClaudeCodeToolMcpHost } from "@stella/runtime/kernel/integrations
 import {
   buildCloudClaudeTakeoverArgs,
   buildClaudeChildEnv,
+  assertNativeHistoryParity,
+  buildStatelessCodexExecArgs,
+  buildStatelessCodexPrompt,
   createCloudClaudeMcpConfig,
+  nativeHistoryCursorFromRows,
   resolveClaudeModelArgs,
   resolveClaudeReasoningArgs,
   resolveCodexReasoningEffort,
   runNativeAgentTurn,
 } from "./native-agent-turn.js";
+import { sealNativeState } from "./native-state-integrity.js";
 
 describe("native engine reasoning selection", () => {
+  it("fails closed when a restored native session is absent or behind canonical history", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "stella-native-parity-"));
+    const row = {
+      turnId: "turn-1",
+      role: "assistant",
+      payloadJson: '{"role":"assistant","content":"done"}',
+    };
+    const cursor = nativeHistoryCursorFromRows([row]);
+    const integrityKey = "a".repeat(64);
+    const expectedOwner = {
+      uid: process.getuid?.() ?? 0,
+      gid: process.getgid?.() ?? 0,
+    };
+    const parityArgs = {
+      stateRoot: root,
+      engine: "anthropic" as const,
+      threadId: "thread-1",
+      integrityKey,
+      expectedOwner,
+    };
+    try {
+      await expect(
+        assertNativeHistoryParity({
+          ...parityArgs,
+          expectedCursor: nativeHistoryCursorFromRows([]),
+        }),
+      ).resolves.toBeUndefined();
+      await expect(
+        assertNativeHistoryParity({
+          ...parityArgs,
+          expectedCursor: cursor,
+        }),
+      ).rejects.toThrow("does not match");
+      await writeFile(path.join(root, "session-started"), "session-1\n");
+      await writeFile(
+        path.join(root, "native-session.jsonl"),
+        '{"role":"assistant","content":"durable"}\n',
+      );
+      await sealNativeState({
+        stateRoot: root,
+        engine: "anthropic",
+        threadId: "thread-1",
+        sessionId: "session-1",
+        cursor,
+        integrityKey,
+        expectedOwner,
+      });
+      await expect(
+        assertNativeHistoryParity({
+          ...parityArgs,
+          expectedCursor: cursor,
+        }),
+      ).resolves.toBeUndefined();
+      await writeFile(
+        path.join(root, "native-session.jsonl"),
+        '{"role":"assistant","content":"attacker rewrite"}\n',
+      );
+      await expect(
+        assertNativeHistoryParity({
+          ...parityArgs,
+          expectedCursor: cursor,
+        }),
+      ).rejects.toThrow("state bytes have changed");
+      await expect(
+        assertNativeHistoryParity({
+          ...parityArgs,
+          expectedCursor: nativeHistoryCursorFromRows([
+            { ...row, turnId: "turn-2" },
+          ]),
+        }),
+      ).rejects.toThrow("does not match");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("preserves each CLI's own default", () => {
     expect(resolveClaudeModelArgs("default")).toEqual([]);
     expect(resolveClaudeModelArgs("claude-sonnet-4-6")).toEqual([
@@ -58,6 +139,52 @@ describe("native engine reasoning selection", () => {
     }
   });
 
+  it("reconstructs Codex from canonical history without a resume argument", () => {
+    const inputPrompt = buildStatelessCodexPrompt({
+      history: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Remember 41." }],
+          timestamp: 1,
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "I will." }],
+          api: "openai-responses",
+          provider: "openai",
+          model: "gpt-5.4",
+          usage: {
+            input: 1,
+            output: 1,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 2,
+            cost: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              total: 0,
+            },
+          },
+          stopReason: "stop",
+          timestamp: 2,
+        },
+      ],
+      prompt: "Add one.",
+    });
+    expect(inputPrompt).toContain("Remember 41.");
+    expect(inputPrompt).toContain("Add one.");
+    const args = buildStatelessCodexExecArgs({
+      model: "gpt-5.4",
+      workspaceRoot: "/workspace/drive",
+      inputPrompt,
+    });
+    expect(args.slice(0, 2)).toEqual(["exec", "--json"]);
+    expect(args).not.toContain("resume");
+    expect(args.slice(-3)).toEqual(["--cd", "/workspace/drive", inputPrompt]);
+  });
+
   it("does not pass executor token variable names into Claude", () => {
     const env = buildClaudeChildEnv({
       initialEnv: {
@@ -67,7 +194,7 @@ describe("native engine reasoning selection", () => {
       },
       callbackBase: "https://example.convex.site",
       stateRoot: "/workspace/drive/.stella/claude",
-      turnToken: "scoped-turn-token",
+      relayToken: "loopback-relay-sentinel",
       reasoningEffort: "none",
     });
     expect(env.STELLA_TURN_TOKEN).toBeUndefined();
@@ -175,7 +302,7 @@ describe("native engine reasoning selection", () => {
           reasoningEffort: "high",
         },
         callbackBase: "https://example.convex.site",
-        turnToken: "scoped-turn-token",
+        relayToken: "loopback-relay-sentinel",
         workspace: {
           workspace: "project:missing",
           kind: "project",
@@ -183,6 +310,10 @@ describe("native engine reasoning selection", () => {
           root: "/definitely/not/a/workspace",
         },
         threadId: "thread",
+        turnId: "turn",
+        history: [],
+        authoritativeHistoryCursor: nativeHistoryCursorFromRows([]),
+        stateIntegrityKey: "b".repeat(64),
         emitEvent: () => undefined,
       }),
     ).rejects.toThrow("Stella's Claude tool bridge is unavailable.");

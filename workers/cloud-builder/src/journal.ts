@@ -176,6 +176,37 @@ const DDL = [
      epoch       INTEGER NOT NULL,
      created_at  INTEGER NOT NULL
    )`,
+  `CREATE TABLE IF NOT EXISTS retired_writers (
+     writer_key TEXT PRIMARY KEY,
+     epoch      INTEGER NOT NULL,
+     retired_at INTEGER NOT NULL
+   )`,
+  `CREATE TABLE IF NOT EXISTS retired_turns (
+     turn_id    TEXT PRIMARY KEY,
+     epoch      INTEGER NOT NULL,
+     retired_at INTEGER NOT NULL
+   )`,
+  `CREATE TABLE IF NOT EXISTS conversation_edit_receipts (
+     operation_id TEXT PRIMARY KEY,
+     kind         TEXT NOT NULL,
+     result_json  TEXT NOT NULL,
+     created_at   INTEGER NOT NULL
+   )`,
+  // A single fixed-shape, dev-acceptance-only context fault. The caller never
+  // supplies SQL or replacement content: the original resident row and the
+  // fixed malformed sentinel move together in one SQLite transaction, and a
+  // bounded observation count restores the exact bytes automatically.
+  `CREATE TABLE IF NOT EXISTS acceptance_context_fault (
+     id                      INTEGER PRIMARY KEY CHECK (id = 0),
+     run_id_sha256           TEXT    NOT NULL,
+     seq                     INTEGER NOT NULL,
+     original_payload_json   TEXT    NOT NULL,
+     original_payload_sha256 TEXT    NOT NULL,
+     corrupt_payload_sha256  TEXT    NOT NULL,
+     observed_failures       INTEGER NOT NULL DEFAULT 0,
+     repair_after_failures   INTEGER NOT NULL,
+     created_at              INTEGER NOT NULL
+   )`,
 ];
 
 /**
@@ -214,6 +245,37 @@ const MIGRATIONS: Array<{ to: number; statements: string[] }> = [
          last_seq INTEGER NOT NULL,
          epoch INTEGER NOT NULL,
          created_at INTEGER NOT NULL
+       )`,
+    ],
+  },
+  {
+    to: 5,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS retired_writers (
+         writer_key TEXT PRIMARY KEY,
+         epoch INTEGER NOT NULL,
+         retired_at INTEGER NOT NULL
+       )`,
+    ],
+  },
+  {
+    to: 6,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS conversation_edit_receipts (
+         operation_id TEXT PRIMARY KEY,
+         kind TEXT NOT NULL,
+         result_json TEXT NOT NULL,
+         created_at INTEGER NOT NULL
+       )`,
+    ],
+  },
+  {
+    to: 7,
+    statements: [
+      `CREATE TABLE IF NOT EXISTS retired_turns (
+         turn_id TEXT PRIMARY KEY,
+         epoch INTEGER NOT NULL,
+         retired_at INTEGER NOT NULL
        )`,
     ],
   },
@@ -364,6 +426,38 @@ export type WindowSelection = {
     toolCallId: string | null;
   }>;
 };
+
+export type AcceptanceContextFault = {
+  run_id_sha256: string;
+  seq: number;
+  original_payload_json: string;
+  original_payload_sha256: string;
+  corrupt_payload_sha256: string;
+  observed_failures: number;
+  repair_after_failures: number;
+  created_at: number;
+};
+
+/** Fixed invalid JSON. No caller-controlled bytes ever enter the mutation. */
+export const ACCEPTANCE_CONTEXT_CORRUPT_PAYLOAD =
+  '{"stellaAcceptanceContextFault":';
+
+/**
+ * A resident canonical row selected for model context could not be decoded.
+ *
+ * The sequence number is the repair locator. Deliberately omit the raw
+ * payload (and the JSON parser's message) so logs can identify the damaged
+ * row without copying conversation content out of the journal.
+ */
+export class JournalContextIntegrityError extends Error {
+  readonly code = "CLOUD_CONTEXT_UNAVAILABLE";
+  readonly component = "canonical_history";
+
+  constructor(readonly seq: number) {
+    super("Canonical conversation history is unreadable.");
+    this.name = "JournalContextIntegrityError";
+  }
+}
 
 const contentBlocks = (message: unknown): unknown[] => {
   const content = (message as { content?: unknown }).content;
@@ -632,6 +726,21 @@ export class Journal {
       if (existing.length > 0) {
         return { seq: existing[0]!.seq, inserted: false };
       }
+      const retired = this.sql
+        .exec<{
+          writer_key: string;
+        }>(`SELECT writer_key FROM retired_writers WHERE writer_key = ?`, writerKey)
+        .toArray();
+      if (retired.length > 0) throw new StaleJournalWriterError();
+      const turnId = columns.turn_id;
+      if (typeof turnId === "string") {
+        const retiredTurn = this.sql
+          .exec<{
+            turn_id: string;
+          }>(`SELECT turn_id FROM retired_turns WHERE turn_id = ?`, turnId)
+          .toArray();
+        if (retiredTurn.length > 0) throw new StaleJournalWriterError();
+      }
       const seq = this.sql
         .exec<{ next_seq: number }>(`SELECT next_seq FROM meta WHERE id = 0`)
         .one().next_seq;
@@ -661,6 +770,23 @@ export class Journal {
         )
         .toArray()[0] ?? null
     );
+  }
+
+  conversationEditReceipt<T>(operationId: string, kind: string): T | null {
+    const row = this.sql
+      .exec<{ result_json: string }>(
+        `SELECT result_json FROM conversation_edit_receipts
+          WHERE operation_id = ? AND kind = ?`,
+        operationId,
+        kind,
+      )
+      .toArray()[0];
+    if (!row) return null;
+    try {
+      return JSON.parse(row.result_json) as T;
+    } catch {
+      return null;
+    }
   }
 
   putAppendReceipt(input: {
@@ -987,6 +1113,201 @@ export class Journal {
   }
 
   // -------------------------------------------------------------------------
+  // Bounded dev-acceptance context fault
+  // -------------------------------------------------------------------------
+
+  /**
+   * Select the newest completed user row, which is guaranteed to participate
+   * in the next normal context window. The acceptance route hashes the payload
+   * before arming; the raw bytes never leave this DO.
+   */
+  acceptanceContextFaultCandidate(): {
+    seq: number;
+    payloadJson: string;
+  } | null {
+    if (this.acceptanceContextFaultRecord()) return null;
+    const candidate = this.sql
+      .exec<{ seq: number; payload_json: string }>(
+        `SELECT seq, payload_json FROM journal
+          WHERE kind = 'message' AND role = 'user' AND model_skip = 0
+          ORDER BY seq DESC LIMIT 1`,
+      )
+      .toArray()[0];
+    if (!candidate) return null;
+    try {
+      JSON.parse(candidate.payload_json);
+    } catch {
+      // A real corruption is never overwritten by a test fault.
+      return null;
+    }
+    return { seq: candidate.seq, payloadJson: candidate.payload_json };
+  }
+
+  acceptanceContextFaultStatus(): Omit<
+    AcceptanceContextFault,
+    "original_payload_json"
+  > | null {
+    const fault = this.acceptanceContextFaultRecord();
+    if (!fault) return null;
+    const { original_payload_json: _original, ...safe } = fault;
+    return safe;
+  }
+
+  /**
+   * Replace exactly one internally selected row with a fixed invalid sentinel.
+   * The original and its repair metadata commit atomically; there is no API
+   * for caller-provided SQL, sequence numbers, or replacement content.
+   */
+  armAcceptanceContextFault(args: {
+    runIdSha256: string;
+    seq: number;
+    expectedPayloadJson: string;
+    originalPayloadSha256: string;
+    corruptPayloadSha256: string;
+    createdAt: number;
+  }): Omit<AcceptanceContextFault, "original_payload_json"> {
+    if (
+      !/^[a-f0-9]{64}$/u.test(args.runIdSha256) ||
+      !/^[a-f0-9]{64}$/u.test(args.originalPayloadSha256) ||
+      !/^[a-f0-9]{64}$/u.test(args.corruptPayloadSha256) ||
+      !Number.isSafeInteger(args.seq) ||
+      args.seq < 0
+    ) {
+      throw new Error("Invalid acceptance context fault metadata.");
+    }
+    return this.transactionSync(() => {
+      if (this.acceptanceContextFaultRecord()) {
+        throw new Error("An acceptance context fault is already armed.");
+      }
+      const row = this.sql
+        .exec<{ payload_json: string; model_skip: number; role: string | null }>(
+          `SELECT payload_json, model_skip, role FROM journal
+            WHERE seq = ? AND kind = 'message'`,
+          args.seq,
+        )
+        .toArray()[0];
+      if (
+        !row ||
+        row.model_skip !== 0 ||
+        row.role !== "user" ||
+        row.payload_json !== args.expectedPayloadJson
+      ) {
+        throw new Error("Acceptance context fault candidate changed.");
+      }
+      try {
+        JSON.parse(row.payload_json);
+      } catch {
+        throw new Error("Acceptance context fault candidate is already corrupt.");
+      }
+      this.sql.exec(
+        `INSERT INTO acceptance_context_fault (
+           id, run_id_sha256, seq, original_payload_json,
+           original_payload_sha256, corrupt_payload_sha256,
+           observed_failures, repair_after_failures, created_at
+         ) VALUES (0, ?, ?, ?, ?, ?, 0, 2, ?)`,
+        args.runIdSha256,
+        args.seq,
+        row.payload_json,
+        args.originalPayloadSha256,
+        args.corruptPayloadSha256,
+        args.createdAt,
+      );
+      this.sql.exec(
+        `UPDATE journal SET payload_json = ?
+          WHERE seq = ? AND payload_json = ?`,
+        ACCEPTANCE_CONTEXT_CORRUPT_PAYLOAD,
+        args.seq,
+        row.payload_json,
+      );
+      const armed = this.acceptanceContextFaultRecord();
+      const changed = this.sql
+        .exec<{ payload_json: string }>(
+          `SELECT payload_json FROM journal WHERE seq = ?`,
+          args.seq,
+        )
+        .toArray()[0];
+      if (!armed || changed?.payload_json !== ACCEPTANCE_CONTEXT_CORRUPT_PAYLOAD) {
+        throw new Error("Acceptance context fault did not commit atomically.");
+      }
+      const { original_payload_json: _original, ...safe } = armed;
+      return safe;
+    });
+  }
+
+  /**
+   * One failed turn before restart and one after restart are required. The
+   * second observation restores the byte-identical original automatically.
+   */
+  observeAcceptanceContextFault(runIdSha256: string): {
+    observedFailures: number;
+    repaired: boolean;
+    seq: number;
+    originalPayloadSha256: string;
+    corruptPayloadSha256: string;
+  } | null {
+    return this.transactionSync(() => {
+      const fault = this.acceptanceContextFaultRecord();
+      if (!fault) return null;
+      if (fault.run_id_sha256 !== runIdSha256) {
+        throw new Error("Acceptance context fault run does not match.");
+      }
+      const observedFailures = fault.observed_failures + 1;
+      if (observedFailures < fault.repair_after_failures) {
+        this.sql.exec(
+          `UPDATE acceptance_context_fault SET observed_failures = ? WHERE id = 0`,
+          observedFailures,
+        );
+        return {
+          observedFailures,
+          repaired: false,
+          seq: fault.seq,
+          originalPayloadSha256: fault.original_payload_sha256,
+          corruptPayloadSha256: fault.corrupt_payload_sha256,
+        };
+      }
+      const row = this.sql
+        .exec<{ payload_json: string }>(
+          `SELECT payload_json FROM journal WHERE seq = ?`,
+          fault.seq,
+        )
+        .toArray()[0];
+      if (row?.payload_json !== ACCEPTANCE_CONTEXT_CORRUPT_PAYLOAD) {
+        // Keep the repair copy when the row is missing or unexpectedly changed;
+        // an operator can inspect the DO without this code overwriting evidence.
+        throw new Error("Acceptance context fault evidence changed before repair.");
+      }
+      this.sql.exec(
+        `UPDATE journal SET payload_json = ?
+          WHERE seq = ? AND payload_json = ?`,
+        fault.original_payload_json,
+        fault.seq,
+        ACCEPTANCE_CONTEXT_CORRUPT_PAYLOAD,
+      );
+      this.sql.exec(`DELETE FROM acceptance_context_fault WHERE id = 0`);
+      return {
+        observedFailures,
+        repaired: true,
+        seq: fault.seq,
+        originalPayloadSha256: fault.original_payload_sha256,
+        corruptPayloadSha256: fault.corrupt_payload_sha256,
+      };
+    });
+  }
+
+  private acceptanceContextFaultRecord(): AcceptanceContextFault | null {
+    return (
+      this.sql
+        .exec<AcceptanceContextFault>(
+          `SELECT run_id_sha256, seq, original_payload_json,
+                  original_payload_sha256, corrupt_payload_sha256,
+                  observed_failures, repair_after_failures, created_at
+             FROM acceptance_context_fault WHERE id = 0`,
+        )
+        .toArray()[0] ?? null
+    );
+  }
+
+  // -------------------------------------------------------------------------
   // Context window
   // -------------------------------------------------------------------------
 
@@ -1058,8 +1379,11 @@ export class Journal {
       try {
         parsed = JSON.parse(row.payload_json);
       } catch {
-        // A malformed row degrades the context; it must not kill the turn.
-        continue;
+        // Never silently omit canonical history. Doing so lets the provider
+        // answer from a context the user cannot inspect or repair and makes a
+        // restart behave differently from the original turn. The row remains
+        // untouched in SQLite; `seq` is the safe repair locator.
+        throw new JournalContextIntegrityError(row.seq);
       }
       if (row.spill_key && isSpillStub(parsed)) {
         spilled.push({
@@ -1231,6 +1555,106 @@ export class Journal {
     );
   }
 
+  /**
+   * Imports one contiguous logical prefix page into a fresh fork target.
+   *
+   * Exact seq values are retained so a rendered source boundary maps to the
+   * same logical boundary in the fork. Writer keys are namespaced by the fork
+   * operation: they remain idempotent across page retries without making a
+   * delayed writer from the source authoritative in the target.
+   */
+  importForkRows(
+    rows: JournalRow[],
+    operationId: string,
+    ownerId: string,
+  ): { firstSeq: number; lastSeq: number } | null {
+    if (rows.length === 0) return null;
+    return this.transactionSync(() => {
+      const meta = this.meta();
+      let expected = meta.next_seq;
+      const terminalTurns = new Set<string>();
+      for (const row of rows) {
+        if (row.seq !== expected) {
+          throw new Error(
+            "Fork page is not contiguous with the target journal.",
+          );
+        }
+        const writerKey = `fork:${operationId}:${row.writer_key}`;
+        this.sql.exec(
+          `INSERT INTO journal (
+             seq, kind, turn_id, writer, writer_key, created_at, bytes, role,
+             hidden, model_skip, tool_call_id, open_calls, tokens, stream_id,
+             client_msg_id, phase, lane, source, notice, payload_json, spill_key
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          row.seq,
+          row.kind,
+          row.turn_id,
+          `fork:${row.writer}`,
+          writerKey,
+          row.created_at,
+          row.bytes,
+          row.role,
+          row.hidden,
+          row.model_skip,
+          row.tool_call_id,
+          row.open_calls,
+          row.tokens,
+          row.stream_id,
+          row.client_msg_id,
+          row.phase,
+          row.lane,
+          row.source,
+          row.notice,
+          row.payload_json,
+          row.spill_key,
+        );
+        const terminal =
+          row.kind === "turn" &&
+          (row.phase === "completed" ||
+            row.phase === "failed" ||
+            row.phase === "canceled" ||
+            row.phase === "timeout");
+        this.sql.exec(
+          `INSERT INTO turns (
+             turn_id, session_id, owner_id, lane, source, client_msg_id, state,
+             terminal_kind, first_seq, last_seq, created_at, updated_at
+           ) VALUES (?, 'fork', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(turn_id) DO UPDATE SET
+             lane = COALESCE(turns.lane, excluded.lane),
+             source = COALESCE(turns.source, excluded.source),
+             client_msg_id = COALESCE(turns.client_msg_id, excluded.client_msg_id),
+             state = CASE WHEN excluded.state = 'terminal' THEN 'terminal' ELSE turns.state END,
+             terminal_kind = COALESCE(excluded.terminal_kind, turns.terminal_kind),
+             first_seq = MIN(turns.first_seq, excluded.first_seq),
+             last_seq = MAX(turns.last_seq, excluded.last_seq),
+             updated_at = MAX(turns.updated_at, excluded.updated_at)`,
+          row.turn_id,
+          ownerId,
+          row.lane,
+          row.source,
+          row.client_msg_id,
+          terminal ? "terminal" : "running",
+          terminal ? row.phase : null,
+          row.seq,
+          row.seq,
+          row.created_at,
+          row.created_at,
+        );
+        if (terminal) terminalTurns.add(row.turn_id);
+        expected += 1;
+      }
+      this.sql.exec(`UPDATE meta SET next_seq = ? WHERE id = 0`, expected);
+      for (const turnId of terminalTurns) {
+        const excerpt = this.buildExcerpt(turnId, 1_200, 4_000, Date.now());
+        if (excerpt) this.putExcerpt(excerpt);
+      }
+      return {
+        firstSeq: rows[0]!.seq,
+        lastSeq: rows[rows.length - 1]!.seq,
+      };
+    });
+  }
+
   // -------------------------------------------------------------------------
   // Turn projection (never authoritative — see invariant 3)
   // -------------------------------------------------------------------------
@@ -1245,6 +1669,15 @@ export class Journal {
     state: "queued" | "running" | "terminal";
     now: number;
   }): void {
+    if (
+      this.sql
+        .exec<{
+          turn_id: string;
+        }>(`SELECT turn_id FROM retired_turns WHERE turn_id = ?`, input.turnId)
+        .toArray().length > 0
+    ) {
+      throw new StaleJournalWriterError();
+    }
     this.sql.exec(
       `INSERT INTO turns (turn_id, session_id, owner_id, lane, source, client_msg_id,
                           state, created_at, updated_at)
@@ -1375,6 +1808,15 @@ export class Journal {
     payloadJson: string;
     now: number;
   }): void {
+    if (
+      this.sql
+        .exec<{
+          turn_id: string;
+        }>(`SELECT turn_id FROM retired_turns WHERE turn_id = ?`, input.turnId)
+        .toArray().length > 0
+    ) {
+      throw new StaleJournalWriterError();
+    }
     this.sql.exec(
       `INSERT OR IGNORE INTO inbox (writer, writer_key, kind, turn_id, role, hidden,
                                     created_at, bytes, payload_json)
@@ -1700,6 +2142,129 @@ export class Journal {
       .toArray();
   }
 
+  segmentsAfter(seq: number): SegmentRow[] {
+    return this.sql
+      .exec<SegmentRow>(
+        `SELECT first_seq, last_seq, rows, bytes, r2_key, state, created_at
+           FROM segments
+          WHERE state = 'committed' AND last_seq > ?
+          ORDER BY first_seq ASC`,
+        seq,
+      )
+      .toArray();
+  }
+
+  residentRowsAfter(seq: number): JournalRow[] {
+    return this.selectRows(`WHERE seq > ? ORDER BY seq ASC`, seq);
+  }
+
+  /**
+   * Atomically makes a rewind visible. R2 objects are prepared before this
+   * transaction; their old keys are only queued for deletion here, after the
+   * manifest stops naming them. A stale socket can therefore observe either
+   * the old epoch or the complete new prefix, never a half-truncated journal.
+   */
+  async applyTruncate(input: {
+    operationId: string;
+    throughSeq: number;
+    expectedEpoch: number;
+    expectedLastSeq: number;
+    replacementSegment?: SegmentRow;
+    removedSegmentFirstSeqs: number[];
+    purgeKeys: string[];
+    retiredWriterKeys: string[];
+    retiredTurnIds: string[];
+    retiredAt: number;
+    resultJson: string;
+  }): Promise<{ previousEpoch: number; nextEpoch: number; lastSeq: number }> {
+    const result = this.transactionSync(() => {
+      const meta = this.meta();
+      if (
+        meta.epoch !== input.expectedEpoch ||
+        meta.next_seq - 1 !== input.expectedLastSeq
+      ) {
+        throw new JournalHeadConflictError(meta.epoch, meta.next_seq - 1);
+      }
+      if (input.throughSeq < -1 || input.throughSeq > input.expectedLastSeq) {
+        throw new Error("Invalid rewind boundary.");
+      }
+      const nextEpoch = meta.epoch + 1;
+      const suffix = this.residentRowsAfter(input.throughSeq);
+      for (const writerKey of [
+        ...suffix.map((row) => row.writer_key),
+        ...input.retiredWriterKeys,
+      ]) {
+        this.sql.exec(
+          `INSERT OR IGNORE INTO retired_writers (writer_key, epoch, retired_at)
+           VALUES (?, ?, ?)`,
+          writerKey,
+          meta.epoch,
+          input.retiredAt,
+        );
+      }
+      for (const turnId of [
+        ...suffix.map((row) => row.turn_id),
+        ...input.retiredTurnIds,
+      ]) {
+        this.sql.exec(
+          `INSERT OR IGNORE INTO retired_turns (turn_id, epoch, retired_at)
+           VALUES (?, ?, ?)`,
+          turnId,
+          meta.epoch,
+          input.retiredAt,
+        );
+      }
+      this.sql.exec(`DELETE FROM journal WHERE seq > ?`, input.throughSeq);
+      this.sql.exec(
+        `DELETE FROM turns
+          WHERE first_seq > ? OR last_seq > ?`,
+        input.throughSeq,
+        input.throughSeq,
+      );
+      this.sql.exec(
+        `DELETE FROM turn_excerpts WHERE seq_start > ? OR seq_end > ?`,
+        input.throughSeq,
+        input.throughSeq,
+      );
+      for (const firstSeq of input.removedSegmentFirstSeqs) {
+        this.sql.exec(`DELETE FROM segments WHERE first_seq = ?`, firstSeq);
+      }
+      if (input.replacementSegment) {
+        this.insertSegment(input.replacementSegment);
+        this.sql.exec(
+          `DELETE FROM purge_queue WHERE r2_key = ?`,
+          input.replacementSegment.r2_key,
+        );
+      }
+      this.enqueuePurge(input.purgeKeys, input.retiredAt);
+      this.sql.exec(
+        `UPDATE meta
+            SET epoch = ?, next_seq = ?, hot_min_seq = MIN(hot_min_seq, ?),
+                index_synced_seq = -1
+          WHERE id = 0`,
+        nextEpoch,
+        input.throughSeq + 1,
+        input.throughSeq + 1,
+      );
+      this.sql.exec(
+        `INSERT INTO conversation_edit_receipts (
+           operation_id, kind, result_json, created_at
+         ) VALUES (?, 'rewind', ?, ?)
+         ON CONFLICT(operation_id) DO NOTHING`,
+        input.operationId,
+        input.resultJson,
+        input.retiredAt,
+      );
+      return {
+        previousEpoch: meta.epoch,
+        nextEpoch,
+        lastSeq: input.throughSeq,
+      };
+    });
+    await this.ctx.storage.put(EPOCH_WITNESS_KEY, result.nextEpoch);
+    return result;
+  }
+
   allSegmentKeys(): string[] {
     return this.sql
       .exec<{ r2_key: string }>(`SELECT r2_key FROM segments`)
@@ -1963,6 +2528,10 @@ export class Journal {
   purgeDone(keys: string[]): void {
     for (const key of keys) {
       this.sql.exec(`DELETE FROM purge_queue WHERE r2_key = ?`, key);
+      // Rewind uses the same deletion debt as full purge, but keeps the
+      // database. Once R2 confirmed deletion, retaining a spill locator would
+      // over-count storage forever and make the removed suffix look live.
+      this.sql.exec(`DELETE FROM spills WHERE r2_key = ?`, key);
     }
   }
 
@@ -1987,5 +2556,23 @@ export class ConversationDeletedError extends Error {
   constructor() {
     super("This conversation was deleted.");
     this.name = "ConversationDeletedError";
+  }
+}
+
+/** A delayed writer from an older epoch tried to recreate removed history. */
+export class StaleJournalWriterError extends Error {
+  constructor() {
+    super("This journal writer belongs to a retired conversation epoch.");
+    this.name = "StaleJournalWriterError";
+  }
+}
+
+export class JournalHeadConflictError extends Error {
+  constructor(
+    readonly epoch: number,
+    readonly lastSeq: number,
+  ) {
+    super("The conversation changed before this edit could be applied.");
+    this.name = "JournalHeadConflictError";
   }
 }

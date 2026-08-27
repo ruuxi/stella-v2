@@ -1,11 +1,23 @@
 import { describe, expect, test } from "bun:test";
 import {
+  archiveOwnerTransferMetadataMatches,
+  archiveOwnerTransferProof,
   conversationArchivePrefix,
   parseOwnerTransferRequest,
   retainedTurnBlocksOwnerTransfer,
   rewriteSegmentOwnership,
   transferArchiveKey,
 } from "../src/owner-transfer.js";
+
+const control = {
+  migrationId: "migration-1",
+  leaseId: "lease-1",
+  leaseGeneration: 0,
+  stage: "conversation-transfer",
+  planRevision: 1,
+  fromOwnerGeneration: "from-generation-1",
+  toOwnerGeneration: "to-generation-1",
+};
 
 const gzip = async (text: string): Promise<ArrayBuffer> =>
   await new Response(
@@ -21,22 +33,34 @@ describe("conversation owner transfer", () => {
   test("accepts only an explicit source and destination owner", () => {
     expect(
       parseOwnerTransferRequest({
+        ...control,
         fromOwnerId: " anonymous-owner ",
         toOwnerId: "connected-owner",
       }),
     ).toEqual({
+      ...control,
       fromOwnerId: "anonymous-owner",
       toOwnerId: "connected-owner",
     });
     expect(
       parseOwnerTransferRequest({
+        ...control,
         fromOwnerId: "same-owner",
         toOwnerId: "same-owner",
       }),
     ).toBeNull();
-    expect(parseOwnerTransferRequest({ toOwnerId: "connected-owner" })).toBe(
-      null,
-    );
+    expect(
+      parseOwnerTransferRequest({
+        ...control,
+        toOwnerId: "connected-owner",
+      }),
+    ).toBeNull();
+    expect(
+      parseOwnerTransferRequest({
+        fromOwnerId: "anonymous-owner",
+        toOwnerId: "connected-owner",
+      }),
+    ).toBeNull();
   });
 
   test("does not confuse a retained terminal turn with active work", () => {
@@ -99,5 +123,37 @@ describe("conversation owner transfer", () => {
     expect(JSON.parse(rowJson!)).toMatchObject({
       spill_key: `${to}/spill/a.json.gz`,
     });
+  });
+
+  test("accepts an existing archive destination only with exact source and body proof", async () => {
+    const source = new TextEncoder().encode("source archive bytes");
+    const destination = new TextEncoder().encode("rewritten archive bytes");
+    const proof = await archiveOwnerTransferProof({
+      sourceKey: "conversations/source/conversation-1/segment-1.jsonl.gz",
+      sourceEtag: "etag-1",
+      sourceBody: source,
+      destinationBody: destination,
+    });
+    expect(
+      archiveOwnerTransferMetadataMatches(proof.customMetadata, proof),
+    ).toBe(true);
+    expect(
+      archiveOwnerTransferMetadataMatches(
+        { ...proof.customMetadata, stellaOwnerTransferSourceEtag: "wrong" },
+        proof,
+      ),
+    ).toBe(false);
+    const wrongDestination = await archiveOwnerTransferProof({
+      sourceKey: "conversations/source/conversation-1/segment-1.jsonl.gz",
+      sourceEtag: "etag-1",
+      sourceBody: source,
+      destinationBody: new TextEncoder().encode("unrelated destination"),
+    });
+    expect(
+      archiveOwnerTransferMetadataMatches(
+        proof.customMetadata,
+        wrongDestination,
+      ),
+    ).toBe(false);
   });
 });

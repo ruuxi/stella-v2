@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { Effect } from "effect";
 import { createToolHost } from "@stella/runtime/kernel/tools/host.js";
+import { assertCurrentCloudProcessIsolation } from "./cloud-process-isolation.js";
 
 type Habit = { name: string; detail: string; progress: number };
 type AppSpec = {
@@ -118,6 +119,10 @@ export const runAppTurn = (
 ): Effect.Effect<AppTurnResult, Error> =>
   Effect.scoped(
     Effect.gen(function* () {
+      yield* Effect.tryPromise({
+        try: assertCurrentCloudProcessIsolation,
+        catch: asError,
+      });
       const input = yield* Effect.tryPromise({
         try: async () =>
           JSON.parse(
@@ -132,6 +137,8 @@ export const runAppTurn = (
           createToolHost({
             stellaAppDir: workspaceRoot,
             stellaDataDir: path.join(workspaceRoot, ".stella"),
+            recoverStaleSecrets: false,
+            enableShellShims: false,
           }),
         ),
         (host) =>

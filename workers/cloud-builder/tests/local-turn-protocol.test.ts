@@ -8,6 +8,7 @@ import {
   localTurnLeaseAllowsIdentityTransition,
   localClientMessageFingerprintSource,
   localTurnId,
+  parseExpectedOwnerGeneration,
   parseLocalTurnRenewal,
   parseLocalFinishRecords,
   parseLocalTerminalPhase,
@@ -37,6 +38,7 @@ describe("local turn protocol", () => {
   test("parses a minimal renewal without reading or validating the prompt", () => {
     const renewal: Record<string, unknown> = {
       deviceId: "device-123",
+      expectedOwnerGeneration: "owner-generation-1",
       localTurnId: "local:run-123",
       leaseToken: "a".repeat(64),
       renewOnly: true,
@@ -49,16 +51,30 @@ describe("local turn protocol", () => {
 
     expect(parseLocalTurnRenewal(renewal)).toEqual({
       deviceId: "device-123",
+      expectedOwnerGeneration: "owner-generation-1",
       localTurnId: "local:run-123",
       leaseToken: "a".repeat(64),
     });
     expect(
       parseLocalTurnRenewal({
         deviceId: "device-123",
+        expectedOwnerGeneration: "owner-generation-1",
         localTurnId: "local:run-123",
         renewOnly: true,
       }),
     ).toBeNull();
+    expect(
+      parseLocalTurnRenewal({
+        deviceId: "device-123",
+        localTurnId: "local:run-123",
+        leaseToken: "a".repeat(64),
+        renewOnly: true,
+      }),
+    ).toBeNull();
+    expect(parseExpectedOwnerGeneration(" owner-generation-1 ")).toBe(
+      "owner-generation-1",
+    );
+    expect(parseExpectedOwnerGeneration("x".repeat(513))).toBeNull();
   });
 
   test("deduplicates a stable client message across changed local turn ids", () => {
@@ -90,12 +106,14 @@ describe("local turn protocol", () => {
     expect(changedFingerprint).not.toBe(firstFingerprint);
 
     const receipt = {
+      ownerGeneration: "owner-generation-1",
       clientMsgId: "message:stable",
       beginFingerprint: firstFingerprint,
       turnId: "desktop:device-1:old-local-turn",
     };
     expect(
       classifyLocalClientMessageReplay(receipt, {
+        ownerGeneration: "owner-generation-1",
         clientMsgId: "message:stable",
         beginFingerprint: restartedFingerprint,
         turnId: "desktop:device-1:new-local-turn",
@@ -103,9 +121,18 @@ describe("local turn protocol", () => {
     ).toBe("duplicate");
     expect(
       classifyLocalClientMessageReplay(receipt, {
+        ownerGeneration: "owner-generation-1",
         clientMsgId: "message:stable",
         beginFingerprint: changedFingerprint,
         turnId: "desktop:device-1:new-local-turn",
+      }),
+    ).toBe("conflict");
+    expect(
+      classifyLocalClientMessageReplay(receipt, {
+        ownerGeneration: "owner-generation-2",
+        clientMsgId: "message:stable",
+        beginFingerprint: restartedFingerprint,
+        turnId: "desktop:device-1:old-local-turn",
       }),
     ).toBe("conflict");
   });

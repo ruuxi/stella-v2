@@ -19,9 +19,18 @@
     // Pinned issuer for the conversation socket's JWT verification, and the
     // fallback Convex origin for index flushes that happen outside a turn.
     // Never the JWKS env var: that is the PRIVATE key set and stays in Convex.
-    "STELLA_CONVEX_SITE_URL": "https://flexible-panther-999.convex.site",
-    "STELLA_CONVEX_CLOUD_URL": "https://flexible-panther-999.convex.cloud"
+    "STELLA_CONVEX_SITE_URL": "https://impartial-crab-34.convex.site",
+    "STELLA_CONVEX_CLOUD_URL": "https://impartial-crab-34.convex.cloud",
+    // Strictly a dev-target proof seam. Production configs must omit both
+    // values; the Worker and DO independently deny the route without them.
+    "ENABLE_DEV_ACCEPTANCE_PROBES": "1",
+    "STELLA_DEPLOYMENT_IDENTITY": "dev:impartial-crab-34"
   },
+  "worker_loaders": [
+    {
+      "binding": "LOADER"
+    }
+  ],
   "r2_buckets": [
     {
       "binding": "APP_BUILDS",
@@ -80,6 +89,10 @@
       {
         "name": "ORCHESTRATOR_SESSIONS",
         "class_name": "OrchestratorSession"
+      },
+      {
+        "name": "OWNER_TRANSFER_COORDINATORS",
+        "class_name": "OwnerTransferCoordinator"
       }
     ]
   },
@@ -95,6 +108,10 @@
     {
       "tag": "v3",
       "new_sqlite_classes": ["SandboxSmall"]
+    },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": ["OwnerTransferCoordinator"]
     }
   ]
 }

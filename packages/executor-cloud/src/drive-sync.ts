@@ -33,17 +33,15 @@
  */
 
 import { createHash } from "node:crypto";
-import { constants as fsConstants, type Stats } from "node:fs";
-import {
-  lstat,
-  mkdir,
-  open,
-  readFile,
-  realpath,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { lstat } from "node:fs/promises";
 import path from "node:path";
+import {
+  readWorkspaceFileNoFollow,
+  statWorkspaceFileNoFollow,
+  unlinkWorkspaceFileNoFollow,
+  writeWorkspaceBytesNoFollow,
+  type WorkspaceFileIdentity,
+} from "@stella/runtime/kernel/tools/workspace-file-boundary.js";
 
 type DriveSyncEntry = {
   path: string;
@@ -148,16 +146,21 @@ export const drivePathsInPrompt = (prompt: string): string[] => {
 const DOWNLOAD_CONCURRENCY = 6;
 /** One stalled signed URL must not hold a slot for the whole turn. */
 const DOWNLOAD_TIMEOUT_MS = 60_000;
+/** The server caps the whole manifest at this size; enforce it again here. */
+const DRIVE_FILE_MAX_BYTES = 128 * 1024 * 1024;
 /**
  * Total hydration budget. The server already caps the manifest at 100 files /
  * 128 MB; this caps the wall clock those cost, so a slow R2 makes a turn start
  * with fewer files rather than start late.
  */
 const HYDRATE_BUDGET_MS = 90_000;
-const HASH_CHUNK_BYTES = 1024 * 1024;
 /** Ledger rows kept, newest row version first. */
 const LEDGER_MAX_ENTRIES = 2_000;
 const LEDGER_FILE = "drive-sync.json";
+/** A valid 2,000-row ledger is well below this; larger input is untrusted. */
+const LEDGER_MAX_BYTES = 4 * 1024 * 1024;
+/** Mirrors the authoritative endpoint's manifest ceiling. */
+const MANIFEST_FILE_MAX = 100;
 /** Tombstones honored per turn; the manifest is not an unbounded delete list. */
 const TOMBSTONE_MAX = 500;
 /**
@@ -185,6 +188,14 @@ type Ledger = {
    * instead of re-asking about the same head forever.
    */
   checkedThrough: string;
+};
+
+type WorkspaceOwner = { uid: number; gid: number };
+
+type LedgerRead = {
+  ledger: Ledger;
+  /** Exact descriptor-authorized file the eventual write may replace. */
+  expectedStat?: WorkspaceFileIdentity;
 };
 
 /**
@@ -217,18 +228,38 @@ type Ledger = {
  * the user's — not a containment boundary, and building it as one is what put
  * the turn's own output within reach of a replayed tombstone.
  */
-const readLedger = async (file: string): Promise<Ledger> => {
+const readLedger = async (
+  file: string,
+  workspaceRoot: string,
+  owner: WorkspaceOwner,
+): Promise<LedgerRead> => {
   const ledger: Ledger = { files: new Map(), syncedAt: 0, checkedThrough: "" };
-  const raw = await readFile(file, "utf8").catch(() => null);
-  if (!raw) return ledger;
+  let read: Awaited<ReturnType<typeof readWorkspaceFileNoFollow>>;
+  try {
+    read = await readWorkspaceFileNoFollow(
+      file,
+      workspaceRoot,
+      LEDGER_MAX_BYTES,
+      { owner },
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { ledger };
+    }
+    throw error;
+  }
+  const expectedStat = read.stat;
+  const raw = read.bytes.toString("utf8");
+  read.bytes.fill(0);
+  if (!raw) return { ledger, expectedStat };
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return ledger;
+    return { ledger, expectedStat };
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return ledger;
+    return { ledger, expectedStat };
   }
   const document = parsed as {
     files?: unknown;
@@ -250,36 +281,61 @@ const readLedger = async (file: string): Promise<Ledger> => {
     document.files && typeof document.files === "object"
       ? (document.files as Record<string, unknown>)
       : {};
-  for (const [key, value] of Object.entries(files)) {
+  for (const [key, value] of Object.entries(files).slice(
+    0,
+    LEDGER_MAX_ENTRIES,
+  )) {
     const entry = value as Partial<LedgerEntry> | null;
     if (
+      key.length > 0 &&
+      key.length <= 1_000 &&
       typeof entry?.updatedAt === "number" &&
+      Number.isFinite(entry.updatedAt) &&
       typeof entry.sizeBytes === "number" &&
-      typeof entry.sha256 === "string"
+      Number.isSafeInteger(entry.sizeBytes) &&
+      entry.sizeBytes >= 0 &&
+      entry.sizeBytes <= DRIVE_FILE_MAX_BYTES &&
+      typeof entry.sha256 === "string" &&
+      /^[a-f0-9]{64}$/i.test(entry.sha256)
     ) {
       ledger.files.set(key, {
         updatedAt: entry.updatedAt,
         sizeBytes: entry.sizeBytes,
-        sha256: entry.sha256,
+        sha256: entry.sha256.toLowerCase(),
       });
     }
   }
-  return ledger;
+  return { ledger, expectedStat };
 };
 
-const writeLedger = async (file: string, ledger: Ledger): Promise<void> => {
+const writeLedger = async (
+  file: string,
+  workspaceRoot: string,
+  owner: WorkspaceOwner,
+  ledger: Ledger,
+  expectedStat?: WorkspaceFileIdentity,
+): Promise<void> => {
   const rows = [...ledger.files.entries()]
     .sort((a, b) => b[1].updatedAt - a[1].updatedAt)
     .slice(0, LEDGER_MAX_ENTRIES);
-  await mkdir(path.dirname(file), { recursive: true }).catch(() => undefined);
-  await writeFile(
-    file,
+  const bytes = Buffer.from(
     JSON.stringify({
       syncedAt: ledger.syncedAt,
       checkedThrough: ledger.checkedThrough,
       files: Object.fromEntries(rows),
     }),
-  ).catch(() => undefined);
+    "utf8",
+  );
+  try {
+    await writeWorkspaceBytesNoFollow(
+      file,
+      workspaceRoot,
+      bytes,
+      expectedStat ? { owner, expectedStat } : { owner, exclusive: true },
+    );
+  } finally {
+    bytes.fill(0);
+  }
 };
 
 /**
@@ -301,34 +357,6 @@ const presenceWindow = (ledger: Ledger): string[] => {
   return [...paths.slice(from), ...paths.slice(0, from)].slice(0, PRESENCE_MAX);
 };
 
-/** Hash without following a symlink at the leaf, and without buffering it all. */
-const sha256File = async (file: string): Promise<string | null> => {
-  const handle = await open(
-    file,
-    fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
-  ).catch(() => null);
-  if (!handle) return null;
-  try {
-    const hash = createHash("sha256");
-    const buffer = Buffer.allocUnsafe(HASH_CHUNK_BYTES);
-    for (;;) {
-      const { bytesRead } = await handle.read(
-        buffer,
-        0,
-        buffer.byteLength,
-        null,
-      );
-      if (bytesRead === 0) break;
-      hash.update(buffer.subarray(0, bytesRead));
-    }
-    return hash.digest("hex");
-  } catch {
-    return null;
-  } finally {
-    await handle.close().catch(() => undefined);
-  }
-};
-
 /** Where a drive path's copy sits under the workspace root. */
 const relativeToPrefix = (prefix: string, drivePath: string): string =>
   prefix && drivePath.startsWith(prefix)
@@ -346,14 +374,64 @@ const relativeToPrefix = (prefix: string, drivePath: string): string =>
  * safe from a delete on the drive and not safe from an ordinary manifest
  * entry naming the same row.
  */
-const isHydratedCopy = async (
-  target: string,
-  stats: Stats,
-  hydrated: LedgerEntry | undefined,
-): Promise<boolean> => {
-  if (!hydrated || stats.size !== hydrated.sizeBytes) return false;
-  return (await sha256File(target)) === hydrated.sha256;
+type WorkspaceSnapshot = {
+  stat: WorkspaceFileIdentity;
+  /** Null when the file is larger than the authorized hash budget. */
+  sha256: string | null;
 };
+
+const isMissing = (error: unknown): boolean =>
+  (error as NodeJS.ErrnoException).code === "ENOENT";
+
+/**
+ * Read an owned, singly-linked workspace file through one anchored descriptor.
+ * The returned identity is the only authority a later overwrite or unlink may
+ * present; pathname checks are never reused as authorization.
+ */
+const inspectWorkspaceFile = async (
+  target: string,
+  workspaceRoot: string,
+  owner: WorkspaceOwner,
+  maxHashBytes: number,
+): Promise<WorkspaceSnapshot | null> => {
+  let metadata: WorkspaceFileIdentity;
+  try {
+    metadata = await statWorkspaceFileNoFollow(target, workspaceRoot, {
+      owner,
+    });
+  } catch (error) {
+    if (isMissing(error)) return null;
+    throw error;
+  }
+  if (metadata.size > maxHashBytes) {
+    return { stat: metadata, sha256: null };
+  }
+  const read = await readWorkspaceFileNoFollow(
+    target,
+    workspaceRoot,
+    maxHashBytes,
+    { owner },
+  );
+  try {
+    return {
+      stat: read.stat,
+      sha256: createHash("sha256").update(read.bytes).digest("hex"),
+    };
+  } finally {
+    read.bytes.fill(0);
+  }
+};
+
+const isHydratedCopy = (
+  snapshot: WorkspaceSnapshot | null,
+  hydrated: LedgerEntry | undefined,
+): boolean =>
+  Boolean(
+    hydrated &&
+      snapshot &&
+      snapshot.stat.size === hydrated.sizeBytes &&
+      snapshot.sha256 === hydrated.sha256,
+  );
 
 /**
  * Resolve where an entry's bytes go, refusing anything that would land outside
@@ -361,28 +439,19 @@ const isHydratedCopy = async (
  * planted at a drive path on an earlier turn would otherwise redirect this
  * write anywhere the sandbox user can reach.
  *
- * `createDirectory` is off for tombstones: a delete has no business creating
- * the directory tree of a file that is not there.
+ * This is only lexical selection. The descriptor boundary separately opens
+ * each parent without following links, and only writes may create parents.
  */
-const resolveTarget = async (
-  workspaceRealRoot: string,
+const resolveTarget = (
+  workspaceRoot: string,
   relativePath: string,
-  createDirectory = true,
-): Promise<string | null> => {
-  const absolute = path.resolve(workspaceRealRoot, relativePath);
-  const relative = path.relative(workspaceRealRoot, absolute);
+): string | null => {
+  const absolute = path.resolve(workspaceRoot, relativePath);
+  const relative = path.relative(workspaceRoot, absolute);
   if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
     return null;
   }
-  const directory = path.dirname(absolute);
-  if (createDirectory) {
-    await mkdir(directory, { recursive: true }).catch(() => undefined);
-  }
-  const realDirectory = await realpath(directory).catch(() => null);
-  if (!realDirectory) return null;
-  const fromRoot = path.relative(workspaceRealRoot, realDirectory);
-  if (fromRoot.startsWith("..") || path.isAbsolute(fromRoot)) return null;
-  return path.join(realDirectory, path.basename(absolute));
+  return absolute;
 };
 
 /**
@@ -401,23 +470,20 @@ const resolveTarget = async (
  * record what it found, not only that it was satisfied.
  */
 const alreadyCurrent = async (
-  target: string,
+  snapshot: WorkspaceSnapshot | null,
   entry: DriveSyncEntry,
   ledger: Ledger,
 ): Promise<{ sha256: string } | null> => {
-  const stats = await lstat(target).catch(() => null);
-  if (!stats?.isFile() || stats.size !== entry.sizeBytes) return null;
+  if (!snapshot || snapshot.stat.size !== entry.sizeBytes) return null;
   const recorded = ledger.files.get(entry.path);
   const expected =
-    entry.sha256 ??
+    entry.sha256?.toLowerCase() ??
     (recorded?.updatedAt === entry.updatedAt &&
     recorded.sizeBytes === entry.sizeBytes
       ? recorded.sha256
       : undefined);
   if (expected) {
-    return (await sha256File(target)) === expected
-      ? { sha256: expected }
-      : null;
+    return snapshot.sha256 === expected ? { sha256: expected } : null;
   }
   // Nothing to verify against: a row this workspace produced is still taken at
   // its size — that is where its bytes came from — and a file the user
@@ -425,29 +491,64 @@ const alreadyCurrent = async (
   // edited is still the user's bytes, and taking it on size would let a
   // same-size replacement pass unnoticed.
   if ((entry.origin ?? entry.source) === "upload") return null;
-  const hash = await sha256File(target);
+  const hash = snapshot.sha256;
   return hash === null ? null : { sha256: hash };
 };
 
 const writeContained = async (
   target: string,
+  workspaceRoot: string,
+  owner: WorkspaceOwner,
   bytes: Buffer,
+  expectedStat?: WorkspaceFileIdentity,
 ): Promise<boolean> => {
-  const handle = await open(
-    target,
-    fsConstants.O_WRONLY |
-      fsConstants.O_CREAT |
-      fsConstants.O_TRUNC |
-      fsConstants.O_NOFOLLOW,
-  ).catch(() => null);
-  if (!handle) return false;
   try {
-    await handle.writeFile(bytes);
+    await writeWorkspaceBytesNoFollow(
+      target,
+      workspaceRoot,
+      bytes,
+      expectedStat ? { owner, expectedStat } : { owner, exclusive: true },
+    );
     return true;
   } catch {
     return false;
+  }
+};
+
+/** Read a response without ever buffering more than the manifest authorized. */
+const readDownloadBytes = async (
+  response: Response,
+  expectedSize: number,
+): Promise<Buffer | null> => {
+  const declared = response.headers.get("content-length");
+  if (declared) {
+    const size = Number(declared);
+    if (!Number.isSafeInteger(size) || size < 0 || size > expectedSize) {
+      await response.body?.cancel().catch(() => undefined);
+      return null;
+    }
+  }
+  if (!response.body) return expectedSize === 0 ? Buffer.alloc(0) : null;
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > expectedSize) {
+        await reader.cancel().catch(() => undefined);
+        return null;
+      }
+      chunks.push(Buffer.from(next.value));
+    }
+    return Buffer.concat(chunks, total);
+  } catch {
+    return null;
   } finally {
-    await handle.close().catch(() => undefined);
+    for (const chunk of chunks) chunk.fill(0);
+    reader.releaseLock();
   }
 };
 
@@ -459,9 +560,9 @@ const writeContained = async (
  * where every later turn restored it, read it, and could re-register it as a
  * fresh file — the delete removed the file from the user's view but not from
  * the machine running their agents. The manifest names them; this removes
- * them, under the same containment rules as a write: the parent chain is
- * resolved, the leaf is `lstat`ed rather than `stat`ed, and `unlink` never
- * follows a symlink.
+ * them, under the same containment rules as a write: every parent and leaf is
+ * opened without following links, then unlink is guarded by the exact inode
+ * identity returned by the descriptor-authorized hash.
  *
  * The gate is the whole of the safety argument, and it is deliberately
  * narrower than "the manifest said so". A tombstone is not an instruction to
@@ -485,7 +586,8 @@ const writeContained = async (
  * than acted on: a stale copy is recoverable, destroyed work is not.
  */
 const applyTombstones = async (
-  workspaceRealRoot: string,
+  workspaceRoot: string,
+  owner: WorkspaceOwner,
   prefix: string,
   deleted: DriveSyncTombstone[],
   ledger: Ledger,
@@ -501,28 +603,53 @@ const applyTombstones = async (
     const relativePath =
       entry.relativePath || relativeToPrefix(prefix, drivePath);
     const hydrated = ledger.files.get(drivePath);
-    // The row is gone either way, so this workspace stops vouching for it:
-    // it drops out of the presence window and out of the versions the write
-    // side may echo.
-    if (ledger.files.delete(drivePath)) dropped += 1;
     if (!hydrated) continue;
-    const target = await resolveTarget(workspaceRealRoot, relativePath, false);
-    if (!target) continue;
-    const stats = await lstat(target).catch(() => null);
+    const target = resolveTarget(workspaceRoot, relativePath);
+    if (!target) {
+      stale.push(drivePath);
+      continue;
+    }
+    let snapshot: WorkspaceSnapshot | null;
+    try {
+      snapshot = await inspectWorkspaceFile(
+        target,
+        workspaceRoot,
+        owner,
+        hydrated.sizeBytes,
+      );
+    } catch (error) {
+      // A symlink, hard link, foreign-owned file, or unsafe parent is not the
+      // hydrated inode this ledger authorized. Keep it and report it stale.
+      stale.push(drivePath);
+      continue;
+    }
     // A missing file is success — a replayed tombstone is expected, and the
     // window may reach further back than this workspace ever hydrated. A
     // symlink or a directory standing at a drive path is not a hydrated copy
     // and is left where it is.
-    if (!stats?.isFile()) continue;
-    if (!(await isHydratedCopy(target, stats, hydrated))) {
+    if (!snapshot) {
+      if (ledger.files.delete(drivePath)) dropped += 1;
+      continue;
+    }
+    if (!isHydratedCopy(snapshot, hydrated)) {
       stale.push(drivePath);
       continue;
     }
-    const gone = await unlink(target).then(
-      () => true,
-      () => false,
-    );
-    if (gone) removed.push(drivePath);
+    try {
+      await unlinkWorkspaceFileNoFollow(target, workspaceRoot, {
+        owner,
+        expectedStat: snapshot.stat,
+      });
+    } catch (error) {
+      if (!isMissing(error)) {
+        // The pathname or inode changed after the descriptor-authorized hash.
+        // Never translate that race into deletion of the replacement.
+        stale.push(drivePath);
+        continue;
+      }
+    }
+    if (ledger.files.delete(drivePath)) dropped += 1;
+    removed.push(drivePath);
   }
   return { removed, stale, dropped };
 };
@@ -586,15 +713,47 @@ export const materializeDriveFiles = async (options: {
   turnId: string;
   prompt: string;
   workspaceRoot: string;
+  /** Fixed unprivileged identity that owns every model-visible workspace file. */
+  owner: WorkspaceOwner;
+  /**
+   * Builder-owned restore fact for this sandbox attempt. Unlike the ledger,
+   * this cannot be forged or dropped by a prior agent turn.
+   */
+  workspaceRestored: boolean;
   /** Where the hydration ledger lives (the workspace's tool-state directory). */
   stateDir: string;
   post: (route: string, body: unknown) => Promise<Response>;
   onProgress?: (message: string) => void;
 }): Promise<DriveSyncResult> => {
+  const workspaceRoot = path.resolve(options.workspaceRoot);
+  const rootMetadata = await lstat(workspaceRoot);
+  if (
+    rootMetadata.isSymbolicLink() ||
+    !rootMetadata.isDirectory() ||
+    rootMetadata.uid !== options.owner.uid ||
+    rootMetadata.gid !== options.owner.gid
+  ) {
+    throw new Error(
+      "Drive hydration requires an existing workspace root owned by the fixed tool identity.",
+    );
+  }
+  const stateDir = path.resolve(options.stateDir);
+  const stateRelative = path.relative(workspaceRoot, stateDir);
+  if (
+    !stateRelative ||
+    stateRelative.startsWith("..") ||
+    path.isAbsolute(stateRelative)
+  ) {
+    throw new Error(
+      "Drive hydration state must live below the workspace root.",
+    );
+  }
+
   // The ledger is read before the request, not after: its cursor is what the
   // server needs to know which deletions this workspace has not applied yet.
-  const ledgerPath = path.join(options.stateDir, LEDGER_FILE);
-  const ledger = await readLedger(ledgerPath);
+  const ledgerPath = path.join(stateDir, LEDGER_FILE);
+  const ledgerRead = await readLedger(ledgerPath, workspaceRoot, options.owner);
+  const { ledger } = ledgerRead;
 
   // `have` is the other half of that: the paths this workspace is holding, so
   // the server can answer which of them it no longer has instead of the
@@ -635,7 +794,34 @@ export const materializeDriveFiles = async (options: {
     /** False when tombstones older than the cursor may have been pruned. */
     deletedComplete?: unknown;
   };
-  const entries = manifest.files ?? [];
+  if (
+    typeof manifest.prefix !== "string" ||
+    !Array.isArray(manifest.files) ||
+    !Array.isArray(manifest.skipped) ||
+    !Array.isArray(manifest.deleted) ||
+    !Array.isArray(manifest.absent) ||
+    typeof manifest.syncedAt !== "number" ||
+    !Number.isFinite(manifest.syncedAt) ||
+    typeof manifest.deletedComplete !== "boolean"
+  ) {
+    throw new Error("Drive sync returned an invalid manifest.");
+  }
+  if (
+    manifest.deletedComplete === false &&
+    options.workspaceRestored !== false
+  ) {
+    // The restored checkpoint may contain a file deleted before the server's
+    // retained tombstone window. Running an agent now would present that stale
+    // copy as current drive truth, and prefix-sweeping is unsafe because this
+    // same tree also contains undelivered agent work. The builder's restore
+    // descriptor is the authority here: the agent-writable ledger cannot
+    // prove that a sandbox is fresh. Fail before touching the workspace or
+    // advancing its ledger.
+    throw new Error(
+      "Drive sync refused an incomplete deletion history; a complete authoritative resync is required before this workspace can run.",
+    );
+  }
+  const entries = (manifest.files ?? []).slice(0, MANIFEST_FILE_MAX);
   const result: DriveSyncResult = {
     known: new Map(),
     uploads: new Set(),
@@ -648,13 +834,6 @@ export const materializeDriveFiles = async (options: {
     stale: [],
     conflicts: [],
   };
-
-  await mkdir(options.workspaceRoot, { recursive: true }).catch(
-    () => undefined,
-  );
-  const workspaceRealRoot = await realpath(options.workspaceRoot).catch(
-    () => options.workspaceRoot,
-  );
 
   // Deletions first: a tombstoned path that a later manifest entry re-creates
   // is a re-upload, and it should end the turn present, not removed.
@@ -681,9 +860,9 @@ export const materializeDriveFiles = async (options: {
   // tombstone to the same gate whether it came from here or from the server's
   // own list.
   const absent = Array.isArray(manifest.absent)
-    ? manifest.absent.filter(
-        (value): value is string => typeof value === "string",
-      )
+    ? manifest.absent
+        .slice(0, PRESENCE_MAX)
+        .filter((value): value is string => typeof value === "string")
     : [];
   const named = new Set(tombstones.map((entry) => entry.path));
   for (const drivePath of absent) {
@@ -695,7 +874,8 @@ export const materializeDriveFiles = async (options: {
   let ledgerDropped = 0;
   if (tombstones.length > 0) {
     const applied = await applyTombstones(
-      workspaceRealRoot,
+      workspaceRoot,
+      options.owner,
       prefix,
       tombstones,
       ledger,
@@ -709,21 +889,16 @@ export const materializeDriveFiles = async (options: {
     // below, which reaches the same answer for the same reason and says so as
     // a conflict.
     const live = new Set([
-      ...entries.map((entry) => entry.path),
-      ...(manifest.skipped ?? []).map((entry) => entry.path),
+      ...entries.flatMap((entry) =>
+        entry && typeof entry.path === "string" ? [entry.path] : [],
+      ),
+      ...(manifest.skipped ?? []).flatMap((entry) =>
+        entry && typeof entry.path === "string" ? [entry.path] : [],
+      ),
     ]);
     result.stale = applied.stale.filter((drivePath) => !live.has(drivePath));
     ledgerDropped = applied.dropped;
   }
-  if (manifest.deletedComplete === false) {
-    // Deliberately only logged. The obvious reflex — sweep the drive folder
-    // for anything with no row — would delete this turn's own undelivered
-    // output, which lives in the same tree and has no row either.
-    console.warn(
-      "drive sync: deletion history may be incomplete for this workspace",
-    );
-  }
-
   // Rows the manifest named but did not hydrate, on a drive larger than the
   // per-turn budget. "Not loaded into this turn" is only true of the ones the
   // workspace is not already holding: a row an earlier turn hydrated is still
@@ -752,24 +927,39 @@ export const materializeDriveFiles = async (options: {
   // would be told its own undelivered work is the user's current copy, which
   // is the half of U1 that is about reporting rather than bytes.
   for (const entry of manifest.skipped ?? []) {
+    if (
+      !entry ||
+      typeof entry.path !== "string" ||
+      typeof entry.reason !== "string"
+    ) {
+      continue;
+    }
     const version = entry.updatedAt;
     const hydrated = ledger.files.get(entry.path);
     const target =
       typeof version === "number" && hydrated?.updatedAt === version
-        ? await resolveTarget(
-            workspaceRealRoot,
-            relativeToPrefix(prefix, entry.path),
-            false,
-          )
+        ? resolveTarget(workspaceRoot, relativeToPrefix(prefix, entry.path))
         : null;
-    const stats = target ? await lstat(target).catch(() => null) : null;
-    if (typeof version !== "number" || !target || !stats?.isFile()) {
+    let snapshot: WorkspaceSnapshot | null = null;
+    if (target && hydrated) {
+      try {
+        snapshot = await inspectWorkspaceFile(
+          target,
+          workspaceRoot,
+          options.owner,
+          hydrated.sizeBytes,
+        );
+      } catch {
+        snapshot = null;
+      }
+    }
+    if (typeof version !== "number" || !target || !snapshot) {
       result.skipped.push({ path: entry.path, reason: entry.reason });
       continue;
     }
     result.known.set(entry.path, version);
     if (entry.origin === "upload") result.uploads.add(entry.path);
-    if (!(await isHydratedCopy(target, stats, hydrated))) {
+    if (!isHydratedCopy(snapshot, hydrated)) {
       // The row has not moved — that is the precondition for being here — so
       // this is the same case as the outcome loop's `driveMoved: false`, and
       // it is reported with the same words.
@@ -783,7 +973,26 @@ export const materializeDriveFiles = async (options: {
   // one at a time made a turn's start time the sum of the drive's downloads.
   const deadline = Date.now() + HYDRATE_BUDGET_MS;
   const hydrate = async (entry: DriveSyncEntry): Promise<Hydration> => {
-    const target = await resolveTarget(workspaceRealRoot, entry.relativePath);
+    if (
+      !entry ||
+      typeof entry.path !== "string" ||
+      typeof entry.relativePath !== "string" ||
+      typeof entry.url !== "string" ||
+      !Number.isSafeInteger(entry.sizeBytes) ||
+      entry.sizeBytes < 0 ||
+      entry.sizeBytes > DRIVE_FILE_MAX_BYTES ||
+      (entry.sha256 !== undefined && !/^[a-f0-9]{64}$/i.test(entry.sha256))
+    ) {
+      return {
+        kind: "skipped",
+        path:
+          entry && typeof entry.path === "string"
+            ? entry.path
+            : "(invalid drive entry)",
+        reason: "the drive returned invalid file metadata",
+      };
+    }
+    const target = resolveTarget(workspaceRoot, entry.relativePath);
     if (!target) {
       return {
         kind: "skipped",
@@ -791,7 +1000,23 @@ export const materializeDriveFiles = async (options: {
         reason: "it does not resolve to a location inside the workspace",
       };
     }
-    const current = await alreadyCurrent(target, entry, ledger);
+    const hydrated = ledger.files.get(entry.path);
+    let present: WorkspaceSnapshot | null;
+    try {
+      present = await inspectWorkspaceFile(
+        target,
+        workspaceRoot,
+        options.owner,
+        Math.max(entry.sizeBytes, hydrated?.sizeBytes ?? 0),
+      );
+    } catch {
+      return {
+        kind: "skipped",
+        path: entry.path,
+        reason: "its workspace path is not a safe owned file location",
+      };
+    }
+    const current = await alreadyCurrent(present, entry, ledger);
     if (current) {
       return {
         kind: "current",
@@ -811,14 +1036,7 @@ export const materializeDriveFiles = async (options: {
     // own output from a turn whose delivery was omitted, withheld, refused by
     // quota or lost, all of which the user was told are "still in the
     // workspace" — and re-downloading the row is a silent revert of it.
-    const standing = await lstat(target).catch(() => null);
-    // Only a regular file is a copy of anything. A directory or a symlink
-    // standing at a drive path is neither ours nor somebody's work; the write
-    // below refuses it on its own terms (O_NOFOLLOW), as it always has.
-    const present = standing?.isFile() ? standing : null;
-    const hydrated = ledger.files.get(entry.path);
-    const ours =
-      present !== null && (await isHydratedCopy(target, present, hydrated));
+    const ours = isHydratedCopy(present, hydrated);
     if (present && !ours && hydrated?.updatedAt === entry.updatedAt) {
       // The row has not moved since this workspace hydrated it, so the
       // download would restore bytes this workspace already had and destroy
@@ -842,27 +1060,40 @@ export const materializeDriveFiles = async (options: {
       signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
     }).catch(() => null);
     const bytes = download?.ok
-      ? await download
-          .arrayBuffer()
-          .then((buffer) => Buffer.from(buffer))
-          .catch(() => null)
+      ? await readDownloadBytes(download, entry.sizeBytes)
       : null;
+    const downloadedSha256 = bytes
+      ? createHash("sha256").update(bytes).digest("hex")
+      : null;
+    if (
+      bytes &&
+      (bytes.byteLength !== entry.sizeBytes ||
+        (entry.sha256 && downloadedSha256 !== entry.sha256.toLowerCase()))
+    ) {
+      bytes.fill(0);
+      return {
+        kind: "skipped",
+        path: entry.path,
+        reason: "the downloaded drive bytes did not match their manifest",
+      };
+    }
     if (bytes && present && !ours) {
       // The row has moved (or this workspace has no usable record of ever
       // holding it: a ledger entry rotated out past LEDGER_MAX_ENTRIES,
       // dropped, or never written). Both sides may have changed, so the last
       // thing that can still settle it is the drive's own bytes — compared,
       // not written.
-      const sha256 = createHash("sha256").update(bytes).digest("hex");
       if (
-        present.size !== bytes.byteLength ||
-        (await sha256File(target)) !== sha256
+        present.stat.size !== bytes.byteLength ||
+        present.sha256 !== downloadedSha256
       ) {
+        bytes.fill(0);
         return { kind: "conflict", path: entry.path, driveMoved: true };
       }
       // Byte-identical after all, so there was never anything to overwrite —
       // and the record this workspace was missing is now provable, which is
       // what stops the next turn asking the same question.
+      bytes.fill(0);
       return {
         kind: "current",
         path: entry.path,
@@ -870,11 +1101,21 @@ export const materializeDriveFiles = async (options: {
         ledger: {
           updatedAt: entry.updatedAt,
           sizeBytes: bytes.byteLength,
-          sha256,
+          sha256: downloadedSha256!,
         },
       };
     }
-    if (!bytes || !(await writeContained(target, bytes))) {
+    if (
+      !bytes ||
+      !(await writeContained(
+        target,
+        workspaceRoot,
+        options.owner,
+        bytes,
+        present?.stat,
+      ))
+    ) {
+      bytes?.fill(0);
       // Not fatal, and deliberately not vouched for: the write side will
       // protect this path rather than let the agent replace bytes it could
       // not read.
@@ -884,14 +1125,15 @@ export const materializeDriveFiles = async (options: {
         reason: "loading it into the workspace failed",
       };
     }
+    bytes.fill(0);
     return {
       kind: "downloaded",
       path: entry.path,
       updatedAt: entry.updatedAt,
       ledger: {
         updatedAt: entry.updatedAt,
-        sizeBytes: bytes.byteLength,
-        sha256: createHash("sha256").update(bytes).digest("hex"),
+        sizeBytes: entry.sizeBytes,
+        sha256: downloadedSha256!,
       },
     };
   };
@@ -998,7 +1240,13 @@ export const materializeDriveFiles = async (options: {
   const rotated = walked !== ledger.checkedThrough;
   ledger.checkedThrough = walked;
   if (ledgerAdded > 0 || ledgerDropped > 0 || moved || rotated) {
-    await writeLedger(ledgerPath, ledger);
+    await writeLedger(
+      ledgerPath,
+      workspaceRoot,
+      options.owner,
+      ledger,
+      ledgerRead.expectedStat,
+    );
   }
   const notes: string[] = [];
   if (downloaded > 0) {

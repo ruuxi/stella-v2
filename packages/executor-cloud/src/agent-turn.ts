@@ -3,14 +3,24 @@
  * host) running headless in the sandbox as the spawned general agent.
  *
  * The BuildSession DO restores the workspace before invoking this and
- * checkpoints it after; this module only runs the loop. Model calls go
- * through the managed relay authenticated by the per-turn token; events and
- * the thread transcript stream to Convex with the same token. The final line
- * on stdout is the structured report the DO parses.
+ * checkpoints it after; this module only runs the loop. Model calls, events,
+ * and transcript writes go through the short-lived Builder broker capability;
+ * the reusable Convex turn token never enters this process. The final line on
+ * stdout is the structured report the DO parses.
  */
 
-import { existsSync } from "node:fs";
-import { readFile, mkdir, rm } from "node:fs/promises";
+import { constants as fsConstants, existsSync } from "node:fs";
+import {
+  chmod,
+  chown,
+  lchown,
+  lstat,
+  readFile,
+  mkdir,
+  open,
+  readdir,
+  rm,
+} from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
@@ -28,11 +38,16 @@ import {
   createClaudeCodeToolMcpHost,
   type ClaudeCodeToolMcpHost,
 } from "@stella/runtime/kernel/integrations/claude-code-tool-mcp-host.js";
-import type {
-  ToolMetadata,
-  ToolResult,
-  ToolUpdateCallback,
+import {
+  TOOL_RESULT_AUTHORIZED_IMAGES,
+  type ToolMetadata,
+  type ToolResult,
+  type ToolUpdateCallback,
 } from "@stella/runtime/kernel/tools/types.js";
+import {
+  neutralizeLegacyAttachImageMarkers,
+  prepareAuthorizedToolImageBlocks,
+} from "@stella/runtime/kernel/agent-runtime/tool-adapters.js";
 import {
   AGENT_RUN_MAX_ATTEMPTS,
   executeAgentRunWithRetry,
@@ -43,13 +58,11 @@ import {
   extractAssistantText,
   getAgentCompletion,
 } from "@stella/runtime/kernel/agent-runtime/run-shared.js";
-import { turnToken } from "./env-secrets.js";
 import {
-  CLOUD_TURN_TOKEN_HEADER,
   createCloudRelayModel,
   resolveCloudThinkingLevel,
 } from "./relay-model.js";
-import { chunkForAppend, pruneAgentHistory } from "./prune-history.js";
+import { pruneAgentHistory } from "./prune-history.js";
 import {
   emptyDriveSync,
   materializeDriveFiles,
@@ -74,27 +87,61 @@ import {
   toolStateDirFor,
   type WorkspaceIdentity,
 } from "./workspace-paths.js";
-import { runNativeAgentTurn } from "./native-agent-turn.js";
+import {
+  nativeHistoryCursorFromMessages,
+  nativeHistoryCursorFromRows,
+  runNativeAgentTurn,
+} from "./native-agent-turn.js";
+import {
+  parseAuthoritativeAgentHistory,
+  type AgentHistoryRow,
+} from "./agent-history.js";
+import type {
+  TurnBrokerInput,
+  TurnBrokerTurnStateCheckpointReceipt,
+} from "@stella/contracts/turn-credential-broker";
+import {
+  startTurnCredentialProxy,
+  takeTurnBrokerHandoff,
+  TurnCredentialBrokerClient,
+} from "./turn-credential-broker.js";
+import {
+  assertCloudMountedDirectoryBoundary,
+  assertToolOwnedDirectory,
+  CLOUD_HOST_STATE,
+  CLOUD_TOOL_HOME,
+  CLOUD_TOOL_PROCESS_IDENTITY,
+  proveStrictCloudProcessIsolation,
+} from "./cloud-process-isolation.js";
+
+export { CLOUD_TOOL_PROCESS_IDENTITY } from "./cloud-process-isolation.js";
 
 /**
  * The turn input file sits above the workspace root and is readable by every
  * shell the agent runs, so the executor consumes it and immediately unlinks
- * it: the thread history and the callback base it carries are the executor's
- * inputs, not the agent's context.
+ * it: the thread history and broker handoff it carries are executor inputs,
+ * not the agent's context.
  */
 const TURN_INPUT_PATH = "/workspace/turn-input.json";
 
 export type AgentTurnInput = {
   kind: "agent";
   ownerId: string;
+  ownerGeneration: string;
   conversationId: string;
   threadId: string;
   turnId: string;
+  attemptGeneration: number;
   prompt: string;
   workspace: string;
-  convexCallbackBase: string;
+  /** Builder-owned fact: this attempt restored a durable workspace backup. */
+  workspaceRestored: boolean;
+  /** Builder-derived HMAC key; consumed before any model/tool process exists. */
+  nativeStateIntegrityKey: string;
+  /** One-shot pointer to the Builder-owned, short-lived turn broker. */
+  turnBroker: TurnBrokerInput;
   /** Prior thread transcript rows, oldest first (send_input continuations). */
-  history?: Array<{ role: string; payloadJson: string }>;
+  history?: AgentHistoryRow[];
   /** Canonical model route authorized for this turn at dispatch. */
   execution: CloudExecutionSelection;
   /** Clone/checkout inputs for a `project:<slug>` workspace. */
@@ -123,7 +170,27 @@ export type AgentTurnResult = {
   ok: boolean;
   finalText: string;
   error?: string;
+  /**
+   * A pre-agent failure must not replace the last good checkpoint (or create
+   * an empty first checkpoint), so the same preflight can be retried safely.
+   */
+  checkpointPolicy?: "preserve_prior" | "builder_fallback";
   usage: { inputTokens: number; outputTokens: number; llmCalls: number };
+  /** Builder-owned archive commit latency observed through the broker. */
+  checkpointMs?: number;
+  /** Exact staged archive pair; Builder promotes it only after transcript ACK. */
+  turnStateCheckpoint?: TurnBrokerTurnStateCheckpointReceipt;
+  /**
+   * All model-controlled writers were not proven joined in-process. Builder
+   * must kill the exact execution session, then archive and append these rows.
+   */
+  builderFallback?: {
+    historyCursor: string;
+    messages: Array<{ ordinal: number; role: string; payloadJson: string }>;
+    nativeCheckpoint?: Awaited<
+      ReturnType<typeof runNativeAgentTurn>
+    >["nativeStateCheckpoint"];
+  };
   /**
    * Resolved project workspace facts. `setupCommand` is the command this turn
    * inferred when the project had none recorded; the dispatcher persists it so
@@ -153,12 +220,112 @@ export type AgentTurnResult = {
 const CLOUD_GENERAL_TOOLS = [
   "exec_command",
   "write_stdin",
-  "code",
   "apply_patch",
   "web",
   "view_image",
   "Read",
 ] as const;
+
+export const cloudGeneralToolNames = (
+  _engine: CloudExecutionSelection["engine"],
+): readonly (typeof CLOUD_GENERAL_TOOLS)[number][] =>
+  CLOUD_GENERAL_TOOLS;
+
+/**
+ * Make the restored workspace writable by the fixed tool account without ever
+ * following a workspace symlink. The trusted executor and native Claude
+ * process remain root; only model-authored ToolHost child processes use this
+ * identity, so `/home/stella-native-state` stays unreadable to them.
+ */
+export const chownTreeWithoutFollowingSymlinks = async (
+  root: string,
+  uid: number = CLOUD_TOOL_PROCESS_IDENTITY.uid,
+  gid: number = CLOUD_TOOL_PROCESS_IDENTITY.gid,
+): Promise<void> => {
+  const visit = async (target: string, isRoot: boolean): Promise<void> => {
+    const details = await lstat(target);
+    if (details.isSymbolicLink()) {
+      if (isRoot) {
+        throw new Error("Cloud workspace root must not be a symbolic link.");
+      }
+      await lchown(target, uid, gid);
+      return;
+    }
+    if (details.isFile() && details.nlink !== 1) {
+      throw new Error("Cloud workspace contains a hard-linked file.");
+    }
+    await chown(target, uid, gid);
+    if (!details.isDirectory()) return;
+    for (const entry of await readdir(target)) {
+      await visit(path.join(target, entry), false);
+    }
+  };
+  await visit(root, true);
+};
+
+export const prepareCloudToolFilesystem = async (args: {
+  workspaceRoot: string;
+  workspaceStateDir?: string;
+  toolHome: string;
+}): Promise<void> => {
+  await assertCloudMountedDirectoryBoundary({
+    workspaceRoot: args.workspaceRoot,
+  });
+  const ensureToolDirectory = async (target: string): Promise<void> => {
+    let created = false;
+    try {
+      await mkdir(target, { mode: 0o700 });
+      created = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    const handle = await open(
+      target,
+      fsConstants.O_RDONLY |
+        (fsConstants.O_DIRECTORY ?? 0) |
+        (fsConstants.O_NOFOLLOW ?? 0),
+    );
+    try {
+      const details = await handle.stat();
+      if (!details.isDirectory()) {
+        throw new Error("Cloud tool state must be a real directory.");
+      }
+      if (created) {
+        await handle.chown(
+          CLOUD_TOOL_PROCESS_IDENTITY.uid,
+          CLOUD_TOOL_PROCESS_IDENTITY.gid,
+        );
+        await handle.chmod(0o700);
+      }
+    } finally {
+      await handle.close();
+    }
+    await assertToolOwnedDirectory(target, 0o700);
+  };
+  await ensureToolDirectory(args.toolHome);
+  if (args.workspaceStateDir && args.workspaceStateDir !== args.toolHome) {
+    await ensureToolDirectory(args.workspaceStateDir);
+  }
+  await proveStrictCloudProcessIsolation();
+};
+
+export const commitTurnStateBeforeTranscript = async (args: {
+  historyCursor: string;
+  nativeCheckpoint?: Awaited<
+    ReturnType<typeof runNativeAgentTurn>
+  >["nativeStateCheckpoint"];
+  broker: Pick<TurnCredentialBrokerClient, "commitTurnStateCheckpoint">;
+  appendTranscript: () => Promise<void>;
+}): Promise<TurnBrokerTurnStateCheckpointReceipt> => {
+  const receipt = await args.broker.commitTurnStateCheckpoint({
+    historyCursor: args.historyCursor,
+    ...(args.nativeCheckpoint
+      ? { nativeCheckpoint: args.nativeCheckpoint }
+      : {}),
+  });
+  await args.appendTranscript();
+  return receipt;
+};
 
 /**
  * The office CLI ships inside the image next to the runtime. The tool host
@@ -327,6 +494,20 @@ You cannot spawn other agents and you cannot reach the user directly.${driveLine
 const asError = (error: unknown): Error =>
   error instanceof Error ? error : new Error(String(error));
 
+export const hydrateDriveForAgentTurn = async (
+  options: Parameters<typeof materializeDriveFiles>[0],
+  materialize: typeof materializeDriveFiles = materializeDriveFiles,
+): Promise<DriveSyncResult> => {
+  try {
+    return await materialize(options);
+  } catch (error) {
+    throw new Error(
+      `Drive hydration could not establish an authoritative workspace; refusing to run the agent against stale or incomplete files: ${asError(error).message}`,
+      { cause: error },
+    );
+  }
+};
+
 export const runAgentTurn = (
   fallbackWorkspaceRoot = "/workspace/drive",
 ): Effect.Effect<AgentTurnResult, Error> =>
@@ -340,6 +521,48 @@ export const runAgentTurn = (
         },
         catch: asError,
       });
+      const broker = yield* Effect.acquireRelease(
+        Effect.tryPromise({
+          try: async () =>
+            new TurnCredentialBrokerClient(
+              await takeTurnBrokerHandoff(input.turnBroker),
+            ),
+          catch: asError,
+        }),
+        (client) => Effect.sync(() => client.close()),
+      );
+      const credentialProxy = yield* Effect.acquireRelease(
+        Effect.sync(() => startTurnCredentialProxy(broker)),
+        (proxy) => Effect.sync(() => proxy.close()),
+      );
+      let history: AgentMessage[];
+      try {
+        history = pruneAgentHistory(
+          parseAuthoritativeAgentHistory(input.history ?? []),
+        );
+      } catch (error) {
+        console.error(
+          `authoritative agent history rejected: ${asError(error).message}`,
+        );
+        return {
+          ok: false,
+          finalText: "",
+          error:
+            "Stella couldn't validate this agent's conversation history. Try again.",
+          usage: { inputTokens: 0, outputTokens: 0, llmCalls: 0 },
+          checkpointPolicy: "preserve_prior",
+        };
+      }
+      if (!/^[0-9a-f]{64}$/.test(input.nativeStateIntegrityKey)) {
+        return {
+          ok: false,
+          finalText: "",
+          error:
+            "Stella couldn't validate this agent's native session state. Try again.",
+          usage: { inputTokens: 0, outputTokens: 0, llmCalls: 0 },
+          checkpointPolicy: "preserve_prior",
+        };
+      }
       // The one credential the turn input only points at. Taken here, at the
       // top of the turn, so it is off the filesystem long before the tool host
       // — and therefore any shell the agent can run — exists.
@@ -352,23 +575,23 @@ export const runAgentTurn = (
         catch: asError,
       });
       const workspaceRoot = workspace.root;
-      if (!turnToken) {
-        return yield* Effect.fail(new Error("STELLA_TURN_TOKEN is not set."));
-      }
-      const token = turnToken;
-      const base = input.convexCallbackBase.replace(/\/+$/, "");
+      const workspaceStateDir =
+        workspace.kind === "drive" ? toolStateDirFor(workspace) : undefined;
+      const stateDir = workspaceStateDir ?? CLOUD_TOOL_HOME;
+      const toolHome = CLOUD_TOOL_HOME;
+      yield* Effect.tryPromise({
+        try: () =>
+          prepareCloudToolFilesystem({
+            workspaceRoot,
+            ...(workspaceStateDir ? { workspaceStateDir } : {}),
+            toolHome,
+          }),
+        catch: asError,
+      });
       const postJson = async (
         route: string,
         body: unknown,
-      ): Promise<Response> =>
-        fetch(`${base}${route}`, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            [CLOUD_TURN_TOKEN_HEADER]: token,
-          },
-          body: JSON.stringify(body),
-        });
+      ): Promise<Response> => await broker.postJson(route, body);
 
       // Ordered, best-effort progress events; a lost event never fails the
       // turn (the DO writes the terminal event either way).
@@ -378,6 +601,7 @@ export const runAgentTurn = (
           .then(() =>
             postJson("/api/cloud/events", {
               turnId: input.turnId,
+              attemptGeneration: input.attemptGeneration,
               sessionId: input.threadId,
               seq: "auto",
               kind,
@@ -400,6 +624,10 @@ export const runAgentTurn = (
               projectHandoff,
               (message) => emitEvent("progress", { message }),
               projectToken,
+              {
+                ...CLOUD_TOOL_PROCESS_IDENTITY,
+                home: toolHome,
+              },
             ),
           catch: asError,
         });
@@ -415,12 +643,6 @@ export const runAgentTurn = (
 
       // Created before hydration, not after: the hydration ledger lives here,
       // and it is what lets a turn skip re-downloading a drive it already has.
-      const stateDir = toolStateDirFor(workspace);
-      yield* Effect.tryPromise({
-        try: () => mkdir(stateDir, { recursive: true }),
-        catch: asError,
-      });
-
       // Bring the drive into the workspace before any agent tool exists. Only
       // the `drive` kind: its root IS the drive namespace, whereas a project
       // or app root is a checkout whose drive folder is an output mirror —
@@ -428,22 +650,35 @@ export const runAgentTurn = (
       // deleted and dirty a branch the user is about to review.
       let driveSync = emptyDriveSync();
       if (workspace.kind === "drive") {
-        driveSync = yield* Effect.promise(() =>
-          materializeDriveFiles({
-            turnId: input.turnId,
-            prompt: input.prompt,
-            workspaceRoot,
-            stateDir,
-            post: postJson,
-            onProgress: (message) => emitEvent("progress", { message }),
-          }).catch((error) => {
-            // A drive the turn could not read is a turn that vouches for
-            // nothing, which is exactly what stops it overwriting an upload it
-            // never saw. Degraded, not failed.
-            console.error(`drive sync failed: ${asError(error).message}`);
-            return emptyDriveSync();
-          }),
-        );
+        const hydration = yield* Effect.promise(async () => {
+          try {
+            return {
+              ok: true as const,
+              value: await hydrateDriveForAgentTurn({
+                turnId: input.turnId,
+                prompt: input.prompt,
+                workspaceRoot,
+                workspaceRestored: input.workspaceRestored,
+                stateDir,
+                owner: CLOUD_TOOL_PROCESS_IDENTITY,
+                post: postJson,
+                onProgress: (message) => emitEvent("progress", { message }),
+              }),
+            };
+          } catch (error) {
+            return { ok: false as const, error: asError(error) };
+          }
+        });
+        if (!hydration.ok) {
+          return {
+            ok: false,
+            finalText: "",
+            error: hydration.error.message,
+            usage: { inputTokens: 0, outputTokens: 0, llmCalls: 0 },
+            checkpointPolicy: "preserve_prior",
+          };
+        }
+        driveSync = hydration.value;
       }
 
       const officeBinPath = resolveOfficeBinPath();
@@ -465,7 +700,9 @@ export const runAgentTurn = (
         Effect.sync(() =>
           createToolHost({
             stellaAppDir: workspaceRoot,
-            stellaDataDir: stateDir,
+            stellaDataDir: CLOUD_HOST_STATE,
+            recoverStaleSecrets: false,
+            enableShellShims: false,
             ...(officeBinPath ? { stellaOfficeBinPath: officeBinPath } : {}),
             webSearch: async (query, options) => {
               const response = await postJson("/api/cloud/web-search", {
@@ -503,6 +740,10 @@ export const runAgentTurn = (
         stellaDataDir: stateDir,
         toolWorkspaceRoot: workspaceRoot,
         storageMode: "cloud",
+        toolProcessIdentity: {
+          ...CLOUD_TOOL_PROCESS_IDENTITY,
+          home: toolHome,
+        },
         agentId: input.threadId,
         agentDepth: 1,
         maxAgentDepth: 1,
@@ -538,9 +779,9 @@ export const runAgentTurn = (
 
       const catalog = toolHost.getToolCatalog("general", {});
       const byName = new Map(catalog.map((tool) => [tool.name, tool]));
-      const cloudToolMetadata = CLOUD_GENERAL_TOOLS.map((name) =>
-        byName.get(name),
-      ).filter((tool): tool is ToolMetadata => Boolean(tool));
+      const cloudToolMetadata = cloudGeneralToolNames(input.execution.engine)
+        .map((name) => byName.get(name))
+        .filter((tool): tool is ToolMetadata => Boolean(tool));
       const recordToolResult = (result: ToolResult): void => {
         if (result.fileChanges) editedFiles.push(...result.fileChanges);
         if (result.producedFiles?.length) {
@@ -579,21 +820,35 @@ export const runAgentTurn = (
             signal,
           );
           if (result.error) throw new Error(result.error);
-          const text =
+          const rawText =
             typeof result.result === "string"
               ? result.result
               : result.result === undefined
                 ? ""
                 : JSON.stringify(result.result, null, 2);
+          const text = neutralizeLegacyAttachImageMarkers(rawText);
+          const images = await prepareAuthorizedToolImageBlocks(
+            result[TOOL_RESULT_AUTHORIZED_IMAGES],
+            {
+              provider: input.execution.provider,
+              modelId: input.execution.model,
+            },
+          );
+          const visibleText =
+            text.length > 30_000
+              ? `${text.slice(0, 15_000)}\n…[truncated]…\n${text.slice(-15_000)}`
+              : text;
           return {
             content: [
-              {
-                type: "text",
-                text:
-                  text.length > 30_000
-                    ? `${text.slice(0, 15_000)}\n…[truncated]…\n${text.slice(-15_000)}`
-                    : text || "(no output)",
-              },
+              ...(visibleText || images.length === 0
+                ? [
+                    {
+                      type: "text" as const,
+                      text: visibleText || "(no output)",
+                    },
+                  ]
+                : []),
+              ...images,
             ],
             details: result.details ?? null,
           };
@@ -608,6 +863,7 @@ export const runAgentTurn = (
               createClaudeCodeToolMcpHost({
                 tools: cloudToolMetadata,
                 identityScope: `${input.threadId}:${input.turnId}`,
+                allowLegacyImagePathReopen: false,
                 getActiveTurn: () => ({
                   identityScope: `${input.threadId}:${input.turnId}`,
                   executeTool: (
@@ -622,75 +878,103 @@ export const runAgentTurn = (
             catch: asError,
           }),
           (host) =>
-            Effect.tryPromise({
-              try: () => host.close(),
-              catch: asError,
-            }).pipe(Effect.orDie),
+            Effect.promise(async () => {
+              await host.close().catch((error) => {
+                console.error(
+                  `Claude MCP finalizer failed: ${asError(error).message}`,
+                );
+              });
+            }),
         );
       }
 
-      const parsedHistory: AgentMessage[] = [];
-      for (const row of input.history ?? []) {
-        try {
-          parsedHistory.push(JSON.parse(row.payloadJson) as AgentMessage);
-        } catch {
-          // A malformed historical row degrades context, never the turn.
-        }
-      }
       // Long-running threads accumulate transcript across send_input
       // continuations; keep the newest window that fits the model.
-      const history = pruneAgentHistory(parsedHistory);
 
       let llmCalls = 0;
       let inputTokens = 0;
       let outputTokens = 0;
+      let checkpointMs = 0;
+      let turnStateCheckpoint: TurnBrokerTurnStateCheckpointReceipt | undefined;
       let execution: { finalText: string; errorMessage?: string };
       let produced: AgentMessage[];
+      let forceBuilderFallback = false;
+      let nativeStateCheckpoint:
+        | Awaited<
+            ReturnType<typeof runNativeAgentTurn>
+          >["nativeStateCheckpoint"]
+        | undefined;
       if (input.execution.engine !== "stella") {
         const nativeExecution = input.execution;
-        const native = yield* Effect.tryPromise({
-          try: () =>
-            runNativeAgentTurn({
+        const nativeOutcome = yield* Effect.promise(async () => {
+          try {
+            return {
+              ok: true as const,
+              value: await runNativeAgentTurn({
               prompt: input.prompt,
               systemPrompt: cloudSystemPrompt,
               execution: nativeExecution,
-              callbackBase: base,
-              turnToken: token,
+              callbackBase: credentialProxy.siteBaseUrl,
+              relayToken: credentialProxy.dummyToken,
               workspace,
               threadId: input.threadId,
+              turnId: input.turnId,
+              history,
+              authoritativeHistoryCursor: nativeHistoryCursorFromRows(
+                input.history ?? [],
+              ),
+              stateIntegrityKey: input.nativeStateIntegrityKey,
               ...(claudeToolMcpHost
                 ? {
                     claudeMcpServerConfig: claudeToolMcpHost.mcpServerConfig,
                   }
                 : {}),
               emitEvent,
-            }),
-          catch: asError,
+              }),
+            };
+          } catch (error) {
+            return { ok: false as const, error: asError(error) };
+          }
         });
-        if (!native.error && claudeToolMcpHost) {
-          yield* Effect.tryPromise({
-            // A successful Claude process must have initialized the immutable
-            // Stella catalog. Native errors remain authoritative and are not
-            // replaced by a secondary readiness failure.
-            try: () => claudeToolMcpHost.waitForClientReady(undefined, 1_000),
-            catch: asError,
-          });
+        if (!nativeOutcome.ok) {
+          forceBuilderFallback = true;
+          execution = {
+            finalText: "",
+            errorMessage: nativeOutcome.error.message,
+          };
+          produced = [];
+        } else {
+          const native = nativeOutcome.value;
+          let readinessError: Error | undefined;
+          if (!native.error && claudeToolMcpHost) {
+            readinessError = yield* Effect.promise(async () => {
+              try {
+                await claudeToolMcpHost!.waitForClientReady(undefined, 1_000);
+                return undefined;
+              } catch (error) {
+                return asError(error);
+              }
+            });
+          }
+          editedFiles.push(...native.editedFiles);
+          llmCalls = native.usage.llmCalls;
+          inputTokens = native.usage.inputTokens;
+          outputTokens = native.usage.outputTokens;
+          execution = {
+            finalText: native.finalText.trim(),
+            ...(native.error || readinessError
+              ? { errorMessage: native.error ?? readinessError!.message }
+              : {}),
+          };
+          produced = native.messages;
+          nativeStateCheckpoint = native.nativeStateCheckpoint;
         }
-        editedFiles.push(...native.editedFiles);
-        llmCalls = native.usage.llmCalls;
-        inputTokens = native.usage.inputTokens;
-        outputTokens = native.usage.outputTokens;
-        execution = {
-          finalText: native.finalText.trim(),
-          ...(native.error ? { errorMessage: native.error } : {}),
-        };
-        produced = native.messages;
       } else {
         const model = yield* Effect.tryPromise({
           try: () =>
             createCloudRelayModel({
-              siteUrl: base,
-              turnToken: token,
+              siteUrl: credentialProxy.siteBaseUrl,
+              turnToken: credentialProxy.dummyToken,
               agentType: "general",
               execution: input.execution,
             }),
@@ -708,7 +992,7 @@ export const runAgentTurn = (
             messages: history,
           },
           sessionId: input.threadId,
-          getApiKey: () => token,
+          getApiKey: () => credentialProxy.dummyToken,
           toolExecution: "sequential",
           toolInactivityTimeoutMs: 5 * 60_000,
           // Same division of labor as the desktop runtime and the orchestrator
@@ -753,9 +1037,11 @@ export const runAgentTurn = (
         // transport failure resumes the same in-memory context instead of
         // failing the whole turn. The DO's watchdog still bounds the turn; a
         // full ladder adds at most ~10s of backoff.
-        execution = yield* Effect.tryPromise({
-          try: () =>
-            executeAgentRunWithRetry({
+        const runOutcome = yield* Effect.promise(async () => {
+          try {
+            return {
+              ok: true as const,
+              value: await executeAgentRunWithRetry({
               state: { attemptsUsed: 0, retriesUsed: 0 },
               execute: async (resume) => {
                 if (resume) {
@@ -781,10 +1067,17 @@ export const runAgentTurn = (
                 }
                 return prepared;
               },
-            }),
-          catch: asError,
+              }),
+            };
+          } catch (error) {
+            return { ok: false as const, error: asError(error) };
+          } finally {
+            unsubscribe();
+          }
         });
-        unsubscribe();
+        execution = runOutcome.ok
+          ? runOutcome.value
+          : { finalText: "", errorMessage: runOutcome.error.message };
         // Errored assistant messages have empty content; one empty assistant
         // row poisons every future Anthropic request for this thread.
         produced = agent.state.messages.slice(before).filter((message) => {
@@ -796,62 +1089,93 @@ export const runAgentTurn = (
           );
         });
       }
-      yield* Effect.promise(() => eventChain.then(() => undefined));
-
-      // Persist the thread transcript (conversationId = threadId) so
-      // send_input continuations restore full conversational context, not
-      // just the workspace.
-      if (produced.length > 0) {
-        // The append route caps one request at 50 rows; a busy turn (each
-        // tool call is an assistant + toolResult pair) easily exceeds that,
-        // so persist in ordered batches.
-        yield* Effect.tryPromise({
-          try: async () => {
-            const rows = produced.map((message) => ({
-              role: (message as { role: string }).role,
-              payloadJson: JSON.stringify(message),
-            }));
-            // Multi-batch persist is not atomic; retry each batch once so a
-            // transient failure can't strand a committed prefix while the
-            // turn reports failed.
-            for (const batch of chunkForAppend(rows)) {
-              let response = await postJson("/api/cloud/messages", {
-                conversationId: input.threadId,
-                turnId: input.turnId,
-                messages: batch,
-              });
-              if (!response.ok) {
-                response = await postJson("/api/cloud/messages", {
-                  conversationId: input.threadId,
-                  turnId: input.turnId,
-                  messages: batch,
-                });
-              }
-              if (!response.ok) {
-                throw new Error(
-                  `Thread transcript persist failed (${response.status}).`,
-                );
-              }
-            }
+      if (produced.length === 0) {
+        // A tool-only/error path can still mutate the workspace before an
+        // engine emits a transcript row. Give that physical turn an explicit
+        // canonical row instead of silently dropping its durable state or
+        // trying to replace a checkpoint under an unchanged cursor.
+        const timestamp = Date.now();
+        produced = [
+          {
+            role: "user",
+            content: [{ type: "text", text: input.prompt }],
+            timestamp,
           },
-          catch: asError,
-        });
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text:
+                  execution.finalText ||
+                  execution.errorMessage ||
+                  "The agent finished without a report.",
+              },
+            ],
+            api: "stella-cloud",
+            provider: input.execution.provider,
+            model: input.execution.model,
+            usage: {
+              input: inputTokens,
+              output: outputTokens,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: inputTokens + outputTokens,
+              cost: {
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+                total: 0,
+              },
+            },
+            stopReason: execution.errorMessage ? "error" : "stop",
+            ...(execution.errorMessage
+              ? { errorMessage: execution.errorMessage }
+              : {}),
+            timestamp,
+          },
+        ] as AgentMessage[];
+      }
+      const eventFailure = yield* Effect.promise(async () => {
+        try {
+          await eventChain;
+          return undefined;
+        } catch (error) {
+          return asError(error);
+        }
+      });
+      if (eventFailure && !execution.errorMessage) {
+        execution.errorMessage = eventFailure.message;
       }
 
       // Background commands that finished after their last poll still hold
       // their deliverables; pull those in before reporting.
-      const drained = yield* Effect.tryPromise({
-        try: () =>
-          toolHost.drainCompletedShellProducedFiles({
+      const drainOutcome = yield* Effect.promise(async () => {
+        try {
+          return {
+            ok: true as const,
+            value: await toolHost.drainCompletedShellProducedFiles({
             conversationId: context.conversationId,
             ...(context.agentId ? { agentId: context.agentId } : {}),
-          }),
-        catch: asError,
+            }),
+          };
+        } catch (error) {
+          return { ok: false as const, error: asError(error) };
+        }
       });
       // Already merged across however many background commands finished late,
       // so it ranks as one batch — the grouping it arrives with.
-      if (drained.files.length > 0) detectedFiles.push(drained.files);
-      if (drained.omitted) runtimeWithheldFiles += drained.omitted.count;
+      if (drainOutcome.ok) {
+        if (drainOutcome.value.files.length > 0) {
+          detectedFiles.push(drainOutcome.value.files);
+        }
+        if (drainOutcome.value.omitted) {
+          runtimeWithheldFiles += drainOutcome.value.omitted.count;
+        }
+      } else if (!execution.errorMessage) {
+        execution.errorMessage = drainOutcome.error.message;
+      }
 
       // Delivery is best-effort: the bytes are already in the checkpointed
       // workspace, so a failed registration costs visibility, not work — but
@@ -868,6 +1192,10 @@ export const runAgentTurn = (
             detected: detectedFiles,
             gitAware: workspace.kind === "project",
             drivePrefix: drivePrefixFor(workspace),
+            processIdentity: {
+              ...CLOUD_TOOL_PROCESS_IDENTITY,
+              home: toolHome,
+            },
           }).catch(() => null);
           const files = collected?.files ?? [];
           const omitted = collected?.omitted ?? [];
@@ -955,7 +1283,119 @@ export const runAgentTurn = (
             stored: outputs.stored.has(file.path),
           })),
         });
-        yield* Effect.promise(() => eventChain.then(() => undefined));
+        const outputEventFailure = yield* Effect.promise(async () => {
+          try {
+            await eventChain;
+            return undefined;
+          } catch (error) {
+            return asError(error);
+          }
+        });
+        if (outputEventFailure && !execution.errorMessage) {
+          execution.errorMessage = outputEventFailure.message;
+        }
+      }
+
+      const historyCursor = nativeHistoryCursorFromMessages(
+        input.turnId,
+        produced,
+      );
+      const transcriptRows = produced.map((message, ordinal) => ({
+        ordinal,
+        role: (message as { role: string }).role,
+        payloadJson: JSON.stringify(message),
+      }));
+
+      // Freeze every model-controlled writer before the archive is built.
+      // ToolHost shutdown is joined and idempotent; closing the Claude MCP
+      // listener also prevents a surviving descendant from starting another
+      // tool call after the workspace snapshot begins.
+      const shutdownFailures = yield* Effect.promise(async () => {
+        const results = await Promise.allSettled([
+          toolHost.shutdown(),
+          claudeToolMcpHost?.close() ?? Promise.resolve(),
+        ]);
+        return results.flatMap((result) =>
+          result.status === "rejected" ? [asError(result.reason)] : [],
+        );
+      });
+
+      if (forceBuilderFallback || shutdownFailures.length > 0) {
+        const shutdownReason = shutdownFailures[0]?.message;
+        const error =
+          execution.errorMessage ||
+          shutdownReason ||
+          "The executor could not prove that every workspace writer stopped.";
+        return {
+          ok: false,
+          finalText: `${execution.finalText}${outputs.notice}`.trim(),
+          error,
+          checkpointPolicy: "builder_fallback",
+          usage: { inputTokens, outputTokens, llmCalls },
+          builderFallback: {
+            historyCursor,
+            messages: transcriptRows,
+            ...(nativeStateCheckpoint
+              ? { nativeCheckpoint: nativeStateCheckpoint }
+              : {}),
+          },
+          ...(project
+            ? {
+                project: {
+                  mode: project.mode,
+                  branch: project.branch,
+                  ...(project.setupCommand
+                    ? { setupCommand: project.setupCommand }
+                    : {}),
+                  ...(project.setupSource
+                    ? { setupSource: project.setupSource }
+                    : {}),
+                },
+              }
+            : {}),
+        } satisfies AgentTurnResult;
+      }
+
+      {
+        // Workspace and optional native bytes are durably staged together
+        // before the transcript can make this exact cursor authoritative. An
+        // exact broker replay returns the already committed pair after a lost
+        // response; it never uploads a second archive.
+        const checkpointStarted = performance.now();
+        turnStateCheckpoint = yield* Effect.tryPromise({
+          try: () =>
+            commitTurnStateBeforeTranscript({
+              historyCursor,
+              ...(nativeStateCheckpoint
+                ? { nativeCheckpoint: nativeStateCheckpoint }
+                : {}),
+              broker,
+              appendTranscript: async () => {
+                // One mutation owns the complete produced transcript: a
+                // committed prefix would poison the next continuation's
+                // canonical state.
+                let response = await postJson("/api/cloud/messages", {
+                  conversationId: input.threadId,
+                  turnId: input.turnId,
+                  messages: transcriptRows,
+                });
+                if (!response.ok) {
+                  response = await postJson("/api/cloud/messages", {
+                    conversationId: input.threadId,
+                    turnId: input.turnId,
+                    messages: transcriptRows,
+                  });
+                }
+                if (!response.ok) {
+                  throw new Error(
+                    `Thread transcript persist failed (${response.status}).`,
+                  );
+                }
+              },
+            }),
+          catch: asError,
+        });
+        checkpointMs = Math.round(performance.now() - checkpointStarted);
       }
 
       const finalText = execution.finalText;
@@ -966,6 +1406,8 @@ export const runAgentTurn = (
           `${finalText || (error ? "" : "The agent finished without a report.")}${outputs.notice}`.trim(),
         ...(error ? { error } : {}),
         usage: { inputTokens, outputTokens, llmCalls },
+        checkpointMs,
+        ...(turnStateCheckpoint ? { turnStateCheckpoint } : {}),
         ...(project
           ? {
               project: {

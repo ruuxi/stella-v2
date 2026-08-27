@@ -20,6 +20,7 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { injectStellaRendererCsp } from "./interior-security.js";
+import { assertCurrentCloudProcessIsolation } from "./cloud-process-isolation.js";
 
 const MAX_SOURCE_FILES = 5_000;
 const MAX_SOURCE_BYTES = 100 * 1024 * 1024;
@@ -280,6 +281,7 @@ const runVite = async (sourceRoot: string, outputRoot: string): Promise<void> =>
 };
 
 const main = async (): Promise<InteriorBuildResult> => {
+  await assertCurrentCloudProcessIsolation();
   const publicBuildConfig = readPublicBuildConfig();
   const sourceRoot = path.resolve(
     process.env.STELLA_INTERIOR_SOURCE_ROOT ?? "/workspace/stella",

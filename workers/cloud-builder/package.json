@@ -6,9 +6,14 @@
   "scripts": {
     "image:prepare": "node scripts/prepare-image.mjs",
     "deploy:dev": "bun run image:prepare && wrangler deploy",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:unit": "bun test tests",
+    "test": "bun run test:unit && bun run test:code-workerd",
+    "build:dry-run": "node scripts/check-production-bundle.mjs",
+    "test:code-workerd": "bun tests/cloud-code-workerd-acceptance.mjs"
   },
   "dependencies": {
+    "@cloudflare/codemode": "0.5.1",
     "@cloudflare/sandbox": "0.12.4",
     "@sinclair/typebox": "0.34.49",
     "@stella/contracts": "workspace:*",

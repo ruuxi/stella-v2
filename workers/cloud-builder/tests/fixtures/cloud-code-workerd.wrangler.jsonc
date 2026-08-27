@@ -1,0 +1,8 @@
+{
+  "name": "stella-cloud-code-workerd-acceptance",
+  "main": "./cloud-code-workerd-worker.ts",
+  "compatibility_date": "2026-07-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "worker_loaders": [{ "binding": "LOADER" }]
+}
+

@@ -2217,6 +2217,136 @@ describe("claude-code-session-runtime", () => {
     }
   });
 
+  it("restarts and resumes when Claude acknowledges steering without ending the query", async () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "stella-fake-claude-ack-only-steer-"),
+    );
+    const binDir = path.join(dir, "bin");
+    const logPath = path.join(dir, "steer.jsonl");
+    fs.mkdirSync(binDir, { recursive: true });
+    const fakeClaude = path.join(binDir, "claude");
+    fs.writeFileSync(
+      fakeClaude,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('node:fs');",
+        "const logPath = process.env.STELLA_FAKE_CLAUDE_LOG;",
+        "const resumed = process.argv.includes('--resume');",
+        "fs.appendFileSync(logPath, JSON.stringify({ type: 'spawn', resumed }) + '\\n');",
+        "let buffer = '';",
+        "const send = (message) => process.stdout.write(JSON.stringify(message) + '\\n');",
+        "process.stdin.on('data', chunk => {",
+        "  buffer += chunk.toString('utf8');",
+        "  while (true) {",
+        "    const idx = buffer.indexOf('\\n');",
+        "    if (idx === -1) break;",
+        "    const line = buffer.slice(0, idx).trim();",
+        "    buffer = buffer.slice(idx + 1);",
+        "    if (!line) continue;",
+        "    const parsed = JSON.parse(line);",
+        "    fs.appendFileSync(logPath, JSON.stringify(parsed) + '\\n');",
+        "    if (parsed.type === 'user') {",
+        "      send({ type: 'system', subtype: 'init', session_id: 'ack-only-session', capabilities: ['interrupt_receipt_v1'] });",
+        "      if (resumed) send({ type: 'result', session_id: 'ack-only-session', is_error: false, result: 'Continued after restart.', usage: { input_tokens: 1, output_tokens: 1 } });",
+        "      continue;",
+        "    }",
+        "    if (parsed.type === 'control_request' && parsed.request?.subtype === 'interrupt') {",
+        "      send({ type: 'control_response', response: { subtype: 'success', request_id: parsed.request_id, response: {} } });",
+        "    }",
+        "  }",
+        "});",
+        "setInterval(() => {}, 1000);",
+      ].join("\n"),
+    );
+    fs.chmodSync(fakeClaude, 0o755);
+    const previousPath = process.env.PATH;
+    const previousLogPath = process.env.STELLA_FAKE_CLAUDE_LOG;
+    const previousResultTimeout =
+      process.env.STELLA_CLAUDE_CODE_STEERING_RESULT_TIMEOUT_MS;
+    process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+    process.env.STELLA_FAKE_CLAUDE_LOG = logPath;
+    process.env.STELLA_CLAUDE_CODE_STEERING_RESULT_TIMEOUT_MS = "50";
+    let activeControl:
+      | {
+          interrupt: () => Promise<void>;
+        }
+      | undefined;
+    let markControlReady: (() => void) | undefined;
+    const controlReady = new Promise<void>((resolve) => {
+      markControlReady = resolve;
+    });
+
+    try {
+      const sessionKey = `test:ack-only-steer:${Date.now()}`;
+      const firstTurn = runClaudeCodeTurn({
+        runId: "run-ack-only-steer-1",
+        sessionKey,
+        prompt: "Start the original request.",
+        modelId: "claude-code/default",
+        tools: [],
+        executeTool: async () => ({ result: "unused" }),
+        onTurnControl: (control) => {
+          activeControl = control;
+          markControlReady?.();
+          return () => undefined;
+        },
+      });
+      const firstOutcome = firstTurn.then(
+        () => ({ status: "resolved" as const }),
+        (error: unknown) => ({ status: "rejected" as const, error }),
+      );
+
+      await controlReady;
+      const interrupt = activeControl?.interrupt();
+      const outcome = await Promise.race([
+        firstOutcome,
+        new Promise<{ status: "timed-out" }>((resolve) =>
+          setTimeout(() => resolve({ status: "timed-out" }), 500),
+        ),
+      ]);
+      expect(outcome.status).toBe("rejected");
+      expect(
+        outcome.status === "rejected" ? outcome.error : undefined,
+      ).toBeInstanceOf(ClaudeCodeSteeringInterruptError);
+      await interrupt;
+
+      const redirected = await runClaudeCodeTurn({
+        runId: "run-ack-only-steer-2",
+        sessionKey,
+        prompt: "Handle the redirected request.",
+        modelId: "claude-code/default",
+        tools: [],
+        executeTool: async () => ({ result: "unused" }),
+      });
+      const records = fs
+        .readFileSync(logPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+      expect(redirected.text).toBe("Continued after restart.");
+      expect(records.filter((record) => record.type === "spawn")).toEqual([
+        { type: "spawn", resumed: false },
+        { type: "spawn", resumed: true },
+      ]);
+    } finally {
+      shutdownClaudeCodeRuntime();
+      process.env.PATH = previousPath;
+      if (previousLogPath === undefined) {
+        delete process.env.STELLA_FAKE_CLAUDE_LOG;
+      } else {
+        process.env.STELLA_FAKE_CLAUDE_LOG = previousLogPath;
+      }
+      if (previousResultTimeout === undefined) {
+        delete process.env.STELLA_CLAUDE_CODE_STEERING_RESULT_TIMEOUT_MS;
+      } else {
+        process.env.STELLA_CLAUDE_CODE_STEERING_RESULT_TIMEOUT_MS =
+          previousResultTimeout;
+      }
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("fails a silent Claude Code process instead of hanging", async () => {
     const dir = fs.mkdtempSync(
       path.join(os.tmpdir(), "stella-fake-claude-silent-"),

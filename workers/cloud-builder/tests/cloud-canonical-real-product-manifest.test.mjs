@@ -385,6 +385,8 @@ describe("real-product acceptance manifest generator", () => {
 
   test("keeps proof secrets out of Electron and accepts only owned loopback endpoints", async () => {
     const source = await readFile(driver, "utf8");
+    expect(source).toContain("versionResult.output.trim().length > 0");
+    expect(source).not.toContain("versionResult.code === 0");
     expect(
       isolatedElectronEnvironment({
         PATH: "/reviewed/bin",

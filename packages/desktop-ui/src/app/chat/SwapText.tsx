@@ -1,18 +1,3 @@
-/**
- * SwapText: crossfades + slides between text values when `text` changes.
- *
- * Used by the working indicator so that transitions like
- *   Working · X → Updating · X → Working · X
- * and multi-agent rotation row swaps animate instead of snapping.
- *
- * Width changes are not explicitly animated; the grid stack keeps both
- * layers in the same cell during the transition (cell sizes to the
- * larger of the two), then snaps to the new content's natural width
- * once the outgoing layer is unmounted. In the sticky footer the
- * surrounding flex container absorbs that final size change without
- * shifting layout.
- */
-
 import { useEffect, useRef, useState } from "react";
 import { TextShimmer } from "./TextShimmer";
 
@@ -30,50 +15,78 @@ interface SwapTextProps {
 
 const SWAP_DURATION_MS = 240;
 
+type HeldPhrase = {
+  text: string;
+  minimumVisibleMs: number;
+};
+
 function useMinimumVisibleText(text: string, minimumVisibleMs: number): string {
   const [visibleText, setVisibleText] = useState(text);
-  const visibleTextRef = useRef(text);
+  const visibleRef = useRef<HeldPhrase>({ text, minimumVisibleMs });
   const visibleSinceRef = useRef(Date.now());
-  const pendingTextRef = useRef(text);
-  const holdTimerRef = useRef<number | null>(null);
+  const pendingRef = useRef<HeldPhrase | null>(null);
+  const timerRef = useRef<number | null>(null);
+
   useEffect(() => {
-    pendingTextRef.current = text;
     const clearTimer = () => {
-      if (holdTimerRef.current !== null) {
-        window.clearTimeout(holdTimerRef.current);
-        holdTimerRef.current = null;
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
       }
     };
-    const showText = (nextText: string) => {
-      if (nextText === visibleTextRef.current) return;
-      visibleTextRef.current = nextText;
+    const remainingMs = () =>
+      Math.max(
+        0,
+        visibleRef.current.minimumVisibleMs -
+          (Date.now() - visibleSinceRef.current),
+      );
+    const show = (phrase: HeldPhrase) => {
+      visibleRef.current = phrase;
       visibleSinceRef.current = Date.now();
-      setVisibleText(nextText);
+      pendingRef.current = null;
+      setVisibleText(phrase.text);
     };
-    if (text === visibleTextRef.current) {
+    const showPendingWhenReady = () => {
+      clearTimer();
+      const pending = pendingRef.current;
+      if (!pending) return;
+      const wait = remainingMs();
+      if (wait === 0) {
+        if (pending.text !== visibleRef.current.text) {
+          show(pending);
+        } else {
+          pendingRef.current = null;
+        }
+        return;
+      }
+      timerRef.current = window.setTimeout(() => {
+        timerRef.current = null;
+        const next = pendingRef.current;
+        if (!next) return;
+        if (next.text !== visibleRef.current.text) {
+          show(next);
+        } else {
+          pendingRef.current = null;
+        }
+      }, wait);
+    };
+
+    if (text === visibleRef.current.text) {
+      pendingRef.current = null;
       clearTimer();
       return;
     }
-    const remainingMs = Math.max(
-      0,
-      minimumVisibleMs - (Date.now() - visibleSinceRef.current),
-    );
-    if (remainingMs === 0) {
-      clearTimer();
-      showText(text);
-      return;
-    }
-    if (holdTimerRef.current === null) {
-      holdTimerRef.current = window.setTimeout(() => {
-        holdTimerRef.current = null;
-        showText(pendingTextRef.current);
-      }, remainingMs);
+
+    pendingRef.current = { text, minimumVisibleMs };
+    if (timerRef.current === null) {
+      showPendingWhenReady();
     }
   }, [minimumVisibleMs, text]);
+
   useEffect(
     () => () => {
-      if (holdTimerRef.current !== null) {
-        window.clearTimeout(holdTimerRef.current);
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
       }
     },
     [],

@@ -3,7 +3,6 @@ import {
   isStandaloneTaskStatusText,
   normalizeTaskDisplayStatusText,
 } from "@/features/chat/lib/event-transforms";
-import { friendlyInlineToolStatus } from "@/features/chat/lib/friendly-tool-status";
 import { computeStatus, normalizeDisplayStatusText } from "./status-utils";
 
 export const INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS = 2000;
@@ -27,20 +26,8 @@ export type InlineWorkingIndicatorMountProps = InlineWorkingIndicatorProps & {
    * indicator resumes live updates.
    */
   active: boolean;
-  /**
-   * Escape hatch to skip the `MIN_VISIBLE_MS` floor on deactivation.
-   * No longer set by `buildInlineWorkingIndicatorProps`: because `active`
-   * now stays true until the first visible provider delta, the floor is
-   * purely anti-flicker and must never cause an early dismiss. Kept
-   * optional for the component's own fallback handling.
-   */
+  /** Skip the `MIN_VISIBLE_MS` floor on deactivation. */
   exitImmediately?: boolean;
-};
-
-type CompletedToolReceipt = {
-  toolCallId: string;
-  toolName: string;
-  exitCode?: number;
 };
 
 /**
@@ -53,56 +40,33 @@ export function buildInlineWorkingIndicatorProps({
   isStreaming,
   isStreamingResponseText,
   isToolActive,
-  hasToolActivity,
   activeToolName,
   activeToolCallId,
-  latestCompletedTool,
   runtimeStatusText,
 }: {
   isStreaming: boolean;
   /** True once the in-flight run emits its first visible provider delta. */
   isStreamingResponseText: boolean;
   isToolActive: boolean;
-  hasToolActivity: boolean;
   activeToolName?: string | null;
   activeToolCallId?: string | null;
-  latestCompletedTool?: CompletedToolReceipt | null;
   runtimeStatusText?: string | null;
 }): InlineWorkingIndicatorMountProps {
-  const completedToolStatus = latestCompletedTool
-    ? friendlyInlineToolStatus({
-        ...latestCompletedTool,
-        label: latestCompletedTool.toolName,
-        state: "completed",
-      })
-    : null;
   const active = getInlineWorkingIndicatorActive({
     isStreaming,
     isStreamingResponseText,
     isToolActive,
-    hasCompletedTool: Boolean(latestCompletedTool),
   });
-  // Initial thinking is pre-tool only. Once a tool lifecycle begins the
-  // indicator follows live TOOL_START/TOOL_END state instead of the
-  // long-lived root run, so spawn_agent/send_input do not pin it while the
-  // agent works.
-  const isPreToolThinking =
-    isStreaming && !isStreamingResponseText && !hasToolActivity;
+  const isThinking =
+    isStreaming && !isStreamingResponseText && !isToolActive;
   return {
     active,
-    ...(!isStreaming ? { exitImmediately: true } : {}),
-    ...(completedToolStatus ? { minimumVisibleMs: 0 } : {}),
-    runningTool:
-      isToolActive && !completedToolStatus
-        ? (activeToolName ?? undefined)
-        : undefined,
-    runningToolId:
-      isToolActive && !completedToolStatus
-        ? (activeToolCallId ?? undefined)
-        : undefined,
-    status:
-      completedToolStatus ??
-      (isPreToolThinking ? (runtimeStatusText ?? null) : null),
+    ...(!isStreaming || isStreamingResponseText
+      ? { exitImmediately: true }
+      : {}),
+    runningTool: isToolActive ? (activeToolName ?? undefined) : undefined,
+    runningToolId: isToolActive ? (activeToolCallId ?? undefined) : undefined,
+    status: isThinking ? (runtimeStatusText ?? null) : null,
   };
 }
 
@@ -153,19 +117,13 @@ export function getInlineWorkingIndicatorActive({
   isStreaming,
   isStreamingResponseText,
   isToolActive,
-  hasCompletedTool = false,
 }: {
   isStreaming: boolean;
   /** True once the assistant emits its first visible provider delta. */
   isStreamingResponseText: boolean;
   isToolActive: boolean;
-  hasCompletedTool?: boolean;
 }): boolean {
-  if (isStreaming && hasCompletedTool) return true;
   if (isToolActive) return true;
-  // Before any result, hand off on the assistant's first visible delta. Once
-  // a tool completes, keep its newest one-line receipt visible through the
-  // rest of the active turn; terminal state removes it.
   return isStreaming && !isStreamingResponseText;
 }
 
@@ -194,8 +152,7 @@ export function getWorkingIndicatorDisplayStatus({
   toolCallId?: string;
   tasks?: TaskItem[];
   isReasoning?: boolean;
-  /** Per-turn seed for the no-tool reasoning/idle label so it rotates
-   * across turns instead of always reading "Thinking". */
+  /** Seed for the no-tool reasoning/idle label. */
   reasoningSeed?: string;
 }): string {
   if (status) {

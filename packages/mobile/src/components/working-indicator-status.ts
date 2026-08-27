@@ -53,6 +53,16 @@ const AGENT_WORK_VARIATIONS: readonly string[] = [
   "One moment",
 ];
 
+const COMPUTER_WORK_VARIATIONS: readonly string[] = [
+  "Checking",
+  "Testing",
+  "Verifying",
+  "Checking it out",
+  "Trying it",
+  "Double-checking",
+  "Making sure",
+];
+
 const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
   image_gen: [
     "Sketching",
@@ -63,8 +73,6 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Painting a picture",
     "Whipping up a visual",
     "Making an image",
-    "Starting the render",
-    "Setting the scene",
   ],
   web: [
     "Searching",
@@ -74,9 +82,7 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Searching the web",
     "Looking that up",
     "Browsing",
-    "Hunting it down",
     "Asking the internet",
-    "Finding out",
   ],
   schedule: [
     "Scheduling",
@@ -84,23 +90,10 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Penciling it in",
     "Booking it",
     "Saving the date",
-    "Adding to your calendar",
     "Locking in the time",
     "Marking it down",
     "Setting a reminder",
     "Putting it on the schedule",
-  ],
-  context: [
-    "Looking back",
-    "Checking my notes",
-    "Checking recent notes",
-    "Finding the thread",
-    "Looking for the reference",
-    "Checking recent activity",
-    "Finding the background",
-    "Catching up",
-    "Getting oriented",
-    "Looking at what matters",
   ],
   // Recall delegates to a recall agent that greps the memory ledger and
   // past threads — often the orchestrator's longest wait, so the copy
@@ -113,18 +106,14 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Retracing our steps",
     "Flipping through old notes",
     "Rummaging through the archives",
-    "Pulling up past threads",
     "Checking what we did before",
-    "Dusting off the records",
   ],
   remember: [
     "Making a note",
-    "Filing that away",
     "Writing it down",
     "Committing it to memory",
     "Jotting that down",
     "Saving that for later",
-    "Tucking it away",
     "Adding it to my notes",
   ],
   spawn_agent: AGENT_WORK_VARIATIONS,
@@ -146,34 +135,9 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
   // These run inside spawned agents. Raw `Running <toolName>` status text maps
   // through this same table so the bare tool identifier never reaches the
   // working indicator. Keep the first entry as the canonical phrase.
-  exec_command: [
-    "Running it",
-    "Working on it",
-    "Running a command",
-    "Getting it done",
-    "On it",
-    "Handling it",
-    "Making it happen",
-    "Just a sec",
-  ],
-  node_repl: [
-    "Running code",
-    "Working on it",
-    "Writing some code",
-    "Getting it done",
-    "On it",
-    "Handling it",
-    "Making it happen",
-    "Just a sec",
-  ],
-  bash: [
-    "Running it",
-    "Working on it",
-    "Running a command",
-    "Getting it done",
-    "On it",
-    "Handling it",
-  ],
+  exec_command: COMPUTER_WORK_VARIATIONS,
+  node_repl: COMPUTER_WORK_VARIATIONS,
+  bash: COMPUTER_WORK_VARIATIONS,
   read: [
     "Reading",
     "Looking it over",
@@ -222,7 +186,6 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
   grep: [
     "Searching",
     "Looking it up",
-    "Hunting it down",
     "Scanning through",
     "Finding it",
     "Digging in",
@@ -356,52 +319,6 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
   heartbeat_get: ["Checking in", "Taking a pulse", "Checking status", "Seeing how it's going"],
   heartbeat_run: ["Running a check", "Checking in", "Taking a pulse", "Testing it"],
   heartbeat_upsert: ["Saving the status", "Updating the check-in", "Logging it", "Recording it"],
-
-  // Fashion subagent
-  fashion_search_products: [
-    "Browsing pieces",
-    "Hunting for looks",
-    "Searching the racks",
-    "Finding options",
-    "Pulling pieces",
-  ],
-  fashion_get_product_details: [
-    "Checking the details",
-    "Looking it up",
-    "Reading the specs",
-    "Studying the piece",
-  ],
-  fashion_get_context: [
-    "Checking your style",
-    "Reading your taste",
-    "Pulling your preferences",
-    "Getting the vibe",
-  ],
-  fashion_create_outfit: [
-    "Styling a look",
-    "Putting a look together",
-    "Building the outfit",
-    "Pulling it together",
-    "Crafting the fit",
-  ],
-  fashion_create_checkout: [
-    "Setting up checkout",
-    "Getting the order ready",
-    "Building the cart",
-    "Prepping the order",
-  ],
-  fashion_mark_outfit_ready: [
-    "Finishing the look",
-    "Wrapping it up",
-    "Finalizing the fit",
-    "Calling it ready",
-  ],
-  fashion_mark_outfit_failed: [
-    "Reworking it",
-    "Noting the issue",
-    "Adjusting course",
-    "Trying again",
-  ],
 };
 
 const FALLBACK_VARIATIONS: readonly string[] = [

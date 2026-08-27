@@ -263,6 +263,15 @@ describe("getInlineWorkingIndicatorActive", () => {
       }),
     ).toBe(false);
 
+    // A later tool after text has started: show again.
+    expect(
+      getInlineWorkingIndicatorActive({
+        isStreaming: true,
+        isStreamingResponseText: true,
+        isToolActive: true,
+      }),
+    ).toBe(true);
+
     // Run ended: nothing to show.
     expect(
       getInlineWorkingIndicatorActive({
@@ -280,7 +289,6 @@ describe("buildInlineWorkingIndicatorProps", () => {
       isStreaming: true,
       isStreamingResponseText: false,
       isToolActive: false,
-      hasToolActivity: false,
     });
     expect(props.active).toBe(true);
     // Floor-only: never an early dismiss, so no immediate-exit handoff.
@@ -292,11 +300,11 @@ describe("buildInlineWorkingIndicatorProps", () => {
       isStreaming: true,
       isStreamingResponseText: false,
       isToolActive: true,
-      hasToolActivity: true,
       activeToolName: "spawn_agent",
       activeToolCallId: "call-1",
     });
     expect(props.active).toBe(true);
+    expect(props.runningTool).toBe("spawn_agent");
   });
 
   it("stays visible before the first visible delta arrives", () => {
@@ -304,7 +312,6 @@ describe("buildInlineWorkingIndicatorProps", () => {
       isStreaming: true,
       isStreamingResponseText: false,
       isToolActive: false,
-      hasToolActivity: true,
     });
     expect(props.active).toBe(true);
   });
@@ -314,9 +321,9 @@ describe("buildInlineWorkingIndicatorProps", () => {
       isStreaming: true,
       isStreamingResponseText: true,
       isToolActive: false,
-      hasToolActivity: true,
     });
     expect(props.active).toBe(false);
+    expect(props.exitImmediately).toBe(true);
   });
 });
 
@@ -536,7 +543,7 @@ describe("buildActivityTasks", () => {
 
     expect(tasks[0]).toMatchObject({
       description: "Chrome Web Store Stella Browser fresh retry",
-      statusText: "Running code",
+      statusText: "Checking",
       attemptGeneration: 2,
       runId: "run-2",
     });

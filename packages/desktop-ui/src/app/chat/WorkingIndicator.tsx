@@ -17,8 +17,7 @@ interface WorkingIndicatorProps {
    * re-render. */
   toolCallId?: string;
   isReasoning?: boolean;
-  /** Per-turn seed so the reasoning/idle label varies across turns
-   * instead of always landing on the first variation ("Thinking"). */
+  /** Seed for the reasoning/idle label. */
   reasoningSeed?: string;
   className?: string;
   /** Stops persistent motion while the shell finishes its finite exit. */

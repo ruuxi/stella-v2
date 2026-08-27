@@ -5,7 +5,7 @@ description: Control macOS desktop apps through Stella's persistent Computer Use
 
 # Stella Computer for macOS
 
-Use `node_repl` for desktop-app work. The persistent JavaScript runtime is already initialized and exposes a frozen `sky` client. Bindings and delivered app instructions persist for this agent session.
+Use `code` for desktop-app work. The persistent JavaScript runtime is already initialized and exposes a frozen `sky` client. Bindings and delivered app instructions persist for this agent session.
 
 ## Observe
 
@@ -16,8 +16,8 @@ var state = await sky.get_app_state({
   app: "Spotify",
   screenshot_policy: "auto",
 });
-nodeRepl.write(state.text);
-if (state.screenshot) await nodeRepl.emitImage(state.screenshot.url);
+codeRuntime.write(state.text);
+if (state.screenshot) await codeRuntime.emitImage(state.screenshot.url);
 ```
 
 Every state includes an opaque semantic `state_id`, an immutable compound `observation_id`, `is_diff`, and, for a diff, `base_state_id`. A captured screenshot also has an independent `visual_state_id`; screenshot capture settings do not change `state_id`, while a different visual or resource generation changes `observation_id`. Treat a diff as valid only when its `base_state_id` matches the full state you are building on. Pass `disable_diff: true` whenever the base is unavailable or mismatched.
@@ -82,7 +82,7 @@ await sky.type_text({
 `drag` also accepts `path: [{ x, y }, ...]` with at least two points. Drag
 coordinates must come from the latest screenshot; observe again after the drag.
 
-Perform one or more actions in one `node_repl` call only when no intermediate result is needed. Then fetch settled state once:
+Perform one or more actions in one `code` call only when no intermediate result is needed. Then fetch settled state once:
 
 ```js
 await sky.click({
@@ -99,8 +99,8 @@ var nextState = await sky.wait_for_change({
   timeout_ms: 10000,
   screenshot_policy: "auto",
 });
-nodeRepl.write(nextState.text);
-if (nextState.screenshot) await nodeRepl.emitImage(nextState.screenshot.url);
+codeRuntime.write(nextState.text);
+if (nextState.screenshot) await codeRuntime.emitImage(nextState.screenshot.url);
 ```
 
 For a data-driven sequence, `sky.batch([...])` first validates every action against its supplied observation, then executes the actions in order. A stale action rejects the entire batch before any action is dispatched. Give every item the `state_id` from the same fresh starting state when they target the same app. Do not batch across a decision point, permission prompt, navigation-policy boundary, or any step whose result determines the next action.

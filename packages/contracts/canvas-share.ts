@@ -10,7 +10,8 @@
  * Backend contract these helpers pair with:
  *   publish({ html, title? }) -> { url, slug, expiresAt }
  *   revoke({ slug })
- *   listMine() -> [{ slug, url, title, createdAt, expiresAt }]
+ *   listMine({ snapshotAt, limit? })
+ *     -> [{ slug, url, title, createdAt, expiresAt }]
  */
 
 /** Path segment that scopes a single shared canvas under the base URL. */
@@ -26,7 +27,8 @@ const SLUG_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$/;
 export const isCanvasShareSlug = (value: unknown): value is string =>
   typeof value === "string" && SLUG_PATTERN.test(value);
 
-const trimTrailingSlashes = (value: string): string => value.replace(/\/+$/, "");
+const trimTrailingSlashes = (value: string): string =>
+  value.replace(/\/+$/, "");
 
 /**
  * Normalize a configured base URL. Returns `null` when unset/blank or not an

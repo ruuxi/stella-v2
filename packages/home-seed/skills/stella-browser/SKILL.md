@@ -1,11 +1,11 @@
 ---
 name: stella-browser
-description: Control Stella-owned browser tabs through the persistent node_repl runtime and its frozen browser API. Use for navigation, page interaction, semantic locators, state inspection, new-tab flows, and browser screenshots.
+description: Control Stella-owned browser tabs through the persistent code runtime and its frozen browser API. Use for navigation, page interaction, semantic locators, state inspection, new-tab flows, and browser screenshots.
 ---
 
 # Stella Browser
 
-Use `node_repl` for production browser automation. Its persistent JavaScript runtime exposes a deeply frozen `browser` object with top-level `await`. Bindings and `Tab` and `Locator` identities persist across calls, so create handles once and reuse them.
+Use `code` for production browser automation. Its persistent JavaScript runtime exposes a deeply frozen `browser` object with top-level `await`. Bindings and `Tab` and `Locator` identities persist across calls, so create handles once and reuse them.
 
 Use `var` for reusable REPL bindings. Browser actions are not exposed through `exec_command`; use the frozen `browser` API only.
 
@@ -28,7 +28,7 @@ await page.waitForURL("**/dashboard");
 ({ url: await tab.url(), title: await tab.title() });
 ```
 
-Do not spend one `node_repl` call per action. Keep sequential awaits together when no intermediate result changes the plan. Split at a real decision point, return the cheapest useful value, then continue with the same handles in the next cell:
+Do not spend one `code` call per action. Keep sequential awaits together when no intermediate result changes the plan. Split at a real decision point, return the cheapest useful value, then continue with the same handles in the next cell:
 
 ```js
 var search = page.getByPlaceholder("Search");
@@ -74,7 +74,7 @@ Use the least expensive observation that answers the question:
 - Element existence or state: `count()`, `isVisible()`, `isEnabled()`, or `isChecked()`.
 - Focused values: `innerText()`, `textContent()`, `inputValue()`, or `getAttribute()`.
 - Unknown structure at a branch or recovery point: `tab.snapshot()` or `page.domSnapshot()`.
-- Visual appearance, coordinates, or rendering: `tab.screenshot()`. The image is attached to the tool result automatically; the JavaScript return value is only a compact `{ attached, path, format, mimeType }` receipt. Do not pass that receipt to `nodeRepl.emitImage()`.
+- Visual appearance, coordinates, or rendering: `tab.screenshot()`. The image is attached to the tool result automatically; the JavaScript return value is only a compact `{ attached, path, format, mimeType }` receipt. Do not pass that receipt to `codeRuntime.emitImage()`.
 
 Do not take a snapshot after every action. Snapshot only when page structure is needed to choose the next step. Use a screenshot only when pixels matter.
 

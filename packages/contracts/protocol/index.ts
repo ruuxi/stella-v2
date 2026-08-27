@@ -166,6 +166,12 @@ export const METHOD_NAMES = {
   HOST_WINDOW_SHOW: "host.window.show",
   HOST_WINDOW_FOCUS: "host.window.focus",
   HOST_RUNTIME_AUTH_REFRESH: "host.runtimeAuth.refresh",
+  /**
+   * Worker-to-host pre-execution fence for an exact leased remote turn. The
+   * worker has already reserved its run id, but cannot launch provider work
+   * until the live host positively acknowledges the matching attempt.
+   */
+  HOST_REMOTE_TURN_ADMIT: "host.remoteTurn.admit",
   INTERNAL_WORKER_INITIALIZE: "internal.worker.initialize",
   INTERNAL_WORKER_CONFIGURE: "internal.worker.configure",
   INTERNAL_WORKER_HEALTH: "internal.worker.health",
@@ -185,7 +191,10 @@ export const METHOD_NAMES = {
   INTERNAL_WORKER_ACK_EVENTS: "internal.worker.ackEvents",
   INTERNAL_WORKER_LIST_ACTIVE_RUNS: "internal.worker.listActiveRuns",
   INTERNAL_WORKER_RUN_AUTOMATION: "internal.worker.runAutomation",
+  INTERNAL_WORKER_CANCEL_PLACEMENT_AUTOMATION:
+    "internal.worker.cancelPlacementAutomation",
   INTERNAL_WORKER_RUN_BLOCKING_AGENT: "internal.worker.runBlockingAgent",
+  INTERNAL_WORKER_CANCEL_BLOCKING_AGENT: "internal.worker.cancelBlockingAgent",
   INTERNAL_WORKER_CREATE_BACKGROUND_AGENT:
     "internal.worker.createBackgroundAgent",
   INTERNAL_WORKER_GET_AGENT_SNAPSHOT: "internal.worker.getAgentSnapshot",
@@ -555,6 +564,19 @@ export type RuntimeOneShotCompletionResult = {
 export type RuntimeAutomationTurnRequest = {
   conversationId: string;
   userPrompt: string;
+  /**
+   * Fail closed instead of joining the shared orchestrator queue when another
+   * run already owns the lane. Leased remote executions use this so their
+   * external authority cannot outlive an unobservable queued entry.
+   */
+  rejectIfBusy?: boolean;
+  /**
+   * Exact desktop remote-turn lease attempt. When present, the worker derives
+   * a stable run id and requires a positive host admission ACK before launch.
+   */
+  remoteTurnAttemptId?: string;
+  /** Exact dispatch-scoped local owner for a desktop placement chat run. */
+  executionPlacementRunId?: string;
   /** Transcript authority for this automation turn. */
   storageMode?: "cloud" | "local";
   /** Stable cloud-journal id used to deduplicate a retried external request. */
@@ -588,6 +610,18 @@ export type RuntimeLocalAgentRequest = {
   description: string;
   prompt: string;
   agentType?: string;
+  /** Exact caller-owned thread identity used for idempotent placement/cancel. */
+  threadId?: string;
+};
+
+export type RuntimeLocalAgentCancellationRequest = {
+  agentId: string;
+  reason?: string;
+};
+
+export type RuntimePlacementAutomationCancellationRequest = {
+  runId: string;
+  reason?: string;
 };
 
 export type RuntimeLocalAgentSnapshot = {
@@ -618,6 +652,20 @@ export type RuntimeAgentEventPayload = {
   rootRunId?: string;
   chunk?: string;
   statusState?: "running" | "compacting" | "provider-retry" | "model-fallback";
+  providerLifecyclePhase?:
+    | "request-admitted"
+    | "request-dispatched"
+    | "stream-open"
+    | "transport-closed"
+    | "transport-joined"
+    | "abandoned"
+    | "outcome-unknown";
+  providerRequestIdSha256?: string;
+  providerPhysicalAttempt?: number;
+  providerStreamOrdinal?: number;
+  providerName?: string;
+  providerModelId?: string;
+  providerOutcome?: "completed" | "canceled" | "error";
   toolCallId?: string;
   toolName?: string;
   args?: Record<string, unknown>;

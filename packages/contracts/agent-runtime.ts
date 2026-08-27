@@ -318,6 +318,7 @@ export const AGENT_STREAM_EVENT_TYPES = {
   AGENT_REASONING: "agent-reasoning",
   TOOL_START: "tool-start",
   TOOL_END: "tool-end",
+  PROVIDER_LIFECYCLE: "provider-lifecycle",
   AGENT_STARTED: "agent-started",
   AGENT_PROGRESS: "agent-progress",
   AGENT_COMPLETED: "agent-completed",

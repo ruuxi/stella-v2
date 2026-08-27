@@ -180,7 +180,7 @@ export type WebSearchResultHit = {
 };
 
 /**
- * UI-only browser state emitted after a Node REPL cell's last successful
+ * UI-only browser state emitted after a code cell's last successful
  * visual browser action. This deliberately lives outside the model-facing
  * tool result text: the desktop can update its browser surface without
  * feeding an automatic screenshot back into the agent.

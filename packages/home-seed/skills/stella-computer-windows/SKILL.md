@@ -5,7 +5,7 @@ description: Control Windows desktop apps through Stella's persistent Computer U
 
 # Stella Computer for Windows
 
-Use `node_repl` for desktop-app work. The persistent JavaScript runtime is already initialized and exposes a frozen `sky` client. Bindings and delivered app instructions persist for this agent session.
+Use `code` for desktop-app work. The persistent JavaScript runtime is already initialized and exposes a frozen `sky` client. Bindings and delivered app instructions persist for this agent session.
 
 ## Observe
 
@@ -16,8 +16,8 @@ var state = await sky.get_app_state({
   app: "Spotify",
   screenshot_policy: "auto",
 });
-nodeRepl.write(state.text);
-if (state.screenshot) await nodeRepl.emitImage(state.screenshot.url);
+codeRuntime.write(state.text);
+if (state.screenshot) await codeRuntime.emitImage(state.screenshot.url);
 ```
 
 Every state includes an opaque semantic `state_id`, an immutable compound `observation_id`, `is_diff`, and, for a diff, `base_state_id`. A captured screenshot also has an independent `visual_state_id`; screenshot capture settings do not change `state_id`, while a different visual or resource generation changes `observation_id`. Treat a diff as valid only when its `base_state_id` matches the full state you are building on. Pass `disable_diff: true` whenever the base is unavailable or mismatched.

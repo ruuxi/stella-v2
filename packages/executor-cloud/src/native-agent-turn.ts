@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import {
+  chown,
   chmod,
   mkdtemp,
   mkdir,
@@ -20,8 +21,15 @@ import type {
 import { stellaManagedRelayBaseUrlFromSiteUrl } from "@stella/contracts/stella-api";
 import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types.js";
 import type { WorkspaceIdentity } from "./workspace-paths.js";
-
-type NativeEngine = "anthropic" | "openai-codex";
+import { isolateToolProcessLaunch } from "@stella/runtime/kernel/tools/process-isolation.js";
+import type { ToolProcessIdentity } from "@stella/runtime/kernel/tools/types.js";
+import { CLOUD_TOOL_PROCESS_IDENTITY } from "./cloud-process-isolation.js";
+import {
+  assertFreshNativeState,
+  assertNativeState,
+  sealNativeState,
+  type NativeStateAttestation,
+} from "./native-state-integrity.js";
 
 export type NativeAgentTurnResult = {
   finalText: string;
@@ -29,7 +37,20 @@ export type NativeAgentTurnResult = {
   usage: { inputTokens: number; outputTokens: number; llmCalls: number };
   messages: AgentMessage[];
   editedFiles: FileChangeRecord[];
+  /**
+   * Builder checkpoint input. Only Claude can produce durable native state;
+   * Codex is deliberately reconstructed from canonical history each turn.
+   */
+  nativeStateCheckpoint?: Pick<
+    NativeStateAttestation,
+    "engine" | "sessionId" | "cursor" | "tree" | "mac"
+  >;
 };
+
+type NativeCliTurnResult = Omit<
+  NativeAgentTurnResult,
+  "editedFiles" | "messages" | "nativeStateCheckpoint"
+> & { sessionId: string };
 
 type NativeEvent = (kind: string, payload: unknown) => void;
 
@@ -80,23 +101,80 @@ const INTERNAL_DIRS = new Set([
   "vendor",
 ]);
 
-const safeSegment = (value: string): string => {
-  const normalized = value.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 96);
-  return (
-    normalized || createHash("sha256").update(value).digest("hex").slice(0, 24)
-  );
+export const CLOUD_NATIVE_STATE_ROOT = "/home/stella-native-state/anthropic";
+const EMPTY_NATIVE_HISTORY_CURSOR = "v1:empty";
+
+const historyCursor = (value: {
+  turnId: string;
+  role: string;
+  payloadJson: string;
+}): string =>
+  `v1:${createHash("sha256")
+    .update(
+      JSON.stringify({
+        turnId: value.turnId,
+        role: value.role,
+        payloadJson: value.payloadJson,
+      }),
+    )
+    .digest("hex")}`;
+
+/** Last canonical row is a stable parity cursor even when old context prunes. */
+export const nativeHistoryCursorFromRows = (
+  rows: Array<{ turnId: string; role: string; payloadJson: string }>,
+): string => {
+  const last = rows.at(-1);
+  return last ? historyCursor(last) : EMPTY_NATIVE_HISTORY_CURSOR;
 };
 
-const engineStateRoot = (
-  workspace: WorkspaceIdentity,
-  threadId: string,
-  engine: NativeEngine,
+export const nativeHistoryCursorFromMessages = (
+  turnId: string,
+  messages: AgentMessage[],
 ): string => {
-  const parent =
-    workspace.kind === "project"
-      ? path.join(workspace.root, ".git", "stella-cloud")
-      : path.join(workspace.root, ".stella");
-  return path.join(parent, "cloud-agents", safeSegment(threadId), engine);
+  const last = messages.at(-1) as { role?: unknown } | undefined;
+  if (!last || typeof last.role !== "string") {
+    throw new Error("Native agent produced no canonical history cursor.");
+  }
+  return historyCursor({
+    turnId,
+    role: last.role,
+    payloadJson: JSON.stringify(last),
+  });
+};
+
+export const assertNativeHistoryParity = async (args: {
+  stateRoot: string;
+  engine: "anthropic";
+  threadId: string;
+  expectedCursor: string;
+  integrityKey: string;
+  /** Unit tests may override the production-required root owner. */
+  expectedOwner?: { uid: number; gid: number };
+}): Promise<void> => {
+  if (args.expectedCursor === EMPTY_NATIVE_HISTORY_CURSOR) {
+    await assertFreshNativeState(args.stateRoot, args.expectedOwner);
+    return;
+  }
+  const sessionId = await readFile(
+    path.join(args.stateRoot, "session-started"),
+    "utf8",
+  )
+    .then((value) => value.trim())
+    .catch(() => "");
+  if (!sessionId) {
+    throw new Error(
+      "Native agent session state does not match the authoritative cloud transcript; refusing to continue with missing or stale context.",
+    );
+  }
+  await assertNativeState({
+    stateRoot: args.stateRoot,
+    engine: args.engine,
+    threadId: args.threadId,
+    sessionId,
+    expectedCursor: args.expectedCursor,
+    integrityKey: args.integrityKey,
+    ...(args.expectedOwner ? { expectedOwner: args.expectedOwner } : {}),
+  });
 };
 
 const deterministicUuid = (value: string): string => {
@@ -168,13 +246,25 @@ const runJsonLines = async (options: {
   args: string[];
   cwd: string;
   env: NodeJS.ProcessEnv;
+  processIdentity?: ToolProcessIdentity;
   onJson: (value: Record<string, unknown>) => void;
 }): Promise<ProcessResult> =>
   new Promise((resolve, reject) => {
-    const child = spawn(options.command, options.args, {
+    const launch = isolateToolProcessLaunch({
+      command: options.command,
+      commandArgs: options.args,
+      identity: options.processIdentity,
+    });
+    const child = spawn(launch.command, launch.args, {
       cwd: options.cwd,
       env: options.env,
       stdio: ["ignore", "pipe", "pipe"],
+      ...(launch.nativeIdentity
+        ? {
+            uid: launch.nativeIdentity.uid,
+            gid: launch.nativeIdentity.gid,
+          }
+        : {}),
     });
     let pending = "";
     let stderr = "";
@@ -257,7 +347,7 @@ export const buildClaudeChildEnv = (options: {
   initialEnv: NodeJS.ProcessEnv;
   callbackBase: string;
   stateRoot: string;
-  turnToken: string;
+  relayToken: string;
   reasoningEffort: AgentModelReasoningEffort;
 }): NodeJS.ProcessEnv => {
   const childEnv: NodeJS.ProcessEnv = {
@@ -265,18 +355,17 @@ export const buildClaudeChildEnv = (options: {
     ANTHROPIC_BASE_URL: stellaManagedRelayBaseUrlFromSiteUrl(
       options.callbackBase,
     ),
-    CLAUDE_CODE_OAUTH_TOKEN: options.turnToken,
+    CLAUDE_CODE_OAUTH_TOKEN: options.relayToken,
     CLAUDE_CONFIG_DIR: options.stateRoot,
     CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1",
     ANTHROPIC_CUSTOM_HEADERS: [
-      `x-stella-turn-token: ${options.turnToken}`,
+      `x-stella-turn-token: ${options.relayToken}`,
       "x-stella-llm-credential: anthropic",
       "x-stella-agent-type: general",
     ].join("\n"),
   };
-  // These are executor credentials, not Claude credentials. Even if a future
-  // caller imports this module before env-secrets consumes STELLA_TURN_TOKEN,
-  // neither name may enter Claude's environment and reach a tool subprocess.
+  // These are forbidden legacy executor credentials, not Claude credentials.
+  // Neither name may enter Claude's environment and reach a tool subprocess.
   delete childEnv.STELLA_TURN_TOKEN;
   delete childEnv.STELLA_CODEX_TURN_TOKEN;
   // Never let a host/image override defeat the turn's explicit selection.
@@ -335,29 +424,58 @@ export const buildCloudClaudeTakeoverArgs = (options: {
 
 const tomlString = (value: string): string => JSON.stringify(value);
 
-const transcript = (prompt: string, finalText: string): AgentMessage[] =>
-  [
-    { role: "user", content: [{ type: "text", text: prompt }] },
-    { role: "assistant", content: [{ type: "text", text: finalText }] },
-  ] as AgentMessage[];
+const transcript = (args: {
+  prompt: string;
+  finalText: string;
+  execution: Exclude<CloudExecutionSelection, { engine: "stella" }>;
+  usage: NativeAgentTurnResult["usage"];
+  error?: string;
+}): AgentMessage[] => {
+  const timestamp = Date.now();
+  const usage = {
+    input: args.usage.inputTokens,
+    output: args.usage.outputTokens,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: args.usage.inputTokens + args.usage.outputTokens,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  };
+  return [
+    {
+      role: "user",
+      content: [{ type: "text", text: args.prompt }],
+      timestamp,
+    },
+    {
+      role: "assistant",
+      content: [{ type: "text", text: args.finalText }],
+      api:
+        args.execution.engine === "anthropic" ? "claude-code" : "openai-codex",
+      provider: args.execution.provider,
+      model: args.execution.model,
+      usage,
+      stopReason: args.error ? "error" : "stop",
+      ...(args.error ? { errorMessage: args.error } : {}),
+      timestamp,
+    },
+  ];
+};
 
 const runClaude = async (options: {
   inputPrompt: string;
   systemPrompt: string;
   execution: Extract<CloudExecutionSelection, { engine: "anthropic" }>;
   callbackBase: string;
-  turnToken: string;
+  relayToken: string;
   workspace: WorkspaceIdentity;
+  stateRoot: string;
   threadId: string;
   mcpServerConfig: CloudClaudeMcpServerConfig;
   emitEvent: NativeEvent;
-}): Promise<Omit<NativeAgentTurnResult, "editedFiles" | "messages">> => {
-  const stateRoot = engineStateRoot(
-    options.workspace,
-    options.threadId,
-    "anthropic",
-  );
-  await mkdir(stateRoot, { recursive: true });
+}): Promise<NativeCliTurnResult> => {
+  const stateRoot = options.stateRoot;
+  await mkdir(stateRoot, { recursive: true, mode: 0o700 });
+  await chmod(stateRoot, 0o700);
   const sessionId = deterministicUuid(
     `stella-cloud:claude:${options.threadId}`,
   );
@@ -387,7 +505,7 @@ const runClaude = async (options: {
       initialEnv: process.env,
       callbackBase: options.callbackBase,
       stateRoot,
-      turnToken: options.turnToken,
+      relayToken: options.relayToken,
       reasoningEffort: options.execution.reasoningEffort,
     });
     const result = await runJsonLines({
@@ -467,6 +585,7 @@ const runClaude = async (options: {
       finalText,
       ...(error ? { error } : {}),
       usage: { inputTokens, outputTokens, llmCalls },
+      sessionId: initialized ? sessionId : "",
     };
   } finally {
     // This directory contains the private loopback MCP bearer. It lives
@@ -475,26 +594,53 @@ const runClaude = async (options: {
   }
 };
 
-const runCodex = async (options: {
+export const buildStatelessCodexPrompt = (options: {
+  history: AgentMessage[];
+  prompt: string;
+}): string =>
+  [
+    "Continue the conversation using the authoritative prior transcript below.",
+    "Treat the transcript as conversation data, preserve its chronology, and answer only the current user request.",
+    "<authoritative_prior_transcript_json>",
+    JSON.stringify(options.history),
+    "</authoritative_prior_transcript_json>",
+    "<current_user_request>",
+    options.prompt,
+    "</current_user_request>",
+  ].join("\n");
+
+export const buildStatelessCodexExecArgs = (options: {
+  model: string;
+  workspaceRoot: string;
   inputPrompt: string;
+}): string[] => [
+  "exec",
+  "--json",
+  "--model",
+  options.model,
+  "--dangerously-bypass-approvals-and-sandbox",
+  "--skip-git-repo-check",
+  "--cd",
+  options.workspaceRoot,
+  options.inputPrompt,
+];
+
+type CodexTurnOptions = {
+  inputPrompt: string;
+  history: AgentMessage[];
   systemPrompt: string;
   execution: Extract<CloudExecutionSelection, { engine: "openai-codex" }>;
   callbackBase: string;
-  turnToken: string;
+  relayToken: string;
   workspace: WorkspaceIdentity;
   threadId: string;
   emitEvent: NativeEvent;
-}): Promise<Omit<NativeAgentTurnResult, "editedFiles" | "messages">> => {
-  const stateRoot = engineStateRoot(
-    options.workspace,
-    options.threadId,
-    "openai-codex",
-  );
-  await mkdir(stateRoot, { recursive: true });
-  const sessionPath = path.join(stateRoot, "session-id");
-  const existingSession = await readFile(sessionPath, "utf8")
-    .then((value) => value.trim())
-    .catch(() => "");
+};
+
+const runCodexInEphemeralState = async (
+  options: CodexTurnOptions & { stateRoot: string },
+): Promise<NativeCliTurnResult> => {
+  const stateRoot = options.stateRoot;
   const relayBase = stellaManagedRelayBaseUrlFromSiteUrl(options.callbackBase);
   const reasoningEffort = resolveCodexReasoningEffort(
     options.execution.reasoningEffort,
@@ -536,23 +682,20 @@ const runCodex = async (options: {
   await writeFile(path.join(stateRoot, "config.toml"), config, {
     mode: 0o600,
   });
-  const commonArgs = [
-    "--json",
-    "--model",
-    options.execution.model,
-    "--dangerously-bypass-approvals-and-sandbox",
-    "--skip-git-repo-check",
-  ];
-  const args = existingSession
-    ? ["exec", "resume", ...commonArgs, existingSession, options.inputPrompt]
-    : [
-        "exec",
-        ...commonArgs,
-        "--cd",
-        options.workspace.root,
-        options.inputPrompt,
-      ];
-  let sessionId = existingSession;
+  await chown(
+    path.join(stateRoot, "config.toml"),
+    CLOUD_TOOL_PROCESS_IDENTITY.uid,
+    CLOUD_TOOL_PROCESS_IDENTITY.gid,
+  );
+  const args = buildStatelessCodexExecArgs({
+    model: options.execution.model,
+    workspaceRoot: options.workspace.root,
+    inputPrompt: buildStatelessCodexPrompt({
+      history: options.history,
+      prompt: options.inputPrompt,
+    }),
+  });
+  let sessionId = "";
   let finalText = "";
   let error: string | undefined;
   let inputTokens = 0;
@@ -565,14 +708,23 @@ const runCodex = async (options: {
     env: {
       ...process.env,
       CODEX_HOME: stateRoot,
-      STELLA_CODEX_TURN_TOKEN: options.turnToken,
+      HOME: stateRoot,
+      USER: CLOUD_TOOL_PROCESS_IDENTITY.user,
+      LOGNAME: CLOUD_TOOL_PROCESS_IDENTITY.user,
+      XDG_CONFIG_HOME: path.join(stateRoot, ".config"),
+      XDG_CACHE_HOME: path.join(stateRoot, ".cache"),
+      XDG_STATE_HOME: path.join(stateRoot, ".local", "state"),
+      STELLA_CODEX_TURN_TOKEN: options.relayToken,
+    },
+    processIdentity: {
+      ...CLOUD_TOOL_PROCESS_IDENTITY,
+      home: stateRoot,
     },
     onJson: (event) => {
       if (event.type === "thread.started") {
         const id = event.thread_id;
         if (typeof id === "string" && id.trim()) {
           sessionId = id.trim();
-          void writeFile(sessionPath, `${sessionId}\n`, { mode: 0o600 });
         }
         return;
       }
@@ -634,9 +786,6 @@ const runCodex = async (options: {
       }
     },
   });
-  if (sessionId) {
-    await writeFile(sessionPath, `${sessionId}\n`, { mode: 0o600 });
-  }
   if (result.exitCode !== 0 && !error) {
     error =
       result.stderr.trim().slice(-4_000) ||
@@ -646,7 +795,30 @@ const runCodex = async (options: {
     finalText,
     ...(error ? { error } : {}),
     usage: { inputTokens, outputTokens, llmCalls },
+    sessionId,
   };
+};
+
+const runCodex = async (
+  options: CodexTurnOptions,
+): Promise<NativeCliTurnResult> => {
+  // Codex's unrestricted native shell shares its OS identity with the Codex
+  // process, so no same-container path can be both readable by Codex and
+  // unreadable by model-authored commands. Keep CODEX_HOME turn-ephemeral and
+  // reconstruct context from the authoritative cloud transcript instead of
+  // treating local Codex bytes as resume authority.
+  const stateRoot = await mkdtemp(path.join(tmpdir(), "stella-cloud-codex-"));
+  await chmod(stateRoot, 0o700);
+  await chown(
+    stateRoot,
+    CLOUD_TOOL_PROCESS_IDENTITY.uid,
+    CLOUD_TOOL_PROCESS_IDENTITY.gid,
+  );
+  try {
+    return await runCodexInEphemeralState({ ...options, stateRoot });
+  } finally {
+    await rm(stateRoot, { recursive: true, force: true });
+  }
 };
 
 export const runNativeAgentTurn = async (options: {
@@ -654,9 +826,16 @@ export const runNativeAgentTurn = async (options: {
   systemPrompt: string;
   execution: Exclude<CloudExecutionSelection, { engine: "stella" }>;
   callbackBase: string;
-  turnToken: string;
+  /** Loopback-only sentinel; never a Convex or Builder capability. */
+  relayToken: string;
   workspace: WorkspaceIdentity;
   threadId: string;
+  turnId: string;
+  history: AgentMessage[];
+  authoritativeHistoryCursor: string;
+  stateIntegrityKey: string;
+  /** Test-only override; production always uses the root-only image path. */
+  nativeStateRoot?: string;
   claudeMcpServerConfig?: CloudClaudeMcpServerConfig;
   emitEvent: NativeEvent;
 }): Promise<NativeAgentTurnResult> => {
@@ -665,23 +844,69 @@ export const runNativeAgentTurn = async (options: {
     if (!mcpServerConfig) {
       throw new Error("Stella's Claude tool bridge is unavailable.");
     }
+    const stateRoot = options.nativeStateRoot ?? CLOUD_NATIVE_STATE_ROOT;
+    const relativeToWorkspace = path.relative(
+      options.workspace.root,
+      stateRoot,
+    );
+    if (
+      !path.isAbsolute(stateRoot) ||
+      relativeToWorkspace === "" ||
+      (!relativeToWorkspace.startsWith(`..${path.sep}`) &&
+        relativeToWorkspace !== "..")
+    ) {
+      throw new Error(
+        "Native agent session state must remain outside the agent workspace.",
+      );
+    }
+    await assertNativeHistoryParity({
+      stateRoot,
+      engine: "anthropic",
+      threadId: options.threadId,
+      expectedCursor: options.authoritativeHistoryCursor,
+      integrityKey: options.stateIntegrityKey,
+    });
     const result = await runClaude({
       inputPrompt: options.prompt,
       systemPrompt: options.systemPrompt,
       execution: options.execution,
       callbackBase: options.callbackBase,
-      turnToken: options.turnToken,
+      relayToken: options.relayToken,
       workspace: options.workspace,
+      stateRoot,
       threadId: options.threadId,
       mcpServerConfig,
       emitEvent: options.emitEvent,
     });
+    const messages = transcript({
+      prompt: options.prompt,
+      finalText: result.finalText || result.error || "",
+      execution: options.execution,
+      usage: result.usage,
+      ...(result.error ? { error: result.error } : {}),
+    });
+    if (!result.sessionId) {
+      throw new Error("Claude did not establish durable native session state.");
+    }
+    const checkpoint = await sealNativeState({
+      stateRoot,
+      engine: "anthropic",
+      threadId: options.threadId,
+      sessionId: result.sessionId,
+      cursor: nativeHistoryCursorFromMessages(options.turnId, messages),
+      integrityKey: options.stateIntegrityKey,
+    });
+    const { sessionId: _sessionId, ...publicResult } = result;
     return {
-      ...result,
-      messages: transcript(
-        options.prompt,
-        result.finalText || result.error || "",
-      ),
+      ...publicResult,
+      messages,
+      nativeStateCheckpoint: {
+        engine: checkpoint.engine,
+        sessionId: checkpoint.sessionId,
+        cursor: checkpoint.cursor,
+        tree: checkpoint.tree,
+        mac: checkpoint.mac,
+      },
       // Claude can mutate the workspace only through Stella's MCP ToolHost,
       // which already reports precise file changes and produced files.
       editedFiles: [],
@@ -692,21 +917,27 @@ export const runNativeAgentTurn = async (options: {
   const before = await snapshotFiles(options.workspace.root);
   const result = await runCodex({
     inputPrompt: options.prompt,
+    history: options.history,
     systemPrompt: options.systemPrompt,
     execution: options.execution,
     callbackBase: options.callbackBase,
-    turnToken: options.turnToken,
+    relayToken: options.relayToken,
     workspace: options.workspace,
     threadId: options.threadId,
     emitEvent: options.emitEvent,
   });
   const after = await snapshotFiles(options.workspace.root);
+  const messages = transcript({
+    prompt: options.prompt,
+    finalText: result.finalText || result.error || "",
+    execution: options.execution,
+    usage: result.usage,
+    ...(result.error ? { error: result.error } : {}),
+  });
+  const { sessionId: _sessionId, ...publicResult } = result;
   return {
-    ...result,
-    messages: transcript(
-      options.prompt,
-      result.finalText || result.error || "",
-    ),
+    ...publicResult,
+    messages,
     editedFiles: changedFiles(before, after),
   };
 };

@@ -15,9 +15,11 @@
 /**
  * 2 adds `spills.bytes`; 3 adds owner-transfer object tracking; 4 adds durable
  * append receipts so an acknowledged foreign write remains idempotent after
- * its hot journal rows roll into R2.
+ * its hot journal rows roll into R2; 5 adds retired writer fences so a delayed
+ * pre-rewind writer cannot recreate a removed suffix in the new epoch; 6 adds
+ * atomic edit receipts for crash-safe rewind replay.
  */
-export const JOURNAL_SCHEMA_VERSION = 4;
+export const JOURNAL_SCHEMA_VERSION = 7;
 export const PROTOCOL_VERSION = 1;
 
 // ---------------------------------------------------------------------------
@@ -259,6 +261,7 @@ export type LiveTurnSnapshot = {
 
 export type ConversationOwnerRecord = {
   ownerId: string;
+  ownerGeneration: string;
   createdAt: number;
   title: string;
 };

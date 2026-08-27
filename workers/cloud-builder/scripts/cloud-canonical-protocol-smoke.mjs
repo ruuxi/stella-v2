@@ -62,6 +62,7 @@ const runId = randomUUID().replaceAll("-", "").slice(0, 20);
 const startedAt = new Date().toISOString();
 const checks = [];
 let conversationId = null;
+let expectedOwnerGeneration = null;
 let runError = null;
 
 const evidence = {
@@ -181,6 +182,7 @@ const beginTurn = async ({
         method: "POST",
         body: JSON.stringify({
           deviceId,
+          expectedOwnerGeneration,
           localTurnId,
           clientMsgId,
           userMessageJson,
@@ -202,6 +204,7 @@ const finishTurn = async (
         method: "POST",
         body: JSON.stringify({
           deviceId,
+          expectedOwnerGeneration,
           localTurnId,
           leaseToken,
           phase,
@@ -507,10 +510,25 @@ const runFastProtocol = async () => {
     service: health.body.service,
   });
 
+  const placementIdentity = await convexQuery(
+    "execution_placement:getMyExecutionPlacementIdentity",
+    {},
+    "resolve owner generation",
+  );
+  expectedOwnerGeneration = placementIdentity?.ownerGeneration;
+  assert(
+    typeof expectedOwnerGeneration === "string" &&
+      expectedOwnerGeneration.trim() === expectedOwnerGeneration &&
+      expectedOwnerGeneration.length > 0,
+    "Execution placement identity omitted its owner generation.",
+    placementIdentity,
+  );
+
   const created = await convexMutation(
     "cloud_apps:createMyConversation",
     {
       clientCreateId: `proof-${runId}`,
+      expectedOwnerGeneration,
       title: `Cloud protocol proof ${runId.slice(0, 8)}`,
     },
     "create conversation",

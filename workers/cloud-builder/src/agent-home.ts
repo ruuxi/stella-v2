@@ -1,13 +1,12 @@
 /**
  * The cloud agent home: the owner's memory documents, stored in R2.
  *
- * Desktop Stella keeps these under `~/.stella` and push-injects them into the
- * orchestrator at session start, which is why it feels like it knows the user.
- * The cloud orchestrator has no disk, so the same three documents live in an
- * R2 bucket keyed by a hash of the owner id, and the DO reads them at turn
- * start. `profile.md` is the only one the orchestrator writes (via Remember);
- * `MEMORY.md` and `memory_map.md` are read-only here until a cloud Dream
- * exists to produce them.
+ * Desktop Stella keeps user-owned Markdown under `~/.stella`. Owner-fenced
+ * Cloud Home import/sync copies applicable documents into generation-scoped R2
+ * state, and the DO reads that authoritative cloud state at turn start.
+ * Remember writes `profile.md`; Dream rotates `MEMORY.md` and `memory_map.md`;
+ * explicit Cloud Home sync can also materialize personality and imported
+ * user-owned Markdown.
  *
  * Everything in this module has to run in workerd, so the desktop's
  * `kernel/memory/*` stores (node:fs, node:crypto) cannot be imported. The
@@ -17,6 +16,16 @@
 
 import { redactMemoryText } from "@stella/runtime/kernel/memory/redaction.js";
 import { sha256Hex } from "./hash.js";
+import {
+  CloudHomeProtocolError,
+  CloudHomeStore,
+  type CloudHomeEndpoint,
+  type CloudMemoryHead,
+  type CloudMemoryPreference,
+  type CloudSkillCatalogSnapshot,
+  utf8Bytes,
+  utf8Text,
+} from "./cloud-home-store.js";
 
 export const MEMORY_DOC_NAMES = [
   "MEMORY.md",
@@ -32,7 +41,7 @@ export type MemoryDocName = (typeof MEMORY_DOC_NAMES)[number];
  * imported: that module reads node:fs at load time.
  */
 const DISPLAY_PATHS: Record<MemoryDocName, string> = {
-  "MEMORY.md": "~/.stella/MEMORY.md",
+  "MEMORY.md": "~/.stella/memories/MEMORY.md",
   "profile.md": "~/.stella/memories/profile.md",
   "memory_map.md": "~/.stella/memories/memory_map.md",
 };
@@ -95,6 +104,8 @@ export type ProfileOperation = {
   action: ProfileAction;
   content?: string;
   oldContent?: string;
+  /** Stable for one tool call; conflict retries append their attempt number. */
+  idempotencyKey?: string;
 };
 
 export type ProfileOperationResult = {
@@ -164,8 +175,24 @@ export class AgentHomeUnavailableError extends Error {
   }
 }
 
+export const agentHomeOwnerRoot = async (ownerId: string): Promise<string> =>
+  `agent-home/${await sha256Hex(ownerId)}/`;
+
+export const agentHomeGenerationRoot = async (
+  ownerId: string,
+  ownerGeneration: string,
+): Promise<string> => {
+  const [ownerRoot, generationHash] = await Promise.all([
+    agentHomeOwnerRoot(ownerId),
+    sha256Hex(ownerGeneration),
+  ]);
+  return `${ownerRoot}generations/${generationHash}/`;
+};
+
 export class AgentHome {
+  private ownerRootPromise?: Promise<string>;
   private prefixPromise?: Promise<string>;
+  private readonly cloud?: CloudHomeStore;
 
   // Serializes this DO's own read-modify-write cycles. Tool calls in one turn
   // can run in parallel, and two Remembers reading the same object would
@@ -176,16 +203,45 @@ export class AgentHome {
   constructor(
     private readonly bucket: R2Bucket | undefined,
     private readonly ownerId: string,
-  ) {}
+    private readonly ownerGeneration: string,
+    endpoint?: Omit<CloudHomeEndpoint, "ownerId">,
+  ) {
+    if (bucket && endpoint) {
+      this.cloud = new CloudHomeStore(bucket, { ...endpoint, ownerId });
+    }
+  }
 
   get available(): boolean {
-    return Boolean(this.bucket);
+    return Boolean(this.bucket && this.cloud);
+  }
+
+  async loadSkillCatalog(
+    agentType: "orchestrator" | "general",
+  ): Promise<CloudSkillCatalogSnapshot> {
+    if (!this.cloud) throw new AgentHomeUnavailableError();
+    return await this.cloud.loadSkillCatalog(agentType);
+  }
+
+  cloudStore(): CloudHomeStore {
+    if (!this.cloud) throw new AgentHomeUnavailableError();
+    return this.cloud;
+  }
+
+  async getMemoryPreference(): Promise<CloudMemoryPreference> {
+    if (!this.cloud) throw new AgentHomeUnavailableError();
+    return await this.cloud.getMemoryPreference();
+  }
+
+  private ownerRoot(): Promise<string> {
+    this.ownerRootPromise ??= agentHomeOwnerRoot(this.ownerId);
+    return this.ownerRootPromise;
   }
 
   private prefix(): Promise<string> {
-    this.prefixPromise ??= sha256Hex(this.ownerId).then(
-      (hash) => `agent-home/${hash}/memories/`,
-    );
+    this.prefixPromise ??= agentHomeGenerationRoot(
+      this.ownerId,
+      this.ownerGeneration,
+    ).then((root) => `${root}memories/`);
     return this.prefixPromise;
   }
 
@@ -215,8 +271,65 @@ export class AgentHome {
    */
   async readDocuments(): Promise<MemoryDocument[]> {
     if (!this.bucket) return [];
+    if (this.cloud) {
+      const heads = await this.cloud.listMemoryHeads(100);
+      const canonicalOrder = new Map([
+        ["core-memory.md", 0],
+        ["MEMORY.md", 1],
+        ["memories/profile.md", 2],
+        ["memories/memory_map.md", 3],
+      ]);
+      const candidates = heads
+        .filter(
+          (head) =>
+            head.kind !== "personality" && head.name !== "PERSONALITY.md",
+        )
+        .sort(
+          (a, b) =>
+            (canonicalOrder.get(a.name) ?? 10) -
+              (canonicalOrder.get(b.name) ?? 10) ||
+            b.updatedAt - a.updatedAt ||
+            a.name.localeCompare(b.name),
+        );
+      const documents: MemoryDocument[] = [];
+      let budget = INJECTED_TOTAL_MAX_CHARS;
+      for (const head of candidates) {
+        if (budget <= 0) break;
+        // Once Convex advertises an authoritative head, missing/corrupt bytes
+        // are a blocking integrity failure. Continuing with an apparently
+        // ordinary memoryless turn would hide data loss from the owner.
+        const bytes = head.sha256
+          ? await this.cloud.readMemoryHeadBytes(head)
+          : await this.readAndUpgradeLegacyHead(head);
+        const raw = utf8Text(bytes).trim();
+        if (!raw) continue;
+        const perDocumentMax =
+          head.kind === "memory"
+            ? DOC_MAX_CHARS["MEMORY.md"]
+            : head.kind === "profile"
+              ? DOC_MAX_CHARS["profile.md"]
+              : head.kind === "memory_map"
+                ? DOC_MAX_CHARS["memory_map.md"]
+                : head.kind === "core_memory"
+                  ? 6_000
+                  : 4_000;
+        const capped = truncateAtLineBoundary(
+          redactMemoryText(raw),
+          Math.min(perDocumentMax, budget),
+        );
+        if (!capped.trim()) continue;
+        budget -= capped.length;
+        documents.push({
+          name: head.name,
+          displayPath: head.displayPath,
+          content: capped,
+        });
+      }
+      // An empty authoritative catalog is the only valid memoryless state.
+      return documents;
+    }
     const canonicalPrefix = await this.prefix();
-    const ownerRoot = canonicalPrefix.replace(/memories\/$/, "");
+    const ownerRoot = await this.ownerRoot();
     const imported = await this.bucket
       .list({
         prefix: `${ownerRoot}__stella_imported__/`,
@@ -271,13 +384,26 @@ export class AgentHome {
 
   /**
    * The user's personality override, when their cloud home carries one
-   * (`agent-home/<hash>/PERSONALITY.md`, sibling of `memories/`). Nothing
-   * writes it yet — it exists so a future desktop→cloud home sync lands the
-   * user's customized personality without a worker change; until then the
-   * caller falls back to the canonical default personality.
+   * (`agent-home/<hash>/PERSONALITY.md`, sibling of `memories/`). Cloud Home
+   * import/sync may materialize it; when absent, the caller falls back to the
+   * canonical default personality.
    */
   async readPersonality(): Promise<string | null> {
     if (!this.bucket) return null;
+    if (this.cloud) {
+      const head = await this.cloud.getMemoryHead(
+        "PERSONALITY.md",
+        "personality",
+      );
+      if (head) {
+        const bytes = head.sha256
+          ? await this.cloud.readMemoryHeadBytes(head)
+          : await this.readAndUpgradeLegacyHead(head);
+        const content = redactMemoryText(utf8Text(bytes)).trim();
+        return content ? truncateAtLineBoundary(content, 6_000) : null;
+      }
+      return null;
+    }
     try {
       const prefix = await this.prefix();
       const object = await this.bucket.get(
@@ -288,9 +414,44 @@ export class AgentHome {
       if (!content) return null;
       return truncateAtLineBoundary(content, 6_000);
     } catch {
-      // Personality is context, not correctness.
+      // Legacy, control-plane-free readers retain their compatibility behavior.
       return null;
     }
+  }
+
+  private async readAndUpgradeLegacyHead(
+    head: CloudMemoryHead,
+  ): Promise<Uint8Array> {
+    if (!this.cloud) throw new AgentHomeUnavailableError();
+    const bytes = await this.cloud.readLegacyMemoryHeadBytes(head);
+    // Only known normalized paths can advance through the new plane. Imported
+    // rows from an older owner-transfer implementation remain safely readable
+    // until the migration batch gives them an `imports/...` name.
+    const normalized =
+      head.name === "profile.md"
+        ? { name: "memories/profile.md", kind: "profile" as const }
+        : head.name === "memory_map.md"
+          ? { name: "memories/memory_map.md", kind: "memory_map" as const }
+          : {
+              name: head.name,
+              kind: head.kind,
+            };
+    try {
+      const digest = await sha256Hex(utf8Text(bytes));
+      await this.cloud.publishMemory({
+        name: normalized.name,
+        kind: normalized.kind,
+        source: "legacy_local",
+        expectedRevision: head.revision,
+        bytes,
+        writer: "system_seed",
+        idempotencyKey: `legacy-${head.documentId}-${digest.slice(0, 24)}`,
+      });
+    } catch {
+      // The body was validated against its owner-scoped row and is safe to use
+      // for this turn. A later turn retries the one-way metadata upgrade.
+    }
+    return bytes;
   }
 
   /**
@@ -324,6 +485,68 @@ export class AgentHome {
     const oldContent = operation.oldContent
       ? collapseWhitespace(redactMemoryText(operation.oldContent))
       : "";
+
+    if (this.cloud) {
+      const baseIdempotencyKey = (
+        operation.idempotencyKey?.trim() || crypto.randomUUID()
+      )
+        .replace(/[^A-Za-z0-9._:-]/gu, "-")
+        .slice(0, 112);
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const head = await this.cloud.getMemoryHead(
+          "memories/profile.md",
+          "profile",
+        );
+        const storedBytes = head
+          ? head.sha256
+            ? await this.cloud.readMemoryHeadBytes(head)
+            : await this.cloud.readLegacyMemoryHeadBytes(head)
+          : null;
+        const entries = storedBytes
+          ? parseProfileEntries(utf8Text(storedBytes))
+          : [];
+        const outcome = applyToEntries(entries, operation.action, {
+          content,
+          oldContent,
+        });
+        if (!outcome.ok || !outcome.next) {
+          return { ...outcome, bytes: entriesBodyLength(entries) };
+        }
+        const body = renderProfile(outcome.next);
+        const receipt = await this.cloud.publishMemory({
+          name: "memories/profile.md",
+          kind: "profile",
+          source: "remember",
+          expectedRevision: head?.revision ?? 0,
+          bytes: utf8Bytes(body),
+          writer: "remember",
+          idempotencyKey: `${baseIdempotencyKey}:${attempt}`,
+        });
+        if (receipt.status === "conflict") continue;
+        if (receipt.status !== "committed") {
+          throw new CloudHomeProtocolError(
+            `Cloud profile write ended as ${receipt.status}.`,
+          );
+        }
+        return {
+          ok: true,
+          message: outcome.message,
+          entryCount: outcome.next.length,
+          bytes: entriesBodyLength(outcome.next),
+          written: {
+            r2Key: receipt.r2Key,
+            sizeBytes: receipt.sizeBytes,
+          },
+        };
+      }
+      return {
+        ok: false,
+        message:
+          "Another update to the profile landed first; nothing was written. Try again.",
+        entryCount: 0,
+        bytes: 0,
+      };
+    }
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const stored = await this.read("profile.md");

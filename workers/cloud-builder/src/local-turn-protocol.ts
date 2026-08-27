@@ -5,16 +5,19 @@ export const LOCAL_DEVICE_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 export const LOCAL_TURN_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 export const LOCAL_CLIENT_MSG_ID_PATTERN = /^[A-Za-z0-9._:-]{8,64}$/;
 export const LOCAL_LEASE_TOKEN_PATTERN = /^[a-f0-9]{64}$/;
+export const LOCAL_OWNER_GENERATION_MAX_CHARS = 512;
 
 export type LocalTerminalPhase = Exclude<TurnPhase, "started">;
 
 export type ParsedLocalTurnRenewal = {
   deviceId: string;
+  expectedOwnerGeneration: string;
   localTurnId: string;
   leaseToken: string;
 };
 
 export type LocalClientMessageReceipt = {
+  ownerGeneration: string;
   clientMsgId: string;
   beginFingerprint: string;
   turnId: string;
@@ -82,6 +85,14 @@ const TERMINAL_PHASES = new Set<string>([
 export const localTurnId = (deviceId: string, localId: string): string =>
   `desktop:${deviceId}:${localId}`;
 
+export const parseExpectedOwnerGeneration = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized && normalized.length <= LOCAL_OWNER_GENERATION_MAX_CHARS
+    ? normalized
+    : null;
+};
+
 export const parseLocalTurnRenewal = (
   value: unknown,
 ): ParsedLocalTurnRenewal | null => {
@@ -96,19 +107,29 @@ export const parseLocalTurnRenewal = (
       : "";
   const leaseToken =
     typeof candidate.leaseToken === "string" ? candidate.leaseToken.trim() : "";
+  const expectedOwnerGeneration = parseExpectedOwnerGeneration(
+    candidate.expectedOwnerGeneration,
+  );
   if (
     !LOCAL_DEVICE_ID_PATTERN.test(deviceId) ||
     !LOCAL_TURN_ID_PATTERN.test(localId) ||
-    !LOCAL_LEASE_TOKEN_PATTERN.test(leaseToken)
+    !LOCAL_LEASE_TOKEN_PATTERN.test(leaseToken) ||
+    !expectedOwnerGeneration
   ) {
     return null;
   }
-  return { deviceId, localTurnId: localId, leaseToken };
+  return {
+    deviceId,
+    expectedOwnerGeneration,
+    localTurnId: localId,
+    leaseToken,
+  };
 };
 
 export const classifyLocalClientMessageReplay = (
   receipt: LocalClientMessageReceipt | undefined,
   candidate: {
+    ownerGeneration: string;
     clientMsgId: string;
     beginFingerprint: string;
     turnId: string;
@@ -116,6 +137,7 @@ export const classifyLocalClientMessageReplay = (
 ): LocalClientMessageReplay => {
   if (!receipt) return "new";
   if (
+    receipt.ownerGeneration !== candidate.ownerGeneration ||
     receipt.clientMsgId !== candidate.clientMsgId ||
     receipt.beginFingerprint !== candidate.beginFingerprint
   ) {

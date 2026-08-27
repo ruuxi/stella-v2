@@ -15,8 +15,8 @@
  *    the budget only — it never materializes a full history to prune.
  *  - The sandbox executor still writes SPAWNED-AGENT THREAD transcripts to
  *    Convex (`cloud_thread_messages`), which is private job state rather than
- *    conversation content, so `pruneAgentHistory`, `chunkForAppend` and
- *    `MESSAGE_APPEND_BATCH_LIMIT` continue to serve that path unchanged.
+ *    conversation content, so `pruneAgentHistory` continues to serve that
+ *    path unchanged.
  */
 
 /**
@@ -70,16 +70,4 @@ export const pruneAgentHistory = <T extends { role?: string }>(
     start += 1;
   }
   return messages.slice(start);
-};
-
-/** Server-enforced ceiling on one `/api/cloud/messages` append. */
-export const MESSAGE_APPEND_BATCH_LIMIT = 50;
-
-/** Split rows into ordered batches the append route will accept. */
-export const chunkForAppend = <T>(rows: T[], size = MESSAGE_APPEND_BATCH_LIMIT): T[][] => {
-  const batches: T[][] = [];
-  for (let index = 0; index < rows.length; index += size) {
-    batches.push(rows.slice(index, index + size));
-  }
-  return batches;
 };

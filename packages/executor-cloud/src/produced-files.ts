@@ -10,21 +10,37 @@
  * R2 so the chat surface can hand them back to the user. Anything larger stays
  * in the checkpointed workspace and is reported as metadata only.
  *
- * A recorded path is a string the agent chose, so every candidate is resolved
- * to its real location and required to be a regular file inside the workspace
- * before its bytes are read: a symlink planted over a deliverable would
- * otherwise upload whatever the sandbox user can read into the owner's drive.
+ * A recorded path is a string the agent chose, so every candidate is opened
+ * component-by-component beneath the workspace descriptor and required to be
+ * a singly-linked, workspace-owned regular file. Small-file bytes are retained
+ * from that authorization; delivery never reopens the recorded pathname.
  */
 
 import { spawn } from "node:child_process";
-import { constants as fsConstants, type Stats } from "node:fs";
-import { lstat, open, realpath } from "node:fs/promises";
 import path from "node:path";
 import {
   isNoiseProducedPath,
   MAX_PRODUCED_FILES_PER_COMMAND,
   type FileChangeRecord,
 } from "@stella/contracts/file-changes";
+import { isolateToolProcessLaunch } from "@stella/runtime/kernel/tools/process-isolation.js";
+import type { ToolProcessIdentity } from "@stella/runtime/kernel/tools/types.js";
+import {
+  readWorkspaceFileNoFollow,
+  statWorkspaceFileNoFollow,
+} from "@stella/runtime/kernel/tools/workspace-file-boundary.js";
+
+/**
+ * Stable bytes authorized through the workspace descriptor boundary.
+ *
+ * A non-enumerable symbol keeps these bytes out of object spreading and JSON
+ * while the trusted executor carries a report from collection to delivery.
+ * Delivery is deliberately unable to fall back to a path if this field is
+ * absent.
+ */
+export const PRODUCED_FILE_AUTHORIZED_BYTES = Symbol(
+  "stella.produced-file.authorized-bytes",
+);
 
 export type ProducedFileReport = {
   /**
@@ -34,15 +50,11 @@ export type ProducedFileReport = {
    * straight against the drive — the two have to be the same string.
    */
   path: string;
-  /**
-   * Absolute, symlink-free location the bytes are read from. Resolved and
-   * checked for workspace containment at collection time; never re-derived
-   * from the recorded path.
-   */
-  sourcePath: string;
   name: string;
   sizeBytes: number;
   contentType: string;
+  /** Trusted-host-only bytes; omitted from JSON and never reconstructed. */
+  [PRODUCED_FILE_AUTHORIZED_BYTES]?: Buffer;
 };
 
 /** What a turn produced, and what did not fit the report. */
@@ -136,6 +148,14 @@ const contentTypeFor = (name: string): string => {
   );
 };
 
+const safeFileSize = (size: number | bigint): number | null => {
+  if (typeof size === "bigint") {
+    if (size < 0n || size > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+    return Number(size);
+  }
+  return Number.isSafeInteger(size) && size >= 0 ? size : null;
+};
+
 const toWorkspaceRelative = (
   absolutePath: string,
   workspaceRoot: string,
@@ -147,6 +167,28 @@ const toWorkspaceRelative = (
   return relative.split(path.sep).join("/");
 };
 
+const assertStrictProcessIdentity = (identity: ToolProcessIdentity): void => {
+  if (identity.requireNoNewPrivileges !== true) {
+    throw new Error(
+      "Cloud produced-file processes require the strict tool identity.",
+    );
+  }
+};
+
+/** Pure launch builder retained as focused evidence for the privilege fence. */
+export const buildProducedFilesGitCheckIgnoreLaunch = (
+  identity: ToolProcessIdentity,
+  platform: NodeJS.Platform = process.platform,
+) => {
+  assertStrictProcessIdentity(identity);
+  return isolateToolProcessLaunch({
+    command: "/usr/bin/git",
+    commandArgs: ["check-ignore", "--stdin", "-z"],
+    identity,
+    platform,
+  });
+};
+
 /**
  * A project workspace is a git checkout: build output, caches and local
  * env files are exactly the paths its `.gitignore` already names.
@@ -154,50 +196,39 @@ const toWorkspaceRelative = (
 const filterGitIgnored = async (
   workspaceRoot: string,
   relativePaths: string[],
+  identity: ToolProcessIdentity,
 ): Promise<string[]> =>
   new Promise((resolve) => {
-    const child = spawn("git", ["check-ignore", "--stdin"], {
+    const launch = buildProducedFilesGitCheckIgnoreLaunch(identity);
+    const child = spawn(launch.command, launch.args, {
       cwd: workspaceRoot,
+      env: {
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_TERMINAL_PROMPT: "0",
+        HOME: identity.home,
+        LANG: "C.UTF-8",
+        LC_ALL: "C.UTF-8",
+        LOGNAME: identity.user,
+        PATH: "/usr/bin:/bin",
+        USER: identity.user,
+      },
       stdio: ["pipe", "pipe", "ignore"],
       timeout: 15_000,
     });
-    let stdout = "";
+    const stdout: Buffer[] = [];
     child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
+      stdout.push(chunk);
     });
     child.on("error", () => resolve(relativePaths));
     child.on("close", () => {
       const ignored = new Set(
-        stdout
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean),
+        Buffer.concat(stdout).toString("utf8").split("\0").filter(Boolean),
       );
       resolve(relativePaths.filter((value) => !ignored.has(value)));
     });
-    child.stdin.end(`${relativePaths.join("\n")}\n`);
+    child.stdin.on("error", () => undefined);
+    child.stdin.end(`${relativePaths.join("\0")}\0`);
   });
-
-/**
- * Resolve a recorded path to the file the bytes would actually come from, and
- * only return it when that file is a regular file inside the workspace. The
- * parent chain is resolved with `realpath` and the leaf with `lstat`, so
- * neither a symlinked directory nor a symlink swapped over the deliverable
- * itself can point the report at something outside the workspace.
- */
-const resolveInsideWorkspace = async (
-  workspaceRealRoot: string,
-  relative: string,
-): Promise<{ sourcePath: string; stats: Stats } | null> => {
-  const absolute = path.join(workspaceRealRoot, relative);
-  const parent = await realpath(path.dirname(absolute)).catch(() => null);
-  if (!parent) return null;
-  const sourcePath = path.join(parent, path.basename(absolute));
-  if (!toWorkspaceRelative(sourcePath, workspaceRealRoot)) return null;
-  const stats = await lstat(sourcePath).catch(() => null);
-  if (!stats?.isFile()) return null;
-  return { sourcePath, stats };
-};
 
 /**
  * Turn the turn's tool records into the deliverables worth reporting.
@@ -241,6 +272,8 @@ const resolveInsideWorkspace = async (
  */
 export const collectProducedFiles = async (options: {
   workspaceRoot: string;
+  /** Fixed Cloud identity used for both subprocesses and workspace ownership. */
+  processIdentity: ToolProcessIdentity;
   /** Deliberate tool edits (`fileChanges`). */
   edited: FileChangeRecord[];
   /** Snapshot-detected writes (`producedFiles`), one array per command. */
@@ -249,6 +282,7 @@ export const collectProducedFiles = async (options: {
   /** Drive folder this workspace's files land under; "" for the drive itself. */
   drivePrefix: string;
 }): Promise<ProducedFileCollection> => {
+  assertStrictProcessIdentity(options.processIdentity);
   const collect = (
     records: FileChangeRecord[],
     snapshot: boolean,
@@ -322,52 +356,79 @@ export const collectProducedFiles = async (options: {
   if (candidates.length === 0) return { files: [], omitted: [], withheld };
 
   const tracked = options.gitAware
-    ? await filterGitIgnored(options.workspaceRoot, candidates)
+    ? await filterGitIgnored(
+        options.workspaceRoot,
+        candidates,
+        options.processIdentity,
+      )
     : candidates;
 
-  const workspaceRealRoot = await realpath(options.workspaceRoot).catch(
-    () => options.workspaceRoot,
-  );
+  const workspaceRoot = path.resolve(options.workspaceRoot);
+  const owner = {
+    uid: options.processIdentity.uid,
+    gid: options.processIdentity.gid,
+  };
   const files: ProducedFileReport[] = [];
   const omitted: string[] = [];
   for (const relative of tracked) {
-    const resolved = await resolveInsideWorkspace(workspaceRealRoot, relative);
-    if (!resolved) continue;
+    const candidatePath = path.join(workspaceRoot, relative);
+    const metadata = await statWorkspaceFileNoFollow(
+      candidatePath,
+      workspaceRoot,
+      { owner },
+    ).catch(() => null);
+    if (!metadata) continue;
+    const metadataSize = safeFileSize(metadata.size);
+    if (metadataSize === null) continue;
     const drivePath = `${options.drivePrefix}${relative}`;
     if (files.length >= MAX_REPORTED_FILES) {
       omitted.push(drivePath);
       continue;
     }
+
+    // Only bytes opened and held by the descriptor-safe boundary may leave the
+    // workspace. A later rename/symlink swap is harmless because delivery has
+    // no pathname to reopen. Large files remain metadata-only by contract.
+    let authorizedBytes: Buffer | undefined;
+    let sizeBytes = metadataSize;
+    if (metadataSize < INLINE_LIMIT_BYTES) {
+      const authorized = await readWorkspaceFileNoFollow(
+        candidatePath,
+        workspaceRoot,
+        INLINE_LIMIT_BYTES - 1,
+        { owner },
+      ).catch(() => null);
+      if (!authorized) continue;
+      authorizedBytes = authorized.bytes;
+      const authorizedSize = safeFileSize(authorized.stat.size);
+      if (authorizedSize === null) {
+        authorizedBytes.fill(0);
+        continue;
+      }
+      sizeBytes = authorizedSize;
+      if (authorizedBytes.byteLength !== sizeBytes) {
+        authorizedBytes.fill(0);
+        continue;
+      }
+    }
     const name = relative.split("/").pop() ?? relative;
-    files.push({
+    const report: ProducedFileReport = {
       path: drivePath,
-      sourcePath: resolved.sourcePath,
       name,
-      sizeBytes: resolved.stats.size,
+      sizeBytes,
       contentType: contentTypeFor(name),
-    });
+    };
+    if (authorizedBytes) {
+      Object.defineProperty(report, PRODUCED_FILE_AUTHORIZED_BYTES, {
+        configurable: false,
+        enumerable: false,
+        value: authorizedBytes,
+        writable: false,
+      });
+    }
+    files.push(report);
   }
   return { files, omitted, withheld };
-};
-
-/**
- * Read a collected file without following a symlink at the leaf: a background
- * command that outlives the agent loop could still swap one in between
- * collection and this read.
- */
-const readContained = async (sourcePath: string): Promise<Buffer | null> => {
-  const handle = await open(
-    sourcePath,
-    fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
-  ).catch(() => null);
-  if (!handle) return null;
-  try {
-    return await handle.readFile();
-  } catch {
-    return null;
-  } finally {
-    await handle.close().catch(() => undefined);
-  }
 };
 
 /** What the drive did with a turn's report, per path. */
@@ -431,9 +492,13 @@ export const reportProducedFiles = async (options: {
       ...(knownUpdatedAt === undefined ? {} : { knownUpdatedAt }),
     };
     if (file.sizeBytes < INLINE_LIMIT_BYTES) {
-      const bytes = await readContained(file.sourcePath);
-      if (bytes)
-        payload = { ...payload, contentBase64: bytes.toString("base64") };
+      const bytes = file[PRODUCED_FILE_AUTHORIZED_BYTES];
+      if (bytes && bytes.byteLength === file.sizeBytes) {
+        payload = {
+          ...payload,
+          contentBase64: Buffer.from(bytes).toString("base64"),
+        };
+      }
     }
     const cost = payload.contentBase64 ? file.sizeBytes : 0;
     if (batch.length > 0 && batchBytes + cost > INLINE_LIMIT_BYTES) {

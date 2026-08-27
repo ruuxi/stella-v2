@@ -18,16 +18,23 @@
 
 import { spawn } from "node:child_process";
 import {
+  chown,
   chmod,
-  mkdir,
   mkdtemp,
   readFile,
   rm,
-  stat,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { isolateToolProcessLaunch } from "@stella/runtime/kernel/tools/process-isolation.js";
+import type { ToolProcessIdentity } from "@stella/runtime/kernel/tools/types.js";
+import {
+  assertWorkspaceDirectoryNoFollow,
+  readWorkspaceFileNoFollow,
+  statWorkspaceFileNoFollow,
+  writeWorkspaceFileNoFollow,
+} from "@stella/runtime/kernel/tools/workspace-file-boundary.js";
 
 /** The token-free half of the project handoff: this travels in turn input. */
 export type ProjectTurnInput = {
@@ -103,10 +110,17 @@ const SETUP_TIMEOUT_MS = 10 * 60_000;
 
 type RunResult = { code: number; stdout: string; stderr: string };
 
-const exists = async (target: string): Promise<boolean> =>
-  stat(target).then(
+const safeFileExists = async (
+  target: string,
+  root: string,
+  identity: ToolProcessIdentity,
+): Promise<boolean> =>
+  statWorkspaceFileNoFollow(target, root, { owner: identity }).then(
     () => true,
-    () => false,
+    (error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    },
   );
 
 /**
@@ -128,15 +142,31 @@ export const scrubRemoteUrl = (remoteUrl: string): string => {
 const run = (
   command: string,
   args: string[],
-  options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number },
+  options: {
+    cwd: string;
+    env: NodeJS.ProcessEnv;
+    timeoutMs: number;
+    identity: ToolProcessIdentity;
+  },
 ): Promise<RunResult> =>
   new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const launch = isolateToolProcessLaunch({
+      command,
+      commandArgs: args,
+      identity: options.identity,
+    });
+    const child = spawn(launch.command, launch.args, {
       cwd: options.cwd,
       env: options.env,
       timeout: options.timeoutMs,
       killSignal: "SIGKILL",
       stdio: ["ignore", "pipe", "pipe"],
+      ...(launch.nativeIdentity
+        ? {
+            uid: launch.nativeIdentity.uid,
+            gid: launch.nativeIdentity.gid,
+          }
+        : {}),
     });
     let stdout = "";
     let stderr = "";
@@ -157,10 +187,23 @@ const run = (
  * installation token are both withheld: git has its own credential path, and
  * a setup script has no business with either.
  */
-const childEnv = (): NodeJS.ProcessEnv => {
+const childEnv = (identity: ToolProcessIdentity): NodeJS.ProcessEnv => {
   const env: NodeJS.ProcessEnv = { ...process.env };
   delete env.STELLA_TURN_TOKEN;
-  return { ...env, GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_NOSYSTEM: "1" };
+  delete env.STELLA_CODEX_TURN_TOKEN;
+  delete env.CLAUDE_CODE_OAUTH_TOKEN;
+  delete env.ANTHROPIC_CUSTOM_HEADERS;
+  return {
+    ...env,
+    HOME: identity.home,
+    USER: identity.user,
+    LOGNAME: identity.user,
+    XDG_CONFIG_HOME: path.join(identity.home, ".config"),
+    XDG_CACHE_HOME: path.join(identity.home, ".cache"),
+    XDG_STATE_HOME: path.join(identity.home, ".local", "state"),
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_CONFIG_NOSYSTEM: "1",
+  };
 };
 
 /**
@@ -181,6 +224,7 @@ export type GitCredentialEnv = Record<string, string>;
 
 const createGitCredentialEnv = async (
   token: string,
+  identity: ToolProcessIdentity,
 ): Promise<GitCredentialEnv> => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "stella-gitauth-"));
   const askpass = path.join(dir, "askpass.sh");
@@ -191,6 +235,8 @@ const createGitCredentialEnv = async (
     "utf8",
   );
   await chmod(askpass, 0o700);
+  await chown(askpass, identity.uid, identity.gid);
+  await chown(dir, identity.uid, identity.gid);
   return { GIT_ASKPASS: askpass, GIT_TERMINAL_PROMPT: "0" };
 };
 
@@ -222,13 +268,29 @@ const README_COMMAND = /^\s*(bun|npm|pnpm|yarn)\s+(install|ci)\b[^\n]*$/gm;
  * are authoritative; a README is consulted only when the repo has no lockfile
  * at all, and only for an install line it states verbatim.
  */
-const inferSetupCommand = async (root: string): Promise<string | undefined> => {
+const inferSetupCommand = async (
+  root: string,
+  identity: ToolProcessIdentity,
+): Promise<string | undefined> => {
   for (const [file, command] of LOCKFILE_COMMANDS) {
-    if (await exists(path.join(root, file))) return command;
+    if (await safeFileExists(path.join(root, file), root, identity)) {
+      return command;
+    }
   }
-  if (await exists(path.join(root, "package.json"))) return "npm install";
-  const readme = await readFile(path.join(root, "README.md"), "utf8").catch(
-    () => "",
+  if (await safeFileExists(path.join(root, "package.json"), root, identity)) {
+    return "npm install";
+  }
+  const readme = await readWorkspaceFileNoFollow(
+    path.join(root, "README.md"),
+    root,
+    20_000,
+    { owner: identity },
+  ).then(
+    (read) => read.bytes.toString("utf8"),
+    (error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
+      throw error;
+    },
   );
   const match = README_COMMAND.exec(readme.slice(0, 20_000));
   README_COMMAND.lastIndex = 0;
@@ -242,28 +304,46 @@ const inferSetupCommand = async (root: string): Promise<string | undefined> => {
  * user's branch. `.git/info/exclude` is per-clone and is never committed; it
  * has no effect on paths the repository already tracks.
  */
-const excludeStellaState = async (root: string): Promise<void> => {
+const excludeStellaState = async (
+  root: string,
+  identity: ToolProcessIdentity,
+): Promise<void> => {
   const excludePath = path.join(root, ".git", "info", "exclude");
-  const current = await readFile(excludePath, "utf8").catch(() => "");
+  const current = await readWorkspaceFileNoFollow(
+    excludePath,
+    root,
+    1024 * 1024,
+    { owner: identity },
+  ).then(
+    (read) => read.bytes.toString("utf8"),
+    (error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return "";
+      throw error;
+    },
+  );
   if (current.split("\n").some((line) => line.trim() === GIT_EXCLUDE_ENTRY)) {
     return;
   }
-  await mkdir(path.dirname(excludePath), { recursive: true });
   const separator = !current || current.endsWith("\n") ? "" : "\n";
-  await writeFile(
+  await writeWorkspaceFileNoFollow(
     excludePath,
+    root,
     `${current}${separator}${GIT_EXCLUDE_ENTRY}\n`,
-    "utf8",
+    { owner: identity },
   );
 };
 
-const commandIsRunnable = async (command: string): Promise<boolean> => {
+const commandIsRunnable = async (
+  command: string,
+  identity: ToolProcessIdentity,
+): Promise<boolean> => {
   const binary = command.trim().split(/\s+/)[0] ?? "";
   if (!binary) return false;
   const result = await run("sh", ["-c", `command -v ${binary}`], {
     cwd: "/",
-    env: childEnv(),
+    env: childEnv(identity),
     timeoutMs: 10_000,
+    identity,
   }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
   return result.code === 0;
 };
@@ -279,21 +359,35 @@ export const prepareProjectWorkspace = async (
   emit: (message: string) => void,
   /** From {@link takeProjectCredentials}; never from `project` itself. */
   token: string | undefined,
+  identity: ToolProcessIdentity,
 ): Promise<ProjectWorkspaceResult> => {
   const remoteUrl = scrubRemoteUrl(project.remoteUrl);
   const branch = project.branch.trim() || project.defaultBranch.trim();
   const defaultBranch = project.defaultBranch.trim() || "main";
   const notes: string[] = [];
-  const cold = !(await exists(path.join(root, ".git")));
+  const cold = !(await assertWorkspaceDirectoryNoFollow(
+    path.join(root, ".git"),
+    root,
+    { owner: identity },
+  ).then(
+    () => true,
+    (error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    },
+  ));
 
-  const gitEnv = token ? await createGitCredentialEnv(token) : undefined;
+  const gitEnv = token
+    ? await createGitCredentialEnv(token, identity)
+    : undefined;
   {
-    const env = { ...childEnv(), ...gitEnv };
+    const env = { ...childEnv(identity), ...gitEnv };
     const git = (args: string[], cwd = root) =>
       run("git", [...GIT_SAFE_ARGS, ...args], {
         cwd,
         env,
         timeoutMs: GIT_TIMEOUT_MS,
+        identity,
       });
 
     const syncToBranch = async () => {
@@ -343,7 +437,7 @@ export const prepareProjectWorkspace = async (
     }
   }
 
-  await excludeStellaState(root).catch(() => undefined);
+  await excludeStellaState(root, identity).catch(() => undefined);
 
   // Setup happens once per workspace. Re-deriving it on a warm restore would
   // not just waste a minute — the command that ran may have rewritten the
@@ -354,16 +448,22 @@ export const prepareProjectWorkspace = async (
     setupSource?: "provided" | "inferred";
   };
   const readMarker = async (target: string): Promise<SetupMarker | null> =>
-    readFile(target, "utf8").then(
-      (raw) => JSON.parse(raw) as SetupMarker,
-      () => null,
+    readWorkspaceFileNoFollow(target, root, 64 * 1024, {
+      owner: identity,
+    }).then(
+      (read) => JSON.parse(read.bytes.toString("utf8")) as SetupMarker,
+      (error) => {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw error;
+      },
     );
   const recorded =
     (await readMarker(markerPath)) ??
     (await readMarker(path.join(root, LEGACY_SETUP_MARKER)));
   const provided = project.setupScript?.trim();
   const setupCommand =
-    recorded?.setupCommand ?? (provided || (await inferSetupCommand(root)));
+    recorded?.setupCommand ??
+    (provided || (await inferSetupCommand(root, identity)));
   const setupSource = recorded
     ? recorded.setupSource
     : provided
@@ -375,12 +475,13 @@ export const prepareProjectWorkspace = async (
   let setupRan = false;
   let setupExitCode: number | undefined;
   if (setupCommand && !recorded) {
-    if (await commandIsRunnable(setupCommand)) {
+    if (await commandIsRunnable(setupCommand, identity)) {
       emit(`Setting up the workspace: ${setupCommand}`);
       const setup = await run("bash", ["-lc", setupCommand], {
         cwd: root,
-        env: childEnv(),
+        env: childEnv(identity),
         timeoutMs: SETUP_TIMEOUT_MS,
+        identity,
       });
       setupRan = true;
       setupExitCode = setup.code;
@@ -394,14 +495,12 @@ export const prepareProjectWorkspace = async (
         `Setup command "${setupCommand}" was inferred but its runtime is not installed in this sandbox; dependencies are not installed.`,
       );
     }
-    await mkdir(path.dirname(markerPath), { recursive: true })
-      .then(() =>
-        writeFile(
-          markerPath,
-          `${JSON.stringify({ setupCommand, setupSource, setupRan, setupExitCode, at: Date.now() }, null, 2)}\n`,
-          "utf8",
-        ),
-      )
+    await writeWorkspaceFileNoFollow(
+      markerPath,
+      root,
+      `${JSON.stringify({ setupCommand, setupSource, setupRan, setupExitCode, at: Date.now() }, null, 2)}\n`,
+      { owner: identity },
+    )
       .catch(() => undefined);
   }
 

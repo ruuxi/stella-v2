@@ -19,9 +19,15 @@ import {
   type AgentHome,
   type ProfileAction,
 } from "./agent-home.js";
+import { sha256Hex } from "./hash.js";
+
+export type OrchestratorAgentTool = AgentTool & {
+  codeEligibility?: "read_only";
+};
 
 export type OrchestratorToolContext = {
   ownerId: string;
+  ownerGeneration: string;
   /**
    * The conversation this turn is running in. A schedule created here fires
    * back into it, so the run shows up where the user set it up instead of
@@ -30,7 +36,11 @@ export type OrchestratorToolContext = {
   conversationId: string;
   agentHome: AgentHome;
   /** POST to a Convex HTTP route with the builder service secret. */
-  post: (path: string, body: unknown) => Promise<Response>;
+  post: (
+    path: string,
+    body: unknown,
+    signal?: AbortSignal,
+  ) => Promise<Response>;
 };
 
 /**
@@ -76,7 +86,7 @@ const formatMatch = (match: RecallMatch): string => {
 
 export const createMemoryTools = (
   context: OrchestratorToolContext,
-): AgentTool[] => [
+): OrchestratorAgentTool[] => [
   {
     name: "Recall",
     label: "Recall",
@@ -101,7 +111,9 @@ export const createMemoryTools = (
       },
       required: ["prompt", "memorySearchTerms"],
     } as unknown as TSchema,
-    execute: async (_id, params) => {
+    codeEligibility: "read_only",
+    execute: async (_id, params, signal) => {
+      signal?.throwIfAborted();
       const args = params as { prompt?: string; memorySearchTerms?: unknown };
       const prompt = args.prompt?.trim() ?? "";
       if (!prompt) throw new Error("Recall needs a prompt.");
@@ -119,6 +131,7 @@ export const createMemoryTools = (
       }
 
       const documents = await context.agentHome.readDocuments();
+      signal?.throwIfAborted();
       let documentBudget = RECALL_DOCUMENT_BUDGET;
       const renderedDocuments: string[] = [];
       for (const document of documents) {
@@ -134,17 +147,22 @@ export const createMemoryTools = (
       let status: "found" | "no_match" | "retrieval_error" = "no_match";
       let failure = "";
       try {
-        const response = await context.post("/api/cloud/recall", {
-          ownerId: context.ownerId,
-          // Both: `terms` is what the search uses — the model's terms are
-          // routinely multi-word ("pivot table broken", "q3.xlsx"), and
-          // joining them was what let a term boundary become three words
-          // spending three slots of an eight-slot budget. `query` stays for
-          // an older deployment that has not learned `terms` yet.
-          terms,
-          query: terms.join(" "),
-          limit: RECALL_DEFAULT_LIMIT,
-        });
+        const response = await context.post(
+          "/api/cloud/recall",
+          {
+            ownerId: context.ownerId,
+            ownerGeneration: context.ownerGeneration,
+            // Both: `terms` is what the search uses — the model's terms are
+            // routinely multi-word ("pivot table broken", "q3.xlsx"), and
+            // joining them was what let a term boundary become three words
+            // spending three slots of an eight-slot budget. `query` stays for
+            // an older deployment that has not learned `terms` yet.
+            terms,
+            query: terms.join(" "),
+            limit: RECALL_DEFAULT_LIMIT,
+          },
+          signal,
+        );
         if (!response.ok) {
           status = "retrieval_error";
           failure = `Searching past conversations failed (${response.status}).`;
@@ -159,6 +177,10 @@ export const createMemoryTools = (
           status = matches.length > 0 ? "found" : "no_match";
         }
       } catch (error) {
+        // A turn cancellation is control flow, not a failed memory lookup. If
+        // it is flattened into retrieval_error the agent loop can continue
+        // after its caller has already canceled the turn.
+        signal?.throwIfAborted();
         status = "retrieval_error";
         failure =
           error instanceof Error
@@ -232,7 +254,7 @@ export const createMemoryTools = (
       },
       required: ["action"],
     } as unknown as TSchema,
-    execute: async (_id, params) => {
+    execute: async (toolCallId, params) => {
       const args = params as {
         action?: string;
         content?: string;
@@ -243,25 +265,18 @@ export const createMemoryTools = (
         throw new Error("action must be 'add', 'replace', or 'remove'.");
       }
       try {
+        const idempotencyKey = `remember:${await sha256Hex(
+          `remember\0${context.ownerGeneration}\0${context.conversationId}\0${toolCallId}`,
+        )}`;
         const result = await context.agentHome.applyProfileOperation({
           action,
           ...(args.content ? { content: args.content } : {}),
           ...(args.old_content ? { oldContent: args.old_content } : {}),
+          // A lost response retries the exact same write, while an owner reset
+          // moves otherwise-identical conversation/tool ids into a disjoint
+          // receipt namespace.
+          idempotencyKey,
         });
-        if (result.written) {
-          // R2 holds the bytes, Convex holds the record that they exist. A
-          // failed registration leaves a readable document that Recall simply
-          // cannot enumerate — worth nothing to the user, so it never fails
-          // the write the user asked for.
-          await context
-            .post("/api/cloud/agent-home/register", {
-              ownerId: context.ownerId,
-              name: "profile.md",
-              r2Key: result.written.r2Key,
-              sizeBytes: result.written.sizeBytes,
-            })
-            .catch(() => undefined);
-        }
         return {
           content: [{ type: "text", text: result.message }],
           details: {
@@ -312,7 +327,9 @@ const scheduleFromArgs = (args: {
     }
     const everyMs = Math.round(minutes) * 60_000;
     return {
-      schedule: { kind: "every", everyMs, anchorMs: Date.now() },
+      // Convex anchors the first committed request. Omitting a client clock
+      // keeps an exact retry's intent stable after a lost response.
+      schedule: { kind: "every", everyMs },
       description: `every ${Math.round(minutes)} minutes`,
     };
   }
@@ -348,7 +365,7 @@ const withReadableRunTimes = (row: unknown): unknown => {
 
 export const createScheduleTool = (
   context: OrchestratorToolContext,
-): AgentTool => ({
+): OrchestratorAgentTool => ({
   name: "Schedule",
   label: "Schedule",
   description:
@@ -400,7 +417,7 @@ export const createScheduleTool = (
     },
     required: ["action"],
   } as unknown as TSchema,
-  execute: async (_id, params) => {
+  execute: async (toolCallId, params, signal) => {
     const args = params as {
       action?: string;
       schedule_id?: string;
@@ -435,19 +452,28 @@ export const createScheduleTool = (
       throw new Error("create needs a when.");
     }
     const timing = args.when ? scheduleFromArgs({ when: args.when }) : null;
+    const requestId = await sha256Hex(
+      `schedule\0${context.ownerGeneration}\0${context.conversationId}\0${toolCallId}`,
+    );
 
-    const response = await context.post("/api/cloud/schedule", {
-      ownerId: context.ownerId,
-      action,
-      ...(args.schedule_id ? { scheduleId: args.schedule_id.trim() } : {}),
-      ...(args.prompt ? { prompt: args.prompt.trim() } : {}),
-      ...(args.description ? { description: args.description.trim() } : {}),
-      ...(action === "create"
-        ? { conversationId: context.conversationId }
-        : {}),
-      ...(timing ? { schedule: timing.schedule } : {}),
-      ...(args.status ? { status: args.status } : {}),
-    });
+    const response = await context.post(
+      "/api/cloud/schedule",
+      {
+        ownerId: context.ownerId,
+        ownerGeneration: context.ownerGeneration,
+        action,
+        ...(action === "list" ? {} : { requestId }),
+        ...(args.schedule_id ? { scheduleId: args.schedule_id.trim() } : {}),
+        ...(args.prompt ? { prompt: args.prompt.trim() } : {}),
+        ...(args.description ? { description: args.description.trim() } : {}),
+        ...(action === "create"
+          ? { conversationId: context.conversationId }
+          : {}),
+        ...(timing ? { schedule: timing.schedule } : {}),
+        ...(args.status ? { status: args.status } : {}),
+      },
+      signal,
+    );
     const payload = await readJson(response);
     if (!response.ok) {
       throw new Error(

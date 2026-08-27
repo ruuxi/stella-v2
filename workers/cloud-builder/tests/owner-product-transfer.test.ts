@@ -2,21 +2,36 @@ import { describe, expect, test } from "bun:test";
 import {
   OWNER_PRODUCT_TRANSFER_LEASE_MS,
   OWNER_TRANSFER_OBJECT_LIMIT,
+  assertOwnerTransferReservation,
   collectCheckpointRecoveryReferences,
   createOwnerTransferBudget,
   importedCheckpointDescriptor,
+  isValidOwnerTransferPrefixPair,
+  missingOwnerProductTransferBinding,
   ownerTransferLeaseConflicts,
   parseOwnerProductTransferRequest,
   replaceOwnerPrefix,
+  rewriteInteriorArtifactManifest,
   resolveWorkspaceTransfer,
   takeOwnerTransferBatch,
   transferredBackupId,
 } from "../src/owner-product-transfer.js";
 
+const control = {
+  migrationId: "migration-1",
+  leaseId: "lease-1",
+  leaseGeneration: 0,
+  stage: "product-transfer",
+  planRevision: 1,
+  fromOwnerGeneration: "from-generation-1",
+  toOwnerGeneration: "to-generation-1",
+};
+
 describe("owner product transfer", () => {
   test("accepts bounded same-kind workspace moves", () => {
     expect(
       parseOwnerProductTransferRequest({
+        ...control,
         fromOwnerId: " anonymous-owner ",
         toOwnerId: "connected-owner",
         agentHome: true,
@@ -32,6 +47,7 @@ describe("owner product transfer", () => {
         appSlugs: ["notes"],
       }),
     ).toEqual({
+      ...control,
       fromOwnerId: "anonymous-owner",
       toOwnerId: "connected-owner",
       agentHome: true,
@@ -74,6 +90,7 @@ describe("owner product transfer", () => {
   test("rejects cross-kind moves and unbounded manifests", () => {
     expect(
       parseOwnerProductTransferRequest({
+        ...control,
         fromOwnerId: "anonymous-owner",
         toOwnerId: "connected-owner",
         agentHome: false,
@@ -84,6 +101,7 @@ describe("owner product transfer", () => {
     ).toBeNull();
     expect(
       parseOwnerProductTransferRequest({
+        ...control,
         fromOwnerId: "anonymous-owner",
         toOwnerId: "connected-owner",
         agentHome: false,
@@ -231,5 +249,108 @@ describe("owner product transfer", () => {
     );
     expect(third).toHaveLength(51);
     expect(thirdBudget.remaining).toBe(149);
+  });
+
+  test("requires AGENT_HOME exactly when requested", () => {
+    expect(
+      missingOwnerProductTransferBinding(
+        { agentHome: true },
+        { agentHome: false },
+      ),
+    ).toBe("AGENT_HOME");
+    expect(
+      missingOwnerProductTransferBinding(
+        { agentHome: false },
+        { agentHome: false },
+      ),
+    ).toBeNull();
+  });
+
+  test("reset/delete waits for an exact reservation but rejects impostors", () => {
+    const reservation = {
+      role: "transfer",
+      leaseId: "reservation-1",
+      sessionId: "coordinator-1",
+      turnId: "owner-transfer:operation-1",
+      ownerGeneration: "owner-generation-1",
+    };
+    expect(
+      assertOwnerTransferReservation(reservation, reservation, {
+        state: "blocked",
+        mode: "permanent",
+      }),
+    ).toEqual({ ok: true });
+    expect(
+      assertOwnerTransferReservation(
+        reservation,
+        { ...reservation, ownerGeneration: "stale-generation" },
+        { state: "blocked", mode: "permanent" },
+      ),
+    ).toEqual({ ok: false, code: "owner_purge_permanent" });
+    expect(
+      assertOwnerTransferReservation(undefined, reservation, {
+        state: "blocked",
+        mode: "temporary",
+      }),
+    ).toEqual({ ok: false, code: "owner_purge_temporary" });
+  });
+
+  test("accepts only exact owner namespace mappings", () => {
+    const from = "a".repeat(64);
+    const to = "b".repeat(64);
+    expect(
+      isValidOwnerTransferPrefixPair(
+        `builds/${from}/`,
+        `builds/${to}/`,
+      ),
+    ).toBe(true);
+    expect(
+      isValidOwnerTransferPrefixPair(
+        `builds/${from}/app/`,
+        `builds/${to}/app/`,
+      ),
+    ).toBe(false);
+    expect(
+      isValidOwnerTransferPrefixPair(
+        `interiors/${from}/`,
+        `interiors/${to}/__stella_imported__/${from}/`,
+      ),
+    ).toBe(true);
+  });
+
+  test("structurally rewrites an interior manifest and its exact URLs", async () => {
+    const from = "a".repeat(64);
+    const to = "b".repeat(64);
+    const buildId = `interior-${"c".repeat(48)}`;
+    const sourcePrefix = `interiors/${from}/`;
+    const destinationPrefix =
+      `interiors/${to}/__stella_imported__/${from}/`;
+    const input = {
+      schemaVersion: 1,
+      buildId,
+      version: buildId,
+      artifactPrefix: `${sourcePrefix}${buildId}`,
+      note: `${sourcePrefix}must-not-be-globally-replaced`,
+      files: [
+        {
+          path: "assets/main.js",
+          url: `https://apps.example.com/interior-builds/${from}/${buildId}/assets/main.js`,
+          size: 1,
+        },
+      ],
+    };
+    const rewritten = await rewriteInteriorArtifactManifest({
+      manifestJson: JSON.stringify(input),
+      sourcePrefix,
+      destinationPrefix,
+      appsHostOrigin: "https://apps.example.com",
+    });
+    const parsed = JSON.parse(rewritten.manifestJson);
+    expect(parsed.artifactPrefix).toBe(`${destinationPrefix}${buildId}`);
+    expect(parsed.files[0].url).toBe(
+      `https://apps.example.com/interior-builds/${to}/__stella_imported__/${from}/${buildId}/assets/main.js`,
+    );
+    expect(parsed.note).toBe(input.note);
+    expect(rewritten.manifestSha256).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 });

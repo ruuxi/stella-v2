@@ -38,8 +38,11 @@ import {
   type JournalRange,
   type JournalRecord,
 } from "./conversation-types.js";
-import { sha256Hex } from "./hash.js";
+import { sha256BytesHex, sha256Hex } from "./hash.js";
 import {
+  OwnerTransferArchiveConflictError,
+  archiveOwnerTransferMetadataMatches,
+  archiveOwnerTransferProof,
   rewriteSegmentOwnership,
   transferArchiveKey,
 } from "./owner-transfer.js";
@@ -49,6 +52,7 @@ import type {
   OwnerTransferObjectRow,
   SegmentRow,
 } from "./journal.js";
+import { collapseWhitespace, extractMessageText } from "./journal.js";
 
 /**
  * One cut is bounded independently of the residency target so a single
@@ -96,6 +100,21 @@ export type SegmentHeader = {
   lastSeq: number;
   rows: number;
   createdAt: number;
+};
+
+export type ForkRawPage = {
+  rows: JournalRow[];
+  nextSeq: number;
+  complete: boolean;
+};
+
+export type TruncateArchivePlan = {
+  replacementSegment?: SegmentRow;
+  removedSegmentFirstSeqs: number[];
+  purgeKeys: string[];
+  retiredWriterKeys: string[];
+  removedTurnIds: string[];
+  lastPreview?: { text: string; role: string };
 };
 
 export class ConversationArchive {
@@ -250,34 +269,86 @@ export class ConversationArchive {
     if (!this.bucket) {
       throw new Error("Conversation archive storage is unavailable.");
     }
-    const existing = await withTimeout(
-      this.bucket.head(row.new_key),
-      R2_TIMEOUT_MS,
-    );
-    if (existing) return;
     const source = await withTimeout(
       this.bucket.get(row.old_key),
       R2_TIMEOUT_MS,
     );
     if (!source) {
-      throw new Error(`Conversation archive object is missing: ${row.old_key}`);
+      throw new Error(
+        `Conversation archive source is missing (ref ${(await sha256Hex(row.old_key)).slice(0, 16)}).`,
+      );
     }
-    const body =
+    const sourceBody = new Uint8Array(await source.arrayBuffer());
+    const destinationBody = new Uint8Array(
       row.kind === "segment"
         ? await rewriteSegmentOwnership(
-            await source.arrayBuffer(),
+            sourceBody.buffer,
             toOwnerId,
             fromPrefix,
             toPrefix,
           )
-        : source.body;
-    await withTimeout(
-      this.bucket.put(row.new_key, body, {
-        httpMetadata: source.httpMetadata,
-        customMetadata: source.customMetadata,
-      }),
+        : sourceBody.buffer,
+    );
+    const proof = await archiveOwnerTransferProof({
+      sourceKey: row.old_key,
+      sourceEtag: source.etag,
+      sourceBody,
+      destinationBody,
+    });
+    const destinationMatches = async (): Promise<boolean> => {
+      const existing = await withTimeout(
+        this.bucket!.get(row.new_key),
+        R2_TIMEOUT_MS,
+      );
+      if (
+        !existing ||
+        !archiveOwnerTransferMetadataMatches(existing.customMetadata, proof)
+      ) {
+        return false;
+      }
+      const actual = new Uint8Array(await existing.arrayBuffer());
+      const actualDigest = await sha256BytesHex(actual);
+      return actualDigest === proof.destinationDigest;
+    };
+    const existing = await withTimeout(
+      this.bucket.head(row.new_key),
       R2_TIMEOUT_MS,
     );
+    if (existing) {
+      if (await destinationMatches()) return;
+      throw new OwnerTransferArchiveConflictError(
+        (await sha256Hex(row.new_key)).slice(0, 16),
+      );
+    }
+    try {
+      await withTimeout(
+        this.bucket.put(row.new_key, destinationBody, {
+          onlyIf: { etagDoesNotMatch: "*" },
+          httpMetadata: source.httpMetadata,
+          customMetadata: {
+            ...(source.customMetadata ?? {}),
+            ...proof.customMetadata,
+          },
+        }),
+        R2_TIMEOUT_MS,
+      );
+    } catch (error) {
+      // A conditional put can lose to a concurrent retry of this exact
+      // operation. Accept only the byte-verified proof; otherwise preserve
+      // both objects and surface the original storage failure.
+      if (await destinationMatches()) return;
+      if (await this.bucket.head(row.new_key)) {
+        throw new OwnerTransferArchiveConflictError(
+          (await sha256Hex(row.new_key)).slice(0, 16),
+        );
+      }
+      throw error;
+    }
+    if (!(await destinationMatches())) {
+      throw new OwnerTransferArchiveConflictError(
+        (await sha256Hex(row.new_key)).slice(0, 16),
+      );
+    }
   }
 
   private async prefix(): Promise<string | null> {
@@ -350,6 +421,68 @@ export class ConversationArchive {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Deep-copy one fork spill into the target conversation's own namespace.
+   * The target manifest is written before the put, so a crash can leak neither
+   * an unnamed object nor a shared source reference.
+   */
+  async copyForkSpill(sourceKey: string, operationId: string): Promise<string> {
+    if (!this.bucket)
+      throw new Error("Conversation archive storage is unavailable.");
+    const prefix = await this.prefix();
+    if (!prefix) throw new Error("Fork target is not bound.");
+    const source = await withTimeout(this.bucket.get(sourceKey), R2_TIMEOUT_MS);
+    if (!source) throw new Error("A fork source spill is missing.");
+    const body = new Uint8Array(await source.arrayBuffer());
+    const digest = await sha256BytesHex(body);
+    const sourceRef = (await sha256Hex(sourceKey)).slice(0, 32);
+    const targetKey = `${prefix}/spill/fork-${sourceRef}.json.gz`;
+    // Before the put: this is the durable orphan-prevention manifest.
+    this.journal.recordSpill(targetKey, source.size, Date.now());
+    const matches = async (): Promise<boolean> => {
+      const existing = await withTimeout(
+        this.bucket!.get(targetKey),
+        R2_TIMEOUT_MS,
+      );
+      if (
+        !existing ||
+        existing.customMetadata?.stellaForkOperation !== operationId ||
+        existing.customMetadata?.stellaForkSource !== sourceRef ||
+        existing.customMetadata?.stellaForkDigest !== digest
+      ) {
+        return false;
+      }
+      return (
+        (await sha256BytesHex(new Uint8Array(await existing.arrayBuffer()))) ===
+        digest
+      );
+    };
+    if (await this.bucket.head(targetKey)) {
+      if (await matches()) return targetKey;
+      throw new Error("Fork spill destination conflict.");
+    }
+    try {
+      await withTimeout(
+        this.bucket.put(targetKey, body, {
+          onlyIf: { etagDoesNotMatch: "*" },
+          httpMetadata: source.httpMetadata,
+          customMetadata: {
+            stellaForkOperation: operationId,
+            stellaForkSource: sourceRef,
+            stellaForkDigest: digest,
+          },
+        }),
+        R2_TIMEOUT_MS,
+      );
+    } catch (error) {
+      if (await matches()) return targetKey;
+      throw error;
+    }
+    if (!(await matches()))
+      throw new Error("Fork spill copy could not be verified.");
+    return targetKey;
   }
 
   // -------------------------------------------------------------------------
@@ -647,6 +780,258 @@ export class ConversationArchive {
       records,
       complete: cursor > end,
       ...(missingBelowSeq !== undefined ? { missingBelowSeq } : {}),
+    };
+  }
+
+  /** Raw, contiguous rows used only by the internal fork copier. */
+  async exportRawPage(
+    fromSeq: number,
+    toSeq: number,
+    maxRecords: number,
+    maxBytes: number,
+    renewLease?: () => Promise<void>,
+  ): Promise<ForkRawPage> {
+    if (toSeq < fromSeq) {
+      return { rows: [], nextSeq: fromSeq, complete: true };
+    }
+    const head = this.journal.head();
+    if (fromSeq < head.floorSeq || toSeq > head.headSeq) {
+      throw new Error("Fork prefix is outside the canonical journal.");
+    }
+    const rows: JournalRow[] = [];
+    let cursor = fromSeq;
+    let bytes = 0;
+    const accept = (row: JournalRow): boolean => {
+      if (row.seq !== cursor) {
+        throw new Error("Fork prefix contains a journal gap.");
+      }
+      if (
+        rows.length >= maxRecords ||
+        (rows.length > 0 && bytes + row.bytes > maxBytes)
+      ) {
+        return false;
+      }
+      rows.push(row);
+      bytes += row.bytes;
+      cursor += 1;
+      return true;
+    };
+
+    if (cursor < head.windowStartSeq) {
+      const coldEnd = Math.min(toSeq, head.windowStartSeq - 1);
+      const segments = this.journal.segmentsCovering(
+        cursor,
+        coldEnd,
+        MAX_SEGMENTS_PER_READ,
+      );
+      for (const segment of segments) {
+        await renewLease?.();
+        if (cursor < segment.first_seq) {
+          throw new Error("Fork prefix contains a missing archive segment.");
+        }
+        const segmentRows = await this.readSegment(segment);
+        await renewLease?.();
+        for (const row of segmentRows) {
+          if (row.seq < cursor || row.seq > coldEnd) continue;
+          if (!accept(row)) {
+            return { rows, nextSeq: cursor, complete: false };
+          }
+        }
+        if (cursor > coldEnd) break;
+      }
+      if (cursor <= coldEnd) {
+        if (rows.length === 0) {
+          throw new Error("Fork prefix could not be read from the archive.");
+        }
+        return { rows, nextSeq: cursor, complete: false };
+      }
+    }
+
+    if (cursor <= toSeq) {
+      await renewLease?.();
+      const resident = this.journal.rowsForArchive(
+        Math.max(cursor, head.windowStartSeq),
+        toSeq,
+        maxRecords + 1,
+      );
+      for (const row of resident) {
+        if (!accept(row)) break;
+      }
+    }
+    if (cursor <= toSeq && rows.length === 0) {
+      throw new Error("Fork prefix contains a missing resident row.");
+    }
+    return { rows, nextSeq: cursor, complete: cursor > toSeq };
+  }
+
+  /** Finish any two-phase rollover before a head-changing edit begins. */
+  async prepareForEdit(): Promise<void> {
+    await this.quiesce();
+    await this.finishPendingSegment();
+  }
+
+  async prepareTruncate(
+    throughSeq: number,
+    nextEpoch: number,
+    now: number,
+    renewLease?: () => Promise<void>,
+  ): Promise<TruncateArchivePlan> {
+    await this.prepareForEdit();
+    await renewLease?.();
+    const affected = this.journal.segmentsAfter(throughSeq);
+    const removedSegmentFirstSeqs = affected.map((row) => row.first_seq);
+    const purgeKeys = new Set<string>();
+    const retiredWriterKeys = new Set<string>();
+    const removedTurnIds = new Set<string>();
+    const suffixSpills = new Set<string>();
+    let replacementSegment: SegmentRow | undefined;
+
+    for (const segment of affected) {
+      await renewLease?.();
+      const rows = await this.readSegment(segment);
+      await renewLease?.();
+      if (
+        rows.length !== segment.rows ||
+        rows[0]?.seq !== segment.first_seq ||
+        rows.at(-1)?.seq !== segment.last_seq ||
+        rows.some((row, index) => row.seq !== segment.first_seq + index)
+      ) {
+        // Normal scrollback can surface an explicit gap for a missing/corrupt
+        // object. A rewind cannot: removing the old manifest without a proven
+        // crossing prefix would make that gap permanent and untraceable.
+        throw new Error("Rewind archive segment is incomplete.");
+      }
+      const kept = rows.filter((row) => row.seq <= throughSeq);
+      const removed = rows.filter((row) => row.seq > throughSeq);
+      for (const row of removed) {
+        retiredWriterKeys.add(row.writer_key);
+        removedTurnIds.add(row.turn_id);
+        if (row.spill_key) suffixSpills.add(row.spill_key);
+      }
+      if (kept.length > 0) {
+        if (!this.bucket) {
+          throw new Error("Conversation archive storage is unavailable.");
+        }
+        const meta = this.journal.meta();
+        const prefix = await this.prefix();
+        if (!prefix)
+          throw new Error("Conversation archive prefix is unavailable.");
+        const firstSeq = kept[0]!.seq;
+        const lastSeq = kept[kept.length - 1]!.seq;
+        const key = `${prefix}/seg/e${nextEpoch}-${pad(firstSeq)}-${pad(lastSeq)}.jsonl.gz`;
+        const header: SegmentHeader = {
+          v: 1,
+          conversationId: meta.conversation_id,
+          ownerId: meta.owner_id,
+          epoch: nextEpoch,
+          firstSeq,
+          lastSeq,
+          rows: kept.length,
+          createdAt: now,
+        };
+        const encoder = new TextEncoder();
+        const chunks = [encoder.encode(`${JSON.stringify(header)}\n`)];
+        let bytes = 0;
+        let text = "";
+        for (const row of kept) {
+          bytes += row.bytes;
+          text += `${JSON.stringify(row)}\n`;
+        }
+        chunks.push(encoder.encode(text));
+        const body = new Uint8Array(await gzip(chunks));
+        const digest = await sha256BytesHex(body);
+        // If this put wins and the SQL transition does not, owner-prefix purge
+        // still finds it. If the transition wins, applyTruncate removes this
+        // key from the deletion debt in the same transaction as the manifest.
+        this.journal.enqueuePurge([key], now);
+        const destinationMatches = async (): Promise<boolean> => {
+          const candidate = await this.bucket!.get(key);
+          if (!candidate) return false;
+          return (
+            (await sha256BytesHex(
+              new Uint8Array(await candidate.arrayBuffer()),
+            )) === digest
+          );
+        };
+        if (await this.bucket.head(key)) {
+          if (!(await destinationMatches())) {
+            throw new Error("Rewind archive destination conflict.");
+          }
+        } else {
+          await withTimeout(
+            this.bucket.put(key, body, {
+              onlyIf: { etagDoesNotMatch: "*" },
+              customMetadata: { stellaRewindDigest: digest },
+            }),
+            R2_TIMEOUT_MS,
+          );
+          // `R2Bucket.put` returns null rather than throwing when `onlyIf`
+          // loses a race. Never publish the SQL manifest until the bytes at the
+          // deterministic destination have been read back and proven exact.
+          if (!(await destinationMatches())) {
+            throw new Error("Rewind archive destination conflict.");
+          }
+        }
+        replacementSegment = {
+          first_seq: firstSeq,
+          last_seq: lastSeq,
+          rows: kept.length,
+          bytes,
+          r2_key: key,
+          state: "committed",
+          created_at: now,
+        };
+      }
+      purgeKeys.add(segment.r2_key);
+    }
+
+    await renewLease?.();
+    for (const row of this.journal.residentRowsAfter(throughSeq)) {
+      removedTurnIds.add(row.turn_id);
+      if (row.spill_key) suffixSpills.add(row.spill_key);
+    }
+    for (const key of suffixSpills) purgeKeys.add(key);
+
+    let lastPreview: { text: string; role: string } | undefined;
+    if (throughSeq >= 0) {
+      await renewLease?.();
+      const from = Math.max(this.journal.head().floorSeq, throughSeq - 63);
+      const page = await this.exportRawPage(
+        from,
+        throughSeq,
+        64,
+        2 * 1024 * 1024,
+        renewLease,
+      );
+      for (const row of [...page.rows].reverse()) {
+        if (
+          row.kind !== "message" ||
+          row.hidden === 1 ||
+          (row.role !== "user" && row.role !== "assistant") ||
+          row.spill_key
+        ) {
+          continue;
+        }
+        try {
+          const text = collapseWhitespace(
+            extractMessageText(JSON.parse(row.payload_json)),
+          );
+          if (text) {
+            lastPreview = { text: text.slice(0, 160), role: row.role };
+            break;
+          }
+        } catch {
+          // A malformed preview never blocks the canonical transition.
+        }
+      }
+    }
+    return {
+      ...(replacementSegment ? { replacementSegment } : {}),
+      removedSegmentFirstSeqs,
+      purgeKeys: [...purgeKeys],
+      retiredWriterKeys: [...retiredWriterKeys],
+      removedTurnIds: [...removedTurnIds],
+      ...(lastPreview ? { lastPreview } : {}),
     };
   }
 

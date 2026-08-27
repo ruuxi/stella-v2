@@ -206,11 +206,13 @@ function CarPlayVoiceLoop({
   const transport = useMemo<ChatTransport>(
     () =>
       target === "computer" && access
-        ? { kind: "desktop" as const, access }
-        : { kind: "cloud" as const, guest },
+        ? { kind: "automatic" as const, workspace: "computer", access }
+        : guest
+          ? { kind: "guest" as const }
+          : { kind: "automatic" as const },
     [target, access, guest],
   );
-  const threadId = transport.kind === "desktop" ? "carplay-computer" : "carplay";
+  const threadId = target === "computer" ? "carplay-computer" : "carplay";
   const thread = useChatThread({ threadId, transport });
   const { setDraft, send, messages, sending, storageLoaded, runDesktopSync } =
     thread;
@@ -429,12 +431,12 @@ function CarPlayVoiceLoop({
   // (this loop only mounts while CarPlay is attached), so the recent-reply
   // rows and turn reconciliation start from the real conversation.
   useEffect(() => {
-    if (transport.kind !== "desktop") return;
+    if (target !== "computer") return;
     if (!storageLoaded) return;
     void runDesktopSync({ catchUp: true });
     // Run once per loop mount, as soon as local storage has hydrated.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transport.kind, storageLoaded]);
+  }, [target, storageLoaded]);
 
   // Dispatch the parked transcript once the draft state reflects it.
   useEffect(() => {

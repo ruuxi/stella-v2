@@ -1,3 +1,5 @@
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { toSendableImage } from "./image-attachments";
 
 export const MAX_OFFLINE_CHAT_IMAGES = 5;
@@ -21,6 +23,10 @@ export type OfflineChatHistoryItem = {
 };
 
 export type OfflineChatRequest = {
+  /** Stable local user-message identity retained by durable outbox replay. */
+  turnId: string;
+  /** Deterministic model sub-operation (answer round or compaction batch). */
+  operationId: string;
   message: string;
   history: OfflineChatHistoryItem[];
   images: OfflineChatImagePayload[];
@@ -97,8 +103,18 @@ export const prepareOfflineChatImages = async (
   return images;
 };
 
-export const buildOfflineChatRequest = (args: OfflineChatRequest) => ({
-  message: args.message,
-  history: args.history,
-  images: args.images,
-});
+export const buildOfflineChatRequest = (args: OfflineChatRequest) => {
+  const body = {
+    message: args.message,
+    history: args.history,
+    images: args.images,
+  };
+  const requestId = `mobile-offline:${bytesToHex(
+    sha256(
+      utf8ToBytes(
+        JSON.stringify({ turnId: args.turnId, operationId: args.operationId }),
+      ),
+    ),
+  )}`;
+  return { requestId, ...body };
+};

@@ -24,6 +24,7 @@ import {
   type RecordingAudioLease,
 } from "./mobile-audio-session";
 import { stopReadAloudForDictation } from "./read-aloud";
+import { createMobileTranscriptionRequestId } from "./mobile-request-id";
 
 /** Minimum elapsed time before we bother round-tripping audio to the server. */
 const MIN_RECORDING_MS = 300;
@@ -222,7 +223,11 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         const format = inferAudioFormat(uri);
 
         const path = "/api/mobile/transcribe";
-        const body: Record<string, unknown> = { audio, format };
+        const body: Record<string, unknown> = {
+          requestId: createMobileTranscriptionRequestId(),
+          audio,
+          format,
+        };
         if (options.language) body.language = options.language;
 
         // Audio uploads can be large; allow more than the default 15s.

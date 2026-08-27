@@ -32,17 +32,44 @@ describe("normal mobile chat image request", () => {
       },
     ]);
     const request = buildOfflineChatRequest({
+      turnId: "mobile:user-message-1",
+      operationId: "answer:0",
       message: "What is this?",
       history: [{ role: "assistant", text: "Earlier reply" }],
       images,
     });
 
-    expect(request).toEqual({
+    expect(request).toMatchObject({
       message: "What is this?",
       history: [{ role: "assistant", text: "Earlier reply" }],
       images: [{ base64: PNG_BASE64, mimeType: "image/png" }],
     });
+    expect(/^mobile-offline:[a-f0-9]{64}$/u.test(request.requestId)).toBe(true);
     expect(JSON.parse(JSON.stringify(request))).toEqual(request);
+  });
+
+  test("keeps retries stable and separates identical independent turns", () => {
+    const input = {
+      turnId: "mobile:user-message-1",
+      operationId: "answer:0",
+      message: "Hello",
+      history: [{ role: "assistant" as const, text: "Earlier" }],
+      images: [],
+    };
+    const first = buildOfflineChatRequest(input);
+    expect(buildOfflineChatRequest({ ...input })).toEqual(first);
+    expect(
+      buildOfflineChatRequest({ ...input, turnId: "mobile:user-message-2" })
+        .requestId === first.requestId,
+    ).toBe(false);
+    expect(
+      buildOfflineChatRequest({ ...input, message: "Changed" }).requestId,
+    ).toBe(first.requestId);
+    expect(
+      buildOfflineChatRequest({ ...input, operationId: "answer:1" })
+        .requestId === first.requestId,
+    ).toBe(false);
+    expect(first.requestId.length).toBeLessThanOrEqual(256);
   });
 
   test("fails visibly instead of silently dropping unreadable or unsupported images", async () => {

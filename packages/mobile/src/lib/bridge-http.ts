@@ -16,6 +16,14 @@
  */
 import { isUnknownBridgeChannelError } from "./bridge-envelope";
 
+/** The shared subset implemented by browser `Response` and Expo `FetchResponse`. */
+export type BridgeHttpResponse = {
+  readonly status: number;
+  readonly ok: boolean;
+  readonly headers?: { get?: (name: string) => string | null };
+  text: () => Promise<string>;
+};
+
 export class BridgeEndpointUnavailableError extends Error {
   readonly status: number;
 
@@ -32,7 +40,7 @@ export class BridgeEndpointUnavailableError extends Error {
  * shape: anything that doesn't parse becomes BridgeEndpointUnavailableError.
  */
 export const readBridgeJsonBody = async (
-  response: Response,
+  response: BridgeHttpResponse,
 ): Promise<unknown> => {
   let text = "";
   try {
@@ -64,7 +72,7 @@ export const readBridgeJsonBody = async (
  * fallback instead of raw markup or a parse error.
  */
 export const readBridgeErrorMessage = async (
-  response: Response,
+  response: BridgeHttpResponse,
   fallback?: string,
 ): Promise<string> => {
   const fallbackMessage =
@@ -111,7 +119,7 @@ export const isBridgeEndpointMissingError = (error: unknown): boolean => {
 export const fetchBridgeChallengeBody = async (
   baseUrl: string,
   desktopDeviceId: string,
-  fetchFn: (url: string) => Promise<Response> = (url) =>
+  fetchFn: (url: string) => Promise<BridgeHttpResponse> = (url) =>
     fetch(url, { method: "GET" }),
 ): Promise<unknown> => {
   const scoped = await fetchFn(

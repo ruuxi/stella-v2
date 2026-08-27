@@ -24,6 +24,8 @@ import {
   acknowledgeDesktopChatOutbox,
   enqueueDesktopChatOutbox,
   loadDesktopChatOutbox,
+  markDesktopChatOutboxCancellation,
+  type DesktopChatOutboxAuthority,
 } from "./desktop-chat-outbox";
 import {
   restoreOutboxMessages,
@@ -33,8 +35,23 @@ import { postStream, postStreamAnonymous, StreamAbortError } from "./http";
 import { hasAiConsent, requestAiConsent } from "./ai-consent";
 import {
   getOrCreateMobileDeviceId,
+  getPreferredPhoneAccess,
   type StoredPhoneAccess,
 } from "./phone-access";
+import {
+  AutomaticExecutionWaitAbortedError,
+  automaticExecutionCancellationCommand,
+  automaticExecutionResultText,
+  bindAutomaticExecutionAdmission,
+  cancelAutomaticExecution,
+  ensureAutomaticExecutionConversation,
+  isAutomaticExecutionPairCredentialRejection,
+  requestAutomaticExecutionCancellation,
+  submitAutomaticExecution,
+  waitForAutomaticExecution,
+  type AutomaticExecutionDispatch,
+  type AutomaticExecutionTurnControl,
+} from "./execution-placement";
 import {
   closeDesktopBridgeSendBatch,
   DesktopOfflineError,
@@ -115,6 +132,10 @@ import {
 import { drainDesktopSteerAcceptanceQueue } from "./desktop-steer-pump";
 import { userFacingError } from "./user-facing-error";
 import { notifySuccess } from "./haptics";
+import {
+  canonicalAuthorityLeaseAllowsWork,
+  cloudCanonicalClientPolicy,
+} from "./cloud-canonical-client-policy";
 import { loadMemoryFacts, rememberFact, forgetFact } from "./chat-memory";
 import {
   clearCheckpoint,
@@ -198,6 +219,52 @@ const MAX_OFFLINE_TOOL_ROUNDS = 2;
 
 /** Quiet period after the last `messages` change before the transcript is written. */
 const PERSIST_DEBOUNCE_MS = 500;
+
+const AUTOMATIC_RETRY_MS = 1_500;
+const waitForAutomaticRetry = (signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new AutomaticExecutionWaitAbortedError());
+      return;
+    }
+    const timer = setTimeout(resolve, AUTOMATIC_RETRY_MS);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(new AutomaticExecutionWaitAbortedError());
+      },
+      { once: true },
+    );
+  });
+
+const isPermanentAutomaticAdmissionError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  return /authentication required|sign in|signed-in account|ownership_migrated|linked to (?:an|another) account|being linked|owner generation|account data is currently|invalid|unsupported|not found|conflict|payload|conversation|malformed|different (?:dispatch|message) identity/i.test(
+    message,
+  );
+};
+
+const automaticPlacementStatus = (dispatch: AutomaticExecutionDispatch) => {
+  switch (dispatch.state) {
+    case "queued":
+    case "offering":
+    case "computer_claimed":
+      return "Choosing where to run";
+    case "computer_accepted":
+    case "computer_running":
+      return "Running on your computer";
+    case "cloud_committed":
+    case "cloud_running":
+      return "Running in Stella Cloud";
+    case "cancel_pending":
+      return "Stopping";
+    case "reconciliation_required":
+      return "Reconnecting to your computer";
+    default:
+      return undefined;
+  }
+};
 
 let lastLocalIdOrder = 0;
 const createId = () => {
@@ -342,6 +409,10 @@ type QueuedSend = {
   selectedText?: string;
   assets: ImagePicker.ImagePickerAsset[];
   queueSequence?: number;
+  /** Mount-local lease preventing an old account hook from dispatching later. */
+  canonicalAuthorityLease?: number;
+  /** Durable server cancellation identity restored from the outbox. */
+  cancelRequestId?: string;
 };
 
 /**
@@ -349,9 +420,33 @@ type QueuedSend = {
  * `desktop` routes to the paired computer's Stella agent over the bridge and
  * keeps the transcript in sync with the canonical desktop rows.
  */
+type AutomaticChatTransport = {
+  kind: "automatic";
+  /** Work subject only; the server still owns execution placement. */
+  workspace?: "computer";
+  access?: StoredPhoneAccess | null;
+  /**
+   * Signed-in cloud journal reconciliation seam. The placement service
+   * allocates a server dispatch id distinct from the mobile optimistic id;
+   * the DO echoes that server id as clientMsgId.
+   */
+  onAdmission?: (event: {
+    localMessageId: string;
+    dispatchId: string;
+    conversationId: string;
+  }) => void;
+};
+
 export type ChatTransport =
-  | { kind: "cloud"; guest: boolean }
-  | { kind: "desktop"; access: StoredPhoneAccess };
+  | { kind: "guest" }
+  | (AutomaticChatTransport & { canonicalJournal?: false })
+  | (AutomaticChatTransport & {
+      canonicalJournal: true;
+      accountScope: string;
+      ownerGeneration: string;
+      conversationId: string;
+      authorityReady: boolean;
+    });
 
 export type ChatThread = {
   /**
@@ -376,6 +471,14 @@ export type ChatThread = {
   /** Live working-indicator props — active/label reflect the current step. */
   workingIndicator: WorkingIndicatorState;
   storageLoaded: boolean;
+  /** False while signed-in cloud history has no verified DO authority. */
+  authorityReady?: boolean;
+  /** Named cloud-authority failure; local cache never hides this condition. */
+  authorityIssue?: {
+    message: string;
+    retryable: boolean;
+    retry: () => void;
+  } | null;
   /** Whether durable history exists before/after the bounded loaded window. */
   hasOlderMessages: boolean;
   hasNewerMessages: boolean;
@@ -447,15 +550,65 @@ export type ChatThread = {
  * the optimistic send queue, streaming, stop, and — for the desktop transport
  * — sync/reconcile against the canonical desktop rows. Routing is fixed by
  * `transport`, so each surface (cloud Chat tab, computer Computer tab) gets a
- * coherent, single-destination conversation with no cross-routing.
+ * one server-owned placement decision per durable message identity.
  */
 export function useChatThread(opts: {
   threadId: ChatThreadId;
   transport: ChatTransport;
 }): ChatThread {
   const { threadId, transport } = opts;
-  const isDesktop = transport.kind === "desktop";
-  const desktopAccess = isDesktop ? transport.access : null;
+  const isDesktop =
+    transport.kind === "automatic" && transport.workspace === "computer";
+  const canonicalJournal =
+    transport.kind === "automatic" && transport.canonicalJournal === true;
+  const canonicalAccountScope =
+    transport.kind === "automatic" && transport.canonicalJournal === true
+      ? transport.accountScope
+      : null;
+  const canonicalOwnerGeneration =
+    transport.kind === "automatic" && transport.canonicalJournal === true
+      ? transport.ownerGeneration
+      : null;
+  const canonicalConversationId =
+    transport.kind === "automatic" && transport.canonicalJournal === true
+      ? transport.conversationId
+      : null;
+  const canonicalAuthorityReady =
+    transport.kind === "automatic" && transport.canonicalJournal === true
+      ? transport.authorityReady
+      : true;
+  const canonicalAuthorityKey = canonicalJournal
+    ? JSON.stringify([
+        canonicalAccountScope,
+        canonicalOwnerGeneration,
+        canonicalConversationId,
+      ])
+    : null;
+  const canonicalOutboxAuthority = useMemo<
+    DesktopChatOutboxAuthority | undefined
+  >(
+    () =>
+      canonicalAccountScope &&
+      canonicalOwnerGeneration &&
+      canonicalConversationId
+        ? {
+            accountScope: canonicalAccountScope,
+            ownerGeneration: canonicalOwnerGeneration,
+            conversationId: canonicalConversationId,
+          }
+        : undefined,
+    [canonicalAccountScope, canonicalConversationId, canonicalOwnerGeneration],
+  );
+  const canonicalPolicy = cloudCanonicalClientPolicy({
+    canonicalJournal,
+    authorityReady: canonicalAuthorityReady,
+  });
+  const hydrateLocalTranscript = canonicalPolicy.hydrateLocalTranscript;
+  const persistLocalTranscript = canonicalPolicy.persistLocalTranscript;
+  const drainOperationalOutbox = canonicalPolicy.drainOperationalOutbox;
+  const admissionEnabledRef = useRef(drainOperationalOutbox);
+  admissionEnabledRef.current = drainOperationalOutbox;
+  const desktopAccess = isDesktop ? (transport.access ?? null) : null;
   const desktopDeviceId = desktopAccess?.desktopDeviceId ?? null;
   const desktopTransportEnabledRef = useRef(true);
   useEffect(() => {
@@ -478,6 +631,12 @@ export function useChatThread(opts: {
     [],
   );
   const [storageLoaded, setStorageLoaded] = useState(false);
+  const [hydrationRetryGeneration, setHydrationRetryGeneration] = useState(0);
+  const [hydrationAuthorityIssue, setHydrationAuthorityIssue] =
+    useState<ChatThread["authorityIssue"]>(null);
+  const retryHydration = useCallback(() => {
+    setHydrationRetryGeneration((generation) => generation + 1);
+  }, []);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [hasNewerMessages, setHasNewerMessages] = useState(false);
   const [historyPageLoading, setHistoryPageLoading] = useState(false);
@@ -489,7 +648,7 @@ export function useChatThread(opts: {
   const desktopLegacyHistoryLimitRef = useRef(HISTORY_MESSAGE_LIMIT);
   const desktopOldestSourceCursorRef = useRef<DesktopSourceCursor | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(
-    isDesktop ? null : threadId,
+    canonicalConversationId ?? (isDesktop ? null : threadId),
   );
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<
@@ -563,6 +722,7 @@ export function useChatThread(opts: {
   const stoppedDispatchIdsRef = useRef<Set<string>>(new Set());
   const activeDispatchRef = useRef<{
     dispatchId: string;
+    automaticControl?: AutomaticExecutionTurnControl;
     userMessageId: string;
     replyId: string;
     abort: AbortController;
@@ -605,6 +765,66 @@ export function useChatThread(opts: {
   const dispatchRef = useRef<((item: QueuedSend) => Promise<void>) | null>(
     null,
   );
+  const canonicalAuthorityLeaseRef = useRef(1);
+  const canonicalAuthorityKeyRef = useRef(canonicalAuthorityKey);
+  const committedCanonicalAuthorityKeyRef = useRef(canonicalAuthorityKey);
+  if (canonicalAuthorityKeyRef.current !== canonicalAuthorityKey) {
+    canonicalAuthorityKeyRef.current = canonicalAuthorityKey;
+    canonicalAuthorityLeaseRef.current += 1;
+  }
+  const canonicalAuthorityLeaseCurrent = useCallback(
+    (lease: number | undefined) =>
+      canonicalAuthorityLeaseAllowsWork({
+        canonicalJournal,
+        capturedLease: lease,
+        activeLease: canonicalAuthorityLeaseRef.current,
+      }),
+    [canonicalJournal],
+  );
+
+  useEffect(() => {
+    const authorityChanged =
+      committedCanonicalAuthorityKeyRef.current !== canonicalAuthorityKey;
+    committedCanonicalAuthorityKeyRef.current = canonicalAuthorityKey;
+    if (authorityChanged) {
+      acceptedDesktopSendIdsRef.current.clear();
+      stoppedDispatchIdsRef.current.clear();
+      syncConversationIdRef.current = canonicalConversationId;
+      syncCursorRef.current = null;
+      setStorageLoaded(false);
+      setHydrationAuthorityIssue(null);
+      setConversationId(
+        canonicalConversationId ?? (isDesktop ? null : threadId),
+      );
+      setDraft("");
+      setAttachments([]);
+      setQuotes([]);
+      setSending(false);
+      setWorkingActivity(IDLE_WORKING_ACTIVITY);
+      updateMessages([]);
+    }
+    if (!canonicalJournal) return;
+    const lease = canonicalAuthorityLeaseRef.current;
+    const pendingEnqueues = pendingEnqueueRef.current;
+    return () => {
+      if (canonicalAuthorityLeaseRef.current === lease) {
+        canonicalAuthorityLeaseRef.current += 1;
+      }
+      admissionEnabledRef.current = false;
+      queueRef.current = [];
+      pendingEnqueues.clear();
+      const active = activeDispatchRef.current;
+      activeDispatchRef.current = null;
+      active?.abort.abort();
+    };
+  }, [
+    canonicalAuthorityKey,
+    canonicalConversationId,
+    canonicalJournal,
+    isDesktop,
+    threadId,
+    updateMessages,
+  ]);
 
   const loadOlderMessages = useCallback(async (): Promise<void> => {
     if (sendingRef.current) return;
@@ -814,78 +1034,127 @@ export function useChatThread(opts: {
   useEffect(() => {
     let active = true;
     const generation = historyPageGenerationRef.current;
-    void Promise.all([
-      loadRecentChatMessages(threadId),
-      loadChatSyncState(threadId),
-      loadDesktopChatOutbox(threadId),
-    ]).then(([page, syncState, storedOutbox]) => {
-      if (!active || generation !== historyPageGenerationRef.current) return;
-      syncConversationIdRef.current = syncState.conversationId;
-      setConversationId(
-        isDesktop ? (syncState.conversationId ?? null) : threadId,
-      );
-      syncCursorRef.current = syncState.cursor;
-      // Heal any linked-row/unlinked-twin duplicates persisted by builds that
-      // could pull mid-send (see `collapseLinkedDuplicates`) — the damaged
-      // transcript would otherwise render the duplicate until a delta arrives.
-      const healed = restoreOutboxMessages(
-        collapseLinkedDuplicates(page.messages),
-        storedOutbox,
-      );
-      oldestLoadedCursorRef.current = page.oldestCursor;
-      newestLoadedCursorRef.current = page.newestCursor;
-      desktopOldestSourceCursorRef.current = isDesktop
-        ? desktopSourceCursorForMessage(healed[0])
-        : null;
-      setHasOlderMessages(page.hasOlder || isDesktop);
-      setHasNewerMessages(page.hasNewer);
-      updateMessages(healed);
-      setStorageLoaded(true);
-      // Re-enqueue any queued-but-unsent messages. The optimistic bubbles were
-      // persisted (marked `queued`), but the in-memory dispatch queue was lost
-      // on relaunch — so without this they'd render forever as "sent" yet never
-      // deliver. Rebuild a dispatch for each from its bubble and drain, so a
-      // restart actually sends them. New outbox rows include their attachment
-      // payload; legacy image rows did not, so they remain visible but are not
-      // silently replayed as a text-only "Photo" turn.
-      const outboxByUserMessageId = new Map(
-        storedOutbox.map((record) => [record.userMessageId, record]),
-      );
-      const pendingSends = healed.filter(
-        (m) =>
-          m.role === "user" &&
-          (outboxByUserMessageId.has(m.id) ||
-            (m.queued === true && !m.hasImage)) &&
-          m.text.trim().length > 0,
-      );
-      for (const row of pendingSends) {
-        const stored = outboxByUserMessageId.get(row.id);
-        queueRef.current.push({
-          dispatchId: stored?.sendId ?? row.id,
-          clientRequestId: stored?.sendId ?? row.id,
-          userMessageId: row.id,
-          text: stored?.text ?? row.text,
-          assets: (stored?.assets ?? []) as ImagePicker.ImagePickerAsset[],
-          ...(stored ? { queueSequence: stored.sequence } : {}),
+    setHydrationAuthorityIssue(null);
+    const transcript = hydrateLocalTranscript
+      ? loadRecentChatMessages(threadId)
+      : Promise.resolve({
+          messages: [] as ChatMessage[],
+          oldestCursor: null,
+          newestCursor: null,
+          hasOlder: false,
+          hasNewer: false,
         });
-      }
-      queueRef.current.sort(
-        (a, b) =>
-          (a.queueSequence ?? Number.MAX_SAFE_INTEGER) -
-          (b.queueSequence ?? Number.MAX_SAFE_INTEGER),
-      );
-      // Nothing can be dispatching yet on a fresh mount (send() no-ops until
-      // hydration completes), so draining here just kicks off the first
-      // re-send; the rest drain as each turn settles.
-      if (pendingSends.length > 0) {
-        drainQueueRef.current?.();
-      }
-    });
+    const sync = hydrateLocalTranscript
+      ? loadChatSyncState(threadId)
+      : Promise.resolve({
+          conversationId: canonicalConversationId,
+          cursor: null,
+        });
+    void Promise.all([
+      transcript,
+      sync,
+      loadDesktopChatOutbox(threadId, canonicalOutboxAuthority),
+    ]).then(
+      ([page, syncState, storedOutbox]) => {
+        if (!active || generation !== historyPageGenerationRef.current) return;
+        syncConversationIdRef.current = syncState.conversationId;
+        setConversationId(
+          canonicalConversationId ??
+            (isDesktop ? (syncState.conversationId ?? null) : threadId),
+        );
+        syncCursorRef.current = syncState.cursor;
+        // Heal any linked-row/unlinked-twin duplicates persisted by builds that
+        // could pull mid-send (see `collapseLinkedDuplicates`) — the damaged
+        // transcript would otherwise render the duplicate until a delta arrives.
+        const healed = restoreOutboxMessages(
+          collapseLinkedDuplicates(page.messages),
+          storedOutbox,
+        );
+        oldestLoadedCursorRef.current = page.oldestCursor;
+        newestLoadedCursorRef.current = page.newestCursor;
+        desktopOldestSourceCursorRef.current = isDesktop
+          ? desktopSourceCursorForMessage(healed[0])
+          : null;
+        setHasOlderMessages(page.hasOlder || isDesktop);
+        setHasNewerMessages(page.hasNewer);
+        updateMessages(healed);
+        setStorageLoaded(true);
+        // Re-enqueue any queued-but-unsent messages. The optimistic bubbles were
+        // persisted (marked `queued`), but the in-memory dispatch queue was lost
+        // on relaunch — so without this they'd render forever as "sent" yet never
+        // deliver. Rebuild a dispatch for each from its bubble and drain, so a
+        // restart actually sends them. New outbox rows include their attachment
+        // payload; legacy image rows did not, so they remain visible but are not
+        // silently replayed as a text-only "Photo" turn.
+        const outboxByUserMessageId = new Map(
+          storedOutbox.map((record) => [record.userMessageId, record]),
+        );
+        const pendingSends = healed.filter(
+          (m) =>
+            m.role === "user" &&
+            (outboxByUserMessageId.has(m.id) ||
+              (m.queued === true && !m.hasImage)) &&
+            m.text.trim().length > 0,
+        );
+        for (const row of pendingSends) {
+          const stored = outboxByUserMessageId.get(row.id);
+          queueRef.current.push({
+            dispatchId: stored?.sendId ?? row.id,
+            clientRequestId: stored?.sendId ?? row.id,
+            userMessageId: row.id,
+            text: stored?.text ?? row.text,
+            assets: (stored?.assets ?? []) as ImagePicker.ImagePickerAsset[],
+            ...(stored ? { queueSequence: stored.sequence } : {}),
+            ...(canonicalJournal
+              ? {
+                  canonicalAuthorityLease: canonicalAuthorityLeaseRef.current,
+                }
+              : {}),
+            ...(stored?.cancelRequestId
+              ? { cancelRequestId: stored.cancelRequestId }
+              : {}),
+          });
+        }
+        queueRef.current.sort(
+          (a, b) =>
+            (a.queueSequence ?? Number.MAX_SAFE_INTEGER) -
+            (b.queueSequence ?? Number.MAX_SAFE_INTEGER),
+        );
+        // Nothing can be dispatching yet on a fresh mount (send() no-ops until
+        // hydration completes), so draining here just kicks off the first
+        // re-send; the rest drain as each turn settles.
+        if (pendingSends.length > 0 && admissionEnabledRef.current) {
+          drainQueueRef.current?.();
+        }
+      },
+      () => {
+        if (!active || generation !== historyPageGenerationRef.current) return;
+        setStorageLoaded(false);
+        if (canonicalJournal) {
+          setHydrationAuthorityIssue({
+            message:
+              "Stella could not verify pending cloud messages on this device. Try again.",
+            retryable: true,
+            retry: retryHydration,
+          });
+        }
+      },
+    );
     return () => {
       active = false;
       historyPageGenerationRef.current += 1;
     };
-  }, [isDesktop, threadId]);
+  }, [
+    canonicalJournal,
+    canonicalConversationId,
+    canonicalOutboxAuthority,
+    hydrationRetryGeneration,
+    hydrateLocalTranscript,
+    isDesktop,
+    retryHydration,
+    threadId,
+    updateMessages,
+  ]);
 
   const refreshLoadedCursors = useCallback(
     (snapshot: ChatMessage[]) => {
@@ -937,7 +1206,7 @@ export function useChatThread(opts: {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastMessageChangeAtRef = useRef(0);
   useEffect(() => {
-    if (!storageLoaded) return;
+    if (!storageLoaded || !persistLocalTranscript) return;
     if (persistenceThreadRef.current !== threadId) {
       persistenceThreadRef.current = threadId;
       persistenceGenerationRef.current += 1;
@@ -998,7 +1267,13 @@ export function useChatThread(opts: {
       }, delayMs);
     };
     arm(PERSIST_DEBOUNCE_MS);
-  }, [messages, refreshLoadedCursorsIfCurrent, storageLoaded, threadId]);
+  }, [
+    messages,
+    persistLocalTranscript,
+    refreshLoadedCursorsIfCurrent,
+    storageLoaded,
+    threadId,
+  ]);
 
   // Drop the armed timer when the thread changes or the hook unmounts. The
   // effect below flushes whatever it was going to write, so cancelling here
@@ -1014,7 +1289,7 @@ export function useChatThread(opts: {
   // Open the SQLite recall index once for the offline chat and backfill any
   // pre-existing AsyncStorage transcript so old messages are searchable.
   useEffect(() => {
-    if (threadId !== "cloud") return;
+    if (threadId !== "cloud" || !persistLocalTranscript) return;
     let active = true;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const initialize = () => {
@@ -1028,7 +1303,7 @@ export function useChatThread(opts: {
       active = false;
       if (retryTimer !== null) clearTimeout(retryTimer);
     };
-  }, [threadId]);
+  }, [persistLocalTranscript, threadId]);
 
   // Flush the debounced write on unmount/thread change — dropping it loses
   // the whole in-flight turn for threads with no other source of truth
@@ -1036,6 +1311,7 @@ export function useChatThread(opts: {
   useEffect(() => {
     const pendingSaveIds = pendingSaveIdsRef.current;
     return () => {
+      if (!persistLocalTranscript) return;
       const pending = pendingSaveRef.current;
       if (pending) {
         pendingSaveRef.current = null;
@@ -1054,7 +1330,7 @@ export function useChatThread(opts: {
           .catch(() => {});
       }
     };
-  }, [refreshLoadedCursorsIfCurrent, threadId]);
+  }, [persistLocalTranscript, refreshLoadedCursorsIfCurrent, threadId]);
 
   // Mirror of `sending` for reads outside render — notably the mid-send gate
   // in `runDesktopSync` and the push handler below. The ref is written
@@ -1172,14 +1448,16 @@ export function useChatThread(opts: {
       conversationId?: string | null;
       cursor?: string | null;
     }): Promise<void> => {
-      const conversationId = state.conversationId?.trim() || null;
+      const conversationId =
+        canonicalConversationId ?? state.conversationId?.trim() ?? null;
       const cursor = state.cursor?.trim() || null;
       syncConversationIdRef.current = conversationId;
       setConversationId(conversationId);
       syncCursorRef.current = cursor;
+      if (!persistLocalTranscript) return;
       await saveChatSyncState(threadId, { conversationId, cursor });
     },
-    [threadId],
+    [canonicalConversationId, persistLocalTranscript, threadId],
   );
 
   const persistDesktopMerge = useCallback(
@@ -1226,9 +1504,13 @@ export function useChatThread(opts: {
         (item) =>
           !ids.has(item.clientRequestId) && !ids.has(item.userMessageId),
       );
-      void acknowledgeDesktopChatOutbox(threadId, ids).catch(() => {});
+      void acknowledgeDesktopChatOutbox(
+        threadId,
+        ids,
+        canonicalOutboxAuthority,
+      ).catch(() => {});
     },
-    [threadId],
+    [canonicalOutboxAuthority, threadId],
   );
 
   // ─── Desktop transcript sync ─────────────────────────────────────────────
@@ -1946,6 +2228,7 @@ export function useChatThread(opts: {
   // (later than `messagesRef`, which only catches up in an effect), then
   // persists it and mirrors it into the recall index immediately.
   const flushPersistNow = useCallback(() => {
+    if (!persistLocalTranscript) return;
     updateMessages((current) => {
       const observed = observedMessagesRef.current;
       for (const message of current) {
@@ -1968,17 +2251,17 @@ export function useChatThread(opts: {
         .catch(() => {});
       return current;
     });
-  }, [refreshLoadedCursorsIfCurrent, threadId]);
+  }, [persistLocalTranscript, refreshLoadedCursorsIfCurrent, threadId]);
 
   // ─── Cloud dispatch ───────────────────────────────────────────────────────
   const dispatchCloud = useCallback(
     async (item: QueuedSend, replyId: string, abort: AbortController) => {
-      const guest = transport.kind === "cloud" ? transport.guest : false;
+      const guest = transport.kind === "guest";
       // The offline tool + memory + compaction layer is scoped to the plain
       // offline chat (the "cloud" Chat tab, guest or signed-in). Other cloud
       // surfaces that ride the same send pipeline (the CarPlay voice loop)
       // keep the lean text-only behaviour.
-      const toolsEnabled = threadId === "cloud" && transport.kind === "cloud";
+      const toolsEnabled = threadId === "cloud" && guest;
       const queuedIds = new Set(queueRef.current.map((q) => q.userMessageId));
       // Paging may leave the rendered window on an older slice. Context must
       // always come from the canonical durable recent tail, with current
@@ -2054,11 +2337,18 @@ export function useChatThread(opts: {
       const complete = async (
         prompt: string,
         history: { role: ChatMessage["role"]; text: string }[],
+        operationId: string,
       ): Promise<string> => {
         let acc = "";
         await streamFn(
           OFFLINE_CHAT_STREAM_PATH,
-          buildOfflineChatRequest({ message: prompt, history, images: [] }),
+          buildOfflineChatRequest({
+            turnId: item.userMessageId,
+            operationId,
+            message: prompt,
+            history,
+            images: [],
+          }),
           (delta) => {
             acc += delta;
           },
@@ -2260,6 +2550,8 @@ export function useChatThread(opts: {
           await streamFn(
             OFFLINE_CHAT_STREAM_PATH,
             buildOfflineChatRequest({
+              turnId: item.userMessageId,
+              operationId: "answer:0",
               message: item.text,
               history: baseHistory,
               images: imagesPayload,
@@ -2353,7 +2645,12 @@ export function useChatThread(opts: {
                   const updated = await runCompaction({
                     messages: rolling,
                     checkpoint,
-                    summarize: (prompt) => complete(prompt, []),
+                    summarize: (prompt) =>
+                      complete(
+                        prompt,
+                        [],
+                        `compact:bootstrap:${rolling[0]?.id ?? "empty"}:${rolling[rolling.length - 1]?.id ?? "empty"}:${priorWatermark ?? "root"}`,
+                      ),
                     bootstrapPending,
                   });
                   if (!updated || updated.coveredThroughId === priorWatermark) {
@@ -2387,7 +2684,12 @@ export function useChatThread(opts: {
           const updated = await runCompaction({
             messages: priorMessages,
             checkpoint,
-            summarize: (prompt) => complete(prompt, []),
+            summarize: (prompt) =>
+              complete(
+                prompt,
+                [],
+                `compact:recent:${priorMessages[0]?.id ?? "empty"}:${priorMessages[priorMessages.length - 1]?.id ?? "empty"}:${checkpoint?.coveredThroughId ?? "root"}`,
+              ),
           });
           if (updated) checkpoint = updated;
         } catch {
@@ -2418,6 +2720,8 @@ export function useChatThread(opts: {
           await streamFn(
             OFFLINE_CHAT_STREAM_PATH,
             buildOfflineChatRequest({
+              turnId: item.userMessageId,
+              operationId: `answer:${round}`,
               message,
               history: primedHistory,
               images: roundImages,
@@ -2629,6 +2933,243 @@ export function useChatThread(opts: {
       patchActivity,
       threadId,
       transport,
+      updateMessages,
+    ],
+  );
+
+  // ─── Server-owned automatic placement ───────────────────────────────────
+  const dispatchAutomatic = useCallback(
+    async (item: QueuedSend, replyId: string, abort: AbortController) => {
+      const assertAuthorityLease = () => {
+        if (!canonicalAuthorityLeaseCurrent(item.canonicalAuthorityLease)) {
+          throw new AutomaticExecutionWaitAbortedError();
+        }
+      };
+      const isCurrent = () =>
+        canonicalAuthorityLeaseCurrent(item.canonicalAuthorityLease) &&
+        (activeDispatchRef.current?.replyId === replyId ||
+          stoppedDispatchIdsRef.current.has(item.dispatchId));
+      const renderReply = (text: string, stopped = false) => {
+        if (!isCurrent()) return;
+        updateMessages((current) =>
+          current.map((message) =>
+            message.id === replyId
+              ? { ...message, text, ...(stopped ? { stopped: true } : {}) }
+              : message,
+          ),
+        );
+      };
+
+      // The v1 placement envelope is intentionally text-only. Never strip an
+      // attachment and silently execute a materially different request.
+      if (item.assets.length > 0) {
+        renderReply(
+          "Automatic computer/cloud execution does not support photo attachments yet. Remove the photo and try again.",
+        );
+        acknowledgeDesktopSendIds([item.dispatchId, item.userMessageId]);
+        finishDispatch();
+        flushPersistNow();
+        return;
+      }
+
+      try {
+        assertAuthorityLease();
+        patchActivity({ statusText: "Choosing where to run" });
+        let admitted: AutomaticExecutionDispatch | null = null;
+        let placementConversationId = canonicalConversationId ?? "";
+        let ignoreStoredAccess = false;
+        while (!admitted) {
+          assertAuthorityLease();
+          try {
+            if (!placementConversationId) {
+              placementConversationId =
+                await ensureAutomaticExecutionConversation({
+                  threadId,
+                  title: isDesktop ? "Computer" : "Chat",
+                });
+              assertAuthorityLease();
+            }
+            await persistSyncState({
+              conversationId: placementConversationId,
+              cursor: syncCursorRef.current,
+            });
+            assertAuthorityLease();
+            const access =
+              !ignoreStoredAccess && transport.kind === "automatic"
+                ? (transport.access ??
+                  (await getPreferredPhoneAccess()) ??
+                  undefined)
+                : undefined;
+            assertAuthorityLease();
+            if (canonicalJournal && !admissionEnabledRef.current) {
+              patchActivity({ statusText: "Waiting for cloud history" });
+              await waitForAutomaticRetry(abort.signal);
+              assertAuthorityLease();
+              continue;
+            }
+            admitted = await submitAutomaticExecution({
+              idempotencyKey: item.dispatchId,
+              conversationId: placementConversationId,
+              kind: "chat",
+              prompt: item.text,
+              ...(isDesktop ? { workspace: "computer" } : {}),
+              requiredCapabilities: isDesktop
+                ? ["chat", "computer-use"]
+                : ["chat"],
+              ...(access ? { access } : {}),
+            });
+            assertAuthorityLease();
+          } catch (error) {
+            if (
+              error instanceof AutomaticExecutionWaitAbortedError ||
+              abort.signal.aborted
+            ) {
+              throw error;
+            }
+            if (
+              !ignoreStoredAccess &&
+              isAutomaticExecutionPairCredentialRejection(error)
+            ) {
+              // No placement was committed: retry without the invalid grant
+              // so server policy can choose cloud for portable work or return
+              // an explicit computer-required failure for computer-only work.
+              ignoreStoredAccess = true;
+              continue;
+            }
+            if (isPermanentAutomaticAdmissionError(error)) throw error;
+            patchActivity({ statusText: "Waiting for connection" });
+            await waitForAutomaticRetry(abort.signal);
+            assertAuthorityLease();
+          }
+        }
+
+        assertAuthorityLease();
+        const active = activeDispatchRef.current;
+        if (transport.kind === "automatic") {
+          transport.onAdmission?.({
+            localMessageId: item.userMessageId,
+            dispatchId: admitted.dispatchId,
+            conversationId: placementConversationId,
+          });
+        }
+        if (active?.replyId === replyId) {
+          active.primaryAccepted = true;
+          active.automaticControl = bindAutomaticExecutionAdmission(
+            active.automaticControl ?? {
+              clientIdempotencyKey: item.dispatchId,
+            },
+            admitted,
+          );
+        }
+        let control =
+          active?.automaticControl ??
+          bindAutomaticExecutionAdmission(
+            { clientIdempotencyKey: item.dispatchId },
+            admitted,
+          );
+        if (
+          item.cancelRequestId ||
+          stoppedDispatchIdsRef.current.has(item.dispatchId)
+        ) {
+          control = requestAutomaticExecutionCancellation({
+            ...control,
+            ...(item.cancelRequestId
+              ? { cancelRequestId: item.cancelRequestId }
+              : {}),
+          });
+          if (active?.replyId === replyId) active.automaticControl = control;
+        }
+        const cancellation = automaticExecutionCancellationCommand(control);
+        if (cancellation) {
+          for (;;) {
+            try {
+              admitted = await cancelAutomaticExecution({
+                ...cancellation,
+                reason: "Stopped from the mobile conversation.",
+                signal: abort.signal,
+              });
+              assertAuthorityLease();
+              break;
+            } catch (error) {
+              if (
+                error instanceof AutomaticExecutionWaitAbortedError ||
+                abort.signal.aborted
+              ) {
+                throw error;
+              }
+              if (isPermanentAutomaticAdmissionError(error)) throw error;
+              patchActivity({ statusText: "Stopping" });
+              await waitForAutomaticRetry(abort.signal);
+            }
+          }
+        }
+
+        const terminal = await waitForAutomaticExecution({
+          dispatchId: admitted.dispatchId,
+          signal: abort.signal,
+          beforeRead: async () => {
+            const current = activeDispatchRef.current;
+            if (current?.replyId !== replyId) return;
+            const pendingCancellation = automaticExecutionCancellationCommand(
+              current.automaticControl ?? {
+                clientIdempotencyKey: item.dispatchId,
+              },
+            );
+            if (!pendingCancellation) return;
+            await cancelAutomaticExecution({
+              ...pendingCancellation,
+              reason: "Stopped from the mobile conversation.",
+              signal: abort.signal,
+            });
+            assertAuthorityLease();
+          },
+          onUpdate: (dispatch) => {
+            if (!canonicalAuthorityLeaseCurrent(item.canonicalAuthorityLease)) {
+              return;
+            }
+            const statusText = automaticPlacementStatus(dispatch);
+            if (statusText) patchActivity({ statusText });
+          },
+        });
+        assertAuthorityLease();
+        renderReply(
+          automaticExecutionResultText(terminal),
+          terminal.state === "canceled",
+        );
+        acknowledgeDesktopSendIds([item.dispatchId, item.userMessageId]);
+        if (terminal.state === "completed") notifySuccess();
+        finishDispatch();
+        flushPersistNow();
+      } catch (error) {
+        if (
+          error instanceof AutomaticExecutionWaitAbortedError ||
+          abort.signal.aborted
+        ) {
+          return;
+        }
+        renderReply(userFacingError(error));
+        // Authentication/migration/validation failures cannot become valid by
+        // replaying this old account-bound outbox row after every launch.
+        if (isPermanentAutomaticAdmissionError(error)) {
+          acknowledgeDesktopSendIds([item.dispatchId, item.userMessageId]);
+        }
+        finishDispatch();
+        flushPersistNow();
+      }
+    },
+    [
+      acknowledgeDesktopSendIds,
+      canonicalAuthorityLeaseCurrent,
+      canonicalConversationId,
+      canonicalJournal,
+      finishDispatch,
+      flushPersistNow,
+      isDesktop,
+      patchActivity,
+      persistSyncState,
+      threadId,
+      transport,
+      updateMessages,
     ],
   );
 
@@ -3022,13 +3563,57 @@ export function useChatThread(opts: {
   );
 
   // ─── Queue & dispatch ─────────────────────────────────────────────────────
+  const parkQueuedSend = useCallback(
+    (item: QueuedSend) => {
+      if (
+        !queueRef.current.some(
+          (queued) => queued.dispatchId === item.dispatchId,
+        )
+      ) {
+        queueRef.current.push(item);
+        queueRef.current.sort(
+          (a, b) =>
+            (a.queueSequence ?? Number.MAX_SAFE_INTEGER) -
+            (b.queueSequence ?? Number.MAX_SAFE_INTEGER),
+        );
+      }
+      updateMessages((current) =>
+        current.map((message) =>
+          message.id === item.userMessageId
+            ? { ...message, queued: true }
+            : message,
+        ),
+      );
+    },
+    [updateMessages],
+  );
+
   const dispatch = useCallback(
     async (item: QueuedSend) => {
+      if (!canonicalAuthorityLeaseCurrent(item.canonicalAuthorityLease)) {
+        return;
+      }
+      if (canonicalJournal && !admissionEnabledRef.current) {
+        parkQueuedSend(item);
+        markSending(false);
+        setWorkingActivity(IDLE_WORKING_ACTIVITY);
+        return;
+      }
       const replyId = createId();
       const abort = new AbortController();
       dispatchGenerationRef.current += 1;
       activeDispatchRef.current = {
         dispatchId: item.dispatchId,
+        ...(transport.kind === "automatic"
+          ? {
+              automaticControl: {
+                clientIdempotencyKey: item.dispatchId,
+                ...(item.cancelRequestId
+                  ? { cancelRequestId: item.cancelRequestId }
+                  : {}),
+              },
+            }
+          : {}),
         userMessageId: item.userMessageId,
         replyId,
         abort,
@@ -3072,13 +3657,22 @@ export function useChatThread(opts: {
         return next.slice(-CHAT_TRANSCRIPT_MAX_LOADED);
       });
 
-      if (transport.kind === "desktop") {
-        await dispatchDesktop(item, replyId, abort, transport.access);
-      } else {
+      if (transport.kind === "guest") {
         await dispatchCloud(item, replyId, abort);
+      } else {
+        await dispatchAutomatic(item, replyId, abort);
       }
     },
-    [dispatchCloud, dispatchDesktop, transport],
+    [
+      canonicalAuthorityLeaseCurrent,
+      canonicalJournal,
+      dispatchAutomatic,
+      dispatchCloud,
+      markSending,
+      parkQueuedSend,
+      transport.kind,
+      updateMessages,
+    ],
   );
 
   useEffect(() => {
@@ -3086,15 +3680,26 @@ export function useChatThread(opts: {
   }, [dispatch]);
 
   const drainQueue = useCallback(() => {
-    const next = queueRef.current.shift();
+    const next = queueRef.current[0];
     if (!next) return;
+    if (!canonicalAuthorityLeaseCurrent(next.canonicalAuthorityLease)) {
+      queueRef.current.shift();
+      return;
+    }
+    if (canonicalJournal && !admissionEnabledRef.current) return;
+    queueRef.current.shift();
     markSending(true);
     void dispatchRef.current?.(next);
-  }, [markSending]);
+  }, [canonicalAuthorityLeaseCurrent, canonicalJournal, markSending]);
 
   useEffect(() => {
     drainQueueRef.current = drainQueue;
   }, [drainQueue]);
+
+  useEffect(() => {
+    if (!storageLoaded || !drainOperationalOutbox || sendingRef.current) return;
+    drainQueueRef.current?.();
+  }, [drainOperationalOutbox, storageLoaded]);
 
   const submit = useCallback(
     (suppliedPrompt?: string): { userMessageId: string } | null => {
@@ -3105,7 +3710,7 @@ export function useChatThread(opts: {
       if (
         !storageLoaded ||
         rewindInProgressRef.current ||
-        (transport.kind === "desktop" && !desktopTransportEnabledRef.current)
+        (canonicalJournal && !admissionEnabledRef.current)
       ) {
         return null;
       }
@@ -3216,6 +3821,11 @@ export function useChatThread(opts: {
         text,
         ...(decoupleQuotes ? { promptText, selectedText: rawQuotes } : {}),
         assets,
+        ...(canonicalJournal
+          ? {
+              canonicalAuthorityLease: canonicalAuthorityLeaseRef.current,
+            }
+          : {}),
       };
       pendingEnqueueRef.current.add(userMessageId);
       if (admission === "dispatch") markSending(true);
@@ -3226,6 +3836,9 @@ export function useChatThread(opts: {
         displayText,
         createdAt,
         assets,
+        ...(canonicalOutboxAuthority
+          ? { authority: canonicalOutboxAuthority }
+          : {}),
       };
       // Both transports gate transmission on this write. If iOS kills the
       // process while AsyncStorage is committing, either no transport happened
@@ -3234,6 +3847,9 @@ export function useChatThread(opts: {
       void enqueueDesktopChatOutbox(threadId, durableRecord)
         .then((stored) => {
           pendingEnqueueRef.current.delete(userMessageId);
+          if (!canonicalAuthorityLeaseCurrent(item.canonicalAuthorityLease)) {
+            return;
+          }
           item.queueSequence = stored.sequence;
           if (
             acceptedDesktopSendIdsRef.current.has(item.userMessageId) ||
@@ -3245,16 +3861,13 @@ export function useChatThread(opts: {
             ]);
             return;
           }
-          if (admission === "queue") {
-            queueRef.current.push(item);
-            queueRef.current.sort(
-              (a, b) =>
-                (a.queueSequence ?? Number.MAX_SAFE_INTEGER) -
-                (b.queueSequence ?? Number.MAX_SAFE_INTEGER),
-            );
-            if (transport.kind === "desktop" && sendingRef.current) {
-              pumpDesktopSteersRef.current?.();
-            } else if (!sendingRef.current) {
+          if (
+            admission === "queue" ||
+            (canonicalJournal && !admissionEnabledRef.current)
+          ) {
+            parkQueuedSend(item);
+            if (admission === "dispatch") markSending(false);
+            if (!sendingRef.current && admissionEnabledRef.current) {
               drainQueueRef.current?.();
             }
             return;
@@ -3263,6 +3876,9 @@ export function useChatThread(opts: {
         })
         .catch(() => {
           pendingEnqueueRef.current.delete(userMessageId);
+          if (!canonicalAuthorityLeaseCurrent(item.canonicalAuthorityLease)) {
+            return;
+          }
           if (stoppedDispatchIdsRef.current.has(item.dispatchId)) return;
           if (admission === "dispatch") markSending(false);
           updateMessages((current) =>
@@ -3278,14 +3894,18 @@ export function useChatThread(opts: {
     [
       acknowledgeDesktopSendIds,
       attachments,
+      canonicalAuthorityLeaseCurrent,
+      canonicalJournal,
+      canonicalOutboxAuthority,
       dispatch,
       draft,
       hasNewerMessages,
       quotes,
       markSending,
+      parkQueuedSend,
       storageLoaded,
       threadId,
-      transport.kind,
+      updateMessages,
     ],
   );
 
@@ -3323,6 +3943,50 @@ export function useChatThread(opts: {
     if (activeDispatchRef.current) {
       const active = activeDispatchRef.current;
       stoppedDispatchIdsRef.current.add(active.dispatchId);
+      if (transport.kind === "automatic") {
+        const control = requestAutomaticExecutionCancellation(
+          active.automaticControl ?? {
+            clientIdempotencyKey: active.dispatchId,
+          },
+        );
+        active.automaticControl = control;
+        const cancelRequestId = control.cancelRequestId!;
+        const cancellation = automaticExecutionCancellationCommand(control);
+        const authorityLease = canonicalJournal
+          ? canonicalAuthorityLeaseRef.current
+          : undefined;
+        patchActivity({ statusText: "Stopping" });
+        updateMessages((m) =>
+          m.map((msg) =>
+            msg.id === active.replyId
+              ? { ...msg, text: msg.text || "Stopping…", stopped: true }
+              : msg,
+          ),
+        );
+        // Persist intent before the server call. If iOS kills the app between
+        // these operations, hydration replays the same idempotency key and
+        // cancels that exact dispatch instead of starting an alternate run.
+        void markDesktopChatOutboxCancellation(
+          threadId,
+          active.dispatchId,
+          cancelRequestId,
+          Date.now(),
+          canonicalOutboxAuthority,
+        )
+          .then(() =>
+            canonicalAuthorityLeaseCurrent(authorityLease) && cancellation
+              ? cancelAutomaticExecution({
+                  ...cancellation,
+                  reason: "Stopped from the mobile conversation.",
+                })
+              : undefined,
+          )
+          .catch(() => {
+            // The active placement observer retries from the durable intent;
+            // a relaunch does the same if this process is interrupted.
+          });
+        return;
+      }
       acknowledgeDesktopSendIds([active.dispatchId, active.userMessageId]);
       active.abort.abort();
       updateMessages((m) =>
@@ -3336,7 +4000,17 @@ export function useChatThread(opts: {
     desktopSendBatchRef.current = null;
     markSending(false);
     setWorkingActivity(IDLE_WORKING_ACTIVITY);
-  }, [acknowledgeDesktopSendIds, markSending]);
+  }, [
+    acknowledgeDesktopSendIds,
+    canonicalAuthorityLeaseCurrent,
+    canonicalJournal,
+    canonicalOutboxAuthority,
+    markSending,
+    patchActivity,
+    threadId,
+    transport.kind,
+    updateMessages,
+  ]);
 
   // Rewind (destructive): drop a user message and everything after it, then
   // load its text + attachments back into the composer so it can be edited and
@@ -3346,7 +4020,7 @@ export function useChatThread(opts: {
   // UI (ChatPane's message menu); this performs the committed action.
   const rewindToMessage = useCallback(
     (messageId: string) => {
-      if (transport.kind !== "cloud") return;
+      if (isDesktop || canonicalJournal) return;
       if (!storageLoaded) return;
       // Never truncate under an in-flight turn — the streaming reply writes into
       // the very rows we would be dropping.
@@ -3449,7 +4123,13 @@ export function useChatThread(opts: {
           }
         });
     },
-    [scheduleMessageIndexRecovery, storageLoaded, threadId, transport.kind],
+    [
+      canonicalJournal,
+      isDesktop,
+      scheduleMessageIndexRecovery,
+      storageLoaded,
+      threadId,
+    ],
   );
 
   const workingIndicator = useMemo(
@@ -3543,6 +4223,11 @@ export function useChatThread(opts: {
     sending,
     workingIndicator,
     storageLoaded,
+    authorityReady:
+      canonicalJournal && !hydrationAuthorityIssue
+        ? canonicalAuthorityReady
+        : undefined,
+    authorityIssue: hydrationAuthorityIssue,
     hasOlderMessages,
     hasNewerMessages,
     historyPageLoading,

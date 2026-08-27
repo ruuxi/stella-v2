@@ -4,7 +4,10 @@ import { accountChatMetadataReadsBlocked } from "./chat-account-metadata-queue";
 import {
   acknowledgeDesktopChatOutboxRecords,
   appendDesktopChatOutboxRecord,
+  markDesktopChatOutboxRecordCanceled,
   parseDesktopChatOutbox,
+  partitionDesktopChatOutboxForAuthority,
+  type DesktopChatOutboxAuthority,
   type DesktopChatOutboxRecord,
 } from "./desktop-chat-outbox-state";
 
@@ -17,16 +20,21 @@ const OUTBOX_KEY: Record<ChatThreadId, string> = {
 
 const mutations = new Map<string, Promise<void>>();
 
-const read = async (thread: ChatThreadId): Promise<DesktopChatOutboxRecord[]> => {
-  try {
-    if (await accountChatMetadataReadsBlocked()) return [];
-    const raw = await AsyncStorage.getItem(OUTBOX_KEY[thread]);
-    if (await accountChatMetadataReadsBlocked()) return [];
-    return raw ? parseDesktopChatOutbox(JSON.parse(raw) as unknown) : [];
-  } catch {
-    return [];
+const readStrict = async (
+  thread: ChatThreadId,
+): Promise<DesktopChatOutboxRecord[]> => {
+  if (await accountChatMetadataReadsBlocked()) {
+    throw new Error("Local chat account cleanup is active");
   }
+  const raw = await AsyncStorage.getItem(OUTBOX_KEY[thread]);
+  if (await accountChatMetadataReadsBlocked()) {
+    throw new Error("Local chat account cleanup is active");
+  }
+  return raw ? parseDesktopChatOutbox(JSON.parse(raw) as unknown) : [];
 };
+
+const read = async (thread: ChatThreadId): Promise<DesktopChatOutboxRecord[]> =>
+  readStrict(thread).catch(() => []);
 
 const mutate = async <T>(
   thread: ChatThreadId,
@@ -49,7 +57,7 @@ const mutate = async <T>(
       if (await accountChatMetadataReadsBlocked()) {
         throw new Error("Local chat account cleanup is active");
       }
-      const current = await read(thread);
+      const current = await readStrict(thread);
       const next = update(current);
       if (await accountChatMetadataReadsBlocked()) {
         throw new Error("Local chat account cleanup is active");
@@ -71,11 +79,16 @@ const mutate = async <T>(
 
 export const loadDesktopChatOutbox = async (
   thread: ChatThreadId,
+  authority?: DesktopChatOutboxAuthority,
 ): Promise<DesktopChatOutboxRecord[]> => {
   await (mutations.get(OUTBOX_KEY[thread]) ?? Promise.resolve()).catch(
     () => undefined,
   );
-  return read(thread);
+  if (!authority) return read(thread);
+  return mutate(thread, (current) => {
+    const scoped = partitionDesktopChatOutboxForAuthority(current, authority);
+    return { records: scoped.retained, value: scoped.active };
+  });
 };
 
 export const enqueueDesktopChatOutbox = (
@@ -90,9 +103,32 @@ export const enqueueDesktopChatOutbox = (
 export const acknowledgeDesktopChatOutbox = (
   thread: ChatThreadId,
   acceptedIds: ReadonlySet<string>,
+  authority?: DesktopChatOutboxAuthority,
 ): Promise<void> =>
   mutate(thread, (current) => ({
-    records: acknowledgeDesktopChatOutboxRecords(current, acceptedIds),
+    records: acknowledgeDesktopChatOutboxRecords(
+      current,
+      acceptedIds,
+      authority,
+    ),
+    value: undefined,
+  }));
+
+export const markDesktopChatOutboxCancellation = (
+  thread: ChatThreadId,
+  sendId: string,
+  cancelRequestId: string,
+  cancelRequestedAt = Date.now(),
+  authority?: DesktopChatOutboxAuthority,
+): Promise<void> =>
+  mutate(thread, (current) => ({
+    records: markDesktopChatOutboxRecordCanceled(
+      current,
+      sendId,
+      cancelRequestId,
+      cancelRequestedAt,
+      authority,
+    ),
     value: undefined,
   }));
 
@@ -102,3 +138,5 @@ export const desktopChatOutboxStorageKeys = (): string[] =>
 export const waitForDesktopChatOutboxWrites = async (): Promise<void> => {
   await Promise.all([...mutations.values()]);
 };
+
+export type { DesktopChatOutboxAuthority };

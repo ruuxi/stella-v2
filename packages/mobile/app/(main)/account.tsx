@@ -323,7 +323,6 @@ export default function AccountScreen() {
               </View>
             ) : null}
           </View>
-
         </>
       ) : showLoadingHeader ? (
         <Text style={styles.body}>{t("mobile.settings.loadingSession")}</Text>
@@ -342,6 +341,33 @@ export default function AccountScreen() {
       )}
 
       <SubscriptionSection />
+
+      {isSignedIn ? (
+        <>
+          <View style={styles.separator} />
+          <Text style={styles.sectionLabel}>
+            {t("mobile.cloudHome.settingsSection")}
+          </Text>
+          <Pressable
+            onPress={() => router.push("/cloud-home")}
+            accessibilityLabel={t("mobile.cloudHome.openSettingsLabel")}
+            style={({ pressed }) => [
+              styles.legalRow,
+              pressed && styles.legalRowPressed,
+            ]}
+          >
+            <View style={styles.toggleCopy}>
+              <Text style={styles.legalLabel}>
+                {t("mobile.cloudHome.settingsRowTitle")}
+              </Text>
+              <Text style={styles.toggleSub}>
+                {t("mobile.cloudHome.settingsRowBody")}
+              </Text>
+            </View>
+            <Text style={styles.legalChevron}>›</Text>
+          </Pressable>
+        </>
+      ) : null}
 
       <View style={styles.separator} />
 
@@ -418,9 +444,7 @@ export default function AccountScreen() {
         {themes.map((th) => {
           // Honor pinned-mode themes (Pearl/Noir) when previewing — otherwise
           // the swatch shows a palette the user can never actually land on.
-          const previewDark = th.forcedMode
-            ? th.forcedMode === "dark"
-            : isDark;
+          const previewDark = th.forcedMode ? th.forcedMode === "dark" : isDark;
           const preview = previewDark ? th.dark : th.light;
           const isActive = th.id === activeTheme.id;
           return (
@@ -430,7 +454,9 @@ export default function AccountScreen() {
                 tapLight();
                 setThemeId(th.id);
               }}
-              accessibilityLabel={t("mobile.settings.useThemeLabel", { name: th.name })}
+              accessibilityLabel={t("mobile.settings.useThemeLabel", {
+                name: th.name,
+              })}
               accessibilityState={{ selected: isActive }}
               style={[
                 styles.themeDotOuter,
@@ -539,20 +565,20 @@ export default function AccountScreen() {
                   access,
                   desktopPlatforms[access.desktopDeviceId],
                 );
-                const removing =
-                  removingDesktopId === access.desktopDeviceId;
+                const removing = removingDesktopId === access.desktopDeviceId;
                 return (
                   <View key={access.desktopDeviceId} style={styles.pairedRow}>
                     <View style={styles.pairedCopy}>
                       <Text style={styles.pairedName}>{label}</Text>
                       <Text style={styles.pairedSub}>
                         {t("mobile.settings.pairedOn", {
-                          date: new Date(
-                            access.approvedAt,
-                          ).toLocaleDateString(undefined, {
-                            month: "short",
-                            day: "numeric",
-                          }),
+                          date: new Date(access.approvedAt).toLocaleDateString(
+                            undefined,
+                            {
+                              month: "short",
+                              day: "numeric",
+                            },
+                          ),
                         })}
                       </Text>
                     </View>
@@ -569,9 +595,7 @@ export default function AccountScreen() {
                       ]}
                     >
                       <Text style={styles.forgetText}>
-                        {removing
-                          ? "\u2026"
-                          : t("mobile.settings.forget")}
+                        {removing ? "\u2026" : t("mobile.settings.forget")}
                       </Text>
                     </Pressable>
                   </View>

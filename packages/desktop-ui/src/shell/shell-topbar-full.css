@@ -59,6 +59,7 @@ body[data-display-expanding="true"] .shell-topbar-full,
   padding: 0 12px;
   box-sizing: border-box;
   overflow: hidden;
+  -webkit-app-region: drag;
 }
 
 /* With open tabs the left cluster takes leftover space so the strip
@@ -96,7 +97,7 @@ body[data-display-expanding="true"] .shell-topbar-full,
   flex-shrink: 0;
   margin-left: auto;
   padding-right: 10px;
-  -webkit-app-region: no-drag;
+  -webkit-app-region: drag;
 }
 
 .shell-topbar-full__right .shell-topbar-update-pill {

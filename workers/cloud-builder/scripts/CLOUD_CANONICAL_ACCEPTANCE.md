@@ -1,20 +1,24 @@
 # Cloud-canonical verification harness
 
 These scripts replace the historical `flexible-panther-999` proof. They refuse
-that deployment and production, and they accept only the current development
-Convex target:
+that deployment, the shared development deployment, and production, and they
+accept only the dedicated preview Convex target:
 
-- `dev:impartial-crab-34`
-- `https://impartial-crab-34.convex.cloud`
-- `https://impartial-crab-34.convex.site`
-- `https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev`
+- `preview:basic-nightingale-118`
+- `https://basic-nightingale-118.convex.cloud`
+- `https://basic-nightingale-118.convex.site`
+- `https://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev`
+- Wrangler environment `bn118`
+- R2 buckets `stella-v2-app-builds-basic-nightingale-118`,
+  `stella-v2-agent-home-basic-nightingale-118`, and
+  `stella-v2-conversation-archive-basic-nightingale-118`
 
 None of these scripts deploy infrastructure. They are opt-in and require a
 fresh disposable identity and isolated local paths. Never point them at
 `~/.stella` or a shared Electron profile.
 
-> **Before running:** the worker bindings in
-> `workers/cloud-builder/wrangler.jsonc` are pinned to `impartial-crab-34`, but
+> **Before running:** the dedicated acceptance Worker bindings must be pinned
+> to `basic-nightingale-118`, but
 > the deployed worker and the matching Convex `CLOUD_BUILDER_URL`/service
 > secret still must be paired explicitly. The harness rejects obsolete and
 > production targets, but it does not change or deploy infrastructure.
@@ -41,14 +45,14 @@ profile, or a real model response.
 Required environment:
 
 ```text
-CONVEX_DEPLOYMENT=dev:impartial-crab-34
-CONVEX_URL=https://impartial-crab-34.convex.cloud
-CONVEX_SITE_URL=https://impartial-crab-34.convex.site
-CLOUD_BUILDER_URL=https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev
-STELLA_CLOUD_PROOF_CONFIRM=mutate-dev:impartial-crab-34
+CONVEX_DEPLOYMENT=preview:basic-nightingale-118
+CONVEX_URL=https://basic-nightingale-118.convex.cloud
+CONVEX_SITE_URL=https://basic-nightingale-118.convex.site
+CLOUD_BUILDER_URL=https://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev
+STELLA_CLOUD_PROOF_CONFIRM=mutate-preview:basic-nightingale-118
 STELLA_CLOUD_PROOF_IDENTITY_KIND=disposable
 STELLA_CLOUD_PROOF_JWT=<short-lived disposable JWT>
-BUILDER_SERVICE_SECRET=<matching development secret>
+BUILDER_SERVICE_SECRET=<matching dedicated preview secret>
 STELLA_CLOUD_PROOF_EVIDENCE_PATH=/absolute/isolated/path/protocol.json
 ```
 
@@ -133,7 +137,7 @@ pending-link state; the driver never reads or serializes a cookie or JWT. Run
 only after the manifest is valid and the initial inbox handoff is complete:
 
 ```bash
-STELLA_CLOUD_ACCEPTANCE_CONFIRM=run-real-dev:impartial-crab-34 \
+STELLA_CLOUD_ACCEPTANCE_CONFIRM=run-real-preview:basic-nightingale-118 \
 node workers/cloud-builder/scripts/cloud-canonical-acceptance.mjs \
   --run /absolute/isolated/path/manifest.json
 ```
@@ -149,18 +153,18 @@ Losing that target makes this proof fail closed; it does not inject a cookie or
 substitute another profile.
 
 The executable fails closed unless all live prerequisites are present. Set the
-following only for the disposable acceptance account and reviewed development
+following only for the disposable acceptance account and reviewed preview
 deployment; never put their values in the manifest or retained logs:
 
 ```text
 STELLA_CLOUD_PROOF_IDENTITY_KIND=disposable
-BUILDER_SERVICE_SECRET=<secret paired with the development Worker>
+BUILDER_SERVICE_SECRET=<secret paired with the dedicated preview Worker>
 STELLA_CLOUD_ACCEPTANCE_DISPOSABLE_EMAIL=<normalized fresh disposable inbox address>
 STELLA_CLOUD_ACCEPTANCE_SECONDARY_DISPOSABLE_EMAIL=<different normalized fresh disposable inbox address>
 STELLA_CLOUD_ACCEPTANCE_BROWSER_BINARY=<optional exact reviewed Chrome-for-Testing binary>
-CLOUDFLARE_ACCOUNT_ID=<account containing the development Worker and R2 buckets>
-CLOUDFLARE_API_TOKEN=<narrow development inspection token>
-CONVEX_DEPLOY_KEY=<development deployment key>
+CLOUDFLARE_ACCOUNT_ID=<account containing the dedicated preview Worker and R2 buckets>
+CLOUDFLARE_API_TOKEN=<narrow preview-Worker inspection token>
+CONVEX_DEPLOY_KEY=<basic-nightingale-118 preview deployment key>
 STELLA_CLOUD_ACCEPTANCE_MCP_TOOL_NAME=<exact reviewed read-only listed tool>
 STELLA_CLOUD_ACCEPTANCE_MCP_TOOL_ARGUMENTS_JSON=<bounded JSON object with reviewed non-mutating arguments>
 STELLA_CLOUD_ACCEPTANCE_MCP_INTEGRATION_ID=<exact reviewed integration id>
@@ -170,7 +174,7 @@ STELLA_CLOUD_ACCEPTANCE_MCP_TOOLKIT_VERSION=<exact published toolkit version>
 STELLA_CLOUD_ACCEPTANCE_MCP_CONNECTED_ACCOUNT_ID_SHA256=<SHA-256 of the disposable external account id>
 STELLA_CLOUD_ACCEPTANCE_MCP_ACCOUNT_PURPOSE=disposable-audited-read-only
 STELLA_CLOUD_ACCEPTANCE_BUN_1_4_BINARY=<absolute official Bun 1.4.x binary>
-STELLA_CLOUD_ACCEPTANCE_CONFIRM=run-real-dev:impartial-crab-34
+STELLA_CLOUD_ACCEPTANCE_CONFIRM=run-real-preview:basic-nightingale-118
 ```
 
 `STELLA_CLOUD_PROOF_JWT`, `STELLA_CLOUD_PROOF_SESSION_COOKIE`, and all
@@ -187,11 +191,12 @@ private-state write rejects raw JWT-, cookie-, credential-, and session-shaped
 values as well as the known secret and inbox values. No authority credential is
 written to state, logs, step evidence, or the aggregate report.
 
-Before the run, deploy the clean reviewed tree to the paired development
-Worker and Convex deployment through the normal deployment workflow. The
+Before the run, deploy the clean reviewed tree to the paired dedicated preview
+Worker using the checked-in Wrangler `bn118` environment and to the Convex
+preview deployment through the normal deployment workflow. The
 Worker must have `ENABLE_DEV_ACCEPTANCE_PROBES=1`,
-`STELLA_DEPLOYMENT_IDENTITY=dev:impartial-crab-34`, the matching service
-secret, model/provider configuration, and the development DO/R2/Convex
+`STELLA_DEPLOYMENT_IDENTITY=preview:basic-nightingale-118`, the matching service
+secret, model/provider configuration, and the preview DO/R2/Convex
 bindings. Production must omit or deny these probes. The disposable account
 must have one real reviewed Composio read-only tool matching the exact name and
 arguments above, and the reachable-mobile scenario needs the isolated desktop
@@ -205,14 +210,14 @@ line and compares every remaining body byte without trimming or normalization.
 It also verifies R2 objects, owner
 generation, and conversation/turn identities before accepting evidence.
 
-The Convex development deployment must also have four explicit raw-media
+The Convex preview deployment must also have four explicit raw-media
 authority variables: `R2_PETS_BUCKET`, `R2_PETS_PUBLIC_BASE_URL`,
 `R2_EMOJI_BUCKET`, and `R2_EMOJI_PUBLIC_BASE_URL`. The two buckets must be
-distinct, explicitly development-named buckets; the two public bases must be
-distinct HTTPS development origins that are verified against those exact
+distinct, explicitly non-production buckets; the two public bases must be
+distinct HTTPS non-production origins that are verified against those exact
 buckets before they are installed. The legacy shared `R2_PUBLIC_BASE_URL` is
 not an accepted fallback for pet or emoji writes. Never reuse `stella-files`,
-`stella-emotes`, or either bucket's public origin for this dev proof.
+`stella-emotes`, or either bucket's public origin for this preview proof.
 
 Generating or checking the manifest, running unit/Workerd tests, or compiling
 the driver does not produce acceptance evidence. No infrastructure deployment
@@ -236,10 +241,10 @@ symlinks before accepting the manifest.
   "version": 3,
   "stepCount": 26,
   "target": {
-    "convexDeployment": "dev:impartial-crab-34",
-    "convexUrl": "https://impartial-crab-34.convex.cloud",
-    "convexSiteUrl": "https://impartial-crab-34.convex.site",
-    "cloudBuilderUrl": "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev"
+    "convexDeployment": "preview:basic-nightingale-118",
+    "convexUrl": "https://basic-nightingale-118.convex.cloud",
+    "convexSiteUrl": "https://basic-nightingale-118.convex.site",
+    "cloudBuilderUrl": "https://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev"
   },
   "isolatedRoots": ["/absolute/path/to/disposable-harness-runtime"],
   "output": "/absolute/path/to/disposable-harness-runtime/evidence/report.json",
@@ -432,5 +437,5 @@ disposable profile before deleting it.
 Passing the structural and adversarial unit tests proves only that the manifest,
 driver boundary, schemas, and coherence checks fail closed. It is not deployment
 or real-product evidence. A passing aggregate report exists only after reviewed
-drivers execute every scenario against the paired development Worker and Convex
+drivers execute every scenario against the paired preview Worker and Convex
 deployment and cleanup succeeds.

@@ -1135,7 +1135,7 @@ describe("hash-only CDP transport evidence", () => {
       requestId,
       type: "Fetch",
       request: {
-        url: "https://impartial-crab-34.convex.site/api/auth/get-session",
+        url: `${REQUIRED_CONVEX.siteUrl}/api/auth/get-session`,
         method: "GET",
         headers: {
           Authorization: "Bearer raw-jwt-must-not-land",
@@ -1147,7 +1147,7 @@ describe("hash-only CDP transport evidence", () => {
       requestId,
       type: "Fetch",
       response: {
-        url: "https://impartial-crab-34.convex.site/api/auth/get-session",
+        url: `${REQUIRED_CONVEX.siteUrl}/api/auth/get-session`,
         status: 200,
         mimeType: "application/json",
         headers: { "Set-Cookie": "raw-cookie-must-not-land" },

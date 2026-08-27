@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Mutating protocol verification for the current Stella development cloud.
+ * Mutating protocol verification for the dedicated Stella acceptance preview.
  *
  * This is intentionally NOT product acceptance. It exercises the authenticated
  * Convex + cloud-builder contracts directly and writes synthetic assistant rows
@@ -9,14 +9,14 @@
  * cache-loss acceptance belongs to cloud-canonical-acceptance.mjs.
  *
  * Required environment (all fail closed):
- *   CONVEX_DEPLOYMENT=dev:impartial-crab-34
- *   CONVEX_URL=https://impartial-crab-34.convex.cloud
- *   CONVEX_SITE_URL=https://impartial-crab-34.convex.site
- *   CLOUD_BUILDER_URL=https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev
- *   STELLA_CLOUD_PROOF_CONFIRM=mutate-dev:impartial-crab-34
+ *   CONVEX_DEPLOYMENT=preview:basic-nightingale-118
+ *   CONVEX_URL=https://basic-nightingale-118.convex.cloud
+ *   CONVEX_SITE_URL=https://basic-nightingale-118.convex.site
+ *   CLOUD_BUILDER_URL=https://stella-v2-cloud-builder-basic-nightingale-118.lolruuxi.workers.dev
+ *   STELLA_CLOUD_PROOF_CONFIRM=mutate-preview:basic-nightingale-118
  *   STELLA_CLOUD_PROOF_IDENTITY_KIND=disposable
  *   STELLA_CLOUD_PROOF_JWT=<short-lived disposable identity JWT>
- *   BUILDER_SERVICE_SECRET=<matching development service secret>
+ *   BUILDER_SERVICE_SECRET=<matching preview service secret>
  *   STELLA_CLOUD_PROOF_EVIDENCE_PATH=/absolute/path/evidence.json
  *
  * Add --with-r2 to force enough synthetic journal rows to cross the rollover
@@ -506,7 +506,7 @@ const runFastProtocol = async () => {
     "Unexpected cloud-builder health response.",
     health.body,
   );
-  pass("current development worker reachable", {
+  pass("dedicated preview worker reachable", {
     service: health.body.service,
   });
 

@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
+  ACCEPTANCE_APPS_HOST_ORIGIN,
+  ACCEPTANCE_CLOUD_BUILDER_ORIGIN,
   DEV_APPS_HOST_ORIGIN,
-  getTrustedDevAppsHostOrigin,
-  resolvesToDevAppsHostOrigin,
+  DEV_CLOUD_BUILDER_ORIGIN,
+  getTrustedAppsHostOrigin,
+  resolveManagedAppsHostOrigin,
+  resolvesToManagedAppsHostOrigin,
 } from "./dev_apps_host_origin";
 
 const validEnv = () => ({
@@ -11,17 +15,40 @@ const validEnv = () => ({
   CONVEX_SITE_URL: "https://impartial-crab-34.convex.site",
   CONVEX_CLOUD_URL: "https://impartial-crab-34.convex.cloud",
   APPS_HOST_ORIGIN: "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
+  CLOUD_BUILDER_URL: DEV_CLOUD_BUILDER_ORIGIN,
 });
 
-describe("development Apps host origin authority", () => {
+const validAcceptanceEnv = () => ({
+  STELLA_DEPLOYMENT_IDENTITY: "preview:basic-nightingale-118",
+  CONVEX_SITE_URL: "https://basic-nightingale-118.convex.site",
+  CONVEX_CLOUD_URL: "https://basic-nightingale-118.convex.cloud",
+  APPS_HOST_ORIGIN: ACCEPTANCE_APPS_HOST_ORIGIN,
+  CLOUD_BUILDER_URL: ACCEPTANCE_CLOUD_BUILDER_ORIGIN,
+});
+
+describe("non-production Apps host origin authority", () => {
   test("trusts the exact impartial-crab development contract", () => {
-    assert.equal(getTrustedDevAppsHostOrigin(validEnv()), DEV_APPS_HOST_ORIGIN);
+    assert.equal(getTrustedAppsHostOrigin(validEnv()), DEV_APPS_HOST_ORIGIN);
     assert.equal(
-      getTrustedDevAppsHostOrigin({
+      getTrustedAppsHostOrigin({
         ...validEnv(),
         STELLA_AUTH_BASE_URL: "https://impartial-crab-34.convex.site",
       }),
       DEV_APPS_HOST_ORIGIN,
+    );
+  });
+
+  test("trusts the exact isolated acceptance preview contract", () => {
+    assert.equal(
+      getTrustedAppsHostOrigin(validAcceptanceEnv()),
+      ACCEPTANCE_APPS_HOST_ORIGIN,
+    );
+    assert.equal(
+      getTrustedAppsHostOrigin({
+        ...validAcceptanceEnv(),
+        STELLA_AUTH_BASE_URL: "https://basic-nightingale-118.convex.site",
+      }),
+      ACCEPTANCE_APPS_HOST_ORIGIN,
     );
   });
 
@@ -31,10 +58,11 @@ describe("development Apps host origin authority", () => {
       "CONVEX_SITE_URL",
       "CONVEX_CLOUD_URL",
       "APPS_HOST_ORIGIN",
+      "CLOUD_BUILDER_URL",
     ] as const) {
       const env = validEnv();
       delete env[field];
-      assert.equal(getTrustedDevAppsHostOrigin(env), null, field);
+      assert.equal(getTrustedAppsHostOrigin(env), null, field);
     }
   });
 
@@ -47,7 +75,22 @@ describe("development Apps host origin authority", () => {
       { STELLA_AUTH_BASE_URL: "https://auth.example.com" },
     ]) {
       assert.equal(
-        getTrustedDevAppsHostOrigin({ ...validEnv(), ...override }),
+        getTrustedAppsHostOrigin({ ...validEnv(), ...override }),
+        null,
+      );
+    }
+  });
+
+  test("rejects mixed development and acceptance tuples", () => {
+    for (const override of [
+      { CONVEX_SITE_URL: "https://impartial-crab-34.convex.site" },
+      { CONVEX_CLOUD_URL: "https://impartial-crab-34.convex.cloud" },
+      { APPS_HOST_ORIGIN: DEV_APPS_HOST_ORIGIN },
+      { CLOUD_BUILDER_URL: DEV_CLOUD_BUILDER_ORIGIN },
+      { STELLA_AUTH_BASE_URL: "https://impartial-crab-34.convex.site" },
+    ]) {
+      assert.equal(
+        getTrustedAppsHostOrigin({ ...validAcceptanceEnv(), ...override }),
         null,
       );
     }
@@ -67,21 +110,32 @@ describe("development Apps host origin authority", () => {
       },
     ]) {
       assert.equal(
-        getTrustedDevAppsHostOrigin({ ...validEnv(), ...override }),
+        getTrustedAppsHostOrigin({ ...validEnv(), ...override }),
         null,
       );
     }
   });
 
   test("recognizes noncanonical URLs that would resolve to the Apps host", () => {
-    assert.equal(resolvesToDevAppsHostOrigin(DEV_APPS_HOST_ORIGIN), true);
-    assert.equal(resolvesToDevAppsHostOrigin(`${DEV_APPS_HOST_ORIGIN}/`), true);
     assert.equal(
-      resolvesToDevAppsHostOrigin(`${DEV_APPS_HOST_ORIGIN}/auth`),
+      resolveManagedAppsHostOrigin(DEV_APPS_HOST_ORIGIN),
+      DEV_APPS_HOST_ORIGIN,
+    );
+    assert.equal(
+      resolveManagedAppsHostOrigin(`${ACCEPTANCE_APPS_HOST_ORIGIN}/auth`),
+      ACCEPTANCE_APPS_HOST_ORIGIN,
+    );
+    assert.equal(resolvesToManagedAppsHostOrigin(DEV_APPS_HOST_ORIGIN), true);
+    assert.equal(
+      resolvesToManagedAppsHostOrigin(`${DEV_APPS_HOST_ORIGIN}/`),
       true,
     );
     assert.equal(
-      resolvesToDevAppsHostOrigin("https://stella.sh/apps-host"),
+      resolvesToManagedAppsHostOrigin(`${DEV_APPS_HOST_ORIGIN}/auth`),
+      true,
+    );
+    assert.equal(
+      resolvesToManagedAppsHostOrigin("https://stella.sh/apps-host"),
       false,
     );
   });

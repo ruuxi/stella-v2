@@ -1,19 +1,47 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ACCEPTANCE_CONVEX_SITE_ORIGIN,
+  ACCEPTANCE_DEPLOYMENT_IDENTITY,
   AppsHostConfigurationError,
   DEV_CONVEX_SITE_ORIGIN,
   DEV_DEPLOYMENT_IDENTITY,
   readAppsHostConfig,
 } from "../src/config";
 import worker from "../src/index";
-import { createEnv } from "./fixtures";
+import { createAcceptanceEnv, createEnv } from "./fixtures";
 
-describe("development authority configuration", () => {
+describe("non-production authority configuration", () => {
   test("accepts only the explicit impartial-crab development deployment", () => {
     const config = readAppsHostConfig(createEnv());
     expect(config.deploymentIdentity).toBe(DEV_DEPLOYMENT_IDENTITY);
     expect(config.convexSiteOrigin).toBe(DEV_CONVEX_SITE_ORIGIN);
     expect(config.sharesDisabled).toBeFalse();
+  });
+
+  test("accepts only the exact isolated acceptance preview tuple", () => {
+    const config = readAppsHostConfig(createAcceptanceEnv());
+    expect(config.deploymentIdentity).toBe(ACCEPTANCE_DEPLOYMENT_IDENTITY);
+    expect(config.convexSiteOrigin).toBe(ACCEPTANCE_CONVEX_SITE_ORIGIN);
+    expect(config.sharesDisabled).toBeFalse();
+  });
+
+  test("rejects mixed development and acceptance tuples", () => {
+    for (const [field, value] of [
+      ["CONVEX_SITE_URL", DEV_CONVEX_SITE_ORIGIN],
+      ["CONVEX_CLOUD_URL", "https://impartial-crab-34.convex.cloud"],
+      [
+        "APPS_HOST_ORIGIN",
+        "https://stella-v2-apps-host-dev.lolruuxi.workers.dev",
+      ],
+      [
+        "CLOUD_BUILDER_ORIGIN",
+        "https://stella-v2-cloud-builder-dev.lolruuxi.workers.dev",
+      ],
+    ] as const) {
+      expect(() =>
+        readAppsHostConfig(createAcceptanceEnv({ [field]: value })),
+      ).toThrow(AppsHostConfigurationError);
+    }
   });
 
   test.each([

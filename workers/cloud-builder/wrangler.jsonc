@@ -113,5 +113,110 @@
       "tag": "v4",
       "new_sqlite_classes": ["OwnerTransferCoordinator"]
     }
-  ]
+  ],
+  "env": {
+    "bn118": {
+      "name": "stella-v2-cloud-builder-basic-nightingale-118",
+      "workers_dev": true,
+      "preview_urls": false,
+      "vars": {
+        "SANDBOX_TRANSPORT": "rpc",
+        "TURN_TIMEOUT_MS": "900000",
+        "SANDBOX_IDLE_TIMEOUT_MS": "600000",
+        "APPS_HOST_BASE_URL": "https://stella-v2-apps-host-basic-nightingale-118.lolruuxi.workers.dev",
+        "STELLA_CONVEX_SITE_URL": "https://basic-nightingale-118.convex.site",
+        "STELLA_CONVEX_CLOUD_URL": "https://basic-nightingale-118.convex.cloud",
+        "ENABLE_DEV_ACCEPTANCE_PROBES": "1",
+        "STELLA_DEPLOYMENT_IDENTITY": "preview:basic-nightingale-118"
+      },
+      "secrets": {
+        "required": ["BUILDER_SERVICE_SECRET"]
+      },
+      "worker_loaders": [
+        {
+          "binding": "LOADER"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "APP_BUILDS",
+          "bucket_name": "stella-v2-app-builds-basic-nightingale-118"
+        },
+        {
+          "binding": "BACKUP_BUCKET",
+          "bucket_name": "stella-v2-app-builds-basic-nightingale-118"
+        },
+        {
+          "binding": "AGENT_HOME",
+          "bucket_name": "stella-v2-agent-home-basic-nightingale-118"
+        },
+        {
+          "binding": "CONVERSATION_ARCHIVE",
+          "bucket_name": "stella-v2-conversation-archive-basic-nightingale-118"
+        }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "APP_ROUTES",
+          "id": "7a0ed79419de4637aba5b8c3ff248c0e"
+        }
+      ],
+      "containers": [
+        {
+          "class_name": "Sandbox",
+          "image": "./Dockerfile",
+          "instance_type": "standard-4",
+          "max_instances": 1
+        },
+        {
+          "class_name": "SandboxSmall",
+          "image": "./Dockerfile",
+          "instance_type": "standard-2",
+          "max_instances": 1
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "Sandbox",
+            "class_name": "Sandbox"
+          },
+          {
+            "name": "SANDBOX_SMALL",
+            "class_name": "SandboxSmall"
+          },
+          {
+            "name": "BUILD_SESSIONS",
+            "class_name": "BuildSession"
+          },
+          {
+            "name": "ORCHESTRATOR_SESSIONS",
+            "class_name": "OrchestratorSession"
+          },
+          {
+            "name": "OWNER_TRANSFER_COORDINATORS",
+            "class_name": "OwnerTransferCoordinator"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_sqlite_classes": ["Sandbox", "BuildSession"]
+        },
+        {
+          "tag": "v2",
+          "new_sqlite_classes": ["OrchestratorSession"]
+        },
+        {
+          "tag": "v3",
+          "new_sqlite_classes": ["SandboxSmall"]
+        },
+        {
+          "tag": "v4",
+          "new_sqlite_classes": ["OwnerTransferCoordinator"]
+        }
+      ]
+    }
+  }
 }

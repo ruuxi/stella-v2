@@ -1,10 +1,9 @@
 import type { HttpRouter } from "convex/server";
 import { httpAction } from "../_generated/server";
 import {
-  DEV_APPS_HOST_ORIGIN,
-  getTrustedDevAppsHostOrigin,
-  resolvesToDevAppsHostOrigin,
-  type DevAppsHostTrustEnv,
+  getTrustedAppsHostOrigin,
+  resolveManagedAppsHostOrigin,
+  type AppsHostTrustEnv,
 } from "../lib/dev_apps_host_origin";
 
 const DEFAULT_CORS_ALLOWED_ORIGINS = [
@@ -22,7 +21,7 @@ const parseCorsOriginList = (rawValue: string | undefined): string[] =>
     .map((value) => value.trim())
     .filter((value) => value.length > 0);
 
-type CorsOriginEnv = DevAppsHostTrustEnv &
+type CorsOriginEnv = AppsHostTrustEnv &
   Readonly<{
     SITE_URL?: string;
     CORS_ALLOWED_ORIGINS?: string;
@@ -30,12 +29,13 @@ type CorsOriginEnv = DevAppsHostTrustEnv &
 
 export const buildCorsAllowedOrigins = (env: CorsOriginEnv): Set<string> => {
   const configured = new Set<string>(DEFAULT_CORS_ALLOWED_ORIGINS);
-  const trustedDevAppsHostOrigin = getTrustedDevAppsHostOrigin(env);
+  const trustedAppsHostOrigin = getTrustedAppsHostOrigin(env);
   const addConfiguredOrigin = (origin: string | undefined) => {
     if (!origin) return;
+    const managedAppsHostOrigin = resolveManagedAppsHostOrigin(origin);
     if (
-      resolvesToDevAppsHostOrigin(origin) &&
-      trustedDevAppsHostOrigin !== DEV_APPS_HOST_ORIGIN
+      managedAppsHostOrigin &&
+      managedAppsHostOrigin !== trustedAppsHostOrigin
     ) {
       return;
     }
@@ -47,7 +47,7 @@ export const buildCorsAllowedOrigins = (env: CorsOriginEnv): Set<string> => {
   for (const origin of extraOrigins) {
     addConfiguredOrigin(origin);
   }
-  addConfiguredOrigin(trustedDevAppsHostOrigin ?? undefined);
+  addConfiguredOrigin(trustedAppsHostOrigin ?? undefined);
   return configured;
 };
 

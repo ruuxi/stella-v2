@@ -40,6 +40,7 @@ const SUBPROTOCOL_PREFIX = "xai-client-secret.";
 const DEFAULT_INPUT_RATE = 24000;
 const DEFAULT_OUTPUT_RATE = 24000;
 const PCM16_BYTES_PER_SAMPLE = 2;
+const WEBSOCKET_OPEN_TIMEOUT_MS = 8_000;
 
 const estimateBase64Pcm16Seconds = (
   base64: string,
@@ -107,6 +108,7 @@ export class XaiWebSocketTransport implements RealtimeTransport {
   private micEnabled = false;
   private micSyncPromise: Promise<void> = Promise.resolve();
   private destroyed = false;
+  private cancelPendingOpen: (() => void) | null = null;
 
   private events: RealtimeTransportEvents | null = null;
   private inputAudioSecondsSinceLastResponse = 0;
@@ -157,21 +159,68 @@ export class XaiWebSocketTransport implements RealtimeTransport {
     this.ws = ws;
 
     await new Promise<void>((resolve, reject) => {
-      const onOpen = () => {
+      let settled = false;
+      let openTimeout: ReturnType<typeof setTimeout> | null = null;
+
+      const cleanup = () => {
         ws.removeEventListener("open", onOpen);
         ws.removeEventListener("error", onError);
+        ws.removeEventListener("close", onCloseBeforeOpen);
+        if (openTimeout) {
+          clearTimeout(openTimeout);
+          openTimeout = null;
+        }
+        if (this.cancelPendingOpen === cancelOpen) {
+          this.cancelPendingOpen = null;
+        }
+      };
+
+      const failOpen = (error: Error, closeSocket: boolean) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (closeSocket) this.detachAndCloseWebSocket(ws);
+        else if (this.ws === ws) this.ws = null;
+        reject(error);
+      };
+
+      const onOpen = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
         resolve();
       };
       const onError = (event: Event) => {
-        ws.removeEventListener("open", onOpen);
-        ws.removeEventListener("error", onError);
         const message =
           (event as ErrorEvent).message ||
           "Failed to open xAI realtime WebSocket";
-        reject(new Error(message));
+        failOpen(new Error(message), true);
       };
+      const onCloseBeforeOpen = (event: CloseEvent) => {
+        failOpen(
+          new Error(
+            `xAI realtime WebSocket closed before opening (${event.code} ${event.reason || ""})`.trim(),
+          ),
+          false,
+        );
+      };
+      const cancelOpen = () => {
+        failOpen(
+          new Error("xAI realtime WebSocket disconnected before opening"),
+          false,
+        );
+      };
+
+      this.cancelPendingOpen = cancelOpen;
       ws.addEventListener("open", onOpen);
       ws.addEventListener("error", onError);
+      ws.addEventListener("close", onCloseBeforeOpen);
+      openTimeout = setTimeout(() => {
+        failOpen(
+          new Error("Timed out opening xAI realtime WebSocket after 8 seconds"),
+          true,
+        );
+      }, WEBSOCKET_OPEN_TIMEOUT_MS);
     });
 
     if (this.destroyed) return;
@@ -249,21 +298,18 @@ export class XaiWebSocketTransport implements RealtimeTransport {
     this.destroyed = true;
     this.events = null;
 
+    // Revocation must cut the network transport synchronously. In particular,
+    // do not leave a CONNECTING socket alive while async audio contexts drain.
+    const cancelPendingOpen = this.cancelPendingOpen;
+    this.detachAndCloseWebSocket();
+    cancelPendingOpen?.();
+
     this.mic.stop();
     this.mic.detach();
     await this.mic.dispose();
     await this.player.dispose();
 
     this.releaseMicrophoneCapture();
-
-    if (this.ws) {
-      try {
-        this.ws.close();
-      } catch {
-        // Already closed.
-      }
-      this.ws = null;
-    }
   }
 
   // ── internals ────────────────────────────────────────────────────────
@@ -278,6 +324,16 @@ export class XaiWebSocketTransport implements RealtimeTransport {
       if (isBillableTextInput) this.textInputMessagesSinceLastResponse += 1;
     } catch (err) {
       console.debug("[xai-ws] Failed to send event:", (err as Error).message);
+    }
+  }
+
+  private detachAndCloseWebSocket(ws = this.ws): void {
+    if (!ws) return;
+    if (this.ws === ws) this.ws = null;
+    try {
+      ws.close();
+    } catch {
+      // Already closed.
     }
   }
 

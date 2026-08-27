@@ -20,10 +20,7 @@ const map = (name: string, polyline?: string) => ({
     : {}),
 });
 
-const result = (
-  id: string,
-  payload: Record<string, unknown>,
-): EventRecord => ({
+const result = (id: string, payload: Record<string, unknown>): EventRecord => ({
   _id: id,
   timestamp: 1_000,
   type: "tool_result",
@@ -42,12 +39,12 @@ describe("deriveTurnMapArtifacts", () => {
     expect(cards[1]!.map.route?.polyline).toBe("poly");
   });
 
-  it("collects the same artifacts from deferred node_repl map calls", () => {
+  it("collects current code artifacts and persisted legacy node_repl artifacts", () => {
     const first = map("First");
     const second = map("Second", "poly");
     const third = map("Third");
     const cards = deriveTurnMapArtifacts([
-      result("t1", { toolName: "node_repl", map: first }),
+      result("t1", { toolName: "code", map: first }),
       result("t2", { toolName: "node_repl", maps: [second, third] }),
     ]);
 
@@ -62,7 +59,10 @@ describe("deriveTurnMapArtifacts", () => {
     const cards = deriveTurnMapArtifacts([
       result("t1", { toolName: "map", error: "failed", map: map("X") }),
       result("t2", { toolName: "map", agentType: "general", map: map("Y") }),
-      result("t3", { toolName: "map", map: { kind: "map-route", markers: [] } }),
+      result("t3", {
+        toolName: "map",
+        map: { kind: "map-route", markers: [] },
+      }),
       result("t4", { toolName: "map" }),
       result("t5", {
         toolName: "node_repl",

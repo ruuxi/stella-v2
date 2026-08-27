@@ -13,10 +13,33 @@ import type { MorphTimingSettings } from "@stella/contracts/desktop/morph-timing
 import type { DesktopUpdateSnapshot } from "@stella/contracts/desktop/update";
 import type { OfficePreviewSnapshot } from "@stella/contracts/office-preview";
 import type { RealtimeVoicePreferences } from "@stella/contracts/local-preferences";
+import type {
+  CloudHomeImportOwnership,
+  LocalCloudHomeScan,
+} from "@stella/contracts/cloud-home-sync";
+import type {
+  CloudConversationCacheAuthority,
+  CloudConversationCacheLifecycleAuthority,
+  CloudConversationCachePurgeResult,
+  CloudConversationCacheReplaceInput,
+  CloudConversationCacheReplaceResult,
+  CloudConversationCacheSnapshot,
+} from "@stella/contracts/cloud-conversation-cache";
 import {
   IPC_BROWSER_FETCH_JSON,
   IPC_BROWSER_FETCH_TEXT,
   IPC_CAPTURE_REGION_FAILED,
+  IPC_CLOUD_CONVERSATION_CACHE_ACTIVATE_AUTHORITY,
+  IPC_CLOUD_CONVERSATION_CACHE_PURGE_CONVERSATION,
+  IPC_CLOUD_CONVERSATION_CACHE_READ,
+  IPC_CLOUD_CONVERSATION_CACHE_REPLACE,
+  IPC_CLOUD_CONVERSATION_CACHE_RETAIN_ACCOUNT,
+  IPC_CLOUD_HOME_BEGIN_MEMORY_EXPORT,
+  IPC_CLOUD_HOME_CANCEL_MEMORY_EXPORT,
+  IPC_CLOUD_HOME_COMMIT_MEMORY_EXPORT,
+  IPC_CLOUD_HOME_CONFIRM_IMPORT_OWNERSHIP,
+  IPC_CLOUD_HOME_GET_IMPORT_OWNERSHIP,
+  IPC_CLOUD_HOME_SCAN_LOCAL,
   IPC_DISCOVERY_COLLECT_ALL_SIGNALS,
   IPC_HOME_CAPTURE_APP_WINDOW,
   IPC_HOME_GET_ACTIVE_BROWSER_TAB,
@@ -295,6 +318,73 @@ contextBridge.exposeInMainWorld("electronAPI", {
         return "";
       }
     },
+  },
+
+  cloudHome: {
+    scanLocal: (accountScope: string) =>
+      invokeIpc<LocalCloudHomeScan>(IPC_CLOUD_HOME_SCAN_LOCAL, accountScope),
+    getImportOwnership: (accountScope: string) =>
+      invokeIpc<CloudHomeImportOwnership>(
+        IPC_CLOUD_HOME_GET_IMPORT_OWNERSHIP,
+        accountScope,
+      ),
+    confirmImportOwnership: (accountScope: string) =>
+      invokeIpc<boolean>(IPC_CLOUD_HOME_CONFIRM_IMPORT_OWNERSHIP, accountScope),
+    beginMemoryExport: (payload: {
+      suggestedName: string;
+      expectedSubject: string;
+      ownerGeneration: string;
+      memoryEpoch: string;
+      lifecycleState: "open";
+    }) =>
+      invokeIpc<{ ok: true; exportId: string } | { ok: false; canceled: true }>(
+        IPC_CLOUD_HOME_BEGIN_MEMORY_EXPORT,
+        payload,
+      ),
+    commitMemoryExport: (payload: {
+      exportId: string;
+      content: string;
+      expectedSubject: string;
+      ownerGeneration: string;
+      memoryEpoch: string;
+      lifecycleState: "open";
+    }) =>
+      invokeIpc<{ ok: true } | { ok: false; canceled: true }>(
+        IPC_CLOUD_HOME_COMMIT_MEMORY_EXPORT,
+        payload,
+      ),
+    cancelMemoryExport: (exportId: string) =>
+      invokeIpc<{ ok: true }>(IPC_CLOUD_HOME_CANCEL_MEMORY_EXPORT, {
+        exportId,
+      }),
+  },
+
+  cloudConversationCache: {
+    retainAccount: (accountScope: string) =>
+      invokeIpc<CloudConversationCachePurgeResult>(
+        IPC_CLOUD_CONVERSATION_CACHE_RETAIN_ACCOUNT,
+        { accountScope },
+      ),
+    activateAuthority: (authority: CloudConversationCacheLifecycleAuthority) =>
+      invokeIpc<CloudConversationCachePurgeResult>(
+        IPC_CLOUD_CONVERSATION_CACHE_ACTIVATE_AUTHORITY,
+        authority,
+      ),
+    read: (authority: CloudConversationCacheAuthority) =>
+      invokeIpc<CloudConversationCacheSnapshot | null>(
+        IPC_CLOUD_CONVERSATION_CACHE_READ,
+        authority,
+      ),
+    replace: (input: CloudConversationCacheReplaceInput) =>
+      invokeIpc<CloudConversationCacheReplaceResult>(
+        IPC_CLOUD_CONVERSATION_CACHE_REPLACE,
+        input,
+      ),
+    purgeConversation: (authority: CloudConversationCacheAuthority) =>
+      invokeIpc<CloudConversationCachePurgeResult>(
+        IPC_CLOUD_CONVERSATION_CACHE_PURGE_CONVERSATION,
+        authority,
+      ),
   },
 
   window: {
@@ -869,6 +959,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
             | "run-started"
             | "run-finished"
             | "status"
+            | "provider-lifecycle"
             | "stream"
             | "tool-start"
             | "tool-end"
@@ -892,6 +983,20 @@ contextBridge.exposeInMainWorld("electronAPI", {
             | "compacting"
             | "provider-retry"
             | "model-fallback";
+          providerLifecyclePhase?:
+            | "request-admitted"
+            | "request-dispatched"
+            | "stream-open"
+            | "transport-closed"
+            | "transport-joined"
+            | "abandoned"
+            | "outcome-unknown";
+          providerRequestIdSha256?: string;
+          providerPhysicalAttempt?: number;
+          providerStreamOrdinal?: number;
+          providerName?: string;
+          providerModelId?: string;
+          providerOutcome?: "completed" | "canceled" | "error";
           toolCallId?: string;
           toolName?: string;
           args?: Record<string, unknown>;
@@ -916,6 +1021,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
         | "run-started"
         | "run-finished"
         | "status"
+        | "provider-lifecycle"
         | "stream"
         | "tool-start"
         | "tool-end"
@@ -939,6 +1045,20 @@ contextBridge.exposeInMainWorld("electronAPI", {
         | "compacting"
         | "provider-retry"
         | "model-fallback";
+      providerLifecyclePhase?:
+        | "request-admitted"
+        | "request-dispatched"
+        | "stream-open"
+        | "transport-closed"
+        | "transport-joined"
+        | "abandoned"
+        | "outcome-unknown";
+      providerRequestIdSha256?: string;
+      providerPhysicalAttempt?: number;
+      providerStreamOrdinal?: number;
+      providerName?: string;
+      providerModelId?: string;
+      providerOutcome?: "completed" | "canceled" | "error";
       toolCallId?: string;
       toolName?: string;
       args?: Record<string, unknown>;
@@ -1647,14 +1767,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     hide: () => invokeIpc<BrowserViewState>("browserView:hide"),
     createTab: (
       payload: { url?: string; ownerId?: string; activate?: boolean } = {},
-    ) =>
-      invokeIpc<BrowserViewState>("browserView:createTab", payload),
+    ) => invokeIpc<BrowserViewState>("browserView:createTab", payload),
     selectTab: (payload: {
       tabId: string;
       ownerId?: string;
       activate?: boolean;
-    }) =>
-      invokeIpc<BrowserViewState>("browserView:selectTab", payload),
+    }) => invokeIpc<BrowserViewState>("browserView:selectTab", payload),
     closeTab: (payload: { tabId: string; ownerId?: string }) =>
       invokeIpc<BrowserViewState>("browserView:closeTab", payload),
     navigate: (payload: { tabId: string; url: string; ownerId?: string }) =>

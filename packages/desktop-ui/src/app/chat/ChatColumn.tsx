@@ -338,6 +338,14 @@ export const ChatColumn = memo(function ChatColumn({
           animation on every home↔chat switch. */}
       <div
         className={`full-body-chat-layer${showHomeContent ? " full-body-chat-layer--hidden" : ""}`}
+        data-testid="chat-surface"
+        data-conversation-id={conversationId ?? undefined}
+        data-has-older-messages={
+          conversation.history.hasOlderMessages ? "true" : "false"
+        }
+        data-loading-older-messages={
+          conversation.history.isLoadingOlder ? "true" : "false"
+        }
         inert={showHomeContent || undefined}
       >
         <div className="full-body-main" {...dropHandlers}>

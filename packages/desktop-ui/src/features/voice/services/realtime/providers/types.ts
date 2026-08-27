@@ -15,6 +15,85 @@ export type RealtimeSessionTool = {
   parameters: Record<string, unknown>;
 };
 
+export type VoiceSessionAuthority = {
+  ownerGeneration: string;
+  stellaSessionId: string;
+  providerDispatchId: string;
+  providerAttemptId: string;
+  authorityLeaseId: string;
+  authorityEpoch: number;
+  authorityExpiresAt: number;
+};
+
+type VoiceSessionAuthorityInput = {
+  ownerGeneration?: unknown;
+  stellaSessionId?: unknown;
+  providerDispatchId?: unknown;
+  providerAttemptId?: unknown;
+  authorityLeaseId?: unknown;
+  authorityEpoch?: unknown;
+  authorityExpiresAt?: unknown;
+};
+
+/**
+ * Fail closed when a Stella-managed session is missing its server authority
+ * tuple. BYOK tokens never pass through this validator.
+ */
+export const requireVoiceSessionAuthority = (
+  value: VoiceSessionAuthorityInput,
+): VoiceSessionAuthority => {
+  const ownerGeneration =
+    typeof value.ownerGeneration === "string"
+      ? value.ownerGeneration.trim()
+      : "";
+  const stellaSessionId =
+    typeof value.stellaSessionId === "string"
+      ? value.stellaSessionId.trim()
+      : "";
+  const providerDispatchId =
+    typeof value.providerDispatchId === "string"
+      ? value.providerDispatchId.trim()
+      : "";
+  const providerAttemptId =
+    typeof value.providerAttemptId === "string"
+      ? value.providerAttemptId.trim()
+      : "";
+  const authorityLeaseId =
+    typeof value.authorityLeaseId === "string"
+      ? value.authorityLeaseId.trim()
+      : "";
+  const authorityEpoch = value.authorityEpoch;
+  const authorityExpiresAt = value.authorityExpiresAt;
+
+  if (
+    !ownerGeneration ||
+    !stellaSessionId ||
+    !providerDispatchId ||
+    !providerAttemptId ||
+    !authorityLeaseId ||
+    typeof authorityEpoch !== "number" ||
+    !Number.isSafeInteger(authorityEpoch) ||
+    authorityEpoch < 1 ||
+    typeof authorityExpiresAt !== "number" ||
+    !Number.isFinite(authorityExpiresAt) ||
+    authorityExpiresAt <= 0
+  ) {
+    throw new Error(
+      "Stella voice session response did not include valid authority fields.",
+    );
+  }
+
+  return {
+    ownerGeneration,
+    stellaSessionId,
+    providerDispatchId,
+    providerAttemptId,
+    authorityLeaseId,
+    authorityEpoch,
+    authorityExpiresAt,
+  };
+};
+
 export interface VoiceSessionToken {
   /**
    * Which provider authenticated the connection — used for usage
@@ -39,10 +118,20 @@ export interface VoiceSessionToken {
   expiresAt?: number;
   /** OpenAI-only: returned session id, useful for debugging. */
   sessionId?: string;
-  /** Stella-managed voice lease id. Present only when Stella minted the session. */
+  /** Stella-managed voice session id. Present only when Stella minted the session. */
   stellaSessionId?: string;
-  /** Stella-managed voice lease expiry in Unix milliseconds. */
-  leaseExpiresAt?: number;
+  /** Exact owner lifecycle generation that admitted this physical attempt. */
+  ownerGeneration?: string;
+  /** Server dispatch id for the provider connection attempt. */
+  providerDispatchId?: string;
+  /** Server attempt id for the physical provider connection. */
+  providerAttemptId?: string;
+  /** Opaque server authority lease. Required for Stella-managed sessions. */
+  authorityLeaseId?: string;
+  /** Monotonic server authority epoch. Required for Stella-managed sessions. */
+  authorityEpoch?: number;
+  /** Current authority expiry in Unix milliseconds. */
+  authorityExpiresAt?: number;
   /**
    * STUN/TURN configuration the transport should hand to
    * RTCPeerConnection. Inworld supplies these via

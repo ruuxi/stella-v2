@@ -22,6 +22,14 @@ import type {
   SqliteDatabase,
 } from "@stella/runtime/kernel/storage/shared";
 import type {
+  CloudConversationCacheAuthority,
+  CloudConversationCacheLifecycleAuthority,
+  CloudConversationCachePurgeResult,
+  CloudConversationCacheReplaceInput,
+  CloudConversationCacheReplaceResult,
+  CloudConversationCacheSnapshot,
+} from "@stella/contracts/cloud-conversation-cache";
+import type {
   ConversationSummaryCursor,
   ConversationSummaryPage,
   LocalModelUsagePage,
@@ -38,6 +46,7 @@ import {
   type LocalChatSyncMessageWithArtifacts,
 } from "./local-chat-artifacts.js";
 import { listAgentThreadMessages } from "./agent-thread-history.js";
+import { CloudConversationCacheStore } from "./cloud-conversation-cache-store.js";
 
 type LocalChatHistoryServiceOptions = {
   stellaAppDir: string;
@@ -153,6 +162,8 @@ const mergeTaskContextMessages = (
 export class LocalChatHistoryService {
   private db: SqliteDatabase | null = null;
   private store: SessionStore | null = null;
+  private cloudConversationCacheStore: CloudConversationCacheStore | null =
+    null;
   private readonly stellaAppDir: string;
   private readonly onUpdated?: (
     payload: LocalChatUpdatedPayload | null,
@@ -186,6 +197,7 @@ export class LocalChatHistoryService {
     initializeDesktopDatabase(db);
     this.db = db;
     this.store = new SessionStore(db);
+    this.cloudConversationCacheStore = new CloudConversationCacheStore(db);
   }
 
   private getStore(): SessionStore {
@@ -199,6 +211,17 @@ export class LocalChatHistoryService {
       throw new Error("Local chat history store is unavailable.");
     }
     return this.store;
+  }
+
+  private getCloudConversationCacheStore(): CloudConversationCacheStore {
+    if (this.resetInProgress) {
+      throw new Error("Local cloud conversation cache is resetting.");
+    }
+    if (!this.cloudConversationCacheStore) this.open();
+    if (!this.cloudConversationCacheStore) {
+      throw new Error("Local cloud conversation cache is unavailable.");
+    }
+    return this.cloudConversationCacheStore;
   }
 
   private getAssistantMessagesByAgent(
@@ -222,6 +245,7 @@ export class LocalChatHistoryService {
     const db = this.db;
     this.db = null;
     this.store = null;
+    this.cloudConversationCacheStore = null;
     db?.close();
   }
 
@@ -231,6 +255,7 @@ export class LocalChatHistoryService {
   }
 
   reopen(): void {
+    this.resetInProgress = true;
     this.close();
     this.open();
     this.resetInProgress = false;
@@ -802,5 +827,41 @@ export class LocalChatHistoryService {
   } {
     this.getStore().setSyncCheckpoint(args.conversationId, args.localMessageId);
     return { ok: true };
+  }
+
+  retainCloudConversationCacheAccount(
+    accountScope: string,
+  ): CloudConversationCachePurgeResult {
+    return this.getCloudConversationCacheStore().retainAccountScope({
+      accountScope,
+    });
+  }
+
+  activateCloudConversationCacheAuthority(
+    authority: CloudConversationCacheLifecycleAuthority,
+  ): CloudConversationCachePurgeResult {
+    return this.getCloudConversationCacheStore().activateAuthority(authority);
+  }
+
+  getActiveCloudConversationCacheAuthority(): CloudConversationCacheLifecycleAuthority | null {
+    return this.getCloudConversationCacheStore().getActiveAuthority();
+  }
+
+  readCloudConversationCache(
+    authority: CloudConversationCacheAuthority,
+  ): CloudConversationCacheSnapshot | null {
+    return this.getCloudConversationCacheStore().read(authority);
+  }
+
+  replaceCloudConversationCache(
+    input: CloudConversationCacheReplaceInput,
+  ): CloudConversationCacheReplaceResult {
+    return this.getCloudConversationCacheStore().replace(input);
+  }
+
+  purgeCloudConversationCacheConversation(
+    authority: CloudConversationCacheAuthority,
+  ): CloudConversationCachePurgeResult {
+    return this.getCloudConversationCacheStore().purgeConversation(authority);
   }
 }

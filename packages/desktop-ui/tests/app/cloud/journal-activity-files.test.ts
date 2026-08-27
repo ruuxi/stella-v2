@@ -9,7 +9,11 @@ import {
   nextLocalCloudEventOverlayExpiry,
 } from "../../../src/features/cloud/journal-activity-files";
 import type { JournalRecord } from "../../../src/features/cloud/conversation-protocol";
-import { mergeCloudConversationTasks } from "../../../src/features/cloud/use-cloud-activity";
+import type { CloudAgentThread } from "../../../src/features/cloud/cloud-api";
+import {
+  cloudThreadsForAccountScope,
+  mergeCloudConversationTasks,
+} from "../../../src/features/cloud/use-cloud-activity";
 import { deriveConversationFiles } from "../../../src/features/workspace-display/derive-conversation-files";
 
 const records: JournalRecord[] = [
@@ -198,6 +202,36 @@ const task = (
 });
 
 describe("cloud Activity authority", () => {
+  test("fences cached thread pages to the active account scope", () => {
+    const cloudThread = (
+      threadId: string,
+      ownerId: string,
+    ): CloudAgentThread => ({
+      threadId,
+      ownerId,
+      conversationId: "conversation-1",
+      description: threadId,
+      workspace: "stella",
+      agentType: "general",
+      status: "completed",
+      createdAt: 1,
+      updatedAt: 2,
+    });
+
+    expect(
+      cloudThreadsForAccountScope(
+        [cloudThread("owned", "owner-a"), cloudThread("stale", "owner-b")],
+        "account:owner-a",
+      ).map((thread) => thread.threadId),
+    ).toEqual(["owned"]);
+    expect(
+      cloudThreadsForAccountScope(
+        [cloudThread("anonymous", "anonymous-owner")],
+        "anonymous:anonymous-owner",
+      ).map((thread) => thread.threadId),
+    ).toEqual(["anonymous"]);
+  });
+
   test("keeps cloud status authoritative and overlays live desktop detail", () => {
     const merged = mergeCloudConversationTasks(
       [

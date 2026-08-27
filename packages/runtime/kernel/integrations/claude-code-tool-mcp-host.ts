@@ -18,7 +18,12 @@ import type {
   ToolResult,
   ToolUpdateCallback,
 } from "../tools/types.js";
-import { extractAttachImageBlocks } from "../agent-runtime/tool-adapters.js";
+import { TOOL_RESULT_AUTHORIZED_IMAGES } from "../tools/types.js";
+import {
+  extractAttachImageBlocks,
+  neutralizeLegacyAttachImageMarkers,
+  prepareAuthorizedToolImageBlocks,
+} from "../agent-runtime/tool-adapters.js";
 import { normalizeProviderToolInputSchema } from "../../ai/utils/tool-schema.js";
 import { forkCancelableTimeout } from "./effect-runtime.js";
 
@@ -99,6 +104,12 @@ export type CreateClaudeCodeToolMcpHostOptions = {
   /** Persisted Stella session identity, not an MCP transport session id. */
   identityScope?: string;
   /**
+   * Local runtimes may still consume legacy path markers from trusted device
+   * tools. Cloud must set this false: model-controlled tool output is never
+   * authority for the root MCP host to reopen an absolute path.
+   */
+  allowLegacyImagePathReopen?: boolean;
+  /**
    * Resolved for every native MCP call. The host is session-scoped while the
    * execution callback and cancellation boundary are turn-scoped.
    */
@@ -168,10 +179,20 @@ const awaitWithAbort = async <T>(
   });
 };
 
-const toolResultToMcp = async (result: ToolResult): Promise<CallToolResult> => {
+const toolResultToMcp = async (
+  result: ToolResult,
+  options: { allowLegacyImagePathReopen: boolean },
+): Promise<CallToolResult> => {
   const rawResult = stringifyUnknown(result.result);
-  const { text: resolvedResult, images } = await extractAttachImageBlocks(
-    rawResult,
+  const { text: resolvedResult, images: legacyImages } =
+    options.allowLegacyImagePathReopen
+      ? await extractAttachImageBlocks(rawResult, { provider: "anthropic" })
+      : {
+          text: neutralizeLegacyAttachImageMarkers(rawResult),
+          images: [],
+        };
+  const authorizedImages = await prepareAuthorizedToolImageBlocks(
+    result[TOOL_RESULT_AUTHORIZED_IMAGES],
     { provider: "anthropic" },
   );
   const hasDetails = result.details !== undefined;
@@ -186,10 +207,17 @@ const toolResultToMcp = async (result: ToolResult): Promise<CallToolResult> => {
         : resolvedResult,
   );
   const content: CallToolResult["content"] = [];
-  if (text || images.length === 0) {
+  if (text || legacyImages.length + authorizedImages.length === 0) {
     content.push({ type: "text", text });
   }
-  for (const image of images) {
+  for (const image of legacyImages) {
+    content.push({
+      type: "image",
+      data: image.data,
+      mimeType: image.mimeType,
+    });
+  }
+  for (const image of authorizedImages) {
     content.push({
       type: "image",
       data: image.data,
@@ -270,6 +298,8 @@ const closeHttpServer = (
 export const createClaudeCodeToolMcpHost = async (
   options: CreateClaudeCodeToolMcpHostOptions,
 ): Promise<ClaudeCodeToolMcpHost> => {
+  const allowLegacyImagePathReopen =
+    options.allowLegacyImagePathReopen !== false;
   const tools = options.tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
@@ -485,7 +515,7 @@ export const createClaudeCodeToolMcpHost = async (
               result,
             });
             return await awaitWithAbort(
-              toolResultToMcp(result),
+              toolResultToMcp(result, { allowLegacyImagePathReopen }),
               callAbort.signal,
             );
           } catch (error) {

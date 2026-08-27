@@ -40,7 +40,12 @@ import { computeAnalyserEnergy } from "@/features/voice/services/audio-energy";
 import type { EventRecord } from "@stella/contracts/local-chat";
 import { createRealtimeTransport } from "./providers/provider-registry";
 import { toRealtimeProviderTool } from "./providers/tool-schema";
-import type { RealtimeProviderKey, VoiceSessionToken } from "./providers/types";
+import { requireVoiceSessionAuthority } from "./providers/types";
+import type {
+  RealtimeProviderKey,
+  VoiceSessionAuthority,
+  VoiceSessionToken,
+} from "./providers/types";
 import type { RealtimeTransport } from "./transports/types";
 
 const eventRecordSchema = z.record(z.string(), z.unknown());
@@ -101,8 +106,12 @@ const ECHO_GUARD_BARGE_IN_MARGIN = 0.02;
 const ECHO_GUARD_BARGE_IN_RATIO = 0.85;
 const ECHO_GUARD_RELEASE_MS = 180;
 const VOICE_CONTEXT_SYNC_EVENT_LIMIT = 80;
-const STELLA_VOICE_LEASE_HEARTBEAT_MS = 15_000;
-const STELLA_VOICE_LEASE_EXPIRY_SKEW_MS = 1_000;
+const STELLA_VOICE_LEASE_HEARTBEAT_MS = 2_000;
+const STELLA_VOICE_LEASE_REQUEST_TIMEOUT_MS = 1_500;
+const STELLA_VOICE_USAGE_REQUEST_TIMEOUT_MS = 1_500;
+const STELLA_VOICE_USAGE_DRAIN_TIMEOUT_MS = 2_000;
+const STELLA_VOICE_AUTHORITY_MAX_LOCAL_LIFETIME_MS = 10_000;
+const STELLA_VOICE_AUTHORITY_EXPIRY_SKEW_MS = 1_000;
 const VOICE_SESSION_CONTROL_TOOLS: RuntimeVoiceToolMetadata[] = [
   {
     type: "function",
@@ -143,6 +152,101 @@ type VoiceEchoMetrics = {
   recentOutputActiveUntil?: number;
   now?: number;
 };
+
+type VoiceLeaseEvent =
+  | "heartbeat"
+  | "ended"
+  | "expired"
+  | "lost"
+  | "cancel_ack";
+
+type VoiceLeaseRequest = Pick<
+  VoiceSessionAuthority,
+  "stellaSessionId" | "authorityLeaseId" | "authorityEpoch"
+> & {
+  event: VoiceLeaseEvent;
+  usageDisposition?: "drained" | "unresolved";
+  transportClosedAt?: number;
+};
+
+type VoiceUsageClosure = Required<
+  Pick<VoiceLeaseRequest, "usageDisposition" | "transportClosedAt">
+>;
+
+type VoiceLeaseResponse =
+  | {
+      recorded: boolean;
+      directive: "invalid";
+      authorityEpoch: null;
+      authorityExpiresAt: null;
+      cancelReason: string | null;
+    }
+  | {
+      recorded: boolean;
+      directive: "continue" | "cancel" | "closed";
+      authorityEpoch: number;
+      authorityExpiresAt: number;
+      cancelReason: string | null;
+    };
+
+const parseVoiceLeaseResponse = (value: unknown): VoiceLeaseResponse | null => {
+  if (!isEventRecord(value) || typeof value.recorded !== "boolean") {
+    return null;
+  }
+  const cancelReason =
+    value.cancelReason === null || value.cancelReason === undefined
+      ? null
+      : typeof value.cancelReason === "string"
+        ? value.cancelReason
+        : undefined;
+  if (cancelReason === undefined) return null;
+
+  if (value.directive === "invalid") {
+    if (value.authorityEpoch !== null || value.authorityExpiresAt !== null) {
+      return null;
+    }
+    return {
+      recorded: value.recorded,
+      directive: "invalid",
+      authorityEpoch: null,
+      authorityExpiresAt: null,
+      cancelReason,
+    };
+  }
+
+  if (
+    value.directive !== "continue" &&
+    value.directive !== "cancel" &&
+    value.directive !== "closed"
+  ) {
+    return null;
+  }
+  if (
+    typeof value.authorityEpoch !== "number" ||
+    !Number.isSafeInteger(value.authorityEpoch) ||
+    value.authorityEpoch < 1 ||
+    typeof value.authorityExpiresAt !== "number" ||
+    !Number.isFinite(value.authorityExpiresAt) ||
+    value.authorityExpiresAt <= 0
+  ) {
+    return null;
+  }
+
+  return {
+    recorded: value.recorded,
+    directive: value.directive,
+    authorityEpoch: value.authorityEpoch,
+    authorityExpiresAt: value.authorityExpiresAt,
+    cancelReason,
+  };
+};
+
+class InvalidVoiceLeaseResponseError extends Error {
+  constructor() {
+    super("The realtime voice authority response was invalid.");
+    this.name = "InvalidVoiceLeaseResponseError";
+  }
+}
 
 /**
  * Lightweight goodbye matcher. We only fire on simple terminal
@@ -310,6 +414,15 @@ export class RealtimeVoiceSession {
   private leaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private leaseExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   private leaseTerminalReported = false;
+  private leaseReportingGeneration = 0;
+  private leaseHeartbeatInFlight = false;
+  private authorityTerminationPromise: Promise<void> | null = null;
+  private authorityTerminationError: string | null = null;
+  private authorityLocalExpiresAt: number | null = null;
+  private usageReportingClosed = true;
+  private usageReportingUnresolved = false;
+  private inFlightUsageReports = new Set<Promise<void>>();
+  private usageReportAbortControllers = new Set<AbortController>();
 
   private _state: VoiceSessionState = "idle";
   private listeners = new Set<VoiceSessionListener>();
@@ -414,20 +527,41 @@ export class RealtimeVoiceSession {
       this.transport = transport;
       this.sessionToken = token;
       this.sessionProvider = providerKey;
+      if (providerKey === "stella") {
+        Object.assign(token, requireVoiceSessionAuthority(token));
+        this.startLeaseReporting();
+        if (this.destroyed) {
+          throw new Error(
+            this.authorityTerminationError ??
+              "Realtime voice authority ended while connecting",
+          );
+        }
+      }
 
       await transport.connect({
         onEvent: (event) => this.handleServerEvent(event),
         onClose: (reason) => {
           if (this._state === "connected" || this._state === "connecting") {
-            void this.reportLeaseEvent("lost");
+            const terminalRequest = this.claimTerminalLeaseRequest("lost");
+            const transportClose = this.disconnectTransportImmediately();
+            const transportClosedAt = Date.now();
+            const finishClosure = this.finishVoiceClosure(
+              terminalRequest,
+              transportClose,
+              transportClosedAt,
+            );
             this.cleanupAfterConnectionLoss();
             this.setState("error", reason || "Connection lost");
+            void finishClosure;
           }
         },
       });
       if (this.destroyed) {
         await transport.disconnect().catch(() => undefined);
-        return;
+        throw new Error(
+          this.authorityTerminationError ??
+            "Realtime voice authority ended while connecting",
+        );
       }
 
       await this.syncLocalChatContext({
@@ -435,15 +569,39 @@ export class RealtimeVoiceSession {
         includeVoiceSource: true,
         suppressAnnouncements: true,
       });
+      if (this.destroyed) {
+        await transport.disconnect().catch(() => undefined);
+        throw new Error(
+          this.authorityTerminationError ??
+            "Realtime voice authority ended while connecting",
+        );
+      }
       await transport.setMicEnabled(this.inputActive);
+      if (this.destroyed) {
+        await transport.disconnect().catch(() => undefined);
+        throw new Error(
+          this.authorityTerminationError ??
+            "Realtime voice authority ended while connecting",
+        );
+      }
 
       getVoiceRuntimeState().activeSession = this;
-      this.startLeaseReporting();
       this.setState("connected");
     } catch (err) {
-      if (this.destroyed) return;
-      await this.transport?.disconnect().catch(() => undefined);
-      this.transport = null;
+      if (this.destroyed) {
+        if (this.authorityTerminationError) {
+          throw new Error(this.authorityTerminationError);
+        }
+        return;
+      }
+      const terminalRequest = this.claimTerminalLeaseRequest("lost");
+      const transportClose = this.disconnectTransportImmediately();
+      const transportClosedAt = Date.now();
+      await this.finishVoiceClosure(
+        terminalRequest,
+        transportClose,
+        transportClosedAt,
+      );
       this.sessionToken = null;
       // A session that never reached "connected" must not retain the localChat
       // IPC listener wired up in the constructor. tearDown()/disconnect() also
@@ -659,11 +817,7 @@ export class RealtimeVoiceSession {
     // Warm Realtime sessions remain connected after voice mode is turned off.
     // Keep the event in context, but only ask for spoken output during an
     // active voice turn.
-    if (
-      mapped.announce &&
-      this.inputActive &&
-      !options?.suppressAnnouncement
-    ) {
+    if (mapped.announce && this.inputActive && !options?.suppressAnnouncement) {
       this.sendEvent({ type: "response.create" });
     }
   }
@@ -722,60 +876,239 @@ export class RealtimeVoiceSession {
     return null;
   }
 
-  private async reportUsage(response: Record<string, unknown>) {
+  private async reportUsage(
+    response: Record<string, unknown>,
+    authority: VoiceSessionAuthority,
+    model: string,
+    conversationId: string | null,
+    signal: AbortSignal,
+  ) {
     const usage = isEventRecord(response.usage) ? response.usage : undefined;
     const responseId =
       typeof response.id === "string" && response.id.trim().length > 0
         ? response.id.trim()
         : null;
-    const model = this.sessionToken?.model ?? null;
-    const stellaSessionId = this.sessionToken?.stellaSessionId ?? null;
+    if (!usage || !responseId || !model.trim()) {
+      throw new Error(
+        "Realtime voice response did not include complete usage metadata.",
+      );
+    }
 
-    if (!usage || !responseId || !model || this.sessionProvider !== "stella") {
+    await postServiceJson<unknown>(
+      "/api/voice/usage",
+      {
+        responseId,
+        model,
+        ownerGeneration: authority.ownerGeneration,
+        stellaSessionId: authority.stellaSessionId,
+        providerDispatchId: authority.providerDispatchId,
+        providerAttemptId: authority.providerAttemptId,
+        authorityLeaseId: authority.authorityLeaseId,
+        authorityEpoch: authority.authorityEpoch,
+        ...(conversationId ? { conversationId } : {}),
+        usage,
+      },
+      { parseResponse: false, signal },
+    );
+  }
+
+  /**
+   * Claim each provider `response.done` synchronously. The exact authority
+   * snapshot is captured before cancellation can advance the live lease epoch.
+   */
+  private trackUsageReport(response: Record<string, unknown>) {
+    if (this.sessionProvider !== "stella") return;
+    if (this.usageReportingClosed) {
+      // A provider event racing transport shutdown is evidence that exact
+      // reporting may be incomplete, so force conservative server settlement.
+      this.usageReportingUnresolved = true;
       return;
     }
 
+    let authority: VoiceSessionAuthority;
     try {
-      await postServiceJson<unknown>(
-        "/api/voice/usage",
-        {
-          responseId,
-          model,
-          ...(stellaSessionId ? { stellaSessionId } : {}),
-          ...(this.conversationId
-            ? { conversationId: this.conversationId }
-            : {}),
-          usage,
-        },
-        { parseResponse: false },
-      );
+      if (!this.sessionToken)
+        throw new Error("Voice session token is missing.");
+      authority = requireVoiceSessionAuthority(this.sessionToken);
     } catch (err) {
+      this.usageReportingUnresolved = true;
       console.debug(
-        "[realtime-voice] Failed to report voice usage:",
+        "[realtime-voice] Failed to snapshot voice usage authority:",
         (err as Error).message,
       );
+      return;
+    }
+
+    const controller = new AbortController();
+    this.usageReportAbortControllers.add(controller);
+    const timeout = setTimeout(() => {
+      controller.abort();
+    }, STELLA_VOICE_USAGE_REQUEST_TIMEOUT_MS);
+    const model = this.sessionToken?.model ?? "";
+    const conversationId = this.conversationId;
+
+    const report = this.reportUsage(
+      response,
+      authority,
+      model,
+      conversationId,
+      controller.signal,
+    )
+      .catch((err) => {
+        this.usageReportingUnresolved = true;
+        console.debug(
+          "[realtime-voice] Failed to report voice usage:",
+          (err as Error).message,
+        );
+      })
+      .finally(() => {
+        clearTimeout(timeout);
+        this.usageReportAbortControllers.delete(controller);
+        this.inFlightUsageReports.delete(report);
+      });
+    this.inFlightUsageReports.add(report);
+  }
+
+  /**
+   * Stop accepting usage before authority closes, then give every already
+   * claimed report a bounded chance to settle. Timeout/failure still permits
+   * the terminal ACK, but marks it unresolved for conservative settlement.
+   */
+  private async closeUsageIntakeAndDrain(
+    transportClosedAt: number,
+  ): Promise<VoiceUsageClosure> {
+    this.usageReportingClosed = true;
+    const reports = [...this.inFlightUsageReports];
+    if (reports.length > 0) {
+      let drainTimeout: ReturnType<typeof setTimeout> | null = null;
+      const drained = await Promise.race([
+        Promise.all(reports).then(() => true),
+        new Promise<false>((resolve) => {
+          drainTimeout = setTimeout(
+            () => resolve(false),
+            STELLA_VOICE_USAGE_DRAIN_TIMEOUT_MS,
+          );
+        }),
+      ]);
+      if (drainTimeout) clearTimeout(drainTimeout);
+      if (!drained) {
+        this.usageReportingUnresolved = true;
+        for (const controller of this.usageReportAbortControllers) {
+          controller.abort();
+        }
+      }
+    } else {
+      // Let an already-queued response.done observe the closed intake before
+      // we freeze the terminal disposition.
+      await Promise.resolve();
+    }
+
+    return {
+      usageDisposition: this.usageReportingUnresolved
+        ? "unresolved"
+        : "drained",
+      transportClosedAt,
+    };
+  }
+
+  private buildLeaseRequest(event: VoiceLeaseEvent): VoiceLeaseRequest | null {
+    if (this.sessionProvider !== "stella" || !this.sessionToken) return null;
+    try {
+      const authority = requireVoiceSessionAuthority(this.sessionToken);
+      return {
+        stellaSessionId: authority.stellaSessionId,
+        event,
+        authorityLeaseId: authority.authorityLeaseId,
+        authorityEpoch: authority.authorityEpoch,
+      };
+    } catch {
+      return null;
     }
   }
 
-  private async reportLeaseEvent(
-    event: "heartbeat" | "ended" | "expired" | "lost",
-  ) {
-    const stellaSessionId = this.sessionToken?.stellaSessionId;
-    if (!stellaSessionId || this.sessionProvider !== "stella") return;
-    if (event !== "heartbeat") {
-      if (this.leaseTerminalReported) return;
-      this.leaseTerminalReported = true;
-    }
+  private async postLeaseRequest(
+    request: VoiceLeaseRequest,
+  ): Promise<VoiceLeaseResponse> {
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => {
+      abortController.abort();
+    }, STELLA_VOICE_LEASE_REQUEST_TIMEOUT_MS);
 
     try {
-      await postServiceJson<unknown>(
-        "/api/voice/lease",
-        {
-          stellaSessionId,
-          event,
-        },
-        { parseResponse: false },
-      );
+      const raw = await postServiceJson<unknown>("/api/voice/lease", request, {
+        signal: abortController.signal,
+      });
+      const response = parseVoiceLeaseResponse(raw);
+      if (!response) throw new InvalidVoiceLeaseResponseError();
+
+      // `invalid` deliberately carries no authority tuple. Numeric responses
+      // must stay tightly fenced to the epoch we sent: renewal and closure are
+      // exact-epoch operations, while cancellation may advance the server's
+      // fence by exactly one epoch before asking this renderer to acknowledge.
+      if (response.directive !== "invalid") {
+        const responseEpochIsValid =
+          response.directive === "cancel"
+            ? response.authorityEpoch === request.authorityEpoch ||
+              (request.authorityEpoch < Number.MAX_SAFE_INTEGER &&
+                response.authorityEpoch === request.authorityEpoch + 1)
+            : response.authorityEpoch === request.authorityEpoch;
+        if (!responseEpochIsValid) {
+          throw new InvalidVoiceLeaseResponseError();
+        }
+      }
+
+      return response;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private adoptLeaseAuthority(
+    response: Exclude<VoiceLeaseResponse, { directive: "invalid" }>,
+  ) {
+    if (!this.sessionToken || this.sessionProvider !== "stella") return;
+    this.sessionToken.authorityEpoch = response.authorityEpoch;
+    this.sessionToken.authorityExpiresAt = response.authorityExpiresAt;
+    this.updateLocalAuthorityExpiry(response.authorityExpiresAt);
+  }
+
+  private updateLocalAuthorityExpiry(authorityExpiresAt: number) {
+    const now = Date.now();
+    const remainingMs = Math.min(
+      STELLA_VOICE_AUTHORITY_MAX_LOCAL_LIFETIME_MS,
+      authorityExpiresAt - now,
+    );
+    this.authorityLocalExpiresAt =
+      now + Math.max(0, remainingMs - STELLA_VOICE_AUTHORITY_EXPIRY_SKEW_MS);
+  }
+
+  private claimTerminalLeaseRequest(
+    event: Exclude<VoiceLeaseEvent, "heartbeat" | "cancel_ack">,
+  ): VoiceLeaseRequest | null {
+    if (this.leaseTerminalReported) return null;
+    const request = this.buildLeaseRequest(event);
+    if (!request) return null;
+    this.leaseTerminalReported = true;
+    return request;
+  }
+
+  /**
+   * Send a terminal event after the transport is closed. A server cancellation
+   * can race ended/expired/lost, so those responses must still be converted to
+   * the exact returned-epoch acknowledgement.
+   */
+  private async reportClosedLeaseRequest(request: VoiceLeaseRequest) {
+    try {
+      const response = await this.postLeaseRequest(request);
+      if (response.directive !== "cancel") return;
+      await this.postLeaseRequest({
+        stellaSessionId: request.stellaSessionId,
+        event: "cancel_ack",
+        authorityLeaseId: request.authorityLeaseId,
+        authorityEpoch: response.authorityEpoch,
+        usageDisposition: request.usageDisposition,
+        transportClosedAt: request.transportClosedAt,
+      });
     } catch (err) {
       console.debug(
         "[realtime-voice] Failed to report voice lease event:",
@@ -784,33 +1117,80 @@ export class RealtimeVoiceSession {
     }
   }
 
+  /** Invoke the transport close before doing any terminal bookkeeping. */
+  private disconnectTransportImmediately(): Promise<void> {
+    const transport = this.transport;
+    this.transport = null;
+    if (!transport) return Promise.resolve();
+    try {
+      return Promise.resolve(transport.disconnect()).catch((err) => {
+        console.debug(
+          "[realtime-voice] Transport disconnect failed:",
+          (err as Error).message,
+        );
+      });
+    } catch (err) {
+      console.debug(
+        "[realtime-voice] Transport disconnect failed:",
+        (err as Error).message,
+      );
+      return Promise.resolve();
+    }
+  }
+
+  private async finishVoiceClosure(
+    request: VoiceLeaseRequest | null,
+    transportClose: Promise<void>,
+    transportClosedAt: number,
+  ) {
+    // Start the bounded usage drain immediately after invoking transport close;
+    // transport cleanup and network reporting may then settle concurrently.
+    const usageClosure = this.closeUsageIntakeAndDrain(transportClosedAt);
+    const [, closure] = await Promise.all([transportClose, usageClosure]);
+    if (request) {
+      await this.reportClosedLeaseRequest({ ...request, ...closure });
+    }
+  }
+
   private startLeaseReporting() {
-    if (
-      this.sessionProvider !== "stella" ||
-      !this.sessionToken?.stellaSessionId
-    ) {
+    if (this.sessionProvider !== "stella" || !this.sessionToken) return;
+
+    // `connect` already validates this before opening the transport. Keep the
+    // guard here so a future call-site cannot start an unfenced managed session.
+    try {
+      Object.assign(
+        this.sessionToken,
+        requireVoiceSessionAuthority(this.sessionToken),
+      );
+    } catch {
+      void this.terminateForAuthority(
+        null,
+        "Realtime voice authority was invalid",
+      );
       return;
     }
 
     this.stopLeaseReporting();
-    void this.reportLeaseEvent("heartbeat");
-    this.leaseHeartbeatTimer = setInterval(() => {
-      void this.reportLeaseEvent("heartbeat");
-    }, STELLA_VOICE_LEASE_HEARTBEAT_MS);
+    this.leaseTerminalReported = false;
+    this.leaseHeartbeatInFlight = false;
+    this.authorityTerminationPromise = null;
+    this.authorityTerminationError = null;
+    this.usageReportingClosed = false;
+    this.usageReportingUnresolved = false;
+    this.inFlightUsageReports.clear();
+    this.usageReportAbortControllers.clear();
+    this.updateLocalAuthorityExpiry(this.sessionToken.authorityExpiresAt!);
+    const generation = this.leaseReportingGeneration;
+    if (!this.scheduleLeaseExpiry(generation)) return;
 
-    const leaseExpiresAt = this.sessionToken.leaseExpiresAt;
-    if (typeof leaseExpiresAt === "number" && Number.isFinite(leaseExpiresAt)) {
-      const delayMs = Math.max(
-        0,
-        leaseExpiresAt - Date.now() - STELLA_VOICE_LEASE_EXPIRY_SKEW_MS,
-      );
-      this.leaseExpiryTimer = setTimeout(() => {
-        this.handleLeaseExpired();
-      }, delayMs);
-    }
+    void this.pollLeaseAuthority(generation);
+    this.leaseHeartbeatTimer = setInterval(() => {
+      void this.pollLeaseAuthority(generation);
+    }, STELLA_VOICE_LEASE_HEARTBEAT_MS);
   }
 
   private stopLeaseReporting() {
+    this.leaseReportingGeneration += 1;
     if (this.leaseHeartbeatTimer) {
       clearInterval(this.leaseHeartbeatTimer);
       this.leaseHeartbeatTimer = null;
@@ -821,12 +1201,194 @@ export class RealtimeVoiceSession {
     }
   }
 
-  private handleLeaseExpired() {
-    if (this.destroyed) return;
-    if (this._state !== "connected" && this._state !== "connecting") return;
-    void this.reportLeaseEvent("expired");
-    this.cleanupAfterConnectionLoss();
-    this.setState("error", "Realtime voice lease expired");
+  private scheduleLeaseExpiry(generation: number): boolean {
+    if (this.leaseExpiryTimer) {
+      clearTimeout(this.leaseExpiryTimer);
+      this.leaseExpiryTimer = null;
+    }
+    if (
+      generation !== this.leaseReportingGeneration ||
+      this.leaseTerminalReported ||
+      !this.sessionToken
+    ) {
+      return false;
+    }
+
+    const authorityExpiresAt = this.authorityLocalExpiresAt;
+    if (typeof authorityExpiresAt !== "number") {
+      void this.terminateForAuthority(
+        null,
+        "Realtime voice authority was invalid",
+      );
+      return false;
+    }
+    const delayMs = authorityExpiresAt - Date.now();
+    if (delayMs <= 0) {
+      void this.terminateForAuthority(
+        "expired",
+        "Realtime voice authority expired",
+      );
+      return false;
+    }
+
+    this.leaseExpiryTimer = setTimeout(() => {
+      if (
+        generation !== this.leaseReportingGeneration ||
+        this.leaseTerminalReported
+      ) {
+        return;
+      }
+      void this.terminateForAuthority(
+        "expired",
+        "Realtime voice authority expired",
+      );
+    }, delayMs);
+    return true;
+  }
+
+  private async pollLeaseAuthority(generation: number) {
+    if (
+      generation !== this.leaseReportingGeneration ||
+      this.leaseTerminalReported ||
+      this.leaseHeartbeatInFlight
+    ) {
+      return;
+    }
+    const request = this.buildLeaseRequest("heartbeat");
+    if (!request) {
+      void this.terminateForAuthority(
+        null,
+        "Realtime voice authority was invalid",
+      );
+      return;
+    }
+
+    this.leaseHeartbeatInFlight = true;
+    try {
+      const response = await this.postLeaseRequest(request);
+      if (
+        generation !== this.leaseReportingGeneration ||
+        this.leaseTerminalReported
+      ) {
+        return;
+      }
+
+      if (response.directive === "invalid") {
+        void this.terminateForAuthority(
+          null,
+          "Realtime voice authority was rejected",
+        );
+        return;
+      }
+
+      if (response.directive === "cancel") {
+        this.adoptLeaseAuthority(response);
+        void this.terminateForAuthority(
+          "cancel_ack",
+          response.cancelReason?.trim() ||
+            "Realtime voice authority was canceled",
+        );
+        return;
+      }
+
+      if (response.directive === "closed") {
+        this.adoptLeaseAuthority(response);
+        void this.terminateForAuthority(
+          null,
+          response.cancelReason?.trim() || "Realtime voice session was closed",
+        );
+        return;
+      }
+
+      const previousExpiry = this.authorityLocalExpiresAt;
+      if (
+        !response.recorded ||
+        typeof previousExpiry !== "number" ||
+        Date.now() >= previousExpiry
+      ) {
+        void this.terminateForAuthority(
+          response.recorded ? "expired" : null,
+          response.recorded
+            ? "Realtime voice authority expired"
+            : "Realtime voice authority renewal was rejected",
+        );
+        return;
+      }
+      this.adoptLeaseAuthority(response);
+      this.scheduleLeaseExpiry(generation);
+    } catch (err) {
+      if (
+        generation !== this.leaseReportingGeneration ||
+        this.leaseTerminalReported
+      ) {
+        return;
+      }
+      if (err instanceof InvalidVoiceLeaseResponseError) {
+        void this.terminateForAuthority(
+          null,
+          "Realtime voice authority response was invalid",
+        );
+        return;
+      }
+      // Network failures never extend authority. The exact local expiry timer
+      // remains armed and closes the transport if renewal cannot get through.
+      console.debug(
+        "[realtime-voice] Failed to renew voice authority:",
+        (err as Error).message,
+      );
+    } finally {
+      this.leaseHeartbeatInFlight = false;
+    }
+  }
+
+  private terminateForAuthority(
+    terminalEvent: "cancel_ack" | "expired" | null,
+    error: string,
+  ): Promise<void> {
+    if (this.authorityTerminationPromise) {
+      return this.authorityTerminationPromise;
+    }
+
+    const terminalRequest = terminalEvent
+      ? this.buildLeaseRequest(terminalEvent)
+      : null;
+    this.authorityTerminationError = error;
+    this.leaseTerminalReported = true;
+    this.destroyed = true;
+    this.stopLeaseReporting();
+    const runtime = getVoiceRuntimeState();
+    if (runtime.activeSession === this) runtime.activeSession = null;
+    if (this._state !== "disconnecting") this.setState("disconnecting");
+
+    this.authorityTerminationPromise = (async () => {
+      const transportClose = this.disconnectTransportImmediately();
+      const transportClosedAt = Date.now();
+      const finishClosure = this.finishVoiceClosure(
+        terminalRequest,
+        transportClose,
+        transportClosedAt,
+      );
+
+      this.stopEchoGuardMonitor();
+      this.assistantOutputActive = false;
+      this.recentOutputActiveUntil = 0;
+      this.softInputMuted = false;
+      this.inputActive = false;
+      this.unsubscribeLocalChatUpdated?.();
+      this.unsubscribeLocalChatUpdated = null;
+      this.syncedLocalEventIds.clear();
+      this.handledFunctionCallIds.clear();
+
+      this.sessionToken = null;
+      this.sessionProvider = "stella";
+      this.authorityLocalExpiresAt = null;
+      this.inputEnergyBuffer = null;
+      this.outputEnergyBuffer = null;
+      if (this._state === "disconnecting") this.setState("error", error);
+
+      await finishClosure;
+    })();
+    return this.authorityTerminationPromise;
   }
 
   private handleServerEvent(event: Record<string, unknown>) {
@@ -946,7 +1508,10 @@ export class RealtimeVoiceSession {
 
       case "response.done": {
         const output = event.response;
-        if (isEventRecord(output)) void this.reportUsage(output);
+        if (isEventRecord(output)) this.trackUsageReport(output);
+        else if (this.sessionProvider === "stella") {
+          this.usageReportingUnresolved = true;
+        }
         break;
       }
 
@@ -992,8 +1557,7 @@ export class RealtimeVoiceSession {
     if (this.destroyed) return;
 
     const name = typeof item.name === "string" ? item.name.trim() : "";
-    const callId =
-      typeof item.call_id === "string" ? item.call_id.trim() : "";
+    const callId = typeof item.call_id === "string" ? item.call_id.trim() : "";
     const argsStr = item.arguments as string;
 
     if (!name || !callId) {
@@ -1097,7 +1661,14 @@ export class RealtimeVoiceSession {
 
   private async tearDown() {
     this.stopLeaseReporting();
-    await this.reportLeaseEvent("ended");
+    const terminalRequest = this.claimTerminalLeaseRequest("ended");
+    const transportClose = this.disconnectTransportImmediately();
+    const transportClosedAt = Date.now();
+    const finishClosure = this.finishVoiceClosure(
+      terminalRequest,
+      transportClose,
+      transportClosedAt,
+    );
     this.stopEchoGuardMonitor();
     this.assistantOutputActive = false;
     this.recentOutputActiveUntil = 0;
@@ -1108,17 +1679,7 @@ export class RealtimeVoiceSession {
     this.syncedLocalEventIds.clear();
     this.handledFunctionCallIds.clear();
 
-    if (this.transport) {
-      try {
-        await this.transport.disconnect();
-      } catch (err) {
-        console.debug(
-          "[realtime-voice] Transport disconnect failed:",
-          (err as Error).message,
-        );
-      }
-      this.transport = null;
-    }
+    await finishClosure;
     this.sessionToken = null;
     this.sessionProvider = "stella";
     this.inputEnergyBuffer = null;
@@ -1135,10 +1696,5 @@ export class RealtimeVoiceSession {
 
     this.unsubscribeLocalChatUpdated?.();
     this.unsubscribeLocalChatUpdated = null;
-
-    if (this.transport) {
-      void this.transport.disconnect().catch(() => undefined);
-      this.transport = null;
-    }
   }
 }

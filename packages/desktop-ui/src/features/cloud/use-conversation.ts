@@ -19,6 +19,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
+  useConvex,
   useMutation,
   useQueries,
   useQuery,
@@ -34,16 +35,26 @@ import {
 import { useI18n } from "../../shared/i18n/I18nProvider";
 import {
   cloudAttachmentsStore,
+  isWebShell,
   type CloudAttachment,
 } from "./cloud-composer-store";
+import {
+  browserExecutionCancelArgs,
+  browserExecutionSubmitArgs,
+  sha256Hex,
+  waitForBrowserExecutionTurn,
+} from "./browser-execution-placement";
 import { PROTOCOL_VERSION } from "./conversation-protocol";
 import type { ConversationState } from "./conversation-store";
 import {
+  activateCloudConversationClientAuthority,
   conversationStore,
   pendingPrompts,
+  type CloudConversationOutboxAuthority,
   type PendingCloudTurnSubmission,
   type PendingPrompt,
 } from "./conversation-store";
+import { cloudConversationOutboxStorageKey } from "./conversation-outbox";
 import type { SocketStatus } from "./conversation-socket";
 
 export type CloudRealtimeConfig = {
@@ -127,7 +138,8 @@ export type CloudConversationView = {
   retrySend: (clientMsgId: string) => Promise<void>;
   dismissSend: (clientMsgId: string) => void;
   /** False when the stop could not be delivered — the caller must say so. */
-  cancelTurn: (turnId: string) => boolean;
+  cancelTurn: (turnId: string) => Promise<boolean>;
+  cancelPending: (clientMsgId: string) => Promise<boolean>;
   loadOlder: () => void;
   retryConnection: () => void;
 };
@@ -137,14 +149,151 @@ const newClientMsgId = (): string =>
     ? crypto.randomUUID()
     : `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 
+type RenderedAcceptanceBrowserDispatchMetadata = {
+  authoritySha256: string;
+  clientMsgIdSha256: string;
+  conversationIdSha256: string;
+  outboxKeySha256: string;
+};
+
+type RenderedAcceptanceBrowserDispatchOutcome = {
+  clientMsgIdSha256: string;
+  outcome: "accepted" | "owner_generation_rejected" | "other_rejected";
+  errorCodeSha256: string;
+};
+
+type RenderedAcceptanceAuthorityMetadata = {
+  authoritySha256: string;
+  ownerGenerationSha256: string;
+};
+
+declare global {
+  interface Window {
+    /** Dev-only deterministic barrier for rendered stale-generation proof. */
+    __STELLA_RENDERED_ACCEPTANCE_BEFORE_BROWSER_DISPATCH__?: (
+      metadata: RenderedAcceptanceBrowserDispatchMetadata,
+    ) => Promise<void>;
+    /** Dev-only hash receipt for the held browser mutation's exact outcome. */
+    __STELLA_RENDERED_ACCEPTANCE_AFTER_BROWSER_DISPATCH__?: (
+      metadata: RenderedAcceptanceBrowserDispatchOutcome,
+    ) => void;
+    /** Dev-only hash receipt for exact renderer authority activation. */
+    __STELLA_RENDERED_ACCEPTANCE_AUTHORITY__?: (
+      metadata: RenderedAcceptanceAuthorityMetadata,
+    ) => void;
+  }
+}
+
+const hashCloudOutboxAuthority = async (
+  authority: CloudConversationOutboxAuthority,
+): Promise<string> =>
+  await sha256Hex(
+    JSON.stringify([authority.accountScope, authority.ownerGeneration]),
+  );
+
+const waitForRenderedAcceptanceBrowserDispatch = async (
+  entry: PendingPrompt,
+  barrier: (
+    metadata: RenderedAcceptanceBrowserDispatchMetadata,
+  ) => Promise<void>,
+): Promise<void> => {
+  const requestedConversationId = entry.submission.requestedConversationId;
+  const [
+    authoritySha256,
+    clientMsgIdSha256,
+    conversationIdSha256,
+    outboxKeySha256,
+  ] = await Promise.all([
+    hashCloudOutboxAuthority(entry),
+    sha256Hex(entry.clientMsgId),
+    sha256Hex(requestedConversationId ?? "<new-conversation>"),
+    sha256Hex(cloudConversationOutboxStorageKey(entry)),
+  ]);
+  await barrier(
+    Object.freeze({
+      authoritySha256,
+      clientMsgIdSha256,
+      conversationIdSha256,
+      outboxKeySha256,
+    }),
+  );
+};
+
+const serializedErrorPayload = (
+  error: unknown,
+): Record<string, unknown> | null => {
+  const data = (error as { data?: unknown })?.data;
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    return data as Record<string, unknown>;
+  }
+  if (!(error instanceof Error)) return null;
+  const first = error.message.indexOf("{");
+  const last = error.message.lastIndexOf("}");
+  if (first < 0 || last <= first) return null;
+  try {
+    const parsed: unknown = JSON.parse(error.message.slice(first, last + 1));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+export const classifyBrowserDispatchRejection = async (
+  error: unknown,
+): Promise<
+  Pick<RenderedAcceptanceBrowserDispatchOutcome, "outcome" | "errorCodeSha256">
+> => {
+  const payload = serializedErrorPayload(error);
+  const code = typeof payload?.code === "string" ? payload.code : "";
+  return {
+    outcome:
+      code === "OWNER_DATA_GENERATION_STALE"
+        ? "owner_generation_rejected"
+        : "other_rejected",
+    errorCodeSha256: await sha256Hex(code || "<no-error-code>"),
+  };
+};
+
+const browserDispatchRejectionReceipt = async (
+  entry: PendingPrompt,
+  error: unknown,
+): Promise<RenderedAcceptanceBrowserDispatchOutcome> => {
+  const classification = await classifyBrowserDispatchRejection(error);
+  return {
+    clientMsgIdSha256: await sha256Hex(entry.clientMsgId),
+    ...classification,
+  };
+};
+
+const reportRenderedAcceptanceAuthority = (
+  authority: CloudConversationOutboxAuthority,
+  hook: (metadata: RenderedAcceptanceAuthorityMetadata) => void,
+): void => {
+  void Promise.all([
+    hashCloudOutboxAuthority(authority),
+    sha256Hex(authority.ownerGeneration),
+  ])
+    .then(([authorityHash, ownerGenerationSha256]) => {
+      hook({ authoritySha256: authorityHash, ownerGenerationSha256 });
+    })
+    .catch(() => {
+      // Acceptance instrumentation must never change product behavior.
+    });
+};
+
 export const cloudTurnStartArgs = (
   clientMsgId: string,
-  conversationId: string | null,
+  expectedOwnerGeneration: string,
   submission: PendingCloudTurnSubmission,
 ) => ({
   prompt: submission.prompt,
+  expectedOwnerGeneration,
   clientMsgId,
-  ...(conversationId ? { conversationId } : {}),
+  ...(submission.requestedConversationId
+    ? { conversationId: submission.requestedConversationId }
+    : {}),
   ...(submission.locale ? { locale: submission.locale } : {}),
   ...(submission.imagePaths.length
     ? { attachments: [...submission.imagePaths] }
@@ -163,10 +312,38 @@ export const useConversation = (
 ): CloudConversationView => {
   const config = useCloudRealtimeConfig();
   const { locale } = useI18n();
-  const startTurn = useMutation(cloudApi.startCloudChat);
-  const { cloudMode, accountScope } = useCloudMode();
-  const activeAccountScopeRef = useRef(accountScope);
-  activeAccountScopeRef.current = accountScope;
+  const convex = useConvex();
+  const startLegacyTurn = useMutation(cloudApi.startCloudChat);
+  const submitBrowserExecution = useMutation(cloudApi.submitBrowserExecution);
+  const cancelExecutionDispatch = useMutation(cloudApi.cancelExecutionDispatch);
+  const { cloudMode, accountScope, ownerSubject } = useCloudMode();
+  const webShell = isWebShell();
+  const placementIdentity = useQuery(
+    cloudApi.getMyExecutionPlacementIdentity,
+    cloudMode ? {} : "skip",
+  );
+  const authority = useMemo<CloudConversationOutboxAuthority | null>(() => {
+    if (
+      !cloudMode ||
+      !ownerSubject ||
+      !placementIdentity ||
+      placementIdentity.ownerId !== ownerSubject ||
+      !placementIdentity.ownerGeneration
+    ) {
+      return null;
+    }
+    return {
+      accountScope,
+      ownerGeneration: placementIdentity.ownerGeneration,
+    };
+  }, [accountScope, cloudMode, ownerSubject, placementIdentity]);
+  const activeAuthorityKey = authority
+    ? `${authority.accountScope}\u0000${authority.ownerGeneration}`
+    : null;
+  const activeAuthorityKeyRef = useRef(activeAuthorityKey);
+  activeAuthorityKeyRef.current = activeAuthorityKey;
+  const activatedAuthorityKeyRef = useRef<string | null>(null);
+  const dispatchByTurnRef = useRef(new Map<string, string>());
   const cloudEngine = useQuery(
     cloudApi.listMyEngineConnections,
     cloudMode ? {} : "skip",
@@ -177,13 +354,32 @@ export const useConversation = (
     noLocalExecution,
   );
   const store =
-    cloudMode && conversationId
-      ? conversationStore(conversationId, accountScope)
+    cloudMode && conversationId && authority
+      ? conversationStore(
+          conversationId,
+          authority.accountScope,
+          authority.ownerGeneration,
+        )
       : null;
 
   useEffect(() => {
     reconcileCloudExecutionSelection(cloudEngine?.execution);
   }, [cloudEngine?.execution, localExecution]);
+
+  useEffect(() => {
+    if (!authority) return;
+    const changed = activatedAuthorityKeyRef.current !== activeAuthorityKey;
+    const ready = activateCloudConversationClientAuthority(authority);
+    if (changed) dispatchByTurnRef.current.clear();
+    activatedAuthorityKeyRef.current = activeAuthorityKey;
+    const renderedAcceptanceAuthority =
+      import.meta.env.DEV && typeof window !== "undefined"
+        ? window.__STELLA_RENDERED_ACCEPTANCE_AUTHORITY__
+        : undefined;
+    if (ready && renderedAcceptanceAuthority) {
+      reportRenderedAcceptanceAuthority(authority, renderedAcceptanceAuthority);
+    }
+  }, [activeAuthorityKey, authority]);
 
   useEffect(() => {
     store?.setConfig(config.socketBaseUrl, config.resolved);
@@ -221,46 +417,223 @@ export const useConversation = (
     () =>
       allPending.filter(
         (entry) =>
-          entry.accountScope === accountScope &&
+          authority !== null &&
+          entry.accountScope === authority.accountScope &&
+          entry.ownerGeneration === authority.ownerGeneration &&
           (entry.conversationId === null ||
             entry.conversationId === conversationId),
       ),
-    [accountScope, allPending, conversationId],
+    [allPending, authority, conversationId],
   );
 
   const dispatch = useCallback(
-    async (
-      clientMsgId: string,
-      submission: PendingCloudTurnSubmission,
-    ): Promise<void> => {
+    async (entry: PendingPrompt): Promise<void> => {
+      const sendAuthority: CloudConversationOutboxAuthority = {
+        accountScope: entry.accountScope,
+        ownerGeneration: entry.ownerGeneration,
+      };
+      const sendAuthorityKey = `${entry.accountScope}\u0000${entry.ownerGeneration}`;
+      const clientMsgId = entry.clientMsgId;
+      const submission = entry.submission;
+      if (!pendingPrompts.claimDispatch(sendAuthority, clientMsgId)) return;
+      const isCurrentAuthority = () =>
+        activeAuthorityKeyRef.current === sendAuthorityKey;
       // Attached drive images ride as model-visible image blocks in addition
       // to the path list in the prompt text. The submission was frozen before
       // the first mutation so an idempotent retry cannot change its payload.
       // The extension filter is only a hint — the server re-checks the stored
       // content type before signing anything.
       try {
-        const result = await startTurn(
-          cloudTurnStartArgs(clientMsgId, conversationId, submission),
-        );
-        pendingPrompts.bind(
-          accountScope,
-          clientMsgId,
-          result.conversationId,
-          result.turnId,
-        );
-        if (activeAccountScopeRef.current === accountScope) {
+        if (!isCurrentAuthority()) return;
+        if (!webShell) {
+          const result = await startLegacyTurn(
+            cloudTurnStartArgs(clientMsgId, entry.ownerGeneration, submission),
+          );
+          if (!isCurrentAuthority()) return;
+          pendingPrompts.bind(
+            sendAuthority,
+            clientMsgId,
+            result.conversationId,
+            result.turnId,
+          );
+          pendingPrompts.acknowledgeAdmission(
+            sendAuthority,
+            clientMsgId,
+            result.conversationId,
+            result.turnId,
+          );
           onSent(submission.attachments);
+          return;
+        }
+        const requestedConversationId = submission.requestedConversationId;
+        if (!requestedConversationId) {
+          throw new Error("Open a cloud conversation before sending.");
+        }
+        const submitArgs = await browserExecutionSubmitArgs({
+          clientMsgId,
+          expectedOwnerGeneration: entry.ownerGeneration,
+          conversationId: requestedConversationId,
+          submission,
+        });
+        // SHA-256 above is asynchronous. Re-fence immediately before the first
+        // external side effect so a same-account generation rotation cannot
+        // send a retired payload.
+        if (!isCurrentAuthority()) return;
+        const renderedAcceptanceBarrier =
+          import.meta.env.DEV && typeof window !== "undefined"
+            ? window.__STELLA_RENDERED_ACCEPTANCE_BEFORE_BROWSER_DISPATCH__
+            : undefined;
+        if (renderedAcceptanceBarrier) {
+          // The development harness deliberately holds the exact request after
+          // the normal client fence, then rotates the owner generation. There
+          // is intentionally no second client check after release: the proof
+          // is that Convex itself rejects the frozen stale generation. This
+          // branch is absent from production and receives hashes only.
+          await waitForRenderedAcceptanceBrowserDispatch(
+            entry,
+            renderedAcceptanceBarrier,
+          );
+        }
+        const mutationOutcome = await (async () => {
+          try {
+            return {
+              accepted: true as const,
+              result: await submitBrowserExecution(submitArgs),
+            };
+          } catch (error) {
+            return { accepted: false as const, error };
+          }
+        })();
+        const renderedAcceptanceOutcome =
+          import.meta.env.DEV && typeof window !== "undefined"
+            ? window.__STELLA_RENDERED_ACCEPTANCE_AFTER_BROWSER_DISPATCH__
+            : undefined;
+        if (renderedAcceptanceOutcome) {
+          const receipt = mutationOutcome.accepted
+            ? {
+                clientMsgIdSha256: await sha256Hex(entry.clientMsgId),
+                outcome: "accepted" as const,
+                errorCodeSha256: await sha256Hex("<accepted>"),
+              }
+            : await browserDispatchRejectionReceipt(
+                entry,
+                mutationOutcome.error,
+              );
+          try {
+            renderedAcceptanceOutcome(Object.freeze(receipt));
+          } catch {
+            // Acceptance instrumentation must never change product behavior.
+          }
+        }
+        if (!mutationOutcome.accepted) throw mutationOutcome.error;
+        const result = mutationOutcome.result;
+        if (!isCurrentAuthority()) return;
+        pendingPrompts.bindDispatch(
+          sendAuthority,
+          clientMsgId,
+          result.dispatchId,
+        );
+        onSent(submission.attachments);
+
+        const current = pendingPrompts.find(sendAuthority, clientMsgId);
+        if (current?.cancelRequested) {
+          const canceled = await cancelExecutionDispatch(
+            browserExecutionCancelArgs(result.dispatchId),
+          );
+          if (!isCurrentAuthority()) return;
+          if (canceled.state === "canceled") {
+            pendingPrompts.acknowledgeTerminal(
+              sendAuthority,
+              clientMsgId,
+              result.dispatchId,
+            );
+            pendingPrompts.drop(sendAuthority, clientMsgId);
+            return;
+          }
+        }
+
+        const settled = await waitForBrowserExecutionTurn({
+          dispatchId: result.dispatchId,
+          queryStatus: (dispatchId) =>
+            convex.query(cloudApi.getExecutionDispatchStatus, { dispatchId }),
+          isCurrentAccount: isCurrentAuthority,
+        });
+        if (settled.status === "stale") return;
+        if (settled.dispatch.cloudTurnId) {
+          dispatchByTurnRef.current.set(
+            settled.dispatch.cloudTurnId,
+            result.dispatchId,
+          );
+          pendingPrompts.bind(
+            sendAuthority,
+            clientMsgId,
+            settled.dispatch.conversationId,
+            settled.dispatch.cloudTurnId,
+          );
+          pendingPrompts.acknowledgeAdmission(
+            sendAuthority,
+            clientMsgId,
+            settled.dispatch.conversationId,
+            settled.dispatch.cloudTurnId,
+          );
+        }
+        if (settled.status === "terminal") {
+          pendingPrompts.acknowledgeTerminal(
+            sendAuthority,
+            clientMsgId,
+            result.dispatchId,
+          );
+          if (settled.dispatch.state === "canceled") {
+            pendingPrompts.drop(sendAuthority, clientMsgId);
+          } else if (settled.dispatch.state === "failed") {
+            pendingPrompts.fail(
+              sendAuthority,
+              clientMsgId,
+              settled.dispatch.errorMessage || "That cloud turn failed.",
+            );
+          }
         }
       } catch (error) {
+        if (!isCurrentAuthority()) return;
         pendingPrompts.fail(
-          accountScope,
+          sendAuthority,
           clientMsgId,
           friendlySendError(error),
+          isAmbiguousTransportFailure(error),
         );
+      } finally {
+        pendingPrompts.releaseDispatch(sendAuthority, clientMsgId);
       }
     },
-    [accountScope, startTurn, conversationId, onSent],
+    [
+      cancelExecutionDispatch,
+      convex,
+      onSent,
+      startLegacyTurn,
+      submitBrowserExecution,
+      webShell,
+    ],
   );
+
+  // A fresh renderer hydrates only the exact current lifecycle generation.
+  // Error-free rows are the two ambiguous windows: the process died before
+  // admission, or the server committed before its response reached us. The
+  // stable claim prevents StrictMode/multi-mount duplicate dispatchers.
+  useEffect(() => {
+    if (!authority || !pendingPrompts.isAuthorityReady(authority)) return;
+    for (const entry of allPending) {
+      if (
+        entry.accountScope !== authority.accountScope ||
+        entry.ownerGeneration !== authority.ownerGeneration ||
+        entry.error !== null ||
+        (entry.conversationId !== null &&
+          entry.conversationId !== conversationId)
+      ) {
+        continue;
+      }
+      void dispatch(entry);
+    }
+  }, [allPending, authority, conversationId, dispatch]);
 
   const send = useCallback(
     async (prompt: string): Promise<void> => {
@@ -270,7 +643,9 @@ export const useConversation = (
       const attachments = cloudAttachmentsStore.getSnapshot();
       const selectedExecution =
         getCloudExecutionSelectionSnapshot() ?? cloudEngine?.execution ?? null;
+      if (!authority) return;
       const submission: PendingCloudTurnSubmission = {
+        requestedConversationId: conversationId,
         prompt: decoratePrompt(text, attachments),
         imagePaths: attachments
           .filter((entry) => /\.(png|jpe?g|gif|webp)$/i.test(entry.path))
@@ -280,17 +655,17 @@ export const useConversation = (
         locale: locale !== "en" ? locale : null,
         execution: selectedExecution ? { ...selectedExecution } : null,
       };
-      pendingPrompts.add(
-        accountScope,
+      const entry = pendingPrompts.add(
+        authority,
         clientMsgId,
         text,
         conversationId,
         submission,
       );
-      await dispatch(clientMsgId, submission);
+      if (entry.durable && entry.error === null) await dispatch(entry);
     },
     [
-      accountScope,
+      authority,
       cloudEngine?.execution,
       conversationId,
       decoratePrompt,
@@ -304,21 +679,77 @@ export const useConversation = (
       const entry = pending.find(
         (candidate) => candidate.clientMsgId === clientMsgId,
       );
-      if (!entry) return;
-      pendingPrompts.clearError(accountScope, clientMsgId);
+      if (!entry || !authority) return;
+      const retry = pendingPrompts.prepareRetry(authority, clientMsgId);
+      if (!retry) return;
       // Same `clientMsgId`: if the first attempt actually landed, the server
       // dedupes it instead of starting a second turn.
-      await dispatch(clientMsgId, entry.submission);
+      await dispatch(retry);
     },
-    [accountScope, dispatch, pending],
+    [authority, dispatch, pending],
   );
   const dismissSend = useCallback(
-    (clientMsgId: string) => pendingPrompts.drop(accountScope, clientMsgId),
-    [accountScope],
+    (clientMsgId: string) => {
+      if (authority) pendingPrompts.drop(authority, clientMsgId);
+    },
+    [authority],
+  );
+  const cancelPending = useCallback(
+    async (clientMsgId: string): Promise<boolean> => {
+      if (!authority) return false;
+      const entry = pendingPrompts.find(authority, clientMsgId);
+      if (!entry) return false;
+      if (!entry.dispatchId) {
+        // The submit mutation is still in flight. Its response handler observes
+        // this durable-in-renderer intent before it starts status polling.
+        pendingPrompts.requestCancel(authority, clientMsgId);
+        return true;
+      }
+      try {
+        const canceled = await cancelExecutionDispatch(
+          browserExecutionCancelArgs(entry.dispatchId),
+        );
+        if (canceled.state === "canceled") {
+          pendingPrompts.acknowledgeTerminal(
+            authority,
+            clientMsgId,
+            entry.dispatchId,
+          );
+          pendingPrompts.drop(authority, clientMsgId);
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [authority, cancelExecutionDispatch],
   );
   const cancelTurn = useCallback(
-    (turnId: string) => store?.cancelTurn(turnId) ?? false,
-    [store],
+    async (turnId: string): Promise<boolean> => {
+      const journalDispatchId = state.records.find(
+        (record) =>
+          record.kind === "message" &&
+          record.role === "user" &&
+          record.turnId === turnId &&
+          record.clientMsgId?.startsWith("exec:"),
+      );
+      const dispatchId =
+        dispatchByTurnRef.current.get(turnId) ??
+        (journalDispatchId?.kind === "message"
+          ? journalDispatchId.clientMsgId
+          : undefined);
+      if (dispatchId) {
+        try {
+          await cancelExecutionDispatch(browserExecutionCancelArgs(dispatchId));
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      // Compatibility for a turn created before browser placement shipped.
+      return store?.cancelTurn(turnId) ?? false;
+    },
+    [cancelExecutionDispatch, state.records, store],
   );
   const loadOlder = useCallback(() => store?.loadOlder(), [store]);
   const retryConnection = useCallback(() => store?.retry(), [store]);
@@ -331,6 +762,7 @@ export const useConversation = (
     retrySend,
     dismissSend,
     cancelTurn,
+    cancelPending,
     loadOlder,
     retryConnection,
   };
@@ -353,4 +785,14 @@ const friendlySendError = (error: unknown): string => {
     return error.message;
   }
   return "That didn't send. Try again.";
+};
+
+/** True only when the server may have committed before transport failed. */
+const isAmbiguousTransportFailure = (error: unknown): boolean => {
+  if (error instanceof TypeError) return true;
+  if ((error as { data?: unknown })?.data !== undefined) return false;
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /network|fetch|connection|socket|timed out|timeout|still starting|failed to reach|load failed/i.test(
+    message,
+  );
 };

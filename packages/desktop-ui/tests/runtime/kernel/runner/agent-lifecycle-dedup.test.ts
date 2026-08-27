@@ -37,7 +37,9 @@ describe("task lifecycle deduping", () => {
     });
     const manager = (context as { state: { localAgentManager: unknown } }).state
       .localAgentManager as {
-      opts: { onAgentEvent: (event: Record<string, unknown>) => void };
+      opts: {
+        onAgentEvent: (event: Record<string, unknown>) => Promise<void>;
+      };
     };
     const event = {
       type: "agent-completed",
@@ -97,7 +99,9 @@ describe("task lifecycle deduping", () => {
     });
     const manager = (context as { state: { localAgentManager: unknown } }).state
       .localAgentManager as {
-      opts: { onAgentEvent: (event: Record<string, unknown>) => void };
+      opts: {
+        onAgentEvent: (event: Record<string, unknown>) => Promise<void>;
+      };
     };
     const completion = (agentId: string) => ({
       type: "agent-completed",
@@ -205,7 +209,9 @@ describe("task lifecycle deduping", () => {
 
     const manager = (context as { state: { localAgentManager: unknown } }).state
       .localAgentManager as {
-      opts: { onAgentEvent: (event: Record<string, unknown>) => void };
+      opts: {
+        onAgentEvent: (event: Record<string, unknown>) => Promise<void>;
+      };
     };
     const event = {
       type: "agent-completed",
@@ -219,10 +225,12 @@ describe("task lifecycle deduping", () => {
       audience: "orchestrator-only",
     };
 
-    manager.opts.onAgentEvent(event);
+    await expect(manager.opts.onAgentEvent(event)).rejects.toThrow(
+      "delivery failed",
+    );
     await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
 
-    manager.opts.onAgentEvent(event);
+    await expect(manager.opts.onAgentEvent(event)).resolves.toBeUndefined();
     await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
     expect(sendMessage).toHaveBeenLastCalledWith(
       expect.objectContaining({
@@ -231,9 +239,154 @@ describe("task lifecycle deduping", () => {
       }),
     );
 
-    manager.opts.onAgentEvent(event);
-    await Promise.resolve();
+    await expect(manager.opts.onAgentEvent(event)).resolves.toBeUndefined();
     expect(sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it("repairs failed and canceled Activity-only wakes across lost responses, restarts, and attempt reuse", async () => {
+    const threadId = "terminal-recovery-thread";
+    const conversationId = "conversation-terminal-recovery";
+    const failedEventId = `${threadId}:1:agent-failed`;
+    const canceledEventId = `${threadId}:2:agent-canceled`;
+    const activityEventIds = new Set([failedEventId]);
+    const insertedActivityEventIds: string[] = [];
+    const persistedMessages: Array<{
+      customMessage: {
+        customType: string;
+        eventId?: string;
+        display?: boolean;
+      };
+    }> = [];
+    let record: Record<string, unknown> = {
+      threadId,
+      conversationId,
+      agentType: "general",
+      description: "Exercise terminal recovery",
+      prompt: "Exercise terminal recovery",
+      status: "error",
+      storageMode: "local",
+      attemptGeneration: 1,
+      startedAt: 100,
+      completedAt: 200,
+      updatedAt: 200,
+      error: "Provider failed",
+    };
+    let loseNextResponse = true;
+    const sendMessage = vi.fn(async (input: Record<string, unknown>) => {
+      persistedMessages.push({
+        customMessage: {
+          customType: String(input.customType),
+          ...(typeof input.eventId === "string"
+            ? { eventId: input.eventId }
+            : {}),
+          ...(typeof input.display === "boolean"
+            ? { display: input.display }
+            : {}),
+        },
+      });
+      if (loseNextResponse) {
+        loseNextResponse = false;
+        throw new Error("response lost after durable reminder write");
+      }
+    });
+    const runtimeStore = {
+      getAgentRecord: (candidate: string) =>
+        candidate === threadId ? record : null,
+      saveAgentRecord: (next: Record<string, unknown>) => {
+        record = next;
+      },
+      listAgentRecordsByStatus: (status: string) =>
+        record.status === status ? [record] : [],
+      listActiveThreads: () => [],
+      loadRawThreadMessages: () => persistedMessages,
+      hasEvent: (
+        candidateConversationId: string,
+        eventId: string,
+        type: string,
+      ) =>
+        candidateConversationId === conversationId &&
+        eventId.endsWith(`:${type}`) &&
+        activityEventIds.has(eventId),
+    };
+    const context = {
+      state: {
+        localAgentManager: null,
+        orchestratorSessions: new Map(),
+        runCallbacksByRunId: new Map(),
+        supervisor: { adoptChild: vi.fn() },
+      },
+      runtimeStore,
+      appendLocalChatEvent: (event: { eventId?: string }) => {
+        const eventId = event.eventId?.trim();
+        if (!eventId || activityEventIds.has(eventId)) return;
+        activityEventIds.add(eventId);
+        insertedActivityEventIds.push(eventId);
+      },
+      stellaDataDir: "/tmp/stella-terminal-recovery-test",
+    } as never;
+    const bootAndDrainRecovery = async () => {
+      const orchestration = createAgentOrchestration(context, {
+        buildAgentContext: vi.fn(),
+        sendMessage,
+      });
+      await orchestration.shutdown();
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      // Boot one begins with the failed Activity row but no reminder. The
+      // reminder commits, then its response is lost before the manager can
+      // stamp terminalLifecycleReceiptGeneration.
+      await bootAndDrainRecovery();
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      expect(
+        persistedMessages.map((entry) => entry.customMessage.eventId),
+      ).toEqual([failedEventId]);
+      expect(record.terminalLifecycleReceiptGeneration).toBeUndefined();
+
+      // A fresh manager sees both durable halves, stamps the receipt, and does
+      // not enqueue the already-persisted hidden wake a second time.
+      await bootAndDrainRecovery();
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      expect(record.terminalLifecycleReceiptGeneration).toBe(1);
+
+      // Reusing the same thread for generation two is an ABA boundary: its
+      // canceled Activity row must not match generation one's failed reminder.
+      record = {
+        ...record,
+        status: "canceled",
+        attemptGeneration: 2,
+        completedAt: 300,
+        updatedAt: 300,
+        error: "Canceled by user",
+        terminalLifecycleReceiptGeneration: undefined,
+      };
+      activityEventIds.add(canceledEventId);
+
+      await bootAndDrainRecovery();
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+      expect(
+        persistedMessages.map((entry) => entry.customMessage.eventId),
+      ).toEqual([failedEventId, canceledEventId]);
+      expect(record.terminalLifecycleReceiptGeneration).toBe(2);
+
+      // Model a crash after the generation-two reminder but before its local
+      // receipt stamp. Restart repairs the stamp without another visible row
+      // or hidden wake.
+      record = {
+        ...record,
+        terminalLifecycleReceiptGeneration: undefined,
+      };
+      await bootAndDrainRecovery();
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+      expect(record.terminalLifecycleReceiptGeneration).toBe(2);
+      expect(activityEventIds).toEqual(
+        new Set([failedEventId, canceledEventId]),
+      );
+      expect(insertedActivityEventIds).toEqual([]);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("does not build hidden orchestrator prompts for agent-started", () => {

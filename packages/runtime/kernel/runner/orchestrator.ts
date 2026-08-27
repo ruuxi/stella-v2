@@ -58,6 +58,22 @@ import {
 const logger = createRuntimeLogger("runner.orchestrator");
 const UI_VISIBILITY_HIDDEN = "hidden" as const;
 const UI_VISIBILITY_VISIBLE = "visible" as const;
+const DETACHED_LIFECYCLE_CALLBACKS: AgentCallbacks = {
+  onStream: () => {},
+  onToolStart: () => {},
+  onToolEnd: () => {},
+  onError: () => {},
+  onEnd: () => {},
+};
+
+export const resolveRuntimeMessageCallbacks = (
+  callbacks: AgentCallbacks | null,
+  customType: string | undefined,
+): AgentCallbacks | null =>
+  callbacks ??
+  (customType === "runtime.task_lifecycle"
+    ? DETACHED_LIFECYCLE_CALLBACKS
+    : null);
 
 const asMetadataRecord = (
   value: unknown,
@@ -156,6 +172,7 @@ export const createOrchestratorController = (
     conversationId: string;
     agentType: string;
     storageMode?: "cloud" | "local";
+    ownerGeneration?: string;
     userPrompt: string;
     uiVisibility?: "visible" | "hidden";
     promptMessages?: ChatPayload["promptMessages"];
@@ -200,6 +217,9 @@ export const createOrchestratorController = (
         conversationId: args.conversationId,
         agentType: args.agentType,
         ...(args.storageMode ? { storageMode: args.storageMode } : {}),
+        ...(args.ownerGeneration
+          ? { ownerGeneration: args.ownerGeneration }
+          : {}),
         userPrompt: args.userPrompt,
         ...(args.uiVisibility ? { uiVisibility: args.uiVisibility } : {}),
         ...(args.promptMessages?.length
@@ -223,6 +243,9 @@ export const createOrchestratorController = (
             conversationId: args.conversationId,
             agentType: args.agentType,
             ...(args.storageMode ? { storageMode: args.storageMode } : {}),
+            ...(args.ownerGeneration
+              ? { ownerGeneration: args.ownerGeneration }
+              : {}),
             uiVisibility: args.uiVisibility ?? UI_VISIBILITY_VISIBLE,
             queueCallbackSwitch: (callbacks) => {
               steerableCallbacks.switchTo(callbacks);
@@ -275,6 +298,7 @@ export const createOrchestratorController = (
       promptMessages?: ChatPayload["promptMessages"];
       agentType: string;
       storageMode?: "cloud" | "local";
+      ownerGeneration?: string;
       userMessageId: string;
       uiVisibility?: "visible" | "hidden";
       responseTarget?: StartPreparedRunArgs["responseTarget"];
@@ -297,6 +321,9 @@ export const createOrchestratorController = (
       conversationId,
       agentType,
       ...(startArgs.storageMode ? { storageMode: startArgs.storageMode } : {}),
+      ...(startArgs.ownerGeneration
+        ? { ownerGeneration: startArgs.ownerGeneration }
+        : {}),
       userPrompt,
       ...(startArgs.uiVisibility
         ? { uiVisibility: startArgs.uiVisibility }
@@ -536,10 +563,13 @@ export const createOrchestratorController = (
     if (!text) {
       return;
     }
-    const callbacks = getCallbacksForTarget({
-      conversationId: input.conversationId,
-      callbackRunId: input.callbackRunId,
-    });
+    const callbacks = resolveRuntimeMessageCallbacks(
+      getCallbacksForTarget({
+        conversationId: input.conversationId,
+        callbackRunId: input.callbackRunId,
+      }),
+      input.customType,
+    );
     if (!callbacks) {
       return;
     }
@@ -553,6 +583,15 @@ export const createOrchestratorController = (
       input.agentType,
     );
     if (liveSession) {
+      if (
+        input.ownerGeneration &&
+        (liveSession.storageMode !== "cloud" ||
+          liveSession.ownerGeneration !== input.ownerGeneration)
+      ) {
+        throw new Error(
+          "Cloud lifecycle wake belongs to a different owner generation.",
+        );
+      }
       const promptMessage = buildRuntimeSendPromptMessage(input, text);
       const message = createRuntimePromptAgentMessage(
         promptMessage,
@@ -594,6 +633,12 @@ export const createOrchestratorController = (
             userPrompt: "",
             promptMessages,
             agentType: input.agentType ?? AGENT_IDS.ORCHESTRATOR,
+            ...(input.ownerGeneration
+              ? {
+                  storageMode: "cloud" as const,
+                  ownerGeneration: input.ownerGeneration,
+                }
+              : {}),
             userMessageId: `message:${crypto.randomUUID()}`,
             uiVisibility: UI_VISIBILITY_VISIBLE,
             ...(input.responseTarget
@@ -721,6 +766,7 @@ export const createOrchestratorController = (
       promptMessages,
       attachments,
       storageMode,
+      ownerGeneration,
     } = normalizeChatRunInput(payload);
     const hasPromptMessages = Boolean(
       promptMessages?.some((message) => message.text.trim().length > 0),
@@ -748,6 +794,7 @@ export const createOrchestratorController = (
       conversationId,
       agentType,
       ...(storageMode ? { storageMode } : {}),
+      ...(ownerGeneration ? { ownerGeneration } : {}),
       userPrompt,
       ...(promptMessages?.length ? { promptMessages } : {}),
       attachments,
@@ -799,6 +846,7 @@ export const createOrchestratorController = (
       conversationId: string;
       userPrompt: string;
       storageMode?: "cloud" | "local";
+      ownerGeneration?: string;
       userMessageId?: string;
       agentType?: string;
       modelOverride?: string;
@@ -840,6 +888,7 @@ export const createOrchestratorController = (
         attachments,
         connectorDeliveryTarget,
         storageMode,
+        ownerGeneration,
         userMessageId,
       } = normalizeAutomationRunInput(payload);
       if (!conversationId) {
@@ -899,6 +948,7 @@ export const createOrchestratorController = (
         ...(modelOverride ? { modelOverride } : {}),
         ...(toolWorkspaceRoot ? { toolWorkspaceRoot } : {}),
         storageMode,
+        ...(ownerGeneration ? { ownerGeneration } : {}),
         uiVisibility: "hidden",
         attachments,
         ...(connectorDeliveryTarget ? { connectorDeliveryTarget } : {}),
@@ -971,6 +1021,7 @@ export const createOrchestratorController = (
     userPrompt: string;
     rejectIfBusy?: boolean;
     storageMode?: "cloud" | "local";
+    ownerGeneration?: string;
     userMessageId?: string;
     agentType?: string;
     modelOverride?: string;

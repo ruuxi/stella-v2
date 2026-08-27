@@ -228,6 +228,7 @@ export class SubagentSession extends PiSessionCore {
       agentId: opts.agentId,
       conversationId: opts.conversationId,
       storageMode: opts.storageMode,
+      ownerGeneration: opts.ownerGeneration,
       agentType: opts.agentType,
       deviceId: opts.deviceId,
       stellaAppDir: opts.stellaAppDir,

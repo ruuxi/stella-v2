@@ -223,6 +223,8 @@ export type BaseRunOptions = {
    * Convex even when the task itself runs on this computer.
    */
   storageMode?: "cloud" | "local";
+  /** Exact owner-data epoch captured at root turn admission. */
+  ownerGeneration?: string;
   userMessageId: string;
   uiVisibility?: "visible" | "hidden";
   agentType: string;

@@ -90,6 +90,7 @@ type PlacementBridgeOptions = {
   runExecution: (args: {
     dispatch: DispatchSummary;
     payload: Record<string, unknown>;
+    ownerGeneration: string;
   }) => Promise<ExecutionPlacementRunResult>;
   cancelExecution: (args: {
     dispatchId: string;
@@ -1793,6 +1794,7 @@ export class ExecutionPlacementBridge {
       const result = await this.options.runExecution({
         dispatch: remote,
         payload,
+        ownerGeneration: row.ownerGeneration,
       });
       const cancellation = this.inbox.get(row.dispatchId);
       if (

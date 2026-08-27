@@ -531,12 +531,35 @@ export const createRunnerContext = ({
   const convexAction = async (ref: unknown, args: unknown): Promise<unknown> =>
     await convexCall("action", ref, args);
 
+  const getCloudOwnerGeneration = async (): Promise<string> => {
+    const identity = (await convexCall(
+      "query",
+      (
+        anyApi as {
+          execution_placement: {
+            getMyExecutionPlacementIdentity: unknown;
+          };
+        }
+      ).execution_placement.getMyExecutionPlacementIdentity,
+      {},
+    )) as { ownerGeneration?: unknown } | null;
+    if (
+      typeof identity?.ownerGeneration !== "string" ||
+      !identity.ownerGeneration.trim()
+    ) {
+      throw new Error("Cloud owner generation is unavailable.");
+    }
+    return identity.ownerGeneration.trim();
+  };
+
   const cloudDispatch = createCloudSpawnDispatcher({
     convexApi: anyApi,
     deviceId,
     mutation: async (ref, args) => await convexCall("mutation", ref, args),
     action: async (ref, args) => await convexCall("action", ref, args),
     query: async (ref, args) => await convexCall("query", ref, args),
+    getOwnerGeneration: getCloudOwnerGeneration,
+    store: runtimeStore,
     isSignedIn: () =>
       Boolean(
         sanitizeConvexDeploymentUrl(
@@ -550,6 +573,8 @@ export const createRunnerContext = ({
     mutation: async (ref, args) => await convexCall("mutation", ref, args),
     action: async (ref, args) => await convexCall("action", ref, args),
     query: async (ref, args) => await convexCall("query", ref, args),
+    getOwnerGeneration: getCloudOwnerGeneration,
+    store: runtimeStore,
     isSignedIn: () =>
       Boolean(
         sanitizeConvexDeploymentUrl(
@@ -595,6 +620,7 @@ export const createRunnerContext = ({
     getAuthToken: () =>
       (context.state?.authToken ?? envAuthToken ?? "").trim() || null,
     getBaseUrl: cloudRealtimeBaseUrl,
+    getOwnerGeneration: getCloudOwnerGeneration,
     ...(appendLocalChatEvent
       ? {
           onDurableDeliveryFailure: ({

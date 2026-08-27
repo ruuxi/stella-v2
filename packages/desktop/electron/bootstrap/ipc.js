@@ -4,6 +4,7 @@ import { registerBrowserHandlers } from "../ipc/browser-handlers.js";
 import { registerInAppBrowserHandlers, IN_APP_BROWSER_CHANNELS, } from "../ipc/in-app-browser-handlers.js";
 import { registerDiscoveryHandlers } from "../ipc/discovery-handlers.js";
 import { registerCaptureHandlers } from "../ipc/capture-handlers.js";
+import { registerCloudHomeSyncHandlers } from "../ipc/cloud-home-sync-handlers.js";
 import { registerMeetingCaptureHandlers } from "../ipc/meeting-capture-handlers.js";
 import { registerDisplayHandlers } from "../ipc/display-handlers.js";
 import { registerHomeHandlers } from "../ipc/home-handlers.js";
@@ -263,6 +264,10 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     registerHomeHandlers({
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
+    registerCloudHomeSyncHandlers({
+        getStellaDataDir: lifecycle.getStellaDataDir,
+        assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
+    });
     registerMeetingCaptureHandlers({
         getStellaDataDir: lifecycle.getStellaDataDir,
         getController: () => state.meetingCaptureController,
@@ -277,7 +282,6 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     registerSystemHandlers({
         getDeviceId: () => state.deviceId,
         authService: services.authService,
-        backupService: services.backupService,
         getStellaHostRunner: lifecycle.getRunner,
         onStellaHostRunnerChanged: lifecycle.onRunnerChanged,
         getStellaAppDir: lifecycle.getStellaDataDir,
@@ -285,8 +289,6 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         ensurePrivilegedActionApproval: (action, message, detail, event) => services.securityPolicyService.ensureApproval(action, message, detail, event),
         hardResetLocalState: resetFlows.hardResetLocalState,
         resetLocalMessages: resetFlows.resetLocalMessages,
-        shutdownRuntime: resetFlows.shutdownRuntime,
-        restartRuntime: resetFlows.restartRuntime,
         submitCredential: (payload) => services.credentialService.submitCredential(payload),
         cancelCredential: (payload) => services.credentialService.cancelCredential(payload),
         submitConnectorCredential: (payload) => services.connectorCredentialService.submitCredential(payload),
@@ -356,6 +358,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         getStellaHostRunner: lifecycle.getRunner,
         getAppSessionStartedAt: () => state.appSessionStartedAt,
         isHostAuthAuthenticated: () => services.authService.getHostAuthAuthenticated(),
+        getActiveCloudConversationCacheAuthority: () => services.localChatHistoryService.getActiveCloudConversationCacheAuthority(),
         uiState: services.uiStateService.state,
         stellaAppDir: config.stellaAppDir,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),

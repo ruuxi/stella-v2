@@ -69,7 +69,7 @@ export const resolveSidebarSection = (value: unknown): SidebarSection => {
 export type SidebarTab = {
   id: string;
   kind: SidebarSection;
-  /** files → display-tab id; apps → user-app slug; otherwise null. */
+  /** files → display-tab id; apps → local slug or `cloud:<appId>`; otherwise null. */
   location: string | null;
 };
 

@@ -141,6 +141,17 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Making it happen",
     "Just a sec",
   ],
+  code: [
+    "Running code",
+    "Working on it",
+    "Writing some code",
+    "Getting it done",
+    "On it",
+    "Handling it",
+    "Making it happen",
+    "Just a sec",
+  ],
+  // Legacy transcript compatibility; never advertised to new turns.
   node_repl: [
     "Running code",
     "Working on it",
@@ -311,23 +322,101 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
   ],
 
   // Schedule subagent
-  cron_add: ["Scheduling it", "Setting it up", "Adding it", "Penciling it in", "Booking it"],
-  cron_list: ["Checking the schedule", "Looking at what's planned", "Reviewing the schedule", "Pulling up the schedule"],
-  cron_remove: ["Clearing it", "Removing it", "Canceling it", "Taking it off the schedule"],
-  cron_run: ["Running it", "Kicking it off", "Triggering it", "Setting it in motion"],
-  cron_update: ["Updating the schedule", "Adjusting it", "Rescheduling", "Tweaking the timing"],
-  heartbeat_get: ["Checking in", "Taking a pulse", "Checking status", "Seeing how it's going"],
-  heartbeat_run: ["Running a check", "Checking in", "Taking a pulse", "Testing it"],
-  heartbeat_upsert: ["Saving the status", "Updating the check-in", "Logging it", "Recording it"],
+  cron_add: [
+    "Scheduling it",
+    "Setting it up",
+    "Adding it",
+    "Penciling it in",
+    "Booking it",
+  ],
+  cron_list: [
+    "Checking the schedule",
+    "Looking at what's planned",
+    "Reviewing the schedule",
+    "Pulling up the schedule",
+  ],
+  cron_remove: [
+    "Clearing it",
+    "Removing it",
+    "Canceling it",
+    "Taking it off the schedule",
+  ],
+  cron_run: [
+    "Running it",
+    "Kicking it off",
+    "Triggering it",
+    "Setting it in motion",
+  ],
+  cron_update: [
+    "Updating the schedule",
+    "Adjusting it",
+    "Rescheduling",
+    "Tweaking the timing",
+  ],
+  heartbeat_get: [
+    "Checking in",
+    "Taking a pulse",
+    "Checking status",
+    "Seeing how it's going",
+  ],
+  heartbeat_run: [
+    "Running a check",
+    "Checking in",
+    "Taking a pulse",
+    "Testing it",
+  ],
+  heartbeat_upsert: [
+    "Saving the status",
+    "Updating the check-in",
+    "Logging it",
+    "Recording it",
+  ],
 
   // Fashion subagent
-  fashion_search_products: ["Browsing pieces", "Hunting for looks", "Searching the racks", "Finding options", "Pulling pieces"],
-  fashion_get_product_details: ["Checking the details", "Looking it up", "Reading the specs", "Studying the piece"],
-  fashion_get_context: ["Checking your style", "Reading your taste", "Pulling your preferences", "Getting the vibe"],
-  fashion_create_outfit: ["Styling a look", "Putting a look together", "Building the outfit", "Pulling it together", "Crafting the fit"],
-  fashion_create_checkout: ["Setting up checkout", "Getting the order ready", "Building the cart", "Prepping the order"],
-  fashion_mark_outfit_ready: ["Finishing the look", "Wrapping it up", "Finalizing the fit", "Calling it ready"],
-  fashion_mark_outfit_failed: ["Reworking it", "Noting the issue", "Adjusting course", "Trying again"],
+  fashion_search_products: [
+    "Browsing pieces",
+    "Hunting for looks",
+    "Searching the racks",
+    "Finding options",
+    "Pulling pieces",
+  ],
+  fashion_get_product_details: [
+    "Checking the details",
+    "Looking it up",
+    "Reading the specs",
+    "Studying the piece",
+  ],
+  fashion_get_context: [
+    "Checking your style",
+    "Reading your taste",
+    "Pulling your preferences",
+    "Getting the vibe",
+  ],
+  fashion_create_outfit: [
+    "Styling a look",
+    "Putting a look together",
+    "Building the outfit",
+    "Pulling it together",
+    "Crafting the fit",
+  ],
+  fashion_create_checkout: [
+    "Setting up checkout",
+    "Getting the order ready",
+    "Building the cart",
+    "Prepping the order",
+  ],
+  fashion_mark_outfit_ready: [
+    "Finishing the look",
+    "Wrapping it up",
+    "Finalizing the fit",
+    "Calling it ready",
+  ],
+  fashion_mark_outfit_failed: [
+    "Reworking it",
+    "Noting the issue",
+    "Adjusting course",
+    "Trying again",
+  ],
 };
 
 // Verb-prefixed tool status emitted by the runtime when a tool does not

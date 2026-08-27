@@ -17,7 +17,7 @@
  * Backend contract:
  *   publish({ html, title? }) -> { url, slug, expiresAt }   (action)
  *   revoke({ slug })          -> { revoked }                (action)
- *   listMine()                -> SharedCanvasLink[]          (query)
+ *   listMine({ snapshotAt })  -> SharedCanvasLink[]          (query)
  */
 import {
   createContext,
@@ -59,7 +59,7 @@ const canvasShareRevokeRef = makeFunctionReference<
 
 const canvasShareListMineRef = makeFunctionReference<
   "query",
-  Record<string, never>,
+  { snapshotAt: number; limit?: number },
   SharedCanvasLink[]
 >("data/canvas_shares:listMine");
 
@@ -103,7 +103,7 @@ export function CanvasShareProvider({ children }: { children: ReactNode }) {
   );
 
   const listMine = useCallback(
-    () => convex.query(canvasShareListMineRef, {}),
+    () => convex.query(canvasShareListMineRef, { snapshotAt: Date.now() }),
     [convex],
   );
 

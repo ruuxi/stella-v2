@@ -257,26 +257,6 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
     ],
   },
 
-  // ---------- Backup ----------
-  {
-    tab: "backup",
-    titleKey: "settings.backup.title",
-    descriptionKey: "settings.search.descriptions.backup",
-    keywords: [
-      "restore",
-      "snapshot",
-      "automatic backup",
-      "back up now",
-      "saved backups",
-      "encrypted backup",
-      "remote backup",
-      "recovery",
-      "export",
-      "import",
-      "sync",
-    ],
-  },
-
   // ---------- Account & Legal ----------
   {
     tab: "account",
@@ -392,13 +372,6 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
     descriptionKey: "settings.account.deleteData.description",
     keywords: ["wipe", "clear", "erase", "reset"],
   },
-  {
-    tab: "backup",
-    titleKey: "settings.backup.backupNow.label",
-    cardTitleKey: "settings.backup.title",
-    descriptionKey: "settings.backup.backupNow.description",
-    keywords: ["manual backup", "snapshot", "save"],
-  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -470,12 +443,6 @@ const SEARCH_SYNONYMS_RAW: Record<string, string[]> = {
   remove: ["delete", "erase", "wipe"],
   erase: ["delete", "wipe", "remove"],
   forget: ["erase", "delete", "memory"],
-
-  // ---- Backups / sync ----
-  save: ["backup", "snapshot"],
-  recovery: ["backup", "restore"],
-  restore: ["backup", "recovery"],
-  sync: ["backup", "remote"],
 
   // ---- Models / AI ----
   ai: ["model", "llm"],

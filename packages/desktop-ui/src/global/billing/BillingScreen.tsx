@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/api";
 // Imported from the module rather than the `@/shared/i18n` barrel on
@@ -297,6 +297,15 @@ export function BillingPanel() {
   const [creditSelectedPresetCents, setCreditSelectedPresetCents] = useState<
     number | null
   >(null);
+  const checkoutRequestRef = useRef<{
+    plan: PaidBillingPlan;
+    requestId: string;
+  } | null>(null);
+  const portalRequestRef = useRef<string | null>(null);
+  const creditRequestRef = useRef<{
+    amountCents: number;
+    requestId: string;
+  } | null>(null);
 
   const planCatalog = billingStatus?.plans;
   const currentPlan = billingStatus?.plan ?? "free";
@@ -338,11 +347,18 @@ export function BillingPanel() {
       setNotice(null);
       setStartingPlan(plan);
       try {
+        const request =
+          checkoutRequestRef.current?.plan === plan
+            ? checkoutRequestRef.current
+            : { plan, requestId: crypto.randomUUID() };
+        checkoutRequestRef.current = request;
         const session = await startCheckout({
           plan,
           returnUrl: await getBillingReturnUrl(),
+          requestId: request.requestId,
         });
         openExternalUrl(session.url);
+        checkoutRequestRef.current = null;
         setNotice(
           "Checkout opened in your browser. Your plan updates here automatically once payment completes.",
         );
@@ -364,10 +380,14 @@ export function BillingPanel() {
     setNotice(null);
     setOpeningPortal(true);
     try {
+      const requestId = portalRequestRef.current ?? crypto.randomUUID();
+      portalRequestRef.current = requestId;
       const session = await openPortal({
         returnUrl: await getBillingReturnUrl(),
+        requestId,
       });
       openExternalUrl(session.url);
+      portalRequestRef.current = null;
       setNotice(
         "Billing management opened in your browser. Changes appear here automatically.",
       );
@@ -429,11 +449,18 @@ export function BillingPanel() {
     }
     setStartingCredit(true);
     try {
+      const request =
+        creditRequestRef.current?.amountCents === amountCents
+          ? creditRequestRef.current
+          : { amountCents, requestId: crypto.randomUUID() };
+      creditRequestRef.current = request;
       const session = await startCreditCheckout({
         amountCents,
         returnUrl: await getBillingReturnUrl(),
+        requestId: request.requestId,
       });
       openExternalUrl(session.url);
+      creditRequestRef.current = null;
       setNotice(
         "Checkout opened in your browser. Credit is added automatically once payment completes.",
       );

@@ -26,25 +26,38 @@ import {
   initializeBootstrapSingleInstance,
   registerBootstrapLifecycle,
 } from "./bootstrap/lifecycle.js";
+import {
+  applyDevHarnessOptions,
+  resolveDevHarnessOptions,
+} from "./bootstrap/dev-harness-options.js";
 const __dirname = import.meta.dirname;
 // app.isPackaged is the authority. Inherited environment variables must never
 // turn a signed build back into a Vite client.
 const isDev = !app.isPackaged;
-// macOS derives safeStorage's Keychain service from app.name. Keep unpackaged
-// v2 development in its own namespace while v1 remains installed under
-// "Stella Safe Storage". Signed production builds retain the clean name.
-app.setName(isDev ? STELLA_DEV_APP_NAME : STELLA_APP_NAME);
-
-if (isDev) {
-  app.setPath(
-    "userData",
-    path.join(app.getPath("appData"), "Stella Development"),
-  );
-}
-
 const stellaAppDir = app.isPackaged
   ? resolvePackagedStellaAppDirPath(app.getAppPath())
   : path.resolve(__dirname, "..", "..", "..", "..");
+const devHarnessOptions = resolveDevHarnessOptions({
+  isPackaged: app.isPackaged,
+  workspaceDir: stellaAppDir,
+});
+
+if (isDev) {
+  if (devHarnessOptions) {
+    applyDevHarnessOptions(app, devHarnessOptions);
+  } else {
+    // macOS derives safeStorage's Keychain service from app.name. Keep normal
+    // unpackaged v2 development separate from both production and harnesses.
+    app.setName(STELLA_DEV_APP_NAME);
+    app.setPath(
+      "userData",
+      path.join(app.getPath("appData"), "Stella Development"),
+    );
+  }
+} else {
+  app.setName(STELLA_APP_NAME);
+}
+
 const configuredStatePath = isDev
   ? process.env.STELLA_V2_DEV_DATA_DIR?.trim()
   : process.env.STELLA_DATA_DIR?.trim();
@@ -85,9 +98,8 @@ const startLocalCrashReporter = () => {
 };
 
 export const bootstrapMainProcess = () => {
-  // Acquire Electron's process lock before bootstrap services are constructed.
-  // LocalChatHistoryService opens and initializes ~/.stella/stella.sqlite in
-  // its constructor, so another packaged instance must be rejected first.
+  // Acquire Electron's process lock before bootstrap services are constructed
+  // so a second packaged instance cannot open local state.
   if (!app.requestSingleInstanceLock()) {
     app.quit();
     return;

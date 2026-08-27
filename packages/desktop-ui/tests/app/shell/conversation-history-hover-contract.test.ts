@@ -22,12 +22,11 @@ describe("conversation history interaction contract", () => {
     expect(source).toContain("event.preventDefault()");
 
     expect(source).toContain("const HISTORY_PAGE_SIZE = 50");
-    expect(source).toMatch(
-      /usePaginatedQuery\(\s*cloudApi\.listMyConversationsPage,\s*cloudMode \? \{\} : "skip",\s*\{ initialNumItems: HISTORY_PAGE_SIZE \},\s*\)/,
-    );
-    expect(source).toContain(
-      "paginatedHistory.loadMore(HISTORY_PAGE_SIZE)",
-    );
+    expect(source).toContain("getMyConversationHistorySnapshot");
+    expect(source).toContain("snapshotUpdatedAt:");
+    expect(source).toContain("frozenHistorySnapshot");
+    expect(source).toContain("mergeCloudConversationHistory(");
+    expect(source).toContain("paginatedHistory.loadMore(HISTORY_PAGE_SIZE)");
     expect(source).not.toContain("listLocalConversations");
     expect(source).toContain("<LegendList<ConversationSummary>");
     expect(source).toContain("recycleItems");

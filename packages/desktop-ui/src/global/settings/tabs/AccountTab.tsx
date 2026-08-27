@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import { useAction } from "convex/react";
 import { api } from "@/convex/api";
 import { Button } from "@/ui/button";
@@ -17,6 +17,17 @@ import { uiState } from "@/platform/ui-state";
 import type { LegalDocument } from "@/global/legal/legal-text";
 import { useT } from "@/shared/i18n";
 import { getSettingsErrorMessage } from "./shared";
+import {
+  cloudHomeStatusForAccount,
+  cloudHomeSyncRetryStore,
+  cloudHomeSyncStatusStore,
+} from "@/features/cloud/cloud-home-sync";
+import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { CloudHomeSkillsSettings } from "@/features/cloud/CloudHomeSkillsSettings";
+import { CloudAccountCards } from "@/features/cloud/CloudAccountCards";
+import { CloudHomeMemorySettings } from "@/features/cloud/CloudHomeMemorySettings";
+import { CloudMemoryWipeSettings } from "@/features/cloud/CloudMemoryWipeSettings";
+import { CloudMemoryReimportSettings } from "@/features/cloud/CloudMemoryReimportSettings";
 
 type AccountDeleteAction = "data" | "account";
 
@@ -96,6 +107,56 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
   const [pendingDeleteAction, setPendingDeleteAction] =
     useState<AccountDeleteAction | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isConfirmingCloudHome, setIsConfirmingCloudHome] = useState(false);
+  const { cloudMode, accountScope, identityRevision } = useCloudMode();
+  const cloudHomeStatusSnapshot = useSyncExternalStore(
+    cloudHomeSyncStatusStore.subscribe,
+    cloudHomeSyncStatusStore.getSnapshot,
+    cloudHomeSyncStatusStore.getServerSnapshot,
+  );
+  const cloudHomeStatus = cloudHomeStatusForAccount(
+    cloudHomeStatusSnapshot,
+    accountScope,
+  );
+  const cloudHomeBusy =
+    cloudHomeStatus.phase === "scanning" ||
+    cloudHomeStatus.phase === "reconciling";
+  const cloudHomeNeedsConfirmation = cloudHomeStatus.issues.some(
+    (issue) => issue.code === "import_confirmation_required",
+  );
+  const cloudHomeOwnerMismatch = cloudHomeStatus.issues.some(
+    (issue) => issue.code === "local_owner_mismatch",
+  );
+  const cloudHomeOwnerInvalid = cloudHomeStatus.issues.some(
+    (issue) => issue.code === "local_owner_record_invalid",
+  );
+  const handleCloudHomeAction = useCallback(async () => {
+    if (cloudHomeNeedsConfirmation) {
+      setIsConfirmingCloudHome(true);
+      try {
+        const confirmed =
+          await window.electronAPI?.cloudHome.confirmImportOwnership(
+            accountScope,
+          );
+        if (!confirmed) return;
+      } finally {
+        setIsConfirmingCloudHome(false);
+      }
+    }
+    cloudHomeSyncRetryStore.request();
+  }, [accountScope, cloudHomeNeedsConfirmation]);
+  const cloudHomeSummary = cloudHomeBusy
+    ? t("settings.account.cloudHome.summary.checking")
+    : cloudHomeStatus.phase === "complete"
+      ? t("settings.account.cloudHome.summary.current", {
+          memoryCount: cloudHomeStatus.memoryUploaded,
+          skillCount: cloudHomeStatus.skillsUploaded,
+        })
+      : cloudHomeStatus.phase === "attention"
+        ? t("settings.account.cloudHome.summary.attention")
+        : cloudHomeStatus.phase === "unavailable"
+          ? t("settings.account.cloudHome.summary.unavailable")
+          : t("settings.account.cloudHome.summary.intro");
 
   const closeDeleteDialog = useCallback(
     (open: boolean) => {
@@ -160,6 +221,88 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
 
   return (
     <div className="settings-tab-content">
+      {window.electronAPI?.cloudHome ? (
+        <div className="settings-card">
+          <h3 className="settings-card-title">
+            {t("settings.account.cloudHome.title")}
+          </h3>
+          <div className="settings-row">
+            <div className="settings-row-info">
+              <div className="settings-row-label">
+                {t("settings.account.cloudHome.label")}
+              </div>
+              <div className="settings-row-sublabel" role="status">
+                {cloudHomeSummary}
+              </div>
+              {cloudHomeStatus.issues.slice(0, 4).map((issue, index) => (
+                <div
+                  className="settings-row-sublabel"
+                  role="alert"
+                  key={`${issue.code}:${issue.item ?? "general"}:${index}`}
+                >
+                  {issue.item ? `${issue.item}: ` : ""}
+                  {issue.message}
+                </div>
+              ))}
+              {cloudHomeStatus.warnings.slice(0, 3).map((warning, index) => (
+                <div
+                  className="settings-row-sublabel"
+                  key={`${warning.code}:${warning.path}:${index}`}
+                >
+                  {warning.path}: {warning.message}
+                </div>
+              ))}
+              <div className="settings-row-sublabel">
+                {t("settings.account.cloudHome.authorizationNote")}
+              </div>
+            </div>
+            <div className="settings-row-control">
+              <Button
+                type="button"
+                variant="ghost"
+                className="pill-btn"
+                onClick={() => void handleCloudHomeAction()}
+                disabled={
+                  cloudHomeBusy ||
+                  isConfirmingCloudHome ||
+                  cloudHomeOwnerMismatch ||
+                  cloudHomeOwnerInvalid
+                }
+              >
+                {cloudHomeBusy || isConfirmingCloudHome
+                  ? t("settings.account.cloudHome.actions.syncing")
+                  : cloudHomeNeedsConfirmation
+                    ? t("settings.account.cloudHome.actions.import")
+                    : cloudHomeOwnerMismatch
+                      ? t("settings.account.cloudHome.actions.boundElsewhere")
+                      : cloudHomeOwnerInvalid
+                        ? t("settings.account.cloudHome.actions.blocked")
+                        : t("settings.account.cloudHome.actions.sync")}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {window.electronAPI?.cloudHome && accountScope.startsWith("account:") ? (
+        <CloudHomeSkillsSettings
+          key={accountScope}
+          accountScope={accountScope}
+        />
+      ) : null}
+      {window.electronAPI?.cloudHome && cloudMode ? (
+        <CloudHomeMemorySettings key={`${accountScope}:${identityRevision}`} />
+      ) : null}
+      {window.electronAPI?.cloudHome && cloudMode ? (
+        <CloudMemoryReimportSettings
+          key={`memory-reimport:${accountScope}:${identityRevision}`}
+        />
+      ) : null}
+      {cloudMode ? (
+        <CloudMemoryWipeSettings
+          key={`memory-wipe:${accountScope}:${identityRevision}`}
+        />
+      ) : null}
+      <CloudAccountCards />
       <div className="settings-card">
         <h3 className="settings-card-title">{t("settings.account.title")}</h3>
         <div className="settings-row">

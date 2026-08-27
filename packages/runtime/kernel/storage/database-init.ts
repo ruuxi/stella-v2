@@ -597,6 +597,7 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     CREATE TABLE IF NOT EXISTS legacy_chat_cloud_import (
       local_conversation_id TEXT PRIMARY KEY,
       cloud_conversation_id TEXT,
+      owner_generation TEXT,
       next_turn_index INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'pending',
       detail TEXT,
@@ -605,6 +606,13 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       FOREIGN KEY(local_conversation_id) REFERENCES session(id) ON DELETE CASCADE
     );
   `);
+  try {
+    db.exec(
+      "ALTER TABLE legacy_chat_cloud_import ADD COLUMN owner_generation TEXT;",
+    );
+  } catch {
+    // Existing databases may already have the immutable import authority.
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS message (
       id TEXT PRIMARY KEY,
@@ -919,6 +927,7 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       thread_id TEXT PRIMARY KEY,
       conversation_id TEXT NOT NULL,
       storage_mode TEXT NOT NULL DEFAULT 'local',
+      owner_generation TEXT,
       agent_type TEXT NOT NULL,
       description TEXT NOT NULL,
       prompt TEXT,
@@ -940,6 +949,9 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       manager_final_report_id TEXT,
       manager_report_ids_json TEXT,
       manager_report_sequence INTEGER NOT NULL DEFAULT 0,
+      cloud_terminal_receipt_generation INTEGER,
+      terminal_lifecycle_receipt_generation INTEGER,
+      descendant_boundary_state_json TEXT,
       record_revision INTEGER NOT NULL DEFAULT 0
     );
   `);
@@ -964,6 +976,12 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     );
   } catch {
     // Column already exists.
+  }
+  try {
+    db.exec("ALTER TABLE runtime_agents ADD COLUMN owner_generation TEXT;");
+  } catch {
+    // Column already exists. NULL cloud rows predate generation fencing and
+    // are quarantined from cloud replay by LocalAgentManager.
   }
   for (const column of [
     "manager_final_report TEXT",
@@ -997,6 +1015,27 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   try {
     db.exec(
       "ALTER TABLE runtime_agents ADD COLUMN record_revision INTEGER NOT NULL DEFAULT 0;",
+    );
+  } catch {
+    // Column already exists.
+  }
+  try {
+    db.exec(
+      "ALTER TABLE runtime_agents ADD COLUMN cloud_terminal_receipt_generation INTEGER;",
+    );
+  } catch {
+    // Column already exists.
+  }
+  try {
+    db.exec(
+      "ALTER TABLE runtime_agents ADD COLUMN terminal_lifecycle_receipt_generation INTEGER;",
+    );
+  } catch {
+    // Column already exists.
+  }
+  try {
+    db.exec(
+      "ALTER TABLE runtime_agents ADD COLUMN descendant_boundary_state_json TEXT;",
     );
   } catch {
     // Column already exists.
@@ -1069,6 +1108,7 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       kind TEXT NOT NULL CHECK (kind IN ('begin', 'finish')),
       conversation_id TEXT NOT NULL,
       device_id TEXT NOT NULL,
+      owner_generation TEXT NOT NULL,
       local_turn_id TEXT NOT NULL,
       payload_json TEXT NOT NULL,
       recovery_json TEXT,
@@ -1080,6 +1120,7 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     );
   `);
   for (const column of [
+    "owner_generation TEXT",
     "recovery_json TEXT",
     "last_error TEXT",
     "dead_lettered_at INTEGER",
@@ -1124,6 +1165,7 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       id TEXT NOT NULL UNIQUE,
       conversation_id TEXT NOT NULL,
       device_id TEXT NOT NULL,
+      owner_generation TEXT NOT NULL,
       append_id TEXT NOT NULL,
       payload_json TEXT NOT NULL,
       attempts INTEGER NOT NULL DEFAULT 0,
@@ -1133,6 +1175,14 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       updated_at INTEGER NOT NULL
     );
   `);
+  try {
+    db.exec(
+      "ALTER TABLE cloud_journal_outbox ADD COLUMN owner_generation TEXT;",
+    );
+  } catch {
+    // Existing rows remain NULL and are retired without delivery. Never bind
+    // an old voice append to whichever owner generation is current now.
+  }
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_cloud_journal_outbox_delivery
     ON cloud_journal_outbox(
@@ -1155,6 +1205,7 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
       thread_id TEXT NOT NULL,
       attempt_generation INTEGER NOT NULL,
       owner_scope TEXT,
+      owner_generation TEXT,
       payload_json TEXT NOT NULL,
       attempts INTEGER NOT NULL DEFAULT 0,
       next_attempt_at INTEGER NOT NULL,
@@ -1171,6 +1222,14 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     // Column already exists. NULL rows are legacy and intentionally never
     // attach themselves to whichever account happens to sign in next.
   }
+  try {
+    db.exec(
+      "ALTER TABLE computer_agent_cloud_outbox ADD COLUMN owner_generation TEXT;",
+    );
+  } catch {
+    // Column already exists. NULL rows predate owner-generation fencing and
+    // are never rebound to a later lifecycle epoch.
+  }
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_computer_agent_cloud_outbox_delivery
     ON computer_agent_cloud_outbox(next_attempt_at, sequence);
@@ -1183,13 +1242,37 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
     CREATE TABLE IF NOT EXISTS computer_agent_cloud_thread_owners (
       thread_id TEXT PRIMARY KEY,
       owner_scope TEXT NOT NULL,
+      owner_generation TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
   `);
+  try {
+    db.exec(
+      "ALTER TABLE computer_agent_cloud_thread_owners ADD COLUMN owner_generation TEXT;",
+    );
+  } catch {
+    // Column already exists. NULL is an intentionally untrusted legacy bind.
+  }
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_computer_agent_cloud_thread_owners_scope
     ON computer_agent_cloud_thread_owners(owner_scope, updated_at);
+  `);
+  // An owner-data generation is an immutable lifecycle epoch. Remember every
+  // retired epoch so a delayed generation-N start can never rebind a mutable
+  // thread id after generation N+1 has already been admitted (ABA).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS computer_agent_cloud_retired_generations (
+      thread_id TEXT NOT NULL,
+      owner_scope TEXT NOT NULL,
+      owner_generation TEXT NOT NULL,
+      retired_at INTEGER NOT NULL,
+      PRIMARY KEY (thread_id, owner_scope, owner_generation)
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_computer_agent_cloud_retired_scope
+    ON computer_agent_cloud_retired_generations(owner_scope, retired_at);
   `);
 
   // Local admission receipts outlive successful outbox deletion so an IPC
@@ -1206,6 +1289,53 @@ export const initializeDesktopDatabase = (db: SqliteDatabase) => {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_cloud_journal_admission_receipts_created
     ON cloud_journal_admission_receipts(created_at, id);
+  `);
+
+  // Desktop cloud-agent controls have two durable identities: the latest
+  // authoritative server receipt for a thread, and the immutable tool-call
+  // operation that captured that receipt before crossing the network. The
+  // former fences send_input/pause against attempt ABA; the latter makes a
+  // lost response replay the original generation/expected revision after a
+  // process restart instead of adopting whichever attempt is current then.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cloud_agent_thread_controls (
+      thread_id TEXT NOT NULL,
+      owner_generation TEXT NOT NULL,
+      cloud_conversation_id TEXT NOT NULL,
+      origin_conversation_id TEXT NOT NULL,
+      attempt_generation INTEGER NOT NULL,
+      thread_updated_at INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK (
+        status IN ('running', 'completed', 'failed', 'canceled')
+      ),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (thread_id, owner_generation)
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_cloud_agent_thread_controls_origin
+    ON cloud_agent_thread_controls(
+      owner_generation,
+      origin_conversation_id,
+      updated_at
+    );
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cloud_agent_tool_operations (
+      operation_id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL CHECK (kind IN ('spawn', 'continue', 'cancel')),
+      fingerprint TEXT NOT NULL,
+      owner_generation TEXT NOT NULL,
+      request_json TEXT NOT NULL,
+      result_json TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_cloud_agent_tool_operations_updated
+    ON cloud_agent_tool_operations(updated_at, operation_id);
   `);
 
   // Connector routing and follow-up delivery are operational state, not chat

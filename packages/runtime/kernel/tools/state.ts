@@ -311,6 +311,9 @@ export const handleSendInput = async (
         message,
         conversationId: context.conversationId,
         requestId: context.requestId,
+        ...(context.ownerGeneration
+          ? { ownerGeneration: context.ownerGeneration }
+          : {}),
       });
       if (continued.delivered) {
         return {
@@ -319,6 +322,13 @@ export const handleSendInput = async (
             status: "updated",
             delivered: true,
             placement: "cloud",
+            ...(continued.control
+              ? {
+                  attempt_generation: continued.control.attemptGeneration,
+                  thread_updated_at: continued.control.threadUpdatedAt,
+                  thread_status: continued.control.status,
+                }
+              : {}),
             note: "The cloud thread is running again. Its terminal report will return to this conversation, including after a desktop restart.",
           },
         };
@@ -492,6 +502,9 @@ export const handleSpawnAgent = async (
             threadId: explicitThreadId,
             conversationId: context.conversationId,
             requestId: context.requestId,
+            ...(context.ownerGeneration
+              ? { ownerGeneration: context.ownerGeneration }
+              : {}),
           });
           if (cloudCanceled.canceled) {
             return {
@@ -500,6 +513,15 @@ export const handleSpawnAgent = async (
                 status: "canceled",
                 canceled: true,
                 placement: "cloud",
+                ...(cloudCanceled.control
+                  ? {
+                      attempt_generation:
+                        cloudCanceled.control.attemptGeneration,
+                      thread_updated_at:
+                        cloudCanceled.control.threadUpdatedAt,
+                      thread_status: cloudCanceled.control.status,
+                    }
+                  : {}),
               },
             };
           }
@@ -685,6 +707,10 @@ export const handleSpawnAgent = async (
       dispatched = await cloudDispatch({
         workspace: cloudWorkspace,
         conversationId: context.conversationId,
+        requestId: context.requestId,
+        ...(context.ownerGeneration
+          ? { ownerGeneration: context.ownerGeneration }
+          : {}),
         description,
         prompt,
         execution,
@@ -700,6 +726,9 @@ export const handleSpawnAgent = async (
         workspace: cloudWorkspace,
         placement: "cloud",
         cloud_conversation_id: dispatched.conversationId,
+        attempt_generation: dispatched.attemptGeneration,
+        thread_updated_at: dispatched.threadUpdatedAt,
+        thread_status: dispatched.status,
         note: "Running in Stella's cloud. Its completion will return to this conversation, including after a desktop restart. Use send_input to continue this thread or pause_agent to stop its current turn.",
       },
     };
@@ -771,6 +800,9 @@ export const handleSpawnAgent = async (
         ...(typeof maxAgentDepth === "number" ? { maxAgentDepth } : {}),
         parentAgentId,
         storageMode,
+        ...(context.ownerGeneration
+          ? { ownerGeneration: context.ownerGeneration }
+          : {}),
       });
     } catch (error) {
       // Group member caps and thread-resolution failures surface as tool

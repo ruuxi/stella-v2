@@ -5,13 +5,17 @@
 
 import { promises as fs } from "fs";
 import path from "path";
-import type { ToolContext, ToolResult } from "./types.js";
+import {
+  TOOL_RESULT_AUTHORIZED_IMAGES,
+  type ToolContext,
+  type ToolResult,
+} from "./types.js";
 import { fileChange } from "@stella/contracts/file-changes";
 import {
   expandHomePath,
-  readFileSafe,
   detectLineEnding,
   fuzzyFindText,
+  MAX_FILE_BYTES,
   normalizeToLF,
   restoreLineEndings,
   stripBom,
@@ -31,6 +35,8 @@ import {
   isSkillInstructionPath,
   recordFullSkillRead,
 } from "./skill-read-dedup.js";
+import { readWorkspaceFileNoFollow } from "./workspace-file-boundary.js";
+import { decodeAndValidateImage } from "./image-decode-validation.js";
 
 const isPathInsideRoot = (candidate: string, root: string): boolean => {
   const relative = path.relative(root, candidate);
@@ -79,18 +85,38 @@ export const readTextFile = async (
     throw new Error(pathBlock);
   }
 
+  const scopedRoot = context?.toolWorkspaceRoot?.trim();
+  if (scopedRoot) {
+    try {
+      const read = await readWorkspaceFileNoFollow(
+        filePath,
+        scopedRoot,
+        MAX_FILE_BYTES,
+        context?.toolProcessIdentity
+          ? { owner: context.toolProcessIdentity }
+          : undefined,
+      );
+      return { path: read.path, content: read.bytes.toString("utf8") };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new Error(`File not found: ${filePath}`);
+      }
+      throw error;
+    }
+  }
+
+  let metadata: Awaited<ReturnType<typeof fs.stat>>;
   try {
-    await fs.access(filePath);
+    metadata = await fs.stat(filePath);
   } catch {
     throw new Error(`File not found: ${filePath}`);
   }
-
-  const read = await readFileSafe(filePath);
-  if (!read.ok) {
-    throw new Error(read.error);
+  if (metadata.size > MAX_FILE_BYTES) {
+    throw new Error(
+      `File too large to read safely (${metadata.size} bytes): ${filePath}`,
+    );
   }
-
-  return { path: filePath, content: read.content };
+  return { path: filePath, content: await fs.readFile(filePath, "utf8") };
 };
 
 export const writeTextFile = async (
@@ -302,7 +328,9 @@ export const applyAnchoredEditToFile = async (
 
   const anchor = parseAnchor(args.anchor);
   const endAnchor =
-    args.endAnchor === undefined || args.endAnchor === null || args.endAnchor === ""
+    args.endAnchor === undefined ||
+    args.endAnchor === null ||
+    args.endAnchor === ""
       ? undefined
       : parseAnchor(args.endAnchor);
 
@@ -348,24 +376,68 @@ export const handleRead = async (
     if (pathBlock) {
       throw new Error(pathBlock);
     }
-    const stat = await fs.stat(filePath);
-    if (!stat.isFile()) {
-      throw new Error(`Path is not a file: ${filePath}`);
-    }
-    const file = await fs.open(filePath, "r");
-    let header: Buffer;
-    try {
-      header = Buffer.alloc(12);
-      const { bytesRead } = await file.read(header, 0, header.length, 0);
-      header = header.subarray(0, bytesRead);
-    } finally {
-      await file.close();
-    }
-    const imageMimeType = resolveImageMimeType(filePath, header);
+    const scopedRoot = context?.toolWorkspaceRoot?.trim();
+    const opened = scopedRoot
+      ? await readWorkspaceFileNoFollow(
+          filePath,
+          scopedRoot,
+          MAX_FILE_BYTES,
+          context?.toolProcessIdentity
+            ? { owner: context.toolProcessIdentity }
+            : undefined,
+        )
+      : await (async () => {
+          const stat = await fs.stat(filePath);
+          if (!stat.isFile()) {
+            throw new Error(`Path is not a file: ${filePath}`);
+          }
+          if (stat.size > MAX_FILE_BYTES) {
+            throw new Error(
+              `File too large to read safely (${stat.size} bytes): ${filePath}`,
+            );
+          }
+          return {
+            path: filePath,
+            bytes: await fs.readFile(filePath),
+            stat,
+          };
+        })();
+    const stat = opened.stat;
+    const header = opened.bytes.subarray(0, 12);
+    const imageMimeType = resolveImageMimeType(opened.path, header);
     if (imageMimeType) {
+      if (context?.toolProcessIdentity) {
+        // The generic marker is reopened later by the root agent adapter. A
+        // concurrently running tool-UID shell could swap that pathname after
+        // this authorized read, so carry the bytes already read from the
+        // checked descriptor directly to the native MCP response instead.
+        const decoded = await decodeAndValidateImage(opened.bytes);
+        if (!decoded || decoded.mimeType !== imageMimeType) {
+          return {
+            result: `Image file could not be decoded safely: ${opened.path}`,
+            details: { path: opened.path, mimeType: imageMimeType },
+          };
+        }
+        return {
+          result: `Image file: ${opened.path} (${decoded.width}x${decoded.height})`,
+          details: {
+            path: opened.path,
+            mimeType: decoded.mimeType,
+            width: decoded.width,
+            height: decoded.height,
+          },
+          [TOOL_RESULT_AUTHORIZED_IMAGES]: [
+            {
+              data: opened.bytes,
+              mimeType: decoded.mimeType,
+              sourcePath: opened.path,
+            },
+          ],
+        };
+      }
       return {
-        result: `[stella-attach-image] inline=${imageMimeType} ${filePath}`,
-        details: { path: filePath, mimeType: imageMimeType },
+        result: `[stella-attach-image] inline=${imageMimeType} ${opened.path}`,
+        details: { path: opened.path, mimeType: imageMimeType },
       };
     }
 
@@ -382,10 +454,8 @@ export const handleRead = async (
       };
     }
 
-    const { path: textFilePath, content } = await readTextFile(
-      args.file_path,
-      context,
-    );
+    const textFilePath = opened.path;
+    const content = opened.bytes.toString("utf8");
     const offset = Number(args.offset ?? 1);
     const limit = Number(args.limit ?? 2000);
     // Hashes come from the raw LF-normalized lines (what Edit verifies
@@ -394,7 +464,12 @@ export const handleRead = async (
     const displayLines = normalizeToLF(
       sanitizeToolVisibleText(content, { codeFile: true }),
     ).split("\n");
-    const formatted = formatWithHashLines(rawLines, displayLines, offset, limit);
+    const formatted = formatWithHashLines(
+      rawLines,
+      displayLines,
+      offset,
+      limit,
+    );
     const totalLines = content.split("\n").length;
     const startLine = Math.max(1, Number.isFinite(offset) ? offset : 1);
     const safeLimit = Math.max(0, Number.isFinite(limit) ? limit : 2000);

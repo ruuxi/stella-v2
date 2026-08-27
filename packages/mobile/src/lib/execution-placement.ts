@@ -70,9 +70,19 @@ type CloudConversationProjection = {
 
 const createConversationRef = makeFunctionReference<
   "mutation",
-  { clientCreateId: string; title?: string },
+  {
+    clientCreateId: string;
+    expectedOwnerGeneration: string;
+    title?: string;
+  },
   CloudConversationProjection
 >("cloud_apps:createMyConversation");
+
+const placementIdentityRef = makeFunctionReference<
+  "query",
+  Record<string, never>,
+  { ownerGeneration: string }
+>("execution_placement:getMyExecutionPlacementIdentity");
 
 /**
  * Creates (or replays) the account-owned conversation used by a mobile
@@ -87,8 +97,15 @@ export const ensureAutomaticExecutionConversation = async (args: {
   const clientCreateId = automaticExecutionConversationClientCreateId(
     args.threadId,
   );
-  const conversation = await getConvexClient().mutation(createConversationRef, {
+  const client = getConvexClient();
+  const identity = await client.query(placementIdentityRef, {});
+  const expectedOwnerGeneration = identity?.ownerGeneration?.trim();
+  if (!expectedOwnerGeneration) {
+    throw new Error("Conversation admission could not establish owner authority.");
+  }
+  const conversation = await client.mutation(createConversationRef, {
     clientCreateId,
+    expectedOwnerGeneration,
     title: args.title.trim().slice(0, 80),
   });
   if (

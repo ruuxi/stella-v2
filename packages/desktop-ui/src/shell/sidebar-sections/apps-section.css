@@ -17,6 +17,15 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
+}
+
+.apps-section__local-library {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
 }
 
 .apps-section__grid {
@@ -25,6 +34,45 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.cloud-apps-library {
+  flex: 0 0 auto;
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid var(--border-weak);
+}
+
+.cloud-apps-library__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 9px 3px;
+  color: var(--text-weak);
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+}
+
+.cloud-apps-library__grid {
+  padding: 0;
+}
+
+.cloud-apps-library__badge {
+  flex: 0 0 auto;
+  color: var(--text-weak);
+  font-size: var(--font-size-sm);
+}
+
+.cloud-apps-library__status {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 10px 14px;
+  color: var(--text-weak);
+  font-size: var(--font-size-sm);
 }
 
 .apps-section__card {
@@ -140,7 +188,7 @@
   flex: 1 1 auto;
 }
 
-.apps-section__library--status,
+.apps-section__local-library--status,
 .persistent-user-app-status {
   align-items: center;
   justify-content: center;
@@ -200,6 +248,24 @@
   visibility: hidden;
   pointer-events: none;
   content-visibility: hidden;
+}
+
+.persistent-cloud-app-surface {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  visibility: hidden;
+  pointer-events: none;
+  content-visibility: hidden;
+}
+
+.persistent-cloud-app-surface--active {
+  visibility: visible;
+  pointer-events: auto;
+  content-visibility: visible;
 }
 
 .persistent-user-app-surface--active {

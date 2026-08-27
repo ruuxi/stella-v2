@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import {
@@ -6,6 +7,9 @@ import {
   handleSpawnAgent,
 } from "../tools/state.js";
 import type { AgentToolApi, ToolContext } from "../tools/types.js";
+import { initializeDesktopDatabase } from "../storage/database-init.js";
+import { SessionStore } from "../storage/session-store.js";
+import type { SqliteDatabase } from "../storage/shared.js";
 import { toCloudExecutionSelection } from "./agent-model-config.js";
 import { createCloudSpawnDispatcher } from "./cloud-spawn-dispatch.js";
 
@@ -33,6 +37,21 @@ const managedSelection: CloudExecutionSelection = {
   reasoningEffort: "medium",
 };
 
+const cloudResult = (threadId: string) => ({
+  threadId,
+  conversationId: "cloud-conversation",
+  ownerGeneration: "owner-generation-1",
+  attemptGeneration: 1,
+  threadUpdatedAt: 100,
+  status: "running" as const,
+});
+
+const createStore = () => {
+  const database = new Database(":memory:");
+  initializeDesktopDatabase(database as unknown as SqliteDatabase);
+  return new SessionStore(database as unknown as SqliteDatabase);
+};
+
 describe("desktop cloud execution selection", () => {
   test("serializes an inherited managed General-agent route without an override", async () => {
     const resolutions: unknown[] = [];
@@ -42,10 +61,7 @@ describe("desktop cloud execution selection", () => {
       agentApi({
         cloudDispatch: async (request) => {
           dispatches.push(request);
-          return {
-            threadId: "thr-cloud",
-            conversationId: "cloud-conversation",
-          };
+          return cloudResult("thr-cloud");
         },
       }),
       undefined,
@@ -71,13 +87,20 @@ describe("desktop cloud execution selection", () => {
       {
         workspace: "cloud",
         conversationId: "local-conversation",
+        requestId: "request-1",
         description: "Research",
         prompt: "Research this subject.",
         execution: managedSelection,
       },
     ]);
     expect(result).toMatchObject({
-      result: { thread_id: "thr-cloud", placement: "cloud" },
+      result: {
+        thread_id: "thr-cloud",
+        placement: "cloud",
+        attempt_generation: 1,
+        thread_updated_at: 100,
+        thread_status: "running",
+      },
     });
   });
 
@@ -95,10 +118,7 @@ describe("desktop cloud execution selection", () => {
       agentApi({
         cloudDispatch: async (request) => {
           dispatches.push(request);
-          return {
-            threadId: "thr-claude",
-            conversationId: "cloud-conversation",
-          };
+          return cloudResult("thr-claude");
         },
       }),
       undefined,
@@ -140,10 +160,7 @@ describe("desktop cloud execution selection", () => {
     const state = createStateContext(
       "/tmp/stella-cloud-selection-test",
       agentApi({
-        cloudDispatch: async () => ({
-          threadId: "thr-stella",
-          conversationId: "cloud-conversation",
-        }),
+        cloudDispatch: async () => cloudResult("thr-stella"),
       }),
       () => {},
       async () => {},
@@ -188,10 +205,7 @@ describe("desktop cloud execution selection", () => {
     const state = createStateContext(
       "/tmp/stella-cloud-selection-test",
       agentApi({
-        cloudDispatch: async () => ({
-          threadId: "thr-codex",
-          conversationId: "cloud-conversation",
-        }),
+        cloudDispatch: async () => cloudResult("thr-codex"),
       }),
       undefined,
       undefined,
@@ -274,19 +288,19 @@ describe("desktop cloud execution selection", () => {
       deviceId: "device-1",
       mutation: async (ref, args) => {
         mutations.push({ ref, args });
-        return {
-          threadId: "thr-cloud",
-          conversationId: "cloud-conversation",
-        };
+        return cloudResult("thr-cloud");
       },
       action: async () => ({}),
       query: async () => [],
+      getOwnerGeneration: async () => "owner-generation-1",
+      store: createStore(),
       isSignedIn: () => true,
     });
 
     await dispatch({
       workspace: "cloud",
       conversationId: "local-conversation",
+      requestId: "spawn-request-1",
       description: "Research",
       prompt: "Research this subject.",
       execution: managedSelection,
@@ -296,6 +310,8 @@ describe("desktop cloud execution selection", () => {
       {
         ref: "spawn-ref",
         args: {
+          ownerGeneration: "owner-generation-1",
+          clientMsgId: "spawn-request-1",
           workspace: "cloud",
           description: "Research",
           prompt: "Research this subject.",
@@ -305,5 +321,71 @@ describe("desktop cloud execution selection", () => {
         },
       },
     ]);
+  });
+
+  test("replays a lost spawn response with its captured generation and stable client id", async () => {
+    const store = createStore();
+    const calls: unknown[] = [];
+    let currentGeneration = "owner-generation-1";
+    let loseResponse = true;
+    let signedIn = true;
+    const options = {
+      convexApi: {
+        cloud_apps: {
+          spawnCloudAgentFromDesktop: "spawn-ref",
+          listMyConversations: "list-ref",
+        },
+      },
+      deviceId: "device-1",
+      mutation: async (_ref: unknown, args: unknown) => {
+        calls.push(args);
+        if (loseResponse) throw new Error("response lost after commit");
+        return cloudResult("thr-replayed");
+      },
+      action: async () => ({}),
+      query: async () => [],
+      getOwnerGeneration: async () => currentGeneration,
+      store,
+      isSignedIn: () => signedIn,
+    };
+    const request = {
+      workspace: "cloud",
+      conversationId: "local-conversation",
+      requestId: "spawn-lost-response-1",
+      description: "Research",
+      prompt: "Research this subject.",
+      execution: managedSelection,
+    };
+    await expect(createCloudSpawnDispatcher(options)(request)).rejects.toThrow(
+      "response lost after commit",
+    );
+
+    currentGeneration = "owner-generation-2";
+    loseResponse = false;
+    const replayed = await createCloudSpawnDispatcher(options)(request);
+    expect(replayed).toMatchObject({
+      threadId: "thr-replayed",
+      ownerGeneration: "owner-generation-1",
+      attemptGeneration: 1,
+      status: "running",
+    });
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toEqual(calls[0]);
+    expect(calls[1]).toMatchObject({
+      ownerGeneration: "owner-generation-1",
+      clientMsgId: "spawn-lost-response-1",
+    });
+
+    const callCount = calls.length;
+    signedIn = false;
+    expect(await createCloudSpawnDispatcher(options)(request)).toEqual(replayed);
+    expect(calls).toHaveLength(callCount);
+    await expect(
+      createCloudSpawnDispatcher(options)({
+        ...request,
+        prompt: "A different prompt must not reuse the id.",
+      }),
+    ).rejects.toThrow("reused with different parameters");
+    expect(calls).toHaveLength(callCount);
   });
 });

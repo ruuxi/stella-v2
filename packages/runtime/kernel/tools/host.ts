@@ -26,13 +26,14 @@ import {
   getFileEditToolFamily,
   WRITE_TOOL_NAME,
 } from "./file-edit-policy.js";
-import type {
-  ToolContext,
-  ToolHandler,
-  ToolHandlerExtras,
-  ToolMetadata,
-  ToolHostOptions,
-  ToolResult,
+import {
+  TOOL_RESULT_AUTHORIZED_IMAGES,
+  type ToolContext,
+  type ToolHandler,
+  type ToolHandlerExtras,
+  type ToolMetadata,
+  type ToolHostOptions,
+  type ToolResult,
 } from "./types.js";
 
 import { log, logError, recoverStaleSecretFiles } from "./utils.js";
@@ -188,6 +189,8 @@ export const collectReplSearchableTools = (
 
 export const createToolHost = ({
   stellaAppDir,
+  recoverStaleSecrets = true,
+  enableShellShims = true,
   stellaDataDir,
   stellaBrowserBinPath: _stellaBrowserBinPath,
   stellaOfficeBinPath: _stellaOfficeBinPath,
@@ -227,6 +230,7 @@ export const createToolHost = ({
   const toolCatalog = new Map<string, ToolMetadata>();
 
   const shellState: ShellState = createShellState(stateRoot, {
+    enableShellShims,
     stellaBrowserBinPath: _stellaBrowserBinPath,
     stellaOfficeBinPath: _stellaOfficeBinPath,
     stellaComputerCliPath,
@@ -362,15 +366,17 @@ export const createToolHost = ({
     }),
   });
 
-  void recoverStaleSecretFiles(stateRoot)
-    .then((result) => {
-      if (result.recovered > 0 || result.skipped > 0) {
-        log("Recovered stale secret mounts", result);
-      }
-    })
-    .catch((error) => {
-      logError("Failed to recover stale secret mounts", error);
-    });
+  if (recoverStaleSecrets) {
+    void recoverStaleSecretFiles(stateRoot)
+      .then((result) => {
+        if (result.recovered > 0 || result.skipped > 0) {
+          log("Recovered stale secret mounts", result);
+        }
+      })
+      .catch((error) => {
+        logError("Failed to recover stale secret mounts", error);
+      });
+  }
 
   // Legacy companion handlers (no schema in the catalog; reachable only by
   // direct executeTool calls from non-model code paths). These predate the
@@ -473,6 +479,18 @@ export const createToolHost = ({
       context,
     });
 
+    // Cloud execution deliberately has no unrestricted in-process REPL. Keep
+    // this at the dispatcher as well as the catalog so a replayed/hallucinated
+    // legacy call cannot bypass the cloud adapter's allowlist.
+    if (
+      context.storageMode === "cloud" &&
+      (toolName === "code" || toolName === LEGACY_NODE_REPL_TOOL_NAME)
+    ) {
+      return {
+        error: `${toolName} is not available in cloud execution.`,
+      } satisfies ToolResult;
+    }
+
     // Ownership gate, mirroring the catalog filter for the same
     // catalog-bypass reasons. A parent-owned agent never sees these tools, so
     // reaching here means a hallucinated or replayed call.
@@ -523,9 +541,21 @@ export const createToolHost = ({
 
     const startedAt = Date.now();
     try {
-      const result = sanitizeToolResult(
-        await handler(toolArgs, context, extras),
-      );
+      const rawResult = await handler(toolArgs, context, extras);
+      const authorizedImages = rawResult[TOOL_RESULT_AUTHORIZED_IMAGES];
+      const result = sanitizeToolResult(rawResult);
+      // `sanitizeToolResult` deliberately rebuilds enumerable JSON-shaped
+      // data. Reattach only the symbol-keyed trusted bytes emitted by the
+      // built-in handler so a descriptor-authorized image is not reopened by
+      // pathname after an attacker-controlled race.
+      if (authorizedImages) {
+        Object.defineProperty(result, TOOL_RESULT_AUTHORIZED_IMAGES, {
+          configurable: false,
+          enumerable: false,
+          value: authorizedImages,
+          writable: false,
+        });
+      }
       const duration = Date.now() - startedAt;
       log(`Tool ${toolName} completed in ${duration}ms`, {
         hasResult: "result" in result,

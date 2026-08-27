@@ -7,8 +7,8 @@
  * `voiceProvider` / `transport` fields in the response.
  *
  * Auth model varies by sub-family:
- *   - openai: backend mints a short-lived OpenAI Realtime ephemeral
- *     `client_secret`. Renderer talks WebRTC SDP directly to OpenAI.
+ *   - openai: renderer sends SDP to Stella. Stella creates the OpenAI call,
+ *     captures its revocation locator, and returns only the SDP answer.
  *   - xai: backend mints a short-lived xAI Voice Agent
  *     `client_secret`. Renderer talks WebSocket directly to xAI.
  *   - inworld: Inworld has no ephemeral token concept (their API key is
@@ -27,10 +27,7 @@ import {
   DEFAULT_INWORLD_REALTIME_TTS_MODEL,
 } from "@stella/contracts/realtime-voice-catalog";
 import { OpenAIWebRTCTransport } from "../transports/openai-webrtc-transport";
-import {
-  bearerSdpFetcher,
-  stellaProxiedSdpFetcher,
-} from "../transports/sdp-fetchers";
+import { stellaProxiedSdpFetcher } from "../transports/sdp-fetchers";
 import { XaiWebSocketTransport } from "../transports/xai-websocket-transport";
 import { buildOpenAIRealtimeSessionConfig } from "./openai-provider";
 import type {
@@ -40,8 +37,10 @@ import type {
   RealtimeTransportKind,
   VoiceSessionToken,
 } from "./types";
+import { requireVoiceSessionAuthority } from "./types";
 
 const STELLA_INWORLD_SDP_PATH = "/api/voice/inworld/sdp";
+const STELLA_OPENAI_SDP_PATH = "/api/voice/openai/sdp";
 
 const CONVEX_CONVERSATION_ID_PATTERN = /^[a-z][a-z0-9]+$/;
 
@@ -112,8 +111,13 @@ type StellaSessionResponse = {
   ttsModel?: unknown;
   expiresAt?: unknown;
   sessionId?: unknown;
+  ownerGeneration?: unknown;
   stellaSessionId?: unknown;
-  leaseExpiresAt?: unknown;
+  providerDispatchId?: unknown;
+  providerAttemptId?: unknown;
+  authorityLeaseId?: unknown;
+  authorityEpoch?: unknown;
+  authorityExpiresAt?: unknown;
   /** Provider-supplied STUN/TURN servers. Inworld returns these. */
   iceServers?: unknown;
 };
@@ -193,6 +197,7 @@ export const stellaProvider: ProviderModule = {
         "Stella voice session response did not include a client secret.",
       );
     }
+    const authority = requireVoiceSessionAuthority(raw);
 
     return {
       provider: "stella",
@@ -205,12 +210,7 @@ export const stellaProvider: ProviderModule = {
           : (voice ?? ""),
       expiresAt: typeof raw.expiresAt === "number" ? raw.expiresAt : undefined,
       sessionId: typeof raw.sessionId === "string" ? raw.sessionId : undefined,
-      stellaSessionId:
-        typeof raw.stellaSessionId === "string"
-          ? raw.stellaSessionId
-          : undefined,
-      leaseExpiresAt:
-        typeof raw.leaseExpiresAt === "number" ? raw.leaseExpiresAt : undefined,
+      ...authority,
       iceServers: normalizeIceServers(raw.iceServers),
       speed: inworldSpeed,
       ttsModel:
@@ -257,12 +257,25 @@ export const stellaProvider: ProviderModule = {
       });
     }
 
+    if (
+      !token.stellaSessionId ||
+      !token.ownerGeneration ||
+      !token.providerDispatchId ||
+      !token.providerAttemptId
+    ) {
+      throw new Error("Stella voice session is missing its SDP authority tuple.");
+    }
     return new OpenAIWebRTCTransport({
       provider: "openai",
       model: token.model,
-      sdpFetch: bearerSdpFetcher(
-        "https://api.openai.com/v1/realtime/calls",
-        token.clientSecret,
+      sdpFetch: stellaProxiedSdpFetcher(
+        STELLA_OPENAI_SDP_PATH,
+        token.stellaSessionId,
+        {
+          ownerGeneration: token.ownerGeneration,
+          providerDispatchId: token.providerDispatchId,
+          providerAttemptId: token.providerAttemptId,
+        },
       ),
       initialSessionConfig: buildOpenAIRealtimeSessionConfig(ctx),
     });

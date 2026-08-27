@@ -515,6 +515,7 @@ export const runMobileCanonicalRealAcceptance = async (): Promise<unknown> => {
           {
             clientCreateId:
               automaticExecutionConversationClientCreateId("cloud"),
+            expectedOwnerGeneration,
             title: "Chat",
           },
           timeoutMs,

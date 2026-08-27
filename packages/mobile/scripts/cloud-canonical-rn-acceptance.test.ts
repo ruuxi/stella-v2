@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  MOBILE_RN_CHILD_TIMEOUT_OVERHEAD_MS,
   assertBun14,
   assertHashOnlyAcceptanceResult,
   minimalChildSystemEnvironment,
+  stableJson,
 } from "./cloud-canonical-rn-acceptance.mjs";
 
 const source = (name: string) =>
@@ -70,6 +72,20 @@ describe("mounted mobile cloud-canonical acceptance contract", () => {
     expect(JSON.stringify(child)).not.toContain("must-not-cross");
   });
 
+  test("uses the driver's code-point canonical order for phase summaries", () => {
+    expect(
+      stableJson({
+        identitySwitch: {
+          actualHookRerendered: true,
+          accountsDiffer: true,
+          aToBToA: true,
+        },
+      }),
+    ).toBe(
+      '{"identitySwitch":{"aToBToA":true,"accountsDiffer":true,"actualHookRerendered":true}}',
+    );
+  });
+
   test("mounts the real hook and storage/lifecycle adapters without replacing product authority", async () => {
     const [live, preload] = await Promise.all([
       source("./cloud-canonical-rn-acceptance.live.test.tsx"),
@@ -110,6 +126,16 @@ describe("mounted mobile cloud-canonical acceptance contract", () => {
     }
     expect(orchestrator).toContain("spawn(\n    process.execPath");
     expect(orchestrator).not.toContain("...process.env");
+    expect(MOBILE_RN_CHILD_TIMEOUT_OVERHEAD_MS).toBe(3 * 60_000);
+    expect(orchestrator).toContain(
+      'STELLA_MOBILE_RN_ACCEPTANCE_MODE?.trim() || "phase"',
+    );
+    expect(orchestrator).toContain("const runSinglePhase");
+    expect(orchestrator).not.toContain("const runFull");
+    expect(orchestrator).toContain(
+      "!timedOut && outcome.finishedAt <= deadlineAt",
+    );
+    expect(orchestrator).not.toContain("detached: CHILD_PROCESS_GROUPS");
     expect(live).toContain("sha256(`${runId}:${process.pid}`)");
     expect(live).not.toContain("${process.pid}:${runId}:");
     expect(orchestrator).toContain("actualProductScreenMounted: false");

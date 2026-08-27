@@ -222,6 +222,22 @@ export const createStellaHostRunner = (
     cloudTranscript: context.cloudTranscript,
     hasAuthToken: () => Boolean(context.state.authToken?.trim()),
     cloud: {
+      getOwnerGeneration: async () => {
+        const identity = (await (requireConvexClient() as any).query(
+          (
+            context.convexApi as {
+              execution_placement: {
+                getMyExecutionPlacementIdentity: unknown;
+              };
+            }
+          ).execution_placement.getMyExecutionPlacementIdentity,
+          {},
+        )) as { ownerGeneration?: unknown } | null;
+        if (typeof identity?.ownerGeneration !== "string") {
+          throw new Error("Cloud owner generation is unavailable.");
+        }
+        return identity.ownerGeneration;
+      },
       getOwnershipMigrationStatus: async () =>
         (await (requireConvexClient() as any).query(
           (
@@ -244,7 +260,11 @@ export const createStellaHostRunner = (
           ).cloud_apps.getMyConversation,
           { conversationId },
         )) as { conversationId: string } | null,
-      createConversation: async ({ clientCreateId, title }) =>
+      createConversation: async ({
+        clientCreateId,
+        expectedOwnerGeneration,
+        title,
+      }) =>
         (await (requireConvexClient() as any).mutation(
           (
             context.convexApi as {
@@ -253,6 +273,7 @@ export const createStellaHostRunner = (
           ).cloud_apps.createMyConversation,
           {
             clientCreateId,
+            expectedOwnerGeneration,
             ...(title ? { title } : {}),
           },
         )) as { conversationId: string },
@@ -406,6 +427,14 @@ export const createStellaHostRunner = (
     convexApi: context.convexApi,
     deviceId: context.deviceId,
     subscribeQuery: convexSession.subscribeQuery,
+    query: async (ref, args) => {
+      const client = convexSession.ensureStoreClient();
+      return await (
+        client as unknown as {
+          query: (query: unknown, args: unknown) => Promise<unknown>;
+        }
+      ).query(ref, args);
+    },
     mutation: async (ref, args) => {
       const client = convexSession.ensureStoreClient();
       return await (
@@ -417,6 +446,25 @@ export const createStellaHostRunner = (
     hasDurableLifecycleEvent:
       taskOrchestration.hasDurableExternalLifecycleEvent,
     onLifecycleEvent: taskOrchestration.handleExternalAgentLifecycleEvent,
+    onControlReceipt: (row) => {
+      context.runtimeStore.putCloudAgentThreadControl({
+        threadId: row.threadId,
+        ownerGeneration: row.ownerGeneration,
+        cloudConversationId: row.cloudConversationId,
+        originConversationId: row.originConversationId,
+        attemptGeneration: row.attemptGeneration,
+        threadUpdatedAt: row.updatedAt,
+        status:
+          row.status === "running" ||
+          row.status === "completed" ||
+          row.status === "failed" ||
+          row.status === "canceled"
+            ? row.status
+            : (() => {
+                throw new Error("Invalid cloud agent control status.");
+              })(),
+      });
+    },
   });
   restartCloudAgentLifecycle = () => {
     queueMicrotask(() => cloudAgentLifecycle.start());

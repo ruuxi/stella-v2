@@ -3,10 +3,11 @@
 /**
  * Fixed orchestrator for the mounted mobile cloud-canonical acceptance.
  *
- * Full mode owns three fresh Bun processes: committed-response loss, durable
- * replay/reconnect/account switch, and clean-storage hydration. Post-reset
- * mode owns the long-lived generation-rotation child while the outer driver
- * performs the real account reset through a private file barrier.
+ * Phase mode owns exactly one fresh Bun process. The outer real-product driver
+ * obtains a new product-profile JWT immediately before every phase, then
+ * assembles the three hash-only receipts. Post-reset mode owns the bounded
+ * generation-rotation child while the outer driver performs the real account
+ * reset through a private file barrier.
  */
 
 import { spawn } from "node:child_process";
@@ -19,6 +20,9 @@ import { fileURLToPath } from "node:url";
 const CONTRACT = "stella-mobile-rn-canonical-v2";
 const RECEIPT_MARKER = "STELLA_MOBILE_RN_ACCEPTANCE_RECEIPT=";
 const MAX_CHILD_OUTPUT_BYTES = 4 * 1024 * 1024;
+export const MOBILE_RN_CHILD_TIMEOUT_OVERHEAD_MS = 3 * 60_000;
+const CHILD_TERMINATION_GRACE_MS = 5_000;
+const activeChildren = new Set();
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
@@ -63,14 +67,22 @@ const assert = (condition, message) => {
   if (!condition) throw new Error(message);
 };
 
-const stableJson = (value) => {
+const signalChildProcessTree = (child, signal) => {
+  try {
+    child.kill(signal);
+  } catch {
+    // A concurrently exited child is already terminated.
+  }
+};
+
+export const stableJson = (value) => {
   const encode = (input) => {
     if (Array.isArray(input)) return input.map(encode);
     if (!input || typeof input !== "object") return input;
     return Object.fromEntries(
-      Object.entries(input)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, child]) => [key, encode(child)]),
+      Object.keys(input)
+        .sort()
+        .map((key) => [key, encode(input[key])]),
     );
   };
   return JSON.stringify(encode(value));
@@ -190,6 +202,9 @@ const childResult = async ({ phase, storageDirectory, extraEnv = {} }) => {
           ]),
         )
       : {};
+  const startedAt = Date.now();
+  const deadlineAt =
+    startedAt + timeoutMs + MOBILE_RN_CHILD_TIMEOUT_OVERHEAD_MS;
   const child = spawn(
     process.execPath,
     ["test", "--preload", PRELOAD_FILE, LIVE_TEST_FILE],
@@ -237,30 +252,60 @@ const childResult = async ({ phase, storageDirectory, extraEnv = {} }) => {
       },
     },
   );
+  activeChildren.add(child);
   const chunks = [];
   let bytes = 0;
+  let outputOverflow = false;
+  let timedOut = false;
+  let forceKillTimer = null;
+  const terminate = () => {
+    signalChildProcessTree(child, "SIGTERM");
+    if (forceKillTimer === null) {
+      forceKillTimer = setTimeout(
+        () => signalChildProcessTree(child, "SIGKILL"),
+        CHILD_TERMINATION_GRACE_MS,
+      );
+    }
+  };
   const collect = (chunk) => {
+    if (outputOverflow) return;
     bytes += chunk.byteLength;
     if (bytes > MAX_CHILD_OUTPUT_BYTES) {
-      child.kill("SIGTERM");
+      outputOverflow = true;
+      terminate();
       return;
     }
     chunks.push(chunk);
   };
   child.stdout.on("data", collect);
   child.stderr.on("data", collect);
-  const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs + 180_000);
-  const exitCode = await new Promise((resolve, reject) => {
+  const timer = setTimeout(() => {
+    timedOut = true;
+    terminate();
+  }, timeoutMs + MOBILE_RN_CHILD_TIMEOUT_OVERHEAD_MS);
+  const outcome = await new Promise((resolve, reject) => {
     child.once("error", reject);
-    child.once("close", resolve);
+    child.once("close", (exitCode, signal) =>
+      resolve({ exitCode, signal, finishedAt: Date.now() }),
+    );
+  }).finally(() => {
+    clearTimeout(timer);
+    activeChildren.delete(child);
+    if (forceKillTimer !== null) clearTimeout(forceKillTimer);
   });
-  clearTimeout(timer);
   const output = Buffer.concat(chunks).toString("utf8");
   assert(
-    bytes <= MAX_CHILD_OUTPUT_BYTES,
+    !outputOverflow && bytes <= MAX_CHILD_OUTPUT_BYTES,
     "Mounted RN child output exceeded its limit.",
   );
-  assert(exitCode === 0, `Mounted RN child failed (${sha256(output)}).`);
+  assert(
+    !timedOut && outcome.finishedAt <= deadlineAt,
+    `Mounted RN child exceeded its checked deadline (${sha256(output)}).`,
+  );
+  assert(
+    outcome.exitCode === 0,
+    `Mounted RN child failed (${outcome.signal ?? "exit"}:${sha256(output)}).`,
+  );
   const markerLines = output
     .split(/\r?\n/u)
     .filter((line) => line.startsWith(RECEIPT_MARKER));
@@ -333,14 +378,25 @@ const validateIdentityInputs = (prefix = "STELLA_MOBILE_ACCEPTANCE_") => {
   }
 };
 
-const runFull = async ({ harnessRoot, bunVersion }) => {
-  validateIdentityInputs();
-  validateIdentityInputs("STELLA_MOBILE_ACCEPTANCE_SECONDARY_");
+const runSinglePhase = async ({ harnessRoot, bunVersion }) => {
+  const phase = required("STELLA_MOBILE_RN_ACCEPTANCE_PHASE");
   assert(
-    required("STELLA_MOBILE_ACCEPTANCE_SESSION_SUBJECT") !==
-      required("STELLA_MOBILE_ACCEPTANCE_SECONDARY_SESSION_SUBJECT"),
-    "Primary and secondary mobile identities must be distinct.",
+    [
+      "enqueue_response_loss",
+      "replay_reconnect_switch",
+      "clean_hydrate",
+    ].includes(phase),
+    "Mounted RN single phase is invalid.",
   );
+  validateIdentityInputs();
+  if (phase === "replay_reconnect_switch") {
+    validateIdentityInputs("STELLA_MOBILE_ACCEPTANCE_SECONDARY_");
+    assert(
+      required("STELLA_MOBILE_ACCEPTANCE_SESSION_SUBJECT") !==
+        required("STELLA_MOBILE_ACCEPTANCE_SECONDARY_SESSION_SUBJECT"),
+      "Primary and secondary mobile identities must be distinct.",
+    );
+  }
   const storageRoot = ensureInside(
     harnessRoot,
     path.join(harnessRoot, "mobile-rn-web"),
@@ -353,58 +409,31 @@ const runFull = async ({ harnessRoot, bunVersion }) => {
     !statSync(storageRoot).isSymbolicLink(),
     "Mounted RN storage root cannot be a symlink.",
   );
-  const enqueue = await childResult({
-    phase: "enqueue_response_loss",
-    storageDirectory: continuityStorage,
+  const result = await childResult({
+    phase,
+    storageDirectory:
+      phase === "clean_hydrate" ? cleanGenerationStorage : continuityStorage,
+    ...(phase === "replay_reconnect_switch"
+      ? {
+          extraEnv: {
+            STELLA_MOBILE_RN_EXPECTED_PRIOR_STATE_SHA256: required(
+              "STELLA_MOBILE_RN_EXPECTED_PRIOR_STATE_SHA256",
+            ),
+          },
+        }
+      : {}),
   });
-  const replay = await childResult({
-    phase: "replay_reconnect_switch",
-    storageDirectory: continuityStorage,
-    extraEnv: {
-      STELLA_MOBILE_RN_EXPECTED_PRIOR_STATE_SHA256: enqueue.storageStateSha256,
-    },
-  });
-  assert(
-    enqueue.sendIdSha256 === replay.sendIdSha256 &&
-      enqueue.dispatchIdSha256 === replay.dispatchIdSha256,
-    "Response-loss replay changed its durable request or dispatch identity.",
-  );
-  assert(
-    enqueue.processIdSha256 !== replay.processIdSha256,
-    "Response-loss replay did not cross a JavaScript process boundary.",
-  );
-  const clean = await childResult({
-    phase: "clean_hydrate",
-    storageDirectory: cleanGenerationStorage,
-  });
-  assert(
-    new Set([
-      enqueue.processIdSha256,
-      replay.processIdSha256,
-      clean.processIdSha256,
-    ]).size === 3,
-    "Mounted phases did not use three distinct JavaScript process ids.",
-  );
   return {
     version: 2,
     contract: CONTRACT,
-    mode: "full",
+    mode: "phase",
+    phase,
     passed: true,
     runtime: await runtimeEvidence(bunVersion),
     boundary,
-    authority: enqueue.authority,
-    enqueue,
-    replay,
-    clean,
-    generationCanaryOutboxStateSha256: clean.generationCanaryOutboxStateSha256,
-    receipts: [...enqueue.receipts, ...replay.receipts, ...clean.receipts],
-    summarySha256: sha256(
-      stableJson({
-        enqueue: enqueue.storageStateSha256,
-        replay: replay.messageStateSha256,
-        clean: clean.messageStateSha256,
-      }),
-    ),
+    result,
+    receipts: result.receipts,
+    summarySha256: sha256(stableJson(result)),
   };
 };
 
@@ -455,14 +484,14 @@ export const runMountedRnAcceptance = async () => {
   required("STELLA_MOBILE_ACCEPTANCE_CONVEX_ORIGIN");
   required("STELLA_MOBILE_ACCEPTANCE_CONVEX_SITE_ORIGIN");
   required("STELLA_MOBILE_ACCEPTANCE_BUILDER_ORIGIN");
-  const mode = process.env.STELLA_MOBILE_RN_ACCEPTANCE_MODE?.trim() || "full";
+  const mode = process.env.STELLA_MOBILE_RN_ACCEPTANCE_MODE?.trim() || "phase";
   assert(
-    mode === "full" || mode === "post_reset_generation",
+    mode === "phase" || mode === "post_reset_generation",
     "Mounted RN acceptance mode is invalid.",
   );
   const result =
-    mode === "full"
-      ? await runFull({ harnessRoot, bunVersion })
+    mode === "phase"
+      ? await runSinglePhase({ harnessRoot, bunVersion })
       : await runPostResetGeneration({ harnessRoot, bunVersion });
   assert(SHA256_PATTERN.test(result.summarySha256), "Summary hash is invalid.");
   return assertHashOnlyAcceptanceResult(result, {
@@ -485,7 +514,46 @@ export const runMountedRnAcceptance = async () => {
   });
 };
 
+const terminateActiveChildrenForSignal = async () => {
+  const children = [...activeChildren];
+  if (children.length === 0) return;
+  for (const child of children) signalChildProcessTree(child, "SIGTERM");
+  await Promise.race([
+    Promise.all(
+      children.map(
+        (child) =>
+          new Promise((resolve) => {
+            if (
+              !activeChildren.has(child) ||
+              child.exitCode !== null ||
+              child.signalCode !== null
+            ) {
+              resolve();
+              return;
+            }
+            child.once("close", resolve);
+            child.once("error", resolve);
+          }),
+      ),
+    ),
+    new Promise((resolve) =>
+      setTimeout(resolve, CHILD_TERMINATION_GRACE_MS - 1_000),
+    ),
+  ]);
+  for (const child of activeChildren) signalChildProcessTree(child, "SIGKILL");
+};
+
 if (import.meta.main) {
+  let terminatingFromSignal = false;
+  const terminateFromSignal = (exitCode) => {
+    if (terminatingFromSignal) return;
+    terminatingFromSignal = true;
+    void terminateActiveChildrenForSignal().finally(() => {
+      process.exit(exitCode);
+    });
+  };
+  process.once("SIGTERM", () => terminateFromSignal(143));
+  process.once("SIGINT", () => terminateFromSignal(130));
   try {
     const result = await runMountedRnAcceptance();
     process.stdout.write(`${JSON.stringify(result)}\n`);

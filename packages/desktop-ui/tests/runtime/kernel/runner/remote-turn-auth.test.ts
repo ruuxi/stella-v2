@@ -16,6 +16,8 @@ import {
   shouldStopRemoteTurnForAuthFailure,
 } from "@stella/runtime/kernel/runner";
 
+const OWNER_GENERATION = "owner-generation-1";
+
 const attemptReceipt = (
   attemptId: string,
   overrides: Partial<RemoteTurnAttemptReceipt> = {},
@@ -64,6 +66,7 @@ const connectorRequest = (requestId = "request-1"): RemoteTurnRequestEvent => ({
   timestamp: Date.now(),
   type: "remote_turn_request",
   requestId,
+  ownerGeneration: OWNER_GENERATION,
   payload: {
     conversationId: "conversation-1",
     text: "Please handle this request.",
@@ -182,6 +185,7 @@ describe("remote-turn mobile model override", () => {
         timestamp: Date.now(),
         type: "remote_turn_request",
         requestId: "request-1",
+        ownerGeneration: OWNER_GENERATION,
         payload: {
           conversationId: "conversation-1",
           text: "Use the model I picked on my phone.",
@@ -237,6 +241,7 @@ describe("remote-turn mobile model override", () => {
         timestamp: Date.now(),
         type: "remote_turn_request",
         requestId: "request-1",
+        ownerGeneration: OWNER_GENERATION,
         payload: {
           conversationId: "conversation-1",
           text: "[Audio]",
@@ -301,6 +306,7 @@ describe("remote-turn mobile model override", () => {
         timestamp: Date.now(),
         type: "remote_turn_request",
         requestId: "request-1",
+        ownerGeneration: OWNER_GENERATION,
         payload: {
           conversationId: "conversation-1",
           text: "[Attachment]",

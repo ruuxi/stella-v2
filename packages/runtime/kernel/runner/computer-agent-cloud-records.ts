@@ -35,9 +35,11 @@ type ComputerAgentCloudOutboxStore = Pick<
   | "countComputerAgentCloudOutbox"
   | "markComputerAgentCloudOutboxRetry"
   | "resumeComputerAgentCloudOutbox"
-  | "getComputerAgentCloudThreadOwnerScope"
+  | "getComputerAgentCloudThreadAuthority"
   | "hasUnscopedComputerAgentCloudOutbox"
-  | "bindComputerAgentCloudThreadOwnerScope"
+  | "isComputerAgentCloudGenerationRetired"
+  | "bindComputerAgentCloudThreadAuthority"
+  | "retireComputerAgentCloudGeneration"
   | "deleteComputerAgentCloudOutbox"
 >;
 
@@ -48,6 +50,7 @@ export type ComputerAgentCloudRecords = {
     description: string;
     agentType: string;
     attemptGeneration: number;
+    ownerGeneration: string;
   }) => Promise<{ agentId: string }>;
   complete: (args: {
     agentId: string;
@@ -55,12 +58,14 @@ export type ComputerAgentCloudRecords = {
     status: LocalTerminalStatus;
     result?: string;
     error?: string;
+    ownerGeneration: string;
   }) => Promise<void>;
   get: (agentId: string) => Promise<AgentToolSnapshot | null>;
   cancel: (
     agentId: string,
     reason?: string,
     attemptGeneration?: number,
+    ownerGeneration?: string,
   ) => Promise<{ canceled: boolean }>;
   pending: () => number;
   resume: () => void;
@@ -127,12 +132,14 @@ const outboxId = (
   deviceId: string,
   threadId: string,
   attemptGeneration: number,
+  ownerGeneration: string,
   kind: "start" | "terminal" | "cancel",
 ): string =>
   `computer-agent-cloud:${JSON.stringify([
     deviceId,
     threadId,
     attemptGeneration,
+    ownerGeneration,
     kind,
   ])}`;
 
@@ -144,7 +151,54 @@ const errorMessage = (error: unknown): string =>
     ? error.message.trim()
     : String(error);
 
-const parsePayload = <T>(payloadJson: string): T => JSON.parse(payloadJson) as T;
+const parsePayload = <T>(payloadJson: string): T =>
+  JSON.parse(payloadJson) as T;
+
+const isOwnerGenerationStale = (error: unknown): boolean => {
+  const record = asRecord(error);
+  const data = asRecord(record?.data);
+  return (
+    data?.code === "OWNER_DATA_GENERATION_STALE" ||
+    errorMessage(error).includes("OWNER_DATA_GENERATION_STALE")
+  );
+};
+
+const convexErrorCode = (error: unknown): string | null => {
+  const record = asRecord(error);
+  const direct = record?.code;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  const nested = asRecord(record?.data)?.code;
+  return typeof nested === "string" && nested.trim() ? nested.trim() : null;
+};
+
+export class CloudAgentStartAdmissionError extends Error {
+  readonly code: string;
+  readonly retryable: boolean;
+
+  constructor(args: {
+    code: string;
+    message: string;
+    retryable: boolean;
+  }) {
+    super(args.message);
+    this.name = "CloudAgentStartAdmissionError";
+    this.code = args.code;
+    this.retryable = args.retryable;
+  }
+}
+
+export const isCloudAgentStartAdmissionError = (
+  error: unknown,
+): error is CloudAgentStartAdmissionError =>
+  error instanceof CloudAgentStartAdmissionError ||
+  (asRecord(error)?.name === "CloudAgentStartAdmissionError" &&
+    typeof asRecord(error)?.code === "string" &&
+    typeof asRecord(error)?.retryable === "boolean");
+
+type StartAdmissionWaiter = {
+  state: "pending" | "acknowledged" | "rejected";
+  error?: CloudAgentStartAdmissionError;
+};
 
 /**
  * Stable routing lane for one Convex identity. This is not an authentication
@@ -158,9 +212,7 @@ export const resolveConvexJwtOwnerScope = (
   if (!normalized) return null;
   try {
     const payload = JSON.parse(
-      Buffer.from(normalized.split(".")[1] ?? "", "base64url").toString(
-        "utf8",
-      ),
+      Buffer.from(normalized.split(".")[1] ?? "", "base64url").toString("utf8"),
     ) as Record<string, unknown>;
     const tokenIdentifier =
       typeof payload.tokenIdentifier === "string"
@@ -202,11 +254,31 @@ export const createComputerAgentCloudRecords = (
 
   /** Cancel thunk for the pending drain-delay fiber (the old `clearTimeout`). */
   let cancelRetryDelay: (() => void) | null = null;
-  let draining = false;
+  let activeDrainPromise: Promise<void> | null = null;
   let stopped = false;
-  let lastKnownOwnerScope = resolveConvexJwtOwnerScope(
-    options.getAuthToken(),
-  );
+  let lastKnownOwnerScope = resolveConvexJwtOwnerScope(options.getAuthToken());
+  const startAdmissionWaiters = new Map<string, Set<StartAdmissionWaiter>>();
+
+  const settleStartAdmission = (
+    id: string,
+    state: "acknowledged" | "rejected",
+    error?: CloudAgentStartAdmissionError,
+  ): void => {
+    const waiters = startAdmissionWaiters.get(id);
+    if (!waiters) return;
+    for (const waiter of waiters) {
+      waiter.state = state;
+      waiter.error = error;
+    }
+    startAdmissionWaiters.delete(id);
+  };
+
+  const admissionError = (args: {
+    code: string;
+    retryable: boolean;
+    message: string;
+  }): CloudAgentStartAdmissionError =>
+    new CloudAgentStartAdmissionError(args);
 
   const currentOwnerScope = (): string | null => {
     const scope = resolveConvexJwtOwnerScope(options.getAuthToken());
@@ -214,10 +286,20 @@ export const createComputerAgentCloudRecords = (
     return scope;
   };
 
-  const ownerScopeForThread = (threadId: string): string | null => {
+  const authorityForThread = (
+    threadId: string,
+    ownerGeneration: string,
+    allowBind: boolean,
+  ): { ownerScope: string; ownerGeneration: string } | null => {
     const existing =
-      options.store.getComputerAgentCloudThreadOwnerScope(threadId);
-    if (existing) return existing;
+      options.store.getComputerAgentCloudThreadAuthority(threadId);
+    if (
+      existing &&
+      existing?.ownerGeneration === ownerGeneration &&
+      existing.ownerScope === (currentOwnerScope() ?? lastKnownOwnerScope)
+    ) {
+      return existing;
+    }
     // Rows written by the first unscoped outbox build have no trustworthy
     // identity evidence. Never adopt them into whichever account happens to
     // be signed in after upgrade.
@@ -225,10 +307,21 @@ export const createComputerAgentCloudRecords = (
       return null;
     }
     const candidate = currentOwnerScope() ?? lastKnownOwnerScope;
-    return candidate
-      ? options.store.bindComputerAgentCloudThreadOwnerScope(
+    if (
+      !candidate ||
+      options.store.isComputerAgentCloudGenerationRetired({
+        threadId,
+        ownerScope: candidate,
+        ownerGeneration,
+      })
+    ) {
+      return null;
+    }
+    return allowBind
+      ? options.store.bindComputerAgentCloudThreadAuthority(
           threadId,
           candidate,
+          ownerGeneration,
         )
       : null;
   };
@@ -259,12 +352,16 @@ export const createComputerAgentCloudRecords = (
           description: payload.description,
           agentType: payload.agentType,
           attemptGeneration: entry.attemptGeneration,
+          ownerGeneration: entry.ownerGeneration,
         }),
       );
       if (asRecord(raw)?.agentId !== entry.threadId) {
-        throw new Error(
-          "Stella's cloud returned the wrong computer-agent thread id.",
-        );
+        throw admissionError({
+          code: "COMPUTER_AGENT_START_PROTOCOL_INVALID",
+          retryable: false,
+          message:
+            "Stella's cloud returned the wrong computer-agent thread id.",
+        });
       }
       return;
     }
@@ -280,6 +377,7 @@ export const createComputerAgentCloudRecords = (
             threadId: entry.threadId,
             originDeviceId: options.deviceId,
             attemptGeneration: entry.attemptGeneration,
+            ownerGeneration: entry.ownerGeneration,
             status: payload.status === "error" ? "failed" : payload.status,
             ...(payload.result ? { result: payload.result } : {}),
             ...(payload.error ? { error: payload.error } : {}),
@@ -295,84 +393,289 @@ export const createComputerAgentCloudRecords = (
         threadId: entry.threadId,
         originDeviceId: options.deviceId,
         attemptGeneration: entry.attemptGeneration,
+        ownerGeneration: entry.ownerGeneration,
         ...(payload.reason ? { reason: payload.reason } : {}),
       }),
     );
   };
 
-  const drain = async (): Promise<void> => {
-    if (draining || stopped) return;
-    draining = true;
-    try {
-      while (!stopped) {
-        const ownerScope = currentOwnerScope();
-        if (!ownerScope) {
-          scheduleDrain(NO_AUTH_RETRY_MS);
-          return;
+  const runDrain = async (): Promise<void> => {
+    while (!stopped) {
+      const ownerScope = currentOwnerScope();
+      if (!ownerScope) {
+        scheduleDrain(NO_AUTH_RETRY_MS);
+        return;
+      }
+      const entry = options.store.listComputerAgentCloudOutbox(
+        ownerScope,
+        1,
+      )[0];
+      if (!entry) return;
+      const authority = options.store.getComputerAgentCloudThreadAuthority(
+        entry.threadId,
+      );
+      if (
+        !entry.ownerGeneration ||
+        !authority ||
+        authority.ownerScope !== ownerScope ||
+        authority.ownerGeneration !== entry.ownerGeneration
+      ) {
+        if (entry.kind === "start") {
+          settleStartAdmission(
+            entry.id,
+            "rejected",
+            admissionError({
+              code: "OWNER_DATA_GENERATION_STALE",
+              retryable: false,
+              message:
+                "OWNER_DATA_GENERATION_STALE: computer-agent start was rejected for a retired or mismatched owner generation.",
+            }),
+          );
         }
-        const entry = options.store.listComputerAgentCloudOutbox(
-          ownerScope,
-          1,
-        )[0];
-        if (!entry) return;
-        const now = Date.now();
-        if (entry.nextAttemptAt > now) {
-          scheduleDrain(entry.nextAttemptAt - now);
-          return;
-        }
-        try {
-          await deliver(entry);
-          if (stopped) return;
-          if (currentOwnerScope() !== ownerScope) {
-            options.store.markComputerAgentCloudOutboxRetry({
-              id: entry.id,
-              error: "auth_identity_changed_during_delivery",
-              nextAttemptAt: Date.now() + BASE_RETRY_MS,
-            });
-            scheduleDrain(0);
-            return;
-          }
+        if (entry.ownerGeneration) {
+          options.store.retireComputerAgentCloudGeneration({
+            threadId: entry.threadId,
+            ownerScope,
+            ownerGeneration: entry.ownerGeneration,
+          });
+        } else {
           options.store.deleteComputerAgentCloudOutbox(entry.id);
-        } catch (error) {
-          if (stopped) return;
-          const delayMs = retryDelay(entry.attempts);
+        }
+        continue;
+      }
+      const now = Date.now();
+      if (entry.nextAttemptAt > now) {
+        scheduleDrain(entry.nextAttemptAt - now);
+        return;
+      }
+      try {
+        await deliver(entry);
+        if (stopped) return;
+        const ownerScopeAfterDelivery = currentOwnerScope();
+        const authorityAfterDelivery =
+          options.store.getComputerAgentCloudThreadAuthority(entry.threadId);
+        if (
+          !authorityAfterDelivery ||
+          authorityAfterDelivery.ownerScope !== ownerScope ||
+          authorityAfterDelivery.ownerGeneration !== entry.ownerGeneration
+        ) {
+          if (entry.kind === "start") {
+            settleStartAdmission(
+              entry.id,
+              "rejected",
+              admissionError({
+                code: "OWNER_DATA_GENERATION_STALE",
+                retryable: false,
+                message:
+                  "OWNER_DATA_GENERATION_STALE: computer-agent ownership changed before the exact start acknowledgement was durable locally.",
+              }),
+            );
+          }
+          if (entry.ownerGeneration) {
+            options.store.retireComputerAgentCloudGeneration({
+              threadId: entry.threadId,
+              ownerScope,
+              ownerGeneration: entry.ownerGeneration,
+            });
+          }
+          continue;
+        }
+        if (ownerScopeAfterDelivery !== ownerScope) {
           options.store.markComputerAgentCloudOutboxRetry({
             id: entry.id,
-            error: errorMessage(error),
-            nextAttemptAt: Date.now() + delayMs,
+            error: "auth_identity_changed_during_delivery",
+            nextAttemptAt: Date.now() + BASE_RETRY_MS,
           });
-          scheduleDrain(
-            currentOwnerScope() === ownerScope ? delayMs : 0,
-          );
+          if (entry.kind === "start") {
+            settleStartAdmission(
+              entry.id,
+              "rejected",
+              admissionError({
+                code: "COMPUTER_AGENT_START_ACK_PENDING",
+                retryable: true,
+                message:
+                  "Computer-agent start may have reached the cloud, but authentication changed before its exact acknowledgement was durable locally.",
+              }),
+            );
+          }
+          scheduleDrain(0);
           return;
         }
+        options.store.deleteComputerAgentCloudOutbox(entry.id);
+        if (entry.kind === "start") {
+          settleStartAdmission(entry.id, "acknowledged");
+        }
+      } catch (error) {
+        if (stopped) return;
+        if (isOwnerGenerationStale(error) && entry.ownerGeneration) {
+          if (entry.kind === "start") {
+            settleStartAdmission(
+              entry.id,
+              "rejected",
+              admissionError({
+                code: "OWNER_DATA_GENERATION_STALE",
+                retryable: false,
+                message: errorMessage(error),
+              }),
+            );
+          }
+          options.store.retireComputerAgentCloudGeneration({
+            threadId: entry.threadId,
+            ownerScope,
+            ownerGeneration: entry.ownerGeneration,
+          });
+          continue;
+        }
+        const code = convexErrorCode(error);
+        if (
+          entry.kind === "start" &&
+          (isCloudAgentStartAdmissionError(error) ||
+            code === "COMPUTER_AGENT_START_REJECTED")
+        ) {
+          const rejected = isCloudAgentStartAdmissionError(error)
+            ? error
+            : admissionError({
+                code: code ?? "COMPUTER_AGENT_START_REJECTED",
+                retryable: false,
+                message: errorMessage(error),
+              });
+          options.store.deleteComputerAgentCloudOutbox(entry.id);
+          settleStartAdmission(entry.id, "rejected", rejected);
+          continue;
+        }
+        const delayMs = retryDelay(entry.attempts);
+        options.store.markComputerAgentCloudOutboxRetry({
+          id: entry.id,
+          error: errorMessage(error),
+          nextAttemptAt: Date.now() + delayMs,
+        });
+        if (entry.kind === "start") {
+          settleStartAdmission(
+            entry.id,
+            "rejected",
+            admissionError({
+              code: "COMPUTER_AGENT_START_ACK_PENDING",
+              retryable: true,
+              message: errorMessage(error),
+            }),
+          );
+        }
+        scheduleDrain(currentOwnerScope() === ownerScope ? delayMs : 0);
+        return;
       }
-    } finally {
-      draining = false;
     }
+  };
+
+  const drain = (): Promise<void> => {
+    if (stopped) return Promise.resolve();
+    if (activeDrainPromise) return activeDrainPromise;
+    const pending = runDrain().finally(() => {
+      if (activeDrainPromise === pending) activeDrainPromise = null;
+    });
+    activeDrainPromise = pending;
+    return pending;
   };
 
   const enqueue = async (args: {
     kind: "start" | "terminal" | "cancel";
     threadId: string;
     attemptGeneration: number;
+    ownerGeneration: string;
     payload: unknown;
   }): Promise<void> => {
-    const ownerScope = ownerScopeForThread(args.threadId);
-    options.store.putComputerAgentCloudOutbox({
-      id: outboxId(
-        options.deviceId,
-        args.threadId,
-        args.attemptGeneration,
-        args.kind,
-      ),
-      kind: args.kind,
-      threadId: args.threadId,
-      attemptGeneration: args.attemptGeneration,
-      ownerScope,
-      payloadJson: JSON.stringify(args.payload),
-    });
-    await drain();
+    const authority = authorityForThread(
+      args.threadId,
+      args.ownerGeneration,
+      args.kind === "start",
+    );
+    const ownerScope = currentOwnerScope() ?? lastKnownOwnerScope;
+    if (!authority && (ownerScope || args.kind !== "start")) {
+      const message = `OWNER_DATA_GENERATION_STALE: ${args.kind} was rejected for a retired or mismatched computer-agent generation.`;
+      throw args.kind === "start"
+        ? admissionError({
+            code: "OWNER_DATA_GENERATION_STALE",
+            retryable: false,
+            message,
+          })
+        : new Error(message);
+    }
+    const id = outboxId(
+      options.deviceId,
+      args.threadId,
+      args.attemptGeneration,
+      args.ownerGeneration,
+      args.kind,
+    );
+    const startWaiter: StartAdmissionWaiter | null =
+      args.kind === "start" ? { state: "pending" } : null;
+    if (startWaiter) {
+      const waiters = startAdmissionWaiters.get(id) ?? new Set();
+      waiters.add(startWaiter);
+      startAdmissionWaiters.set(id, waiters);
+    }
+    try {
+      options.store.putComputerAgentCloudOutbox({
+        id,
+        kind: args.kind,
+        threadId: args.threadId,
+        attemptGeneration: args.attemptGeneration,
+        ownerScope: authority?.ownerScope ?? null,
+        // The expected lifecycle epoch is known at local admission even during
+        // an auth refresh gap. Keep it on the durable row; only ownerScope may
+        // remain null (and such a legacy/unattributed row is never adopted).
+        ownerGeneration: args.ownerGeneration,
+        payloadJson: JSON.stringify(args.payload),
+      });
+      const joinedExistingDrain = activeDrainPromise !== null;
+      await drain();
+      // If this enqueue joined a drain that had already observed an empty
+      // queue, make one fresh pass so the newly durable row cannot sleep until
+      // an unrelated resume/enqueue wakes it.
+      if (joinedExistingDrain && !stopped) await drain();
+      if (
+        authority &&
+        options.store.isComputerAgentCloudGenerationRetired({
+          threadId: args.threadId,
+          ownerScope: authority.ownerScope,
+          ownerGeneration: args.ownerGeneration,
+        })
+      ) {
+        const message = `OWNER_DATA_GENERATION_STALE: ${args.kind} was rejected by the canonical owner lifecycle.`;
+        throw args.kind === "start"
+          ? admissionError({
+              code: "OWNER_DATA_GENERATION_STALE",
+              retryable: false,
+              message,
+            })
+          : new Error(message);
+      }
+      if (startWaiter?.state === "pending") {
+        startWaiter.state = "rejected";
+        startWaiter.error = admissionError({
+          code: "COMPUTER_AGENT_START_ACK_PENDING",
+          retryable: true,
+          message:
+            "Computer-agent execution was not started because the cloud did not durably acknowledge its exact start attempt.",
+        });
+      }
+      if (startWaiter?.state === "rejected") {
+        throw (
+          startWaiter.error ??
+          admissionError({
+            code: "COMPUTER_AGENT_START_ACK_PENDING",
+            retryable: true,
+            message:
+              "Computer-agent execution was not started because its exact cloud acknowledgement is still pending.",
+          })
+        );
+      }
+    } finally {
+      if (startWaiter) {
+        const waiters = startAdmissionWaiters.get(id);
+        waiters?.delete(startWaiter);
+        if (waiters?.size === 0) startAdmissionWaiters.delete(id);
+      }
+    }
   };
 
   const records: ComputerAgentCloudRecords = {
@@ -381,6 +684,7 @@ export const createComputerAgentCloudRecords = (
         kind: "start",
         threadId: args.agentId,
         attemptGeneration: args.attemptGeneration,
+        ownerGeneration: args.ownerGeneration,
         payload: {
           conversationId: args.conversationId,
           description: args.description,
@@ -395,6 +699,7 @@ export const createComputerAgentCloudRecords = (
         kind: "terminal",
         threadId: args.agentId,
         attemptGeneration: args.attemptGeneration,
+        ownerGeneration: args.ownerGeneration,
         payload: {
           status: args.status,
           ...(args.result ? { result: args.result } : {}),
@@ -405,48 +710,50 @@ export const createComputerAgentCloudRecords = (
 
     get: async (agentId) => {
       if (!currentOwnerScope()) return null;
+      const authority =
+        options.store.getComputerAgentCloudThreadAuthority(agentId);
+      if (!authority || authority.ownerScope !== currentOwnerScope())
+        return null;
       try {
         return parseSnapshot(
           await withTimeout(
             options.query(api.local_agent_threads.getMyComputerAgentThread, {
               threadId: agentId,
               originDeviceId: options.deviceId,
+              ownerGeneration: authority.ownerGeneration,
             }),
           ),
         );
-      } catch {
+      } catch (error) {
+        if (isOwnerGenerationStale(error)) {
+          options.store.retireComputerAgentCloudGeneration({
+            threadId: agentId,
+            ownerScope: authority.ownerScope,
+            ownerGeneration: authority.ownerGeneration,
+          });
+        }
         return null;
       }
     },
 
-    cancel: async (agentId, reason, attemptGeneration) => {
+    cancel: async (agentId, reason, attemptGeneration, ownerGeneration) => {
       if (attemptGeneration === undefined) {
-        const ownerScope = currentOwnerScope();
-        const boundOwner =
-          options.store.getComputerAgentCloudThreadOwnerScope(agentId);
-        if (!ownerScope || (boundOwner && boundOwner !== ownerScope)) {
-          return { canceled: false };
-        }
-        try {
-          const raw = await withTimeout(
-            options.mutation(
-              api.local_agent_threads.cancelMyComputerAgentThread,
-              {
-                threadId: agentId,
-                originDeviceId: options.deviceId,
-                ...(reason ? { reason } : {}),
-              },
-            ),
-          );
-          return { canceled: asRecord(raw)?.canceled === true };
-        } catch {
-          return { canceled: false };
-        }
+        // A thread id is reusable across attempts, so owner generation alone
+        // cannot identify the execution being canceled. Never let an
+        // unknown-agent fallback mutate whichever attempt happens to be
+        // current after an ABA replacement.
+        return { canceled: false };
       }
+      const expectedGeneration =
+        ownerGeneration ??
+        options.store.getComputerAgentCloudThreadAuthority(agentId)
+          ?.ownerGeneration;
+      if (!expectedGeneration) return { canceled: false };
       await enqueue({
         kind: "cancel",
         threadId: agentId,
         attemptGeneration,
+        ownerGeneration: expectedGeneration,
         payload: {
           ...(reason ? { reason } : {}),
         } satisfies ComputerAgentCancelPayload,
@@ -470,6 +777,15 @@ export const createComputerAgentCloudRecords = (
       if (cancelRetryDelay) {
         cancelRetryDelay();
         cancelRetryDelay = null;
+      }
+      const error = admissionError({
+        code: "COMPUTER_AGENT_START_ACK_PENDING",
+        retryable: true,
+        message:
+          "Computer-agent execution was not started because cloud admission stopped before an exact acknowledgement.",
+      });
+      for (const id of startAdmissionWaiters.keys()) {
+        settleStartAdmission(id, "rejected", error);
       }
     },
   };

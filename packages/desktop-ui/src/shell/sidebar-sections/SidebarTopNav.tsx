@@ -25,6 +25,8 @@ import {
   getSnapshot as getUserAppsSnapshot,
   subscribe as subscribeToUserApps,
 } from "@/app/apps/user-apps-registry";
+import { cloudAppTitles } from "@/features/cloud/cloud-app-title-store";
+import { cloudAppIdFromLocation } from "@/features/cloud/open-cloud-app-panel";
 import { Plus, X } from "@/ui/icons";
 import { SIDEBAR_SECTION_META } from "./section-meta";
 import "./sidebar-top-nav.css";
@@ -39,6 +41,11 @@ export function SidebarTopNav() {
     getUserAppsSnapshot,
     getUserAppsServerSnapshot,
   );
+  const cloudTitles = useSyncExternalStore(
+    cloudAppTitles.subscribe,
+    cloudAppTitles.getSnapshot,
+    cloudAppTitles.getSnapshot,
+  ).titles;
 
   const titleFor = (tab: SidebarTab): string => {
     switch (tab.kind) {
@@ -50,6 +57,8 @@ export function SidebarTopNav() {
         return "Home";
       case "apps": {
         if (!tab.location) return "Apps";
+        const cloudAppId = cloudAppIdFromLocation(tab.location);
+        if (cloudAppId) return cloudTitles[cloudAppId] || "Cloud app";
         const app = appsRegistry.apps.find((a) => a.slug === tab.location);
         return app?.meta.label || tab.location;
       }

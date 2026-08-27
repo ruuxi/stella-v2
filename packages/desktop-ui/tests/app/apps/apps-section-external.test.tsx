@@ -48,6 +48,14 @@ vi.mock("@/app/apps/PersistentUserAppsHost", () => ({
   PersistentUserAppsHost: () => <div data-testid="apps-host" />,
 }));
 
+vi.mock("@/features/cloud/CloudAppsLibrary", () => ({
+  CloudAppsLibrary: () => <div data-testid="cloud-apps-library" />,
+}));
+
+vi.mock("@/features/cloud/PersistentCloudAppsHost", () => ({
+  PersistentCloudAppsHost: () => <div data-testid="cloud-apps-host" />,
+}));
+
 const { AppsSection } = await import("@/shell/sidebar-sections/AppsSection");
 const { sidebarSections } = await import(
   "@/features/workspace-display/sidebar-sections"

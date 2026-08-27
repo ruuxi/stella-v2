@@ -36,6 +36,7 @@ export type RemoteTurnRequestEvent = {
   timestamp: number;
   type: string;
   requestId?: string;
+  ownerGeneration?: string;
   payload?: Record<string, unknown>;
   channelEnvelope?: Record<string, unknown>;
 };
@@ -76,6 +77,7 @@ type RemoteTurnBridgeDeps = {
     requestId: string;
     attemptId: string;
     conversationId: string;
+    ownerGeneration: string;
     userPrompt: string;
     agentType?: string;
     modelOverride?: string;
@@ -803,6 +805,7 @@ export const createRemoteTurnBridge = (
         }
 
         const payload = asRecord(event.payload);
+        const ownerGeneration = getTrimmedString(event.ownerGeneration);
         const conversationId = getTrimmedString(payload?.conversationId);
         const userPrompt = getTrimmedString(payload?.text);
         const agentType = getTrimmedString(payload?.agentType) || undefined;
@@ -821,6 +824,7 @@ export const createRemoteTurnBridge = (
 
         if (
           !conversationId ||
+          !ownerGeneration ||
           (!effectiveUserPrompt && attachments.length === 0)
         ) {
           pending.delete(requestId);
@@ -901,6 +905,7 @@ export const createRemoteTurnBridge = (
             requestId,
             attemptId: next.attemptId,
             conversationId,
+            ownerGeneration,
             userPrompt: effectiveUserPrompt || "The user sent an attachment.",
             agentType,
             modelOverride,

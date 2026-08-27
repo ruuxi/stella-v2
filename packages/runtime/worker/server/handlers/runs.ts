@@ -133,6 +133,7 @@ export const runsHandlers: WorkerRpcHandlers = {
             rejectIfBusy?: boolean;
             remoteTurnAttemptId?: string;
             executionPlacementRunId?: string;
+            ownerGeneration?: string;
             agentType?: string;
             modelOverride?: string;
             toolWorkspaceRoot?: string;

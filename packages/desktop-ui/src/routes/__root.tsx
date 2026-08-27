@@ -181,6 +181,7 @@ function RootLayout() {
     error: authBootstrapError,
     isLoading: isAuthLoading,
     accountScope,
+    ownerSubject,
     retryAuthBootstrap,
   } = useCloudMode();
   const matchRoute = useMatchRoute();
@@ -199,6 +200,14 @@ function RootLayout() {
     cloudApi.listMyConversations,
     cloudMode ? {} : "skip",
   );
+  const placementIdentity = useQuery(
+    cloudApi.getMyExecutionPlacementIdentity,
+    cloudMode ? {} : "skip",
+  );
+  const ownerGeneration =
+    placementIdentity?.ownerId === ownerSubject
+      ? placementIdentity.ownerGeneration
+      : null;
   const ownershipMigration = useQuery(
     cloudApi.getMyOwnershipMigrationStatus,
     cloudMode ? {} : "skip",
@@ -216,6 +225,7 @@ function RootLayout() {
   const cloudCreateRequestRef = useRef<{
     accountScope: string;
     routeIntent: string;
+    ownerGeneration: string;
     clientCreateId: string;
     attempt: number;
     inFlight: boolean;
@@ -226,6 +236,8 @@ function RootLayout() {
   } | null>(null);
   const activeAccountScopeRef = useRef(accountScope);
   activeAccountScopeRef.current = accountScope;
+  const activeOwnerGenerationRef = useRef(ownerGeneration);
+  activeOwnerGenerationRef.current = ownerGeneration;
   const cloudCreateRetryTimerRef = useRef<number | null>(null);
   const [cloudCreateRetrySignal, setCloudCreateRetrySignal] = useState(0);
   const [cloudCreateFailure, setCloudCreateFailure] = useState<{
@@ -473,15 +485,18 @@ function RootLayout() {
       });
       return;
     }
+    if (!ownerGeneration) return;
 
     let request = cloudCreateRequestRef.current;
     if (
       request?.accountScope !== accountScope ||
-      request.routeIntent !== routeIntent
+      request.routeIntent !== routeIntent ||
+      request.ownerGeneration !== ownerGeneration
     ) {
       request = {
         accountScope,
         routeIntent,
+        ownerGeneration,
         clientCreateId: crypto.randomUUID(),
         attempt: 0,
         inFlight: false,
@@ -497,11 +512,15 @@ function RootLayout() {
     request.inFlight = true;
     request.attempt += 1;
     const { attempt, clientCreateId } = request;
-    void createCloudConversation({ clientCreateId })
+    void createCloudConversation({
+      clientCreateId,
+      expectedOwnerGeneration: request.ownerGeneration,
+    })
       .then((created) => {
         const current = cloudCreateRequestRef.current;
         if (
           activeAccountScopeRef.current !== accountScope ||
+          activeOwnerGenerationRef.current !== request.ownerGeneration ||
           activeRouteIntentRef.current !== routeIntent ||
           current?.accountScope !== accountScope ||
           current.routeIntent !== routeIntent ||
@@ -524,6 +543,7 @@ function RootLayout() {
         const current = cloudCreateRequestRef.current;
         if (
           activeAccountScopeRef.current !== accountScope ||
+          activeOwnerGenerationRef.current !== request.ownerGeneration ||
           activeRouteIntentRef.current !== routeIntent ||
           current?.accountScope !== accountScope ||
           current.routeIntent !== routeIntent ||
@@ -553,6 +573,7 @@ function RootLayout() {
     clearCloudCreateRetryTimer,
     cloudConversations,
     cloudCreateRetrySignal,
+    ownerGeneration,
     cloudMode,
     createCloudConversation,
     routeIntent,

@@ -8,15 +8,17 @@ import type {
 import { createToolExecutionSupervisor } from "./tool-lifecycle.js";
 import type { RunResourceRegistrar } from "./run-resources.js";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
-import type { TextContent } from "../../ai/types.js";
+import type { ImageContent, TextContent } from "../../ai/types.js";
 import { DEVICE_TOOL_NAMES } from "../tools/schemas.js";
 import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
 import type {
+  AuthorizedToolImage,
   ToolContext,
   ToolMetadata,
   ToolResult,
   ToolUpdateCallback,
 } from "../tools/types.js";
+import { TOOL_RESULT_AUTHORIZED_IMAGES } from "../tools/types.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
 import { TOOL_IDS } from "@stella/contracts/agent-runtime";
 import {
@@ -39,9 +41,11 @@ import {
   MAX_IMAGE_BASE64_BYTES,
 } from "../../ai/utils/image-payload.js";
 import {
+  maxInlineImageBase64Bytes,
   resolveImageCaps,
   type ImageCapTarget,
 } from "../../ai/utils/image-caps.js";
+import { decodeAndValidateImage } from "../tools/image-decode-validation.js";
 import { buildCatalogSection } from "../tools/code-catalog.js";
 import {
   CODE_TOOL_NAME,
@@ -422,14 +426,17 @@ export const preserveModelVisibleToolText = async (
 // The marker is stripped from the text we forward to the model so the
 // model doesn't waste tokens describing a path it doesn't need to see.
 //
-// We intentionally do NOT trust the model to emit these markers itself —
-// only output that flowed through a runtime tool (e.g. `exec_command`)
-// goes through this transform. The marker can appear anywhere in the
-// tool result text, including inside a JSON-stringified `output` field
-// where real newlines are escaped as `\n` — that's why this regex is
-// position-agnostic. New emitters should use `path=${JSON.stringify(path)}`
-// so spaces, quotes, non-ASCII, and Windows separators survive transport.
-// Legacy whitespace-delimited paths remain supported.
+// This is a local-runtime compatibility parser only. Tool output such as an
+// `exec_command` stdout stream is model-controlled and therefore cannot grant
+// a privileged Cloud adapter permission to reopen a path. Cloud callers use
+// `neutralizeLegacyAttachImageMarkers` and accept only symbol-carried bytes
+// from a descriptor-authorized read. The marker can appear anywhere in local
+// tool result text, including inside a JSON-stringified `output` field where
+// real newlines are escaped as `\n` — that's why this regex is
+// position-agnostic. New local emitters should use
+// `path=${JSON.stringify(path)}` so spaces, quotes, non-ASCII, and Windows
+// separators survive transport. Legacy whitespace-delimited paths remain
+// supported locally.
 const STELLA_ATTACH_IMAGE_MARKER = "[stella-attach-image]";
 const ATTACH_IMAGE_EXTENSION_RE = /\.(?:png|jpg|jpeg|gif|webp)$/i;
 const ABSOLUTE_IMAGE_PATH_RE = /^(?:\/|[A-Za-z]:[\\/])/;
@@ -501,10 +508,7 @@ const parseAttachImageMatches = (text: string): AttachImageMatch[] => {
   return matches;
 };
 
-type ImageBlock = {
-  type: "image";
-  mimeType: string;
-  data: string;
+export type ImageBlock = ImageContent & {
   sourcePath: string;
   width?: number;
   height?: number;
@@ -528,6 +532,124 @@ const unreadableAttachImageNote = (imgPath: string) =>
 
 const normalizeAttachImagePath = (filePath: string) =>
   /^[A-Za-z]:\\\\/.test(filePath) ? filePath.replace(/\\\\/g, "\\") : filePath;
+
+const LEGACY_IMAGE_MARKER_DISABLED_NOTE =
+  "[Path-based tool image attachment ignored; this runtime accepts only descriptor-authorized image bytes.]";
+
+const neutralizeAttachImageString = (text: string): string => {
+  let output = "";
+  let cursor = 0;
+  while (cursor < text.length) {
+    const markerStart = text.indexOf(STELLA_ATTACH_IMAGE_MARKER, cursor);
+    if (markerStart < 0) {
+      output += text.slice(cursor);
+      break;
+    }
+    output += text.slice(cursor, markerStart);
+    const newline = text.indexOf("\n", markerStart);
+    const markerEnd = newline < 0 ? text.length : newline;
+    output += LEGACY_IMAGE_MARKER_DISABLED_NOTE;
+    cursor = markerEnd;
+  }
+  return output.replace(/\n{3,}/g, "\n\n").trim();
+};
+
+/**
+ * Remove legacy path-bearing image markers without reading any referenced
+ * path. Cloud tool output passes through this fail-closed transform: model
+ * text can request or echo a marker, but only symbol-carried bytes that were
+ * already read through the trusted descriptor boundary can become an image.
+ */
+export const neutralizeLegacyAttachImageMarkers = (text: string): string => {
+  if (!text || !text.includes(STELLA_ATTACH_IMAGE_MARKER)) return text;
+  let jsonValue: unknown;
+  try {
+    jsonValue = JSON.parse(text);
+  } catch {
+    return neutralizeAttachImageString(text);
+  }
+  const neutralizeJsonStrings = (value: unknown): unknown => {
+    if (typeof value === "string") return neutralizeAttachImageString(value);
+    if (Array.isArray(value)) return value.map(neutralizeJsonStrings);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value).map(([key, entry]) => [
+          key,
+          neutralizeJsonStrings(entry),
+        ]),
+      );
+    }
+    return value;
+  };
+  return JSON.stringify(neutralizeJsonStrings(jsonValue), null, 2);
+};
+
+/**
+ * Convert bytes already authorized by a trusted file descriptor into model
+ * image blocks. This never reopens `sourcePath`; the path is provenance only.
+ * Provider-specific dimension and byte caps are applied before the bytes
+ * cross the model boundary, with a bounded raw fallback only when the image
+ * was fully decoded and already fits those same caps.
+ */
+export const prepareAuthorizedToolImageBlocks = async (
+  authorizedImages: readonly AuthorizedToolImage[] | undefined,
+  target: ImageCapTarget = {},
+): Promise<ImageBlock[]> => {
+  if (!authorizedImages?.length) return [];
+  const images: ImageBlock[] = [];
+  const caps = resolveImageCaps({
+    ...target,
+    imageCount: authorizedImages.length,
+  });
+  const hardBase64Bytes = maxInlineImageBase64Bytes(target);
+  for (const image of authorizedImages) {
+    // Copy at the trust boundary so a mutable Buffer retained by a handler
+    // cannot change after validation but before MCP/provider serialization.
+    const bytes = Buffer.from(image.data);
+    const decoded = await decodeAndValidateImage(bytes);
+    if (!decoded || decoded.mimeType !== image.mimeType) continue;
+
+    const resized = await resizeImage(bytes, decoded.mimeType, caps);
+    if (resized) {
+      if (
+        Buffer.byteLength(resized.data, "utf8") > caps.maxBytes ||
+        Buffer.byteLength(resized.data, "utf8") > hardBase64Bytes ||
+        resized.width > caps.maxWidth ||
+        resized.height > caps.maxHeight
+      ) {
+        continue;
+      }
+      images.push({
+        type: "image",
+        mimeType: resized.mimeType,
+        data: resized.data,
+        sourcePath: image.sourcePath,
+        width: resized.width,
+        height: resized.height,
+      });
+      continue;
+    }
+
+    const encoded = bytes.toString("base64");
+    if (
+      decoded.width > caps.maxWidth ||
+      decoded.height > caps.maxHeight ||
+      Buffer.byteLength(encoded, "utf8") > caps.maxBytes ||
+      Buffer.byteLength(encoded, "utf8") > hardBase64Bytes
+    ) {
+      continue;
+    }
+    images.push({
+      type: "image",
+      mimeType: decoded.mimeType,
+      data: encoded,
+      sourcePath: image.sourcePath,
+      width: decoded.width,
+      height: decoded.height,
+    });
+  }
+  return images;
+};
 
 /**
  * Context-visible demoted tools for an (already agent-scoped) catalog:
@@ -919,6 +1041,7 @@ type RuntimeToolContextArgs = {
   agentId?: string;
   conversationId: string;
   storageMode?: "cloud" | "local";
+  ownerGeneration?: string;
   agentType: string;
   deviceId: string;
   stellaAppDir?: string;
@@ -960,6 +1083,7 @@ export const buildRuntimeToolContext = (
       ? { toolWorkspaceRoot: args.toolWorkspaceRoot }
       : {}),
     storageMode: args.storageMode ?? "local",
+    ...(args.ownerGeneration ? { ownerGeneration: args.ownerGeneration } : {}),
     ...(args.agentId ? { agentId: args.agentId } : {}),
     ...(args.parentAgentId ? { parentAgentId: args.parentAgentId } : {}),
     ...(typeof args.agentDepth === "number"
@@ -1064,6 +1188,7 @@ export const createPiTools = (opts: {
   agentId?: string;
   conversationId: string;
   storageMode?: "cloud" | "local";
+  ownerGeneration?: string;
   agentType: string;
   deviceId: string;
   stellaAppDir?: string;
@@ -1179,6 +1304,7 @@ export const createPiTools = (opts: {
         agentId: opts.agentId,
         conversationId: opts.conversationId,
         storageMode: opts.storageMode,
+        ownerGeneration: opts.ownerGeneration,
         agentType: opts.agentType,
         deviceId: opts.deviceId,
         stellaAppDir: opts.stellaAppDir,
@@ -1217,13 +1343,25 @@ export const createPiTools = (opts: {
           : undefined,
       });
       const formatted = formatToolResult(toolResult, toolName);
-      // Detect [stella-attach-image] markers in diagnostic tool output and
-      // read the referenced PNG(s) into image content blocks. The model sees
-      // the screenshot on the very next turn with no extra Read step.
+      // Local diagnostic tools retain their legacy path-marker bridge. Cloud
+      // tool output is model-controlled and must never authorize the root
+      // adapter to reopen a pathname, so neutralize it without I/O there.
       const { text: forwardedText, images: legacyImages } =
-        await extractAttachImageBlocks(formatted.text, opts.imageCapTarget);
-      const codeImages = await extractCodeImageBlocks(
-        formatted.details,
+        opts.storageMode === "cloud"
+          ? {
+              text: neutralizeLegacyAttachImageMarkers(formatted.text),
+              images: [],
+            }
+          : await extractAttachImageBlocks(formatted.text, opts.imageCapTarget);
+      const codeImages =
+        opts.storageMode === "cloud"
+          ? []
+          : await extractCodeImageBlocks(
+              formatted.details,
+              opts.imageCapTarget,
+            );
+      const authorizedImages = await prepareAuthorizedToolImageBlocks(
+        toolResult[TOOL_RESULT_AUTHORIZED_IMAGES],
         opts.imageCapTarget,
       );
       const preservedText = await preserveModelVisibleToolText(
@@ -1237,7 +1375,11 @@ export const createPiTools = (opts: {
       );
       const truncatedText = preservedText.text;
       const content: Array<TextContent | ImageBlock> = [];
-      const attachedImages = [...codeImages, ...legacyImages];
+      const attachedImages = [
+        ...codeImages,
+        ...legacyImages,
+        ...authorizedImages,
+      ];
       const screenshotNote =
         attachedImages.length > 0
           ? "\n\n[Image attached below. Inspect it directly. If it is a UI screenshot and the accessibility tree is sparse or missing a visible control, use screenshot x/y coordinates.]"

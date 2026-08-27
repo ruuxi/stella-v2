@@ -53,7 +53,13 @@ export type SocketStatusEvent = {
 export type ConversationSocketEvent =
   | { type: "ready"; ready: ReadyFrame }
   | { type: "records"; records: JournalRecord[] }
-  | { type: "older"; records: JournalRecord[] }
+  | {
+      type: "older";
+      records: JournalRecord[];
+      complete?: boolean;
+      fromSeq?: number;
+      toSeq?: number;
+    }
   | { type: "reset"; reason: string }
   | { type: "gap"; fromSeq: number; toSeq: number }
   | Extract<ServerFrame, { type: "delta" }>
@@ -76,6 +82,8 @@ const BASE_BACKOFF_MS = 250;
 const BACKOFF_RESET_MS = 30_000;
 /** How long a `ready` may claim records the server then does not send. */
 const RESUME_GRACE_MS = 1_500;
+/** Consecutive no-progress repairs before the transcript fails explicitly. */
+const MAX_NO_PROGRESS_BACKFILLS = 3;
 /** How long a liveness probe waits for the auto-response before giving up. */
 const PROBE_TIMEOUT_MS = 5_000;
 /**
@@ -158,8 +166,12 @@ export class ConversationSocket {
   private floorSeq = 0;
   private readonly ahead = new Map<number, JournalRecord>();
   private gapPending = false;
+  private noProgressBackfills = 0;
   private requestCounter = 0;
-  private readonly olderRequests = new Set<string>();
+  private readonly olderRequests = new Map<
+    string,
+    { fromSeq: number; toSeq: number }
+  >();
   private readonly budget = new BackfillBudget();
   /** One free reconnect after a 4401 — a fresh token usually fixes it. */
   private authRetryUsed = false;
@@ -199,6 +211,7 @@ export class ConversationSocket {
   retryNow(): void {
     this.attempt = 0;
     this.authRetryUsed = false;
+    this.noProgressBackfills = 0;
     if (this.stopped) {
       this.start();
       return;
@@ -237,7 +250,7 @@ export class ConversationSocket {
     if (!this.send({ type: "backfill", requestId, fromSeq, toSeq })) {
       return false;
     }
-    this.olderRequests.add(requestId);
+    this.olderRequests.set(requestId, { fromSeq, toSeq });
     return true;
   }
 
@@ -481,6 +494,7 @@ export class ConversationSocket {
   private handleClose(code: number): void {
     this.clearTimers();
     this.gapPending = false;
+    this.noProgressBackfills = 0;
     this.ahead.clear();
     this.olderRequests.clear();
     if (Date.now() - this.liveSinceMs > BACKOFF_RESET_MS && this.liveSinceMs) {
@@ -641,6 +655,7 @@ export class ConversationSocket {
     this.lastSeq = -1;
     this.ahead.clear();
     this.gapPending = false;
+    this.noProgressBackfills = 0;
     this.olderRequests.clear();
     this.options.onEvent({ type: "reset", reason });
   }
@@ -663,21 +678,72 @@ export class ConversationSocket {
   private handleBackfill(
     frame: Extract<ServerFrame, { type: "backfill" }>,
   ): void {
-    if (this.olderRequests.delete(frame.requestId)) {
-      this.options.onEvent({ type: "older", records: frame.records });
+    const olderRequest = this.olderRequests.get(frame.requestId);
+    if (olderRequest) {
+      this.olderRequests.delete(frame.requestId);
+      this.options.onEvent({
+        type: "older",
+        records: frame.records,
+        complete: frame.complete,
+        fromSeq: olderRequest.fromSeq,
+        toSeq: olderRequest.toSeq,
+      });
       return;
     }
     this.gapPending = false;
+    const before = this.lastSeq;
     const applied: JournalRecord[] = [];
     for (const record of frame.records) this.collect(record, applied);
     this.flush(applied);
-    if (!frame.complete && frame.records.length) {
-      // Server truncated the range; ask for the remainder from where it
-      // stopped rather than replaying what already landed.
-      this.requestGap(frame.toSeq);
-    } else if (this.ahead.size) {
-      this.requestGap(Math.min(...this.ahead.keys()) - 1);
+    const throughSeq = this.ahead.size
+      ? Math.min(frame.toSeq, Math.min(...this.ahead.keys()) - 1)
+      : frame.toSeq;
+    const unresolved = this.lastSeq < throughSeq;
+    if (!unresolved) {
+      this.noProgressBackfills = 0;
+      return;
     }
+
+    if (this.lastSeq > before) {
+      this.noProgressBackfills = 0;
+    } else {
+      this.noProgressBackfills += 1;
+      if (this.noProgressBackfills >= MAX_NO_PROGRESS_BACKFILLS) {
+        this.failGapRecovery();
+        return;
+      }
+    }
+    // A partial response may already have discovered an interior hole and sent
+    // its repair from `collect`. Otherwise retry the still-unresolved prefix.
+    // Empty/incomplete replies take this same bounded path instead of silently
+    // clearing `gapPending` and abandoning the canonical range.
+    if (!this.gapPending && !this.requestGap(throughSeq)) {
+      this.failGapRecovery();
+    }
+  }
+
+  private failGapRecovery(): void {
+    const socket = this.socket;
+    this.socket = null;
+    this.stopped = true;
+    this.clearTimers();
+    this.gapPending = false;
+    if (socket) {
+      socket.onclose = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onopen = null;
+      try {
+        socket.close(1000, "incomplete-history");
+      } catch {
+        // Already closing; the explicit status below is the user-visible fact.
+      }
+    }
+    this.setStatus("blocked", {
+      message:
+        "Stella couldn't recover part of this conversation. Retry to load it safely.",
+      retryable: true,
+    });
   }
 
   private applyRecord(record: JournalRecord): void {
@@ -689,9 +755,10 @@ export class ConversationSocket {
   /** Places one record in order, buffering anything that arrived early. */
   private collect(record: JournalRecord, applied: JournalRecord[]): void {
     if (this.lastSeq < 0) {
-      // First record of a fresh view: whatever the server chose to start with
-      // is the window start. Everything below it is reachable by scrollback.
-      this.lastSeq = record.seq - 1;
+      // `ready.windowStartSeq` names the first record promised on a fresh view.
+      // Trusting whichever record happened to arrive first would silently skip
+      // a missing/corrupt prefix and make that later seq look contiguous.
+      this.lastSeq = this.windowStartSeq - 1;
     }
     if (record.seq <= this.lastSeq) return;
     if (record.seq > this.lastSeq + 1) {
@@ -730,12 +797,12 @@ export class ConversationSocket {
     this.armResumeGrace();
   }
 
-  private requestGap(throughSeq: number): void {
-    if (this.gapPending) return;
+  private requestGap(throughSeq: number): boolean {
+    if (this.gapPending) return true;
     const fromSeq = this.lastSeq + 1;
     const toSeq = Math.min(throughSeq, fromSeq + MAX_RESUME_RECORDS - 1);
-    if (toSeq < fromSeq) return;
-    if (!this.budget.take(0)) return;
+    if (toSeq < fromSeq) return true;
+    if (!this.budget.take(0)) return false;
     if (
       !this.send({
         type: "backfill",
@@ -744,8 +811,9 @@ export class ConversationSocket {
         toSeq,
       })
     ) {
-      return;
+      return false;
     }
     this.gapPending = true;
+    return true;
   }
 }

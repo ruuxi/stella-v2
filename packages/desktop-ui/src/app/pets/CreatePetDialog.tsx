@@ -255,6 +255,8 @@ export function CreatePetDialog({ open, onOpenChange }: CreatePetDialogProps) {
       }
       await Promise.all(uploads);
       const created = await createPet({
+        uploadId: upload.uploadId,
+        ownerGeneration: upload.ownerGeneration,
         petId,
         // Backend enrichment renames this to a friendly Stella-generated
         // name + description + tags right after insert.

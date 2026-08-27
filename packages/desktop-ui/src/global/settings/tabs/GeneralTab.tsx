@@ -23,6 +23,7 @@ import {
   type ReduceMotionPreference,
 } from "@/shared/lib/interface-preferences";
 import { openExternalUrl } from "@/platform/electron/open-external";
+import { useCloudMemoryPreference } from "@/features/cloud/use-cloud-memory-preference";
 import { useT } from "@/shared/i18n";
 import type { LockedComputerUseStatus } from "@/shared/types/electron";
 import {
@@ -51,6 +52,7 @@ const isMacAdminPromptCancelled = (error: unknown) => {
 
 export function GeneralTab() {
   const t = useT();
+  const memoryPreference = useCloudMemoryPreference();
   const platform = window.electronAPI?.platform;
   const developerResourcePreviewsEnabled =
     useDeveloperResourcePreviewsEnabled();
@@ -93,12 +95,6 @@ export function GeneralTab() {
     kind: "done" | "none" | "error";
     message: string;
   } | null>(null);
-  const [memoryEnabled, setMemoryEnabled] = useState(true);
-  const [memoryEnabledLoaded, setMemoryEnabledLoaded] = useState(false);
-  const [isSavingMemoryEnabled, setIsSavingMemoryEnabled] = useState(false);
-  const [memoryEnabledError, setMemoryEnabledError] = useState<string | null>(
-    null,
-  );
   const [developerModeEnabled, setDeveloperModeEnabled] = useState(false);
   const [developerModeLoaded, setDeveloperModeLoaded] = useState(false);
   const [isSavingDeveloperMode, setIsSavingDeveloperMode] = useState(false);
@@ -121,23 +117,23 @@ export function GeneralTab() {
       try {
         const preferencesApi = window.electronAPI?.system;
         if (!preferencesApi?.getLocalModelPreferences) {
-          throw new Error(t("settings.errors.memoryUnavailable"));
+          throw new Error(t("settings.errors.saveDeveloperMode"));
         }
         const preferences = await preferencesApi.getLocalModelPreferences();
         if (!cancelled) {
-          setMemoryEnabled(preferences?.memoryEnabled !== false);
           setDeveloperModeEnabled(preferences?.developerModeEnabled === true);
-          setMemoryEnabledError(null);
           setDeveloperModeError(null);
         }
       } catch (error) {
         if (!cancelled) {
-          setMemoryEnabledError(
-            getSettingsErrorMessage(error, t("settings.errors.loadMemory")),
+          setDeveloperModeError(
+            getSettingsErrorMessage(
+              error,
+              t("settings.errors.saveDeveloperMode"),
+            ),
           );
         }
       } finally {
-        if (!cancelled) setMemoryEnabledLoaded(true);
         if (!cancelled) setDeveloperModeLoaded(true);
       }
     };
@@ -435,34 +431,6 @@ export function GeneralTab() {
     [soundNotificationsEnabled, t],
   );
 
-  const handleMemoryEnabledChange = useCallback(
-    async (enabled: boolean) => {
-      const preferencesApi = window.electronAPI?.system;
-      if (!preferencesApi?.setLocalModelPreferences) {
-        setMemoryEnabledError(t("settings.errors.memoryUnavailable"));
-        return;
-      }
-      const previous = memoryEnabled;
-      setMemoryEnabled(enabled);
-      setMemoryEnabledError(null);
-      setIsSavingMemoryEnabled(true);
-      try {
-        const preferences = await preferencesApi.setLocalModelPreferences({
-          memoryEnabled: enabled,
-        });
-        setMemoryEnabled(preferences?.memoryEnabled !== false);
-      } catch (error) {
-        setMemoryEnabled(previous);
-        setMemoryEnabledError(
-          getSettingsErrorMessage(error, t("settings.errors.saveMemory")),
-        );
-      } finally {
-        setIsSavingMemoryEnabled(false);
-      }
-    },
-    [memoryEnabled, t],
-  );
-
   // Developer mode is the single gate for every power-user surface (Models
   // picker, BYOK providers, composer mini picker/mentions, spawn_agent model
   // routing). The write goes through the shared local-model-preferences IPC
@@ -745,6 +713,7 @@ export function GeneralTab() {
     checked: boolean;
     disabled: boolean;
     onChange: (checked: boolean) => void;
+    retry?: () => void;
   }) => (
     <div className="settings-card">
       <div className="settings-card-header">
@@ -758,12 +727,24 @@ export function GeneralTab() {
       </div>
       <p className="settings-card-desc">{args.description}</p>
       {args.error ? (
-        <p
-          className="settings-card-desc settings-card-desc--error"
-          role="alert"
-        >
-          {args.error}
-        </p>
+        <>
+          <p
+            className="settings-card-desc settings-card-desc--error"
+            role="alert"
+          >
+            {args.error}
+          </p>
+          {args.retry ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="pill-btn"
+              onClick={args.retry}
+            >
+              {t("common.tryAgain")}
+            </Button>
+          ) : null}
+        </>
       ) : null}
     </div>
   );
@@ -940,10 +921,21 @@ export function GeneralTab() {
         {renderToggleCard({
           title: t("settings.memory.title"),
           description: t("settings.memory.description"),
-          error: memoryEnabledError,
-          checked: memoryEnabled,
-          disabled: !memoryEnabledLoaded || isSavingMemoryEnabled,
-          onChange: (checked) => void handleMemoryEnabledChange(checked),
+          error: memoryPreference.issue
+            ? t(
+                memoryPreference.issue === "load"
+                  ? "settings.errors.loadMemory"
+                  : "settings.errors.saveMemory",
+              )
+            : null,
+          checked: memoryPreference.memoryEnabled,
+          disabled:
+            memoryPreference.disabled || memoryPreference.status === "error",
+          onChange: (checked) =>
+            void memoryPreference.setMemoryEnabled(checked),
+          retry: memoryPreference.issue
+            ? () => void memoryPreference.retry()
+            : undefined,
         })}
         {permissionsCard}
         <div className="settings-card">

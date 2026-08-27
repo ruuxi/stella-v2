@@ -934,7 +934,7 @@ export class StellaRuntimeHost {
                     subscription.unsubscribe();
                 };
             },
-            runLocalTurn: async ({ requestId, attemptId, conversationId, userPrompt, agentType, modelOverride, provider, externalMessageId, attachments, signal, confirmDispatchLease, }) => {
+            runLocalTurn: async ({ requestId, attemptId, conversationId, ownerGeneration, userPrompt, agentType, modelOverride, provider, externalMessageId, attachments, signal, confirmDispatchLease, }) => {
                 const localConversationId = this.configCache.cloudSyncEnabled
                     ? conversationId || (await this.getOrCreateDefaultConversationId())
                     : await this.getActiveLocalConversationId();
@@ -1027,6 +1027,7 @@ export class StellaRuntimeHost {
                         userPrompt,
                         userMessageEventId: connectorUserMessageId,
                         remoteTurnAttemptId: attemptId,
+                        ownerGeneration,
                         ...(agentType ? { agentType } : {}),
                         ...(modelOverride ? { modelOverride } : {}),
                         ...(attachments?.length ? { attachments } : {}),
@@ -1250,7 +1251,7 @@ export class StellaRuntimeHost {
                     ],
                 };
             },
-            runExecution: async ({ dispatch, payload }) => {
+            runExecution: async ({ dispatch, payload, ownerGeneration }) => {
                 const prompt = typeof payload.prompt === "string" ? payload.prompt.trim() : "";
                 if (!prompt) {
                     return {
@@ -1298,6 +1299,7 @@ export class StellaRuntimeHost {
                     userMessageEventId,
                     rejectIfBusy: true,
                     executionPlacementRunId: placementLocalChatRunId(dispatch.dispatchId),
+                    ownerGeneration,
                 }, {
                     ensureWorker: true,
                     recordActivity: true,

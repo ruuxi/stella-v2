@@ -7,6 +7,8 @@ import { forkDelayedCall } from "./cloud-effect-runtime.js";
 
 export type CloudTranscriptBeginRequest = {
   conversationId: string;
+  /** Immutable owner-data epoch captured before this local turn was prepared. */
+  ownerGeneration: string;
   /** Stable per local turn. Replaying this id must return the same lease. */
   localTurnId: string;
   /** Stable id of the user message admitted by this turn. */
@@ -34,6 +36,8 @@ export type CloudTranscriptBeginRequest = {
 export type CloudTranscriptBeginAck = {
   turnId: string;
   leaseToken: string;
+  /** Authoritative server deadline for this exact single-writer lease. */
+  expiresAt: number;
   /** Canonical pre-prompt serialized `AgentMessage`s. */
   history: string[];
 };
@@ -65,6 +69,8 @@ export type CloudTranscriptFinishRecord = {
 
 export type CloudTranscriptFinishRequest = {
   conversationId: string;
+  /** Must match the generation durably admitted by `begin`. */
+  ownerGeneration: string;
   localTurnId: string;
   leaseToken: string;
   records: CloudTranscriptFinishRecord[];
@@ -97,6 +103,8 @@ export type CloudJournalAppendRecord = {
 
 export type CloudJournalAppendRequest = {
   conversationId: string;
+  /** Optional only for callers that ask the writer to capture it at admission. */
+  ownerGeneration?: string;
   /** Stable id for the complete atomic append batch. */
   appendId: string;
   records: CloudJournalAppendRecord[];
@@ -109,9 +117,15 @@ export type CloudTranscriptWriterOptions = {
   getAuthToken: () => string | null;
   /** Builder origin from Convex, or null when realtime is not configured. */
   getBaseUrl: () => Promise<string | null>;
+  /** Captures the current immutable owner epoch before a journal append is queued. */
+  getOwnerGeneration?: () => Promise<string>;
   fetchImpl?: typeof fetch;
   /** Test override; production renews well inside the 30-minute DO lease. */
   heartbeatIntervalMs?: number;
+  /** Test override for the maximum time the provider may run without an ACK. */
+  authoritySilenceMs?: number;
+  /** Test override for the stop-before-server-expiry safety margin. */
+  authorityExpiryMarginMs?: number;
   /**
    * Persists a device-specific notice when a recovered finish is rejected
    * after the original run callback no longer exists.
@@ -171,9 +185,18 @@ const TURN_BUSY_RETRY_MS = 3_000;
 const NO_AUTH_RETRY_MS = 4_000;
 /** Remote cancel keeps its lease for a 45s desktop-ack grace window. */
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000;
+/**
+ * Owner purge may start immediately after an ACK and retire this lease 45s
+ * later. Stop locally after at most 30s of ACK silence, leaving a bounded
+ * provider/tool unwind window before a replacement generation can run.
+ */
+const DEFAULT_AUTHORITY_SILENCE_MS = 30_000;
+/** Stop comfortably before the ordinary server lease expiry as well. */
+const DEFAULT_AUTHORITY_EXPIRY_MARGIN_MS = 10_000;
 
 type BeginPayload = {
   deviceId: string;
+  expectedOwnerGeneration: string;
   localTurnId: string;
   clientMsgId: string;
   userMessageJson: string;
@@ -181,6 +204,7 @@ type BeginPayload = {
 
 type RenewPayload = {
   deviceId: string;
+  expectedOwnerGeneration: string;
   localTurnId: string;
   leaseToken: string;
   renewOnly: true;
@@ -188,6 +212,7 @@ type RenewPayload = {
 
 type FinishPayload = {
   deviceId: string;
+  expectedOwnerGeneration: string;
   localTurnId: string;
   leaseToken: string;
   records: CloudTranscriptFinishRecord[];
@@ -197,13 +222,19 @@ type FinishPayload = {
 
 type JournalAppendPayload = {
   deviceId: string;
+  expectedOwnerGeneration: string;
   localTurnId: string;
   source: "voice";
   records: CloudJournalAppendRecord[];
 };
 
 type AttemptResult =
-  | { kind: "ack"; begin?: CloudTranscriptBeginAck }
+  | {
+      kind: "ack";
+      begin?: CloudTranscriptBeginAck;
+      /** Conservative origin for authority granted by a begin/renew request. */
+      authorityRequestStartedAt?: number;
+    }
   | { kind: "dead_letter"; reason: string; userMessage?: string }
   | {
       kind: "terminal";
@@ -213,6 +244,7 @@ type AttemptResult =
         | "turn_expired"
         | "turn_finished"
         | "turn_canceled"
+        | "owner_generation_stale"
         | "idempotency_conflict";
     }
   | { kind: "retry"; delayMs: number; reason: string };
@@ -231,6 +263,14 @@ type BeginWaiter = {
 
 const jsonBytes = (value: unknown): number =>
   new TextEncoder().encode(JSON.stringify(value)).length;
+
+const normalizeOwnerGeneration = (value: string): string => {
+  const generation = value.trim();
+  if (!generation || generation.length > 512 || /\s/.test(generation)) {
+    throw new Error("Cloud transcript owner generation is invalid.");
+  }
+  return generation;
+};
 
 const outboxId = (
   kind: "begin" | "finish",
@@ -260,6 +300,9 @@ const parseBeginAck = (value: unknown): CloudTranscriptBeginAck | null => {
     !candidate.turnId ||
     typeof candidate.leaseToken !== "string" ||
     !candidate.leaseToken ||
+    typeof candidate.expiresAt !== "number" ||
+    !Number.isFinite(candidate.expiresAt) ||
+    candidate.expiresAt <= Date.now() ||
     !Array.isArray(candidate.history) ||
     !candidate.history.every((entry) => typeof entry === "string")
   ) {
@@ -268,6 +311,7 @@ const parseBeginAck = (value: unknown): CloudTranscriptBeginAck | null => {
   return {
     turnId: candidate.turnId,
     leaseToken: candidate.leaseToken,
+    expiresAt: candidate.expiresAt,
     history: candidate.history,
   };
 };
@@ -331,11 +375,20 @@ export const createCloudTranscriptWriter = (
       ack: CloudTranscriptBeginAck;
       entry: CloudTranscriptOutboxRecord;
       onLeaseLost?: (reason: string) => void;
+      cancelAuthorityDeadline: () => void;
     }
   >();
   const heartbeatIntervalMs = Math.max(
     10,
     options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS,
+  );
+  const authoritySilenceMs = Math.max(
+    10,
+    options.authoritySilenceMs ?? DEFAULT_AUTHORITY_SILENCE_MS,
+  );
+  const authorityExpiryMarginMs = Math.max(
+    0,
+    options.authorityExpiryMarginMs ?? DEFAULT_AUTHORITY_EXPIRY_MARGIN_MS,
   );
   /** Cancel thunks for the pending delay fibers (the old `clearTimeout`s). */
   let cancelRetryDelay: (() => void) | null = null;
@@ -346,10 +399,71 @@ export const createCloudTranscriptWriter = (
   let journalDraining = false;
   let stopped = false;
 
+  type ActiveBegin = NonNullable<
+    ReturnType<typeof activeBegins.get>
+  >;
+
+  const notifyLeaseLost = (
+    id: string,
+    active: ActiveBegin,
+    reason: string,
+  ): void => {
+    if (activeBegins.get(id) !== active) return;
+    activeBegins.delete(id);
+    active.cancelAuthorityDeadline();
+    try {
+      active.onLeaseLost?.(reason);
+    } catch {
+      log("error", "cloud_transcript_lease_lost_callback_failed", {
+        conversationId: active.entry.conversationId,
+        localTurnId: active.entry.localTurnId,
+        reason,
+      });
+    }
+    // Keep the durable begin untouched. `finish` may still replace it with an
+    // exact canceled result during the server's grace; after restart/resume it
+    // remains the interrupted-turn recovery owner.
+    scheduleHeartbeat();
+    log("error", "cloud_transcript_authority_deadline", {
+      conversationId: active.entry.conversationId,
+      localTurnId: active.entry.localTurnId,
+      reason,
+    });
+  };
+
+  const activateBegin = (
+    id: string,
+    args: Omit<ActiveBegin, "cancelAuthorityDeadline">,
+    authorityRequestStartedAt = Date.now(),
+  ): ActiveBegin => {
+    activeBegins.get(id)?.cancelAuthorityDeadline();
+    const now = Date.now();
+    const authorityDeadline = Math.min(
+      args.ack.expiresAt - authorityExpiryMarginMs,
+      authorityRequestStartedAt + authoritySilenceMs,
+    );
+    let active!: ActiveBegin;
+    active = {
+      ...args,
+      cancelAuthorityDeadline: forkDelayedCall(
+        Math.max(0, authorityDeadline - now),
+        () => notifyLeaseLost(id, active, "lease_renewal_silence"),
+      ),
+    };
+    activeBegins.set(id, active);
+    return active;
+  };
+
   const attempt = async (
     entry: CloudTranscriptOutboxRecord,
     attemptOptions: { renewLeaseToken?: string } = {},
   ): Promise<AttemptResult> => {
+    if (!entry.ownerGeneration) {
+      return {
+        kind: "dead_letter",
+        reason: "owner_generation_missing",
+      };
+    }
     const token = options.getAuthToken();
     if (!token) {
       return {
@@ -375,11 +489,14 @@ export const createCloudTranscriptWriter = (
       entry.conversationId,
     )}/local-turns/${endpoint}`;
     let response: Response;
+    const authorityRequestStartedAt =
+      entry.kind === "begin" ? Date.now() : undefined;
     try {
       const body =
         entry.kind === "begin" && attemptOptions.renewLeaseToken
           ? JSON.stringify({
               deviceId: entry.deviceId,
+              expectedOwnerGeneration: entry.ownerGeneration,
               localTurnId: entry.localTurnId,
               leaseToken: attemptOptions.renewLeaseToken,
               renewOnly: true,
@@ -405,7 +522,13 @@ export const createCloudTranscriptWriter = (
     if (response.ok) {
       if (entry.kind === "finish") return { kind: "ack" };
       const ack = parseBeginAck(await response.json().catch(() => null));
-      if (ack) return { kind: "ack", begin: ack };
+      if (ack) {
+        return {
+          kind: "ack",
+          begin: ack,
+          authorityRequestStartedAt,
+        };
+      }
       return {
         kind: "retry",
         delayMs: retryDelay(entry.attempts),
@@ -424,6 +547,9 @@ export const createCloudTranscriptWriter = (
         body?.code === "idempotency_conflict"
       ) {
         return { kind: "terminal", reason: body.code };
+      }
+      if (body?.code === "OWNER_DATA_GENERATION_STALE") {
+        return { kind: "terminal", reason: "owner_generation_stale" };
       }
       return {
         kind: "retry",
@@ -459,6 +585,9 @@ export const createCloudTranscriptWriter = (
   const attemptJournal = async (
     entry: CloudJournalOutboxRecord,
   ): Promise<JournalAttemptResult> => {
+    if (!entry.ownerGeneration) {
+      return { kind: "dead_letter", reason: "owner_generation_missing" };
+    }
     const token = options.getAuthToken();
     if (!token) {
       return {
@@ -506,6 +635,12 @@ export const createCloudTranscriptWriter = (
       } | null;
       if (body?.code === "idempotency_conflict") {
         return { kind: "dead_letter", reason: "idempotency_conflict" };
+      }
+      if (
+        body?.code === "owner_generation_stale" ||
+        body?.code === "OWNER_DATA_GENERATION_STALE"
+      ) {
+        return { kind: "dead_letter", reason: "owner_generation_stale" };
       }
       return {
         kind: "retry",
@@ -576,6 +711,7 @@ export const createCloudTranscriptWriter = (
         structurallyValid &&
         jsonBytes({
           deviceId: entry.deviceId,
+          expectedOwnerGeneration: entry.ownerGeneration,
           localTurnId: entry.localTurnId,
           leaseToken: "",
           records,
@@ -612,9 +748,16 @@ export const createCloudTranscriptWriter = (
     entry: CloudTranscriptOutboxRecord,
     ack: CloudTranscriptBeginAck,
   ): void => {
+    const ownerGeneration = entry.ownerGeneration;
+    if (!ownerGeneration) {
+      throw new Error(
+        "Cloud transcript recovery is missing its owner generation.",
+      );
+    }
     const recovered = reconstructInterruptedFinish(entry);
     const payload: FinishPayload = {
       deviceId: entry.deviceId,
+      expectedOwnerGeneration: ownerGeneration,
       localTurnId: entry.localTurnId,
       leaseToken: ack.leaseToken,
       ...recovered,
@@ -629,6 +772,7 @@ export const createCloudTranscriptWriter = (
       kind: "finish",
       conversationId: entry.conversationId,
       deviceId: entry.deviceId,
+      ownerGeneration,
       localTurnId: entry.localTurnId,
       payloadJson: JSON.stringify(payload),
       recoveryJson: null,
@@ -684,7 +828,11 @@ export const createCloudTranscriptWriter = (
         if (activeBegins.get(id) !== active) continue;
         if (result.kind === "ack") {
           if (result.begin) {
-            activeBegins.set(id, { ...active, ack: result.begin });
+            activateBegin(
+              id,
+              { ...active, ack: result.begin },
+              result.authorityRequestStartedAt,
+            );
           } else {
             nextHeartbeatMs = Math.min(nextHeartbeatMs, BASE_RETRY_MS);
           }
@@ -700,6 +848,7 @@ export const createCloudTranscriptWriter = (
           continue;
         }
         activeBegins.delete(id);
+        active.cancelAuthorityDeadline();
         try {
           active.onLeaseLost?.(result.reason);
         } catch {
@@ -893,11 +1042,15 @@ export const createCloudTranscriptWriter = (
           const onLeaseLost = waiters.find(
             (waiter) => waiter.onLeaseLost,
           )?.onLeaseLost;
-          activeBegins.set(entry.id, {
-            ack,
-            entry,
-            ...(onLeaseLost ? { onLeaseLost } : {}),
-          });
+          activateBegin(
+            entry.id,
+            {
+              ack,
+              entry,
+              ...(onLeaseLost ? { onLeaseLost } : {}),
+            },
+            result.authorityRequestStartedAt,
+          );
           scheduleHeartbeat();
           beginWaiters.delete(entry.id);
           for (const waiter of waiters) {
@@ -1038,12 +1191,23 @@ export const createCloudTranscriptWriter = (
       if (stopped) {
         return Promise.reject(new Error("Cloud transcript writer is stopped."));
       }
+      let ownerGeneration: string;
+      try {
+        ownerGeneration = normalizeOwnerGeneration(request.ownerGeneration);
+      } catch (error) {
+        return Promise.reject(error);
+      }
       const payload: BeginPayload = {
         deviceId: options.deviceId,
+        expectedOwnerGeneration: ownerGeneration,
         localTurnId: request.localTurnId,
         clientMsgId: request.clientMsgId,
         userMessageJson: request.userMessageJson,
       };
+      const payloadJson = JSON.stringify(payload);
+      const recoveryJson = request.recovery
+        ? JSON.stringify(request.recovery)
+        : null;
       const id = outboxId(
         "begin",
         options.deviceId,
@@ -1052,11 +1216,23 @@ export const createCloudTranscriptWriter = (
       );
       const active = activeBegins.get(id);
       if (active) {
+        if (
+          active.entry.kind !== "begin" ||
+          active.entry.conversationId !== request.conversationId ||
+          active.entry.deviceId !== options.deviceId ||
+          active.entry.ownerGeneration !== ownerGeneration ||
+          active.entry.localTurnId !== request.localTurnId ||
+          active.entry.payloadJson !== payloadJson ||
+          active.entry.recoveryJson !== recoveryJson
+        ) {
+          return Promise.reject(
+            new Error(
+              "Cloud transcript turn id was reused with different authority or payload.",
+            ),
+          );
+        }
         if (request.onLeaseLost) {
-          activeBegins.set(id, {
-            ...active,
-            onLeaseLost: request.onLeaseLost,
-          });
+          active.onLeaseLost = request.onLeaseLost;
         }
         return request.signal?.aborted
           ? Promise.reject(new Error("Run canceled."))
@@ -1067,11 +1243,10 @@ export const createCloudTranscriptWriter = (
         kind: "begin",
         conversationId: request.conversationId,
         deviceId: options.deviceId,
+        ownerGeneration,
         localTurnId: request.localTurnId,
-        payloadJson: JSON.stringify(payload),
-        recoveryJson: request.recovery
-          ? JSON.stringify(request.recovery)
-          : null,
+        payloadJson,
+        recoveryJson,
       });
       return new Promise<CloudTranscriptBeginAck>((resolve, reject) => {
         const waiters = beginWaiters.get(id) ?? [];
@@ -1101,6 +1276,7 @@ export const createCloudTranscriptWriter = (
       });
     },
     finish: async (request) => {
+      const ownerGeneration = normalizeOwnerGeneration(request.ownerGeneration);
       const tooManyRecords = request.records.length > FINISH_MAX_ROWS;
       if (tooManyRecords) {
         log("error", "cloud_transcript_finish_oversized", {
@@ -1112,6 +1288,7 @@ export const createCloudTranscriptWriter = (
       }
       const payload: FinishPayload = {
         deviceId: options.deviceId,
+        expectedOwnerGeneration: ownerGeneration,
         localTurnId: request.localTurnId,
         leaseToken: request.leaseToken,
         records: request.records,
@@ -1145,6 +1322,7 @@ export const createCloudTranscriptWriter = (
         kind: "finish",
         conversationId: request.conversationId,
         deviceId: options.deviceId,
+        ownerGeneration,
         localTurnId: request.localTurnId,
         payloadJson: JSON.stringify(payload),
         recoveryJson: request.failureNotificationUserMessageId
@@ -1154,6 +1332,7 @@ export const createCloudTranscriptWriter = (
             })
           : null,
       });
+      activeBegins.get(beginId)?.cancelAuthorityDeadline();
       activeBegins.delete(beginId);
       scheduleHeartbeat();
       if (tooManyRecords || tooManyBytes) {
@@ -1177,8 +1356,14 @@ export const createCloudTranscriptWriter = (
       if (!appendId || request.records.length === 0) {
         throw new Error("Cloud journal append requires an id and records.");
       }
+      const ownerGeneration = normalizeOwnerGeneration(
+        request.ownerGeneration ??
+          (await options.getOwnerGeneration?.()) ??
+          "",
+      );
       const payload: JournalAppendPayload = {
         deviceId: options.deviceId,
+        expectedOwnerGeneration: ownerGeneration,
         localTurnId: appendId,
         source: "voice",
         records: request.records,
@@ -1187,6 +1372,7 @@ export const createCloudTranscriptWriter = (
         id: journalOutboxId(options.deviceId, request.conversationId, appendId),
         conversationId: request.conversationId,
         deviceId: options.deviceId,
+        ownerGeneration,
         appendId,
         payloadJson: JSON.stringify(payload),
       });
@@ -1220,6 +1406,9 @@ export const createCloudTranscriptWriter = (
         }
       }
       beginWaiters.clear();
+      for (const active of activeBegins.values()) {
+        active.cancelAuthorityDeadline();
+      }
       activeBegins.clear();
       finishFailureCallbacks.clear();
     },

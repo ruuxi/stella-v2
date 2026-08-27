@@ -10,9 +10,9 @@
  * Provider-specific bits (SDP endpoint, auth scheme, whether session
  * config is sent at token-mint or via `session.update` on connect) are
  * passed in by the provider module:
- *   - `sdpFetch`: takes the local SDP offer, returns the remote SDP
- *     answer. Provider chooses Bearer-against-public-endpoint vs
- *     Stella-proxied-with-Convex-auth.
+ *   - `sdpFetch`: takes the local SDP offer plus the transport-owned abort
+ *     signal and returns the remote SDP answer. Provider chooses
+ *     Bearer-against-public-endpoint vs Stella-proxied-with-Convex-auth.
  *   - `initialSessionConfig`: optional. When present, the transport applies
  *     it after the data channel opens and waits for `session.updated` before
  *     exposing the connection to the caller.
@@ -42,6 +42,23 @@ const DEFAULT_RTC_CONFIGURATION: RTCConfiguration = {
 const ICE_GATHERING_TIMEOUT_MS = 4000;
 /** Hard cap on opening the event channel and applying initial session config. */
 const DATA_CHANNEL_READY_TIMEOUT_MS = 10_000;
+/**
+ * The physical connection must finish before the managed authority's outer
+ * 10-second lease can expire. This also bounds provider SDP requests that do
+ * not otherwise have a client-side timeout.
+ */
+const CONNECT_DEADLINE_MS = 8_000;
+const CONNECT_DEADLINE_MESSAGE =
+  "Timed out while connecting to the realtime voice provider.";
+
+const connectionAbortError = (): Error => {
+  const error = new Error("Realtime voice connection was canceled.");
+  error.name = "AbortError";
+  return error;
+};
+
+const abortReason = (signal: AbortSignal): Error =>
+  signal.reason instanceof Error ? signal.reason : connectionAbortError();
 
 export interface OpenAIWebRTCTransportOptions {
   provider: RealtimeTransportProvider;
@@ -148,6 +165,8 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
   private pendingSessionUpdateEventId: string | null = null;
   private resolveDataChannelReady: (() => void) | null = null;
   private rejectDataChannelReady: ((error: Error) => void) | null = null;
+  private connectAbortController: AbortController | null = null;
+  private connectDeadlineTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: OpenAIWebRTCTransportOptions) {
     this.provider = options.provider;
@@ -160,28 +179,88 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
   }
 
   async connect(events: RealtimeTransportEvents): Promise<void> {
+    if (this.destroyed) {
+      throw new Error("Cannot connect a disconnected realtime transport.");
+    }
+    if (this.connectAbortController) {
+      throw new Error("Realtime voice transport is already connecting.");
+    }
+
+    const controller = new AbortController();
+    const deadlineError = new Error(CONNECT_DEADLINE_MESSAGE);
+    let deadlineReached = false;
+    let rejectOnAbort: ((error: Error) => void) | null = null;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      rejectOnAbort = reject;
+    });
+    const onAbort = () => rejectOnAbort?.(abortReason(controller.signal));
+
+    this.connectAbortController = controller;
+    controller.signal.addEventListener("abort", onAbort, { once: true });
+    this.connectDeadlineTimer = setTimeout(() => {
+      if (
+        this.connectAbortController !== controller ||
+        controller.signal.aborted
+      ) {
+        return;
+      }
+      deadlineReached = true;
+      controller.abort(deadlineError);
+    }, CONNECT_DEADLINE_MS);
+
+    try {
+      await Promise.race([
+        this.connectWithSignal(events, controller.signal),
+        aborted,
+      ]);
+    } catch (error) {
+      if (deadlineReached) {
+        await this.disconnect();
+        throw deadlineError;
+      }
+      // Preserve the transport's existing intentional-disconnect semantics:
+      // disconnect ends an in-progress connect without surfacing a new error.
+      if (this.destroyed && controller.signal.aborted) {
+        return;
+      }
+      throw error;
+    } finally {
+      controller.signal.removeEventListener("abort", onAbort);
+      this.clearConnectDeadline();
+      if (this.connectAbortController === controller) {
+        this.connectAbortController = null;
+      }
+    }
+  }
+
+  private async connectWithSignal(
+    events: RealtimeTransportEvents,
+    signal: AbortSignal,
+  ): Promise<void> {
+    this.throwIfConnectCanceled(signal);
     this.events = events;
     const dataChannelReady = this.prepareDataChannelReady();
     // The handshake can fail while SDP setup is still awaiting another step.
     // Attach a handler immediately; the later await still observes the error.
     void dataChannelReady.catch(() => undefined);
 
-    this.pc = new RTCPeerConnection({
+    const pc = new RTCPeerConnection({
       ...DEFAULT_RTC_CONFIGURATION,
       ...(this.iceServers && this.iceServers.length > 0
         ? { iceServers: this.iceServers }
         : {}),
     });
+    this.pc = pc;
 
-    const transceiver = this.pc.addTransceiver("audio", {
+    const transceiver = pc.addTransceiver("audio", {
       direction: "sendrecv",
     });
     this.sender = transceiver.sender;
 
-    this.dc = this.pc.createDataChannel("oai-events");
+    this.dc = pc.createDataChannel("oai-events");
     this.setupDataChannel();
 
-    this.pc.ontrack = (event) => {
+    pc.ontrack = (event) => {
       if (this.destroyed) return;
       const stream = event.streams[0];
       if (stream) this.setupAudioPlayback(stream);
@@ -195,37 +274,39 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
     if (this.acquireMicBeforeOffer) {
       this.micEnabled = true;
       await this.preAttachMicrophone();
-      if (this.destroyed) return;
+      this.throwIfConnectCanceled(signal);
     }
 
-    const offer = await this.pc.createOffer();
-    await this.pc.setLocalDescription(offer);
-    if (this.destroyed) return;
+    const offer = await pc.createOffer();
+    this.throwIfConnectCanceled(signal);
+    await pc.setLocalDescription(offer);
+    this.throwIfConnectCanceled(signal);
 
     if (this.waitForIceGathering) {
-      await waitForIceGatheringComplete(this.pc);
-      if (this.destroyed) return;
+      await waitForIceGatheringComplete(pc);
+      this.throwIfConnectCanceled(signal);
     }
 
     // Once gathering completes, `pc.localDescription.sdp` includes the
     // ICE candidates; `offer.sdp` is the pre-gathering snapshot. Inworld
     // needs the post-gathering SDP. Fall back to `offer.sdp` for the
     // OpenAI path which skips gathering.
-    const sdpToSend = this.pc.localDescription?.sdp ?? offer.sdp ?? "";
+    const sdpToSend = pc.localDescription?.sdp ?? offer.sdp ?? "";
 
-    const answerSdp = await this.sdpFetch(sdpToSend);
-    if (this.destroyed) return;
+    const answerSdp = await this.sdpFetch(sdpToSend, signal);
+    this.throwIfConnectCanceled(signal);
 
-    await this.pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
-    if (this.destroyed) return;
+    await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+    this.throwIfConnectCanceled(signal);
 
     // Do not enable the mic or let callers send conversation context until the
     // event channel is open and the provider has acknowledged session.update.
     // Otherwise the first utterance can race against a stale tool catalog.
     await dataChannelReady;
-    if (this.destroyed) return;
+    this.throwIfConnectCanceled(signal);
 
     await this.syncMicState();
+    this.throwIfConnectCanceled(signal);
   }
 
   send(event: Record<string, unknown>): void {
@@ -264,6 +345,10 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
 
   async disconnect(): Promise<void> {
     this.destroyed = true;
+    if (this.connectAbortController?.signal.aborted === false) {
+      this.connectAbortController.abort(connectionAbortError());
+    }
+    this.clearConnectDeadline();
     this.events = null;
     this.settleDataChannelReady();
 
@@ -319,6 +404,17 @@ export class OpenAIWebRTCTransport implements RealtimeTransport {
   }
 
   // ── internals ────────────────────────────────────────────────────────
+
+  private throwIfConnectCanceled(signal: AbortSignal): void {
+    if (!this.destroyed && !signal.aborted) return;
+    throw abortReason(signal);
+  }
+
+  private clearConnectDeadline(): void {
+    if (!this.connectDeadlineTimer) return;
+    clearTimeout(this.connectDeadlineTimer);
+    this.connectDeadlineTimer = null;
+  }
 
   private setupDataChannel(): void {
     if (!this.dc) return;

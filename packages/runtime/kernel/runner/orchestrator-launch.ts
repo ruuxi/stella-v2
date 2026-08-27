@@ -139,6 +139,7 @@ export type PreparedOrchestratorRun = {
   conversationId: string;
   agentType: string;
   storageMode?: "cloud" | "local";
+  ownerGeneration?: string;
   userPrompt: string;
   uiVisibility?: "visible" | "hidden";
   promptMessages?: RuntimePromptMessage[];
@@ -164,6 +165,7 @@ export const prepareOrchestratorRun = async (args: {
   conversationId: string;
   agentType: string;
   storageMode?: "cloud" | "local";
+  ownerGeneration?: string;
   userPrompt: string;
   uiVisibility?: "visible" | "hidden";
   promptMessages?: RuntimePromptMessage[];
@@ -232,6 +234,9 @@ export const prepareOrchestratorRun = async (args: {
       conversationId: args.conversationId,
       agentType: args.agentType,
       ...(args.storageMode ? { storageMode: args.storageMode } : {}),
+      ...(args.ownerGeneration
+        ? { ownerGeneration: args.ownerGeneration }
+        : {}),
       userPrompt: args.userPrompt,
       ...(args.uiVisibility ? { uiVisibility: args.uiVisibility } : {}),
       promptMessages: args.promptMessages,
@@ -282,6 +287,19 @@ export const launchPreparedOrchestratorRun = (args: {
   // shutdown deterministically finalize the turn and everything beneath it.
   const settled = (async () => {
     const isCloudTurn = prepared.storageMode === "cloud";
+    const cloudOwnerGeneration = isCloudTurn
+      ? prepared.ownerGeneration?.trim()
+      : null;
+    if (
+      isCloudTurn &&
+      (!cloudOwnerGeneration ||
+        cloudOwnerGeneration.length > 512 ||
+        /\s/.test(cloudOwnerGeneration))
+    ) {
+      throw new Error(
+        "Cloud conversation owner generation is unavailable for this turn.",
+      );
+    }
     let leaseToken: string | null = null;
     let ephemeralCaptureStarted = false;
     let deferredTerminal: DeferredTerminalCallback | null = null;
@@ -310,6 +328,7 @@ export const launchPreparedOrchestratorRun = (args: {
         const userMessage = buildCloudUserMessage(prepared);
         const begin = await context.cloudTranscript.begin({
           conversationId: prepared.conversationId,
+          ownerGeneration: cloudOwnerGeneration!,
           localTurnId: prepared.runId,
           clientMsgId: args.userMessageId,
           userMessageJson: JSON.stringify(userMessage),
@@ -354,6 +373,7 @@ export const launchPreparedOrchestratorRun = (args: {
         runId: prepared.runId,
         conversationId: prepared.conversationId,
         storageMode: prepared.storageMode,
+        ownerGeneration: cloudOwnerGeneration ?? prepared.ownerGeneration,
         userMessageId: args.userMessageId,
         agentType: prepared.agentType,
         userPrompt: prepared.userPrompt,
@@ -462,6 +482,7 @@ export const launchPreparedOrchestratorRun = (args: {
         };
         const finishStatus = await context.cloudTranscript.finish({
           conversationId: prepared.conversationId,
+          ownerGeneration: cloudOwnerGeneration!,
           localTurnId: prepared.runId,
           leaseToken,
           records,
@@ -516,6 +537,7 @@ export const startPreparedOrchestratorRun = async (args: {
   conversationId: string;
   agentType: string;
   storageMode?: "cloud" | "local";
+  ownerGeneration?: string;
   userPrompt: string;
   uiVisibility?: "visible" | "hidden";
   promptMessages?: RuntimePromptMessage[];
@@ -543,6 +565,7 @@ export const startPreparedOrchestratorRun = async (args: {
     conversationId: args.conversationId,
     agentType: args.agentType,
     ...(args.storageMode ? { storageMode: args.storageMode } : {}),
+    ...(args.ownerGeneration ? { ownerGeneration: args.ownerGeneration } : {}),
     userPrompt: args.userPrompt,
     ...(args.uiVisibility ? { uiVisibility: args.uiVisibility } : {}),
     promptMessages: args.promptMessages,

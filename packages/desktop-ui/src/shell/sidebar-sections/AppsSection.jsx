@@ -17,6 +17,9 @@ import { PersistentUserAppsHost } from "@/app/apps/PersistentUserAppsHost";
 import { listUserApps, useRequestUserApp, } from "@/app/apps/user-app-library";
 import { getServerSnapshot, getSnapshot, refreshUserApps, stopUserApp, subscribe, } from "@/app/apps/user-apps-registry";
 import { markAllUserAppsSeen } from "@/app/apps/new-user-apps-hint";
+import { CloudAppsLibrary } from "@/features/cloud/CloudAppsLibrary";
+import { PersistentCloudAppsHost } from "@/features/cloud/PersistentCloudAppsHost";
+import { isCloudAppLocation } from "@/features/cloud/open-cloud-app-panel";
 import { sidebarSections, useActiveSidebarSection, useSidebarOpenTabs, useSidebarSectionLocation, } from "@/features/workspace-display/sidebar-sections";
 import { useDisplayPanelOpen } from "@/features/workspace-display/tab-store";
 import { AppWindowMac, LoaderCircle, Power } from "@/ui/icons";
@@ -28,22 +31,23 @@ export function AppsSection() {
     const sidebarTabs = useSidebarOpenTabs();
     const activeSection = useActiveSidebarSection();
     const panelOpen = useDisplayPanelOpen();
+    const openCloudApp = isCloudAppLocation(openSlug);
     const openApp = openSlug
-        ? (apps.find((app) => app.slug === openSlug) ?? null)
+        ? (openCloudApp ? null : (apps.find((app) => app.slug === openSlug) ?? null))
         : null;
     useEffect(() => {
         if (registry.phase !== "ready")
             return;
         const installedSlugs = new Set(apps.map((app) => app.slug));
         const removedTabIds = sidebarTabs
-            .filter((tab) => tab.kind === "apps" && tab.location && !installedSlugs.has(tab.location))
+            .filter((tab) => tab.kind === "apps" && tab.location && !isCloudAppLocation(tab.location) && !installedSlugs.has(tab.location))
             .map((tab) => tab.id);
         for (const tabId of removedTabIds)
             sidebarSections.closeTab(tabId);
     }, [apps, registry.phase, sidebarTabs]);
     // The list counts as "seen" only when the user can actually see it: every
     // section stays mounted, so mounting alone says nothing about attention.
-    const listVisible = panelOpen && activeSection === "apps" && !openApp;
+    const listVisible = panelOpen && activeSection === "apps" && !openApp && !openCloudApp;
     useEffect(() => {
         if (listVisible)
             markAllUserAppsSeen();
@@ -52,7 +56,11 @@ export function AppsSection() {
       {/* Back-to-library nav lives in the top bar now (browser-tab model),
           so there is no in-body section header here. */}
       <div className="apps-section__body">
-        {openApp ? null : <AppsLibrary registry={registry}/>}
+        {openApp || openCloudApp ? null : (<div className="apps-section__library">
+            <CloudAppsLibrary />
+            <AppsLibrary registry={registry}/>
+          </div>)}
+        <PersistentCloudAppsHost />
         <PersistentUserAppsHost />
       </div>
     </>);
@@ -79,13 +87,13 @@ function AppsLibrary({ registry }) {
         }
     };
     if (phase === "loading" && apps.length === 0) {
-        return (<div className="apps-section__library apps-section__library--status" role="status" aria-live="polite">
+        return (<div className="apps-section__local-library apps-section__local-library--status" role="status" aria-live="polite">
         <LoaderCircle className="stella-loader-circle" size={18} strokeWidth={2} aria-hidden="true"/>
         <p>Loading apps…</p>
       </div>);
     }
     if (phase === "unsupported") {
-        return (<div className="apps-section__library sidebar-section__empty" role="status">
+        return (<div className="apps-section__local-library sidebar-section__empty" role="status">
         <span className="sidebar-section__empty-icon" aria-hidden="true">
           <AppWindowMac size={17} strokeWidth={1.75}/>
         </span>
@@ -96,7 +104,7 @@ function AppsLibrary({ registry }) {
       </div>);
     }
     if (phase === "error" && apps.length === 0) {
-        return (<div className="apps-section__library sidebar-section__empty" role="alert">
+        return (<div className="apps-section__local-library sidebar-section__empty" role="alert">
         <span className="sidebar-section__empty-icon" aria-hidden="true">
           <AppWindowMac size={17} strokeWidth={1.75}/>
         </span>
@@ -110,7 +118,7 @@ function AppsLibrary({ registry }) {
       </div>);
     }
     if (apps.length === 0) {
-        return (<div className="apps-section__library sidebar-section__empty">
+        return (<div className="apps-section__local-library sidebar-section__empty">
         <span className="sidebar-section__empty-icon" aria-hidden="true">
           <AppWindowMac size={17} strokeWidth={1.75}/>
         </span>
@@ -124,7 +132,7 @@ function AppsLibrary({ registry }) {
       </div>);
     }
     const visible = listUserApps(apps, "", "recent");
-    return (<div className="apps-section__library">
+    return (<div className="apps-section__local-library">
       {phase === "error" ? (<div className="apps-section__warning" role="status">
           <span>Apps may be out of date.</span>
           <button type="button" onClick={() => void refreshUserApps()}>

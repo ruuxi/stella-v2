@@ -1,5 +1,6 @@
 import { useConvexAuth, useQuery } from "convex/react";
 import { cloudApi } from "@/features/cloud/cloud-api";
+import { readConfiguredConvexSiteUrl } from "@/shared/lib/convex-urls";
 import { useAuthBootstrapState } from "../DesktopConvexAuthProvider";
 import { resolveCloudSessionMode } from "../lib/cloud-session-mode";
 import { useAuthSessionState } from "./use-auth-session-state";
@@ -17,6 +18,13 @@ export function useCloudMode() {
   const session = useAuthSessionState();
   const authBootstrap = useAuthBootstrapState();
   const expectedSubject = session.user?.id?.trim() || null;
+  const tokenIssuer = readConfiguredConvexSiteUrl(
+    import.meta.env.VITE_CONVEX_SITE_URL as string | undefined,
+  );
+  const ownerSubject =
+    tokenIssuer && expectedSubject
+      ? `${tokenIssuer}|${expectedSubject}`
+      : null;
   const shouldConfirmIdentity = Boolean(
     authBootstrap.status === "ready" &&
       !session.isLoading &&
@@ -47,6 +55,9 @@ export function useCloudMode() {
   return {
     ...mode,
     accountScope: session.cacheScope,
+    expectedSubject,
+    ownerSubject,
+    identityRevision: session.identityRevision,
     error: authBootstrap.error,
     retryAuthBootstrap: authBootstrap.retryAuthBootstrap,
   };

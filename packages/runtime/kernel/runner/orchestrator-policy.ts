@@ -23,6 +23,7 @@ export type NormalizedOrchestratorRunInput = {
   attachments: RuntimeAttachmentRef[];
   agentType: string;
   storageMode?: "cloud" | "local";
+  ownerGeneration?: string;
   userMessageId?: string;
   modelOverride?: string;
   toolWorkspaceRoot?: string;
@@ -134,12 +135,16 @@ export const normalizeChatRunInput = (
   attachments: normalizeAttachments(payload.attachments),
   agentType: payload.agentType ?? AGENT_IDS.ORCHESTRATOR,
   storageMode: resolveConversationStorageMode(payload.storageMode),
+  ...(payload.ownerGeneration?.trim()
+    ? { ownerGeneration: payload.ownerGeneration.trim() }
+    : {}),
 });
 
 export const normalizeAutomationRunInput = (payload: {
   conversationId: string;
   userPrompt: string;
   storageMode?: "cloud" | "local";
+  ownerGeneration?: string;
   userMessageId?: string;
   agentType?: string;
   modelOverride?: string;
@@ -157,6 +162,9 @@ export const normalizeAutomationRunInput = (payload: {
   attachments: normalizeAttachments(payload.attachments),
   agentType: payload.agentType ?? AGENT_IDS.ORCHESTRATOR,
   storageMode: resolveConversationStorageMode(payload.storageMode),
+  ...(payload.ownerGeneration?.trim()
+    ? { ownerGeneration: payload.ownerGeneration.trim() }
+    : {}),
   ...(payload.userMessageId?.trim()
     ? { userMessageId: payload.userMessageId.trim() }
     : {}),

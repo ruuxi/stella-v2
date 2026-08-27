@@ -3706,6 +3706,60 @@ describe("thread activity rows", () => {
     });
   });
 
+  it("never rebinds a persisted agent thread across owner generations", () => {
+    const { store } = createTestContext();
+    const current = {
+      threadId: "owner-generation-fence",
+      conversationId: "conv-owner-fence",
+      storageMode: "cloud" as const,
+      ownerGeneration: "owner-generation-2",
+      agentType: "general",
+      description: "Owner generation fence",
+      agentDepth: 0,
+      status: "running" as const,
+      startedAt: 1_000,
+      completedAt: null,
+      updatedAt: 1_000,
+      attemptGeneration: 3,
+    };
+    expect(store.saveAgentRecord(current)).toBe(1);
+
+    expect(
+      store.saveAgentRecord({
+        ...current,
+        ownerGeneration: "owner-generation-1",
+        status: "canceled",
+        error: "late equal-attempt owner write",
+        updatedAt: 2_000,
+      }),
+    ).toBeNull();
+    expect(
+      store.saveAgentRecord({
+        ...current,
+        ownerGeneration: "owner-generation-3",
+        attemptGeneration: 4,
+        updatedAt: 3_000,
+      }),
+    ).toBeNull();
+    expect(store.getAgentRecord(current.threadId)).toMatchObject({
+      conversationId: current.conversationId,
+      storageMode: "cloud",
+      ownerGeneration: current.ownerGeneration,
+      status: "running",
+      attemptGeneration: current.attemptGeneration,
+      recordRevision: 1,
+    });
+
+    expect(
+      store.saveAgentRecord({
+        ...current,
+        status: "completed",
+        completedAt: 4_000,
+        updatedAt: 4_000,
+      }),
+    ).toBe(2);
+  });
+
   it("bounds desktop hydration while retaining active work", () => {
     const { db, store } = createTestContext();
     for (let index = 0; index < 501; index += 1) {

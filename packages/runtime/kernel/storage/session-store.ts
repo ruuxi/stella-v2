@@ -92,7 +92,6 @@ type EphemeralThreadCapture = {
   appendedMessages: EphemeralThreadMessage[];
 };
 
-
 export type VoiceToolCallReceipt =
   | {
       status: "started";
@@ -110,7 +109,6 @@ export type VoiceToolCallReceipt =
       startedAt: number;
       completionJson: string;
     };
-
 
 type VisibleScanRow = {
   timestamp: number | null;
@@ -343,6 +341,8 @@ export type PersistedAgentRecord = {
   conversationId: string;
   /** Transcript ownership for this thread; absent only on pre-migration rows. */
   storageMode?: "cloud" | "local";
+  /** Exact owner-data epoch for cloud lifecycle publication and replay. */
+  ownerGeneration?: string;
   agentType: string;
   description: string;
   agentDepth: number;
@@ -362,6 +362,16 @@ export type PersistedAgentRecord = {
   managerReportIds?: string[];
   /** Durable suffix for unique intermediate report event ids. */
   managerReportSequence?: number;
+  /** Latest attempt whose terminal state reached the durable cloud outbox. */
+  cloudTerminalReceiptGeneration?: number;
+  /** Latest attempt whose exact terminal lifecycle wake is durably delivered. */
+  terminalLifecycleReceiptGeneration?: number;
+  /** Durable child-report delivery ledger and parked-parent wake state. */
+  descendantBoundaryState?: {
+    consumedEventIds: string[];
+    wakePending: boolean;
+    finalParked?: boolean;
+  };
   startedAt: number;
   completedAt: number | null;
   result?: string;
@@ -376,6 +386,8 @@ export type CloudTranscriptOutboxRecord = {
   kind: CloudTranscriptOutboxKind;
   conversationId: string;
   deviceId: string;
+  /** Null only for a pre-migration row, which delivery retires fail-closed. */
+  ownerGeneration: string | null;
   localTurnId: string;
   payloadJson: string;
   recoveryJson: string | null;
@@ -391,6 +403,8 @@ export type CloudJournalOutboxRecord = {
   id: string;
   conversationId: string;
   deviceId: string;
+  /** Null only for a pre-migration row, which delivery retires fail-closed. */
+  ownerGeneration: string | null;
   appendId: string;
   payloadJson: string;
   attempts: number;
@@ -400,10 +414,38 @@ export type CloudJournalOutboxRecord = {
   updatedAt: number;
 };
 
-export type ComputerAgentCloudOutboxKind =
-  | "start"
-  | "terminal"
-  | "cancel";
+export type CloudAgentControlStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "canceled";
+
+/** Latest server-issued control authority for one desktop-origin cloud agent. */
+export type CloudAgentThreadControlRecord = {
+  threadId: string;
+  ownerGeneration: string;
+  cloudConversationId: string;
+  originConversationId: string;
+  attemptGeneration: number;
+  threadUpdatedAt: number;
+  status: CloudAgentControlStatus;
+  createdAt: number;
+  updatedAt: number;
+};
+
+/** Immutable pre-network intent plus its optional exact server response. */
+export type CloudAgentToolOperationRecord = {
+  operationId: string;
+  kind: "spawn" | "continue" | "cancel";
+  fingerprint: string;
+  ownerGeneration: string;
+  requestJson: string;
+  resultJson: string | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type ComputerAgentCloudOutboxKind = "start" | "terminal" | "cancel";
 
 export type ComputerAgentCloudOutboxRecord = {
   sequence: number;
@@ -412,6 +454,7 @@ export type ComputerAgentCloudOutboxRecord = {
   threadId: string;
   attemptGeneration: number;
   ownerScope: string | null;
+  ownerGeneration: string | null;
   payloadJson: string;
   attempts: number;
   nextAttemptAt: number;
@@ -429,6 +472,8 @@ export type LegacyChatCloudImportCandidate = {
 export type LegacyChatCloudImportRecord = {
   localConversationId: string;
   cloudConversationId: string | null;
+  /** Null only for an untrusted pre-generation migration row. */
+  ownerGeneration: string | null;
   nextTurnIndex: number;
   status: "pending" | "complete" | "skipped";
   detail: string | null;
@@ -448,6 +493,7 @@ type CloudTranscriptOutboxRow = {
   kind: CloudTranscriptOutboxKind;
   conversationId: string;
   deviceId: string;
+  ownerGeneration: string | null;
   localTurnId: string;
   payloadJson: string;
   recoveryJson: string | null;
@@ -460,8 +506,26 @@ type CloudTranscriptOutboxRow = {
 
 type CloudTranscriptOutboxWrite = Omit<
   CloudTranscriptOutboxRecord,
-  "attempts" | "lastError" | "deadLetteredAt" | "createdAt" | "updatedAt"
->;
+  | "ownerGeneration"
+  | "attempts"
+  | "lastError"
+  | "deadLetteredAt"
+  | "createdAt"
+  | "updatedAt"
+> & { ownerGeneration: string };
+
+const sameCloudTranscriptOutboxWrite = (
+  existing: CloudTranscriptOutboxRow,
+  expected: CloudTranscriptOutboxWrite,
+): boolean =>
+  existing.id === expected.id &&
+  existing.kind === expected.kind &&
+  existing.conversationId === expected.conversationId &&
+  existing.deviceId === expected.deviceId &&
+  existing.ownerGeneration === expected.ownerGeneration &&
+  existing.localTurnId === expected.localTurnId &&
+  existing.payloadJson === expected.payloadJson &&
+  existing.recoveryJson === expected.recoveryJson;
 
 type CloudJournalOutboxRow = CloudJournalOutboxRecord;
 type ComputerAgentCloudOutboxRow = ComputerAgentCloudOutboxRecord;
@@ -482,6 +546,31 @@ const parseManagerReportIds = (value: string | null): string[] | undefined => {
     (entry): entry is string => typeof entry === "string" && entry.length > 0,
   );
   return ids.length > 0 ? [...new Set(ids)] : undefined;
+};
+
+const parseDescendantBoundaryState = (
+  value: string | null,
+): PersistedAgentRecord["descendantBoundaryState"] => {
+  const parsed = parseJsonValue<unknown>(value);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return undefined;
+  }
+  const record = parsed as Record<string, unknown>;
+  const consumedEventIds = Array.isArray(record.consumedEventIds)
+    ? [
+        ...new Set(
+          record.consumedEventIds.filter(
+            (entry): entry is string =>
+              typeof entry === "string" && entry.trim().length > 0,
+          ),
+        ),
+      ].slice(-256)
+    : [];
+  return {
+    consumedEventIds,
+    wakePending: record.wakePending === true,
+    ...(record.finalParked === true ? { finalParked: true } : {}),
+  };
 };
 
 const eventRoleForType = (type: string): string => {
@@ -1639,7 +1728,6 @@ export class SessionStore {
     private readonly options: SessionStoreOptions = {},
   ) {}
 
-
   #orderingBySequenceCache: boolean | null = null;
   /**
    * Whether chat timeline ordering keys on the monotonic `ordering_sequence`.
@@ -1834,6 +1922,7 @@ export class SessionStore {
       SELECT
         local_conversation_id AS localConversationId,
         cloud_conversation_id AS cloudConversationId,
+        owner_generation AS ownerGeneration,
         next_turn_index AS nextTurnIndex,
         status,
         detail,
@@ -1851,6 +1940,7 @@ export class SessionStore {
   saveLegacyChatCloudImport(args: {
     localConversationId: string;
     cloudConversationId?: string | null;
+    ownerGeneration?: string | null;
     nextTurnIndex: number;
     status: "pending" | "complete" | "skipped";
     detail?: string | null;
@@ -1859,39 +1949,67 @@ export class SessionStore {
       args.localConversationId,
     );
     const cloudConversationId = asTrimmedString(args.cloudConversationId);
+    const ownerGeneration = asTrimmedString(args.ownerGeneration);
     const nextTurnIndex = Math.max(0, Math.floor(args.nextTurnIndex));
     const detail = asTrimmedString(args.detail);
     const now = Date.now();
-    this.db
-      .prepare(
-        `
-      INSERT INTO legacy_chat_cloud_import (
-        local_conversation_id,
-        cloud_conversation_id,
-        next_turn_index,
-        status,
-        detail,
-        created_at,
-        updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(local_conversation_id) DO UPDATE SET
-        cloud_conversation_id = excluded.cloud_conversation_id,
-        next_turn_index = excluded.next_turn_index,
-        status = excluded.status,
-        detail = excluded.detail,
-        updated_at = excluded.updated_at
-    `,
-      )
-      .run(
-        localConversationId,
-        cloudConversationId || null,
-        nextTurnIndex,
-        args.status,
-        detail || null,
-        now,
-        now,
-      );
+    this.withTransaction(() => {
+      const existing = this.db
+        .prepare(
+          `SELECT owner_generation AS ownerGeneration
+             FROM legacy_chat_cloud_import
+            WHERE local_conversation_id = ?
+            LIMIT 1`,
+        )
+        .get(localConversationId) as
+        | { ownerGeneration: string | null }
+        | undefined;
+      if (
+        existing?.ownerGeneration &&
+        ownerGeneration &&
+        existing.ownerGeneration !== ownerGeneration
+      ) {
+        throw new Error(
+          "Legacy chat import cannot be rebound to another owner generation.",
+        );
+      }
+      this.db
+        .prepare(
+          `
+        INSERT INTO legacy_chat_cloud_import (
+          local_conversation_id,
+          cloud_conversation_id,
+          owner_generation,
+          next_turn_index,
+          status,
+          detail,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(local_conversation_id) DO UPDATE SET
+          cloud_conversation_id = excluded.cloud_conversation_id,
+          owner_generation = COALESCE(
+            legacy_chat_cloud_import.owner_generation,
+            excluded.owner_generation
+          ),
+          next_turn_index = excluded.next_turn_index,
+          status = excluded.status,
+          detail = excluded.detail,
+          updated_at = excluded.updated_at
+      `,
+        )
+        .run(
+          localConversationId,
+          cloudConversationId || null,
+          ownerGeneration || null,
+          nextTurnIndex,
+          args.status,
+          detail || null,
+          now,
+          now,
+        );
+    }, "immediate");
   }
 
   listLegacyChatVisibleMessages(
@@ -1929,45 +2047,350 @@ export class SessionStore {
     }));
   }
 
+  getCloudAgentThreadControl(
+    threadIdInput: string,
+    ownerGenerationInput: string,
+  ): CloudAgentThreadControlRecord | null {
+    const threadId = asTrimmedString(threadIdInput);
+    const ownerGeneration = asTrimmedString(ownerGenerationInput);
+    if (!threadId || !ownerGeneration) return null;
+    const row = this.db
+      .prepare(
+        `SELECT
+           thread_id AS threadId,
+           owner_generation AS ownerGeneration,
+           cloud_conversation_id AS cloudConversationId,
+           origin_conversation_id AS originConversationId,
+           attempt_generation AS attemptGeneration,
+           thread_updated_at AS threadUpdatedAt,
+           status,
+           created_at AS createdAt,
+           updated_at AS updatedAt
+         FROM cloud_agent_thread_controls
+         WHERE thread_id = ? AND owner_generation = ?
+         LIMIT 1`,
+      )
+      .get(threadId, ownerGeneration) as
+      | CloudAgentThreadControlRecord
+      | undefined;
+    return row ?? null;
+  }
+
+  /**
+   * Monotonic control receipt merge. Attempt generation is the primary ABA
+   * clock. Within one attempt, terminal beats running even when wall clocks
+   * are equal/regressed; a delayed running receipt can never resurrect it.
+   */
+  putCloudAgentThreadControl(record: {
+    threadId: string;
+    ownerGeneration: string;
+    cloudConversationId: string;
+    originConversationId: string;
+    attemptGeneration: number;
+    threadUpdatedAt: number;
+    status: CloudAgentControlStatus;
+  }): CloudAgentThreadControlRecord {
+    const threadId = asTrimmedString(record.threadId);
+    const ownerGeneration = asTrimmedString(record.ownerGeneration);
+    const cloudConversationId = asTrimmedString(record.cloudConversationId);
+    const originConversationId = asTrimmedString(record.originConversationId);
+    if (
+      !threadId ||
+      !ownerGeneration ||
+      !cloudConversationId ||
+      !originConversationId ||
+      !Number.isSafeInteger(record.attemptGeneration) ||
+      record.attemptGeneration < 1 ||
+      !Number.isSafeInteger(record.threadUpdatedAt) ||
+      record.threadUpdatedAt < 0 ||
+      !["running", "completed", "failed", "canceled"].includes(record.status)
+    ) {
+      throw new Error("Invalid cloud agent control receipt.");
+    }
+    return this.withTransaction(() => {
+      const existing = this.getCloudAgentThreadControl(
+        threadId,
+        ownerGeneration,
+      );
+      if (
+        existing &&
+        (existing.cloudConversationId !== cloudConversationId ||
+          existing.originConversationId !== originConversationId)
+      ) {
+        throw new Error(
+          "Cloud agent control receipt cannot be rebound to another conversation.",
+        );
+      }
+
+      let replace = !existing;
+      if (existing) {
+        if (record.attemptGeneration > existing.attemptGeneration) {
+          replace = true;
+        } else if (record.attemptGeneration < existing.attemptGeneration) {
+          replace = false;
+        } else if (record.status === existing.status) {
+          replace = record.threadUpdatedAt >= existing.threadUpdatedAt;
+        } else if (
+          existing.status === "running" &&
+          record.status !== "running"
+        ) {
+          replace = true;
+        } else if (
+          existing.status !== "running" &&
+          record.status === "running"
+        ) {
+          replace = false;
+        } else {
+          throw new Error(
+            "Cloud agent control receipt has conflicting terminal states.",
+          );
+        }
+      }
+
+      if (replace) {
+        const now = Date.now();
+        this.db
+          .prepare(
+            `INSERT INTO cloud_agent_thread_controls (
+               thread_id,
+               owner_generation,
+               cloud_conversation_id,
+               origin_conversation_id,
+               attempt_generation,
+               thread_updated_at,
+               status,
+               created_at,
+               updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(thread_id, owner_generation) DO UPDATE SET
+               attempt_generation = excluded.attempt_generation,
+               thread_updated_at = excluded.thread_updated_at,
+               status = excluded.status,
+               updated_at = excluded.updated_at`,
+          )
+          .run(
+            threadId,
+            ownerGeneration,
+            cloudConversationId,
+            originConversationId,
+            record.attemptGeneration,
+            record.threadUpdatedAt,
+            record.status,
+            now,
+            now,
+          );
+      }
+      const stored = this.getCloudAgentThreadControl(threadId, ownerGeneration);
+      if (!stored) throw new Error("Cloud agent control receipt was not stored.");
+      return stored;
+    }, "immediate");
+  }
+
+  getCloudAgentToolOperation(
+    operationIdInput: string,
+  ): CloudAgentToolOperationRecord | null {
+    const operationId = asTrimmedString(operationIdInput);
+    if (!operationId) return null;
+    const row = this.db
+      .prepare(
+        `SELECT
+           operation_id AS operationId,
+           kind,
+           fingerprint,
+           owner_generation AS ownerGeneration,
+           request_json AS requestJson,
+           result_json AS resultJson,
+           created_at AS createdAt,
+           updated_at AS updatedAt
+         FROM cloud_agent_tool_operations
+         WHERE operation_id = ?
+         LIMIT 1`,
+      )
+      .get(operationId) as CloudAgentToolOperationRecord | undefined;
+    return row ?? null;
+  }
+
+  putCloudAgentToolOperation(record: {
+    operationId: string;
+    kind: CloudAgentToolOperationRecord["kind"];
+    fingerprint: string;
+    ownerGeneration: string;
+    requestJson: string;
+  }): CloudAgentToolOperationRecord {
+    const operationId = asTrimmedString(record.operationId);
+    const fingerprint = asTrimmedString(record.fingerprint);
+    const ownerGeneration = asTrimmedString(record.ownerGeneration);
+    if (
+      !operationId ||
+      !fingerprint ||
+      !ownerGeneration ||
+      !record.requestJson ||
+      !["spawn", "continue", "cancel"].includes(record.kind)
+    ) {
+      throw new Error("Invalid cloud agent tool operation.");
+    }
+    return this.withTransaction(() => {
+      const now = Date.now();
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO cloud_agent_tool_operations (
+             operation_id,
+             kind,
+             fingerprint,
+             owner_generation,
+             request_json,
+             result_json,
+             created_at,
+             updated_at
+           ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`,
+        )
+        .run(
+          operationId,
+          record.kind,
+          fingerprint,
+          ownerGeneration,
+          record.requestJson,
+          now,
+          now,
+        );
+      const stored = this.getCloudAgentToolOperation(operationId);
+      if (
+        !stored ||
+        stored.kind !== record.kind ||
+        stored.fingerprint !== fingerprint ||
+        stored.ownerGeneration !== ownerGeneration
+      ) {
+        throw new Error(
+          "Cloud agent tool-call id was reused with different authority or intent.",
+        );
+      }
+      return stored;
+    }, "immediate");
+  }
+
+  updatePendingCloudAgentToolOperationRequest(
+    operationIdInput: string,
+    expectedRequestJson: string,
+    replacementRequestJson: string,
+  ): CloudAgentToolOperationRecord {
+    const operationId = asTrimmedString(operationIdInput);
+    if (!operationId || !expectedRequestJson || !replacementRequestJson) {
+      throw new Error("Invalid cloud agent operation request replacement.");
+    }
+    return this.withTransaction(() => {
+      const existing = this.getCloudAgentToolOperation(operationId);
+      if (!existing) throw new Error("Cloud agent tool operation was not found.");
+      if (existing.resultJson !== null) return existing;
+      if (existing.requestJson !== expectedRequestJson) {
+        throw new Error("Cloud agent operation request changed concurrently.");
+      }
+      this.db
+        .prepare(
+          `UPDATE cloud_agent_tool_operations
+           SET request_json = ?, updated_at = ?
+           WHERE operation_id = ? AND result_json IS NULL`,
+        )
+        .run(replacementRequestJson, Date.now(), operationId);
+      const stored = this.getCloudAgentToolOperation(operationId);
+      if (!stored) throw new Error("Cloud agent tool operation was not stored.");
+      return stored;
+    }, "immediate");
+  }
+
+  completeCloudAgentToolOperation(
+    operationIdInput: string,
+    resultJson: string,
+  ): CloudAgentToolOperationRecord {
+    const operationId = asTrimmedString(operationIdInput);
+    if (!operationId || !resultJson) {
+      throw new Error("Invalid cloud agent tool operation result.");
+    }
+    return this.withTransaction(() => {
+      const existing = this.getCloudAgentToolOperation(operationId);
+      if (!existing) throw new Error("Cloud agent tool operation was not found.");
+      if (existing.resultJson && existing.resultJson !== resultJson) {
+        throw new Error("Cloud agent tool operation returned conflicting results.");
+      }
+      if (existing.resultJson === null) {
+        this.db
+          .prepare(
+            `UPDATE cloud_agent_tool_operations
+             SET result_json = ?, updated_at = ?
+             WHERE operation_id = ? AND result_json IS NULL`,
+          )
+          .run(resultJson, Date.now(), operationId);
+      }
+      const stored = this.getCloudAgentToolOperation(operationId);
+      if (!stored) throw new Error("Cloud agent tool operation was not stored.");
+      return stored;
+    }, "immediate");
+  }
+
   putCloudTranscriptOutbox(record: CloudTranscriptOutboxWrite): void {
     const now = Date.now();
-    this.db
-      .prepare(
-        `
-      INSERT INTO cloud_transcript_outbox (
-        id,
-        kind,
-        conversation_id,
-        device_id,
-        local_turn_id,
-        payload_json,
-        recovery_json,
-        attempts,
-        last_error,
-        dead_lettered_at,
-        created_at,
-        updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        payload_json = excluded.payload_json,
-        recovery_json = excluded.recovery_json,
-        last_error = NULL,
-        dead_lettered_at = NULL,
-        updated_at = excluded.updated_at
-    `,
-      )
-      .run(
-        record.id,
-        record.kind,
-        record.conversationId,
-        record.deviceId,
-        record.localTurnId,
-        record.payloadJson,
-        record.recoveryJson,
-        now,
-        now,
-      );
+    this.withTransaction(() => {
+      const existing = this.db
+        .prepare(
+          `SELECT id,
+                  kind,
+                  conversation_id AS conversationId,
+                  device_id AS deviceId,
+                  owner_generation AS ownerGeneration,
+                  local_turn_id AS localTurnId,
+                  payload_json AS payloadJson,
+                  recovery_json AS recoveryJson,
+                  attempts,
+                  last_error AS lastError,
+                  dead_lettered_at AS deadLetteredAt,
+                  created_at AS createdAt,
+                  updated_at AS updatedAt
+             FROM cloud_transcript_outbox
+            WHERE id = ?
+            LIMIT 1`,
+        )
+        .get(record.id) as CloudTranscriptOutboxRow | undefined;
+      if (existing) {
+        if (!sameCloudTranscriptOutboxWrite(existing, record)) {
+          throw new Error(
+            "Cloud transcript turn id was reused with different authority or payload.",
+          );
+        }
+        return;
+      }
+      this.db
+        .prepare(
+          `
+        INSERT INTO cloud_transcript_outbox (
+          id,
+          kind,
+          conversation_id,
+          device_id,
+          owner_generation,
+          local_turn_id,
+          payload_json,
+          recovery_json,
+          attempts,
+          last_error,
+          dead_lettered_at,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)
+      `,
+        )
+        .run(
+          record.id,
+          record.kind,
+          record.conversationId,
+          record.deviceId,
+          record.ownerGeneration,
+          record.localTurnId,
+          record.payloadJson,
+          record.recoveryJson,
+          now,
+          now,
+        );
+    }, "immediate");
   }
 
   listCloudTranscriptOutbox(limit = 256): CloudTranscriptOutboxRecord[] {
@@ -1980,6 +2403,7 @@ export class SessionStore {
         kind,
         conversation_id AS conversationId,
         device_id AS deviceId,
+        owner_generation AS ownerGeneration,
         local_turn_id AS localTurnId,
         payload_json AS payloadJson,
         recovery_json AS recoveryJson,
@@ -2101,43 +2525,88 @@ export class SessionStore {
   ): void {
     const now = Date.now();
     this.withTransaction(() => {
-      this.db
-        .prepare(
-          `
-        INSERT INTO cloud_transcript_outbox (
-          id,
-          kind,
-          conversation_id,
-          device_id,
-          local_turn_id,
-          payload_json,
-          recovery_json,
-          attempts,
-          last_error,
-          dead_lettered_at,
-          created_at,
-          updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          payload_json = excluded.payload_json,
-          recovery_json = excluded.recovery_json,
-          last_error = NULL,
-          dead_lettered_at = NULL,
-          updated_at = excluded.updated_at
-      `,
-        )
-        .run(
-          replacement.id,
-          replacement.kind,
-          replacement.conversationId,
-          replacement.deviceId,
-          replacement.localTurnId,
-          replacement.payloadJson,
-          replacement.recoveryJson,
-          now,
-          now,
+      const selectById = this.db.prepare(
+        `SELECT id,
+                kind,
+                conversation_id AS conversationId,
+                device_id AS deviceId,
+                owner_generation AS ownerGeneration,
+                local_turn_id AS localTurnId,
+                payload_json AS payloadJson,
+                recovery_json AS recoveryJson,
+                attempts,
+                last_error AS lastError,
+                dead_lettered_at AS deadLetteredAt,
+                created_at AS createdAt,
+                updated_at AS updatedAt
+           FROM cloud_transcript_outbox
+          WHERE id = ?
+          LIMIT 1`,
+      );
+      const acknowledged = selectById.get(acknowledgedId) as
+        | CloudTranscriptOutboxRow
+        | undefined;
+      const existingReplacement = selectById.get(replacement.id) as
+        | CloudTranscriptOutboxRow
+        | undefined;
+      if (
+        acknowledged &&
+        (acknowledged.kind !== "begin" ||
+          acknowledged.conversationId !== replacement.conversationId ||
+          acknowledged.deviceId !== replacement.deviceId ||
+          acknowledged.localTurnId !== replacement.localTurnId ||
+          acknowledged.ownerGeneration !== replacement.ownerGeneration)
+      ) {
+        throw new Error(
+          "Cloud transcript finish does not match its admitted begin authority.",
         );
+      }
+      if (existingReplacement) {
+        if (!sameCloudTranscriptOutboxWrite(existingReplacement, replacement)) {
+          throw new Error(
+            "Cloud transcript finish id was reused with different authority or payload.",
+          );
+        }
+      } else {
+        if (!acknowledged) {
+          throw new Error(
+            "Cloud transcript finish has no matching admitted begin.",
+          );
+        }
+        this.db
+          .prepare(
+            `
+          INSERT INTO cloud_transcript_outbox (
+            id,
+            kind,
+            conversation_id,
+            device_id,
+            owner_generation,
+            local_turn_id,
+            payload_json,
+            recovery_json,
+            attempts,
+            last_error,
+            dead_lettered_at,
+            created_at,
+            updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)
+        `,
+          )
+          .run(
+            replacement.id,
+            replacement.kind,
+            replacement.conversationId,
+            replacement.deviceId,
+            replacement.ownerGeneration,
+            replacement.localTurnId,
+            replacement.payloadJson,
+            replacement.recoveryJson,
+            now,
+            now,
+          );
+      }
       this.db
         .prepare("DELETE FROM cloud_transcript_outbox WHERE id = ?")
         .run(acknowledgedId);
@@ -2148,9 +2617,14 @@ export class SessionStore {
     id: string;
     conversationId: string;
     deviceId: string;
+    ownerGeneration: string;
     appendId: string;
     payloadJson: string;
   }): { replayed: boolean } {
+    const ownerGeneration = asTrimmedString(record.ownerGeneration);
+    if (!ownerGeneration || ownerGeneration.length > 512) {
+      throw new Error("Cloud journal owner generation is invalid.");
+    }
     return this.withTransaction(() => {
       const admitted = this.db
         .prepare(
@@ -2177,14 +2651,15 @@ export class SessionStore {
       this.db
         .prepare(
           `INSERT INTO cloud_journal_outbox (
-             id, conversation_id, device_id, append_id, payload_json,
+             id, conversation_id, device_id, owner_generation, append_id, payload_json,
              attempts, last_error, dead_lettered_at, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, 0, NULL, NULL, ?, ?)`,
         )
         .run(
           record.id,
           record.conversationId,
           record.deviceId,
+          ownerGeneration,
           record.appendId,
           record.payloadJson,
           now,
@@ -2341,6 +2816,7 @@ export class SessionStore {
            id,
            conversation_id AS conversationId,
            device_id AS deviceId,
+           owner_generation AS ownerGeneration,
            append_id AS appendId,
            payload_json AS payloadJson,
            attempts,
@@ -2403,15 +2879,17 @@ export class SessionStore {
     threadId: string;
     attemptGeneration: number;
     ownerScope: string | null;
+    ownerGeneration: string | null;
     payloadJson: string;
   }): void {
     const now = Date.now();
     this.db
       .prepare(
         `INSERT INTO computer_agent_cloud_outbox (
-           id, kind, thread_id, attempt_generation, owner_scope, payload_json,
+           id, kind, thread_id, attempt_generation, owner_scope,
+           owner_generation, payload_json,
            attempts, next_attempt_at, last_error, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, NULL, ?, ?)
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            payload_json = excluded.payload_json,
            next_attempt_at = MIN(
@@ -2427,6 +2905,7 @@ export class SessionStore {
         record.threadId,
         record.attemptGeneration,
         record.ownerScope,
+        record.ownerGeneration,
         record.payloadJson,
         now,
         now,
@@ -2447,6 +2926,7 @@ export class SessionStore {
            thread_id AS threadId,
            attempt_generation AS attemptGeneration,
            owner_scope AS ownerScope,
+           owner_generation AS ownerGeneration,
            payload_json AS payloadJson,
            attempts,
            next_attempt_at AS nextAttemptAt,
@@ -2522,16 +3002,61 @@ export class SessionStore {
       : null;
   }
 
+  getComputerAgentCloudThreadAuthority(
+    threadId: string,
+  ): { ownerScope: string; ownerGeneration: string } | null {
+    const row = this.db
+      .prepare(
+        `SELECT owner_scope AS ownerScope,
+                owner_generation AS ownerGeneration
+           FROM computer_agent_cloud_thread_owners
+          WHERE thread_id = ?
+          LIMIT 1`,
+      )
+      .get(threadId) as
+      | { ownerScope?: unknown; ownerGeneration?: unknown }
+      | undefined;
+    return typeof row?.ownerScope === "string" &&
+      row.ownerScope.trim() &&
+      typeof row.ownerGeneration === "string" &&
+      row.ownerGeneration.trim()
+      ? {
+          ownerScope: row.ownerScope,
+          ownerGeneration: row.ownerGeneration,
+        }
+      : null;
+  }
+
   hasUnscopedComputerAgentCloudOutbox(threadId: string): boolean {
     return Boolean(
       this.db
         .prepare(
           `SELECT 1
              FROM computer_agent_cloud_outbox
-            WHERE thread_id = ? AND owner_scope IS NULL
+            WHERE thread_id = ?
+              AND (owner_scope IS NULL OR owner_generation IS NULL)
             LIMIT 1`,
         )
         .get(threadId),
+    );
+  }
+
+  isComputerAgentCloudGenerationRetired(args: {
+    threadId: string;
+    ownerScope: string;
+    ownerGeneration: string;
+  }): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          `SELECT 1
+             FROM computer_agent_cloud_retired_generations
+            WHERE thread_id = ?
+              AND owner_scope = ?
+              AND owner_generation = ?
+            LIMIT 1`,
+        )
+        .get(args.threadId, args.ownerScope, args.ownerGeneration),
     );
   }
 
@@ -2548,9 +3073,107 @@ export class SessionStore {
          ON CONFLICT(thread_id) DO NOTHING`,
       )
       .run(threadId, ownerScope, now, now);
-    return (
-      this.getComputerAgentCloudThreadOwnerScope(threadId) ?? ownerScope
-    );
+    return this.getComputerAgentCloudThreadOwnerScope(threadId) ?? ownerScope;
+  }
+
+  bindComputerAgentCloudThreadAuthority(
+    threadId: string,
+    ownerScope: string,
+    ownerGeneration: string,
+  ): { ownerScope: string; ownerGeneration: string } | null {
+    const now = Date.now();
+    return this.db.transaction(() => {
+      if (
+        this.isComputerAgentCloudGenerationRetired({
+          threadId,
+          ownerScope,
+          ownerGeneration,
+        })
+      ) {
+        return null;
+      }
+      const existing = this.db
+        .prepare(
+          `SELECT owner_scope AS ownerScope,
+                  owner_generation AS ownerGeneration
+             FROM computer_agent_cloud_thread_owners
+            WHERE thread_id = ?`,
+        )
+        .get(threadId) as
+        | { ownerScope?: unknown; ownerGeneration?: unknown }
+        | undefined;
+      if (
+        existing &&
+        (existing.ownerScope !== ownerScope ||
+          typeof existing.ownerGeneration !== "string")
+      ) {
+        return null;
+      }
+      if (existing && existing.ownerGeneration !== ownerGeneration) {
+        // A newly admitted epoch tombstones queued work from the prior epoch
+        // before rebinding the mutable thread id. Persist the tombstone first
+        // so a late retry cannot reverse the transition back to the old epoch.
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO computer_agent_cloud_retired_generations (
+               thread_id, owner_scope, owner_generation, retired_at
+             ) VALUES (?, ?, ?, ?)`,
+          )
+          .run(threadId, ownerScope, existing.ownerGeneration, now);
+        this.db
+          .prepare(
+            `DELETE FROM computer_agent_cloud_outbox
+              WHERE thread_id = ?
+                AND owner_scope = ?
+                AND owner_generation = ?`,
+          )
+          .run(threadId, ownerScope, existing.ownerGeneration);
+      }
+      this.db
+        .prepare(
+          `INSERT INTO computer_agent_cloud_thread_owners (
+             thread_id, owner_scope, owner_generation, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(thread_id) DO UPDATE SET
+             owner_generation = excluded.owner_generation,
+             updated_at = excluded.updated_at
+           WHERE computer_agent_cloud_thread_owners.owner_scope = excluded.owner_scope`,
+        )
+        .run(threadId, ownerScope, ownerGeneration, now, now);
+      return this.getComputerAgentCloudThreadAuthority(threadId);
+    })();
+  }
+
+  retireComputerAgentCloudGeneration(args: {
+    threadId: string;
+    ownerScope: string;
+    ownerGeneration: string;
+  }): void {
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO computer_agent_cloud_retired_generations (
+             thread_id, owner_scope, owner_generation, retired_at
+           ) VALUES (?, ?, ?, ?)`,
+        )
+        .run(args.threadId, args.ownerScope, args.ownerGeneration, Date.now());
+      this.db
+        .prepare(
+          `DELETE FROM computer_agent_cloud_outbox
+            WHERE thread_id = ?
+              AND owner_scope = ?
+              AND owner_generation = ?`,
+        )
+        .run(args.threadId, args.ownerScope, args.ownerGeneration);
+      this.db
+        .prepare(
+          `DELETE FROM computer_agent_cloud_thread_owners
+            WHERE thread_id = ?
+              AND owner_scope = ?
+              AND owner_generation = ?`,
+        )
+        .run(args.threadId, args.ownerScope, args.ownerGeneration);
+    })();
   }
 
   deleteComputerAgentCloudOutbox(id: string): void {
@@ -5703,9 +6326,8 @@ export class SessionStore {
       throw new Error("threadKey is required.");
     }
     const capture = this.ephemeralThreadCaptures.get(threadKey);
-    const latestCompaction = capture || limit
-      ? null
-      : this.findLatestRangeCompaction(threadKey);
+    const latestCompaction =
+      capture || limit ? null : this.findLatestRangeCompaction(threadKey);
     const messages = capture
       ? [...capture.seedMessages, ...capture.appendedMessages]
       : latestCompaction
@@ -7166,6 +7788,7 @@ export class SessionStore {
         thread_id,
         conversation_id,
         storage_mode,
+        owner_generation,
         agent_type,
         description,
         prompt,
@@ -7187,12 +7810,16 @@ export class SessionStore {
         manager_final_report_id,
         manager_report_ids_json,
         manager_report_sequence,
+        cloud_terminal_receipt_generation,
+        terminal_lifecycle_receipt_generation,
+        descendant_boundary_state_json,
         record_revision
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
       ON CONFLICT(thread_id) DO UPDATE SET
         conversation_id = excluded.conversation_id,
         storage_mode = excluded.storage_mode,
+        owner_generation = excluded.owner_generation,
         agent_type = excluded.agent_type,
         description = excluded.description,
         prompt = COALESCE(runtime_agents.prompt, excluded.prompt),
@@ -7214,8 +7841,14 @@ export class SessionStore {
         manager_final_report_id = excluded.manager_final_report_id,
         manager_report_ids_json = excluded.manager_report_ids_json,
         manager_report_sequence = excluded.manager_report_sequence,
+        cloud_terminal_receipt_generation = excluded.cloud_terminal_receipt_generation,
+        terminal_lifecycle_receipt_generation = excluded.terminal_lifecycle_receipt_generation,
+        descendant_boundary_state_json = excluded.descendant_boundary_state_json,
         record_revision = runtime_agents.record_revision + 1
       WHERE excluded.attempt_generation >= runtime_agents.attempt_generation
+        AND excluded.conversation_id = runtime_agents.conversation_id
+        AND excluded.storage_mode = runtime_agents.storage_mode
+        AND excluded.owner_generation IS runtime_agents.owner_generation
       RETURNING record_revision
     `,
       )
@@ -7223,6 +7856,7 @@ export class SessionStore {
         record.threadId,
         record.conversationId,
         record.storageMode ?? "local",
+        record.ownerGeneration ?? null,
         record.agentType,
         record.description,
         record.prompt ?? null,
@@ -7244,6 +7878,9 @@ export class SessionStore {
         record.managerFinalReportId ?? null,
         toJsonValueString(record.managerReportIds) ?? null,
         record.managerReportSequence ?? 0,
+        record.cloudTerminalReceiptGeneration ?? null,
+        record.terminalLifecycleReceiptGeneration ?? null,
+        toJsonValueString(record.descendantBoundaryState) ?? null,
       );
     return revisionRow?.record_revision ?? null;
   }
@@ -7434,6 +8071,7 @@ export class SessionStore {
         thread_id,
         conversation_id,
         storage_mode,
+        owner_generation,
         agent_type,
         description,
         prompt,
@@ -7455,6 +8093,9 @@ export class SessionStore {
         manager_final_report_id,
         manager_report_ids_json,
         manager_report_sequence,
+        cloud_terminal_receipt_generation,
+        terminal_lifecycle_receipt_generation,
+        descendant_boundary_state_json,
         record_revision
       FROM runtime_agents
       WHERE thread_id = ?
@@ -7466,6 +8107,7 @@ export class SessionStore {
           thread_id: string;
           conversation_id: string;
           storage_mode: string;
+          owner_generation: string | null;
           agent_type: string;
           description: string;
           agent_depth: number;
@@ -7484,6 +8126,9 @@ export class SessionStore {
           manager_final_report_id: string | null;
           manager_report_ids_json: string | null;
           manager_report_sequence: number;
+          cloud_terminal_receipt_generation: number | null;
+          terminal_lifecycle_receipt_generation: number | null;
+          descendant_boundary_state_json: string | null;
           record_revision: number;
         }
       | undefined;
@@ -7494,10 +8139,16 @@ export class SessionStore {
       PersistedAgentRecord["modelConfigSnapshot"]
     >(row.model_config_json);
     const managerReportIds = parseManagerReportIds(row.manager_report_ids_json);
+    const descendantBoundaryState = parseDescendantBoundaryState(
+      row.descendant_boundary_state_json,
+    );
     return {
       threadId: row.thread_id,
       conversationId: row.conversation_id,
       storageMode: row.storage_mode === "cloud" ? "cloud" : "local",
+      ...(row.owner_generation
+        ? { ownerGeneration: row.owner_generation }
+        : {}),
       agentType: normalizeRetiredAgentType(row.agent_type),
       description: row.description,
       ...(row.prompt
@@ -7530,6 +8181,19 @@ export class SessionStore {
         : {}),
       ...(managerReportIds ? { managerReportIds } : {}),
       managerReportSequence: row.manager_report_sequence,
+      ...(row.cloud_terminal_receipt_generation == null
+        ? {}
+        : {
+            cloudTerminalReceiptGeneration:
+              row.cloud_terminal_receipt_generation,
+          }),
+      ...(row.terminal_lifecycle_receipt_generation == null
+        ? {}
+        : {
+            terminalLifecycleReceiptGeneration:
+              row.terminal_lifecycle_receipt_generation,
+          }),
+      ...(descendantBoundaryState ? { descendantBoundaryState } : {}),
       startedAt: row.started_at,
       completedAt: row.completed_at,
       ...(row.result ? { result: row.result } : {}),
@@ -7545,6 +8209,7 @@ export class SessionStore {
         thread_id,
         conversation_id,
         storage_mode,
+        owner_generation,
         agent_type,
         description,
         prompt,
@@ -7566,6 +8231,9 @@ export class SessionStore {
         manager_final_report_id,
         manager_report_ids_json,
         manager_report_sequence,
+        cloud_terminal_receipt_generation,
+        terminal_lifecycle_receipt_generation,
+        descendant_boundary_state_json,
         record_revision
       FROM runtime_agents
       WHERE status = ?
@@ -7576,6 +8244,7 @@ export class SessionStore {
       thread_id: string;
       conversation_id: string;
       storage_mode: string;
+      owner_generation: string | null;
       agent_type: string;
       description: string;
       agent_depth: number;
@@ -7594,6 +8263,9 @@ export class SessionStore {
       manager_final_report_id: string | null;
       manager_report_ids_json: string | null;
       manager_report_sequence: number;
+      cloud_terminal_receipt_generation: number | null;
+      terminal_lifecycle_receipt_generation: number | null;
+      descendant_boundary_state_json: string | null;
       record_revision: number;
     }>;
 
@@ -7604,10 +8276,16 @@ export class SessionStore {
       const managerReportIds = parseManagerReportIds(
         row.manager_report_ids_json,
       );
+      const descendantBoundaryState = parseDescendantBoundaryState(
+        row.descendant_boundary_state_json,
+      );
       return {
         threadId: row.thread_id,
         conversationId: row.conversation_id,
         storageMode: row.storage_mode === "cloud" ? "cloud" : "local",
+        ...(row.owner_generation
+          ? { ownerGeneration: row.owner_generation }
+          : {}),
         agentType: normalizeRetiredAgentType(row.agent_type),
         description: row.description,
         ...(row.prompt
@@ -7640,6 +8318,19 @@ export class SessionStore {
           : {}),
         ...(managerReportIds ? { managerReportIds } : {}),
         managerReportSequence: row.manager_report_sequence,
+        ...(row.cloud_terminal_receipt_generation == null
+          ? {}
+          : {
+              cloudTerminalReceiptGeneration:
+                row.cloud_terminal_receipt_generation,
+            }),
+        ...(row.terminal_lifecycle_receipt_generation == null
+          ? {}
+          : {
+              terminalLifecycleReceiptGeneration:
+                row.terminal_lifecycle_receipt_generation,
+            }),
+        ...(descendantBoundaryState ? { descendantBoundaryState } : {}),
         startedAt: row.started_at,
         completedAt: row.completed_at,
         ...(row.result ? { result: row.result } : {}),

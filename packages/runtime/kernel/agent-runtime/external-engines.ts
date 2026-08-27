@@ -41,6 +41,7 @@ import {
   extractAttachImageBlocks,
   getProviderToolMetadata,
   getRuntimeToolMetadata,
+  neutralizeLegacyAttachImageMarkers,
   truncateModelVisibleToolText,
   preserveModelVisibleToolText,
 } from "./tool-adapters.js";
@@ -190,7 +191,7 @@ const buildToolResultText = (toolResult: {
     ? `Error: ${toolResult.error}`
     : textFromUnknown(toolResult.result);
 
-const buildToolResultContent = async (
+export const buildToolResultContent = async (
   toolResult: {
     result?: unknown;
     error?: string;
@@ -201,12 +202,16 @@ const buildToolResultContent = async (
     runId: string;
     toolCallId: string;
   }>,
+  storageMode: "cloud" | "local" = "local",
 ): Promise<(TextContent | ImageContent)[]> => {
   const rawText = buildToolResultText(toolResult);
-  const { text, images } = await extractAttachImageBlocks(
-    rawText,
-    imageCapTarget,
-  );
+  const { text, images } =
+    storageMode === "cloud"
+      ? {
+          text: neutralizeLegacyAttachImageMarkers(rawText),
+          images: [],
+        }
+      : await extractAttachImageBlocks(rawText, imageCapTarget);
   const truncatedText = spillContext
     ? await preserveModelVisibleToolText(text, spillContext)
     : truncateModelVisibleToolText(text);
@@ -1261,6 +1266,7 @@ const runClaudeHostedTurn = async (args: {
       agentId: args.opts.agentId,
       conversationId: args.opts.conversationId,
       storageMode: args.opts.storageMode,
+      ownerGeneration: args.opts.ownerGeneration,
       agentType: args.opts.agentType,
       deviceId: args.opts.deviceId,
       stellaAppDir: args.opts.stellaAppDir,
@@ -1308,6 +1314,7 @@ const runClaudeHostedTurn = async (args: {
             runId,
             toolCallId,
           },
+          args.opts.storageMode,
         ),
         isError: Boolean(toolResult.error),
         timestamp: now(),
@@ -1732,6 +1739,7 @@ const runCodexHostedTurn = async (args: {
       agentId: args.opts.agentId,
       conversationId: args.opts.conversationId,
       storageMode: args.opts.storageMode,
+      ownerGeneration: args.opts.ownerGeneration,
       agentType: args.opts.agentType,
       deviceId: args.opts.deviceId,
       stellaAppDir: args.opts.stellaAppDir,
@@ -1779,6 +1787,7 @@ const runCodexHostedTurn = async (args: {
             runId,
             toolCallId,
           },
+          args.opts.storageMode,
         ),
         isError: Boolean(toolResult.error),
         timestamp: now(),

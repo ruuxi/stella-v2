@@ -12,6 +12,8 @@ import { createServiceRequest } from "@/platform/http/service-request";
 export type ReadAloudVoiceFamily = "openai" | "inworld";
 
 export type ReadAloudRequest = {
+  /** Stable for one read invocation, including stream-to-buffered fallback. */
+  operationId: string;
   text: string;
   voice?: string;
   voiceProvider: ReadAloudVoiceFamily;
@@ -28,6 +30,8 @@ export type ReadAloudResponse = {
 const TTS_PATH = "/api/voice/tts";
 const TTS_STREAM_PATH = "/api/voice/tts/stream";
 
+export const createReadAloudOperationId = (): string => crypto.randomUUID();
+
 /**
  * Open a progressive Inworld TTS stream. Resolves with the raw streaming
  * `Response` (an `audio/mpeg` body) so the player can feed it into Media
@@ -40,7 +44,10 @@ export async function openReadAloudStream(
   const { endpoint, headers } = await createServiceRequest(TTS_STREAM_PATH, {
     "Content-Type": "application/json",
   });
-  const body: Record<string, unknown> = { text: req.text };
+  const body: Record<string, unknown> = {
+    text: req.text,
+    operationId: req.operationId,
+  };
   if (req.voice) body.voice = req.voice;
   if (typeof req.speed === "number" && Number.isFinite(req.speed)) {
     body.speed = req.speed;
@@ -69,6 +76,7 @@ export async function fetchReadAloudAudio(
   const body: Record<string, unknown> = {
     text: req.text,
     voiceProvider: req.voiceProvider,
+    operationId: req.operationId,
   };
   if (req.voice) body.voice = req.voice;
   if (typeof req.speed === "number" && Number.isFinite(req.speed)) {

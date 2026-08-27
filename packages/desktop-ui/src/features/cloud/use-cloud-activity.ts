@@ -5,11 +5,16 @@
  * with the same expand/updates/open affordances. Only a small placement
  * badge says where it ran.
  */
-import { useMemo } from "react";
-import { useQueries, type RequestForQueries } from "convex/react";
+import { useCallback, useMemo } from "react";
+import {
+  usePaginatedQuery_experimental,
+  useQueries,
+  type RequestForQueries,
+} from "convex/react";
 import type { TaskLifecycleStatus } from "@stella/contracts/agent-runtime";
 import type { TaskItem } from "@/features/chat/lib/event-transforms";
 import { useCloudMode } from "@/global/auth/hooks/use-cloud-mode";
+import { cloudConversationBelongsToAccountScope } from "./cloud-conversation-selection";
 import { cloudApi, type CloudAgentThread } from "./cloud-api";
 
 /** Human label for a C2 workspace identity. */
@@ -149,6 +154,37 @@ export const useCloudActivity = (): CloudActivity => {
 export type CloudConversationActivity = CloudActivity & {
   /** False only while the authenticated conversation query is unresolved. */
   hasLoaded: boolean;
+  /** True while an older cursor exists or that cursor is being loaded. */
+  hasOlder: boolean;
+  isLoadingOlder: boolean;
+  loadOlder: () => void;
+};
+
+/** Match the historical first-page size while making every older row reachable. */
+export const CLOUD_ACTIVITY_PAGE_SIZE = 30;
+
+export const cloudThreadsForAccountScope = (
+  threads: readonly CloudAgentThread[],
+  accountScope: string,
+): CloudAgentThread[] =>
+  threads.filter((thread) =>
+    cloudConversationBelongsToAccountScope(thread, accountScope),
+  );
+
+export const mergeCloudThreadSnapshots = (
+  history: readonly CloudAgentThread[],
+  running: readonly CloudAgentThread[],
+): CloudAgentThread[] => {
+  const byId = new Map(history.map((thread) => [thread.threadId, thread]));
+  for (const thread of running) {
+    const current = byId.get(thread.threadId);
+    if (!current || thread.updatedAt > current.updatedAt) {
+      byId.set(thread.threadId, thread);
+    }
+  }
+  return [...byId.values()].sort(
+    (a, b) => b.updatedAt - a.updatedAt || a.threadId.localeCompare(b.threadId),
+  );
 };
 
 /**
@@ -159,26 +195,99 @@ export type CloudConversationActivity = CloudActivity & {
 export const useCloudConversationActivity = (
   conversationId: string | null,
 ): CloudConversationActivity => {
-  const { cloudMode } = useCloudMode();
-  const activityQueries = useMemo<RequestForQueries>(() => {
+  const { cloudMode, accountScope, identityRevision } = useCloudMode();
+  // Object-form pagination returns deployment-skew/auth-refresh errors as a
+  // value instead of throwing through the shell. That preserves the previous
+  // `useQueries` behavior while delegating cursor splitting and invalid-cursor
+  // recovery to Convex's official pagination implementation.
+  const page = usePaginatedQuery_experimental({
+    query: cloudApi.listMyAgentThreadsPage,
+    args:
+      cloudMode && conversationId
+        ? { conversationId, identityRevision }
+        : "skip",
+    initialNumItems: CLOUD_ACTIVITY_PAGE_SIZE,
+  });
+  const runningQueries = useMemo<RequestForQueries>(() => {
     const queries: RequestForQueries = {};
     if (cloudMode && conversationId) {
-      queries.threads = {
-        query: cloudApi.listMyAgentThreads,
-        args: { conversationId },
+      queries.running = {
+        query: cloudApi.listMyRunningAgentThreads,
+        args: { conversationId, identityRevision },
       };
     }
     return queries;
-  }, [cloudMode, conversationId]);
-  const results = useQueries(activityQueries);
-  const threads = Array.isArray(results.threads)
-    ? (results.threads as CloudAgentThread[])
+  }, [cloudMode, conversationId, identityRevision]);
+  const runningResults = useQueries(runningQueries);
+  const pageThreads = Array.isArray(page.data)
+    ? (page.data as CloudAgentThread[])
     : undefined;
+  const runningThreads = Array.isArray(runningResults.running)
+    ? (runningResults.running as CloudAgentThread[])
+    : undefined;
+  // Convex authorization is the real boundary. This second owner check keeps
+  // a cached page from the previous account out of even one transition frame
+  // while the authenticated subscription is being replaced.
+  const ownedThreads = useMemo(
+    () =>
+      pageThreads
+        ? cloudThreadsForAccountScope(pageThreads, accountScope)
+        : undefined,
+    [accountScope, pageThreads],
+  );
+  const ownedRunningThreads = useMemo(
+    () =>
+      runningThreads
+        ? cloudThreadsForAccountScope(runningThreads, accountScope)
+        : undefined,
+    [accountScope, runningThreads],
+  );
+  const pageOwnedByCurrentScope =
+    pageThreads === undefined || ownedThreads?.length === pageThreads.length;
+  const runningOwnedByCurrentScope =
+    runningThreads === undefined ||
+    ownedRunningThreads?.length === runningThreads.length;
+  const pageScopeIsCurrent =
+    pageOwnedByCurrentScope && runningOwnedByCurrentScope;
+  const runningHasLoaded =
+    !cloudMode || !conversationId || runningResults.running !== undefined;
+  const threads = useMemo(
+    () =>
+      pageScopeIsCurrent
+        ? mergeCloudThreadSnapshots(
+            ownedThreads ?? [],
+            ownedRunningThreads ?? [],
+          )
+        : undefined,
+    [ownedRunningThreads, ownedThreads, pageScopeIsCurrent],
+  );
   const hasLoaded =
-    !cloudMode || !conversationId || results.threads !== undefined;
+    pageScopeIsCurrent &&
+    runningHasLoaded &&
+    (!cloudMode ||
+      !conversationId ||
+      page.status === "error" ||
+      page.data !== undefined);
+  const isLoadingOlder =
+    pageScopeIsCurrent && page.status === "pending" && page.data !== undefined;
+  const hasOlder =
+    pageScopeIsCurrent &&
+    ((page.status === "success" && page.canLoadMore) || isLoadingOlder);
+  const loadMore = page.loadMore;
+  const loadOlder = useCallback(() => {
+    if (pageScopeIsCurrent && page.status === "success" && page.canLoadMore) {
+      loadMore(CLOUD_ACTIVITY_PAGE_SIZE);
+    }
+  }, [loadMore, page.canLoadMore, page.status, pageScopeIsCurrent]);
   return useMemo(
-    () => ({ ...projectCloudActivity(threads), hasLoaded }),
-    [hasLoaded, threads],
+    () => ({
+      ...projectCloudActivity(threads),
+      hasLoaded,
+      hasOlder,
+      isLoadingOlder,
+      loadOlder,
+    }),
+    [hasLoaded, hasOlder, isLoadingOlder, loadOlder, threads],
   );
 };
 

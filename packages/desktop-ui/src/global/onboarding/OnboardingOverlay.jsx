@@ -18,7 +18,6 @@ import { OnboardingStep1 } from "@/global/onboarding/OnboardingStep1";
 import { StellaAnimation } from "@/shell/aurora/StellaAnimation";
 import { disposeIdleAuroraRenderersFor } from "@/shell/aurora/renderer-pool";
 import { LegalDialog } from "@/global/legal/LegalDialog";
-import { CREATURE_INITIAL_SIZE } from "@/global/onboarding/use-onboarding-overlay";
 import { shouldUseLowPowerEffects } from "@/shared/lib/device-perf";
 import { LOCALE_NATIVE_LABELS, useI18n, useT } from "@/shared/i18n";
 import { Select } from "@/ui/select";
@@ -80,12 +79,11 @@ function LegalFooter({
  * below (both must resolve to the same pooled-renderer key).
  *
  * `star` — the star from the Stella mark, made of aurora, turning slowly at a
- * constant rate. The staged turn — crawl, whip, landing — belongs to the chat
- * working indicator instead: there it reads as effort, which is the whole point
- * of it and means nothing on a welcome screen. Width and height are in aurora
- * cells (5x7px at EDGE_SCALE
- * 2.5), picked so the canvas lands on a square 420x420: the star's arms are laid
- * out on a circular axis, so a square canvas is what keeps it from shearing.
+ * constant rate. Mounted only after Start Stella; the entry screen is copy
+ * and the language switch. Width and height are in aurora cells (5x7px at
+ * EDGE_SCALE 2.5), picked so the canvas lands on a square 420x420: the star's
+ * arms are laid out on a circular axis, so a square canvas is what keeps it
+ * from shearing.
  */
 const CREATURE_AURORA = {
   variant: "star",
@@ -105,7 +103,6 @@ export function OnboardingView({
   stellaAnimationRef,
   onboardingKey,
   initialPhase = "capabilities",
-  creatureInitialBirth,
   triggerFlash,
   startOnboarding,
   completeOnboarding,
@@ -174,36 +171,30 @@ export function OnboardingView({
           />
         </div>
       ) : null}
-      <div
-        className="new-session-title"
-        data-expanded={hasExpanded ? "true" : "false"}
-      >
-        Stella
-      </div>
-      <div
-        className="onboarding-stella-animation"
-        onClick={stellaAnimationHidden ? undefined : triggerFlash}
-        data-expanded={hasExpanded ? "true" : "false"}
-        data-split={splitMode}
-        data-split-entering={splitEntering || undefined}
-        data-hidden={stellaAnimationHidden || undefined}
-        title="Click to sparkle"
-      >
-        <StellaAnimation
-          ref={stellaAnimationRef}
-          {...CREATURE_AURORA}
-          maxFps={splitMode || lowPowerCreature ? 30 : 60}
-          requireWindowFocus
-          initialBirthProgress={
-            creatureInitialBirth ?? (onboardingDone ? 1 : CREATURE_INITIAL_SIZE)
-          }
-          paused={
-            stellaAnimationPaused ||
-            stellaAnimationHidden ||
-            (splitMode && lowPowerCreature)
-          }
-        />
-      </div>
+      {hasStarted ? (
+        <div
+          className="onboarding-stella-animation"
+          onClick={stellaAnimationHidden ? undefined : triggerFlash}
+          data-expanded={hasExpanded ? "true" : "false"}
+          data-split={splitMode}
+          data-split-entering={splitEntering || undefined}
+          data-hidden={stellaAnimationHidden || undefined}
+          title="Click to sparkle"
+        >
+          <StellaAnimation
+            ref={stellaAnimationRef}
+            {...CREATURE_AURORA}
+            maxFps={splitMode || lowPowerCreature ? 30 : 60}
+            requireWindowFocus
+            initialBirthProgress={1}
+            paused={
+              stellaAnimationPaused ||
+              stellaAnimationHidden ||
+              (splitMode && lowPowerCreature)
+            }
+          />
+        </div>
+      ) : null}
       {!onboardingDone &&
         (hasStarted ? (
           <OnboardingStep1
@@ -222,10 +213,7 @@ export function OnboardingView({
             <div className="onboarding-moment onboarding-moment--start">
               <button
                 className="onboarding-start-button"
-                onClick={() => {
-                  startOnboarding();
-                  triggerFlash();
-                }}
+                onClick={startOnboarding}
               >
                 {t("onboarding.startStella")}
               </button>

@@ -114,6 +114,53 @@ describe("conversation display message merge", () => {
     ).toBe(false);
   });
 
+  it("keeps remaining-turn overlays while dropping truncated-turn overlays", () => {
+    const keptUser = message({
+      _id: "u1",
+      type: "user_message",
+      timestamp: 1,
+      payload: { text: "first" },
+    });
+    const keptPersisted = message({
+      _id: "a1",
+      timestamp: 2,
+      payload: { text: "stored first", userMessageId: "u1" },
+    });
+    const keptLive = overlay({
+      _id: "stream-overlay:u1:1",
+      userMessageId: "u1",
+      text: "streamed first",
+      locked: true,
+      timestamp: 2,
+    });
+    const truncatedOverlay = overlay({
+      _id: "stream-overlay:u2:1",
+      userMessageId: "u2",
+      text: "answer to second",
+      locked: true,
+      timestamp: 4,
+    });
+
+    const merged = mergeConversationDisplayMessageSources({
+      persistedMessages: [keptUser, keptPersisted],
+      overlayMessages: [
+        overlayToMessageRecord(keptLive, keptPersisted),
+        overlayToMessageRecord(truncatedOverlay),
+      ],
+      streamingAssistants: [keptLive, truncatedOverlay],
+      persistedAssistantSlots: getPersistedAssistantSlots([
+        keptUser,
+        keptPersisted,
+      ]),
+    });
+
+    expect(merged.map((item) => item._id)).toEqual([
+      "u1",
+      "stream-overlay:u1:1",
+    ]);
+    expect(merged[1]!.payload?.text).toBe("stored first");
+  });
+
   it("keeps a live overlay when its owning user is an optimistic overlay", () => {
     const optimisticUser = message({
       _id: "u-new",

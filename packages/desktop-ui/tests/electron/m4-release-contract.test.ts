@@ -44,40 +44,36 @@ describe("M4 desktop release contracts", () => {
       "packages/desktop/scripts",
       ["generate", "desktop", "source", "pack.mjs"].join("-"),
     ];
-    expect(
-      existsSync(path.join(repoRoot, ...retiredGenerator)),
-    ).toBe(false);
+    expect(existsSync(path.join(repoRoot, ...retiredGenerator))).toBe(false);
   });
 
-  it("describes the completed download truthfully", () => {
+  it("stages the download silently and offers a one-click install", () => {
     const pill = read(
       "packages/desktop-ui/src/shell/ShellTopBarUpdatePill.tsx",
     );
+    // A finished download announces nothing: the payload is fetched in the
+    // background and the only thing the user ever sees is an Update button
+    // that installs on the first click.
+    expect(pill).not.toContain("downloadedTitle");
+    expect(pill).toContain('t("shell.updatePill.update")');
 
-    expect(pill).toContain('t("shell.updatePill.toasts.downloadedTitle")');
-    const en = JSON.parse(
-      read("packages/desktop-ui/src/shared/i18n/locales/en.json"),
-    ) as { shell: { updatePill: { toasts: Record<string, string> } } };
-    expect(en.shell.updatePill.toasts.downloadedTitle).toBe(
-      "Update downloaded",
+    const updater = read(
+      "packages/desktop/electron/updates/desktop-updater.ts",
+    );
+    expect(updater).toContain(
+      "this.autoDownload = options.autoDownload ?? true",
     );
   });
 
   it("allows macOS update restarts to close auxiliary windows", () => {
-    const lifecycle = read(
-      "packages/desktop/electron/bootstrap/lifecycle.js",
-    );
-    expect(lifecycle).toContain(
-      'autoUpdater.on("before-quit-for-update"',
-    );
+    const lifecycle = read("packages/desktop/electron/bootstrap/lifecycle.js");
+    expect(lifecycle).toContain('autoUpdater.on("before-quit-for-update"');
     expect(lifecycle).toContain("context.state.isQuitting = true");
 
-    const appShell = read(
-      "packages/desktop/electron/bootstrap/app-shell.js",
-    );
-    expect(appShell.match(/isQuitting: \(\) => state\.isQuitting/g)).toHaveLength(
-      3,
-    );
+    const appShell = read("packages/desktop/electron/bootstrap/app-shell.js");
+    expect(
+      appShell.match(/isQuitting: \(\) => state\.isQuitting/g),
+    ).toHaveLength(3);
 
     for (const auxiliaryWindow of ["overlay-window.js", "pet-window.js"]) {
       expect(

@@ -41,7 +41,7 @@
     },
     "memory": {
       "title": "Memória",
-      "description": "A mentett emlékek és a profilod belefoglalása a Stella modellkontextusába. Kikapcsolva a memóriafájlok a készülékeden maradnak, de kimaradnak a további válaszokból."
+      "description": "A mentett emlékeket és a profilodat is foglald bele Stella modellkontextusába. A felhőbeli példány a mérvadó, és átvitel közben, valamint tárolva is titkosított; Stella helyi példányt is megőrizhet. Kikapcsoláskor a memória kimarad a későbbi beszélgetésekből, de nem törlődik."
     },
     "developerPreviews": {
       "title": "Fejlesztői fájl-előnézetek",
@@ -238,6 +238,54 @@
     },
     "account": {
       "title": "Fiók",
+      "cloudHome": {
+        "title": "Cloud Home",
+        "label": "Memória és készségek",
+        "summary": {
+          "checking": "A helyi memória és készségek ellenőrzése…",
+          "current": "A Cloud Home naprakész. Feltöltött memória: {memoryCount}. Feltöltött készségcsomagok: {skillCount}.",
+          "attention": "A Cloud Home megőrizte a meglévő felhőbeli példányokat, ahol a helyi adatok eltértek. Tekintsd át az alábbi részleteket.",
+          "unavailable": "A Cloud Home szinkronizálása jelenleg nem érhető el.",
+          "intro": "A Stella biztonságosan importálja a helyi memóriát és az alkalmazható egyéni készségeket a felhőfiókodba."
+        },
+        "authorizationNote": "A feltöltött készségek addig nem érhetők el az ügynökök számára, amíg a pontos verziójuk nincs kifejezetten engedélyezve.",
+        "actions": {
+          "syncing": "Szinkronizálás…",
+          "import": "Importálás ebbe a fiókba",
+          "boundElsewhere": "Másik fiókhoz kötve",
+          "blocked": "Importálás blokkolva",
+          "sync": "Szinkronizálás most"
+        }
+      },
+      "cloudSkills": {
+        "title": "Cloud Skills",
+        "loading": "A felhőbeli készségek betöltése…",
+        "unavailable": "A Cloud Skills nem érhető el a fiókadatok áthelyezése, alaphelyzetbe állítása vagy törlése közben.",
+        "empty": "Még nincsenek egyéni felhőbeli készségek telepítve.",
+        "saved": "Mentve. Mostantól a pontos felhőbeli verzió az aktuális.",
+        "saveError": "A készség megváltozott, vagy a fiók nem érhető el. A rendszer az újratöltött felhőbeli állapotot használja; tekintsd át, majd próbáld újra.",
+        "versionStatus": "{description} Verzió: {version}. Állapot: {status}.",
+        "notPublished": "nincs közzétéve",
+        "status": {
+          "disabled": "letiltva",
+          "authorized": "engedélyezve",
+          "notAuthorized": "nincs engedélyezve ehhez a verzióhoz"
+        },
+        "agentScope": "Ügynök hatóköre:",
+        "agentType": {
+          "orchestrator": "Orkesztrátor",
+          "general": "Általános"
+        },
+        "allowedTools": "Engedélyezett eszköznevek (opcionális, vesszővel elválasztva; ez soha nem ad hozzá eszközöket)",
+        "invalidTools": "Az eszköznevek csak betűket, számokat, pontot, aláhúzásjelet, kettőspontot vagy kötőjelet tartalmazhatnak (legfeljebb 64 karakter).",
+        "actions": {
+          "saving": "Mentés…",
+          "revoke": "Engedély visszavonása",
+          "authorize": "Verzió engedélyezése",
+          "disable": "Letiltás",
+          "enable": "Engedélyezés"
+        }
+      },
       "signOut": {
         "label": "Kijelentkezés",
         "description": "Jelentkezz ki a Stellából ezen az eszközön.",
@@ -2303,6 +2351,75 @@
       "deleteConfirmTitle": "Fiók törlése",
       "deleteConfirmBody": "Ez véglegesen törli a Stella-fiókodat, és eltávolítja a hozzá tartozó felhőadatokat a szervereinkről. Ezt nem lehet visszavonni.",
       "deleteFailedTitle": "A fiókot nem sikerült törölni"
+    },
+    "cloudHome": {
+      "settingsSection": "Cloud Home",
+      "settingsRowTitle": "Memóriadokumentumok",
+      "settingsRowBody": "Tekintsd meg és szerkeszd Stella memóriáját, amelynek a felhőbeli példánya a mérvadó.",
+      "openSettingsLabel": "A Cloud Home-memória megnyitása",
+      "title": "Cloud Home-memória",
+      "subtitle": "Stella-dokumentumaid mérvadó felhőbeli példányai",
+      "backToSettingsLabel": "Vissza a beállításokhoz",
+      "backToDocumentsLabel": "Vissza a Cloud Home-dokumentumokhoz",
+      "editorMeta": "{kind} · verzió: {revision}",
+      "listMeta": "{kind} · verzió: {revision} · {size}",
+      "signInTitle": "Jelentkezz be a Cloud Home használatához",
+      "signInBody": "A memóriadokumentumok privátak, és a Stella-fiókodhoz tartoznak.",
+      "signIn": "Bejelentkezés",
+      "signInAgain": "Bejelentkezés újra",
+      "loading": "A Cloud Home betöltése…",
+      "unavailableTitle": "A Cloud Home nem érhető el",
+      "unavailableBody": "Ez a telepítés jelenleg nem teszi elérhetővé a biztonságos Cloud Home szolgáltatást. A helyi fájljaid nem változtak meg.",
+      "errors": {
+        "unauthorized": "Jelentkezz be újra a Cloud Home eléréséhez.",
+        "unavailable": "A Cloud Home jelenleg nem érhető el ehhez a fiókhoz.",
+        "invalid": "A Cloud Home érvénytelen választ adott.",
+        "network": "A Cloud Home nem érhető el. Próbáld újra.",
+        "missingFromList": "Ez a dokumentum már nincs a Cloud Home-ban. Töltsd be újra a listát.",
+        "removedWhileEditing": "Ezt a dokumentumot eltávolították a Cloud Home-ból."
+      },
+      "notices": {
+        "saved": "Mentve a Cloud Home-ba.",
+        "loadedLatest": "A legújabb felhőverzió betöltve."
+      },
+      "conflict": {
+        "title": "A felhőverzió megváltozott",
+        "changedBody": "A(z) {revision}. verzió felváltotta az általad szerkesztett változatot. A piszkozatod továbbra is itt van.",
+        "removedBody": "Ezt a dokumentumot szerkesztés közben eltávolították. A piszkozatod továbbra is itt van.",
+        "reloadLabel": "A felhőverzió újratöltése és a piszkozat lecserélése",
+        "reloading": "Újratöltés…",
+        "reload": "A felhőverzió újratöltése"
+      },
+      "editor": {
+        "editLabel": "{name} szerkesztése",
+        "saving": "Mentés…",
+        "save": "Mentés",
+        "unsaved": "Nem mentett módosítások",
+        "upToDate": "Naprakész"
+      },
+      "list": {
+        "retryLabel": "A Cloud Home-memória betöltésének újrapróbálása",
+        "retry": "Próbáld újra",
+        "loading": "Dokumentumok betöltése…",
+        "emptyTitle": "Még nincs felhőmemória",
+        "emptyBody": "A Stella által létrehozott vagy az asztali alkalmazásból importált dokumentumok itt jelennek meg.",
+        "openDocumentLabel": "{name} megnyitása"
+      },
+      "kinds": {
+        "memory": "memória",
+        "profile": "profil",
+        "memory_map": "memóriatérkép",
+        "core_memory": "alapmemória",
+        "personality": "személyiség",
+        "imported_markdown": "importált Markdown",
+        "user_markdown": "felhasználói Markdown",
+        "archive": "archívum"
+      },
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      }
     },
     "carPlayDiagnostics": {
       "title": "CarPlay-diagnosztika",

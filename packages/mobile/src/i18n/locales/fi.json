@@ -41,7 +41,7 @@
     },
     "memory": {
       "title": "Muisti",
-      "description": "Sisällytä tallennetut muistot ja profiilisi Stellan mallikontekstiin. Kun tämä on pois päältä, muistitiedostot säilyvät laitteellasi mutta jätetään pois tulevista vastauksista."
+      "description": "Sisällytä tallennetut muistot ja profiilisi Stellan mallikontekstiin. Pilvikopio on ensisijainen ja salattu siirron aikana sekä levossa; Stella voi säilyttää myös paikallisen kopion. Kun poistat tämän käytöstä, muistia ei käytetä tulevissa keskusteluissa, mutta sitä ei poisteta."
     },
     "developerPreviews": {
       "title": "Kehittäjän tiedostojen esikatselut",
@@ -238,6 +238,54 @@
     },
     "account": {
       "title": "Tili",
+      "cloudHome": {
+        "title": "Cloud Home",
+        "label": "Muisti ja taidot",
+        "summary": {
+          "checking": "Tarkistetaan paikallista muistia ja taitoja…",
+          "current": "Cloud Home on ajan tasalla. Ladattu muisti: {memoryCount}. Ladatut taitopaketit: {skillCount}.",
+          "attention": "Cloud Home säilytti aiemmat pilvikopiot niissä tapauksissa, joissa paikalliset tiedot poikkesivat niistä. Tarkista tiedot alta.",
+          "unavailable": "Cloud Home -synkronointi ei ole tällä hetkellä käytettävissä.",
+          "intro": "Stella tuo paikallisen muistin ja soveltuvat mukautetut taidot turvallisesti pilvitilillesi."
+        },
+        "authorizationNote": "Ladatut taidot eivät ole agenttien käytettävissä, ennen kuin niiden tarkka versio on erikseen valtuutettu.",
+        "actions": {
+          "syncing": "Synkronoidaan…",
+          "import": "Tuo tälle tilille",
+          "boundElsewhere": "Sidottu toiseen tiliin",
+          "blocked": "Tuonti estetty",
+          "sync": "Synkronoi nyt"
+        }
+      },
+      "cloudSkills": {
+        "title": "Cloud Skills",
+        "loading": "Ladataan pilvitaitoja…",
+        "unavailable": "Cloud Skills ei ole käytettävissä, kun tilitietoja siirretään, nollataan tai poistetaan.",
+        "empty": "Mukautettuja pilvitaitoja ei ole vielä asennettu.",
+        "saved": "Tallennettu. Tarkka pilviversio on nyt ajan tasalla.",
+        "saveError": "Taito muuttui tai tili ei ole käytettävissä. Uudelleen ladattua pilvitilaa käytetään; yritä uudelleen sen tarkistamisen jälkeen.",
+        "versionStatus": "{description} Versio: {version}. Tila: {status}.",
+        "notPublished": "ei julkaistu",
+        "status": {
+          "disabled": "poistettu käytöstä",
+          "authorized": "valtuutettu",
+          "notAuthorized": "ei valtuutettu tälle versiolle"
+        },
+        "agentScope": "Agentin käyttöalue:",
+        "agentType": {
+          "orchestrator": "Orkestroija",
+          "general": "Yleinen"
+        },
+        "allowedTools": "Sallitut työkalujen nimet (valinnainen, pilkuilla erotettuna; tämä ei koskaan lisää työkaluja)",
+        "invalidTools": "Työkalujen nimissä voi käyttää vain kirjaimia, numeroita, pistettä, alaviivaa, kaksoispistettä tai yhdysmerkkiä (enintään 64 merkkiä).",
+        "actions": {
+          "saving": "Tallennetaan…",
+          "revoke": "Peruuta valtuutus",
+          "authorize": "Valtuuta versio",
+          "disable": "Poista käytöstä",
+          "enable": "Ota käyttöön"
+        }
+      },
       "signOut": {
         "label": "Kirjaudu ulos",
         "description": "Kirjaudu ulos Stellasta tällä laitteella.",
@@ -2303,6 +2351,75 @@
       "deleteConfirmTitle": "Poista tili",
       "deleteConfirmBody": "Tämä poistaa Stella-tilisi pysyvästi ja poistaa siihen liittyvät pilvitiedot palvelimiltamme. Tätä ei voi kumota.",
       "deleteFailedTitle": "Tiliä ei voitu poistaa"
+    },
+    "cloudHome": {
+      "settingsSection": "Cloud Home",
+      "settingsRowTitle": "Muistiasiakirjat",
+      "settingsRowBody": "Katsele ja muokkaa pilvessä olevaa Stellan ensisijaista muistia.",
+      "openSettingsLabel": "Avaa Cloud Home -muisti",
+      "title": "Cloud Home -muisti",
+      "subtitle": "Pilvessä olevat ensisijaiset Stella-asiakirjasi",
+      "backToSettingsLabel": "Takaisin asetuksiin",
+      "backToDocumentsLabel": "Takaisin Cloud Home -asiakirjoihin",
+      "editorMeta": "{kind} · versio {revision}",
+      "listMeta": "{kind} · versio {revision} · {size}",
+      "signInTitle": "Kirjaudu sisään käyttääksesi Cloud Homea",
+      "signInBody": "Muistiasiakirjat ovat yksityisiä ja kuuluvat Stella-tilillesi.",
+      "signIn": "Kirjaudu sisään",
+      "signInAgain": "Kirjaudu uudelleen",
+      "loading": "Cloud Homea ladataan…",
+      "unavailableTitle": "Cloud Home ei ole käytettävissä",
+      "unavailableBody": "Tämä käyttöönotto ei tällä hetkellä tarjoa suojattua Cloud Home -palvelua. Paikallisia tiedostojasi ei ole muutettu.",
+      "errors": {
+        "unauthorized": "Kirjaudu uudelleen päästäksesi Cloud Homeen.",
+        "unavailable": "Cloud Home ei ole juuri nyt käytettävissä tällä tilillä.",
+        "invalid": "Cloud Home palautti virheellisen vastauksen.",
+        "network": "Cloud Homeen ei saatu yhteyttä. Yritä uudelleen.",
+        "missingFromList": "Asiakirja ei ole enää Cloud Homessa. Lataa luettelo uudelleen.",
+        "removedWhileEditing": "Asiakirja poistettiin Cloud Homesta."
+      },
+      "notices": {
+        "saved": "Tallennettu Cloud Homeen.",
+        "loadedLatest": "Uusin pilviversio on ladattu."
+      },
+      "conflict": {
+        "title": "Pilviversio on muuttunut",
+        "changedBody": "Versio {revision} korvasi muokkaamasi version. Luonnoksesi on yhä täällä.",
+        "removedBody": "Asiakirja poistettiin muokkauksen aikana. Luonnoksesi on yhä täällä.",
+        "reloadLabel": "Lataa pilviversio uudelleen ja korvaa tämä luonnos",
+        "reloading": "Ladataan uudelleen…",
+        "reload": "Lataa pilviversio uudelleen"
+      },
+      "editor": {
+        "editLabel": "Muokkaa kohdetta {name}",
+        "saving": "Tallennetaan…",
+        "save": "Tallenna",
+        "unsaved": "Tallentamattomia muutoksia",
+        "upToDate": "Ajan tasalla"
+      },
+      "list": {
+        "retryLabel": "Yritä ladata Cloud Home -muisti uudelleen",
+        "retry": "Yritä uudelleen",
+        "loading": "Asiakirjoja ladataan…",
+        "emptyTitle": "Ei vielä pilvimuistia",
+        "emptyBody": "Stellan luomat tai työpöytäsovelluksesta tuodut asiakirjat näkyvät täällä.",
+        "openDocumentLabel": "Avaa {name}"
+      },
+      "kinds": {
+        "memory": "muisti",
+        "profile": "profiili",
+        "memory_map": "muistikartta",
+        "core_memory": "ydinmuisti",
+        "personality": "persoonallisuus",
+        "imported_markdown": "tuotu Markdown",
+        "user_markdown": "käyttäjän Markdown",
+        "archive": "arkisto"
+      },
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      }
     },
     "carPlayDiagnostics": {
       "title": "CarPlay-diagnostiikka",

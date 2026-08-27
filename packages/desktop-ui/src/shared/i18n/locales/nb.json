@@ -42,7 +42,7 @@
 
     "memory": {
       "title": "Minne",
-      "description": "Ta med lagrede minner og profilen din i Stellas modellkontekst. Slår du av dette, blir minnefilene liggende på enheten din, men utelates fra videre svar."
+      "description": "Ta med lagrede minner og profilen din i Stellas modellkontekst. Kopien i skyen er autoritativ og kryptert både under overføring og lagring; Stella kan også beholde en lokal kopi. Når du slår dette av, utelates minnet fra fremtidige samtaler, men det slettes ikke."
     },
     "developerPreviews": {
       "title": "Filforhåndsvisninger for utviklere",
@@ -239,6 +239,54 @@
     },
     "account": {
       "title": "Konto",
+      "cloudHome": {
+        "title": "Cloud Home",
+        "label": "Minne og ferdigheter",
+        "summary": {
+          "checking": "Kontrollerer lokalt minne og ferdigheter…",
+          "current": "Cloud Home er oppdatert. Opplastet minne: {memoryCount}. Opplastede ferdighetspakker: {skillCount}.",
+          "attention": "Cloud Home beholdt eksisterende skykopier der lokale data var forskjellige. Se gjennom detaljene nedenfor.",
+          "unavailable": "Cloud Home-synkronisering er utilgjengelig for øyeblikket.",
+          "intro": "Stella importerer lokalt minne og relevante egendefinerte ferdigheter sikkert til skykontoen din."
+        },
+        "authorizationNote": "Opplastede ferdigheter er fortsatt utilgjengelige for agenter til den nøyaktige versjonen deres er uttrykkelig autorisert.",
+        "actions": {
+          "syncing": "Synkroniserer…",
+          "import": "Importer til denne kontoen",
+          "boundElsewhere": "Knyttet til en annen konto",
+          "blocked": "Import blokkert",
+          "sync": "Synkroniser nå"
+        }
+      },
+      "cloudSkills": {
+        "title": "Cloud Skills",
+        "loading": "Laster inn skyferdigheter…",
+        "unavailable": "Cloud Skills er utilgjengelige mens kontodata flyttes, tilbakestilles eller slettes.",
+        "empty": "Ingen egendefinerte skyferdigheter er installert ennå.",
+        "saved": "Lagret. Den nøyaktige skyversjonen er nå oppdatert.",
+        "saveError": "Ferdigheten er endret, eller kontoen er utilgjengelig. Den gjeninnlastede skytilstanden brukes; prøv igjen etter at du har sett gjennom den.",
+        "versionStatus": "{description} Versjon: {version}. Status: {status}.",
+        "notPublished": "ikke publisert",
+        "status": {
+          "disabled": "deaktivert",
+          "authorized": "autorisert",
+          "notAuthorized": "ikke autorisert for denne versjonen"
+        },
+        "agentScope": "Agentområde:",
+        "agentType": {
+          "orchestrator": "Orkestrator",
+          "general": "Generell"
+        },
+        "allowedTools": "Tillatte verktøynavn (valgfritt, kommaseparert; dette legger aldri til verktøy)",
+        "invalidTools": "Verktøynavn kan bare inneholde bokstaver, tall, punktum, understrek, kolon eller bindestrek (maksimalt 64 tegn).",
+        "actions": {
+          "saving": "Lagrer…",
+          "revoke": "Trekk tilbake",
+          "authorize": "Autoriser versjon",
+          "disable": "Deaktiver",
+          "enable": "Aktiver"
+        }
+      },
       "signOut": {
         "label": "Logg av",
         "description": "Logg av Stella på denne enheten.",
@@ -2305,6 +2353,75 @@
       "deleteConfirmTitle": "Slett konto",
       "deleteConfirmBody": "Dette sletter Stella-kontoen din permanent og fjerner skydata knyttet til den på serverne våre. Dette kan ikke angres.",
       "deleteFailedTitle": "Kunne ikke slette kontoen"
+    },
+    "cloudHome": {
+      "settingsSection": "Cloud Home",
+      "settingsRowTitle": "Minnedokumenter",
+      "settingsRowBody": "Les og rediger Stellas autoritative minne i skyen.",
+      "openSettingsLabel": "Åpne Cloud Home-minnet",
+      "title": "Cloud Home-minne",
+      "subtitle": "Dine autoritative Stella-dokumenter i skyen",
+      "backToSettingsLabel": "Tilbake til Innstillinger",
+      "backToDocumentsLabel": "Tilbake til Cloud Home-dokumentene",
+      "editorMeta": "{kind} · revisjon {revision}",
+      "listMeta": "{kind} · revisjon {revision} · {size}",
+      "signInTitle": "Logg inn for å bruke Cloud Home",
+      "signInBody": "Minnedokumentene er private for Stella-kontoen din.",
+      "signIn": "Logg inn",
+      "signInAgain": "Logg inn igjen",
+      "loading": "Laster inn Cloud Home…",
+      "unavailableTitle": "Cloud Home er utilgjengelig",
+      "unavailableBody": "Denne distribusjonen tilbyr for øyeblikket ikke den sikre Cloud Home-tjenesten. De lokale filene dine er ikke endret.",
+      "errors": {
+        "unauthorized": "Logg inn igjen for å få tilgang til Cloud Home.",
+        "unavailable": "Cloud Home er ikke tilgjengelig for denne kontoen akkurat nå.",
+        "invalid": "Cloud Home returnerte et ugyldig svar.",
+        "network": "Kunne ikke koble til Cloud Home. Prøv igjen.",
+        "missingFromList": "Dokumentet finnes ikke lenger i Cloud Home. Last inn listen på nytt.",
+        "removedWhileEditing": "Dokumentet ble fjernet fra Cloud Home."
+      },
+      "notices": {
+        "saved": "Lagret i Cloud Home.",
+        "loadedLatest": "Den nyeste skyversjonen er lastet inn."
+      },
+      "conflict": {
+        "title": "Skyversjonen er endret",
+        "changedBody": "Revisjon {revision} erstattet versjonen du redigerte. Utkastet ditt er fortsatt her.",
+        "removedBody": "Dokumentet ble fjernet mens du redigerte det. Utkastet ditt er fortsatt her.",
+        "reloadLabel": "Last inn skyversjonen på nytt, og erstatt dette utkastet",
+        "reloading": "Laster inn på nytt…",
+        "reload": "Last inn skyversjonen på nytt"
+      },
+      "editor": {
+        "editLabel": "Rediger {name}",
+        "saving": "Lagrer…",
+        "save": "Lagre",
+        "unsaved": "Ulagrede endringer",
+        "upToDate": "Oppdatert"
+      },
+      "list": {
+        "retryLabel": "Prøv å laste inn Cloud Home-minnet på nytt",
+        "retry": "Prøv igjen",
+        "loading": "Laster inn dokumenter…",
+        "emptyTitle": "Ingen skyminner ennå",
+        "emptyBody": "Dokumenter som Stella oppretter, eller som importeres fra skrivebordsappen, vises her.",
+        "openDocumentLabel": "Åpne {name}"
+      },
+      "kinds": {
+        "memory": "minne",
+        "profile": "profil",
+        "memory_map": "minnekart",
+        "core_memory": "kjerneminne",
+        "personality": "personlighet",
+        "imported_markdown": "importert Markdown",
+        "user_markdown": "brukerens Markdown",
+        "archive": "arkiv"
+      },
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      }
     },
     "carPlayDiagnostics": {
       "title": "CarPlay-diagnostikk",

@@ -41,7 +41,7 @@
     },
     "memory": {
       "title": "זיכרון",
-      "description": "כלול את הזיכרונות השמורים ואת הפרופיל שלך בהקשר המודל של Stella. כיבוי האפשרות ישאיר את קובצי הזיכרון במכשיר שלך אך יחריג אותם מהתורות הבאים."
+      "description": "כללו זיכרונות שמורים ואת הפרופיל שלכם בהקשר המודל של Stella. העותק בענן הוא העותק הקובע והוא מוצפן בתעבורה ובמנוחה; Stella עשויה לשמור גם עותק מקומי. השבתת האפשרות מחריגה את הזיכרון משיחות עתידיות, אך אינה מוחקת אותו."
     },
     "developerPreviews": {
       "title": "תצוגות מקדימות של קבצים למפתחים",
@@ -276,6 +276,54 @@
         "deleteDataFailed": "לא ניתן היה למחוק את הנתונים שלך. נסה שוב.",
         "deleteAccountFailed": "לא ניתן היה למחוק את החשבון שלך. נסה שוב.",
         "signInBeforeDelete": "התחבר לפני מחיקת החשבון שלך."
+      },
+      "cloudHome": {
+        "title": "Cloud Home",
+        "label": "זיכרון וכישורים",
+        "summary": {
+          "checking": "בודק זיכרון וכישורים מקומיים…",
+          "current": "Cloud Home מעודכן. זיכרונות שהועלו: {memoryCount}. חבילות כישורים שהועלו: {skillCount}.",
+          "attention": "Cloud Home שמר על העותקים הקיימים בענן במקומות שבהם הנתונים המקומיים היו שונים. עיין בפרטים למטה.",
+          "unavailable": "סנכרון Cloud Home אינו זמין כרגע.",
+          "intro": "Stella מייבאת באופן מאובטח זיכרון מקומי וכישורים מותאמים אישית מתאימים לחשבון הענן שלך."
+        },
+        "authorizationNote": "כישורים שהועלו אינם זמינים לסוכנים עד לאישור מפורש של הגרסה המדויקת שלהם.",
+        "actions": {
+          "syncing": "מסנכרן…",
+          "import": "ייבא לחשבון הזה",
+          "boundElsewhere": "משויך לחשבון אחר",
+          "blocked": "הייבוא חסום",
+          "sync": "סנכרן עכשיו"
+        }
+      },
+      "cloudSkills": {
+        "title": "Cloud Skills",
+        "loading": "טוען כישורי ענן…",
+        "unavailable": "Cloud Skills אינם זמינים בזמן שנתוני החשבון מועברים, מאופסים או נמחקים.",
+        "empty": "עדיין לא מותקנים כישורי ענן מותאמים אישית.",
+        "saved": "נשמר. גרסת הענן המדויקת היא כעת הגרסה הנוכחית.",
+        "saveError": "הכישור השתנה או שהחשבון אינו זמין. ייעשה שימוש במצב הענן שנטען מחדש; נסה שוב לאחר שתבדוק אותו.",
+        "versionStatus": "{description} גרסה: {version}. מצב: {status}.",
+        "notPublished": "לא פורסם",
+        "status": {
+          "disabled": "מושבת",
+          "authorized": "מורשה",
+          "notAuthorized": "לא מורשה לגרסה זו"
+        },
+        "agentScope": "היקף הסוכן:",
+        "agentType": {
+          "orchestrator": "מתזמר",
+          "general": "כללי"
+        },
+        "allowedTools": "שמות כלים מותרים (אופציונלי, מופרדים בפסיקים; פעולה זו לעולם אינה מוסיפה כלים)",
+        "invalidTools": "שמות כלים יכולים לכלול רק אותיות, מספרים, נקודה, קו תחתון, נקודתיים או מקף (עד 64).",
+        "actions": {
+          "saving": "שומר…",
+          "revoke": "בטל הרשאה",
+          "authorize": "אשר גרסה",
+          "disable": "השבת",
+          "enable": "הפעל"
+        }
       }
     },
     "audio": {
@@ -2330,6 +2378,75 @@
       "deleteConfirmTitle": "מחיקת חשבון",
       "deleteConfirmBody": "פעולה זו מוחקת לצמיתות את חשבון ה-Stella שלכם ומסירה מהשרתים שלנו את נתוני הענן המשויכים אליו. אי אפשר לבטל אותה.",
       "deleteFailedTitle": "לא ניתן היה למחוק את החשבון"
+    },
+    "cloudHome": {
+      "settingsSection": "Cloud Home",
+      "settingsRowTitle": "מסמכי זיכרון",
+      "settingsRowBody": "הציגו וערכו את זיכרון Stella הקובע בענן.",
+      "openSettingsLabel": "פתיחת הזיכרון של Cloud Home",
+      "title": "הזיכרון של Cloud Home",
+      "subtitle": "מסמכי Stella הקובעים בענן",
+      "backToSettingsLabel": "חזרה להגדרות",
+      "backToDocumentsLabel": "חזרה למסמכי Cloud Home",
+      "editorMeta": "{kind} · גרסה {revision}",
+      "listMeta": "{kind} · גרסה {revision} · {size}",
+      "signInTitle": "יש להיכנס כדי להשתמש ב-Cloud Home",
+      "signInBody": "מסמכי הזיכרון פרטיים לחשבון Stella שלכם.",
+      "signIn": "כניסה",
+      "signInAgain": "כניסה מחדש",
+      "loading": "Cloud Home נטען…",
+      "unavailableTitle": "Cloud Home אינו זמין",
+      "unavailableBody": "פריסה זו אינה מספקת כרגע את שירות Cloud Home המאובטח. הקבצים המקומיים שלכם לא השתנו.",
+      "errors": {
+        "unauthorized": "יש להיכנס מחדש כדי לגשת ל-Cloud Home.",
+        "unavailable": "Cloud Home אינו זמין כרגע לחשבון הזה.",
+        "invalid": "התקבלה תגובה לא תקינה מ-Cloud Home.",
+        "network": "לא ניתן היה להתחבר ל-Cloud Home. נסו שוב.",
+        "missingFromList": "המסמך הזה כבר אינו נמצא ב-Cloud Home. טענו מחדש את הרשימה.",
+        "removedWhileEditing": "המסמך הזה הוסר מ-Cloud Home."
+      },
+      "notices": {
+        "saved": "נשמר ב-Cloud Home.",
+        "loadedLatest": "הגרסה העדכנית מהענן נטענה."
+      },
+      "conflict": {
+        "title": "הגרסה בענן השתנתה",
+        "changedBody": "גרסה {revision} החליפה את הגרסה שערכתם. הטיוטה שלכם עדיין כאן.",
+        "removedBody": "המסמך הזה הוסר בזמן שערכתם אותו. הטיוטה שלכם עדיין כאן.",
+        "reloadLabel": "טעינה מחדש של הגרסה בענן והחלפת הטיוטה הזו",
+        "reloading": "מתבצעת טעינה מחדש…",
+        "reload": "טעינת הגרסה בענן מחדש"
+      },
+      "editor": {
+        "editLabel": "עריכת {name}",
+        "saving": "מתבצעת שמירה…",
+        "save": "שמירה",
+        "unsaved": "שינויים שלא נשמרו",
+        "upToDate": "עדכני"
+      },
+      "list": {
+        "retryLabel": "ניסיון נוסף לטעון את הזיכרון של Cloud Home",
+        "retry": "ניסיון נוסף",
+        "loading": "המסמכים נטענים…",
+        "emptyTitle": "עדיין אין זיכרון בענן",
+        "emptyBody": "מסמכים ש-Stella יוצרת או שמיובאים מאפליקציית שולחן העבודה יופיעו כאן.",
+        "openDocumentLabel": "פתיחת {name}"
+      },
+      "kinds": {
+        "memory": "זיכרון",
+        "profile": "פרופיל",
+        "memory_map": "מפת זיכרון",
+        "core_memory": "זיכרון ליבה",
+        "personality": "אישיות",
+        "imported_markdown": "Markdown מיובא",
+        "user_markdown": "Markdown של המשתמש",
+        "archive": "ארכיון"
+      },
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      }
     },
     "carPlayDiagnostics": {
       "title": "אבחון CarPlay",

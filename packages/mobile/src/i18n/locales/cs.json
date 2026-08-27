@@ -41,7 +41,7 @@
     },
     "memory": {
       "title": "Paměť",
-      "description": "Zahrnout uložené vzpomínky a váš profil do kontextu modelu Stelly. Po vypnutí zůstanou soubory paměti ve vašem zařízení, ale nebudou se používat v dalších odpovědích."
+      "description": "Zahrňte uložené vzpomínky a svůj profil do kontextu modelu Stella. Cloudová kopie je směrodatná a šifrovaná při přenosu i uložení; Stella může uchovávat také místní kopii. Vypnutím se paměť vyloučí z budoucích konverzací, ale nesmaže se."
     },
     "developerPreviews": {
       "title": "Náhledy souborů pro vývojáře",
@@ -238,6 +238,54 @@
     },
     "account": {
       "title": "Účet",
+      "cloudHome": {
+        "title": "Cloud Home",
+        "label": "Paměť a dovednosti",
+        "summary": {
+          "checking": "Kontroluje se místní paměť a dovednosti…",
+          "current": "Cloud Home je aktuální. Nahraná paměť: {memoryCount}. Nahrané balíčky dovedností: {skillCount}.",
+          "attention": "Cloud Home zachoval existující cloudové kopie tam, kde se místní data lišila. Projděte si podrobnosti níže.",
+          "unavailable": "Synchronizace Cloud Home momentálně není dostupná.",
+          "intro": "Stella bezpečně importuje místní paměť a použitelné vlastní dovednosti do vašeho cloudového účtu."
+        },
+        "authorizationNote": "Nahrané dovednosti zůstanou pro agenty nedostupné, dokud jejich přesná verze nebude výslovně autorizována.",
+        "actions": {
+          "syncing": "Synchronizace…",
+          "import": "Importovat do tohoto účtu",
+          "boundElsewhere": "Propojeno s jiným účtem",
+          "blocked": "Import je blokován",
+          "sync": "Synchronizovat nyní"
+        }
+      },
+      "cloudSkills": {
+        "title": "Cloud Skills",
+        "loading": "Načítají se cloudové dovednosti…",
+        "unavailable": "Cloud Skills nejsou dostupné během přesouvání, resetování nebo mazání dat účtu.",
+        "empty": "Zatím nejsou nainstalovány žádné vlastní cloudové dovednosti.",
+        "saved": "Uloženo. Přesná cloudová verze je nyní aktuální.",
+        "saveError": "Dovednost se změnila nebo účet není dostupný. Použije se znovu načtený stav cloudu; po jeho kontrole to zkuste znovu.",
+        "versionStatus": "{description} Verze: {version}. Stav: {status}.",
+        "notPublished": "nepublikováno",
+        "status": {
+          "disabled": "zakázáno",
+          "authorized": "autorizováno",
+          "notAuthorized": "pro tuto verzi neautorizováno"
+        },
+        "agentScope": "Rozsah agenta:",
+        "agentType": {
+          "orchestrator": "Orchestrátor",
+          "general": "Obecný"
+        },
+        "allowedTools": "Povolené názvy nástrojů (volitelné, oddělené čárkami; tímto se nikdy nepřidávají nástroje)",
+        "invalidTools": "Názvy nástrojů mohou obsahovat pouze písmena, číslice, tečku, podtržítko, dvojtečku nebo pomlčku (maximálně 64 znaků).",
+        "actions": {
+          "saving": "Ukládání…",
+          "revoke": "Odvolat",
+          "authorize": "Autorizovat verzi",
+          "disable": "Zakázat",
+          "enable": "Povolit"
+        }
+      },
       "signOut": {
         "label": "Odhlásit se",
         "description": "Odhlaste se ze Stelly na tomto zařízení.",
@@ -2356,6 +2404,75 @@
       "deleteConfirmTitle": "Smazat účet",
       "deleteConfirmBody": "Tímto trvale smažete svůj účet Stella a odstraníte související cloudová data z našich serverů. Tuto akci nelze vrátit zpět.",
       "deleteFailedTitle": "Účet se nepodařilo smazat"
+    },
+    "cloudHome": {
+      "settingsSection": "Cloud Home",
+      "settingsRowTitle": "Paměťové dokumenty",
+      "settingsRowBody": "Čtěte a upravujte paměť Stelly, jejíž směrodatná verze je v cloudu.",
+      "openSettingsLabel": "Otevřít paměť služby Cloud Home",
+      "title": "Paměť služby Cloud Home",
+      "subtitle": "Směrodatné dokumenty Stelly v cloudu",
+      "backToSettingsLabel": "Zpět do nastavení",
+      "backToDocumentsLabel": "Zpět k dokumentům Cloud Home",
+      "editorMeta": "{kind} · revize {revision}",
+      "listMeta": "{kind} · revize {revision} · {size}",
+      "signInTitle": "Přihlaste se, chcete-li používat Cloud Home",
+      "signInBody": "Paměťové dokumenty jsou soukromé a patří k vašemu účtu Stella.",
+      "signIn": "Přihlásit se",
+      "signInAgain": "Přihlásit se znovu",
+      "loading": "Načítání Cloud Home…",
+      "unavailableTitle": "Cloud Home není k dispozici",
+      "unavailableBody": "Toto nasazení momentálně nezpřístupňuje zabezpečenou službu Cloud Home. Vaše místní soubory se nezměnily.",
+      "errors": {
+        "unauthorized": "Chcete-li otevřít Cloud Home, přihlaste se znovu.",
+        "unavailable": "Cloud Home nyní není pro tento účet k dispozici.",
+        "invalid": "Cloud Home vrátil neplatnou odpověď.",
+        "network": "Ke službě Cloud Home se nepodařilo připojit. Zkuste to znovu.",
+        "missingFromList": "Tento dokument už v Cloud Home není. Načtěte seznam znovu.",
+        "removedWhileEditing": "Tento dokument byl z Cloud Home odstraněn."
+      },
+      "notices": {
+        "saved": "Uloženo do Cloud Home.",
+        "loadedLatest": "Nejnovější cloudová verze byla načtena."
+      },
+      "conflict": {
+        "title": "Cloudová verze se změnila",
+        "changedBody": "Revize {revision} nahradila verzi, kterou jste upravovali. Váš koncept je stále zde.",
+        "removedBody": "Tento dokument byl během úprav odstraněn. Váš koncept je stále zde.",
+        "reloadLabel": "Znovu načíst cloudovou verzi a nahradit tento koncept",
+        "reloading": "Opětovné načítání…",
+        "reload": "Znovu načíst cloudovou verzi"
+      },
+      "editor": {
+        "editLabel": "Upravit {name}",
+        "saving": "Ukládání…",
+        "save": "Uložit",
+        "unsaved": "Neuložené změny",
+        "upToDate": "Aktuální"
+      },
+      "list": {
+        "retryLabel": "Zkusit znovu načíst paměť Cloud Home",
+        "retry": "Zkusit znovu",
+        "loading": "Načítání dokumentů…",
+        "emptyTitle": "V cloudu zatím není žádná paměť",
+        "emptyBody": "Zde se zobrazí dokumenty vytvořené Stellou nebo importované z desktopové aplikace.",
+        "openDocumentLabel": "Otevřít {name}"
+      },
+      "kinds": {
+        "memory": "paměť",
+        "profile": "profil",
+        "memory_map": "mapa paměti",
+        "core_memory": "základní paměť",
+        "personality": "osobnost",
+        "imported_markdown": "importovaný Markdown",
+        "user_markdown": "uživatelský Markdown",
+        "archive": "archiv"
+      },
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      }
     },
     "carPlayDiagnostics": {
       "title": "Diagnostika CarPlay",

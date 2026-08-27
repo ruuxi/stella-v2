@@ -41,7 +41,7 @@
     },
     "memory": {
       "title": "メモリ",
-      "description": "保存されたメモリとプロフィールを Stella のモデルコンテキストに含めます。オフにすると、メモリファイルはデバイスに残りますが、以降のやり取りでは使用されません。"
+      "description": "保存されたメモリとプロフィールを Stella のモデルコンテキストに含めます。クラウド上のコピーが正本であり、転送中も保存時も暗号化されます。Stella はローカルコピーも保持する場合があります。オフにすると、以降のやり取りではメモリを使用しませんが、削除はされません。"
     },
     "developerPreviews": {
       "title": "開発者向けファイルプレビュー",
@@ -276,6 +276,54 @@
         "deleteDataFailed": "データを削除できませんでした。もう一度お試しください。",
         "deleteAccountFailed": "アカウントを削除できませんでした。もう一度お試しください。",
         "signInBeforeDelete": "アカウントを削除する前にサインインしてください。"
+      },
+      "cloudHome": {
+        "title": "Cloud Home",
+        "label": "メモリとスキル",
+        "summary": {
+          "checking": "ローカルのメモリとスキルを確認しています…",
+          "current": "Cloud Home は最新です。アップロードされたメモリ：{memoryCount}。アップロードされたスキルパッケージ：{skillCount}。",
+          "attention": "ローカルデータが異なる項目では、Cloud Home は既存のクラウドコピーを保持しました。以下の詳細を確認してください。",
+          "unavailable": "Cloud Home の同期は現在利用できません。",
+          "intro": "Stella は、ローカルメモリと該当するカスタムスキルをクラウドアカウントに安全にインポートします。"
+        },
+        "authorizationNote": "アップロードされたスキルは、その正確なバージョンが明示的に承認されるまでエージェントから利用できません。",
+        "actions": {
+          "syncing": "同期中…",
+          "import": "このアカウントにインポート",
+          "boundElsewhere": "別のアカウントに紐付け済み",
+          "blocked": "インポートはブロックされています",
+          "sync": "今すぐ同期"
+        }
+      },
+      "cloudSkills": {
+        "title": "Cloud Skills",
+        "loading": "Cloud Skills を読み込んでいます…",
+        "unavailable": "アカウントデータの移行、リセット、削除中は Cloud Skills を利用できません。",
+        "empty": "カスタムクラウドスキルはまだインストールされていません。",
+        "saved": "保存しました。クラウド上の正確なバージョンが最新になりました。",
+        "saveError": "スキルが変更されたか、アカウントを利用できません。再読み込みしたクラウドの状態を使用します。内容を確認してからもう一度お試しください。",
+        "versionStatus": "{description} バージョン：{version}。ステータス：{status}。",
+        "notPublished": "未公開",
+        "status": {
+          "disabled": "無効",
+          "authorized": "承認済み",
+          "notAuthorized": "このバージョンは未承認"
+        },
+        "agentScope": "エージェントのスコープ：",
+        "agentType": {
+          "orchestrator": "オーケストレーター",
+          "general": "一般"
+        },
+        "allowedTools": "許可するツール名（任意、カンマ区切り。ここでツールが追加されることはありません）",
+        "invalidTools": "ツール名に使用できるのは、英字、数字、ピリオド、アンダースコア、コロン、ダッシュのみです（最大64文字）。",
+        "actions": {
+          "saving": "保存中…",
+          "revoke": "承認を取り消す",
+          "authorize": "バージョンを承認",
+          "disable": "無効にする",
+          "enable": "有効にする"
+        }
       }
     },
     "audio": {
@@ -2274,6 +2322,75 @@
       "deleteConfirmTitle": "アカウントを削除",
       "deleteConfirmBody": "Stella のアカウントを完全に削除し、当社サーバー上の関連するクラウドデータも削除します。この操作は取り消せません。",
       "deleteFailedTitle": "アカウントを削除できませんでした"
+    },
+    "cloudHome": {
+      "settingsSection": "Cloud Home",
+      "settingsRowTitle": "メモリ文書",
+      "settingsRowBody": "Stella のクラウド上の正本となるメモリを表示・編集します。",
+      "openSettingsLabel": "Cloud Home のメモリを開く",
+      "title": "Cloud Home のメモリ",
+      "subtitle": "クラウド上の正本となる Stella の文書",
+      "backToSettingsLabel": "設定に戻る",
+      "backToDocumentsLabel": "Cloud Home の文書に戻る",
+      "editorMeta": "{kind} · リビジョン {revision}",
+      "listMeta": "{kind} · リビジョン {revision} · {size}",
+      "signInTitle": "サインインして Cloud Home を使用",
+      "signInBody": "メモリ文書は Stella アカウント内で非公開です。",
+      "signIn": "サインイン",
+      "signInAgain": "もう一度サインイン",
+      "loading": "Cloud Home を読み込み中…",
+      "unavailableTitle": "Cloud Home を利用できません",
+      "unavailableBody": "このデプロイでは現在、安全な Cloud Home サービスが公開されていません。ローカルファイルは変更されていません。",
+      "errors": {
+        "unauthorized": "Cloud Home にアクセスするには、もう一度サインインしてください。",
+        "unavailable": "現在、このアカウントでは Cloud Home を利用できません。",
+        "invalid": "Cloud Home から無効な応答が返されました。",
+        "network": "Cloud Home に接続できませんでした。もう一度お試しください。",
+        "missingFromList": "その文書は Cloud Home にありません。一覧を再読み込みしてください。",
+        "removedWhileEditing": "その文書は Cloud Home から削除されました。"
+      },
+      "notices": {
+        "saved": "Cloud Home に保存しました。",
+        "loadedLatest": "最新のクラウド版を読み込みました。"
+      },
+      "conflict": {
+        "title": "クラウド版が変更されました",
+        "changedBody": "編集中の版はリビジョン {revision} に置き換えられました。下書きはここに残っています。",
+        "removedBody": "編集中にこの文書が削除されました。下書きはここに残っています。",
+        "reloadLabel": "クラウド版を再読み込みしてこの下書きを置き換える",
+        "reloading": "再読み込み中…",
+        "reload": "クラウド版を再読み込み"
+      },
+      "editor": {
+        "editLabel": "{name} を編集",
+        "saving": "保存中…",
+        "save": "保存",
+        "unsaved": "未保存の変更があります",
+        "upToDate": "最新です"
+      },
+      "list": {
+        "retryLabel": "Cloud Home のメモリをもう一度読み込む",
+        "retry": "再試行",
+        "loading": "文書を読み込み中…",
+        "emptyTitle": "クラウドメモリはまだありません",
+        "emptyBody": "Stella が作成した文書やデスクトップからインポートした文書がここに表示されます。",
+        "openDocumentLabel": "{name} を開く"
+      },
+      "kinds": {
+        "memory": "メモリ",
+        "profile": "プロフィール",
+        "memory_map": "メモリマップ",
+        "core_memory": "コアメモリ",
+        "personality": "パーソナリティ",
+        "imported_markdown": "インポート済み Markdown",
+        "user_markdown": "ユーザー Markdown",
+        "archive": "アーカイブ"
+      },
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      }
     },
     "carPlayDiagnostics": {
       "title": "CarPlay 診断",

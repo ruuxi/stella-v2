@@ -41,7 +41,7 @@
     },
     "memory": {
       "title": "Erinnerung",
-      "description": "Gespeicherte Erinnerungen und dein Profil in Stellas Modellkontext einbeziehen. Wenn du das deaktivierst, bleiben die Erinnerungsdateien auf deinem Gerät, werden aber aus künftigen Antworten ausgeschlossen."
+      "description": "Gespeicherte Erinnerungen und dein Profil in Stellas Modellkontext einbeziehen. Die Cloud-Kopie ist maßgeblich und bei der Übertragung sowie im Ruhezustand verschlüsselt; Stella kann außerdem eine lokale Kopie aufbewahren. Wenn du dies deaktivierst, werden Erinnerungen in künftigen Unterhaltungen nicht mehr verwendet, aber nicht gelöscht."
     },
     "developerPreviews": {
       "title": "Entwickler-Dateivorschauen",
@@ -238,6 +238,54 @@
     },
     "account": {
       "title": "Konto",
+      "cloudHome": {
+        "title": "Cloud Home",
+        "label": "Erinnerungen und Skills",
+        "summary": {
+          "checking": "Lokale Erinnerungen und Skills werden geprüft…",
+          "current": "Cloud Home ist auf dem neuesten Stand. Hochgeladene Erinnerungen: {memoryCount}. Hochgeladene Skill-Pakete: {skillCount}.",
+          "attention": "Cloud Home hat vorhandene Cloud-Kopien beibehalten, wenn sich die lokalen Daten unterschieden. Prüfe die Details unten.",
+          "unavailable": "Die Synchronisierung mit Cloud Home ist derzeit nicht verfügbar.",
+          "intro": "Stella importiert lokale Erinnerungen und geeignete benutzerdefinierte Skills sicher in dein Cloud-Konto."
+        },
+        "authorizationNote": "Hochgeladene Skills bleiben für Agenten nicht verfügbar, bis ihre exakte Version ausdrücklich autorisiert wurde.",
+        "actions": {
+          "syncing": "Synchronisierung läuft…",
+          "import": "In dieses Konto importieren",
+          "boundElsewhere": "Mit einem anderen Konto verknüpft",
+          "blocked": "Import blockiert",
+          "sync": "Jetzt synchronisieren"
+        }
+      },
+      "cloudSkills": {
+        "title": "Cloud Skills",
+        "loading": "Cloud Skills werden geladen…",
+        "unavailable": "Cloud Skills sind nicht verfügbar, während Kontodaten verschoben, zurückgesetzt oder gelöscht werden.",
+        "empty": "Es sind noch keine benutzerdefinierten Cloud-Skills installiert.",
+        "saved": "Gespeichert. Die exakte Cloud-Version ist jetzt aktuell.",
+        "saveError": "Der Skill wurde geändert oder das Konto ist nicht verfügbar. Der neu geladene Cloud-Stand wird verwendet; versuche es erneut, nachdem du ihn geprüft hast.",
+        "versionStatus": "{description} Version: {version}. Status: {status}.",
+        "notPublished": "nicht veröffentlicht",
+        "status": {
+          "disabled": "deaktiviert",
+          "authorized": "autorisiert",
+          "notAuthorized": "für diese Version nicht autorisiert"
+        },
+        "agentScope": "Agentenbereich:",
+        "agentType": {
+          "orchestrator": "Orchestrator",
+          "general": "Allgemein"
+        },
+        "allowedTools": "Zulässige Toolnamen (optional, durch Kommas getrennt; dadurch werden niemals Tools hinzugefügt)",
+        "invalidTools": "Toolnamen dürfen nur Buchstaben, Zahlen, Punkte, Unterstriche, Doppelpunkte oder Bindestriche enthalten (maximal 64 Zeichen).",
+        "actions": {
+          "saving": "Wird gespeichert…",
+          "revoke": "Widerrufen",
+          "authorize": "Version autorisieren",
+          "disable": "Deaktivieren",
+          "enable": "Aktivieren"
+        }
+      },
       "signOut": {
         "label": "Abmelden",
         "description": "Melde dich auf diesem Gerät von Stella ab.",
@@ -2303,6 +2351,75 @@
       "deleteConfirmTitle": "Konto löschen",
       "deleteConfirmBody": "Dies löscht dein Stella-Konto dauerhaft und entfernt die zugehörigen Cloud-Daten von unseren Servern. Das kann nicht rückgängig gemacht werden.",
       "deleteFailedTitle": "Konto konnte nicht gelöscht werden"
+    },
+    "cloudHome": {
+      "settingsSection": "Cloud Home",
+      "settingsRowTitle": "Erinnerungsdokumente",
+      "settingsRowBody": "Lies und bearbeite deine maßgeblichen Stella-Erinnerungsdaten in der Cloud.",
+      "openSettingsLabel": "Erinnerung in Cloud Home öffnen",
+      "title": "Erinnerung in Cloud Home",
+      "subtitle": "Deine maßgeblichen Stella-Dokumente in der Cloud",
+      "backToSettingsLabel": "Zurück zu den Einstellungen",
+      "backToDocumentsLabel": "Zurück zu den Cloud-Home-Dokumenten",
+      "editorMeta": "{kind} · Revision {revision}",
+      "listMeta": "{kind} · Revision {revision} · {size}",
+      "signInTitle": "Melde dich an, um Cloud Home zu verwenden",
+      "signInBody": "Erinnerungsdokumente sind privat und nur über dein Stella-Konto zugänglich.",
+      "signIn": "Anmelden",
+      "signInAgain": "Erneut anmelden",
+      "loading": "Cloud Home wird geladen…",
+      "unavailableTitle": "Cloud Home ist nicht verfügbar",
+      "unavailableBody": "Diese Bereitstellung bietet derzeit keinen Zugriff auf den sicheren Cloud-Home-Dienst. Deine lokalen Dateien wurden nicht verändert.",
+      "errors": {
+        "unauthorized": "Melde dich erneut an, um auf Cloud Home zuzugreifen.",
+        "unavailable": "Cloud Home ist für dieses Konto momentan nicht verfügbar.",
+        "invalid": "Cloud Home hat eine ungültige Antwort zurückgegeben.",
+        "network": "Cloud Home konnte nicht erreicht werden. Versuche es erneut.",
+        "missingFromList": "Dieses Dokument befindet sich nicht mehr in Cloud Home. Lade die Liste neu.",
+        "removedWhileEditing": "Dieses Dokument wurde aus Cloud Home entfernt."
+      },
+      "notices": {
+        "saved": "In Cloud Home gespeichert.",
+        "loadedLatest": "Die neueste Cloud-Version wurde geladen."
+      },
+      "conflict": {
+        "title": "Cloud-Version wurde geändert",
+        "changedBody": "Revision {revision} hat die von dir bearbeitete Version ersetzt. Dein Entwurf ist noch vorhanden.",
+        "removedBody": "Dieses Dokument wurde während der Bearbeitung entfernt. Dein Entwurf ist noch vorhanden.",
+        "reloadLabel": "Cloud-Version neu laden und diesen Entwurf ersetzen",
+        "reloading": "Wird neu geladen…",
+        "reload": "Cloud-Version neu laden"
+      },
+      "editor": {
+        "editLabel": "{name} bearbeiten",
+        "saving": "Wird gespeichert…",
+        "save": "Speichern",
+        "unsaved": "Nicht gespeicherte Änderungen",
+        "upToDate": "Aktuell"
+      },
+      "list": {
+        "retryLabel": "Erneut versuchen, die Erinnerung in Cloud Home zu laden",
+        "retry": "Erneut versuchen",
+        "loading": "Dokumente werden geladen…",
+        "emptyTitle": "Noch keine Cloud-Erinnerung",
+        "emptyBody": "Von Stella erstellte oder vom Desktop importierte Dokumente werden hier angezeigt.",
+        "openDocumentLabel": "{name} öffnen"
+      },
+      "kinds": {
+        "memory": "Erinnerung",
+        "profile": "Profil",
+        "memory_map": "Erinnerungskarte",
+        "core_memory": "Kernerinnerung",
+        "personality": "Persönlichkeit",
+        "imported_markdown": "importiertes Markdown",
+        "user_markdown": "Benutzer-Markdown",
+        "archive": "Archiv"
+      },
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      }
     },
     "carPlayDiagnostics": {
       "title": "CarPlay-Diagnose",

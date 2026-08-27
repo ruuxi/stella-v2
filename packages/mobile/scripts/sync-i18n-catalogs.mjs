@@ -28,70 +28,64 @@
  * `start` / `ios` / `android` / `typecheck` scripts).
  */
 
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const mobileRoot = resolve(here, "..");
-const desktopI18n = resolve(
-  mobileRoot,
-  "../desktop-ui/src/shared/i18n",
-);
+const desktopI18n = resolve(mobileRoot, "../desktop-ui/src/shared/i18n");
 
 const outDir = join(mobileRoot, "src", "i18n");
-const outLocales = join(outDir, "locales");
 
 const banner = (source) =>
   `// GENERATED FILE — DO NOT EDIT.\n` +
   `// Copied from packages/desktop-ui/src/shared/i18n/${source}\n` +
   `// by packages/mobile/scripts/sync-i18n-catalogs.mjs.\n`;
 
-mkdirSync(outLocales, { recursive: true });
-
-// 1. locales.ts — verbatim copy (it imports nothing).
-const localesSource = readFileSync(join(desktopI18n, "locales.ts"), "utf8");
-if (/^\s*import\s/m.test(localesSource)) {
-  throw new Error(
-    "desktop locales.ts grew an import; it can no longer be copied verbatim.",
+export const buildI18nCatalogOutputs = ({ desktopI18nRoot }) => {
+  const localesSource = readFileSync(
+    join(desktopI18nRoot, "locales.ts"),
+    "utf8",
   );
-}
-writeFileSync(
-  join(outDir, "locales.ts"),
-  `${banner("locales.ts")}\n${localesSource}`,
-);
+  if (/^\s*import\s/m.test(localesSource)) {
+    throw new Error(
+      "desktop locales.ts grew an import; it can no longer be copied verbatim.",
+    );
+  }
 
-// 2. The catalogs themselves.
-const catalogDir = join(desktopI18n, "locales");
-const catalogFiles = readdirSync(catalogDir)
-  .filter((name) => name.endsWith(".json"))
-  .sort();
+  const catalogDir = join(desktopI18nRoot, "locales");
+  const catalogFiles = readdirSync(catalogDir)
+    .filter((name) => name.endsWith(".json"))
+    .sort();
+  const outputs = new Map([
+    ["locales.ts", `${banner("locales.ts")}\n${localesSource}`],
+  ]);
 
-for (const stale of readdirSync(outLocales)) {
-  if (!catalogFiles.includes(stale)) rmSync(join(outLocales, stale));
-}
-for (const name of catalogFiles) {
-  // Re-serialise so a malformed catalog fails here rather than at runtime.
-  const parsed = JSON.parse(readFileSync(join(catalogDir, name), "utf8"));
-  writeFileSync(
-    join(outLocales, name),
-    `${JSON.stringify(parsed, null, 2)}\n`,
-  );
-}
+  for (const name of catalogFiles) {
+    // Re-serialise so a malformed catalog fails here rather than at runtime.
+    const parsed = JSON.parse(readFileSync(join(catalogDir, name), "utf8"));
+    outputs.set(`locales/${name}`, `${JSON.stringify(parsed, null, 2)}\n`);
+  }
 
-// 3. A static require registry. Metro has no `import.meta.glob` and cannot
-//    resolve a `require()` whose argument is a variable, so the mapping from
-//    locale tag to module has to exist literally in the source.
-const entries = catalogFiles
-  .map((name) => {
-    const locale = name.slice(0, -".json".length);
-    return `  ${JSON.stringify(locale)}: () =>\n    require("./locales/${name}") as Catalog,`;
-  })
-  .join("\n");
-
-writeFileSync(
-  join(outDir, "catalog-registry.generated.ts"),
-  `${banner("locales/*.json")}
+  // Metro has no `import.meta.glob` and cannot resolve a `require()` whose
+  // argument is a variable, so this mapping must exist literally in source.
+  const entries = catalogFiles
+    .map((name) => {
+      const locale = name.slice(0, -".json".length);
+      return `  ${JSON.stringify(locale)}: () =>\n    require("./locales/${name}") as Catalog,`;
+    })
+    .join("\n");
+  outputs.set(
+    "catalog-registry.generated.ts",
+    `${banner("locales/*.json")}
 import type { Catalog } from "./catalog-types";
 
 /**
@@ -103,8 +97,88 @@ export const CATALOG_LOADERS: Record<string, () => Catalog> = {
 ${entries}
 };
 `,
-);
+  );
 
-console.log(
-  `[i18n] synced ${catalogFiles.length} catalogs + locales.ts into src/i18n/`,
-);
+  return { catalogFiles, outputs };
+};
+
+const readOutput = (target) => {
+  try {
+    return readFileSync(target, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT" || error?.code === "EISDIR") return null;
+    throw error;
+  }
+};
+
+export const syncI18nCatalogs = ({
+  check,
+  desktopI18nRoot,
+  outputRoot,
+  logger = console,
+}) => {
+  const { catalogFiles, outputs } = buildI18nCatalogOutputs({
+    desktopI18nRoot,
+  });
+  const outputLocales = join(outputRoot, "locales");
+  const expectedLocaleFiles = new Set(catalogFiles);
+  const actualLocaleFiles = existsSync(outputLocales)
+    ? readdirSync(outputLocales).sort()
+    : [];
+
+  if (check) {
+    const drift = [];
+    for (const stale of actualLocaleFiles) {
+      if (!expectedLocaleFiles.has(stale)) {
+        drift.push(`locales/${stale} (unexpected)`);
+      }
+    }
+    for (const [relativePath, expected] of outputs) {
+      if (readOutput(join(outputRoot, relativePath)) !== expected) {
+        drift.push(relativePath);
+      }
+    }
+    drift.sort();
+    if (drift.length > 0) {
+      logger.error(
+        `[i18n] generated mobile catalogs are stale:\n${drift.map((entry) => `  - ${entry}`).join("\n")}\nRun \`bun run i18n:sync\` from packages/mobile.`,
+      );
+      return { ok: false, catalogCount: catalogFiles.length, drift };
+    }
+    logger.log(
+      `[i18n] verified ${catalogFiles.length} catalogs + locales.ts in src/i18n/`,
+    );
+    return { ok: true, catalogCount: catalogFiles.length, drift };
+  }
+
+  mkdirSync(outputLocales, { recursive: true });
+  for (const stale of actualLocaleFiles) {
+    if (!expectedLocaleFiles.has(stale)) rmSync(join(outputLocales, stale));
+  }
+  for (const [relativePath, expected] of outputs) {
+    writeFileSync(join(outputRoot, relativePath), expected);
+  }
+
+  logger.log(
+    `[i18n] synced ${catalogFiles.length} catalogs + locales.ts into src/i18n/`,
+  );
+  return { ok: true, catalogCount: catalogFiles.length, drift: [] };
+};
+
+const isMain =
+  typeof process.argv[1] === "string" &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isMain) {
+  const args = process.argv.slice(2);
+  const check = args.length === 1 && args[0] === "--check";
+  if (args.length > 0 && !check) {
+    throw new Error("Usage: sync-i18n-catalogs.mjs [--check]");
+  }
+  const result = syncI18nCatalogs({
+    check,
+    desktopI18nRoot: desktopI18n,
+    outputRoot: outDir,
+  });
+  if (!result.ok) process.exitCode = 1;
+}

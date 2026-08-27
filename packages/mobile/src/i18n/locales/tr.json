@@ -41,7 +41,7 @@
     },
     "memory": {
       "title": "Bellek",
-      "description": "Kaydedilmiş anıları ve profilinizi Stella'nın model bağlamına dahil edin. Bunu kapattığınızda bellek dosyaları cihazınızda kalır ancak sonraki yanıtlara dahil edilmez."
+      "description": "Kaydedilen anıları ve profilinizi Stella'nın model bağlamına dahil edin. Bulut kopyası esas kopyadır ve aktarım sırasında ve depolanırken şifrelenir; Stella ayrıca yerel bir kopya tutabilir. Bunu kapatmak belleği gelecekteki konuşmalardan hariç tutar ancak silmez."
     },
     "developerPreviews": {
       "title": "Geliştirici dosya önizlemeleri",
@@ -276,6 +276,54 @@
         "deleteDataFailed": "Verileriniz silinemedi. Lütfen tekrar deneyin.",
         "deleteAccountFailed": "Hesabınız silinemedi. Lütfen tekrar deneyin.",
         "signInBeforeDelete": "Hesabınızı silmeden önce giriş yapın."
+      },
+      "cloudHome": {
+        "title": "Cloud Home",
+        "label": "Bellek ve beceriler",
+        "summary": {
+          "checking": "Yerel bellek ve beceriler kontrol ediliyor…",
+          "current": "Cloud Home güncel. Yüklenen bellek belgesi: {memoryCount}. Yüklenen beceri paketi: {skillCount}.",
+          "attention": "Yerel verilerin farklı olduğu yerlerde Cloud Home mevcut bulut kopyalarını korudu. Aşağıdaki ayrıntıları inceleyin.",
+          "unavailable": "Cloud Home eşitlemesi şu anda kullanılamıyor.",
+          "intro": "Stella, yerel belleği ve uygun özel becerileri bulut hesabınıza güvenli şekilde aktarır."
+        },
+        "authorizationNote": "Yüklenen beceriler, tam sürümleri açıkça yetkilendirilene kadar aracılar tarafından kullanılamaz.",
+        "actions": {
+          "syncing": "Eşitleniyor…",
+          "import": "Bu hesaba aktar",
+          "boundElsewhere": "Başka bir hesaba bağlı",
+          "blocked": "Aktarma engellendi",
+          "sync": "Şimdi eşitle"
+        }
+      },
+      "cloudSkills": {
+        "title": "Cloud Skills",
+        "loading": "Bulut becerileri yükleniyor…",
+        "unavailable": "Hesap verileri taşınırken, sıfırlanırken veya silinirken Cloud Skills kullanılamaz.",
+        "empty": "Henüz özel bir bulut becerisi yüklenmedi.",
+        "saved": "Kaydedildi. Tam bulut sürümü artık güncel.",
+        "saveError": "Beceri değişti veya hesap kullanılamıyor. Yeniden yüklenen bulut durumu kullanılacak; inceledikten sonra tekrar deneyin.",
+        "versionStatus": "{description} Sürüm: {version}. Durum: {status}.",
+        "notPublished": "yayımlanmadı",
+        "status": {
+          "disabled": "devre dışı",
+          "authorized": "yetkilendirildi",
+          "notAuthorized": "bu sürüm için yetkilendirilmedi"
+        },
+        "agentScope": "Aracı kapsamı:",
+        "agentType": {
+          "orchestrator": "Orkestratör",
+          "general": "Genel"
+        },
+        "allowedTools": "İzin verilen araç adları (isteğe bağlı, virgülle ayrılmış; bu işlem araç eklemez)",
+        "invalidTools": "Araç adlarında yalnızca harf, sayı, nokta, alt çizgi, iki nokta veya kısa çizgi kullanılabilir (en fazla 64).",
+        "actions": {
+          "saving": "Kaydediliyor…",
+          "revoke": "Yetkiyi kaldır",
+          "authorize": "Sürümü yetkilendir",
+          "disable": "Devre dışı bırak",
+          "enable": "Etkinleştir"
+        }
       }
     },
     "audio": {
@@ -2303,6 +2351,75 @@
       "deleteConfirmTitle": "Hesabı sil",
       "deleteConfirmBody": "Bu işlem Stella hesabınızı kalıcı olarak siler ve sunucularımızdaki ilgili bulut verilerini kaldırır. Bu işlem geri alınamaz.",
       "deleteFailedTitle": "Hesap silinemedi"
+    },
+    "cloudHome": {
+      "settingsSection": "Cloud Home",
+      "settingsRowTitle": "Bellek belgeleri",
+      "settingsRowBody": "Buluttaki esas Stella belleğinizi okuyun ve düzenleyin.",
+      "openSettingsLabel": "Cloud Home belleğini aç",
+      "title": "Cloud Home belleği",
+      "subtitle": "Buluttaki esas Stella belgeleriniz",
+      "backToSettingsLabel": "Ayarlar'a dön",
+      "backToDocumentsLabel": "Cloud Home belgelerine dön",
+      "editorMeta": "{kind} · revizyon {revision}",
+      "listMeta": "{kind} · revizyon {revision} · {size}",
+      "signInTitle": "Cloud Home'u kullanmak için oturum açın",
+      "signInBody": "Bellek belgeleri Stella hesabınıza özeldir.",
+      "signIn": "Oturum aç",
+      "signInAgain": "Yeniden oturum aç",
+      "loading": "Cloud Home yükleniyor…",
+      "unavailableTitle": "Cloud Home kullanılamıyor",
+      "unavailableBody": "Bu dağıtım şu anda güvenli Cloud Home hizmetine erişim sunmuyor. Yerel dosyalarınız değiştirilmedi.",
+      "errors": {
+        "unauthorized": "Cloud Home'a erişmek için yeniden oturum açın.",
+        "unavailable": "Cloud Home şu anda bu hesap için kullanılamıyor.",
+        "invalid": "Cloud Home geçersiz bir yanıt döndürdü.",
+        "network": "Cloud Home'a ulaşılamadı. Yeniden deneyin.",
+        "missingFromList": "Bu belge artık Cloud Home'da değil. Listeyi yeniden yükleyin.",
+        "removedWhileEditing": "Bu belge Cloud Home'dan kaldırıldı."
+      },
+      "notices": {
+        "saved": "Cloud Home'a kaydedildi.",
+        "loadedLatest": "En son bulut sürümü yüklendi."
+      },
+      "conflict": {
+        "title": "Bulut sürümü değişti",
+        "changedBody": "{revision} revizyonu, düzenlediğiniz sürümün yerini aldı. Taslağınız hâlâ burada.",
+        "removedBody": "Bu belge siz düzenlerken kaldırıldı. Taslağınız hâlâ burada.",
+        "reloadLabel": "Bulut sürümünü yeniden yükle ve bu taslağı değiştir",
+        "reloading": "Yeniden yükleniyor…",
+        "reload": "Bulut sürümünü yeniden yükle"
+      },
+      "editor": {
+        "editLabel": "{name} öğesini düzenle",
+        "saving": "Kaydediliyor…",
+        "save": "Kaydet",
+        "unsaved": "Kaydedilmemiş değişiklikler",
+        "upToDate": "Güncel"
+      },
+      "list": {
+        "retryLabel": "Cloud Home belleğini yeniden yüklemeyi dene",
+        "retry": "Yeniden dene",
+        "loading": "Belgeler yükleniyor…",
+        "emptyTitle": "Henüz bulut belleği yok",
+        "emptyBody": "Stella tarafından oluşturulan veya bilgisayardan içe aktarılan belgeler burada görünür.",
+        "openDocumentLabel": "{name} öğesini aç"
+      },
+      "kinds": {
+        "memory": "bellek",
+        "profile": "profil",
+        "memory_map": "bellek haritası",
+        "core_memory": "temel bellek",
+        "personality": "kişilik",
+        "imported_markdown": "içe aktarılan Markdown",
+        "user_markdown": "kullanıcı Markdown'ı",
+        "archive": "arşiv"
+      },
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      }
     },
     "carPlayDiagnostics": {
       "title": "CarPlay tanılama",

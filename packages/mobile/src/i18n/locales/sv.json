@@ -41,7 +41,7 @@
     },
     "memory": {
       "title": "Minne",
-      "description": "Inkludera sparade minnen och din profil i Stellas modellkontext. Om du stänger av detta ligger minnesfilerna kvar på din enhet men utesluts från kommande svar."
+      "description": "Inkludera sparade minnen och din profil i Stellas modellkontext. Molnkopian är den auktoritativa versionen och krypteras både under överföring och lagring; Stella kan också spara en lokal kopia. Om du stänger av detta utesluts minnet från framtida konversationer, men det raderas inte."
     },
     "developerPreviews": {
       "title": "Filförhandsvisningar för utvecklare",
@@ -238,6 +238,54 @@
     },
     "account": {
       "title": "Konto",
+      "cloudHome": {
+        "title": "Cloud Home",
+        "label": "Minne och färdigheter",
+        "summary": {
+          "checking": "Kontrollerar lokalt minne och färdigheter…",
+          "current": "Cloud Home är uppdaterat. Uppladdat minne: {memoryCount}. Uppladdade färdighetspaket: {skillCount}.",
+          "attention": "Cloud Home behöll befintliga molnkopior där lokala data skilde sig. Granska informationen nedan.",
+          "unavailable": "Cloud Home-synkronisering är inte tillgänglig just nu.",
+          "intro": "Stella importerar säkert lokalt minne och relevanta anpassade färdigheter till ditt molnkonto."
+        },
+        "authorizationNote": "Uppladdade färdigheter förblir otillgängliga för agenter tills deras exakta version uttryckligen har auktoriserats.",
+        "actions": {
+          "syncing": "Synkroniserar…",
+          "import": "Importera till detta konto",
+          "boundElsewhere": "Kopplad till ett annat konto",
+          "blocked": "Import blockerad",
+          "sync": "Synkronisera nu"
+        }
+      },
+      "cloudSkills": {
+        "title": "Cloud Skills",
+        "loading": "Läser in molnfärdigheter…",
+        "unavailable": "Cloud Skills är inte tillgängliga medan kontodata flyttas, återställs eller raderas.",
+        "empty": "Inga anpassade molnfärdigheter har installerats ännu.",
+        "saved": "Sparat. Den exakta molnversionen är nu uppdaterad.",
+        "saveError": "Färdigheten har ändrats eller kontot är inte tillgängligt. Det återinlästa molntillståndet används; försök igen efter att du har granskat det.",
+        "versionStatus": "{description} Version: {version}. Status: {status}.",
+        "notPublished": "inte publicerad",
+        "status": {
+          "disabled": "inaktiverad",
+          "authorized": "auktoriserad",
+          "notAuthorized": "inte auktoriserad för den här versionen"
+        },
+        "agentScope": "Agentens omfattning:",
+        "agentType": {
+          "orchestrator": "Orkestrerare",
+          "general": "Allmän"
+        },
+        "allowedTools": "Tillåtna verktygsnamn (valfritt, kommaseparerade; detta lägger aldrig till verktyg)",
+        "invalidTools": "Verktygsnamn får endast innehålla bokstäver, siffror, punkt, understreck, kolon eller bindestreck (högst 64 tecken).",
+        "actions": {
+          "saving": "Sparar…",
+          "revoke": "Återkalla",
+          "authorize": "Auktorisera version",
+          "disable": "Inaktivera",
+          "enable": "Aktivera"
+        }
+      },
       "signOut": {
         "label": "Logga ut",
         "description": "Logga ut från Stella på den här enheten.",
@@ -2304,6 +2352,75 @@
       "deleteConfirmTitle": "Radera konto",
       "deleteConfirmBody": "Detta raderar permanent ditt Stella-konto och tar bort tillhörande molndata från våra servrar. Detta kan inte ångras.",
       "deleteFailedTitle": "Det gick inte att radera kontot"
+    },
+    "cloudHome": {
+      "settingsSection": "Cloud Home",
+      "settingsRowTitle": "Minnesdokument",
+      "settingsRowBody": "Läs och redigera Stellas primära minne i molnet.",
+      "openSettingsLabel": "Öppna minnet i Cloud Home",
+      "title": "Minne i Cloud Home",
+      "subtitle": "Dina primära Stella-dokument i molnet",
+      "backToSettingsLabel": "Tillbaka till Inställningar",
+      "backToDocumentsLabel": "Tillbaka till dokumenten i Cloud Home",
+      "editorMeta": "{kind} · revision {revision}",
+      "listMeta": "{kind} · revision {revision} · {size}",
+      "signInTitle": "Logga in för att använda Cloud Home",
+      "signInBody": "Minnesdokumenten är privata och knutna till ditt Stella-konto.",
+      "signIn": "Logga in",
+      "signInAgain": "Logga in igen",
+      "loading": "Cloud Home läses in…",
+      "unavailableTitle": "Cloud Home är inte tillgängligt",
+      "unavailableBody": "Den här distributionen ger för närvarande inte åtkomst till den säkra Cloud Home-tjänsten. Dina lokala filer har inte ändrats.",
+      "errors": {
+        "unauthorized": "Logga in igen för att komma åt Cloud Home.",
+        "unavailable": "Cloud Home är inte tillgängligt för det här kontot just nu.",
+        "invalid": "Cloud Home returnerade ett ogiltigt svar.",
+        "network": "Det gick inte att nå Cloud Home. Försök igen.",
+        "missingFromList": "Dokumentet finns inte längre i Cloud Home. Läs in listan igen.",
+        "removedWhileEditing": "Dokumentet har tagits bort från Cloud Home."
+      },
+      "notices": {
+        "saved": "Sparat i Cloud Home.",
+        "loadedLatest": "Den senaste molnversionen har lästs in."
+      },
+      "conflict": {
+        "title": "Molnversionen har ändrats",
+        "changedBody": "Revision {revision} ersatte versionen du redigerade. Ditt utkast finns kvar.",
+        "removedBody": "Dokumentet togs bort medan du redigerade det. Ditt utkast finns kvar.",
+        "reloadLabel": "Läs in molnversionen igen och ersätt utkastet",
+        "reloading": "Läser in igen…",
+        "reload": "Läs in molnversionen igen"
+      },
+      "editor": {
+        "editLabel": "Redigera {name}",
+        "saving": "Sparar…",
+        "save": "Spara",
+        "unsaved": "Osparade ändringar",
+        "upToDate": "Aktuellt"
+      },
+      "list": {
+        "retryLabel": "Försök läsa in minnet i Cloud Home igen",
+        "retry": "Försök igen",
+        "loading": "Läser in dokument…",
+        "emptyTitle": "Inget molnminne ännu",
+        "emptyBody": "Dokument som Stella skapar eller som importeras från datorn visas här.",
+        "openDocumentLabel": "Öppna {name}"
+      },
+      "kinds": {
+        "memory": "minne",
+        "profile": "profil",
+        "memory_map": "minneskarta",
+        "core_memory": "kärnminne",
+        "personality": "personlighet",
+        "imported_markdown": "importerad Markdown",
+        "user_markdown": "användarens Markdown",
+        "archive": "arkiv"
+      },
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      }
     },
     "carPlayDiagnostics": {
       "title": "CarPlay-diagnostik",

@@ -42,7 +42,7 @@
 
     "memory": {
       "title": "Geheugen",
-      "description": "Neem opgeslagen herinneringen en je profiel op in Stella's modelcontext. Als je dit uitschakelt, blijven de geheugenbestanden op je apparaat staan maar worden ze uitgesloten van volgende beurten."
+      "description": "Neem opgeslagen herinneringen en je profiel op in de modelcontext van Stella. De cloudkopie is leidend en versleuteld tijdens overdracht en opslag; Stella kan ook een lokale kopie bewaren. Als je dit uitschakelt, wordt het geheugen niet gebruikt in toekomstige gesprekken, maar niet verwijderd."
     },
     "developerPreviews": {
       "title": "Bestandsvoorbeelden voor ontwikkelaars",
@@ -239,6 +239,54 @@
     },
     "account": {
       "title": "Account",
+      "cloudHome": {
+        "title": "Cloud Home",
+        "label": "Geheugen en skills",
+        "summary": {
+          "checking": "Lokaal geheugen en lokale skills controleren…",
+          "current": "Cloud Home is bijgewerkt. Geheugen geüpload: {memoryCount}. Skillpakketten geüpload: {skillCount}.",
+          "attention": "Cloud Home heeft bestaande cloudkopieën behouden waar lokale gegevens afweken. Bekijk de details hieronder.",
+          "unavailable": "Cloud Home-synchronisatie is momenteel niet beschikbaar.",
+          "intro": "Stella importeert lokaal geheugen en toepasselijke aangepaste skills veilig naar je cloudaccount."
+        },
+        "authorizationNote": "Geüploade skills blijven niet beschikbaar voor agents totdat hun exacte versie expliciet is geautoriseerd.",
+        "actions": {
+          "syncing": "Synchroniseren…",
+          "import": "Importeren naar dit account",
+          "boundElsewhere": "Aan een ander account gekoppeld",
+          "blocked": "Import geblokkeerd",
+          "sync": "Nu synchroniseren"
+        }
+      },
+      "cloudSkills": {
+        "title": "Cloud Skills",
+        "loading": "Cloud Skills laden…",
+        "unavailable": "Cloud Skills is niet beschikbaar terwijl accountgegevens worden verplaatst, opnieuw ingesteld of verwijderd.",
+        "empty": "Er zijn nog geen aangepaste cloudskills geïnstalleerd.",
+        "saved": "Opgeslagen. De exacte cloudversie is nu actueel.",
+        "saveError": "De skill is gewijzigd of het account is niet beschikbaar. De opnieuw geladen cloudstatus wordt gebruikt; probeer het opnieuw nadat je deze hebt gecontroleerd.",
+        "versionStatus": "{description} Versie: {version}. Status: {status}.",
+        "notPublished": "niet gepubliceerd",
+        "status": {
+          "disabled": "uitgeschakeld",
+          "authorized": "geautoriseerd",
+          "notAuthorized": "niet geautoriseerd voor deze versie"
+        },
+        "agentScope": "Agentbereik:",
+        "agentType": {
+          "orchestrator": "Orchestrator",
+          "general": "Algemeen"
+        },
+        "allowedTools": "Toegestane toolnamen (optioneel, kommagescheiden; hiermee worden nooit tools toegevoegd)",
+        "invalidTools": "Toolnamen mogen alleen letters, cijfers, punten, onderstrepingstekens, dubbele punten of koppeltekens bevatten (maximaal 64 tekens).",
+        "actions": {
+          "saving": "Opslaan…",
+          "revoke": "Intrekken",
+          "authorize": "Versie autoriseren",
+          "disable": "Uitschakelen",
+          "enable": "Inschakelen"
+        }
+      },
       "signOut": {
         "label": "Afmelden",
         "description": "Meld je af bij Stella op dit apparaat.",
@@ -2304,6 +2352,75 @@
       "deleteConfirmTitle": "Account verwijderen",
       "deleteConfirmBody": "Dit verwijdert je Stella-account definitief en wist de bijbehorende clouddata op onze servers. Dit kan niet ongedaan worden gemaakt.",
       "deleteFailedTitle": "Kon account niet verwijderen"
+    },
+    "cloudHome": {
+      "settingsSection": "Cloud Home",
+      "settingsRowTitle": "Geheugendocumenten",
+      "settingsRowBody": "Lees en bewerk je canonieke Stella-geheugen in de cloud.",
+      "openSettingsLabel": "Cloud Home-geheugen openen",
+      "title": "Cloud Home-geheugen",
+      "subtitle": "Je canonieke Stella-documenten in de cloud",
+      "backToSettingsLabel": "Terug naar Instellingen",
+      "backToDocumentsLabel": "Terug naar Cloud Home-documenten",
+      "editorMeta": "{kind} · revisie {revision}",
+      "listMeta": "{kind} · revisie {revision} · {size}",
+      "signInTitle": "Log in om Cloud Home te gebruiken",
+      "signInBody": "Geheugendocumenten zijn privé en alleen toegankelijk via je Stella-account.",
+      "signIn": "Inloggen",
+      "signInAgain": "Opnieuw inloggen",
+      "loading": "Cloud Home laden…",
+      "unavailableTitle": "Cloud Home is niet beschikbaar",
+      "unavailableBody": "Deze omgeving biedt momenteel geen toegang tot de beveiligde Cloud Home-service. Je lokale bestanden zijn niet gewijzigd.",
+      "errors": {
+        "unauthorized": "Log opnieuw in om toegang te krijgen tot Cloud Home.",
+        "unavailable": "Cloud Home is momenteel niet beschikbaar voor dit account.",
+        "invalid": "Cloud Home heeft een ongeldig antwoord geretourneerd.",
+        "network": "Cloud Home kon niet worden bereikt. Probeer het opnieuw.",
+        "missingFromList": "Dat document staat niet meer in Cloud Home. Laad de lijst opnieuw.",
+        "removedWhileEditing": "Dat document is verwijderd uit Cloud Home."
+      },
+      "notices": {
+        "saved": "Opgeslagen in Cloud Home.",
+        "loadedLatest": "De nieuwste cloudversie is geladen."
+      },
+      "conflict": {
+        "title": "Cloudversie gewijzigd",
+        "changedBody": "Revisie {revision} heeft de versie vervangen die je hebt bewerkt. Je concept staat hier nog.",
+        "removedBody": "Dit document is verwijderd terwijl je het bewerkte. Je concept staat hier nog.",
+        "reloadLabel": "Cloudversie opnieuw laden en dit concept vervangen",
+        "reloading": "Opnieuw laden…",
+        "reload": "Cloudversie opnieuw laden"
+      },
+      "editor": {
+        "editLabel": "{name} bewerken",
+        "saving": "Opslaan…",
+        "save": "Opslaan",
+        "unsaved": "Niet-opgeslagen wijzigingen",
+        "upToDate": "Actueel"
+      },
+      "list": {
+        "retryLabel": "Opnieuw proberen het Cloud Home-geheugen te laden",
+        "retry": "Opnieuw proberen",
+        "loading": "Documenten laden…",
+        "emptyTitle": "Nog geen cloudgeheugen",
+        "emptyBody": "Documenten die Stella maakt of die vanaf de desktop worden geïmporteerd, verschijnen hier.",
+        "openDocumentLabel": "{name} openen"
+      },
+      "kinds": {
+        "memory": "geheugen",
+        "profile": "profiel",
+        "memory_map": "geheugenkaart",
+        "core_memory": "kerngeheugen",
+        "personality": "persoonlijkheid",
+        "imported_markdown": "geïmporteerde Markdown",
+        "user_markdown": "gebruikers-Markdown",
+        "archive": "archief"
+      },
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      }
     },
     "carPlayDiagnostics": {
       "title": "CarPlay-diagnostiek",

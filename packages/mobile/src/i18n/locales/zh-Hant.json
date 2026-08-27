@@ -41,7 +41,7 @@
     },
     "memory": {
       "title": "記憶",
-      "description": "將已儲存的記憶和你的個人資料納入 Stella 的模型脈絡。關閉後，記憶檔案仍會保留在你的裝置上，但不會用於後續對話。"
+      "description": "將已儲存的記憶和你的個人資料納入 Stella 的模型情境。雲端副本是權威版本，並在傳輸與靜態儲存時加密；Stella 也可能保留本機副本。關閉此選項後，記憶不會用於後續對話，但不會被刪除。"
     },
     "developerPreviews": {
       "title": "開發者檔案預覽",
@@ -276,6 +276,54 @@
         "deleteDataFailed": "無法刪除你的資料。請重試。",
         "deleteAccountFailed": "無法刪除你的帳號。請重試。",
         "signInBeforeDelete": "請先登入，再刪除帳號。"
+      },
+      "cloudHome": {
+        "title": "Cloud Home",
+        "label": "記憶與技能",
+        "summary": {
+          "checking": "正在檢查本機記憶與技能…",
+          "current": "Cloud Home 已是最新狀態。已上傳記憶：{memoryCount}。已上傳技能套件：{skillCount}。",
+          "attention": "本機資料不同時，Cloud Home 保留了現有的雲端副本。請查看下方詳細資料。",
+          "unavailable": "Cloud Home 同步目前無法使用。",
+          "intro": "Stella 會將本機記憶與適用的自訂技能安全匯入你的雲端帳號。"
+        },
+        "authorizationNote": "上傳的技能在其確切版本獲得明確授權前，仍無法供代理使用。",
+        "actions": {
+          "syncing": "正在同步…",
+          "import": "匯入此帳號",
+          "boundElsewhere": "已綁定其他帳號",
+          "blocked": "匯入已被封鎖",
+          "sync": "立即同步"
+        }
+      },
+      "cloudSkills": {
+        "title": "Cloud Skills",
+        "loading": "正在載入雲端技能…",
+        "unavailable": "移動、重設或刪除帳號資料時，Cloud Skills 無法使用。",
+        "empty": "尚未安裝自訂雲端技能。",
+        "saved": "已儲存。目前使用確切的雲端版本。",
+        "saveError": "技能已變更或帳號無法使用。將使用重新載入的雲端狀態；請檢查後再試一次。",
+        "versionStatus": "{description} 版本：{version}。狀態：{status}。",
+        "notPublished": "未發佈",
+        "status": {
+          "disabled": "已停用",
+          "authorized": "已授權",
+          "notAuthorized": "此版本未授權"
+        },
+        "agentScope": "代理範圍：",
+        "agentType": {
+          "orchestrator": "協調代理",
+          "general": "一般代理"
+        },
+        "allowedTools": "允許的工具名稱（選填，以逗號分隔；此設定不會新增工具）",
+        "invalidTools": "工具名稱只能使用字母、數字、句點、底線、冒號或連字號（最多 64 個）。",
+        "actions": {
+          "saving": "正在儲存…",
+          "revoke": "撤銷授權",
+          "authorize": "授權此版本",
+          "disable": "停用",
+          "enable": "啟用"
+        }
       }
     },
     "audio": {
@@ -2274,6 +2322,75 @@
       "deleteConfirmTitle": "刪除帳號",
       "deleteConfirmBody": "此操作會永久刪除您的 Stella 帳號，並移除我們伺服器上與其相關的雲端資料。無法復原。",
       "deleteFailedTitle": "無法刪除帳號"
+    },
+    "cloudHome": {
+      "settingsSection": "Cloud Home",
+      "settingsRowTitle": "記憶文件",
+      "settingsRowBody": "檢視及編輯 Stella 在雲端的權威記憶版本。",
+      "openSettingsLabel": "開啟 Cloud Home 記憶",
+      "title": "Cloud Home 記憶",
+      "subtitle": "Stella 文件的雲端權威版本",
+      "backToSettingsLabel": "返回設定",
+      "backToDocumentsLabel": "返回 Cloud Home 文件",
+      "editorMeta": "{kind} · 修訂版 {revision}",
+      "listMeta": "{kind} · 修訂版 {revision} · {size}",
+      "signInTitle": "登入以使用 Cloud Home",
+      "signInBody": "記憶文件僅供你的 Stella 帳戶存取。",
+      "signIn": "登入",
+      "signInAgain": "重新登入",
+      "loading": "正在載入 Cloud Home…",
+      "unavailableTitle": "Cloud Home 無法使用",
+      "unavailableBody": "此部署目前未提供安全的 Cloud Home 服務。你的本機檔案並未變更。",
+      "errors": {
+        "unauthorized": "請重新登入以存取 Cloud Home。",
+        "unavailable": "此帳戶目前無法使用 Cloud Home。",
+        "invalid": "Cloud Home 傳回了無效的回應。",
+        "network": "無法連線至 Cloud Home。請再試一次。",
+        "missingFromList": "該文件已不在 Cloud Home 中。請重新載入清單。",
+        "removedWhileEditing": "該文件已從 Cloud Home 中移除。"
+      },
+      "notices": {
+        "saved": "已儲存至 Cloud Home。",
+        "loadedLatest": "已載入最新的雲端版本。"
+      },
+      "conflict": {
+        "title": "雲端版本已變更",
+        "changedBody": "修訂版 {revision} 已取代你所編輯的版本。你的草稿仍保留在這裡。",
+        "removedBody": "你編輯期間，該文件已被移除。你的草稿仍保留在這裡。",
+        "reloadLabel": "重新載入雲端版本並取代此草稿",
+        "reloading": "正在重新載入…",
+        "reload": "重新載入雲端版本"
+      },
+      "editor": {
+        "editLabel": "編輯 {name}",
+        "saving": "正在儲存…",
+        "save": "儲存",
+        "unsaved": "有尚未儲存的變更",
+        "upToDate": "已是最新版本"
+      },
+      "list": {
+        "retryLabel": "重試載入 Cloud Home 記憶",
+        "retry": "重試",
+        "loading": "正在載入文件…",
+        "emptyTitle": "尚無雲端記憶",
+        "emptyBody": "由 Stella 建立或從桌面版匯入的文件將顯示在此處。",
+        "openDocumentLabel": "開啟 {name}"
+      },
+      "kinds": {
+        "memory": "記憶",
+        "profile": "個人資料",
+        "memory_map": "記憶映射",
+        "core_memory": "核心記憶",
+        "personality": "個性",
+        "imported_markdown": "匯入的 Markdown",
+        "user_markdown": "使用者 Markdown",
+        "archive": "封存"
+      },
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      }
     },
     "carPlayDiagnostics": {
       "title": "CarPlay 診斷",

@@ -843,8 +843,9 @@ const runClaudeHostedTurn = async (args: {
         throw error;
       }
     }
-
-    void nativeInterrupt;
+    if (nativeInterrupt) {
+      await nativeInterrupt;
+    }
 
     const queued = args.liveAgent?.drain() ?? [];
     if (queued.length === 0) {

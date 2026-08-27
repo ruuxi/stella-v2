@@ -74,6 +74,8 @@ const DEFAULT_STEP_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 
 const DEFAULT_STEP_TOOL_IDLE_TIMEOUT_MS = 20 * 60 * 1000;
 const DEFAULT_CONTROL_REQUEST_TIMEOUT_MS = 60 * 1000;
+const DEFAULT_STEERING_CONTROL_TIMEOUT_MS = 2 * 1000;
+const DEFAULT_STEERING_RESULT_TIMEOUT_MS = 2 * 1000;
 const CLAUDE_CODE_COMPACTING_TEXT = "Compacting context";
 const CLAUDE_CODE_RUNNING_TEXT = "Working";
 
@@ -2048,9 +2050,14 @@ class ClaudeCodeSessionRuntime {
                 return await pending.steeringInterruptPromise;
               }
               pending.steeringInterrupted = true;
-              pending.steeringInterruptPromise = this.sendControlRequest(
+              pending.steeringSettledPromise = new Promise((resolve) => {
+                pending.resolveSteeringSettled = resolve;
+              });
+              pending.steeringInterruptPromise = this.interruptPendingTurn(
+                session,
+                request.sessionKey,
                 processState,
-                { subtype: "interrupt" },
+                pending,
               );
               return await pending.steeringInterruptPromise;
             },
@@ -2074,16 +2081,78 @@ class ClaudeCodeSessionRuntime {
     }
     pending.detachTurnControl?.();
     pending.detachTurnControl = undefined;
+    pending.resolveSteeringSettled?.();
+    pending.resolveSteeringSettled = undefined;
   }
-  async sendControlRequest(processState, request) {
+  async interruptPendingTurn(session, sessionKey, processState, pending) {
+    const controlTimeoutMs = configuredTimeoutMs(
+      "STELLA_CLAUDE_CODE_STEERING_CONTROL_TIMEOUT_MS",
+      configuredTimeoutMs(
+        "STELLA_CLAUDE_CODE_CONTROL_TIMEOUT_MS",
+        DEFAULT_STEERING_CONTROL_TIMEOUT_MS,
+      ),
+    );
+    try {
+      await this.sendControlRequest(
+        processState,
+        { subtype: "interrupt" },
+        controlTimeoutMs,
+      );
+    } catch (error) {
+      this.failSteeringTurn(sessionKey, session, processState, pending);
+      throw error;
+    }
+    if (!processState.pending.includes(pending)) {
+      return;
+    }
+    const resultTimeoutMs = configuredTimeoutMs(
+      "STELLA_CLAUDE_CODE_STEERING_RESULT_TIMEOUT_MS",
+      DEFAULT_STEERING_RESULT_TIMEOUT_MS,
+    );
+    let timeout;
+    const resultArrived = await Promise.race([
+      pending.steeringSettledPromise.then(() => true),
+      new Promise((resolve) => {
+        timeout = setTimeout(() => resolve(false), resultTimeoutMs);
+        timeout.unref?.();
+      }),
+    ]);
+    if (timeout) clearTimeout(timeout);
+    if (!resultArrived && processState.pending.includes(pending)) {
+      this.failSteeringTurn(sessionKey, session, processState, pending);
+    }
+  }
+  failSteeringTurn(sessionKey, session, processState, pending) {
+    const index = processState.pending.indexOf(pending);
+    if (index >= 0) {
+      processState.pending.splice(index, 1);
+      this.detachAbortListener(pending);
+    }
+    if (session.process === processState) {
+      processState.closed = true;
+      this.resetStreamingProcess(sessionKey, session);
+    }
+    if (index >= 0) {
+      pending.reject(
+        new ClaudeCodeSteeringInterruptError(
+          pending.fileChanges,
+          pending.mcpCalls,
+        ),
+      );
+    }
+  }
+  async sendControlRequest(
+    processState,
+    request,
+    timeoutMs = configuredTimeoutMs(
+      "STELLA_CLAUDE_CODE_CONTROL_TIMEOUT_MS",
+      DEFAULT_CONTROL_REQUEST_TIMEOUT_MS,
+    ),
+  ) {
     if (processState.closed || processState.child.stdin.destroyed) {
       throw new ClaudeCodeProcessEndedError("Claude Code stream is closed.");
     }
     const requestId = `stella_${crypto.randomUUID()}`;
-    const timeoutMs = configuredTimeoutMs(
-      "STELLA_CLAUDE_CODE_CONTROL_TIMEOUT_MS",
-      DEFAULT_CONTROL_REQUEST_TIMEOUT_MS,
-    );
     const response = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         processState.pendingControlRequests.delete(requestId);

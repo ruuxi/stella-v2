@@ -10,7 +10,8 @@
   },
   "scripts": {
     "stub": "bun src/cli.ts --stub",
-    "typecheck": "node ../../node_modules/typescript-7/bin/tsc --noEmit"
+    "typecheck": "node ../../node_modules/typescript-7/bin/tsc --noEmit",
+    "test": "bun test src"
   },
   "dependencies": {
     "@sinclair/typebox": "0.34.49",

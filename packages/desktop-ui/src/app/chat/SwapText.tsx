@@ -30,50 +30,77 @@ interface SwapTextProps {
 
 const SWAP_DURATION_MS = 240;
 
+type HeldPhrase = {
+  text: string;
+  minimumVisibleMs: number;
+};
+
 function useMinimumVisibleText(text: string, minimumVisibleMs: number): string {
   const [visibleText, setVisibleText] = useState(text);
-  const visibleTextRef = useRef(text);
+  const visibleRef = useRef<HeldPhrase>({ text, minimumVisibleMs });
   const visibleSinceRef = useRef(Date.now());
-  const pendingTextRef = useRef(text);
-  const holdTimerRef = useRef<number | null>(null);
+  const queueRef = useRef<HeldPhrase[]>([]);
+  const timerRef = useRef<number | null>(null);
+
   useEffect(() => {
-    pendingTextRef.current = text;
     const clearTimer = () => {
-      if (holdTimerRef.current !== null) {
-        window.clearTimeout(holdTimerRef.current);
-        holdTimerRef.current = null;
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
       }
     };
-    const showText = (nextText: string) => {
-      if (nextText === visibleTextRef.current) return;
-      visibleTextRef.current = nextText;
+    const remainingMs = () =>
+      Math.max(
+        0,
+        visibleRef.current.minimumVisibleMs -
+          (Date.now() - visibleSinceRef.current),
+      );
+    const show = (phrase: HeldPhrase) => {
+      visibleRef.current = phrase;
       visibleSinceRef.current = Date.now();
-      setVisibleText(nextText);
+      setVisibleText(phrase.text);
     };
-    if (text === visibleTextRef.current) {
+    const drainReady = () => {
       clearTimer();
+      while (queueRef.current.length > 0 && remainingMs() === 0) {
+        const next = queueRef.current.shift();
+        if (!next) break;
+        if (next.text !== visibleRef.current.text) {
+          show(next);
+        }
+      }
+      if (queueRef.current.length === 0) return;
+      timerRef.current = window.setTimeout(() => {
+        timerRef.current = null;
+        drainReady();
+      }, remainingMs());
+    };
+
+    if (text === visibleRef.current.text) {
+      const lastQueued = queueRef.current.at(-1);
+      if (lastQueued?.text === text) {
+        lastQueued.minimumVisibleMs = minimumVisibleMs;
+      } else if (queueRef.current.length === 0) {
+        visibleRef.current.minimumVisibleMs = minimumVisibleMs;
+      }
       return;
     }
-    const remainingMs = Math.max(
-      0,
-      minimumVisibleMs - (Date.now() - visibleSinceRef.current),
-    );
-    if (remainingMs === 0) {
-      clearTimer();
-      showText(text);
-      return;
+
+    const lastQueued = queueRef.current.at(-1);
+    if (lastQueued?.text === text) {
+      lastQueued.minimumVisibleMs = minimumVisibleMs;
+    } else if (!queueRef.current.some((phrase) => phrase.text === text)) {
+      queueRef.current.push({ text, minimumVisibleMs });
     }
-    if (holdTimerRef.current === null) {
-      holdTimerRef.current = window.setTimeout(() => {
-        holdTimerRef.current = null;
-        showText(pendingTextRef.current);
-      }, remainingMs);
+    if (timerRef.current === null) {
+      drainReady();
     }
   }, [minimumVisibleMs, text]);
+
   useEffect(
     () => () => {
-      if (holdTimerRef.current !== null) {
-        window.clearTimeout(holdTimerRef.current);
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
       }
     },
     [],

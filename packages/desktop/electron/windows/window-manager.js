@@ -1,10 +1,7 @@
 import { app, BrowserWindow } from 'electron';
 import { FullWindowController } from './full-window.js';
 import { getMainLogger } from '../observability/main-logger.js';
-/**
- * Chromium net error codes for failures that are usually transient, most
- * commonly seen in dev while Vite is cycling.
- */
+
 const TRANSIENT_NET_ERROR_CODES = new Set([
     -3, -7, -21, -100, -101, -102, -103, -104, -105, -106, -118,
 ]);

@@ -1,7 +1,3 @@
-/**
- * User interaction tools: RequestCredential handlers.
- */
-
 import type { ToolResult } from "./types.js";
 
 export type UserToolsConfig = {

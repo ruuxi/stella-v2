@@ -20,21 +20,8 @@ export const getCssNumber = (value: string, fallback: number) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-/**
- * Extra canvas space around the aurora so edge effects (speaking
- * expansion, breathing, flash wave) are never clipped. The shader UV
- * mapping is scaled by the same factor so the aurora stays the same
- * pixel size.
- */
 export const EDGE_SCALE = 2.5;
 
-/**
- * Fully-resolved, context-independent description of an aurora canvas:
- * its CSS/backing geometry and a `key` that uniquely identifies a reusable
- * GL renderer. Two `StellaAnimation` mounts that resolve to the same `key`
- * (same cell metrics + backing/display sizes) can share — and therefore pool
- * — a single WebGL context + program.
- */
 export type AuroraSpec = {
   key: string;
   cssWidth: number;
@@ -47,24 +34,13 @@ export type AuroraSpec = {
 export type AuroraSpecOptions = {
   width: number;
   height: number;
-  /**
-   * Optional on-screen canvas size. The shader still renders at the natural
-   * cell-derived resolution so small surfaces can supersample without putting
-   * a transformed WebGL layer into the compositor.
-   */
+
   displayWidth?: number;
   displayHeight?: number;
   maxDpr?: number;
   variant?: AuroraVariant;
 };
 
-/**
- * Measure the aurora geometry from a mounted `.stella-animation-container`
- * (reads its `--aurora-cell-*` custom properties) and derive the
- * canvas/backing sizes + cache key. The `width`/`height` props are in
- * abstract cells — a sizing unit inherited from the ascii era so every
- * existing surface keeps its exact footprint.
- */
 export function resolveAuroraSpec(
   container: HTMLElement,
   {

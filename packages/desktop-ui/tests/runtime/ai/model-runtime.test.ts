@@ -175,7 +175,7 @@ describe("ModelRuntime", () => {
     await writeFile(
       path.join(stellaDataDir, "models.json"),
       `{
-        // JSONC comments, URLs, and trailing commas match Pi's models.json.
+
         "providers": {
           "custom": {
             "api": "openai-completions",

@@ -1,8 +1,3 @@
-/**
- * File tools: Read, Write, Edit handlers.
- * File writes are direct filesystem writes; no staging interception.
- */
-
 import { promises as fs } from "fs";
 import path from "path";
 import type { ToolContext, ToolResult } from "./types.js";
@@ -104,8 +99,6 @@ export const writeTextFile = async (
     throw new Error(pathBlock);
   }
 
-  // The whole read-current-state → write cycle runs under the per-path lock
-  // so parallel Write/Edit calls against the same file cannot interleave.
   return withFileWriteLock(filePath, async () => {
     let existed = false;
     let originalEnding: "\r\n" | "\n" = "\n";
@@ -148,8 +141,6 @@ export const replaceTextInFile = async (
     throw new Error(pathBlock);
   }
 
-  // Read → apply → write must be atomic relative to sibling edits of the
-  // same file: parallel tool calls otherwise clobber each other's hunks.
   return withFileWriteLock(filePath, async () => {
     let rawContent: string;
     try {
@@ -306,9 +297,6 @@ export const applyAnchoredEditToFile = async (
       ? undefined
       : parseAnchor(args.endAnchor);
 
-  // Same atomicity contract as replaceTextInFile: anchors resolve against
-  // the file as it exists inside the lock, so sibling edits that shifted
-  // lines are absorbed by hash relocation instead of clobbered.
   return withFileWriteLock(filePath, async () => {
     let rawContent: string;
     try {
@@ -388,8 +376,7 @@ export const handleRead = async (
     );
     const offset = Number(args.offset ?? 1);
     const limit = Number(args.limit ?? 2000);
-    // Hashes come from the raw LF-normalized lines (what Edit verifies
-    // against at apply time); the displayed text stays sanitized.
+
     const rawLines = normalizeToLF(content).split("\n");
     const displayLines = normalizeToLF(
       sanitizeToolVisibleText(content, { codeFile: true }),

@@ -190,8 +190,7 @@ describe("conversation history storage", () => {
         }
       ).count,
     ).toBe(2);
-    // The second call models a rapid duplicate invocation after the first
-    // atomic transaction has completed; it must resolve to the same empty ID.
+
     expect(store.createNewDefaultConversationId()).toBe(created);
   });
 

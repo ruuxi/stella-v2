@@ -1,7 +1,3 @@
-// Recall follows the active run's provider/model boundary while forcing low
-// reasoning for the automatic utility pass. Engine-native Claude/Codex routes
-// keep their dedicated light models.
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
@@ -24,10 +20,6 @@ vi.mock("@stella/runtime/kernel/storage/llm-oauth-credentials", () => ({
     oauthCredentials.has(provider) ? `${provider}-oauth-token` : null,
 }));
 
-// Catalog metadata resolution is a network round-trip against the Stella
-// site; identity pass-through keeps the tests offline without changing the
-// candidate-selection behavior under test. The call counter lets tests
-// assert which engine paths touch the catalog at all.
 const catalogMetadataCalls = vi.hoisted(() => ({ count: 0 }));
 vi.mock("@stella/runtime/kernel/stella-model-catalog", () => ({
   withStellaModelCatalogMetadata: async (args: { route: unknown }) => {
@@ -229,11 +221,7 @@ describe("resolveRunnerRecallLlmRoute", () => {
   });
 
   it("regression: never resolves claude_code_local to the native Anthropic provider", async () => {
-    // Even with an Anthropic credential present, the deep-tier synthesis
-    // route for the Claude Code engine must stay on the CLI — a presence
-    // check is not a usability proof (stale/locked Keychain entries decrypt
-    // to nothing at call time and surfaced as "No API key for provider:
-    // anthropic" mid-lookup).
+
     credentials.set("anthropic", "anthropic-test-key");
     const { resolveRunnerRecallLlmRoute } = await loadModule();
     const stellaDataDir = tempDirs.create("recall-claude-direct-");

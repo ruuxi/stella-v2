@@ -27,9 +27,7 @@ const composioEntry = (
 
 describe("buildNativeConnectorCatalog server-catalog overlay", () => {
   it("keeps bundled entries when the server catalog only carries backend integrations", () => {
-    // Regression: a server catalog with only a Composio entry must not
-    // evict Gmail — discovery could offer it while the catalog/connect
-    // paths (which pass the server catalog through) failed to resolve it.
+
     const catalog = buildNativeConnectorCatalog([
       composioEntry("notion", "Notion"),
     ]);
@@ -46,7 +44,7 @@ describe("buildNativeConnectorCatalog server-catalog overlay", () => {
     const gmail = getNativeConnectorCatalogEntry("gmail", catalog);
     expect(gmail?.provider).toBe("backend-composio");
     expect(gmail?.name).toBe("Gmail (backend)");
-    // No duplicate ids after the overlay.
+
     expect(catalog.filter((entry) => entry.id === "gmail")).toHaveLength(1);
   });
 

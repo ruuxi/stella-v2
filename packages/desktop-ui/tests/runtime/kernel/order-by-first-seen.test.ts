@@ -54,8 +54,6 @@ describe("Activity lifecycle ordering", () => {
         }),
       );
 
-      // Each iteration recreates every object and ordering state, modeling a
-      // full refetch/remount rather than relying on component-local memory.
       expect(orderedKeys(refetched)).toEqual(expected);
     }
   });

@@ -1,28 +1,3 @@
-// @vitest-environment jsdom
-/**
- * Dictate-and-submit race: clicking send while dictation is in flight must
- * always send the completed transcript, exactly once.
- *
- * The production sequence under test (see use-dictation.ts):
- *   1. send click while listening → commitAndSend() → session.stop()
- *   2. transcription resolves → session emits onStateChange("idle") then
- *      onFinalTranscript(text) synchronously
- *   3. the hook appends the transcript via setMessage(...) and fires the
- *      commit on queueMicrotask + requestAnimationFrame
- *
- * React schedules the render that carries the appended transcript as a
- * normal scheduler (macro)task, so the rAF-deferred commit can run BEFORE
- * that render flushes. These tests pin that loser ordering deterministically:
- * the rAF stub runs its callback synchronously, and assertions inside the
- * async `act` scope run before React flushes the queued render.
- *
- * With a ref synced in the render body (the old pattern), the commit reads
- * the PRE-transcript text — the send silently no-ops on empty text and the
- * transcript is left sitting in the composer (the reported bug). With
- * useComposerMessageState (write-time-synced ref) the commit always sees the
- * full text.
- */
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -57,8 +32,7 @@ const fake = vi.hoisted(() => {
       const text = await new Promise<string>((resolve) => {
         this.finishTranscription = resolve;
       });
-      // Mirrors InworldDictationSession.stop(): "idle" is emitted first and
-      // the final transcript follows synchronously.
+
       this.state = "idle";
       this.callbacks.onStateChange?.("idle");
       this.callbacks.onFinalTranscript?.(text);
@@ -112,15 +86,13 @@ type ProbeProps = {
   sends: string[];
 };
 
-/** Consumer wired the FIXED way: write-time-synced message ref. */
 function FixedProbe({ api, sends }: ProbeProps) {
   const { message, setMessage, messageRef } = useComposerMessageState();
   const dictation = useDictation({
     message,
     setMessage,
     onCommit: () => {
-      // Mirrors handleSend / sendCurrentMessage: read the latest text from
-      // the ref, no-op on empty (sendMessage's guard), then clear.
+
       const text = messageRef.current;
       if (!text.trim()) return;
       sends.push(text);
@@ -131,7 +103,6 @@ function FixedProbe({ api, sends }: ProbeProps) {
   return null;
 }
 
-/** Consumer wired the OLD way: ref refreshed in the render body. */
 function LegacyProbe({ api, sends }: ProbeProps) {
   const [message, setMessage] = useState("");
   const messageRef = useRef(message);
@@ -159,8 +130,7 @@ describe("dictation send race (commit fires before the transcript render)", () =
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
-    // Model the losing ordering: the frame deadline arrives before React's
-    // scheduler task, so the rAF-deferred commit runs immediately.
+
     vi.stubGlobal(
       "requestAnimationFrame",
       (cb: FrameRequestCallback): number => {
@@ -199,7 +169,6 @@ describe("dictation send race (commit fires before the transcript render)", () =
     const { api, sends } = await mount(FixedProbe);
     const session = await startDictation(api);
 
-    // Send clicked while still listening → stop + defer the commit.
     await act(async () => {
       api.current!.dictation.commitAndSend();
       await drainMicrotasks();
@@ -210,13 +179,10 @@ describe("dictation send race (commit fires before the transcript render)", () =
     await act(async () => {
       session.finishTranscription!("hello world");
       await drainMicrotasks();
-      // Still inside the act scope: React has NOT flushed the render that
-      // carries the transcript, yet the commit (microtask + sync rAF) has
-      // already fired. The write-synced ref must have seen the full text.
+
       expect(sends).toEqual(["hello world"]);
     });
 
-    // Composer was cleared by the send; no late repopulation.
     expect(api.current!.getMessage()).toBe("");
     expect(api.current!.dictation.isRecording).toBe(false);
     expect(api.current!.dictation.isTranscribing).toBe(false);
@@ -236,9 +202,6 @@ describe("dictation send race (commit fires before the transcript render)", () =
       await drainMicrotasks();
     });
 
-    // The commit fired while the render-synced ref still held the
-    // pre-transcript text (""), so the empty-text guard swallowed the send —
-    // and the transcript is left sitting in the composer, unsent.
     expect(sends).toEqual([]);
     expect(api.current!.getMessage()).toBe("hello world");
   });
@@ -266,14 +229,12 @@ describe("dictation send race (commit fires before the transcript render)", () =
     const { api, sends } = await mount(FixedProbe);
     const session = await startDictation(api);
 
-    // Mic/confirm click first: stop + transcribe without sending.
     await act(async () => {
       api.current!.dictation.toggle();
       await drainMicrotasks();
     });
     expect(api.current!.dictation.isTranscribing).toBe(true);
 
-    // Send clicked mid-transcription → arm the deferred commit.
     await act(async () => {
       api.current!.dictation.commitAndSend();
       await drainMicrotasks();
@@ -292,7 +253,6 @@ describe("dictation send race (commit fires before the transcript render)", () =
     const { api, sends } = await mount(FixedProbe);
     const session = await startDictation(api);
 
-    // Stop via confirm; transcript lands with no send armed.
     await act(async () => {
       api.current!.dictation.toggle();
       await drainMicrotasks();
@@ -304,7 +264,6 @@ describe("dictation send race (commit fires before the transcript render)", () =
     expect(sends).toEqual([]);
     expect(api.current!.getMessage()).toBe("dictated text");
 
-    // Second click on send while idle → immediate commit path.
     await act(async () => {
       api.current!.dictation.commitAndSend();
       await drainMicrotasks();

@@ -1,10 +1,7 @@
 use std::sync::{Mutex, MutexGuard};
 
-/// Global mutex shared across all test modules to prevent parallel tests from
-/// interfering with each other when mutating environment variables.
 pub static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
-/// RAII guard that locks [`ENV_MUTEX`] and restores environment variables on drop.
 pub struct EnvGuard<'a> {
     _lock: MutexGuard<'a, ()>,
     vars: Vec<(String, Option<String>)>,

@@ -6,11 +6,6 @@ type Props = {
   componentStack: string | null;
 };
 
-/**
- * Shared crash UI for the React error boundary and TanStack Router errors.
- * Recovery is intentionally limited to reloading or opening logs; packaged
- * builds do not mutate their own application source.
- */
 export function CrashSurface({ error, componentStack }: Props) {
   useLayoutEffect(() => {
     document.getElementById("stella-launch")?.remove();

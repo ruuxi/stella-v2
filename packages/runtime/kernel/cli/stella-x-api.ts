@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-
 type CliOptions = {
   command: string;
   method?: string;

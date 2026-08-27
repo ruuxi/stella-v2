@@ -43,26 +43,13 @@ export type ManagedProtocol =
 export type ManagedModelConfig = {
   model: string;
   managedGatewayProvider?: ManagedGatewayProvider;
-  /**
-   * Explicit wire-protocol override. When omitted, the protocol is inferred
-   * from the gateway provider; set it for gateways that serve different
-   * models over different APIs (OpenRouter: Muse Spark 1.2 Contributor on
-   * the Responses API, everything else Chat Completions).
-   */
+
   api?: ManagedProtocol;
   temperature?: number;
   maxOutputTokens?: number;
   serviceTier?: string;
   providerOptions?: Record<string, Record<string, unknown>>;
-  /**
-   * Input modalities the upstream model actually supports. Resolved at the
-   * request entry point from `billing_model_prices` (synced from
-   * models.dev). When omitted, `buildManagedModel` defaults to ["text"]
-   * so unknown models drop image/audio/video/pdf at the gateway boundary
-   * (`transformMessages` swaps unsupported parts for text placeholders)
-   * instead of forwarding multi-megabyte data URLs that some providers
-   * tokenize as raw character streams.
-   */
+
   modalitiesInput?: ("text" | "image" | "audio" | "video" | "pdf")[];
 };
 
@@ -218,7 +205,7 @@ function modelIdForGateway(model: string, provider: string): string {
     const stripped = model.startsWith("wafer/")
       ? model.slice("wafer/".length)
       : model;
-    // Wafer's catalog advertises capitalized slugs; send the exact casing.
+
     return stripped === "deepseek-v4-flash-0731-fast"
       ? "DeepSeek-V4-Flash-0731-Fast"
       : stripped;
@@ -242,9 +229,7 @@ function resolveManagedProtocol(args: {
   if (args.api) {
     return args.api;
   }
-  // Per-model override from the mode/pin resolution (see
-  // `MANAGED_MODEL_API_OVERRIDES`). Wins over provider inference because
-  // routers like OpenRouter host a mix of protocols.
+
   if (args.config.api) {
     return args.config.api;
   }
@@ -521,16 +506,6 @@ function readTools(value: unknown): Tool[] | undefined {
   return tools.length > 0 ? tools : undefined;
 }
 
-/**
- * Derives the `Model.input` modality set from the resolved
- * `ManagedModelConfig.modalitiesInput`. Stella's `Model.input` only
- * tracks "text" and "image" today (audio/video/pdf are not natively
- * supported on the runtime side), so we narrow models.dev's broader
- * modality list to that subset. Defaults to ["text"] when modalities
- * are unknown so unknown models drop image data URLs at the gateway
- * boundary instead of being forwarded to a provider that may tokenize
- * the data URL as raw characters.
- */
 function resolveModelInput(
   modalitiesInput: ManagedModelConfig["modalitiesInput"],
 ): ("text" | "image")[] {
@@ -560,8 +535,7 @@ export function buildManagedModel<TApi extends Api>(
     defaultHeaders["HTTP-Referer"] ??= "https://stella.sh";
     defaultHeaders["X-OpenRouter-Title"] ??= "Stella";
   }
-  // Per-gateway requirements (Wafer's per-request ZDR opt-in) come from the
-  // gateway config so the runtime and the relay share one definition.
+
   for (const [key, value] of Object.entries(
     managedGateway.extraHeaders ?? {},
   )) {
@@ -586,15 +560,6 @@ export function buildManagedModel<TApi extends Api>(
   };
 }
 
-/**
- * Drop image content blocks from every user / toolResult message in the
- * context, replacing them with a short text marker so the model still
- * sees that *something* was attached. Used by the fallback path: when
- * the primary model accepts images but the fallback doesn't, sending
- * the image parts through anyway makes the fallback 404 (e.g.
- * OpenRouter: "No endpoints found that support image input"), which
- * masks the real primary failure.
- */
 export function stripImageContentFromContext(context: Context): Context {
   const placeholder: TextContent = {
     type: "text",
@@ -992,13 +957,7 @@ export function streamManagedChat(args: {
   };
 
   const fallbackConfig = args.fallbackConfig ?? undefined;
-  // When the fallback model can't accept images, strip image parts from
-  // the context before invoking it. Without this, falling back from an
-  // image-capable primary (e.g. Anthropic) to a text-only fallback (e.g.
-  // deepseek-v4-flash via OpenRouter) surfaces a misleading "No
-  // endpoints found that support image input" 404 from the wrong
-  // provider — the user only ever sees the secondary failure, never the
-  // real reason the primary failed.
+
   const fallbackContext =
     fallbackConfig && !fallbackConfig.modalitiesInput?.includes("image")
       ? stripImageContentFromContext(args.context)

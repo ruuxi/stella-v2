@@ -1,14 +1,3 @@
-/**
- * Reads and writes the paired desktop's local model preferences over the
- * bridge, mirroring the desktop's display-sidebar engine/model picker
- * (`EngineTabContent`). The desktop is the source of truth: every change here
- * lands in the desktop's `~/.stella/preferences.json` via the
- * `preferences:setLocalModelPreferences` IPC, exactly like the desktop UI.
- *
- * The per-message `mobileModelPreference` hint is intentionally NOT used —
- * the desktop only stored it as metadata and never applied it, so it could
- * not actually switch the model.
- */
 import { getJson } from "./http";
 import {
   invokeDesktopBridge,
@@ -16,8 +5,6 @@ import {
   type DesktopBridgeConnection,
 } from "./desktop-bridge-chat";
 import type { StoredPhoneAccess } from "./phone-access";
-
-/* ── engine / reasoning ───────────────────────────────────────── */
 
 export type AgentRuntimeEngine =
   | "default"
@@ -55,9 +42,6 @@ export const REASONING_OPTIONS: ReadonlyArray<{
   { id: "xhigh", label: "Max" },
 ];
 
-/* ── snapshot ─────────────────────────────────────────────────── */
-
-/** The subset of the desktop `LocalModelPreferencesSnapshot` we read/write. */
 export type DesktopModelSnapshot = {
   modelOverrides: Record<string, string>;
   reasoningEfforts: Record<string, ReasoningEffort>;
@@ -67,17 +51,11 @@ export type DesktopModelSnapshot = {
   codexReasoningEffort: ReasoningEffort;
   claudeCodeModel: string;
   claudeCodeReasoningEffort: ReasoningEffort;
-  /**
-   * Desktop's developer-mode flag — the single gate for model/engine/BYOK
-   * surfaces. Defaults to true when the paired desktop predates the flag so
-   * older desktops keep their model controls.
-   */
+
   developerModeEnabled: boolean;
 };
 
 export type DesktopModelPrefsPatch = Partial<DesktopModelSnapshot>;
-
-/* ── catalog / model options ──────────────────────────────────── */
 
 export type StellaCatalogModel = {
   id: string;
@@ -94,7 +72,7 @@ export type RuntimeModelOption = {
 
 export type StellaCatalog = {
   models: StellaCatalogModel[];
-  /** Agent keys the desktop assigns models to (from catalog defaults). */
+
   agentKeys: string[];
 };
 
@@ -111,13 +89,8 @@ const CONVERSATION_AGENT_KEYS: ReadonlySet<string> = new Set([
   "general",
 ]);
 
-// Used when the catalog can't be fetched so a pick still touches the
-// assistant agents rather than silently doing nothing.
 const FALLBACK_AGENT_KEYS = ["orchestrator", "general"];
 
-// When the catalog can't be fetched, the only thing we can safely offer is
-// the opaque default — the concrete pinnable models are tier-dependent and
-// only known from the live catalog.
 const FALLBACK_STELLA_MODELS: StellaCatalogModel[] = [
   {
     id: STELLA_DEFAULT_MODEL,
@@ -125,8 +98,6 @@ const FALLBACK_STELLA_MODELS: StellaCatalogModel[] = [
     allowedForAudience: true,
   },
 ];
-
-/* ── catalog fetch (HTTP, no bridge) ──────────────────────────── */
 
 type CatalogApiResponse = {
   data?: Array<{
@@ -168,8 +139,6 @@ export async function fetchStellaCatalog(): Promise<StellaCatalog> {
   };
 }
 
-/* ── bridge IO ────────────────────────────────────────────────── */
-
 const PREF_GET = "preferences:getLocalModelPreferences";
 const PREF_SET = "preferences:setLocalModelPreferences";
 const LIST_CODEX = "preferences:listCodexModels";
@@ -206,7 +175,7 @@ const normalizeEffort = (value: unknown): ReasoningEffort => {
 
 const normalizeEngine = (value: unknown): AgentRuntimeEngine => {
   if (value === "codex_cli" || value === "claude_code_local") return value;
-  // Legacy cursor_sdk and anything else collapse to Stella for this picker.
+
   return "default";
 };
 
@@ -294,8 +263,6 @@ export async function listDesktopRuntimeModels(
   return mapRuntimeModels(raw);
 }
 
-/* ── selection helpers ────────────────────────────────────────── */
-
 export const isStellaModelId = (modelId: string): boolean =>
   modelId === "" || modelId.startsWith(STELLA_PREFIX);
 
@@ -307,7 +274,6 @@ const toRuntimeOverrideId = (engine: RuntimeEngine, modelId: string): string => 
 const batchAssignableAgents = (agentKeys: string[]): string[] =>
   agentKeys.filter((key) => key !== CHRONICLE_AGENT_KEY);
 
-/** The Stella model the desktop assistant currently uses ("" = default). */
 export const stellaSelectedModelId = (snapshot: DesktopModelSnapshot): string =>
   snapshot.modelOverrides.general ??
   snapshot.modelOverrides.orchestrator ??
@@ -334,12 +300,6 @@ export const runtimeSelectedEffort = (
     ? snapshot.codexReasoningEffort
     : snapshot.claudeCodeReasoningEffort;
 
-/* ── patch builders (mirror EngineTabContent) ─────────────────── */
-
-/**
- * Assign a Stella (or any non-runtime) model across the batch-assignable
- * agent set at the chosen effort. Mirrors `assignTo` for the Stella path.
- */
 export function buildStellaAssignPatch(
   snapshot: DesktopModelSnapshot,
   agentKeys: string[],
@@ -365,7 +325,6 @@ export function buildStellaAssignPatch(
   };
 }
 
-/** Clear every batch agent's Stella override (back to Stella default). */
 export function buildStellaClearPatch(
   snapshot: DesktopModelSnapshot,
   agentKeys: string[],
@@ -386,11 +345,6 @@ export function buildStellaClearPatch(
   };
 }
 
-/**
- * Set the Stella reasoning effort across the batch agents without touching the
- * model overrides. Reasoning is keyed independently of the model, so a pure
- * effort change never needs to rewrite the selected model.
- */
 export function buildStellaSetEffortPatch(
   snapshot: DesktopModelSnapshot,
   agentKeys: string[],
@@ -405,7 +359,6 @@ export function buildStellaSetEffortPatch(
   return { reasoningEfforts: nextReasoning };
 }
 
-/** Set the engine-global Codex / Claude Code effort. */
 export function buildRuntimeSetEffortPatch(
   engine: RuntimeEngine,
   effort: ReasoningEffort,
@@ -415,11 +368,6 @@ export function buildRuntimeSetEffortPatch(
     : { claudeCodeReasoningEffort: effort };
 }
 
-/**
- * Assign a Codex / Claude Code model AND set the engine-global effort. The
- * runtime engines carry one effort (not per-agent), so this both applies the
- * model and the effort in one patch. Mirrors `selectRuntimeReasoning`.
- */
 export function buildRuntimeAssignPatch(
   snapshot: DesktopModelSnapshot,
   engine: RuntimeEngine,
@@ -434,7 +382,7 @@ export function buildRuntimeAssignPatch(
   const nextPropagated = new Set(snapshot.assistantPropagatedAgents);
   for (const key of targets) {
     nextOverrides[key] = normalizedId;
-    // Runtime engines use the engine-global effort, not per-agent.
+
     delete nextReasoning[key];
     if (CONVERSATION_AGENT_KEYS.has(key)) nextPropagated.delete(key);
     else nextPropagated.add(key);
@@ -466,12 +414,10 @@ export const stellaModelLabel = (
   }
   const match = catalog.models.find((model) => model.id === modelId);
   if (match) return match.name;
-  // BYOK model id like "anthropic/claude-..." — show the bare model name.
+
   const slash = modelId.lastIndexOf("/");
   return slash >= 0 ? modelId.slice(slash + 1) : modelId;
 };
-
-/* ── providers (Stella + connected BYOK) ──────────────────────── */
 
 export type ProviderModelGroup = {
   key: string;
@@ -504,8 +450,6 @@ export const getProviderDisplayName = (provider: string): string => {
     .join(" ");
 };
 
-// Mirrors the desktop's direct-provider set: the providers whose models we can
-// surface from the public models.dev catalog for BYOK users.
 const MODELS_DEV_DIRECT_PROVIDER_KEYS = new Set([
   "anthropic",
   "cerebras",
@@ -538,10 +482,6 @@ type ModelsDevApi = Record<
 let directModelsCache: Promise<Record<string, RuntimeModelOption[]>> | null =
   null;
 
-/**
- * Fetch the public models.dev catalog (no auth) and group the direct-provider
- * models by provider, keyed exactly like the desktop. Cached for the session.
- */
 export function fetchDirectProviderModels(): Promise<
   Record<string, RuntimeModelOption[]>
 > {
@@ -593,7 +533,6 @@ const normalizeProviderList = (raw: unknown): string[] => {
   return out;
 };
 
-/** Providers the user has connected on the desktop (API key + OAuth). */
 export async function listDesktopConnectedProviders(
   bridge: DesktopBridgeConnection,
 ): Promise<string[]> {
@@ -606,10 +545,6 @@ export async function listDesktopConnectedProviders(
   );
 }
 
-/**
- * Build the Stella-engine model groups: the Stella provider always, then each
- * connected BYOK provider that has models available, in display-name order.
- */
 export function buildStellaProviderGroups(
   catalog: StellaCatalog,
   connectedProviders: string[],

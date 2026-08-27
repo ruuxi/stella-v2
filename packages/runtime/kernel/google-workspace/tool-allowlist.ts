@@ -1,15 +1,8 @@
-/**
- * Curated Google Workspace tool names in canonical dot form. The vendored
- * upstream Workspace integration can expose these with either dots or
- * underscores depending on startup flags, so Stella normalizes before matching.
- *
- * @see https://github.com/gemini-cli-extensions/workspace/blob/main/docs/index.md
- */
 export const GOOGLE_WORKSPACE_TOOL_ALLOWLIST = [
-  // Auth / session (upstream OAuth; not Stella secrets)
+
   "auth.clear",
   "auth.refreshToken",
-  // Docs
+
   "docs.create",
   "docs.getSuggestions",
   "docs.getComments",
@@ -17,13 +10,13 @@ export const GOOGLE_WORKSPACE_TOOL_ALLOWLIST = [
   "docs.getText",
   "docs.replaceText",
   "docs.formatText",
-  // Drive (no trash in v1)
+
   "drive.search",
   "drive.findFolder",
   "drive.createFolder",
   "drive.downloadFile",
   "drive.renameFile",
-  // Calendar (no delete in v1)
+
   "calendar.list",
   "calendar.createEvent",
   "calendar.listEvents",
@@ -31,7 +24,7 @@ export const GOOGLE_WORKSPACE_TOOL_ALLOWLIST = [
   "calendar.findFreeTime",
   "calendar.updateEvent",
   "calendar.respondToEvent",
-  // Gmail (no batch destructive ops in v1)
+
   "gmail.search",
   "gmail.get",
   "gmail.downloadAttachment",
@@ -41,11 +34,11 @@ export const GOOGLE_WORKSPACE_TOOL_ALLOWLIST = [
   "gmail.sendDraft",
   "gmail.listLabels",
   "gmail.createLabel",
-  // Time helpers
+
   "time.getCurrentDate",
   "time.getCurrentTime",
   "time.getTimeZone",
-  // People
+
   "people.getMe",
 ] as const;
 

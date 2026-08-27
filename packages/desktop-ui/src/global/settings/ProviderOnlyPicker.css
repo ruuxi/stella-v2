@@ -1,5 +1,3 @@
-/* ProviderOnlyPicker — flat provider list used by image / voice settings. */
-
 .provider-only-picker {
   display: flex;
   flex-direction: column;

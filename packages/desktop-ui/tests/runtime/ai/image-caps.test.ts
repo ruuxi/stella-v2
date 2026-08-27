@@ -28,7 +28,7 @@ describe("resolveImageCaps", () => {
     expect(caps.maxWidth).toBe(ANTHROPIC_HIGH_RES_MAX_EDGE);
     expect(caps.maxHeight).toBe(ANTHROPIC_HIGH_RES_MAX_EDGE);
     expect(caps.jpegQuality).toBe(DEFAULT_JPEG_QUALITY);
-    // Direct API: resize target stays a margin under the 10MB hard cap.
+
     expect(caps.maxBytes).toBeLessThan(ANTHROPIC_DIRECT_MAX_IMAGE_BASE64_BYTES);
     expect(caps.maxBytes).toBeGreaterThan(SAFE_FALLBACK_MAX_BYTES);
   });

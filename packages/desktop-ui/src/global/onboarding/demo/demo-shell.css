@@ -1,17 +1,3 @@
-/* ──────────────────────────────────────────────────────────────────────
- * Onboarding demo shell — the faithful Stella-window mock used by the
- * capabilities demo. Visibility is driven by `use-choreography` cues
- * through data attributes; this file only describes how each state looks
- * and how states transition.
- *
- * Surfaces borrow the app's own tokens rather than re-inventing values,
- * so the mock tracks theme changes the same way the real shell does:
- *   composer / work cards → `--panel-surface-*`
- *   user bubble           → `--chat-user-bubble-*`
- *   working indicator     → `--surface-inset`
- *   greeting              → `--font-family-display`
- * ────────────────────────────────────────────────────────────────────── */
-
 .odemo-shell {
   position: relative;
   width: 100%;
@@ -20,32 +6,24 @@
   flex-direction: column;
   border-radius: 14px;
   border: 1px solid color-mix(in oklch, var(--foreground) 9%, transparent);
-  /* Fallback only — `<ShiftingGradient contained>` paints the real backdrop
-     on top of this, below the chrome. */
+
   background: var(--background);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
   font-family: var(--font-family-sans, "Manrope", system-ui, sans-serif);
 }
 
-/* Chrome paints above the contained gradient (`z-index: 0`). */
 .odemo-shell__topbar,
 .odemo-shell__main {
   position: relative;
   z-index: 1;
 }
 
-/* ── Top bar ──────────────────────────────────────────────────────
- * Transparent strip, no border and no backdrop — the real
- * `.shell-topbar-full` treatment. Traffic lights sit in the macOS
- * inset; conversation controls lead, Settings + the display-panel
- * toggle trail. There is no left sidebar to carry any of this. */
-
 .odemo-shell__topbar {
   display: flex;
   align-items: center;
   gap: 10px;
-  /* Fixed height keeps the body below from shifting. */
+
   height: 30px;
   box-sizing: border-box;
   padding: 0 9px;
@@ -98,8 +76,6 @@
   min-width: 8px;
 }
 
-/* ── Body: one centered column, no sidebar ────────────────────────── */
-
 .odemo-shell__main {
   flex: 1;
   min-height: 0;
@@ -108,10 +84,6 @@
   flex-direction: column;
   padding: 0 clamp(10px, 1.2vw, 16px) clamp(8px, 1vw, 14px);
 }
-
-/* ── Chat column ──────────────────────────────────────────────────
- * Mirrors the real chat's centered measure (`--full-chat-composer-max-width`
- * against the shell width) rather than running edge to edge. */
 
 .odemo-chat {
   flex: 1;
@@ -122,8 +94,6 @@
   flex-direction: column;
 }
 
-/* Bottom-anchored like the real timeline: the live tail sits just above
- * the composer and older turns ride up out of view. */
 .odemo-chat__stream {
   position: relative;
   flex: 1 1 0;
@@ -135,10 +105,6 @@
   overflow: hidden;
 }
 
-/* Home layout: the spacer below the composer holds it near the middle of
- * the column, greeting directly above. Sending collapses the spacer, so
- * the composer glides to the bottom and the stream takes the column —
- * the same move the real home-to-chat handoff makes. */
 .odemo-chat__tail {
   flex: 0.85 1 0;
   min-height: 0;
@@ -149,8 +115,6 @@
   flex-grow: 0;
 }
 
-/* Home greeting — Cormorant, sitting just above the composer, retired the
- * moment the first prompt goes out (the real home-overlay fade). */
 .odemo-chat__greeting {
   position: absolute;
   inset: 0;
@@ -170,11 +134,6 @@
 .odemo-chat[data-started] .odemo-chat__greeting {
   opacity: 0;
 }
-
-/* ── Messages ─────────────────────────────────────────────────────
- * User turns are solid accent bubbles pinned right; assistant turns are
- * plain full-width text with no bubble at all — exactly as `.event-item`
- * renders them. */
 
 .odemo-bubble {
   font-size: var(--font-size-sm);
@@ -208,8 +167,6 @@
   padding: 0 2px;
   color: var(--text-base);
 }
-
-/* ── Working indicator (inline, Claude-style) ─────────────────────── */
 
 .odemo-working {
   display: inline-flex;
@@ -264,9 +221,6 @@
   }
 }
 
-/* ── Work receipt cards ───────────────────────────────────────────
- * Same soft panel surface the in-chat work / artifact cards use. */
-
 .odemo-workcard {
   display: flex;
   align-items: center;
@@ -307,7 +261,6 @@
   text-overflow: ellipsis;
 }
 
-/* Shimmer while running; settle once done. */
 .odemo-workcard[data-visible]:not([data-done]) .odemo-workcard__label {
   background: linear-gradient(
     100deg,
@@ -337,11 +290,6 @@
   opacity: 0.9;
   transform: scale(1);
 }
-
-/* ── Composer pill ────────────────────────────────────────────────
- * `.composer-shell` + `.composer-form`: soft panel surface, fully
- * rounded, 32px circular controls scaled to the mock. Empty shows
- * mic + realtime-voice; typing swaps the voice control for send. */
 
 .odemo-composer {
   flex-shrink: 0;

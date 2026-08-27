@@ -1,9 +1,3 @@
-/**
- * Snapshot of `@convex-dev/better-auth` component tables (v0.12.x).
- * Regenerate when upgrading: copy from
- * `node_modules/@convex-dev/better-auth/src/component/schema.ts`
- * (the `tables` object only), then re-apply the extra index in `schema.ts`.
- */
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
 

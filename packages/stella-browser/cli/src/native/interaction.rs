@@ -4,12 +4,6 @@ use super::cdp::client::CdpClient;
 use super::cdp::types::*;
 use super::element::{resolve_element_object_id, RefMap};
 
-// ---------------------------------------------------------------------------
-// Actionability
-// ---------------------------------------------------------------------------
-
-/// Result of a successful actionability wait: a live objectId for the element
-/// plus the viewport coordinates where pointer input should be dispatched.
 #[derive(Debug, Clone)]
 pub struct ActionablePoint {
     pub object_id: String,
@@ -17,17 +11,10 @@ pub struct ActionablePoint {
     pub y: f64,
 }
 
-/// Total bounded wait for an element to become actionable.
 const ACTIONABILITY_TIMEOUT_MS: u64 = 2500;
-/// Poll interval while waiting.
+
 const ACTIONABILITY_POLL_MS: u64 = 150;
 
-/// Replace an editable element's contents with browser-native setter
-/// semantics. Using `Input.insertText` after firing an empty input event can
-/// race controlled inputs: their framework restores the old value between
-/// the clear and insert, turning fill("1.0.27") into an append. This performs
-/// one replacement, emits the events real applications observe, and returns
-/// the resulting value so the native side can verify the action.
 const FILL_REPLACE_JS: &str = r#"async function(nextValue) {
     const el = this;
     el.focus();
@@ -56,8 +43,6 @@ const FILL_REPLACE_JS: &str = r#"async function(nextValue) {
         }
     };
 
-    // beforeinput is informative for frameworks, but automation still applies
-    // the requested replacement if a listener cancels it (Playwright parity).
     dispatchInput('beforeinput', {
         bubbles: true,
         cancelable: true,
@@ -83,8 +68,6 @@ const FILL_REPLACE_JS: &str = r#"async function(nextValue) {
     });
     el.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
 
-    // Let synchronous framework handlers and their queued microtasks settle
-    // before verifying what the page actually retained.
     await Promise.resolve();
     const actual = String(editable ? (el.textContent || '') : (el.value ?? ''));
     return {
@@ -95,33 +78,6 @@ const FILL_REPLACE_JS: &str = r#"async function(nextValue) {
     };
 }"#;
 
-/// Page-side actionability probe. Runs against the resolved element
-/// (`this`) and returns a JSON status object:
-///   { status: 'ok', x, y }          — actionable; (x, y) is the click point
-///     in TOP-viewport coordinates (iframe offsets accumulated), ready for
-///     Input.dispatchMouseEvent
-///   { status: 'detached' }          — element no longer in the DOM
-///   { status: 'hidden' }            — display:none / visibility:hidden
-///   { status: 'transparent' }       — opacity: 0
-///   { status: 'disabled' }          — disabled or aria-disabled control
-///   { status: 'pointer-events-none'}— pointer input is disabled by CSS
-///   { status: 'zero-size' }         — zero-width/height bounding rect
-///   { status: 'offscreen' }         — could not be scrolled into the viewport
-///   { status: 'covered', by: 'tag#id.class' } — another element wins the
-///     hit-test at the click point (checked in the element's own document and
-///     in every ancestor document along the frame chain)
-///   { status: 'cross-origin-frame' }— an ancestor frame boundary is
-///     cross-origin, so coordinates cannot be translated to the top viewport
-///
-/// All geometry is measured in the element's own document/window, then
-/// translated to the top viewport by accumulating each ancestor iframe's
-/// bounding rect (plus its border via clientLeft/clientTop). Same-origin
-/// frames only: elements resolved through the injected resolver always live
-/// in a same-origin frame chain, so 'cross-origin-frame' is defensive.
-///
-/// It scrolls the element into view when needed (block: nearest first, then
-/// center as a fallback) before measuring; scrollIntoView also scrolls
-/// same-origin ancestor frames.
 const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
     const el = this;
     if (!el.isConnected) return { status: 'detached' };
@@ -219,8 +175,7 @@ const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
     if (rect.width <= 0 || rect.height <= 0) return fail('zero-size');
     const vw = win.innerWidth || doc.documentElement.clientWidth;
     const vh = win.innerHeight || doc.documentElement.clientHeight;
-    // Minimal scroll if any part is outside the frame viewport (no-op when
-    // fully visible).
+
     if (rect.top < 0 || rect.left < 0 || rect.bottom > vh || rect.right > vw) {
         el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         scrollNestedContainers();
@@ -232,7 +187,7 @@ const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
         el.scrollIntoView({ block: 'center', inline: 'center' });
         scrollNestedContainers();
     }
-    // Click point: center of the visible (frame-viewport-clipped) part.
+
     const localPoint = () => {
         const r = el.getBoundingClientRect();
         const left = Math.max(r.left, 0);
@@ -242,9 +197,7 @@ const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
         if (right - left <= 0 || bottom - top <= 0) return null;
         return { x: (left + right) / 2, y: (top + bottom) / 2 };
     };
-    // Translate a point in the element's frame viewport to top-viewport
-    // coordinates by accumulating ancestor iframe offsets. Returns null at a
-    // cross-origin boundary (frameElement inaccessible).
+
     const toTop = (x, y) => {
         let w = win;
         for (let depth = 0; depth < 16 && w && w !== w.parent; depth += 1) {
@@ -272,8 +225,7 @@ const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
         const th = p.win.innerHeight || p.win.document.documentElement.clientHeight;
         return p.x >= 0 && p.y >= 0 && p.x < tw && p.y < th;
     };
-    // The element can be visible inside its frame while the frame itself is
-    // scrolled out of the top viewport: center once and re-measure.
+
     if (win !== point.win && !inTopViewport(point)) {
         el.scrollIntoView({ block: 'center', inline: 'center' });
         scrollNestedContainers();
@@ -292,7 +244,7 @@ const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
     if (!requireHit) return { status: 'ok', x: point.x, y: point.y };
     const describeHit = describeNode;
     let hit = doc.elementFromPoint(lp.x, lp.y);
-    // Descend through open shadow roots to the deepest hit target.
+
     while (hit && hit.shadowRoot) {
         const inner = hit.shadowRoot.elementFromPoint(lp.x, lp.y);
         if (!inner || inner === hit) break;
@@ -309,7 +261,7 @@ const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
     if (!related && el.contains(hit)) related = true;
     if (!related && hit.contains(el)) related = true;
     if (!related) {
-        // A <label> hit that targets this control still delivers the click.
+
         const label = hit.closest ? hit.closest('label') : null;
         if (label && label.control === el) related = true;
         const ownLabel = el.closest ? el.closest('label') : null;
@@ -320,9 +272,7 @@ const ACTIONABILITY_CHECK_JS: &str = r#"function(requireHit) {
         x: round(point.x),
         y: round(point.y),
     });
-    // Ancestor-frame occlusion: at each frame boundary the translated point
-    // must hit the frame element itself (or a wrapper), not an overlay drawn
-    // in the parent document.
+
     let w = win;
     let px = lp.x;
     let py = lp.y;
@@ -441,8 +391,6 @@ fn actionability_failure_message(
     format!("{}{}", base, actionability_diagnostic_suffix(details))
 }
 
-/// Run one actionability probe against a freshly-resolved element.
-/// Outer Err = resolution failure; inner Err = actionability failure message.
 async fn actionability_check_once(
     client: &CdpClient,
     session_id: &str,
@@ -492,18 +440,6 @@ async fn actionability_check_once(
     )))
 }
 
-/// Shared pre-action step for all element-targeted input commands:
-/// resolve element -> scroll into view if needed -> wait (bounded) for
-/// visible + non-zero size -> compute click point -> (optionally) verify the
-/// point actually hits the element via elementFromPoint.
-///
-/// `require_hit` should be true for pointer actions (click, hover, tap, drag
-/// source) where an occluding overlay would swallow the event, and false for
-/// focus-based actions (fill, type, select, focus) where occlusion is
-/// irrelevant.
-///
-/// On failure returns a precise error describing WHY the element is not
-/// actionable instead of silently dispatching input into the void.
 pub async fn wait_for_actionable(
     client: &CdpClient,
     session_id: &str,
@@ -521,9 +457,7 @@ pub async fn wait_for_actionable(
         {
             Ok(Ok(point)) => return Ok(point),
             Ok(Err(not_actionable)) => last_error = not_actionable,
-            // Resolution failures (element not found yet, stale node) are
-            // retried until the deadline: this gives every input command a
-            // short auto-wait for elements that are about to appear.
+
             Err(resolve_error) => last_error = resolve_error,
         }
 
@@ -589,8 +523,7 @@ pub async fn fill(
     selector_or_ref: &str,
     value: &str,
 ) -> Result<(), String> {
-    // Actionability: visible + non-zero size (occlusion does not matter for
-    // focus-based input, so require_hit is false).
+
     let point = wait_for_actionable(client, session_id, ref_map, selector_or_ref, false).await?;
     let object_id = point.object_id;
 
@@ -656,7 +589,6 @@ pub async fn type_text(
     let point = wait_for_actionable(client, session_id, ref_map, selector_or_ref, false).await?;
     let object_id = point.object_id;
 
-    // Focus
     client
         .send_command_typed::<_, Value>(
             "Runtime.callFunctionOn",
@@ -698,10 +630,6 @@ pub async fn type_text(
         let text_str = ch.to_string();
         let (key, code, key_code) = char_to_key_info(ch);
 
-        // Characters that have no US-keyboard mapping (key_code == 0 and empty
-        // code) are inserted via `Input.insertText`, matching Playwright's
-        // keyboard.type() fallback behaviour.  This handles emoji, CJK, and
-        // other characters that don't correspond to a physical key.
         if key_code == 0 && code.is_empty() {
             client
                 .send_command_typed::<_, Value>(
@@ -754,35 +682,21 @@ pub async fn type_text(
     Ok(())
 }
 
-/// Press a key or a modifier combination ("Enter", "Control+a",
-/// "Meta+Shift+P"). Unknown key names and unknown modifiers are hard errors —
-/// they must never silently dispatch a no-op event that reports success.
-///
-/// Combos are dispatched Playwright-style: keyDown for each modifier (with an
-/// accumulating modifiers bitmask), keyDown+keyUp for the final key with the
-/// full bitmask, then keyUp for the modifiers in reverse order.
 pub async fn press_key(client: &CdpClient, session_id: &str, key: &str) -> Result<(), String> {
     let combo = parse_key_combo(key)?;
     dispatch_key_combo(client, session_id, &combo).await
 }
 
-/// Dispatch an enriched keyDown for a single key (no combo syntax). Errors on
-/// unknown key names.
 pub async fn key_down(client: &CdpClient, session_id: &str, key: &str) -> Result<(), String> {
     let info = resolve_single_key(key)?;
     dispatch_key_event(client, session_id, "keyDown", &info, 0, true).await
 }
 
-/// Dispatch an enriched keyUp for a single key (no combo syntax). Errors on
-/// unknown key names.
 pub async fn key_up(client: &CdpClient, session_id: &str, key: &str) -> Result<(), String> {
     let info = resolve_single_key(key)?;
     dispatch_key_event(client, session_id, "keyUp", &info, 0, false).await
 }
 
-/// Send one Input.dispatchKeyEvent with full key/code/vk/text enrichment.
-/// `include_text` only matters for keyDown: CDP generates keypress/`keyCode`
-/// semantics from the `text` field, so keyUp events never carry text.
 async fn dispatch_key_event(
     client: &CdpClient,
     session_id: &str,
@@ -815,7 +729,6 @@ async fn dispatch_key_event(
     Ok(())
 }
 
-/// Dispatch a parsed key combination as a full modifier press sequence.
 async fn dispatch_key_combo(
     client: &CdpClient,
     session_id: &str,
@@ -851,13 +764,6 @@ async fn dispatch_key_combo(
     Ok(())
 }
 
-/// Dispatch a keyDown+keyUp sequence for `key` with an optional CDP modifier bitmask.
-///
-/// Modifier values follow the CDP `Input.dispatchKeyEvent` spec:
-/// 1 = Alt, 2 = Control, 4 = Meta (Cmd), 8 = Shift.
-///
-/// Callers that need a platform-appropriate modifier (e.g. Cmd on macOS,
-/// Ctrl elsewhere) must choose the value themselves -- see `cfg!(target_os)`.
 pub async fn press_key_with_modifiers(
     client: &CdpClient,
     session_id: &str,
@@ -1003,9 +909,7 @@ pub async fn check(
     if !is_checked {
         match click(client, session_id, ref_map, selector_or_ref, "left", 1).await {
             Ok(()) => {
-                // Verify the click changed the state (Playwright parity:
-                // _setChecked re-checks). If the coordinate-based click missed,
-                // retry with a JS .click() on the associated input.
+
                 if !super::element::is_element_checked(client, session_id, ref_map, selector_or_ref)
                     .await?
                 {
@@ -1013,10 +917,7 @@ pub async fn check(
                 }
             }
             Err(click_error) => {
-                // Custom checkboxes commonly hide the native input (opacity: 0,
-                // zero size, or covered by a styled span), which the
-                // actionability layer rejects. Fall back to a DOM click and only
-                // surface the original error if that fails to toggle the state.
+
                 js_click_checkbox(client, session_id, ref_map, selector_or_ref)
                     .await
                     .map_err(|_| click_error.clone())?;
@@ -1042,7 +943,7 @@ pub async fn uncheck(
     if is_checked {
         match click(client, session_id, ref_map, selector_or_ref, "left", 1).await {
             Ok(()) => {
-                // Same verify-and-retry as check().
+
                 if super::element::is_element_checked(client, session_id, ref_map, selector_or_ref)
                     .await?
                 {
@@ -1050,7 +951,7 @@ pub async fn uncheck(
                 }
             }
             Err(click_error) => {
-                // Same hidden-native-input fallback as check().
+
                 js_click_checkbox(client, session_id, ref_map, selector_or_ref)
                     .await
                     .map_err(|_| click_error.clone())?;
@@ -1065,15 +966,6 @@ pub async fn uncheck(
     Ok(())
 }
 
-/// Fallback for when the coordinate-based CDP click did not toggle the
-/// checkbox/radio state. This mirrors how Playwright dispatches clicks
-/// through the DOM rather than via raw Input.dispatchMouseEvent coordinates.
-///
-/// Uses the same follow-label resolution as `is_element_checked`:
-/// 1. If the element is a native input → `.click()` it directly.
-/// 2. If the element is inside a `<label>` → `.click()` the label's `.control`.
-/// 3. If the element has a nested `<input>` → `.click()` that input.
-/// 4. Otherwise → `.click()` the element itself (handles ARIA role controls).
 async fn js_click_checkbox(
     client: &CdpClient,
     session_id: &str,
@@ -1085,24 +977,24 @@ async fn js_click_checkbox(
     let js = r#"function() {
             var el = this;
             var tag = el.tagName && el.tagName.toUpperCase();
-            // 1. Native input — click it directly
+
             if (tag === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio')) {
                 el.click();
                 return;
             }
-            // 2. Follow label → control association
+
             var label = tag === 'LABEL' ? el : (el.closest && el.closest('label'));
             if (label && label.tagName && label.tagName.toUpperCase() === 'LABEL' && label.control) {
                 label.control.click();
                 return;
             }
-            // 3. Nested native input
+
             var input = el.querySelector && el.querySelector('input[type="checkbox"], input[type="radio"]');
             if (input) {
                 input.click();
                 return;
             }
-            // 4. ARIA role control — click the element itself
+
             el.click();
         }"#;
 
@@ -1356,7 +1248,7 @@ async fn dispatch_click(
     button: &str,
     click_count: i32,
 ) -> Result<(), String> {
-    // Move
+
     client
         .send_command_typed::<_, Value>(
             "Input.dispatchMouseEvent",
@@ -1381,7 +1273,6 @@ async fn dispatch_click(
         _ => 1,
     };
 
-    // Press
     client
         .send_command_typed::<_, Value>(
             "Input.dispatchMouseEvent",
@@ -1400,7 +1291,6 @@ async fn dispatch_click(
         )
         .await?;
 
-    // Release
     client
         .send_command_typed::<_, Value>(
             "Input.dispatchMouseEvent",
@@ -1430,7 +1320,7 @@ fn char_to_key_info(ch: char) -> (String, String, i32) {
         _ => {
             let key = ch.to_string();
             if ch.is_ascii_alphabetic() {
-                // For letters the Windows VK code equals the uppercase ASCII value.
+
                 let upper = ch.to_ascii_uppercase();
                 let code = format!("Key{}", upper);
                 let key_code = upper as i32;
@@ -1447,36 +1337,29 @@ fn char_to_key_info(ch: char) -> (String, String, i32) {
     }
 }
 
-/// Return the DOM `KeyboardEvent.code` value and Windows virtual-key code for
-/// a punctuation / symbol character assuming a US keyboard layout.
-///
-/// The Windows virtual-key codes (VK_OEM_*) differ from ASCII values for
-/// punctuation.  Using the raw ASCII code would misidentify characters – e.g.
-/// '.' (ASCII 46) collides with VK_DELETE (0x2E = 46), causing the period to
-/// be swallowed.
 fn punctuation_key_info(ch: char) -> (&'static str, i32) {
     match ch {
-        // VK_OEM_1 (0xBA = 186) — ";:" key on US layout
+
         ';' | ':' => ("Semicolon", 186),
-        // VK_OEM_PLUS (0xBB = 187) — "=+" key
+
         '=' | '+' => ("Equal", 187),
-        // VK_OEM_COMMA (0xBC = 188) — ",<" key
+
         ',' | '<' => ("Comma", 188),
-        // VK_OEM_MINUS (0xBD = 189) — "-_" key
+
         '-' | '_' => ("Minus", 189),
-        // VK_OEM_PERIOD (0xBE = 190) — ".>" key
+
         '.' | '>' => ("Period", 190),
-        // VK_OEM_2 (0xBF = 191) — "/?" key
+
         '/' | '?' => ("Slash", 191),
-        // VK_OEM_3 (0xC0 = 192) — "`~" key
+
         '`' | '~' => ("Backquote", 192),
-        // VK_OEM_4 (0xDB = 219) — "[{" key
+
         '[' | '{' => ("BracketLeft", 219),
-        // VK_OEM_5 (0xDC = 220) — "\\|" key
+
         '\\' | '|' => ("Backslash", 220),
-        // VK_OEM_6 (0xDD = 221) — "]}" key
+
         ']' | '}' => ("BracketRight", 221),
-        // VK_OEM_7 (0xDE = 222) — "'\""" key
+
         '\'' | '"' => ("Quote", 222),
         _ => ("", 0),
     }
@@ -1485,24 +1368,16 @@ fn punctuation_key_info(ch: char) -> (&'static str, i32) {
 fn named_key_info(key: &str) -> (String, String, i32) {
     match resolve_single_key(key) {
         Ok(info) => (info.key, info.code, info.key_code),
-        // Legacy catch-all, kept for press_key_with_modifiers callers only.
+
         Err(_) => (key.to_string(), key.to_string(), 0),
     }
 }
 
-// ---------------------------------------------------------------------------
-// Keyboard: key resolution and modifier-combo parsing
-// ---------------------------------------------------------------------------
-
-/// CDP `Input.dispatchKeyEvent` modifier bits.
 pub const MODIFIER_ALT: i32 = 1;
 pub const MODIFIER_CTRL: i32 = 2;
 pub const MODIFIER_META: i32 = 4;
 pub const MODIFIER_SHIFT: i32 = 8;
 
-/// Fully-resolved dispatch info for one key: DOM `key`, DOM `code`, Windows
-/// virtual key code, and the text the key generates when pressed without
-/// Ctrl/Alt/Meta (used for keyDown `text` so pages see keypress/`keyCode`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyInfo {
     pub key: String,
@@ -1511,19 +1386,16 @@ pub struct KeyInfo {
     pub text: Option<String>,
 }
 
-/// A parsed key combination such as "Control+Shift+P".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyCombo {
-    /// Modifier keys to hold, in the order given (deduplicated), each with
-    /// its CDP modifier bit.
+
     pub modifier_keys: Vec<(KeyInfo, i32)>,
-    /// Full CDP modifiers bitmask for the final key events.
+
     pub modifiers: i32,
-    /// The non-modifier key to press while the modifiers are held.
+
     pub key: KeyInfo,
 }
 
-/// Map a modifier name (case-insensitive) to its CDP modifier bit.
 fn modifier_bit(name: &str) -> Option<i32> {
     match name.to_ascii_lowercase().as_str() {
         "control" | "ctrl" => Some(MODIFIER_CTRL),
@@ -1534,8 +1406,6 @@ fn modifier_bit(name: &str) -> Option<i32> {
     }
 }
 
-/// Dispatch info for a modifier key itself (left-side variants, matching
-/// Playwright's US keyboard layout).
 fn modifier_key_info(bit: i32) -> KeyInfo {
     let (key, code, key_code) = match bit {
         MODIFIER_ALT => ("Alt", "AltLeft", 18),
@@ -1551,9 +1421,6 @@ fn modifier_key_info(bit: i32) -> KeyInfo {
     }
 }
 
-/// Resolve a single key name (named key or single character) to dispatch
-/// info. Unknown multi-character names are an error — silently dispatching
-/// key:"Bogus", vk:0 would be a no-op that reports success.
 pub fn resolve_single_key(key: &str) -> Result<KeyInfo, String> {
     let named = |k: &str, c: &str, vk: i32, text: Option<&str>| -> KeyInfo {
         KeyInfo {
@@ -1600,9 +1467,7 @@ pub fn resolve_single_key(key: &str) -> Result<KeyInfo, String> {
         _ => {
             let mut chars = key.chars();
             match (chars.next(), chars.next()) {
-                // Exactly one character: map through the US keyboard layout.
-                // Characters without a physical key (emoji, CJK) still
-                // dispatch with `text` so they insert correctly.
+
                 (Some(ch), None) => {
                     let (k, code, vk) = char_to_key_info(ch);
                     KeyInfo {
@@ -1625,14 +1490,6 @@ pub fn resolve_single_key(key: &str) -> Result<KeyInfo, String> {
     Ok(info)
 }
 
-/// Parse a key string that may contain modifiers, e.g. "Control+a",
-/// "Meta+Shift+P", "Alt+ArrowLeft", or a bare key such as "Enter" or "+".
-///
-/// Split rules follow Playwright: '+' separates tokens, but a '+' at the
-/// start of a token is the literal '+' key ("Control++" presses Ctrl and
-/// the "+" key). Every token before the last must be a known modifier
-/// (Control/Ctrl, Shift, Alt/Option, Meta/Cmd/Command), case-insensitive.
-/// Ctrl/Alt/Meta suppress generated text on the final key (Shift does not).
 pub fn parse_key_combo(input: &str) -> Result<KeyCombo, String> {
     if input.is_empty() {
         return Err("Key must be a non-empty string".to_string());
@@ -1674,8 +1531,7 @@ pub fn parse_key_combo(input: &str) -> Result<KeyCombo, String> {
     }
 
     let mut key = resolve_single_key(&key_part)?;
-    // Ctrl/Alt/Meta suppress generated text (Playwright parity: only Shift
-    // may be held for the key to still produce text).
+
     if modifiers & !MODIFIER_SHIFT != 0 {
         key.text = None;
     }
@@ -1691,24 +1547,18 @@ pub fn parse_key_combo(input: &str) -> Result<KeyCombo, String> {
 mod tests {
     use super::*;
 
-    /// Verify that `char_to_key_info` returns the correct (key, code,
-    /// windowsVirtualKeyCode) triple for every character in Playwright's
-    /// USKeyboardLayout.  The expected values below are taken verbatim from
-    /// playwright-core/lib/server/usKeyboardLayout.js so that any drift from
-    /// Playwright's behaviour is caught immediately.
     #[test]
     fn test_char_to_key_info_matches_playwright_layout() {
-        // (character, expected_code, expected_vk_code)
+
         let cases: &[(char, &str, i32)] = &[
-            // Letters – VK code must equal the uppercase ASCII value.
+
             ('a', "KeyA", 65),
             ('z', "KeyZ", 90),
             ('A', "KeyA", 65),
-            // Digits
+
             ('0', "Digit0", 48),
             ('9', "Digit9", 57),
-            // Punctuation – these are the values from Playwright's layout.
-            // The bug that prompted this test sent '.' as VK 46 (= VK_DELETE).
+
             ('.', "Period", 190),
             (',', "Comma", 188),
             ('/', "Slash", 191),
@@ -1720,7 +1570,7 @@ mod tests {
             ('`', "Backquote", 192),
             ('-', "Minus", 189),
             ('=', "Equal", 187),
-            // Shifted variants produced by the same physical keys.
+
             ('>', "Period", 190),
             ('<', "Comma", 188),
             ('?', "Slash", 191),
@@ -1732,7 +1582,7 @@ mod tests {
             ('~', "Backquote", 192),
             ('_', "Minus", 189),
             ('+', "Equal", 187),
-            // Whitespace / control
+
             (' ', "Space", 32),
             ('\n', "Enter", 13),
             ('\t', "Tab", 9),
@@ -1750,14 +1600,13 @@ mod tests {
                 "char {:?}: expected VK {}, got {} (ASCII would be {})",
                 ch, expected_vk, vk, ch as i32
             );
-            // key should be the character itself (except control chars).
+
             if !ch.is_control() {
                 assert_eq!(key, ch.to_string(), "char {:?}: key mismatch", ch);
             }
         }
     }
 
-    /// Regression test: period must NEVER map to VK 46 (VK_DELETE).
     #[test]
     fn test_period_is_not_vk_delete() {
         let (_, _, vk) = char_to_key_info('.');
@@ -1767,8 +1616,6 @@ mod tests {
         );
         assert_eq!(vk, 190);
     }
-
-    // -- actionability -------------------------------------------------------
 
     #[test]
     fn test_actionability_failure_messages() {
@@ -1850,9 +1697,6 @@ mod tests {
         assert!(message.contains("scroll=900x3200"));
     }
 
-    /// The injected probe must include every stage of the shared pre-action
-    /// pipeline: scroll-into-view, size/visibility checks, and the
-    /// elementFromPoint occlusion verification.
     #[test]
     fn test_actionability_check_js_structure() {
         assert!(ACTIONABILITY_CHECK_JS.starts_with("function(requireHit)"));
@@ -1896,11 +1740,6 @@ mod tests {
         assert!(!FILL_REPLACE_JS.contains("actual,"));
     }
 
-    /// The probe must be frame-aware: geometry measured in the element's own
-    /// document, coordinates translated across ancestor iframes (rect +
-    /// clientLeft/clientTop border offset), and occlusion checked in every
-    /// ancestor document, so Input.dispatchMouseEvent receives top-viewport
-    /// coordinates for elements inside same-origin iframes.
     #[test]
     fn test_actionability_check_js_is_frame_aware() {
         assert!(ACTIONABILITY_CHECK_JS.contains("el.ownerDocument"));
@@ -1908,25 +1747,22 @@ mod tests {
         assert!(ACTIONABILITY_CHECK_JS.contains("root.defaultView"));
         assert!(ACTIONABILITY_CHECK_JS.contains("clientLeft"));
         assert!(ACTIONABILITY_CHECK_JS.contains("clientTop"));
-        // Local measurements must use the element's window, never the top
-        // window implicitly.
+
         assert!(ACTIONABILITY_CHECK_JS.contains("win.getComputedStyle(el)"));
         assert!(ACTIONABILITY_CHECK_JS.contains("doc.elementFromPoint"));
         assert!(!ACTIONABILITY_CHECK_JS.contains("window.getComputedStyle"));
         assert!(!ACTIONABILITY_CHECK_JS.contains("document.elementFromPoint"));
-        // Parent documents are hit-tested at the translated point.
+
         assert!(ACTIONABILITY_CHECK_JS.contains("parentDoc.elementFromPoint"));
     }
 
     #[test]
     fn test_actionability_bounds() {
-        // Bounded wait: a handful of short polls, roughly 2-3 seconds total.
+
         assert!(ACTIONABILITY_TIMEOUT_MS >= 2000 && ACTIONABILITY_TIMEOUT_MS <= 3000);
         assert!(ACTIONABILITY_POLL_MS >= 50 && ACTIONABILITY_POLL_MS <= 500);
     }
 
-    /// Characters outside the US keyboard layout should return (key, "", 0)
-    /// so that `type_text` falls back to `Input.insertText`.
     #[test]
     fn test_unmapped_chars_return_zero_keycode() {
         for ch in ['@', '#', '$', '%', '^', '&', '*', '(', ')', '€', '£', '你'] {
@@ -1945,10 +1781,6 @@ mod tests {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // parse_key_combo / resolve_single_key
-    // -----------------------------------------------------------------------
-
     #[test]
     fn test_parse_combo_control_a() {
         let combo = parse_key_combo("Control+a").unwrap();
@@ -1961,7 +1793,7 @@ mod tests {
         assert_eq!(combo.key.key, "a");
         assert_eq!(combo.key.code, "KeyA");
         assert_eq!(combo.key.key_code, 65);
-        // Ctrl suppresses generated text.
+
         assert_eq!(combo.key.text, None);
     }
 
@@ -1970,7 +1802,7 @@ mod tests {
         let combo = parse_key_combo("Meta+Shift+P").unwrap();
         assert_eq!(combo.modifiers, MODIFIER_META | MODIFIER_SHIFT);
         assert_eq!(combo.modifier_keys.len(), 2);
-        // Order preserved: Meta first, then Shift.
+
         assert_eq!(combo.modifier_keys[0].0.key, "Meta");
         assert_eq!(combo.modifier_keys[0].0.key_code, 91);
         assert_eq!(combo.modifier_keys[1].0.key, "Shift");
@@ -2015,7 +1847,7 @@ mod tests {
         assert!(enter.modifier_keys.is_empty());
         assert_eq!(enter.key.key, "Enter");
         assert_eq!(enter.key.key_code, 13);
-        // Enter generates text so pages see keypress events.
+
         assert_eq!(enter.key.text.as_deref(), Some("\r"));
 
         let a = parse_key_combo("a").unwrap();
@@ -2040,14 +1872,13 @@ mod tests {
 
     #[test]
     fn test_parse_combo_literal_plus_key() {
-        // "Control++" = Ctrl held while pressing the "+" key.
+
         let combo = parse_key_combo("Control++").unwrap();
         assert_eq!(combo.modifiers, MODIFIER_CTRL);
         assert_eq!(combo.key.key, "+");
         assert_eq!(combo.key.code, "Equal");
         assert_eq!(combo.key.key_code, 187);
 
-        // Bare "+" is the plus key with no modifiers.
         let plus = parse_key_combo("+").unwrap();
         assert_eq!(plus.modifiers, 0);
         assert_eq!(plus.key.code, "Equal");
@@ -2055,14 +1886,13 @@ mod tests {
 
     #[test]
     fn test_parse_combo_modifier_alone_and_dedupe() {
-        // Pressing a modifier key by itself is valid.
+
         let ctrl = parse_key_combo("Control").unwrap();
         assert_eq!(ctrl.modifiers, 0);
         assert_eq!(ctrl.key.key, "Control");
         assert_eq!(ctrl.key.code, "ControlLeft");
         assert_eq!(ctrl.key.key_code, 17);
 
-        // Repeated modifiers collapse to one held key.
         let combo = parse_key_combo("Control+Ctrl+a").unwrap();
         assert_eq!(combo.modifiers, MODIFIER_CTRL);
         assert_eq!(combo.modifier_keys.len(), 1);
@@ -2070,32 +1900,25 @@ mod tests {
 
     #[test]
     fn test_parse_combo_errors() {
-        // Unknown final key must ERROR, never silently no-op.
+
         let err = parse_key_combo("Bogus").unwrap_err();
         assert!(err.contains("Unknown key"), "got: {}", err);
 
         let err = parse_key_combo("Control+Fizz").unwrap_err();
         assert!(err.contains("Unknown key"), "got: {}", err);
 
-        // Unknown modifier.
         let err = parse_key_combo("Hyper+a").unwrap_err();
         assert!(err.contains("Unknown modifier"), "got: {}", err);
 
-        // A non-modifier in a modifier position is an error too.
         let err = parse_key_combo("a+Control").unwrap_err();
         assert!(err.contains("Unknown modifier"), "got: {}", err);
 
-        // Trailing '+' after a completed token.
         let err = parse_key_combo("Control+").unwrap_err();
         assert!(err.contains("missing key"), "got: {}", err);
 
-        // Empty input.
         assert!(parse_key_combo("").is_err());
     }
 
-    /// keydown/keyup enrichment: `resolve_single_key` must supply the
-    /// key/code/vk/text that handle_keydown/handle_keyup dispatch, instead of
-    /// the old bare {type, key} events.
     #[test]
     fn test_resolve_single_key_enrichment() {
         let a = resolve_single_key("a").unwrap();
@@ -2120,20 +1943,15 @@ mod tests {
         assert_eq!(shift.code, "ShiftLeft");
         assert_eq!(shift.key_code, 16);
 
-        // Unmapped single characters still dispatch with text (insert path).
         let euro = resolve_single_key("€").unwrap();
         assert_eq!(euro.key, "€");
         assert_eq!(euro.code, "");
         assert_eq!(euro.key_code, 0);
         assert_eq!(euro.text.as_deref(), Some("€"));
 
-        // Unknown multi-character names are hard errors.
         assert!(resolve_single_key("NotAKey").is_err());
     }
 
-    /// The legacy helper keeps its lenient contract for
-    /// press_key_with_modifiers callers, but now resolves named keys through
-    /// the shared machinery.
     #[test]
     fn test_named_key_info_backcompat() {
         assert_eq!(
@@ -2144,7 +1962,7 @@ mod tests {
             named_key_info("c"),
             ("c".to_string(), "KeyC".to_string(), 67)
         );
-        // Unknown names keep the old passthrough shape.
+
         assert_eq!(
             named_key_info("Whatever"),
             ("Whatever".to_string(), "Whatever".to_string(), 0)

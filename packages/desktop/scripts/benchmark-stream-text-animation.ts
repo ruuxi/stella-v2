@@ -121,7 +121,7 @@ const measure = (
   return {
     initialLatencyMs: firstVisible - firstArrival,
     charIntervalStdMs: standardDeviation(intervals(visibleTimes)),
-    // Six characters approximates one English word plus its following space.
+
     wordIntervalStdMs: standardDeviation(intervals(visibleTimes, 6)),
     maxPresentationLagMs: Math.max(
       0,

@@ -1,15 +1,3 @@
-/**
- * Share controls for the active canvas, overlaid on the canvas hero.
- *
- *  - Share button: publishes the selected canvas HTML to a public URL via
- *    the canvas-share backend, then shows the returned link with a
- *    copy-to-clipboard affordance and a lightweight confirmation.
- *  - Shared links: a small panel listing the account's active shares
- *    (`listMine`) with copy + revoke.
- *
- * The whole bar renders nothing when the canvas-share context is absent, so
- * the sandboxed canvas renderer never reaches for Convex outside a provider.
- */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Copy, Globe, LoaderCircle, Trash2 } from "@/ui/icons";
 import { Popover, PopoverContent, PopoverTrigger } from "@/ui/popover";
@@ -152,7 +140,6 @@ const SharedLinksPanel = () => {
     }
   }, [share]);
 
-  // Reload whenever the panel mounts or a publish/revoke bumps `version`.
   useEffect(() => {
     void load();
     return () => { loadGenerationRef.current += 1; };
@@ -291,7 +278,6 @@ export const CanvasShareBar = ({ item }: { item: CanvasHtmlItem }) => {
     }
   }, [share, item.filePath, item.title]);
 
-  // No canvas-share context means there is no share UI.
   if (!share) return null;
 
   return (

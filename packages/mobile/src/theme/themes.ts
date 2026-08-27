@@ -1,22 +1,10 @@
-/**
- * Mobile theme catalog — kept in 1:1 lockstep with the desktop themes in
- * `packages/desktop-ui/src/shared/theme/themes/*.ts`.
- *
- * Each entry maps the desktop `ThemeColors` palette onto the mobile `Colors`
- * shape via {@link map}. Derived values (accentSoft, overlay) are computed
- * with OKLCH for perceptual accuracy. When desktop themes change, mirror them
- * here — never invent mobile-only variants.
- *
- * Pearl and Noir are "exception" themes on desktop (single palette, ignores
- * Light/Dark). We honor that here by using the same palette for both modes.
- */
 import type { Colors } from "./colors";
 import { soften } from "./oklch";
 
 export type StellaTheme = {
   id: string;
   name: string;
-  /** Pin to a single appearance regardless of Light/Dark/System preference. */
+
   forcedMode?: "light" | "dark";
   light: Colors;
   dark: Colors;
@@ -94,11 +82,6 @@ function th(
 ): StellaTheme {
   return { id, name, forcedMode, light: map(l, false), dark: map(d, true) };
 }
-
-// ---------------------------------------------------------------------------
-// Theme definitions — colors mirror desktop/src/shared/theme/themes/*.ts.
-// Order matches desktop/src/shared/theme/themes/index.ts.
-// ---------------------------------------------------------------------------
 
 const pearlPalette: Src = {
   background: "#ffffff", backgroundWeak: "#ffffff", backgroundStrong: "#ffffff",
@@ -191,7 +174,6 @@ export const themes: StellaTheme[] = [
   ),
 ];
 
-// Matches the desktop default (Pearl).
 export const defaultThemeId = "pearl";
 
 export function getThemeById(id: string): StellaTheme | undefined {

@@ -1,14 +1,5 @@
-// GENERATED FILE — DO NOT EDIT.
-// Copied from packages/desktop-ui/src/shared/i18n/locales/*.json
-// by packages/mobile/scripts/sync-i18n-catalogs.mjs.
-
 import type { Catalog } from "./catalog-types";
 
-/**
- * Lazy thunks, one per catalog. Every catalog is inside the JS bundle
- * (Metro does not code-split for native), but only the ones actually asked
- * for are parsed and evaluated, so a cold start pays for English alone.
- */
 export const CATALOG_LOADERS: Record<string, () => Catalog> = {
   "ar": () =>
     require("./locales/ar.json") as Catalog,

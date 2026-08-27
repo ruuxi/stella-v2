@@ -20,27 +20,6 @@ import {
   type WorkerTransport,
 } from "./transport.js";
 
-/**
- * Worker entrypoint. Two execution modes:
- *
- *   bun run runtime/worker/entry.js
- *     -> default stdio mode. Parent process owns the worker; lifecycle is
- *        tied to stdin/stdout. Used by tests, by the legacy embedded
- *        worker codepath, and by the host adapter when the lifecycle
- *        manager spawns the worker as a regular child process.
- *
- *   bun run runtime/worker/entry.js --listen unix:///path/to/runtime.sock
- *   bun run runtime/worker/entry.js --listen pipe://\\.\pipe\stella-runtime-...
- *     -> detached mode. The worker binds the IPC endpoint, writes pid+lock
- *        to ~/.stella/runtime/<rootHash>/, and self-shuts-down 10s after
- *        the last client disconnect. The host attaches over IPC instead of
- *        stdio, so Electron restart drops the connection without killing
- *        the worker.
- *
- *   ... --stella-root /path                    [required for detached mode]
- *   ... --idle-shutdown-ms 10000               [detached mode only]
- */
-
 type ParsedArgs = {
   listenUrl: string;
   stellaAppDir: string | null;
@@ -95,14 +74,14 @@ const main = async () => {
       try {
         await server.close();
       } catch {
-        // Best effort during process shutdown.
+
       }
       server = null;
     }
     try {
       await runtimeServer.shutdown();
     } catch {
-      // Best effort during process shutdown.
+
     }
     broker.dispose();
   };
@@ -120,10 +99,7 @@ const main = async () => {
     const logger = initFileLogger(cliArgs.stellaAppDir, "worker");
     installGlobalErrorLogging(logger);
     logger.process("worker.starting", { pid: process.pid });
-    // Snapshot the runtime tree's identity as loaded by THIS process
-    // (process.argv[1] is the entry file the host spawned). The host compares
-    // this stamp against the on-disk tree when it reattaches to detect a
-    // worker running stale code after a desktop update.
+
     const runtimeBuildStamp = computeRuntimeBuildStamp(process.argv[1] ?? "");
     lifecycle = new WorkerLifecycleServer({
       stellaAppDir: cliArgs.stellaAppDir,
@@ -195,7 +171,7 @@ void main().catch((error) => {
 });
 
 export {
-  // Re-exports for tests / external callers.
+
   WorkerPeerBroker,
   parseWorkerListenUrl,
   parseWorkerArgs,

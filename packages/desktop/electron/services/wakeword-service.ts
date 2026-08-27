@@ -5,15 +5,6 @@ import { existsSync } from "node:fs";
 import { resolveNativeHelperPath } from "../native-helper-path.js";
 import { getFileLogger } from "@stella/runtime/observability/file-logger";
 
-/**
- * Manages the lifecycle of the native `wakeword_listener` child process.
- *
- * The listener emits NDJSON `ready` / `wake` events on stdout. We translate
- * `wake` events into a single callback (`onWake`) that the bootstrap layer
- * wires to `togglePetVoice`. The listener auto-pauses while a voice session
- * is active so the assistant can't trigger itself.
- */
-
 type WakewordEvent =
   | {
       event: "ready";
@@ -33,17 +24,17 @@ type WakewordEvent =
 type WakewordOptions = {
   threshold: number;
   modelPath?: string;
-  /** Milliseconds between rolling-window predictions (native default 120). */
+
   predictStrideMs?: number;
-  /** Silero VAD hangover in ms. */
+
   vadHangoverMs?: number;
-  /** Energy-gate RMS / peak thresholds. */
+
   energyRmsThreshold?: number;
   energyPeakThreshold?: number;
-  /** Disable the Silero VAD gate / cheap energy gate. */
+
   disableVad?: boolean;
   disableEnergyGate?: boolean;
-  /** Score-smoothing window: mean over N predictions (1 = off). */
+
   scoreSmoothing?: number;
   onWake: (event: Extract<WakewordEvent, { event: "wake" }>) => void;
   onReady?: (event: Extract<WakewordEvent, { event: "ready" }>) => void;
@@ -55,8 +46,7 @@ const resolveModelPath = (binaryPath: string): string | null => {
   const helperDir = path.dirname(binaryPath);
   const candidates = [
     path.join(helperDir, "wakeword_models", "hey_stella.onnx"),
-    // Dev fallback: source-tree model, in case the build script hasn't
-    // staged it into out/ yet.
+
     path.resolve(
       helperDir,
       "..",
@@ -92,8 +82,6 @@ export class WakewordService {
     }
   }
 
-  /** Pause/resume without changing the user's enabled preference. Used to
-   *  silence the listener while a voice session is active. */
   setPaused(paused: boolean): void {
     if (this.paused === paused) return;
     this.paused = paused;
@@ -173,7 +161,7 @@ export class WakewordService {
       try {
         child.kill();
       } catch {
-        // already gone
+
       }
       this.child = null;
       this.scheduleRestart();
@@ -183,8 +171,7 @@ export class WakewordService {
     stdout.on("data", (chunk: string) => this.handleStdout(chunk));
     stderr.setEncoding("utf8");
     stderr.on("data", (chunk: string) => {
-      // Listener uses stderr only for fatal cpal/onnx errors; surface them
-      // for debugging without spamming.
+
       const line = chunk.trim();
       if (line) console.warn("[wakeword]", line);
     });
@@ -249,7 +236,7 @@ export class WakewordService {
     try {
       child.kill();
     } catch {
-      // Already dead — ignore.
+
     }
   }
 

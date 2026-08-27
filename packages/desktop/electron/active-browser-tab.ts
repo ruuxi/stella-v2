@@ -1,14 +1,6 @@
 import { execFile } from 'node:child_process'
 import type { ActiveBrowserTab } from '@stella/contracts/desktop/home'
 
-/**
- * macOS bundle ids → AppleScript dialect for "active tab URL + title". The
- * scripts are intentionally tiny so they can be rolled up for `osascript -e`
- * batches without quoting headaches.
- *
- * Chromium-family browsers all expose the same `active tab` shape; Safari
- * speaks a different dialect (`current tab`).
- */
 type ScriptDialect = 'chromium' | 'safari'
 
 type BrowserSpec = {
@@ -87,12 +79,7 @@ const KNOWN_BROWSERS: BrowserSpec[] = [
 const BUNDLE_ID_TO_BROWSER = new Map(
   KNOWN_BROWSERS.map((spec) => [spec.bundleId, spec] as const),
 )
-// Perf: the dominant CPU win is the renderer-side focus/visibility gate, which
-// stops the ~5s poll entirely while Stella is hidden/blurred. This cache only
-// dedupes redundant osascript spawns from concurrent callers or timer jitter.
-// Keep the TTL BELOW the ~5s poll interval so each foreground poll refetches and
-// a real tab/URL change shows up on the very next poll — a TTL >= the interval
-// would make alternate polls serve stale data and double the refresh latency.
+
 const ACTIVE_TAB_CACHE_MS = 1_500
 const activeTabCache = new Map<
   string,
@@ -101,9 +88,7 @@ const activeTabCache = new Map<
 const activeTabInFlight = new Map<string, Promise<ActiveBrowserTab | null>>()
 
 const buildScript = (spec: BrowserSpec): string => {
-  // Quote bundle id once via tell block so the syntax stays straightforward.
-  // Output protocol: `<URL>\u0001<TITLE>` so we can split unambiguously even
-  // when titles contain newlines/tabs.
+
   if (spec.dialect === 'chromium') {
     return `tell application id "${spec.bundleId}"
   if not (exists window 1) then return ""
@@ -142,10 +127,6 @@ const runOsascript = (
     )
   })
 
-/**
- * Returns the active tab for the bundle id, or `null` if the browser doesn't
- * expose one (no windows, AppleScript not enabled, etc.). Never throws.
- */
 const queryBrowserMac = async (
   spec: BrowserSpec,
 ): Promise<ActiveBrowserTab | null> => {
@@ -159,7 +140,6 @@ const queryBrowserMac = async (
   const cleanUrl = url?.trim() ?? ''
   if (!cleanUrl) return null
 
-  // Filter chrome:// / about: / file:// / extension URLs — useless as context.
   if (
     cleanUrl.startsWith('chrome://') ||
     cleanUrl.startsWith('chrome-extension://') ||
@@ -182,15 +162,6 @@ const queryBrowserMac = async (
   }
 }
 
-/**
- * Look up the active tab of the browser that owns the given bundle id. Pass
- * the frontmost app's bundle id; if it's not a recognized browser we return
- * `null` immediately (zero AppleScript cost).
- *
- * Note: macOS prompts the user the first time the host app sends an
- * AppleScript event to a given target. Until the user accepts, this returns
- * `null` and renders nothing (silent no-op).
- */
 export const getActiveBrowserTabForBundleId = async (
   bundleId: string | null | undefined,
 ): Promise<ActiveBrowserTab | null> => {
@@ -221,11 +192,6 @@ export const getActiveBrowserTabForBundleId = async (
   }
 }
 
-/**
- * True when the bundle id belongs to a browser we can query for the active
- * tab. Renderer uses this to decide whether the recent-apps chip for that
- * app should also try to fetch a URL.
- */
 export const isKnownBrowserBundleId = (
   bundleId: string | null | undefined,
 ): boolean => Boolean(bundleId && BUNDLE_ID_TO_BROWSER.has(bundleId))

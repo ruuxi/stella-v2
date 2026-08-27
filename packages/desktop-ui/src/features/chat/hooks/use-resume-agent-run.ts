@@ -44,7 +44,7 @@ interface ResumeActions {
     activeRun: ActiveRunSnapshot;
   }) => void;
   handleAgentEvent: (event: AgentStreamEvent, source?: "live" | "replay") => void;
-  /** Drop replay-hydrated stream buffers for turns that already finished. */
+
   clearReplayedStreamingState?: () => void;
 }
 
@@ -54,15 +54,6 @@ interface UseResumeAgentRunOptions {
   actions: ResumeActions;
 }
 
-/**
- * Hydrates renderer state from runtime-owned execution state.
- * The renderer never infers lifecycle here — it only applies runtime snapshots/events.
- *
- * Runs once on mount per conversation, and re-runs whenever the host
- * adapter transitions back to "connected" — that's the signal that the
- * detached worker reattached after an Electron restart and may have
- * buffered new events for us in its persistent run-event log.
- */
 export function useResumeAgentRun({
   activeConversationId,
   refs,
@@ -98,10 +89,6 @@ export function useResumeAgentRun({
       try {
         ensureAgentStreamSubscription();
 
-        // Orchestrator turns are serialized per conversation, so one
-        // conversation-level cursor is enough for replay. If we ever allow
-        // overlapping root runs in the same conversation, this should become
-        // a per-run cursor.
         const lastSeq =
           resumeSeqByConversationRef.current.get(activeConversationId) ?? 0;
         const lastSourceSeq =
@@ -149,10 +136,6 @@ export function useResumeAgentRun({
 
     void runResume();
 
-    // Re-run resume whenever the runtime client reconnects after a
-    // disconnect. The detached worker may have streamed events to its
-    // persistent log while we were gone — `lastSeq` tells the worker
-    // exactly what to replay.
     const unsubscribeAvailability =
       window.electronAPI?.agent?.onAvailability?.((snapshot) => {
         if (cancelled) return;

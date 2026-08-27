@@ -1,19 +1,3 @@
-/**
- * Desktop-side mirror of the backend's `ManagedModelAudience` notion.
- *
- * Source of truth for the audience values, restriction set, and plan label
- * mapping lives in `backend/convex/agent/model.ts`. Keep these constants in
- * sync when the backend changes — the desktop uses them to surface a "this
- * model isn't allowed on your plan" toast at picker time, since the backend
- * silently coerces the model on restricted tiers and we don't want users to
- * wonder why their selection wasn't honored.
- */
-
-/**
- * Collapsing a managed audience onto the four the capability matrix is
- * keyed by is the contract's job, not ours — re-exported here so the
- * audience vocabulary stays in one place for callers.
- */
 export { toCapabilityAudience } from "@stella/contracts/capabilities";
 
 export type SubscriptionPlan = "free" | "go" | "pro";
@@ -40,16 +24,6 @@ export const isRestrictedModelOverrideAudience = (
   audience !== undefined &&
   RESTRICTED_MODEL_OVERRIDE_AUDIENCES.has(audience);
 
-/**
- * Desktop-side mirror of the backend's
- * `RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS`.
- *
- * Restricted audiences cannot freely override Stella-managed models. The
- * OpenRouter Muse default, raw DeepSeek V4 Flash (CrofAI), and the Wafer
- * Fast variant are the public choices; the Light alias and the older
- * Fireworks/DeepSeek spellings remain valid for saved preferences. Keep in sync with
- * `isStellaModelAllowedForAudience` in `backend/convex/agent/model.ts`.
- */
 const RESTRICTED_AUDIENCE_ALLOWED_STELLA_MODEL_IDS = new Set<string>([
   "stella/light",
   "stella/meta/muse-spark-1.2-contributor",
@@ -78,12 +52,6 @@ const PLAN_LABELS: Record<ManagedModelAudience, string> = {
 export const getPlanLabel = (audience: ManagedModelAudience): string =>
   PLAN_LABELS[audience];
 
-/**
- * A signed-out user can't upgrade anything — they have to sign in first.
- * Everyone else is one Stripe checkout away. The same rule governs model
- * restrictions and capability restrictions, so both read it from here
- * rather than each growing its own copy.
- */
 export const getRestrictionActionKind = (
   audience: ManagedModelAudience,
 ): "sign-in" | "upgrade" => (audience === "anonymous" ? "sign-in" : "upgrade");
@@ -117,13 +85,7 @@ type BillingUsage = {
   weeklyLimitUsd: number;
   monthlyUsedUsd: number;
   monthlyLimitUsd: number;
-  /**
-   * Cumulative managed-model spend, and the ceiling it is measured
-   * against. Only present on plans the backend gives a lifetime
-   * allowance (Free) — see `lifetimeLimitUsd` in
-   * `backend/convex/lib/billing_plans.ts`. Unlike the rolling / weekly /
-   * monthly windows this never refreshes.
-   */
+
   lifetimeUsedUsd?: number;
   lifetimeLimitUsd?: number | null;
 };
@@ -139,18 +101,6 @@ const isUsageExceeded = (usage: BillingUsage): boolean =>
   usage.weeklyUsedUsd >= usage.weeklyLimitUsd ||
   usage.monthlyUsedUsd >= usage.monthlyLimitUsd;
 
-/**
- * Resolves the desktop-side audience the same way the backend's
- * `resolveManagedModelAudience` does:
- * - signed-out → "anonymous"
- * - free plan → "free"
- * - paid plan over usage cap → "{plan}_fallback"
- * - paid plan otherwise → plan id
- *
- * Returns `null` when we don't yet know (billing query still loading for a
- * signed-in user) so callers can avoid firing toasts during a hydration
- * gap.
- */
 export const resolveBillingAudience = (args: {
   hasConnectedAccount: boolean;
   billingStatus: ResolvableBillingStatus | undefined;
@@ -173,12 +123,6 @@ export const resolveBillingAudience = (args: {
     : plan;
 };
 
-/**
- * The Free plan's lifetime allowance: a fixed number of dollars that is
- * spent once and never comes back. Returns `null` for every plan and
- * every status shape that has no lifetime ceiling, so callers can treat
- * a value here as "this account has a terminal budget".
- */
 export type FreeAllowance = {
   usedUsd: number;
   limitUsd: number;

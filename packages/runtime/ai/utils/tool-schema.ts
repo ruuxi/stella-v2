@@ -21,20 +21,6 @@ const intersectRequired = (branches: Record<string, unknown>[]): string[] => {
   );
 };
 
-/**
- * Return a provider-facing copy of a tool input schema.
- *
- * Anthropic custom tools reject root-level `oneOf`, `anyOf`, and `allOf`.
- * OpenAI-compatible routers can forward the same schema to Anthropic or to
- * other providers with similarly narrow tool-schema support, so normalize at
- * every wire boundary instead of keying the behavior to the selected model.
- *
- * Nested combinators remain intact. Root alternatives are conservatively
- * loosened into one object: branch properties are retained, `allOf` required
- * fields are unioned, and only fields required by every `oneOf`/`anyOf`
- * branch remain required. Stella keeps the original schema for execution-side
- * validation, so this compatibility copy cannot authorize invalid arguments.
- */
 export const normalizeProviderToolInputSchema = (
   schema: Record<string, unknown>,
 ): Record<string, unknown> => {

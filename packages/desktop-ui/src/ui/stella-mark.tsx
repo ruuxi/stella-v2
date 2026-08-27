@@ -1,32 +1,15 @@
 import { useId } from "react";
 import type { SVGProps } from "react";
 
-/**
- * The Stella brand mark, as vector.
- *
- * The mark paints in two passes over one shared outline: a fixed vertical hue
- * ramp, then an elliptical fade to `currentColor`. Because that fade resolves
- * to the inherited text colour, a single asset reads correctly on light and
- * dark surfaces - the gradient core blends out to black on light and to white
- * on dark, instead of always sinking into black the way the flat PNG did.
- *
- * The gradient ids are namespaced per instance via `useId`. Two inlined copies
- * sharing ids make the second copy resolve `currentColor` against the first
- * one's context, which silently renders the mark black on dark backgrounds.
- */
 export type StellaMarkProps = Omit<SVGProps<SVGSVGElement>, "viewBox"> & {
-  /** Rendered edge length in px. Omit when CSS sizes the element. */
+
   size?: number;
-  /**
-   * Accessible name. Omit when the mark sits beside the word "Stella" or is
-   * otherwise decorative - the default is `aria-hidden`, matching the `alt=""`
-   * the images this replaced carried.
-   */
+
   label?: string;
 };
 
 export function StellaMark({ size = 16, label, ...props }: StellaMarkProps) {
-  // useId() emits colons, which are legal in ids but awkward inside url(#...).
+
   const uid = useId().replace(/[^a-zA-Z0-9-]/g, "");
   const shape = `${uid}-shape`;
   const core = `${uid}-core`;

@@ -55,33 +55,17 @@ export interface BedrockOptions extends StreamOptions {
 	region?: string;
 	profile?: string;
 	toolChoice?: "auto" | "any" | "none" | { type: "tool"; name: string };
-	/* See https://docs.aws.amazon.com/bedrock/latest/userguide/inference-reasoning.html for supported models. */
+
 	reasoning?: ThinkingLevel;
-	/* Custom token budgets per thinking level. Overrides default budgets. */
+
 	thinkingBudgets?: ThinkingBudgets;
-	/* Only supported by Claude 4.x models, see https://docs.aws.amazon.com/bedrock/latest/userguide/claude-messages-extended-thinking.html#claude-messages-extended-thinking-tool-use-interleaved */
+
 	interleavedThinking?: boolean;
-	/**
-	 * Controls how Claude's thinking content is returned in responses.
-	 * - "summarized": Thinking blocks contain summarized thinking text (default here).
-	 * - "omitted": Thinking content is redacted but the signature still travels back
-	 *   for multi-turn continuity, reducing time-to-first-text-token.
-	 *
-	 * Note: Anthropic's API default for Claude Opus 4.7 and Mythos Preview is
-	 * "omitted". We default to "summarized" here to keep behavior consistent with
-	 * older Claude 4 models. Only applies to Claude models on Bedrock.
-	 */
+
 	thinkingDisplay?: BedrockThinkingDisplay;
-	/** Key-value pairs attached to the inference request for cost allocation tagging.
-	 * Keys: max 64 chars, no `aws:` prefix. Values: max 256 chars. Max 50 pairs.
-	 * Tags appear in AWS Cost Explorer split cost allocation data.
-	 * @see https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ConverseStream.html */
+
 	requestMetadata?: Record<string, string>;
-	/** Bearer token for Bedrock API key authentication.
-	 * When set, bypasses SigV4 signing and sends Authorization: Bearer <token> instead.
-	 * Requires `bedrock:CallWithBearerToken` IAM permission on the token's identity.
-	 * Set via AWS_BEARER_TOKEN_BEDROCK env var or pass directly.
-	 * @see https://docs.aws.amazon.com/service-authorization/latest/reference/list_amazonbedrock.html */
+
 	bearerToken?: string;
 }
 
@@ -127,22 +111,15 @@ export const streamBedrock: StreamFunction<"bedrock-converse-stream", BedrockOpt
 			hasConfiguredProfile,
 		);
 
-		// Only pin standard AWS Bedrock runtime endpoints when no region/profile is configured.
-		// This preserves custom endpoints (VPC/proxy) from #3402 without forcing built-in
-		// catalog defaults such as us-east-1 to override AWS_REGION/AWS_PROFILE.
 		if (useExplicitEndpoint) {
 			config.endpoint = model.baseUrl;
 		}
 
-		// Resolve bearer token for Bedrock API key auth.
 		const bearerToken = options.bearerToken || process.env.AWS_BEARER_TOKEN_BEDROCK || undefined;
 		const useBearerToken = bearerToken !== undefined && process.env.AWS_BEDROCK_SKIP_AUTH !== "1";
 
-		// in Node.js/Bun environment only
 		if (typeof process !== "undefined" && (process.versions?.node || process.versions?.bun)) {
-			// Region resolution: explicit option > env vars > SDK default chain.
-			// When AWS_PROFILE is set, we leave region undefined so the SDK can
-			// resovle it from aws profile configs. Otherwise fall back to us-east-1.
+
 			if (configuredRegion) {
 				config.region = configuredRegion;
 			} else if (endpointRegion && useExplicitEndpoint) {
@@ -151,7 +128,6 @@ export const streamBedrock: StreamFunction<"bedrock-converse-stream", BedrockOpt
 				config.region = "us-east-1";
 			}
 
-			// Support proxies that don't need authentication
 			if (process.env.AWS_BEDROCK_SKIP_AUTH === "1") {
 				config.credentials = {
 					accessKeyId: "dummy-access-key",
@@ -172,21 +148,17 @@ export const streamBedrock: StreamFunction<"bedrock-converse-stream", BedrockOpt
 
 				const agent = new proxyAgent.ProxyAgent();
 
-				// Bedrock runtime uses NodeHttp2Handler by default since v3.798.0, which is based
-				// on `http2` module and has no support for http agent.
-				// Use NodeHttpHandler to support http agent.
 				config.requestHandler = new nodeHttpHandler.NodeHttpHandler({
 					httpAgent: agent,
 					httpsAgent: agent,
 				});
 			} else if (process.env.AWS_BEDROCK_FORCE_HTTP1 === "1") {
-				// Some custom endpoints require HTTP/1.1 instead of HTTP/2
+
 				const nodeHttpHandler = await import("@smithy/node-http-handler");
 				config.requestHandler = new nodeHttpHandler.NodeHttpHandler();
 			}
 		} else {
-			// Non-Node environment (browser): fall back to us-east-1 since
-			// there's no config file resolution available.
+
 			config.region =
 				configuredRegion || (endpointRegion && useExplicitEndpoint ? endpointRegion : undefined) || "us-east-1";
 		}
@@ -240,8 +212,7 @@ export const streamBedrock: StreamFunction<"bedrock-converse-stream", BedrockOpt
 					handleContentBlockStop(item.contentBlockStop, blocks, output, stream);
 				} else if (item.messageStop) {
 					output.stopReason = mapStopReason(item.messageStop.stopReason);
-					// Keep the raw stop reason (guardrail_intervened/content_filtered/...)
-					// so the surfaced error explains why the stream died.
+
 					if (output.stopReason === "error" && !output.errorMessage && item.messageStop.stopReason) {
 						output.errorMessage = providerAbortedStopMessage(String(item.messageStop.stopReason));
 					}
@@ -273,7 +244,7 @@ export const streamBedrock: StreamFunction<"bedrock-converse-stream", BedrockOpt
 		} catch (error) {
 			for (const block of output.content) {
 				delete (block as Block).index;
-				// partialJson is only a streaming scratch buffer; never persist it.
+
 				delete (block as Block).partialJson;
 			}
 			output.stopReason = options.signal?.aborted ? "aborted" : "error";
@@ -286,12 +257,6 @@ export const streamBedrock: StreamFunction<"bedrock-converse-stream", BedrockOpt
 	return stream;
 };
 
-/**
- * Human-readable prefixes for Bedrock SDK exception names.
- * The downstream retry logic in agent-session matches patterns like
- * `server.?error` and `service.?unavailable`, so we preserve the legacy
- * prefix format rather than using the raw SDK exception name.
- */
 const BEDROCK_ERROR_PREFIXES: Record<string, string> = {
 	InternalServerException: "Internal server error",
 	ModelStreamErrorException: "Model stream error",
@@ -300,13 +265,6 @@ const BEDROCK_ERROR_PREFIXES: Record<string, string> = {
 	ServiceUnavailableException: "Service unavailable",
 };
 
-/**
- * Format a Bedrock error with a human-readable prefix.
- * AWS SDK exceptions (both from `client.send()` and from stream event items)
- * extend BedrockRuntimeServiceException. We map the `.name` to a stable
- * human-readable prefix so downstream consumers (retry logic, context-overflow
- * detection) can distinguish error categories via simple string matching.
- */
 function formatBedrockError(error: unknown): string {
 	const message = error instanceof Error ? error.message : JSON.stringify(error);
 	if (error instanceof BedrockRuntimeServiceException) {
@@ -395,7 +353,7 @@ function handleContentBlockDelta(
 	let block = blocks[index];
 
 	if (delta?.text !== undefined) {
-		// If no text block exists yet, create one, as `handleContentBlockStart` is not sent for text blocks
+
 		if (!block) {
 			const newBlock: Block = { type: "text", text: "", index: contentBlockIndex };
 			output.content.push(newBlock);
@@ -476,20 +434,13 @@ function handleContentBlockStop(
 			break;
 		case "toolCall":
 			block.arguments = parseStreamingJson(block.partialJson);
-			// Finalize in-place and strip the scratch buffer so replay only
-			// carries parsed arguments.
+
 			delete (block as Block).partialJson;
 			stream.push({ type: "toolcall_end", contentIndex: index, toolCall: block, partial: output });
 			break;
 	}
 }
 
-/**
- * Check if the model supports adaptive thinking (Opus/Sonnet 4.6+ and all
- * 5-generation Claude models; see `supportsAdaptiveThinking` in anthropic.ts).
- * Checks both model ID and model name to support application inference profiles
- * whose ARNs don't contain the model name.
- */
 function getModelMatchCandidates(modelId: string, modelName?: string): string[] {
 	const values = modelName ? [modelId, modelName] : [modelId];
 	return values.flatMap((value) => {
@@ -530,10 +481,6 @@ function mapThinkingLevelToEffort(
 	}
 }
 
-/**
- * Resolve cache retention preference.
- * Defaults to "short" and uses PI_CACHE_RETENTION for backward compatibility.
- */
 function resolveCacheRetention(cacheRetention?: CacheRetention): CacheRetention {
 	if (cacheRetention) {
 		return cacheRetention;
@@ -544,11 +491,6 @@ function resolveCacheRetention(cacheRetention?: CacheRetention): CacheRetention 
 	return "short";
 }
 
-/**
- * Check if the model is an Anthropic Claude model on Bedrock.
- * Checks both model ID and model name to support application inference profiles
- * whose ARNs don't contain the model name.
- */
 function isAnthropicClaudeModel(model: Model<"bedrock-converse-stream">): boolean {
 	const id = model.id.toLowerCase();
 	const name = model.name?.toLowerCase() ?? "";
@@ -561,45 +503,24 @@ function isAnthropicClaudeModel(model: Model<"bedrock-converse-stream">): boolea
 	);
 }
 
-/**
- * Check if the model supports prompt caching.
- * Supported: Claude 3.5 Haiku, Claude 3.7 Sonnet, Claude 4.x models
- *
- * For base models and system-defined inference profiles the model ID / ARN
- * contains the model name, so we can decide locally.
- *
- * For application inference profiles (whose ARNs don't contain the model name),
- * also checks model.name which is user-controlled via models.json or registerProvider.
- * As a last resort, set AWS_BEDROCK_FORCE_CACHE=1 to enable cache points.
- * Amazon Nova models have automatic caching and don't need explicit cache points.
- */
 function supportsPromptCaching(model: Model<"bedrock-converse-stream">): boolean {
 	const candidates = getModelMatchCandidates(model.id, model.name);
 
 	const hasClaudeRef = candidates.some((s) => s.includes("claude"));
 	if (!hasClaudeRef) {
-		// Application inference profiles don't contain the model name in the ARN.
-		// Allow users to force cache points via environment variable.
+
 		if (typeof process !== "undefined" && process.env.AWS_BEDROCK_FORCE_CACHE === "1") return true;
 		return false;
 	}
-	// Claude 4.x models (opus-4, sonnet-4, haiku-4)
+
 	if (candidates.some((s) => s.includes("-4-"))) return true;
-	// Claude 3.7 Sonnet
+
 	if (candidates.some((s) => s.includes("claude-3-7-sonnet"))) return true;
-	// Claude 3.5 Haiku
+
 	if (candidates.some((s) => s.includes("claude-3-5-haiku"))) return true;
 	return false;
 }
 
-/**
- * Check if the model supports thinking signatures in reasoningContent.
- * Only Anthropic Claude models support the signature field.
- * Other models (OpenAI, Qwen, Minimax, Moonshot, etc.) reject it with:
- * "This model doesn't support the reasoningContent.reasoningText.signature field"
- *
- * Checks both model ID and model name to support application inference profiles.
- */
 function supportsThinkingSignature(model: Model<"bedrock-converse-stream">): boolean {
 	return isAnthropicClaudeModel(model);
 }
@@ -613,7 +534,6 @@ function buildSystemPrompt(
 
 	const blocks: SystemContentBlock[] = [{ text: sanitizeSurrogates(systemPrompt) }];
 
-	// Add cache point for supported Claude models when caching is enabled
 	if (cacheRetention !== "none" && supportsPromptCaching(model)) {
 		blocks.push({
 			cachePoint: { type: CachePointType.DEFAULT, ...(cacheRetention === "long" ? { ttl: CacheTTL.ONE_HOUR } : {}) },
@@ -659,8 +579,7 @@ function convertMessages(
 				});
 				break;
 			case "assistant": {
-				// Skip assistant messages with empty content (e.g., from aborted requests)
-				// Bedrock rejects messages with empty content arrays
+
 				if (m.content.length === 0) {
 					continue;
 				}
@@ -668,7 +587,7 @@ function convertMessages(
 				for (const c of m.content) {
 					switch (c.type) {
 						case "text":
-							// Skip empty text blocks
+
 							if (c.text.trim().length === 0) continue;
 							contentBlocks.push({ text: sanitizeSurrogates(c.text) });
 							break;
@@ -678,15 +597,11 @@ function convertMessages(
 							});
 							break;
 						case "thinking":
-							// Skip empty thinking blocks
+
 							if (c.thinking.trim().length === 0) continue;
-							// Only Anthropic models support the signature field in reasoningText.
-							// For other models, we omit the signature to avoid errors like:
-							// "This model doesn't support the reasoningContent.reasoningText.signature field"
+
 							if (supportsThinkingSignature(model)) {
-								// Signatures arrive after thinking deltas. If a partial or externally
-								// persisted message lacks a signature, Bedrock rejects the replayed
-								// reasoning block. Fall back to plain text, matching Anthropic.
+
 								if (!c.thinkingSignature || c.thinkingSignature.trim().length === 0) {
 									contentBlocks.push({ text: sanitizeSurrogates(c.thinking) });
 								} else {
@@ -711,7 +626,7 @@ function convertMessages(
 							throw new Error("Unknown assistant content type");
 					}
 				}
-				// Skip if all content blocks were filtered out
+
 				if (contentBlocks.length === 0) {
 					continue;
 				}
@@ -722,11 +637,9 @@ function convertMessages(
 				break;
 			}
 			case "toolResult": {
-				// Collect all consecutive toolResult messages into a single user message
-				// Bedrock requires all tool results to be in one message
+
 				const toolResults: ContentBlock.ToolResultMember[] = [];
 
-				// Add current tool result with all content blocks combined
 				toolResults.push({
 					toolResult: {
 						toolUseId: m.toolCallId,
@@ -739,7 +652,6 @@ function convertMessages(
 					},
 				});
 
-				// Look ahead for consecutive toolResult messages
 				let j = i + 1;
 				while (j < transformedMessages.length && transformedMessages[j].role === "toolResult") {
 					const nextMsg = transformedMessages[j] as ToolResultMessage;
@@ -757,7 +669,6 @@ function convertMessages(
 					j++;
 				}
 
-				// Skip the messages we've already processed
 				i = j - 1;
 
 				result.push({
@@ -771,7 +682,6 @@ function convertMessages(
 		}
 	}
 
-	// Add cache point to the last user message for supported Claude models when caching is enabled
 	if (cacheRetention !== "none" && supportsPromptCaching(model) && result.length > 0) {
 		const lastMessage = result[result.length - 1];
 		if (lastMessage.role === ConversationRole.USER && lastMessage.content) {
@@ -899,8 +809,7 @@ function buildAdditionalModelRequestFields(
 	}
 
 	if (isAnthropicClaudeModel(model)) {
-		// GovCloud Bedrock currently rejects the Claude thinking.display field.
-		// Omit it there until the GovCloud Converse schema catches up.
+
 		const display = isGovCloudBedrockTarget(model, options) ? undefined : (options.thinkingDisplay ?? "summarized");
 		const result: Record<string, any> = supportsAdaptiveThinking(model.id, model.name)
 			? {
@@ -913,10 +822,9 @@ function buildAdditionalModelRequestFields(
 						low: 2048,
 						medium: 8192,
 						high: 16384,
-						xhigh: 16384, // Claude doesn't support xhigh, clamp to high
+						xhigh: 16384,
 					};
 
-					// Custom budgets override defaults (xhigh not in ThinkingBudgets, use high)
 					const level = options.reasoning === "xhigh" ? "high" : options.reasoning;
 					const budget = options.thinkingBudgets?.[level] ?? defaultBudgets[options.reasoning];
 

@@ -1,19 +1,9 @@
-/* ProviderModelPanel — single scrolling list of models grouped under
- * provider section headers (no rail) + inline connect/auth.
- *
- * The panel is mounted both inline in the Settings page and inside the
- * sidebar's `Models` popover. Outer chrome (background, border, popover
- * surface width) is the responsibility of the embedder.
- */
-
 .model-picker-shell {
   display: flex;
   flex-direction: column;
   height: clamp(360px, 60vh, 480px);
   min-height: 0;
 }
-
-/* ----------------------------------------------------------- Pane */
 
 .model-picker-pane-inner {
   display: flex;
@@ -24,8 +14,6 @@
   padding: 14px 14px 12px;
 }
 
-/* ----------------------------------------------------------- Provider groups */
-
 .model-picker-groups {
   display: flex;
   flex-direction: column;
@@ -33,9 +21,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  /* Pull the scroll container out to the pane's right edge (cancelling the
-   * inner pane padding) so the scrollbar hugs the panel side, while keeping
-   * the rows themselves inset from the bar. */
+
   margin-right: -14px;
   padding-right: 12px;
   padding-bottom: 28px;
@@ -57,8 +43,6 @@
   gap: 2px;
 }
 
-/* Section divider — provider name on the left, hairline filling the rest,
- * connect/sign-out affordance pinned to the right. */
 .model-picker-group-head {
   position: relative;
   display: flex;
@@ -81,9 +65,7 @@
 }
 
 .model-picker-group-label {
-  /* Shrinks and ellipsizes rather than overflowing. A long provider name
-   * ("Kimi (Moonshot AI)", "Vercel AI Gateway") used to push the chevron
-   * past the toggle's right edge, breaking the shared chevron column. */
+
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -101,10 +83,6 @@
   color: var(--text-weak);
 }
 
-/* Provider actions ride *over* the row rather than taking a column in it.
- * Out of flow, so every group's toggle spans the full width and its
- * chevron stays pinned to the far right — one clean column, whether or
- * not the provider has an action, and nothing shifts when one appears. */
 .model-picker-group-actions {
   position: absolute;
   top: 50%;
@@ -150,8 +128,7 @@
   border: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
   font-size: var(--font-size-2xs);
   font-weight: var(--weight-medium);
-  /* Visibility belongs to the overlay container above; the pill only has
-   * to re-arm its own pointer events inside it. */
+
   pointer-events: auto;
 }
 
@@ -233,11 +210,6 @@
   font-weight: var(--weight-semibold);
   color: var(--text-strong);
 }
-
-/* ----------------------------------------------------------- Inline connect
- * Provider connect (sign-in / API key) and the local / OpenRouter custom
- * model entry. Compact and chrome-light so it reads as part of the list,
- * not a card dropped into it. Inputs reuse the search pill language. */
 
 .model-picker-connect {
   display: flex;
@@ -332,8 +304,6 @@
   cursor: not-allowed;
 }
 
-/* When a sign-in button is present it is THE primary action; the inline
-   key save drops to a quiet pill so the form carries one loud button. */
 .model-picker-connect:has(.model-picker-connect-oauth)
   .model-picker-connect-go {
   border: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
@@ -386,8 +356,6 @@
   color: var(--destructive);
 }
 
-/* Quiet inline notice for a failed catalog fetch — muted text with a subtle
- * underlined Retry. Replaces the old repeating fetch-failure toast. */
 .model-picker-load-error {
   display: flex;
   align-items: center;
@@ -419,8 +387,6 @@
   cursor: not-allowed;
 }
 
-/* ----------------------------------------------------------- Search + list */
-
 .model-picker-search-row {
   display: flex;
   align-items: center;
@@ -438,8 +404,6 @@
   align-items: center;
 }
 
-/* In the search row the sign-out icon has no overlay container to hide it,
- * so it keeps its own hover reveal. */
 .model-picker-search-action .model-picker-group-signout {
   opacity: 0;
   pointer-events: none;
@@ -452,8 +416,6 @@
   pointer-events: auto;
 }
 
-/* Borderless quiet field — matches the sidebar's other search inputs; a
-   soft inset tint carries the affordance instead of an outline. */
 .model-picker-search {
   display: flex;
   align-items: center;
@@ -541,9 +503,6 @@
   min-width: 0;
 }
 
-/* Hover affordances overlay the right edge of the row without reserving
-   layout space. Plain icons (no chrome) that only pick up a subtle hover
-   background, so they read as part of the row rather than floating chips. */
 .model-picker-model-actions {
   position: absolute;
   top: 50%;
@@ -681,11 +640,6 @@
   color: var(--text-strong);
 }
 
-/* ------------------------------------------- Collapsible sections
- * Single-list mode: every provider (and the ChatGPT / Claude Code engine
- * entries) is one section; heads toggle their body. The whole head row is
- * the affordance — actions (connect / sign-out) still ride its right edge. */
-
 .model-picker-group-head[data-collapsible] {
   gap: 6px;
   padding: 2px 4px 2px 0;
@@ -722,8 +676,6 @@
   box-shadow: var(--focus-ring);
 }
 
-/* Collapsed section that holds the current selection: a quiet check keeps
- * "your pick lives here" visible without opening the section. */
 .model-picker-group-check {
   flex: none;
   color: var(--text-weak);
@@ -740,7 +692,6 @@
   transform: rotate(180deg);
 }
 
-/* Catalog refresh — ghost icon riding the search row. */
 .model-picker-refresh {
   appearance: none;
   display: inline-flex;
@@ -791,10 +742,6 @@
     animation: none;
   }
 }
-
-/* ------------------------------------------- Selected-row extra
- * Controls that belong to the CURRENT selection (reasoning effort) render
- * directly beneath the selected row rather than in a detached footer. */
 
 .model-picker-row-slot {
   display: flex;

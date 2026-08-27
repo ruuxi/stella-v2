@@ -88,7 +88,7 @@ describe("filterHubArtifacts", () => {
       urlArtifact("a1", "Dashboard"),
       markdownArtifact("a2", "/tmp/notes.md"),
     ];
-    // "Live preview" is the url card's subtitle; "Markdown · MD" the file's.
+
     expect(filterHubArtifacts(artifacts, "live preview").map((a) => a.id)).toEqual(
       ["a1"],
     );

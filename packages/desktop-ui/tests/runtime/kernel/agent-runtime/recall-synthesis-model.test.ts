@@ -1,8 +1,3 @@
-// Recall synthesis resolves the user's active model/provider and forces LOW
-// reasoning (off/none when unsupported), while accepting credentialless local
-// routes without a key — the regression that surfaced as the tool failing
-// everywhere with "No API key for provider: anthropic".
-
 import { describe, expect, it } from "vitest";
 import {
   recallSynthesisReasoning,
@@ -70,9 +65,7 @@ describe("resolveRecallSynthesisApiKey", () => {
   });
 
   it("regression: a remote baseUrl alone does NOT make a keyless route valid", async () => {
-    // The old heuristic treated any direct-provider route with a baseUrl as
-    // credentialless, which let a keyless Anthropic request reach the wire
-    // and fail with the provider's raw "No API key for provider" error.
+
     await expect(
       resolveRecallSynthesisApiKey(
         route({
@@ -88,7 +81,7 @@ describe("resolveRecallSynthesisApiKey", () => {
   it("throws the documented error only when a key is required and missing", async () => {
     await expect(
       resolveRecallSynthesisApiKey(
-        // A managed route with no baseUrl is not credentialless: it needs a key.
+
         route({ routeKind: "stella", baseUrl: "", apiKey: undefined }),
       ),
     ).rejects.toThrow(/no usable credential for model/);

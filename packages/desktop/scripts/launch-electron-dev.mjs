@@ -20,7 +20,7 @@ const waitForVite = async () => {
       const response = await fetch(DEV_SERVER_URL, { redirect: "manual" });
       if (response.ok) return;
     } catch {
-      // Vite is still starting.
+
     }
     await delay(POLL_INTERVAL_MS);
   }

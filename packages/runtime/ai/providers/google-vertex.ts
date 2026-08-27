@@ -39,7 +39,7 @@ export interface GoogleVertexOptions extends StreamOptions {
 	toolChoice?: "auto" | "none" | "any";
 	thinking?: {
 		enabled: boolean;
-		budgetTokens?: number; // -1 for dynamic, 0 to disable
+		budgetTokens?: number;
 		level?: GoogleThinkingLevel;
 	};
 	project?: string;
@@ -56,7 +56,6 @@ const THINKING_LEVEL_MAP: Record<GoogleThinkingLevel, ThinkingLevel> = {
 	HIGH: ThinkingLevel.HIGH,
 };
 
-// Counter for generating unique tool call IDs
 let toolCallCounter = 0;
 
 export const streamGoogleVertex: StreamFunction<"google-vertex", GoogleVertexOptions> = (
@@ -87,7 +86,7 @@ export const streamGoogleVertex: StreamFunction<"google-vertex", GoogleVertexOpt
 
 		try {
 			const apiKey = resolveApiKey(options);
-			// Create the client using either a Vertex API key, if provided, or ADC with project and location
+
 			const client = apiKey
 				? createClientWithApiKey(model, apiKey, options?.headers)
 				: createClient(model, resolveProject(options), resolveLocation(options), options?.headers);
@@ -105,8 +104,7 @@ export const streamGoogleVertex: StreamFunction<"google-vertex", GoogleVertexOpt
 			const blocks = output.content;
 			const blockIndex = () => blocks.length - 1;
 			for await (const chunk of googleStream) {
-				// Vertex uses the same @google/genai GenerateContentResponse type as Gemini.
-				// responseId is documented there as an output-only identifier for each response.
+
 				output.responseId ||= chunk.responseId;
 				const candidate = chunk.candidates?.[0];
 				if (candidate?.content?.parts) {
@@ -225,8 +223,7 @@ export const streamGoogleVertex: StreamFunction<"google-vertex", GoogleVertexOpt
 					if (output.content.some((b) => b.type === "toolCall")) {
 						output.stopReason = "toolUse";
 					}
-					// Keep the raw finish reason (SAFETY/PROHIBITED_CONTENT/...) so the
-					// surfaced error explains why the stream died.
+
 					if (output.stopReason === "error" && !output.errorMessage) {
 						output.errorMessage = providerAbortedStopMessage(String(candidate.finishReason));
 					}
@@ -283,7 +280,7 @@ export const streamGoogleVertex: StreamFunction<"google-vertex", GoogleVertexOpt
 			stream.push({ type: "done", reason: output.stopReason, message: output });
 			stream.end();
 		} catch (error) {
-			// Remove internal index property used during streaming
+
 			for (const block of output.content) {
 				if ("index" in block) {
 					delete (block as { index?: number }).index;
@@ -478,9 +475,7 @@ function isGemini3FlashModel(model: Model<"google-generative-ai">): boolean {
 }
 
 function getDisabledThinkingConfig(model: Model<"google-vertex">): ThinkingConfig {
-	// Google docs: Gemini 3.1 Pro cannot disable thinking, and Gemini 3 Flash / Flash-Lite
-	// do not support full thinking-off either. For Gemini 3 models, use the lowest supported
-	// thinkingLevel without includeThoughts so hidden thinking remains invisible to pi.
+
 	const geminiModel = model as unknown as Model<"google-generative-ai">;
 	if (isGemini3ProModel(geminiModel)) {
 		return { thinkingLevel: ThinkingLevel.LOW };
@@ -489,7 +484,6 @@ function getDisabledThinkingConfig(model: Model<"google-vertex">): ThinkingConfi
 		return { thinkingLevel: ThinkingLevel.MINIMAL };
 	}
 
-	// Gemini 2.x supports disabling via thinkingBudget = 0.
 	return { thinkingBudget: 0 };
 }
 

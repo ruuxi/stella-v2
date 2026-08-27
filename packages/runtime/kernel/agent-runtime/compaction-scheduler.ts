@@ -1,20 +1,12 @@
-/**
- * Per-thread background compaction scheduler.
- *
- * Keeps compaction off the user-visible finalize path. Each thread gets at
- * most one active run and one queued follow-up, which bounds stale history
- * without letting back-to-back turns spawn unbounded summary work.
- */
-
 import { createRuntimeLogger } from "../debug.js";
 
 const logger = createRuntimeLogger("compaction-scheduler");
 
 export type CompactionScheduleArgs = {
   threadKey: string;
-  /** Idempotent work; coalescing may drop this callback in favor of a queued one. */
+
   run: () => Promise<void>;
-  /** Invoked after a successful run; coalesced callbacks all fire in order. */
+
   onSuccess?: () => void;
 };
 
@@ -144,12 +136,10 @@ export class BackgroundCompactionScheduler {
     }
   }
 
-  /** Currently in-flight compaction for `threadKey`, if any. */
   pending(threadKey: string): Promise<void> | null {
     return this.threads.get(threadKey)?.active ?? null;
   }
 
-  /** Wait for every active and queued compaction to settle before shutdown. */
   async drain(): Promise<void> {
     while (this.threads.size > 0) {
       const promises: Array<Promise<void>> = [];

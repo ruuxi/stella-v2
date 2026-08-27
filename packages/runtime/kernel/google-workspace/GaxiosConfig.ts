@@ -1,9 +1,3 @@
-/**
- * @license
- * Copyright 2025 Google LLC
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import type { Auth } from 'googleapis';
 import type { GlobalOptions } from 'googleapis-common';
 import { GaxiosOptions } from 'gaxios';
@@ -30,10 +24,9 @@ export const gaxiosOptions: GaxiosOptions = {
   timeout: 30000,
 };
 
-// Extended timeout for media upload operations
 export const mediaUploadOptions: GaxiosOptions = {
   ...gaxiosOptions,
-  timeout: 60000, // 60 seconds for media uploads
+  timeout: 60000,
 };
 
 export function createGoogleClientOptions(

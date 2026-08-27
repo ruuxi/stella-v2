@@ -1,17 +1,3 @@
-/**
- * Store for agent-initiated in-chat connect offers
- * (`connector-connect:request` from the main process, originating from
- * the orchestrator's `connector_status` connection request). Chat
- * surfaces render the head
- * of the queue as an inline connect card; accept/decline/cancel flow
- * back over the privileged `connector-connect:respond` IPC, and phase
- * updates stream in via `connector-connect:update`.
- *
- * The runtime agent is blocked on the CLI bridge while a card is
- * pending, so cards are inherently short-lived: they resolve (and the
- * conversation continues) or time out main-side.
- */
-
 import { useSyncExternalStore } from "react";
 import { getElectronApi } from "@/platform/electron/electron";
 import { isConnectRequestVisibleToSurface } from "@/features/chat/connector-connect-scope";
@@ -30,9 +16,9 @@ export type ConnectorConnectCardRequest = {
   iconUrl?: string;
   category?: string;
   reason?: string;
-  /** "integration" (connector enable + OAuth) or "browser-extension" (Web Store install). */
+
   kind?: "integration" | "browser-extension";
-  /** Owning chat; undefined = unscoped (legacy CLI path), shown everywhere. */
+
   conversationId?: string;
   phase: ConnectorConnectCardPhase;
   message?: string;
@@ -80,8 +66,7 @@ const initialize = () => {
       data.phase === "cancelled" ||
       data.phase === "timeout"
     ) {
-      // The agent's own reply acknowledges these outcomes in the
-      // thread; the card just goes away.
+
       removeRequest(data.requestId);
       return;
     }
@@ -116,12 +101,6 @@ const subscribe = (listener: () => void) => {
 
 const getSnapshot = () => queue;
 
-/**
- * First connect offer visible to the given chat surface, or null. A card
- * scoped to a conversation renders only in that conversation's surfaces
- * (a surface with no conversation id never shows scoped cards); unscoped
- * cards (no conversationId on the request) render everywhere.
- */
 export const useConnectorConnectRequest = (
   conversationId?: string | null,
 ): ConnectorConnectCardRequest | null => {

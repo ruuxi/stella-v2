@@ -1,30 +1,3 @@
-// stella-update-splash.exe — Stella-branded cover window for the silent
-// Windows update install.
-//
-// The desktop app installs updates with the NSIS installer's silent (/S)
-// mode so no native "Stella Setup" GUI ever appears. That leaves 30-60+
-// seconds of empty desktop while NSIS swaps the ~1 GB install directory.
-// This helper is spawned (detached, from a staging copy OUTSIDE the install
-// directory so it never locks files NSIS wants to replace) right before the
-// app quits for the update. It draws a frameless launcher-style window —
-// Stella logo, Cormorant Garamond "Stella" wordmark, an indeterminate
-// progress bar — and exits on its own once the updated app relaunches.
-//
-// Lifecycle (all failure paths degrade to "exit quietly"; the splash must
-// never be able to block or outlive an update):
-//   1. Wait for the parent process (the old Stella main process) to exit.
-//   2. Wait until no processes matching --watch-exe in --watch-dir remain
-//      (NSIS requires this before it can swap files).
-//   3. Wait until such a process appears again (the installer's --force-run
-//      relaunch), linger briefly so the new window can paint, fade out, exit.
-//   4. A hard --timeout-ms deadline (default 10 minutes) bounds every phase.
-//
-// Usage:
-//   stella-update-splash.exe --parent-pid 1234 --watch-exe Stella.exe
-//     --watch-dir "C:\Users\me\AppData\Local\Programs\Stella"
-//     --logo "...\stella-logo.png" --font "...\cormorant-garamond-italic.ttf"
-//     [--timeout-ms 600000]
-
 #include <windows.h>
 #include <objidl.h>
 #include <gdiplus.h>
@@ -38,27 +11,25 @@
 
 using namespace Gdiplus;
 
-// ── Palette (mirrors stella-launcher src/index.css) ─────────────────────────
-static const Color kBg(255, 255, 255, 255);        // --bg #ffffff
-static const Color kText(255, 0x1d, 0x1d, 0x1f);   // --text #1d1d1f
-static const Color kTextDim(255, 0x86, 0x86, 0x8b); // --text-dim #86868b
-static const Color kTrack(255, 0xf5, 0xf5, 0xf7);  // --surface #f5f5f7
-static const Color kFillA(255, 0x54, 0xa8, 0xe0);  // --accent #54a8e0
-static const Color kFillB(255, 0x63, 0x66, 0xf1);  // gradient end #6366f1
+static const Color kBg(255, 255, 255, 255);
+static const Color kText(255, 0x1d, 0x1d, 0x1f);
+static const Color kTextDim(255, 0x86, 0x86, 0x8b);
+static const Color kTrack(255, 0xf5, 0xf5, 0xf7);
+static const Color kFillA(255, 0x54, 0xa8, 0xe0);
+static const Color kFillB(255, 0x63, 0x66, 0xf1);
 
-// ── Layout in logical (96-dpi) pixels (launcher shell--complete metrics) ────
 static const int kWindowW = 420;
 static const int kWindowH = 520;
 static const int kLogoSize = 112;
-static const int kLogoGap = 18;      // .shell--complete .brand-logo margin
-static const float kNamePx = 44.0f;  // .shell--complete .brand-name font-size
+static const int kLogoGap = 18;
+static const float kNamePx = 44.0f;
 static const int kNameGap = 40;
-static const float kStatusPx = 13.0f; // .status-text
-static const int kStatusGap = 20;    // .status-text margin-bottom
-static const int kBarW = 280;        // .progress-wrap max-width
-static const int kBarH = 4;          // .progress-track height
-static const double kSweepPeriodMs = 1400.0; // .progress-fill animation
-static const double kSweepWidth = 0.4;       // indeterminate width: 40%
+static const float kStatusPx = 13.0f;
+static const int kStatusGap = 20;
+static const int kBarW = 280;
+static const int kBarH = 4;
+static const double kSweepPeriodMs = 1400.0;
+static const double kSweepWidth = 0.4;
 
 static const UINT kAnimTimerId = 1;
 static const UINT kFadeTimerId = 2;
@@ -90,8 +61,6 @@ struct WatchConfig {
 
 static SplashState g_state;
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
 static int ScaleFor(int logical, int dpi) {
   return MulDiv(logical, dpi, 96);
 }
@@ -120,7 +89,7 @@ static void EnablePerMonitorDpi() {
     SetCtxFn fn =
         (SetCtxFn)GetProcAddress(user32, "SetProcessDpiAwarenessContext");
     if (fn) {
-      // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+
       if (fn((HANDLE)-4)) return;
     }
   }
@@ -128,7 +97,7 @@ static void EnablePerMonitorDpi() {
 }
 
 static void RoundWindowCorners(HWND hwnd) {
-  // DWMWA_WINDOW_CORNER_PREFERENCE / DWMWCP_ROUND; no-op before Windows 11.
+
   const DWORD attr = 33;
   const int pref = 2;
   DwmSetWindowAttribute(hwnd, attr, &pref, sizeof(pref));
@@ -141,19 +110,17 @@ static bool PathBaseNameEquals(const wchar_t *fullPath, const wchar_t *name) {
 }
 
 static bool PathDirEquals(const wchar_t *fullPath, const wchar_t *dir) {
-  if (!dir[0]) return true; // no dir constraint
+  if (!dir[0]) return true;
   const wchar_t *slash = wcsrchr(fullPath, L'\\');
   if (!slash) return false;
   size_t dirLen = (size_t)(slash - fullPath);
   size_t wantLen = wcslen(dir);
-  // Tolerate a trailing backslash on the configured dir.
+
   while (wantLen > 0 && dir[wantLen - 1] == L'\\') wantLen--;
   if (dirLen != wantLen) return false;
   return _wcsnicmp(fullPath, dir, dirLen) == 0;
 }
 
-// Counts live processes whose executable base name matches watchExe and, when
-// watchDir is set, whose image lives in that directory. Never counts self.
 static int CountWatchedProcesses(const WatchConfig &cfg) {
   HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
   if (snapshot == INVALID_HANDLE_VALUE) return 0;
@@ -172,9 +139,7 @@ static int CountWatchedProcesses(const WatchConfig &cfg) {
       HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
                                    entry.th32ProcessID);
       if (!process) {
-        // Can't inspect the path (likely elevated); count the name match so
-        // an unreadable relaunch still dismisses the splash instead of
-        // stranding it until the timeout.
+
         count++;
         continue;
       }
@@ -200,7 +165,6 @@ static DWORD WINAPI WatchThread(LPVOID param) {
   const ULONGLONG deadline = GetTickCount64() + cfg->timeoutMs;
   const ULONGLONG selfStart = GetTickCount64();
 
-  // Phase 1: wait for the parent (old Stella main process) to exit.
   if (cfg->parentPid != 0) {
     HANDLE parent = OpenProcess(SYNCHRONIZE, FALSE, cfg->parentPid);
     if (parent) {
@@ -211,13 +175,10 @@ static DWORD WINAPI WatchThread(LPVOID param) {
     }
   }
 
-  // Phase 2: wait for every old app process (renderer/GPU children share the
-  // exe name) to be gone — NSIS won't swap files while any remain.
   while (GetTickCount64() < deadline && CountWatchedProcesses(*cfg) > 0) {
     Sleep(300);
   }
 
-  // Phase 3: wait for the installer's --force-run relaunch.
   bool relaunched = false;
   while (GetTickCount64() < deadline) {
     if (CountWatchedProcesses(*cfg) > 0) {
@@ -228,8 +189,7 @@ static DWORD WINAPI WatchThread(LPVOID param) {
   }
 
   if (relaunched) {
-    // Give the new window a moment to paint before uncovering the desktop,
-    // but never longer than the deadline allows.
+
     ULONGLONG lingerUntil = GetTickCount64() + kLingerAfterRelaunchMs;
     while (GetTickCount64() < lingerUntil && GetTickCount64() < deadline) {
       Sleep(100);
@@ -240,8 +200,6 @@ static DWORD WINAPI WatchThread(LPVOID param) {
   PostMessageW(cfg->hwnd, WM_APP_FINISHED, 0, 0);
   return 0;
 }
-
-// ── Painting ────────────────────────────────────────────────────────────────
 
 static double EaseInOut(double t) {
   return 0.5 - 0.5 * cos(t * 3.14159265358979323846);
@@ -268,7 +226,6 @@ static void PaintSplash(HDC hdc, int width, int height) {
   const float namePx = kNamePx * dpi / 96.0f;
   const float statusPx = kStatusPx * dpi / 96.0f;
 
-  // Measure the wordmark and status line so the whole block centers.
   Font *nameFont = nullptr;
   if (g_state.nameFamily && g_state.nameFamily->IsAvailable()) {
     nameFont = new Font(g_state.nameFamily, namePx, FontStyleItalic, UnitPixel);
@@ -294,7 +251,7 @@ static void PaintSplash(HDC hdc, int width, int height) {
   const int statusH = (int)ceilf(statusBounds.Height);
   const int blockH =
       logoSize + logoGap + nameH + nameGap + statusH + statusGap + barH;
-  // Bias the block slightly above true center, like the launcher hero view.
+
   int y = (height - blockH) * 46 / 100;
   if (y < 0) y = 0;
 
@@ -314,8 +271,6 @@ static void PaintSplash(HDC hdc, int width, int height) {
                &dimBrush);
   y += statusH + statusGap;
 
-  // Indeterminate progress bar: 40%-wide fill sweeping the track with
-  // ease-in-out, mirroring the launcher's CSS animation.
   const int barX = (width - barW) / 2;
   const REAL radius = barH / 2.0f;
   GraphicsPath track;
@@ -328,10 +283,10 @@ static void PaintSplash(HDC hdc, int width, int height) {
 
   const double elapsed = (double)(GetTickCount64() - g_state.startTick);
   const double phase =
-      fmod(elapsed, kSweepPeriodMs) / kSweepPeriodMs; // 0..1 per cycle
+      fmod(elapsed, kSweepPeriodMs) / kSweepPeriodMs;
   const double eased = EaseInOut(phase);
   const int fillW = (int)(barW * kSweepWidth);
-  // translateX(-100%) .. translateX(350%) of the 40% fill.
+
   const double travel = (double)fillW * 4.5;
   const int fillX = barX + (int)(-fillW + eased * travel);
 
@@ -348,8 +303,6 @@ static void PaintSplash(HDC hdc, int width, int height) {
   screen.DrawImage(&backBuffer, 0, 0);
 }
 
-// ── Window proc ─────────────────────────────────────────────────────────────
-
 static LRESULT CALLBACK SplashWndProc(HWND hwnd, UINT msg, WPARAM wParam,
                                       LPARAM lParam) {
   switch (msg) {
@@ -363,10 +316,10 @@ static LRESULT CALLBACK SplashWndProc(HWND hwnd, UINT msg, WPARAM wParam,
       return 0;
     }
     case WM_ERASEBKGND:
-      return 1; // fully painted in WM_PAINT
+      return 1;
     case WM_TIMER:
       if (wParam == kAnimTimerId) {
-        // Drive the sweep and the fade-in.
+
         if (g_state.fadingIn) {
           int next = g_state.alpha + 32;
           if (next >= 255) {
@@ -399,7 +352,7 @@ static LRESULT CALLBACK SplashWndProc(HWND hwnd, UINT msg, WPARAM wParam,
       }
       return 0;
     case WM_NCHITTEST: {
-      // The whole surface drags the window, like the launcher's drag region.
+
       LRESULT hit = DefWindowProcW(hwnd, msg, wParam, lParam);
       return hit == HTCLIENT ? HTCAPTION : hit;
     }
@@ -415,8 +368,6 @@ static LRESULT CALLBACK SplashWndProc(HWND hwnd, UINT msg, WPARAM wParam,
   }
   return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
-
-// ── Argument parsing ────────────────────────────────────────────────────────
 
 struct SplashArgs {
   DWORD parentPid = 0;
@@ -457,8 +408,6 @@ static SplashArgs ParseArgs() {
   return args;
 }
 
-// ── Entry point ─────────────────────────────────────────────────────────────
-
 int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int) {
   EnablePerMonitorDpi();
 
@@ -468,8 +417,6 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int) {
 
   SplashArgs args = ParseArgs();
 
-  // Brand assets are best-effort: a missing logo or font degrades the visuals
-  // (blank logo slot / Georgia italic) but must never abort the splash.
   if (args.logoPath[0]) {
     g_state.logo = new Image(args.logoPath);
     if (g_state.logo->GetLastStatus() != Ok) {
@@ -501,7 +448,6 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int) {
   wc.lpszClassName = L"StellaUpdateSplash";
   if (!RegisterClassExW(&wc)) return 1;
 
-  // Sized/centered against the primary work area at that monitor's DPI.
   HDC probe = GetDC(nullptr);
   int dpi = probe ? GetDeviceCaps(probe, LOGPIXELSY) : 96;
   if (probe) ReleaseDC(nullptr, probe);
@@ -527,7 +473,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int) {
   RoundWindowCorners(hwnd);
 
   if (g_state.logo) {
-    // Use the logo as the taskbar/alt-tab icon so the splash reads as Stella.
+
     Bitmap *bitmap = static_cast<Bitmap *>(g_state.logo);
     HICON icon = nullptr;
     if (bitmap->GetHICON(&icon) == Ok && icon) {
@@ -555,8 +501,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int) {
   }
 
   if (watcher) {
-    // The watcher only sleeps/polls; terminating at shutdown is safe and
-    // avoids waiting out a poll interval.
+
     TerminateThread(watcher, 0);
     CloseHandle(watcher);
   }

@@ -105,7 +105,6 @@ describe("normalizeDisplayPayload", () => {
     expect(normalizeDisplayPayload({ ...base, url: "/relative" })).toBeNull();
   });
 
-
   it("passes through valid media payloads", () => {
     const image: DisplayPayload = {
       kind: "media",
@@ -153,14 +152,14 @@ describe("normalizeDisplayPayload", () => {
     expect(
       normalizeDisplayPayload({
         kind: "media",
-        asset: { kind: "image" }, // missing filePaths
+        asset: { kind: "image" },
         createdAt: 1,
       }),
     ).toBeNull();
     expect(
       normalizeDisplayPayload({
         kind: "media",
-        asset: { kind: "image", filePaths: [] }, // ok shape, but no createdAt
+        asset: { kind: "image", filePaths: [] },
       }),
     ).toBeNull();
     expect(normalizeDisplayPayload({ kind: "unknown" })).toBeNull();

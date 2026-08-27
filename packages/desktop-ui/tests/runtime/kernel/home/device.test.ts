@@ -178,7 +178,7 @@ describe("device identity succession", () => {
     await writeUnreadableRecord(root, "old-device");
 
     await getOrCreateDeviceIdentity(root);
-    // A later launch must still be able to claim the succession.
+
     const reloaded = await getOrCreateDeviceIdentity(root);
 
     expect(reloaded.supersededDeviceId).toBe("old-device");
@@ -203,7 +203,6 @@ describe("device identity succession", () => {
     const root = await createTempDir();
     const first = await getOrCreateDeviceIdentity(root);
 
-    // A user-initiated reset is meant to cut ties, so pairings must not follow.
     const deliberate = await resetDeviceIdentity(root);
     expect(deliberate.supersededDeviceId).toBeUndefined();
 

@@ -93,22 +93,17 @@ describe("chat response spacer geometry", () => {
     const viewportHeightPx = 700;
     const trailingSlackPx = 460;
 
-    // A long user message briefly measured tall (pre-clamp), then the
-    // four-line clamp collapses the row. Both the row and the list content
-    // shrink by the same amount.
     const unclampedRowHeightPx = 600;
     const clampedRowHeightPx =
       collapsedUserMessageMaxHeight({
         fontSizePx: USER_MESSAGE_MOBILE_FONT_SIZE_PX,
         lineHeight: USER_MESSAGE_MOBILE_LINE_HEIGHT,
-      }) + 36; // bubble padding + Show-more toggle
+      }) + 36;
     const preClampContentPx = 2000;
     const postClampContentPx =
       preClampContentPx - (unclampedRowHeightPx - clampedRowHeightPx);
     const postClampMaxOffsetPx = postClampContentPx - viewportHeightPx;
 
-    // The stale anchor (computed from the tall paint) is left past the
-    // scrollable end once the row collapses — the send-scroll overshoot.
     const staleTargetPx = resolvePostSendPlacement({
       contentHeightPx: preClampContentPx,
       viewportHeightPx,
@@ -117,8 +112,6 @@ describe("chat response spacer geometry", () => {
     });
     expect(staleTargetPx).toBeGreaterThan(postClampMaxOffsetPx);
 
-    // Re-running placement against the settled (clamped) geometry lands the
-    // row exactly above the response spacer, within the scrollable range.
     const settledTargetPx = resolvePostSendPlacement({
       contentHeightPx: postClampContentPx,
       viewportHeightPx,
@@ -146,13 +139,11 @@ describe("chat response spacer geometry", () => {
       bottomInsetPx: restingInsetPx,
       minimumHeightPx: restingInsetPx,
     });
-    // Content = messages + bottom padding (inset) + response spacer beyond it.
+
     const inflatedContentPx = messagesHeightPx + inflatedSpacerPx;
     const restingContentPx = messagesHeightPx + restingSpacerPx;
     const restingMaxOffsetPx = restingContentPx - viewportHeightPx;
 
-    // Computing against the keyboard-inflated inset leaves the committed
-    // target past the content end once the padding collapses.
     const inflatedTargetPx = resolvePostSendPlacement({
       contentHeightPx: inflatedContentPx,
       viewportHeightPx,
@@ -161,8 +152,6 @@ describe("chat response spacer geometry", () => {
     });
     expect(inflatedTargetPx).toBeGreaterThan(restingMaxOffsetPx);
 
-    // Computing against the keyboard-down inset lands exactly at the settled
-    // content end (short row above the spacer).
     const restingTargetPx = resolvePostSendPlacement({
       contentHeightPx: restingContentPx,
       viewportHeightPx,

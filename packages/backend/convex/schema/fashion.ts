@@ -1,21 +1,8 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
 
-// ---------------------------------------------------------------------------
-// Validators (also exported so data/fashion.ts can reuse them)
-// ---------------------------------------------------------------------------
-
-/**
- * Optional free-form sizes object. Most fashion flows only need the local body
- * photo; when sizes are provided, the agent receives them verbatim.
- */
 export const fashion_sizes_validator = v.record(v.string(), v.string());
 
-/**
- * One garment slotted into an outfit. Slot lets the agent express what role
- * the item plays in the look (top, bottom, shoe, outerwear, accessory, etc.)
- * so the renderer can lay them around the try-on image consistently.
- */
 export const fashion_outfit_product_validator = v.object({
   slot: v.string(),
   productId: v.string(),
@@ -107,10 +94,6 @@ const fashionCheckoutSessionFields = {
   updatedAt: v.number(),
 };
 
-// ---------------------------------------------------------------------------
-// Row validators (handy for return types in queries/actions)
-// ---------------------------------------------------------------------------
-
 export const fashion_profile_validator = v.object({
   _id: v.id("fashion_profiles"),
   _creationTime: v.number(),
@@ -140,10 +123,6 @@ export const fashion_checkout_session_validator = v.object({
   _creationTime: v.number(),
   ...fashionCheckoutSessionFields,
 });
-
-// ---------------------------------------------------------------------------
-// Schema
-// ---------------------------------------------------------------------------
 
 export const fashionSchema = {
   fashion_profiles: defineTable(fashionProfileFields).index(

@@ -7,9 +7,8 @@ import {
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{32,64}$/;
 
-/** How long after completion a handoff may still be claimed. */
 const CLAIM_WINDOW_MS = 3 * 60_000;
-/** Wrong-secret attempts before the row is destroyed. */
+
 const MAX_CLAIM_ATTEMPTS = 5;
 
 export const createPendingLinkRequest = internalMutation({
@@ -32,11 +31,6 @@ export const createPendingLinkRequest = internalMutation({
   },
 });
 
-/**
- * `nowMs` comes from the caller (the polling httpAction) so the expiry check
- * is deterministic — calling `Date.now()` in a query handler would
- * invalidate Convex's reactive cache for every subscriber on every read.
- */
 export const getLinkRequestStatus = internalQuery({
   args: {
     requestId: v.string(),
@@ -91,13 +85,6 @@ export const completeLinkRequest = internalMutation({
   },
 });
 
-/**
- * Atomically verify the claim secret and consume the handoff.
- *
- * Single-use: the row is deleted on success, and destroyed after too many
- * wrong attempts. Returns the encrypted token for the caller to decrypt —
- * this mutation never sees plaintext.
- */
 export const claimLinkRequest = internalMutation({
   args: {
     requestId: v.string(),
@@ -131,7 +118,6 @@ export const claimLinkRequest = internalMutation({
       return { ok: false as const };
     }
 
-    // Single use: the handoff dies with the claim.
     await ctx.db.delete(record._id);
     return { ok: true as const, tokenEnc: record.tokenEnc };
   },

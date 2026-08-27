@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import type { DesktopThreadActivityRecord as ThreadActivityRecord } from "@/features/chat/thread-activity-types";
 import { subscribeToThreadActivityRecord } from "@/features/chat/services/thread-activity-store";
 
-/** Indexed activity rows for a small owned set of threads. Unlike the
- * conversation hook, unrelated agent transitions do not wake this caller. */
 export const useThreadActivityRecords = (
   conversationId: string | undefined,
   threadIds: readonly string[],

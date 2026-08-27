@@ -105,8 +105,7 @@ describe("connector_status tool", () => {
         name: "Notion",
         reason: "To file your notes",
         iconUrl: "https://example.com/notion.png",
-        // Card scoping: the originating chat rides along so the renderer
-        // shows the card only in that conversation.
+
         conversationId: "c1",
       }),
       undefined,
@@ -131,7 +130,6 @@ describe("connector_status tool", () => {
     expect(first.details).toMatchObject({ id: "notion", status: "declined" });
     expect(await getConnectorDecline(root, "notion")).not.toBeNull();
 
-    // Second call: no new card, previously-declined guidance instead.
     const second = await tool.execute({ connector: "notion" }, context);
     expect(requester).toHaveBeenCalledTimes(1);
     expect(resultText(second)).toContain("previously declined");
@@ -191,8 +189,7 @@ describe("connector_status tool", () => {
       reason: "cancelled" as const,
     }));
     const tool = makeTool(root, requester);
-    // No abort signal: a `cancelled` outcome without a turn abort means the
-    // user dismissed the card without answering.
+
     const result = await tool.execute({ connector: "notion" }, context);
     expect(resultText(result)).toContain("dismissed");
     expect(result.details).toMatchObject({
@@ -206,7 +203,7 @@ describe("connector_status tool", () => {
   it("reports a missing connect flow as not_connected", async () => {
     const root = makeRoot();
     await writeCachedServerCatalog(root, [notionEntry]);
-    // No requester wired (e.g. headless host): the card can't be shown.
+
     const tool = makeTool(root);
     const result = await tool.execute({ connector: "notion" }, context);
     expect(resultText(result)).toContain("cannot be connected from here");
@@ -236,9 +233,7 @@ describe("connector_status tool", () => {
   });
 
   it("receives the connect-card requester through the tool host", async () => {
-    // Regression: createToolHost used to drop `requestConnectorConnection`
-    // on the floor, so the tool always hit the "cannot be connected from
-    // here" guard and the connect card never appeared.
+
     const root = makeRoot();
     await writeCachedServerCatalog(root, [notionEntry]);
     const requester = vi.fn(async () => ({
@@ -270,8 +265,7 @@ describe("connector_status tool", () => {
     const root = makeRoot();
     await writeCachedServerCatalog(root, [notionEntry]);
     const controller = new AbortController();
-    // Requester models the worker hop: it resolves `cancelled` when the
-    // abort signal fires (after cancelling the desktop card).
+
     const requester: ConnectorConnectionRequester = (_payload, signal) =>
       new Promise((resolve) => {
         const finish = () => resolve({ ok: false, reason: "cancelled" });
@@ -293,7 +287,7 @@ describe("connector_status tool", () => {
       status: "not_connected",
       reason: "turn_cancelled",
     });
-    // A turn abort is not a user decline.
+
     expect(await getConnectorDecline(root, "notion")).toBeNull();
   });
 });

@@ -1,5 +1,3 @@
-// @vitest-environment jsdom
-
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -89,7 +87,7 @@ describe("shell top-bar account control", () => {
   const render = async (signedIn: boolean) => {
     mocks.hasConnectedAccount = signedIn;
     await act(async () => {
-      // Mirrors ShellTopBarFull: the standalone gear renders only signed out.
+
       root.render(
         <>
           <ShellTopBarAccount onSignIn={mocks.onSignIn} />
@@ -153,7 +151,7 @@ describe("shell top-bar account control", () => {
       true,
     );
     expect(account.textContent).toContain("anon");
-    // The gear lives inside the single click target, not as a sibling button.
+
     expect(
       account.querySelector(".shell-topbar-account-settings-icon svg"),
     ).not.toBeNull();
@@ -194,7 +192,7 @@ describe("shell top-bar account control", () => {
     expect(signIn).not.toBeNull();
     expect(gear).not.toBeNull();
     expect(signIn?.contains(gear)).toBe(false);
-    // No gear folded into the sign-in button itself.
+
     expect(
       signIn?.querySelector(".shell-topbar-account-settings-icon"),
     ).toBeNull();

@@ -20,9 +20,6 @@ import {
   type BridgeEncryptedEnvelope,
 } from "./bridge-envelope";
 
-// The protocol/envelope core lives in `bridge-envelope.ts` (pure, testable —
-// no Expo imports); this module binds Expo randomness onto it and owns the
-// x25519 key exchange + pairing proofs.
 export {
   BRIDGE_CRYPTO_PROTOCOL,
   base64UrlToBytes,

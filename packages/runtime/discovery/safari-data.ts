@@ -1,10 +1,3 @@
-/**
- * Safari Data Collection
- *
- * Reads Safari browser history and bookmarks on macOS.
- * Requires Full Disk Access for both History.db and Bookmarks.plist.
- */
-
 import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
@@ -21,8 +14,7 @@ type SqliteDatabase = {
 
 const openDatabase = async (dbPath: string): Promise<SqliteDatabase> => {
   const { Database } = await import("bun:sqlite");
-  // Read the live DB directly via an immutable URI: skips locking and reads
-  // the main file without its WAL sidecars. Best-effort one-time snapshot.
+
   const uri = `${pathToFileURL(dbPath).href}?immutable=1`;
   return new Database(uri, { readonly: true }) as SqliteDatabase;
 };
@@ -36,14 +28,6 @@ const execAsync = (command: string): Promise<string> => {
   });
 };
 
-// ---------------------------------------------------------------------------
-// Safari History
-// ---------------------------------------------------------------------------
-
-/**
- * Collect Safari browsing history (last 7 days)
- * Requires Full Disk Access to read ~/Library/Safari/History.db
- */
 export const collectSafariHistory = async (): Promise<
   { domain: string; visits: number }[]
 > => {
@@ -54,7 +38,7 @@ export const collectSafariHistory = async (): Promise<
   const historyPath = path.join(os.homedir(), "Library", "Safari", "History.db");
 
   try {
-    // Check if the file exists
+
     await fs.access(historyPath);
   } catch {
     log("Safari History.db not found");
@@ -64,11 +48,9 @@ export const collectSafariHistory = async (): Promise<
   let db: SqliteDatabase | null = null;
 
   try {
-    // Open the live database directly readonly
+
     db = await openDatabase(historyPath);
 
-    // Query top domains by explicit visit rows in the last 7 days.
-    // Safari history_visits.visit_time is CFAbsoluteTime (seconds since 2001-01-01).
     const query = `
       SELECT
         hi.domain AS domain,
@@ -87,7 +69,7 @@ export const collectSafariHistory = async (): Promise<
     try {
       rows = db.prepare(query).all() as Array<{ domain: string; visits: number }>;
     } catch (visitQueryError) {
-      // Fallback for schema variants where history_visits is unavailable.
+
       const fallbackQuery = `
         SELECT domain, visit_count
         FROM history_items
@@ -123,10 +105,6 @@ export const collectSafariHistory = async (): Promise<
   }
 };
 
-// ---------------------------------------------------------------------------
-// Safari Bookmarks
-// ---------------------------------------------------------------------------
-
 type BookmarkNode = {
   Title?: string;
   URLString?: string;
@@ -139,20 +117,16 @@ type BookmarksPlist = {
   Children?: BookmarkNode[];
 };
 
-/**
- * Recursively walk bookmark tree and collect entries
- */
 const walkBookmarks = (
   node: BookmarkNode,
   folder: string,
   result: BookmarkEntry[]
 ): void => {
-  // Skip proxy entries (Reading List header, etc.)
+
   if (node.WebBookmarkType === "WebBookmarkTypeProxy") {
     return;
   }
 
-  // Leaf node: has URL
   if (node.URLString) {
     const title = node.URIDictionary?.title || node.Title || "Untitled";
     result.push({
@@ -163,7 +137,6 @@ const walkBookmarks = (
     return;
   }
 
-  // Folder node: has children
   if (node.Children) {
     const folderName = node.Title || folder;
     for (const child of node.Children) {
@@ -172,10 +145,6 @@ const walkBookmarks = (
   }
 };
 
-/**
- * Collect Safari bookmarks from Bookmarks.plist
- * Requires Full Disk Access to read ~/Library/Safari/Bookmarks.plist
- */
 export const collectSafariBookmarks = async (): Promise<BookmarkEntry[]> => {
   if (process.platform !== "darwin") {
     return [];
@@ -184,7 +153,7 @@ export const collectSafariBookmarks = async (): Promise<BookmarkEntry[]> => {
   const bookmarksPath = path.join(os.homedir(), "Library", "Safari", "Bookmarks.plist");
 
   try {
-    // Convert binary plist to JSON
+
     const jsonOutput = await execAsync(
       `plutil -convert json -o - "${bookmarksPath}"`
     );
@@ -199,7 +168,6 @@ export const collectSafariBookmarks = async (): Promise<BookmarkEntry[]> => {
       }
     }
 
-    // Limit to 200 entries
     return result.slice(0, 200);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EPERM") {
@@ -211,13 +179,6 @@ export const collectSafariBookmarks = async (): Promise<BookmarkEntry[]> => {
   }
 };
 
-// ---------------------------------------------------------------------------
-// Main Collection
-// ---------------------------------------------------------------------------
-
-/**
- * Collect Safari history and bookmarks
- */
 export const collectSafariData = async (): Promise<SafariData | null> => {
   if (process.platform !== "darwin") {
     return null;
@@ -243,19 +204,11 @@ export const collectSafariData = async (): Promise<SafariData | null> => {
   return { history, bookmarks };
 };
 
-// ---------------------------------------------------------------------------
-// Formatting for Synthesis
-// ---------------------------------------------------------------------------
-
-/**
- * Format Safari data for LLM synthesis input
- */
 export const formatSafariDataForSynthesis = (data: SafariData | null): string => {
   if (!data) return "";
 
   const sections: string[] = ["## Safari Data"];
 
-  // Top domains (limit to 20)
   if (data.history.length > 0) {
     sections.push("\n### Top Domains");
     sections.push(
@@ -266,11 +219,9 @@ export const formatSafariDataForSynthesis = (data: SafariData | null): string =>
     );
   }
 
-  // Bookmarks (limit to 15 folders with 8 entries each)
   if (data.bookmarks.length > 0) {
     sections.push("\n### Bookmarks");
 
-    // Group bookmarks by folder
     const byFolder = new Map<string, BookmarkEntry[]>();
     for (const bookmark of data.bookmarks) {
       const folder = bookmark.folder || "Bookmarks";
@@ -280,17 +231,15 @@ export const formatSafariDataForSynthesis = (data: SafariData | null): string =>
       byFolder.get(folder)!.push(bookmark);
     }
 
-    // Limit to 15 folders
     const folders = Array.from(byFolder.entries()).slice(0, 15);
 
     for (const [folder, entries] of folders) {
       sections.push(`\n**${folder}**`);
 
-      // Limit to 8 entries per folder
       const limitedEntries = entries.slice(0, 8);
 
       for (const entry of limitedEntries) {
-        // Extract domain from URL for compact display
+
         const domain = extractDomain(entry.url);
         sections.push(`- ${entry.title} (${domain})`);
       }
@@ -300,9 +249,6 @@ export const formatSafariDataForSynthesis = (data: SafariData | null): string =>
   return sections.join("\n");
 };
 
-/**
- * Extract domain from URL
- */
 const extractDomain = (url: string): string => {
   try {
     const urlObj = new URL(url);

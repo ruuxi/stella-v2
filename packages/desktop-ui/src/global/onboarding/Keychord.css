@@ -1,8 +1,3 @@
-/* Shared keychord visual. The look is the voice-phase Mac-key chord:
- * raised cap with a thicker bottom border, neutral background, and a
- * small `+` separator between groups. Two sizes — `default` for hero
- * prompts and `compact` for dense card layouts. */
-
 .onboarding-keychord {
   display: inline-flex;
   align-items: center;
@@ -51,8 +46,6 @@
   user-select: none;
 }
 
-/* Compact variant — keeps the same proportions and bottom-border weight,
- * just smaller, for places where the chord lives inside a denser card. */
 .onboarding-keychord[data-size="compact"] .onboarding-keychord__cap {
   min-width: 32px;
   height: 32px;
@@ -76,7 +69,6 @@
   font-size: var(--font-size-sm);
 }
 
-/* Highlight when the user just pressed the chord. */
 .onboarding-keychord[data-highlight] .onboarding-keychord__cap {
   background: color-mix(in oklch, var(--primary) 16%, transparent);
   border-color: color-mix(in oklch, var(--primary) 38%, transparent);

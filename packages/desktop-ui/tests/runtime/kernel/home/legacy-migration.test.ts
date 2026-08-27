@@ -25,7 +25,6 @@ afterEach(async () => {
 const hash = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 
-/** The old whole-directory hash: sorted rel paths + contents, NUL-joined. */
 const dirHash = (files: Record<string, string>) => {
   const h = createHash("sha256");
   for (const rel of Object.keys(files).sort()) {
@@ -44,7 +43,6 @@ describe("migrateLegacyHomeLayout", () => {
   it("deletes unmodified entries, converts modified agents to .replace.md, keeps forks", async () => {
     const home = await tempDir("legacy-migration-");
 
-    // Agents: one pristine, one customized, one user-owned (no record).
     await mkdir(path.join(home, "agents"), { recursive: true });
     await writeFile(path.join(home, "agents", "general.md"), "shipped general");
     await writeFile(
@@ -60,7 +58,6 @@ describe("migrateLegacyHomeLayout", () => {
       }),
     );
 
-    // Prompts: one pristine, one customized.
     await mkdir(path.join(home, "prompts"), { recursive: true });
     await writeFile(
       path.join(home, "prompts", "memory-review.md"),
@@ -78,7 +75,6 @@ describe("migrateLegacyHomeLayout", () => {
       }),
     );
 
-    // Skills: one pristine, one forked, one user-owned.
     await mkdir(path.join(home, "skills", "pdf"), { recursive: true });
     await writeFile(path.join(home, "skills", "pdf", "SKILL.md"), "pdf");
     await mkdir(path.join(home, "skills", "browser"), { recursive: true });
@@ -96,7 +92,6 @@ describe("migrateLegacyHomeLayout", () => {
       }),
     );
 
-    // Personality: customized.
     await writeFile(path.join(home, "PERSONALITY.md"), "my personality");
     await writeFile(
       path.join(home, ".personality-manifest.json"),
@@ -105,7 +100,6 @@ describe("migrateLegacyHomeLayout", () => {
 
     await migrateLegacyHomeLayout(home);
 
-    // Pristine entries are gone so the current bundled synchronizer can restore them.
     await expect(
       readFile(path.join(home, "agents", "general.md"), "utf-8"),
     ).rejects.toThrow();
@@ -116,7 +110,6 @@ describe("migrateLegacyHomeLayout", () => {
       readFile(path.join(home, "skills", "pdf", "SKILL.md"), "utf-8"),
     ).rejects.toThrow();
 
-    // Customized agent became a full replacement.
     await expect(
       readFile(path.join(home, "agents", "orchestrator.replace.md"), "utf-8"),
     ).resolves.toBe("customized orchestrator");
@@ -124,7 +117,6 @@ describe("migrateLegacyHomeLayout", () => {
       readFile(path.join(home, "agents", "orchestrator.md"), "utf-8"),
     ).rejects.toThrow();
 
-    // Customized prompt/skill/personality stay in place as replacements/forks.
     await expect(
       readFile(path.join(home, "prompts", "thread-compaction.md"), "utf-8"),
     ).resolves.toBe("customized compaction");
@@ -135,7 +127,6 @@ describe("migrateLegacyHomeLayout", () => {
       readFile(path.join(home, "PERSONALITY.md"), "utf-8"),
     ).resolves.toBe("my personality");
 
-    // User-owned entries untouched.
     await expect(
       readFile(path.join(home, "agents", "my-agent.md"), "utf-8"),
     ).resolves.toBe("mine");
@@ -143,7 +134,6 @@ describe("migrateLegacyHomeLayout", () => {
       readFile(path.join(home, "skills", "gmail", "SKILL.md"), "utf-8"),
     ).resolves.toBe("mine");
 
-    // Manifests are gone.
     await expect(
       readFile(path.join(home, "agents", ".bundled-manifest.json"), "utf-8"),
     ).rejects.toThrow();

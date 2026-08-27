@@ -8,11 +8,6 @@ import { setPendingShare } from "./pending-share";
 const asFileUri = (path: string) =>
   path.startsWith("file://") ? path : `file://${path}`;
 
-/**
- * Watches the native share sheet intent (text, links, images shared into
- * Stella) and forwards it to the chat composer. Mounted once at the root so
- * both cold starts and warm shares land in the same place.
- */
 export function ShareIntentHandler() {
   const router = useRouter();
   const { hasShareIntent, shareIntent, resetShareIntent } =
@@ -39,7 +34,7 @@ export function ShareIntentHandler() {
             fileName: file.fileName,
           } as ImagePickerAsset);
         } catch {
-          // Skip unreadable files rather than dropping the whole share.
+
         }
         if (assets.length >= 5) break;
       }

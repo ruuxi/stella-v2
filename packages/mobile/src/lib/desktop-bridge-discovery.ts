@@ -15,10 +15,6 @@ const readStringArray = (value: unknown): string[] | null => {
   return value;
 };
 
-/**
- * Parse the additive durable descriptor defensively. A malformed descriptor
- * must not break the legacy live-registration response used by older clients.
- */
 export function readDesktopBridgeRegistrationDescriptor(
   value: unknown,
 ): DesktopBridgeRegistrationDescriptor | null {
@@ -57,21 +53,12 @@ const uniqueBaseUrls = (values: string[]) => [
 ];
 
 export type DesktopBridgeStatusProbeResult = {
-  /** A route whose `/bridge/health` endpoint answered successfully. */
+
   reachableUrl: string | null;
-  /**
-   * A currently leased URL that may still be tried for old desktops without a
-   * health endpoint. Durable descriptors never qualify for this fallback.
-   */
+
   liveFallbackUrl: string | null;
 };
 
-/**
- * Resolve backend discovery metadata using direct route health as the source
- * of truth. An expired lease can therefore connect through a durable
- * descriptor, but only a currently leased registration retains the legacy
- * unverified fallback for old desktop versions.
- */
 export async function probeDesktopBridgeStatus(
   status: DesktopBridgeStatus,
   desktopDeviceId: string,

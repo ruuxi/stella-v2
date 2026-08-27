@@ -1,11 +1,3 @@
-/* ============================================================
-   Activity history dialog — full-list "See all" view opened
-   from the chat home overview. Reuses the schedule-details
-   dialog's Apple-polish surface conventions: roomy padding,
-   close button in the header, and a contained scroller with
-   fade masks instead of a visible scrollbar.
-   ============================================================ */
-
 .activity-history-dialog[data-slot="dialog-content"] {
   min-height: 0;
   width: min(520px, 100%);
@@ -73,12 +65,6 @@
   box-shadow: var(--focus-ring);
 }
 
-/* Scroller wrapper. Hosts a virtualized LegendList (which manages its
-   own internal scrolling); we keep the wrapper as the mask/fade surface
-   so the top/bottom feathering is stable regardless of which DOM node
-   Legend renders. Hidden overflow on the wrapper means everything
-   scrolls inside Legend, but the mask still feathers the visible edges
-   so partially-revealed rows look intentional. */
 .activity-history-dialog__scroll {
   flex: 1;
   min-height: 0;
@@ -102,9 +88,6 @@
   );
 }
 
-/* Suppress the visible scrollbar Legend draws on its own scroll node.
-   We keep scroll behaviour, just hide the chrome — same convention as
-   the home overview section bodies. */
 .activity-history-dialog__scroll
   [data-legend-list-root] {
   scrollbar-width: none;
@@ -155,9 +138,6 @@
   color: color-mix(in oklch, var(--foreground) 55%, var(--destructive));
 }
 
-/* Work-group nesting in the Completed section: one group entry
-   (groupLabel + aggregate tally) with its member rows indented
-   beneath it. Ungrouped rows are untouched. */
 .activity-history-dialog__row--group .activity-history-dialog__row-text {
   font-weight: var(--weight-medium);
 }
@@ -209,9 +189,7 @@
 }
 
 .activity-history-dialog__row-meta--path {
-  /* File rows put the full path on the right as supporting context.
-     Keep it dim, single-line, and willing to clip — the basename is
-     what the user actually reads. */
+
   max-width: 60%;
   overflow: hidden;
   text-overflow: ellipsis;

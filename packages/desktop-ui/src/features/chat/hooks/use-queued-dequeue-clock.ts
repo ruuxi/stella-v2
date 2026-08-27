@@ -9,11 +9,6 @@ type UseQueuedDequeueClockOptions = {
   optimisticEvents: readonly Timestamped[]
 }
 
-/**
- * Per-conversation logical clock for renderer-owned queue drains. Switching
- * conversations or remounting starts a fresh clock, while the current
- * transcript always supplies the lower bound for the next issued timestamp.
- */
 export const useQueuedDequeueClock = ({
   conversationId,
   persistedMessages,

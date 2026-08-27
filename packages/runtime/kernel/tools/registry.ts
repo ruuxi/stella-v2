@@ -1,21 +1,3 @@
-/**
- * Residual handler factories.
- *
- * Stella's tool surface is defined by self-contained `ToolDefinition`s under
- * `runtime/kernel/tools/defs/` — one tool per file, each owning its own
- * name + description + parameters + handler. The host imports them through
- * `defs/index.ts::buildBuiltinTools` and routes calls directly.
- *
- * What's left here:
- *   - `mergeToolHandlers`: small utility used by the host
- *   - `createShellToolHandlers`: legacy companions to `exec_command` /
- *     `write_stdin` (Bash / ShellStatus / KillShell). Reachable only via
- *     direct `executeTool` calls from non-model code paths; not exposed in
- *     the model-facing catalog.
- *   - `registerExtensionToolHandlers`: helper that lets the host map
- *     runtime-injected ToolDefinitions onto the same handler map.
- */
-
 import {
   handleBash,
   handleKillShell,
@@ -29,8 +11,6 @@ export const mergeToolHandlers = (
   ...groups: Array<Record<string, ToolHandler>>
 ): Record<string, ToolHandler> => Object.assign({}, ...groups);
 
-// Bash / ShellStatus / KillShell remain here; exec_command and write_stdin
-// live in defs/exec-command.ts and defs/write-stdin.ts now.
 export const createShellToolHandlers = (
   shellState: ShellState,
 ): Record<string, ToolHandler> => ({

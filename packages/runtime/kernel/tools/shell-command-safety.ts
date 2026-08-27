@@ -115,11 +115,6 @@ function readBacktickCommand(
   return null;
 }
 
-/**
- * A deliberately small shell lexer. It is not used to execute or rewrite the
- * command; it only separates actual command positions from inert quoted text.
- * Unknown or incomplete syntax is left as ordinary words rather than guessed.
- */
 function lexShell(input: string): LexedShell {
   const tokens: ShellToken[] = [];
   const nestedCommands: string[] = [];
@@ -202,7 +197,7 @@ function lexShell(input: string): LexedShell {
       wordStarted = true;
       continue;
     }
-    // ANSI-C and locale strings are command words, not a literal '$' prefix.
+
     if (
       !quote &&
       char === "$" &&
@@ -223,15 +218,13 @@ function lexShell(input: string): LexedShell {
         /^(?:[A-Za-z]:|\/\/)/u.test(word) &&
         /\s/u.test(next)
       ) {
-        // PowerShell and cmd do not use a trailing Windows path separator to
-        // escape the following argument separator.
+
         word += char;
       } else if (quote === '"' || /[\s'"`$;&|<>(){}\\]/u.test(next)) {
         word += next;
         index += 1;
       } else {
-        // Preserve Windows path separators. Executable-name matching also
-        // checks a POSIX-unescaped spelling, so r\m cannot evade detection.
+
         word += char;
       }
       wordStarted = true;
@@ -426,7 +419,7 @@ function trimWholeContentsSuffix(value: string): string {
 function normalizeDrivePath(value: string): string | null {
   const match = /^([A-Za-z]):(?:\/(.*))?$/u.exec(value);
   if (!match) return null;
-  // Bare C: means the drive's current directory, not its root.
+
   if (!value.includes("/")) return `${match[1].toLowerCase()}:`;
   const normalizedSuffix = path.posix.normalize(`/${match[2] ?? ""}`);
   return `${match[1].toLowerCase()}:${normalizedSuffix}`.toLowerCase();
@@ -1163,7 +1156,7 @@ function inspectCommand(
   suppliedState?: AnalysisState,
 ): string | null {
   if (depth > MAX_NESTED_COMMAND_DEPTH) return null;
-  // This exact token sequence is shell grammar rather than a normal command.
+
   if (/^\s*:\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:\s*$/u.test(command)) {
     return "fork bomb";
   }
@@ -1232,11 +1225,6 @@ function inspectCommand(
   return null;
 }
 
-/**
- * Returns a reason only for catastrophic, host-wide shell operations. This is
- * a final footgun guard, not a sandbox, approval policy, or general-purpose
- * destructive-command filter.
- */
 export function getCatastrophicShellCommandReason(
   command: string,
   cwd?: string,

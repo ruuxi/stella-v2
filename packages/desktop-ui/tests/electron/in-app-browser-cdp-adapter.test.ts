@@ -212,11 +212,6 @@ describe("InAppBrowserCdpAdapter", () => {
       "ownerId must be a non-empty capability string",
     );
 
-    // Freeze Date.now around the capability creation so the expiry math is
-    // deterministic: createOwnerCapability sets expiresAt = Date.now() +
-    // OWNER_CAPABILITY_TTL_MS (60_000). Reading Date.now() separately for the
-    // reference lets real-clock drift between the two reads flake the delta to
-    // 60_001, so pin both reads to the same instant and assert the exact TTL.
     const frozenNow = Date.now();
     const ttlNowSpy = vi.spyOn(Date, "now").mockReturnValue(frozenNow);
     const capability = await adapter.createOwnerCapability("owner-a");

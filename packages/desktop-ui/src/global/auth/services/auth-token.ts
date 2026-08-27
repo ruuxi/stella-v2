@@ -1,12 +1,3 @@
-/**
- * Auth token helper for custom HTTP endpoints (e.g. /api/chat,
- * /api/speech-to-text/session).
- *
- * The Electron main process owns the Better Auth bearer token. The renderer
- * asks main for a Convex JWT and includes that short-lived token as an
- * Authorization header.
- */
-
 import { configurePiRuntime } from "@/platform/electron/device";
 import { getJwtExpMs } from "@/shared/lib/jwt";
 
@@ -15,19 +6,12 @@ let tokenExpiresAt = 0;
 let inflightTokenPromise: Promise<string | null> | null = null;
 let tokenRequestVersion = 0;
 
-// JWT lifetime is ~30 minutes (server-minted); refresh 60s before the token's
-// own `exp` (read dynamically below) to avoid races. The margin adapts to
-// whatever expiry the token actually carries.
 const REFRESH_MARGIN_MS = 60_000;
 
 type GetConvexTokenOptions = {
   forceRefresh?: boolean;
 };
 
-/**
- * Get a valid Convex JWT for use in HTTP endpoint Authorization headers.
- * Caches the token and refreshes it before expiry.
- */
 export async function getConvexToken(
   options: GetConvexTokenOptions = {},
 ): Promise<string | null> {
@@ -66,7 +50,7 @@ export async function getConvexToken(
       }
 
       cachedToken = token;
-      // Parse JWT exp claim for precise refresh timing
+
       try {
         tokenExpiresAt = getJwtExpMs(token) - REFRESH_MARGIN_MS;
       } catch (err) {
@@ -95,9 +79,6 @@ export async function getConvexToken(
   return inflightTokenPromise;
 }
 
-/**
- * Build headers for authenticated HTTP requests to Convex HTTP endpoints.
- */
 export async function getAuthHeaders(
   extra?: Record<string, string>,
 ): Promise<Record<string, string>> {
@@ -108,7 +89,6 @@ export async function getAuthHeaders(
   };
 }
 
-/** Clear cached token (e.g. on sign-out). */
 export function clearCachedToken(): void {
   tokenRequestVersion += 1;
   cachedToken = null;

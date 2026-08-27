@@ -42,9 +42,7 @@ import { scheduleGlobalInputHooksAfterAppReady } from "./global-input-hooks.js";
 import { randomUUID } from "crypto";
 import { startOfficePreviewBridge } from "./office-preview-bridge.js";
 const DEFAULT_STELLA_WEB_URL = "https://stella.sh";
-// Delay native-service startup ~4s past app-ready so the bridge/office-preview
-// spawns stay off the first-paint (TTI) path. Previously Windows-only; now
-// applied on all platforms.
+
 const POST_READY_NATIVE_DELAY_MS = 4_000;
 const readStellaWebBaseUrl = () => {
     const raw = (process.env.STELLA_WEB_URL ??
@@ -58,7 +56,7 @@ const readStellaWebBaseUrl = () => {
     }
 };
 export const registerBootstrapIpcHandlers = (context, resetFlows) => {
-    // Capture all ipcMain.handle registrations for the mobile bridge
+
     const stopCapturing = startCapturingHandlers();
     const lazyMobileBroadcast = () => getMobileBroadcast(context);
     const { config, lifecycle, services, state } = context;
@@ -161,21 +159,13 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
             return;
         }
         postReadyNativeServicesScheduled = true;
-        // Keep native-service startup off the TTI path on every platform. Windows
-        // already deferred ~4s post-paint; apply the same delay on macOS/Linux so
-        // the bridge spawn never competes with first paint.
+
         state.processRuntime.setManagedTimeout(() => {
             postReadyNativeServicesScheduled = false;
             if (!state.appReady || state.isQuitting) {
                 return;
             }
-            // Only spawn the browser-bridge daemon when a cheap precondition says the
-            // user actually uses browser automation (host already registered, or the
-            // extension is installed). Spawning unconditionally launched an extra
-            // Electron-as-Node process that, for users without the extension, just
-            // retried with backoff before failing — pure startup cost. Users who DO
-            // have the extension still get the bridge; first-time setup picks it up on
-            // the next launch once the extension/host registration is detected.
+
             if (isBrowserBridgeEagerStartWorthwhile()) {
                 startStellaBrowserBridge(context);
             }
@@ -192,16 +182,11 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         setAppReady: (ready) => {
             state.appReady = ready;
             if (ready) {
-                // Apply the preventComputerSleep power toggle here rather than during
-                // synchronous bootstrap — it's not needed for the window to appear and
-                // forces the first preferences.json read off the pre-paint path.
+
                 setPreventComputerSleep(loadLocalPreferences(config.stellaDataDirPath).preventComputerSleep);
                 scheduleGlobalInputHooksAfterAppReady(context);
                 schedulePostReadyNativeServices();
-                // Install the platform-appropriate on-device dictation model in
-                // the background after first paint. Until this completes the
-                // renderer's local attempt fails fast and uses cloud STT, so a
-                // large first-run download never blocks or breaks dictation.
+
                 if (process.platform === "darwin" || process.platform === "win32") {
                     void downloadLocalParakeet().then((status) => {
                         if (!status.available) {
@@ -292,10 +277,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         getStellaAppDir: lifecycle.getStellaAppDir,
         getStellaDataDir: lifecycle.getStellaDataDir,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
-        // On-demand fallback to the eager startup gate: if the extension wasn't
-        // detected at launch (installed mid-session, or in a custom user-data-dir),
-        // the first browser-session fetch still starts the bridge. Idempotent —
-        // reuses the existing resource if already running.
+
         ensureBrowserBridgeStarted: () => startStellaBrowserBridge(context),
     });
     registerDiscoveryHandlers({
@@ -367,15 +349,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     registerUpdatesHandlers({
         getAllWindows: () => getAllWindows(context),
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
-        // Fires the instant a restart-to-install is accepted, before the
-        // updater starts quitting. electron-updater/Squirrel closes every
-        // window and then waits for this process to exit before it swaps the
-        // bundle in and relaunches. The always-on-top overlay and pet windows
-        // veto their own `close` (preventDefault) unless `isQuitting` is set,
-        // so if that sweep runs before `before-quit-for-update` lands they can
-        // strand a hidden, still-live app that never relaunches. Arm the quit
-        // flag and force-destroy those windows now — `destroy()` tears the
-        // BrowserWindow down without emitting `close`, so nothing can veto it.
+
         onBeforeRestart: () => {
             state.isQuitting = true;
             try {
@@ -418,9 +392,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         stellaDataDirPath: state.stellaDataDirPath,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
-    // Register dictation first so we can pass `startPetDictation` into
-    // the pet handlers — the pet's mic action is dictation now (voice
-    // is wake-word driven, not button-driven).
+
     const dictationPushToTalk = registerDictationHandlers({
         windowManager: state.windowManager,
         getOverlayController: () => state.overlayController ?? null,
@@ -440,11 +412,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         startPetDictation: () => dictationPushToTalk.startPetDictation(),
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
-    // ── Wake-word listener ──────────────────────────────────────────────
-    // Spawns the native `wakeword_listener` helper. On a "Hey Stella"
-    // detection it activates the realtime voice agent. Mic buttons stay dictation-only — voice is
-    // wake-word-gated. Auto-pauses while a voice session is active so
-    // the assistant cannot trigger itself.
+
     services.uiStateService.onVoiceActiveChanged((active) => {
         wakewordPausedForVoice = active;
         if (!active) {
@@ -456,15 +424,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         syncWakewordPause();
     });
     syncWakewordPause();
-    // Defer both the preferences.json read AND the enable/spawn off the pre-paint
-    // IPC-registration path. The synchronous statSync+readFileSync that fed the
-    // listener threshold used to run before first paint; loading prefs here keeps
-    // that disk read off the TTI path. The threshold is only consumed by
-    // WakewordService at spawn time, so constructing the service here loses
-    // nothing. For "Hey Stella" users `setEnabled(true)` synchronously spawns the
-    // native wakeword_listener helper (ONNX model load + mic open), which we don't
-    // want blocking first paint either. setEnabled is idempotent and
-    // timing-tolerant.
+
     state.processRuntime.setManagedTimeout(() => {
         const stellaDataDir = lifecycle.getStellaDataDir();
         const wakePrefs = stellaDataDir
@@ -479,8 +439,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
                 togglePetVoiceImpl();
             },
         });
-        // Inherit any pause state accumulated (voice/dictation) during the deferral
-        // gap before applying the persisted enabled preference.
+
         syncWakewordPause();
         wakeword.setEnabled(wakePrefs.wakeWordEnabled);
     }, 0);
@@ -507,10 +466,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
             prefs.wakeWordEnabled = next;
             saveLocalPreferences(root, prefs);
         }
-        // Null-safe: the listener is now constructed in a deferred post-registration
-        // task. The persisted preference above is the source of truth, so a toggle
-        // that lands before construction is honored when the deferred setEnabled
-        // runs; `?.` only guards the (renderer-not-yet-painted) startup race.
+
         wakeword?.setEnabled(next);
         return { enabled: next };
     });

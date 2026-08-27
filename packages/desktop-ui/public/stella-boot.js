@@ -1,10 +1,6 @@
 (function () {
   var root = document.documentElement;
 
-  // Shared UI state snapshot (~/.stella/ui-state.json), exposed before this
-  // script by the Electron preload or the dev server's injected inline
-  // script. localStorage remains only as a first-boot-after-migration
-  // fallback while the shared store is still empty.
   var uiState = window.__stellaUiState || {};
 
   var readStorage = function (key) {
@@ -22,10 +18,6 @@
   root.dataset.stellaWindow = params.get("window") === "mini" ? "mini" : "full";
   var forceLowPower = params.get("lowPower") === "1";
 
-  // The mobile app's WebView loads `/?mobile=1` and its injected shim sets
-  // data-platform="mobile" before any page script runs. Honoring the param
-  // here too makes the tag independent of injection timing and lets a plain
-  // browser exercise the mobile layout.
   if (params.get("mobile") === "1") {
     root.setAttribute("data-platform", "mobile");
   }
@@ -69,8 +61,6 @@
     root.dataset.stellaBootRoute = route;
   }
 
-  // Low-power devices: drop blur entrances, decorative infinite loops, and
-  // backdrop-filter glass before React paints. Mirrors shared/lib/device-perf.ts.
   try {
     var n = navigator;
     var cores =

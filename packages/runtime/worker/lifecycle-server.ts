@@ -13,44 +13,12 @@ import {
   type RuntimePaths,
 } from "./runtime-paths.js";
 
-/**
- * Worker-side lifecycle helpers. The detached worker is responsible for:
- *
- *   1. Acquiring a per-stellaAppDir lockfile so multiple workers can't
- *      overlap (one would lose the socket race anyway, but failing fast
- *      is friendlier than a half-broken second worker).
- *   2. Writing its pid to a discoverable file so the host can detect
- *      "is the worker still alive?" without an IPC roundtrip.
- *   3. Maintaining a self-shutdown timer that fires when no client has
- *      been connected for `idleShutdownMs`. This is what lets the
- *      worker outlive the host across restart but eventually die when
- *      nobody comes back (matching Stella's 30-min thread-loaded model
- *      at a smaller granularity).
- *
- * The flock on `runtime.lock` is non-blocking and exclusive — we use
- * `O_EXCL` with `O_CREAT` to avoid a separate lock file race. POSIX uses
- * Unix socket files for transport; Windows uses named pipes plus the same
- * pid/lock files under the runtime root.
- */
-
 export type LifecycleServerOptions = {
   stellaAppDir: string;
   idleShutdownMs?: number;
-  /**
-   * Called before self-shutdown when the last host client has been gone
-   * for `idleShutdownMs`. Returning true pins the detached worker and
-   * re-arms the idle timer instead of exiting. This is the critical
-   * difference between "survives short Electron restarts" and "survives
-   * Electron crashing mid-agent-run": active work owns the lifetime, not
-   * merely client attachment.
-   */
+
   shouldKeepAlive?: () => Promise<boolean> | boolean;
-  /**
-   * Build stamp of the runtime code this worker process loaded at boot
-   * (see `runtime/worker/runtime-build-stamp.ts`). Persisted to
-   * `paths.buildStampFile` so a later host can compare it against the
-   * on-disk runtime and detect a stale worker on reattach.
-   */
+
   runtimeBuildStamp?: string;
   onShutdown: (reason: "idle" | "signal") => Promise<void> | void;
 };
@@ -91,20 +59,11 @@ export class WorkerLifecycleServer {
     this.idleShutdownMs = options.idleShutdownMs ?? DEFAULT_IDLE_SHUTDOWN_MS;
   }
 
-  /**
-   * Acquire the lock, write pid + root marker, and route stdout/stderr
-   * to the rotating log file. Throws if another worker already holds
-   * the lock for the same stellaAppDir.
-   */
   async start(): Promise<void> {
     await fsPromises.mkdir(this.paths.rootDir, { recursive: true });
-    // Human-readable logs (runtime.log + diagnostic channels) live in a
-    // separate dir from the sock/pid/lock control files.
+
     await fsPromises.mkdir(this.paths.logDir, { recursive: true });
 
-    // Stale lock cleanup: if the lock file exists but the recorded pid
-    // is dead, take ownership. This avoids the "crashed worker leaves
-    // a lock file behind, every subsequent start fails" problem.
     if (existsSync(this.paths.lockFile)) {
       const stalePid = await readPidFile(this.paths.lockFile);
       if (stalePid != null && !pidIsAlive(stalePid)) {
@@ -158,13 +117,10 @@ export class WorkerLifecycleServer {
         "utf-8",
       );
     } else {
-      // No stamp (unexpected in detached mode): remove any stale stamp from
-      // a previous worker so the host doesn't compare against dead data.
+
       await fsPromises.unlink(this.paths.buildStampFile).catch(() => undefined);
     }
 
-    // Open the log stream lazily; entry.ts decides whether to redirect
-    // stdio to it. Background sweeps and explicit logs go through here.
     this.logStream = createWriteStream(this.paths.logFile, {
       flags: "a",
       encoding: "utf-8",
@@ -176,23 +132,13 @@ export class WorkerLifecycleServer {
       pid: process.pid,
       rootHash: this.paths.rootHash,
       idleShutdownMs: this.idleShutdownMs,
-      // Time from worker process launch to bound-and-listening.
+
       startupMs: Math.round(process.uptime() * 1000),
     });
 
-    // Arm the idle timer at boot so a worker that never receives a client
-    // (host crashed during the readiness poll, or the poll timed out) still
-    // reaps itself instead of lingering as an orphan holding the net server
-    // open. noteClientConnected() cancels this the moment a real client
-    // attaches, and evaluateIdleShutdown() re-checks clientCount /
-    // shouldKeepAlive before actually exiting.
     this.scheduleIdleShutdown();
   }
 
-  /**
-   * Inform the lifecycle that a client connected. Cancels any pending
-   * idle-shutdown timer.
-   */
   noteClientConnected() {
     this.clientCount += 1;
     if (this.idleTimer) {
@@ -201,10 +147,6 @@ export class WorkerLifecycleServer {
     }
   }
 
-  /**
-   * Inform the lifecycle that a client disconnected. If no clients are
-   * left, schedule self-shutdown after `idleShutdownMs`.
-   */
   noteClientDisconnected() {
     this.clientCount = Math.max(0, this.clientCount - 1);
     if (this.clientCount > 0) return;
@@ -231,8 +173,7 @@ export class WorkerLifecycleServer {
       this.logStream?.write(
         `[${new Date().toISOString()}] keep-alive check failed: ${(error as Error).message}\n`,
       );
-      // If the check itself fails, prefer preserving in-flight work over
-      // exiting unexpectedly. The next timer tick gets another chance.
+
       return true;
     });
     if (keepAlive) {
@@ -248,10 +189,6 @@ export class WorkerLifecycleServer {
     await this.shutdown("idle");
   }
 
-  /**
-   * Tear everything down: cancel timers, run the consumer-provided
-   * shutdown hook, release the lock, and remove pid + socket files.
-   */
   async shutdown(reason: "idle" | "signal"): Promise<void> {
     if (this.shuttingDown) return;
     this.shuttingDown = true;
@@ -284,7 +221,7 @@ export class WorkerLifecycleServer {
       try {
         closeSync(this.lockFd);
       } catch {
-        // Ignore close errors during shutdown.
+
       }
       this.lockFd = null;
     }
@@ -293,10 +230,6 @@ export class WorkerLifecycleServer {
   }
 }
 
-/**
- * Best-effort probe used by the host before spawning: returns the pid
- * of an already-running worker if the lockfile is alive, else null.
- */
 export const probeRunningWorker = async (
   stellaAppDir: string,
 ): Promise<number | null> => {

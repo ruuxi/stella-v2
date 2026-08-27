@@ -1,9 +1,3 @@
-/**
- * Shared HTTP request utilities.
- *
- * Shared by the Stella provider endpoint and HTTP routing layer.
- */
-
 export const MAX_CLIENT_ADDRESS_KEY_LENGTH = 128;
 export const CLIENT_ADDRESS_KEY_PATTERN = /^[0-9a-fA-F:.]+$/;
 

@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,14 +19,6 @@ const SOURCE_ROOT = path.resolve(
   "../../../src",
 );
 
-/**
- * The New chat label used to be literal JSX text. It is now a `t()` key,
- * so the contract is checked in two halves: the source renders the key in
- * the right slot, and the English catalog still maps that key to the copy
- * this contract is about. Checking only the key would let the copy drift
- * silently; checking only the copy would miss the label being moved to a
- * different control.
- */
 const englishFor = (key: string): string => {
   const value = key
     .split(".")
@@ -242,7 +233,7 @@ describe("conversation top-bar contracts", () => {
     expect(css).toMatch(
       /\.conversation-topbar__tab-unread\s*\{[^}]*width:\s*6px;[^}]*height:\s*6px;[^}]*border-radius:\s*50%;[^}]*background:\s*var\(--primary\);/,
     );
-    // The dot and the close button share one slot, so hover must swap them.
+
     expect(css).toMatch(
       /\.conversation-topbar__tab:hover \.conversation-topbar__tab-unread,[\s\S]*?opacity:\s*0;/,
     );
@@ -272,8 +263,7 @@ describe("conversation top-bar contracts", () => {
     expect(source).toContain("onClick={dispatchShowHome}");
     expect(source).not.toContain("conversation-topbar__home-label");
     expect(englishFor("shell.topbar.conversation.newChat")).toBe("New chat");
-    // Whitespace-tolerant: prettier reflows the span across lines once the
-    // literal becomes a t() call.
+
     expect(source).toMatch(
       /<span className="conversation-topbar__new-label">\s*\{t\("shell\.topbar\.conversation\.newChat"\)\}\s*<\/span>/,
     );

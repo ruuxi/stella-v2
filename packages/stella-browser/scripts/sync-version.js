@@ -1,10 +1,4 @@
 #!/usr/bin/env node
-
-/**
- * Syncs the version from package.json to all other config files.
- * Run this script before building or releasing.
- */
-
 import { execSync } from "child_process";
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -13,7 +7,6 @@ const __dirname = import.meta.dirname;
 const rootDir = join(__dirname, "..");
 const cliDir = join(rootDir, "cli");
 
-// Read version from package.json (single source of truth)
 const packageJson = JSON.parse(
   readFileSync(join(rootDir, "package.json"), "utf-8")
 );
@@ -21,7 +14,6 @@ const version = packageJson.version;
 
 console.log(`Syncing version ${version} to all config files...`);
 
-// Update Cargo.toml
 const cargoTomlPath = join(cliDir, "Cargo.toml");
 let cargoToml = readFileSync(cargoTomlPath, "utf-8");
 const cargoVersionRegex = /^version\s*=\s*"[^"]*"/m;
@@ -43,7 +35,6 @@ if (cargoVersionRegex.test(cargoToml)) {
   process.exit(1);
 }
 
-// Update Cargo.lock to match Cargo.toml
 if (cargoTomlUpdated) {
   try {
     execSync("cargo update -p stella-browser --offline", {
@@ -52,7 +43,7 @@ if (cargoTomlUpdated) {
     });
     console.log(`  Updated cli/Cargo.lock`);
   } catch {
-    // --offline may fail if package not in cache, try without it
+
     try {
       execSync("cargo update -p stella-browser", {
         cwd: cliDir,

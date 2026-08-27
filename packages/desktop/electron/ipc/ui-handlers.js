@@ -4,29 +4,19 @@ import { IPC_WINDOW_SET_NATIVE_BUTTONS_VISIBLE } from "@stella/contracts/desktop
 const DEFAULT_WIDTH = 1400;
 const DEFAULT_HEIGHT = 940;
 export const applyOnboardingWindowPresentation = ({ win, active, platform, getDisplayMatching, }) => {
-    // Linux window managers do not consistently honor forced work-area sizing.
-    // More importantly, onboarding must not replace bounds chosen by the user.
+
     if (platform === "linux")
         return;
     const display = getDisplayMatching(win.getBounds());
     const work = display.workArea;
     if (active) {
         if (platform === "darwin") {
-            // We deliberately do NOT use setSimpleFullScreen here: in
-            // combination with `transparent: true` + `frame: false`, macOS
-            // simple-fullscreen breaks Chromium's hover / cursor hit-testing
-            // (clicks still route, but :hover and cursor: pointer never fire).
-            // Sizing to the work area gives the fog enough room to feather
-            // (it already overscans via CSS) and keeps hover working - the
-            // Dock and menu bar stay visible but that's an acceptable trade
-            // for an interactive onboarding.
+
             win.setBounds(work, false);
             win.setWindowButtonVisibility(false);
         }
         else if (platform === "win32") {
-            // Work-area bounds rather than setFullScreen: exclusive fullscreen
-            // forces a display-topology change and heavier DWM compositing for
-            // a surface that only needs to look edge-to-edge.
+
             win.setBounds(work, false);
         }
         else {
@@ -41,9 +31,7 @@ export const applyOnboardingWindowPresentation = ({ win, active, platform, getDi
         const height = Math.min(DEFAULT_HEIGHT, work.height);
         const x = work.x + Math.round((work.width - width) / 2);
         const y = work.y + Math.round((work.height - height) / 2);
-        // `animate: true` is honored on macOS - the window smoothly contracts
-        // from the work-area size back to the centered default, in sync with
-        // the renderer's fog fade-out. Other platforms just snap.
+
         win.setBounds({ x, y, width, height }, platform === "darwin");
     }
 };
@@ -97,8 +85,7 @@ export const registerUiHandlers = (options) => {
             return;
         win.setWindowButtonVisibility(Boolean(visible));
     });
-    // Onboarding presentation expands the main window to cover the current
-    // display, then restores the standard centered size on exit.
+
     ipcMain.handle("window:setOnboardingPresentation", (event, active) => {
         requirePrivileged(event, "window:setOnboardingPresentation");
         const win = BrowserWindow.fromWebContents(event.sender);
@@ -147,10 +134,7 @@ export const registerUiHandlers = (options) => {
             return;
         options.windowManager.reloadFullWindow();
     });
-    // Used by the static launch splash (`desktop/index.html`) when the renderer
-    // has been stuck on the splash long enough that a plain reload is unlikely
-    // to help. Packaged builds re-exec Electron; dev builds ask the supervisor
-    // to spawn a fresh Electron process without tearing down Vite.
+
     ipcMain.on("app:relaunch", (event) => {
         if (!requirePrivilegedSender(event, "app:relaunch"))
             return;

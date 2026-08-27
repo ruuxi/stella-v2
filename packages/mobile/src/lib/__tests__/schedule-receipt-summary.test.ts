@@ -40,9 +40,7 @@ describe("pickScheduleToolSummary", () => {
   });
 
   test("suppresses JSON-looking previews instead of rendering fragments", () => {
-    // The runtime bounds resultPreview to 200 chars; a serialized envelope
-    // sliced mid-stream fails JSON.parse and must render nothing rather
-    // than a truncated JSON fragment.
+
     expect(
       pickScheduleToolSummary({
         resultPreview: '{"content":[{"type":"text","text":"Registered the morni',
@@ -52,7 +50,7 @@ describe("pickScheduleToolSummary", () => {
     expect(
       pickScheduleToolSummary({ resultPreview: '{"some":"other json"}' }),
     ).toBeUndefined();
-    // A later prose candidate still wins over a structured preview.
+
     expect(
       pickScheduleToolSummary({
         resultPreview: "{not json",

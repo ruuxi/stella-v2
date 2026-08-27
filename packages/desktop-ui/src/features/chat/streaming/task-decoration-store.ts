@@ -1,19 +1,3 @@
-/**
- * Module-level store for per-thread ephemeral stream decoration —
- * statusText ticks, tool activity, reasoning — keyed by the thread's
- * durable `agentId`, never by run. Authoritative task state (status,
- * description, timestamps, result) lives in the thread-activity rows;
- * a decoration only carries the high-frequency display extras the rows
- * don't persist. The latest lifecycle observation stays until the durable
- * row catches up or a newer attempt replaces it, which closes the brief
- * completed-row/follow-up race without making stream data authoritative.
- *
- * Lives outside the React tree so BOTH kinds of consumer can read it:
- * the conversation-level task list (`useFullShellChat` merges the whole
- * snapshot via `buildActivityTasks`) and individual inline chat cards
- * (`BackgroundWorkCard` subscribes to just its own thread, so a
- * reasoning tick re-renders one card, not every activity surface).
- */
 import {
   normalizeTaskDisplayStatusText,
   type TaskLiveDecoration,
@@ -27,13 +11,10 @@ export type TaskDecoration = TaskLiveDecoration & {
 
 export const MAX_AGENT_REASONING_CHARS = 8_000
 
-/** New starts replace terminal observations and the cap bounds completed
- * observations that remain after the authoritative row catches up. */
 export const MAX_TASK_DECORATIONS = 64
 
 const decorations = new Map<string, TaskDecoration>()
-/** Immutable snapshot rebuilt on mutation — stable identity between writes
- *  so `useSyncExternalStore` consumers can memo off it. */
+
 let snapshot: Record<string, TaskDecoration> = {}
 
 const globalListeners = new Set<() => void>()
@@ -52,8 +33,7 @@ const notify = (agentIds: Iterable<string>) => {
 const setDecoration = (next: TaskDecoration) => {
   const isNew = !decorations.has(next.agentId)
   decorations.set(next.agentId, next)
-  // Updates can't grow the map — only a genuinely new key pays the
-  // eviction scan.
+
   if (isNew && decorations.size > MAX_TASK_DECORATIONS) {
     let oldestId: string | undefined
     let oldestAtMs = Infinity
@@ -121,7 +101,7 @@ export const decorateTask = (input: {
   runId?: string
   attemptGeneration?: number
   lifecycleSequence?: number
-  /** A start replaces prior-attempt prose/tool decoration atomically. */
+
   startsAttempt?: boolean
   anchorTurnId?: string
   statusText?: string

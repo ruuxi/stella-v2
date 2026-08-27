@@ -1,5 +1,3 @@
-/* ── Media Studio ── */
-
 @keyframes msFadeIn {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
@@ -15,8 +13,6 @@
   overflow: hidden;
   animation: msFadeIn 0.35s ease both;
 }
-
-/* ── Left panel (controls) ── */
 
 .ms-controls {
   display: flex;
@@ -53,8 +49,6 @@
   letter-spacing: -0.01em;
 }
 
-/* ── Category tabs ── */
-
 .ms-categories {
   flex-shrink: 0;
   display: flex;
@@ -82,8 +76,6 @@
 .ms-category:hover { color: var(--text-strong); }
 .ms-category--active { color: var(--text-strong); }
 
-/* Locked by plan: dimmed, with the unlocking plan named beside it. The
-   tab still responds to clicks — that is what raises the upgrade toast. */
 .ms-category[data-locked] { opacity: 0.55; }
 .ms-category[data-locked]:hover { color: var(--text-weak); }
 
@@ -112,8 +104,6 @@
   background: var(--foreground);
 }
 
-/* ── Scrollable body ── */
-
 .ms-controls-body {
   flex: 1;
   overflow-y: auto;
@@ -121,8 +111,6 @@
 }
 
 .ms-controls-body::-webkit-scrollbar { display: none; }
-
-/* ── Capability list ── */
 
 .ms-capabilities {
   display: flex;
@@ -167,8 +155,6 @@
   color: var(--text-weak);
   line-height: 1.35;
 }
-
-/* ── Form ── */
 
 .ms-rule {
   border: none;
@@ -226,8 +212,6 @@
   color: var(--text-weaker);
 }
 
-/* ── Tags (aspect ratio, profile) ── */
-
 .ms-tags {
   display: flex;
   flex-wrap: wrap;
@@ -264,8 +248,6 @@
   font-weight: var(--weight-medium);
 }
 
-/* ── Number input ── */
-
 .ms-number-input {
   font-family: var(--ms-mono);
   font-size: var(--font-size-base);
@@ -286,8 +268,6 @@
   outline: none;
   box-shadow: var(--focus-ring);
 }
-
-/* ── File upload ── */
 
 .ms-upload {
   font-size: var(--font-size-sm);
@@ -356,8 +336,6 @@
   border-radius: var(--radius-sm);
 }
 
-/* ── Generate button ── */
-
 .ms-generate {
   font-size: var(--font-size-md);
   font-weight: var(--weight-medium);
@@ -388,15 +366,11 @@
   cursor: not-allowed;
 }
 
-/* ── Error ── */
-
 .ms-error {
   font-size: var(--font-size-sm);
   color: var(--destructive);
   line-height: 1.45;
 }
-
-/* ── Right column wrapper ── */
 
 .ms-right {
   display: flex;
@@ -404,8 +378,6 @@
   height: 100%;
   overflow: hidden;
 }
-
-/* ── History strip ── */
 
 .ms-strip {
   flex-shrink: 0;
@@ -547,8 +519,6 @@
   color: var(--text-strong);
 }
 
-/* ── Drag overlay ── */
-
 .ms--dragging .ms-output-panel { position: relative; }
 
 .ms-drop-overlay {
@@ -575,8 +545,6 @@
   color: var(--text-weak);
 }
 
-/* ── Right panel (output) ── */
-
 .ms-output-panel {
   flex: 1;
   display: flex;
@@ -586,8 +554,6 @@
   padding: 2rem;
   position: relative;
 }
-
-/* empty state */
 
 .ms-empty {
   text-align: center;
@@ -609,8 +575,6 @@
   color: var(--text-weak);
   line-height: 1.45;
 }
-
-/* status */
 
 .ms-status {
   display: flex;
@@ -637,8 +601,6 @@
   color: var(--text-weak);
   letter-spacing: -0.01em;
 }
-
-/* result output */
 
 .ms-output {
   display: flex;
@@ -705,8 +667,6 @@
   text-decoration-color: var(--text-strong);
 }
 
-/* ── Actions ── */
-
 .ms-actions {
   display: flex;
   gap: 6px;
@@ -736,8 +696,6 @@
   outline: none;
   box-shadow: var(--focus-ring);
 }
-
-/* ── Lightbox ── */
 
 .ms-lightbox {
   position: fixed;

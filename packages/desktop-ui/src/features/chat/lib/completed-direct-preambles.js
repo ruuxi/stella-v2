@@ -14,13 +14,7 @@ const getOwningUserMessageId = (message) => {
         ? userMessageId
         : null;
 };
-/**
- * Once a direct-mode turn completes, remove the transient narration from any
- * earlier assistant segment that ended in a tool call. The message itself and
- * its tool events stay in the timeline so generated images, files, receipts,
- * and other inline artifacts remain visible. Orchestrated, active, failed,
- * canceled, and legacy unmarked turns are unchanged.
- */
+
 export const suppressCompletedDirectPreambleText = (messages) => {
     const completedDirectTurnIds = new Set();
     for (const message of messages) {

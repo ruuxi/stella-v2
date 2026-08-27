@@ -1,9 +1,3 @@
-// Mobile port of `desktop/src/shell/ascii-creature/shader.ts`.
-//
-// We ship only the full-canvas (non-instanced) variant — `expo-gl` exposes a
-// WebGL1-compatible context where `ANGLE_instanced_arrays` availability isn't
-// guaranteed, and a single screen-space quad is plenty for a 60×36pt indicator.
-
 import type { ExpoWebGLRenderingContext } from "expo-gl";
 
 const compileShader = (

@@ -29,20 +29,19 @@ const COLOR_SCHEMES: { id: ColorScheme; label: string }[] = [
 ];
 
 interface ThemePickerProps {
-  /** Render the picker as a full-width in-panel settings surface. */
+
   inline?: boolean;
   hideTrigger?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   onThemeSelect?: () => void;
-  /** Custom trigger (e.g. icon button). Defaults to a text Button. */
+
   trigger?: ReactElement;
-  /** Used only when `trigger` is omitted. */
+
   triggerLabel?: string;
-  /** Which side of the trigger the popover opens on. Defaults to `top`
-   * (legacy: footer-anchored dropup). The title-bar variant uses `bottom`. */
+
   side?: "top" | "bottom";
-  /** Alignment of the popover relative to the trigger. Defaults to `end`. */
+
   align?: "start" | "center" | "end";
 }
 
@@ -82,8 +81,6 @@ export function ThemePicker({
   const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
   const setOpen = controlledOnOpenChange || setInternalOpen;
 
-  // Empty overlay themes (an unpopulated Custom) stay out of the list until
-  // they actually carry changes.
   const sortedThemes = useMemo(
     () =>
       [...themes]
@@ -100,7 +97,6 @@ export function ThemePicker({
     () => sortedThemes.find((t) => t.id === hoveredThemeId),
     [sortedThemes, hoveredThemeId]
   );
-
 
   const triggerElement =
     trigger && isValidElement<ThemePickerTriggerProps>(trigger) ? trigger : null;
@@ -153,10 +149,9 @@ export function ThemePicker({
         </div>
       </div>
 
-      {/* Flat themes (the stock Default, plus any forcedMode-pinned
-          theme) render a solid surface. Keep the controls visible so
-          the panel layout and the user's saved gradient choices remain
-          stable, but make their inactive state explicit. */}
+      {
+
+}
       <div
         data-slot="theme-picker-section"
         data-bordered
@@ -201,9 +196,9 @@ export function ThemePicker({
       </div>
 
       <div data-slot="theme-picker-section">
-        {/* Swatches carry no text, so this row is where the name lives. It
-            follows the cursor and falls back to the current selection, which
-            also makes it the readout for keyboard focus. */}
+        {
+
+}
         <div data-slot="theme-picker-label" data-row>
           <span>Theme</span>
           <span data-slot="theme-picker-theme-name">

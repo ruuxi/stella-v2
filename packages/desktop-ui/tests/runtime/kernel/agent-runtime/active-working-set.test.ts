@@ -661,8 +661,7 @@ describe("Pi active-turn working set", () => {
 
     await expect(refresh).resolves.toBeUndefined();
     expect(canApply).toHaveBeenCalledOnce();
-    // The newly durable steer was never paged into the live context before
-    // the agent loop could emit it exactly once.
+
     expect(loadThreadMessages).not.toHaveBeenCalled();
     expect(
       (session as unknown as { pendingHistoryRefresh: boolean })
@@ -820,8 +819,6 @@ describe("Orchestrator active-turn boundary integration", () => {
       pendingMessages: [],
     });
 
-    // The successful provider boundary makes earlier turn messages safe, while
-    // the newly produced group remains suspect across reconstruction.
     expect(containmentTurn.messagesBefore).toBe(5);
     expect(containmentTurn.failureMessagesBefore).toBe(replacement.length);
     expect(refresh).toHaveBeenCalledWith(
@@ -844,8 +841,6 @@ describe("Orchestrator active-turn boundary integration", () => {
       pendingMessages: [],
     });
 
-    // The next successfully completed provider call advances past the tail
-    // preserved by page-in; its own newly completed group remains suspect.
     expect(containmentTurn.messagesBefore).toBe(replacement.length);
     expect(containmentTurn.failureMessagesBefore).toBe(
       replacement.length + nextCompleted.length,

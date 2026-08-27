@@ -271,8 +271,7 @@ const composioFetch = async (
     );
     const payload = parseJsonObject(text) ?? (text ? { text } : {});
     if (!response.ok) {
-      // Never reflect or log an upstream response body: provider errors can
-      // contain request arguments or credentials.
+
       throw new Error(`Composio request failed (${response.status}).`);
     }
     return payload;
@@ -301,13 +300,6 @@ export const composioSessionIdFromPayload = (payload: Record<string, unknown>) =
       : null,
   );
 
-/**
- * Whether a tool-router `GET /session/{id}/toolkits` payload shows the
- * given toolkit with a connected account. Tolerant of the shape
- * variants the tool-router API returns (items/data arrays, nested
- * toolkit slugs, item-level connected_account objects, connection
- * objects or bare booleans).
- */
 export const composioToolkitConnectedFromPayload = (
   payload: Record<string, unknown>,
   toolkit: string,
@@ -752,8 +744,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
         const composio = requireComposioConfig();
         if (!composio.config) return withCors(composio.response, origin);
         try {
-          // Look up the user's existing session only — a status probe
-          // must never create one.
+
           const sessionId = await loadComposioSessionId(
             ctx,
             identity.tokenIdentifier,
@@ -806,9 +797,7 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
         if (!SAFE_ACTION_NAME.test(action) || !isJsonObject(body?.input)) {
           return errorResponse(400, "Invalid integration action.", origin);
         }
-        // Resolve the connector and action in one Convex snapshot. This exact
-        // child-row lookup is the server-side authorization boundary: clients
-        // cannot execute arbitrary or cross-toolkit Composio slugs.
+
         const resolved = await ctx.runQuery(
           internal.data.integrations.getPublicIntegrationAction,
           { id, name: action },

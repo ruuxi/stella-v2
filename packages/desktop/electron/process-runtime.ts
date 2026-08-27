@@ -60,7 +60,7 @@ export const stopChildProcessTree = async (
         try {
           child.kill("SIGKILL");
         } catch {
-          // Best-effort forced cleanup.
+
         }
         resolve();
       }, forceAfterMs);
@@ -196,9 +196,7 @@ export class ProcessRuntime {
         } catch (error) {
           console.error(`[process-runtime] Cleanup failed for ${phase}:${key}`, error);
         }
-        // Quit is on a deadline (Squirrel waits on this process to exit before
-        // installing an update), so a cleanup that drags is a real regression.
-        // Report per-cleanup timing so the culprit is named, not just the total.
+
         options.onCleanupTiming?.({
           phase,
           key,

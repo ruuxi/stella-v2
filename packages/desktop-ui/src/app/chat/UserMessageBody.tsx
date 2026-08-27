@@ -10,16 +10,6 @@ interface UserMessageBodyProps {
   text: string;
 }
 
-/**
- * Renders a user message bubble's text body with collapse/expand for long
- * messages.
- *
- * The visible text is clamped via CSS (`-webkit-line-clamp`) using
- * `--user-message-clamp-lines` (4 rendered lines on every chat surface).
- * Overflow is detected by comparing the laid-out scrollHeight to the
- * clamped clientHeight, and a "Show more" / "Show less" toggle is rendered
- * only when truncation actually occurs at the current width.
- */
 export function UserMessageBody({ text }: UserMessageBodyProps) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);

@@ -1,9 +1,3 @@
-// Mobile port of `desktop/src/shell/ascii-creature/glyph-atlas.ts`.
-//
-// The desktop generates the dot atlas with Canvas2D `arc()` fills. React Native
-// has no DOM canvas, so we rasterize the same circles directly into an RGBA
-// Uint8Array that we hand to `gl.texImage2D` via the pixel-pointer overload.
-
 export const DOT_COUNT = 10;
 export const BIRTH_DURATION = 12_000;
 export const FLASH_DURATION = 1_200;
@@ -14,10 +8,6 @@ export type GlyphAtlas = {
   height: number;
 };
 
-/**
- * Build a horizontal strip of `DOT_COUNT` cells. Cell 0 is empty; cells 1..N-1
- * contain anti-aliased white circles of monotonically increasing radius.
- */
 export const buildGlyphAtlas = (
   glyphWidth: number,
   glyphHeight: number,
@@ -62,10 +52,6 @@ export const buildGlyphAtlas = (
   return { pixels, width, height };
 };
 
-/**
- * Convert a `#rrggbb` / `#rgb` / `rgb(…)` string into a [0..1] RGB triple
- * suitable for a GLSL `vec3` uniform.
- */
 export const parseColor = (value: string): [number, number, number] => {
   const v = value.trim();
   if (v.startsWith("#")) {

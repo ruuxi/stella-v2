@@ -1,5 +1,3 @@
-/// <reference types="vite/client" />
-
 import { register as registerRateLimiter } from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
@@ -17,7 +15,7 @@ const createTest = () => {
 
 describe("webhook rate-limit sharding", () => {
   it("never shards a low-limit bucket below a full-capacity single doc", () => {
-    // A shard's per-request capacity is rate / shards, which must stay >= 1.
+
     expect(resolveShardCount(1)).toBe(1);
     expect(resolveShardCount(4)).toBe(1);
     expect(resolveShardCount(5)).toBe(1);
@@ -28,7 +26,7 @@ describe("webhook rate-limit sharding", () => {
     expect(resolveShardCount(10)).toBe(2);
     expect(resolveShardCount(30)).toBe(6);
     expect(resolveShardCount(40)).toBe(8);
-    // Beyond the cap we stop adding shards rather than fragmenting the budget.
+
     expect(resolveShardCount(1000)).toBe(8);
   });
 
@@ -42,7 +40,6 @@ describe("webhook rate-limit sharding", () => {
         windowMs: 60_000,
       });
 
-    // limit 3 => shards 1, so counting is exact and deterministic.
     expect((await call()).allowed).toBe(true);
     expect((await call()).allowed).toBe(true);
     expect((await call()).allowed).toBe(true);
@@ -63,9 +60,9 @@ describe("webhook rate-limit sharding", () => {
       });
 
     expect((await consume("owner-a")).allowed).toBe(true);
-    // Different owner is a different hashed key => not affected by owner-a.
+
     expect((await consume("owner-b")).allowed).toBe(true);
-    // owner-a is now exhausted.
+
     expect((await consume("owner-a")).allowed).toBe(false);
   });
 });

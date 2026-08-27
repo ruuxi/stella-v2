@@ -13,8 +13,7 @@ const getAllDisplaysBounds = () => {
     }
     return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 };
-// ─── OverlayWindow: Electron window lifecycle ───────────────────────────
-/** Pure window lifecycle: create, destroy, respan, show/hide, interactivity. */
+
 class OverlayWindow {
     options;
     window = null;
@@ -34,7 +33,7 @@ class OverlayWindow {
     getOverlayOrigin() {
         return this.overlayOrigin;
     }
-    /** Keeps overlay-local coords aligned with `getContentBounds()` (macOS can nudge the panel). */
+
     refreshOverlayOriginFromContentBounds() {
         if (!this.window || this.window.isDestroyed())
             return;
@@ -100,11 +99,7 @@ class OverlayWindow {
             maximizable: false,
             closable: false,
             skipTaskbar: true,
-            // `fullscreenable` MUST be false on macOS for `visibleOnFullScreen: true`
-            // below to take effect. AppKit ignores the `FullScreenAuxiliary`
-            // collection-behavior bit on any window that is itself fullscreen-able,
-            // which allows this utility overlay to render on the active fullscreen
-            // Space without displacing the full shell.
+
             fullscreenable: false,
             ...(process.platform === 'darwin'
                 ? { hiddenInMissionControl: true }
@@ -122,22 +117,10 @@ class OverlayWindow {
         });
         this.window.setTitle(STELLA_CAPTURE_EXCLUDED_TITLE_PREFIXES[0]);
         this.window.setAlwaysOnTop(true, 'screen-saver');
-        // The overlay is a transparent, screen-spanning utility layer (region
-        // capture, dictation, and window highlights). It
-        // must never show up in Stella's own screen captures — otherwise a capture
-        // taken while the overlay is up records the overlay window itself. On
-        // Windows the region-capture suspend (`fadeOut`) races DWM compositing, so
-        // the overlay could still bleed into the grab. `setContentProtection`
-        // (WDA_EXCLUDEFROMCAPTURE on Windows 10 2004+, NSWindowSharingNone on
-        // macOS) excludes it from every capture path regardless of timing, while
-        // leaving it fully visible to the user.
+
         this.window.setContentProtection(true);
         if (process.platform === 'darwin') {
-            // Keep the overlay attached to the active Space on macOS. Without this,
-            // the hidden panel stays bound to whichever Space it first materialized
-            // on, so utility surfaces can appear on whichever Space is active.
-            // skipTransformProcessType keeps the process type stable so this call
-            // doesn't promote us out of accessory/agent state.
+
             this.window.setVisibleOnAllWorkspaces(true, {
                 visibleOnFullScreen: true,
                 skipTransformProcessType: true,
@@ -157,9 +140,7 @@ class OverlayWindow {
                 this.window.setOpacity(0);
                 if (process.platform !== 'darwin') {
                     this.window.showInactive();
-                    // Warm-only create: the present above pre-pays first-show cost so
-                    // the first real show() is instant, but the window must not stay
-                    // resident in the compositor afterwards (see fadeOut).
+
                     if (this.concealOnWarmPresent) {
                         this.concealOnWarmPresent = false;
                         this.window.hide();
@@ -231,18 +212,11 @@ class OverlayWindow {
                 this.window.show();
             }
         }
-        // Re-read the actual content origin after showing so overlay-local
-        // coordinates stay correct. macOS can silently reposition windows
-        // (for example around the menu bar or notch), which otherwise leaves
-        // first-open surfaces slightly offset from the cursor.
+
         this.refreshOverlayOriginFromContentBounds();
-        // Use 0.99 instead of 1 so Chrome's occlusion tracker doesn't consider
-        // this window as fully opaque (alpha < 255 = not occluding). Without this,
-        // Chrome stops rendering video when the overlay becomes visible.
+
         this.window.setOpacity(0.99);
-        // Showing a hidden BrowserWindow can reset mouse-event policy on some
-        // Electron/macOS paths. Keep passive overlay surfaces (including the pet)
-        // click-through unless their renderer explicitly claims interactivity.
+
         if (!options?.focus) {
             this.window.setIgnoreMouseEvents(true, { forward: true });
             this.window.setFocusable(false);
@@ -251,18 +225,7 @@ class OverlayWindow {
             this.window.focus();
         }
     }
-    /**
-     * Fade the overlay out and drop it from the compositor when idle.
-     *
-     * Setting opacity to 0 alone leaves a transparent, screen-spanning,
-     * always-on-top layered window resident in the composition tree. On
-     * Windows that is a virtual-desktop-sized WS_EX_LAYERED per-pixel-alpha
-     * surface the DWM keeps compositing for the entire session even though
-     * nothing is drawn. Hiding the window (which macOS already did) removes it
-     * entirely; the `show()` / `showInactive()` paths re-materialize it and
-     * ramp opacity back up the next time a surface becomes active. The window
-     * is hidden, not destroyed, so the next summon is still instant.
-     */
+
     fadeOut() {
         if (!this.window || !this.ready)
             return;
@@ -271,13 +234,7 @@ class OverlayWindow {
         this.window.setOpacity(0);
         this.window.hide();
     }
-    /**
-     * Drop a warm-only window from the compositor on Windows/Linux. The
-     * startup warm can resolve via did-finish-load before ready-to-show has
-     * presented the window — hiding right away would be undone by the
-     * showInactive() in that handler — so when the present hasn't happened
-     * yet, defer the hide to it instead.
-     */
+
     concealAfterWarm() {
         if (!this.window || this.window.isDestroyed())
             return;
@@ -336,15 +293,7 @@ class OverlayWindow {
         clearTimeout(this.reloadTimer);
         this.reloadTimer = null;
     }
-    /**
-     * Perf: drop the second renderer process when the overlay has gone idle,
-     * WITHOUT marking the controller dead. Unlike `destroy()`, this leaves
-     * `this.destroyed` false so the next show entrypoint can rebuild the window
-     * via `ensureReady()`, reclaiming an unused resident renderer and re-warming
-     * it on demand. Hiding
-     * (fadeOut) alone keeps a transparent, screen-spanning, always-on-top
-     * layered surface resident for the whole session; this actually frees it.
-     */
+
     reclaimForIdle() {
         if (this.destroyed)
             return;
@@ -358,9 +307,7 @@ class OverlayWindow {
         }
         this.ready = false;
     }
-    /** Idempotent — calling more than once is a no-op after the first.
-     *  After this returns, `create()` refuses to materialize the window
-     *  again (the controller is treated as dead). */
+
     destroy() {
         if (this.destroyed)
             return;
@@ -383,23 +330,18 @@ class OverlayWindow {
         this.ready = false;
     }
 }
-// Perf: after the overlay has been idle (no active feature) this long, drop
-// its renderer process. The next show entrypoint rebuilds it via
-// `ensureReady()` so a chat-only session doesn't carry a resident second
-// renderer it never uses.
+
 const OVERLAY_IDLE_DESTROY_DELAY_MS = 5 * 60 * 1000;
 export class OverlayWindowController {
     overlayWindow;
     destroyed = false;
-    // Active component tracking — overlay stays visible when any component is active.
+
     activeRegionCapture = false;
     activeDictation = false;
     activeScreenGuide = false;
     activeWindowHighlight = false;
     windowHighlightRequestId = 0;
-    // Perf: idle-reclaim timer for the overlay renderer (see
-    // OVERLAY_IDLE_DESTROY_DELAY_MS). Armed when the overlay goes idle, cancelled
-    // the moment any surface becomes active again.
+
     idleDestroyTimer = null;
     handleOverlaySetInteractive = (_event, interactive) => {
         if (this.activeRegionCapture && !interactive) {
@@ -431,8 +373,7 @@ export class OverlayWindowController {
         });
     };
     previewWindowHighlightAtScreenPoint(screenPoint) {
-        // Point previews belong exclusively to an active region-capture
-        // session. Ignore delayed renderer events after capture teardown.
+
         if (!this.activeRegionCapture)
             return;
         const requestId = ++this.windowHighlightRequestId;
@@ -462,31 +403,18 @@ export class OverlayWindowController {
         return this.overlayWindow.create();
     }
     ensureReadyForDictation(timeoutMs) {
-        // Dictation can start recording before the pill is revealed (push-to-talk
-        // delay), so callers need a ready renderer without forcing the overlay
-        // visible yet.
+
         return this.ensureReady(timeoutMs);
     }
     async warmForStartup(timeoutMs) {
         const warmed = await this.ensureReady(timeoutMs);
-        // The warm-only create presents the window on Windows/Linux (see the
-        // ready-to-show handler) and nothing follows up to hide it, which would
-        // leave a screen-spanning layered surface composited all session (see
-        // OverlayWindow.fadeOut). Hide it once warm — the renderer stays alive,
-        // so the next summon is still instant — unless a surface beat us here.
+
         if (warmed && process.platform !== 'darwin' && !this.isAnyActive) {
             this.overlayWindow.concealAfterWarm();
         }
         return warmed;
     }
-    /**
-     * Perf prerequisite for idle-reclaim: every show entrypoint funnels through
-     * here so the overlay self-creates on demand even if it was never created or
-     * was idle-destroyed. Cancels the pending idle-reclaim first (a surface is
-     * about to become active) and waits for the renderer to be ready before the
-     * caller shows it — otherwise `OverlayWindow.show()` no-ops on a null/not-yet
-     * -ready window and the surface would silently fail to appear.
-     */
+
     async ensureReady(timeoutMs) {
         this.cancelIdleDestroy();
         return this.overlayWindow.ensureReady(timeoutMs);
@@ -502,7 +430,7 @@ export class OverlayWindowController {
         this.cancelIdleDestroy();
         this.idleDestroyTimer = setTimeout(() => {
             this.idleDestroyTimer = null;
-            // Re-check: a surface may have re-activated between scheduling and firing.
+
             if (this.isAnyActive) {
                 return;
             }
@@ -522,12 +450,10 @@ export class OverlayWindowController {
         }
         this.activeWindowHighlight = true;
         const reqId = this.windowHighlightRequestId;
-        // Perf: self-create on demand so the window highlight still appears after an
-        // idle reclaim (or before the overlay's first build).
+
         if (!(await this.ensureReady()))
             return;
-        // A hide/newer-preview/newer-show landed while the renderer was rebuilding;
-        // don't resurrect a cleared or superseded highlight.
+
         if (reqId !== this.windowHighlightRequestId || !this.activeWindowHighlight)
             return;
         this.overlayWindow.show({ inactive: true });
@@ -557,15 +483,12 @@ export class OverlayWindowController {
         if (this.isAnyActive)
             return;
         this.overlayWindow.fadeOut();
-        // Perf: hidden alone keeps the renderer resident; arm the idle-reclaim so
-        // an unused overlay frees its process after a grace period. The next show
-        // entrypoint rebuilds it via `ensureReady()`.
+
         this.scheduleIdleDestroy();
     }
     async showSurface(options) {
         options.setActive();
-        // Perf: self-create the overlay on demand so the surface still appears
-        // after an idle reclaim (or before the first build).
+
         if (!(await this.ensureReady()))
             return;
         if (options.focusable !== undefined) {
@@ -593,7 +516,7 @@ export class OverlayWindowController {
         this.overlayWindow.send(options.channel, options.payload);
         this.hideOverlayIfIdle();
     }
-    // ─── Region Capture ───────────────────────────────────────────────────
+
     async startRegionCapture() {
         await this.showSurface({
             setActive: () => {
@@ -605,8 +528,7 @@ export class OverlayWindowController {
             interactive: true,
             focusable: true,
         });
-        // Ring the window under the cursor right away — the renderer only probes
-        // on mousemove, which leaves the overlay blank until the user moves.
+
         this.previewWindowHighlightAtScreenPoint(screen.getCursorScreenPoint());
     }
     suspendRegionCaptureForScreenshot() {
@@ -622,9 +544,7 @@ export class OverlayWindowController {
         this.overlayWindow.setIgnoreMouseEvents(false);
     }
     endRegionCapture() {
-        // A hover lookup can resolve while the clicked target is being prepared.
-        // Invalidate it and clear the ring before deactivating capture so the
-        // highlight cannot keep this screen-spanning window mouse-interactive.
+
         this.windowHighlightRequestId += 1;
         this.clearWindowHighlight();
         this.hideSurface({
@@ -639,11 +559,10 @@ export class OverlayWindowController {
     send(channel, ...args) {
         this.overlayWindow.send(channel, ...args);
     }
-    // ─── Dictation ─────────────────────────────────────────────────────────
+
     async showDictation(screenX, screenY) {
         this.activeDictation = true;
-        // Perf: self-create on demand so dictation still summons after an idle
-        // reclaim (or before the overlay's first build).
+
         if (!(await this.ensureReady()))
             return false;
         this.overlayWindow.show({ inactive: true });
@@ -660,11 +579,10 @@ export class OverlayWindowController {
         this.overlayWindow.send('overlay:hideDictation');
         this.hideOverlayIfIdle();
     }
-    // ─── Screen Guide ────────────────────────────────────────────────────
+
     async showScreenGuide(annotations) {
         this.activeScreenGuide = true;
-        // Perf: self-create on demand so the screen guide still appears after an
-        // idle reclaim (or before the overlay's first build).
+
         if (!(await this.ensureReady()))
             return;
         this.overlayWindow.show({ inactive: true });
@@ -683,11 +601,7 @@ export class OverlayWindowController {
         this.overlayWindow.send('overlay:hideScreenGuide');
         this.hideOverlayIfIdle();
     }
-    // ─── Cleanup ──────────────────────────────────────────────────────────
-    /** Idempotent — calling more than once is a no-op after the first.
-     *  Detaches every IPC listener this controller registered in its
-     *  constructor so we don't leak listeners across a hot-restart, and
-     *  destroys the underlying overlay window. */
+
     destroy() {
         if (this.destroyed)
             return;
@@ -696,7 +610,7 @@ export class OverlayWindowController {
         ipcMain.removeListener('overlay:showWindowHighlight', this.handleOverlayShowWindowHighlight);
         ipcMain.removeListener('overlay:hideWindowHighlight', this.handleOverlayHideWindowHighlight);
         ipcMain.removeListener('overlay:previewWindowHighlightAtPoint', this.handleOverlayPreviewWindowHighlightAtPoint);
-        // Clear the idle-reclaim timer so it can't fire after teardown.
+
         this.cancelIdleDestroy();
         this.overlayWindow.destroy();
     }

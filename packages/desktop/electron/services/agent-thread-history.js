@@ -254,15 +254,7 @@ export const listAgentThreadMessages = (store, args = {}) => {
   const authored = new Set(
     projected.map((message) => `${message.role}\0${message.content.trim()}`),
   );
-  // Authored user messages store the orchestrator's composed text
-  // (`description\n\nprompt`, optionally prefixed by explore findings), while
-  // the durable agent record and the parent's tool-call arguments keep the raw
-  // prompt/message only. Exact-match dedupe misses that composition and would
-  // render the same instruction twice, so treat a synthesized user row as a
-  // duplicate whenever an authored user message already contains its text.
-  // Both sides run through the same redaction/truncation pipeline; probe with
-  // a bounded prefix so tail truncation of very long prompts cannot defeat
-  // the containment check.
+
   const authoredUserContents = projected.flatMap((message) =>
     message.role === "user" ? [message.content] : [],
   );
@@ -321,7 +313,7 @@ export const listAgentThreadMessages = (store, args = {}) => {
             successfulCalls.set(payload.toolCallId, payload.toolName);
           }
         } catch {
-          // Only structured successful results prove exact child ownership.
+
         }
       }
       for (const row of parentRows) {
@@ -390,7 +382,6 @@ export const listAgentThreadMessages = (store, args = {}) => {
       lifecycleEvent: entry.event,
     });
   }
-  // Array.sort is stable: equal timestamps retain durable append order from
-  // each source instead of being scrambled by opaque entry IDs.
+
   return projected.sort((a, b) => a.timestamp - b.timestamp);
 };

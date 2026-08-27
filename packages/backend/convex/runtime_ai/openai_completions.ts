@@ -251,8 +251,6 @@ export const streamOpenAICompletions: StreamFunction<
       for await (const chunk of openaiStream) {
         if (!chunk || typeof chunk !== "object") continue;
 
-        // OpenAI documents ChatCompletionChunk.id as the unique chat completion identifier,
-        // and each chunk in a streamed completion carries the same id.
         output.responseId ||= chunk.id;
         if (
           typeof chunk.model === "string" &&
@@ -271,7 +269,6 @@ export const streamOpenAICompletions: StreamFunction<
           continue;
         }
 
-        // Fallback: some providers (e.g., Moonshot) return usage in choice.usage
         if (!chunk.usage && "usage" in choice && choice.usage) {
           output.usage = parseOpenAIChatUsage(
             choice.usage as OpenAIChatUsagePayload,
@@ -533,10 +530,6 @@ export function buildOpenAICompletionsParams(
     ...(options?.extraBody ?? {}),
   };
 
-  // Help upstream providers route requests to the same cache shard.
-  // OpenAI Chat Completions, Fireworks, OpenRouter (where the underlying
-  // provider supports it) all honor `prompt_cache_key`. Harmless to send
-  // when ignored. Skip when caller explicitly opts out via cacheRetention.
   if (
     options?.sessionId &&
     options.sessionId.length > 0 &&
@@ -606,7 +599,7 @@ export function buildOpenAICompletionsParams(
       );
     }
   } else if (compat.thinkingFormat === "openrouter" && model.reasoning) {
-    // OpenRouter normalizes reasoning across providers via a nested reasoning object.
+
     if (options?.reasoningEffort) {
       params.reasoning = {
         effort: mapReasoningEffort(

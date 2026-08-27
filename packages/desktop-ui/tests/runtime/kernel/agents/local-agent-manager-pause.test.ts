@@ -21,13 +21,7 @@ const waitFor = async (
 
 describe("LocalAgentManager pause_agent cancellation", () => {
   it("suppresses in-flight agent-progress events after the task is canceled", async () => {
-    // Reproduces the regression that left a phantom "Working … Task" chip
-    // in the chat footer after pause_agent: the agent loop iterates over
-    // every tool call in the latest assistant message, so it kept firing
-    // `tool_execution_start` (and therefore `onToolStart`) after
-    // `cancelAgent` had already marked the task canceled, leaking
-    // `agent-progress` lifecycle events that flipped the task back to
-    // running on the desktop.
+
     const lifecycleEvents: AgentLifecycleEvent[] = [];
 
     let onToolStartHook: ((toolName: string) => void) | null = null;
@@ -47,15 +41,9 @@ describe("LocalAgentManager pause_agent cancellation", () => {
         onToolStartHook = (toolName) =>
           args.onToolStart?.({ toolName } as never);
 
-        // Simulate an in-flight tool call that fires *before* the orchestrator
-        // gets a chance to call cancelAgent.
         onToolStartHook("Read");
         cancelGate?.();
 
-        // Wait until cancelAgent has finished setting status === "canceled",
-        // then keep iterating over the remaining tool calls in the same
-        // assistant message — these post-cancel onToolStart fires must be
-        // ignored by LocalAgentManager.
         await new Promise<void>((resolve, reject) => {
           const onAbort = () => {
             args.abortSignal?.removeEventListener("abort", onAbort);
@@ -111,8 +99,6 @@ describe("LocalAgentManager pause_agent cancellation", () => {
     );
     expect(canceled?.error).toBe(AGENT_PAUSE_CANCEL_REASON);
 
-    // Anything fired by the agent loop after `cancelAgent` must NOT have
-    // produced another `agent-progress` event.
     expect(
       lifecycleEvents.some(
         (entry) =>

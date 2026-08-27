@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,8 +14,7 @@ const SOURCE_ROOT = path.resolve(
 
 describe("chat shell UI contracts", () => {
   it("shows the activity pill only when the workspace strip cannot carry it", () => {
-    // With the display panel open the pill rides alongside it; with the strip
-    // hidden the pill is the only surface left. No activity, no pill.
+
     expect(shouldShowActivityPill(true, true, false)).toBe(true);
     expect(shouldShowActivityPill(true, false, true)).toBe(true);
     expect(shouldShowActivityPill(true, false, false)).toBe(false);
@@ -76,7 +74,7 @@ describe("chat shell UI contracts", () => {
       "utf8",
     );
     expect(leadRow).not.toContain("ComposerSuggestionContextRow");
-    // The label is localized, so pin the key rather than the English string.
+
     expect(addMenu).toContain('t("app.chat.addMenu.context")');
   });
 

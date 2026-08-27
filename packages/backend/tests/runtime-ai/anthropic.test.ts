@@ -234,7 +234,7 @@ describe("backend Anthropic message conversion", () => {
         { apiKey: "test-key", temperature: 1 },
       );
       for await (const _event of stream) {
-        // Consume the stream so the request completes.
+
       }
 
       expect(requestBody).toMatchObject({ model: "claude-opus-5" });
@@ -298,7 +298,7 @@ describe("backend Anthropic message conversion", () => {
         { apiKey: "test-key" },
       );
       for await (const _event of stream) {
-        // Consume the stream so the request completes.
+
       }
 
       const tools = requestBody?.tools as Array<{

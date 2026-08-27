@@ -1,16 +1,3 @@
-/**
- * Display-sidebar tab body for Stella's deferred-delete trash.
- *
- * The runtime moves agent-deleted paths into `~/.stella/deferred-delete/trash`
- * for 24h before purging. This view lists the staged items and offers
- * per-row + bulk "Delete now" actions backed by the privileged IPC at
- * `displayTrash:list` / `displayTrash:forceDelete`.
- *
- * Visual language follows the broader display-tab style: quiet
- * sentence-case heading, Finder-like rows, pill-btn actions, no
- * decorative dots.
- */
-
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { TrashIllustration } from "./illustrations/TrashIllustration";
 import { useT, useTPlural } from "@/shared/i18n";

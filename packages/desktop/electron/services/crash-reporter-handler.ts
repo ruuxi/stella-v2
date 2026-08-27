@@ -27,7 +27,7 @@ export const stopOwnedCrashReporterHandler = (crashDumpsPath: string): void => {
     try {
       process.kill(pid, "SIGTERM");
     } catch {
-      // The handler may have already exited after its final client detached.
+
     }
   }
 };

@@ -15,17 +15,6 @@ type State = {
   source: "react" | "build";
 };
 
-/**
- * React error boundary for crashes that bubble up through normal React
- * rendering (i.e. anything outside a TanStack Router route subtree). Router
- * crashes are intercepted by `defaultErrorComponent` in `router.tsx` before
- * they reach this boundary; both code paths render the same `CrashSurface`.
- *
- * Also listens for Vite dev-server build / parse errors forwarded from
- * `platform/dev/vite-error-recovery.ts` so oxc transform failures surface
- * through the same surface (Reload / Ask Stella to repair / Undo update)
- * instead of Vite's red overlay.
- */
 export class ErrorBoundary extends Component<Props, State> {
   state: State = {
     hasError: false,

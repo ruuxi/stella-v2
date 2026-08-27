@@ -33,9 +33,7 @@ const completionFor = (message: AssistantMessage) =>
 
 describe("getAgentCompletion truncated-reasoning detection", () => {
   it("reports an error for a length stop with thinking-only content", () => {
-    // Production fingerprint of the silent-finish bug: provider truncated at
-    // the output cap while the model was still reasoning, so no visible reply
-    // or tool call was ever produced. This must not finalize as a success.
+
     const completion = completionFor(
       assistantMessage({
         stopReason: "length",
@@ -61,8 +59,7 @@ describe("getAgentCompletion truncated-reasoning detection", () => {
   });
 
   it("does not flag a length stop that still produced visible text", () => {
-    // Truncation mid-answer is degraded but not silent: the caller still gets
-    // the partial text. Keep the success path so the partial reply surfaces.
+
     const completion = completionFor(
       assistantMessage({
         stopReason: "length",
@@ -78,9 +75,7 @@ describe("getAgentCompletion truncated-reasoning detection", () => {
   });
 
   it("does not flag a length stop that ended on a tool call", () => {
-    // A tool call means the agent loop keeps running; only the final
-    // assistant message decides the completion, so this shape is not the
-    // truncation pathology.
+
     const completion = completionFor(
       assistantMessage({
         stopReason: "length",

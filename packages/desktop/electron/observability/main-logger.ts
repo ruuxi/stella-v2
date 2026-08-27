@@ -6,15 +6,6 @@ import {
   type FileLogger,
 } from '@stella/runtime/observability/file-logger'
 
-/**
- * Electron main-process diagnostics wiring.
- *
- * Routes uncaught errors / crashes and process lifecycle (app + child
- * process crashes) into the shared local log files under
- * `~/.stella/logs/<rootHash>/`. Metadata only — no window content, URLs
- * with query strings, or message data ever reaches here.
- */
-
 let registered = false
 
 const safe = (fn: () => string): string => {
@@ -44,10 +35,9 @@ export const initMainProcessLogging = (stellaAppDir: string): FileLogger => {
   app.on('ready', () => {
     logger.process('main.ready', {
       pid: process.pid,
-      // Time-to-ready since process launch — a cheap boot-regression signal.
+
       startupMs: Math.round(process.uptime() * 1000),
-      // Where Electron writes native minidumps for GPU/renderer crashes,
-      // so a crash in the error log can be cross-referenced with a dump.
+
       crashDumps: safe(() => app.getPath('crashDumps')),
     })
   })
@@ -55,7 +45,6 @@ export const initMainProcessLogging = (stellaAppDir: string): FileLogger => {
     logger.process('main.quit', { pid: process.pid, exitCode })
   })
 
-  // GPU / utility / pepper / renderer subprocess crashes.
   app.on('child-process-gone', (_event, details) => {
     logger.error('main.child-process-gone', {
       processType: details.type,

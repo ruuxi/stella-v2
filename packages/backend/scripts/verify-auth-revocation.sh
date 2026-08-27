@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
-# End-to-end proof that session revocation actually revokes.
-# Replays the exact attack sequence from the audit:
-#   1. sign in            -> session cookie
-#   2. mint JWT           -> works
-#   3. revoke             -> deletes the Better Auth session + tombstones ids
-#   4. re-mint with the SAME cookie  -> MUST FAIL (this is what used to succeed)
-#   5. reuse the OLD JWT on a sensitive op -> MUST be rejected by the tombstone
 set -uo pipefail
 SITE="${1:-https://impartial-crab-34.convex.site}"
 CLOUD="$(echo "$SITE" | sed s/.convex.site/.convex.cloud/)"

@@ -11,18 +11,12 @@ function formatTime(seconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`
 }
 
-// ---------------------------------------------------------------------------
-// Waveform canvas
-// ---------------------------------------------------------------------------
-
 function Waveform({ analyserRef }: { analyserRef: React.RefObject<AnalyserNode | null> }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rafRef = useRef<number>(0)
   const frameCountRef = useRef(0)
   const dataArrayRef = useRef<Uint8Array<ArrayBuffer> | null>(null)
-  // Concrete fallback only; the live color is read from the canvas's computed
-  // `color` (token-driven) below. Canvas fillStyle cannot resolve CSS vars, so
-  // this must stay a literal — neutral gray reads on both light and dark.
+
   const colorRef = useRef("rgba(128,128,128,0.5)")
   const dimensionsRef = useRef({ width: 0, height: 0, dpr: 1 })
 
@@ -75,7 +69,6 @@ function Waveform({ analyserRef }: { analyserRef: React.RefObject<AnalyserNode |
       }
       analyser.getByteFrequencyData(dataArray)
 
-      // Refresh computed styles occasionally to avoid per-frame style recalc.
       if (frameCountRef.current % 30 === 0) {
         colorRef.current = getComputedStyle(canvas).color || "rgba(128,128,128,0.5)"
       }
@@ -88,7 +81,6 @@ function Waveform({ analyserRef }: { analyserRef: React.RefObject<AnalyserNode |
         return
       }
 
-      // Total bars = halfCount * 2, mirrored from center outward
       const totalBars = halfCount * 2
       const barWidth = width / totalBars
       const gap = Math.max(1, barWidth * 0.2)
@@ -102,13 +94,11 @@ function Waveform({ analyserRef }: { analyserRef: React.RefObject<AnalyserNode |
 
         ctx.globalAlpha = 0.15 + value * 0.45
 
-        // Right side: center outward
         const xRight = centerX + i * barWidth + gap / 2
         ctx.beginPath()
         ctx.roundRect(xRight, y, barWidth - gap, barHeight, 1.5 * dpr)
         ctx.fill()
 
-        // Left side: mirror
         const xLeft = centerX - (i + 1) * barWidth + gap / 2
         ctx.beginPath()
         ctx.roundRect(xLeft, y, barWidth - gap, barHeight, 1.5 * dpr)
@@ -132,10 +122,6 @@ function Waveform({ analyserRef }: { analyserRef: React.RefObject<AnalyserNode |
     />
   )
 }
-
-// ---------------------------------------------------------------------------
-// MusicPlayer
-// ---------------------------------------------------------------------------
 
 export function MusicPlayer() {
   const {
@@ -162,7 +148,7 @@ export function MusicPlayer() {
   }, [])
 
   const handlePlay = useCallback(() => {
-    // Sync the local hint to state before playing
+
     setUserHint(localHint)
     play()
   }, [localHint, play, setUserHint])
@@ -171,10 +157,10 @@ export function MusicPlayer() {
     <div
       className="dashboard-card"
     >
-      {/* Waveform visualization */}
+      {}
       {isActive && <Waveform analyserRef={analyserRef} />}
 
-      {/* Left: Prompt bar + track info */}
+      {}
       <div className="music-left-group" data-active={isActive || undefined}>
         <div className="music-prompt-bar">
           <input
@@ -208,7 +194,7 @@ export function MusicPlayer() {
         )}
       </div>
 
-      {/* Center: Play/Stop button */}
+      {}
       <button
         className={`music-play-btn${isActive ? " music-play-btn--active" : ""}`}
         onClick={isActive ? stop : handlePlay}
@@ -226,7 +212,7 @@ export function MusicPlayer() {
         )}
       </button>
 
-      {/* Right side: Mood chips + Lyrics toggle */}
+      {}
       <div className="music-right-group">
         <div className="music-moods">
           {MOODS.map((m) => (

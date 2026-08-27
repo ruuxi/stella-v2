@@ -1,15 +1,5 @@
 import { useEffect, useState, type RefObject } from "react";
 
-/**
- * Track whether an element has ever come into view via
- * `IntersectionObserver`. Once seen, the hook stays `true` so callers
- * can mount heavy children on first reveal without tearing them down
- * when the user scrolls slightly off-screen and back.
- *
- * Returns `true` immediately on environments without
- * `IntersectionObserver` (older renderers / tests) so callers fall
- * back to eager mounting rather than blocking forever.
- */
 export const useHasBeenVisible = (
   ref: RefObject<HTMLElement | null>,
   rootMargin = "200px",

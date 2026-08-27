@@ -1,20 +1,3 @@
-/**
- * Disk cache for the server-side native-integration catalog (the backend
- * Composio entries that `buildNativeConnectorCatalog` merges over the
- * bundled fallback catalog).
- *
- * The catalog lives behind an authenticated stella.sh endpoint, but two
- * consumers need it without wanting a network round-trip per use:
- *
- *  - the connector keyword index (checked mechanically against every
- *    incoming user message — must be pure local lookup), and
- *  - the `connector_status` tool / CLI as an offline fallback.
- *
- * Whoever fetches the live catalog (the `connector_status` tool)
- * writes through here, so the keyword index
- * stays in sync with the catalog without ever fetching on its own.
- */
-
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
@@ -95,12 +78,6 @@ const readActions = (value: unknown) => {
   return actions.length > 0 ? actions : undefined;
 };
 
-/**
- * Parse one backend catalog record into a `backend-composio` catalog
- * entry. Shared by the CLI, the `connector_status` tool, and the disk
- * cache reader (cached entries round-trip through the same guard so a
- * stale/corrupt cache can never inject malformed entries).
- */
 export const toBackendComposioEntry = (
   value: unknown,
 ): NativeConnectorCatalogEntry | null => {
@@ -151,12 +128,11 @@ export const toBackendComposioEntry = (
   };
 };
 
-/** Serialized cache entries re-validated through the same parser shape. */
 const toCachedEntry = (value: unknown): NativeConnectorCatalogEntry | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   if (record.provider !== "backend-composio") return null;
-  // Rebuild through the strict parser by reshaping to the backend format.
+
   return toBackendComposioEntry({
     ...record,
     connector: {
@@ -213,22 +189,11 @@ export const writeCachedServerCatalog = async (
   );
 };
 
-/**
- * Bundled catalog merged with server entries. Alias for
- * `buildNativeConnectorCatalog`, which overlays (rather than replaces)
- * the bundled catalog — kept as a named export so cache consumers read
- * naturally.
- */
 export const buildMergedConnectorCatalog = (
   serverEntries?: readonly NativeConnectorCatalogEntry[],
 ): NativeConnectorCatalogEntry[] =>
   buildNativeConnectorCatalog(serverEntries ? [...serverEntries] : undefined);
 
-/**
- * One catalog policy for every native-connector consumer. Server entries must
- * win by id even when they came from disk: their provider selects the actual
- * dispatcher, so replacing one with a bundled fallback changes semantics.
- */
 export const resolveNativeConnectorCatalog = async (options: {
   stellaDataDir: string;
   getStellaSiteAuth?: () =>
@@ -259,9 +224,7 @@ export const resolveNativeConnectorCatalog = async (options: {
 
   const cached = await readCachedServerCatalog(options.stellaDataDir);
   if (cached) {
-    // Deliberately no TTL: offline execution and backend-only connector ids
-    // are more useful than silently changing provider semantics. A successful
-    // live fetch replaces this snapshot; malformed cache still fails closed.
+
     const entries = buildMergedConnectorCatalog(cached.entries);
     return {
       entries,
@@ -277,11 +240,6 @@ export const resolveNativeConnectorCatalog = async (options: {
   };
 };
 
-/**
- * Fetch the live backend catalog. Returns null on any failure (signed
- * out, offline, malformed response) — callers fall back to the disk
- * cache / bundled catalog.
- */
 export const fetchServerNativeCatalog = async (options: {
   baseUrl: string;
   authToken: string;

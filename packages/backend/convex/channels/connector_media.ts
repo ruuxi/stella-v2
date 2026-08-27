@@ -169,8 +169,7 @@ export const deleteRelayedMedia = internalAction({
   handler: async (ctx, args) => {
     for (const ref of args.media) {
       if (!ref.r2Key) continue;
-      // Failure here means we leaked a relayed-media object in R2 — log
-      // loudly so storage-cost leaks are visible rather than silent.
+
       await r2.deleteObject(ctx, ref.r2Key).catch((error) => {
         console.warn(
           "[connector_media] failed to delete relayed media object:",

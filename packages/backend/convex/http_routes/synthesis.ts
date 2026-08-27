@@ -34,10 +34,10 @@ import {
 } from "../runtime_ai/managed";
 
 type SynthesizeRequest = {
-  /** @deprecated Use formattedSections instead */
+
   formattedSignals?: string;
   formattedSections?: Record<string, string>;
-  /** Per-category system prompts keyed by category ID */
+
   categoryAnalysisSystemPrompts?: Record<string, string>;
   categoryAnalysisUserPromptTemplate?: string;
   coreMemorySystemPrompt?: string;
@@ -143,17 +143,10 @@ const generateWelcomeHtml = async (
 
   return { welcomeHtml, durationMs };
 };
-/**
- * Anonymous onboarding synthesis is allowed before sign-in so Stella can build
- * first-run memory, the welcome message, and app recommendations.
- */
+
 const ANON_SYNTHESIS_RATE_LIMIT = 6;
 const ANON_SYNTHESIS_RATE_WINDOW_MS = 60 * 60_000;
-/**
- * Per-authenticated-owner cap on the same endpoint. Same rationale —
- * synthesis is one of the most expensive LLM endpoints in the stack, so
- * even a paid user shouldn't be able to fire dozens of jobs in a minute.
- */
+
 const SYNTHESIS_OWNER_RATE_LIMIT = 10;
 const SYNTHESIS_OWNER_RATE_WINDOW_MS = 60_000;
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-
 import { createWriteStream } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";

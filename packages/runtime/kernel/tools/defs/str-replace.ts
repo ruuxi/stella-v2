@@ -1,13 +1,3 @@
-/**
- * `StrReplace` — surgical text replacement, used exclusively by the Dream
- * subagent.
- *
- * Dream's runtime intercepts via `dispatchLocalTool` (which enforces
- * path-restricted writes to `MEMORY.md` and `memory_map.md`). The host
- * doesn't have an unrestricted handler for this tool — calling it outside
- * the Dream subagent returns an error.
- */
-
 import type { ToolDefinition } from "../types.js";
 
 export const strReplaceTool: ToolDefinition = {

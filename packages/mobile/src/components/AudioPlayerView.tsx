@@ -17,13 +17,12 @@ import { fonts } from "../theme/fonts";
 import { configurePlaybackAudioSession } from "../lib/mobile-audio-session";
 
 type AudioPlayerViewProps = {
-  /** `file://` URI of the decoded clip — see `writeArtifactMediaFile`. */
+
   uri: string;
   title: string;
   subtitle: string;
 };
 
-/** Matches the `gobackward.15` / `goforward.15` glyphs on the skip buttons. */
 const SKIP_SECONDS = 15;
 
 const clamp = (value: number, min: number, max: number) =>
@@ -41,24 +40,13 @@ const formatTime = (seconds: number): string => {
     : `${minutes}:${paddedSecs}`;
 };
 
-/**
- * Full-surface audio player for the artifact viewer: artwork tile, filename,
- * a draggable scrubber with elapsed/remaining times, and a transport row.
- *
- * Replaces the WebView `<audio controls>` bar the viewer used to show, which
- * rendered as a ~40px browser default control floating in an otherwise empty
- * dark screen.
- */
 export function AudioPlayerView({ uri, title, subtitle }: AudioPlayerViewProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  // 200ms keeps the scrubber moving smoothly without churning the tree; the
-  // expo-audio default (500ms) reads as a stuttering progress bar.
+
   const player = useAudioPlayer({ uri }, { updateInterval: 200 });
   const status = useAudioPlayerStatus(player);
 
-  // Playback should be audible with the ringer switch flipped, the same way
-  // read-aloud configures the session.
   useEffect(() => {
     void configurePlaybackAudioSession().catch(() => undefined);
   }, []);
@@ -69,12 +57,10 @@ export function AudioPlayerView({ uri, title, subtitle }: AudioPlayerViewProps) 
       : 0;
   const seekable = status.isLoaded && duration > 0;
 
-  // While a drag is in flight the knob follows the finger, not the player.
   const [scrubTime, setScrubTime] = useState<number | null>(null);
   const position = clamp(scrubTime ?? status.currentTime, 0, duration || 0);
   const progress = duration > 0 ? position / duration : 0;
 
-  // The pan responder is created once, so everything it reads lives in refs.
   const trackWidthRef = useRef(0);
   const durationRef = useRef(0);
   const seekableRef = useRef(false);
@@ -96,8 +82,7 @@ export function AudioPlayerView({ uri, title, subtitle }: AudioPlayerViewProps) 
   );
 
   const panResponder = useMemo(() => {
-    // `locationX` is relative to the touch target; the track's children are
-    // `pointerEvents="none"` so the target is always the track itself.
+
     const timeAt = (locationX: number) =>
       clamp(locationX / (trackWidthRef.current || 1), 0, 1) *
       durationRef.current;
@@ -114,8 +99,7 @@ export function AudioPlayerView({ uri, title, subtitle }: AudioPlayerViewProps) 
       onPanResponderRelease: (event) => {
         const target = timeAt(event.nativeEvent.locationX);
         setScrubTime(target);
-        // Hold the scrubbed position until the player has actually moved,
-        // otherwise the knob snaps back to the pre-seek time for one frame.
+
         void player
           .seekTo(clamp(target, 0, durationRef.current))
           .catch(() => undefined)
@@ -131,8 +115,7 @@ export function AudioPlayerView({ uri, title, subtitle }: AudioPlayerViewProps) 
       player.pause();
       return;
     }
-    // Replaying a finished clip needs an explicit rewind; `play()` alone
-    // leaves the player parked at the end.
+
     if (duration > 0 && status.currentTime >= duration - 0.25) {
       seekTo(0);
     }
@@ -249,8 +232,7 @@ export function AudioPlayerView({ uri, title, subtitle }: AudioPlayerViewProps) 
                 name={status.playing ? "pause" : "play"}
                 size={30}
                 color={colors.accentForeground}
-                // The play triangle reads as off-centre when centred on its
-                // own bounding box; nudge it toward the optical centre.
+
                 style={status.playing ? undefined : styles.playGlyph}
               />
             ) : (

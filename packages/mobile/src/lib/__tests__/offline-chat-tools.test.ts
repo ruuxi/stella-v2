@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
 
-// The memory/compaction modules import AsyncStorage, whose non-native fallback
-// talks to `window.localStorage`; give the bun runtime an in-memory one before
-// those modules are imported. (These tests exercise the PURE helpers only.)
 const memoryStore = new Map<string, string>();
 (globalThis as Record<string, unknown>).window = {
   localStorage: {
@@ -49,7 +46,7 @@ describe("chat-recall FTS helpers", () => {
   });
 
   test("buildFtsMatchQuery neutralizes FTS operators and punctuation", () => {
-    // Quotes/operators are stripped by tokenization, so no FTS5 injection.
+
     expect(buildFtsMatchQuery('cat AND "dog"')).toBe('"cat" OR "and" OR "dog"');
   });
 
@@ -70,7 +67,7 @@ describe("chat-recall FTS helpers", () => {
     expect(hit.id).toBe("3");
     expect(hit.role).toBe("user");
     expect(hit.snippet).toContain("Austin");
-    // bm25 rank (lower = better) is negated so higher score = better.
+
     expect(hit.score).toBe(1.7);
   });
 
@@ -174,7 +171,7 @@ describe("memory + model context", () => {
 });
 
 describe("chat-compaction planning", () => {
-  const longText = "x".repeat(1000); // ~250 tokens each
+  const longText = "x".repeat(1000);
   const many: ChatMessage[] = Array.from({ length: 40 }, (_, i) =>
     msg(String(i), i % 2 === 0 ? "user" : "assistant", `${longText} ${i}`, i),
   );
@@ -188,9 +185,9 @@ describe("chat-compaction planning", () => {
     expect(contextTokenEstimate(many, null)).toBeGreaterThan(6000);
     const plan = planCompaction(many, null);
     expect(plan === null).toBe(false);
-    // Head-protected: the first two messages are never in the folded middle.
+
     expect(plan!.middle.some((m) => m.id === "0" || m.id === "1")).toBe(false);
-    // A recent tail stays out of the middle.
+
     expect(plan!.middle.some((m) => m.id === "39")).toBe(false);
     expect(plan!.middle.length).toBeGreaterThan(0);
     expect(plan!.nextCoveredIds).toEqual(plan!.middle.map((m) => m.id));
@@ -204,7 +201,7 @@ describe("chat-compaction planning", () => {
     };
     const context = buildCompactedContext(many, checkpoint);
     expect(context.summary).toContain("introduced themselves");
-    // Covered rows are dropped from the history sent to the model.
+
     expect(context.history.length).toBe(many.length - 4);
   });
 });

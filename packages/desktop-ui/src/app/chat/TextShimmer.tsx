@@ -1,7 +1,3 @@
-/**
- * TextShimmer: animated gradient shimmer across the entire string.
- */
-
 import { useEffect, useMemo, useRef } from "react";
 import { useContinuousAnimationGate } from "@/shared/hooks/use-continuous-animation-gate";
 import { useExclusiveAnimation } from "@/shared/hooks/use-exclusive-animation";
@@ -9,16 +5,16 @@ import "./text-shimmer.css";
 
 interface TextShimmerProps {
   text: string;
-  /** Whether shimmer is actively running */
+
   active?: boolean;
   className?: string;
-  /** Fixed sweep duration; when omitted, scales with text length. */
+
   durationMs?: number;
-  /** Anchor the sweep phase to a shared wall clock across separate mounts. */
+
   syncPhase?: boolean;
-  /** At most one visible candidate in this group receives the sweep. */
+
   exclusiveGroup?: string;
-  /** Higher-priority visible candidates own their group's single sweep. */
+
   exclusivePriority?: number;
 }
 
@@ -62,9 +58,7 @@ export function TextShimmer({
     ) {
       return;
     }
-    // The old background-position shimmer crossed the phrase over nearly the
-    // full duration. Keep that deliberate pace while retaining a bounded rest
-    // between compositor-only transform bursts.
+
     const sweepDuration = Math.min(2200, Math.max(1400, duration * 0.85));
     const restDuration = Math.max(3000, duration * 1.5);
     let stopped = false;

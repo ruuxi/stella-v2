@@ -1,11 +1,3 @@
-/**
- * User-BYOK OpenAI Realtime provider.
- *
- * Token is minted in main-process using the user's stored OpenAI API key
- * (`voiceApi.createOpenAISession`) and the connection uses OpenAI's WebRTC
- * realtime endpoint.
- */
-
 import { OpenAIWebRTCTransport } from "../transports/openai-webrtc-transport";
 import { bearerSdpFetcher } from "../transports/sdp-fetchers";
 import type {

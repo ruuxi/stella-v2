@@ -6,8 +6,6 @@ const APPS_DIR = join(import.meta.dirname, "../../src/app");
 const ROUTES_DIR = join(import.meta.dirname, "../../src/routes");
 const ROUTE_TREE_PATH = join(import.meta.dirname, "../../src/routeTree.gen.ts");
 
-// Only feature folders with a `metadata.ts` are sidebar apps; matches the
-// runtime `import.meta.glob` filter.
 const listAppDirs = () =>
   readdirSync(APPS_DIR).filter((entry) => {
     if (entry.startsWith("_")) return false;
@@ -20,13 +18,6 @@ const listAppDirs = () =>
     }
   });
 
-/**
- * A "flat top-level route" is `routes/<name>.tsx` where `<name>` is a single
- * URL segment of safe characters. This intentionally excludes layout files
- * (`__root.tsx`), the `/` redirect (`index.tsx`), nested files
- * (`foo.bar.tsx`), dynamic params (`$id.tsx`), and route groups (`(group)`),
- * so this suite stays valid the moment we introduce any of those.
- */
 const FLAT_ROUTE_FILE = /^([a-z][a-z0-9-]*)\.tsx$/;
 
 const listFlatRouteFiles = () =>
@@ -45,8 +36,7 @@ describe("route smoke", () => {
     const tree = readFileSync(ROUTE_TREE_PATH, "utf-8");
     for (const file of listFlatRouteFiles()) {
       const path = `/${file.replace(/\.tsx$/, "")}`;
-      // The generated tree quotes paths with single quotes today; tolerate
-      // either quote style so a future formatter switch doesn't break us.
+
       expect(tree).toMatch(
         new RegExp(`['"\`]${path.replace(/\//g, "\\/")}['"\`]\\s*:\\s*typeof`),
       );

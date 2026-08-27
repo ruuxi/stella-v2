@@ -1,25 +1,3 @@
-/**
- * `connector_status` — deterministic connector check + inline connect
- * card, for the orchestrator only.
- *
- * Demoted: it stays out of the model's direct tool list whenever
- * node_repl is available, where it is callable as
- * `tools.connector_status({...})` (advertised in node_repl's demoted-tool
- * catalog and findable via `tools.$search`). The connector-availability
- * system reminder points the orchestrator at it when a user message
- * keyword-matches a non-connected connector. Agents without node_repl get
- * it as a normal direct tool.
- *
- * Calling it with a connector name/id is pure lookup + card trigger —
- * no LLM inside:
- *  - connected → reports that, nothing else happens;
- *  - previously declined → reports that with connect-later guidance, no card;
- *  - otherwise → shows the inline connect card (the same
- *    ConnectorConnectService flow the CLI path uses), blocks until the
- *    user resolves it, and reports the outcome. A decline is persisted
- *    so the offer is never repeated.
- */
-
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   resolveNativeConnectorCatalog,
@@ -44,14 +22,10 @@ export type ConnectorConnectionRequester = (
     iconUrl?: string;
     category?: string;
     reason?: string;
-    /** Chat the card belongs to; the renderer scopes the card to it. */
+
     conversationId?: string;
   },
-  /**
-   * Turn abort signal. The worker-side implementation cancels the
-   * pending desktop card when it fires, so a cancelled/superseded turn
-   * doesn't leave a card up for the desktop's full timeout.
-   */
+
   signal?: AbortSignal,
 ) => Promise<
   | { ok: true; status: "connected" | "already_connected" }
@@ -62,10 +36,10 @@ export type ConnectorConnectionRequester = (
 >;
 
 export type ConnectorStatusToolOptions = {
-  /** `~/.stella` (durable state root — connector state + catalog cache). */
+
   stellaDataDir: string;
   getStellaSiteAuth?: () => { baseUrl: string; authToken: string } | null;
-  /** Desktop hop that renders the inline connect card. */
+
   requestConnectorConnection?: ConnectorConnectionRequester;
   fetchImpl?: typeof fetch;
 };
@@ -82,7 +56,6 @@ type CatalogMemo = {
 
 let catalogMemo: CatalogMemo | null = null;
 
-/** Test hook. */
 export const resetConnectorStatusCatalogMemo = () => {
   catalogMemo = null;
 };
@@ -159,11 +132,9 @@ export const createConnectorStatusTool = (
   name: CONNECTOR_STATUS_TOOL_NAME,
   label: "Connector status",
   workingText: "Checking connector",
-  // Orchestrator-only chat affordance, mirroring the map/html tools.
+
   agentTypes: [AGENT_IDS.ORCHESTRATOR],
-  // Demoted out of the direct tool list when node_repl is available; the
-  // connector-availability reminder points the orchestrator at calling it
-  // (directly or as tools.connector_status inside node_repl).
+
   demoted: {
     searchTerms: [
       "connector",
@@ -315,8 +286,7 @@ export const createConnectorStatusTool = (
       };
     }
     if (outcome.reason === "cancelled" && extras?.signal?.aborted) {
-      // The turn itself was cancelled; the desktop card was settled as
-      // cancelled too. Nothing to tell the user.
+
       return {
         result: `The turn was cancelled before the user answered the ${entry.name} connect card.`,
         details: {
@@ -327,10 +297,7 @@ export const createConnectorStatusTool = (
       };
     }
     if (outcome.reason === "cancelled" || outcome.reason === "timeout") {
-      // No decline is persisted for these — suppression only holds for
-      // the current context window (the availability reminder's window
-      // gate), so the honest phrasing is "for now", not "ever" or even
-      // "this conversation".
+
       return {
         result: `The connect card for ${entry.name} was ${outcome.reason === "timeout" ? "not answered in time" : "dismissed"} — the user neither connected nor declined. Don't re-offer it for now; mention once that ${entry.name} is available in Connections, and proceed via other means (browser fallback).`,
         details: {

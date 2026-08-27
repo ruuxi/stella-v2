@@ -33,7 +33,7 @@ interface ShiftingGradientProps {
   blurMultiplier?: number;
   scale?: number;
   lightweight?: boolean;
-  /** When true, fills the nearest positioned ancestor instead of the viewport (for sidebars, etc.). */
+
   contained?: boolean;
 }
 
@@ -41,17 +41,12 @@ function rand(min: number, max: number): number {
   return min + Math.random() * (max - min);
 }
 
-// ─── Blue noise dithering ───────────────────────────────────────────────
-// 64x64 blue noise threshold map, generated from a void-and-cluster algorithm.
-// We only need a small tile — it repeats seamlessly.
 function generateBlueNoise(size: number): Float32Array {
-  // Use a deterministic hash-based approach that approximates blue noise properties.
-  // Each value is in [0, 1). The interleaved gradient noise (IGN) pattern
-  // has excellent blue-noise-like spectral properties.
+
   const data = new Float32Array(size * size);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      // Interleaved gradient noise (Jorge Jimenez, 2014)
+
       data[y * size + x] = (52.9829189 * ((0.06711056 * x + 0.00583715 * y) % 1)) % 1;
     }
   }
@@ -61,11 +56,9 @@ function generateBlueNoise(size: number): Float32Array {
 const NOISE_SIZE = 64;
 const blueNoise = generateBlueNoise(NOISE_SIZE);
 
-// ─── Blob generation ────────────────────────────────────────────────────
-
 function generateBlobs(colors: RGB[], mode: GradientMode = "soft"): Blob[] {
   if (mode === "flat") {
-    // Single dominant color filling the entire canvas
+
     const color = colors[0];
     return [{ x: 0.5, y: 0.5, radius: 3, alpha: 0.5, color }];
   }
@@ -78,10 +71,6 @@ function generateBlobs(colors: RGB[], mode: GradientMode = "soft"): Blob[] {
     color: colors[index % colors.length],
   }));
 }
-
-// ─── Canvas rendering ───────────────────────────────────────────────────
-// Renders at RENDER_SCALE for performance; the browser's bilinear upscale
-// provides additional free smoothing on top of the dithering.
 
 const RENDER_SCALE = 0.6;
 
@@ -107,23 +96,21 @@ function renderGradient(
 
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      // Start with background color
+
       let r = bg.r;
       let g = bg.g;
       let b = bg.b;
 
-      // Additively blend each blob
       for (let i = 0; i < blobs.length; i++) {
         const blob = blobs[i];
         const dx = x / w - blob.x;
         const dy = y / h - blob.y;
-        // Use aspect-corrected distance
+
         const dist = Math.sqrt(dx * dx + dy * dy);
         const radius = blob.radius * (maxDim / w);
 
         if (dist >= radius) continue;
 
-        // Smooth quintic falloff — no visible rings
         const t = dist / radius;
         const falloff = 1 - t * t * t * (t * (t * 6 - 15) + 10);
         const strength = falloff * blob.alpha;
@@ -133,12 +120,10 @@ function renderGradient(
         b = b + (blob.color.b - b) * strength;
       }
 
-      // Semi-transparent overlay (matches the original's background wash)
       r = r + (bg.r - r) * overlayAlpha;
       g = g + (bg.g - g) * overlayAlpha;
       b = b + (bg.b - b) * overlayAlpha;
 
-      // Blue noise dithering: ±0.5/255 jitter to break quantization bands
       const noise = blueNoise[(y % NOISE_SIZE) * NOISE_SIZE + (x % NOISE_SIZE)];
       const dither = (noise - 0.5) * (1.5 / 255);
 
@@ -153,8 +138,6 @@ function renderGradient(
   ctx.putImageData(imageData, 0, 0);
 }
 
-// ─── Component ──────────────────────────────────────────────────────────
-
 export const ShiftingGradient = memo(function ShiftingGradient({
   className,
   mode = "soft",
@@ -162,8 +145,7 @@ export const ShiftingGradient = memo(function ShiftingGradient({
   lightweight: lightweightProp = false,
   contained = false,
 }: ShiftingGradientProps) {
-  // The canvas path runs a per-pixel CPU blend loop on the main thread at
-  // paint time, so low-power devices always take the CSS-gradient path.
+
   const lightweight = lightweightProp || shouldUseLowPowerEffects();
   const { resolvedColorMode, theme, colors, flat } = useTheme();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -171,11 +153,7 @@ export const ShiftingGradient = memo(function ShiftingGradient({
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const blobsRef = useRef<Blob[]>([]);
   const prevKeyRef = useRef("");
-  // Whether renderGradient has actually painted at a non-zero size. A fresh
-  // canvas reports the 300x150 default for width/height, so the dimensions
-  // alone can't tell "painted" from "never painted" — and a gradient mounted
-  // inside a display:none host (e.g. the right sidebar before the shell is
-  // visible) measures 0x0 on the first settings pass.
+
   const paintedRef = useRef(false);
 
   const getPalette = useCallback(
@@ -184,16 +162,12 @@ export const ShiftingGradient = memo(function ShiftingGradient({
     [resolvedColorMode, colorMode, colors],
   );
 
-  // Render to canvas when settings change
   useEffect(() => {
     if (lightweight) {
       prevKeyRef.current = "";
       return;
     }
 
-    // Include a palette signature: the Custom overlay keeps a constant
-    // `theme.id` while its displayed base (and thus colors) changes, so the id
-    // alone can't detect a base swap between two non-forced themes.
     const key = `${theme.id}-${resolvedColorMode}-${mode}-${colorMode}-${flat ? "flat" : ""}-${colors.background}-${colors.primary}-${colors.interactive}`;
     const settingsChanged = prevKeyRef.current !== key;
 
@@ -213,9 +187,7 @@ export const ShiftingGradient = memo(function ShiftingGradient({
     if (!ctx) return;
 
     const palette = getPalette();
-    // Flat themes (the stock Default, plus any forcedMode-pinned theme) want a
-    // clean, flat single-color surface — no blob at all, otherwise the
-    // brand-derived palette tints the whole canvas.
+
     const blobs = flat ? [] : generateBlobs(palette, mode);
     blobsRef.current = blobs;
 
@@ -229,19 +201,6 @@ export const ShiftingGradient = memo(function ShiftingGradient({
 
   }, [theme.id, resolvedColorMode, mode, colorMode, getPalette, lightweight, colors, flat]);
 
-  // First-render fallback only. We intentionally do NOT re-render on
-  // window/parent resize: the blob positions are normalized fractions
-  // of width/height with aspect-corrected radii, so any repaint at a
-  // different size visibly slides them around — exactly the "blobs
-  // move when I resize the window" behavior we want to avoid. CSS
-  // (`.gradient-base { width: 100%; height: 100% }`) bilinearly
-  // stretches the existing bitmap to fill the new size, which reads
-  // as a stable soft gradient since blobs are already soft.
-  //
-  // The fallback below covers the case where the parent has zero
-  // size at the time the settings effect first runs (pre-layout); we
-  // observe until we see a non-zero size, render once at that size,
-  // and disconnect.
   useEffect(() => {
     if (lightweight) return;
     const canvas = canvasRef.current;
@@ -250,8 +209,7 @@ export const ShiftingGradient = memo(function ShiftingGradient({
 
     const renderOnce = () => {
       const ctx = ctxRef.current;
-      // prevKeyRef doubles as "the settings effect has run": blobsRef alone
-      // can't gate this because flat themes intentionally paint zero blobs.
+
       if (!ctx || prevKeyRef.current === "") return false;
       const bg = parseThemeColor(colors.background) ?? FALLBACK_BACKGROUND;
       const rect = canvas.parentElement?.getBoundingClientRect();
@@ -292,11 +250,7 @@ export const ShiftingGradient = memo(function ShiftingGradient({
         <div
           className="gradient-base"
           style={{
-            // Flat themes (the stock Default, plus any forcedMode-pinned theme)
-            // want a clean solid surface — no colored blobs. The canvas path
-            // already drops the blobs for `flat`; the lightweight CSS path
-            // (taken on low-power machines, including most ≤8GB Windows boxes)
-            // has to do the same or the gradient bleeds through as color blobs.
+
             background: flat
               ? "var(--background)"
               : [

@@ -1,11 +1,3 @@
-/**
- * Shared search-query state for the unified display library overview.
- *
- * Work keeps its search field mounted. This store preserves its debounced
- * query and focus requests across the always-mounted sidebar sections, while
- * section changes can clear it without prop-drilling through the shell.
- */
-
 import { useSyncExternalStore } from "react";
 
 type DisplaySearchSnapshot = {
@@ -83,7 +75,6 @@ export const useDisplaySearchFocusRequest = (): number =>
     () => displaySearchStore.getSnapshot().focusRequest,
   );
 
-/** Case-insensitive substring match helper shared by overview sections. */
 export const matchesQuery = (haystack: string, q: string): boolean => {
   if (!q) return true;
   return haystack.toLowerCase().includes(q.toLowerCase());

@@ -1,16 +1,5 @@
-/**
- * Cookie command handlers.
- */
 import { getActiveTab } from './tabs.js';
 
-/**
- * Resolve the URL a cookie command applies to. Cookie commands frequently
- * arrive from owners that have no tabs (e.g. the desktop app's privileged
- * fetch bridge sends `cookies_get` with an explicit `url`); falling back to
- * `getActiveTab()` in that case would create a blank owner tab purely as a
- * side effect of a read-only cookie query. Only touch the active tab when
- * the command did not specify a URL itself.
- */
 async function resolveCookieUrl(command) {
   if (command.url) return command.url;
   const tab = await getActiveTab(command);
@@ -30,7 +19,6 @@ export async function handleCookiesGet(command) {
 
   const cookies = await chrome.cookies.getAll({ url });
 
-  // Optionally filter by name
   const filtered = command.name
     ? cookies.filter(c => c.name === command.name)
     : cookies;
@@ -53,14 +41,6 @@ export async function handleCookiesGet(command) {
   };
 }
 
-/**
- * Export every cookie from the user's regular Chromium cookie stores.
- *
- * Querying each store explicitly keeps incognito cookies out of the export and
- * preserves the complete Cookie objects returned by Chrome, including fields
- * such as hostOnly, session, storeId, and partitionKey that cookies_get's
- * compatibility shape intentionally omits.
- */
 export async function handleCookiesExportAll(command) {
   const stores = await chrome.cookies.getAllCookieStores();
   const regularStores = stores.filter(store => store.incognito !== true);
@@ -118,7 +98,7 @@ export async function handleCookiesClear(command) {
 
   let cleared = 0;
   for (const cookie of cookies) {
-    // If name filter is specified, only clear matching cookies
+
     if (command.name && cookie.name !== command.name) continue;
 
     const cookieUrl =

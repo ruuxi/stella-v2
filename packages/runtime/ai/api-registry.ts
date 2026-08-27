@@ -26,12 +26,6 @@ export interface ApiProvider<TApi extends Api = Api, TOptions extends StreamOpti
 	streamSimple: StreamFunction<TApi, SimpleStreamOptions>;
 }
 
-/**
- * Shape a lazy provider loader must resolve to. Each provider module
- * exports differently-named `streamX` / `streamSimpleX` symbols, so the
- * loader closure (in `register-builtins.ts`) maps those onto this
- * uniform `{ stream, streamSimple }` shape.
- */
 export interface ApiProviderModule<
 	TApi extends Api = Api,
 	TOptions extends StreamOptions = StreamOptions,
@@ -40,15 +34,6 @@ export interface ApiProviderModule<
 	streamSimple: StreamFunction<TApi, SimpleStreamOptions>;
 }
 
-/**
- * Lazy registration: defer importing the provider's SDK-bearing module
- * (and the heavy SDK graph it pulls in: @anthropic-ai/sdk, openai,
- * @google/genai, @aws-sdk/client-bedrock-runtime,
- * …) until the first `stream()`/`streamSimple()` for this api. The
- * resolved module is cached after first load so subsequent calls reuse
- * it without re-importing. This keeps the worker's INTERNAL_WORKER_INITIALIZE
- * boot path off the SDK parse/eval cost.
- */
 export interface LazyApiProvider<
 	TApi extends Api = Api,
 	TOptions extends StreamOptions = StreamOptions,
@@ -64,17 +49,9 @@ interface ApiProviderInternal {
 }
 
 type RegisteredApiProvider = {
-	/**
-	 * Resolved internal provider. Present immediately for eager
-	 * registrations; populated on first load for lazy registrations and
-	 * cached thereafter.
-	 */
+
 	resolved?: ApiProviderInternal;
-	/**
-	 * Lazy loader closure. Undefined for eager registrations. The
-	 * in-flight load promise is cached so concurrent first-stream calls
-	 * share a single import.
-	 */
+
 	load?: () => Promise<ApiProviderInternal>;
 	loadPromise?: Promise<ApiProviderInternal>;
 	sourceId?: string;
@@ -130,10 +107,6 @@ export function registerApiProvider<TApi extends Api, TOptions extends StreamOpt
 	});
 }
 
-/**
- * Register a provider whose SDK-bearing implementation module loads
- * lazily on first stream. See {@link LazyApiProvider}.
- */
 export function registerLazyApiProvider<TApi extends Api, TOptions extends StreamOptions>(
 	provider: LazyApiProvider<TApi, TOptions>,
 	sourceId?: string,
@@ -145,19 +118,10 @@ export function registerLazyApiProvider<TApi extends Api, TOptions extends Strea
 	});
 }
 
-/**
- * Synchronously fetch an already-resolved provider. Returns undefined
- * for lazy providers that have not been loaded yet (use
- * {@link resolveApiProviderInternal} to trigger + await the load).
- */
 export function getApiProvider(api: Api): ApiProviderInternal | undefined {
 	return apiProviderRegistry.get(api)?.resolved;
 }
 
-/**
- * Resolve a provider, awaiting (and caching) the lazy load on first use.
- * Returns undefined if no provider is registered for the api.
- */
 export async function resolveApiProviderInternal(
 	api: Api,
 ): Promise<ApiProviderInternal | undefined> {
@@ -173,8 +137,7 @@ export async function resolveApiProviderInternal(
 				return resolved;
 			})
 			.catch((error) => {
-				// Allow a later call to retry the import rather than caching
-				// the rejection forever.
+
 				entry.loadPromise = undefined;
 				throw error;
 			});

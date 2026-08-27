@@ -1,7 +1,3 @@
-/**
- * Discovery category selection, signal collection, synthesis trigger.
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   generateWelcomeHtml,
@@ -64,9 +60,7 @@ export function useDiscoveryFlow({ conversationId }: UseDiscoveryFlowOptions) {
 
   const handleDiscoveryConfirm = useCallback(
     (categories: DiscoveryCategory[]) => {
-      // A new confirmation supersedes every in-flight discovery operation.
-      // Async work cannot be aborted at the IPC boundary, so generation
-      // identity prevents an older run from publishing into a newer flow.
+
       discoveryJobRef.current += 1;
       synthesizedRef.current = false;
       synthesizingRef.current = false;
@@ -93,7 +87,6 @@ export function useDiscoveryFlow({ conversationId }: UseDiscoveryFlowOptions) {
     return () => window.clearTimeout(timeoutId);
   }, [activeConversationId, discoveryCategories, welcomeStatus]);
 
-  // Collect signals -> synthesize -> post welcome as soon as collection finishes
   useEffect(() => {
     if (!discoveryCategories || !activeConversationId) return;
     if (synthesizedRef.current) return;
@@ -182,11 +175,6 @@ export function useDiscoveryFlow({ conversationId }: UseDiscoveryFlowOptions) {
           return;
         }
 
-        // Location is only resolved (and stored in core-memory.md) when the
-        // user opted into a discovery category that already implies their
-        // physical location — browsing history (URLs are geo-correlated) or
-        // apps/system signals (system identity, dock, locale). Dev-only or
-        // messages-only profiles never trigger the IP lookup.
         const includeLocation =
           discoveryCategories.includes("browsing_bookmarks") ||
           discoveryCategories.includes("apps_system");

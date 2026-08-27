@@ -6,10 +6,6 @@ const NATIVE_FONT_SMOOTHING_CHANGED_EVENT =
   "stella:native-font-smoothing-changed";
 const NATIVE_FONT_SMOOTHING_ATTRIBUTE = "data-native-font-smoothing";
 
-// Default on: matches what macOS native apps render (grayscale AA, as
-// shipped since Mojave) and keeps Stella's text consistent with the
-// surrounding system. Users can flip it off in Settings if they prefer
-// Chromium's default subpixel rendering.
 const DEFAULT_ENABLED = true;
 
 const readStored = (): boolean => {
@@ -27,8 +23,6 @@ const applyToDocument = (enabled: boolean) => {
   );
 };
 
-// Apply at module load so the attribute is set before React mounts and
-// we never flash a frame of un-smoothed text.
 if (typeof window !== "undefined") {
   applyToDocument(readStored());
 }

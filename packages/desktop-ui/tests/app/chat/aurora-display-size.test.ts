@@ -1,5 +1,3 @@
-// @vitest-environment jsdom
-
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -67,8 +65,6 @@ describe("working-indicator aurora display sizing", () => {
       "utf8",
     );
 
-    // The indicator now draws the SVG character rig; the aurora stays for the
-    // onboarding overlay only.
     expect(component).not.toContain("StellaAnimation");
     expect(component).toContain("StellaCharacter");
     expect(component).toContain("INDICATOR_MARK_SIZE_PX = 30");

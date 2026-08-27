@@ -1,13 +1,3 @@
-/* eslint-disable */
-/**
- * Generated `api` utility.
- *
- * THIS CODE IS AUTOMATICALLY GENERATED.
- *
- * To regenerate, run `npx convex dev`.
- * @module
- */
-
 import type * as adapter from "../adapter.js";
 import type * as generatedTables from "../generatedTables.js";
 
@@ -23,27 +13,11 @@ const fullApi: ApiFromModules<{
   generatedTables: typeof generatedTables;
 }> = anyApi as any;
 
-/**
- * A utility for referencing Convex functions in your app's public API.
- *
- * Usage:
- * ```js
- * const myFunctionReference = api.myModule.myFunction;
- * ```
- */
 export const api: FilterApi<
   typeof fullApi,
   FunctionReference<any, "public">
 > = anyApi as any;
 
-/**
- * A utility for referencing Convex functions in your app's internal API.
- *
- * Usage:
- * ```js
- * const myFunctionReference = internal.myModule.myFunction;
- * ```
- */
 export const internal: FilterApi<
   typeof fullApi,
   FunctionReference<any, "internal">

@@ -139,9 +139,6 @@ export const ShellTopBarAccount = ({ onSignIn }: ShellTopBarAccountProps) => {
   const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false);
   const [planUsageOpen, setPlanUsageOpen] = useState(false);
 
-  // Settings destinations are folded into this menu while signed in, so its
-  // close handler has to service both handoffs: a queued Theme/Connectors
-  // popover and the sign-out confirmation.
   const {
     destinations: settingsDestinations,
     connectHint,
@@ -231,8 +228,8 @@ export const ShellTopBarAccount = ({ onSignIn }: ShellTopBarAccountProps) => {
                 </span>
               ) : null}
             </span>
-            {/* The gear is a pure clickability affordance — the whole button
-                is the single click target that opens the unified menu. */}
+            {
+}
             <span
               className="shell-topbar-account-settings-icon"
               aria-hidden="true"

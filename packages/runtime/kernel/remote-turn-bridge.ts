@@ -90,13 +90,6 @@ type RuntimeAttachment = {
   extractedText?: string;
 };
 
-/**
- * Parse a payload's `mediaRefs` (set by the backend after relaying inbound
- * attachments through R2) into the shape the runtime expects. We preserve
- * `kind`/`name`/`size` even though the worker's image materializer only
- * acts on images today — those fields are needed for future non-image
- * support (voice notes, documents) without another round of plumbing.
- */
 const getRuntimeAttachments = (value: unknown): RuntimeAttachment[] => {
   if (!Array.isArray(value)) return [];
   return value
@@ -336,7 +329,6 @@ export const createRemoteTurnBridge = (
           continue;
         }
 
-        // Claim immediately so the rescue timer knows we're handling it
         await deps.claimRemoteTurn?.({ requestId, conversationId }).catch((err) => {
           deps.log?.(
             "warn",

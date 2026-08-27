@@ -1,15 +1,3 @@
-/**
- * Fashion IPC handlers.
- *
- * The user's body photo is intentionally local-only — we never round-trip raw
- * bytes through Convex storage. The renderer asks the user to pick an image
- * file, this layer copies it into `~/.stella/fashion/body.<ext>`, and the
- * Convex backend only learns there is a body photo (via `setBodyPhotoFlag`,
- * called separately from the renderer through the Convex client).
- *
- * The `getBodyPhotoDataUrl` channel exists so the renderer can render the
- * preview without giving the renderer process direct disk read access.
- */
 import { execFile } from "node:child_process";
 import { constants, promises as fs } from "node:fs";
 import path from "node:path";
@@ -254,7 +242,7 @@ const findExistingBodyPhoto = async (root) => {
             return { absolutePath: candidate, ext };
         }
         catch {
-            // Try next extension.
+
         }
     }
     return null;
@@ -266,7 +254,7 @@ const removeAllBodyPhotos = async (root) => {
             await fs.unlink(path.join(dir, `body.${ext}`));
         }
         catch {
-            // Ignore missing files.
+
         }
     }));
 };
@@ -308,13 +296,7 @@ const normalizeImageUrls = (value) => {
     }
     return out;
 };
-/**
- * Copy each user-picked image into `~/.stella/fashion/try-on/<batchId>/N.<ext>`
- * so the runtime can reference it via `image_gen` referenceImagePaths
- * without granting it ad-hoc filesystem access. Source paths can sit
- * anywhere on disk; the destination is always under Fashion's allowed
- * local-image roots.
- */
+
 export const stashTryOnImagePaths = async (root, batchId, rawPaths) => {
     if (!Array.isArray(rawPaths))
         return [];

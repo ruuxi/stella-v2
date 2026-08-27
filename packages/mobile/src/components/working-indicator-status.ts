@@ -1,14 +1,3 @@
-/**
- * Mobile port of the desktop working-indicator status copy
- * (`desktop/src/features/chat/status-utils.ts`). Kept in lockstep with the
- * desktop table so the mobile-native indicator shows the same dynamic,
- * tool-aware label the desktop derives from the live agent stream.
- *
- * Each tool has a small pool of variations. The pick is seeded by the tool
- * call's stable id so the label stays put for the duration of one call (no
- * flicker on re-renders) but feels different across calls.
- */
-
 const IDLE_VARIATIONS: readonly string[] = [
   "Thinking",
   "Mulling it over",
@@ -35,11 +24,6 @@ const REASONING_VARIATIONS: readonly string[] = [
   "Piecing it together",
 ];
 
-/**
- * Stella always presents as a single assistant — never expose that
- * `spawn_agent`, `send_input`, `pause_agent` orchestrate other agents under
- * the hood. Those tools just get generic "Stella is doing the work" copy.
- */
 const AGENT_WORK_VARIATIONS: readonly string[] = [
   "On it",
   "Working on it",
@@ -95,9 +79,7 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Setting a reminder",
     "Putting it on the schedule",
   ],
-  // Recall delegates to a recall agent that greps the memory ledger and
-  // past threads — often the orchestrator's longest wait, so the copy
-  // must read as memory-digging rather than generic thinking.
+
   recall: [
     "Searching my memory",
     "Digging through history",
@@ -131,10 +113,6 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Standing by",
   ],
 
-  // ── General-agent + subagent tools ──────────────────────────────────────
-  // These run inside spawned agents. Raw `Running <toolName>` status text maps
-  // through this same table so the bare tool identifier never reaches the
-  // working indicator. Keep the first entry as the canonical phrase.
   exec_command: COMPUTER_WORK_VARIATIONS,
   node_repl: COMPUTER_WORK_VARIATIONS,
   bash: COMPUTER_WORK_VARIATIONS,
@@ -294,7 +272,6 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
     "Making it happen",
   ],
 
-  // Direct scheduling tools
   schedule_add: ["Scheduling it", "Setting it up", "Adding it", "Penciling it in", "Booking it"],
   schedule_list: [
     "Checking the schedule",
@@ -305,7 +282,6 @@ const TOOL_STATUS_BY_NAME: Record<string, readonly string[]> = {
   schedule_update: ["Updating the schedule", "Adjusting it", "Rescheduling", "Tweaking the timing"],
   schedule_remove: ["Clearing it", "Removing it", "Canceling it", "Taking it off the schedule"],
 
-  // Legacy schedule subagent tool names (still seen in old activity rows)
   cron_add: ["Scheduling it", "Setting it up", "Adding it", "Penciling it in", "Booking it"],
   cron_list: [
     "Checking the schedule",
@@ -331,22 +307,13 @@ const FALLBACK_VARIATIONS: readonly string[] = [
   "On the case",
 ];
 
-// Verb-prefixed tool status emitted by the runtime when a tool does not
-// provide its own display text. Capturing group 1 is the bare tool identifier.
 const RAW_TOOL_STATUS_PATTERN =
   /^(?:running|executing|calling|invoking)\s+(.+)$/i;
 
-/**
- * Normalize a tool identifier to the snake_case keys used in
- * `TOOL_STATUS_BY_NAME`. Handles the runtime's mixed naming — snake_case
- * (`spawn_agent`), PascalCase (`Recall`, `RequestCredential`, `CronAdd`)
- * and space-separated humanized labels (`Running Spawn Agent`).
- */
 const toToolStatusKey = (value: string): string =>
   value
     .trim()
-    // Acronym → word boundary first (`HTMLPreview` → `HTML_Preview`) so
-    // consecutive capitals don't collapse into one token below.
+
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
     .replace(/[_\s-]+/g, "_")
@@ -383,7 +350,7 @@ const tryFriendlyExecCommandStatus = (value: string): string | undefined => {
       return "Command failed";
     }
   } catch {
-    // Truncated or pretty-printed payloads still must not render raw.
+
   }
   return computeWorkingIndicatorStatus({ toolName: "exec_command", seed: "" });
 };
@@ -423,10 +390,6 @@ const pickVariation = (
   return options[hashSeed(seed) % options.length]!;
 };
 
-/**
- * Turn raw tool status text into the same friendly copy as direct tool-name
- * rendering, while leaving genuine human-readable status text untouched.
- */
 export function normalizeDisplayStatusText(
   statusText: string | undefined,
 ): string | undefined {
@@ -485,8 +448,7 @@ export function computeWorkingIndicatorStatus({
     const normalizedToolName = toToolStatusKey(toolName);
     const mapped = TOOL_STATUS_BY_NAME[normalizedToolName];
     if (mapped) return pickVariation(mapped, seed ?? normalizedToolName);
-    // Unknown / future orchestrator tool — keep it neutral instead of
-    // leaking the raw tool identifier into the UI.
+
     return pickVariation(FALLBACK_VARIATIONS, seed ?? normalizedToolName);
   }
 

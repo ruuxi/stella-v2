@@ -276,16 +276,12 @@ describe("preload IPC handler manifest", () => {
       expect(IPC_PAYLOAD_CONTRACT).not.toHaveProperty(channel);
     }
 
-    // The neutral replacements the removals left behind must stay wired.
     expect(IPC_PAYLOAD_CONTRACT).toHaveProperty("theme:listInstalled");
     expect(IPC_PAYLOAD_CONTRACT).toHaveProperty("website:getBaseUrl");
   });
 
   it("never passes an IPC channel constant as an IPC payload", () => {
-    // A bulk edit that appends a channel constant to an import list can also
-    // land inside a nearby `ipcRenderer.send*(CHANNEL, ...)` call, silently
-    // turning a sibling channel name into a payload argument. Every argument
-    // after the first must therefore not be a known channel constant.
+
     const preloadPath = path.join(
       repoRoot,
       "packages/desktop/electron/preload.ts",

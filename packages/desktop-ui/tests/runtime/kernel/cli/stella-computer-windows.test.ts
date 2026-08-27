@@ -513,7 +513,7 @@ describe("Windows stella-computer wrapper", () => {
       try {
         child.kill("SIGKILL");
       } catch {
-        // The cleanup path already terminated it.
+
       }
       rmSync(tempDir, { recursive: true, force: true });
     }

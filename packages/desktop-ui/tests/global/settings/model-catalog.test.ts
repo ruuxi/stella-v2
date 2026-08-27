@@ -170,8 +170,6 @@ describe("settings model catalog", () => {
       },
     ]);
 
-    // Vision is multimodal — it must NOT be filtered out, or the mode is
-    // unpickable in the desktop catalog.
     expect(models.map((model) => model.id)).toEqual([
       "stella/vision",
       "stella/designer",

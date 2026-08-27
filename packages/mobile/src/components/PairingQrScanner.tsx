@@ -24,11 +24,6 @@ type PairingQrScannerProps = {
   onCodeScanned: (code: string) => void;
 };
 
-/**
- * Pull the pairing code out of a QR payload. The desktop mints QRs that
- * encode `stella-mobile://stella?code=<CODE>`, but we also accept a bare
- * 12-char code in case anyone pastes that in.
- */
 function extractPairingCode(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) {

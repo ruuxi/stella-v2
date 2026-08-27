@@ -29,23 +29,20 @@ describe("pickTurnReply (auto-speak selection for a voice turn)", () => {
   });
 
   test("never speaks an older desktop reply the pre-send sync merged in", () => {
-    // Regression: on the computer target the send pipeline's own pre-send
-    // sync can merge a desktop reply CarPlay had never seen. It sorts on its
-    // older timestamp above the sent bubble — it is history, not the answer.
+
     const messages = [
       assistant("desk-old", "an old desktop answer", { createdAt: 90 }),
       user("local-u", "voice question", { createdAt: 100 }),
-      assistant("local-a", "", { createdAt: 100 }), // reply still streaming
+      assistant("local-a", "", { createdAt: 100 }),
     ];
-    // The old merged reply is "newest that changed" by the legacy rule, but
-    // with the sent id known the picker must wait for THIS turn's reply.
+
     expect(
       pickTurnReply(messages, {
         sentUserMessageId: "local-u",
         priorReplyId: null,
       }),
     ).toBe(null);
-    // Once the turn's reply lands, that row — and only that row — is spoken.
+
     const landed = messages.map((m) =>
       m.id === "local-a" ? { ...m, text: "voice answer" } : m,
     );

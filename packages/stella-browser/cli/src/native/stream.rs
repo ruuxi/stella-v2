@@ -9,7 +9,6 @@ use tokio_tungstenite::tungstenite::Message;
 
 use super::cdp::client::CdpClient;
 
-/// Frame metadata from CDP Page.screencastFrame events.
 #[derive(Debug, Clone)]
 pub struct FrameMetadata {
     pub offset_top: f64,
@@ -40,7 +39,7 @@ pub struct StreamServer {
     frame_tx: broadcast::Sender<String>,
     client_count: Arc<Mutex<usize>>,
     client_slot: Arc<RwLock<Option<Arc<CdpClient>>>>,
-    /// The active CDP page session ID (from Target.attachToTarget).
+
     cdp_session_id: Arc<RwLock<Option<String>>>,
     client_notify: Arc<Notify>,
     screencasting: Arc<Mutex<bool>>,
@@ -57,9 +56,6 @@ impl StreamServer {
         Ok(server)
     }
 
-    /// Start the stream server without a CDP client (e.g. at daemon startup before browser launch).
-    /// Returns the server and a shared slot to set the client when the browser launches.
-    /// Input messages are ignored until the client is set.
     pub async fn start_without_client(
         preferred_port: u16,
         session_id: String,
@@ -68,18 +64,15 @@ impl StreamServer {
         Self::start_inner(preferred_port, client_slot, session_id).await
     }
 
-    /// Notify the background CDP listener that the client has changed (browser launched/closed).
     pub fn notify_client_changed(&self) {
         self.client_notify.notify_one();
     }
 
-    /// Update the active CDP page session ID used for screencast commands.
     pub async fn set_cdp_session_id(&self, session_id: Option<String>) {
         let mut guard = self.cdp_session_id.write().await;
         *guard = session_id;
     }
 
-    /// Check whether the server currently has active screencast running.
     pub async fn is_screencasting(&self) -> bool {
         *self.screencasting.lock().await
     }
@@ -112,7 +105,6 @@ impl StreamServer {
         let screencasting_clone = screencasting.clone();
         let cdp_session_clone = cdp_session_id.clone();
 
-        // WebSocket accept loop
         tokio::spawn(async move {
             accept_loop(
                 listener,
@@ -126,7 +118,6 @@ impl StreamServer {
             .await;
         });
 
-        // Background CDP event listener for real-time frame broadcasting
         let frame_tx_bg = frame_tx.clone();
         let client_slot_bg = client_slot.clone();
         let client_notify_bg = client_notify.clone();
@@ -163,12 +154,10 @@ impl StreamServer {
         self.port
     }
 
-    /// Broadcast a raw frame string (legacy).
     pub fn broadcast_frame(&self, frame_json: &str) {
         let _ = self.frame_tx.send(frame_json.to_string());
     }
 
-    /// Broadcast a screencast frame with structured metadata.
     pub fn broadcast_screencast_frame(&self, base64_data: &str, metadata: &FrameMetadata) {
         let msg = json!({
             "type": "frame",
@@ -186,7 +175,6 @@ impl StreamServer {
         let _ = self.frame_tx.send(msg.to_string());
     }
 
-    /// Broadcast a status message to all connected clients.
     pub fn broadcast_status(
         &self,
         connected: bool,
@@ -204,7 +192,6 @@ impl StreamServer {
         let _ = self.frame_tx.send(msg.to_string());
     }
 
-    /// Broadcast an error message to all connected clients.
     pub fn broadcast_error(&self, message: &str) {
         let msg = json!({
             "type": "error",
@@ -290,7 +277,6 @@ async fn handle_ws_client(
 
     let (mut ws_tx, mut ws_rx) = ws_stream.split();
 
-    // Send initial status (screencasting:false initially, matching 0.19.0)
     {
         let guard = client_slot.read().await;
         let connected = guard.is_some();
@@ -305,7 +291,6 @@ async fn handle_ws_client(
         let _ = ws_tx.send(Message::Text(status.to_string())).await;
     }
 
-    // Notify the CDP event loop that a client connected (may trigger auto-start screencast)
     client_notify.notify_one();
 
     loop {
@@ -318,7 +303,7 @@ async fn handle_ws_client(
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => {
-                        // Slow consumer; skip missed frames and continue
+
                         continue;
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
@@ -345,12 +330,9 @@ async fn handle_ws_client(
         *count = count.saturating_sub(1);
     }
 
-    // Notify the CDP event loop that a client disconnected (may trigger auto-stop screencast)
     client_notify.notify_one();
 }
 
-/// Background task that subscribes to CDP events and broadcasts screencast frames in real-time.
-/// Also handles auto-start/stop of screencast based on WebSocket client count.
 async fn cdp_event_loop(
     frame_tx: broadcast::Sender<String>,
     client_slot: Arc<RwLock<Option<Arc<CdpClient>>>>,
@@ -360,21 +342,19 @@ async fn cdp_event_loop(
     cdp_session_id: Arc<RwLock<Option<String>>>,
 ) {
     loop {
-        // Wait until we're notified of a client/connection change
+
         client_notify.notified().await;
 
-        // Check if we have WS clients and a CDP client
         let count = *client_count.lock().await;
         let guard = client_slot.read().await;
 
         if count > 0 {
             if let Some(ref client) = *guard {
-                // We have WS clients and a CDP client — start screencast and listen for frames
+
                 let mut event_rx = client.subscribe();
                 let client_arc = Arc::clone(client);
                 drop(guard);
 
-                // Get the CDP page session ID for targeted commands
                 let session_id = cdp_session_id.read().await.clone();
 
                 let _ = client_arc
@@ -396,7 +376,6 @@ async fn cdp_event_loop(
                     *sc = true;
                 }
 
-                // Broadcast screencasting:true status (matching 0.19.0 two-status sequence)
                 let status = json!({
                     "type": "status",
                     "connected": true,
@@ -406,14 +385,13 @@ async fn cdp_event_loop(
                 });
                 let _ = frame_tx.send(status.to_string());
 
-                // Process CDP events in real-time until client disconnects or CDP closes
                 loop {
                     tokio::select! {
                         event = event_rx.recv() => {
                             match event {
                                 Ok(evt) => {
                                     if evt.method == "Page.screencastFrame" {
-                                        // Ack immediately (like 0.19.0)
+
                                         if let Some(sid) = evt.params.get("sessionId").and_then(|v| v.as_i64()) {
                                             let _ = client_arc.send_command(
                                                 "Page.screencastFrameAck",
@@ -422,7 +400,6 @@ async fn cdp_event_loop(
                                             ).await;
                                         }
 
-                                        // Broadcast frame to WS clients
                                         if let Some(data) = evt.params.get("data").and_then(|v| v.as_str()) {
                                             let meta = evt.params.get("metadata");
                                             let msg = json!({
@@ -446,12 +423,12 @@ async fn cdp_event_loop(
                                 Err(broadcast::error::RecvError::Closed) => break,
                             }
                         }
-                        // Also check for notify (client count change or CDP client change)
+
                         _ = client_notify.notified() => {
                             let count = *client_count.lock().await;
                             let session_id = cdp_session_id.read().await.clone();
                             if count == 0 {
-                                // All WS clients gone — stop screencast
+
                                 let _ = client_arc
                                     .send_command_no_params("Page.stopScreencast", session_id.as_deref())
                                     .await;
@@ -459,7 +436,7 @@ async fn cdp_event_loop(
                                 *sc = false;
                                 break;
                             }
-                            // Check if CDP client changed (browser closed/relaunched)
+
                             let client_changed = {
                                 let guard = client_slot.read().await;
                                 let same = guard
@@ -468,13 +445,13 @@ async fn cdp_event_loop(
                                 !same
                             };
                             if client_changed {
-                                // CDP client changed — stop our screencast and restart loop
+
                                 let _ = client_arc
                                     .send_command_no_params("Page.stopScreencast", session_id.as_deref())
                                     .await;
                                 let mut sc = screencasting.lock().await;
                                 *sc = false;
-                                // Re-notify so we pick up the new client in the outer loop
+
                                 client_notify.notify_one();
                                 break;
                             }
@@ -483,10 +460,10 @@ async fn cdp_event_loop(
                 }
             } else {
                 drop(guard);
-                // No CDP client yet — wait for next notification
+
             }
         } else {
-            // No WS clients — if screencasting, stop it
+
             let was_screencasting = *screencasting.lock().await;
             if was_screencasting {
                 if let Some(ref client) = *guard {
@@ -559,7 +536,7 @@ async fn handle_client_message(msg: &str, client: &CdpClient, session_id: Option
                 .await;
         }
         "status" => {
-            // Client requesting status -- handled via broadcast_status from the caller
+
         }
         _ => {}
     }

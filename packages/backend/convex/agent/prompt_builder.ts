@@ -81,11 +81,6 @@ export const buildSystemPrompt = async (
   return buildAgentPromptContext(agent, options);
 };
 
-// fetchAgentContext
-// Returns everything the local agent runtime needs in a single round-trip:
-// system prompt, dynamic context, tool allowlist,
-// thread history, and managed auth context for LLM access.
-
 const agentContextResultValidator = v.object({
   systemPrompt: v.string(),
   dynamicContext: v.string(),
@@ -141,11 +136,6 @@ const fetchLocalAgentContextRuntimeArgs = {
   timezone: v.optional(v.string()),
 };
 
-/**
- * Cap on thread-history rows returned by `agentRuntimeContext`. Stays well
- * below the array-return limit so a busy thread doesn't fail the bundled
- * read; the `prompt_builder` callers only ever slice the tail anyway.
- */
 const AGENT_CONTEXT_THREAD_HISTORY_CAP = 200;
 
 const agentRuntimeContextResultValidator = v.object({
@@ -173,14 +163,6 @@ const agentRuntimeContextResultValidator = v.object({
 });
 type AgentRuntimeContextResult = Infer<typeof agentRuntimeContextResultValidator>;
 
-/**
- * Bundled context read for the agent runtime. Replaces the previous fan-out
- * of 3–5 separate `ctx.runQuery` round-trips (agent config + per-key
- * preference lookups + active-thread id + thread messages), which gave
- * inconsistent snapshots when a write interleaved between the calls. A
- * single `internalQuery` is one transaction, so the bundle is internally
- * consistent.
- */
 export const agentRuntimeContext = internalQuery({
   args: {
     ownerId: v.string(),
@@ -198,9 +180,7 @@ export const agentRuntimeContext = internalQuery({
 
     let resolvedThreadId: Id<"threads"> | null = null;
     if (args.threadId) {
-      // Explicit threadIds reach here from the public runtime actions, which
-      // only verify conversation ownership — confirm the thread itself
-      // belongs to this owner before reading its messages.
+
       const thread = await ctx.db.get(args.threadId);
       const threadConversation = thread
         ? await ctx.db.get(thread.conversationId)
@@ -220,8 +200,7 @@ export const agentRuntimeContext = internalQuery({
         Math.max(Math.floor(args.maxHistoryMessages ?? 50), 1),
         AGENT_CONTEXT_THREAD_HISTORY_CAP,
       );
-      // Read newest-first and reverse so we always return the most recent
-      // `cap` messages without scanning a long thread end-to-end.
+
       const recent = await ctx.db
         .query("thread_messages")
         .withIndex("by_threadId_and_ordinal", (q) =>

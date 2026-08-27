@@ -1,20 +1,3 @@
-// Reproduces the field failure: sub-agents on an OpenRouter OpenAI reasoning
-// model (gpt-5.5) hit "Provider returned error" a few tool-loop turns in.
-//
-// Root cause: the openai-completions stream parser tags reasoning with its
-// SOURCE FIELD NAME as a pseudo-`thinkingSignature` ("reasoning"), and the
-// request builder echoed that reasoning text back onto the outgoing assistant
-// message under that field name (`assistantMsg.reasoning = "..."`). Cloud
-// reasoning models (OpenAI/OpenRouter) manage reasoning server-side and reject
-// a replayed plaintext `reasoning` field — so replaying it corrupts every
-// subsequent request in a multi-turn (esp. parallel-tool) loop.
-//
-// The fix gates that echo behind `compat.replayReasoningContentField`, which is
-// only auto-enabled for local self-hosted endpoints (llama.cpp / gpt-oss) that
-// actually need reasoning replayed. These tests assert the outgoing request is
-// provider-valid for OpenRouter (no placeholder reasoning field) while the
-// local behavior is preserved.
-
 import { describe, expect, it } from "vitest";
 import {
   convertMessages,
@@ -44,11 +27,6 @@ const makeModel = (
   maxTokens: 8_192,
 });
 
-// An assistant turn shaped like the one that preceded the field failure:
-// a reasoning (thinking) block carrying the placeholder signature "reasoning"
-// plus two parallel tool calls. `provider`/`api`/`model` match the request
-// model so the cross-model transform keeps the thinking block (same-model
-// reasoning is retained), which is exactly what reaches the request builder.
 const reasoningAssistantTurn = (
   provider: string,
   model: string,
@@ -128,12 +106,9 @@ describe("openai-completions reasoning replay across a provider switch", () => {
     expect(assistants.length).toBe(1);
     const assistant = assistants[0] as Record<string, unknown>;
 
-    // The bug: assistant.reasoning === "<plaintext reasoning>" — rejected by
-    // the provider. After the fix it must be absent.
     expect(assistant.reasoning).toBeUndefined();
     expect(assistant.reasoning_content).toBeUndefined();
-    // The turn must still carry its (parallel) tool calls, i.e. it's a valid
-    // assistant message, not dropped.
+
     expect(Array.isArray(assistant.tool_calls)).toBe(true);
     expect((assistant.tool_calls as unknown[]).length).toBe(2);
   });
@@ -145,8 +120,6 @@ describe("openai-completions reasoning replay across a provider switch", () => {
     const messages = convertMessages(model, context, getCompat(model));
     const assistant = assistantParams(messages)[0] as Record<string, unknown>;
 
-    // Local replay behavior is preserved: the reasoning is echoed under the
-    // field it arrived on.
     expect(assistant.reasoning).toBe(
       "**Inspecting pi-mono** I need to keep going and inspect it.",
     );
@@ -169,13 +142,6 @@ describe("openai-completions reasoning replay across a provider switch", () => {
   });
 });
 
-// A cloud DeepSeek-style reasoning model streams reasoning under
-// `reasoning_content`, so the parser tags the thinking block with that field
-// name as its pseudo-signature. DeepSeek is cloud (not local), so after the
-// a21e37f50 fix the placeholder must NOT be echoed back; instead the outgoing
-// assistant message carries an empty `reasoning_content` (required by
-// `requiresReasoningContentOnAssistantMessages`). Replaying the plaintext
-// reasoning here would make a multi-turn / parallel-tool loop get rejected.
 const deepseekReasoningTurn = (): AssistantMessage => ({
   role: "assistant",
   content: [
@@ -219,7 +185,7 @@ describe("openai-completions reasoning replay for a cloud DeepSeek model", () =>
       "deepseek-reasoner",
       "https://api.deepseek.com/v1",
     );
-    // Cloud DeepSeek: required reasoning_content is on, replay is off.
+
     const compat = getCompat(model);
     expect(compat.requiresReasoningContentOnAssistantMessages).toBe(true);
     expect(compat.replayReasoningContentField).toBe(false);
@@ -238,20 +204,14 @@ describe("openai-completions reasoning replay for a cloud DeepSeek model", () =>
     const messages = convertMessages(model, context, compat);
     const assistant = assistantParams(messages)[0] as Record<string, unknown>;
 
-    // The bug would set reasoning_content to the plaintext reasoning; the fix
-    // leaves it empty so the request stays provider-valid across turns.
     expect(assistant.reasoning_content).toBe("");
     expect(assistant.reasoning).toBeUndefined();
-    // The parallel tool calls are preserved.
+
     expect(Array.isArray(assistant.tool_calls)).toBe(true);
     expect((assistant.tool_calls as unknown[]).length).toBe(2);
   });
 });
 
-// Fix #2: local-endpoint detection must recognize IPv6 loopback, the wildcard
-// bind address, and mDNS `*.local` hosts (a self-hosted model reached via a
-// non-`local` provider on such an address) while never misreading a cloud
-// endpoint as local.
 describe("openai-completions local-endpoint detection", () => {
   const replayFor = (baseUrl: string) =>
     getCompat(makeModel("openai", "self-hosted", baseUrl))

@@ -15,10 +15,6 @@ import {
   rateLimitResponse,
 } from "../http_shared/webhook_controls";
 
-// Per-owner cap shared by every /api/backups/* endpoint. Backups are
-// chunky (storage writes + manifest mutations + R2 plan generation), so
-// even legitimate clients should not exceed a few dozen calls per
-// minute. A misbehaving client gets locked out of the whole surface.
 const BACKUP_RATE_LIMIT = 60;
 const BACKUP_RATE_WINDOW_MS = 60_000;
 
@@ -56,13 +52,6 @@ const getOwnerIdFromRequest = async (
   return identity.tokenIdentifier;
 };
 
-/**
- * Resolve the owner and consume one slot from the shared backup rate
- * limit. Returns either the owner id (allowed) or a 429 response that the
- * caller should return verbatim. Centralized here so every backup
- * endpoint shares a single per-owner budget rather than each one running
- * its own quota.
- */
 const requireBackupOwner = async (
   ctx: Parameters<Parameters<typeof httpAction>[0]>[0],
   origin: string | null,

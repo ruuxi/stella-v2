@@ -203,10 +203,6 @@ const legacyRuntimeHistory = () =>
 const currentRuntimeHistory = () =>
   store.loadThreadMessages(RUNTIME_THREAD_KEY);
 
-// Before active-turn page-in, a never-idle Pi loop can keep the original
-// pre-compaction mirror even after SQLite has a compacted overlay. The managed
-// case rebuilds exactly the same AgentMessage[] shape used by PiSessionCore:
-// durable checkpoint plus uncompacted tail.
 const legacyActiveTurnWorkingSet = () =>
   legacyRuntimeHistory().map((entry) => entry.payload ?? entry);
 const currentActiveTurnWorkingSet = () =>

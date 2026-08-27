@@ -1,14 +1,3 @@
-/* Per-message Copy / Read-aloud action row (see MessageActions.tsx).
- *
- * The row reserves its full 24px height throughout the message lifetime.
- * Constant geometry is the contract — the chat scroll-follow logic and the
- * virtualized timeline key on stable row heights, so the strip must never
- * grow/shrink on hover or when streaming finalizes. Visibility is purely an
- * opacity fade.
- *
- * It is mounted for the whole life of an assistant message. Assistant
- * messages arrive whole, so the strip is interactive from the row's first
- * paint. */
 .message-actions {
   display: flex;
   align-items: flex-start;
@@ -16,8 +5,7 @@
   height: 24px;
   opacity: 0;
   transition: opacity 0.12s ease;
-  /* The strip is its own hover target so the controls can reveal even when
-     the pointer is over the buttons rather than the row. */
+
   pointer-events: auto;
 }
 
@@ -25,17 +13,12 @@
   justify-content: flex-start;
 }
 
-/* User actions sit a hair below the right-aligned bubble. The user row's
-   flex `gap` is `--chat-item-part-gap`; pull the row back up so the buttons
-   start 2px under the bubble. */
 .message-actions--end {
   justify-content: flex-end;
   align-self: flex-end;
   margin-top: calc(2px - var(--chat-item-part-gap, 8px));
 }
 
-/* Reveal on row hover / keyboard focus, on the strip's own hover, or while
- * read-aloud is playing. */
 .event-row:hover .message-actions,
 .event-row:focus-within .message-actions,
 .message-actions:hover,
@@ -71,23 +54,16 @@
   box-shadow: var(--focus-ring);
 }
 
-/* Active read-aloud toggle reads as "on". */
 .message-actions__btn[aria-pressed="true"] {
   color: var(--primary);
 }
 
-/* Fork / Rewind are greyed out and non-interactive while a turn is busy;
-   they re-enable once it settles (we never interrupt in-flight work). */
 .message-actions__btn:disabled {
   opacity: 0.4;
   cursor: default;
   pointer-events: none;
 }
 
-/* Armed "click again to rewind" confirm state — mirrors the top bar's
-   two-step confirm affordance (data-armed). The destructive tint makes the
-   first click's arming unmistakable; the inline hint spells out the
-   double-click intent so it never reads as a dead button. */
 .message-actions__btn[data-armed="true"] {
   width: auto;
   min-width: 24px;
@@ -110,17 +86,11 @@
   user-select: none;
 }
 
-/* While armed, the strip stays fully revealed (even off-hover) and grows to
-   the RIGHT only — user actions are right-aligned — so revealing the hint
-   never shifts the bubble above or rows around it. */
 .message-actions[data-confirming="true"] {
   opacity: 1;
   pointer-events: auto;
 }
 
-/* Muted created-time stamp riding along with the action buttons. It shares
-   the strip's hover-only opacity fade and its fixed 24px height, so it never
-   changes row geometry. */
 .message-actions__timestamp {
   display: inline-flex;
   align-items: center;

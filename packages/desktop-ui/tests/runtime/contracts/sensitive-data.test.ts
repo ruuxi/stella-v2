@@ -14,14 +14,13 @@ describe("redactSensitiveText", () => {
       "limit=100 offset=20",
       "path=/usr/local/lib/python3.11/site-packages",
       "version=1.2.3",
-      // Sensitive words appearing only as substrings of a benign key token.
+
       "author=Rahul",
       "keyboard=us",
       "monkey=happy",
       "donkey=grey",
       "turnkey=works",
-      // Benign keys that merely start/end with a fused secret name survive
-      // because fused matching is exact-equality only.
+
       "passwordless=true",
       "accessKeyboard=enabled",
       "clientSecretary=Alex",
@@ -40,7 +39,7 @@ describe("redactSensitiveText", () => {
       ["authToken=abc", "authToken=[REDACTED]"],
       ["clientSecret=abc", "clientSecret=[REDACTED]"],
       ["credential=x", "credential=[REDACTED]"],
-      // Fused (no-delimiter) sensitive key names, both cases.
+
       ["apikey=leak-me", "apikey=[REDACTED]"],
       ["APIKEY=leak-me", "APIKEY=[REDACTED]"],
       ["authorization=leak-me", "authorization=[REDACTED]"],
@@ -48,9 +47,9 @@ describe("redactSensitiveText", () => {
       ["CLIENTSECRET=leak-me", "CLIENTSECRET=[REDACTED]"],
       ["clientsecret=leak-me", "clientsecret=[REDACTED]"],
       ["password=leak-me", "password=[REDACTED]"],
-      // Delimited / camelCase keys still redact via the token-boundary matcher.
+
       ["db_password=leak-me", "db_password=[REDACTED]"],
-      // Whitespace around `=` must not bypass sensitive-key handling.
+
       ["FOO_TOKEN = leak-me", "FOO_TOKEN=[REDACTED]"],
       ["API_KEY = short", "API_KEY=[REDACTED]"],
     ])("redacts %s by key name", (input, expected) => {
@@ -87,7 +86,7 @@ describe("redactSensitiveText", () => {
       const out = redactSensitiveText("Cookie: session=leaky-value; extra=1");
       expect(out).not.toContain("leaky-value");
       expect(out).toContain("[REDACTED]");
-      // The non-secret pair after the cookie separator stays readable.
+
       expect(out).toContain("extra=1");
     });
 
@@ -120,7 +119,7 @@ describe("redactSensitiveText", () => {
       );
       expect(out).not.toContain("url-secret");
       expect(out).toContain("[REDACTED]");
-      // Text after the secret param (separated by whitespace) stays readable.
+
       expect(out).toContain("then continue");
     });
   });
@@ -171,9 +170,7 @@ describe("redactSensitiveText", () => {
     });
 
     it("redacts a real secret VALUE even under an unrecognized fused key", () => {
-      // Documents the mitigation for the middle-embedded fused-name residual:
-      // the key `openaiapikeyprod` is not in the fused allowlist, but the
-      // value is a real sk- token and is caught by the value-based patterns.
+
       const token = "sk-proj-abcDEF1234567890ghiJKLmno";
       const out = redactSensitiveText(`openaiapikeyprod=${token}`);
       expect(out).not.toContain(token);

@@ -50,8 +50,7 @@ describe("updateJsonStateFile", () => {
     );
     const state = await readJsonStateFile(filePath, parseCounters);
     expect(Object.keys(state.counts)).toHaveLength(25);
-    // The final on-disk artifact is well-formed JSON (atomic rename, no
-    // torn writes).
+
     expect(JSON.parse(await readFile(filePath, "utf-8"))).toMatchObject({
       version: 1,
     });
@@ -67,7 +66,7 @@ describe("updateJsonStateFile", () => {
         state.counts.a = 1;
       },
     });
-    // Corrupt it out-of-band, then update again.
+
     const { writeFile } = await import("node:fs/promises");
     await writeFile(filePath, "not-json", "utf-8");
     const state = await updateJsonStateFile({

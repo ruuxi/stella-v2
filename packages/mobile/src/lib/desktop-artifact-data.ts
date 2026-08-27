@@ -57,9 +57,7 @@ export async function readDesktopArtifactFile(
   conversationId: string,
   filePath: string,
 ): Promise<DesktopFileReadResult> {
-  // Prefer the encrypted-binary lane (~1.0x wire size). Any failure — feature
-  // missing (returns null), transport hiccup — falls back to the legacy
-  // JSON-serialized `display:readFile` invoke below.
+
   try {
     const binary = await fetchDesktopBridgeFileBytes(
       bridge,
@@ -77,7 +75,7 @@ export async function readDesktopArtifactFile(
           };
     }
   } catch {
-    // fall through to the legacy lane
+
   }
 
   const result = await invokeDesktopBridge<Record<string, unknown>>(

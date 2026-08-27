@@ -3,15 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Compaction must just work: transient provider failures (429/overloaded/
-// network/400) and credential blips are retried with backoff, hook override
-// summaries are accepted verbatim, and an oversized backlog that cannot fit
-// one summary request in the target model's window is capped to the window
-// with an explicit elision note (the shrinking-model-switch case is handled
-// up front by a blocking compaction on the outgoing route). A failed
-// compaction is the rare terminal outcome, not the first response to one
-// blip.
-
 const completeSimpleMock = vi.fn();
 
 vi.mock("@stella/runtime/ai/stream", () => ({
@@ -36,12 +27,8 @@ import { withForcedThreadCompaction } from "@stella/runtime/kernel/agent-runtime
 import type { RuntimeStore } from "@stella/runtime/kernel/storage/runtime-store";
 import type { ResolvedLlmRoute } from "@stella/runtime/kernel/model-routing";
 
-// 5 attempts total: the first plus one per (zeroed-for-test) backoff delay.
 const MAX_SUMMARY_ATTEMPTS = 5;
 
-// ~10k chars per message; 60 messages ≈ 150k estimated tokens — far past the
-// 100k trigger (0.5 x window) on a 200k window, and big enough that the raw
-// formatted middle exceeds the summarizer's input budget.
 const buildBigThreadMessages = () =>
   Array.from({ length: 60 }, (_, index) => ({
     entryId: `entry-${index + 1}`,
@@ -50,10 +37,6 @@ const buildBigThreadMessages = () =>
     content: `message ${index + 1} ${"x".repeat(10_000)}`,
   }));
 
-// Small enough that the formatted middle fits one summary request in the 200k
-// test window, so the retry/credential/store-write mechanics exercise the
-// single-pass path. Run under forced compaction so the below-trigger size
-// still compacts.
 const buildFittingThreadMessages = () =>
   Array.from({ length: 8 }, (_, index) => ({
     entryId: `entry-${index + 1}`,
@@ -226,12 +209,6 @@ describe("orchestrator thread compaction failure handling", () => {
       agentType: "orchestrator",
     });
 
-    // The ~600k-char middle cannot fit one summary request in the 200k
-    // window; the request is capped to the window's input budget, keeping the
-    // most recent span and disclosing the elided oldest span, and exactly one
-    // checkpoint overlay is written. (The shrinking-model-switch case that
-    // used to need chunking is handled before the switch by a blocking
-    // compaction on the outgoing larger-window route.)
     expect(result).toEqual({ compacted: true });
     expect(compactCalls).toHaveLength(1);
     expect(completeSimpleMock).toHaveBeenCalledTimes(1);
@@ -241,8 +218,7 @@ describe("orchestrator thread compaction failure handling", () => {
     };
     const prompt = context.messages[0]!.content[0]!.text;
     expect(prompt).toContain("[Compaction input truncated");
-    // (200k window - 49,152 reserve) * 3 chars/token, plus scaffolding —
-    // bounded by the single-pass ceiling instead of the raw middle size.
+
     expect(prompt.length).toBeLessThan(500_000);
     expect(compactCalls[0]).toMatchObject({ summary: SUMMARY_TEXT });
   });
@@ -551,9 +527,7 @@ describe("orchestrator thread compaction failure handling", () => {
           summary: "OLD_CHECKPOINT_SUSPECT_MUST_NOT_REPLAY",
         }),
       },
-      // The effective checkpoint covered both the suspect result and its
-      // machine-readable quarantine row. The append-only view must still drive
-      // quarantine discovery after restart.
+
       ...rawMessages.slice(7),
     ];
     const compactCalls: Array<Record<string, unknown>> = [];
@@ -788,10 +762,7 @@ describe("orchestrator thread compaction failure handling", () => {
   });
 
   it("caps the request for a small-context target model so compaction still succeeds", async () => {
-    // A large live thread compacted against a much smaller-context target
-    // (e.g. a forced compaction where no larger-window route is available,
-    // such as after a worker restart). The single pass caps its input to the
-    // small window instead of overflowing it or hard-failing.
+
     const { store, compactCalls } = createFakeStore();
     completeSimpleMock.mockResolvedValue(successResponse());
 
@@ -812,8 +783,7 @@ describe("orchestrator thread compaction failure handling", () => {
       messages: Array<{ content: Array<{ text: string }> }>;
     };
     const prompt = context.messages[0]!.content[0]!.text;
-    // 32k window → the input-budget floor keeps the request tiny but
-    // well-defined (the reserve exceeds the window itself).
+
     expect(prompt).toContain("[Compaction input truncated");
     expect(prompt.length).toBeLessThan(120_000);
     const summary = compactCalls[0]!.summary as string;
@@ -821,9 +791,7 @@ describe("orchestrator thread compaction failure handling", () => {
   });
 
   it("resolves a valid context window (falls back to the default) when the target model reports no limit", async () => {
-    // A model whose metadata lacks a context window must not make the sizing
-    // math operate on undefined/NaN/0 — it falls back to the conservative
-    // default so compaction still runs and succeeds.
+
     const { store, compactCalls } = createFakeStore(
       buildFittingThreadMessages(),
     );
@@ -850,7 +818,7 @@ describe("orchestrator thread compaction failure handling", () => {
     const context = completeSimpleMock.mock.calls[0]![1] as {
       messages: Array<{ content: Array<{ text: string }> }>;
     };
-    // Finite prompt built against the default window, not NaN-derived garbage.
+
     expect(
       Number.isFinite(context.messages[0]!.content[0]!.text.length),
     ).toBe(true);
@@ -866,8 +834,6 @@ describe("orchestrator thread compaction failure handling", () => {
     ];
     completeSimpleMock.mockResolvedValue(successResponse());
 
-    // Below the trigger and unsplittable with the subagent head/tail
-    // protection (4 messages <= 3 head + 2 tail): a routine compaction skips.
     const routine = await maybeCompactRuntimeThread({
       store: createFakeStore(messages).store,
       threadKey: "relaxed-split",
@@ -876,8 +842,6 @@ describe("orchestrator thread compaction failure handling", () => {
     });
     expect(routine).toEqual({ compacted: false });
 
-    // Overflow recovery forces compaction; the relaxed split folds everything
-    // but the last message instead of resetting the thread.
     const { store, compactCalls } = createFakeStore(messages);
     const forced = await withForcedThreadCompaction("relaxed-split", () =>
       maybeCompactRuntimeThread({
@@ -920,7 +884,7 @@ describe("orchestrator thread compaction failure handling", () => {
     );
 
     expect(result).toEqual({ compacted: true });
-    // The summary is generated once; only the store write is retried.
+
     expect(completeSimpleMock).toHaveBeenCalledTimes(1);
     expect(compactCalls).toHaveLength(1);
   });
@@ -958,18 +922,16 @@ describe("orchestrator thread compaction failure handling", () => {
         messages: Array<{ content: Array<{ type: string; text: string }> }>;
       };
       const prompt = context.messages[0]!.content[0]!.text;
-      // Thread-id mapping + verbatim pending-decision guidelines.
+
       expect(prompt).toContain("thread_id");
       expect(prompt).toContain("quoted verbatim");
-      // The always-loaded docs ride along as a do-not-repeat reference.
+
       expect(prompt).toContain("ALREADY KNOWN");
       expect(prompt).toContain("123 Elm Street");
       expect(prompt).toContain("tier-1 ships without review");
       expect(prompt).not.toContain("LEGACY_RETIRED_SUMMARY");
       expect(prompt).toContain("Do not restate durable memory");
 
-      // Non-orchestrator agents don't get the docs injected per turn, so
-      // their summaries must keep such facts: no reference, no omit rule.
       completeSimpleMock.mockClear();
       completeSimpleMock.mockResolvedValue(successResponse());
       await maybeCompactRuntimeThread({
@@ -996,12 +958,7 @@ describe("orchestrator thread compaction failure handling", () => {
   });
 
   it("pins a buried follow-up instruction with bounded cost instead of an unbounded tail", async () => {
-    // A follow-up user instruction buried deep in a huge middle (~145k
-    // estimated tokens after it). The rejected design started the verbatim
-    // tail AT that message, keeping ~145k tokens verbatim; the bounded design
-    // summarizes the middle as usual, keeps only the token-budgeted recent
-    // tail, and carries one capped verbatim copy of the instruction on the
-    // overlay.
+
     const followUpText = `Follow-up task\n\nNow migrate the parser ${"y".repeat(30_000)}`;
     const messages = [
       { entryId: "entry-1", timestamp: 1_000, role: "user", content: "spawn" },
@@ -1039,23 +996,18 @@ describe("orchestrator thread compaction failure handling", () => {
       details?: { pinnedUserInstruction?: { text: string } };
     };
 
-    // The instruction was summarized into the middle...
     const fromIndex = messages.findIndex((m) => m.entryId === call.fromEntryId);
     const toIndex = messages.findIndex((m) => m.entryId === call.toEntryId);
     const followUpIndex = messages.findIndex((m) => m.entryId === "entry-4");
     expect(followUpIndex).toBeGreaterThanOrEqual(fromIndex);
     expect(followUpIndex).toBeLessThanOrEqual(toIndex);
 
-    // ...and carried across the checkpoint as one capped pinned copy.
     const pinned = call.details?.pinnedUserInstruction?.text;
     expect(pinned).toBeDefined();
     expect(pinned).toContain("Follow-up task");
     expect(pinned).toContain("more characters truncated");
     expect(pinned!.length).toBeLessThan(12_100);
 
-    // Boundedness proof: post-compaction size = summary + pinned copy +
-    // token-budgeted tail — a fraction of the ~150k-token original, and the
-    // verbatim tail alone obeys the ~20k keep-recent budget.
     const estimate = (text: string) => Math.ceil(text.length / 4);
     const tailTokens = messages
       .slice(toIndex + 1)
@@ -1128,23 +1080,16 @@ describe("orchestrator thread compaction failure handling", () => {
   });
 
   it("does not spuriously compact when the effective context fits the target model's window", async () => {
-    // Repro for the model-switch spurious-compaction bug. A conversation whose
-    // effective (post-checkpoint) context comfortably fits the target model
-    // must NOT trigger compaction. The trigger scales with the model's window,
-    // so a fitting thread only compacts when the resolved window is wrong
-    // (too small) — the measured size is the effective context, not an inflated
-    // raw count.
+
     const effective = Array.from({ length: 20 }, (_, index) => ({
       entryId: `eff-${index + 1}`,
       timestamp: 1_000 + index,
       role: index % 2 === 0 ? "user" : "assistant",
       content: `turn ${index} ${"x".repeat(10_000)}`,
-    })); // ~50k estimated tokens
+    }));
 
     completeSimpleMock.mockResolvedValue(successResponse());
 
-    // Real ~1M-window target: 0.5 x window dwarfs the ~50k effective size, so
-    // nothing compacts and no summary request is made.
     const fits = await maybeCompactRuntimeThread({
       store: createFakeStore(effective).store,
       threadKey: "fits-large-window",
@@ -1154,8 +1099,6 @@ describe("orchestrator thread compaction failure handling", () => {
     expect(fits).toEqual({ compacted: false });
     expect(completeSimpleMock).not.toHaveBeenCalled();
 
-    // The very same thread on a wrongly-small window DOES cross the trigger —
-    // proving the resolved window, not an inflated size count, is what decides.
     const { store, compactCalls } = createFakeStore(effective);
     const wrongSmallWindow = await maybeCompactRuntimeThread({
       store,

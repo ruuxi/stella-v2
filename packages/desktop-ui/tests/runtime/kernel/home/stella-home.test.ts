@@ -47,11 +47,10 @@ describe("ensureStellaDataDirSeeded", () => {
     const result = await ensureStellaDataDirSeeded(stellaAppDir, stellaDataDir);
     expect(result.synced).toBe(true);
 
-    // One-shot seeds land in the user space…
     await expect(
       readFile(path.join(stellaDataDir, "DREAM.md"), "utf-8"),
     ).resolves.toBe("seed dream");
-    // …but non-seed entries do not.
+
     await expect(
       readFile(path.join(stellaDataDir, "preferences.json"), "utf-8"),
     ).rejects.toThrow();
@@ -59,19 +58,17 @@ describe("ensureStellaDataDirSeeded", () => {
       readFile(path.join(stellaDataDir, "memories", "MEMORY.md"), "utf-8"),
     ).rejects.toThrow();
 
-    // Bundled and user-created skills share the one canonical root.
     await expect(
       readFile(
         path.join(stellaDataDir, "skills", "stella-desktop", "SKILL.md"),
         "utf-8",
       ),
     ).resolves.toBe("desktop skill");
-    // System prompts live in the app bundle; nothing materializes here.
+
     await expect(
       readFile(path.join(stellaDataDir, "agents"), "utf-8"),
     ).rejects.toThrow();
 
-    // A second run with unchanged sources is an idempotent no-op.
     const again = await ensureStellaDataDirSeeded(stellaAppDir, stellaDataDir);
     expect(again.synced).toBe(false);
   });

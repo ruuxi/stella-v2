@@ -1,8 +1,3 @@
-/* Size lives on the dialog *container*, which reads these variables from
- * the root — setting width/height on the content itself does nothing, it
- * just gets clamped by the container. `size="xl"` gets us most of the way
- * (860x640); Settings is a dense multi-tab surface, so nudge it further
- * without changing `xl` for every other dialog. */
 [data-component="dialog"]:has(.shell-settings-dialog) {
   --dialog-width: 1040px;
   --dialog-height: 760px;
@@ -11,12 +6,7 @@
 .shell-settings-dialog {
   display: flex;
   flex-direction: column;
-  /* Lock the settings surface to the container's fixed height (the container
-   * is already sized to `min(100vh - 16px, --dialog-height)`). Without this,
-   * `dialog-content` only carries `max-height: 100%` and collapses to its
-   * content, so the dialog grew/shrank every time you switched tabs. Pinning
-   * `height: 100%` keeps the frame stable across tabs; taller tabs scroll
-   * internally via `.settings-panel` (`overflow-y: auto`) instead. */
+
   height: 100%;
 }
 

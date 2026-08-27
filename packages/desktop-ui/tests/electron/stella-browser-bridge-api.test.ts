@@ -350,8 +350,6 @@ describe("StellaBrowserBridgeService browser bootstrap API", () => {
     };
     await service.connectAgentCdp(current, "ws://127.0.0.1:9000/current");
 
-    // Agent daemon exit/error handlers remove only the process record. The
-    // durable lease high-water must continue fencing stale workers.
     (
       service as unknown as {
         agentBackends: Map<string, unknown>;
@@ -541,7 +539,6 @@ describe("StellaBrowserBridgeService browser bootstrap API", () => {
       cdpUrl: "ws://127.0.0.1:9000/owner-cap",
     });
   });
-
 
   it("invalidates an in-flight agent backend when the service stops", async () => {
     const service = createService();

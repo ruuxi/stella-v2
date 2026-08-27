@@ -1,14 +1,5 @@
 import { lazy, Suspense } from 'react'
 
-/**
- * Auth and Connect render as URL-driven dialogs (`?dialog=auth|connect`).
- * Settings lives in the right sidebar, not a dialog.
- *
- * Both chunks are warmed by topbar hover/focus handlers
- * (`preloadAuthDialog` / `preloadConnectDialog` in
- * `@/shell/topbar/nav-surface-preloads`) so `Suspense` normally falls straight
- * through when the user actually opens the dialog.
- */
 type DialogType = 'auth' | 'connect' | null
 
 const AuthDialog = lazy(() =>

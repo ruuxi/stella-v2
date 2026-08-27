@@ -15,16 +15,6 @@ interface SettingsSearchProps {
   placeholder?: string;
 }
 
-/**
- * Settings search input. Lives in the settings tab rail directly under
- * the "Settings" title. Filters tabs (count badges + greyed-out empty
- * tabs) and hides non-matching cards in the active tab.
- *
- * Keyboard:
- *   - `/` (when nothing else is focused) jumps focus here.
- *   - `Esc` clears the current query.
- *   - `Enter` is a no-op — filtering is live.
- */
 export const SettingsSearch = forwardRef<HTMLInputElement, SettingsSearchProps>(
   function SettingsSearch({ value, onChange, placeholder }, ref) {
     const t = useT();
@@ -40,8 +30,7 @@ export const SettingsSearch = forwardRef<HTMLInputElement, SettingsSearchProps>(
     );
 
     useEffect(() => {
-      // `/` to focus (skip if a text input/textarea/contenteditable
-      // already has focus, so users can still type "/" in those fields).
+
       const handler = (event: globalThis.KeyboardEvent) => {
         if (event.key !== "/") return;
         const target = event.target as HTMLElement | null;

@@ -14,11 +14,6 @@ const signatureForTasks = (tasks: readonly TaskItem[]): string =>
     )
     .join("\n");
 
-/**
- * Keep the thread-to-model map stable across status/progress-only task
- * updates. Chat rows only need to repaint when a thread's resolved model
- * metadata actually changes.
- */
 export const useAgentModelConfigs = (
   tasks: readonly TaskItem[],
 ): AgentModelConfigsByThread => {

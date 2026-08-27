@@ -46,7 +46,6 @@ export const prepareStoredLocalChatPayload = (args: {
     return nextPayload;
   }
 
-  // If the text already has a timestamp tag, keep it as-is
   if (TRAILING_TIME_TAG_RE.test(rawText)) {
     nextPayload.contextText = rawText.trimEnd();
     return nextPayload;

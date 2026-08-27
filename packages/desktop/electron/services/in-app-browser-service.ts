@@ -99,18 +99,12 @@ export type StellaBrowserExportedCookie = {
   [key: string]: unknown;
 };
 
-/**
- * A single real-browser cookie change pushed in real time by the extension.
- * `removed` distinguishes a deletion from a set; `cookie` carries the same shape
- * as an exported cookie.
- */
 export type StellaBrowserCookieChange = {
   removed?: boolean;
   cause?: string;
   cookie?: StellaBrowserExportedCookie;
 };
 
-/** An unsolicited event object pushed over the bridge subscription. */
 export type StellaBrowserBridgeEvent = {
   event?: string;
   changes?: StellaBrowserCookieChange[];
@@ -156,13 +150,7 @@ type InAppBrowserServiceOptions = {
   exportCookiesForUrls?: (
     urls: string[],
   ) => Promise<StellaBrowserExportedCookie[]>;
-  /**
-   * Subscribe to real-time cookie-change events pushed by the extension. The
-   * returned function unsubscribes. When present, this is the PRIMARY freshness
-   * mechanism; the periodic reconcile below is only a backstop for events
-   * missed while the extension's service worker was asleep or the subscription
-   * was reconnecting.
-   */
+
   subscribeCookieEvents?: (
     onEvent: (event: StellaBrowserBridgeEvent) => void,
   ) => () => void;
@@ -170,9 +158,9 @@ type InAppBrowserServiceOptions = {
   connectionTimeoutMs?: number;
   connectionPollMs?: number;
   automaticConnectionTimeoutMs?: number;
-  /** Continuous cookie-mirror cadence (ms). Defaults to 60s; floored at 5s. */
+
   cookieMirrorIntervalMs?: number;
-  /** Min gap between navigation-triggered cookie reseeds (ms). Defaults to 5s. */
+
   navigationReseedThrottleMs?: number;
   profilePath?: string;
   resolveProfile?: typeof resolveBrowserProfileSelection;
@@ -197,20 +185,12 @@ const DRAWABLE_HOST_BOUNDS: Rectangle = {
 const DEFAULT_CONNECTION_TIMEOUT_MS = 10_000;
 const DEFAULT_CONNECTION_POLL_MS = 250;
 const DEFAULT_DEBUGGER_RECOVERY_TIMEOUT_MS = 1_000;
-// Extension wake (MV3 service worker) plus native-host/daemon spawn can take
-// several seconds on a cold start. 1.5s was too tight and routinely produced a
-// "connected extension but no seed" state; give the first automatic connect a
-// more forgiving window. Repeated getState polls also retry the seed, so this
-// is only the first-attempt budget.
+
 const DEFAULT_AUTOMATIC_CONNECTION_TIMEOUT_MS = 5_000;
-// Continuous cookie mirror: how often, once the initial seed has completed, the
-// in-app cookie store is refreshed from the real browser so it never goes
-// stale. Background, unref'd, single-flight.
+
 const DEFAULT_COOKIE_MIRROR_INTERVAL_MS = 60_000;
 const MIN_COOKIE_MIRROR_INTERVAL_MS = 5_000;
-// Reconcile-on-navigation coalescing: skip a navigation-triggered refresh if a
-// reseed already ran within this window, so rapid navigations don't each pull a
-// full cookie export.
+
 const DEFAULT_NAVIGATION_RESEED_THROTTLE_MS = 5_000;
 const MAX_FAVICON_BYTES = 256 * 1024;
 
@@ -321,10 +301,7 @@ export class InAppBrowserService {
   private initializePromise: Promise<void> | null = null;
   private connectPromise: Promise<BrowserViewState> | null = null;
   private visibleOwnerId = MANUAL_OWNER_ID;
-  /**
-   * `undefined` preserves the legacy single-owner view, `null` exposes every
-   * owner, and a string pins the view to one conversation/session owner.
-   */
+
   private scopedOwnerId: string | null | undefined;
   private latestOwnerId: string | undefined;
   private visible = false;
@@ -333,21 +310,15 @@ export class InAppBrowserService {
   private attachedWindow: BrowserWindow | null = null;
   private drawableHost: BrowserWindow | null = null;
   private disposed = false;
-  /**
-   * True once at least one successful cookie seed has completed. Unlike the
-   * old one-shot `seeded` latch, this does NOT block reseeding: freshness is
-   * owned by the continuous cookie mirror (`startCookieMirror`), which keeps
-   * running after the initial seed. This flag only gates the connection-state
-   * fast paths and marks that the mirror may start.
-   */
+
   private hasSeededOnce = false;
-  /** Single-flight guard so overlapping reseeds never interleave cookie writes. */
+
   private reseedInFlight: Promise<void> | null = null;
-  /** Background, unref'd timer that drives the continuous cookie mirror. */
+
   private cookieMirrorTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Timestamp (ms) of the last completed reseed, for navigation throttling. */
+
   private lastReseedAt = 0;
-  /** Disposer for the real-time cookie-event subscription (primary path). */
+
   private cookieEventUnsubscribe: (() => void) | null = null;
   private readonly knownMirroredCookieFamilies = new Set<string>();
   private readonly knownMirroredPartitionedCookieFamilies = new Set<string>();
@@ -370,9 +341,7 @@ export class InAppBrowserService {
       ownerId === undefined ? undefined : this.resolveOwnerId(ownerId);
     if (this.disposed) return this.snapshot(resolvedOwnerId);
     if (this.hasSeededOnce) {
-      // A completed seed is durable profile state, not a live transport
-      // handshake. Re-probe the daemon/extension generation so the UI cannot
-      // remain green while a fresh agent call is unauthorized.
+
       try {
         if (await this.options.getExtensionStatus()) {
           this.updateConnection("connected");
@@ -395,15 +364,10 @@ export class InAppBrowserService {
     }
     try {
       const extensionConnected = await this.options.getExtensionStatus();
-      // Extension presence is only the first half of connection. Do not claim
-      // readiness until profile/cookie seeding and in-app CDP routing finish.
+
       if (extensionConnected) {
         this.updateConnection("checking");
-        // Race fix: the extension is up but we have not seeded yet. Drive the
-        // seed now instead of waiting for a manual connect. Because the UI polls
-        // getState, an extension that woke up after the first automatic-connect
-        // window still gets picked up here on the next poll. connect() dedupes
-        // via connectPromise, so concurrent polls collapse to one attempt.
+
         void this.connect().catch(() => {});
       } else {
         this.updateUnavailableConnection(
@@ -435,7 +399,7 @@ export class InAppBrowserService {
       try {
         connected = await this.options.getExtensionStatus();
       } catch {
-        // Daemon startup races the first status probe; poll below.
+
       }
       if (connected) {
         this.updateConnection("checking");
@@ -521,10 +485,7 @@ export class InAppBrowserService {
       this.hasSeededOnce = true;
       this.lastReseedAt = Date.now();
       this.updateConnection("connected");
-      // Freshness from here on is real-time: the extension pushes every cookie
-      // change and we apply it immediately (startCookieEventSubscription). The
-      // periodic mirror is only a lightweight backstop for changes missed while
-      // the extension's service worker slept or the subscription reconnected.
+
       this.startCookieEventSubscription();
       this.startCookieMirror();
     } catch (error) {
@@ -608,12 +569,11 @@ export class InAppBrowserService {
           webviewTag: false,
         },
       });
-    // Match the session UA on the tab's WebContents so navigator.userAgent and
-    // outgoing request headers present the same runtime Chromium version.
+
     try {
       view.webContents.setUserAgent(this.browserUserAgent);
     } catch {
-      // Injected/mock views in tests may not implement setUserAgent.
+
     }
     const tab: ManagedTab = {
       id,
@@ -772,12 +732,7 @@ export class InAppBrowserService {
     const tab = this.requireTab(tabId, resolvedOwnerId);
     const tabDebugger = tab.view.webContents.debugger;
     if (!tabDebugger.isAttached()) tabDebugger.attach();
-    // Electron gives an unattached WebContentsView a 0x0 layout viewport. CDP
-    // Runtime queries and Input commands need the same drawable mount as
-    // screenshots; otherwise discovery succeeds but actionability/scrolling
-    // fails against viewport=0x0. The hidden host never replaces the visible
-    // manual view, and the scoped lease restores the prior mount after every
-    // command (including failures).
+
     const lease = this.acquireDrawableHost(tabId, resolvedOwnerId);
     try {
       await this.settleDrawableHost(tabId);
@@ -928,18 +883,12 @@ export class InAppBrowserService {
         this.profilePath,
         { cache: true },
       );
-      // Derive from Electron's actual runtime UA. A hardcoded Chrome version
-      // diverges from Sec-CH-UA as soon as Electron updates.
+
       const runtimeUserAgent =
         this.options.runtimeUserAgent ?? this.browserSession.getUserAgent?.();
       this.browserUserAgent = buildInAppBrowserUserAgent(runtimeUserAgent);
       this.browserSession.setUserAgent(this.browserUserAgent);
-      // Permission policy: deny by default, but allow the WebAuthn / security-key
-      // access that reauth needs and ONLY on trusted auth origins. Sensitive,
-      // auth-irrelevant permissions (camera, microphone, geolocation,
-      // notifications) stay denied everywhere. The request handler's permission
-      // union excludes hid/usb/serial, so it stays effectively deny-all; the
-      // check + device handlers are where security-key access is granted.
+
       this.browserSession.setPermissionRequestHandler(
         (webContents, permission, callback) => {
           const origin = webContents?.getURL?.() ?? "";
@@ -993,8 +942,7 @@ export class InAppBrowserService {
       try {
         if (await this.options.getExtensionStatus()) return true;
       } catch {
-        // Native-host registration and daemon startup can race any individual
-        // probe. A failed attempt is not a terminal connection result.
+
       }
       const bridgeFailure = this.options.getBrowserBridgeStatus?.()?.reason;
       if (
@@ -1045,9 +993,6 @@ export class InAppBrowserService {
         continue;
       }
 
-      // Non-Google trust state remains conservative and independent. Google
-      // rotating families are reconciled below as complete source snapshots so
-      // their 1P/3P and secure/host variants can never be mixed across epochs.
       if (isTrustCriticalCookieName(cookie.name)) {
         try {
           const existingForName = await browserSession.cookies.get({
@@ -1062,7 +1007,7 @@ export class InAppBrowserService {
             continue;
           }
         } catch {
-          // If we can't read the existing cookie, fall through and (re)seed it.
+
         }
       }
       try {
@@ -1150,14 +1095,6 @@ export class InAppBrowserService {
     });
   }
 
-  /**
-   * Start the continuous cookie mirror. After the initial seed this re-pulls
-   * the real browser's cookies on a cadence and re-applies them to the in-app
-   * session, so the in-app store never goes stale. Uses a self-rescheduling
-   * timeout (not setInterval) so a slow reseed can never overlap the next tick,
-   * is unref'd so it does not keep the process alive, and is torn down in
-   * dispose(). No-op if already running or disposed.
-   */
   private startCookieMirror() {
     if (this.cookieMirrorTimer || this.disposed) return;
     const intervalMs = Math.max(
@@ -1187,13 +1124,6 @@ export class InAppBrowserService {
     }
   }
 
-  /**
-   * Re-pull cookies from the real browser (via the extension) and re-apply them
-   * to the in-app session. Safe to call repeatedly and concurrently: a
-   * single-flight guard prevents overlapping writes to the shared cookie store,
-   * and it only ever writes to `this.browserSession` (the in-app profile), never
-   * to any other Electron session. No-op until the initial seed has run.
-   */
   private async reseedFromExtension(): Promise<void> {
     if (this.disposed || !this.hasSeededOnce || !this.browserSession) return;
     this.reseedRequested = true;
@@ -1233,9 +1163,7 @@ export class InAppBrowserService {
           await this.seedCookies(cookies);
           this.lastReseedAt = Date.now();
         } catch (error) {
-          // A failed mirror pass must never kill the mirror loop; the next tick
-          // retries. Transient bridge/daemon errors are expected during extension
-          // wake or app shutdown.
+
           console.warn(
             `[in-app-browser] Cookie mirror refresh failed: ${errorMessage(error)}`,
           );
@@ -1264,12 +1192,6 @@ export class InAppBrowserService {
     this.googleNavigationReadyContents.add(webContentsId);
   }
 
-  /**
-   * Reconcile-on-navigation: refresh cookies around a top-level navigation so
-   * the target site sees a current session on its subresource / XHR / next-hop
-   * requests. Non-blocking and throttled so rapid navigations don't each pull a
-   * full cookie export.
-   */
   private scheduleNavigationReseed() {
     if (this.disposed || !this.hasSeededOnce) return;
     const throttleMs =
@@ -1279,10 +1201,6 @@ export class InAppBrowserService {
     void this.reseedFromExtension().catch(() => {});
   }
 
-  /**
-   * Start the real-time cookie-event subscription (primary freshness path).
-   * Idempotent; no-op if already running, disposed, or the option is absent.
-   */
   private startCookieEventSubscription() {
     if (
       this.cookieEventUnsubscribe ||
@@ -1303,17 +1221,12 @@ export class InAppBrowserService {
       try {
         this.cookieEventUnsubscribe();
       } catch {
-        // A best-effort unsubscribe must not throw out of dispose().
+
       }
       this.cookieEventUnsubscribe = null;
     }
   }
 
-  /**
-   * Handle one pushed bridge event. `cookies_changed` applies each change to the
-   * in-app session immediately; `events_lagged` means the extension outran the
-   * broadcast buffer, so we full-reconcile to catch up.
-   */
   private async handleCookieEvent(
     event: StellaBrowserBridgeEvent,
   ): Promise<void> {
@@ -1338,26 +1251,17 @@ export class InAppBrowserService {
           this.knownMirroredCookieFamilies.add(familyKey);
         }
       }
-      // A Google rotation commonly arrives as remove(old), set(new), plus
-      // sibling 1P/3P variants. Never apply those edges independently: pull one
-      // complete source snapshot and reconcile every affected family together.
+
       await this.reseedFromExtension();
       return;
     }
-    // Apply in order: an overwrite arrives as remove(old) then set(new), so
-    // preserving order keeps the final value correct.
+
     for (const change of changes) {
       if (this.disposed || !this.browserSession) return;
       await this.applyCookieChange(change);
     }
   }
 
-  /**
-   * Apply a single real-browser cookie change to the in-app session. Writes only
-   * to `this.browserSession` (the in-app profile). Mirrors seedCookies' rules:
-   * partitioned cookies are skipped here (applied per-tab via CDP), and a live
-   * trust-critical managed cookie is never clobbered by a mid-rotation copy.
-   */
   private async applyCookieChange(
     change: StellaBrowserCookieChange,
   ): Promise<void> {
@@ -1373,7 +1277,7 @@ export class InAppBrowserService {
       try {
         await session.cookies.remove(url, cookie.name);
       } catch {
-        // Removal is best-effort; the periodic reconcile is the backstop.
+
       }
       return;
     }
@@ -1389,7 +1293,7 @@ export class InAppBrowserService {
         );
         if (shouldPreserveExistingCookie(existing, cookie)) return;
       } catch {
-        // If we can't read the existing cookie, fall through and set it.
+
       }
     }
 
@@ -1408,7 +1312,7 @@ export class InAppBrowserService {
           : {}),
       });
     } catch {
-      // A single failed cookie must not stop the stream; reconcile recovers it.
+
     }
   }
 
@@ -1527,8 +1431,7 @@ export class InAppBrowserService {
       refresh();
     });
     contents.on("did-navigate", () => {
-      // Reconcile-on-navigation: freshen cookies for the site just navigated to
-      // (non-blocking, throttled) before running the normal state refresh.
+
       this.scheduleNavigationReseed();
       refresh();
     });
@@ -1599,10 +1502,7 @@ export class InAppBrowserService {
       if (!isAllowedNavigationUrl(event.url)) event.preventDefault();
     });
     contents.setWindowOpenHandler(({ url }) => {
-      // Real auth / reauth popups (Google "confirm it's you", passkey, OAuth
-      // consent) run as window.open and MUST open as a genuine child window that
-      // keeps its opener, so the challenge can postMessage / redirect back to the
-      // page that spawned it. Scope this to the auth-origin allowlist only.
+
       if (isAuthPopupUrl(url)) {
         return {
           action: "allow",
@@ -1623,8 +1523,7 @@ export class InAppBrowserService {
           },
         };
       }
-      // Non-auth navigations keep the existing anti-junk-tab behavior: reroute a
-      // normal web URL into an opener-less managed tab, and deny everything else.
+
       if (isAllowedNavigationUrl(url)) {
         void this.createTab({ url, ownerId: tab.ownerId }).catch((error) => {
           this.setError(errorMessage(error), tab.ownerId);
@@ -1878,8 +1777,7 @@ export class InAppBrowserService {
     }
     const drawableLease = this.drawableLeases.get(tab.id);
     if (drawableLease?.mountedInHiddenHost) {
-      // The view remains drawable without stealing the visible surface. The
-      // final lease release restores it if it is still the visible active tab.
+
       if (this.attachedView && this.attachedView !== tab.view) {
         this.detachAttachedView();
       }
@@ -1903,7 +1801,7 @@ export class InAppBrowserService {
     try {
       window.contentView.removeChildView(view);
     } catch {
-      // Window teardown may have already detached its child views.
+
     }
     const tab = [...this.tabs.values()].find(
       (candidate) => candidate.view === view,
@@ -2084,7 +1982,7 @@ export class InAppBrowserService {
     try {
       host.contentView.removeChildView(tab.view);
     } catch {
-      // Host teardown can race tab cleanup.
+
     }
   }
 

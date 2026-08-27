@@ -1,33 +1,3 @@
-/**
- * RealtimeVoiceSession — transport-agnostic session orchestration for
- * Stella's realtime voice agent.
- *
- * Responsibilities (lifted from the previous monolithic realtime-voice.ts):
- *   - Lifecycle / state machine (idle → connecting → connected → …).
- *   - Server event routing (transcripts, tool calls, response.done).
- *   - Echo guard: monitors mic + assistant output analysers and applies a
- *     soft input mute when the assistant's voice is leaking into the mic.
- *   - Direct runtime tool dispatch for the resolved orchestrator tool catalog,
- *     plus `no_response` and goodbye/close session controls.
- *   - Local-chat sync: surfaces user/assistant messages and delegated-
- *     agent state changes from the text chat into the voice conversation.
- *   - Usage reporting (Stella-managed path only).
- *   - Goodbye-phrase detection that hangs up the live turn while leaving
- *     the warm session attached for the next wake-word.
- *
- * What it deliberately does NOT do:
- *   - Open RTCPeerConnection / WebSocket. That's the transport.
- *   - Capture mic audio or schedule speaker playback. That's the transport.
- *   - Decide which provider to use. That's `providers/provider-registry.ts`.
- *
- * Picking a transport happens in `connect()` via the provider registry,
- * which reads the user's `realtimeVoice.provider` preference and returns a
- * pre-configured transport plus its session token. Once we have the
- * transport, the session subscribes to its `onEvent` callback and uses
- * `transport.send(...)` for everything else — both paths look identical
- * from here on.
- */
-
 import { z } from "zod";
 import { postServiceJson } from "@/platform/http/service-request";
 import { getVoiceSessionPromptConfig } from "@/prompts";
@@ -47,10 +17,6 @@ const eventRecordSchema = z.record(z.string(), z.unknown());
 
 const isEventRecord = (value: unknown): value is Record<string, unknown> =>
   eventRecordSchema.safeParse(value).success;
-
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
 
 export type VoiceSessionState =
   | "idle"
@@ -89,10 +55,6 @@ const getVoiceRuntimeState = (): VoiceRuntimeState => {
   }
   return root[VOICE_RUNTIME_STATE_KEY];
 };
-
-// ---------------------------------------------------------------------------
-// Echo guard tuning
-// ---------------------------------------------------------------------------
 
 const ECHO_GUARD_SAMPLE_MS = 40;
 const ECHO_GUARD_OUTPUT_LEVEL_THRESHOLD = 0.02;
@@ -144,13 +106,6 @@ type VoiceEchoMetrics = {
   now?: number;
 };
 
-/**
- * Lightweight goodbye matcher. We only fire on simple terminal
- * farewells — "bye", "goodbye", "bye stella", etc. — said as a
- * standalone utterance. Anything embedded in a longer sentence
- * ("…by Tuesday", "good morning") is left alone so the user can't
- * accidentally hang up mid-sentence.
- */
 const GOODBYE_PHRASES = [
   /^(?:hey\s+|ok(?:ay)?\s+|alright\s+)?(?:bye|goodbye|good\s*bye)(?:\s+stella)?[\s.!?,]*$/i,
   /^(?:bye|goodbye)\s+(?:now|then|for\s+now)[\s.!?,]*$/i,
@@ -282,10 +237,6 @@ const buildVoiceSessionInstructions = async (
   return sections.join("\n\n");
 };
 
-// ---------------------------------------------------------------------------
-// Session
-// ---------------------------------------------------------------------------
-
 export class RealtimeVoiceSession {
   private transport: RealtimeTransport | null = null;
   private sessionToken: VoiceSessionToken | null = null;
@@ -330,11 +281,6 @@ export class RealtimeVoiceSession {
     this.conversationId = conversationId;
   }
 
-  /**
-   * Toggle whether mic audio is actively sent to Realtime.
-   * Session stays connected; transport-level mic capture is suspended
-   * while inactive.
-   */
   setInputActive(active: boolean) {
     this.inputActive = active;
     void this.transport?.setMicEnabled(active).catch((err) => {
@@ -344,10 +290,6 @@ export class RealtimeVoiceSession {
       );
     });
   }
-
-  // ---------------------------------------------------------------------------
-  // Event emitter
-  // ---------------------------------------------------------------------------
 
   on(listener: VoiceSessionListener): () => void {
     this.listeners.add(listener);
@@ -371,10 +313,6 @@ export class RealtimeVoiceSession {
     this._state = state;
     this.emit({ type: "state-change", state, error });
   }
-
-  // ---------------------------------------------------------------------------
-  // Public API
-  // ---------------------------------------------------------------------------
 
   async connect(conversationId: string): Promise<void> {
     if (this._state !== "idle") {
@@ -445,10 +383,7 @@ export class RealtimeVoiceSession {
       await this.transport?.disconnect().catch(() => undefined);
       this.transport = null;
       this.sessionToken = null;
-      // A session that never reached "connected" must not retain the localChat
-      // IPC listener wired up in the constructor. tearDown()/disconnect() also
-      // clears it, but drop it here too so a leaked session (never disconnected)
-      // can't keep the subscription alive for the app's lifetime.
+
       this.unsubscribeLocalChatUpdated?.();
       this.unsubscribeLocalChatUpdated = null;
       const runtime = getVoiceRuntimeState();
@@ -472,19 +407,13 @@ export class RealtimeVoiceSession {
     this.setState("idle");
   }
 
-  /** Get the mic input analyser node for visualization. */
   getAnalyser(): AnalyserNode | null {
     return this.transport?.getMicAnalyser() ?? null;
   }
 
-  /** Get the output (assistant voice) analyser node for visualization. */
   getOutputAnalyser(): AnalyserNode | null {
     return this.transport?.getOutputAnalyser() ?? null;
   }
-
-  // ---------------------------------------------------------------------------
-  // Echo guard
-  // ---------------------------------------------------------------------------
 
   private getAnalyserEnergy(
     analyser: AnalyserNode | null,
@@ -505,12 +434,7 @@ export class RealtimeVoiceSession {
     if (this.echoGuardTimer) return;
     this.echoGuardTimer = setInterval(() => {
       this.syncEchoGuard();
-      // Echo guard only matters while assistant audio is (or was just)
-      // playing — that's the only time the user's mic could be picking
-      // up our own speech. Once we're past the release window, the
-      // monitor has nothing useful to do, so let it idle even if the
-      // mic is still hot. `output_audio.started` restarts it on the
-      // next assistant turn.
+
       if (
         !this.assistantOutputActive &&
         this.recentOutputActiveUntil <= Date.now()
@@ -554,10 +478,6 @@ export class RealtimeVoiceSession {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Server event handling
-  // ---------------------------------------------------------------------------
-
   private sendEvent(event: Record<string, unknown>) {
     this.transport?.send(event);
   }
@@ -582,10 +502,6 @@ export class RealtimeVoiceSession {
         const api = window.electronAPI?.localChat;
         if (!api?.listMessages || !api?.listActivity) return;
 
-        // Voice context sync merges the user/assistant message stream
-        // with the agent-* activity stream. Pulling each source from
-        // its purpose-built window keeps this off the legacy event
-        // feed and reuses the same SQLite paths the chat surfaces use.
         const [messagesWindow, activityWindow] = await Promise.all([
           api.listMessages({
             conversationId: this.conversationId,
@@ -656,9 +572,7 @@ export class RealtimeVoiceSession {
         ],
       },
     });
-    // Warm Realtime sessions remain connected after voice mode is turned off.
-    // Keep the event in context, but only ask for spoken output during an
-    // active voice turn.
+
     if (
       mapped.announce &&
       this.inputActive &&
@@ -845,9 +759,6 @@ export class RealtimeVoiceSession {
         break;
       }
 
-      // xAI emits function calls as a top-level event rather than wrapped
-      // inside response.output_item.done. Same payload shape (`name`,
-      // `call_id`, `arguments`) so route both into the same handler.
       case "response.function_call_arguments.done": {
         void this.handleFunctionCall({
           type: "function_call",
@@ -965,10 +876,6 @@ export class RealtimeVoiceSession {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Function call execution
-  // ---------------------------------------------------------------------------
-
   private async runRuntimeToolCall(
     name: string,
     args: Record<string, unknown>,
@@ -1002,10 +909,7 @@ export class RealtimeVoiceSession {
       );
       return;
     }
-    // OpenAI-compatible providers may report the same completed call through
-    // both response.function_call_arguments.done and response.output_item.done.
-    // Claim the provider call ID synchronously, before the first await, so
-    // concurrent lifecycle events cannot execute or continue the call twice.
+
     if (this.handledFunctionCallIds.has(callId)) {
       console.debug(
         "[realtime-voice] Ignoring duplicate function call:",
@@ -1051,8 +955,7 @@ export class RealtimeVoiceSession {
           },
         });
         this.emit({ type: "tool-end", name, callId, result: "ok" });
-        // Goodbye ends the live turn immediately, but the warm session
-        // stays connected so any in-flight assistant audio can finish.
+
         this.setInputActive(false);
         window.electronAPI?.ui.setState({ isVoiceRtcActive: false });
         return;
@@ -1091,10 +994,6 @@ export class RealtimeVoiceSession {
     this.sendEvent({ type: "response.create" });
   }
 
-  // ---------------------------------------------------------------------------
-  // Cleanup
-  // ---------------------------------------------------------------------------
-
   private async tearDown() {
     this.stopLeaseReporting();
     await this.reportLeaseEvent("ended");
@@ -1125,7 +1024,6 @@ export class RealtimeVoiceSession {
     this.outputEnergyBuffer = null;
   }
 
-  /** Tear down state without awaiting (used inside synchronous onClose paths). */
   private cleanupAfterConnectionLoss() {
     this.stopLeaseReporting();
     this.stopEchoGuardMonitor();

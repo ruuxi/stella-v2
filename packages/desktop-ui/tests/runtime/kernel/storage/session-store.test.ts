@@ -428,10 +428,7 @@ describe("session-store", () => {
 
   it("serves listModelUsage from the partial usage index instead of a table scan", () => {
     const { db } = createTestContext();
-    // Mirrors the static WHERE / ORDER BY of SessionStore.listModelUsage —
-    // these clauses must stay textually in sync with the WHERE of
-    // idx_runtime_thread_entries_usage for the partial-index prover to
-    // accept the index.
+
     const plan = db
       .prepare(
         `
@@ -454,7 +451,7 @@ describe("session-store", () => {
 
     const entryStep = details.find((detail) => detail.includes("entry"));
     expect(entryStep).toContain("USING INDEX idx_runtime_thread_entries_usage");
-    // The index also satisfies the recency ORDER BY — no temp sort.
+
     expect(details.join("\n")).not.toContain("TEMP B-TREE");
   });
 
@@ -726,8 +723,7 @@ describe("session-store", () => {
       timestamp: 2_000,
       payload: { text: "Try again" },
     });
-    // Tool fires BEFORE any assistant in this second turn. No assistant
-    // in turn → user_message is anchor.
+
     store.appendEvent({
       conversationId,
       type: "tool_request",
@@ -759,9 +755,6 @@ describe("session-store", () => {
     const { store } = createTestContext();
     const conversationId = store.getOrCreateDefaultConversationId();
 
-    // Regression: orchestrator emits image_gen BEFORE its reply text.
-    // The renderer derives inline artifact cards from assistant rows
-    // only — these tools must anchor on the assistant to render.
     const userA = store.appendEvent({
       conversationId,
       type: "user_message",
@@ -884,9 +877,7 @@ describe("session-store", () => {
       { maxVisibleMessages: 10 },
     );
     expect(messages).toHaveLength(3);
-    // 3 visible (user, assistant, user) — the hidden reminder doesn't
-    // count toward the chat's "how many visible messages do we have"
-    // metric used for pagination.
+
     expect(visibleMessageCount).toBe(3);
   });
 
@@ -908,7 +899,7 @@ describe("session-store", () => {
         timestamp: baseTs + 1,
         payload: { text: `asst ${i}` },
       });
-      // 10 tool events per turn — would dominate a raw-event cap.
+
       for (let t = 0; t < 10; t += 1) {
         store.appendEvent({
           conversationId,
@@ -923,7 +914,7 @@ describe("session-store", () => {
     const { messages } = store.listMessages(conversationId, {
       maxVisibleMessages: 4,
     });
-    // 4 visible messages → 2 turns from the tail.
+
     expect(messages).toHaveLength(4);
     expect(messages.map((m) => m.payload?.text)).toEqual([
       "user 3",
@@ -931,8 +922,7 @@ describe("session-store", () => {
       "user 4",
       "asst 4",
     ]);
-    // Each assistant should keep its 10 turn tools (no raw-event cap
-    // truncating them).
+
     expect(messages[1]?.toolEvents).toHaveLength(10);
     expect(messages[3]?.toolEvents).toHaveLength(10);
   });
@@ -1006,10 +996,6 @@ describe("session-store", () => {
     const { store } = createTestContext();
     const conversationId = store.getOrCreateDefaultConversationId();
 
-    // 3 visible turns, then 5 hidden system reminders, then 2 more
-    // visible turns. With maxVisibleMessages=4 the cutoff must look
-    // past the hidden block to include 2 user messages from earlier
-    // turns rather than returning just the 2 latest visible ones.
     for (let i = 0; i < 3; i += 1) {
       store.appendEvent({
         conversationId,
@@ -1041,8 +1027,7 @@ describe("session-store", () => {
     const { messages } = store.listMessages(conversationId, {
       maxVisibleMessages: 4,
     });
-    // Window contains only the 4 most-recent visible messages. Hidden source
-    // rows remain durable in SQLite but never inflate the eager IPC page.
+
     const visibleTexts = messages
       .filter((m) => {
         const visibility = (
@@ -1994,7 +1979,7 @@ describe("session-store", () => {
       timestamp: 1_000,
       payload: { text: "Edit something" },
     });
-    // tool_result without any file changes — should be excluded.
+
     store.appendEvent({
       conversationId,
       type: "tool_result",
@@ -2002,7 +1987,7 @@ describe("session-store", () => {
       requestId: "tool-1",
       payload: { toolName: "web", result: "ok" },
     });
-    // tool_result with fileChanges — should be included.
+
     store.appendEvent({
       conversationId,
       type: "tool_result",
@@ -2013,7 +1998,7 @@ describe("session-store", () => {
         fileChanges: [{ kind: { type: "create" }, path: "/repo/src/new.ts" }],
       },
     });
-    // tool_result with empty fileChanges array — should be excluded.
+
     store.appendEvent({
       conversationId,
       type: "tool_result",
@@ -2025,7 +2010,7 @@ describe("session-store", () => {
         producedFiles: [],
       },
     });
-    // agent-completed with producedFiles — should be included.
+
     store.appendEvent({
       conversationId,
       type: "agent-completed",
@@ -2037,7 +2022,7 @@ describe("session-store", () => {
         ],
       },
     });
-    // agent-completed without files — should be excluded.
+
     store.appendEvent({
       conversationId,
       type: "agent-completed",
@@ -2125,12 +2110,7 @@ describe("session-store", () => {
   });
 
   it("keeps each assistant message in a single user turn as its own row", () => {
-    // The worker writes one `assistant-msg-<runId>-<seq>` row per
-    // assistant message in a run (preamble, post-tool answer, …) so
-    // they render linearly in chronological order rather than
-    // collapsing into a single overwriting row. Sanity-check that the
-    // store happily round-trips two distinct rows that share the same
-    // requestId/userMessageId.
+
     const { store } = createTestContext();
     const conversationId = store.getOrCreateDefaultConversationId();
     const userMessageId = "user-web-turn";
@@ -2936,7 +2916,7 @@ describe("session-store", () => {
     });
 
     const after = store.loadThreadMessages(threadId);
-    // Order: protected head, checkpoint, pinned instruction copy, kept tail.
+
     expect(
       after.map((message) => ({
         role: message.role,
@@ -2969,9 +2949,6 @@ describe("session-store", () => {
       agentType: "general",
     });
 
-    // Must exceed THREAD_ROW_MAX_BYTES (6 MB) to trigger the
-    // "too large to persist" placeholder path. Multi-MB rows under the cap
-    // are intentionally allowed (screenshot tool results land in this range).
     const largeOutput = "A".repeat(8_000_000);
     store.appendThreadMessage({
       threadKey: threadId,
@@ -3711,7 +3688,7 @@ describe("thread activity rows", () => {
       result: "Booked the Marriott",
       updatedAt: 3_000,
     });
-    // Group fields ride the thread registry, joined by thread id.
+
     db.prepare(
       `INSERT INTO runtime_threads (
          thread_key, conversation_id, agent_type, name, status,
@@ -3728,7 +3705,7 @@ describe("thread activity rows", () => {
       "grp-trip",
       "Plan the trip",
     );
-    // Other conversations stay out of the projection.
+
     store.saveAgentRecord({
       threadId: "other-thread",
       conversationId: "conv-2",

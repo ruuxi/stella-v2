@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BackgroundCompactionScheduler } from "@stella/runtime/kernel/agent-runtime/compaction-scheduler";
 
-/**
- * Helper: a deferred Promise<void> with externally-resolvable controls.
- * Lets a test pause a scheduler `run` callback at a precise point and
- * then release it on demand, so the in-flight / queued / coalesced
- * states can be observed deterministically.
- */
 const deferred = (): {
   promise: Promise<void>;
   resolve: () => void;
@@ -100,7 +94,6 @@ describe("BackgroundCompactionScheduler", () => {
     await promiseA;
     expect(aOk).toBe(true);
 
-    // Observe promotion through the scheduler's pending slot, not microtask timing.
     const promotedActive = scheduler.pending("thread-1");
     expect(promotedActive).not.toBeNull();
     await tick(4);
@@ -143,7 +136,6 @@ describe("BackgroundCompactionScheduler", () => {
       },
     });
 
-    // Coalesced callers share the queued run, but each onSuccess must fire.
     const promiseC = scheduler.schedule({
       threadKey: "thread-1",
       run: async () => {
@@ -266,7 +258,7 @@ describe("BackgroundCompactionScheduler", () => {
 
     gateA.resolve();
     await tick(2);
-    expect(drained).toBe(false); // B still queued
+    expect(drained).toBe(false);
 
     gateB.resolve();
     await drainPromise;

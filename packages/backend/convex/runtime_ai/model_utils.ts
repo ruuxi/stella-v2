@@ -18,9 +18,7 @@ export function supportsXhigh<TApi extends Api>(model: Model<TApi>): boolean {
     model.id.includes("gpt-5.2") ||
     model.id.includes("gpt-5.3") ||
     model.id.includes("gpt-5.4") ||
-    // Muse Spark 1.2 Contributor accepts Stella's top effort rung on the
-    // Responses API (reasoning is mandatory for it; the mode config carries
-    // `reasoningEffort: "xhigh"` and must ship verbatim, not clamp to high).
+
     model.id.includes("muse-spark")
   );
 }

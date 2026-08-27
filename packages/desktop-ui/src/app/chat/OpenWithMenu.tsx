@@ -1,13 +1,3 @@
-/**
- * Drop-up menu offering external apps to open a chat artifact with.
- *
- * Lives on the right edge of `EndResourceCard`. The trigger is a slim
- * pill so it doesn't fight the card's primary "open in panel" click
- * target. The menu prefers opening upward (chat artifacts typically
- * sit near the bottom of the viewport during streaming) but Radix
- * auto-flips to a drop-down when the card is near the top.
- */
-
 import { ChevronDown } from "@/ui/icons";
 import { useCallback, useEffect, useState } from "react";
 
@@ -32,12 +22,7 @@ export const OpenWithMenu = ({
   variant = "button",
 }: {
   filePath: string;
-  /**
-   * `"button"` — the default slim "Open ▾" pill used by `EndResourceCard`.
-   * `"plus"` — a bare chrome-less chevron trigger used by the file pills on the
-   * agent completion card, where the pill body itself is the primary open
-   * target and the "+" only exposes the "open in other ways" menu.
-   */
+
   variant?: "button" | "plus";
 }) => {
   const t = useT();

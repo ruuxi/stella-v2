@@ -55,7 +55,7 @@ export type MediaGenerateAcceptedResponse = {
   profile: string;
   status: MediaJobStatus;
   upstreamStatus: string;
-  /** True when this response reattached to an existing idempotent request. */
+
   reattached?: boolean;
   subscription: {
     query: string;

@@ -193,9 +193,7 @@ type ListedAppPayload = {
   activationPolicy: string;
   isRunning?: boolean | null;
   isActive: boolean;
-  // Spotlight-tracked usage data populated by the desktop_automation
-  // daemon. Either or both can be null when the bundle isn't indexed
-  // (sandboxed apps without read perms, network-mounted bundles, etc.).
+
   lastUsedDate?: string | null;
   useCount?: number | null;
 };
@@ -424,10 +422,7 @@ const automationAccessibilityWaitMs = () =>
     30_000,
   );
 const automationAccessibilityPollIntervalMs = 500;
-// 30s covers heavy AppKit apps (Mail with thousands of messages, Notes with
-// large note bodies, Music with full library indexed) where the AX walk
-// reaches the maxNodes cap of 1500 before the daemon can return. Lighter
-// apps (Spotify, Notes empty) finish in 1–3s.
+
 const automationDaemonRequestTimeoutMs = 30_000;
 const lockedUseLeaseDurationMs = 30_000;
 const lockedUseInstallerTimeoutMs = 120_000;
@@ -637,12 +632,12 @@ const killDetachedProcess = (pid: number | null | undefined) => {
       return;
     }
   } catch {
-    // fall through to direct pid kill
+
   }
   try {
     process.kill(pid, "SIGKILL");
   } catch {
-    // ignore kill failures
+
   }
 };
 
@@ -703,7 +698,7 @@ const writeLastPrunedAt = (prunedAtMs: number) => {
       "utf8",
     );
   } catch {
-    // Best-effort cache maintenance.
+
   }
 };
 
@@ -755,9 +750,6 @@ const pruneStellaComputerSessions = (activeSessionId: string) => {
 
 const delayMs = abortableComputerDelay;
 
-// Sockets live under a short home-anchored directory (not the state dir) so
-// the path stays inside the 104-byte macOS sockaddr_un cap; see
-// automation-socket-paths.ts for the layout and collision rationale.
 const automationSocketsDir = () => automationSocketsRootDir();
 
 const automationSocketPath = (sessionPaths: SessionPaths) =>
@@ -766,16 +758,9 @@ const automationSocketPath = (sessionPaths: SessionPaths) =>
 const automationPidPath = (sessionPaths: SessionPaths) =>
   path.join(sessionPaths.sessionDir, "automation.pid");
 
-/** Daemon stdout/stderr sink; read back to surface startup failures. */
 const automationLogPath = (sessionPaths: SessionPaths) =>
   path.join(sessionPaths.sessionDir, "automation-daemon.log");
 
-/**
- * Pid of the Electron host that spawned the current daemon. macOS TCC
- * attribution follows the responsible process recorded at spawn time, so a
- * daemon spawned by a host that has since exited loses its "Stella"
- * Accessibility attribution — it must be restarted by the current live host.
- */
 const automationHostPidPath = (sessionPaths: SessionPaths) =>
   path.join(sessionPaths.sessionDir, "automation.host-pid");
 
@@ -807,7 +792,7 @@ const writeAutomationHostPid = (sessionPaths: SessionPaths, pid: number) => {
   try {
     fs.writeFileSync(automationHostPidPath(sessionPaths), String(pid), "utf8");
   } catch {
-    // Best-effort bookkeeping; worst case the staleness check is skipped.
+
   }
 };
 
@@ -831,7 +816,7 @@ const truncateAutomationLog = (sessionPaths: SessionPaths) => {
     fs.mkdirSync(sessionPaths.sessionDir, { recursive: true });
     fs.writeFileSync(automationLogPath(sessionPaths), "", "utf8");
   } catch {
-    // Best-effort; an unwritable log only degrades error detail.
+
   }
 };
 
@@ -873,12 +858,7 @@ const filteredAutomationDaemonEnv = () =>
 type AutomationAccessibilityState =
   | {
       ok: true;
-      /**
-       * True when the helper's own AXIsProcessTrusted() check (run from this
-       * process tree) passed. False when only the Electron host vouched for
-       * the grant — valid for a host-spawned daemon (the host's TCC identity
-       * is what matters there) but not for a locally spawned one.
-       */
+
       helperTrusted: boolean;
       hostGranted: boolean;
     }
@@ -966,12 +946,7 @@ const promptForAutomationAccessibility = async (
 
   const hostRequest = await requestViaHost();
   if (hostRequest.ok && hostRequest.granted) {
-    // Re-verify with the helper's own check instead of trusting the host
-    // blindly: the host answers for the Stella.app TCC identity, while a
-    // helper spawned from this (worker) process tree can carry a different —
-    // possibly orphaned — attribution. A disagreement here is expected when
-    // the worker outlived a previous Stella.app instance; the daemon must
-    // then be spawned by the live host (see ensureAutomationDaemon).
+
     lastResult = await checkAccessibility(false);
     return { ok: true, helperTrusted: lastResult.ok, hostGranted: true };
   }
@@ -1004,11 +979,6 @@ const promptForAutomationAccessibility = async (
   };
 };
 
-/**
- * Spawn the daemon via the Electron host (single "Stella" TCC identity) when
- * a CLI bridge is available. Returns null when host spawning is unavailable
- * so the caller can fall back to a local spawn.
- */
 const spawnAutomationDaemonViaHost = async (
   sessionPaths: SessionPaths,
   socketPath: string,
@@ -1037,8 +1007,7 @@ const spawnAutomationDaemonViaHost = async (
     writeAutomationHostPid(sessionPaths, result.hostPid);
     return { ok: true };
   }
-  // "unsupported" means the running host predates this RPC; let the caller
-  // fall back to the legacy local spawn rather than hard-failing.
+
   if (result.reason === "unsupported") {
     return null;
   }
@@ -1051,17 +1020,14 @@ const spawnAutomationDaemonLocally = (
   socketPath: string,
   pidPath: string,
 ): { onSpawnError: () => Error | null; hasExited: () => boolean } => {
-  // Pipe daemon output to a per-session log instead of discarding it; the
-  // startup poll reads it back so a daemon that exits with "Accessibility
-  // permission is required…" surfaces that message instead of an opaque
-  // "failed to start after 7500ms".
+
   let stdio: StdioOptions = "ignore";
   let logFd: number | null = null;
   try {
     logFd = fs.openSync(automationLogPath(sessionPaths), "a");
     stdio = ["ignore", logFd, logFd];
   } catch {
-    // Unwritable log only degrades error detail.
+
   }
   let child: ReturnType<typeof spawn>;
   try {
@@ -1108,9 +1074,7 @@ const ensureAutomationDaemon = async (
   const socketPath = automationSocketPath(sessionPaths);
   const socketPathBytes = Buffer.byteLength(socketPath, "utf8");
   if (socketPathBytes > maxAutomationSocketPathBytes) {
-    // The daemon enforces the 104-byte BSD sockaddr_un cap with an opaque
-    // "Daemon socket path is too long"; fail here with the actual path so
-    // the problem (an unusually long home directory) is diagnosable.
+
     return {
       ok: false,
       error: `desktop_automation daemon socket path "${socketPath}" is ${socketPathBytes} bytes, above the ${maxAutomationSocketPathBytes}-byte limit imposed by the macOS 104-byte Unix socket path cap. Your home directory path is too long for desktop automation.`,
@@ -1132,9 +1096,7 @@ const ensureAutomationDaemon = async (
     if (!helperNewerThanDaemon(helperPath, pidPath) && !staleHost) {
       return { ok: true };
     }
-    // Either the helper binary changed under the daemon, or the Electron host
-    // that spawned it exited (which orphans the daemon's TCC attribution).
-    // Restart it under the current host.
+
     killDetachedProcess(existingPid);
     resetAutomationDaemonFiles(sessionPaths);
   }
@@ -1169,11 +1131,7 @@ const ensureAutomationDaemon = async (
       permission.hostGranted &&
       !permission.helperTrusted
     ) {
-      // The Stella app has Accessibility, but this detached worker's process
-      // tree no longer inherits that grant (its spawning app instance is
-      // gone) and no live host is reachable to spawn the daemon under the
-      // app's identity. A locally spawned daemon would just exit; fail with
-      // an actionable message instead.
+
       return {
         ok: false,
         error: `Stella has macOS Accessibility, but the automation daemon cannot inherit it because the Stella app that granted it is no longer running. Fully quit and reopen Stella, then retry. ${accessibilityGuidance}`,
@@ -1208,8 +1166,7 @@ const ensureAutomationDaemon = async (
       return { ok: true };
     }
     if (hasExited?.() && (!pid || !pidIsRunning(pid))) {
-      // The locally spawned daemon already died (e.g. its Accessibility
-      // check failed); no point polling out the rest of the budget.
+
       break;
     }
   }
@@ -1268,9 +1225,7 @@ const runAutomationDaemonCommand = async (
     };
     const onAbort = () => {
       const reason = signal?.reason;
-      // Helper-style requests share the same serial daemon as typed
-      // operations. Revoke it on cancellation as well, otherwise a blocked
-      // helper remains at the head of the queue and wedges the next call.
+
       recoverAutomationDaemon(sessionPaths);
       settle({
         status: 1,
@@ -1388,9 +1343,7 @@ const runAutomationDaemonTypedOperation = async (
     };
     const onAbort = () => {
       const reason = signal?.reason;
-      // The daemon serves requests serially. Dropping only this socket leaves
-      // a wedged native operation blocking every later request, so revoke the
-      // daemon generation and let the next call start a clean process.
+
       recoverAutomationDaemon(sessionPaths);
       settle(
         reason instanceof Error
@@ -1554,10 +1507,7 @@ const ACTIONS_TO_HIDE = new Set([
   "AXIncrement",
   "AXDecrement",
   "AXRaise",
-  // AppKit table/outline rows expose Show Default UI / Show Alternate UI
-  // alongside the user-meaningful AX actions. They flip an internal styling
-  // pair and are not actuatable affordances; surface only the real actions
-  // (e.g. swipe-to-Read on Mail message rows).
+
   "AXShowDefaultUI",
   "AXShowAlternateUI",
 ]);
@@ -1582,9 +1532,6 @@ const ROLES_WITH_VISIBLE_SETTABLE_STATE = new Set([
   "AXWebArea",
 ]);
 
-// Subrole-aware names for buttons so the model can tell window controls apart
-// instead of seeing a row of identical "button" entries.
-// Mirrors the role labels used by macOS desktop-automation renderers.
 const BUTTON_SUBROLE_LABELS: Record<string, string> = {
   AXCloseButton: "close button",
   AXMinimizeButton: "minimize button",
@@ -1675,11 +1622,7 @@ const choosePrimaryLabel = (node: SnapshotNode) => {
       node.role === "AXGenericElement" ||
       node.role === "AXHeading" ||
       node.role === "AXList" ||
-      // Brave/Chrome/Safari toolbar dropdowns (Brave Shields, Wallet, VPN,
-      // Extensions, profile picker, address-bar lock icon) and AppKit
-      // window-resize splitters all carry their human-readable label on
-      // AXDescription. Without surfacing it, browser/window chrome reads
-      // as a row of unnamed `(settable, string)` placeholders.
+
       node.role === "AXPopUpButton" ||
       node.role === "AXMenuButton" ||
       node.role === "AXSplitter" ||
@@ -1688,11 +1631,7 @@ const choosePrimaryLabel = (node: SnapshotNode) => {
   ) {
     return node.description;
   }
-  // AppKit outline rows leave their description on a child AXCell. When the
-  // row has exactly one AXCell child whose description is the only label
-  // available, present that description as the row's own primary label so
-  // sidebars (Mail mailboxes, Finder source list, Notes accounts, etc.)
-  // surface readable names like "Inbox" / "Junk" instead of bare "row".
+
   if (
     node.role === "AXRow" &&
     node.children.length === 1 &&
@@ -1722,16 +1661,9 @@ const annotationSegment = (node: SnapshotNode) => {
   const flags: string[] = [];
   if (node.enabled === false) flags.push("disabled");
   if (node.selected) flags.push("selected");
-  // AppKit's outline/table cells inherit the parent table's focus bit, so
-  // every cell in a focused table reports `focused=true`. That tells the
-  // model nothing useful about which element actually has keyboard focus.
-  // Suppress the flag for cells; meaningful focus on a cell's text field
-  // child still surfaces normally.
+
   if (node.focused && node.role !== "AXCell") flags.push("focused");
-  // Outline rows + disclosure groups expose AXExpanded so the model can
-  // tell whether sidebars/sections (Mail Favorites/Smart Mailboxes,
-  // Finder source list, Notes accounts) are open or collapsed before
-  // deciding whether to actuate the disclosure triangle.
+
   if (node.expanded === true) flags.push("expanded");
   else if (node.expanded === false) flags.push("collapsed");
   if (shouldSurfaceSettable(node)) {
@@ -1742,24 +1674,14 @@ const annotationSegment = (node: SnapshotNode) => {
   return flags.length > 0 ? ` (${flags.join(", ")})` : "";
 };
 
-// Internal AppKit selector identifiers (e.g. `_NS:355`, `_recentItemRequested:`)
-// are pure noise to the agent: not stable across builds, never useful for
-// targeting (the numeric ID already addresses the element). Hide them.
 const isInternalAppKitIdentifier = (identifier: string) =>
   /^_[A-Za-z0-9_]+:?$/.test(identifier);
 
-// Cancel/Pick are present on every menu/menu-item via the AX API. They're
-// universal noise — surfacing them on every menu line would balloon the
-// snapshot without giving the agent any new affordance.
 const filterMenuActions = (actions: string[], role: string) =>
   role === "AXMenuItem" || role === "AXMenuBarItem" || role === "AXMenu"
     ? actions.filter((action) => action !== "AXCancel" && action !== "AXPick")
     : actions;
 
-// Container roles that may be skipped from the rendered tree when the node
-// adds no information of its own. Their children re-attach at the parent's
-// depth so the model sees one tight tree instead of a deep stack of empty
-// `container` lines (e.g. web-area wrapper chains).
 const COLLAPSIBLE_CONTAINER_ROLES = new Set([
   "AXGroup",
   "AXGenericElement",
@@ -1774,9 +1696,6 @@ export const formatNodeLines = (node: SnapshotNode, depth = 0): string[] => {
       ? String(node.index)
       : (node.ref ?? "_");
 
-  // Menu bar items are globally positioned app chrome, not the target window
-  // content. Hiding them prevents the agent from opening menus while trying
-  // to act on visible app UI.
   if (node.role === "AXMenuBarItem") {
     return [];
   }
@@ -1793,11 +1712,7 @@ export const formatNodeLines = (node: SnapshotNode, depth = 0): string[] => {
     (node.role === "AXLink" ||
       node.role === "AXCheckBox" ||
       node.subrole === "AXSwitch" ||
-      // Browser/Mail/Notes address-bar style fields name themselves on
-      // AXDescription ("Address and search bar", "Search field", "To:",
-      // "Subject:"). The value attribute carries the typed text, so
-      // surface description as a separate prefix rather than collapsing
-      // it into the primary label.
+
       node.role === "AXTextField" ||
       node.role === "AXSearchField" ||
       node.role === "AXSecureTextField" ||
@@ -1841,7 +1756,7 @@ export const formatNodeLines = (node: SnapshotNode, depth = 0): string[] => {
   if (node.url) {
     const renderedUrl = truncate(formatUrlLike(node.url), 100);
     if (node.role === "AXLink" && primaryLabel !== rawPrimaryLabel) {
-      // The markdown link already carries the destination.
+
     } else if (node.role === "AXLink" && !renderedValue) {
       extras.push(`Value: ${renderedUrl}`);
     } else {
@@ -1849,10 +1764,6 @@ export const formatNodeLines = (node: SnapshotNode, depth = 0): string[] => {
     }
   }
 
-  // Placeholder text for empty input fields (Brave's "Search Google or
-  // type a URL", Spotlight's "Spotlight Search", Mail's "To:" hint).
-  // Only meaningful for text-bearing roles, and only when the field
-  // doesn't already carry a typed value to display.
   if (
     node.placeholder &&
     node.placeholder !== rawPrimaryLabel &&
@@ -1877,27 +1788,6 @@ export const formatNodeLines = (node: SnapshotNode, depth = 0): string[] => {
 
   const annotation = annotationSegment(node);
 
-  // Collapse / skip empty container nodes. Spotify alone emits ~140 such
-  // anonymous `container` lines per snapshot — they're pure DOM
-  // structural scaffolding from the web view, with no label, no extras,
-  // and no flag annotation worth surfacing. The model gets nothing from
-  // them. Two cases:
-  //
-  //   (a) Empty container with no children → drop entirely. Emitting
-  //       `\t\t\t\t\t<id> container` is just noise.
-  //   (b) Empty container with exactly one child → fold the wrapper:
-  //       render the child at the parent's depth. Most macOS
-  //       web-wrapped apps (Spotify, Slack, Discord, Notion, Cursor,
-  //       VS Code) produce 5–10 nested AXGroup/AXSplitGroup wrappers
-  //       around the actual UI. This rule subsumes the previous
-  //       same-role chain-collapse and applies even when the single
-  //       child is a meaningful node (button/text/link).
-  //
-  // "Empty" requires no primary label, no extras (description / value /
-  // url / placeholder / etc.), and no annotation flags (no
-  // disabled/focused/selected/expanded/settable). Containers that
-  // expose `settable` are still part of the actionable tree; we never
-  // collapse those.
   const isEmptyCollapsibleContainer =
     COLLAPSIBLE_CONTAINER_ROLES.has(node.role) &&
     !primaryLabel &&
@@ -1919,14 +1809,10 @@ export const formatNodeLines = (node: SnapshotNode, depth = 0): string[] => {
       line += `, ${extras.join(", ")}`;
     }
   } else if (extras.length > 0) {
-    // When there's no primary label, extras hang directly off the role with a
-    // single space, no comma. The extras among themselves are still ", "-joined.
+
     line += ` ${extras.join(", ")}`;
   }
-  // Skip rendering the lone AXCell child of an AXRow when its description
-  // was already folded up into the row's primary label (see
-  // `choosePrimaryLabel`). Otherwise sidebars duplicate every label as a
-  // child cell line right under the row.
+
   const childrenToRender =
     node.role === "AXRow" &&
     node.children.length === 1 &&
@@ -1977,12 +1863,6 @@ const parseJson = <T>(text: string): T => {
   }
 };
 
-// Emit a "[stella-attach-image]" marker line that the runtime layer can
-// detect when reading shell output to auto-attach the image as a vision
-// content block to the next assistant turn. The line is also human-readable
-// so it does no harm if the host doesn't auto-detect it. We include the
-// width/height so callers can pre-budget vision token cost without a follow-
-// up `Read` step.
 const formatScreenshotMarker = (
   screenshot?: Screenshot | null,
   fallbackPath?: string | null,
@@ -2022,7 +1902,6 @@ const formatBundleSpecificStateNote = (snapshot: SnapshotDocument) => {
   );
 };
 
-/** Stable, capture-independent state used for freshness and diffs. */
 const appSemanticStateLines = (snapshot: SnapshotDocument) => {
   const lines: string[] = ["<app_state>"];
   lines.push(
@@ -2095,8 +1974,7 @@ const snapshotVisualStateId = (
     try {
       bytes = fs.readFileSync(imagePath);
     } catch {
-      // A missing image is represented as no visual identity, not a semantic
-      // state change.
+
     }
   }
   if (!bytes && snapshot.screenshot?.data) bytes = snapshot.screenshot.data;
@@ -2189,16 +2067,13 @@ const formatAction = (
   printWarnings(payload.warnings);
 };
 
-// Return only "regular" (user-launchable) apps. macOS exposes accessory and
-// background helpers (Spotlight, LoginWindow, WindowManager, renderer helpers)
-// that pollute the list and have no addressable UI for the agent.
 const LISTED_ACTIVATION_POLICIES = new Set(["regular"]);
 
 const formatListApps = (payload: ListAppsPayload) => {
   const visible = payload.apps.filter((app) =>
     LISTED_ACTIVATION_POLICIES.has(app.activationPolicy),
   );
-  // Put the user's current app first, then keep the usage prior for the rest.
+
   visible.sort((a, b) => {
     if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
     const usesA = a.useCount ?? -1;
@@ -2242,9 +2117,7 @@ const formatListWindows = (payload: ListWindowsPayload) => {
 const formatError = (payload: ErrorPayload) => {
   writeComputerStderr(payload.error);
   writeComputerStderr("\n");
-  // Mirror the action/snapshot screenshot-marker contract on the error path
-  // so failures still expose the diagnostic capture without requiring an
-  // extra Read step.
+
   const marker = formatScreenshotMarker(
     payload.screenshot,
     payload.screenshotPath,
@@ -3136,8 +3009,7 @@ const endLockedUseLease = async (sessionPaths: SessionPaths) => {
     ["locked-use-end"],
     5_000,
   ).catch(() => {
-    // Best-effort cleanup; command result handling should not be masked by a
-    // failed lease close.
+
   });
 };
 
@@ -4269,11 +4141,7 @@ export const createMacComputerUseSession = (options: {
   sessionId: string;
   commandTimeoutMs?: number;
   getSignal?: () => AbortSignal | undefined;
-  /**
-   * Worker CLI-bridge socket. When present, the automation daemon is spawned
-   * by the Electron host through this bridge so it stays under the single
-   * "Stella" macOS TCC identity (see ensureAutomationDaemon).
-   */
+
   cliBridgeSocketPath?: string;
 }): ComputerUseSession => ({
   request: async (request, requestOptions) => {

@@ -1,13 +1,3 @@
-/**
- * Hook half of the onboarding overlay module.
- *
- * Lives in its own file so it can be statically imported by FullShell
- * without pulling the heavy view tree (StellaAnimation, all phase
- * components, mock windows, capabilities scenes, legal dialog) into the
- * main bundle. The view tree lives in OnboardingOverlay.tsx and is
- * loaded lazily as the "onboarding chunk".
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAction } from "convex/react";
 import { api } from "@/convex/api";
@@ -43,13 +33,13 @@ const clearLocalBrowserState = async () => {
   try {
     localStorage.clear();
   } catch {
-    /* best-effort browser state cleanup */
+
   }
 
   try {
     sessionStorage.clear();
   } catch {
-    /* best-effort browser state cleanup */
+
   }
 
   if (
@@ -65,7 +55,7 @@ const clearLocalBrowserState = async () => {
         );
       await Promise.all(names.map(deleteIndexedDatabase));
     } catch {
-      /* best-effort browser state cleanup */
+
     }
   }
 
@@ -76,7 +66,7 @@ const clearLocalBrowserState = async () => {
         cacheNames.map((cacheName) => caches.delete(cacheName)),
       );
     } catch {
-      /* best-effort browser state cleanup */
+
     }
   }
 };
@@ -96,10 +86,7 @@ export function useOnboardingOverlay() {
   const { hasConnectedAccount, isLoading: isAuthLoading } =
     useAuthSessionState();
   const resetUserData = useAction(api.reset.resetAllUserData);
-  // Resolve the resume target ONCE at mount: if the user quit mid-flow we
-  // skip the start screen and drop them back where they were. After that
-  // first read the value is stable for the lifetime of this overlay
-  // instance — `onboardingKey` bumps on reset to remount and re-resolve.
+
   const resumePhaseRef = useRef<Phase | null>(null);
   if (resumePhaseRef.current === null && !onboardingDone) {
     resumePhaseRef.current = readOnboardingPhase();
@@ -116,23 +103,14 @@ export function useOnboardingOverlay() {
   const [splitMode, setSplitMode] = useState(
     () => isResuming && SPLIT_PHASES.has(initialPhase),
   );
-  // True only during the brief "fade out + snap to split position" entry.
-  // After ~350ms the entry settles and we restore animated transitions for
-  // transform/width/height so any subsequent shift glides instead of
-  // jumping. Resumed sessions skip the entry entirely since the creature
-  // was never in its centered start pose.
+
   const [splitEntering, setSplitEntering] = useState(false);
   const splitEnterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [onboardingExiting, setOnboardingExiting] = useState(false);
   const [onboardingKey, setOnboardingKey] = useState(0);
   const stellaAnimationRef = useRef<StellaAnimationHandle | null>(null);
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // While onboarding is active, expand the main window to cover the current
-  // display. Trigger the restore at the START of the exit phase
-  // (`onboardingExiting` flips true ~600ms before `onboardingDone`) so the
-  // animated window resize finishes with the onboarding handoff instead of
-  // snapping once onboarding completes.
-  //
+
   useEffect(() => {
     const setPresentation = window.electronAPI?.ui.setOnboardingPresentation;
     if (typeof setPresentation !== "function") return;
@@ -156,8 +134,6 @@ export function useOnboardingOverlay() {
     }, 400);
   }, []);
 
-  // "Start Stella" opens the split flow directly. The aurora mounts after
-  // this handoff (the entry screen has no creature), already at full birth.
   const startOnboarding = useCallback(() => {
     setHasStarted(true);
     setHasExpanded(true);

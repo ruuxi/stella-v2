@@ -1,8 +1,3 @@
-/* SubscriptionUpgradeDialog — celebratory "you're on Stella X" follow-up
- * shown after a Stripe webhook updates the user's plan. Matches the
- * canonical Apple-polish dialog look (glass background + weak border +
- * display-font title) used by ConnectDialog / ProviderConnectedDialog. */
-
 [data-slot="dialog-content"].subscription-upgrade-dialog {
   --subscription-upgrade-pad-x: 24px;
   max-width: 420px;
@@ -14,11 +9,7 @@
 }
 
 .subscription-upgrade-dialog [data-slot="dialog-header"] {
-  /* Base dialog header is a horizontal space-between row (title + close
-   * button). Here we stack the title above the description instead so the
-   * copy reads as a block and doesn't get squeezed beside the title.
-   * Title font/size/weight come from the canonical base (--dialog-title-*);
-   * only the column layout + padding deviate. */
+
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -27,8 +18,7 @@
 }
 
 .subscription-upgrade-dialog [data-slot="dialog-description"] {
-  /* Reset the base description's row padding/margin — the header padding
-   * already insets it correctly now that the header is a column. */
+
   display: block;
   padding: 0;
   margin: 8px 0 0;

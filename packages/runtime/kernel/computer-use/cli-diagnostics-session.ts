@@ -265,7 +265,7 @@ const extractStateOutput = (stdout: string) => {
         .digest("hex")
         .slice(0, 20)}`;
     } catch {
-      // A missing diagnostics screenshot has no visual identity.
+
     }
   }
   return {

@@ -12,14 +12,6 @@ const SOURCE_ROOT = path.resolve(
 const readSource = (relativePath: string) =>
   fs.readFileSync(path.join(SOURCE_ROOT, relativePath), "utf8");
 
-/**
- * These labels used to be asserted as literal strings. They are now `t()`
- * keys, so the contract is checked in two halves: the source renders the
- * key in the right slot, and the English catalog still maps that key to
- * the copy this contract is about. Checking only the key would let the
- * copy drift silently; checking only the copy would miss the label being
- * moved to a different control.
- */
 const englishFor = (key: string): string => {
   const value = key
     .split(".")
@@ -42,18 +34,15 @@ describe("full-area agent model picker layout", () => {
     expect(englishFor("settings.agentModelPicker.tabs.assistant")).toBe(
       "Assistant",
     );
-    // Whitespace-tolerant: prettier may reflow the call once the literal
-    // becomes a t() call.
+
     expect(picker).toMatch(
       /tabButton\(\s*ASSISTANT_TARGET,\s*t\("settings\.agentModelPicker\.tabs\.assistant"\)/,
     );
-    // Single list: no brand icon rail, no scoped brand header, no
-    // subscription/API source dropdown — engines are their own sections.
+
     expect(picker).not.toContain("agent-model-picker-brands");
     expect(picker).not.toContain("agent-model-picker-brand-header");
     expect(picker).not.toContain("brandSearchOpen");
-    // No scoped ChatGPT sign-in affordance here. Guard the key shapes too,
-    // so the extraction cannot smuggle it back in under a key name.
+
     expect(picker).not.toContain("Sign in with ChatGPT");
     expect(picker).not.toMatch(/signInWith\s*Chat\s*GPT/i);
     expect(picker).not.toMatch(/chatgpt\w*\.?signIn/i);
@@ -66,7 +55,7 @@ describe("full-area agent model picker layout", () => {
     );
     expect(picker).toContain('HIDDEN_CATALOG_PROVIDERS = ["openai-codex"]');
     expect(picker).toContain('role="radiogroup"');
-    // Reasoning effort rides under the selected row, not a footer.
+
     expect(picker).toContain("selectedRowExtra={reasoningControl}");
     expect(picker).toContain(
       "selectedRowExtra={claudeCodeSelectionControls}",

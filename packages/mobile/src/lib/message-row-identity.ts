@@ -11,17 +11,6 @@ export const isStandInArtifactRow = (
       (message.canonicalId?.endsWith(suffix) ?? false),
   );
 
-/**
- * Drop stand-in artifact rows from the rendered transcript.
- *
- * Returns the input array itself when nothing is filtered. An in-flight turn
- * gives `messages` a new identity on every landed segment, tool step and
- * artifact, so this runs often; most transcripts have no stand-in rows at all,
- * and an unconditional `filter` allocated a second full-length array each time
- * for an identical result. Scanning first keeps the common case
- * allocation-free and lets consumers' `visibleMessages === messages` checks
- * hold.
- */
 export const visibleChatMessages = (messages: ChatMessage[]): ChatMessage[] => {
   const firstStandIn = messages.findIndex(isStandInArtifactRow);
   if (firstStandIn === -1) return messages;

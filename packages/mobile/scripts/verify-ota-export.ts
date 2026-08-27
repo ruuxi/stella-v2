@@ -1,19 +1,3 @@
-/**
- * Verify that an exported OTA bundle (`dist/`) was built from EXACTLY the
- * source at a git revision — no dirty-tree drift.
- *
- * Postmortem tool from the 2026-07-02 boot crash: an update was published
- * while the working tree held a mid-refactor ChatPane (it rendered
- * `<ActivityTray/>` without importing it), so the OTA labeled `cc5808e`
- * shipped code that existed in NO commit and crashed every launch of
- * builds 95/96 with a release-mode ReferenceError. The Hermes sourcemap
- * embeds `sourcesContent` for every bundled module, so the shipped JS can be
- * compared byte-for-byte against git.
- *
- * Usage: bun scripts/verify-ota-export.ts [rev]   (default rev: HEAD)
- * Exits non-zero and lists every packages/mobile/src|app file that differs
- * from the rev.
- */
 import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -53,7 +37,7 @@ for (const mapFile of maps) {
   map.sources.forEach((source, i) => {
     if (!source.startsWith(`${MOBILE_SOURCE_PREFIX}/`)) return;
     const mobileSource = source.slice(MOBILE_SOURCE_PREFIX.length);
-    // Only first-party code; skip metro virtual modules (`/app?ctx=...`).
+
     if (
       !/^\/(src|app)\//.test(mobileSource) &&
       !/^\/(src|app)$/.test(mobileSource)
@@ -63,7 +47,7 @@ for (const mapFile of maps) {
     if (mobileSource.includes("?")) return;
     const content = map.sourcesContent[i];
     if (typeof content !== "string") return;
-    // Binary assets (png etc.) ride the map with null/placeholder content.
+
     if (/\.(png|jpg|jpeg|gif|webp|ttf|otf)$/.test(mobileSource)) return;
     checked += 1;
     const committed = gitShow(mobileSource);

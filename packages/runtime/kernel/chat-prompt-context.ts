@@ -53,11 +53,6 @@ const buildActiveWindowContext = (
   return `<${tagName} ${allAttrs.join(" ")}>\n${parts.join("\n")}\n</${tagName}>`;
 };
 
-/**
- * All selected-area contexts on this turn. New payloads carry the list in
- * `appSelections`; older single-slot payloads carried one selection in
- * `appSelection`.
- */
 const getAppSelections = (
   chatContext: ChatContext | null | undefined,
 ): NonNullable<ChatContext["appSelections"]> => {
@@ -169,13 +164,6 @@ const escapeXmlAttribute = (value: string) =>
 const escapeXmlText = (value: string) =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-/**
- * Bounded preview of quoted / "Ask Stella" context stored on the sent
- * message so the chat surface can render it as a removable chip (matching
- * pasted-text / attachment chips) on hover. The full quote reaches the model
- * as a dedicated hidden context message; it is never folded into the visible
- * user body, so model-facing framing/decoration can't leak into the chat UI.
- */
 const QUOTED_TEXT_PREVIEW_MAX_CHARS = 4_000;
 
 export const buildChatPromptMessages = ({
@@ -187,12 +175,12 @@ export const buildChatPromptMessages = ({
   visibleUserPrompt: string;
   windowContextLabel?: string;
   browserUrl?: string;
-  /** Joined display label (legacy single-slot consumers). */
+
   appSelectionLabel?: string;
-  /** One label per attached selected-area context, in attach order. */
+
   appSelectionLabels?: string[];
   activityLabel?: string;
-  /** Bounded preview of quoted / "Ask Stella" context for the sent-message chip. */
+
   quotedText?: string;
   promptMessages?: RuntimePromptMessage[];
   windowScreenshotAttachment?: RuntimeAttachmentRef;
@@ -283,12 +271,6 @@ export const buildChatPromptMessages = ({
     );
   }
 
-  // Quoted / "Ask Stella" context is delivered to the model as a dedicated
-  // hidden context message and surfaced on the sent message as a chip — it is
-  // deliberately NOT concatenated into the visible user body. Folding it in as
-  // a `> ` blockquote coupled the displayed text to the model payload and let
-  // model-facing framing leak into the chat UI; keeping them separate means
-  // the stored/rendered user text stays exactly what the user typed.
   let quotedText: string | undefined;
   if (selectedSnippet) {
     const safeQuoted = sanitizePromptContext(selectedSnippet, "quoted text");

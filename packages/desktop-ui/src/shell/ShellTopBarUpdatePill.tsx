@@ -12,10 +12,6 @@ export const UPDATE_PILL_PERCENT_TOKEN = "{percent}";
 export const clampDesktopUpdatePercent = (percent: number): number =>
   Math.max(0, Math.min(100, Math.round(percent)));
 
-/**
- * Split a downloading template such as "Downloading {percent}%" so the
- * numeric slot can keep a fixed tabular width while 9 → 10 → 99 → 100.
- */
 export const splitUpdatePillDownloadingLabel = (
   template: string,
   percent: number,
@@ -35,8 +31,7 @@ export const splitUpdatePillDownloadingLabel = (
 export const ShellTopBarUpdatePill = () => {
   const t = useT();
   const { snapshot: rawSnapshot } = useDesktopUpdate();
-  // `useDesktopUpdate` is still a JavaScript boundary; Electron supplies the
-  // shared desktop-update contract at runtime.
+
   const snapshot = rawSnapshot as DesktopUpdateSnapshot;
 
   const handleUpdate = useCallback(async () => {
@@ -99,8 +94,8 @@ export const ShellTopBarUpdatePill = () => {
   const title = isRestarting
     ? t("shell.updatePill.restartingTitle")
     : isDownloaded
-      ? // A restart that failed to take leaves the download in place and the
-        // reason on the snapshot; that reason is the useful tooltip.
+      ?
+
         (snapshot.error ??
         t("shell.updatePill.restartTitle", {
           version:

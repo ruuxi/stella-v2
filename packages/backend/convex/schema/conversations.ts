@@ -7,11 +7,6 @@ import {
 } from "../shared_validators";
 import { connectorMediaRefValidator } from "../channels/connector_media_types";
 
-/** All event `type` values written by the app (appendEvent + internal inserters).
- *
- * Subagent lifecycle events use kebab-case to match the IPC wire format
- * (`AGENT_STREAM_EVENT_TYPES`). Other events keep snake_case for historical
- * consistency with the rest of the events table. */
 export const eventTypeValidator = v.union(
   v.literal("user_message"),
   v.literal("assistant_message"),
@@ -27,24 +22,11 @@ export const eventTypeValidator = v.union(
   v.literal("screen_event"),
 );
 
-/**
- * Lifecycle marker for `remote_turn_request` events. The previous design
- * inserted separate `remote_turn_claimed` / `remote_turn_fulfilled` event
- * rows under `requestId` prefixes (`claimed:...`, `fulfilled:...`) which
- * forced the device subscription query to do two extra index lookups per
- * candidate event. Now we patch this field on the original request row so
- * readers can decide everything from a single read.
- */
 export const remoteTurnRequestStateValidator = v.union(
   v.literal("pending"),
   v.literal("claimed"),
   v.literal("fulfilled"),
-  /**
-   * Set when the originating client (typically the mobile app) requests
-   * cancellation via `cancelRemoteTurn`. The local device's remote-turn
-   * bridge subscribes to a dedicated cancel query and aborts the active
-   * orchestrator run; cancelled rows never flip to `claimed`/`fulfilled`.
-   */
+
   v.literal("cancelled"),
 );
 
@@ -80,19 +62,9 @@ export const conversationsSchema = {
     isDefault: v.boolean(),
     activeThreadId: v.optional(v.id("threads")),
     activeTargetDeviceId: v.optional(v.string()),
-    /**
-     * Pointer to the conversation's pending device-selection prompt, if any.
-     * The selection blob (which can carry sizable arrays of device options
-     * and attachments) lives on the child `pending_device_selections` table
-     * so writing/clearing the prompt doesn't rewrite — or contend with — the
-     * conversation document.
-     */
+
     pendingSelectionId: v.optional(v.id("pending_device_selections")),
-    /**
-     * Denormalized count of `events` rows for this conversation. Maintained by
-     * `appendEventCore` so callers can read counts in O(1) without
-     * paginating the events table.
-     */
+
     eventCount: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -100,14 +72,6 @@ export const conversationsSchema = {
     .index("by_ownerId_and_isDefault", ["ownerId", "isDefault"])
     .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"]),
 
-  /**
-   * Pending device-selection prompts split out from the `conversations`
-   * document. One row per conversation that's currently waiting on a
-   * device-selection reply; the row is inserted by
-   * `setPendingDeviceSelection` and deleted by
-   * `clearPendingDeviceSelection`. The conversation doc carries a
-   * `pendingSelectionId` pointer for O(1) hydration.
-   */
   pending_device_selections: defineTable({
     conversationId: v.id("conversations"),
     selection: pendingDeviceSelectionValidator,
@@ -121,17 +85,13 @@ export const conversationsSchema = {
     deviceId: v.optional(v.string()),
     requestId: v.optional(v.string()),
     targetDeviceId: v.optional(v.string()),
-    /**
-     * Set only on `remote_turn_request` events. Initialised to `"pending"`
-     * at insert time, patched to `"claimed"` when a desktop device picks
-     * the request up, and patched to `"fulfilled"` once delivery succeeds.
-     */
+
     requestState: v.optional(remoteTurnRequestStateValidator),
-    /** Set only on `remote_turn_request` events once a device claims them. */
+
     claimedByDeviceId: v.optional(v.string()),
     claimedAt: v.optional(v.number()),
     fulfilledAt: v.optional(v.number()),
-    /** Set only on `remote_turn_request` events when the caller cancels. */
+
     cancelledAt: v.optional(v.number()),
     payload: jsonValueValidator,
     channelEnvelope: optionalChannelEnvelopeValidator,
@@ -143,20 +103,13 @@ export const conversationsSchema = {
       "timestamp",
     ])
     .index("by_targetDeviceId_and_timestamp", ["targetDeviceId", "timestamp"])
-    // Type-scoped device subscription queries (`subscribeRemoteTurnRequestsForDevice`
-    // and friends) read by `(targetDeviceId, type, timestamp)` so adding the
-    // `type` column to the index lets them stream the exact rows they need
-    // instead of over-fetching by 3x and JS-filtering.
+
     .index("by_targetDeviceId_and_type_and_timestamp", [
       "targetDeviceId",
       "type",
       "timestamp",
     ])
-    // Lets the orphan watchdog enumerate unfulfilled remote turns directly by
-    // lifecycle state + age, instead of fanning a per-device index scan across
-    // every registered device every minute. Rows without `requestState` (all
-    // non-`remote_turn_request` events) sort under `undefined` and are never
-    // matched by the `.eq("requestState", …)` lookups.
+
     .index("by_requestState_and_timestamp", ["requestState", "timestamp"])
     .index("by_requestId", ["requestId"]),
 

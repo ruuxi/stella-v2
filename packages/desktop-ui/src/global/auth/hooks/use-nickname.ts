@@ -31,8 +31,7 @@ export function setStoredNickname(
   } else {
     uiState.removeItem(`${NICKNAME_PREFIX}${id}`);
   }
-  // Always mark as asked once the user explicitly saves; the dialog
-  // shouldn't keep re-prompting.
+
   uiState.setItem(`${NICKNAME_ASKED_PREFIX}${id}`, "true");
   window.dispatchEvent(new CustomEvent(NICKNAME_CHANGED_EVENT));
 }

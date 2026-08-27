@@ -11,16 +11,6 @@ const taskTerminalAt = (task: MobileTask) =>
 const isWellFormedTaskId = (value: string): boolean =>
   value.length > 0 && value.trim() === value;
 
-/**
- * Project the merged task graph onto the root mobile Activity surface.
- *
- * A General task whose first unresolved parent is absent from Activity is a
- * normal standalone task owned by the Orchestrator. Once an Activity parent
- * resolves, Manager ancestry, malformed ownership, duplicate ids, cycles, or
- * a later missing ancestor suppress the descendant rather than presenting
- * Manager-internal work as an independent task. Root Manager rows remain
- * visible and also provide the ownership evidence for that suppression.
- */
 export const selectRootMobileActivityTasks = (
   tasks: readonly MobileTask[],
 ): MobileTask[] => {
@@ -140,21 +130,6 @@ export const collectConversationTasks = (
   );
 };
 
-/**
- * Overlay the desktop's authoritative thread-activity rows and live
- * decoration onto the synced-message task fold.
- *
- * The authoritative rows (runtime `runtime_agents` projection) win outright
- * for status/title/timestamps of any task they cover — a running row is
- * running (no staleness settling), a terminal row is done even if the fold's
- * loaded window never saw the terminal event. Rows for tasks the fold has
- * never heard of are only added while RUNNING: the fold stays the source of
- * durable history so the tray doesn't balloon with rows from before the
- * loaded message window.
- *
- * Decoration owns only ephemeral mid-run statusText. Agent-authored messages
- * arrive through the authoritative persisted task projection.
- */
 export const overlayDesktopThreadTasks = (
   folded: MobileTask[],
   authoritative: MobileTask[] | null,
@@ -167,8 +142,7 @@ export const overlayDesktopThreadTasks = (
   for (const task of folded) byId.set(task.id, task);
   for (const row of authoritative ?? []) {
     const existing = byId.get(row.id);
-    // Terminal Manager rows remain visible and are also essential ownership
-    // evidence when a child transitions in the same authoritative snapshot.
+
     if (!existing && row.status !== "running" && row.agentType !== "manager") {
       continue;
     }

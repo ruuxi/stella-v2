@@ -67,8 +67,7 @@ export const matchesSteerableOrchestratorSession = (args: {
   if (!session || !session.agent.state.isStreaming) return false;
   if (session.conversationId !== args.conversationId) return false;
   if (args.agentType && session.agentType !== args.agentType) return false;
-  // Visibility is deliberately not an eligibility gate. Hidden lifecycle
-  // context must stay in-order and the user steer joins that same live turn.
+
   return true;
 };
 
@@ -216,9 +215,7 @@ export const createOrchestratorController = (
               message: AgentMessage,
               _delivery: "steer" | "followUp",
             ) => {
-              // The live-chat contract is steering-only. Keep the legacy
-              // delivery parameter at this boundary for source compatibility,
-              // but never let an older caller reintroduce post-turn blocking.
+
               session.agent.steer(message);
             },
           } satisfies ActiveOrchestratorSession;
@@ -378,20 +375,14 @@ export const createOrchestratorController = (
         : [{ text: trimmedUserPrompt, messageType: "user" as const }];
     const timestamp = Date.now();
     if (promptInputs.some((message) => message.messageType !== "message")) {
-      // A user send does not preempt or replace a hidden lifecycle turn. It is
-      // appended to that same execution session, after the hidden context, and
-      // promotes only the response boundary to the visible chat surface once
-      // the engine actually consumes the steer.
+
       args.session.uiVisibility = UI_VISIBILITY_VISIBLE;
       context.state.activeOrchestratorUiVisibility = UI_VISIBILITY_VISIBLE;
       args.session.queueUserMessageId(
         args.userMessageId,
         () => {
           args.session.queueCallbackSwitch(args.callbacks);
-          // Fires at the queued user message's `message_start` — the message is
-          // now in the model context and about to be answered, so drop its
-          // recovery mirror. Otherwise a steered message answered mid-run would
-          // be flushed (re-answered) if the run later ended abnormally.
+
           prunePendingFollowUpReplies(
             context.state.pendingFollowUpReplies,
             args.session.conversationId,
@@ -418,19 +409,13 @@ export const createOrchestratorController = (
           preservePayloadExactly: true,
         });
       }
-      // All live communication is steering. Native agents consume it at their
-      // next safe boundary; Codex appends to its active turn, while Claude Code
-      // interrupts its current query and writes the steer to the same stream.
-      // Descendant agents remain independent.
+
       const delivery = resolveLiveChatMessageDelivery({
         role: message.role,
         engine: args.session.engine,
       });
       if (message.role === "user") {
-        // Mirror for abnormal-termination recovery regardless of delivery
-        // mode: a message queued but not yet delivered when the run dies is
-        // lost exactly like any undelivered queued message. Pruned on delivery
-        // via the queueUserMessageId onStart above.
+
         recordPendingFollowUpReply(
           args.session.conversationId,
           promptInput.text,
@@ -441,15 +426,6 @@ export const createOrchestratorController = (
     }
   };
 
-  /**
-   * Mirror an injected live-run user message so it can be answered after the
-   * active run drains. If the run is interrupted or fails before the message
-   * is delivered, the agent's in-memory queues are cleared and the user would
-   * never get a reply. The buffer is consumed by
-   * `flushPendingFollowUpReplies` on abnormal termination, pruned per message
-   * on delivery (queueUserMessageId onStart), and discarded on clean
-   * completion.
-   */
   const recordPendingFollowUpReply = (
     conversationId: string,
     text: string,
@@ -462,15 +438,6 @@ export const createOrchestratorController = (
     );
   };
 
-  /**
-   * Fire a fresh reply turn for steering user messages that were injected
-   * into a run but never answered because the run was interrupted or failed
-   * before consuming its steering queue. The messages are already persisted to
-   * the thread (at injection time), so the reply is triggered with a hidden
-   * runtime message rather than re-emitting the user turn — this avoids
-   * duplicating the user's message in the thread/UI while still producing a
-   * real, deliverable assistant reply (a fresh run with its own runId).
-   */
   const flushPendingFollowUpReplies = (conversationId: string): void => {
     const pending = context.state.pendingFollowUpReplies.get(conversationId);
     context.state.pendingFollowUpReplies.delete(conversationId);
@@ -807,12 +774,7 @@ export const createOrchestratorController = (
       }
 
       const runId = `local:auto:${crypto.randomUUID()}`;
-      // Connector turns: the durable thread store is the single
-      // model-context source, so the user timestamp tag the retired
-      // local-events projection used to add at read time is stamped onto the
-      // model-visible prompt here. run-execution persists this exact text
-      // into the thread; the host's chat-events write keeps the raw text for
-      // display/sync.
+
       const modelUserPrompt = connectorDeliveryTarget
         ? decorateUserTranscriptContent({
             store: context.runtimeStore,
@@ -854,8 +816,7 @@ export const createOrchestratorController = (
         uiVisibility: "hidden",
         attachments,
         ...(connectorDeliveryTarget ? { connectorDeliveryTarget } : {}),
-        // Connector turns reuse the id of the display event the host already
-        // appended so the runtime can exclude it from the legacy history shim.
+
         userMessageId:
           payload.userMessageEventId?.trim() ||
           `automation:${crypto.randomUUID()}`,
@@ -872,10 +833,7 @@ export const createOrchestratorController = (
 
       return { runId };
     } catch (error) {
-      // Any throw before the run's callbacks take over (already-running guard,
-      // prepareOrchestratorRun rejecting on a missing model route/API key, etc.)
-      // must still settle the caller's promise. resolveResult is the Promise's
-      // own resolve, so a later callback-driven resolve is a harmless no-op.
+
       resolveResult(
         createAutomationErrorResult((error as Error)?.message ?? String(error)),
       );
@@ -893,8 +851,7 @@ export const createOrchestratorController = (
     connectorDeliveryTarget?: StartPreparedRunArgs["connectorDeliveryTarget"];
     userMessageEventId?: string;
   }): Promise<AutomationTurnResult> => {
-    // Gate on the model this turn will actually run (a pinned override must
-    // not be blocked because the default orchestrator route is unavailable).
+
     const health = agentHealthCheck(payload.modelOverride);
     if (!health.ready) {
       return createAutomationErrorResult(
@@ -935,15 +892,6 @@ export const createOrchestratorController = (
     clearActiveOrchestratorRun(runId);
   };
 
-  /**
-   * Cancel whichever orchestrator run is currently active for the given
-   * conversation. There can only be one active orchestrator run per
-   * conversation at a time (see `activeOrchestratorRunId` /
-   * `activeOrchestratorConversationId`), so this is unambiguous when the
-   * conversation owns the live run; otherwise it's a no-op.
-   *
-   * Returns `true` if a run was cancelled, `false` if none matched.
-   */
   const cancelLocalChatByConversation = (conversationId: string): boolean => {
     const activeConversationId = context.state.activeOrchestratorConversationId;
     const activeRunId = context.state.activeOrchestratorRunId;

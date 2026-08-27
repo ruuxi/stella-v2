@@ -14,8 +14,6 @@ pub async fn set_extra_headers(
         .collect::<serde_json::Map<String, Value>>()
         .into();
 
-    // Extra headers only apply while the Network agent is enabled; the domain
-    // is no longer part of default bootstrap, so attach it on demand here.
     client
         .send_command_no_params("Network.enable", Some(session_id))
         .await?;
@@ -35,8 +33,7 @@ pub async fn set_offline(
     session_id: &str,
     offline: bool,
 ) -> Result<(), String> {
-    // Condition emulation requires the Network agent, which default sessions
-    // no longer enable at bootstrap.
+
     client
         .send_command_no_params("Network.enable", Some(session_id))
         .await?;
@@ -56,7 +53,7 @@ pub async fn set_offline(
 }
 
 pub async fn set_content(client: &CdpClient, session_id: &str, html: &str) -> Result<(), String> {
-    // Get current frame ID
+
     let tree_result = client
         .send_command_no_params("Page.getFrameTree", Some(session_id))
         .await?;
@@ -81,10 +78,6 @@ pub async fn set_content(client: &CdpClient, session_id: &str, html: &str) -> Re
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Domain filter
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
 pub struct DomainFilter {
@@ -236,10 +229,6 @@ pub async fn install_domain_filter_script(
     Ok(())
 }
 
-/// Enable Fetch-based network interception for domain filtering.
-/// This intercepts all requests and checks them against the allowed domains list.
-/// The actual handling of `Fetch.requestPaused` events happens in
-/// `resolve_fetch_paused` in the actions module.
 pub async fn install_domain_filter_fetch(
     client: &CdpClient,
     session_id: &str,
@@ -256,9 +245,6 @@ pub async fn install_domain_filter_fetch(
     Ok(())
 }
 
-/// Install both layers of domain filtering on a session:
-/// 1. JS patching (WebSocket, EventSource, sendBeacon)
-/// 2. Fetch-based network interception
 pub async fn install_domain_filter(
     client: &CdpClient,
     session_id: &str,
@@ -268,10 +254,6 @@ pub async fn install_domain_filter(
     install_domain_filter_fetch(client, session_id).await?;
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Console and error tracking
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
 pub struct ConsoleEntry {

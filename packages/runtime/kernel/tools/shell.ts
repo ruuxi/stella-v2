@@ -1,7 +1,3 @@
-/**
- * Shell tools: platform shell plus `exec_command` / `write_stdin` handlers.
- */
-
 import { spawn } from "child_process";
 import path from "path";
 import os from "os";
@@ -40,11 +36,11 @@ import { resolveToolFallbackCwd } from "./cwd.js";
 
 export type ShellState = {
   shells: Map<string, ManagedShellRecord>;
-  /** Changes whenever the runtime worker reconstructs its in-memory state. */
+
   workerGeneration: string;
-  /** Compact receipts retained after completed shell records are pruned. */
+
   prunedSessions: Map<string, PrunedShellSession>;
-  /** Produced-file recovery detached from pruned shell output records. */
+
   prunedProducedFiles: Map<
     string,
     {
@@ -61,11 +57,7 @@ export type ShellState = {
   nodeShimDir?: string;
   windowsCliShimDir?: string;
   getStellaSiteAuth?: () => { baseUrl: string; authToken: string } | null;
-  /**
-   * Per-root CLI bridge UDS path (worker-side). Forwarded into the PTY
-   * env as `STELLA_CLI_BRIDGE_SOCK` so sidecar CLIs (e.g. `stella-computer`)
-   * can call back into the host for approvals and daemon spawns.
-   */
+
   cliBridgeSocketPath?: string;
   lastDeferredDeleteSweepAt: number;
 };
@@ -103,23 +95,16 @@ const WINDOWS_CLI_SHIMS = [
   },
 ] as const;
 
-/**
- * Which thread started a shell session. Sessions outlive the run that
- * created them and live in one worker-wide map, so the record has to carry
- * its own provenance — that's what lets a background command's exit be
- * delivered back to the agent that started it.
- */
 export type ShellSessionOwner = {
   conversationId: string;
-  /** Durable agent thread id. Absent for non-subagent callers. */
+
   agentId?: string;
   agentType?: string;
-  /** Origin-run provenance only; later runs in the same thread retain access. */
+
   runId?: string;
   rootRunId?: string;
 };
 
-/** What a caller learns when a background session finally exits. */
 export type ShellExitSnapshot = {
   sessionId: string;
   command: string;
@@ -127,7 +112,7 @@ export type ShellExitSnapshot = {
   exitCode: number | null;
   startedAt: number;
   completedAt: number;
-  /** Captured output, raw-capped with equal head and tail retention. */
+
   output: string;
   owner?: ShellSessionOwner;
 };
@@ -138,10 +123,7 @@ type ManagedShellRecord = ShellRecord & {
   unreadOutputBuffer: HeadTailOutputBuffer;
   outputVersion: number;
   waiters: Set<() => void>;
-  /**
-   * Persistent exit listeners, distinct from `waiters`: those are one-shot
-   * and fire on any activity, these fire once when the process is gone.
-   */
+
   exitWatchers: Set<() => void>;
   child?: SpawnedShell;
   pty?: SpawnedPtyShell;
@@ -151,13 +133,13 @@ type ManagedShellRecord = ShellRecord & {
   externalCandidateSnapshots?: ExternalCandidateSnapshot[];
   producedFilesReported?: boolean;
   producedFilesCollection?: Promise<ProducedFileRecord[] | undefined>;
-  /** Total UTF-8 bytes observed since process start. */
+
   outputCursorBytes: number;
-  /** Cursor at which the next interaction-result drain begins. */
+
   unreadCursorStart: number;
-  /** Monotonic receipt sequence shared by stream updates and final drains. */
+
   chunkSequence: number;
-  /** Monotonic exec/write interaction number for this shell. */
+
   interactionSequence: number;
   activeInteractionSequence: number | null;
   activeInteractionReceipt?: ShellInteractionReceipt;
@@ -203,17 +185,10 @@ type ExternalCandidateSnapshot =
       snapshot: FileSnapshot | null;
     };
 
-// Stella defaults: 10s for exec_command, 250ms for write_stdin. Letting
-// short commands finish on the first call dramatically reduces the
-// "got a session_id, must call write_stdin to drain" round-trip the model
-// would otherwise need for every fast shell invocation.
 export const DEFAULT_EXEC_YIELD_MS = 10_000;
 export const DEFAULT_WRITE_STDIN_YIELD_MS = 250;
 const MAX_EXEC_YIELD_MS = 30_000;
-// An empty `write_stdin` is a poll, not an interaction: nobody is waiting on
-// the other side of the pipe, so it can afford to block much longer than a
-// write. Codex sizes the same case at 5s..5min; matching that lets an agent
-// sit out a quiet build inside its turn instead of round-tripping every 30s.
+
 export const DEFAULT_EMPTY_POLL_YIELD_MS = 5_000;
 const MAX_EMPTY_POLL_YIELD_MS = 5 * 60_000;
 export const DEFAULT_EXEC_OUTPUT_TOKENS = 10_000;
@@ -240,18 +215,12 @@ const SNAPSHOT_IGNORED_DIRS = new Set([
   "coverage",
   ".cache",
   "electron-user-data",
-  // Electron build output (`desktop/dist-electron`) — segment-exact matching
-  // means the plain "dist" entry above doesn't cover it. Dev-instance builds
-  // copy the whole runtime-extension tree (agents/skills manifests) in here,
-  // which showed up in production as phantom "update" produced files.
+
   "dist-electron",
 ]);
 
 const APPROX_BYTES_PER_TOKEN = 4;
-/**
- * Cheap byte-count → token estimate. Off by a small constant from any real
- * tokenizer, but stable enough for "did this output get truncated".
- */
+
 export const approxTokenCount = (text: string): number =>
   Math.ceil(text.length / APPROX_BYTES_PER_TOKEN);
 
@@ -322,7 +291,7 @@ const snapshotFiles = async (
           mtimeMs: info.mtimeMs,
         });
       } catch {
-        // File changed while walking; the next snapshot will catch stable state.
+
       }
     }
   };
@@ -426,8 +395,7 @@ const snapshotExternalCandidate = async (
       };
     }
   } catch {
-    // Missing or unreadable paths are still useful: if they appear after the
-    // command, we can report them as produced files.
+
   }
   return { path: candidatePath, kind: "missing" };
 };
@@ -496,23 +464,6 @@ const diffExternalCandidateSnapshots = async (
   return changes.length > 0 ? changes : undefined;
 };
 
-/**
- * Merge + sanitize snapshot-detected produced files. Every shell
- * `producedFiles` emission (foreground exec, background completion via
- * `takeCompletedProducedFiles`, `write_stdin` / shell-status drains) funnels
- * through here, so collection semantics live in one place:
- *
- *  1. Dedupe across the root-workspace diff and external-candidate diffs.
- *  2. Drop noise paths (`isNoiseProducedPath`: hidden/profile/cache dirs,
- *     logs, locks) so they never persist into `tool_result` payloads.
- *  3. Bulk-churn guard: if a single command still "produced" more than
- *     `MAX_PRODUCED_FILES_PER_COMMAND` files, the diff is environment churn
- *     (spawned app bootstrap seeding its data dir, git checkout/worktree
- *     mtime rewrites, dependency installs) — not deliverables. Drop the
- *     whole batch; deliberate writes still surface via explicit
- *     `fileChanges` from Write/Edit/apply_patch, which never pass through
- *     snapshot detection.
- */
 const mergeProducedFiles = (
   ...groups: Array<ProducedFileRecord[] | undefined>
 ): ProducedFileRecord[] | undefined => {
@@ -573,9 +524,7 @@ const takeCompletedProducedFiles = async (
     const externalCandidateSnapshots = record.externalCandidateSnapshots;
     record.producedFilesCollection = (async () =>
       mergeProducedFiles(
-        // A missing start snapshot can never produce a root diff. In
-        // particular, known-safe commands deliberately set it to null; do not
-        // turn their completion into an unconditional full-tree walk.
+
         startSnapshot
           ? diffFileSnapshots(
               startSnapshot,
@@ -584,10 +533,7 @@ const takeCompletedProducedFiles = async (
           : undefined,
         await diffExternalCandidateSnapshots(externalCandidateSnapshots),
       ))().finally(() => {
-      // The shell is terminated and collection no longer needs its snapshot
-      // maps or child-process handle. Keep the cached promise until a caller
-      // actually consumes it, which lets an exec deadline win without losing
-      // a later produced-file drain.
+
       record.startSnapshot = null;
       record.externalCandidateSnapshots = undefined;
       record.child = undefined;
@@ -624,12 +570,6 @@ const retainPrunedSessionReceipt = (
   }
 };
 
-/**
- * Keep rich process/output records bounded while detaching produced-file
- * recovery into a much smaller promise map. Running shells and records with
- * queued interactions are never candidates; the release path retries pruning
- * after the interaction completes.
- */
 const pruneCompletedShellSessions = (
   state: ShellState,
   now = Date.now(),
@@ -672,29 +612,11 @@ const pruneCompletedShellSessions = (
   }
 };
 
-/** Opportunistic TTL/count cleanup for hosts and focused harness checks. */
 export const cleanupShellSessions = (
   state: ShellState,
   now = Date.now(),
 ): void => pruneCompletedShellSessions(state, now);
 
-/**
- * Drain completed-but-unreported produced files from managed shell sessions.
- *
- * Long-running/background commands that finish AFTER the model's last poll
- * leave their deliverables sitting on the record with `producedFilesReported`
- * still false — the foreground `write_stdin` / shell-status drain never runs
- * for them, so those files (e.g. a video render written after the tool
- * nominally completed) would only ride individual `tool_result` entries and
- * never reach the agent-completed rollup. This lets the agent finalizer pull
- * such late deliverables in before the rollup emits.
- *
- * Scope with `sessionIds` to the sessions a run actually touched (omit to
- * sweep every session). Delegates to `takeCompletedProducedFiles`, so the
- * one-shot `producedFilesReported` flag, `isNoiseProducedPath` guards,
- * per-command dedup, and the `MAX_PRODUCED_FILES_PER_COMMAND` cap all still
- * apply, and a session already drained inline yields nothing here.
- */
 export const drainCompletedProducedFiles = async (
   state: ShellState,
   sessionIds?: Iterable<string>,
@@ -1014,13 +936,9 @@ export const resolveShellNodeBinary = (
   const explicit = env.STELLA_NODE_BIN?.trim();
   if (explicit && existsSync(explicit)) return explicit;
 
-  // The detached Stella runtime itself runs under Bun. Electron's host
-  // executable is passed into that worker specifically so child processes can
-  // launch its bundled Node runtime with ELECTRON_RUN_AS_NODE=1.
   const hostExecutable = env.STELLA_HOST_EXECUTABLE_PATH?.trim();
   if (hostExecutable && existsSync(hostExecutable)) return hostExecutable;
 
-  // Tests and non-Electron embeddings commonly run the kernel under Node.
   return process.execPath;
 };
 
@@ -1081,8 +999,7 @@ const buildShellEnv = (
       ? { STELLA_CLI_BRIDGE_SOCK: options.cliBridgeSocketPath }
       : {}),
   };
-  // Connector actions authenticate through the worker broker. Never inherit
-  // legacy raw Stella bearer variables into shell or agent processes.
+
   delete mergedEnv.STELLA_SITE_AUTH_TOKEN;
   delete mergedEnv.STELLA_NATIVE_OAUTH_BACKEND_AUTH_TOKEN;
   delete mergedEnv.STELLA_LLM_PROXY_TOKEN;
@@ -1114,9 +1031,9 @@ const buildShellEnv = (
 type DetectedShellKind = "zsh" | "bash" | "sh" | "powershell" | "cmd";
 
 export type ShellDetectionOptions = {
-  /** Unix login shell from the system account database. Null disables it. */
+
   userShell?: string | null;
-  /** Test seam for platform-specific executable discovery. */
+
   executableExists?: (candidate: string) => boolean;
 };
 
@@ -1269,23 +1186,18 @@ export const resolveDefaultShell = (
 };
 
 export type ShellLaunchOptions = {
-  /** Explicit executable requested by exec_command. */
+
   shell?: string;
-  /** Login-shell semantics are the default for compatibility with prior runs. */
+
   login?: boolean;
-  /** Allocate a real Unix PTY or Windows ConPTY for this command. */
+
   tty?: boolean;
 };
 
 export type ResolvedShellLaunch = {
   shell: string;
   args: string[];
-  /**
-   * `cmd.exe` parses the raw Windows command line itself instead of using the
-   * C runtime argv decoder. Letting Node quote its final command argument turns
-   * embedded `"` delimiters into literal `\"` text, breaking executable paths
-   * that contain spaces.
-   */
+
   windowsVerbatimArguments?: boolean;
 };
 
@@ -1336,8 +1248,7 @@ export const resolveShellLaunch = (
     options.shell?.trim() ||
     resolveDefaultShell(platform, environment, detection);
   if (isPowerShell(shell)) {
-    // `-EncodedCommand` avoids routing PowerShell source through the native
-    // Windows argv quoting rules at all. PowerShell requires UTF-16LE here.
+
     return {
       shell,
       args: [
@@ -1351,8 +1262,7 @@ export const resolveShellLaunch = (
   }
 
   if (!isWindowsCmdShell(shell)) {
-    // Git Bash and other Unix-style shells available on Windows use the same
-    // command flags as their Unix counterparts, not cmd.exe's `/d /s /c`.
+
     return {
       shell,
       args: [options.login === false ? "-c" : "-lc", command],
@@ -1361,9 +1271,7 @@ export const resolveShellLaunch = (
 
   return {
     shell,
-    // Match Node's own `shell: true` cmd.exe contract: `/s` expects the whole
-    // source string to have one outer quote pair, while verbatim arguments
-    // preserve every quote inside that source for cmd's parser.
+
     args: ["/d", "/s", "/c", `"${command}"`],
     windowsVerbatimArguments: true,
   };
@@ -1476,7 +1384,7 @@ const notifyShellExit = (record: ManagedShellRecord) => {
     try {
       watcher();
     } catch {
-      // A listener must never break the process teardown path.
+
     }
   }
 };
@@ -1500,12 +1408,6 @@ export const readShellExitSnapshot = (
   };
 };
 
-/**
- * Call `listener` once the session's process is gone, and return a
- * disposer. Sessions that already exited resolve on the next microtask so
- * callers never have to special-case the race between "still running when
- * I checked" and "exited before I subscribed".
- */
 export const watchShellExit = (
   state: ShellState,
   sessionId: string,
@@ -1528,12 +1430,6 @@ export const watchShellExit = (
   };
 };
 
-/**
- * Every running session an agent thread owns, whichever of its runs started
- * them. Scoping a thread's background work by owner rather than by "what
- * the last run touched" is what keeps a job started three turns ago — and
- * not polled since — from being forgotten.
- */
 export const listRunningShellSessionsOwnedBy = (
   state: ShellState,
   agentId: string,
@@ -1546,7 +1442,6 @@ export const listRunningShellSessionsOwnedBy = (
   return owned;
 };
 
-/** Stamp the calling thread onto a freshly started session. */
 export const setShellOwner = (
   record: Pick<ShellRecord, "id">,
   context?: ToolContext,
@@ -1561,13 +1456,6 @@ export const setShellOwner = (
   };
 };
 
-/**
- * Model-addressable shell sessions are private to the thread that created
- * them. Run ids are deliberately not part of the access key: a background
- * process commonly outlives one turn/run and must remain usable on the next.
- * Calls without a ToolContext can only address likewise-unowned sessions,
- * preserving direct harness/internal use without opening owned sessions.
- */
 const shellOwnerMatchesContext = (
   owner: ShellSessionOwner | undefined,
   context?: ToolContext,
@@ -1667,7 +1555,6 @@ const waitForInteractionTurn = async (
   });
 };
 
-/** Serialize write/poll/drain interactions for one session, not all shells. */
 const acquireShellInteraction = async (
   state: ShellState,
   record: ManagedShellRecord,
@@ -1743,8 +1630,7 @@ const spawnShellProcess = (
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
     windowsVerbatimArguments,
-    // On Unix, make the shell the leader of its own process group so timeouts
-    // and manual kills can terminate the entire command tree.
+
     detached: process.platform !== "win32",
   });
 
@@ -1763,14 +1649,6 @@ type PtyShellCallbacks = {
   onTerminalExit: (exitCode: number) => void;
 };
 
-/**
- * Spawn a shell through Bun's native terminal transport. Bun maps this to
- * openpty(3) on macOS/Linux and CreatePseudoConsole (ConPTY) on Windows.
- *
- * Bun may invoke spawn callbacks before `Bun.spawn` returns, so every callback
- * crosses a microtask boundary. That guarantees startShell has installed the
- * returned transport on its managed record before lifecycle events arrive.
- */
 const spawnPtyShellProcess = (
   shell: string,
   args: string[],
@@ -1902,7 +1780,7 @@ const killShellProcess = (
       try {
         child.kill(signal);
       } catch {
-        // Ignore cleanup errors on fallback kill.
+
       }
     });
     return;
@@ -1914,7 +1792,7 @@ const killShellProcess = (
     try {
       child.kill(signal);
     } catch {
-      // Ignore cleanup errors when the child already exited.
+
     }
   }
 };
@@ -1953,7 +1831,7 @@ const killPtyShellProcess = (
       try {
         pty.process.kill(signal);
       } catch {
-        // The ConPTY child may already have exited.
+
       }
     });
     return;
@@ -1965,7 +1843,7 @@ const killPtyShellProcess = (
     try {
       pty.process.kill(signal);
     } catch {
-      // The PTY process may already have exited.
+
     }
   }
 };
@@ -1975,8 +1853,7 @@ const terminatePtyShellProcess = (pty: SpawnedPtyShell) => {
     pty.close();
     return;
   }
-  // On pre-24H2 Windows, ClosePseudoConsole can block while a live child is
-  // flushing. Kill the process first and close the terminal only after exit.
+
   killPtyShellProcess(pty, "SIGTERM");
   const forceKillTimer = setTimeout(() => {
     if (pty.process.exitCode === null) {
@@ -2082,9 +1959,7 @@ export const startShell = (
   };
 
   const append = (chunk: string, sanitizeImmediately: boolean) => {
-    // Pipe output is sanitized chunk-by-chunk for compatibility. PTY escape
-    // sequences can straddle native read boundaries, so retain those chunks
-    // until the existing payload-level sanitizer sees the complete drain.
+
     const delta = appendShellOutput(
       record,
       sanitizeImmediately ? sanitizeToolVisibleText(chunk) : chunk,
@@ -2217,9 +2092,6 @@ export const startShell = (
     record.stdinOpen = Boolean(child.stdin);
     record.kill = () => terminateShellProcess(child);
 
-    // stdout/stderr are decoded independently because their byte chunks can
-    // end in the middle of a UTF-8 scalar. StringDecoder retains that suffix
-    // for the next chunk instead of emitting U+FFFD into output and cursors.
     const stdoutDecoder = new StringDecoder("utf8");
     const stderrDecoder = new StringDecoder("utf8");
     const appendPipe = (decoder: StringDecoder, data: Buffer) =>
@@ -2304,10 +2176,10 @@ export const runShell = async (
       if (finished) return;
       finished = true;
       clearTimeout(timer);
-      // Clean Windows console noise (chcp output) that confuses LLMs
+
       const cleanedOutput = sanitizeToolVisibleText(output)
         .replace(/^Active code page: \d+\s*/gm, "")
-        .replace(/^\s+/, ""); // Trim leading whitespace after removal
+        .replace(/^\s+/, "");
       if (code === 0) {
         resolve(cleanedOutput || "Command completed successfully (no output).");
       } else {
@@ -2486,7 +2358,7 @@ type ShellInteractionReceipt = {
 
 type ExecToolPayload = {
   session_id: string | null;
-  /** Stable provenance even after `session_id` becomes non-pollable/null. */
+
   shell_session_id: string;
   worker_generation: string;
   session_owner?: ShellSessionOwner;
@@ -2519,8 +2391,7 @@ const buildExecToolPayload = (
   record.chunkSequence = chunkSequence;
   const receipt = interactionReceipt ??
     record.activeInteractionReceipt ?? { operation: "exec" };
-  // Includes wall_time_seconds and original_token_count so the model can
-  // detect output omitted by the raw one-MiB collector and react.
+
   const payload: ExecToolPayload = {
     session_id: record.running ? record.id : null,
     shell_session_id: record.id,
@@ -2535,8 +2406,7 @@ const buildExecToolPayload = (
     exit_code: record.running ? null : record.exitCode,
     output: sanitizeToolVisibleText(drained.text),
     wall_time_seconds: wallTimeSeconds,
-    // Always report the pre-collection-cap token estimate so callers can
-    // distinguish small output from output whose middle was omitted.
+
     original_token_count: Math.ceil(
       drained.originalLength / APPROX_BYTES_PER_TOKEN,
     ),
@@ -2809,9 +2679,7 @@ export const handleExecCommand = async (
       if (snapshotOutcome.status === "failed") {
         throw snapshotOutcome.error;
       }
-      // Produced-file tracking is best effort. Once its budget is exhausted,
-      // start the requested process immediately so the caller still receives
-      // a session id by the advertised yield deadline.
+
     }
   }
   let emittedUpdateChunks = 0;
@@ -2830,7 +2698,7 @@ export const handleExecCommand = async (
         modelOutputTokens,
       });
     } catch {
-      // Progress consumers must not break process I/O or teardown.
+
     }
   };
   const emitUpdate = (record: ManagedShellRecord, delta?: ShellOutputDelta) => {
@@ -2872,25 +2740,22 @@ export const handleExecCommand = async (
       try {
         record.kill();
       } catch {
-        // Best effort; the process may already be exiting.
+
       }
     }
     return { error: toolErrorMessage(error) };
   }
   try {
     try {
-      // Keep collecting until exit or the advertised deadline. Progress is
-      // delivered as deltas meanwhile, so chatty jobs do not force repeated
-      // model-driven polls merely because their first byte arrived quickly.
+
       await waitForShellUntilDeadline(record, deadlineAt, signal);
     } catch (error) {
-      // This call started the shell and is aborting before its id safely
-      // reaches the model. Preserve Stella's no-hidden-orphan policy.
+
       if (record.running) {
         try {
           record.kill();
         } catch {
-          // Best effort; the process may already be exiting.
+
         }
       }
       return { error: toolErrorMessage(error) };
@@ -2921,8 +2786,7 @@ export const handleExecCommand = async (
         if (collectionOutcome.status === "failed") {
           throw collectionOutcome.error;
         }
-        // The cached collection continues without pinning this call. Because
-        // delivery was aborted, it remains available to a later drain.
+
       }
     }
     return {
@@ -3074,9 +2938,7 @@ export const handleWriteStdin = async (
           );
     try {
       if (operation === "poll") {
-        // Empty polling is a first-activity wait. Keeping the interaction open
-        // until the full yield deadline after output has already arrived makes
-        // interactive subprocesses feel hung and delays the next write.
+
         if (record.outputCursorBytes === record.unreadCursorStart) {
           await waitForShellActivity(
             record,
@@ -3093,8 +2955,7 @@ export const handleWriteStdin = async (
         );
       }
     } catch (error) {
-      // A poll/write never owns the process lifecycle; cancellation releases
-      // only this interaction lease and leaves the session addressable.
+
       return { error: toolErrorMessage(error) };
     }
     await settleCompletedShell(record, signal);
@@ -3129,7 +2990,6 @@ export const handleBash = async (
   const prepared = resolveManagedShellCommand(state, args, context);
   const command = prepared.command;
 
-  // Safety check: reject dangerous commands
   const dangerReason = isDangerousCommand(command, prepared.cwd);
   if (dangerReason) {
     return {
@@ -3226,7 +3086,6 @@ export const handleShellStatus = async (
   cleanupShellSessions(state);
   const shellId = String(args.shell_id ?? "");
 
-  // If no shell_id provided, list all active shells
   if (!shellId) {
     const shells = [...state.shells.entries()]
       .filter(([, record]) => shellOwnerMatchesContext(record.owner, context))
@@ -3250,7 +3109,7 @@ export const handleShellStatus = async (
 
   const tail_lines = Number(args.tail_lines ?? 50);
   const output = sanitizeToolVisibleText(record.output || "(no output yet)");
-  // Get last N lines
+
   const lines = output.split("\n");
   const tail = truncate(lines.slice(-tail_lines).join("\n"));
 

@@ -3,8 +3,6 @@ import {
   resolveManagedGatewayApiKey,
 } from "./managed_gateway";
 
-// xAI's REST STT endpoint has a single model and accepts no model selector.
-// This internal label is only for Stella usage metering and diagnostics.
 export const XAI_STT_MODEL_LABEL = "grok-stt-1.0";
 export const XAI_STT_USD_PER_SECOND = 0.1 / 3600;
 
@@ -78,8 +76,6 @@ export const transcribeWithXaiRest = async (args: {
   const language = args.language?.trim();
   const format = args.audioFormat.trim().toLowerCase();
 
-  // xAI requires multipart/form-data, with the file field last. `format=true`
-  // enables inverse text normalization and requires an explicit language.
   const form = new FormData();
   if (language) {
     form.append("format", "true");

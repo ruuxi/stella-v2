@@ -41,7 +41,7 @@ const syncDirectory = async (directory) => {
         await handle.sync();
     }
     catch (error) {
-        // Directory fsync is unsupported on Windows and a few network filesystems.
+
         if (!["EINVAL", "ENOTSUP", "EBADF"].includes(error.code)) {
             throw error;
         }
@@ -67,7 +67,7 @@ const cleanupStalePartials = async (filePath) => {
         }
     }));
 };
-/** Cross-process single-writer, atomic temp+rename materialization. */
+
 export const materializeMediaArtifact = async (args) => {
     await fs.mkdir(path.dirname(args.filePath), { recursive: true });
     await cleanupStalePartials(args.filePath);
@@ -121,8 +121,7 @@ export const materializeMediaArtifact = async (args) => {
         if (raced !== null) {
             return { path: args.filePath, sizeBytes: raced, created: false };
         }
-        // An invalid target may have been left by an older, signature-only
-        // release. Only the lock owner may remove it before atomic replacement.
+
         if ((await readyMediaArtifactSize(args.filePath)) !== null) {
             await fs.unlink(args.filePath);
         }

@@ -19,8 +19,7 @@ crons.interval(
 crons.interval(
   "rescue orphaned remote turns",
   { seconds: 60 },
-  // Cheap gating mutation: runs the bounded orphan read and only schedules the
-  // (expensive) rescue action when there is actually something to rescue.
+
   internal.channels.connector_delivery.sweepOrphanedTurns,
   {},
 );
@@ -48,11 +47,7 @@ crons.interval(
 crons.interval(
   "media cleanup retry sweep",
   { minutes: 5 },
-  // Cheap gating mutation replacing the three former per-minute drain-action
-  // crons (blob deletion, manifest deletion, provider cancellation). It only
-  // schedules a drain action when its retry queue has due rows. These queues
-  // are retries of already-failed cleanup with exponential backoff, so the
-  // relaxed cadence never delays first-attempt cleanup.
+
   internal.media_jobs.sweepMediaCleanupQueues,
   { limit: 100 },
 );
@@ -95,14 +90,12 @@ crons.interval(
   { batchSize: 1000 },
 );
 
-
 crons.interval(
   "purge expired x oauth states",
   { hours: 1 },
   internal.data.integrations.purgeExpiredXOAuthStates,
   { batchSize: 200 },
 );
-
 
 crons.interval(
   "purge expired canvas shares",

@@ -10,7 +10,7 @@ import { acquireAuroraRenderer, releaseAuroraRenderer } from "./renderer-pool";
 import { computeAnalyserEnergy } from "@/features/voice/services/audio-energy";
 import { useContinuousAnimationGate } from "@/shared/hooks/use-continuous-animation-gate";
 import { createDemandDrivenAnimationLoop } from "@/shared/lib/demand-driven-animation-loop";
-/** Reusable buffer for frequency data — avoids per-frame allocation. */
+
 let energyBuffer = null;
 function computeEnergy(analyser) {
   const result = computeAnalyserEnergy(analyser, energyBuffer);
@@ -27,17 +27,11 @@ const SPEAKING_ATTACK_LERP = 0.18;
 const SPEAKING_RELEASE_LERP = 0.12;
 const VOICE_ENERGY_ATTACK_RATE = 0.24;
 const VOICE_ENERGY_RELEASE_RATE = 0.08;
-/** Shader time units per second — 2x the original 0.008-per-frame-at-60fps rate. */
+
 const TIME_RATE = 0.96;
-/** The aurora stops as they can be written on `:root`, e.g.
- *  `--stella-aurora-3: #1a9ef5`. */
+
 const AURORA_STOP_DECLARATION = /--stella-aurora-\d\s*:[^;]*/g;
-/**
- * Everything on `:root` that the aurora's five color stops can resolve from:
- * the attributes themes are selected by, plus any inline overrides of the stops
- * themselves. Compared as a string so an unrelated `:root` style write costs one
- * attribute read instead of a forced style recalc — see the observer below.
- */
+
 function readPaletteSignature() {
   const root = document.documentElement;
   const inline = root.getAttribute("style");
@@ -103,10 +97,7 @@ export const StellaAnimation = React.forwardRef(
     const isUserSpeakingRef = useRef(isUserSpeaking);
     const externalMicLevelValueRef = useRef(externalMicLevel);
     const externalOutputLevelValueRef = useRef(externalOutputLevel);
-    // Read via ref inside the frame loop so changing it never re-acquires
-    // the pooled renderer. Surfaces that render the aurora very small (the
-    // chat working indicator) raise it — the noise drift that carries the
-    // motion at full size is sub-pixel when miniaturized.
+
     const timeScaleRef = useRef(timeScale);
     const resolvedMaxFps = maxFps ?? 60 / (Math.max(0, frameSkip) + 1);
     useImperativeHandle(
@@ -190,10 +181,7 @@ export const StellaAnimation = React.forwardRef(
         maxDpr,
         variant,
       });
-      // Borrow a warm GL context + compiled program from the pool (or create
-      // one on the very first appearance for this size). This is what keeps
-      // every subsequent mount — i.e. every message send's working
-      // indicator — off the ~16-20ms main-thread GL spin-up.
+
       const pooled = acquireAuroraRenderer(
         spec,
         readColors(),
@@ -233,7 +221,7 @@ export const StellaAnimation = React.forwardRef(
             flashAnimationRef.current = null;
           }
         }
-        // Read analyser refs directly from props (stable ref objects, .current changes)
+
         const outputAnalyser = externalOutputAnalyserRef?.current ?? null;
         const micAnalyser = externalAnalyserRef?.current ?? null;
         const outputLevelFromRef = externalOutputLevelSourceRef?.current;
@@ -255,31 +243,29 @@ export const StellaAnimation = React.forwardRef(
                 ? computeEnergy(micAnalyser)
                 : 0;
         const isVoiceActive = voiceModeRef.current !== "idle";
-        // Adaptive noise floor: tracks ambient mic level so the listening
-        // animation only triggers on actual speech, not background noise.
+
         if (!isVoiceActive) {
           noiseFloorRef.current = 0;
         } else {
           const floor = noiseFloorRef.current;
           if (micEnergy <= floor || floor === 0) {
-            // Fast adapt downward / initialize
+
             noiseFloorRef.current =
               floor * (1 - NOISE_FLOOR_FAST_RATE) +
               micEnergy * NOISE_FLOOR_FAST_RATE;
           } else if (micEnergy < floor * NOISE_FLOOR_SPEECH_RATIO) {
-            // Slow adapt upward (ambient drift, not speech)
+
             noiseFloorRef.current =
               floor * (1 - NOISE_FLOOR_SLOW_RATE) +
               micEnergy * NOISE_FLOOR_SLOW_RATE;
           }
-          // When micEnergy >= floor * SPEECH_RATIO, don't adapt — it's speech
+
         }
         const speechThreshold = Math.max(
           noiseFloorRef.current * NOISE_FLOOR_SPEECH_RATIO,
           NOISE_FLOOR_MIN_THRESHOLD,
         );
-        // Prefer voiceMode prop (driven by server events) for speaking detection;
-        // fall back to energy threshold for non-RTC or when voiceMode is "listening".
+
         const isSpeakingNow =
           voiceModeRef.current === "speaking" ||
           (isVoiceActive && outputEnergy > 0.08);
@@ -287,7 +273,7 @@ export const StellaAnimation = React.forwardRef(
           isVoiceActive &&
           !isSpeakingNow &&
           (isUserSpeakingRef.current || micEnergy > speechThreshold);
-        // Smoothly interpolate listening/speaking (0→1)
+
         const targetListening = isListeningNow ? 1 : 0;
         const targetSpeaking = isSpeakingNow ? 1 : 0;
         const listeningLerp =
@@ -302,7 +288,7 @@ export const StellaAnimation = React.forwardRef(
           (targetListening - listeningRef.current) * listeningLerp;
         speakingRef.current +=
           (targetSpeaking - speakingRef.current) * speakingLerp;
-        // Voice energy: use output energy when speaking, mic energy when listening
+
         const rawEnergy = isSpeakingNow
           ? Math.min(outputEnergy * 2.5, 1)
           : Math.min(micEnergy * 2.5, 1);
@@ -312,8 +298,7 @@ export const StellaAnimation = React.forwardRef(
             : VOICE_ENERGY_RELEASE_RATE;
         voiceEnergyRef.current +=
           (rawEnergy - voiceEnergyRef.current) * energyRate;
-        // Snap tiny residuals to 0 so the shader's `> 0.01` short-circuits
-        // skip the listening/speaking overlay work entirely.
+
         if (targetListening === 0 && listeningRef.current < 0.005)
           listeningRef.current = 0;
         if (targetSpeaking === 0 && speakingRef.current < 0.005)
@@ -344,20 +329,12 @@ export const StellaAnimation = React.forwardRef(
       });
       loopRef.current = loop;
       renderStaticRef.current = renderStatic;
-      // Paused/reduced-motion mode still gets one useful static frame.
+
       renderStatic();
       if (!pausedRef.current) {
         loop.start();
       }
-      // The ramp is CSS-driven, so it has to be re-read whenever the theme
-      // changes — but `:root`'s style attribute is also where unrelated layout
-      // variables live, and some of those are written on every animation frame
-      // (the workspace panel's width during a sidebar slide). Re-reading on
-      // every mutation meant five `getComputedStyle` calls per frame during any
-      // such slide, each forcing a document-wide style recalc mid-frame, for
-      // colors that had not moved. The signature is a string compare against
-      // only the things the ramp can actually resolve from — the theme
-      // attributes, and the aurora custom properties if they are set inline.
+
       let paletteSignature = readPaletteSignature();
       const observer = new MutationObserver(() => {
         const next = readPaletteSignature();
@@ -376,9 +353,7 @@ export const StellaAnimation = React.forwardRef(
           renderStaticRef.current = null;
         }
         observer.disconnect();
-        // Hand the GL context back to the pool (kept warm) rather than
-        // tearing it down — the next mount reuses it instead of re-spinning
-        // a context + recompiling shaders.
+
         releaseAuroraRenderer(pooled);
       };
     }, [

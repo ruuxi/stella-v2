@@ -10,7 +10,7 @@ export type RecallTelemetrySourceTiming = {
 };
 
 export type RecallTelemetrySeed = {
-  /** High-resolution timestamp captured before route resolution. */
+
   startedAtMs?: number;
   routeMs?: number;
   hostContextMs?: number;
@@ -53,7 +53,6 @@ const roundedSourceTiming = (
   chars: Math.max(0, Math.floor(timing.chars)),
 });
 
-/** Mutable per-lookup collector; only its immutable snapshot is logged. */
 export class RecallTelemetryCollector {
   private readonly startedAtMs: number;
   private readonly routeMs: number;

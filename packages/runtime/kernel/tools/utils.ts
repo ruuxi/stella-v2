@@ -1,7 +1,3 @@
-/**
- * Shared utilities for the tools system.
- */
-
 import { promises as fs } from "fs";
 import type { Dirent } from "fs";
 import path from "path";
@@ -19,7 +15,6 @@ import {
   truncateStringToBytesFromStart,
 } from "./truncate.js";
 
-// Constants
 export const MAX_OUTPUT = DEFAULT_MAX_BYTES;
 export const MAX_OUTPUT_LINES = DEFAULT_MAX_LINES;
 export const MAX_FILE_BYTES = 1_000_000;
@@ -28,11 +23,11 @@ const logger = createRuntimeLogger("tools");
 
 export const log = (message: string, fields?: unknown) => {
   logger.debug(message, sanitizeForLogs(fields));
-  /* logging removed — use structured telemetry instead */
+
 };
 export const logError = (message: string, fields?: unknown) => {
   logger.error(message, sanitizeForLogs(fields));
-  /* error logging removed — use structured telemetry instead */
+
 };
 
 export const sanitizeForLogs = (value: unknown) => sanitizeSensitiveData(value);
@@ -48,12 +43,8 @@ export const expandHomePath = (value: string) => {
     process.env.APPDATA || path.join(userProfile, "AppData", "Roaming");
   const tempDir = process.env.TEMP || process.env.TMP || os.tmpdir();
 
-  // Expand "~" (unix + Git Bash style).
   let expanded = value.replace(/^~(?=$|[\\/])/, home);
 
-  // Expand common env placeholders used in prompts/tool args.
-  // Note: SqliteQuery/Read/Grep run in Node (not bash), so we must expand
-  // these ourselves if the agent includes them.
   expanded = expanded
     .replace(/\$USERPROFILE\b/gi, userProfile)
     .replace(/%USERPROFILE%/gi, userProfile)
@@ -67,13 +58,12 @@ export const expandHomePath = (value: string) => {
     .replace(/%TMP%/gi, tempDir)
     .replace(/\$HOME\b/gi, home)
     .replace(/%HOME%/gi, home)
-    // Windows doesn't have /tmp, but prompts sometimes include it.
+
     .replace(/\/tmp\b/g, tempDir);
 
   return expanded;
 };
 
-// String utilities
 export const truncate = (
   value: string,
   max = MAX_OUTPUT,
@@ -88,7 +78,6 @@ export const truncate = (
   return `${content}\n\n... (${omittedBytes} bytes truncated)`;
 };
 
-// Edit-diff utilities shared by the Stella runtime.
 export function detectLineEnding(content: string): "\r\n" | "\n" {
   const crlfIdx = content.indexOf("\r\n");
   const lfIdx = content.indexOf("\n");
@@ -162,7 +151,6 @@ export function stripBom(content: string): { bom: string; text: string } {
     : { bom: "", text: content };
 }
 
-// Directory utilities
 export const isIgnoredDir = (name: string) =>
   name === "node_modules" ||
   name === ".git" ||
@@ -207,7 +195,6 @@ export const walkFiles = async (basePath: string) => {
   return results;
 };
 
-// File utilities
 export const readFileSafe = async (filePath: string) => {
   const stat = await fs.stat(filePath);
   if (stat.size > MAX_FILE_BYTES) {
@@ -274,7 +261,7 @@ const removeFileIfExists = async (filePath: string) => {
   try {
     await fs.unlink(filePath);
   } catch {
-    // Best-effort cleanup.
+
   }
 };
 
@@ -315,7 +302,7 @@ const restoreBackup = async (backupPath: string, mountPath: string) => {
   try {
     await fs.rename(backupPath, mountPath);
   } catch {
-    // Fallback to copy+delete if rename cannot complete.
+
     await fs.copyFile(backupPath, mountPath);
     await removeFileIfExists(backupPath);
   }

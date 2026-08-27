@@ -9,12 +9,6 @@ const UNSUPPORTED_REALTIME_ROOT_SCHEMA_KEYS = [
   "not",
 ] as const;
 
-/**
- * OpenAI Realtime requires function parameters to be a plain root object and
- * rejects root combinators. The runtime still validates tool input against the
- * complete original schema before execution, so removing provider-incompatible
- * root constraints does not weaken the execution boundary.
- */
 export const toRealtimeProviderTool = (
   tool: RealtimeSessionTool,
 ): RealtimeSessionTool => {

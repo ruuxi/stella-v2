@@ -1,10 +1,3 @@
-/**
- * Internal hook system — centralized lifecycle hooks for chat infrastructure.
- *
- * Provides rate limiting, usage logging, and token tracking at well-defined
- * lifecycle points. These are infrastructure-level hooks (not user-facing
- * plugins) that keep lifecycle logic out of the main request handlers.
- */
 import { internalMutation, internalQuery } from '../_generated/server'
 import type { ActionCtx, MutationCtx } from '../_generated/server'
 import { components, internal } from '../_generated/api'
@@ -13,15 +6,7 @@ import type { Id } from '../_generated/dataModel'
 import { RateLimiter } from '@convex-dev/rate-limiter'
 import { persistManagedUsage } from '../billing'
 
-// ---------------------------------------------------------------------------
-// Rate Limiter
-// ---------------------------------------------------------------------------
-
 const chatRateLimiter = new RateLimiter(components.rateLimiter)
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export type AfterChatParams = {
   ownerId: string
@@ -47,11 +32,6 @@ export type AfterToolParams = {
   success: boolean
 }
 
-// ---------------------------------------------------------------------------
-// Rate Limiting
-// ---------------------------------------------------------------------------
-
-// 30 requests per minute per owner
 const CHAT_RATE_LIMIT = 30
 const CHAT_RATE_WINDOW_MS = 60_000
 const USAGE_ROLLUP_BUCKET_MS = 60_000
@@ -146,19 +126,11 @@ export const checkChatRateLimit = internalMutation({
   },
 })
 
-// ---------------------------------------------------------------------------
-// afterChat — usage logging + token tracking
-// ---------------------------------------------------------------------------
-
-/**
- * Fire afterChat hook from an ActionCtx. Handles usage logging and
- * conversation token count patching.
- */
 export async function afterChat(
   ctx: ActionCtx,
   params: AfterChatParams,
 ): Promise<void> {
-  // Log usage asynchronously (fire-and-forget via scheduler)
+
   await ctx.scheduler.runAfter(0, internal.agent.hooks.logUsage, {
     ownerId: params.ownerId,
     conversationId: params.conversationId,
@@ -173,19 +145,11 @@ export async function afterChat(
   })
 }
 
-// ---------------------------------------------------------------------------
-// afterToolExecution — lightweight tool audit
-// ---------------------------------------------------------------------------
-
-/**
- * Fire afterToolExecution hook. Uses scheduler to log asynchronously
- * so it doesn't add latency to the tool call path.
- */
 export async function afterToolExecution(
   ctx: ActionCtx,
   params: AfterToolParams,
 ): Promise<void> {
-  // Fire-and-forget — don't block the tool response
+
   await ctx.scheduler.runAfter(0, internal.agent.hooks.logToolExecution, {
     ownerId: params.ownerId,
     conversationId: params.conversationId,
@@ -195,10 +159,6 @@ export async function afterToolExecution(
     success: params.success,
   })
 }
-
-// ---------------------------------------------------------------------------
-// Internal Mutations (called via ctx.runMutation / ctx.scheduler.runAfter)
-// ---------------------------------------------------------------------------
 
 export const logUsage = internalMutation({
   args: {
@@ -251,8 +211,7 @@ export const logToolExecution = internalMutation({
   },
   handler: async (ctx, args) => {
     const createdAt = Date.now()
-    // Lightweight logging — insert a minimal usage_logs entry for tool tracking.
-    // Using the same table avoids schema sprawl; toolName is stored in the model field.
+
     await ctx.db.insert('usage_logs', {
       ownerId: args.ownerId,
       conversationId: args.conversationId,
@@ -267,11 +226,6 @@ export const logToolExecution = internalMutation({
   },
 })
 
-/**
- * Log proxy usage — called from the transparent LLM proxy (httpAction).
- * Does not require a conversationId since proxy requests are stateless.
- * Logs to usage_logs with a synthetic conversationId if none is available.
- */
 export const logProxyUsage = internalMutation({
   args: {
     ownerId: v.string(),
@@ -305,17 +259,6 @@ export const logProxyUsage = internalMutation({
   },
 })
 
-// ---------------------------------------------------------------------------
-// Internal Queries
-// ---------------------------------------------------------------------------
-
-/**
- * Get aggregated usage for an owner over a recent time window.
- *
- * `nowMs` must be supplied by the caller (typically `Date.now()` from an
- * action / httpAction). Computing it inside the query handler would defeat
- * Convex's reactive cache — every subscriber would re-run on every read.
- */
 export const getOwnerUsage = internalQuery({
   args: {
     ownerId: v.string(),
@@ -323,7 +266,7 @@ export const getOwnerUsage = internalQuery({
     windowMs: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const windowMs = args.windowMs ?? 24 * 60 * 60 * 1000 // 24h default
+    const windowMs = args.windowMs ?? 24 * 60 * 60 * 1000
     const since = args.nowMs - windowMs
 
     const sinceBucket =

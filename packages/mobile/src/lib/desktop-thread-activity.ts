@@ -11,11 +11,6 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
 const asString = (value: unknown): string =>
   typeof value === "string" ? value : "";
 
-/**
- * Parse the authoritative desktop Activity projection without discarding
- * Manager ownership rows. The presentation layer keeps root Managers and uses
- * those rows to remove their General-agent descendants.
- */
 export function parseThreadActivityTasks(value: unknown): MobileTask[] {
   if (!Array.isArray(value)) return [];
   const tasks: MobileTask[] = [];

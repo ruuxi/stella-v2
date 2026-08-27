@@ -1,18 +1,3 @@
-// dictation_bridge - Native macOS helpers for dictation paste/routing.
-//
-// Usage:
-//   dictation_bridge probe
-//   dictation_bridge paste <text>
-//   dictation_bridge mute-output
-//   dictation_bridge restore-output <previousVolume>
-//
-// probe output:
-//   {"ok":true,"frontmostBundleId":"com.apple.Safari","frontmostPid":123,"focusedEditable":true}
-//
-// Build:
-//   swiftc -O -o out/darwin/dictation_bridge src/dictation_bridge.swift \
-//     -framework AppKit -framework ApplicationServices -framework Carbon -framework CoreAudio -framework AudioToolbox
-
 import AppKit
 import ApplicationServices
 import AudioToolbox
@@ -99,9 +84,6 @@ let editableSubroles: Set<String> = [
     "AXContentEditable",
 ]
 
-// Presence of any of these implies a caret-bearing text element, even when
-// the element exposes a generic role like AXGroup / AXStaticText (common in
-// contentEditable hosts, ProseMirror, CodeMirror, Slack/Notion compose).
 let caretAttributes: [String] = [
     kAXSelectedTextRangeAttribute as String,
     kAXNumberOfCharactersAttribute as String,

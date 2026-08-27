@@ -1,17 +1,3 @@
-/**
- * Developer-mode gate — the single flag that hides every power-user surface
- * from the default experience at ASSEMBLY level (not CSS):
- *
- *   - spawn_agent's `model` parameter is omitted from the served tool schema
- *     when the flag is off, and byte-identical to today's schema when on;
- *   - the engine-routing guidance fenced in the shipped orchestrator prompts
- *     is stripped from the assembled system prompt when off and untouched
- *     (markers removed) when on;
- *   - grandfathering: with no explicit choice stored, the flag derives from
- *     existing power-user signals (BYOK credentials, non-default engine,
- *     model overrides) so an update never hides surfaces already in use.
- */
-
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -199,8 +185,7 @@ describe("developer-mode prompt gate", () => {
         expect(on).toContain(ROUTING_SENTENCE);
         expect(on).not.toContain(DEV_MODE_PROMPT_START);
         expect(on).not.toContain(DEV_MODE_PROMPT_END);
-        // Byte-for-byte today's prompt: exactly the shipped body minus the
-        // two marker lines.
+
         expect(on).toBe(
           shipped!
             .split("\n")
@@ -225,9 +210,7 @@ describe("developer-mode prompt gate", () => {
 });
 
 describe("developer-mode renderer gate contract", () => {
-  // The repo's tests don't render React surfaces; like the other layout
-  // contract tests, assert the gates exist in source so the Models control,
-  // composer mini picker, and mention menu stay mount-gated (not CSS-hidden).
+
   const read = async (relative: string) => {
     const { readFile } = await import("node:fs/promises");
     return readFile(path.join(repoRoot, relative), "utf-8");
@@ -306,7 +289,7 @@ describe("developer-mode grandfathering", () => {
 
   it("persists the explicit flag tri-state through save/load", async () => {
     const dir = await makeTempDir();
-    // Never-set stays derived (absent from disk).
+
     saveLocalPreferences(dir, loadLocalPreferences(dir));
     expect(
       typeof loadLocalPreferences(dir).developerModeEnabled,

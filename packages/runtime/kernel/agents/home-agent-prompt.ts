@@ -1,23 +1,3 @@
-/**
- * Per-turn resolution of an agent's system prompt.
- *
- *   1. The user's selected prompt preset, when one is set for this agent
- *      (`~/.stella/prompts/<agent>/<id>.md` — see `prompt-presets.ts`). A
- *      preset replaces the shipped prompt wholesale.
- *   2. Otherwise the shipped body from the bundled
- *      `stella-runtime/agent-metadata/<id>.md` definition.
- *
- * The shipped prompt is never written to, so it always updates with the app;
- * a preset is a separate file, so an update can't clobber it. A selection
- * pointing at a missing or empty preset silently falls back to the shipped
- * prompt rather than leaving the agent without one.
- *
- * Both sources are read live (mtime+size gated) so edits apply on the next
- * turn without an extension reload. Frontmatter is stripped; capability
- * metadata (tools, model, maxAgentDepth) always comes from the registered
- * agent.
- */
-
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
@@ -48,10 +28,6 @@ const readBody = async (filePath: string): Promise<string | undefined> => {
   }
 };
 
-/**
- * Path of the selected preset for this agent, or null when the shipped
- * prompt is in use. Reading the preference is cheap (mtime-cached).
- */
 const selectedPresetPath = (
   stellaDataDir: string | undefined,
   agentType: string,

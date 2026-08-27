@@ -1,8 +1,3 @@
-/**
- * Tiny singleton store for pinning the model picker into the composer. The
- * Work footer's "Show in composer" toggle flips this on so the composer keeps
- * its expanded toolbar and renders the mini model picker beside the mic.
- */
 import { useSyncExternalStore } from "react";
 import { uiState } from "@/platform/ui-state";
 
@@ -21,8 +16,6 @@ const writePersistedPinned = (next: boolean): void => {
   else uiState.removeItem(STORAGE_KEY);
 };
 
-// Restored from the shared UI state store so the pin survives panel close +
-// reopen and app restarts.
 let isPinned = readPersistedPinned();
 const listeners = new Set<Listener>();
 

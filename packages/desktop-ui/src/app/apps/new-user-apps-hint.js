@@ -1,23 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { uiState } from "@/platform/ui-state";
 import { getSnapshot as getUserAppsSnapshot, subscribe as subscribeToUserApps, } from "./user-apps-registry";
-/**
- * Tiny "new app" marker on the Apps top-bar nav item. Mirrors the
- * post-onboarding hint shape but the trigger is dynamic: any user app
- * slug the user hasn't seen yet keeps the dot lit until they open the
- * Apps library.
- *
- * Storage shape (single shared-UI-state key):
- *   {
- *     initialized: boolean,           // false until the first seed
- *     seen: { [slug]: true }          // slugs the user has acknowledged
- *   }
- *
- * On the very first launch with this feature shipped, the seen set is
- * seeded from the current registry — that way existing apps don't all
- * pop a dot retroactively. After that, any new project in `~/.stella/workspace/apps`
- * whose slug isn't in `seen` lights the nav dot until the library is opened.
- */
+
 const STORAGE_KEY = "stella:new-user-apps-seen";
 const CHANGE_EVENT = "stella:new-user-apps-seen-changed";
 const EMPTY_STATE = { initialized: false, seen: {} };
@@ -64,8 +48,7 @@ const handleCustomEvent = () => {
         notify();
 };
 const handleRegistryChange = () => {
-    // A new app file appeared (or one was removed). The dot is derived
-    // from the registry diff against the seen set, so just notify.
+
     for (const notify of subscribers)
         notify();
 };
@@ -117,10 +100,7 @@ const seedIfNeeded = (state) => {
     safeWrite(next);
     return next;
 };
-/**
- * Marks every currently-registered user app as seen. Called when a
- * library list is actually on screen.
- */
+
 export const markAllUserAppsSeen = () => {
     const current = safeRead();
     const registry = getUserAppsSnapshot();
@@ -139,10 +119,7 @@ export const markAllUserAppsSeen = () => {
     safeWrite({ initialized: true, seen: nextSeen });
     notifyAll();
 };
-/**
- * Test/reset helper — drops the entire seen set so the next library
- * visit re-seeds. Not currently surfaced in the UI.
- */
+
 export const clearNewUserAppsHint = () => {
     safeWrite(EMPTY_STATE);
     notifyAll();
@@ -159,13 +136,7 @@ const getHintSnapshot = () => {
     return false;
 };
 const getServerSnapshot = () => false;
-/**
- * Subscribe to the "you have a new user app" hint dot for the Apps
- * top-bar entry. The first ready runtime registry snapshot seeds the seen set,
- * so the initial async load never makes every existing app look newly added.
- * Returns true while at least one user app exists that
- * the user hasn't acknowledged.
- */
+
 export function useNewUserAppsHint() {
     const active = useSyncExternalStore(subscribe, getHintSnapshot, getServerSnapshot);
     return { active, dismiss: markAllUserAppsSeen };

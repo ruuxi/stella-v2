@@ -1,5 +1,3 @@
-// @vitest-environment jsdom
-
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -102,9 +100,6 @@ describe("Canvas iframe startup", () => {
     await renderCanvas(item);
     const readsBeforeRefresh = probe.fileReads.mock.calls.length;
 
-    // Model clicking an overwritten artifact while the old iframe is still
-    // mounted in the closed panel's keep-alive host. The version change must
-    // synchronously replace it with loading, not begin another file read.
     await act(async () => {
       const refreshed = addCanvasHtmlItem({
         kind: "canvas-html",

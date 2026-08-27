@@ -1,6 +1,5 @@
 import { isRecord } from "./shared_validators";
 
-/** Desktop and gateway must mirror these managed image_gen wire limits. */
 export const MAX_MANAGED_IMAGE_REFERENCE_ITEMS = 4;
 export const MAX_MANAGED_IMAGE_REFERENCE_ITEM_BYTES = 1024 * 1024;
 export const MAX_MANAGED_IMAGE_REFERENCE_TOTAL_BYTES = 2 * 1024 * 1024;
@@ -18,12 +17,6 @@ export const MAX_PRIVATE_MEDIA_PAYLOAD_CHARS = (9 * 1024 * 1024) / 2;
 const CONVEX_ACTION_MEMORY_BYTES = 64 * 1024 * 1024;
 const DISPATCH_FIXED_HEADROOM_BYTES = 8 * 1024 * 1024;
 
-/**
- * Conservative dispatcher peak: two UTF-16 encrypted representations
- * (chunk set/join and parsed envelope), three UTF-16 plaintext/provider-body
- * representations, ciphertext+plaintext byte buffers, and 8 MiB runtime
- * headroom. Keeping this below Convex's 64 MiB action limit is a release gate.
- */
 export const MAX_MANAGED_IMAGE_DISPATCH_ESTIMATED_PEAK_BYTES =
   MAX_PRIVATE_MEDIA_PAYLOAD_CHARS * 2 * 2 +
   MAX_DURABLE_IMAGE_SUBMISSION_PLAINTEXT_BYTES * 3 * 2 +

@@ -193,7 +193,6 @@ Example asset files from other skills:
 Note: This is a text placeholder. Actual assets can be any file type.
 """
 
-
 def normalize_skill_name(skill_name):
     """Normalize a skill name to lowercase hyphen-case."""
     normalized = skill_name.strip().lower()
@@ -202,11 +201,9 @@ def normalize_skill_name(skill_name):
     normalized = re.sub(r"-{2,}", "-", normalized)
     return normalized
 
-
 def title_case_skill_name(skill_name):
     """Convert hyphenated skill name to Title Case for display."""
     return " ".join(word.capitalize() for word in skill_name.split("-"))
-
 
 def parse_resources(raw_resources):
     if not raw_resources:
@@ -225,7 +222,6 @@ def parse_resources(raw_resources):
             deduped.append(resource)
             seen.add(resource)
     return deduped
-
 
 def create_resource_dirs(skill_dir, skill_name, skill_title, resources, include_examples):
     for resource in resources:
@@ -254,7 +250,6 @@ def create_resource_dirs(skill_dir, skill_name, skill_title, resources, include_
             else:
                 print("[OK] Created assets/")
 
-
 def init_skill(skill_name, path, resources, include_examples, interface_overrides):
     """
     Initialize a new skill directory with template SKILL.md.
@@ -268,15 +263,13 @@ def init_skill(skill_name, path, resources, include_examples, interface_override
     Returns:
         Path to created skill directory, or None if error
     """
-    # Determine skill directory path
+
     skill_dir = Path(path).resolve() / skill_name
 
-    # Check if directory already exists
     if skill_dir.exists():
         print(f"[ERROR] Skill directory already exists: {skill_dir}")
         return None
 
-    # Create skill directory
     try:
         skill_dir.mkdir(parents=True, exist_ok=False)
         print(f"[OK] Created skill directory: {skill_dir}")
@@ -284,7 +277,6 @@ def init_skill(skill_name, path, resources, include_examples, interface_override
         print(f"[ERROR] Error creating directory: {e}")
         return None
 
-    # Create SKILL.md from template
     skill_title = title_case_skill_name(skill_name)
     skill_content = SKILL_TEMPLATE.format(skill_name=skill_name, skill_title=skill_title)
 
@@ -296,7 +288,6 @@ def init_skill(skill_name, path, resources, include_examples, interface_override
         print(f"[ERROR] Error creating SKILL.md: {e}")
         return None
 
-    # Create agents/openai.yaml
     try:
         result = write_openai_yaml(skill_dir, skill_name, interface_overrides)
         if not result:
@@ -305,7 +296,6 @@ def init_skill(skill_name, path, resources, include_examples, interface_override
         print(f"[ERROR] Error creating agents/openai.yaml: {e}")
         return None
 
-    # Create resource directories if requested
     if resources:
         try:
             create_resource_dirs(skill_dir, skill_name, skill_title, resources, include_examples)
@@ -313,7 +303,6 @@ def init_skill(skill_name, path, resources, include_examples, interface_override
             print(f"[ERROR] Error creating resource directories: {e}")
             return None
 
-    # Print next steps
     print(f"\n[OK] Skill '{skill_name}' initialized successfully at {skill_dir}")
     print("\nNext steps:")
     print("1. Edit SKILL.md to complete the TODO items and update the description")
@@ -331,7 +320,6 @@ def init_skill(skill_name, path, resources, include_examples, interface_override
     )
 
     return skill_dir
-
 
 def main():
     parser = argparse.ArgumentParser(
@@ -394,7 +382,6 @@ def main():
         sys.exit(0)
     else:
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()

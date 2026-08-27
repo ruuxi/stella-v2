@@ -18,7 +18,6 @@ const createTempDir = () => {
   return tempDirs.create("stella-attach-image-");
 };
 
-// 1x1 transparent PNG (smallest valid PNG bytes).
 const ONE_BY_ONE_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=",
   "base64",
@@ -61,7 +60,7 @@ App=com.apple.finder (pid 504)
       mimeType: "image/png",
     });
     expect(result.images[0].data).toBe(ONE_BY_ONE_PNG.toString("base64"));
-    // Marker should be stripped from forwarded text.
+
     expect(result.text).not.toContain("[stella-attach-image]");
     expect(result.text).toContain("App=com.apple.finder");
   });
@@ -81,7 +80,7 @@ App=com.apple.finder (pid 504)
       mimeType: "image/png",
     });
     expect(result.images[0].data).toBe(ONE_BY_ONE_PNG.toString("base64"));
-    // The detail token and marker are both stripped from forwarded text.
+
     expect(result.text).not.toContain("[stella-attach-image]");
     expect(result.text).not.toContain("detail=original");
   });
@@ -126,9 +125,7 @@ App=com.apple.finder (pid 504)
   });
 
   it("omits (rather than attaches) a file whose bytes are not a valid image", async () => {
-    // Bytes that no image decoder can process (e.g. a corrupt/partial
-    // capture). Attaching them raw would 400 Anthropic fatally and poison
-    // the thread on every resume, so the marker is swapped for a note.
+
     const tempDir = createTempDir();
     const jpgPath = path.join(tempDir, "snap.jpg");
     writeFileSync(jpgPath, Buffer.from("not-enough-image-bytes"));
@@ -140,8 +137,7 @@ App=com.apple.finder (pid 504)
   });
 
   it("omits a truncated PNG whose header parses but stream is incomplete", async () => {
-    // The exact reproduction shape: valid PNG signature + IHDR, but the
-    // stream is cut off before IEND (a screenshot read mid-write).
+
     const tempDir = createTempDir();
     const imgPath = path.join(tempDir, "truncated.png");
     writeFileSync(
@@ -228,11 +224,7 @@ App=com.apple.finder (pid 504)
   });
 
   it("auto-resizes oversized images and notes the coordinate mapping (pi parity)", async () => {
-    // Pi-style attach behavior: a too-large image is resized to fit the
-    // vision budget instead of being bounced back with a "go downscale it
-    // yourself" note, and the model gets a dimension note for coordinate
-    // mapping. Generate a real >2000px noise PNG via Photon so the resize
-    // path actually exercises decode → resize → encode.
+
     const photon = await import("@silvia-odwyer/photon-node");
     const size = 2400;
     const raw = new Uint8Array(size * size * 4);
@@ -256,25 +248,19 @@ App=com.apple.finder (pid 504)
       `[stella-attach-image] inline=image/png ${smallPath}\n`;
     const result = await extractAttachImageBlocks(text);
 
-    // Both images attach: the big one resized, the small one untouched.
     expect(result.images).toHaveLength(2);
     expect(result.images[0].data.length).toBeLessThan(
       bigPngBytes.toString("base64").length,
     );
     expect(result.images[1].data).toBe(ONE_BY_ONE_PNG.toString("base64"));
-    // Dimension note for the resized image only; markers stripped.
+
     expect(result.text).toContain(`original ${size}x${size}`);
     expect(result.text).toContain("Multiply coordinates by");
     expect(result.text).not.toContain("[stella-attach-image]");
   }, 15_000);
 
   it("gates the raw-attach fallback on the shared Anthropic per-image ceiling", () => {
-    // The attach gate and the Anthropic send boundary must enforce the SAME
-    // base64 ceiling (a single shared constant): otherwise an oversized image
-    // can pass the gate here and then be silently dropped to "[Image omitted]"
-    // at the wire. tool-adapters imports MAX_IMAGE_BASE64_BYTES from
-    // image-payload, which sources the value from image-caps (the direct-API
-    // 10MB cap), so the two can't drift apart.
+
     expect(MAX_IMAGE_BASE64_BYTES).toBe(10 * 1024 * 1024);
   });
 
@@ -289,11 +275,7 @@ App=com.apple.finder (pid 504)
   });
 
   it("extracts a marker embedded inside a JSON-stringified tool result", async () => {
-    // Mirrors the exec_command tool result shape: stdout is wrapped inside
-    // a JSON envelope where real newlines become escaped `\n` characters.
-    // Before the regex fix, the start-of-line anchor meant the marker was
-    // never matched in this shape and the model had to call view_image
-    // separately (which then failed for >2MB screenshots).
+
     const tempDir = createTempDir();
     const imgPath = writePng(tempDir);
     const payload = {
@@ -546,9 +528,7 @@ describe("native tool-result persistence boundary", () => {
     expect(persistedText.length).toBeLessThanOrEqual(50 * 1024);
     expect(persistedText).toContain("Tool output truncated");
     expect(persistedText.startsWith("HEAD-")).toBe(true);
-    // The tail preview survives, but no longer terminates the text: the
-    // spill-to-artifact boundary appends a TOOL_OUTPUT_TRUNCATED pointer to
-    // the preserved complete output after it.
+
     expect(persistedText).toContain("-TAIL");
     expect(persistedText).toContain(
       "TOOL_OUTPUT_TRUNCATED complete post-sanitization output preserved",

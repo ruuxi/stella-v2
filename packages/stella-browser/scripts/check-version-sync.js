@@ -1,21 +1,13 @@
 #!/usr/bin/env node
-
-/**
- * Verifies that package.json and cli/Cargo.toml have the same version.
- * Used in CI to catch version drift.
- */
-
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
 const __dirname = import.meta.dirname;
 const rootDir = join(__dirname, '..');
 
-// Read package.json version
 const packageJson = JSON.parse(readFileSync(join(rootDir, 'package.json'), 'utf-8'));
 const packageVersion = packageJson.version;
 
-// Read Cargo.toml version
 const cargoToml = readFileSync(join(rootDir, 'cli/Cargo.toml'), 'utf-8');
 const cargoVersionMatch = cargoToml.match(/^version\s*=\s*"([^"]*)"/m);
 

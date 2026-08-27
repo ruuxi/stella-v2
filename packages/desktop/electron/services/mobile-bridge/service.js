@@ -18,20 +18,9 @@ import { probeBridgePublicHealth } from "./public-health.js";
 import { resolveRendererRoot } from "../../renderer-location.js";
 export const MOBILE_BRIDGE_REGISTRATION_REFRESH_MS = 5 * 60_000;
 const REGISTER_DESKTOP_BRIDGE_MUTATION = anyApi.mobile_bridge.registerDesktopBridge;
-/**
- * Debounce window for setter-driven registration syncs. The desktop learns its
- * endpoints (device id, auth token, Convex site URL, tunnel URL) from several
- * setters that fire in a burst ~0.5s apart during bootstrap and each refresh
- * cycle. Coalescing them into one mutation avoids duplicate registration
- * writes. Kept above the ~0.5s inter-setter gap so the whole burst lands in one
- * mutation; the five-minute refresh timer stays undebounced.
- */
+
 const REGISTRATION_SYNC_DEBOUNCE_MS = 750;
-/**
- * Local cap on bridge session lifetime. Convex mints sessions with its own
- * TTL (currently 60 minutes) and `authorizeBridgeSession` takes the min of
- * both, so this mostly guards against a misconfigured backend expiry.
- */
+
 const SESSION_TTL_MS = 60 * 60 * 1000;
 const CHALLENGE_TTL_MS = 60_000;
 const COOKIE_NAME = "stella_mobile_bridge";
@@ -39,15 +28,10 @@ const MAX_BODY_SIZE = 5 * 1024 * 1024;
 const BODY_TIMEOUT_MS = 10_000;
 const ALLOW_METHODS = "GET, POST, OPTIONS";
 const ALLOW_HEADERS = "Content-Type, X-Stella-Bridge-Session-Id, X-Stella-Bridge-Session-Secret, X-Stella-Bridge-Challenge-Id, X-Stella-Bridge-Encrypted, X-Stella-Bridge-Features, X-Stella-Bridge-Bin-Seq, X-Stella-Bridge-Bin-Iv, X-Stella-Bridge-Bin-Mime";
-/**
- * Bare (no `?d=<desktopDeviceId>`) challenge GETs come only from legacy phone
- * builds; they leak the device id + public key to anyone who finds the tunnel
- * hostname, so they are throttled hard. Callers that present the device id
- * they expect (all current builds) prove they already know it.
- */
+
 const BARE_CHALLENGE_LIMIT = 30;
 const BARE_CHALLENGE_WINDOW_MS = 60_000;
-/** Uploaded attachment staging: entries expire and total bytes are capped. */
+
 const UPLOAD_TTL_MS = 10 * 60_000;
 const UPLOAD_TOTAL_BYTE_CAP = 64 * 1024 * 1024;
 const parseBridgeFeaturesHeader = (value) => {
@@ -61,20 +45,11 @@ const parseBridgeFeaturesHeader = (value) => {
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
 const MOBILE_BRIDGE_SENDER_URL = "stella-mobile-bridge://mobile";
 const DEVELOPER_RESOURCE_PREVIEWS_KEY = "stella-developer-resource-previews";
-/** Per-tick probe budget when re-checking the advertised public tunnel URL. */
+
 const BRIDGE_PUBLIC_HEALTH_TIMEOUT_MS = 2_000;
-/**
- * Consecutive failed health probes (across refresh/sync ticks) before we treat
- * the advertised tunnel as dead and clear availability. A small streak avoids
- * down-registering on a single transient blip while still reacting within the
- * registration lease.
- */
+
 const BRIDGE_PUBLIC_HEALTH_FAILURE_THRESHOLD = 3;
-/**
- * Reuse a successful probe for this long. Coalesced/burst syncs fire within
- * milliseconds, so this collapses their duplicate probe; the real refresh ticks
- * (30s setters / five-minute timer) are spaced well beyond it and re-probe.
- */
+
 const BRIDGE_PUBLIC_HEALTH_CACHE_MS = 3_000;
 const MIME_TYPES = {
     ".css": "text/css; charset=utf-8",
@@ -124,10 +99,7 @@ const dispatchCapturedIpc = async (channel, args, broadcastToMobile, options) =>
         throw new Error(`Unknown IPC channel: ${channel}`);
     }
     const fakeEvent = createFakeIpcEvent(broadcastToMobile);
-    // Single choke point for client-supplied payloads (both the HTTP and the
-    // WebSocket invoke lanes land here): channels whose mobile intent is
-    // narrower than the shared desktop handler get their arguments validated
-    // and rebuilt — or rejected — before the privileged handler runs.
+
     const spreadArgs = guardMobileBridgeInvokeArgs(channel, Array.isArray(args) ? args : [args]);
     if (handleHandler) {
         return {
@@ -255,11 +227,7 @@ const sendNoContent = (res, origin) => {
     });
     res.end();
 };
-/**
- * Fake IPC event for bridging. The dedicated sender URL lets privileged
- * handlers recognize mobile bridge requests, and sender.send() routes
- * replies back to subscribed mobile WebSocket clients.
- */
+
 const createFakeIpcEvent = (broadcastFn) => {
     return {
         sender: {
@@ -293,9 +261,7 @@ export class MobileBridgeService {
     port = null;
     registrationLeaseExpiresAt = null;
     registrationState = "inactive";
-    // A successful authenticated registration establishes local bridge access.
-    // The backend lease is only presence metadata: expiry must not tear down an
-    // otherwise authenticated direct connection to a last-known descriptor.
+
     hasRegisteredBridge = false;
     deviceId = null;
     hostAuthToken = null;
@@ -317,23 +283,20 @@ export class MobileBridgeService {
     lastBootstrapPayload = null;
     bareChallengeWindowStart = 0;
     bareChallengeCount = 0;
-    /** Staged binary uploads awaiting an `agent:startChat` that references them. */
+
     uploads = new Map();
     uploadTotalBytes = 0;
     constructor(options) {
         this.options = options;
     }
-    /**
-     * Set a callback that reads the desktop renderer's bootstrap payload.
-     * Used by `/bridge/bootstrap` to share session state with the mobile WebView.
-     */
+
     setBootstrapPayloadGetter(getter) {
         this.getBootstrapPayload = getter;
     }
     markClientActivity() {
         this.options.onClientActivity?.();
     }
-    // ── External setters (called from bootstrap) ──────────────────────────
+
     setDeviceId(value) {
         const next = value?.trim() || null;
         if (next === this.deviceId)
@@ -388,17 +351,14 @@ export class MobileBridgeService {
         if (next === this.tunnelUrl && readiness === undefined)
             return;
         if (next && next !== this.tunnelUrl) {
-            // A freshly advertised URL starts with a clean health streak and must be
-            // probed fresh (don't reuse a prior URL's cached result).
+
             this.healthFailureStreak = 0;
             this.lastHealthyProbeAt = 0;
             this.tunnelEverVerified = false;
             this.refreshUnverifiedTunnelRegistration = false;
         }
         if (next && readiness === "verified") {
-            // The tunnel service has just completed the same public health probe.
-            // Reuse that result instead of adding a second readiness gate before
-            // registration.
+
             this.lastHealthyProbeAt = Date.now();
             this.tunnelEverVerified = true;
             this.refreshUnverifiedTunnelRegistration = false;
@@ -488,7 +448,7 @@ export class MobileBridgeService {
             protocol: BRIDGE_CRYPTO_PROTOCOL,
         };
     }
-    // ── Lifecycle ─────────────────────────────────────────────────────────
+
     start() {
         if (this.server)
             return;
@@ -541,7 +501,7 @@ export class MobileBridgeService {
         this.challenges.clear();
         void this.clearRegistration();
     }
-    /** Broadcast an event to mobile WebSocket clients subscribed to a channel. */
+
     broadcastToMobile = (channel, data) => {
         if (!isMobileBridgeEventChannel(channel)) {
             return;
@@ -620,7 +580,7 @@ export class MobileBridgeService {
             this.convexSiteUrl &&
             this.deviceId);
     }
-    // ── HTTP request handling ─────────────────────────────────────────────
+
     async handleRequest(req, res) {
         const requestOrigin = this.getRequestOrigin(req);
         if (!req.url) {
@@ -640,7 +600,7 @@ export class MobileBridgeService {
             sendJson(res, 403, { error: "Forbidden" }, requestOrigin);
             return;
         }
-        // Health check — no auth required
+
         if (req.url === "/bridge/health" ||
             req.url === "/__stella_mobile_bridge/health") {
             sendJson(res, 200, { ok: true }, requestOrigin);
@@ -651,10 +611,7 @@ export class MobileBridgeService {
                 sendJson(res, 403, { error: "Desktop bridge unavailable" }, requestOrigin);
                 return;
             }
-            // Callers that already know the desktop device id present it as `?d=`;
-            // a mismatch gets an opaque 404 (no id / public key disclosed). Bare
-            // requests (legacy phone builds) still work but are rate limited — the
-            // endpoint is unauthenticated on a public hostname.
+
             const requestedDeviceId = new URL(req.url, "http://localhost").searchParams
                 .get("d")
                 ?.trim();
@@ -671,7 +628,7 @@ export class MobileBridgeService {
             sendJson(res, 200, this.createBridgeChallenge(), requestOrigin);
             return;
         }
-        // Bootstrap payload — requires auth
+
         if (req.url === "/bridge/bootstrap") {
             const authenticated = await this.ensureAuthorized(req, res, requestOrigin);
             if (!authenticated)
@@ -679,7 +636,7 @@ export class MobileBridgeService {
             await this.handleBootstrap(res, requestOrigin);
             return;
         }
-        // IPC bridge — requires auth
+
         if (req.url.startsWith("/bridge/ipc/")) {
             const authenticated = await this.ensureAuthorized(req, res, requestOrigin);
             if (!authenticated)
@@ -687,7 +644,7 @@ export class MobileBridgeService {
             await this.handleIpcRequest(req, res, requestOrigin, authenticated);
             return;
         }
-        // Binary file lane — requires auth + encrypted session
+
         if (req.url === "/bridge/file" && req.method === "POST") {
             const authenticated = await this.ensureAuthorized(req, res, requestOrigin);
             if (!authenticated)
@@ -695,7 +652,7 @@ export class MobileBridgeService {
             await this.handleBinaryFileRequest(req, res, requestOrigin, authenticated);
             return;
         }
-        // Binary attachment upload — requires auth + encrypted session
+
         if (req.url === "/bridge/upload" && req.method === "POST") {
             const authenticated = await this.ensureAuthorized(req, res, requestOrigin);
             if (!authenticated)
@@ -703,7 +660,7 @@ export class MobileBridgeService {
             await this.handleBinaryUploadRequest(req, res, requestOrigin, authenticated);
             return;
         }
-        // Everything else: serve the desktop frontend (requires auth)
+
         const authenticated = await this.ensureAuthorized(req, res, requestOrigin);
         if (!authenticated)
             return;
@@ -714,7 +671,7 @@ export class MobileBridgeService {
             await this.serveStaticRenderer(req, res, requestOrigin);
         }
     }
-    // ── IPC routing ───────────────────────────────────────────────────────
+
     decryptBridgePayload(session, envelope) {
         if (!session.crypto || !isBridgeEncryptedEnvelope(envelope)) {
             throw new Error("Encrypted bridge session required");
@@ -754,16 +711,7 @@ export class MobileBridgeService {
             }),
         }, origin);
     }
-    // ── Binary lane ───────────────────────────────────────────────────────
-    /**
-     * `POST /bridge/file` — encrypted-binary download of a display file.
-     * Request body is a normal encrypted JSON envelope `{ filePath,
-     * conversationId }`; the response ships the raw file bytes AES-GCM
-     * encrypted with seq/iv/mime riding headers — no JSON byte arrays, no
-     * base64 (~1.0x wire size instead of the legacy lane's ~8-10x).
-     * Authorization and path containment are the same `display:readFile`
-     * handler the legacy lane uses.
-     */
+
     async handleBinaryFileRequest(req, res, requestOrigin, session) {
         if (!session.crypto) {
             sendJson(res, 403, { error: "Encrypted bridge session required" }, requestOrigin);
@@ -813,14 +761,7 @@ export class MobileBridgeService {
             sendJson(res, 400, { error: message }, requestOrigin);
         }
     }
-    /**
-     * `POST /bridge/upload` — encrypted-binary attachment staging. The body is
-     * raw AES-GCM ciphertext of the file bytes (seq/iv/mime in headers); the
-     * decrypted bytes are staged and referenced from a subsequent
-     * `agent:startChat` as `{ uploadId, mimeType }`, escaping the base64-in-JSON
-     * inflation that previously capped attachments at ~2.6 MB under the 5 MB
-     * body limit (now ~5 MB of raw bytes).
-     */
+
     async handleBinaryUploadRequest(req, res, requestOrigin, session) {
         if (!session.crypto) {
             sendJson(res, 403, { error: "Encrypted bridge session required" }, requestOrigin);
@@ -871,11 +812,7 @@ export class MobileBridgeService {
         if (this.uploadTotalBytes < 0)
             this.uploadTotalBytes = 0;
     }
-    /**
-     * Swap staged-upload references in `agent:startChat` attachments for the
-     * data URLs the chat pipeline expects. Entries without an `uploadId` (legacy
-     * inline data URLs) pass through untouched.
-     */
+
     resolveUploadedAttachments(channel, args) {
         if (channel !== "agent:startChat" || !Array.isArray(args))
             return args;
@@ -897,9 +834,7 @@ export class MobileBridgeService {
             if (!upload) {
                 throw new Error("Attachment upload expired; please retry the send.");
             }
-            // Not deleted on use: a reconnect can legitimately re-issue the same
-            // startChat (deduped downstream by clientRequestId) and must still be
-            // able to resolve its uploads. TTL pruning owns cleanup.
+
             return {
                 url: upload.dataUrl,
                 mimeType: typeof entry.mimeType === "string" && entry.mimeType.trim()
@@ -950,7 +885,7 @@ export class MobileBridgeService {
             }
         }
     }
-    // ── Bootstrap payload (WebView session sharing) ─────────────────────
+
     async handleBootstrap(res, requestOrigin) {
         if (!this.getBootstrapPayload) {
             sendJson(res, 200, { localStorage: {} }, requestOrigin);
@@ -967,7 +902,7 @@ export class MobileBridgeService {
             sendJson(res, 200, { localStorage: {} }, requestOrigin);
         }
     }
-    // ── WebSocket handling ────────────────────────────────────────────────
+
     async handleWebSocket(ws, req) {
         const requestOrigin = this.getRequestOrigin(req);
         if (!this.isAllowedRequestOrigin(requestOrigin)) {
@@ -1028,7 +963,7 @@ export class MobileBridgeService {
                 }
             }
             catch {
-                // Ignore malformed messages
+
             }
         });
         ws.on("close", () => {
@@ -1091,21 +1026,12 @@ export class MobileBridgeService {
             }
         }
     }
-    // ── Auth (Convex-mediated) ────────────────────────────────────────────
+
     hasExplicitSessionHeaders(req) {
         const id = req.headers["x-stella-bridge-session-id"];
         return typeof id === "string" && id.trim().length > 0;
     }
-    /**
-     * Resolve a bridge session, preferring explicit session headers over the
-     * ambient cookie. The cookie is only a fallback for cookie-only requests
-     * (WebView sub-resources that cannot set custom headers). It must never
-     * override the credentials a header-bearing client presents: doing so lets a
-     * stale cookie from a previous send authorize the request with an old crypto
-     * session, so a payload encrypted with the current send's keys fails to
-     * decrypt and surfaces to the phone as "session expired". When headers are
-     * present but invalid we reject rather than fall back to the cookie.
-     */
+
     async resolveBridgeSession(req) {
         const resolved = await (async () => {
             if (this.hasExplicitSessionHeaders(req)) {
@@ -1117,8 +1043,7 @@ export class MobileBridgeService {
                 ? { session: cookieSession, fromHeaders: false }
                 : null;
         })();
-        // Phones send their optional-feature set on every request; refresh it so
-        // response-side gating (envelope deflate) always reflects the live client.
+
         const featuresHeader = req.headers["x-stella-bridge-features"];
         if (resolved && typeof featuresHeader === "string") {
             resolved.session.peerFeatures = parseBridgeFeaturesHeader(featuresHeader);
@@ -1140,9 +1065,7 @@ export class MobileBridgeService {
             sendJson(res, 401, { error: "Unauthorized" }, requestOrigin);
             return null;
         }
-        // Only (re)issue the cookie when we authorized via explicit session
-        // headers — a freshly minted/confirmed session. Cookie-only requests
-        // already carry a valid cookie and must not mint a new session mapping.
+
         if (resolved.fromHeaders) {
             const sessionCookieId = crypto.randomUUID();
             this.sessions.set(sessionCookieId, resolved.session);
@@ -1255,7 +1178,7 @@ export class MobileBridgeService {
         }
         return client.mutation(REGISTER_DESKTOP_BRIDGE_MUTATION, args);
     }
-    // ── Frontend serving ──────────────────────────────────────────────────
+
     async proxyToDevServer(req, res) {
         const target = new URL(req.url ?? "/", `${trimTrailingSlash(this.options.getDevServerUrl())}/`);
         const method = req.method ?? "GET";
@@ -1306,15 +1229,7 @@ export class MobileBridgeService {
             res.on("error", reject);
         });
     }
-    /**
-     * Resolve the built renderer root for static serving. Packaged builds ship
-     * the Vite output inside the asar at `app.asar/renderer` (the same tree
-     * `BrowserWindow.loadFile` uses); monorepo builds fall back to
-     * `packages/desktop-ui/dist` via `resolveRendererRoot`. The legacy
-     * `electronDir/../dist` location is kept as a last resort for old layouts.
-     * Returns null when no candidate actually contains an `index.html` so the
-     * caller can answer with an error instead of streaming a missing file.
-     */
+
     resolveStaticRendererRoot() {
         const candidates = [
             resolveRendererRoot(this.options.electronDir),
@@ -1327,7 +1242,7 @@ export class MobileBridgeService {
                 }
             }
             catch {
-                // Candidate does not exist — try the next layout.
+
             }
         }
         return null;
@@ -1368,9 +1283,7 @@ export class MobileBridgeService {
             ...NO_STORE_HEADERS,
         });
         const stream = fs.createReadStream(filePath);
-        // A read failure after the 200 head must abort the response, never
-        // surface as an unhandled 'error' event (which would take down the
-        // whole main process).
+
         stream.on("error", (error) => {
             console.warn(`[mobile-bridge] Failed to stream renderer asset ${filePath}:`, error instanceof Error ? error.message : String(error));
             res.destroy();
@@ -1380,14 +1293,7 @@ export class MobileBridgeService {
         });
         stream.pipe(res);
     }
-    // ── Convex registration ───────────────────────────────────────────────
-    /**
-     * Debounced entry point for the endpoint setters. A bootstrap/refresh cycle
-     * updates several fields ~0.5s apart; coalescing them here means the whole
-     * burst produces one register mutation (with all endpoints in `baseUrls`) instead
-     * of colliding writes that force server-side OCC retries. The refresh timer
-     * and initial listen still call `syncRegistration` directly.
-     */
+
     scheduleRegistrationSync() {
         if (this.syncDebounceTimer) {
             clearTimeout(this.syncDebounceTimer);
@@ -1404,10 +1310,7 @@ export class MobileBridgeService {
         }
     }
     async syncRegistration() {
-        // This runs from several setters plus the refresh timer, and now performs a
-        // health probe that takes a moment. Serialize so two probes/registrations
-        // never overlap, then run exactly one more pass if anything asked while we
-        // were busy (so the latest state always wins).
+
         if (this.syncInFlight) {
             this.syncQueued = true;
             return;
@@ -1437,22 +1340,15 @@ export class MobileBridgeService {
             return;
         }
         const baseUrls = [this.tunnelUrl];
-        // Before (re)registering, confirm the advertised public URL is actually
-        // serving. A registered-but-dead tunnel (e.g. cloudflared or its edge route
-        // broke mid-session) would otherwise keep the phone pointed at an
-        // unreachable URL until the 150s lease lapsed.
+
         let healthy;
         const useUnverifiedFallback = this.registerUnverifiedTunnelFallback;
         if (useUnverifiedFallback) {
-            // The tunnel layer already exhausted its readiness window. Register the
-            // advertised fallback immediately so a resolver-blinded desktop does not
-            // add three periodic refresh ticks to the cold path.
+
             healthy = false;
         }
         else if (Date.now() - this.lastHealthyProbeAt < BRIDGE_PUBLIC_HEALTH_CACHE_MS) {
-            // Reuse a very recent successful probe (collapses the duplicate probe from
-            // a coalesced/burst sync). Anchored to the last real probe, so it never
-            // extends itself across the far-spaced refresh ticks.
+
             healthy = true;
         }
         else {
@@ -1466,12 +1362,7 @@ export class MobileBridgeService {
         if (!healthy && !useUnverifiedFallback) {
             this.healthFailureStreak += 1;
             const streakExceeded = this.healthFailureStreak >= BRIDGE_PUBLIC_HEALTH_FAILURE_THRESHOLD;
-            // Only a previously verified URL is cleared on a failure streak — that's
-            // the healthy→dead transition this guard exists for. A URL that has
-            // NEVER probed healthy from this desktop may still be a resolver-vantage
-            // false negative (e.g. a VPN's DNS server returning stale NXDOMAIN while
-            // the phone's network resolves the hostname fine), so clearing — or
-            // never registering — would strand a working tunnel.
+
             const everVerified = this.tunnelEverVerified;
             if (streakExceeded && everVerified && this.hasRegisteredBridge) {
                 console.warn(`[mobile-bridge] Public tunnel failed ${this.healthFailureStreak} health checks; clearing availability`);
@@ -1480,22 +1371,18 @@ export class MobileBridgeService {
             }
             if (everVerified ||
                 (!streakExceeded && !this.refreshUnverifiedTunnelRegistration)) {
-                // Keep any existing lease but don't refresh the registration against
-                // an unconfirmed URL this tick.
+
                 if (this.hasActiveRegistrationLease()) {
                     this.registrationState = "degraded";
                 }
                 return;
             }
             if (this.refreshUnverifiedTunnelRegistration) {
-                // Once an unverified endpoint has been accepted, refresh its lease on
-                // every five-minute tick while continuing to probe.
+
                 console.warn("[mobile-bridge] Public tunnel remains unverified; refreshing degraded registration");
             }
             else {
-                // Streak exceeded and never verified: mirror the tunnel layer's
-                // advertise-anyway fallback and register the URL as degraded rather
-                // than leaving the phone with nothing to connect to.
+
                 console.warn(`[mobile-bridge] Public tunnel unverified after ${this.healthFailureStreak} health checks; registering anyway (probe may be resolver-blinded)`);
             }
         }
@@ -1528,8 +1415,7 @@ export class MobileBridgeService {
             this.hasRegisteredBridge = true;
             this.registerUnverifiedTunnelFallback = false;
             this.refreshUnverifiedTunnelRegistration = !healthy;
-            // An unverified advertise-anyway registration stays degraded until a
-            // probe actually succeeds from this desktop.
+
             this.registrationState = healthy ? "healthy" : "degraded";
         }
         catch (error) {
@@ -1579,7 +1465,7 @@ export class MobileBridgeService {
             await this.postBridgeJson(this.convexSiteUrl, "/api/mobile/desktop-bridge/clear", `Bearer ${token}`, { deviceId: this.deviceId });
         }
         catch {
-            // Ignore
+
         }
         this.clearRegistrationLeaseTimer();
         this.registrationLeaseExpiresAt = null;

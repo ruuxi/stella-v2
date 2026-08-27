@@ -19,11 +19,6 @@ export type BackgroundTaskCardStatus =
   | "failed"
   | "canceled";
 
-/**
- * Canonical state for one visible background-work occurrence. Identity is the
- * persisted `agent-started` event id, not the durable thread id: `send_input`
- * reuses a thread and can even start it more than once inside one root run.
- */
 export type BackgroundTaskCardState = {
   cardId: string;
   startEventId: string;
@@ -167,15 +162,6 @@ const completionFor = (
   };
 };
 
-/**
- * Fold lifecycle events into spawn-anchored card state.
- *
- * Raw events are deduplicated by id before the fold because the live/SQLite
- * handoff can briefly project one event onto two messages. Terminal events
- * resolve to the latest `agent-started` in their `(agentId, rootRunId)`
- * stream. The start event remains the card's identity and insertion anchor;
- * completion time never becomes a second timeline anchor.
- */
 export const buildBackgroundTaskLifecycleIndex = (
   events: ReadonlyArray<EventRecord>,
 ): BackgroundTaskLifecycleIndex => {
@@ -200,9 +186,6 @@ export const buildBackgroundTaskLifecycleIndex = (
       const exact = startByAttempt.get(attemptKey(agentId, attemptGeneration));
       if (exact) return exact;
 
-      // Manager coordination turns deliberately suppress internal start cards.
-      // Their final consolidated terminal still belongs to the newest visible
-      // Manager lifecycle generation at or before the execution generation.
       const candidates = startsByAgent.get(agentId) ?? [];
       const nearest = (requireRoot: boolean) => {
         let best: BackgroundTaskCardState | undefined;
@@ -230,8 +213,6 @@ export const buildBackgroundTaskLifecycleIndex = (
       if (generatedMatch) return generatedMatch;
     }
 
-    // Compatibility for lifecycle histories written before generation was
-    // persisted. Timestamp/event-id ordering remains only this legacy path.
     return rootRunId
       ? latestStartByCorrelation.get(correlationKey(agentId, rootRunId))
       : latestStartByAgent.get(agentId);
@@ -319,7 +300,7 @@ export const buildBackgroundTaskLifecycleIndex = (
         continue;
       }
       startByLifecycleEvent.set(event._id, state.startEventId);
-      // A late progress packet must never revive a settled card.
+
       if (state.status !== "running") continue;
       state.latestEventId = event._id;
       state.latestEventAtMs = event.timestamp;
@@ -372,13 +353,6 @@ export const buildBackgroundTaskLifecycleIndex = (
   };
 };
 
-/**
- * A follow-up replaces its predecessor only when that predecessor was still
- * active as the follow-up began. If the prior occurrence had already settled,
- * both cards remain: the finished historical receipt and the new follow-up.
- * A terminal event arriving after the newer start still means the predecessor
- * was active at the handoff, even if the final folded state is terminal.
- */
 export const followUpReplacesActivePredecessor = (
   predecessorStartEventId: string,
   followUpStartEventId: string,
@@ -391,7 +365,6 @@ export const followUpReplacesActivePredecessor = (
   return predecessor.latestEventAtMs > followUp.startedAtMs;
 };
 
-/** Project canonical lifecycle state onto one spawn/group card descriptor. */
 export const resolveBackgroundTaskCardLifecycle = (
   threadIds: readonly string[],
   startEventIdsByThread: Readonly<Record<string, string>>,

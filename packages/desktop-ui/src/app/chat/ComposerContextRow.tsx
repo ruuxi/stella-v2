@@ -24,11 +24,6 @@ import {
 import { truncateChipLabel } from "@/features/chat/composer-context";
 import { useT } from "@/shared/i18n";
 
-// ---------------------------------------------------------------------------
-// Attached chips — context the user has committed to sending. Lives INSIDE
-// the composer shell as a row above the textarea.
-// ---------------------------------------------------------------------------
-
 type ComposerContextRowProps = {
   variant?: "full" | "compact";
   chatContext: ChatContext | null;
@@ -89,12 +84,6 @@ export function ComposerContextRow({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Suggestion chips — auto-detected context Stella offers but hasn't yet
-// attached. Rendered floating ABOVE the composer shell (the panel chat
-// opts into this; the full-shell composer doesn't use it today).
-// ---------------------------------------------------------------------------
-
 type ComposerSuggestionRowProps = {
   active?: boolean;
   chatContext: ChatContext | null;
@@ -113,10 +102,6 @@ export function ComposerSuggestionContextRow({
     () => new Set(),
   );
 
-  // Hide a chip whose contents match the currently-attached context (we
-  // don't want "+ Brave – github.com" suggesting itself when it's already
-  // attached). The lane stays mounted so the row's reserved height is kept
-  // — only the chip body is omitted.
   const attachedAppName =
     chatContext?.window?.app?.toLowerCase().trim() ?? null;
   const attachedUrl = chatContext?.browserUrl ?? null;
@@ -165,9 +150,7 @@ export function ComposerSuggestionContextRow({
             ".composer-context-suggestion-lane",
           ),
         );
-        // Measure against the lanes container, not the whole row: the
-        // leading task chip occupies part of the row, so the lanes only
-        // get the remaining width.
+
         const availableWidth = lanesEl.clientWidth;
         const styles = window.getComputedStyle(lanesEl);
         const gap =
@@ -222,9 +205,7 @@ export function ComposerSuggestionContextRow({
 
     const observer = new ResizeObserver(syncVisibleLanes);
     observer.observe(row);
-    // Also observe the lanes container so overflow recomputes while the
-    // leading task chip animates in/out (which changes how much width the
-    // lanes have without changing the row's own size).
+
     observer.observe(lanesEl);
     return () => {
       cancelAnimationFrame(frame);
@@ -232,10 +213,6 @@ export function ComposerSuggestionContextRow({
     };
   }, [laneVisibilityKey]);
 
-  // The row container always renders so the strip's vertical space is
-  // reserved (CSS `min-height`), even when every lane is empty or hidden.
-  // This stops the composer from popping up when the last suggestion fades
-  // out and back down when the first one fades in.
   return (
     <div
       ref={rowRef}
@@ -260,11 +237,6 @@ export function ComposerSuggestionContextRow({
 
 export type ComposerContextSuggestion = SuggestionSlot;
 
-/**
- * Auto-detected app/tab context prepared for the composer's + menu. Keeping
- * the polling hook at the composer level lets both responsive + buttons share
- * one snapshot instead of starting duplicate native-app polling loops.
- */
 export function useComposerContextSuggestions(
   active: boolean,
   chatContext: ChatContext | null,
@@ -321,12 +293,6 @@ export function useComposerContextSuggestions(
   return { suggestions, selectSuggestion };
 }
 
-/**
- * One slot position in the suggestion strip. Renders the lane's `current`
- * occupant (entering/stable) and `outgoing` occupant (leaving) stacked in
- * the same grid cell — they overlap during a swap so the strip never goes
- * blank between two sets of chips.
- */
 function SuggestionLaneView({
   index,
   lane,
@@ -385,9 +351,7 @@ function SuggestionChipSlot({
   const handleClick = () => {
     if (slot.chip.kind === "tab") {
       setChatContext(tabChipToChatContext(slot.chip));
-      // Tab chips don't carry a pid (the chip identity is bundleId/url),
-      // so fall back to a name-based capture here. The app suggestion
-      // chip below uses pid for an exact CGWindow match.
+
       captureAppWindowAsync(
         { appName: slot.chip.browser, pid: null },
         setChatContext,
@@ -423,15 +387,6 @@ function SuggestionChipSlot({
   );
 }
 
-/**
- * Lazy capture: kick off `captureAppWindow` and patch the running
- * `chatContext` when the screenshot lands. Only patches if the user hasn't
- * since detached or replaced the context (we keep the patch keyed on the
- * app name so we don't clobber a different context the user attached
- * mid-flight). Pass `pid` when known — the main process uses it as a
- * reliable selector against `CGWindowListCopyWindowInfo`; falls back to
- * name-matching against `desktopCapturer` window sources otherwise.
- */
 const captureAppWindowAsync = (
   target: { appName: string; pid: number | null },
   setChatContext: Dispatch<SetStateAction<ChatContext | null>>,
@@ -462,8 +417,7 @@ const captureAppWindowAsync = (
           ...prev,
           window: {
             ...prev.window,
-            // Prefer a freshly observed title over the one we attached
-            // eagerly (the running app may have switched windows since).
+
             title: capture.title || prev.window.title,
           },
           windowScreenshot: capture.screenshot,
@@ -549,12 +503,6 @@ function TabSuggestionChip({
   );
 }
 
-/**
- * Show the app/browser icon when we have one; otherwise fall back to the
- * truncated display name. Keeping the markup uniform across both branches
- * means the chip layout doesn't shift when icons load asynchronously or
- * fail to encode for a given app.
- */
 function ChipAppGlyph({
   iconDataUrl,
   fallbackLabel,

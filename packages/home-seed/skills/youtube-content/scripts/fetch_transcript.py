@@ -22,7 +22,6 @@ import json
 import re
 import sys
 
-
 def extract_video_id(url_or_id: str) -> str:
     """Extract the 11-character video ID from various YouTube URL formats."""
     url_or_id = url_or_id.strip()
@@ -36,7 +35,6 @@ def extract_video_id(url_or_id: str) -> str:
             return match.group(1)
     return url_or_id
 
-
 def format_timestamp(seconds: float) -> str:
     """Convert seconds to HH:MM:SS or MM:SS format."""
     total = int(seconds)
@@ -45,7 +43,6 @@ def format_timestamp(seconds: float) -> str:
     if h > 0:
         return f"{h}:{m:02d}:{s:02d}"
     return f"{m}:{s:02d}"
-
 
 def fetch_transcript(video_id: str, languages: list = None):
     """Fetch transcript segments from YouTube.
@@ -66,12 +63,10 @@ def fetch_transcript(video_id: str, languages: list = None):
     else:
         result = api.fetch(video_id)
 
-    # v1.x returns FetchedTranscriptSnippet objects; normalize to dicts
     return [
         {"text": seg.text, "start": seg.start, "duration": seg.duration}
         for seg in result
     ]
-
 
 def main():
     parser = argparse.ArgumentParser(description="Fetch YouTube transcript as JSON")
@@ -118,7 +113,6 @@ def main():
         result["timestamped_text"] = timestamped
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
-
 
 if __name__ == "__main__":
     main()

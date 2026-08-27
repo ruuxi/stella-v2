@@ -260,7 +260,6 @@ async fn http_request(method: &str, url: &str, body: Option<&Value>) -> Result<V
     let response_str = String::from_utf8_lossy(&response);
     let body_part = response_str.split("\r\n\r\n").nth(1).unwrap_or("").trim();
 
-    // Handle chunked encoding
     let json_body = if body_part.contains('\n')
         && body_part
             .chars()
@@ -268,7 +267,7 @@ async fn http_request(method: &str, url: &str, body: Option<&Value>) -> Result<V
             .map(|c| c.is_ascii_hexdigit())
             .unwrap_or(false)
     {
-        // Chunked: skip chunk size lines
+
         body_part
             .lines()
             .filter(|l| !l.chars().all(|c| c.is_ascii_hexdigit() || c == '\r'))

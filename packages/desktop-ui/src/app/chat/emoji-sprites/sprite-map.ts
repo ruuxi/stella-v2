@@ -1,14 +1,3 @@
-/**
- * Lookup table + matcher for the AI-generated emoji sprite sheets.
- *
- * Built from the bundled emoji grid: each emoji string is mapped to the
- * `(sheet, cell)` pair that locates it on the active pack's local sheets, and
- * a regex is compiled that matches any supported emoji in longest-first order.
- *
- * Both the remark plugin and the markdown image override consume this
- * module; nothing else should construct sprite URLs by hand.
- */
-
 import {
   EMOJI_PACK_GRID_VERSION,
   getEmojiSheetGridSize,
@@ -16,9 +5,9 @@ import {
 } from "./cells";
 
 export type EmojiSpriteCell = {
-  /** 0-based sheet index in the bundled emoji grid. */
+
   sheet: number;
-  /** 0-based cell index inside its sheet, row-major. */
+
   cell: number;
 };
 
@@ -69,10 +58,6 @@ const getSpriteCache = (): SpriteCache => {
   return spriteCache;
 };
 
-/**
- * Callers that need to scan incrementally must instantiate their own copy
- * because RegExp objects with the `g` flag carry a `lastIndex` cursor.
- */
 export const cloneEmojiRegex = (): RegExp =>
   new RegExp(getSpriteCache().regexSource, "gu");
 
@@ -84,14 +69,6 @@ export const getEmojiSpriteGridSize = (): number =>
 
 export const getEmojiSpriteSheetCount = (): number => getEmojiSheets().length;
 
-/**
- * Sentinel URL for an emoji sprite cell, encoded as a fragment on the
- * logical sprite path. The markdown image override consumes this before the
- * browser loads it; keeping it relative also prevents a missed override from
- * escaping the packaged renderer directory under file://.
- *
- *   emoji-sprites/sheet-1.webp#emoji-cell=0
- */
 export const buildEmojiSpriteUrl = ({ sheet, cell }: EmojiSpriteCell): string =>
   `emoji-sprites/sheet-${sheet + 1}.webp#emoji-cell=${cell}`;
 
@@ -112,10 +89,6 @@ export const parseEmojiSpriteUrl = (url: string): EmojiSpriteCell | null => {
   return { sheet: sheetOneBased - 1, cell };
 };
 
-/**
- * Translate a cell index into its row/col coordinates inside the sheet.
- * Uses the bundled grid size.
- */
 export const cellToRowCol = (cell: number): { row: number; col: number } => ({
   row: Math.floor(cell / getEmojiSpriteGridSize()),
   col: cell % getEmojiSpriteGridSize(),

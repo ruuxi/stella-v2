@@ -1,15 +1,7 @@
-/**
- * Catalog of curated external apps Stella can open file artifacts with.
- *
- * Used by the main process to probe app availability and execute opens,
- * and by the renderer to type the IPC response. The actual probing /
- * launching lives in `desktop/electron/ipc/external-opener-handlers.ts`.
- */
-
 export type ExternalOpenerKind =
-  | "app" // launch with a named external application
-  | "default" // open with the OS-default handler
-  | "reveal"; // reveal in Finder / Explorer
+  | "app"
+  | "default"
+  | "reveal";
 
 export type ExternalOpener = {
   id: string;
@@ -17,17 +9,8 @@ export type ExternalOpener = {
   kind: ExternalOpenerKind;
 };
 
-/**
- * Canonical set of "developer / source code" file extensions used by
- * both the chat surface (to decide whether an edited path should
- * surface a Code changes pill via `path-to-viewer.ts`) and the
- * external-opener catalog (to decide which editors to offer).
- *
- * Keep additions language-agnostic — anything a code editor like
- * Cursor / VS Code / Zed can meaningfully open belongs here.
- */
 export const DEVELOPER_EXTS = [
-  // C / C++ / Objective-C
+
   "c",
   "cc",
   "cpp",
@@ -37,11 +20,11 @@ export const DEVELOPER_EXTS = [
   "hpp",
   "m",
   "mm",
-  // .NET
+
   "cs",
   "fs",
   "vb",
-  // Web / frontend
+
   "css",
   "scss",
   "sass",
@@ -51,7 +34,7 @@ export const DEVELOPER_EXTS = [
   "vue",
   "svelte",
   "astro",
-  // JS / TS
+
   "js",
   "jsx",
   "mjs",
@@ -60,7 +43,7 @@ export const DEVELOPER_EXTS = [
   "tsx",
   "mts",
   "cts",
-  // JVM
+
   "java",
   "kt",
   "kts",
@@ -68,14 +51,14 @@ export const DEVELOPER_EXTS = [
   "groovy",
   "clj",
   "cljs",
-  // Apple
+
   "swift",
-  // Systems
+
   "rs",
   "go",
   "zig",
   "nim",
-  // Scripting
+
   "py",
   "rb",
   "pl",
@@ -89,7 +72,7 @@ export const DEVELOPER_EXTS = [
   "ps1",
   "bat",
   "cmd",
-  // Config / data
+
   "json",
   "json5",
   "jsonc",
@@ -101,12 +84,12 @@ export const DEVELOPER_EXTS = [
   "xml",
   "csv",
   "tsv",
-  // Query / schema
+
   "sql",
   "graphql",
   "gql",
   "proto",
-  // Text-ish
+
   "txt",
   "md",
   "mdx",
@@ -116,7 +99,7 @@ export const DEVELOPER_EXTS = [
   "lock",
   "dockerfile",
   "makefile",
-  // Other languages people often edit
+
   "ex",
   "exs",
   "erl",
@@ -129,7 +112,6 @@ export const DEVELOPER_EXTS = [
   "sol",
 ];
 
-/** Alias kept for the opener catalog's `extensions:` field naming. */
 export const CODE_EXTS = DEVELOPER_EXTS;
 
 export const SLIDE_EXTS = ["key", "pptx", "ppt"];
@@ -175,7 +157,7 @@ export const AUDIO_EXTS = [
   "wma",
 ];
 export const HTML_EXTS = ["html", "htm", "xhtml"];
-/** Files browsers can preview reasonably well (images, PDFs, HTML, SVG). */
+
 export const BROWSER_EXTS = [...IMAGE_EXTS, ...PDF_EXTS, ...HTML_EXTS];
 
 export const extOf = (filePath: string): string => {

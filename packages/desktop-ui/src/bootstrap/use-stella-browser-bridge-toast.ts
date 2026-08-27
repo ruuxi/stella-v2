@@ -9,9 +9,7 @@ export const useStellaBrowserBridgeToast = () => {
     }
 
     return browserApi.onBridgeStatus((status) => {
-      // Optional bridge absence, disconnect, and retry are never a global
-      // toast. Keep this listener so a stale notifyUser flag from older
-      // hosts cannot resurrect the old error toast.
+
       if (!shouldEmitBrowserBridgeGlobalToast(status)) {
         return;
       }

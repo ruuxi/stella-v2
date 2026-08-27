@@ -4,15 +4,7 @@ import { FULL_SHELL_MIN_SIZE } from '../layout-constants.js';
 import { createSharedWebPreferences } from './shared-window-preferences.js';
 import { ShellWindowController } from './shell-window-controller.js';
 const FULL_SHELL_DEFAULT_SIZE = { width: 1400, height: 940 };
-/**
- * The default 1400×940 can exceed the usable screen on Windows/Linux, where the
- * taskbar/panel eats into the display. `screen.workArea` already excludes that
- * chrome (and the macOS menu bar), so clamping the initial size to it keeps the
- * bottom of the shell on screen instead of hidden behind the taskbar. We also
- * center within the work area so a clamped window doesn't start flush against an
- * edge. macOS keeps Electron's default centering (no explicit x/y) since the
- * 940px height comfortably fits under the menu bar on supported displays.
- */
+
 const resolveFullWindowInitialBounds = () => {
     const { width: dw, height: dh } = FULL_SHELL_DEFAULT_SIZE;
     if (process.platform === 'darwin') {
@@ -27,8 +19,7 @@ const resolveFullWindowInitialBounds = () => {
         return { width, height, x, y };
     }
     catch {
-        // `screen` can throw if queried before the app is ready; fall back to the
-        // raw default rather than block window creation.
+
         return { width: dw, height: dh };
     }
 };
@@ -51,12 +42,7 @@ export class FullWindowController {
                     y: initialBounds.y,
                     minWidth: FULL_SHELL_MIN_SIZE.width,
                     minHeight: FULL_SHELL_MIN_SIZE.height,
-                    // Keep the full shell opaque. Transparent BrowserWindows are
-                    // significantly more expensive for macOS to composite during live
-                    // resize.
-                    // Windows: frameless so Stella's custom top bar provides the only
-                    // chrome (custom min/max/close live in `ShellTopBar`). macOS keeps
-                    // the native frame because traffic lights are hidden-inset under it.
+
                     frame: process.platform !== 'win32',
                     transparent: false,
                     backgroundColor: isMac ? '#f2f4f8' : '#101016',

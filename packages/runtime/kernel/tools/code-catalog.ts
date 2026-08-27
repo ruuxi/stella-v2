@@ -1,16 +1,3 @@
-/**
- * Demoted-tool catalog helpers.
- *
- * Demoted tools leave the model's direct tool list whenever `node_repl` is
- * available and become callable only as `tools.<name>(args)` inside the REPL.
- * This module renders the compact TypeScript-style signature catalog that is
- * appended to node_repl's description each turn, and implements the
- * deterministic scorer behind the in-REPL `tools.$search({ query })` lookup.
- *
- * Everything here is pure and never throws: a malformed schema degrades to
- * `unknown`, a malformed catalog degrades to an empty section/result list.
- */
-
 export type DemotedToolCatalogEntry = {
   name: string;
   description?: string;
@@ -29,17 +16,12 @@ export type ToolSearchResult = {
 
 const MAX_SCHEMA_RENDER_DEPTH = 6;
 const MAX_COMMENT_CHARS = 120;
-/** Union/enum members rendered before collapsing the tail into "…". */
+
 const MAX_UNION_MEMBERS = 8;
-/**
- * Hard cap on one rendered signature inside a `$search` result. Keeps any
- * result far below MAX_NODE_REPL_PROTOCOL_MESSAGE_BYTES so the kernel's
- * all-or-nothing protocol-size failure is unreachable in practice.
- */
+
 const MAX_SEARCH_SIGNATURE_CHARS = 2000;
 const IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
-/** Estimated tokens for budget accounting: chars / 4, rounded up. */
 const estimateTokens = (text: string): number => Math.ceil(text.length / 4);
 
 export const DEFAULT_CATALOG_TOKEN_BUDGET = 2000;
@@ -133,7 +115,6 @@ const renderSchema = (schema: unknown, depth: number): string => {
   }
 };
 
-/** Minimal JSON-Schema → TypeScript-ish renderer. Never throws. */
 export const schemaToTs = (schema: unknown, depth = 0): string => {
   try {
     return renderSchema(schema, depth);
@@ -142,7 +123,6 @@ export const schemaToTs = (schema: unknown, depth = 0): string => {
   }
 };
 
-/** `tools.<name>(input: {...}): Promise<unknown>` — never throws. */
 export const renderToolSignature = (tool: {
   name: string;
   parameters?: Record<string, unknown>;
@@ -185,16 +165,6 @@ const renderToolBlock = (tool: DemotedToolCatalogEntry): CatalogBlock => {
   return { tool, text, cost: estimateTokens(`${text}\n`) };
 };
 
-/**
- * Token-budgeted catalog section for node_repl's description.
- *
- * Tools are grouped by namespace (`demoted.requiredConnectorProvider`,
- * falling back to the `<prefix>` of `<prefix>_rest` names). Within each
- * namespace the cheapest signatures are preferred; namespaces are drained
- * round-robin against one shared budget so a single verbose namespace cannot
- * starve the rest. Namespace stub lines and the header are free — only tool
- * comment+signature blocks count against the budget.
- */
 export const buildCatalogSection = (
   demoted: readonly DemotedToolCatalogEntry[],
   budgetTokens = DEFAULT_CATALOG_TOKEN_BUDGET,
@@ -230,10 +200,7 @@ export const buildCatalogSection = (
     let remaining = Number.isFinite(budgetTokens)
       ? Math.max(0, budgetTokens)
       : DEFAULT_CATALOG_TOKEN_BUDGET;
-    // Stub lines are always rendered (they are the map of what exists), but
-    // they still consume the shared budget so the section cannot grow
-    // unboundedly with namespace count. Estimated with the widest "shown"
-    // variant; only the header stays free.
+
     for (const name of namespaceNames) {
       const total = namespaces.get(name)?.length ?? 0;
       const stubEstimate = estimateTokens(
@@ -256,7 +223,7 @@ export const buildCatalogSection = (
         const block = queue[cursor];
         if (!block) continue;
         if (block.cost > remaining) {
-          // Cheapest-first queue: nothing later in this namespace fits either.
+
           continue;
         }
         remaining -= block.cost;
@@ -264,8 +231,7 @@ export const buildCatalogSection = (
         cursors.set(name, cursor + 1);
         if (cursor + 1 < queue.length) next.push(name);
       }
-      // Every namespace in `next` consumed a block this pass, so the loop
-      // makes progress toward the finite block count and must terminate.
+
       active = next;
     }
 
@@ -301,7 +267,6 @@ const singularize = (token: string): string =>
     ? token.slice(0, -1)
     : token;
 
-/** camelCase- and snake_case-aware tokenizer with naive singularization. */
 export const tokenizeToolQuery = (value: string): string[] => {
   if (typeof value !== "string") return [];
   const spaced = value.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
@@ -339,11 +304,6 @@ const collectPropertyText = (
   if (record.items) collectPropertyText(record.items, depth + 1, sink);
 };
 
-/**
- * Deterministic relevance score for one tool against pre-tokenized query
- * terms. Weights: exact name 20 > name substring 8 > description/search-term
- * text 4 > input property text 2. Never throws; garbage scores 0.
- */
 export const scoreToolSearch = (
   tool: DemotedToolCatalogEntry,
   queryTokens: readonly string[],
@@ -399,11 +359,6 @@ const toSearchResult = (tool: DemotedToolCatalogEntry): ToolSearchResult => {
   };
 };
 
-/**
- * Rank `tools` against `query` and return full callable signatures, so a
- * follow-up lookup is never needed. An exact tool-name query short-circuits
- * straight to that tool. Ties break by name for determinism. Never throws.
- */
 export const searchToolCatalog = (
   tools: readonly DemotedToolCatalogEntry[],
   query: string,

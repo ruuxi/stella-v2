@@ -1,22 +1,3 @@
-/**
- * Handlers for the orchestrator's direct scheduling tools
- * (`schedule_add` / `schedule_list` / `schedule_update` / `schedule_remove`).
- *
- * One local schedule store, three trigger kinds:
- *
- *  - **reminder** — `payload.kind === 'notify'`: literal text delivered as
- *    an assistant message + OS notification at fire time. No LLM.
- *  - **task** — `payload.kind === 'task'`: the stored intent fires as an
- *    orchestrator turn, which answers or spawns agents as usual.
- *  - **watch** — `payload.kind === 'watch'`: a verified deterministic check
- *    script runs on the schedule; non-empty stdout (a detected change) or a
- *    failure escalates to an orchestrator turn. Unchanged = silent.
- *
- * Legacy `script` / `agent` payloads written by the retired schedule
- * specialist keep executing unmodified; these handlers surface them as
- * `legacy-script` / `legacy-agent` and allow same-kind edits.
- */
-
 import {
   getCronTriggerKind,
   type LocalCronJobRecord,
@@ -160,9 +141,6 @@ const summarizeJob = (record: LocalCronJobRecord): Record<string, unknown> => ({
     : {}),
 });
 
-/**
- * Map schedule_add's trigger-kind args onto the stored payload shape.
- */
 const buildPayloadForAdd = (
   args: Record<string, unknown>,
 ): LocalCronPayload => {
@@ -193,12 +171,6 @@ const buildPayloadForAdd = (
   throw new Error('kind must be "reminder", "task", or "watch".');
 };
 
-/**
- * Same-kind payload patch for schedule_update. The job's stored payload
- * family is preserved: `message` edits a reminder, `prompt` edits a task
- * (or legacy agent job, which stays legacy), `scriptPath` edits a watch
- * (or legacy script job, which stays legacy).
- */
 const buildPayloadPatch = (
   current: LocalCronPayload,
   args: Record<string, unknown>,
@@ -274,12 +246,6 @@ export const handleScheduleList = async (
   return { result: JSON.stringify(lines, null, 2) };
 };
 
-/**
- * Heartbeat (conversation check-in) edits through the same tool surface:
- * pause/resume via `enabled`, cadence via `schedule: { kind: 'every',
- * everyMs }`, and `prompt` for what each check-in should do. Mirrors the
- * UI dialog's affordances (which stay unchanged).
- */
 const updateHeartbeat = async (
   api: ScheduleToolApi,
   heartbeat: LocalHeartbeatConfigRecord,
@@ -309,8 +275,7 @@ const updateHeartbeat = async (
   const record = await api.upsertHeartbeat({
     conversationId: heartbeat.conversationId,
     ...(typeof args.enabled === "boolean" ? { enabled: args.enabled } : {}),
-    // upsertHeartbeat re-normalizes intervalMs on every call, so always pass
-    // the effective value to avoid resetting cadence to the default.
+
     intervalMs: intervalMs ?? heartbeat.intervalMs,
     ...(typeof args.prompt === "string" ? { prompt: args.prompt } : {}),
   });
@@ -372,8 +337,7 @@ export const handleScheduleRemove = async (
   }
   const removed = await api.removeCronJob(jobId);
   if (!removed) {
-    // Heartbeats have no hard delete; disabling is the delete affordance
-    // (identical to the UI dialog's Delete action) and is reversible.
+
     const heartbeat = await findHeartbeat(api, jobId);
     if (heartbeat) {
       const record = await api.upsertHeartbeat({

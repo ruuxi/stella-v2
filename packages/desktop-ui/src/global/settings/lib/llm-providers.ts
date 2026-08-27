@@ -1,16 +1,7 @@
-/**
- * Catalog of assistant providers users can authenticate against locally
- * (BYOK / OAuth).
- *
- * Anything in this list shows up in the model picker's left rail — even if
- * it currently has no models in the runtime catalog — so users can sign in
- * before picking a model. Catalog-only providers (those with models but no
- * BYOK story) still show up via the merged catalog groups.
- */
 export type LlmProviderEntry = {
   key: string;
   label: string;
-  /** Hint text shown inside the API key input when adding a new key. */
+
   placeholder: string;
 };
 
@@ -59,19 +50,11 @@ export const LLM_PROVIDERS: readonly LlmProviderEntry[] = [
   { key: "github-copilot", label: "GitHub Copilot", placeholder: "OAuth only" },
 ];
 
-/** All local provider credentials, including non-assistant-only surfaces. */
 export const PROVIDER_CREDENTIALS: readonly LlmProviderEntry[] = [
   ...LLM_PROVIDERS,
   { key: "fal", label: "fal", placeholder: "fal-..." },
 ];
 
-/**
- * Providers whose registry models appear in the local (BYOK/direct) model
- * catalog. `openai` was historically excluded so the grouped list didn't
- * show two sections both labeled "OpenAI" (API key vs ChatGPT/codex OAuth);
- * the picker's brand rail now splits those into explicit sources, so the
- * OpenAI API models are listed like any other provider's.
- */
 export const LOCAL_MODEL_PROVIDER_KEYS = new Set(
   LLM_PROVIDERS.map((entry) => entry.key),
 );

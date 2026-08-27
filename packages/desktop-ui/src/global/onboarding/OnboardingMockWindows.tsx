@@ -1,7 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
 
-/* ── Mock data for each category ── */
-
 const MOCK_DEV: { label: string; items: string[] }[] = [
   { label: "Projects", items: ["stella", "my-portfolio", "api-service", "dotfiles"] },
   { label: "Tools", items: ["git", "bun", "docker", "node", "python", "cargo"] },
@@ -75,8 +73,6 @@ const MOCK_BROWSER: { label: string; items: { name: string; detail: string }[] }
   },
 ];
 
-/* ── Window component ── */
-
 type WindowConfig = {
   id: string;
   title: string;
@@ -105,8 +101,6 @@ const MockWindow: React.FC<{
     <div className="onboarding-mock-window-body">{children}</div>
   </div>
 );
-
-/* ── Render helpers ── */
 
 const SimpleList: React.FC<{ sections: { label: string; items: string[] }[] }> = ({ sections }) => (
   <div className="mock-window-sections">
@@ -141,8 +135,6 @@ const DetailList: React.FC<{ sections: { label: string; items: { name: string; d
   </div>
 );
 
-/* ── Main component ── */
-
 interface OnboardingMockWindowsProps {
   activeWindowId: string | null;
   stageState?: "current" | "outgoing";
@@ -155,10 +147,6 @@ const WINDOW_MAP: Record<string, WindowConfig> = {
   dev_environment: { id: "dev_environment", title: "Coding Setup", content: <SimpleList sections={MOCK_DEV} /> },
 };
 
-/* Switching active category: fade the outgoing window out while the new
- * one fades in, instead of swapping instantly. Keep at most one outgoing
- * window in the queue — if the user toggles rapidly we drop the older
- * outgoing in favor of the most recent. */
 const MOCK_SWITCH_FADE_MS = 260;
 
 export const OnboardingMockWindows: React.FC<OnboardingMockWindowsProps> = ({

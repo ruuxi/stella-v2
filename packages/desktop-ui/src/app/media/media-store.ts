@@ -1,11 +1,4 @@
-/**
- * Persistent media studio state — history + form state backed by the shared
- * UI state store.
- */
-
 import { uiState } from "@/platform/ui-state";
-
-/* ── Types ── */
 
 export type OutputMedia =
   | {
@@ -27,7 +20,7 @@ export type HistoryEntry = {
   prompt?: string;
   timestamp: number;
   output: OutputMedia | null;
-  thumb?: string; // small data URL for the strip (kept in the shared UI state store)
+  thumb?: string;
   status: "pending" | "succeeded" | "failed";
   error?: string;
 };
@@ -41,13 +34,9 @@ export type FormState = {
   extraValues: Record<string, number>;
 };
 
-/* ── Keys ── */
-
 const HISTORY_KEY = "stella-media-history";
 const FORM_KEY = "stella-media-form";
 const MAX_HISTORY = 100;
-
-/* ── History ── */
 
 export function loadHistory(): HistoryEntry[] {
   try {
@@ -78,8 +67,6 @@ export function updateHistoryEntry(
   return entries;
 }
 
-/* ── Form state ── */
-
 const DEFAULT_FORM: FormState = {
   category: "image",
   capabilityId: null,
@@ -102,8 +89,6 @@ export function loadFormState(): FormState {
 export function saveFormState(state: FormState): void {
   uiState.setItem(FORM_KEY, JSON.stringify(state));
 }
-
-/* ── Output extraction ── */
 
 export function extractOutput(output: unknown): OutputMedia {
   if (!output || typeof output !== "object") return { kind: "unknown" };
@@ -157,8 +142,6 @@ export function extractOutput(output: unknown): OutputMedia {
 
   return { kind: "unknown" };
 }
-
-/* ── Save output files to desktop/state ── */
 
 export async function saveOutputToStella(
   output: OutputMedia,
@@ -214,11 +197,8 @@ export async function saveOutputToStella(
   }
 }
 
-/* ── Thumbnail generation ── */
-
 const THUMB_SIZE = 80;
 
-/** Downscale an image URL to a tiny JPEG data URL for the shared UI state store. */
 export function generateThumb(url: string): Promise<string | null> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -242,13 +222,10 @@ export function generateThumb(url: string): Promise<string | null> {
   });
 }
 
-/* ── Open outputs folder ── */
-
 export async function openOutputsFolder(): Promise<void> {
   const dir = await window.electronAPI?.media?.getStellaMediaDir();
   if (!dir) return;
-  // showItemInFolder needs a file, but we want the folder — create a
-  // placeholder reference so the OS opens the directory.
+
   const folderPath = `${dir}${dir.includes("\\") ? "\\" : "/"}outputs`;
   window.electronAPI?.system?.showItemInFolder(folderPath);
 }

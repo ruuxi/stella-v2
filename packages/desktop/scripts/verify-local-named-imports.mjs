@@ -60,8 +60,7 @@ const collectStaticExports = (sourceFile) => {
 
   for (const statement of sourceFile.statements) {
     if (ts.isExportDeclaration(statement) && !statement.exportClause) {
-      // `export *` may provide any name through another module. Avoid claiming
-      // a missing export unless this module's surface is statically complete.
+
       skipValidation = true;
       continue;
     }

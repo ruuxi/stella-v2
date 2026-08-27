@@ -7,7 +7,7 @@ export type RecallLookupStatus =
 export type RecallLookupResult = {
   status: RecallLookupStatus;
   brief: string;
-  /** True when this normalized lookup already ran (or was already in flight). */
+
   cached?: true;
   intent?: string;
   fastPath?: boolean;
@@ -35,12 +35,6 @@ export const buildRecallLookupCacheKey = (
 const isRecallLookupError = (result: RecallLookupResult): boolean =>
   result.status === "retrieval_error" || result.status === "synthesis_error";
 
-/**
- * Per-run Recall memoization. Promise values collapse concurrent duplicates;
- * bounded run retention prevents abandoned run ids from growing forever.
- * Failed lookups are shared while in flight, then evicted so a later attempt
- * can recover instead of turning a transient failure into a durable miss.
- */
 export class RecallRunCache {
   readonly #runs = new Map<string, Map<string, Promise<RecallLookupResult>>>();
 

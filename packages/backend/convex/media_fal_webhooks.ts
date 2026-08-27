@@ -140,8 +140,7 @@ export const cancelFalRequest = async (args: {
       headers: falHeaders(args.apiKey),
     },
   );
-  // Fal cancellation is idempotent. A completed/missing request may report
-  // 404/409; the Stella job is already terminal and must stay canceled.
+
   if (!upstream.ok && upstream.status !== 404 && upstream.status !== 409) {
     throw new Error(
       upstream.text || `Fal cancellation failed with status ${upstream.status}`,
@@ -165,7 +164,7 @@ export const submitFalRequest = async (args: {
   );
 
   if (!upstream.ok) {
-    // Extract a human-readable message from Fal's error response.
+
     let message = `Fal submission failed with status ${upstream.status}`;
     const errorType = upstream.errorType;
     if (isRecord(upstream.data)) {
@@ -325,7 +324,7 @@ export const verifyFalWebhookSignature = async (
         return true;
       }
     } catch {
-      // Try the next key.
+
     }
   }
 

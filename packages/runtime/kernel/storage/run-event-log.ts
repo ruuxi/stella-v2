@@ -1,27 +1,5 @@
 import type { SqliteDatabase, SqliteStatement } from "./shared.js";
 
-/**
- * Worker-side persistent ring buffer for streaming run events.
- *
- * The runtime worker emits NOTIFICATION_NAMES.RUN_EVENT to whichever client
- * is currently connected. Without persistence, an Electron restart (or any
- * other host disconnect) would drop every in-flight event before the new
- * host could reattach. We persist every emitted event under
- * `(run_id, seq)` so that after reconnect the host can call
- * run.resumeEvents { runId, lastSeq } and replay anything past `lastSeq`.
- *
- * Acks (run.ackEvents) prune the buffer up to the acked seq so it doesn't
- * grow unbounded for healthy long-running renderers. Even without acks,
- * the periodic time-based sweep keeps the table bounded — acks are a
- * fast-path optimization, not a correctness requirement.
- *
- * The `seq` field comes straight from the runtime/protocol AgentEventPayload
- * shape — already monotonic per run from the agent runner. INSERT OR IGNORE
- * collapses the rare seq collision (e.g. terminal markers explicitly set to
- * Number.MAX_SAFE_INTEGER); the renderer doesn't care which copy wins
- * because terminal markers describe the same terminal state.
- */
-
 export type RunEventRecord = {
   runId: string;
   seq: number;
@@ -98,7 +76,7 @@ export class RunEventLog {
       try {
         this.sweepExpired();
       } catch {
-        // Best-effort retention; do not crash the worker on sweep failure.
+
       }
     }, intervalMs);
     this.sweepTimer.unref?.();
@@ -156,17 +134,12 @@ export class RunEventLog {
           existing.updatedAt = Math.max(existing.updatedAt, row.created_at);
         }
       } catch {
-        // Ignore malformed legacy rows.
+
       }
     }
     return [...byRun.values()].sort((left, right) => right.updatedAt - left.updatedAt);
   }
 
-  /**
-   * Append a single event. Idempotent on (runId, seq) collisions.
-   * Returns true when a new row was inserted, false when the (runId, seq)
-   * already existed (e.g. terminal-marker MAX_SAFE_INTEGER duplicates).
-   */
   append(args: {
     runId: string;
     seq: number;
@@ -195,13 +168,6 @@ export class RunEventLog {
     return Boolean(result?.changes && result.changes > 0);
   }
 
-  /**
-   * Read every persisted event for `runId` with `seq > lastSeq`, oldest first.
-   * Returns `exhausted: true` when the caller is missing events that have
-   * already been pruned (their requested `lastSeq` is below the oldest
-   * retained seq for the run). The renderer treats `exhausted` as "fall back
-   * to a full reload from the durable transcript" rather than partial replay.
-   */
   resumeAfter(args: {
     runId: string;
     lastSeq: number;
@@ -249,12 +215,6 @@ export class RunEventLog {
     return { events, exhausted };
   }
 
-  /**
-   * Prune all events for `runId` with `seq <= lastSeq`. Called by the host
-   * adapter on every event it has successfully forwarded to the renderer
-   * (best-effort batching is fine — under-acking just retains rows longer).
-   * Returns the number of rows pruned.
-   */
   ack(args: { runId: string; lastSeq: number }): number {
     if (this.disposed) return 0;
     const runId = args.runId.trim();
@@ -266,12 +226,6 @@ export class RunEventLog {
     return result?.changes ?? 0;
   }
 
-  /**
-   * Drop every retained event for a run. Called when the run terminates
-   * naturally and the renderer has confirmed it processed the terminal
-   * event — there's nothing left to replay from the in-memory queue
-   * because the durable transcript has the final state.
-   */
   forget(runId: string): number {
     if (this.disposed) return 0;
     const trimmed = runId.trim();
@@ -282,11 +236,6 @@ export class RunEventLog {
     return result?.changes ?? 0;
   }
 
-  /**
-   * Drop rows older than `retentionMs` (defaults to 30 minutes). Called
-   * periodically by the background sweep and on-demand by callers that
-   * need to bound the table eagerly (e.g. before an export).
-   */
   sweepExpired(retentionMs?: number): number {
     if (this.disposed) return 0;
     const cutoff =

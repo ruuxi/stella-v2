@@ -1,22 +1,5 @@
 import type { ToolResult } from "../tools/types.js";
 
-/**
- * Shared per-tool inactivity bound for Stella tools bridged into external
- * engines (Claude Code takeover mode, Codex app-server). Mirrors the
- * agent-core loop's bound for the native engine: a tool that emits no
- * progress update for the window is cancelled via a composed abort signal
- * and reported to the engine as an error tool result, so the turn continues
- * instead of hanging forever on a tool that will never return (observed in
- * the field: a Recall call stalled on an unbounded network await held an
- * orchestrator turn — and with it the whole conversation — indefinitely).
- *
- * Ten minutes of total tool silence almost always means stuck; since only
- * the tool dies (the engine gets an error result and the turn continues),
- * a rare false positive is cheap and the bound errs tight.
- *
- * Shares `STELLA_TOOL_INACTIVITY_TIMEOUT_MS` with the native path; <= 0
- * disables the bound.
- */
 export const DEFAULT_TOOL_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
 
 const configuredInactivityTimeoutMs = (): number => {
@@ -27,15 +10,6 @@ const configuredInactivityTimeoutMs = (): number => {
     : DEFAULT_TOOL_INACTIVITY_TIMEOUT_MS;
 };
 
-/**
- * Run one bridged tool call under the inactivity bound.
- *
- * `run` receives the composed abort signal (outer signal + inactivity
- * cancellation) and an `onActivity` callback the caller must invoke on every
- * tool progress update to reset the clock. On timeout the composed signal
- * aborts (so a cooperative tool cleans up), and the call resolves with an
- * error ToolResult even if the tool's promise never settles.
- */
 export const executeToolWithInactivityBound = async (args: {
   toolName: string;
   signal?: AbortSignal;

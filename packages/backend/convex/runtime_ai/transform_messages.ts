@@ -77,16 +77,6 @@ export function transformMessages<TApi extends Api>(
     };
   });
 
-  // Collect every tool_use id that appears in any assistant message so
-  // we can drop orphan `toolResult` messages whose `toolCallId` has no
-  // corresponding `toolCall` earlier in the transcript. Anthropic (and
-  // strictly OpenAI Responses/Completions) reject any tool_result with
-  // a tool_use_id that doesn't appear in a preceding assistant message
-  // with `"messages.N.content.M: unexpected `tool_use_id` found in
-  // `tool_result` blocks"`. Orphans show up after mid-conversation
-  // provider switches (an Anthropic `toolu_…` id survives a Kimi round
-  // trip where the matching assistant tool_use got dropped) and after
-  // any history slicing that leaves a tool_result without its pair.
   const validToolCallIds = new Set<string>();
   for (const message of transformed) {
     if (message.role !== "assistant") continue;
@@ -149,9 +139,7 @@ export function transformMessages<TApi extends Api>(
 
     if (message.role === "toolResult") {
       if (!validToolCallIds.has(message.toolCallId)) {
-        // Orphan tool_result with no matching tool_use anywhere in the
-        // transcript. Silently drop it rather than forwarding to the
-        // provider, which would 400 the entire request.
+
         continue;
       }
       existingToolResultIds.add(message.toolCallId);

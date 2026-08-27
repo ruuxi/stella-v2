@@ -1,13 +1,3 @@
-/**
- * IPC handlers for opening file artifacts in external apps.
- *
- * Surfaces a curated list of app openers tailored to the file
- * extension (code editors for code, Keynote/PowerPoint for slides,
- * etc.), the OS-default opener, and a "Reveal in Finder/Explorer"
- * action. The catalog is filtered to apps actually installed on the
- * user's machine so the menu never lists something that can't run.
- */
-
 import { ipcMain, shell } from "electron";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -38,14 +28,14 @@ import {
 type MacAppDef = {
   id: string;
   label: string;
-  /** App bundle name without the trailing `.app` */
+
   appName: string;
-  /** Extensions this app should appear for (lowercase, no leading dot). */
+
   extensions: string[];
 };
 
 const MAC_APP_CATALOG: MacAppDef[] = [
-  // Image / PDF viewers
+
   {
     id: "preview",
     label: "Preview",
@@ -77,7 +67,6 @@ const MAC_APP_CATALOG: MacAppDef[] = [
     extensions: PDF_EXTS,
   },
 
-  // Browsers (good for images, PDFs, HTML, SVG)
   {
     id: "safari",
     label: "Safari",
@@ -111,7 +100,6 @@ const MAC_APP_CATALOG: MacAppDef[] = [
   },
   { id: "dia", label: "Dia", appName: "Dia", extensions: BROWSER_EXTS },
 
-  // Media players
   {
     id: "quicktime",
     label: "QuickTime Player",
@@ -132,7 +120,6 @@ const MAC_APP_CATALOG: MacAppDef[] = [
     extensions: AUDIO_EXTS,
   },
 
-  // Code editors
   { id: "cursor", label: "Cursor", appName: "Cursor", extensions: CODE_EXTS },
   {
     id: "vscode",
@@ -156,7 +143,6 @@ const MAC_APP_CATALOG: MacAppDef[] = [
     extensions: [...CODE_EXTS, ...DOC_EXTS],
   },
 
-  // Slides / docs / sheets
   {
     id: "keynote",
     label: "Keynote",
@@ -190,8 +176,6 @@ const MAC_APP_CATALOG: MacAppDef[] = [
   },
 ];
 
-// Silence unused-import warning when only some ext groups feed the
-// catalog above (helps when iterating on the list).
 void HTML_EXTS;
 
 const macAppById = new Map(MAC_APP_CATALOG.map((entry) => [entry.id, entry]));
@@ -234,9 +218,7 @@ const buildOpenersForFile = (filePath: string): ExternalOpener[] => {
   if (process.platform === "darwin") {
     openers.push(...listMacOpenersForExt(ext));
   }
-  // The OS-default opener and reveal-in-folder are always last, in that
-  // order. They mirror the macOS Finder right-click "Open" + "Show in
-  // Finder" layout that the menu visually borrows from.
+
   openers.push({ id: "__default", label: "Default app", kind: "default" });
   openers.push({
     id: "__reveal",

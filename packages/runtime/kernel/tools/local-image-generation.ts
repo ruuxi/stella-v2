@@ -390,12 +390,7 @@ const runOpenRouter = async (
   model: string,
   outputFormat: string,
 ): Promise<string[] | { error: string }> => {
-  // OpenRouter's dedicated Image API (`POST /api/v1/images`) is uniform across
-  // every image model and returns `data[].b64_json` (same shape as OpenAI). The
-  // older chat-completions `modalities: ["image","text"]` path only worked for
-  // models that also emit text, so image-only models (e.g. openai/gpt-image-2)
-  // were rejected with a "text, image" modalities error.
-  // https://openrouter.ai/docs/features/multimodal/image-generation
+
   const references = await collectReferenceDataUrls(
     input.referenceImagePaths,
     input.referenceImageUrls,
@@ -407,8 +402,7 @@ const runOpenRouter = async (
     quality: asNonEmptyString(input.args.quality) ?? "low",
     output_format: outputFormat,
   };
-  // `aspect_ratio` is the normalized ratio OpenRouter accepts; models that
-  // don't support it ignore the field.
+
   if (input.aspectRatio) {
     body.aspect_ratio = input.aspectRatio;
   }
@@ -430,7 +424,7 @@ const runOpenRouter = async (
     signal: input.extras?.signal,
   });
   if (!response.ok) return { error: response.error };
-  // `/api/v1/images` returns `{ data: [{ b64_json }] }` — same as OpenAI.
+
   return extractOpenAiImages(response.json);
 };
 

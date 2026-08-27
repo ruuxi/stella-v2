@@ -10,11 +10,6 @@ export const FEEDBACK_MAX_LENGTH = 32_000;
 const APP_VERSION_MAX_LENGTH = 64;
 const PLATFORM_MAX_LENGTH = 64;
 
-// `submitFeedback` accepts both anonymous and signed-in users — the desktop
-// dropdown advertises feedback as anonymous, so we never persist the
-// submitter's identity. We still rate-limit by the auth token (or a shared
-// "anonymous" bucket as a fallback) so the endpoint can't be flooded, since
-// rate limiting is the only abuse defense available without storing identity.
 export const submitFeedback = mutation({
   args: {
     message: v.string(),

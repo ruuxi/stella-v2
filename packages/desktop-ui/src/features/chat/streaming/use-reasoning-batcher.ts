@@ -1,11 +1,3 @@
-/**
- * rAF-coalesced reasoning chunks for the local agent stream.
- *
- * Inbound `agent-reasoning` events arrive at sub-frame frequency; this
- * hook accumulates them per thread (`agentId`) and flushes once per
- * animation frame so the reducer doesn't spin on every keystroke from
- * the underlying SSE.
- */
 import { useCallback, useEffect, useRef } from "react";
 import { appendTaskReasoning } from "./task-decoration-store";
 

@@ -12,54 +12,34 @@ export interface CompactModelListEntry {
   id: string;
   label: string;
   subtitle?: string;
-  /**
-   * The id no longer resolves against the live catalog (provider
-   * disconnected, model removed). Rendered dimmed + disabled with an
-   * "Unavailable" tag so the configured value stays visible without
-   * offering a dead pick.
-   */
+
   unavailable?: boolean;
 }
 
 interface CompactStellaModelListProps {
-  /** All Stella catalog models. */
+
   stellaModels: readonly CatalogModel[];
-  /** Currently selected override id ("" means default). */
+
   value: string;
-  /**
-   * Recently used models pinned above the presets. Always includes the
-   * current selection when it isn't a curated Stella preset, so a pick
-   * from another provider or engine stays visible (and checked) here.
-   */
+
   recents?: readonly CompactModelListEntry[];
-  /** Label rendered for the default-mode entry. */
+
   defaultLabel: string;
-  /** Selection callback. Empty string ⇒ revert to default. */
+
   onSelect: (value: string) => void;
   disabled?: boolean;
-  /** True while the Stella catalog is still being fetched (no data yet). */
+
   loading?: boolean;
-  /** Non-null when the Stella catalog fetch failed. */
+
   error?: string | null;
-  /** Re-run the Stella catalog fetch (used by the failed-state retry). */
+
   onRetry?: () => void;
-  /**
-   * When true the user's plan can't override the default Stella model
-   * (anonymous, free, or Go). Non-default presets render disabled with
-   * a small "{plan} plan" footer + upgrade affordance instead of
-   * surfacing as clickable.
-   */
+
   restricted?: boolean;
   restrictedPlanLabel?: string | null;
   onUpgrade?: () => void;
 }
 
-/**
- * Collapsed model picker used by both the sidebar popover and the Settings
- * page. Shows just the curated Stella preset modes (Stella Designer,
- * Stella Builder, …) — bare `stella/<mode>` ids — so the common case is one
- * click; every other provider/model lives behind the "More options" expansion.
- */
 export function CompactStellaModelList({
   stellaModels,
   value,
@@ -81,8 +61,7 @@ export function CompactStellaModelList({
         (model) =>
           model.provider === "stella" &&
           model.id.startsWith("stella/") &&
-          // Curated tier "modes" have a bare alias id (no "/"); real managed
-          // models (stella/<provider>/<model>) live behind "More options".
+
           !model.modelId.includes("/"),
       ),
     [stellaModels],
@@ -184,8 +163,7 @@ export function CompactStellaModelList({
         presets.map((model) => {
           const selected = !isDefaultSelected && model.id === value;
           const subtitle = getStellaSubtitle(model);
-          // `allowedForAudience` is the backend's per-audience truth
-          // exposed through the Stella catalog endpoint.
+
           const rowRestricted =
             restricted && !selected && model.allowedForAudience === false;
           return (

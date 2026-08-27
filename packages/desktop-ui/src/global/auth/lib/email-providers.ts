@@ -1,9 +1,9 @@
 import { openExternalUrl } from "@/platform/electron/open-external";
 
 interface EmailProvider {
-  /** Friendly display name, e.g. "Gmail". */
+
   name: string;
-  /** URL to open the provider's webmail inbox. */
+
   url: string;
 }
 
@@ -43,11 +43,6 @@ const PROVIDER_BY_DOMAIN: Record<string, EmailProvider> = {
   "tuta.io": { name: "Tuta Mail", url: "https://app.tuta.com" },
 };
 
-/**
- * Detect a known webmail provider from an email address. Returns null when the
- * domain isn't a recognized consumer webmail (e.g. custom/business domains
- * where we can't guess where the user reads their mail).
- */
 export function detectEmailProvider(email: string): EmailProvider | null {
   const trimmed = email.trim().toLowerCase();
   const at = trimmed.lastIndexOf("@");

@@ -16,11 +16,7 @@ export type ChatContextFile = {
   size: number;
   mimeType: string;
   dataUrl: string;
-  /**
-   * On-disk source path when the attachment came from a disk-backed File
-   * (picker / drag-drop). The composer chip uses it to open the original
-   * in its default app for preview; absent for synthetic files.
-   */
+
   path?: string;
 };
 
@@ -61,18 +57,9 @@ export type ChatContext = {
     completedAtMs?: number;
     lastUpdatedAtMs?: number;
   } | null;
-  /**
-   * Legacy single-slot mirror of the most recent selected area. Kept in
-   * sync with the last entry of `appSelections` so single-slot readers
-   * (capture heuristics, older payload producers) keep working; new code
-   * should read `appSelections`.
-   */
+
   appSelection?: ChatAppSelection | null;
-  /**
-   * All selected-area contexts attached to the composer, in attach
-   * order. Selections accumulate until sent or individually removed,
-   * like attachments.
-   */
+
   appSelections?: ChatAppSelection[];
   windowContextEnabled?: boolean;
   windowAxTree?: string | null;
@@ -82,28 +69,13 @@ export type ChatContext = {
     dataUrl: string;
     width: number;
     height: number;
-    /**
-     * Downscaled data URL for chip thumbnails and message-row rendering.
-     * Full-resolution pixels are reserved for the model request —
-     * rendering them in chips forces Chromium to decode multi-megabyte
-     * images for ~50px thumbs.
-     */
+
     previewUrl?: string;
-    /**
-     * Absolute on-disk path for picker/drag-drop attachments. When set,
-     * the renderer never loads the original bytes — `dataUrl` holds only
-     * the preview, and the runtime worker reads + resizes the original
-     * from disk at send time, keeping attach instant and the send IPC
-     * payload tiny.
-     */
+
     filePath?: string;
   }[];
   files?: ChatContextFile[];
-  /**
-   * Long text the user pasted into the composer, lifted out of the
-   * textarea into collapsed "Pasted text" chips. Each entry is sent to
-   * the agent as user-provided content for the turn.
-   */
+
   pastedTexts?: string[];
   capturePending?: boolean;
   windowScreenshot?: {
@@ -178,7 +150,7 @@ export type DevProject = {
   name: string;
   path: string;
   lastActivity: number;
-  /** Detected languages/frameworks, e.g. ["TypeScript", "React", "Convex"]. */
+
   tech?: string[];
 };
 
@@ -237,10 +209,6 @@ export type LocalCronSchedule =
   | { kind: "every"; everyMs: number; anchorMs?: number }
   | { kind: "cron"; expr: string; tz?: string };
 
-/**
- * Three-tier cron-fire delivery contract. See
- * `runtime/kernel/shared/scheduling.ts` for the canonical doc-comment.
- */
 export type LocalCronPayload =
   | { kind: "notify"; text: string }
   | { kind: "script"; scriptPath: string }

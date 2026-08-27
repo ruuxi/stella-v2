@@ -1,12 +1,3 @@
-/**
- * Fire-time behavior of the three trigger kinds:
- *
- *  - reminder (`notify`) — direct message + notification, no runner
- *  - task — stored intent delivered as an orchestrator turn
- *  - watch — deterministic sensor: silent when unchanged, orchestrator
- *    escalation on diff or sensor failure, busy-parking of escalations
- */
-
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -256,9 +247,7 @@ describe("watch trigger", () => {
     );
     const { service } = await makeService(runner);
     try {
-      // The script self-destructs its marker after one run: a second
-      // execution would print nothing, so a drained escalation proves the
-      // scheduler did NOT re-run it.
+
       const scriptPath = await writeScript(
         service,
         "one-shot-diff.ts",

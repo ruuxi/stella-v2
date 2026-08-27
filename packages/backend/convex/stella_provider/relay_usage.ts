@@ -1,11 +1,5 @@
 import type { ManagedGatewayProvider } from "../lib/managed_gateway";
 
-/**
- * Normalized relay usage. `inputTokens` is gross (includes cached reads and
- * cache writes) and `outputTokens` is gross (includes reasoning tokens),
- * matching the contract `computeUsageCostMicroCents` expects. Providers
- * report these differently, so each parser converts into this shape.
- */
 export type RelayUsage = {
   inputTokens?: number;
   outputTokens?: number;
@@ -13,7 +7,7 @@ export type RelayUsage = {
   cachedInputTokens?: number;
   cacheWriteInputTokens?: number;
   reasoningTokens?: number;
-  /** Exact upstream-reported spend, normalized to Stella's micro-cent unit. */
+
   costMicroCents?: number;
   model?: string;
 };
@@ -49,10 +43,7 @@ const parseOpenAIUsage = (usage: unknown): RelayUsage => {
     inputTokens: toInt(record.prompt_tokens ?? record.input_tokens),
     outputTokens: toInt(record.completion_tokens ?? record.output_tokens),
     totalTokens: toInt(record.total_tokens),
-    // DeepSeek reports cache hits at the top level as `prompt_cache_hit_tokens`
-    // (with `prompt_tokens` already gross) instead of inside
-    // `prompt_tokens_details`. Without this the chat-completions path would
-    // bill every cached read at the full uncached rate.
+
     cachedInputTokens:
       toInt(promptDetails?.cached_tokens) ??
       toInt(record.prompt_cache_hit_tokens),
@@ -69,7 +60,7 @@ const parseCrofCost = (usage: unknown): Pick<RelayUsage, "costMicroCents"> => {
   if (typeof costUsd !== "number" || !Number.isFinite(costUsd) || costUsd < 0) {
     return {};
   }
-  // 1 USD = 100 cents = 100,000,000 micro-cents.
+
   return { costMicroCents: Math.round(costUsd * 100_000_000) };
 };
 
@@ -88,14 +79,6 @@ const parseResponsesUsage = (usage: unknown): RelayUsage => {
   };
 };
 
-/**
- * Anthropic reports `input_tokens` net of both cache buckets. Left as-is it
- * gets discounted a second time by `computeUsageCostMicroCents` — clamping to
- * zero on any cached conversation — so `grossAnthropicInput` folds the cache
- * counts back in once the stream's fields have merged. Extended thinking is
- * already inside `output_tokens` and is never broken out, so there is no
- * reasoning bucket to report.
- */
 const parseAnthropicUsage = (usage: unknown): RelayUsage => {
   const record = asRecord(usage);
   if (!record) return {};
@@ -107,11 +90,6 @@ const parseAnthropicUsage = (usage: unknown): RelayUsage => {
   };
 };
 
-/**
- * Applied after merging, not per event: `message_start` carries the cache
- * counts while `message_delta` may repeat `input_tokens` without them, so
- * converting per event could drop the cache half of the sum.
- */
 const grossAnthropicInput = (usage: RelayUsage): RelayUsage =>
   usage.inputTokens === undefined
     ? usage
@@ -129,10 +107,7 @@ const parseGoogleUsage = (usage: unknown): RelayUsage => {
   const input = toInt(record.promptTokenCount);
   const candidates = toInt(record.candidatesTokenCount);
   const reasoning = toInt(record.thoughtsTokenCount);
-  // Gemini reports `candidatesTokenCount` exclusive of `thoughtsTokenCount`
-  // (totalTokenCount sums the two). Roll thinking back into the output count
-  // so the calculator's `output - reasoning` yields the visible completion
-  // rather than clamping to zero and billing the whole response at nothing.
+
   const output =
     candidates === undefined && reasoning === undefined
       ? undefined
@@ -163,8 +138,7 @@ function createSseParser(
       .map((line) => line.slice(5).trimStart())
       .join("\n")
       .trim();
-    // Non-streaming relay responses are plain JSON bodies with no SSE
-    // framing; parse the raw payload so their usage is still metered.
+
     const payload = data || rawEvent.trim();
     if (!payload || payload === "[DONE]") return;
     try {
@@ -174,7 +148,7 @@ function createSseParser(
         usage = mergeUsage(usage, parseEvent(record));
       }
     } catch {
-      // Ignore partial or non-JSON provider comments.
+
     }
   };
 
@@ -234,12 +208,7 @@ export function createRelayUsageParser(
   }
 
   if (provider === "deepseek") {
-    // DeepSeek serves both APIs, so the wire shape isn't fixed by the
-    // provider. Streaming Responses events nest usage under `response`;
-    // non-streaming Responses bodies carry it at the top level with the same
-    // `input_tokens` field names; chat completions use `prompt_tokens`.
-    // Choose the parser from the usage payload itself rather than the
-    // envelope, so a non-streamed Responses reply still reports cache hits.
+
     return createSseParser((event) => {
       const response = asRecord(event.response);
       const usage = asRecord(response?.usage ?? event.usage);
@@ -298,13 +267,7 @@ export function createRelayUsageParser(
   }
 
   if (provider === "openrouter") {
-    // OpenRouter serves both APIs: chat completions for most models and the
-    // Responses API for Muse Spark 1.2 Contributor (the Stella default).
-    // Streaming Responses events nest usage under `response` with
-    // input_tokens/output_tokens (+ reasoning in output_tokens_details);
-    // chat completions use prompt_tokens/completion_tokens at the top
-    // level. Pick the parser from the usage payload itself, mirroring the
-    // deepseek handling.
+
     return createSseParser((event) => {
       const response = asRecord(event.response);
       const usage = asRecord(response?.usage ?? event.usage);

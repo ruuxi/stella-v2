@@ -8,11 +8,6 @@ const LOCAL_CHAT_THREAD_IDS: ReadonlySet<string> = new Set<ChatThreadId>([
   "carplay-computer",
 ]);
 
-/**
- * Local transcript keys are not Convex conversation IDs. Keep them out of
- * managed voice requests while preserving a real cloud/desktop conversation
- * ID when one is available.
- */
 export const managedVoiceConversationId = (
   conversationId: string,
 ): string | undefined => {
@@ -73,7 +68,6 @@ const UNSUPPORTED_REALTIME_ROOT_SCHEMA_KEYS = [
   "not",
 ] as const;
 
-/** Match the desktop/backend Realtime contract before tools reach OpenAI. */
 export const toRealtimeProviderTool = (
   tool: RealtimeToolDefinition,
 ): RealtimeToolDefinition => {
@@ -230,9 +224,7 @@ export const buildMobileRealtimeSessionUpdate = (options: {
     instructions: options.instructions,
     tools: options.tools,
     tool_choice: options.execution === "computer" ? "auto" : "none",
-    // The model cannot be changed by session.update, and the output voice was
-    // already selected when the backend minted the client secret. Resending
-    // either risks rejecting the whole update instead of applying its tools.
+
     audio: {
       input: {
         turn_detection: {
@@ -303,9 +295,7 @@ export const findVoiceActionCompletion = (
       [...spawnedTasks, ...referencedTasks].map((task) => [task.id, task]),
     ).values(),
   ];
-  // The journal and the separate canonical task query can arrive in either
-  // order. A completed spawn tool is proof that a task row is expected, so do
-  // not permanently consume the voice request during that propagation gap.
+
   if (completedSpawnCount > spawnedTasks.length) return null;
   if (
     referencedTaskIds.size > 0 &&

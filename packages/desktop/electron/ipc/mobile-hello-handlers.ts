@@ -9,9 +9,9 @@ export const IPC_MOBILE_HELLO = "mobile:hello" as const;
 
 type MobileHelloHandlersOptions = {
   localChatHistoryService: LocalChatHistoryService;
-  /** Active conversation id from renderer UI state (may be empty pre-boot). */
+
   getActiveConversationId: () => string | null | undefined;
-  /** Renderer localStorage mirror (ui-state KV snapshot). */
+
   getUiStateSnapshot: () => Record<string, string>;
   assertPrivilegedSender: (
     event: IpcMainInvokeEvent,
@@ -64,19 +64,6 @@ export const runMobileHello = async (
   };
 };
 
-/**
- * One-RTT connect endpoint for the mobile bridge. Folds what used to take
- * four serialized round-trips from the phone — `/bridge/bootstrap` (developer
- * artifacts flag), `ui:getState` (conversation id),
- * `localChat:getOrCreateDefaultConversationId` (fallback id) and
- * `localChat:syncMessages` (delta) — into a single invoke, and advertises the
- * desktop's optional bridge features so the phone can gate the binary lane,
- * envelope compression and localChat push.
- *
- * Additive: phones that predate it keep the multi-RTT path; phones that call
- * it against an older desktop get "Unknown IPC channel"/"Disallowed IPC
- * channel" and fall back.
- */
 export const registerMobileHelloHandlers = (
   options: MobileHelloHandlersOptions,
 ) => {

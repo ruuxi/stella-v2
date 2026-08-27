@@ -15,11 +15,6 @@ const visibilitySql = (payloadExpression: string) => `
   END
 `;
 
-/**
- * Materialize chat visibility once at write time so every transcript page is
- * an indexed keyset query. SQLite stays authoritative; this is a derived
- * projection maintained by triggers and safely rebuilt for existing rows.
- */
 export function ensureChatUiVisibilityIndex(db: SqliteDatabase): void {
   const columns = db.prepare("PRAGMA table_info(message)").all() as Array<{
     name?: string;

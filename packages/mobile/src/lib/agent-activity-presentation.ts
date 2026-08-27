@@ -3,25 +3,6 @@ import type { Colors } from "../theme/colors";
 
 type AgentWorkPayload = Extract<MobileDisplayPayload, { kind: "agent-work" }>;
 
-/**
- * Ink-strength contract for the minimal agent row + file pills — mirrors the
- * desktop refinements in `agent-activity-row.css` on the mobile three-step
- * text ladder (textStrong / text / textMuted ≈ desktop strong / base / weak):
- *
- * - `glyphInk`: the status glyph (star / check / arrow) renders SOLID
- *   full-strength (`--text-strong`, no opacity dimming) — only the
- *   description keeps the muted/shimmer treatment.
- * - `titleInk`: the settled description steps up one notch from muted to the
- *   standard body ink (`--text-base`) — comfortably readable, still clearly
- *   secondary to main-chat text.
- * - `runningRestAlpha`: the running shimmer's resting base over
- *   `textStrong`, matching desktop `--text-shimmer-from: --text-base`
- *   (an 80% mix of the foreground) so settled and running rows agree.
- * - `pillBorderInk`: the file-pill outline tracks the label ink — clearly
- *   visible (the old panel-surface hairline all but disappeared) but one
- *   step below the `text` label so it never outshines it (desktop:
- *   `--text-weaker` under a `--text-base` label).
- */
 export const AGENT_ACTIVITY_INK = {
   glyphInk: "textStrong",
   titleInk: "text",
@@ -34,34 +15,19 @@ export const AGENT_ACTIVITY_INK = {
   pillBorderInk: keyof Colors;
 };
 
-/** What the minimal agent row's leading slot shows. */
 export type AgentActivityGlyph = "star" | "check" | "arrow";
 
 export type AgentActivityRowModel = {
-  /** Row is live — the title shimmers (the star stays static; no spinner). */
+
   working: boolean;
-  /**
-   * Leading-slot status tell, mirroring desktop `BackgroundWorkCard`:
-   * star while running (the shimmer alone carries progress), an arrow for a
-   * settled `send_input` follow-up, a quiet grey check once done, and the
-   * star again for other settled rows — failed/canceled stay plain, with no
-   * status glyph.
-   */
+
   glyph: AgentActivityGlyph;
-  /** The task DESCRIPTION — the only text on the row face. */
+
   title: string;
 };
 
-/** Produced-file pills shown before the "+N more" overflow chip — mirrors
- *  the desktop PILL_CAP (and the pre-redesign mobile card's cap). */
 export const FILE_PILL_CAP = 5;
 
-/**
- * The produced-file chip row under a settled agent row: up to
- * `FILE_PILL_CAP` pills, then a "+N more" overflow chip that expands the
- * full list. Pure — keeps the cap/overflow decisions testable away from the
- * component tree.
- */
 export const deriveFilePillRow = <T>(
   files: readonly T[],
   expanded: boolean,
@@ -73,10 +39,6 @@ export const deriveFilePillRow = <T>(
         hiddenCount: files.length - FILE_PILL_CAP,
       };
 
-/**
- * Presentation model for one minimal agent activity row. Pure — keeps the
- * glyph/shimmer decisions testable away from the component tree.
- */
 export const deriveAgentActivityRow = (
   payload: Pick<AgentWorkPayload, "state" | "title" | "followUp" | "failed">,
 ): AgentActivityRowModel => {

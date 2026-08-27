@@ -100,12 +100,6 @@ export const errorResponse = (
   origin?: string | null,
 ): Response => jsonResponse({ error: message }, status, origin);
 
-/**
- * Wraps an HTTP handler with automatic CORS rejection checking and origin extraction.
- * The handler receives the origin already extracted and its response is automatically
- * returned as-is (the handler is responsible for calling withCors/jsonResponse/errorResponse
- * with the origin).
- */
 export const handleCorsRequest = async (
   request: Request,
   handler: (origin: string | null) => Promise<Response>,
@@ -116,10 +110,6 @@ export const handleCorsRequest = async (
   return handler(origin);
 };
 
-/**
- * Standard CORS preflight handler for use by route modules.
- * Import `httpAction` from `../_generated/server` in each module and wrap this.
- */
 export const corsPreflightHandler = async (
   request: Request,
 ): Promise<Response> => {

@@ -64,7 +64,6 @@ export type ChatTemplateKwargValue =
       omitWhenOff?: boolean;
     };
 
-/** Token budgets for each thinking level (token-based providers only) */
 export interface ThinkingBudgets {
   minimal?: number;
   low?: number;
@@ -72,7 +71,6 @@ export interface ThinkingBudgets {
   high?: number;
 }
 
-// Base options all providers share
 export type CacheRetention = "none" | "short" | "long";
 
 export type Transport = "sse" | "websocket" | "websocket-cached" | "auto";
@@ -92,131 +90,62 @@ export interface ProviderResponse {
 export interface StreamOptions {
   temperature?: number;
   maxTokens?: number;
-  /**
-   * Explicit "no output-token cap" mode. When true, {@link buildBaseOptions}
-   * skips the model-derived default so the outgoing request carries NO
-   * max-tokens field at all (`max_tokens` / `max_completion_tokens` /
-   * `max_output_tokens`) and provider defaults govern output length. Callers
-   * that want a cap pass `maxTokens` instead; this flag is for callers (e.g.
-   * Recall) that must not set the field on any provider.
-   */
+
   omitMaxTokens?: boolean;
   signal?: AbortSignal;
   apiKey?: string;
-  /**
-   * Refreshes a short-lived API key after an auth failure.
-   *
-   * Providers that support retrying auth failures call this at most once for a
-   * request and use the returned key for the retry.
-   */
+
   refreshApiKey?: () => Promise<string | undefined> | string | undefined;
-  /**
-   * Provider-specific extra body fields forwarded by the Stella runtime
-   * proxy provider. Other providers ignore this.
-   */
+
   extraBody?: Record<string, unknown>;
-  /**
-   * Preferred transport for providers that support multiple transports.
-   * Providers that do not support this option ignore it.
-   */
+
   transport?: Transport;
-  /**
-   * Provider request tier. ChatGPT/Codex maps Stella's Standard/Fast choice
-   * to `default`/`priority`; providers without service tiers ignore it.
-   */
+
   serviceTier?: ServiceTier;
-  /**
-   * Prompt cache retention preference. Providers map this to their supported values.
-   * Default: "short".
-   */
+
   cacheRetention?: CacheRetention;
-  /**
-   * Optional session identifier for providers that support session-based caching.
-   * Providers can use this to enable prompt caching, request routing, or other
-   * session-aware features. Ignored by providers that don't support it.
-   */
+
   sessionId?: string;
-  /**
-   * Optional prompt-cache routing key. This can be broader than sessionId so
-   * sibling agents share one provider cache shard without sharing transport
-   * sessions or other per-agent resources.
-   */
+
   promptCacheKey?: string;
-  /**
-   * Optional callback for inspecting or replacing provider payloads before sending.
-   * Return undefined to keep the payload unchanged.
-   */
+
   onPayload?: (
     payload: unknown,
     model: Model<Api>,
   ) => unknown | undefined | Promise<unknown | undefined>;
-  /**
-   * Optional callback invoked after an HTTP response is received and before
-   * its body stream is consumed.
-   */
+
   onResponse?: (
     response: ProviderResponse,
     model: Model<Api>,
   ) => void | Promise<void>;
-  /**
-   * Optional callback fired before each backoff sleep when the provider
-   * adapter retries a transient failure. Use to surface a transient
-   * "trying again" status to the UI. Not all providers wire this up.
-   */
+
   onProviderRetry?: (info: {
     attempt: number;
     delayMs: number;
     reason?: string;
   }) => void;
-  /**
-   * Optional custom HTTP headers to include in API requests.
-   * Merged with provider defaults; can override default headers.
-   * Not supported by all providers (e.g., AWS Bedrock uses SDK auth).
-   */
+
   headers?: Record<string, string>;
-  /**
-   * HTTP request timeout in milliseconds for providers/SDKs that support it.
-   */
+
   timeoutMs?: number;
-  /**
-   * Maximum retry attempts for providers/SDKs that support client-side retries.
-   */
+
   maxRetries?: number;
-  /**
-   * Maximum delay in milliseconds to wait for a retry when the server requests a long wait.
-   * If the server's requested delay exceeds this value, the request fails immediately
-   * with an error containing the requested delay, allowing higher-level retry logic
-   * to handle it with user visibility.
-   * Default: 60000 (60 seconds). Set to 0 to disable the cap.
-   */
+
   maxRetryDelayMs?: number;
-  /**
-   * Optional metadata to include in API requests.
-   * Providers extract the fields they understand and ignore the rest.
-   * For example, Anthropic uses `user_id` for abuse tracking and rate limiting.
-   */
+
   metadata?: Record<string, unknown>;
 }
 
 export type ProviderStreamOptions = StreamOptions & Record<string, unknown>;
 
-// Unified options with reasoning passed to streamSimple() and completeSimple()
 export interface SimpleStreamOptions extends StreamOptions {
   reasoning?: ThinkingLevel;
-  /** Request no reasoning when the selected provider/model supports it. */
+
   disableReasoning?: boolean;
-  /** Custom token budgets for thinking levels (token-based providers only) */
+
   thinkingBudgets?: ThinkingBudgets;
 }
 
-// Generic StreamFunction with typed options.
-//
-// Contract:
-// - Must return an AssistantMessageEventStream.
-// - Once invoked, request/model/runtime failures should be encoded in the
-//   returned stream, not thrown.
-// - Error termination must produce an AssistantMessage with stopReason
-//   "error" or "aborted" and errorMessage, emitted via the stream protocol.
 export type StreamFunction<
   TApi extends Api = Api,
   TOptions extends StreamOptions = StreamOptions,
@@ -235,24 +164,22 @@ export interface TextSignatureV1 {
 export interface TextContent {
   type: "text";
   text: string;
-  textSignature?: string; // e.g., for OpenAI responses, message metadata (legacy id string or TextSignatureV1 JSON)
+  textSignature?: string;
 }
 
 export interface ThinkingContent {
   type: "thinking";
   thinking: string;
-  thinkingSignature?: string; // e.g., for OpenAI responses, the reasoning item ID
-  /** When true, the thinking content was redacted by safety filters. The opaque
-   *  encrypted payload is stored in `thinkingSignature` so it can be passed back
-   *  to the API for multi-turn continuity. */
+  thinkingSignature?: string;
+
   redacted?: boolean;
 }
 
 export interface ImageContent {
   type: "image";
-  data: string; // base64 encoded image data
-  mimeType: string; // e.g., "image/jpeg", "image/png"
-  /** Durable local copy that text-only history can expose to `Read`. */
+  data: string;
+  mimeType: string;
+
   sourcePath?: string;
 }
 
@@ -261,13 +188,13 @@ export interface ToolCall {
   id: string;
   name: string;
   arguments: Record<string, any>;
-  thoughtSignature?: string; // Google-specific: opaque signature for reusing thought context
+  thoughtSignature?: string;
 }
 
 export interface Usage {
   input: number;
   output: number;
-  /** Provider-reported reasoning/thinking tokens. Included in `output`. */
+
   reasoning?: number;
   cacheRead: number;
   cacheWrite: number;
@@ -286,7 +213,7 @@ export type StopReason = "stop" | "length" | "toolUse" | "error" | "aborted";
 export interface UserMessage {
   role: "user";
   content: string | (TextContent | ImageContent)[];
-  timestamp: number; // Unix timestamp in milliseconds
+  timestamp: number;
 }
 
 export interface AssistantMessage {
@@ -295,35 +222,27 @@ export interface AssistantMessage {
   api: Api;
   provider: Provider;
   model: string;
-  responseModel?: string; // Concrete upstream model when different from the requested model.
-  responseId?: string; // Provider-specific response/message identifier when the upstream API exposes one
-  diagnostics?: AssistantMessageDiagnostic[]; // Redacted provider/runtime diagnostics for failures and recoveries.
+  responseModel?: string;
+  responseId?: string;
+  diagnostics?: AssistantMessageDiagnostic[];
   usage: Usage;
   stopReason: StopReason;
   errorMessage?: string;
-  /**
-   * Provider-requested wait before retrying, in ms, parsed from the failing
-   * response's `Retry-After` / `retry-after-ms` header. The raw error (and its
-   * headers) is discarded when a failure becomes an `errorMessage` string, so
-   * this is how the run-level retry in `agent-run-retry` learns how long a
-   * rate-limited provider actually wants us to back off.
-   */
+
   retryAfterMs?: number;
-  timestamp: number; // Unix timestamp in milliseconds
+  timestamp: number;
 }
 
 export interface ToolResultMessage<TDetails = any> {
   role: "toolResult";
   toolCallId: string;
   toolName: string;
-  content: (TextContent | ImageContent)[]; // Supports text and images
+  content: (TextContent | ImageContent)[];
   details?: TDetails;
-  /**
-   * Optional tool-specific model-facing budget. Durable content remains raw.
-   */
+
   modelOutputTokens?: number;
   isError: boolean;
-  timestamp: number; // Unix timestamp in milliseconds
+  timestamp: number;
 }
 
 export type Message = UserMessage | AssistantMessage | ToolResultMessage;
@@ -342,14 +261,6 @@ export interface Context {
   tools?: Tool[];
 }
 
-/**
- * Event protocol for AssistantMessageEventStream.
- *
- * Streams should emit `start` before partial updates, then terminate with either:
- * - `done` carrying the final successful AssistantMessage, or
- * - `error` carrying the final AssistantMessage with stopReason "error" or "aborted"
- *   and errorMessage.
- */
 export type AssistantMessageEvent =
   | { type: "start"; partial: AssistantMessage }
   | { type: "text_start"; contentIndex: number; partial: AssistantMessage }
@@ -402,47 +313,28 @@ export type AssistantMessageEvent =
       error: AssistantMessage;
     };
 
-/**
- * Compatibility settings for OpenAI-compatible completions APIs.
- * Use this to override URL-based auto-detection for custom providers.
- */
 export interface OpenAICompletionsCompat {
-  /** Whether the provider supports the `store` field. Default: auto-detected from URL. */
+
   supportsStore?: boolean;
-  /** Whether the provider supports the `developer` role (vs `system`). Default: auto-detected from URL. */
+
   supportsDeveloperRole?: boolean;
-  /** Whether the provider supports `reasoning_effort`. Default: auto-detected from URL. */
+
   supportsReasoningEffort?: boolean;
-  /** Whether the provider supports `stream_options: { include_usage: true }` for token usage in streaming responses. Default: true. */
+
   supportsUsageInStreaming?: boolean;
-  /** Which field to use for max tokens. Default: auto-detected from URL. */
+
   maxTokensField?: "max_completion_tokens" | "max_tokens";
-  /** Whether tool results require the `name` field. Default: auto-detected from URL. */
+
   requiresToolResultName?: boolean;
-  /** Whether a user message after tool results requires an assistant message in between. Default: auto-detected from URL. */
+
   requiresAssistantAfterToolResult?: boolean;
-  /** Whether thinking blocks must be converted to text blocks with <thinking> delimiters. Default: auto-detected from URL. */
+
   requiresThinkingAsText?: boolean;
-  /** Whether all replayed assistant messages must include an empty reasoning_content field when reasoning is enabled. Default: auto-detected from URL. */
+
   requiresReasoningContentOnAssistantMessages?: boolean;
-  /**
-   * Whether to echo a prior assistant turn's reasoning text back onto the
-   * outgoing request under the field it arrived on (`reasoning` /
-   * `reasoning_content`). Some local, self-hosted OpenAI-compatible servers
-   * (llama.cpp, gpt-oss) maintain chain-of-thought by replaying reasoning, so
-   * the streamed reasoning is tagged with its source field name (used as a
-   * pseudo-signature) and replayed here.
-   *
-   * This must stay OFF for cloud reasoning models (OpenAI, OpenRouter, …):
-   * they manage reasoning server-side (via `reasoning_effort` and, for
-   * cross-turn continuity, opaque `reasoning_details`), and replaying a
-   * plaintext `reasoning` field derived from that pseudo-signature is invalid
-   * — it makes the provider reject the request ("Provider returned error"),
-   * which is what broke sub-agents on a mid-session switch to an OpenRouter
-   * OpenAI model. Default: auto-detected (only local/self-hosted endpoints).
-   */
+
   replayReasoningContentField?: boolean;
-  /** Format for reasoning/thinking parameter. "openai" uses reasoning_effort, "openrouter" uses reasoning: { effort }, "deepseek" uses thinking: { type } plus reasoning_effort, "zai" uses top-level enable_thinking: boolean, "qwen" uses top-level enable_thinking: boolean, and "qwen-chat-template" uses chat_template_kwargs.enable_thinking. Default: "openai". */
+
   thinkingFormat?:
     | "openai"
     | "openrouter"
@@ -451,142 +343,120 @@ export interface OpenAICompletionsCompat {
     | "qwen"
     | "chat-template"
     | "qwen-chat-template";
-  /** Static or thinking-derived values sent in `chat_template_kwargs`. */
+
   chatTemplateKwargs?: Record<string, ChatTemplateKwargValue>;
-  /** OpenRouter-specific routing preferences. Only used when baseUrl points to OpenRouter. */
+
   openRouterRouting?: OpenRouterRouting;
-  /** Vercel AI Gateway routing preferences. Only used when baseUrl points to Vercel AI Gateway. */
+
   vercelGatewayRouting?: VercelGatewayRouting;
-  /** Whether z.ai supports top-level `tool_stream: true` for streaming tool call deltas. Default: false. */
+
   zaiToolStream?: boolean;
-  /** Whether the provider supports the `strict` field in tool definitions. Default: true. */
+
   supportsStrictMode?: boolean;
-  /** Cache control convention for prompt caching. */
+
   cacheControlFormat?: "anthropic";
-  /** Whether to send known session-affinity headers from `options.sessionId` when caching is enabled. Default: false. */
+
   sendSessionAffinityHeaders?: boolean;
-  /** Whether the provider supports long prompt cache retention. Default: true. */
+
   supportsLongCacheRetention?: boolean;
-  // dormant: nothing reads this since tool_search removal; kept only so
-  // generated model catalogs carrying the field still validate.
+
   deferredToolsMode?: "kimi";
 }
 
-/** Compatibility settings for OpenAI Responses APIs. */
 export interface OpenAIResponsesCompat {
-  /** Whether to send the OpenAI `session_id` cache-affinity header from `options.sessionId` when caching is enabled. Default: true. */
+
   sendSessionIdHeader?: boolean;
-  /** Whether the provider supports `prompt_cache_retention: "24h"`. Default: true. */
+
   supportsLongCacheRetention?: boolean;
-  // dormant: nothing reads this since tool_search removal; kept only so
-  // generated model catalogs carrying the field still validate.
+
   supportsToolSearch?: boolean;
 }
 
-/** Compatibility settings for Anthropic Messages-compatible APIs. */
 export interface AnthropicMessagesCompat {
-  /**
-   * Whether the provider accepts per-tool `eager_input_streaming`.
-   * When false, the Anthropic provider omits `tools[].eager_input_streaming`
-   * and sends the legacy fine-grained tool streaming beta header.
-   * Default: true.
-   */
+
   supportsEagerToolInputStreaming?: boolean;
-  /** Whether the provider supports Anthropic long cache retention. Default: true. */
+
   supportsLongCacheRetention?: boolean;
-  // dormant: nothing reads this since tool_search removal; kept only so
-  // generated model catalogs carrying the field still validate.
+
   supportsToolReferences?: boolean;
 }
 
-/**
- * OpenRouter provider routing preferences.
- * Controls which upstream providers OpenRouter routes requests to.
- * Sent as the `provider` field in the OpenRouter API request body.
- * @see https://openrouter.ai/docs/guides/routing/provider-selection
- */
 export interface OpenRouterRouting {
-  /** Whether to allow backup providers to serve requests. Default: true. */
+
   allow_fallbacks?: boolean;
-  /** Whether to filter providers to only those that support all parameters in the request. Default: false. */
+
   require_parameters?: boolean;
-  /** Data collection setting. "allow" (default): allow providers that may store/train on data. "deny": only use providers that don't collect user data. */
+
   data_collection?: "deny" | "allow";
-  /** Whether to restrict routing to only ZDR (Zero Data Retention) endpoints. */
+
   zdr?: boolean;
-  /** Whether to restrict routing to only models that allow text distillation. */
+
   enforce_distillable_text?: boolean;
-  /** An ordered list of provider names/slugs to try in sequence, falling back to the next if unavailable. */
+
   order?: string[];
-  /** List of provider names/slugs to exclusively allow for this request. */
+
   only?: string[];
-  /** List of provider names/slugs to skip for this request. */
+
   ignore?: string[];
-  /** A list of quantization levels to filter providers by (e.g., ["fp16", "bf16", "fp8", "fp6", "int8", "int4", "fp4", "fp32"]). */
+
   quantizations?: string[];
-  /** Sorting strategy. Can be a string (e.g., "price", "throughput", "latency") or an object with `by` and `partition`. */
+
   sort?:
     | string
     | {
-        /** The sorting metric: "price", "throughput", "latency". */
+
         by?: string;
-        /** Partitioning strategy: "model" (default) or "none". */
+
         partition?: string | null;
       };
-  /** Maximum price per million tokens (USD). */
+
   max_price?: {
-    /** Price per million prompt tokens. */
+
     prompt?: number | string;
-    /** Price per million completion tokens. */
+
     completion?: number | string;
-    /** Price per image. */
+
     image?: number | string;
-    /** Price per audio unit. */
+
     audio?: number | string;
-    /** Price per request. */
+
     request?: number | string;
   };
-  /** Preferred minimum throughput (tokens/second). Can be a number (applies to p50) or an object with percentile-specific cutoffs. */
+
   preferred_min_throughput?:
     | number
     | {
-        /** Minimum tokens/second at the 50th percentile. */
+
         p50?: number;
-        /** Minimum tokens/second at the 75th percentile. */
+
         p75?: number;
-        /** Minimum tokens/second at the 90th percentile. */
+
         p90?: number;
-        /** Minimum tokens/second at the 99th percentile. */
+
         p99?: number;
       };
-  /** Preferred maximum latency (seconds). Can be a number (applies to p50) or an object with percentile-specific cutoffs. */
+
   preferred_max_latency?:
     | number
     | {
-        /** Maximum latency in seconds at the 50th percentile. */
+
         p50?: number;
-        /** Maximum latency in seconds at the 75th percentile. */
+
         p75?: number;
-        /** Maximum latency in seconds at the 90th percentile. */
+
         p90?: number;
-        /** Maximum latency in seconds at the 99th percentile. */
+
         p99?: number;
       };
 }
 
-/**
- * Vercel AI Gateway routing preferences.
- * Controls which upstream providers the gateway routes requests to.
- * @see https://vercel.com/docs/ai-gateway/models-and-providers/provider-options
- */
 export interface VercelGatewayRouting {
-  /** List of provider slugs to exclusively use for this request (e.g., ["bedrock", "anthropic"]). */
+
   only?: string[];
-  /** List of provider slugs to try in order (e.g., ["anthropic", "openai"]). */
+
   order?: string[];
 }
 
-// Model interface for the unified model system
 export interface Model<TApi extends Api> {
   id: string;
   name: string;
@@ -594,27 +464,21 @@ export interface Model<TApi extends Api> {
   provider: Provider;
   baseUrl: string;
   reasoning: boolean;
-  /**
-   * Maps Stella thinking levels to provider/model-specific values.
-   * Missing keys use provider defaults. null marks a level as unsupported.
-   */
+
   thinkingLevelMap?: ThinkingLevelMap;
   input: ("text" | "image")[];
   cost: {
-    input: number; // $/million tokens
-    output: number; // $/million tokens
-    cacheRead: number; // $/million tokens
-    cacheWrite: number; // $/million tokens
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
   };
   contextWindow: number;
   maxTokens: number;
-  /**
-   * Model-facing tool-output budget. The runtime applies this only while
-   * assembling a provider request. Defaults to 10,000 estimated tokens.
-   */
+
   toolOutputTokenLimit?: number;
   headers?: Record<string, string>;
-  /** Compatibility overrides for OpenAI-compatible APIs. If not set, auto-detected from baseUrl. */
+
   compat?: TApi extends "openai-completions"
     ? OpenAICompletionsCompat
     : TApi extends

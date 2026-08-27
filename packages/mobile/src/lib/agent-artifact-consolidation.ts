@@ -17,28 +17,6 @@ export const isAgentWorkArtifact = (
   artifact: ChatArtifact,
 ): artifact is AgentWorkChatArtifact => artifact.payload.kind === "agent-work";
 
-/**
- * Mobile port of the desktop agent-artifact consolidation semantics
- * (desktop: `path-to-viewer.ts` `isNoiseProducedPath` / `isDeclaredOutputPath`
- * + `agent-completion.ts` `rankDeliverablesFirst`). Files a background agent
- * produces fold INTO that turn's agent-work card as pills — revealed together
- * once the card settles — instead of popping as loose file cards while the
- * agent is still running.
- *
- * The desktop↔mobile bridge ships each synced row's artifacts as loose
- * display payloads with NO per-agent attribution (the `agent-work` payload
- * carries no file list), so consolidation here is row-scoped: a row that
- * carries an agent-work card treats its file artifacts as that card's
- * deliverables. Agents spawned on different turns ride different rows, which
- * keeps attribution correct across concurrent agents at the granularity
- * mobile can represent at the row level. Inline rendering later projects that
- * row into one independently keyed card per agent.
- */
-
-/**
- * Declared deliverables home (`~/.stella/outputs/**`, or `state/outputs/**`
- * in dev). Mirrors desktop `DECLARED_OUTPUTS_RE`.
- */
 const DECLARED_OUTPUTS_RE = /(?:^|[\\/])(?:\.stella|state)[\\/]outputs[\\/]/;
 
 export const isDeclaredOutputPath = (filePath: string): boolean =>
@@ -55,14 +33,6 @@ const extensionOf = (filePath: string): string | null => {
     : tail.slice(dot + 1).toLowerCase();
 };
 
-/**
- * Snapshot-detected produced files sweep up incidental writes (browser
- * profiles, launch logs, caches, scratch dirs) alongside real deliverables.
- * Filter those from every user-facing artifact surface. A dot-segment means a
- * hidden/profile/cache dir and is always noise, with one carve-out: `.stella`
- * itself, since `~/.stella/outputs/**` is the declared deliverables home.
- * Mirrors desktop `isNoiseProducedPath`.
- */
 export const isNoiseProducedPath = (filePath: string): boolean => {
   const trimmed = filePath.trim();
   if (!trimmed) return true;
@@ -75,18 +45,11 @@ export const isNoiseProducedPath = (filePath: string): boolean => {
   return ext != null && NOISE_EXTS.has(ext);
 };
 
-/** True when the artifact's primary file path is a noise write. Pathless
- *  payloads (generated text, URLs…) are never noise. */
 export const isNoiseFileArtifact = (artifact: ChatArtifact): boolean => {
   const filePath = artifactPrimaryFilePath(artifact.payload);
   return filePath != null && isNoiseProducedPath(filePath);
 };
 
-/**
- * Declared deliverables lead the list so any cap truncates incidental writes
- * instead of the files the user actually asked for. Stable within each group.
- * Mirrors desktop `rankDeliverablesFirst`.
- */
 export const rankDeliverablesFirst = (
   artifacts: ChatArtifact[],
 ): ChatArtifact[] => {
@@ -101,55 +64,29 @@ export const rankDeliverablesFirst = (
 };
 
 export type ConsolidatedRowArtifacts = {
-  /** The row's agent lifecycle cards — one per background task. */
+
   agentWork: AgentWorkChatArtifact[];
-  /** Inline map cards (self-contained, never folded). */
+
   maps: MapRouteChatArtifact[];
-  /**
-   * Fallback-only: files folded into the agent-work card as pills when the
-   * bridge predates per-agent sections. Populated only when the row carries
-   * an agent-work card WITHOUT a desktop-computed `agents` list;
-   * noise-filtered, deliverables first.
-   */
+
   agentFiles: ChatArtifact[];
-  /**
-   * Files rendered as standalone cards. Rows with no background work keep
-   * the classic inline presentation; on bridge-consolidated rows (any
-   * agent-work card carrying an `agents` list) the remaining loose files are
-   * orchestrator-direct by contract and render standalone too.
-   */
+
   looseFiles: ChatArtifact[];
-  /**
-   * True once every agent-work card on the row reports `done` — the reveal
-   * gate for `agentFiles`, mirroring the desktop completion card (files show
-   * together at completion, never mid-run). Bridge-computed sections need no
-   * gate: they only exist once their agent completed.
-   */
+
   agentWorkSettled: boolean;
 };
 
-/** One pill group on the agent-work card. */
 export type AgentWorkCardSection = {
   key: string;
-  /** Owning background thread. Used by the activity hub to nest files under
-   *  the same task row as the desktop left sidebar. */
+
   agentId?: string;
-  /** Header naming the agent's task; omitted for fallback folding (the card
-   *  title already names the work). */
+
   title?: string;
   files: ChatArtifact[];
-  /** Compact result excerpt for a fileless/textual completion (desktop parity:
-   *  the AgentCompletionCard's summary). */
+
   summary?: string;
 };
 
-/**
- * Desktop-computed per-agent file sections for one agent-work card, mapped
- * to openable `ChatArtifact`s. Returns `null` when the payload predates the
- * consolidating bridge (no `agents` field) — callers fall back to row-scoped
- * folding. File ids reuse the path-keyed `artifactId` so the same file
- * dedupes against the artifacts browser.
- */
 export const agentWorkCardSections = (
   artifact: AgentWorkChatArtifact,
 ): AgentWorkCardSection[] | null => {
@@ -157,8 +94,7 @@ export const agentWorkCardSections = (
   if (agents === undefined) return null;
   const sections: AgentWorkCardSection[] = [];
   for (const agent of agents) {
-    // Keep a section when it has files OR a result excerpt: a result-only
-    // (fileless) completion still surfaces its summary, matching desktop.
+
     if (agent.files.length === 0 && !agent.summary) continue;
     sections.push({
       key: `${artifact.id}:${agent.agentId}`,
@@ -175,38 +111,19 @@ export const agentWorkCardSections = (
   return sections;
 };
 
-/**
- * Sections for the INLINE chat card. Files appear on the finish card only,
- * matching desktop: each bridge section exists once ITS agent completed, but
- * the card itself can still be running (a multi-agent group with stragglers,
- * or a thread resumed via `send_input` keeps a prior run's rollup files), so
- * this gates on the whole card settling. Live mid-run files intentionally
- * remain on the activity pill/sheet, which reads the task stream — never
- * inline in the transcript.
- */
 export const inlineAgentWorkCardSections = (
   artifact: AgentWorkChatArtifact,
 ): AgentWorkCardSection[] | null =>
   artifact.payload.state === "done" ? agentWorkCardSections(artifact) : null;
 
-/** One independently updating agent-work card to render. */
 export type AgentWorkCardRender = {
-  /** Stable React key + card identity. */
+
   key: string;
   payload: Extract<MobileDisplayPayload, { kind: "agent-work" }>;
-  /** File pill groups for this card (bridge sections, already noise-safe). */
+
   sections: AgentWorkCardSection[];
 };
 
-/**
- * The card(s) to render for one agent-work artifact.
- *
- * The desktop-to-mobile transcript projection historically ships one aggregate
- * `agent-work` payload for every agent spawned by a turn. Expand that payload
- * at the inline-rendering boundary so each task retains its own identity and
- * can transition independently. The activity pill/tray continues to consume
- * the original `MobileTask` collection and is deliberately unaffected.
- */
 export const settledAgentWorkCards = (
   artifact: AgentWorkChatArtifact,
   tasks: readonly MobileTask[] = [],
@@ -226,9 +143,7 @@ export const settledAgentWorkCards = (
     ]),
   ];
   if (agentIds.length <= 1) {
-    // Presentation-only annotation: a card settled by failure/cancel keeps
-    // the plain star instead of the done check. The task rows carry the
-    // authoritative terminal status; the synced payload doesn't.
+
     const singleTask = agentIds[0] ? taskById.get(agentIds[0]) : undefined;
     const settledUnsuccessfully =
       artifact.payload.state === "done" &&
@@ -269,9 +184,7 @@ export const settledAgentWorkCards = (
       completed: done ? 1 : 0,
       title: task?.title || rawSection?.title || "Background work",
       subtitle,
-      // Failure/cancel settles this member's row plain (star, no check).
-      // Members never inherit card-level flags — a multi-thread card is a
-      // plain spawn tally (the follow-up variant is single-thread only).
+
       followUp: undefined,
       failed:
         task && (task.status === "error" || task.status === "canceled")
@@ -297,9 +210,7 @@ export const settledAgentWorkCards = (
     };
     const splitArtifact: AgentWorkChatArtifact = {
       ...artifact,
-      // Preserve the aggregate's mounted insertion identity for its first
-      // member. Later members use their own durable agent ids, matching the
-      // live event cards and avoiding remounts when canonical sync lands.
+
       id: index === 0 ? artifact.id : agentWorkArtifactId([agentId]),
       payload,
     };
@@ -354,10 +265,7 @@ export const consolidateRowArtifacts = (
   }
   const ranked = rankDeliverablesFirst(files);
   const hasAgentWork = agentWork.length > 0;
-  // A card carrying an `agents` list marks a consolidating bridge: agent
-  // files ride the card's own sections and whatever is left loose on the row
-  // is orchestrator-direct. Older desktops omit the field entirely, so the
-  // row's files fold into the card as an unattributed group instead.
+
   const bridgeConsolidated = agentWork.some(
     (artifact) => artifact.payload.agents !== undefined,
   );

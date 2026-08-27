@@ -1,8 +1,3 @@
-/**
- * In-process cancellation and mutation provenance for chain-dispatched
- * extension commands. These fields are symbol-backed so they never cross the
- * native-messaging protocol or collide with user-supplied command keys.
- */
 const COMMAND_EXECUTION = Symbol("stellaBrowserCommandExecution");
 
 export function attachCommandExecution(command, signal) {
@@ -34,14 +29,12 @@ export function throwIfCommandAborted(command) {
   }
 }
 
-/** Call immediately before sending the first state-changing browser command. */
 export function markCommandMutationDispatched(command) {
   throwIfCommandAborted(command);
   const execution = command?.[COMMAND_EXECUTION];
   if (execution) execution.mutationDispatched = true;
 }
 
-/** Call when the handler has positively observed its mutation complete. */
 export function markCommandMutationOutcomeKnown(command) {
   const execution = command?.[COMMAND_EXECUTION];
   if (execution) execution.mutationOutcomeKnown = true;
@@ -50,8 +43,7 @@ export function markCommandMutationOutcomeKnown(command) {
 export function mutationOutcomeIsUnknown(execution, mutationPotential = false) {
   if (execution?.mutationOutcomeKnown === true) return false;
   if (execution?.mutationDispatched === true) return true;
-  // Older state-changing handlers do not expose their precise Chrome dispatch
-  // boundary. Once invoked, absence of that proof must remain conservative.
+
   return (
     mutationPotential && execution?.cooperativeCancellationObserved !== true
   );

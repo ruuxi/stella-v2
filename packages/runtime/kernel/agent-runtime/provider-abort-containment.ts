@@ -6,36 +6,6 @@ import {
   uniqueModelCandidates,
 } from "../model-routing-matching.js";
 
-/**
- * Containment for provider content aborts.
- *
- * Diagnosed failure mode: a specific text sequence persisted in a thread's
- * context (e.g. quoted email/web content) triggers a provider-side stream
- * abort (refusal/safety/content-filter stop) on EVERY request that replays
- * it. The thread becomes permanently unrunnable: each resume replays the
- * poisoned context, dies on the first model call, and — before layer 1 of
- * this fix — surfaced only "An unknown error occurred".
- *
- * Layers implemented here:
- * - detection: classify provider-abort error messages and
- *   instant-first-model-call failures (`isProviderContentAbortMessage`,
- *   `isInstantFirstCallFailure`).
- * - deterministic-abort containment: after two consecutive instant aborts on
- *   the same session, surface a distinct error naming the suspect trailing
- *   thread entries instead of a generic failure.
- * - self-heal: on the following resume, quarantine the newest un-quarantined
- *   tool-result entry from the *request assembly only* (the persisted thread
- *   record stays intact) and let the run retry. One new entry per resume,
- *   newest-first — tool results are where quoted external content lands.
- * - safety model swap (fable-5 → opus-4.8): fable-5 has strict safety
- *   guardrails with frequent false positives. When a run on a fable-5 route
- *   dies with a provider content abort, `buildSafetyAbortSwapRoute` derives
- *   an opus-4.8 route on the same auth path so the caller can retry that run
- *   once on the swapped model. The swap is per-run only; it never changes
- *   the configured model.
- */
-
-/** Placeholder that replaces quarantined content in the request assembly. */
 export const QUARANTINE_PLACEHOLDER =
   "[content quarantined: triggered provider abort]";
 
@@ -45,29 +15,10 @@ const QUARANTINE_NOTE =
   "history. It was removed from the model request only; the stored thread " +
   "record is unchanged.";
 
-/** Consecutive instant first-call failures before containment engages. */
 export const DETERMINISTIC_ABORT_THRESHOLD = 2;
 
-/** Trailing thread entries named as suspects in the deterministic-abort error. */
 const SUSPECT_TAIL_ENTRIES = 8;
 
-/**
- * Error-message fingerprints of provider-side content aborts.
- *
- * Deliberately narrow: only the safety-worded form of
- * `providerAbortedStopMessage` (runtime/ai/utils/provider-stop.ts) — which
- * is emitted exclusively for safety-class raw stop reasons — plus the two
- * legacy openai-completions strings. Everything else must NOT classify:
- * - the neutral non-safety wording ("Provider ended the stream
- *   abnormally…") used for `failed`/`cancelled`/`OTHER`-style stops,
- * - `anomalousStreamStopError`'s no-detail fallback (fires on ANY
- *   error/aborted stream end, including proxy/mid-stream truncation),
- * - network/connection errors, context overflow, and the legacy opaque
- *   "An unknown error occurred" (post-fix runs never produce it, and
- *   treating it as a content abort would misclassify unknown failures).
- * Misclassification here would quarantine healthy thread content or swap
- * models on transient failures.
- */
 const PROVIDER_ABORT_ERROR_PATTERNS: RegExp[] = [
   /provider aborted the response \(stop reason: "/i,
   /provider finish_reason: content_filter/i,
@@ -84,12 +35,6 @@ export const isProviderContentAbortMessage = (
 
 type AssistantEntry = Extract<AgentMessage, { role: "assistant" }>;
 
-/**
- * True when a run died on its FIRST model call: the messages appended during
- * the run contain exactly one assistant message, it errored, and no tool ever
- * executed. This is the fingerprint of poisoned *existing* context — the
- * provider aborted while replaying history, before the run did any new work.
- */
 export const isInstantFirstCallFailure = (
   appended: AgentMessage[],
 ): boolean => {
@@ -113,21 +58,11 @@ export type QuarantineRecord = {
   timestamp: number;
 };
 
-/**
- * Thread custom-message type used to persist quarantine records so healed
- * threads stay healed across app restarts (the containment registry itself
- * is in-memory, per session). Sessions persist one entry per newly
- * quarantined record and re-seed from thread history on the next turn.
- */
 export const QUARANTINE_CUSTOM_TYPE = "containment.quarantine";
 
 export const serializeQuarantineRecord = (record: QuarantineRecord): string =>
   JSON.stringify(record);
 
-/**
- * Parse a persisted quarantine record from custom-message content (string
- * or text-block form). Returns null for anything malformed.
- */
 export const parseQuarantineRecord = (
   content: unknown,
 ): QuarantineRecord | null => {
@@ -182,27 +117,23 @@ const describeHistoryEntry = (message: AgentMessage, index: number): string => {
 };
 
 export type QuarantineApplication = {
-  /** Previously quarantined entries re-masked after a history reload. */
+
   reappliedKeys: string[];
-  /** Entry newly masked this turn, if the quarantine threshold was met. */
+
   newlyQuarantined: QuarantineRecord | null;
 };
 
 export type ContainmentFailureInput = {
-  /** Messages that were already in the context when the run started. */
+
   history: AgentMessage[];
-  /** Messages appended during the failed run (prompt + partial output). */
+
   appended: AgentMessage[];
-  /** The surfaced error message for the failed run. */
+
   errorMessage: string;
-  /** Set when the failure persisted through a safety model swap retry. */
+
   swapAttempted?: { fromModelId: string; toModelId: string } | undefined;
 };
 
-/**
- * Per-session (per durable thread) tracker for deterministic provider
- * aborts, with an in-memory quarantine registry for the self-heal pass.
- */
 export class ProviderAbortContainment {
   private consecutiveInstantAborts = 0;
   private lastAbortErrorMessage: string | undefined;
@@ -216,18 +147,10 @@ export class ProviderAbortContainment {
     return this.quarantined.size;
   }
 
-  /**
-   * True once the session has seen enough consecutive instant aborts that
-   * the next run should quarantine a suspect entry before prompting.
-   */
   get shouldQuarantine(): boolean {
     return this.consecutiveInstantAborts >= DETERMINISTIC_ABORT_THRESHOLD;
   }
 
-  /**
-   * Re-seed the registry from persisted records (idempotent). Called at
-   * turn start so quarantines survive session/app restarts.
-   */
   seedQuarantined(records: QuarantineRecord[]): void {
     for (const record of records) {
       if (!record.key || this.quarantined.has(record.key)) continue;
@@ -236,18 +159,11 @@ export class ProviderAbortContainment {
   }
 
   noteRunSuccess(): void {
-    // Keep the quarantine registry: a success after masking proves the
-    // masked content was the trigger, and future history reloads must
-    // re-mask it or the thread re-poisons itself.
+
     this.consecutiveInstantAborts = 0;
     this.lastAbortErrorMessage = undefined;
   }
 
-  /**
-   * Record a failed run. Returns the error message to surface: the original
-   * one, or — once the deterministic-abort threshold is reached — a distinct
-   * containment error naming the suspect trailing thread entries.
-   */
   noteRunFailure(input: ContainmentFailureInput): string {
     const providerAbort = isProviderContentAbortMessage(input.errorMessage);
     const instant = isInstantFirstCallFailure(input.appended);
@@ -265,13 +181,6 @@ export class ProviderAbortContainment {
     return this.describeDeterministicAbort(input);
   }
 
-  /**
-   * Mask quarantined entries in the live request-assembly message array.
-   * Re-masks previously quarantined entries (history reloads rebuild the
-   * array from the intact store) and, when the threshold is met, masks the
-   * newest un-quarantined tool-result entry as the next suspect.
-   * Mutates `messages` in place; never touches persisted records.
-   */
   applyQuarantine(messages: AgentMessage[]): QuarantineApplication {
     const reappliedKeys = this.reapplyQuarantine(messages);
 
@@ -297,7 +206,6 @@ export class ProviderAbortContainment {
     return { reappliedKeys, newlyQuarantined: null };
   }
 
-  /** Re-mask known records after a durable history reload without advancing healing. */
   reapplyQuarantine(messages: AgentMessage[]): string[] {
     const reappliedKeys: string[] = [];
     for (const message of messages) {
@@ -342,35 +250,18 @@ const maskToolResult = (
     message.content[0].text.startsWith(QUARANTINE_PLACEHOLDER);
   if (alreadyMasked) return false;
   message.content = [{ type: "text", text: QUARANTINE_NOTE }];
-  // Details can carry the same offending payload (and can be huge); drop
-  // them from the request assembly too.
+
   delete message.details;
   return true;
 };
 
-// ---------------------------------------------------------------------------
-// Safety model swap: fable-5 → opus-4.8
-// ---------------------------------------------------------------------------
-
 const FABLE_MODEL_RE = /fable-5/i;
 
-/**
- * Exact fable slug required for direct-route id rewrites. Versioned ids
- * (e.g. `claude-fable-5-20260201`) would rewrite to model ids that don't
- * exist, so they never swap and fall through to quarantine instead.
- */
 const EXACT_FABLE_SLUG_RE = /(^|\/)claude-fable-5$/i;
 
-/** Stella-relay requested id for the swap target (Rahul's auth path). */
 export const SAFETY_SWAP_STELLA_MODEL_ID = "stella/anthropic/claude-opus-4.8";
 const SAFETY_SWAP_STELLA_UPSTREAM_ID = "claude-opus-4.8";
 
-/**
- * Validate that the opus-4.8 swap target still exists in the model
- * registry (guards against catalog regenerations renaming/removing it).
- * The target is an Anthropic model regardless of transport, so the
- * anthropic registry section is the source of truth.
- */
 const safetySwapTargetInCatalog = (): boolean =>
   findRegistryModel(
     "anthropic",
@@ -386,7 +277,6 @@ type ModelWithUpstream = Model<Api> & { upstreamModelId?: string };
 const upstreamModelIdOf = (model: Model<Api>): string =>
   (model as ModelWithUpstream).upstreamModelId ?? model.id;
 
-/** True when the route ultimately hits claude-fable-5, via any alias. */
 export const isFable5Route = (route: ResolvedLlmRoute): boolean =>
   FABLE_MODEL_RE.test(route.model.id) ||
   FABLE_MODEL_RE.test(upstreamModelIdOf(route.model));
@@ -397,15 +287,6 @@ export type SafetySwapRoute = {
   toModelId: string;
 };
 
-/**
- * Derive an opus-4.8 route from a failing fable-5 route, preserving the
- * auth path (relay base URL, headers, token getters). Returns null when the
- * current route is not fable-5 or no safe id rewrite exists.
- *
- * Cost/context metadata is inherited from the fable route — both are
- * Anthropic flagship models, and per-run retry accuracy matters less than
- * not dying.
- */
 export const buildSafetyAbortSwapRoute = (
   current: ResolvedLlmRoute,
 ): SafetySwapRoute | null => {
@@ -427,12 +308,6 @@ export const buildSafetyAbortSwapRoute = (
     };
   }
 
-  // Direct-provider routes: rewrite the fable slug in place so the provider,
-  // API family, and credentials all stay the same. Only the exact,
-  // unversioned slug is rewritten — anything else (versioned/dated ids,
-  // bedrock-style ids) falls through to quarantine.
-  // - openrouter-style: anthropic/claude-fable-5 → anthropic/claude-opus-4.8
-  // - native anthropic: claude-fable-5 → claude-opus-4-8 (registry id shape)
   if (!EXACT_FABLE_SLUG_RE.test(current.model.id)) return null;
   const toModelId = current.model.id.includes("/")
     ? current.model.id.replace(FABLE_MODEL_RE, "opus-4.8")
@@ -456,17 +331,8 @@ export const buildSafetyAbortSwapRoute = (
   };
 };
 
-/**
- * Total consecutive attempts the configured fable route gets on a safety
- * abort before the turn swaps to opus-4.8 (1 initial + 2 retries). Refusals
- * are stochastic enough that a plain retry often clears them; the swap is
- * the last resort, and the configured model comes back next turn. Shared by
- * every engine that implements the fallback policy (stella sessions and the
- * Claude Code runtime).
- */
 export const SAFETY_ABORT_FABLE_ATTEMPTS = 3;
 
-/** Status-pill note for an intermediate same-model retry (no toast). */
 export const safetyRetryStatusMessage = (args: {
   modelId: string;
   attempt: number;
@@ -474,11 +340,6 @@ export const safetyRetryStatusMessage = (args: {
   `${args.modelId} refused this request (safety) — retrying ` +
   `(attempt ${args.attempt} of ${SAFETY_ABORT_FABLE_ATTEMPTS})`;
 
-/**
- * Human-readable note recorded on the run when the swap fires. Doubles as
- * the body of the desktop "model-fallback" toast, so it names the switch in
- * user terms and notes that the configured model comes back next turn.
- */
 export const safetySwapStatusMessage = (swap: {
   fromModelId: string;
   toModelId: string;

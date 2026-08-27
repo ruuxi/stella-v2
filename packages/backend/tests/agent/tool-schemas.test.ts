@@ -34,7 +34,7 @@ describe("backend write_stdin device-tool schema", () => {
         write_id: "write-1",
       }).success,
     ).toBe(true);
-    // Preserve the existing backend compatibility for older numeric ids.
+
     expect(WriteStdinSchema.safeParse({ session_id: 1234 }).success).toBe(true);
   });
 

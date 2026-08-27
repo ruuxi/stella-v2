@@ -1,15 +1,3 @@
-/**
- * Collect All User Signals
- *
- * Orchestrates bounded collection of all user signal sources,
- * organized into 4 onboarding-selectable categories:
- *
- * Category 1 (browsing_bookmarks): Browser history + bookmarks + Safari + Firefox
- * Category 2 (dev_environment): Dev projects + shell + git config + dotfiles
- * Category 3 (apps_system): Apps + Screen Time + Dock + filesystem + Steam + Music
- * Category 4 (messages_notes): iMessage + Notes + Reminders + Calendar (opt-in)
- */
-
 import path from "path";
 import {
   collectBrowserData,
@@ -81,7 +69,6 @@ import type { BrowserType } from "@stella/contracts";
 
 const log = (...args: unknown[]) => console.error("[collect-all]", ...args);
 
-// Default categories (Category 4 is opt-in)
 const DEFAULT_CATEGORIES: DiscoveryCategory[] = [
   "browsing_bookmarks",
   "dev_environment",
@@ -120,10 +107,6 @@ const persistSelectedCategories = async (
   }
 };
 
-// ---------------------------------------------------------------------------
-// Extended Signals Type
-// ---------------------------------------------------------------------------
-
 type ExtendedUserSignals = AllUserSignals & {
   bookmarks?: BrowserBookmarks | null;
   safari?: SafariData | null;
@@ -135,15 +118,6 @@ type ExtendedUserSignals = AllUserSignals & {
   musicLibrary?: MusicLibrarySignals | null;
 };
 
-// ---------------------------------------------------------------------------
-// Main Collection
-// ---------------------------------------------------------------------------
-
-/**
- * Collect all user signals, filtered by selected categories.
- * When `selectedBrowser` is provided, only that browser's collectors run
- * (skips Firefox, Safari, and generic bookmarks scan for other browsers).
- */
 export const collectAllUserSignals = async (
   StellaDataDir: string,
   categories: DiscoveryCategory[] = DEFAULT_CATEGORIES,
@@ -155,8 +129,6 @@ export const collectAllUserSignals = async (
   if (selectedProfile) log("Selected browser profile:", selectedProfile);
   const start = Date.now();
 
-  // Build lazy tasks so selecting multiple categories does not launch every
-  // local database, filesystem, and browser collector at once during onboarding.
   const tasks: Record<string, () => Promise<unknown>> = {};
 
   if (categories.includes("browsing_bookmarks")) {
@@ -189,7 +161,6 @@ export const collectAllUserSignals = async (
         });
     }
 
-    // Only run Firefox/Safari if no specific browser selected, or if that browser is selected
     if (!selectedBrowser || selectedBrowser === "firefox") {
       tasks.firefox = () =>
         collectFirefoxData().catch((e) => {
@@ -263,7 +234,7 @@ export const collectAllUserSignals = async (
   log(`Collection complete in ${elapsed}ms`);
 
   return {
-    // Existing signals (may be undefined if category not selected)
+
     browser: (results.browser as AllUserSignals["browser"]) ?? {
       browser: null,
       clusterDomains: [],
@@ -277,7 +248,7 @@ export const collectAllUserSignals = async (
       projectPaths: [],
       toolsUsed: [],
     },
-    // New signals
+
     bookmarks: results.bookmarks as BrowserBookmarks | null | undefined,
     safari: results.safari as SafariData | null | undefined,
     firefox: results.firefox as FirefoxSignals | null | undefined,
@@ -289,10 +260,6 @@ export const collectAllUserSignals = async (
   };
 };
 
-// ---------------------------------------------------------------------------
-// Formatting for LLM Synthesis
-// ---------------------------------------------------------------------------
-
 const formatSignalsForSynthesisWithSections = async (
   data: ExtendedUserSignals,
   categories: DiscoveryCategory[] = DEFAULT_CATEGORIES,
@@ -302,7 +269,6 @@ const formatSignalsForSynthesisWithSections = async (
 }> => {
   const formattedSections: FormattedCategorySections = {};
 
-  // --- Category 1: Browsing & Bookmarks ---
   if (categories.includes("browsing_bookmarks")) {
     const categorySections: string[] = [];
 
@@ -334,7 +300,6 @@ const formatSignalsForSynthesisWithSections = async (
     }
   }
 
-  // --- Category 2: Development Environment ---
   if (categories.includes("dev_environment")) {
     const categorySections: string[] = [];
 
@@ -357,7 +322,6 @@ const formatSignalsForSynthesisWithSections = async (
     }
   }
 
-  // --- Category 3: Apps & System ---
   if (categories.includes("apps_system")) {
     const categorySections: string[] = [];
 
@@ -382,7 +346,6 @@ const formatSignalsForSynthesisWithSections = async (
     }
   }
 
-  // --- Category 4: Messages & Notes ---
   if (categories.includes("messages_notes") && data.messagesNotes) {
     const messagesSection = formatMessagesNotesForSynthesis(data.messagesNotes);
     if (messagesSection) {
@@ -396,7 +359,6 @@ const formatSignalsForSynthesisWithSections = async (
       Boolean(section && section.trim().length > 0),
     );
 
-  // Post-process: filter low-signal domains, then tier for synthesis priority
   let formatted = orderedSections.join("\n\n");
   formatted = filterLowSignalDomains(formatted);
   formatted = tierFormattedSignals(formatted);
@@ -407,13 +369,6 @@ const formatSignalsForSynthesisWithSections = async (
   };
 };
 
-// ---------------------------------------------------------------------------
-// IPC Handler Helper
-// ---------------------------------------------------------------------------
-
-/**
- * Collect and format all signals - for use in IPC handler
- */
 export const collectAllSignals = async (
   StellaDataDir: string,
   categories?: DiscoveryCategory[],

@@ -1,13 +1,3 @@
-/**
- * Site Mods command handlers.
- *
- * Persistent per-site CSS/JS overrides stored in chrome.storage.local
- * under key "stella_site_mods".
- *
- * The site-mods.js content script is registered dynamically (not in the
- * manifest) so it only runs on pages that actually have saved mods.
- */
-
 const STORAGE_KEY = 'stella_site_mods';
 const CONTENT_SCRIPT_ID = 'stella-site-mods';
 
@@ -21,24 +11,16 @@ async function saveMods(mods) {
   await syncContentScriptRegistration(mods);
 }
 
-/**
- * Convert a site-mod glob pattern (e.g. "x.com/*") to a Chrome match pattern
- * (e.g. "*://x.com/*") suitable for chrome.scripting.registerContentScripts.
- */
 function globToMatchPattern(pattern) {
-  // Already has a scheme — use as-is
+
   if (/^[a-z]+:\/\//.test(pattern)) {
     return pattern;
   }
-  // Ensure trailing wildcard for bare hostnames
+
   const p = pattern.includes('/') ? pattern : pattern + '/*';
   return `*://${p}`;
 }
 
-/**
- * Sync the dynamically registered site-mods.js content script so it only
- * runs on pages that have at least one enabled mod.
- */
 export async function syncContentScriptRegistration(mods) {
   if (!mods) {
     mods = await getMods();
@@ -50,12 +32,11 @@ export async function syncContentScriptRegistration(mods) {
 
   try {
     if (enabledPatterns.length === 0) {
-      // No enabled mods — unregister the content script
+
       await chrome.scripting.unregisterContentScripts({ ids: [CONTENT_SCRIPT_ID] });
       return;
     }
 
-    // Try to update existing registration first
     const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [CONTENT_SCRIPT_ID] });
     if (existing.length > 0) {
       await chrome.scripting.updateContentScripts([{
@@ -75,14 +56,6 @@ export async function syncContentScriptRegistration(mods) {
   }
 }
 
-/**
- * site_mod_set - Save or update a per-site override.
- *
- * Required: pattern (URL glob, e.g. "x.com/*")
- * Optional: css, js, label
- * If the pattern already exists, fields are merged (so you can add JS to
- * an existing CSS-only rule without re-specifying the CSS).
- */
 export async function handleSiteModSet(command) {
   const { pattern, css, js, label } = command;
   if (!pattern) throw new Error('pattern is required for site_mod_set');
@@ -108,9 +81,6 @@ export async function handleSiteModSet(command) {
   };
 }
 
-/**
- * site_mod_list - List all saved overrides.
- */
 export async function handleSiteModList(command) {
   const mods = await getMods();
 
@@ -130,9 +100,6 @@ export async function handleSiteModList(command) {
   };
 }
 
-/**
- * site_mod_remove - Delete an override by pattern.
- */
 export async function handleSiteModRemove(command) {
   const { pattern } = command;
   if (!pattern) throw new Error('pattern is required for site_mod_remove');
@@ -149,9 +116,6 @@ export async function handleSiteModRemove(command) {
   };
 }
 
-/**
- * site_mod_toggle - Enable or disable an override without deleting it.
- */
 export async function handleSiteModToggle(command) {
   const { pattern, enabled } = command;
   if (!pattern) throw new Error('pattern is required for site_mod_toggle');

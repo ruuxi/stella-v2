@@ -37,53 +37,22 @@ const THREAD_CHECKPOINT_MARKER = "[[THREAD_CHECKPOINT]]";
 export const resolveThreadCompactionSystemPrompt = (): string =>
   readRuntimePrompt("thread-compaction") ?? "";
 const THREAD_COMPACTION_RESERVE_TOKENS = 49_152;
-/**
- * Fraction of the model's real context window at which a thread compacts.
- * Keyed off `route.model.contextWindow` (the real, provider-catalog-derived
- * window) so the trigger scales with the active model. Compared against the
- * full model-visible request — the last preflight-measured outbound payload
- * (system prompt + tool schemas + resident context + history) when one has
- * been captured, with the history-only estimate as the floor for threads
- * that have not dispatched a turn yet (e.g. right after a worker restart).
- */
+
 const THREAD_COMPACTION_TRIGGER_PCT = 0.5;
 const THREAD_COMPACTION_PROTECT_HEAD_MESSAGES = 3;
 const THREAD_COMPACTION_KEEP_RECENT_TOKENS = 20_000;
-/**
- * Fraction of the model's window the kept tail may occupy. Bounds the fixed
- * keep-recent budget on small-window models so a compaction always frees
- * enough room for the retry to fit.
- *
- * Orchestrator-only. General/subagent compaction uses a fixed 20k tail
- * (pi-mono) with a small-window safety clamp instead of this 10% policy.
- */
+
 const THREAD_COMPACTION_KEEP_RECENT_WINDOW_PCT = 0.1;
 const THREAD_COMPACTION_MIN_TAIL_MESSAGES = 2;
-/**
- * Char cap for the pinned copy of the latest user instruction carried
- * verbatim across a compaction checkpoint (~3-4k tokens). The pin never
- * moves the tail cut — its cost is exactly one capped message.
- *
- * Orchestrator-only. General/subagent compaction follows pi-mono and does
- * not emit a synthetic pin.
- */
+
 const THREAD_COMPACTION_PINNED_INSTRUCTION_MAX_CHARS = 12_000;
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 128_000;
 const MIN_TRIGGER_TOKENS = 8_000;
-/**
- * General/subagent compaction trigger. Deliberately not pi-mono's
- * `window - 16k` and not the orchestrator's 50%.
- */
+
 const GENERAL_COMPACTION_TRIGGER_PCT = 0.6;
-/** Fixed verbatim tail for general/subagent compaction (pi-mono). */
+
 const GENERAL_COMPACTION_KEEP_RECENT_TOKENS = 20_000;
-/**
- * Smallest compatibility guard for a fixed 20k tail on tiny windows: if
- * keeping 20k would leave fewer than this many tokens for the checkpoint
- * summary and remaining head, shrink the tail so compaction can still free
- * space. Never used on typical 80k+ windows and not the orchestrator's 10%
- * policy.
- */
+
 const GENERAL_COMPACTION_SMALL_WINDOW_RESERVE_TOKENS = 4_096;
 const MAX_BLOCK_CHARS = 100_000;
 const TOOL_RESULT_MAX_CHARS = 2_000;
@@ -118,25 +87,12 @@ export type ThreadCompactionPlan = {
   fromEntryId: string;
   toEntryId: string;
   middleMessages: StoredThreadMessage[];
-  /**
-   * The latest role=user message of the thread when it falls inside the
-   * summarized middle (a follow-up `description\n\nmessage` turn or an
-   * active-steer `Task update:` turn). The overlay re-emits a capped verbatim
-   * copy of it right after the checkpoint so the agent never loses its
-   * current instruction to a summary. The tail cut is never moved for it.
-   *
-   * Orchestrator-only. General/subagent compaction follows pi-mono and does
-   * not carry a synthetic pin.
-   */
+
   latestUserMessage?: StoredThreadMessage;
-  /**
-   * General/subagent split-turn: messages from the current turn start up to
-   * (but not including) the retained tail. Summarized with the turn-prefix
-   * prompt; the suffix stays verbatim.
-   */
+
   turnPrefixMessages?: StoredThreadMessage[];
   isSplitTurn?: boolean;
-  /** The cut was selected prospectively to make the retained image set fit. */
+
   imagePressure?: true;
 };
 
@@ -476,16 +432,9 @@ const isCompactionMessage = (message: StoredThreadMessage): boolean =>
   message.role === "assistant" &&
   parseThreadCheckpoint(message.content) !== null;
 
-/**
- * A pinned latest-user-instruction copy materialized by a previous overlay.
- * Like checkpoint messages, these are overlay artifacts: they are excluded
- * from the summarized middle (their content already reached the summarizer
- * the first time around) and must never anchor a compaction span.
- */
 const isPinnedInstructionMessage = (message: StoredThreadMessage): boolean =>
   message.entryId?.includes(PINNED_INSTRUCTION_ENTRY_ID_MARKER) ?? false;
 
-/** Plain text of a user message, preferring the persisted payload blocks. */
 const extractUserMessageText = (message: StoredThreadMessage): string => {
   if (message.payload?.role === "user") {
     const content = message.payload.content;
@@ -546,10 +495,7 @@ const findContainingToolCallGroup = (
     let endIndex = startIndex;
     for (let index = startIndex + 1; index < messages.length; index += 1) {
       const message = messages[index]!;
-      // Live user steering and runtime notices are persisted immediately and
-      // can therefore appear between an assistant tool call and the result
-      // that the running Agent records later. Only a newer assistant turn ends
-      // ownership of the tool-call group.
+
       if (message.role === "assistant") break;
       endIndex = index;
       const toolCallId = getToolResultId(message);
@@ -650,10 +596,6 @@ export const splitThreadMessagesForCompaction = (
     return null;
   }
 
-  // The latest user instruction must survive compaction verbatim, but with
-  // bounded cost: when it sits inside the summarized middle it is carried
-  // across the checkpoint as one capped pinned copy (re-emitted by the
-  // overlay materializer) — the tail cut is never moved back for it.
   let latestUserMessage: StoredThreadMessage | undefined;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]!;
@@ -677,10 +619,7 @@ export const splitThreadMessagesForCompaction = (
   if (!fromEntryId || !toEntryId) {
     return null;
   }
-  // Fold-materialized doc entries carry synthetic entryIds that don't exist
-  // in the raw entry log; an overlay anchored on one could never be applied.
-  // Head protection keeps them out of the middle in practice; this guard
-  // makes a corrupt overlay impossible even in degenerate splits.
+
   if (
     fromEntryId.includes(RESIDENT_FOLD_ENTRY_ID_MARKER) ||
     toEntryId.includes(RESIDENT_FOLD_ENTRY_ID_MARKER) ||
@@ -871,10 +810,6 @@ export const formatFileOperationsForSummary = (
   return `\n\n${sections.join("\n\n")}`;
 };
 
-/**
- * Pi-mono-style compaction plan for general agents and subagents.
- * Never used by the orchestrator. Does not pin the latest user instruction.
- */
 export const splitGeneralThreadMessagesForCompaction = (
   messages: StoredThreadMessage[],
   protectHeadMessages = THREAD_COMPACTION_PROTECT_HEAD_MESSAGES,
@@ -899,8 +834,7 @@ export const splitGeneralThreadMessagesForCompaction = (
 
   let compressionStart = Math.min(protectHeadMessages, messages.length);
   if (lastCheckpointIndex >= compressionStart) {
-    // Chained compaction (pi-mono): only summarize messages after the latest
-    // checkpoint; the previous structured summary is updated in place.
+
     compressionStart = lastCheckpointIndex + 1;
   }
   compressionStart = alignBoundaryForward(messages, compressionStart);
@@ -980,12 +914,6 @@ const imageStatsFit = (stats: {
   stats.count <= MAX_ACTIVE_THREAD_IMAGES &&
   stats.decodedBytes <= ACTIVE_THREAD_IMAGE_DECODED_BYTE_BUDGET;
 
-/**
- * Select the smallest old prefix whose checkpoint removal makes the retained
- * image set fit. Unlike the ordinary token splitter, this may compact through
- * the newest message: a single result containing ten images cannot be made
- * safe by retaining that result as a mandatory tail.
- */
 export const splitThreadMessagesForImagePressure = (
   messages: StoredThreadMessage[],
 ): ThreadCompactionPlan | null => {
@@ -1066,9 +994,6 @@ export const splitThreadMessagesForImagePressure = (
     };
   };
 
-  // Bootstrap docs normally contain no image payloads and stay pinned. If a
-  // malformed/imported thread put images there, fall back to compacting real
-  // rows from the start rather than entering an endless pressure loop.
   return build(countLeadingBootstrapStartupDocs(messages)) ?? build(0);
 };
 
@@ -1120,7 +1045,7 @@ const promoteImageArtifact = (args: {
           try {
             fs.rmSync(temporaryPath, { force: true });
           } catch {
-            // Best-effort cleanup; receipt fallback below remains explicit.
+
           }
           if (!fs.existsSync(artifactPath)) throw error;
         }
@@ -1257,8 +1182,7 @@ export const parseThreadCheckpoint = (
   }
 
   const lines = trimmed.split(/\r?\n/);
-  // Skip legacy header lines (e.g. "Previous thread file: …") up to the
-  // blank separator; the summary body is everything after it.
+
   let bodyStart = 1;
   for (let index = 1; index < lines.length; index += 1) {
     if (!lines[index]!.trim()) {
@@ -1290,17 +1214,10 @@ export const formatThreadCheckpointMessage = (
 const computeSummaryBudget = (messages: StoredThreadMessage[]): number =>
   Math.max(100, Math.floor(getThreadTokenEstimate(messages) * 0.2));
 
-/**
- * Retry backoff for the summary request. Compaction runs at the moment of
- * heaviest provider usage, so transient failures (429/overloaded/network,
- * a credential-refresh blip) are expected — every attempt re-resolves the
- * API key and retries after the delay instead of failing the compaction.
- */
 const THREAD_SUMMARY_RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000];
 
 let summaryRetryDelaysMs: readonly number[] = THREAD_SUMMARY_RETRY_DELAYS_MS;
 
-/** Test seam: shorten (or restore) the summary retry backoff. */
 export const setThreadSummaryRetryDelaysForTest = (
   delays?: readonly number[],
 ): void => {
@@ -1312,22 +1229,8 @@ const sleep = (ms: number): Promise<void> =>
     ? new Promise((resolve) => setTimeout(resolve, ms))
     : Promise.resolve();
 
-/**
- * Estimated chars-per-token used to cap the summary request input. Deliberately
- * conservative (dense code/JSON runs ~3–3.5 chars per token, CJK far less) so
- * the capped request can never itself overflow the summarizer's window.
- */
 const SUMMARY_INPUT_CHARS_PER_TOKEN = 3;
 
-/**
- * Cap the formatted conversation fed to the summary model so a large backlog
- * of uncompacted turns can never push the request over the summarizer's
- * context window. Without this, one failed compaction lets the middle grow
- * turn over turn until every subsequent attempt overflows the window and
- * fails too — compaction then never recovers. Keeps the most recent tail
- * (the previous checkpoint summary already covers older ground) and notes
- * the elision.
- */
 const capSummaryConversation = (
   formatted: string,
   maxChars: number,
@@ -1344,13 +1247,6 @@ const capSummaryConversation = (
   ].join("\n\n");
 };
 
-/**
- * Char budget for the formatted conversation in one summary request.
- * `overheadChars` accounts for everything else riding along in the request —
- * the system prompt, the previous checkpoint summary, the durable-memory
- * reference, and the prompt template — so the whole request stays inside
- * the model's window, not just the conversation part.
- */
 const getSummaryInputCharBudget = (
   route: ResolvedLlmRoute,
   overheadChars: number,
@@ -1365,13 +1261,6 @@ const getSummaryInputCharBudget = (
       overheadChars,
   );
 
-/**
- * Non-conversation chars that ride along every summary request (system
- * prompt, previous checkpoint summary, durable-memory reference, and the
- * fixed prompt template). Shared by the single-pass budget check and
- * `generateThreadSummary` so the "does the middle fit one pass?" decision
- * uses the same accounting the request itself does.
- */
 const estimateSummaryOverheadChars = (args: {
   systemPromptChars: number;
   previousSummary?: string;
@@ -1382,7 +1271,6 @@ const estimateSummaryOverheadChars = (args: {
   (args.durableMemoryReference?.length ?? 0) +
   SUMMARY_PROMPT_TEMPLATE_CHARS;
 
-/** Char slack for the fixed prompt template (structure, guidelines, footer). */
 const SUMMARY_PROMPT_TEMPLATE_CHARS = 4_000;
 
 const SUMMARY_STRUCTURE = `## Topic
@@ -1405,10 +1293,7 @@ const buildSummaryGuidelines = (hasDurableMemoryReference: boolean): string =>
     "- Resume-critical state: preserve the task objective and constraints; every working path, branch, and commit SHA; every child thread id with its status and concrete result; completed and unresolved work; and the latest user instruction. Quote the latest user instruction verbatim when its wording affects how work must resume.",
     '- Current task/instruction: the newest user message in the conversation (a follow-up request or a "Task update:" steer) defines what the agent is doing RIGHT NOW. Preserve it faithfully — quote it verbatim (or near-verbatim if very long) under Current State or Open Items so the agent resumes exactly that work after compaction, not an earlier task.',
     "- Never return an empty or near-empty summary. After compaction this summary is the only carrier of the compacted span's thread-specific context, so it must stand alone: even if most of the conversation is already covered by durable memory or the previous summary, restate the thread-specific workstreams, decisions, current state, and open items. A bare heading or a one-line fragment is never an acceptable summary.",
-    // The durable-memory rule only applies when the always-loaded docs are
-    // actually injected for this agent (orchestrator); for other agents the
-    // summary is the only carrier of such facts, so omitting them would lose
-    // information.
+
     ...(hasDurableMemoryReference
       ? [
           "- Do not restate durable memory: facts already present in the ALREADY KNOWN section below (user profile facts, addresses, standing rules, workflow tiers, long-term preferences) must be omitted from the summary — the assistant is given that section separately on every turn. Summarize only thread-specific state.",
@@ -1582,17 +1467,8 @@ export const buildGeneralTurnPrefixPrompt = (
 ): string =>
   `<conversation>\n${formattedConversation}\n</conversation>\n\n${GENERAL_TURN_PREFIX_SUMMARIZATION_PROMPT}`;
 
-// Per-doc cap for the ALREADY KNOWN reference. The docs are small
-// always-loaded files; the cap only guards against a runaway doc inflating
-// the compaction request.
 const DURABLE_MEMORY_DOC_MAX_CHARS = 8_000;
 
-/**
- * Read one always-loaded durable-memory doc. Mirrors
- * `readResidentMemoryDoc` in runner/shared.ts, which cannot be imported here
- * without creating a module cycle (runner/shared → local-agent-manager →
- * subagent-session → pi-session-core → thread-memory → thread-runtime).
- */
 const readDurableMemoryDoc = (filePath: string): string | undefined => {
   try {
     const content = fs.readFileSync(filePath, "utf-8").trim();
@@ -1602,11 +1478,6 @@ const readDurableMemoryDoc = (filePath: string): string | undefined => {
   }
 };
 
-/**
- * Build the "already known — do not repeat" reference from the always-loaded
- * durable-memory docs (user profile + Dream memory map), so the
- * summarizer can skip restating facts the assistant sees on every turn.
- */
 const buildDurableMemoryReference = (
   stellaDataDir: string | undefined,
 ): string | undefined => {
@@ -1683,11 +1554,6 @@ const generateThreadSummary = async (args: {
           args.durableMemoryReference,
         );
 
-  // Every failure mode is treated as transient and retried with backoff:
-  // provider errors (429/overloaded/network/400), thrown transport errors,
-  // and a missing credential (the key is re-resolved per attempt so an
-  // OAuth-refresh blip recovers). Only after the full schedule is exhausted
-  // does compaction report failure.
   let reason = "summary generation failed";
   for (let attempt = 0; attempt <= summaryRetryDelaysMs.length; attempt += 1) {
     if (attempt > 0) {
@@ -1818,28 +1684,10 @@ const generateThreadSummaryWithoutElision = async (args: {
   };
 };
 
-/**
- * Result of an attempted thread compaction.
- *
- * Returns `compacted: true` only when an overlay was actually written
- * to the store; every short-circuit path (empty thread, below trigger,
- * no valid cut point, summary generation produced an empty string)
- * returns `compacted: false` so the caller can avoid downstream
- * side-effects (e.g. flagging a long-lived `OrchestratorSession`'s
- * in-memory mirror as stale, which forces a full rebuild of
- * `agent.state.messages` from the store and defeats the prompt-cache
- * stability the long-lived session was meant to provide).
- */
 export type ThreadCompactionResult = {
   compacted: boolean;
 };
 
-/**
- * Count the contiguous bootstrap startup docs (personality, core memory) at
- * the very top of a thread. These are hidden `runtimeInternal` messages
- * injected once on the first turn and persisted as `bootstrap.*` custom
- * messages — they must stay pinned at the top across compactions.
- */
 export const countLeadingBootstrapStartupDocs = (
   messages: StoredThreadMessage[],
 ): number => {
@@ -1859,33 +1707,19 @@ export const countLeadingBootstrapStartupDocs = (
   return count;
 };
 
-/**
- * Head-message protection differs by agent role. Subagents are short-lived
- * task sessions, so we pin a fixed window of leading messages to keep their
- * task framing intact. The orchestrator is one long-lived conversation where
- * the first user turn is just old history — only its bootstrap startup docs
- * (personality + core memory) stay pinned at the top; everything after them is
- * fair game for compaction.
- */
 export const resolveCompactionProtectHeadMessages = (
   agentType: string,
   messages: StoredThreadMessage[],
 ): number =>
   agentType === AGENT_IDS.ORCHESTRATOR
     ? countLeadingBootstrapStartupDocs(messages)
-    : // Subagents pin their fixed task-framing window AND any leading
-      // bootstrap docs (which can exceed the fixed window once a resident
-      // fold has re-pinned the full doc set at the head).
+    :
+
       Math.max(
         THREAD_COMPACTION_PROTECT_HEAD_MESSAGES,
         countLeadingBootstrapStartupDocs(messages),
       );
 
-/**
- * Retry schedule for the final overlay write. `compactThread` is a local
- * SQLite write; a busy/locked database is transient and must not fail a
- * compaction whose summary already generated successfully.
- */
 const COMPACTION_STORE_WRITE_RETRY_DELAYS_MS = [250, 1_000];
 
 const resolveKeepRecentTokens = (
@@ -1905,11 +1739,7 @@ const resolveKeepRecentTokens = (
     MIN_TRIGGER_TOKENS,
     Math.floor(window * GENERAL_COMPACTION_TRIGGER_PCT),
   );
-  // Smallest compatibility guard: keep the fixed 20k tail on any window
-  // where that tail still leaves room under the 60% trigger. Only shrink
-  // when a 20k tail would itself sit at/above the trigger (tiny windows),
-  // so compaction can still free space. This is not the orchestrator's 10%
-  // policy.
+
   const maxKeep = Math.max(
     1,
     window - GENERAL_COMPACTION_SMALL_WINDOW_RESERVE_TOKENS,
@@ -1937,10 +1767,7 @@ export const maybeCompactRuntimeThread = async (args: {
   agentType: string;
   overrideSummary?: string;
   preserveLastN?: number;
-  /**
-   * When set, the always-loaded durable-memory docs under this data dir are
-   * passed to the summarizer as an "already known — do not repeat" reference.
-   */
+
   stellaDataDir?: string;
 }): Promise<ThreadCompactionResult> => {
   const compactionStartedAt = Date.now();
@@ -1973,10 +1800,6 @@ export const maybeCompactRuntimeThread = async (args: {
   const checkpointQuarantineKeys =
     latestCheckpointQuarantineKeys(storedMessages);
 
-  // A complete narrow probe distinguishes active/unresolved quarantine rows
-  // from historical rows already masked by the effective checkpoint. Only the
-  // former require reconstructing the append-only log; otherwise doing so
-  // needlessly pages old chunked screenshot payloads back into memory.
   const inspectRawQuarantine =
     initialRelevantQuarantineCount === null ||
     initialRelevantQuarantineCount > 0;
@@ -1985,9 +1808,7 @@ export const maybeCompactRuntimeThread = async (args: {
     typeof args.store.loadRawThreadMessages === "function"
       ? args.store.loadRawThreadMessages(args.threadKey)
       : null;
-  // Carry forward checkpoint-confirmed keys even when the cheap path can skip
-  // raw history. Successor checkpoints must retain that proof so the same
-  // covered records remain resolved on future probes.
+
   let quarantineKeys = new Set([
     ...checkpointQuarantineKeys,
     ...quarantinedToolResultKeys(rawStoredMessages ?? storedMessages),
@@ -2008,9 +1829,7 @@ export const maybeCompactRuntimeThread = async (args: {
     rebuildUnsafeCheckpoint &&
     typeof args.store.loadRawThreadMessages === "function"
   ) {
-    // A checkpoint that covered a now-quarantined result may already summarize
-    // the suspect provider payload. Rebuild from the append-only raw log so the
-    // historical context is retained while the offending result is masked.
+
     storedMessages =
       rawStoredMessages ?? args.store.loadRawThreadMessages(args.threadKey);
     quarantineKeys = new Set([
@@ -2023,11 +1842,7 @@ export const maybeCompactRuntimeThread = async (args: {
   const totalTokens = getThreadTokenEstimate(storedMessages);
   const forced = forcedBeforeProbe;
   const imageHistory = getThreadImageHistoryStats(storedMessages);
-  // The trigger measures what the provider actually receives: the last
-  // preflight-measured full outbound payload (system prompt + tool schemas +
-  // resident context + history). The history-only estimate is the floor for
-  // threads with no measured dispatch yet (e.g. the first turn after a
-  // worker restart, where the in-memory payload estimate is gone).
+
   const measuredTokens = Math.max(
     totalTokens,
     getLastProviderPayloadTokens(args.threadKey) ?? 0,
@@ -2047,9 +1862,7 @@ export const maybeCompactRuntimeThread = async (args: {
     storedMessages,
   );
   const keepRecentTokens = resolveKeepRecentTokens(args.resolvedLlm, policy);
-  // Ordinary turns remain byte-identical. Image removal happens only here,
-  // at the already-cache-breaking checkpoint overlay, and the prospective
-  // splitter is allowed to compact a single oversized newest message.
+
   let splitMessages = imageHistory.overBudget
     ? splitThreadMessagesForImagePressure(storedMessages)
     : policy === "general"
@@ -2072,10 +1885,7 @@ export const maybeCompactRuntimeThread = async (args: {
     (forced || rebuildUnsafeCheckpoint) &&
     !imageHistory.overBudget
   ) {
-    // Emergency split for an overflow that the standard cut points cannot
-    // relieve (e.g. a few enormous messages inside the protected head or
-    // tail). Only the orchestrator's bootstrap docs stay pinned; everything
-    // up to the last message is compactable.
+
     const emergencyHead = countLeadingBootstrapStartupDocs(storedMessages);
     splitMessages =
       policy === "general"
@@ -2086,9 +1896,7 @@ export const maybeCompactRuntimeThread = async (args: {
           )
         : splitThreadMessagesForCompaction(
             storedMessages,
-            // Even in the emergency split, leading bootstrap docs stay pinned for
-            // every agent type — they are resident context, and cutting through
-            // them would anchor the overlay on a fold-synthetic entryId.
+
             emergencyHead,
             0,
             1,
@@ -2134,9 +1942,7 @@ export const maybeCompactRuntimeThread = async (args: {
     splitMessages.turnPrefixMessages ?? [],
     quarantineKeys,
   );
-  // This structured receipt is produced by the harness, not by the summary
-  // model. The store renders it as a separate checkpoint section, so receipt
-  // presence/content cannot depend on whether the model mentions an image.
+
   const imageReceipts = mergeThreadImageReceipts(
     inheritedImageReceipts,
     collectThreadImageReceipts(
@@ -2149,18 +1955,11 @@ export const maybeCompactRuntimeThread = async (args: {
     args.agentType === AGENT_IDS.ORCHESTRATOR
       ? buildDurableMemoryReference(args.stellaDataDir)
       : undefined;
-  // Hook summaries are produced outside this quarantine-aware snapshot and
-  // may already contain suspect tool content. Regenerate from masked rows
-  // whenever any quarantine is active.
+
   let summary =
     quarantineKeys.size === 0 ? args.overrideSummary?.trim() || null : null;
   if (!summary) {
-    // One single-pass summary request. A middle too large for the current
-    // model's summarizer window is normally prevented up front: a shrinking
-    // model switch runs a blocking compaction on the previous (larger-window)
-    // route before the new route takes over. If an oversized middle still
-    // reaches this point, `capSummaryConversation` bounds the request to the
-    // window and discloses the elided span rather than failing.
+
     const skipHistorySummary =
       policy === "general" && splitMessages.middleMessages.length === 0;
     const generated = skipHistorySummary
@@ -2236,14 +2035,6 @@ export const maybeCompactRuntimeThread = async (args: {
     }
   }
 
-  // Resident-block fold-in: compaction is the one moment the prompt-cache
-  // prefix is legitimately dead, so re-render every resident block from
-  // current state and carry the fresh copies on the compaction entry. The
-  // overlay materializer (`storage/session-store.js`) pins exactly one
-  // fresh copy of each block at the head of the rebuilt window and sweeps
-  // all older copies + accumulated `runtime.context_delta.*` appends —
-  // which also heals legacy threads that accumulated duplicate doc appends.
-  // Best-effort: a fold failure must never fail a compaction.
   let residentFold: unknown = null;
   try {
     residentFold = buildResidentFold({
@@ -2261,12 +2052,6 @@ export const maybeCompactRuntimeThread = async (args: {
     });
   }
 
-  // Pin the latest user instruction across the checkpoint: the middle
-  // (including that instruction) is summarized as usual, but the overlay
-  // additionally re-emits one capped verbatim copy of it right after the
-  // checkpoint message. Bounded by construction — the tail cut never moves.
-  // Orchestrator-only: general/subagent compaction follows pi-mono and
-  // does not emit a synthetic pin.
   const pinnedInstructionText =
     policy === "orchestrator" && splitMessages.latestUserMessage
       ? truncateForSummary(
@@ -2298,11 +2083,6 @@ export const maybeCompactRuntimeThread = async (args: {
     ...(imageReceipts.length > 0 ? { imageReceipts } : {}),
   };
 
-  // Quarantine can engage while the summary provider call is in flight. A
-  // summary generated from the earlier snapshot is then unsafe to publish,
-  // even though the quarantine row may have been appended before this write.
-  // Re-check synchronously immediately before the synchronous SQLite write;
-  // the next compaction will regenerate from the masked snapshot.
   for (
     let attempt = 0;
     attempt <= COMPACTION_STORE_WRITE_RETRY_DELAYS_MS.length;

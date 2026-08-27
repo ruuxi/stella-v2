@@ -1,10 +1,3 @@
-/**
- * Standalone Activity — the agent index beside the main app.
- *
- * Search and agent-thread viewers live in the right sidebar's Work section;
- * this surface stays a lightweight ambient activity list.
- */
-
 import { useEffect } from "react";
 import { openModelPicker } from "@/features/workspace-display/default-tabs";
 import { WorkspaceSections } from "@/shell/workspace/WorkspaceSections";

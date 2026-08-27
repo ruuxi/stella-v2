@@ -30,27 +30,20 @@ type ComputerDeviceSheetProps = {
   statusLabel: string;
   statusAvailable: boolean | null;
   connecting: boolean;
-  /** Show the inline "Wake up" affordance (computer asleep and not waking). */
+
   showWake: boolean;
   onWake: () => void;
-  /** Manually trigger a desktop transcript sync (reconnect-or-pull) on demand. */
+
   onForceSync: () => void;
-  /** A force sync is in flight — disable the row and show progress. */
+
   syncing: boolean;
-  /** Bubble a freshly-paired computer up so the chat re-targets it. */
+
   onRepaired: (access: StoredPhoneAccess) => void;
   modelSettings: ComputerModelSettings;
   composerModelPinned: boolean;
   onComposerModelPinnedChange: (next: boolean) => void;
 };
 
-/**
- * The paired computer's device surface — status, wake, view-screen, and model
- * settings — presented as a top sheet from the Computer chat's gear button.
- * The conversation itself lives on the Computer tab; this sheet is the "how is
- * my computer configured" panel beside it. Artifacts moved to the activity
- * hub sheet (the floating pill left of the gear).
- */
 export function ComputerDeviceSheet({
   visible,
   onClose,
@@ -74,8 +67,7 @@ export function ComputerDeviceSheet({
   const router = useRouter();
   const [modelSheetOpen, setModelSheetOpen] = useState(false);
   const [pairSheetOpen, setPairSheetOpen] = useState(false);
-  // Follows the paired desktop's developer-mode flag: only an explicit "off"
-  // hides the Model row (and its sheet); unknown/older desktops keep it.
+
   const modelControlsHidden = modelSettings.developerModeEnabled === false;
 
   const rows: {

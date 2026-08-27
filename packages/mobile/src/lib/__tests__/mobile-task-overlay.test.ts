@@ -9,13 +9,6 @@ import {
 import type { DesktopTaskDecoration } from "../desktop-bridge-chat";
 import { parseThreadActivityTasks } from "../desktop-thread-activity";
 
-/**
- * The authoritative thread-activity overlay: desktop `runtime_agents` rows
- * override the synced-message fold's status/title, and the live decoration
- * snapshot supplies ephemeral mid-run statusText. Authored agent messages are
- * carried by the persisted task projection.
- */
-
 const task = (overrides: Partial<MobileTask> & { id: string }): MobileTask => ({
   title: "Background work",
   status: "running",
@@ -56,9 +49,7 @@ describe("overlayDesktopThreadTasks", () => {
   });
 
   test("authoritative running row revives a task the fold's staleness heuristic settled", () => {
-    // The desktop serializer settles long-silent running tasks to "completed"
-    // when their spawn aged out of the loaded window; the authoritative row
-    // knows it is genuinely still running.
+
     const folded = [task({ id: "audit", status: "completed" })];
     const merged = overlayDesktopThreadTasks(
       folded,
@@ -82,8 +73,7 @@ describe("overlayDesktopThreadTasks", () => {
   });
 
   test("retitle: the authoritative description replaces the fold's spawn title", () => {
-    // A send_input follow-up adopts its description onto the thread; the fold
-    // only ever saw the original spawn event.
+
     const folded = [task({ id: "t", title: "Original request" })];
     const merged = overlayDesktopThreadTasks(
       folded,

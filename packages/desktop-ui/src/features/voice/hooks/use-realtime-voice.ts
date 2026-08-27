@@ -48,10 +48,6 @@ export const formatVoiceSessionDuration = (durationMs: number): string => {
   return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
 };
 
-// ---------------------------------------------------------------------------
-// VoiceSessionManager — extracted session lifecycle logic (no React imports)
-// ---------------------------------------------------------------------------
-
 interface VoiceSessionManagerDeps {
   conversationIdRef: { current: string };
   inputActiveRef: { current: boolean };
@@ -90,7 +86,6 @@ export class VoiceSessionManager {
     this.deps = deps;
   }
 
-  /** Boot the session lifecycle. */
   start(): void {
     this.aborted = false;
     if (this.deps.inputActiveRef.current) {
@@ -99,7 +94,6 @@ export class VoiceSessionManager {
     void this.startSession();
   }
 
-  /** Tear down everything and mark aborted. */
   stop(): void {
     this.aborted = true;
     this.startInFlight = false;
@@ -115,7 +109,6 @@ export class VoiceSessionManager {
     void this.teardownSession();
   }
 
-  /** Forward conversationId / inputActive changes to the live session. */
   updateSession(conversationId: string, inputActive: boolean): void {
     const session = this.sessionRef.current;
     this.syncVisibleVoiceSessionState(inputActive);
@@ -133,7 +126,6 @@ export class VoiceSessionManager {
     }
   }
 
-  /** Close the current warm/live connection and recreate it from fresh prefs. */
   restart(): void {
     if (this.aborted) return;
     this.restartRequested = true;
@@ -147,8 +139,6 @@ export class VoiceSessionManager {
   getOutputAnalyser(): AnalyserNode | null {
     return this.sessionRef.current?.getOutputAnalyser() ?? null;
   }
-
-  // ---- private helpers ----------------------------------------------------
 
   private clearRetryTimer(): void {
     if (this.retryTimerRef.current) {
@@ -293,8 +283,7 @@ export class VoiceSessionManager {
     this.activeVoiceStartedAt = null;
     const durationMs = Math.max(0, now - startedAt);
     const duration = formatVoiceSessionDuration(durationMs);
-    // The text body is the model-history fallback; the chat surface renders
-    // the structured `voiceSession` metadata as a polished summary card.
+
     this.persistVoiceTranscript(
       "assistant",
       ["Voice session", "", `Duration: ${duration}`].join("\n"),
@@ -454,9 +443,7 @@ export class VoiceSessionManager {
         });
       }
     } catch (err) {
-      // The failed session was never handed to sessionRef/attachLiveSession,
-      // so nothing else can reach it: disconnect it here (idempotent) to drop
-      // its localChat IPC listener before we abort or schedule a fresh retry.
+
       void session.disconnect().catch(() => undefined);
       if (this.aborted) return;
       console.error(
@@ -475,10 +462,6 @@ export class VoiceSessionManager {
     }
   }
 }
-
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
 
 export function useRealtimeVoice(): UseRealtimeVoiceResult {
   const [runtimeState, setRuntimeState] = useState<VoiceRuntimeSnapshot>(

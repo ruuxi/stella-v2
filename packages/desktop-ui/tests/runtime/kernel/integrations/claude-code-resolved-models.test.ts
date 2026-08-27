@@ -27,7 +27,6 @@ describe("claude-code-resolved-models", () => {
       sonnet: "claude-sonnet-4-5-20250929",
     });
 
-    // Later resolutions overwrite the previous mapping for the same alias.
     await recordClaudeCodeResolvedModel(dir, "default", "claude-sonnet-5");
     expect(readClaudeCodeResolvedModels(dir).default).toBe("claude-sonnet-5");
   });
@@ -46,7 +45,7 @@ describe("claude-code-resolved-models", () => {
       opus: "claude-opus-4-5",
       haiku: "claude-haiku-4-5",
     });
-    // Writes land via temp-file + rename; no stray temp files remain.
+
     expect(
       fs.readdirSync(dir).filter((name) => name.endsWith(".tmp")),
     ).toEqual([]);
@@ -63,13 +62,13 @@ describe("claude-code-resolved-models", () => {
       );
     }
     const stored = readClaudeCodeResolvedModels(dir);
-    // The alias mapping survives unbounded full-id churn.
+
     expect(stored.default).toBe("claude-opus-4-8");
     const nonAliasKeys = Object.keys(stored).filter(
       (key) => key !== "default",
     );
     expect(nonAliasKeys).toHaveLength(8);
-    // Newest-first retention: the two oldest full ids were evicted.
+
     expect(stored["claude-custom-0"]).toBeUndefined();
     expect(stored["claude-custom-1"]).toBeUndefined();
     expect(stored["claude-custom-9"]).toBe("claude-custom-9-resolved");
@@ -103,7 +102,7 @@ describe("claude-code-resolved-models", () => {
     expect(formatClaudeCodeResolvedModel("claude-haiku-4-5")).toBe(
       "Haiku 4.5",
     );
-    // Unknown shapes pass through untouched.
+
     expect(formatClaudeCodeResolvedModel("my-gateway/custom")).toBe(
       "my-gateway/custom",
     );

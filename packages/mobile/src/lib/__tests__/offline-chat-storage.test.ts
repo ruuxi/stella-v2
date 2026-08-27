@@ -1,7 +1,5 @@
 import { describe, expect, test } from "bun:test";
 
-// AsyncStorage's non-native fallback talks to `window.localStorage`; give the
-// bun test runtime an in-memory one before the storage module is exercised.
 const memoryStore = new Map<string, string>();
 (globalThis as Record<string, unknown>).window = {
   localStorage: {
@@ -36,7 +34,7 @@ describe("chat storage round-trip", () => {
         createdAt: 1_004_000,
         canonicalCreatedAt: 1_004_000,
       },
-      // In-flight local row: no canonical identity, no stamp.
+
       { id: "local-x", role: "user", text: "in flight", createdAt: 911_500 },
     ];
     await saveChatMessages("computer", rows);
@@ -50,10 +48,9 @@ describe("chat storage round-trip", () => {
 
   test("round-trips queued / stopped / requestId so a restart is honest and de-dupes", async () => {
     const rows: ChatMessage[] = [
-      // A queued-but-unsent bubble must reload as queued, never as delivered.
+
       { id: "q1", role: "user", text: "send me later", createdAt: 5, queued: true },
-      // A reply linked only by requestId (killed before the canonicalId
-      // reconcile) must keep it so the restart catch-up sync de-dupes it.
+
       {
         id: "a1",
         role: "assistant",

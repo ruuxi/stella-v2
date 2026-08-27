@@ -1,19 +1,3 @@
-/**
- * `map` tool — show the user an interactive map inline in the chat: pinned
- * places and/or a route with directions.
- *
- * The tool takes natural inputs (place names, addresses, "lat,lng" strings)
- * and POSTs them to the stella.sh maps resolve endpoint, which geocodes and
- * routes through Google APIs with a server-side key (zero keys and zero
- * setup on the user's machine — a hard product requirement). The resolved
- * `map-route` artifact lands on the tool_result `details`, where the desktop
- * chat card and the mobile bridge pick it up; the model gets a compact text
- * summary (distance, duration, top places) to speak from.
- *
- * Best-effort by design: resolution failures come back as a clear tool error
- * (the model can answer without a card), never a broken card.
- */
-
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   isMapRouteArtifact,
@@ -25,9 +9,9 @@ import {
 import type { ToolDefinition } from "../types.js";
 
 export type MapToolOptions = {
-  /** Override the stella.sh base (tests, self-hosted resolve). */
+
   siteBaseUrl?: string;
-  /** Injectable fetch for tests. */
+
   fetchImpl?: typeof fetch;
 };
 
@@ -89,7 +73,6 @@ const formatDuration = (seconds: number): string => {
   return rest > 0 ? `${hours} hr ${rest} min` : `${hours} hr`;
 };
 
-/** Compact text the model can speak from; the card itself shows the map. */
 const summarizeArtifact = (
   map: MapRouteArtifact,
   unresolved: string[],
@@ -150,8 +133,7 @@ export const createMapTool = (options: MapToolOptions = {}): ToolDefinition => {
 
   return {
     name: "map",
-    // Chat-surface artifact: only the orchestrator drops map cards into the
-    // conversation, mirroring the html/canvas tool.
+
     agentTypes: [AGENT_IDS.ORCHESTRATOR],
     description:
       "Show the user an interactive map card inline in the chat — pinned places and/or a route with turn-by-turn-ready directions. Use when the user asks where something is, for places to go (restaurants, coffee, sights), or how to get somewhere. Provide natural inputs: `places` (up to 8 names/addresses) and/or `origin` + `destination` (+ `mode`). Resolution (geocoding, place ratings, route distance/duration) happens automatically; the result summary comes back for you to answer with, and the card includes an 'Open in Apple Maps' handoff. Don't use for abstract geography questions that need no map.",
@@ -207,7 +189,7 @@ export const createMapTool = (options: MapToolOptions = {}): ToolDefinition => {
         try {
           payload = await response.json();
         } catch {
-          // Non-JSON error body; fall through to the status message.
+
         }
         const record =
           payload && typeof payload === "object"

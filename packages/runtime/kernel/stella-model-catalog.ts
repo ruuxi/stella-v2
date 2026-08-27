@@ -66,9 +66,8 @@ const inFlightCatalogRequests = new Map<
 >();
 const lastCatalogFetchAttemptAtMs = new Map<string, number>();
 
-/** Bound on the catalog network round-trip. */
 const CATALOG_FETCH_TIMEOUT_MS = 15_000;
-/** Minimum spacing between background refresh attempts per identity. */
+
 const CATALOG_REFRESH_MIN_INTERVAL_MS = 30_000;
 
 const publishCatalogToModelRuntime = async (
@@ -96,14 +95,6 @@ const publishCatalogToModelRuntime = async (
   );
 };
 
-/**
- * The disk cache is keyed by the IDENTITY (endpoint + user + device) only —
- * deliberately NOT by catalog version. The pushed `modelCatalogUpdatedAt`
- * decides freshness, not existence: when the version bumps, the stored copy
- * goes stale but stays servable, so a catalog change (or a flaky backend
- * mid-deploy) can never leave route resolution with nothing. One file per
- * identity also stops the per-version file accumulation the old scheme had.
- */
 const diskCachePathForIdentity = (
   stellaDataDir: string,
   identityKey: string,
@@ -248,9 +239,9 @@ const buildCatalogRequest = (args: {
 }): {
   endpoint: string;
   headers: Record<string, string>;
-  /** Who is asking: endpoint + stable JWT identity + device. */
+
   identityKey: string;
-  /** identityKey + the pushed catalog version — the freshness key. */
+
   cacheKey: string;
 } | null => {
   const baseUrl = args.site.baseUrl?.trim();
@@ -284,13 +275,6 @@ const buildCatalogRequest = (args: {
 
 type CatalogRequest = NonNullable<ReturnType<typeof buildCatalogRequest>>;
 
-/**
- * The only place the network is touched. Single-flight per identity,
- * bounded, rate-limited between attempts, and every outcome settles — a
- * pending entry can never outlive {@link CATALOG_FETCH_TIMEOUT_MS}, so one
- * stalled request can no longer poison every later lookup (a previous
- * incarnation of this map held unsettled promises forever).
- */
 const fetchCatalogFromNetwork = (
   request: CatalogRequest,
   stellaDataDir: string | undefined,
@@ -330,8 +314,7 @@ const fetchCatalogFromNetwork = (
       ).catch(() => undefined);
       return catalog;
     } catch (error) {
-      // Loud on purpose: silent nulls here previously made a sick catalog
-      // endpoint (or a poisoned in-flight entry) undiagnosable from logs.
+
       console.warn(
         `[stella-model-catalog] Catalog fetch failed: ${error instanceof Error ? error.message : String(error)}`,
       );
@@ -344,19 +327,6 @@ const fetchCatalogFromNetwork = (
   return inFlight;
 };
 
-/**
- * Push-invalidated, stale-while-revalidate catalog lookup.
- *
- * The backend pushes `modelCatalogUpdatedAt` down through desktop config;
- * that version is the ONLY thing that decides freshness. Resolution order:
- *   1. memory/disk copy stored under the current version → serve it;
- *   2. any older stored copy → serve it IMMEDIATELY and refresh in the
- *      background (spaced by {@link CATALOG_REFRESH_MIN_INTERVAL_MS});
- *   3. nothing stored at all (first run) → one bounded network fetch.
- * After the first successful fetch on a device, callers never block on the
- * network again — a version bump degrades to "briefly stale", never to
- * "hangs" or "no catalog".
- */
 const fetchStellaModelCatalog = async (args: {
   site: StellaSiteConfig;
   deviceId?: string;
@@ -385,9 +355,7 @@ const fetchStellaModelCatalog = async (args: {
     return diskCached.catalog;
   }
   if (diskCached) {
-    // Stale copy: usable now, refresh behind the caller's back. The stale
-    // catalog is deliberately NOT memoized under the current cacheKey — the
-    // memory entry for this version is only written by a successful fetch.
+
     const lastAttempt =
       lastCatalogFetchAttemptAtMs.get(request.identityKey) ?? 0;
     if (

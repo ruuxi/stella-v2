@@ -2,17 +2,14 @@ import { AudioLines, Box } from "@/ui/icons";
 import { ClaudeLogoIcon } from "@/ui/claude-logo-icon";
 import { StellaLogoIcon } from "@/ui/stella-logo-icon";
 import { BRAND_ICON_COLOR_MARKUP, BRAND_ICON_MARKUP, } from "@/ui/brand-icon-paths";
-/** Provider key → brand glyph key. Unlisted keys use the key itself. */
+
 const BRAND_KEY_ALIASES = {
     "openai-codex": "openai",
     "kimi-coding": "kimi",
     "vercel-ai-gateway": "vercel",
     "github-copilot": "githubcopilot",
 };
-/**
- * Canonical accents for brands whose logos are monochrome. Brands whose
- * mark is genuinely black (xAI, Vercel, GitHub) stay on `currentColor`.
- */
+
 const BRAND_TINTS = {
     openai: "#10a37f",
     openrouter: "#6467f2",
@@ -31,8 +28,7 @@ export function BrandIcon({ brand, size = 16, className }) {
     const colorMarkup = BRAND_ICON_COLOR_MARKUP[key];
     if (colorMarkup) {
         return (<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width={size} height={size}
-        // Paths without an explicit brand fill (e.g. Cerebras' letterform)
-        // follow text color so they stay visible in dark mode.
+
         fill="currentColor" className={className} aria-hidden dangerouslySetInnerHTML={{ __html: colorMarkup }}/>);
     }
     const markup = BRAND_ICON_MARKUP[key];

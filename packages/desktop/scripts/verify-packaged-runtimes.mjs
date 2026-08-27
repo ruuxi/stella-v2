@@ -70,8 +70,7 @@ const env = {
   PATH: runtimePath,
   PIP_USER: "1",
   PYTHONDONTWRITEBYTECODE: "1",
-  // Linux ships no bundled git runtime; pointing git env at the (empty)
-  // bundled root would break the system-git probe below.
+
   ...(isLinux
     ? {}
     : {
@@ -161,8 +160,7 @@ run(
 run("pip", binaries.python, ["-m", "pip", "--version"], /^pip\b/mu);
 
 if (isLinux) {
-  // Linux beta: no bundled git. Assert we did not accidentally half-bundle
-  // one, then confirm the system-git fallback path works on this machine.
+
   if (existsSync(binaries.git)) {
     throw new Error(
       `Unexpected bundled git at ${binaries.git}; Linux builds must rely on system git.`,

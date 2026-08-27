@@ -1,12 +1,3 @@
-/**
- * Activity / Files / Schedule sections, shared by the sidebar's Tasks and
- * Search tabs. With `query` supplied they act as the searchable group
- * overview; section rows open the right sidebar viewer (master-detail).
- *
- * The two hosts differ only in that prop: Tasks renders this unfiltered as the
- * stable activity index, Search threads its debounced query through. Files
- * list nothing without a query — they exist here purely as search results.
- */
 import {
   memo,
   useCallback,
@@ -86,42 +77,25 @@ import { useContinuousAnimationGate } from "@/shared/hooks/use-continuous-animat
 import { TERMINAL_ROW_AUTOHIDE_MS } from "@/shell/workspace/use-qualifying-activity";
 import "@/app/chat/chat-workspace-strip.css";
 
-// Default per-section caps. The compact strip shows a small preview; the
-// group overview shows more. An active search ignores caps entirely
-// (see `caps` below) and pages in the full dataset.
 const SECTION_CAPS = {
   strip: { activity: 8, files: 5, schedule: 4 },
   overview: { activity: 9, files: 6, schedule: 6 },
 } as const;
-// Search still scans every loaded record, but rendering an unbounded match
-// set made a common query mount hundreds of rows at once.
+
 const SEARCH_CAPS = { activity: 40, files: 40, schedule: 30 };
 const QUICK_SEARCH_CAPS = { activity: 8, files: 8, schedule: 4 };
 const EMPTY_FILES: ReadonlyArray<ConversationFileEntry> = [];
 const EMPTY_UPDATES: ReadonlyArray<string> = [];
-/** Agent-authored messages shown under an expanded RUNNING agent. */
+
 const AGENT_UPDATE_CAP = 1;
-// Terminal (done / failed / paused / canceled) agents drop out of the activity
-// index this long after their last activity; running agents are never hidden,
-// and a re-activation moves the row back to the running list (resetting this).
-// `TERMINAL_ROW_AUTOHIDE_MS` is imported from the shared qualifying-activity
-// module (top of file) so the shell's right-workspace visibility auto-hides on
-// exactly the same threshold this list uses.
 
 const activityRowText = (row: ActivityRow): string =>
   getActivityRowSearchText(row);
 
-// ── Row enter / exit / reorder motion ───────────────────────────────
-//
-// Mirrors the 10px `gap` on `.chat-workspace-strip__list--tasks`: entering
-// and exiting rows animate a matching negative top margin alongside their
-// height so the flex gap they occupy opens and closes with them — otherwise
-// the list snaps by one gap width the instant the row unmounts.
 const LIST_GAP_PX = 10;
 
 const ROW_HIDDEN = { height: 0, opacity: 0, marginTop: -LIST_GAP_PX };
 
-// Enter: the space opens first (height spring), then the row fades in.
 const ROW_ENTER = {
   height: "auto",
   opacity: 1,
@@ -133,7 +107,6 @@ const ROW_ENTER = {
   },
 } as const;
 
-// Exit: the fade leads, then the space closes behind it.
 const ROW_EXIT = {
   height: 0,
   opacity: 0,
@@ -145,7 +118,6 @@ const ROW_EXIT = {
   },
 } as const;
 
-// Reorders (running → done, resorts) FLIP the row to its new slot.
 const ROW_REORDER_TRANSITION = {
   type: "spring",
   duration: 0.32,
@@ -154,13 +126,6 @@ const ROW_REORDER_TRANSITION = {
 
 const ROW_EXIT_INSTANT = { ...ROW_HIDDEN, transition: { duration: 0 } };
 
-/**
- * Shared motion props for activity rows. `layout="position"` FLIPs reorders
- * with compositor-only transforms; `layoutDependency` pins measurement to the
- * row's list index so streamed content deltas (which re-render rows without
- * moving them) never force per-row layout reads. Reduced motion renders
- * every state instantly.
- */
 const useActivityRowMotionProps = (orderIndex: number) => {
   const reduceMotion = useReducedMotion();
   return {
@@ -180,7 +145,7 @@ function WorkspaceSection({
   children,
 }: {
   title: string;
-  /** Stable id for persisted collapse state. */
+
   sectionId: string;
   hideHeader?: boolean;
   children?: ReactNode;
@@ -245,49 +210,40 @@ const TaskRow = memo(function TaskRow({
   task: TaskItem;
   expanded: boolean;
   onToggle: (taskId: string, nextExpanded: boolean) => void;
-  /** Open this exact agent thread in the read-only workspace chat. */
+
   onSelect: (task: TaskItem) => void;
   files: ReadonlyArray<ConversationFileEntry>;
   onOpenFile: (entry: ConversationFileEntry) => void;
-  /** Position in the host list; drives reorder FLIP measurement. */
+
   orderIndex: number;
-  /** Stable supporting text, used by Manager ownership headers. */
+
   metaText?: string;
-  /** Persisted child ownership hierarchy, rendered before files. */
+
   childContent?: ReactNode;
-  /** Owned agents collapsed into the Manager's cell-grid summary. */
+
   compactChildren?: readonly ActivityRow[];
-  /** Keep a child failure at the front while its Manager is still active. */
+
   compactFailurePriority?: boolean;
-  /** Nested owned rows stay static; the visible top-level row owns motion. */
+
   isTopLevel: boolean;
 }) {
   const tPlural = useTPlural();
   const motionProps = useActivityRowMotionProps(orderIndex);
   const rowRef = useRef<HTMLLIElement>(null);
-  // Activity rows identify the delegated thread. Live tool state is
-  // intentionally reserved for the inline chat card, so it cannot replace
-  // the stable description here or leak into activity search.
+
   const label = task.description.trim();
   const sourceLabel = taskSourceLabel(task);
-  // Agent-authored assistant messages replace generated/tool-status summary
-  // text. Only a still-running agent surfaces them (capped to the single most
-  // recent line); finished rows keep just title, status, and files. Agents
-  // that own subagents never show this — their compact summary line carries
-  // the state instead.
+
   const hasSubagents = Boolean(compactChildren);
   const agentUpdates =
     !hasSubagents && task.status === "running"
       ? getTaskAgentUpdates(task)
       : EMPTY_UPDATES;
-  // Up to two produced files show inline; any beyond that hide behind a
-  // "N more files" disclosure so a busy thread stays scannable without
-  // burying every file. Per-session only; resets when the row unmounts.
+
   const [filesExpanded, setFilesExpanded] = useState(false);
   const FILE_CHIP_PREVIEW = 2;
   const hasAgentUpdates = agentUpdates.length > 0;
-  // Second line on a row that owns subagents: what the parent is doing now,
-  // or its result once settled. Keyed on having children, not on agent type.
+
   const parentDetail = compactChildren
     ? task.status === "running"
       ? task.statusText?.trim() &&
@@ -413,10 +369,9 @@ const TaskRow = memo(function TaskRow({
           </button>
         ) : null}
       </div>
-      {/* Always mounted so both the user toggle and the first summary/file
-          arriving animate open — grid-rows 0fr↔1fr, same pattern as the
-          section header collapse. `inert` keeps the hidden detail out of the
-          tab order and the accessibility tree while it stays in the DOM. */}
+      {
+
+}
       <div
         className="chat-workspace-strip__task-collapse"
         data-collapsed={detailOpen ? undefined : "true"}
@@ -479,9 +434,7 @@ const TaskRow = memo(function TaskRow({
                     </button>
                   ) : null}
                   {hasExtraFiles ? (
-                    // Same always-mounted grid-rows collapse as the row's own
-                    // detail above, so the extra file list glides open instead
-                    // of popping in when the disclosure toggles.
+
                     <div
                       className="chat-workspace-strip__task-collapse"
                       data-collapsed={filesExpanded ? undefined : "true"}
@@ -550,8 +503,8 @@ const TasksList = memo(function TasksList({
         nested ? " chat-workspace-strip__group-members" : ""
       }`}
     >
-      {/* `initial={false}` keeps the first paint of an already-populated
-          list static — only rows that appear/leave/move afterwards animate. */}
+      {
+}
       <AnimatePresence initial={false}>
         {rows.map((row, index) =>
           row.kind === "task" ? (
@@ -615,11 +568,6 @@ const scheduleEntryToAffectedRef = (
   nextRunAtMs: entry.nextRunAtMs,
 });
 
-// Memoized: the Search host re-renders on every keystroke while its debounce
-// is still pending, and the Tasks host re-renders whenever the display-tab
-// registry changes. Neither has any business re-reconciling this whole
-// subtree. Context-driven updates (chat runtime, stores) still re-render as
-// usual.
 export const WorkspaceSections = memo(function WorkspaceSections({
   query = "",
   variant = "strip",
@@ -628,19 +576,17 @@ export const WorkspaceSections = memo(function WorkspaceSections({
   renderEmpty,
   onNavigate,
 }: {
-  /** When set, live-filters every section by this query (group overview). */
+
   query?: string;
-  /** Default cap set: compact strip vs. roomier group overview. */
+
   variant?: "strip" | "overview";
-  /** Quick search stays within already-loaded data and renders a small result
-   *  preview. Complete search pages through the full available history. */
+
   searchMode?: "complete" | "quick";
-  /** Include user-created apps as search results. */
+
   includeUserApps?: boolean;
-  /** Rendered when nothing matches; strip mode omits it and renders null. */
+
   renderEmpty?: () => ReactNode;
-  /** Fired after a section item is opened/selected — lets a host surface
-   *  dismiss itself. */
+
   onNavigate?: () => void;
 } = {}) {
   const chat = useChatRuntime();
@@ -677,9 +623,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
       : SEARCH_CAPS
     : SECTION_CAPS[variant];
 
-  // While searching, page in the full dataset so the query matches every
-  // item, not just what's already loaded. Each loader call updates
-  // hasOlder/loading, which re-runs the effect until the feed is drained.
   useEffect(() => {
     if (!searching || quickSearch) return;
     if (activityHasOlder && !activityIsLoadingOlder) loadOlderActivity();
@@ -704,20 +647,9 @@ export const WorkspaceSections = memo(function WorkspaceSections({
 
   const [openScheduleEntry, setOpenScheduleEntry] =
     useState<ScheduleEntry | null>(null);
-  // Ids seen running this session — the sticky half of regular task-row
-  // expansion defaults below (rolled forward next to `allTasks`).
+
   const seenRunningTasksRef = useRef<ReadonlySet<string>>(new Set());
-  // Per-agent expand/collapse: an expanded activity row reveals that
-  // agent's recent assistant messages and the files it produced.
-  //
-  // Default state: a running agent comes up expanded (freshly-started agents
-  // auto-expand), and an agent seen running THIS session stays expanded
-  // after it finishes — completion must not collapse the row and hide the
-  // work the user was just watching (prod bug: finish → auto-collapse →
-  // detail gone). Rows loaded already-completed (history, conversation
-  // switch) default collapsed as before, since their ids were never seen
-  // running. `expandOverrides` records rows the user has explicitly toggled;
-  // those win over every default and are never stomped by it.
+
   const [expandOverrides, setExpandOverrides] = useState<
     ReadonlyMap<string, boolean>
   >(() => new Map());
@@ -743,12 +675,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     });
   }, []);
 
-  // Re-seed every piece of expansion state from the persisted store whenever
-  // the active conversation changes (including first mount). Without this, a
-  // relaunch loads every task as "already completed, never seen running" and
-  // collapses rows that were open — with their files visible — moments before
-  // quitting. Render-phase reset (the sanctioned derived-state pattern) so
-  // seeded values are in place before the roll-forward memo below runs.
   const [seededConversationId, setSeededConversationId] = useState<
     string | null | undefined
   >(undefined);
@@ -761,14 +687,8 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     setExpandOverrides(new Map(Object.entries(snapshot.taskOverrides)));
   }
 
-  // Roll the seen-running sets forward in a memo (same idempotent-mutation
-  // pattern as `runningOrderRef`) so they're current before any row computes
-  // its expansion; pruned to ids still present in the task list so they
-  // can't grow unboundedly.
   useMemo(() => {
-    // An empty list usually means the activity feed hasn't loaded yet (cold
-    // start / conversation switch) — pruning against it would wipe the
-    // persisted seen-running state we just seeded, so wait for real data.
+
     if (allTasks.length === 0) return;
     seenRunningTasksRef.current = updateSeenRunningTaskIds(
       seenRunningTasksRef.current,
@@ -778,12 +698,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
 
   const groupedRows = useMemo(() => groupActivityTasks(allTasks), [allTasks]);
 
-  // Persist the expansion state so a relaunch (which restores this
-  // conversation) brings the Activity rows back exactly as they looked —
-  // a finished agent's row keeps showing its files across restarts, not just
-  // across completions. Runs after the roll-forward memo above, so the saved
-  // sets are already pruned to the current activity window. Skipped while the
-  // task list is empty for the same cold-start reason as the pruning guards.
   useEffect(() => {
     if (!conversationId || allTasks.length === 0) return;
     activityExpansionStore.save(conversationId, {
@@ -813,10 +727,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     [groupedRows, matchingActivityKeys],
   );
 
-  // Running rows use durable lifecycle identity only: immutable thread start
-  // time plus a stable row-key tie breaker. Stream activity, async discovery,
-  // search filtering, refetches, and remounts therefore cannot reshuffle the
-  // active population. A row moves only when its lifecycle becomes terminal.
   const runningRows = useMemo(() => {
     const ordered = [...groupedRows]
       .filter((row) => getActivityRowStatus(row) === "running")
@@ -824,14 +734,7 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     const visible = matchingActivityKeys
       ? ordered.filter((row) => matchingActivityKeys.has(activityRowKey(row)))
       : ordered;
-    // Never cap the running list — every active/running thread stays visible
-    // regardless of the orchestrator's busy/idle state. While the orchestrator
-    // is busy its in-flight run streams extra live running rows on top of the
-    // persisted ones; slicing to `caps.activity` here silently dropped the
-    // overflow active thread (running rows have no "View all" escape hatch),
-    // and it reappeared only once the run finished and the live rows cleared.
-    // Only the done rows are capped: `visibleDoneRows` takes whatever budget
-    // the running rows leave, and they carry the "View all activity" affordance.
+
     return visible;
   }, [groupedRows, matchingActivityKeys]);
 
@@ -847,28 +750,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     [activityRows],
   );
 
-  // Files produced by each agent, keyed by agentId, nested under that agent's
-  // expanded row (replacing the old standalone Files section).
-  //
-  // Sourcing merges two feeds so files show up LIVE while an agent works:
-  //  - `activity.activities` (lifecycle events) carries the
-  //    `agent-completed` rollup — the only file source for engines that
-  //    report changes on the turn result (e.g. claude-code agents).
-  //  - `filesFeed.files` carries agent-attributed `tool_result` events as
-  //    each tool finishes, so a native agent's files appear the moment
-  //    they're written. The files store only refetches on file-bearing
-  //    events, so this input is quiet during pure text streaming.
-  // `mergeAgentFileEvents` dedupes overlap by event id; per-path dedupe in
-  // `deriveConversationFiles` keeps live + rollup copies from double-listing.
-  //
-  // `activity.activities` gets a fresh array identity on every streamed delta
-  // (the activity window is refetched per `localChat:updated`), so a plain
-  // `useMemo([activity.activities])` re-ran the heavy per-agent file
-  // derivation on every token — the 44ms sidebar offender in the trace. Gate
-  // the recompute on a cheap content signature of the file-contributing
-  // events so it only re-runs when an agent's files actually change; the
-  // returned Map keeps a stable reference across deltas otherwise (so the
-  // memoized task rows that take it as a prop also stop re-reconciling).
   const agentFileEvents = useMemo(
     () => mergeAgentFileEvents(activity.activities, filesFeed.files),
     [activity.activities, filesFeed.files],
@@ -886,13 +767,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     return result;
   }, [agentFileEvents]);
 
-  // Files list under the agent that produced them rather than in a standalone
-  // section, but a flat file index is still essential as a global search
-  // result. Use the same merged live + completion-rollup source as the agent
-  // rows above: some engines report a file only on `agent-completed`, so
-  // indexing `filesFeed.files` alone can find the containing thread while
-  // missing the file itself. Query changes only scan the normalized path
-  // index built here.
   const searchableFiles = useMemo(
     () =>
       deriveConversationFiles(agentFileEvents).map((entry) => ({
@@ -921,9 +795,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     [includeUserApps, query, searching, userApps],
   );
 
-  // Ticks on a coarse cadence so terminal activity rows drop out ~30 minutes
-  // after their last activity even when nothing else in the conversation is
-  // changing. Only armed off-search, where the time-based auto-hide applies.
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     if (searching) return;
@@ -933,9 +804,7 @@ export const WorkspaceSections = memo(function WorkspaceSections({
 
   const visibleDoneRows = useMemo(
     () =>
-      // Not searching: no fixed cap — every terminal row stays until it is
-      // 30 minutes past its last activity, then auto-hides. Searching keeps
-      // the bounded result set so a broad query can't mount hundreds of rows.
+
       searching
         ? doneRows.slice(0, Math.max(0, caps.activity - runningRows.length))
         : doneRows.filter(
@@ -977,10 +846,6 @@ export const WorkspaceSections = memo(function WorkspaceSections({
     [onNavigate],
   );
 
-  // Exact thread identity is the durable viewer key. Opening Activity chat
-  // never mutates composer context and never navigates the root transcript;
-  // `openAgentThreadTab` lands it in the Tasks section, so a row clicked from
-  // Search leads to the same drill-down rather than a dead end.
   const handleSelectTask = useCallback(
     (task: TaskItem) => {
       if (!conversationId) return;

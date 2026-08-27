@@ -12,10 +12,6 @@ type ModelMentionTextProps = {
   text: string;
 };
 
-/**
- * Renders routing mentions in-place without changing the message text or its
- * whitespace. The same renderer is used by the composer mirror and transcript.
- */
 export function ModelMentionText({ text }: ModelMentionTextProps) {
   const mentions = findDelegatedModelMentions(text);
   if (mentions.length === 0) return text;
@@ -48,11 +44,6 @@ type ComposerModelMentionTextareaProps = Omit<
   value: string;
 };
 
-/**
- * Native textareas cannot style a substring. A non-interactive mirror keeps
- * the native editing, selection, IME, and accessibility behavior while adding
- * Slack-style inline mention color underneath the transparent text glyphs.
- */
 export const ComposerModelMentionTextarea = forwardRef<
   HTMLTextAreaElement,
   ComposerModelMentionTextareaProps

@@ -43,26 +43,10 @@ import type { RecallModelRoute } from "./recall-route.js";
 import { resolvedLlmSupportsCredentiallessCalls } from "../model-routing.js";
 import type { ResolvedLlmRoute } from "../model-routing.js";
 
-/**
- * Recall's synthesis pass runs at LOW reasoning. Models that expose no
- * reasoning/effort setting get no reasoning param at all (i.e. off/none) — the
- * completion option only carries positive ThinkingLevels, so omitting it is how
- * "off" is expressed on the wire.
- */
 export const recallSynthesisReasoning = (
   model: ResolvedLlmRoute["model"],
 ): "low" | undefined => (model.reasoning === true ? "low" : undefined);
 
-/**
- * Resolve the synthesis credential for a native (in-process) Recall route.
- * Mirrors the utility-route / one-shot contract: only routes that explicitly
- * declare `credentialless` (the `local/` provider, origin-verified proxies)
- * need no key, while every other route must produce one. Returns the key
- * (or undefined for a credentialless route) and throws an actionable error
- * naming the model when a key is genuinely required — never a silent keyless
- * request that would surface as the provider's raw
- * "No API key for provider: …" failure.
- */
 export const resolveRecallSynthesisApiKey = async (
   resolvedLlm: ResolvedLlmRoute,
 ): Promise<string | undefined> => {
@@ -75,23 +59,15 @@ export const resolveRecallSynthesisApiKey = async (
 };
 
 const EAGER_MEMORY_FILE_CHAR_BUDGET = 4_000;
-/** Hard ceiling for the complete eager seed, including headings and request. */
+
 export const EAGER_RECALL_SEED_MAX_CHARS = 12_000;
 const SEED_TRUNCATION_MARKER = "\n...[seed section truncated]";
-/** Tool-call ROUNDS (a round may carry several parallel searches). */
+
 const MAX_RECALL_STEPS = 4;
-/**
- * Transport-failure retries per model completion (attempts = retries + 1).
- * A recall completion is a read-only lookup, so replaying the identical
- * request is side-effect free; relay streams dropping mid-flight otherwise
- * fail the whole lookup on the first hiccup (observed in the field as runs
- * of "Recall failed: the model produced no usable output").
- */
+
 const MAX_RECALL_MODEL_ERROR_RETRIES = 2;
 const RECALL_MODEL_ERROR_RETRY_BASE_DELAY_MS = 400;
-// Sized so a full search observation (a page of ranked results, the top
-// several message hits carrying their surrounding-exchange lines) survives
-// untruncated; at 6k the exchange blocks pushed the tail results off.
+
 const RECALL_OBSERVATION_CHAR_BUDGET = 20_000;
 const MAX_MEMORY_SEARCH_TERMS = 12;
 const MAX_MEMORY_SEARCH_TERM_CHARS = 120;
@@ -99,20 +75,12 @@ const MAX_MEMORY_SEARCH_MATCHES = 40;
 const MAX_MEMORY_SEARCH_CONTEXT_LINES = 1;
 const MAX_MEMORY_SEARCH_RESULTS_CHARS = 16_000;
 
-/**
- * Hard cap on rendered thread-search results. The candidate pool is EVERY
- * thread ever run (the SQL searches all of them); the query narrows, this
- * cap bounds what a single page renders — never more, regardless of the
- * model-provided limit.
- */
 export const MAX_THREAD_SEARCH_RESULTS = 16;
 
-/** How far back the live-status tail looks for threads executing right now. */
 const DAY_MS = 24 * 60 * 60 * 1000;
 const LIVE_STATUS_WINDOW_MS = DAY_MS;
 const LIVE_STATUS_MAX_THREADS = 60;
 
-/** Latest live progress phrases surfaced per ACTIVE thread. */
 const MAX_LIVE_AGENT_MESSAGES = 3;
 
 type ContextLookupStore = Pick<
@@ -149,7 +117,6 @@ const RECALL_PROMPT_SHARED_GUIDANCE = [
   'Answer with exactly "Nothing relevant found." ONLY when you have earned it: the pre-seeded results missed AND you ran at least one reformulated search of your own with DIFFERENT concrete terms (drop status/filler words; use names, slugs, file paths, places). Never conclude nothing-found from the pre-seeded round alone.',
 ];
 
-// Exported so replay/eval harnesses can drive the exact production prompt.
 export const RECALL_SYSTEM_PROMPT = [
   RECALL_PROMPT_INTRO,
   "",
@@ -162,12 +129,6 @@ export const RECALL_SYSTEM_PROMPT = [
   ...RECALL_PROMPT_SHARED_GUIDANCE,
 ].join("\n");
 
-/**
- * The prompt for external-engine runs (Claude Code): that runtime's decision
- * contract carries tools through its structured decision JSON rather than
- * native function calls, so the invocation mechanics differ; everything else
- * is shared.
- */
 export const RECALL_TOOL_RUNTIME_SYSTEM_PROMPT = [
   RECALL_PROMPT_INTRO,
   "",
@@ -181,11 +142,6 @@ export const RECALL_TOOL_RUNTIME_SYSTEM_PROMPT = [
   ...RECALL_PROMPT_SHARED_GUIDANCE,
 ].join("\n");
 
-/**
- * The recall search tools, advertised natively on the API path and through
- * the Claude Code engine's tool protocol. Both invocation paths land on the
- * same in-process search functions.
- */
 export const RECALL_RUNTIME_TOOLS: Tool[] = [
   {
     name: "search_memory",
@@ -245,7 +201,6 @@ export const RECALL_RUNTIME_TOOLS: Tool[] = [
   },
 ];
 
-/** The one legitimate no-result answer — everything else is an error. */
 export const RECALL_NO_MATCH_TEXT = "Nothing relevant found.";
 export const isRecallNoMatchBrief = (brief: string): boolean =>
   brief.trim().toLocaleLowerCase().startsWith("nothing relevant found");
@@ -294,7 +249,6 @@ const isBareRepoLookup = (prompt: string): boolean => {
   );
 };
 
-/** Cheap deterministic routing happens before any evidence source is read. */
 export const classifyRecallIntent = (prompt: string): RecallIntentDecision => {
   const value = prompt.normalize("NFKC").toLocaleLowerCase();
   const matchedIntents: RecallIntent[] = [];
@@ -338,7 +292,7 @@ export const classifyRecallIntent = (prompt: string): RecallIntentDecision => {
     return {
       intent,
       matchedIntents,
-      // Episodic results are timelines, not answers. They require synthesis.
+
       deterministicFastPath: intent !== "episodic",
       exactPhrases,
     };
@@ -361,11 +315,7 @@ export const classifyRecallIntent = (prompt: string): RecallIntentDecision => {
 
 export const routeRecallIntent = (prompt: string): RecallIntent =>
   classifyRecallIntent(prompt).intent;
-/**
- * Failure outcomes get texts DISTINCT from the no-match answer so the
- * orchestrator can tell "searched and found nothing" from "the lookup
- * itself failed" — the latter previously masqueraded as a confident miss.
- */
+
 export const RECALL_EMPTY_BRIEF_TEXT =
   "Recall failed: the model returned an empty brief. This is a lookup failure, NOT evidence that nothing exists — retry with concrete anchors (thread ids, file names, exact phrases).";
 export const RECALL_NO_OUTPUT_TEXT =
@@ -377,18 +327,6 @@ export class RecallRetrievalError extends Error {
   override readonly name = "RecallRetrievalError";
 }
 
-/**
- * Recall internals go to stderr as JSON lines (the same channel as the
- * working-indicator traces, landing in runtime.log), so a bad answer is
- * reconstructable after the fact: which searches ran, how big each
- * observation was, and how the run ended. Before this, only the final brief
- * was persisted and every miss was undiagnosable.
- *
- * The always-on trace is STRUCTURAL only (step, action kind, sizes,
- * outcome) — runtime.log should not accumulate memory/transcript content.
- * Content previews (prompt, queries, observations, brief) are included only
- * when STELLA_RECALL_TRACE_VERBOSE is set for a debugging session.
- */
 const logRecallTrace = (
   label: string,
   payload: Record<string, unknown>,
@@ -396,7 +334,7 @@ const logRecallTrace = (
   try {
     process.stderr.write(`${JSON.stringify({ label, ...payload })}\n`);
   } catch {
-    // Tracing must never break a lookup.
+
   }
 };
 
@@ -412,7 +350,6 @@ const previewForTrace = (value: string, maxChars = 300): string => {
     : `${collapsed.slice(0, maxChars)}…`;
 };
 
-/** Signal-aware backoff sleep; resolves early (without throwing) on abort. */
 const sleepForRetry = (ms: number, signal?: AbortSignal): Promise<void> =>
   new Promise((resolve) => {
     if (signal?.aborted) {
@@ -452,7 +389,6 @@ type EagerSeedSection = {
   maxBodyChars: number;
 };
 
-/** Deterministic evidence selection that always preserves the lookup tail. */
 export const renderCappedRecallSeed = (
   sections: readonly EagerSeedSection[],
   priority: readonly number[],
@@ -777,10 +713,6 @@ const formatClockTime = (timestamp: number): string =>
     hour12: true,
   });
 
-/**
- * Live-update lines for one thread: recent assistant prose authored by the
- * agent itself and already persisted in its runtime transcript.
- */
 const formatThreadLiveUpdateLines = (
   store: Pick<ContextLookupStore, "listAgentAssistantMessages">,
   thread: { threadId: string; agentStatus?: unknown },
@@ -826,16 +758,6 @@ const formatAbsoluteTimestamp = (timestamp: number): string =>
 const collapseWhitespace = (value: string): string =>
   value.replace(/\s+/g, " ").trim();
 
-/**
- * The `search_threads` tool (also the pre-seeded "# Agent Thread Search
- * Results" section): a keyword search over EVERY delegated agent thread ever
- * run, across all conversations and any age — this replaces the old inline
- * thread index the seed used to carry wholesale. Relevance (matched-token
- * count in SQL) picks WHICH threads make the page; the page itself renders
- * newest-first by last activity with an absolute date/time per entry, so the
- * model always has recency awareness. Final result/error excerpts come along
- * because `summary` is empty on nearly every real thread.
- */
 export const formatThreadSearchResults = (
   store: Pick<
     ContextLookupStore,
@@ -887,8 +809,7 @@ export const formatThreadSearchResults = (
         sameConversation ? "this conversation" : "another conversation"
       }${name ? ` | ${sanitizeToolVisibleText(name)}` : ""}`,
     ];
-    // Names are minted from descriptions, so most pairs are identical — only
-    // render a description that adds information.
+
     const description = thread.description?.trim()
       ? collapseWhitespace(thread.description)
       : "";
@@ -927,7 +848,6 @@ const formatSnippetDate = (atMs: number): string =>
     hour12: true,
   });
 
-/** Window a matched transcript text around its first matching token. */
 const buildMessageSnippet = (text: string, tokens: string[]): string => {
   const collapsed = text.replace(/\s+/g, " ").trim();
   if (collapsed.length <= MESSAGE_SNIPPET_CHAR_BUDGET) return collapsed;
@@ -950,31 +870,14 @@ const buildMessageSnippet = (text: string, tokens: string[]): string => {
   }`;
 };
 
-/**
- * How many distinct EPISODES get surrounding-context lines (episode dedupe
- * below keeps same-hour repeat hits from burning slots, so in practice this
- * covers nearly every distinct episode in a 12-result page).
- */
 const MESSAGE_CONTEXT_TOP_HITS = 8;
 const MESSAGE_CONTEXT_LINE_CHAR_BUDGET = 170;
-// The follow-through usually comes AFTER the matched message (ask for
-// directions → go → react, sometimes an hour later), so the exchange
-// window leans hard forward; the store also time-boxes it to the episode.
+
 const MESSAGE_CONTEXT_BEFORE = 2;
 const MESSAGE_CONTEXT_AFTER = 8;
-// Two hits this close together in one conversation are the same episode —
-// one exchange covers both, so the second hit's slot goes to a new episode.
+
 const MESSAGE_EPISODE_WINDOW_MS = 45 * 60 * 1000;
 
-/**
- * The `search_transcripts` tool (also the pre-seeded "# Transcript Search
- * Results" section): what the user and Stella actually said, across ALL
- * conversations. The store ranks hits by relevance — that ranking decides
- * WHICH hits get their surrounding exchange expanded — but the page renders
- * strictly oldest → newest, because episodic questions are answered by
- * reading the messages as a timeline and models reliably misread
- * "first/last time" from a relevance-shuffled list.
- */
 export const formatTranscriptSearchResults = (
   store: Pick<
     ContextLookupStore,
@@ -1001,9 +904,6 @@ export const formatTranscriptSearchResults = (
     return "Nothing matched in past conversation transcripts. Try fewer/different concrete words.";
   }
 
-  // Hits arrive relevance-ranked; relevance decides WHICH hits get their
-  // surrounding exchange, but hits inside an already-expanded episode don't
-  // burn a second slot.
   const expandable = new Set<TranscriptSearchHit>();
   for (const hit of hits) {
     if (expandable.size >= MESSAGE_CONTEXT_TOP_HITS) break;
@@ -1035,13 +935,9 @@ export const formatTranscriptSearchResults = (
     expandableHits.map((hit, index) => [hit, index] as const),
   );
 
-  // Expand a message hit with the surrounding exchange: the matched message
-  // names the thing, but the neighbors are usually the event itself.
   const renderHit = (hit: TranscriptSearchHit): string => {
     const sameConversation = hit.conversationId === conversationId;
-    // A short conversation tag (instead of a bare "another conversation")
-    // lets the model tell that several hits came from the SAME earlier
-    // conversation — that co-location is often the story ("that evening").
+
     const scope = sameConversation
       ? "this conversation"
       : `conversation …${hit.conversationId.slice(-6)}`;
@@ -1085,11 +981,6 @@ export const formatTranscriptSearchResults = (
   ].join("\n");
 };
 
-/**
- * The volatile "# Live Thread Status" tail: only the threads executing a
- * turn right now, with their latest timestamped progress phrases. Any other
- * thread is paused (idle but resumable).
- */
 export const formatLiveThreadStatus = (
   store: Pick<
     ContextLookupStore,
@@ -1120,12 +1011,7 @@ export const formatLiveThreadStatus = (
 export const buildContextLookupUserPrompt = async (args: {
   conversationId: string;
   lookupPrompt: string;
-  /**
-   * Grep-like terms that PRE-SEED the memory, agent-thread, and transcript
-   * searches — the recall agent wakes up with its first search round already
-   * done. The `Recall` tool requires these; `runRecall` falls back to
-   * tokenizing the lookup prompt when a caller omits them.
-   */
+
   searchTerms: readonly string[];
   stellaDataDir: string;
   store: ContextLookupStore;
@@ -1198,9 +1084,6 @@ export const buildContextLookupUserPrompt = async (args: {
   );
   args.telemetry?.setSeedSearchMs(performance.now() - seedSearchStartedAt);
 
-  // Pre-seeded searches lead (they are the likeliest evidence), live/current
-  // state follows, and the lookup request comes LAST so it sits closest to
-  // the model's answer.
   const assemblyStartedAt = performance.now();
   const sections: EagerSeedSection[] = [
     {
@@ -1255,8 +1138,7 @@ export const buildContextLookupUserPrompt = async (args: {
       maxBodyChars: 1_000,
     },
   ];
-  // Search evidence first, then the request and live status; lower-signal
-  // context fills only the remaining deterministic budget.
+
   const prompt = renderCappedRecallSeed(sections, [1, 2, 3, 8, 7, 0, 4, 5, 6]);
   args.telemetry?.addAssemblyMs(performance.now() - assemblyStartedAt);
   return prompt;
@@ -1267,12 +1149,6 @@ type RecallSearchAction =
   | { kind: "search_transcripts"; query?: string; limit?: number }
   | { kind: "search_threads"; query?: string; limit?: number };
 
-/**
- * Map a tool call onto a search action. Legacy names from older transcripts
- * ("search", "search_messages", "search_agents") resolve to the nearest
- * current tool instead of erroring — models occasionally echo tool names
- * they saw before the split.
- */
 export const resolveRecallSearchAction = (
   toolName: string,
   toolArgs: Record<string, unknown>,
@@ -1529,11 +1405,7 @@ const runArchitecturalRecall = async (args: {
   const classificationRequiresSynthesis = !intentDecision.deterministicFastPath;
   let synthesisRequired = classificationRequiresSynthesis;
   args.telemetry.setIntent(intent, intentDecision.deterministicFastPath);
-  // Route resolution is deferred to the synthesis path below. Fast, indexed
-  // lookups (repo/path/decision/exact-phrase) return their evidence directly
-  // and must never resolve — let alone require — a model or its credential.
-  // Resolving eagerly here is exactly what made a signed-out / unresolvable
-  // model selection fail EVERY Recall, including pure lookups.
+
   let cachedRoute: RecallModelRoute | undefined;
   const resolveRoute = async (): Promise<RecallModelRoute> =>
     (cachedRoute ??= await args.resolveRecallRoute());
@@ -1682,20 +1554,13 @@ const runArchitecturalRecall = async (args: {
   let evidence = await retrieve(evidenceTerms);
   let usable = selectUsableEvidence(evidence, evidenceTerms);
   if (usable.length === 0 && classificationRequiresSynthesis) {
-    // Ambiguous and episodic requests are deliberately model-routed. Their
-    // evidence may be individually incomplete; that is exactly why synthesis
-    // is required. Do not turn the direct-answer confidence gate into an
-    // accidental no-match gate for those requests.
+
     usable = evidence.filter(({ value }) =>
       hasSubstantiveRecallEvidence(value),
     );
   }
   if (usable.length === 0) {
-    // A focused-lane miss widens to a full sweep across every indexed source
-    // with the SAME concrete anchors before anything else happens — the
-    // pangram-style failure (a durable-classified lookup whose evidence only
-    // exists in past threads/transcripts) used to hard-return no_match here
-    // without ever consulting the other sources.
+
     const widenedKinds = sourceKinds;
     sourceKinds = args.memoryEnabled
       ? (["durable_memory", "delegated_work", "episodic"] as const)
@@ -1727,12 +1592,7 @@ const runArchitecturalRecall = async (args: {
   }
 
   const assemblyStartedAt = performance.now();
-  // An empty sweep still gets the ONE light-tier synthesis pass — with an
-  // explicit no-evidence note instead of fabricated context — so the model,
-  // not the deterministic gate, owns the "nothing found" verdict. The old
-  // code hard-returned RECALL_NO_MATCH_TEXT here with fastPath:true, which
-  // is how a focused-lane miss surfaced as a confident miss without the
-  // documented fallback ever firing.
+
   const evidenceText =
     usable.length === 0
       ? [
@@ -1778,8 +1638,7 @@ const runArchitecturalRecall = async (args: {
       try {
         args.store.dreamInboxStore.recordUsage(row.threadId, row.runId);
       } catch (error) {
-        // Read-only benchmark snapshots cannot persist feedback. Production
-        // writes remain best-effort bookkeeping, never a Recall failure.
+
         logRecallTrace("[stella:recall:usage-feedback-failed]", {
           threadId: row.threadId,
           runId: row.runId,
@@ -1803,11 +1662,7 @@ const runArchitecturalRecall = async (args: {
   }
 
   args.telemetry.setIntent(intent, false);
-  // Synthesis is the documented fallback: it runs whenever the intent needs
-  // a model answer OR the indexed sweep came back empty, so a miss can never
-  // short-circuit into a deterministic no_match. This is the first and only
-  // place a model/credential is required — resolve the user's active Recall
-  // route now (never on the fast path).
+
   const recallRoute = await resolveRoute();
   const useClaudeCode = recallRoute.executionEngine === "claude-code";
   args.telemetry.setRoute(
@@ -1847,9 +1702,7 @@ const runArchitecturalRecall = async (args: {
       if (!resolvedLlm) {
         throw new Error("Recall light-tier route is unavailable.");
       }
-      // Only routes that explicitly declare credentialless (local provider,
-      // origin-verified proxies) run keyless; anything else must produce a
-      // key here or fail with the actionable error above.
+
       const apiKey = await resolveRecallSynthesisApiKey(resolvedLlm);
       const reasoning = recallSynthesisReasoning(resolvedLlm.model);
       const response = await completeSimple(
@@ -1870,10 +1723,7 @@ const runArchitecturalRecall = async (args: {
           ...(resolvedLlm.refreshApiKey
             ? { refreshApiKey: resolvedLlm.refreshApiKey }
             : {}),
-          // Recall sets neither temperature nor a max-tokens cap: provider
-          // defaults govern both. Codex's responses API rejects `temperature`
-          // outright, and `omitMaxTokens` keeps every provider's serialized
-          // request free of any max-tokens field (no model-derived default).
+
           omitMaxTokens: true,
           ...(args.signal ? { signal: args.signal } : {}),
         },
@@ -1900,16 +1750,6 @@ const runArchitecturalRecall = async (args: {
   return brief || RECALL_EMPTY_BRIEF_TEXT;
 };
 
-/**
- * Agent-backed recall. Seeds the model with the eager context (memory
- * summary, pre-seeded memory/thread/transcript search results from the
- * lookup's search terms, live app/browser state, recent activity, live
- * and thread status), then runs a bounded NATIVE tool-call loop —
- * the model reformulates searches over the deep memory ledger, every past
- * delegated agent thread, and past chat transcripts, calling several tools
- * in parallel per round — before answering with a plain-text brief. Runs
- * synchronously as the `Recall` tool's backing.
- */
 export const runRecall = async (args: {
   conversationId: string;
   lookupPrompt: string;
@@ -1942,11 +1782,10 @@ export const runRecall = async (args: {
     try {
       args.onTelemetry?.(record);
     } catch {
-      // Observers are diagnostic-only and must never break Recall.
+
     }
   };
-  // The Recall tool requires search terms; for callers that still omit
-  // them, tokenizing the lookup prompt keeps the pre-seed useful.
+
   const seedTerms = normalizeMemorySearchTerms(
     args.memorySearchTerms?.length
       ? args.memorySearchTerms
@@ -1985,8 +1824,6 @@ export const runRecall = async (args: {
     }
   }
 
-  // Test/replay callers without the read-query bundle retain the previous
-  // implementation while production always supplies the architectural path.
   let seed: string;
   try {
     seed = await buildContextLookupUserPrompt({
@@ -2011,9 +1848,6 @@ export const runRecall = async (args: {
   }
   telemetry.setSeedChars(seed.length);
 
-  // The runner resolves this authoritative route from the active engine before
-  // retrieval. Claude needs no provider credential here; its explicit Haiku
-  // override is carried separately from saved user model preferences.
   const recallRoute = await args.resolveRecallRoute();
   const useClaudeCode = recallRoute.executionEngine === "claude-code";
   telemetry.setRoute(
@@ -2038,8 +1872,7 @@ export const runRecall = async (args: {
       "Recall failed: the active engine's light-tier route is unavailable.",
     );
   }
-  // Only routes that explicitly declare credentialless (local provider,
-  // origin-verified proxies) run keyless; anything else must produce a key.
+
   const credentialless =
     !!resolvedLlm && resolvedLlmSupportsCredentiallessCalls(resolvedLlm);
   const apiKey =
@@ -2053,7 +1886,6 @@ export const runRecall = async (args: {
     );
   }
 
-  /** Model-INITIATED searches only — the pre-seeded seed round doesn't count. */
   let ranSearch = false;
   let searchStep = 0;
 
@@ -2095,8 +1927,7 @@ export const runRecall = async (args: {
       step: searchStep++,
       action: action.kind,
       observationChars: observation.length,
-      // Search terms/queries and observation content are user data — only
-      // traced when explicitly debugging.
+
       ...(verbose
         ? {
             actionDetail:
@@ -2110,7 +1941,6 @@ export const runRecall = async (args: {
     return truncate(observation, RECALL_OBSERVATION_CHAR_BUDGET);
   };
 
-  /** One tool call → one search, shared by both engines' tool protocols. */
   const executeRecallToolCall = async (
     toolName: string,
     toolArgs: Record<string, unknown>,
@@ -2159,16 +1989,11 @@ export const runRecall = async (args: {
     timestamp: Date.now(),
   });
 
-  // A nothing-found verdict without a single model-initiated search behind
-  // it is the exact failure mode observed in the field (the model glancing
-  // past the pre-seeded context and giving up) — reject it ONCE and demand
-  // a reformulated search.
   const rejectionText = (searchHint: string): string =>
     `Rejected: you answered "Nothing relevant found." without running a single search of your own. The pre-seeded results are ONE keyword angle, not proof of absence — re-scan the pre-seeded sections for candidates, then run ${searchHint} with DIFFERENT concrete terms from the lookup request (names, slugs, file paths — not status words) before concluding nothing exists.`;
 
   if (useClaudeCode) {
-    // The engine loops over tool calls internally within one completion; the
-    // outer loop exists only for the one-time nothing-found rejection.
+
     const messages: Message[] = [userMessage(seed)];
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const context: Context = {
@@ -2201,8 +2026,7 @@ export const runRecall = async (args: {
       try {
         text = (
           await runClaudeCodeAgentTextCompletion({
-            // Preferences always resolve from the data dir; the explicit
-            // model pin below makes Recall immune to saved fable/opus picks.
+
             stellaAppDir: args.stellaDataDir,
             cwd: args.stellaAppDir,
             agentType: AGENT_IDS.ORCHESTRATOR,
@@ -2243,8 +2067,7 @@ export const runRecall = async (args: {
         telemetry.addModelRuntimeMs(
           Math.max(0, performance.now() - modelStartedAt - toolExecutionMs),
         );
-        // A launch/transport failure can happen before an assistant event.
-        // Preserve one attempted model call instead of reporting zero.
+
         if (modelFailed || observedModelRounds === 0) telemetry.addModelCall();
         if (modelFailed) emitTelemetry("thrown");
       }
@@ -2272,9 +2095,6 @@ export const runRecall = async (args: {
     return finish("no-output", RECALL_NO_OUTPUT_TEXT);
   }
 
-  // Native tool-call loop. History accumulates as real assistant/toolResult
-  // turns (never a re-stuffed mega-prompt), so the provider's prompt cache
-  // covers the seed and every earlier round on each subsequent step.
   const messages: Message[] = [userMessage(seed)];
   const complete = async (): Promise<AssistantMessage> =>
     runModelCall(() =>
@@ -2293,19 +2113,13 @@ export const runRecall = async (args: {
           ...(resolvedLlm!.refreshApiKey
             ? { refreshApiKey: resolvedLlm!.refreshApiKey }
             : {}),
-          // Recall sets neither temperature nor a max-tokens cap: provider
-          // defaults govern both (Codex's responses API rejects `temperature`);
-          // `omitMaxTokens` keeps the serialized request free of any max-tokens
-          // field (no model-derived default) across every provider.
+
           omitMaxTokens: true,
           ...(args.signal ? { signal: args.signal } : {}),
         },
       ),
     );
 
-  // Transport failures (the relay dropping a stream) surface as stopReason
-  // "error"; retry those a bounded number of times before failing the
-  // lookup. "aborted" is the caller's own signal and is never retried.
   const completeWithRetry = async (): Promise<AssistantMessage> => {
     let response = await complete();
     for (
@@ -2336,9 +2150,7 @@ export const runRecall = async (args: {
 
   let toolRounds = 0;
   let rejectedNothingFound = false;
-  // Terminates: every iteration either returns, spends a tool round
-  // (bounded by MAX_RECALL_STEPS then force-answered), or fires the
-  // one-time rejection.
+
   for (;;) {
     const response = await completeWithRetry();
     if (response.stopReason === "error" || response.stopReason === "aborted") {
@@ -2347,10 +2159,7 @@ export const runRecall = async (args: {
         step: searchStep,
         action: "model-error",
         stopReason: response.stopReason,
-        // The transport/provider error is structural diagnostics, not user
-        // content — always trace it, or a run of failures is undiagnosable
-        // from runtime.log (the exact gap that hid the July 2026 relay
-        // outage behind a generic "no usable output").
+
         ...(response.errorMessage
           ? { error: previewForTrace(response.errorMessage, 200) }
           : {}),
@@ -2391,14 +2200,10 @@ export const runRecall = async (args: {
       );
     }
     messages.push(response);
-    // Count every model turn that issued tools, including the turn rejected
-    // because the execution budget is already spent. Claude reports the same
-    // round from its assistant event before execution is considered.
+
     telemetry.addToolRound();
     if (toolRounds >= MAX_RECALL_STEPS) {
-      // Budget spent. The tool protocol still demands a result for every
-      // issued call, so each gets an out-of-budget error, then one forced
-      // final turn synthesizes from what was already gathered.
+
       for (const call of toolCalls) {
         messages.push({
           role: "toolResult",
@@ -2427,7 +2232,7 @@ export const runRecall = async (args: {
       );
     }
     toolRounds += 1;
-    // Parallel tool calls in one turn run concurrently against the store.
+
     const results = await Promise.all(
       toolCalls.map(async (call) => {
         const executed = await executeRecallToolCall(

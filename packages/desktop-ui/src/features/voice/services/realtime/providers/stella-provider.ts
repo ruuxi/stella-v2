@@ -1,25 +1,3 @@
-/**
- * Stella-managed realtime voice provider.
- *
- * The user picks a voice family (OpenAI, xAI, or Inworld) plus a voice
- * id; the Stella backend mints the right kind of session for that family
- * and the renderer dispatches to the right transport based on the
- * `voiceProvider` / `transport` fields in the response.
- *
- * Auth model varies by sub-family:
- *   - openai: backend mints a short-lived OpenAI Realtime ephemeral
- *     `client_secret`. Renderer talks WebRTC SDP directly to OpenAI.
- *   - xai: backend mints a short-lived xAI Voice Agent
- *     `client_secret`. Renderer talks WebSocket directly to xAI.
- *   - inworld: Inworld has no ephemeral token concept (their API key is
- *     used as the Bearer for SDP exchange). To avoid leaking Stella's
- *     org Inworld key, the renderer routes SDP through Stella's backend
- *     SDP-proxy endpoint, authenticated by the user's normal Convex
- *     auth. The org key never enters the renderer.
- *
- * The user does not need a BYOK key in any of these sub-paths.
- */
-
 import { postServiceJson } from "@/platform/http/service-request";
 import {
   DEFAULT_INWORLD_REALTIME_MODEL,
@@ -52,10 +30,6 @@ const toConvexConversationId = (value: unknown): string | null => {
   return normalized;
 };
 
-/**
- * Read which voice family Stella should use and which voice id within
- * that family. Both default if missing.
- */
 const readStellaVoicePrefs = async (): Promise<{
   voiceProvider: "openai" | "xai" | "inworld";
   voice?: string;
@@ -108,13 +82,13 @@ type StellaSessionResponse = {
   clientSecret?: unknown;
   model?: unknown;
   voice?: unknown;
-  /** Server-authoritative Inworld TTS model id (inworld path only). */
+
   ttsModel?: unknown;
   expiresAt?: unknown;
   sessionId?: unknown;
   stellaSessionId?: unknown;
   leaseExpiresAt?: unknown;
-  /** Provider-supplied STUN/TURN servers. Inworld returns these. */
+
   iceServers?: unknown;
 };
 
@@ -154,10 +128,7 @@ export const stellaProvider: ProviderModule = {
       "/api/voice/session",
       body,
       {
-        // Preserve the backend's human message so the renderer can route the
-        // right toast/CTA. Auth failures return a JSON `{ error }` body like
-        // "Sign in to Stella to use realtime voice." — surface that verbatim so
-        // the voice-error toast offers "Sign in" rather than a generic 401.
+
         errorMessage: async (response) => {
           const detail = await response.text().catch(() => "");
           let parsed = "";
@@ -179,9 +150,6 @@ export const stellaProvider: ProviderModule = {
 
     const transport = inferTransport(raw, voiceProvider);
 
-    // Inworld via Stella has no clientSecret — SDP is proxied through
-    // the backend, so the renderer never holds the org key. All other
-    // paths must ship one.
     const clientSecret =
       transport === "inworld-webrtc"
         ? ""
@@ -232,10 +200,7 @@ export const stellaProvider: ProviderModule = {
     }
 
     if (token.transport === "inworld-webrtc") {
-      // Stella's backend proxies the SDP exchange — auth is the user's
-      // existing Convex session, not the org Inworld key. ICE servers
-      // come from the session response (the backend fetched them from
-      // Inworld using the org key on the renderer's behalf).
+
       return new OpenAIWebRTCTransport({
         provider: "inworld",
         model: token.model,
@@ -269,24 +234,14 @@ export const stellaProvider: ProviderModule = {
   },
 };
 
-/**
- * Inworld requires session config to be sent via `session.update` after
- * the data channel opens (their docs example). We assemble the standard
- * shape here so both BYOK and Stella-managed Inworld paths configure
- * the session identically.
- */
 export const buildInworldSessionConfig = (opts: {
   model: string;
   voice: string;
   instructions: string;
   tools?: RealtimeSessionTool[];
-  /** TTS playback speed. Defaults to DEFAULT_INWORLD_REALTIME_SPEED. */
+
   speed?: number;
-  /**
-   * Inworld TTS model id. The Stella-managed path passes the server-supplied
-   * value so the default is backend-owned; BYOK/omitted falls back to the
-   * bundled default constant (drift there only affects BYOK, never managed).
-   */
+
   ttsModel?: string;
 }): Record<string, unknown> => ({
   type: "realtime",
@@ -296,10 +251,7 @@ export const buildInworldSessionConfig = (opts: {
   output_modalities: ["audio", "text"],
   audio: {
     input: {
-      // semantic_vad is "backed by the STT stream" per Inworld's docs,
-      // so we set an explicit STT model rather than rely on an implicit
-      // default. assemblyai/u3-rt-pro is Inworld's lowest-latency
-      // English/multilingual STT (<300ms).
+
       transcription: {
         model: "assemblyai/u3-rt-pro",
       },

@@ -369,8 +369,6 @@ describe("loadLocalPreferences", () => {
       saved.realtimeVoice,
     );
 
-    // Resolver picks per underlying provider — stella mode (which mints
-    // openai tokens) reads `openai`, xai mode reads `xai`.
     expect(
       resolveRealtimeVoiceId(saved.realtimeVoice, "openai", "marin"),
     ).toEqual("verse");
@@ -378,7 +376,6 @@ describe("loadLocalPreferences", () => {
       "rex",
     );
 
-    // Falls back when no voice stored for that provider.
     expect(
       resolveRealtimeVoiceId(
         { provider: "stella", voices: { xai: "rex" } },
@@ -431,7 +428,7 @@ describe("loadLocalPreferences", () => {
         provider: "openai",
         stellaSubProvider: "xai",
       }),
-    ).toEqual("openai"); // BYOK modes ignore stellaSubProvider
+    ).toEqual("openai");
     expect(resolveRealtimeUnderlyingProvider({ provider: "xai" })).toEqual(
       "xai",
     );
@@ -476,7 +473,6 @@ describe("loadLocalPreferences", () => {
   it("clamps and persists inworldSpeed", () => {
     const stellaDataDir = makeStellaDataDir();
 
-    // In-range values round-trip unchanged.
     let saved = updateLocalModelPreferences(stellaDataDir, {
       realtimeVoice: { provider: "stella", inworldSpeed: 1.25 },
     });
@@ -485,19 +481,16 @@ describe("loadLocalPreferences", () => {
       inworldSpeed: 1.25,
     });
 
-    // Below range → clamped to 0.5.
     saved = updateLocalModelPreferences(stellaDataDir, {
       realtimeVoice: { provider: "stella", inworldSpeed: 0.1 },
     });
     expect(saved.realtimeVoice.inworldSpeed).toEqual(0.5);
 
-    // Above range → clamped to 2.0.
     saved = updateLocalModelPreferences(stellaDataDir, {
       realtimeVoice: { provider: "stella", inworldSpeed: 5 },
     });
     expect(saved.realtimeVoice.inworldSpeed).toEqual(2.0);
 
-    // Non-numeric → dropped silently.
     expect(
       normalizeRealtimeVoicePreferences({
         provider: "stella",
@@ -533,7 +526,6 @@ describe("loadLocalPreferences", () => {
       resolveRealtimeVoiceId(saved.realtimeVoice, "inworld", "Clive"),
     ).toEqual("Sarah");
 
-    // Inworld BYOK mode pins to inworld regardless of stellaSubProvider.
     expect(
       resolveRealtimeUnderlyingProvider({
         provider: "inworld",

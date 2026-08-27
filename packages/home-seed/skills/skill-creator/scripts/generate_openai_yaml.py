@@ -46,11 +46,9 @@ ALLOWED_INTERFACE_KEYS = {
     "default_prompt",
 }
 
-
 def yaml_quote(value):
     escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
     return f'"{escaped}"'
-
 
 def format_display_name(skill_name):
     words = [word for word in skill_name.split("-") if word]
@@ -69,7 +67,6 @@ def format_display_name(skill_name):
             continue
         formatted.append(word.capitalize())
     return " ".join(formatted)
-
 
 def generate_short_description(display_name):
     description = f"Help with {display_name} tasks"
@@ -100,7 +97,6 @@ def generate_short_description(display_name):
 
     return description
 
-
 def read_frontmatter_name(skill_dir):
     skill_md = Path(skill_dir) / "SKILL.md"
     if not skill_md.exists():
@@ -129,7 +125,6 @@ def read_frontmatter_name(skill_dir):
         return None
     return name.strip()
 
-
 def parse_interface_overrides(raw_overrides):
     overrides = {}
     optional_order = []
@@ -151,7 +146,6 @@ def parse_interface_overrides(raw_overrides):
         if key not in ("display_name", "short_description") and key not in optional_order:
             optional_order.append(key)
     return overrides, optional_order
-
 
 def write_openai_yaml(skill_dir, skill_name, raw_overrides):
     overrides, optional_order = parse_interface_overrides(raw_overrides)
@@ -186,7 +180,6 @@ def write_openai_yaml(skill_dir, skill_name, raw_overrides):
     print(f"[OK] Created agents/openai.yaml")
     return output_path
 
-
 def main():
     parser = argparse.ArgumentParser(
         description="Create agents/openai.yaml for a skill directory.",
@@ -220,7 +213,6 @@ def main():
     if result:
         sys.exit(0)
     sys.exit(1)
-
 
 if __name__ == "__main__":
     main()

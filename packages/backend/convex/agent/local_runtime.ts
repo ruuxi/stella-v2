@@ -15,9 +15,7 @@ import {
 } from "../lib/rate_limits";
 import { createBackendTools, executeWebSearch } from "../tools/backend";
 import { jsonValueValidator } from "../shared_validators";
-// Shopify integration is currently disabled on the backend. All
-// `shopify*` actions reject with this error so misbehaving clients can't
-// use the backend as a free Shopify proxy/crawler.
+
 const SHOPIFY_DISABLED_ERROR = new ConvexError({
   code: "NOT_IMPLEMENTED",
   message: "Shopify integration is currently disabled.",
@@ -128,8 +126,7 @@ export const webSearch = action({
   }),
   handler: async (ctx, args) => {
     const ownerId = await requireUserId(ctx);
-    // Outbound HTTP on the user's behalf — without a cap, the backend
-    // becomes a free crawler.
+
     await enforceActionRateLimit(
       ctx,
       "agent_local_runtime_web_search",
@@ -172,20 +169,6 @@ export const webSearch = action({
     return { text, results: [] };
   },
 });
-
-// ---------------------------------------------------------------------------
-// Fashion + Shopify UCP actions.
-//
-// Surfaced to the desktop runtime so the Fashion subagent can:
-//   - search the global Shopify catalog (`shopifySearchProducts`)
-//   - fetch product details when a model needs richer metadata
-//   - render the user wearing those clothes via `image_gen` (handled in the
-//     runtime, not here — this file only owns Shopify HTTP plumbing)
-//   - record completed outfits (`fashionRecordOutfit`) so the Fashion tab
-//     surfaces them reactively
-//   - open / continue / cancel a Checkout MCP session, with a graceful
-//     cart-permalink fallback when the merchant doesn't expose Checkout MCP
-// ---------------------------------------------------------------------------
 
 const shopifySearchProductValidator = v.object({
   productId: v.string(),
@@ -273,9 +256,9 @@ const checkoutSessionResultValidator = v.object({
   continueUrl: v.optional(v.string()),
   merchantOrigin: v.string(),
   mcpEndpoint: v.string(),
-  /** When `false`, the upstream did not expose Checkout MCP and we returned a cart-permalink only. */
+
   usingMcp: v.boolean(),
-  /** When `usingMcp` is false this carries the cart permalink we opened instead. */
+
   cartUrl: v.optional(v.string()),
 });
 
@@ -330,13 +313,6 @@ const outfitProductInputValidator = v.object({
   merchantOrigin: v.string(),
 });
 
-/**
- * Reserve an outfit row in `fashion_outfits` (status `generating`). The
- * runtime then calls `image_gen` for the try-on render and follows up with
- * `fashionMarkOutfitReady` / `fashionMarkOutfitFailed`. Splitting the create
- * vs. ready/failed paths lets the desktop UI render a placeholder card that
- * crossfades into the rendered look the moment the image lands.
- */
 export const fashionRegisterOutfit = action({
   args: {
     batchId: v.string(),

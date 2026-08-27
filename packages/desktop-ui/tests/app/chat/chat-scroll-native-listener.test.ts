@@ -48,8 +48,6 @@ describe("chat scroll performance contract", () => {
     const hook = readSource("src/shell/use-chat-scroll-management.ts");
     const follow = readSource("src/shell/chat-scroll-follow.ts");
 
-    // Assistant text is delivered whole, so there is no per-delta keyed
-    // follow left to prefer.
     expect(hook).not.toContain("followActiveAssistantRow");
     expect(hook).toContain("subscribeChatContentGrowth(");
     expect(follow).not.toContain("beginAssistantScrollFollow");

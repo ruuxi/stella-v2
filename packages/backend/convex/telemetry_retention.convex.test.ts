@@ -1,5 +1,3 @@
-/// <reference types="vite/client" />
-
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import { internal } from "./_generated/api";
@@ -37,14 +35,12 @@ describe("telemetry retention", () => {
     await insertUsageLog(t);
     await insertUsageLog(t);
 
-    // Cutoff in the past: nothing qualifies.
     const kept = await t.mutation(
       internal.telemetry_retention.purgeOldUsageLogs,
       { cutoffMs: 0 },
     );
     expect(kept).toEqual({ deleted: 0, hasMore: false });
 
-    // Cutoff in the future: every row is "old".
     const purged = await t.mutation(
       internal.telemetry_retention.purgeOldUsageLogs,
       { cutoffMs: Date.now() + 60_000 },

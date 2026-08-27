@@ -1,5 +1,3 @@
-// @vitest-environment jsdom
-
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { withI18n } from "../../helpers/i18n";
@@ -79,7 +77,7 @@ describe("AppsSection external-app states", () => {
     });
     sidebarSections.reset();
     displayTabs.setPanelOpen(true);
-    // Open an Apps (library) tab so AppsSection renders active.
+
     sidebarSections.openLocation("apps", null);
     container = document.createElement("div");
     document.body.appendChild(container);

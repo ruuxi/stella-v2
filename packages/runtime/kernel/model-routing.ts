@@ -35,13 +35,7 @@ export type ResolvedLlmRoute = {
   model: Model<Api>;
   toolPolicyModel?: Pick<Model<Api>, "api" | "provider" | "id" | "name">;
   route: "direct-provider" | "stella";
-  /**
-   * True only when the route is KNOWN safe to call with no key: the `local/`
-   * OpenAI-compatible provider or an origin-verified credentialless proxy
-   * whose auth travels entirely in configured headers. A baseUrl alone proves
-   * nothing — registry models carry their provider's default baseUrl (e.g.
-   * https://api.anthropic.com) and still require a credential.
-   */
+
   credentialless?: boolean;
   getApiKey: () => Promise<string | undefined> | string | undefined;
   refreshApiKey?: () => Promise<string | undefined> | string | undefined;
@@ -111,15 +105,6 @@ export const getResolvedLlmApiKey = async (
   return apiKey ? apiKey : undefined;
 };
 
-/**
- * Conservative credentialless check: only routes that EXPLICITLY declare
- * `credentialless` (the `local/` provider, origin-verified credentialless
- * proxies) qualify. The previous heuristic — any direct-provider route with
- * a non-empty baseUrl — matched every registry model (they all carry their
- * provider's baseUrl, e.g. https://api.anthropic.com), so a missing or
- * unreadable key silently fell through as "credentialless" and surfaced
- * later as the provider's raw "No API key for provider: …" error.
- */
 export const resolvedLlmSupportsCredentiallessCalls = (
   resolved: ResolvedLlmRoute,
 ): boolean =>
@@ -147,11 +132,6 @@ const getLocalProviderApiKey = async (
   return oauthKey || modelRuntime.getRuntimeManagedApiKey(providerId);
 };
 
-/**
- * Per-provider quirks — registry name + credential name + model-id aliases.
- * Most providers map 1:1 between the model-id prefix, the registry key, and
- * the credential key. The exceptions get an entry here.
- */
 const getDirectProviderCandidates = (
   provider: string,
   modelId: string,
@@ -212,8 +192,7 @@ const getDirectProviderCandidates = (
         ]),
       };
     default: {
-      // Plugin providers register themselves in the AI registry; if they show
-      // up there, treat them as direct providers without hard-coding here.
+
       const extensionModels = getModels(provider as never) as Model<Api>[];
       if (extensionModels.length > 0) {
         return {
@@ -232,61 +211,6 @@ const getDirectProviderCandidates = (
   }
 };
 
-/**
- * Pass-through gateways whose model-id space is owned by the gateway, not our
- * static registry. The gateway accepts arbitrary `<vendor>/<model>` ids as-is
- * and normalizes transport/quirks, so we can synthesize a routable model from
- * the gateway's registry template when the dynamic provider catalog hasn't
- * populated the exact id yet. This keeps the picker and runtime resolver from
- * disagreeing while a catalog refresh is pending. The gateway remains the
- * authority — a bogus id fails loudly upstream, not here.
- *
- * Direct vendor providers (Anthropic, OpenAI, …) are intentionally excluded:
- * their id formats are quirk-specific (dashes, date suffixes) and encoded
- * precisely in the static registry, so synthesizing one risks a malformed id.
- *
- * Build a routable model for `modelId` by cloning the gateway's registry
- * template — which carries the `api`, `baseUrl`, `headers`, and `compat`
- * needed to actually make the request, none of which catalog metadata alone
- * provides.
- * Cost metadata falls back to the template's values; the request still
- * succeeds and the gateway validates the id.
- *
- * Output/context limits are intentionally NOT inherited: the template is an
- * arbitrary registry entry whose `maxTokens` may be tiny (e.g. 4096), and
- * `buildBaseOptions` turns `model.maxTokens` into a hard `max_tokens` cap on
- * every request. For a reasoning model that cap can be consumed entirely by
- * thinking, truncating the run before any visible text is produced. Setting
- * `maxTokens: 0` makes `buildBaseOptions` omit the cap (the gateway enforces
- * the real limit), and a generous `contextWindow` floor keeps downstream
- * compaction/overflow from truncating based on the cloned window.
- *
- * Input modalities are also NOT inherited: the template is an arbitrary
- * registry entry that may be text-only (the real first OpenRouter entry,
- * ai21/jamba-large-1.7, is), and `transformMessages` replaces unsupported
- * historical images with a placeholder when `model.input` lacks "image".
- * That would drop user-attached photos on vision-capable models resolved
- * through this path.
- * Declare image support and let the gateway be the authority: a genuinely
- * text-only model rejects the request loudly upstream instead of Stella
- * silently discarding the user's attachments.
- */
-/**
- * Recover a gateway model's real context window from the full model catalog.
- *
- * Gateway ids (`<vendor>/<model>`) that aren't in the gateway provider's own
- * registry slice are synthesized from an arbitrary template below. Without
- * this, a large-context model (e.g. an OpenRouter Google Gemini at ~1M) would
- * be pinned to the conservative floor — so a conversation that comfortably
- * fits the real model crosses the compaction trigger (0.7 x window) and fails
- * the fit check, spuriously compacting on a model that never needed it. The
- * catalog aggregates every provider's models, so the same model is very often
- * present under a sibling provider (`google/…`, `vercel-ai-gateway/…`) with
- * its true window even when the requested gateway slice lacks the exact id.
- * Match by exact id first, then by the vendor-stripped base id, and take the
- * largest known window (a model's window is a property of the model, not the
- * gateway it's reached through).
- */
 const resolveCatalogContextWindow = (modelId: string): number | undefined => {
   const trimmed = modelId.trim();
   if (!trimmed) return undefined;
@@ -317,11 +241,7 @@ const synthesizeGatewayModelFromTemplate = (
     name: modelId,
     input: ["text", "image"],
     maxTokens: 0,
-    // Prefer the model's real catalog window (a large-context model reached
-    // through a gateway must not be pinned to the small floor — that spuriously
-    // compacts/over-flows a conversation the real model holds). Fall back to a
-    // NaN-safe conservative floor only when the model is genuinely unknown to
-    // the catalog; the gateway enforces the true limit upstream regardless.
+
     contextWindow: Math.max(
       resolveCatalogContextWindow(modelId) ??
         (Number.isFinite(template.contextWindow) ? template.contextWindow : 0),
@@ -330,18 +250,13 @@ const synthesizeGatewayModelFromTemplate = (
   };
 };
 
-/**
- * Outcome of trying to satisfy an explicit direct-provider (BYOK / local)
- * selection. Every non-route outcome names *why* it failed so the caller can
- * surface a specific, actionable message instead of silently re-routing.
- */
 type DirectProviderRouteResult =
   | { kind: "route"; route: ResolvedLlmRoute }
-  // The `<provider>/` prefix isn't a provider Stella can talk to directly.
+
   | { kind: "unsupported-provider" }
-  // Provider is known but the model id isn't in its registry (typo / dropped).
+
   | { kind: "unknown-model" }
-  // Provider + model are valid, but there's no usable key/credential for it.
+
   | { kind: "missing-credential" };
 
 const resolveDirectProviderRoute = (args: {
@@ -358,7 +273,7 @@ const resolveDirectProviderRoute = (args: {
       route: {
         model: createLocalOpenAICompatibleModel(local.modelId, local.baseUrl),
         route: "direct-provider",
-        // A local OpenAI-compatible endpoint needs no credential by design.
+
         credentialless: true,
         getApiKey: () => "",
       },
@@ -454,8 +369,7 @@ const resolveDirectProviderRoute = (args: {
       route: {
         model: routedModel,
         route: "direct-provider",
-        // Origin-verified credentialless proxy (models.json origin, no auth
-        // requirement): authentication travels entirely in configured headers.
+
         credentialless: true,
         getApiKey: () => {
           applyConfiguredHeaders();
@@ -468,28 +382,6 @@ const resolveDirectProviderRoute = (args: {
   return { kind: "missing-credential" };
 };
 
-/**
- * Desktop-local engine model references (`claude-code/<model>`,
- * `codex-cli/<model>`) that can appear as a run's configured model when the
- * active engine is a desktop-local engine (Claude Code / Codex).
- *
- * The desktop model picker keeps `modelOverrides` resolvable — it stores a
- * Stella route for Claude Code and an `openai-codex/<model>` route for Codex,
- * and carries the engine-native model in a dedicated preference field
- * (`claudeCodeModel` / `codexModel`). The mobile picker mirrors the same engine
- * plus engine-native model, but writes the engine-prefixed id straight into
- * `modelOverrides`. Those prefixes are NOT cloud providers, so feeding them to
- * the direct-provider resolver rejects them as `unsupported-provider` — a
- * mobile-originated turn on a desktop-local engine then fails even though the
- * desktop runs the exact same selection fine.
- *
- * Normalize such a reference to the route a desktop turn resolves so the turn
- * dispatches to the desktop engine identically regardless of origin. The
- * engine-native model itself is always read from its dedicated preference field
- * downstream (`getClaudeCodeAgentModelId` / `getCodexRuntimePreferences`), so
- * rewriting only the prep/orchestrator *route* model here never changes which
- * engine model actually runs the turn.
- */
 const CLAUDE_CODE_ENGINE_PROVIDER = "claude-code";
 const CODEX_CLI_ENGINE_PROVIDER = "codex-cli";
 
@@ -498,14 +390,11 @@ const normalizeDesktopLocalEngineModelReference = (
 ): string | undefined => {
   const parsed = parseModelReference(modelName);
   if (!parsed) return modelName;
-  // Codex resolves its orchestrator/prep route through the OpenAI-Codex
-  // provider on desktop; map the mobile engine prefix onto that same provider.
+
   if (parsed.provider === CODEX_CLI_ENGINE_PROVIDER) {
     return `openai-codex/${parsed.modelId}`;
   }
-  // Claude Code keeps a Stella conversation/prep route on desktop; fall back to
-  // the default Stella route (no explicit model) so the engine executes the
-  // turn instead of the resolver rejecting an unknown provider.
+
   if (parsed.provider === CLAUDE_CODE_ENGINE_PROVIDER) {
     return undefined;
   }
@@ -528,7 +417,6 @@ const resolveLlmRouteResult = (args: {
     normalizeDesktopLocalEngineModelReference(args.modelName),
   );
 
-  // No model specified → let the backend choose from agent type + audience.
   if (!parsed) {
     const route = createStellaRoute({
       site: args.site,
@@ -540,8 +428,6 @@ const resolveLlmRouteResult = (args: {
       : { ok: false, failure: { kind: "no-stella-route" } };
   }
 
-  // Explicit Stella prefix (`stella/<alias>` or `stella/<provider>/<model>`):
-  // route through Stella with the original id intact.
   if (parsed.provider === STELLA_PROVIDER) {
     let route = createStellaRoute({
       site: args.site,
@@ -557,8 +443,7 @@ const resolveLlmRouteResult = (args: {
         site: args.site,
         agentType: args.agentType,
         modelId: parsed.fullModelId,
-        // Provisional only: the catalog-enrichment layer must replace this
-        // exact id or throw before the route can be used.
+
         resolvedModelId: parsed.modelId,
       });
     }
@@ -580,12 +465,6 @@ const resolveLlmRouteResult = (args: {
       : { ok: false, failure: { kind: "no-stella-route" } };
   }
 
-  // Explicit non-Stella selection (BYOK / local / direct provider): the model
-  // id is the source of truth and must be honored exactly. We never silently
-  // re-route a user's explicit provider pick through Stella's managed gateway —
-  // that would swap their provider, billing, and sometimes the model itself
-  // without consent. Any failure is reported so the caller can fail loudly and
-  // let the user switch models.
   const direct = resolveDirectProviderRoute({
     stellaAppDir: args.stellaAppDir,
     provider: parsed.provider,
@@ -595,9 +474,7 @@ const resolveLlmRouteResult = (args: {
   if (direct.kind === "route") {
     return { ok: true, route: direct.route };
   }
-  // The three non-route outcomes all carry the same context; `direct.kind`
-  // (`unsupported-provider` | `unknown-model` | `missing-credential`) maps 1:1
-  // onto the failure kind.
+
   return {
     ok: false,
     failure: {
@@ -618,10 +495,6 @@ export const canResolveLlmRoute = (args: {
   const result = resolveLlmRouteResult({ ...args, agentType });
   if (result.ok) return true;
 
-  // An unhonorable explicit model pick does NOT make the orchestrator unready:
-  // the run still starts and surfaces a toast for the bad pick, then the user
-  // switches models. Readiness only fails when there's no route at all — i.e.
-  // no Stella account to run anything on.
   if (result.failure.kind === "no-stella-route") {
     return false;
   }
@@ -646,11 +519,6 @@ export const resolveLlmRoute = (args: {
   throw new Error(formatLlmRouteFailure(result.failure));
 };
 
-/**
- * Allows a bare Stella id with no safe offline resolution to reach the async
- * catalog layer. Callers must immediately pass the result to
- * `withStellaModelCatalogMetadata`, which replaces it or fails closed.
- */
 export const resolveLlmRouteForCatalogEnrichment = (args: {
   stellaAppDir: string;
   modelName: string | undefined;

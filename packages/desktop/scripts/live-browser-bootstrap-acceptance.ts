@@ -108,8 +108,6 @@ try {
   });
   report.liveEndpointRejectedChallenger = true;
 
-  // Reproduce the legacy takeover that originally exposed the race: unlink a
-  // still-live owner's pathname, bind a replacement, then stop the old owner.
   await unlink(endpoint.path);
   await replacement.start();
   await first.stop();

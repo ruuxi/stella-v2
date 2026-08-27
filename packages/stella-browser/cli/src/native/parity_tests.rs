@@ -1,10 +1,3 @@
-//! Parity tests for the native daemon's command interface.
-//!
-//! These unit tests verify:
-//! - All documented actions are handled (not returning "Not yet implemented")
-//! - Response format consistency (success/error structure)
-//! - Credential and state actions work without a browser
-
 use serde_json::{json, Value};
 
 use super::actions::{execute_command, DaemonState};
@@ -22,7 +15,7 @@ impl TestKeyGuard {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let original = std::env::var(ENCRYPTION_KEY_ENV).ok();
-        // SAFETY: AUTH_TEST_MUTEX serializes all test access so no concurrent mutation.
+
         unsafe { std::env::set_var(ENCRYPTION_KEY_ENV, "a".repeat(64)) };
         Self {
             _lock: lock,
@@ -33,7 +26,7 @@ impl TestKeyGuard {
 
 impl Drop for TestKeyGuard {
     fn drop(&mut self) {
-        // SAFETY: AUTH_TEST_MUTEX is held via _lock.
+
         match &self.original {
             Some(val) => unsafe { std::env::set_var(ENCRYPTION_KEY_ENV, val) },
             None => unsafe { std::env::remove_var(ENCRYPTION_KEY_ENV) },
@@ -41,7 +34,6 @@ impl Drop for TestKeyGuard {
     }
 }
 
-/// All documented action names that should be implemented.
 const DOCUMENTED_ACTIONS: &[&str] = &[
     "launch",
     "navigate",
@@ -369,17 +361,6 @@ fn minimal_command(action: &str, id: &str) -> Value {
     cmd
 }
 
-// ---------------------------------------------------------------------------
-// 1. Action dispatch coverage
-// ---------------------------------------------------------------------------
-
-// Superseded by contract_tests.rs, which statically asserts that every action
-// in protocol/actions.json (a superset of DOCUMENTED_ACTIONS) has a real
-// dispatch_action arm without executing commands. Executing commands here
-// auto-launches Chrome for browser-requiring actions, which hangs in
-// environments where Chrome cannot start; the static check covers the same
-// "no 'Not yet implemented'" guarantee, so this test is kept only as an
-// opt-in end-to-end sanity run.
 #[ignore = "hangs launching Chrome in restricted environments; replaced by contract_tests.rs static checks"]
 #[tokio::test]
 async fn test_all_documented_actions_are_handled() {
@@ -406,10 +387,6 @@ async fn test_all_documented_actions_are_handled() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// 2. Response format consistency
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn test_success_response_format() {
     let mut state = DaemonState::new();
@@ -433,10 +410,6 @@ async fn test_error_response_format() {
     assert!(result.get("error").is_some());
 }
 
-// ---------------------------------------------------------------------------
-// 3. Credential/state actions work without a browser
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn test_state_list_without_browser() {
     let mut state = DaemonState::new();
@@ -457,10 +430,6 @@ async fn test_credentials_list_without_browser() {
     assert!(result["data"]["credentials"].is_array() || result["data"]["profiles"].is_array());
 }
 
-// ---------------------------------------------------------------------------
-// 4. New feature parity tests
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn test_auth_profile_name_validation() {
     use super::auth;
@@ -473,7 +442,7 @@ async fn test_auth_profile_name_validation() {
     assert!(invalid2.is_err());
     let invalid3 = auth::credentials_set("has space", "u", "p", None);
     assert!(invalid3.is_err());
-    // Cleanup
+
     let _ = auth::credentials_delete("valid-name_123");
 }
 
@@ -502,16 +471,13 @@ async fn test_auth_save_and_show() {
     assert!(full.is_ok());
     assert_eq!(full.unwrap().password, "pass");
 
-    // Cleanup
     let _ = auth::credentials_delete("parity-roundtrip");
 }
 
 #[tokio::test]
 async fn test_har_start_stop_without_browser() {
     let mut state = DaemonState::new();
-    // har_start requires a browser. Because execute_command auto-launches when
-    // no browser is present, the result depends on Chrome availability: success
-    // if Chrome is found (CI), failure if not. Both outcomes are valid.
+
     let cmd = json!({ "action": "har_start", "id": "har-1" });
     let result = execute_command(&cmd, &mut state).await;
     let success = result["success"].as_bool().unwrap_or(false);
@@ -619,7 +585,6 @@ async fn test_request_tracking_state() {
     });
     assert_eq!(state.tracked_requests.len(), 2);
 
-    // Filter
     let filtered: Vec<_> = state
         .tracked_requests
         .iter()
@@ -628,7 +593,6 @@ async fn test_request_tracking_state() {
     assert_eq!(filtered.len(), 1);
     assert_eq!(filtered[0].url, "https://example.com");
 
-    // Clear
     state.tracked_requests.clear();
     assert!(state.tracked_requests.is_empty());
 }
@@ -637,7 +601,6 @@ async fn test_request_tracking_state() {
 async fn test_addscript_and_addinitscript_separate_dispatch() {
     let mut state = DaemonState::new();
 
-    // Both should be handled (not "Not yet implemented") even without a browser
     let cmd1 = json!({ "action": "addscript", "id": "as-1", "content": "console.log(1)" });
     let result1 = execute_command(&cmd1, &mut state).await;
     let err1 = result1["error"].as_str().unwrap_or("");
@@ -660,11 +623,9 @@ async fn test_frame_context_management() {
     let mut state = DaemonState::new();
     assert!(state.active_frame_id.is_none());
 
-    // Set a frame ID and verify it persists
     state.active_frame_id = Some("child-frame-123".to_string());
     assert_eq!(state.active_frame_id.as_deref(), Some("child-frame-123"));
 
-    // Clearing the frame ID (what mainframe does)
     state.active_frame_id = None;
     assert!(state.active_frame_id.is_none());
 }
@@ -673,7 +634,6 @@ async fn test_frame_context_management() {
 async fn test_addstyle_supports_content_and_url() {
     let mut state = DaemonState::new();
 
-    // Both content-based and url-based addstyle should be recognized
     let cmd1 = json!({ "action": "addstyle", "id": "style-1", "content": "body { color: red }" });
     let result1 = execute_command(&cmd1, &mut state).await;
     let err1 = result1["error"].as_str().unwrap_or("");

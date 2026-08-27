@@ -1,8 +1,3 @@
-/* ProviderConnectedDialog — "use X for Stella?" follow-up dialog.
- * Matches the canonical Apple-polish dialog look used by ConnectDialog
- * (glass background + weak border + display-font title), with generous
- * inner padding so rows and buttons aren't crammed against the edges. */
-
 [data-slot="dialog-content"].provider-connected-dialog {
   --provider-connected-pad-x: 24px;
   max-width: 440px;
@@ -14,8 +9,7 @@
 }
 
 .provider-connected-dialog [data-slot="dialog-header"] {
-  /* Stack title above description instead of the base header's
-   * horizontal space-between row, so the copy isn't squeezed. */
+
   display: flex;
   flex-direction: column;
   align-items: flex-start;

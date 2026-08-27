@@ -1,18 +1,3 @@
-/**
- * CSS contracts for the agent-activity row glyph and the agent-thread
- * transcript.
- *
- * 1. Glyph is SOLID: the leading status glyph (star / check / arrow) renders
- *    at full strength — strong ink, no opacity dimming. Only the description
- *    text keeps its muted/shimmer treatment. A regression that re-dims the
- *    glyph (translucent star, weak grey check) made the status tell nearly
- *    invisible.
- * 2. Agent-thread transcript reads as a tight chat: small list gap and no
- *    inherited 10px block padding on chrome-less assistant items — the old
- *    combination spaced consecutive one-line narration messages ~34px apart.
- * 3. The transcript's hover timestamp lives in the left gutter and is
- *    revealed only on row hover.
- */
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -34,7 +19,6 @@ const openWithCss = fs.readFileSync(
   "utf8",
 );
 
-/** Extracts the declaration block for a selector (first match). */
 const blockFor = (css: string, selector: string): string => {
   const start = css.indexOf(`${selector} {`);
   expect(start, `selector "${selector}" present`).toBeGreaterThanOrEqual(0);
@@ -56,8 +40,7 @@ describe("agent-activity glyph is solid", () => {
   });
 
   it("keeps the description title secondary — mid-muted, not full strength", () => {
-    // The title sits one step above the weakest ink (readable) but stays
-    // below main-chat body strength, and matches the shimmer resting base.
+
     const title = blockFor(activityCss, ".agent-activity-row__title");
     expect(title).toContain("color: var(--text-base)");
     expect(title).not.toContain("color: var(--text-strong)");
@@ -82,7 +65,7 @@ describe("agent-activity file pills", () => {
     expect(chevron).toContain("background: transparent");
     expect(chevron).toContain("box-shadow: none");
     expect(chevron).toContain("color: var(--text-weak)");
-    // Quiet at rest, obviously interactive on hover.
+
     expect(chevron).toMatch(/transition:.*color/);
     const hover = blockFor(
       openWithCss,

@@ -1,12 +1,3 @@
-/**
- * `Dream` — background memory-consolidator IO, used exclusively by the
- * Dream subagent.
- *
- * Dream's runtime intercepts via `dispatchLocalTool`. The host doesn't have
- * an unrestricted handler — calling it outside the Dream subagent returns
- * an error.
- */
-
 import type { ToolDefinition } from "../types.js";
 
 export const dreamTool: ToolDefinition = {

@@ -60,7 +60,6 @@ export const mergeBundledAndExtensionAgents = (
   return merged;
 };
 
-/** Resolved when `agentType` is internal-only (not in `loadBundledAgents`). */
 export const getBundledCoreAgentFallback = (
   agentType: string,
 ): ParsedAgent | undefined => {

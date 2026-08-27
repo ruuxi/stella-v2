@@ -8,10 +8,7 @@
 }
 
 .ask-stella-selection-chip {
-  /* Opaque backstop first: colorful themes give `--card` an alpha channel,
-     and a lone `background: var(--overlay-surface)` would still let selected
-     text bleed through if a theme ever reassigns the token to a translucent
-     mix. The solid `--background` layer keeps the silhouette filled. */
+
   border: 1px solid var(--overlay-border);
   background-color: var(--background);
   background-image: linear-gradient(

@@ -108,7 +108,7 @@ describe("Claude Code agent runtime selector", () => {
       expect(
         getClaudeCodeAgentModelId(stellaDataDir, undefined, "general", "opus"),
       ).toBe("claude-code/opus");
-      // The pin is per-run only — the saved preference still wins afterwards.
+
       expect(
         getClaudeCodeAgentModelId(stellaDataDir, undefined, "general"),
       ).toBe("claude-code/sonnet");

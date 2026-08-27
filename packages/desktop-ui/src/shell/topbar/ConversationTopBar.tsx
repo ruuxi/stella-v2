@@ -88,8 +88,6 @@ export const shouldRenderNewChatControl = (
   workingMode: AssistantWorkingMode,
 ): boolean => workingMode === "direct";
 
-// In orchestrated mode there are no tabs and no standalone new-chat control,
-// so the History menu owns the only affordance for starting a fresh chat.
 export const shouldRenderHistoryNewChat = (
   workingMode: AssistantWorkingMode,
 ): boolean => workingMode === "orchestrated";
@@ -122,11 +120,6 @@ const isKeyboardClick = (event: React.MouseEvent<HTMLElement>) =>
 const historyKeyExtractor = (summary: ConversationSummary) =>
   summary.conversationId;
 
-/**
- * A background tab earns its unread dot from a persisted assistant message
- * only. User turns are always the user's own doing, and the conversation the
- * user is currently reading is by definition already read.
- */
 export const shouldMarkConversationUnread = (
   payload: LocalChatUpdatedPayload | null,
   conversationId: string,
@@ -272,7 +265,7 @@ export function ConversationTopBar() {
           );
         }
       } catch {
-        // Keep the product default when preferences are temporarily unavailable.
+
       }
     };
     const handlePreferencesChanged = () => {
@@ -307,10 +300,6 @@ export function ConversationTopBar() {
     [router],
   );
 
-  /**
-   * History is in-place navigation: the current tab becomes the selected
-   * session. New Chat (+) is the only action that appends a tab.
-   */
   const openHistoryConversation = useCallback(
     (
       conversationId: string,
@@ -378,8 +367,6 @@ export function ConversationTopBar() {
     [],
   );
 
-  // The update subscription below is mounted once; it reads the active
-  // conversation through this ref so it never resubscribes on navigation.
   const activeConversationIdRef = useRef(activeConversationId);
   activeConversationIdRef.current = activeConversationId;
 
@@ -389,8 +376,6 @@ export function ConversationTopBar() {
     conversationTabs.markRead(activeConversationId);
   }, [activeConversationId]);
 
-  // Hydrate cached tab titles from one bounded history page. Inactive tabs
-  // remain metadata only; this never subscribes them to message timelines.
   useEffect(() => {
     let disposed = false;
     void listLocalConversations({ limit: HISTORY_PAGE_SIZE })
@@ -403,8 +388,6 @@ export function ConversationTopBar() {
     };
   }, []);
 
-  // Persisted local-chat updates are the title boundary. Streaming token
-  // chunks deliberately do not touch this lightweight store.
   useEffect(
     () =>
       subscribeToLocalChatUpdates((payload: LocalChatUpdatedPayload | null) => {
@@ -576,8 +559,6 @@ export function ConversationTopBar() {
     setHistoryNewChatArmed(false);
   }, [clearHistoryNewChatTimer]);
 
-  // Two-step confirm mirroring the per-item delete affordance: the first click
-  // arms the button, the second within the window starts the new chat.
   const activateHistoryNewChat = useCallback(() => {
     if (!historyNewChatArmed) {
       clearHistoryNewChatTimer();

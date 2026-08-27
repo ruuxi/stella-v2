@@ -38,7 +38,7 @@ export type NativeConnectorCatalogEntry = {
   catalogToolCount: number;
   availability: NativeConnectorAvailability;
   provider: "google-workspace" | "oauth-catalog" | "backend-composio";
-  /** Bundled execution is opt-in. Recovered OAuth entries are metadata only. */
+
   localExecution?: "production-ready" | "incomplete";
   toolPrefix?: string;
   description: string;
@@ -49,7 +49,7 @@ export type NativeConnectorCatalogEntry = {
     type: "composio";
     toolkit: string;
   };
-  /** Authoritative executable action map supplied by the connector catalog. */
+
   actions?: readonly NativeConnectorCatalogAction[];
   oauthConfig?: NativeOAuthProviderConfig;
   oauthSetupGroup?: {
@@ -198,9 +198,6 @@ const GOOGLE_WORKSPACE_CONNECTOR_CATALOG: NativeConnectorCatalogEntry[] = [
   },
 ];
 
-// Lazily derived from the on-disk OAuth catalog so the ~8MB JSON is only
-// read+parsed when the connector catalog is first needed (an IPC call), not at
-// module import time. Memoized after first build.
 let cachedNativeConnectorCatalog: NativeConnectorCatalogEntry[] | null = null;
 
 const getNativeConnectorCatalog = (): NativeConnectorCatalogEntry[] => {
@@ -237,15 +234,6 @@ const getNativeConnectorCatalog = (): NativeConnectorCatalogEntry[] => {
   return cachedNativeConnectorCatalog;
 };
 
-/**
- * Bundled catalog with optional server entries overlaid (server wins by
- * id; new server entries are appended). The overlay deliberately does
- * NOT replace the bundled catalog: locally-owned entries (Google
- * Workspace, recovered OAuth providers) must stay resolvable even when
- * the backend catalog only carries its Composio set — otherwise Gmail
- * could be offered by discovery yet fail to resolve in the catalog/connect
- * paths that pass the server catalog through.
- */
 export const buildNativeConnectorCatalog = (
   serverCatalog?: NativeConnectorCatalogOverride,
 ): NativeConnectorCatalogEntry[] => {
@@ -274,7 +262,7 @@ const readState = async (
     ) as NativeConnectorStateFile;
     if (parsed?.version === 1 && parsed.integrations) return parsed;
   } catch {
-    // Empty state is valid.
+
   }
   return { version: 1, integrations: {} };
 };
@@ -300,12 +288,6 @@ export const getNativeConnectorOAuthConfig = (
 const getOAuthCatalogProvider = (id: string) =>
   getOAuthProviderCatalog().find((entry) => entry.id === id);
 
-/**
- * Compact one-line parameter summary for an action's input schema
- * ("required: a, b; optional: c, d, +3"). Shared by the generated
- * ACTIONS.md reference and the node_repl `connect.actions` listing —
- * full schemas stay on-demand via `connect.schema` / `catalog-actions`.
- */
 export const summarizeActionParams = (
   schema?: Record<string, unknown>,
 ): string => {
@@ -619,14 +601,6 @@ export const isNativeConnectorEnabled = async (
   return state.integrations[id]?.enabled === true;
 };
 
-/**
- * Cap on the actions listed in a generated ACTIONS.md. The old unbounded
- * listing (every action + schema summary) produced context-bloating files
- * for Gmail-scale toolkits; the compact top-N reference points agents at
- * `connect.actions` / `connect.schema` for everything else. Existing
- * oversized ACTIONS.md files are rewritten the next time the connector is
- * enabled (a Connections enable or an accepted in-chat connect card).
- */
 const ACTIONS_MD_TOP_LIMIT = 30;
 
 const oneLine = (value: string | undefined, max = 140): string => {
@@ -695,7 +669,7 @@ Preferred: the frozen \`connect\` client inside \`node_repl\`:
 \`\`\`js
 await connect.actions("${entry.id}", { query: "<keywords>" }); // find actions (capped list)
 await connect.schema("${entry.id}", "<ACTION>");               // full input schema for one action
-await connect.call("${entry.id}", "<ACTION>", { /* args */ }); // execute; throws on refusal
+await connect.call("${entry.id}", "<ACTION>", {  }); // execute; throws on refusal
 \`\`\`
 ${
   entry.provider === "backend-composio"
@@ -705,9 +679,8 @@ This provider has ${entry.catalogToolCount} actions. \`ACTIONS.md\` in this skil
       ? `
 This provider is REST-style: \`await connect.call("${entry.id}", "/path", { method: "GET", query: {} })\` calls the API with the connected OAuth account. \`ACTIONS.md\` lists the top recovered catalog actions (${entry.catalogToolCount} total).`
       : `
-Call the executable tools below directly, e.g. \`await connect.call("${entry.id}", "${tools[0]?.name ?? "<tool>"}", { /* args */ })\`.`
+Call the executable tools below directly, e.g. \`await connect.call("${entry.id}", "${tools[0]?.name ?? "<tool>"}", {  })\`.`
 }
-
 
 ## Executable Tools
 
@@ -783,13 +756,9 @@ export const enableNativeConnector = async (
     skillPath,
   };
   await writeState(stellaAppDir, state);
-  // Enabling — from Connections, the CLI, or an accepted in-chat connect
-  // card — supersedes any earlier "don't re-offer this in chat" decline.
+
   await clearConnectorDecline(stellaAppDir, id).catch(() => undefined);
-  // `toolCount` mirrors what `listNativeConnectors` returns so the
-  // website can drop the updated entry straight into its local state
-  // without re-listing. Omitting it would briefly render "undefined
-  // actions" on the just-enabled card until the next list refresh.
+
   return {
     ...entry,
     ...setup,

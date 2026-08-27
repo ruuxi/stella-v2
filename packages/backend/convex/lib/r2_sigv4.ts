@@ -1,20 +1,5 @@
 "use node";
 
-/**
- * Shared AWS SigV4 signer for Cloudflare R2 object writes/deletes.
- *
- * The backend signs its own R2 requests (rather than proxying bytes through a
- * component) so `"use node"` actions can PUT/DELETE objects directly with the
- * `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_ENDPOINT` credentials.
- *
- * This module was lifted out of the copy-pasted `signR2Put` / `uploadR2Object`
- * helpers in `data/emoji_pack_uploads.ts` and `data/emoji_pack_generation.ts`
- * so there is a single implementation to reason about. It is intentionally
- * behavior-preserving for those callers (same canonical request, same signed
- * headers) and additionally supports custom object metadata (`x-amz-meta-*`)
- * and object deletes for the canvas-share feature.
- */
-
 import { createHash, createHmac } from "node:crypto";
 
 export type R2Credentials = {
@@ -24,7 +9,6 @@ export type R2Credentials = {
   bucket: string;
 };
 
-/** SHA-256 hex digest of the empty body, used for signed DELETEs (no payload). */
 const EMPTY_PAYLOAD_SHA256 =
   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
@@ -44,7 +28,7 @@ type SignRequestArgs = {
   payloadHash: string;
   contentType?: string;
   cacheControl?: string;
-  /** Custom object metadata. Keys are emitted as `x-amz-meta-<key>` headers. */
+
   metadata?: Record<string, string>;
 };
 
@@ -114,10 +98,6 @@ const signR2Request = (
   };
 };
 
-/**
- * Produce a signed PUT URL + headers for an R2 object. Callers either hand the
- * result back to a client for a direct upload or fetch it themselves.
- */
 export const signR2Put = (args: {
   accessKeyId: string;
   secretAccessKey: string;
@@ -133,7 +113,6 @@ export const signR2Put = (args: {
   return { putUrl: signed.url, headers: signed.headers };
 };
 
-/** Sign and PUT a payload to R2 from the backend. Throws on non-2xx. */
 export const uploadR2Object = async (args: {
   key: string;
   bytes: Buffer;
@@ -166,10 +145,6 @@ export const uploadR2Object = async (args: {
   }
 };
 
-/**
- * Sign and DELETE an R2 object from the backend. A 404 is treated as success
- * (the object is already gone), so callers can use this idempotently.
- */
 export const deleteR2Object = async (args: {
   key: string;
   r2: R2Credentials;

@@ -17,15 +17,6 @@ interface SettingsSearchResultsProps {
   onClear: () => void;
 }
 
-/**
- * Global "Search settings" results view. Replaces the active tab's
- * content while the search input has a value so users can find a
- * setting without first guessing which tab it lives in (Apple System
- * Settings / VS Code Settings model).
- *
- * The catalog is the single source of results — selecting an entry
- * jumps to its tab and scrolls the matching section into view.
- */
 export function SettingsSearchResults({
   query,
   onSelect,
@@ -33,10 +24,6 @@ export function SettingsSearchResults({
 }: SettingsSearchResultsProps) {
   const t = useT();
 
-  // Highlight against the full expanded match set, not just the user's
-  // literal tokens, so typing "mute" visibly highlights "sound" and
-  // "notification" in the results — that's the cue that tells the user
-  // "your synonym got picked up".
   const highlightTerms = useMemo(() => expandedMatchTerms(query), [query]);
   const results = useMemo(() => searchSettings(query, t), [query, t]);
   const trimmedQuery = query.trim();
@@ -128,22 +115,14 @@ function getTabLabelKey(tab: SettingsTab): string {
   return SETTINGS_TABS.find((entry) => entry.key === tab)?.labelKey ?? "";
 }
 
-/**
- * Wrap matching token spans in `<mark>` for visual hinting. Tokens are
- * matched case-insensitively without modifying the original casing of
- * the surrounding text.
- */
 function highlightTokens(text: string, terms: string[]): ReactNode {
   if (!text || terms.length === 0) return text;
 
-  // Sort longer terms first so "sign in" matches before "sign" when
-  // both are present in the expansion set.
   const sorted = [...terms]
     .filter((term) => term.length > 0)
     .sort((a, b) => b.length - a.length);
   if (sorted.length === 0) return text;
 
-  // Escape regex metacharacters so user input like "c++" doesn't crash.
   const pattern = sorted.map(escapeRegExp).join("|");
   const regex = new RegExp(`(${pattern})`, "gi");
   const parts = text.split(regex);

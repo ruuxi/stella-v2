@@ -31,9 +31,7 @@
 
 .legal-dialog-title {
   margin: 0;
-  /* Canonical dialog title identity (see dialog.css --dialog-title-*).
-   * The real <DialogTitle> is hidden for a11y; this visible headline
-   * mirrors the shared treatment so every dialog title matches. */
+
   color: var(--text-strong);
   font-family: var(--dialog-title-font);
   font-size: var(--dialog-title-size);
@@ -58,9 +56,7 @@
   overflow-y: auto;
   padding: 12px 4px 4px;
   border-top: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
-  /* Edge fades driven by `useEdgeFade` — drops to 0 on whichever
-     side the user has scrolled to so the mask only ever feathers
-     content that's actually offscreen. */
+
   --legal-fade: 18px;
   --legal-fade-start: var(--legal-fade);
   --legal-fade-end: var(--legal-fade);

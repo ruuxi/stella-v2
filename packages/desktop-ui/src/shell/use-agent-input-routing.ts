@@ -8,20 +8,20 @@ const NO_OP = () => {}
 
 type UseAgentInputRoutingOptions = {
   activeConversationId: string | null
-  /** Resolved at call-time via a ref so we never close over a stale identity. */
+
   sendMessage: (args: SendMessageArgs) => Promise<boolean>
   enterChatSurfaceForInteraction: () => void
 }
 
 type UseAgentInputRoutingResult = {
-  /** Send `text` to the active conversation, no chip context. */
+
   sendContextlessMessage: (text: string, metadata?: MessageMetadata) => void
-  /** Route into a named target agent if present, falling back to chat. */
+
   sendAgentInputMessage: (
     detail: StellaSendMessageDetail,
     metadata?: MessageMetadata,
   ) => void
-  /** Send `text` plus optional captured context. */
+
   sendMessageWithContext: (
     text: string,
     chatCtx?: ChatContext | null,
@@ -29,12 +29,6 @@ type UseAgentInputRoutingResult = {
   ) => Promise<boolean>
 }
 
-/**
- * Three thin sugar wrappers around `useStreamingChat`'s `sendMessage`
- * that the shell uses to fan out IPC / window-event sends into the
- * conversation. Routes messages with `targetAgentId` to that agent's
- * input bus instead of the active conversation.
- */
 export function useAgentInputRouting({
   activeConversationId,
   sendMessage,

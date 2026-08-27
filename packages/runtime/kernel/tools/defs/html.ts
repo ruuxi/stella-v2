@@ -1,18 +1,3 @@
-/**
- * `html` tool — write a self-contained HTML document under
- * `~/.stella/outputs/html/<slug>.html` and surface it inline in the chat as a
- * canvas artifact. The completed file is opened in the workspace panel's
- * Canvas tab. You should not describe the canvas contents in chat, because
- * the user can view the artifact directly.
- *
- * Orchestrator-only. The orchestrator authors the full HTML document itself
- * and passes it in; this tool just writes and renders it. The general agent
- * builds real apps via Vite/HMR; this tool exists so the orchestrator can
- * answer with a richer-than-markdown artifact (planning, comparisons,
- * diagrams, dashboards, mockups, structured reports) without spawning an
- * agent.
- */
-
 import path from "node:path";
 import fs from "node:fs/promises";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";

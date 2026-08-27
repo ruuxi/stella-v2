@@ -31,8 +31,7 @@ export const bridgeRecoveryReasonForResponse = (
   ) {
     return "availability";
   }
-  // Cloudflare route failures use 52x/53x statuses. Handler-originated 500s
-  // are deterministic application errors and must never be replayed.
+
   if (status >= 520 && status < 540) return "route";
   if (status === 502 || status === 503 || status === 504) return "route";
   return null;

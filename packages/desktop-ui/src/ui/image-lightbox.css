@@ -2,8 +2,7 @@
   position: fixed;
   inset: 0;
   z-index: 60;
-  /* Slightly deeper scrim than a content dialog so the image reads as
-   * the sole focus, matching the calm single-dim convention. */
+
   background-color: rgba(0, 0, 0, 0.55);
 }
 
@@ -14,8 +13,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Comfortable breathing room so the image never touches the window edge
-   * and the surrounding scrim stays clickable to dismiss. */
+
   padding: 40px;
   pointer-events: none;
 }
@@ -36,9 +34,7 @@
 
 [data-component="image-lightbox"] [data-slot="image-lightbox-image"] {
   display: block;
-  /* Fit within the padded window, preserve aspect ratio, and never
-   * upscale past the image's intrinsic resolution (auto sizing caps at
-   * natural pixels). */
+
   width: auto;
   height: auto;
   max-width: calc(100vw - 80px);

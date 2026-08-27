@@ -53,8 +53,6 @@ import { ChatRuntimeContext } from "@/context/chat-runtime-context";
 import { useT } from "@/shared/i18n";
 import "./chat-sidebar.css";
 
-// Legend List sums numeric paddings into its content length; passing
-// strings (`"10px"`) breaks the math. Keep these as numbers.
 const SIDEBAR_CONTENT_STYLE = {
   paddingLeft: 10,
   paddingRight: 10,
@@ -62,7 +60,6 @@ const SIDEBAR_CONTENT_STYLE = {
   paddingBottom: 4,
 } as const;
 
-/** Centered column when the display panel owns the full content area. */
 const WIDE_PANEL_CONTENT_STYLE = {
   maxWidth: "min(50rem, 100%)",
   marginLeft: "auto",
@@ -74,9 +71,9 @@ const WIDE_PANEL_CONTENT_STYLE = {
 } as const;
 
 interface ChatSidebarOpenOptions {
-  /** When provided, attaches/replaces the current chat context before opening. */
+
   chatContext?: ChatContext | null;
-  /** When provided, sets the composer text (replaces existing input). */
+
   prefillText?: string;
 }
 
@@ -95,7 +92,7 @@ interface ChatPanelTabProps {
   isToolActive?: boolean;
   pendingUserMessageId: string | null;
   queuedUserMessages?: QueuedUserMessage[];
-  /** Removes a still-queued follow-up from the shared send queue by id. */
+
   removeQueuedUserMessage?: (messageId: string) => void;
   hasOlderMessages: boolean;
   hasNewerMessages: boolean;
@@ -111,13 +108,9 @@ interface ChatPanelTabProps {
     selectedText?: string | null,
   ) => boolean | Promise<boolean>;
   onStop?: () => void;
-  /** When the display sidebar is expanded to full width. */
+
   wideLayout?: boolean;
-  /**
-   * Detach this surface from the shared main-chat runtime context: no activity
-   * pill, no cross-thread agent-model badges. Used
-   * by the ephemeral Quick chat so it stays a self-contained side conversation.
-   */
+
   isolated?: boolean;
 }
 
@@ -147,12 +140,7 @@ export function ChatPanelTab({
   isolated = false,
 }: ChatPanelTabProps) {
   const t = useT();
-  // Input state + always-current mirror ref, synced at WRITE time. The
-  // dictate-and-submit commit is rAF-deferred and can fire before React
-  // flushes the render carrying the appended transcript — a ref synced in the
-  // render body would still hold the pre-transcript text at that point, so
-  // `sendCurrentMessage` would see `canSubmit === false` and silently no-op,
-  // leaving the transcript in the composer. See use-composer-message-state.
+
   const {
     message: inputText,
     setMessage: setInputText,
@@ -163,12 +151,6 @@ export function ChatPanelTab({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const restoredConversationScrollRef = useRef<string | null>(null);
 
-  // Perf: the auto-context suggestion strip polls native window/AX
-  // enumeration on an interval. Only treat the composer surface as "active"
-  // (and thus pollable) while this window is focused and visible — otherwise
-  // a backgrounded/hidden renderer keeps spawning the macOS
-  // helper + osascript for chips nobody can see. The hook also self-gates on
-  // visibility, but unmounting the poll setup here avoids even arming it.
   const [surfaceActive, setSurfaceActive] = useState(
     () =>
       typeof document === "undefined" ||
@@ -187,20 +169,13 @@ export function ChatPanelTab({
     };
   }, []);
   const mainChatRuntime = useContext(ChatRuntimeContext);
-  // Isolated surfaces (Quick chat) ignore the shared main-chat runtime so they
-  // don't inherit its agents or activity pill.
+
   const chatRuntime = isolated ? null : mainChatRuntime;
   const agentModelConfigByThread = useAgentModelConfigs(
     chatRuntime?.conversation.tasks ?? [],
   );
   const showActivityPill = Boolean(chatRuntime);
 
-  /*
-   * Own scroll-management instance for the sidebar list. Mirrors the
-   * full chat (`useFullShellChat` → `useChatScrollManagement`) so the
-   * sidebar gets the same Legend-List-backed at-bottom tracking and
-   * thumb behavior as the home full chat.
-   */
   const sidebarScroll = useChatScrollManagement({
     hasOlderEvents: hasOlderMessages,
     isLoadingOlder,
@@ -295,9 +270,6 @@ export function ChatPanelTab({
   const shellRef = useRef<HTMLDivElement | null>(null);
   const shellContentRef = useRef<HTMLDivElement | null>(null);
 
-  // Drag-and-drop file attach stays live at all times, including while the
-  // turn is streaming or agents are busy — dropped files attach to
-  // `chatContext` just as when idle; submit/queue behavior is unchanged.
   const { isDragOver, dropHandlers } = useFileDrop({
     setChatContext,
   });
@@ -315,13 +287,10 @@ export function ChatPanelTab({
     [removeQueuedUserMessage, setInputText],
   );
 
-
   const dictation = useDictation({
     message: inputText,
     setMessage: setInputText,
-    // Dictation stays available even while the orchestrator is busy
-    // (mid-turn / streaming) — the mic is intentionally NOT gated on
-    // `isStreaming`. See `submitComposer` for the in-flight submit flow.
+
     onTranscriptCommitted: () => {
       requestAnimationFrame(() => {
         inputRef.current?.focus();
@@ -346,9 +315,7 @@ export function ChatPanelTab({
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      // Only clear the composer draft when Escape targets the composer itself.
-      // Otherwise Escape used to dismiss unrelated UI (dropdowns, previews,
-      // dialogs) would wipe an in-progress draft.
+
       if (event.defaultPrevented) return;
       if (
         event.target !== inputRef.current &&
@@ -378,9 +345,7 @@ export function ChatPanelTab({
       selectedText,
     });
     if (!canSubmit) return;
-    // The placement gate subtracts the synthetic response spacer before
-    // applying Codex's 300px near-bottom threshold, so a visually-bottomed
-    // short reply still reframes while deliberate scrollback stays put.
+
     const shouldNudgeAfterSend = sidebarScroll.getShouldPlaceLatestTurn();
     const accepted = await onSend(trimmedMessage, chatContext, selectedText);
     if (!accepted) return;
@@ -389,16 +354,12 @@ export function ChatPanelTab({
     setSelectedText(null);
     setSidebarExpanded(false);
     if (isStreaming) {
-      // Queued follow-up — no new user row lands in the event
-      // list, just a chip in the trailing region. Keep that footer
-      // stack framed without falling through to the prior turn's
-      // user bubble.
+
       if (shouldNudgeAfterSend) {
         sidebarScroll.nudgeQueuedMessagesIntoView();
       }
     } else if (shouldNudgeAfterSend) {
-      // Place the newest user turn above the viewport-derived response
-      // spacer, using the same gentle loop as stream-follow.
+
       sidebarScroll.nudgeAfterSend();
     } else {
       sidebarScroll.releaseFollow();
@@ -419,13 +380,6 @@ export function ChatPanelTab({
     sendCurrentMessage();
   }, [sendCurrentMessage]);
 
-  // Submitting while a recording/transcription is still in flight must not
-  // race ahead of the dictated text. `commitAndSend` stops + finalizes the
-  // recording, waits for the pending transcript to be appended to the
-  // composer, and only then fires `onCommit` (→ sendCurrentMessage). For the
-  // idle case it sends immediately. Transcription is time-bounded (see the
-  // dictation service's per-segment timeout), so a stalled request fails into
-  // a recoverable error and fires the commit instead of wedging submit.
   const submitComposer = useCallback(() => {
     if (dictation.isRecording || dictation.isTranscribing) {
       dictation.commitAndSend();
@@ -443,10 +397,7 @@ export function ChatPanelTab({
     chatContext,
     selectedText,
   });
-  // A dictation in flight makes the composer submittable on its own — the
-  // pending transcript is the content. Without this the submit arrow stays
-  // disabled while the text is empty, so a press during transcription is
-  // swallowed and the message is never sent/queued.
+
   const dictationInFlight = dictation.isRecording || dictation.isTranscribing;
   const canSubmitWithDictation = composerState.canSubmit || dictationInFlight;
   const hasText = inputText.trim().length > 0;
@@ -454,8 +405,6 @@ export function ChatPanelTab({
   const dictationInline = dictation.isRecordingVisible && !hasText;
   const formExpanded = sidebarExpanded || dictationBelow;
 
-  // Keep the pill shape in sync when `inputText` changes outside of
-  // onChange (e.g. cleared by send, or set by dictation).
   useEffect(() => {
     const raf = requestAnimationFrame(() => {
       updateComposerTextareaExpansion(inputRef.current, setSidebarExpanded);

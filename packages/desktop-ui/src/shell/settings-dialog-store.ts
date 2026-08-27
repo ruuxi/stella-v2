@@ -1,11 +1,3 @@
-/**
- * Global open/close state for the Settings dialog.
- *
- * A store because Settings is opened from several places — the gear button
- * in either top bar and the "Open settings" toast CTA — while the dialog
- * itself is hosted once in the root chrome (`SettingsDialogHost`), so two
- * mounted gear buttons never produce two dialogs.
- */
 import { useSyncExternalStore } from "react";
 
 let open = false;

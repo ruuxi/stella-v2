@@ -65,8 +65,7 @@ export type StellaHostRunnerOptions = {
   stellaComputerCliPath?: string;
   stellaMediaCliPath?: string;
   stellaXApiCliPath?: string;
-  /** UDS path for the worker-side CLI bridge (see runtime/worker/cli-bridge-server.ts).
-   *  Forwarded into PTY env as `STELLA_CLI_BRIDGE_SOCK`. */
+
   cliBridgeSocketPath?: string;
   requestCredential?: (payload: {
     provider: string;
@@ -74,12 +73,7 @@ export type StellaHostRunnerOptions = {
     description?: string;
     placeholder?: string;
   }) => Promise<{ secretId: string; provider: string; label: string }>;
-  /**
-   * Legacy exec compatibility hop for the inline "connect the Stella browser
-   * extension" chat card. Production browser actions use the persistent
-   * browser service API. This hook blocks until the user connects, declines,
-   * or the card times out, then retries the intercepted operation on success.
-   */
+
   requestBrowserExtensionConnect?: (
     payload: {
       conversationId?: string;
@@ -105,11 +99,7 @@ export type StellaHostRunnerOptions = {
     | { decision: "approved"; scope: "session" | "persistent" }
     | { decision: "declined"; scope: "none" }
   >;
-  /**
-   * Desktop hop for the orchestrator's `connector_status` tool: render the
-   * inline connector connect card (ConnectorConnectService) and resolve
-   * with the user's outcome. The abort signal cancels the pending card.
-   */
+
   requestConnectorConnection?: (
     payload: {
       id: string;
@@ -149,7 +139,7 @@ export type StellaHostRunnerOptions = {
     ) => TranscriptSearchHit[][];
   };
   appendLocalChatEvent?: (args: LocalChatAppendEventArgs) => void;
-  /** Fired after every `runtime_agents` write with the durable keyed row. */
+
   notifyThreadActivityUpdated?: (payload: ThreadActivityUpdatedPayload) => void;
   getDefaultConversationId?: () => string;
 };
@@ -203,8 +193,7 @@ export type AgentCallbacks = {
     event: RuntimeReasoningEvent & {
       agentId: string;
       rootRunId?: string;
-      /** The task's spawn description, so downstream task snapshots built
-       *  from reasoning-only streams keep a real display name. */
+
       description?: string;
     },
   ) => void;
@@ -228,20 +217,9 @@ export type QueuedOrchestratorTurn = {
   execute: () => Promise<void>;
 };
 
-/**
- * A user chat message that arrived while a run was already active on the
- * conversation and was injected into the live run as steering. If the run is interrupted, fails
- * fatally, or is otherwise torn down before the message is delivered, the
- * agent's in-memory queues are discarded and the user would never get a
- * reply. We mirror the message here so a fresh reply turn can be fired after
- * the active run drains, and prune the mirror once the message is actually
- * delivered to the model so an already-answered message is not re-answered.
- * See `flushPendingFollowUpReplies` in `orchestrator.ts` and
- * `prunePendingFollowUpReplies` in `shared.ts`.
- */
 export type PendingFollowUpReply = {
   text: string;
-  /** Queued-message id used to prune the mirror on delivery. */
+
   userMessageId?: string;
 };
 
@@ -273,52 +251,24 @@ export type RunnerState = {
   isInitialized: boolean;
   initializationPromise: Promise<void> | null;
   localAgentManager: LocalAgentManager | null;
-  /**
-   * Watches `exec_command` sessions a finished run left running and wakes
-   * the owning thread when they exit. Null until the runner is initialized
-   * (it needs both the tool host and the agent manager).
-   */
+
   backgroundExitWake: BackgroundExitWake | null;
   activeOrchestratorRunId: string | null;
   activeOrchestratorConversationId: string | null;
   activeOrchestratorUiVisibility: "visible" | "hidden";
   activeOrchestratorSession: ActiveOrchestratorSession | null;
-  /**
-   * Long-lived orchestrator sessions keyed by `conversationId`. Each session
-   * owns one live Pi `Agent` for the lifetime of the conversation and is
-   * reused across turns to keep provider prompt-cache prefixes stable. See
-   * `runtime/kernel/agent-runtime/orchestrator-session.ts`. Disposed on
-   * worker shutdown via `runtime-initialization.ts:stop`.
-   */
+
   orchestratorSessions: Map<string, OrchestratorSession>;
-  /**
-   * Per-thread background compaction scheduler. Holds at most one
-   * in-flight compaction per `threadKey`; finalize* paths schedule
-   * fire-and-forget after `onEnd` fires so users never wait on the
-   * summarization LLM. Drained on worker shutdown so SQLite writes
-   * complete before the store handle tears down. See
-   * `runtime/kernel/agent-runtime/compaction-scheduler.ts`.
-   */
+
   compactionScheduler: BackgroundCompactionScheduler;
   queuedOrchestratorTurns: QueuedOrchestratorTurn[];
-  /**
-   * Per-conversation buffer of user chat messages that were injected into an
-   * active run as steering. Populated when a user message lands on a live
-   * streaming session; cleared when that run completes normally (the agent
-   * loop drains and answers the steers before `agent_end`) and flushed into a
-   * fresh reply turn when the run is interrupted or fails before draining.
-   */
+
   pendingFollowUpReplies: Map<string, PendingFollowUpReply[]>;
   activeRunAbortControllers: Map<string, AbortController>;
   conversationCallbacks: Map<string, AgentCallbacks>;
   runCallbacksByRunId: Map<string, AgentCallbacks>;
   loadedAgents: ParsedAgentLike[];
-  /**
-   * Late-bound web search handler. Wired by `createStellaHostRunner` after the
-   * Convex session is created so the toolHost (built earlier in startup) can
-   * reach Exa via the same convex-session call path that the rest of the
-   * runtime uses. Stored on state so the toolHost can read it lazily.
-   */
+
   webSearch:
     | ((
         query: string,
@@ -361,7 +311,7 @@ export type RunnerContext = {
       options?: {
         model?: Pick<Model<Api>, "api" | "provider" | "id" | "name">;
         agentEngine?: import("../tools/file-edit-policy.js").FileEditAgentEngine;
-        /** This thread was spawned by another agent; withhold orchestration tools. */
+
         parentOwned?: boolean;
       },
     ) => ToolMetadata[];
@@ -377,13 +327,9 @@ export type RunnerContext = {
       behavior: import("../browser-use/client.js").BrowserTurnEndBehavior,
     ) => Promise<void>;
     registerExtensionTools: (tools: ToolDefinition[]) => void;
-    /** Sweep user-extension tools (F1 hot-reload). Built-ins are untouched. */
+
     unregisterExtensionTools: () => void;
-    /**
-     * Drain completed-but-unreported produced files from background/
-     * long-running shell sessions so late deliverables reach the
-     * agent-completed rollup. Optionally scoped to specific session ids.
-     */
+
     drainCompletedShellProducedFiles: (
       sessionIds?: string[],
     ) => Promise<import("@stella/contracts/file-changes").ProducedFileRecord[]>;
@@ -425,11 +371,7 @@ export type RunnerPublicApi = {
   ) => Promise<ToolResult>;
   agentHealthCheck: () => AgentHealth;
   warmModelCatalog: () => Promise<void>;
-  /**
-   * Resolve the provider/model an agent's turn would run on, for sizing
-   * composer image attachments to that provider's limits. Returns null when
-   * no route resolves (signed out, misconfigured pick).
-   */
+
   resolveImageTarget: (
     agentType?: string,
   ) => Promise<Pick<ImageCapTarget, "provider" | "api" | "modelId"> | null>;
@@ -466,22 +408,14 @@ export type RunnerPublicApi = {
     reason?: string,
   ) => Promise<{ canceled: boolean }>;
   cancelLocalChat: (runId: string) => void;
-  /**
-   * Cancel the active orchestrator run for the given local conversation,
-   * if one exists. Returns `true` if a run was cancelled. Used by the
-   * remote-turn cancel path so callers don't need to track runIds.
-   */
+
   cancelLocalChatByConversation: (conversationId: string) => boolean;
   getActiveOrchestratorRun: () => RuntimeActiveRun | null;
   appendThreadMessage: (args: {
     threadKey: string;
     role: "user" | "assistant";
     content: string;
-    /**
-     * Stamp the user-message timestamp tag (and thirty-minute suppression)
-     * onto the persisted content — the durable-store equivalent of the
-     * metadata the retired local-events projection added at read time.
-     */
+
     decorateUserTimestampTag?: boolean;
     timezone?: string;
   }) => void;
@@ -503,10 +437,7 @@ export type RunnerPublicApi = {
     name?: string;
   }>;
   googleWorkspaceDisconnect: () => Promise<{ ok: boolean }>;
-  /**
-   * Ask the Dream scheduler to run now. Trigger names are advisory and used
-   * for diagnostics; eligibility gates apply to non-`manual` triggers.
-   */
+
   triggerDreamNow: (trigger?: "manual" | "startup_catchup") => Promise<{
     scheduled: boolean;
     reason:

@@ -77,8 +77,7 @@ describe("pickScheduleToolSummary", () => {
   });
 
   it("suppresses unparseable JSON-looking previews instead of rendering fragments", () => {
-    // The runtime bounds resultPreview to 200 chars; a serialized envelope
-    // sliced mid-stream fails JSON.parse and must render nothing.
+
     const truncatedEnvelope =
       '{"content":[{"type":"text","text":"Registered the morni';
     expect(

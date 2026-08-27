@@ -9,7 +9,7 @@ const CDATA_RE = /<!\[CDATA\[[\s\S]*?\]\]>/g;
 const TOOL_ERROR_MAX_CHARS = 2_000;
 
 const ANSI_RE =
-  // eslint-disable-next-line no-control-regex
+
   /\x1b(?:\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]|\][\s\S]*?(?:\x07|\x1b\\)|[PX^_][\s\S]*?(?:\x1b\\)|[\x20-\x2f]+[\x30-\x7e]|[\x30-\x7e])|\x9b[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]|\x9d[\s\S]*?(?:\x07|\x9c)|[\x80-\x9f]/g;
 
 const SECRET_PREFIX_RE =

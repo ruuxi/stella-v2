@@ -12,18 +12,6 @@ import { appendRollingLevel } from "@/features/dictation/rolling-levels";
 import { DictationRecordingBar } from "@/features/dictation/components/DictationRecordingBar";
 import "./overlays.css";
 
-/**
- * OverlayRoot manages the unified transparent overlay window.
- *
- * All overlay components (Region Capture, Voice Overlay, Screen Guide, and
- * Window Highlight) live as absolutely-positioned children. The overlay
- * window is hidden when idle and only shown when a component activates,
- * preventing it from blocking interaction with windows below.
- *
- * Hit-testing: the renderer tracks visible component bounding rects and
- * notifies the main process to toggle `setIgnoreMouseEvents` accordingly.
- */
-
 type WindowBounds = { x: number; y: number; width: number; height: number };
 type WindowHighlightTone = "default" | "subtle";
 
@@ -114,11 +102,6 @@ const pointInRect = (point: { x: number; y: number }, rect: InteractiveRect) =>
   point.y >= rect.top &&
   point.y <= rect.top + rect.height;
 
-// ---------------------------------------------------------------------------
-// Hook: useOverlayIPC
-// Consolidates ALL IPC subscription effects (window highlight, region capture,
-// voice show/hide, screen guide) into a single hook.
-// ---------------------------------------------------------------------------
 function useOverlayIPC(dispatch: Dispatch<OverlayAction>) {
   useEffect(() => {
     const api = window.electronAPI;
@@ -167,12 +150,6 @@ function useOverlayIPC(dispatch: Dispatch<OverlayAction>) {
   }, [dispatch]);
 }
 
-// ---------------------------------------------------------------------------
-// Hook: useOverlayHitTesting
-// Manages the overlay's setIgnoreMouseEvents toggle based on which overlay
-// subsystems are currently active and whether the cursor is over an
-// interactive region.
-// ---------------------------------------------------------------------------
 function useOverlayHitTesting(
   state: OverlayState,
   updateInteractive: (shouldBeInteractive: boolean) => void,
@@ -260,11 +237,6 @@ function useOverlayDictation() {
       const session = sessionRef.current;
       if (!session || sessionIdRef.current !== sessionId) return;
 
-      // Take ownership synchronously, before the first await, so a concurrent
-      // second call (onOverlayStop + the confirm button both fire for the same
-      // sessionId) fails the guard above instead of double-completing — which
-      // would stop the session twice and send an empty transcript first,
-      // dropping the real one.
       sessionRef.current = null;
       sessionIdRef.current = null;
 
@@ -432,10 +404,6 @@ function DictationOverlay({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Component: OverlayRoot
-// Composes the hooks above and renders the overlay subsystem JSX.
-// ---------------------------------------------------------------------------
 export function OverlayRoot() {
   const [state, dispatch] = useReducer(overlayReducer, initialState);
   const interactiveRef = useRef<boolean | null>(null);

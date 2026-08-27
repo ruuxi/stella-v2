@@ -1,8 +1,5 @@
 const MODEL_MENTION_PATTERN = /(^|[\s([{])@([A-Za-z0-9][A-Za-z0-9-]*)(?=$|[\s)\]},.!?;])/g;
-/**
- * Composer-friendly aliases deliberately stay user-facing in the transcript,
- * then normalize to spawn_agent's engine vocabulary in hidden prompt context.
- */
+
 export function normalizeDelegatedModelMention(mention) {
     const trimmed = mention.trim();
     if (!trimmed || !/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(trimmed)) {
@@ -21,10 +18,7 @@ export function normalizeDelegatedModelMention(mention) {
         return "claude-code";
     return null;
 }
-/**
- * Returns the first valid routing mention in a message. Ordinary @mentions
- * and email addresses are ignored unless they use a supported engine alias.
- */
+
 export function findDelegatedModelMention(text) {
     const first = findDelegatedModelMentions(text)[0];
     return first
@@ -34,11 +28,7 @@ export function findDelegatedModelMention(text) {
         }
         : null;
 }
-/**
- * Finds every valid inline routing mention, including its source range for
- * transcript rendering. Punctuation around a mention is intentionally kept
- * outside the highlighted range.
- */
+
 export function findDelegatedModelMentions(text) {
     MODEL_MENTION_PATTERN.lastIndex = 0;
     const mentions = [];

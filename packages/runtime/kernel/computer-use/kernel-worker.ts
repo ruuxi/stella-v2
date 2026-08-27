@@ -13,11 +13,6 @@ import type {
   WorkerToNodeReplParentMessage,
 } from "./protocol.js";
 
-/**
- * Kept self-contained because the function body is stringified and started as
- * an eval worker. That makes the same entry work from Vitest source, compiled
- * Electron output, and bundled runtime chunks without a separate worker asset.
- */
 const nodeReplWorkerMain = async (
   installBrowserApi: typeof installBrowserWorkerApi,
   installConnectApi: typeof installConnectWorkerApi,
@@ -104,10 +99,6 @@ const nodeReplWorkerMain = async (
     });
   };
 
-  // Source filtering is only an early diagnostic because user code can build
-  // module names dynamically. Lock the worker-local builtin exports before the
-  // REPL starts so import(), createRequire(), Module._load, and vm code all see
-  // the same disabled process capabilities.
   const childProcessBuiltin = kernelRequire("node:child_process") as Record<
     string,
     unknown
@@ -407,9 +398,7 @@ const nodeReplWorkerMain = async (
         reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
-    // Keep a handled settlement promise for every nested call. The user-facing
-    // promise remains unchanged, while evaluation can wait for calls the cell
-    // started without awaiting and surface their failures deterministically.
+
     pendingToolSettlements.add(
       call.then<ToolCallSettlement, ToolCallSettlement>(
         () => ({ ok: true }),
@@ -434,12 +423,7 @@ const nodeReplWorkerMain = async (
       },
     });
   };
-  // Live tool surface. The kernel sends the current allowed tool names with
-  // every evaluate message, so tools added or removed mid-session appear
-  // without restarting the worker. `$search` is always installed: it runs
-  // host-side over the live catalog (kernel intercepts it before the
-  // allowlist gate). The literal "$search" must stay inline — this function
-  // is serialized with `toString()` into the worker source.
+
   const toolFunctions = new Map<
     string,
     (args?: Record<string, unknown>) => Promise<unknown>
@@ -495,13 +479,7 @@ const nodeReplWorkerMain = async (
         : typeof property === "string"
           ? toolFunctions.get(property)
           : undefined;
-  // The Proxy target stays EXTENSIBLE on purpose: JS Proxy invariants forbid
-  // a non-extensible target from reporting own keys it does not have, which
-  // would break dynamic key refresh. Immutability from REPL code is enforced
-  // by the refusing set/defineProperty/deleteProperty/preventExtensions
-  // traps instead (sloppy-mode assignments fail silently; strict-mode ones
-  // throw). Descriptors report configurable: true — required by the
-  // invariants for keys the target does not own.
+
   const tools = new Proxy(Object.create(null) as Record<string, unknown>, {
     get: (_target, property) => lookupTool(property),
     has: (_target, property) => lookupTool(property) !== undefined,
@@ -714,17 +692,13 @@ const nodeReplWorkerMain = async (
           Math.min(workerData.maxEvalOutputBytes, 65_536),
         );
         if (/(?:^|\n)Uncaught\b/.test(outputBuffer)) {
-          // Normal REPL errors are also rendered as `Uncaught ...`, then
-          // delivered through server.eval's callback. Give that callback a
-          // short grace period. Only an async/domain throw that abandons the
-          // callback is fatal to this worker.
+
           outputErrorTimer ??= setTimeout(() => {
             const reject = outputErrorReject;
             outputErrorTimer = undefined;
             if (!reject) return;
             outputErrorReject = undefined;
-            // The literal must stay inline: this function is serialized with
-            // `toString()` into the worker source.
+
             const renderedError = outputBuffer.trim();
             const uncaught = new Error(renderedError);
             if (
@@ -820,14 +794,7 @@ const nodeReplWorkerMain = async (
 
   const drainPendingToolCalls = async () => {
     let firstFailure: Error | undefined;
-    // Bounded settlement deadline. A nested call the cell started without
-    // awaiting can be wedged on a transport that never responds; waiting
-    // unboundedly would hold the whole node_repl tool call open until the
-    // parent's eval timeout kills the kernel (losing REPL state) — or
-    // forever if that rejection is itself blocked. Fail the evaluation with
-    // a diagnosis instead; the kernel stays alive and reusable. The literal
-    // fallback must stay inline: this function is serialized with
-    // `toString()` into the worker source.
+
     const drainWaitMs =
       Number.isFinite(workerData.maxToolDrainWaitMs) &&
       workerData.maxToolDrainWaitMs > 0
@@ -863,8 +830,7 @@ const nodeReplWorkerMain = async (
           timeoutError.name = "NodeReplDrainTimeoutError";
           throw timeoutError;
         }
-        // Every underlying call already settled (the deadline raced a
-        // microtask); collecting the batch now cannot block.
+
         settlements = await Promise.all(batch);
       }
       for (const settlement of batch) pendingToolSettlements.delete(settlement);

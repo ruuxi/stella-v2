@@ -10,33 +10,22 @@ import {
 export type { StellaCharacterShape, StellaCharacterState };
 
 export interface StellaCharacterProps {
-  /** Rendered square size in px. */
+
   size: number;
   state?: StellaCharacterState;
   shape?: StellaCharacterShape;
-  /** Ink ramp: "aurora" (the shipping WorkingStar ramp) or "vivid" (logo ramp). */
+
   ink?: "aurora" | "vivid";
-  /**
-   * Eye cutout colour. Defaults to `var(--stella-mark-bg)` with a dark
-   * fallback inside the rig; set it to the surface the mark sits on.
-   */
+
   eyeColor?: string;
   glow?: boolean;
   paused?: boolean;
   className?: string;
   style?: React.CSSProperties;
-  /** Imperative access (sparkle bursts, gaze) without re-rendering. */
+
   handleRef?: React.RefObject<StellaMarkHandle | null>;
 }
 
-/**
- * React binding for the vanilla-JS character rig in `rig.js`.
- *
- * The rig renders its SVG once and animates by writing attributes from a
- * single rAF loop, so this wrapper deliberately keeps React out of the frame
- * path: mount creates the rig, prop changes call the imperative setters, and
- * unmount destroys it. Only `size`/`ink`/`glow` changes force a rebuild.
- */
 export function StellaCharacter({
   size,
   state = "idle",
@@ -72,9 +61,7 @@ export function StellaCharacter({
       if (handleRef) handleRef.current = null;
       mark.destroy();
     };
-    // Structural options require a rebuild; state/shape/paused go through
-    // the imperative setters below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [size, ink, glow, eyeColor]);
 
   useEffect(() => {

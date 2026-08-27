@@ -171,26 +171,11 @@ export const getMediaBillingAdmissionIssue = (args: {
 }): string | null => {
   switch (args.endpointId) {
     default:
-      // Seed Audio (the only audio generator) is metered from the output
-      // duration at webhook time, so nothing is required up front.
+
       return null;
   }
 };
 
-/**
- * Estimate the per-image price for OpenAI's GPT Image 2 family on fal.
- *
- * fal publishes a band ($0.01 low @ 1024×768 → $0.41 high @ 4K) but no
- * per-resolution price table. We approximate with quality-tier × megapixels,
- * calibrated to the documented endpoints of the band:
- *   - low @ 1024×768  (~0.79 MP): 0.012 × 0.79 ≈ $0.01  ✓
- *   - high @ 1024×1024 (~1.05 MP): 0.18 × 1.05 ≈ $0.19  (close to OpenAI parent)
- *   - high @ 3840×2160 (~8.29 MP): 0.18 × 8.29 ≈ $1.49 → clamped to $0.41 below
- *
- * If fal exposes a real per-canonical-size table later, swap this function
- * for an explicit lookup. The note attached to the record marks the rate as
- * an estimate so audit trails stay honest.
- */
 const GPT_IMAGE_2_MIN_PRICE_USD = 0.01;
 const GPT_IMAGE_2_MAX_PRICE_USD = 0.41;
 
@@ -199,10 +184,8 @@ const estimateGptImage2PricePerImage = (
 ): { unitPriceUsd: number; megapixels: number; quality: string } => {
   const input = getInput(request);
   const quality = (getInputString(request, "quality") ?? "high").toLowerCase();
-  const perMp = quality === "low" ? 0.012 : quality === "medium" ? 0.045 : 0.18; // "high" is the documented default
+  const perMp = quality === "low" ? 0.012 : quality === "medium" ? 0.045 : 0.18;
 
-  // Default `landscape_4_3` ≈ 1024×768 (0.79 MP). Without an explicit size,
-  // round up slightly so we don't undercharge.
   let megapixels = 0.85;
   const imageSize = input.image_size;
   if (isRecord(imageSize)) {

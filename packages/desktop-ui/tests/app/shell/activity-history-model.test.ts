@@ -49,10 +49,6 @@ describe("completed activity hierarchy", () => {
     expect(items).toEqual([]);
   });
 
-  // Label-based grouping is gone; ownership is the only nesting edge. Rows
-  // that share a former group label are now independent, so the needle
-  // filters them one by one instead of matching a whole group through a
-  // single member.
   it("filters unowned rows individually", () => {
     const items = buildCompletedActivityList(
       [

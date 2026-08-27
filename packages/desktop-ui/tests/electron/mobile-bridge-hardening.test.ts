@@ -134,7 +134,7 @@ describe("staged upload attachment resolution", () => {
       { url: "data:image/jpeg;base64,aGVsbG8=", mimeType: "image/jpeg" },
       { url: "data:image/png;base64,aW5saW5l", mimeType: "image/png" },
     ]);
-    // Not consumed on use — a deduped startChat retry must still resolve.
+
     expect(anyService.uploads.has("upload-1")).toBe(true);
   });
 
@@ -198,8 +198,7 @@ describe("cron mutation lane narrowing", () => {
   });
 
   it("rejects an over-broad patch instead of stripping it", () => {
-    // The dangerous rewrite: repointing an existing job at an arbitrary
-    // persistent agent prompt. Must fail loudly at the bridge boundary.
+
     expect(() =>
       guardMobileBridgeInvokeArgs("schedule:updateCronJob", [
         {

@@ -1,9 +1,3 @@
-/**
- * @license
- * Copyright 2025 Google LLC
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { google, Auth } from "googleapis";
 import {
   deleteConnectorAccessTokens,
@@ -27,14 +21,6 @@ const stellaAppDirFromProjectRoot = () => {
   return projectRoot.slice(0, -suffix.length);
 };
 
-/**
- * Small auth adapter for the existing Google Workspace service classes.
- *
- * The old implementation had its own plaintext token file, cloud-function
- * exchange, and browser opener. Native integrations now own OAuth:
- * tokens live in connector protected storage and browser launch is brokered
- * by the shared connector dialog before this class is ever asked for a client.
- */
 export class AuthManager {
   private client: Auth.OAuth2Client | null = null;
   private readonly clientId = loadConfig().clientId;

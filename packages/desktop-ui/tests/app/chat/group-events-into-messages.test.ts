@@ -11,11 +11,7 @@ const event = (overrides: Partial<EventRecord>): EventRecord => ({
 
 describe("groupEventsIntoMessages", () => {
   it("attaches tools after a preamble to the preamble, not the post-tool answer", () => {
-    // Linear chat: orchestrator emits preamble → tool calls → post-tool
-    // answer. Tools belong to the preceding assistant (the preamble),
-    // so derived inline artifacts (Schedule receipt, image card, etc.)
-    // surface on the preamble bubble and the post-tool answer renders
-    // as its own row beneath them.
+
     const events: EventRecord[] = [
       event({ _id: "u1", type: "user_message", timestamp: 1 }),
       event({ _id: "a1-preamble", type: "assistant_message", timestamp: 2 }),
@@ -77,16 +73,12 @@ describe("groupEventsIntoMessages", () => {
     expect(messages.map((m) => m._id)).toEqual(["u1", "a1", "u2"]);
     expect(messages[0]!.toolEvents).toEqual([]);
     expect(messages[1]!.toolEvents.map((e) => e._id)).toEqual(["t1", "t2", "ac1"]);
-    // No assistant in turn 2 — tool falls back to u2 anchor (lossless).
+
     expect(messages[2]!.toolEvents.map((e) => e._id)).toEqual(["t3"]);
   });
 
   it("attaches pre-reply tools to the assistant when one fires later in the turn", () => {
-    // Regression: orchestrator emits the tool BEFORE its reply text
-    // (common for `image_gen`, `html`, `Schedule`). Inline artifact
-    // derivation runs on assistant rows — without turn-anchor grouping
-    // these tools would land on the user_message and the assistant row
-    // would render with no artifact card.
+
     const events: EventRecord[] = [
       event({ _id: "u1", type: "user_message", timestamp: 1 }),
       event({
@@ -187,12 +179,7 @@ describe("groupEventsIntoMessages", () => {
   });
 
   it("keeps every agent lifecycle event (incl. agent-progress) as a turn decoration", () => {
-    // Since 18894a8b7 (mobile task lifecycle sync) the full lifecycle set —
-    // agent-started/progress/completed/failed/canceled — rides along as turn
-    // decorations so downstream task-state consumers see terminal/progress
-    // signals in the message window. Pre-assistant decorations flush onto
-    // the first assistant here; the renderer's `routeLifecycleEvents` pass
-    // then re-anchors lifecycle events chronologically for display.
+
     const events: EventRecord[] = [
       event({ _id: "u1", type: "user_message", timestamp: 1 }),
       event({
@@ -226,8 +213,7 @@ describe("groupEventsIntoMessages", () => {
       }),
     ];
     const messages = groupEventsIntoMessages(events);
-    // No assistant message this turn — the start event falls back to the
-    // user_message anchor so the background-work card still renders.
+
     expect(messages.map((m) => m._id)).toEqual(["u1"]);
     expect(messages[0]!.toolEvents.map((e) => e._id)).toEqual(["as1"]);
   });

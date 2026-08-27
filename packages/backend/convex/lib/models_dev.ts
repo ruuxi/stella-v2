@@ -61,20 +61,13 @@ const MODELS_DEV_ALIASES: Record<string, string[]> = {
     "vercel/anthropic/claude-opus-4.5",
     "anthropic/claude-opus-4-5",
   ],
-  // Stella routes xAI as `x-ai`, while models.dev's first-party provider
-  // namespace is `xai` (and Vercel nests the same id under its provider).
+
   "x-ai/grok-4.5": ["xai/grok-4.5", "vercel/xai/grok-4.5"],
 };
 
-// Some managed slugs identify the model vendor rather than the serving
-// provider. Prefer the serving provider's row so billing matches what Stella
-// actually pays instead of the vendor's first-party rate.
 const MODELS_DEV_PREFERRED_ALIASES: Record<string, string[]> = {
   "google/gemini-3.7-flash": ["openrouter/google/gemini-3.7-flash"],
-  // The Muse Spark contributor tier is served through OpenRouter, so its
-  // models.dev row (once published) will live under the openrouter provider
-  // namespace keyed by the full vendor/model slug — not Meta's first-party
-  // namespace. Prefer it so billing matches what Stella actually pays.
+
   "meta/muse-spark-1.2-contributor": [
     "openrouter/meta/muse-spark-1.2-contributor",
   ],
@@ -84,16 +77,10 @@ const stripSnapshotSuffix = (model: string): string | null => {
   const withoutIsoDate = model.replace(/-\d{4}-\d{2}-\d{2}$/u, "");
   if (withoutIsoDate !== model) return withoutIsoDate;
 
-  // Some providers publish MMDD snapshots (for example DeepSeek V4 Flash
-  // 0731) while keeping pricing on the undated family id.
   const withoutMonthDay = model.replace(/-\d{4}$/u, "");
   return withoutMonthDay !== model ? withoutMonthDay : null;
 };
 
-/**
- * Ordered model ids that may share a billing price. Exact ids always win;
- * dated provider snapshots can fall back to the corresponding family price.
- */
 export const listManagedModelPriceLookupCandidates = (
   model: string,
 ): string[] => {
@@ -132,9 +119,6 @@ const resolveModelsDevModel = (
       ...(MODELS_DEV_ALIASES[lookupModel] ?? []),
     );
 
-    // models.dev uses provider "fireworks-ai" with full IDs (e.g.
-    // accounts/fireworks/routers/…) as keys; a naive split on the first "/"
-    // looks under data.accounts instead.
     if (lookupModel.startsWith("accounts/fireworks/")) {
       candidates.push(`fireworks-ai/${lookupModel}`);
     }
@@ -194,16 +178,6 @@ const sanitizeModalityList = (modalities?: string[]): string[] => {
   return sanitized.length > 0 ? sanitized : ["text"];
 };
 
-/**
- * Static prices for managed models not yet (or never) present on models.dev.
- * Used as a fill-in when the models.dev sync would otherwise fail the whole
- * catalog, and as the authoritative price for Muse Spark until Meta lands on
- * models.dev with matching rates.
- *
- * Prices are USD per 1M tokens. Muse Spark 1.2: $1.25 input / $4.25 output
- * (Meta Model API customer pricing carried forward from the Muse Spark 1.1
- * public preview announcement).
- */
 export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
   string,
   {
@@ -218,13 +192,7 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     modalitiesOutput?: string[];
   }
 > = {
-  // OpenRouter's Muse Spark 1.2 Contributor (not yet on models.dev). Rates
-  // verified against OpenRouter's live /api/v1/models catalog: the
-  // contributor tier is far cheaper than the first-party muse-spark-1.2
-  // family row below — $0.10 input / $0.20 output / $0.002 cache-read per 1M
-  // tokens, reasoning billed at the output rate. OpenRouter also documents
-  // full multimodal input (text, image, video, file, audio). models.dev wins
-  // once it lists the model.
+
   "meta/muse-spark-1.2-contributor": {
     sourceProvider: "openrouter",
     sourceModelId: "muse-spark-1.2-contributor",
@@ -235,9 +203,7 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     modalitiesInput: ["text", "image", "video", "file", "audio"],
     modalitiesOutput: ["text"],
   },
-  // CrofAI's /v1/models rates for DeepSeek V4 Flash 0731. The relay prefers
-  // Crof's exact per-request `usage.cost`; these cover preflight reservations
-  // and responses that omit exact cost.
+
   "crof/deepseek-v4-flash-0731": {
     sourceProvider: "crof",
     sourceModelId: "deepseek-v4-flash-0731",
@@ -249,10 +215,7 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     modalitiesInput: ["text"],
     modalitiesOutput: ["text"],
   },
-  // Wafer's own /v1/models lists live rates for the Fast variant; this static
-  // entry mirrors them ($0.28 in / $0.56 out / $0.07 cache-read per 1M,
-  // reasoning billed within completion tokens at the output rate). Wafer
-  // publishes no separate cache-write price. Text-only upstream.
+
   "wafer/deepseek-v4-flash-0731-fast": {
     sourceProvider: "wafer",
     sourceModelId: "deepseek-v4-flash-0731-fast",
@@ -268,13 +231,12 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     sourceModelId: "muse-spark-1.2",
     inputPerMillionUsd: 1.25,
     outputPerMillionUsd: 4.25,
-    // Reasoning is billed at the output rate when usage separates it.
+
     reasoningPerMillionUsd: 4.25,
     modalitiesInput: ["text", "image", "video", "pdf"],
     modalitiesOutput: ["text"],
   },
-  // OpenAI GPT-5.6 Sol (limited preview). OpenAI rates: $5 / $30 per 1M.
-  // Prefer models.dev once listed; static prevents incomplete sync + $0 billing.
+
   "openai/gpt-5.6-sol": {
     sourceProvider: "openai",
     sourceModelId: "gpt-5.6-sol",
@@ -286,8 +248,7 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     modalitiesInput: ["text", "image"],
     modalitiesOutput: ["text"],
   },
-  // OpenAI GPT-5.6 Luna launch rates: $1 / $6 per 1M tokens. GPT-5.6
-  // cached reads are 90% off and cache writes cost 1.25x uncached input.
+
   "openai/gpt-5.6-luna": {
     sourceProvider: "openai",
     sourceModelId: "gpt-5.6-luna",
@@ -299,11 +260,7 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     modalitiesInput: ["text", "image"],
     modalitiesOutput: ["text"],
   },
-  // DeepSeek V4 Flash first-party rates: $0.14 cache-miss input / $0.28
-  // output, cached reads at $0.0028. models.dev already publishes these under
-  // `deepseek/deepseek-v4-flash`; this is only a fill-in so a models.dev
-  // outage can't fail the sync and drop the catalog to DEFAULT_TOKEN_PRICE.
-  // DeepSeek charges nothing to write the cache.
+
   "deepseek/deepseek-v4-flash": {
     sourceProvider: "deepseek",
     sourceModelId: "deepseek-v4-flash",
@@ -315,9 +272,7 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     modalitiesInput: ["text"],
     modalitiesOutput: ["text"],
   },
-  // OpenRouter's Gemini 3.7 Flash rates. The preferred models.dev alias above
-  // normally supplies these; this keeps reservations and billing correct if
-  // the remote catalog is unavailable.
+
   "google/gemini-3.7-flash": {
     sourceProvider: "openrouter",
     sourceModelId: "google/gemini-3.7-flash",
@@ -329,8 +284,7 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     modalitiesInput: ["text", "image", "audio", "video", "pdf"],
     modalitiesOutput: ["text"],
   },
-  // Gemini 3.6 Flash GA rates: $1.50 / $7.50 per 1M tokens, with cached
-  // input at $0.15. Keep a static fill-in while models.dev catches up.
+
   "google/gemini-3.6-flash": {
     sourceProvider: "google",
     sourceModelId: "gemini-3.6-flash",
@@ -390,10 +344,7 @@ export const buildManagedModelPriceEntries = (args: {
       outputPerMillionUsd: toNumber(cost?.output),
       cacheReadPerMillionUsd: toNumber(cost?.cache_read),
       cacheWritePerMillionUsd: toNumber(cost?.cache_write),
-      // models.dev publishes `cost.reasoning` for only a handful of models.
-      // Storing the 0 that `toNumber` yields for the rest would bill every
-      // reasoning token at zero, so mirror the static-override branch above
-      // and fall back to the output rate.
+
       reasoningPerMillionUsd:
         toNumber(cost?.reasoning) || toNumber(cost?.output),
       modalitiesInput: sanitizeModalityList(resolved.entry.modalities?.input),

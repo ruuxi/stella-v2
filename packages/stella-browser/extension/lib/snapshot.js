@@ -1,19 +1,3 @@
-/**
- * DOM-based accessibility snapshot generator.
- * Ported from src/snapshot.ts to run as an injected content script.
- *
- * Generates an accessibility-tree-like text representation with refs
- * for interactive elements, matching the Playwright ariaSnapshot format.
- */
-
-/**
- * Execute snapshot directly in the page context.
- * This function is passed to chrome.scripting.executeScript as `func`,
- * avoiding new Function() / eval() which are blocked by CSP on many sites.
- *
- * @param {object} options
- * @returns {{ tree: string, refs: Record<string, object> }}
- */
 export function executeSnapshot(options) {
   const MAX_CHARS = 20_000;
   const MAX_ELEMENTS = 200;
@@ -163,7 +147,7 @@ export function executeSnapshot(options) {
   }
 
   function findComposedFirst(selector) {
-    // Validate even when there are no elements.
+
     document.querySelectorAll(selector);
     const seen = new Set();
     let match = null;
@@ -481,7 +465,6 @@ export function executeSnapshot(options) {
     return results;
   }
 
-  // --- Main ---
   const root = options.selector
     ? findComposedFirst(options.selector) || document.body
     : document.body;
@@ -489,7 +472,6 @@ export function executeSnapshot(options) {
   const lines = [];
   processNode(root, 0, lines);
 
-  // Post-process: remove nth=0 from non-duplicates
   const keyCounts = new Map();
   for (const data of Object.values(refs)) {
     const key = getRoleKey(data.role, data.name);
@@ -504,7 +486,6 @@ export function executeSnapshot(options) {
 
   let tree = lines.join("\n") || "(empty)";
 
-  // Cursor-interactive elements
   if (options.cursor) {
     const cursorEls = findCursorInteractive();
     const existingNames = new Set(

@@ -1,10 +1,5 @@
 export type DesktopSteerPumpOutcome = "drained" | "blocked" | "stopped";
 
-/**
- * Drain one durable mobile steer FIFO. The caller removes an item only from
- * `onAccepted`, so a failed head blocks overtaking and can fall back to a fresh
- * turn after the active root settles.
- */
 export const drainDesktopSteerAcceptanceQueue = async <TItem, TReceipt>(args: {
   peek: () => TItem | null;
   accept: (item: TItem) => Promise<TReceipt>;

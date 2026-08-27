@@ -12,9 +12,6 @@ import {
   wrappedDistance,
 } from "../stella-mark/motion";
 
-// The repo's `bun test` runner has no React Native renderer, so the indicator's
-// motion lives in a pure module and is verified here instead of by rendering.
-
 describe("morph envelope", () => {
   test("runs from rest to fully morphed and clamps outside the window", () => {
     expect(morphEnvelope(0)).toBe(0);
@@ -51,7 +48,7 @@ describe("wrapped distance", () => {
 describe("dot bounce wave", () => {
   test("each slot peaks once per cycle, a third of a cycle apart", () => {
     for (const slot of [0, 1, 2]) {
-      // Slot i peaks when the phase-shifted progress reaches i / 3.
+
       const peakMs =
         ((slot / 3 - DOT_PHASE_OFFSET + 1) % 1) * DOT_CYCLE_MS;
       expect(dotGaussian(slot, peakMs)).toBeCloseTo(1, 6);
@@ -62,8 +59,7 @@ describe("dot bounce wave", () => {
     const peakAt = (slot: number) =>
       ((slot / 3 - DOT_PHASE_OFFSET + 1) % 1) * DOT_CYCLE_MS;
     const third = DOT_CYCLE_MS / 3;
-    // Measured around the cycle: slot 0's peak is a third of a cycle before
-    // slot 1's, which is a third before slot 2's.
+
     const gap = (from: number, to: number) =>
       (peakAt(to) - peakAt(from) + DOT_CYCLE_MS) % DOT_CYCLE_MS;
     expect(gap(0, 1)).toBeCloseTo(third, 6);
@@ -94,7 +90,7 @@ describe("entrance", () => {
   test("dots cascade — a later slot starts after an earlier one", () => {
     expect(dotEntrance(0, DOT_ENTRANCE_STAGGER)).toBeGreaterThan(0);
     expect(dotEntrance(2, DOT_ENTRANCE_STAGGER)).toBe(0);
-    // Every slot is fully in by the time the morph settles.
+
     expect(dotEntrance(0, 1)).toBe(1);
     expect(dotEntrance(1, 1)).toBe(1);
     expect(dotEntrance(2, 1)).toBe(1);
@@ -106,7 +102,7 @@ describe("entrance", () => {
     expect(easeOutCubic(-1)).toBe(0);
     expect(easeOutBack(0)).toBeCloseTo(0, 10);
     expect(easeOutBack(1)).toBeCloseTo(1, 10);
-    // Ease-out-back overshoots past its target before settling.
+
     expect(easeOutBack(0.7)).toBeGreaterThan(1);
   });
 });

@@ -1,8 +1,3 @@
-/**
- * Right-clicking the main app surface toggles the workspace sidebar.
- * Composer inputs keep their native context menu.
- */
-
 import { useCallback, useRef, type ReactNode } from "react";
 
 type StellaContextMenuProps = {

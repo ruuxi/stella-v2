@@ -172,10 +172,7 @@ describe("bodyForUpstream", () => {
   });
 
   it("normalizes chat-shaped bodies for the OpenRouter Responses path", () => {
-    // OpenRouter now serves the Responses API end to end: a request that
-    // arrives at a `/responses` relay path must reach OpenRouter's
-    // /api/v1/responses in Responses shape (input/max_output_tokens/nested
-    // reasoning), not be flattened back to chat completions.
+
     const body = JSON.parse(
       bodyForUpstream(
         makeAuthorized("openrouter", {
@@ -213,8 +210,7 @@ describe("bodyForUpstream", () => {
     expect(body.response_format).toBeUndefined();
     expect(body.stream_options).toBeUndefined();
     expect(body.text).toEqual({ format: { type: "json_object" } });
-    // Reasoning is mandatory for the Muse default: none/off collapse to low.
-    // Nested `reasoning` only — no top-level `reasoning_effort`.
+
     expect(body.reasoning).toEqual({ effort: "low" });
     expect(body.reasoning_effort).toBeUndefined();
     expect(body.input).toEqual([
@@ -231,8 +227,7 @@ describe("bodyForUpstream", () => {
         ],
       },
     ]);
-    // Unverified for OpenRouter's stateful handling — the relayed body stays
-    // limited to the verified request shape.
+
     expect(body.store).toBeUndefined();
   });
 
@@ -417,8 +412,7 @@ describe("direct DeepSeek relay", () => {
     );
 
     expect(body.model).toBe("deepseek-v4-flash");
-    // DeepSeek's Responses API is stateless — claiming otherwise would make a
-    // `previous_response_id` continuation look supported when it isn't.
+
     expect(body.store).toBeUndefined();
     expect(body.prompt_cache_key).toBeUndefined();
     expect(body.prompt_cache_retention).toBeUndefined();
@@ -446,8 +440,7 @@ describe("direct DeepSeek relay", () => {
     expect(effortFor({ reasoning: { effort: "minimal" } }).reasoning).toEqual({
       effort: "low",
     });
-    // Older desktop builds still send "medium", which is not in DeepSeek's
-    // ladder.
+
     expect(effortFor({ reasoning: { effort: "medium" } }).reasoning).toEqual({
       effort: "high",
     });
@@ -457,9 +450,7 @@ describe("direct DeepSeek relay", () => {
     expect(effortFor({ reasoning: { effort: "off" } }).reasoning).toEqual({
       effort: "none",
     });
-    // Stella runs this model at max unless the caller asked for less, so an
-    // absent or unrecognized effort lands there rather than DeepSeek's own
-    // `high` default.
+
     expect(effortFor({ reasoning: { effort: "high" } }).reasoning).toEqual({
       effort: "max",
     });
@@ -488,8 +479,7 @@ describe("direct DeepSeek relay", () => {
   });
 
   it("converts a stale Responses body for the chat-completions path", () => {
-    // Desktop builds that predate the `deepseek/` prefix infer `openrouter`
-    // and post chat completions; the reverse can happen mid-rollout too.
+
     const body = JSON.parse(
       bodyForUpstream(
         makeAuthorized("deepseek", {
@@ -583,7 +573,6 @@ describe("Wafer DeepSeek relay", () => {
     expect(waferHeaders.get("Wafer-ZDR")).toBe("required");
     expect(waferHeaders.get("authorization")).toBe("Bearer wafer-key");
 
-    // The header is wafer-specific — other gateways must not receive it.
     const crofHeaders = cloneForwardHeaders(
       requestFor("/api/stella/crof/v1/chat/completions"),
       "crof",

@@ -1,9 +1,3 @@
-/**
- * @license
- * Copyright 2025 Google LLC
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { logToFile } from './logger.js';
 
 export class TimeService {
@@ -52,7 +46,7 @@ export class TimeService {
       const { now, timeZone } = this.getTimeContext();
       return {
         utc: now.toISOString().slice(0, 10),
-        local: now.toLocaleDateString('en-CA', { timeZone }), // YYYY-MM-DD format
+        local: now.toLocaleDateString('en-CA', { timeZone }),
         timeZone,
       };
     });
@@ -64,7 +58,7 @@ export class TimeService {
       const { now, timeZone } = this.getTimeContext();
       return {
         utc: now.toISOString().slice(11, 19),
-        local: now.toLocaleTimeString('en-GB', { hour12: false, timeZone }), // HH:MM:SS format
+        local: now.toLocaleTimeString('en-GB', { hour12: false, timeZone }),
         timeZone,
       };
     });

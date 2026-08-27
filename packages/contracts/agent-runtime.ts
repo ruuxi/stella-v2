@@ -17,45 +17,28 @@ type AgentModelSettings = {
   order: number;
 };
 
-/**
- * Declarative runtime behaviors for each agent. Unset flags default to false,
- * and steering defaults to "one-at-a-time".
- */
 export type AgentCapabilities = {
-  /** Steering queue mode for this agent's runs. Defaults to "one-at-a-time". */
+
   steeringMode?: "all" | "one-at-a-time";
-  /** Follow-up queue mode for this agent's runs. Defaults to "one-at-a-time". */
+
   followUpMode?: "all" | "one-at-a-time";
-  /**
-   * Load the user's selected personality preset into the agent context so it
-   * is injected as a hidden `~/.stella/PERSONALITY.md` startup doc on the
-   * first turn (then replayed from history), mirroring core memory.
-   */
+
   injectsPersonality?: boolean;
-  /**
-   * Load the user's core memory into the agent context so it is injected as a
-   * hidden `~/.stella/core-memory.md` startup doc on the first turn.
-   */
+
   injectsCoreMemory?: boolean;
-  /**
-   * Push-inject the live resident memory docs — the durable user profile
-   * (`~/.stella/memories/profile.md`, written by the Remember tool) and
-   * Dream's routing map (`~/.stella/memories/memory_map.md`) — as hidden
-   * startup docs, so durable facts are always in context without a Context
-   * lookup.
-   */
+
   injectsResidentMemory?: boolean;
-  /** Inject the dynamic memory bundle on the every-Nth-turn cadence. */
+
   injectsDynamicMemory?: boolean;
-  /** Inject runtime reminder hidden messages. */
+
   injectsRuntimeReminders?: boolean;
-  /** Inject the skill catalog block into the dynamic context. */
+
   injectsSkillCatalog?: boolean;
-  /** Queue a Dream-inbox thread-summary row on successful run completion. */
+
   recordsThreadSummary?: boolean;
-  /** Notify the Dream scheduler on successful run completion. */
+
   triggersDreamScheduler?: boolean;
-  /** Trigger the orchestrator memory-review pass on successful real user turns. */
+
   triggersMemoryReview?: boolean;
 };
 
@@ -66,13 +49,13 @@ type AgentDefinition = {
   activityLabel: string | null;
   bundledCore: boolean;
   runsAsSubagent: boolean;
-  /** When false, omitted from the orchestrator-visible agent roster (internal flows only). */
+
   includeInAgentRoster?: boolean;
   usesLocalCliRuntime: boolean;
   promptRole: AgentPromptRole;
   localCliWorkingDirectory: LocalCliWorkingDirectory | null;
   modelSettings: AgentModelSettings | null;
-  /** Optional capability bundle. Defaults to no capabilities. */
+
   capabilities?: AgentCapabilities;
 };
 
@@ -140,9 +123,7 @@ const BUILTIN_AGENT_DEFINITIONS = [
     },
     capabilities: {
       injectsSkillCatalog: true,
-      // Subagents queue Dream-inbox thread summaries for Dream to consume, but they
-      // do not trigger Dream — consolidation is driven by orchestrator context
-      // growth, so these rows are folded on the next orchestrator-driven run.
+
       recordsThreadSummary: true,
     },
   },
@@ -233,25 +214,11 @@ export const isOrchestratorReservedBuiltinAgentId = (
   agentId: string,
 ): boolean => ORCHESTRATOR_RESERVED_BUILTIN_AGENT_ID_SET.has(agentId);
 
-/**
- * Agent types that existed in earlier versions and no longer do, mapped to
- * what a persisted row of that type should read as now.
- *
- * Applied when loading `runtime_agents` rows, so a thread written by an older
- * install degrades into an ordinary thread rather than an unknown type: it
- * keeps its history, still appears in Activity (the feed admits only known
- * types), renders its subagents as a normal parent/child hierarchy, and runs
- * with a real toolset if the user resumes it. The stored value is left alone —
- * this is a read-time reinterpretation, not a migration that rewrites rows.
- */
 const RETIRED_AGENT_TYPE_REPLACEMENTS: Readonly<Record<string, AgentId>> =
   Object.freeze({
-    // Removed with the Manager agent; its threads were ordinary coordination
-    // threads whose children are plain General subagents.
+
     manager: AGENT_IDS.GENERAL,
-    // Removed with the scheduling rework: the orchestrator owns direct
-    // schedule tools now, so the plain-language schedule specialist is gone.
-    // Its threads were ordinary one-shot workers.
+
     schedule: AGENT_IDS.GENERAL,
   });
 
@@ -300,7 +267,6 @@ export const isLocalCliAgentId = (
 export const isOrchestratorAgentType = (agentType: string): boolean =>
   getAgentDefinition(agentType)?.promptRole === "orchestrator";
 
-/** Resolve declarative capabilities for an agent. */
 export const getAgentCapabilities = (agentType: string): AgentCapabilities =>
   getAgentDefinition(agentType)?.capabilities ?? {};
 
@@ -322,8 +288,6 @@ export const getAgentFollowUpMode = (
 ): "all" | "one-at-a-time" =>
   getAgentCapabilities(agentType).followUpMode ?? "one-at-a-time";
 
-// All IPC stream event types. RUN_FINISHED is the single terminal event for
-// a run; per-agent lifecycle is the AGENT_* family below.
 export const AGENT_STREAM_EVENT_TYPES = {
   RUN_STARTED: "run-started",
   RUN_FINISHED: "run-finished",
@@ -337,25 +301,13 @@ export const AGENT_STREAM_EVENT_TYPES = {
   AGENT_COMPLETED: "agent-completed",
   AGENT_FAILED: "agent-failed",
   AGENT_CANCELED: "agent-canceled",
-  /**
-   * Boundary between two consecutive assistant messages within a single
-   * orchestrator run (e.g. preamble → post-tool answer). Carries the
-   * persisted eventId of the message that just finalized so the renderer
-   * can reset its in-flight streaming buffer before chunks for the next
-   * message arrive on the same channel.
-   */
+
   ASSISTANT_MESSAGE: "assistant-message",
 } as const;
 
 export type AgentStreamEventType =
   (typeof AGENT_STREAM_EVENT_TYPES)[keyof typeof AGENT_STREAM_EVENT_TYPES];
 
-/**
- * Worker run-event recorder seqs are a per-run counter (1, 2, 3…). Hidden-run
- * mirrors and similar paths stamp `Date.now()`-scale synthetics, and a few
- * terminals use `Number.MAX_SAFE_INTEGER`. Anything at or above this ceiling
- * is not a recorder cursor and must not be fed to `resumeAfter`.
- */
 export const AGENT_RECORDER_SEQ_CEILING = 10_000_000_000;
 
 export const isAgentRecorderSeq = (seq: unknown): seq is number =>
@@ -376,8 +328,6 @@ export const nextAgentRecorderSeqCursor = (
   return candidate > previous ? candidate : previous;
 };
 
-// Per-agent lifecycle (subset of AGENT_STREAM_EVENT_TYPES). Tracks one
-// subagent task from spawn to terminal state.
 export const TASK_LIFECYCLE_EVENT_TYPES = [
   AGENT_STREAM_EVENT_TYPES.AGENT_STARTED,
   AGENT_STREAM_EVENT_TYPES.AGENT_PROGRESS,
@@ -413,20 +363,12 @@ export const isTaskLifecycleTerminalType = (
   type: string,
 ): type is TaskLifecycleTerminalType => TASK_LIFECYCLE_TERMINAL_SET.has(type);
 
-// Single status enum used by every layer that tracks a task's lifecycle
-// state: TaskItem (UI), ConversationTaskSnapshot (IPC resume), and the
-// runtime LocalAgentManager.
 export type TaskLifecycleStatus =
   | "running"
   | "completed"
   | "error"
   | "canceled";
 
-/**
- * Redacted task-scoped tool state used by the Activity summary engine.
- * Raw tool arguments must never be placed here: this shape crosses IPC and
- * is persisted in local chat lifecycle rows.
- */
 export type TaskToolActivity = {
   toolCallId: string;
   toolName: string;
@@ -463,8 +405,6 @@ export const shouldIgnoreTerminalTaskFeedEvent = (args: {
   );
 };
 
-// Outcome of a single run (RUN_FINISHED). Mirrors the terminal subset of
-// TaskLifecycleStatus.
 export const AGENT_RUN_FINISH_OUTCOMES = {
   COMPLETED: "completed",
   ERROR: "error",
@@ -473,8 +413,6 @@ export const AGENT_RUN_FINISH_OUTCOMES = {
 
 export type AgentRunFinishOutcome = TerminalTaskLifecycleStatus;
 
-// Internal runtime store event types (separate vocabulary because these
-// are persisted to RuntimeStore and the schema is independent from IPC).
 export const RUNTIME_RUN_EVENT_TYPES = {
   RUN_START: "run_start",
   STREAM: "stream",

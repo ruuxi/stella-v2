@@ -116,9 +116,6 @@ describe("runner Recall telemetry boundary", () => {
       }),
     ).resolves.toMatchObject({ status: "found", brief: "Found it." });
 
-    // Route resolution is deferred to the synthesis fallback inside runRecall,
-    // so the boundary no longer measures route time (two fewer clock reads) and
-    // never resolves the route eagerly — fast lookups take no model route.
     expect(clock).toHaveBeenCalledTimes(7);
     expect(boundaryMocks.resolveRunnerRecallLlmRoute).not.toHaveBeenCalled();
     expect(

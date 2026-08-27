@@ -88,9 +88,7 @@ describe("displayPayloadForStellaFile", () => {
 });
 
 describe("stella-file chat rendering round-trip", () => {
-  // Mirrors the exact Streamdown recipe in `Markdown.tsx`: default remark
-  // plugins + the stella-file rewriter, default rehype plugins (prop
-  // omitted so `allowedTags` engages), and the component mapping.
+
   const render = (markdown: string) =>
     renderToStaticMarkup(
       withI18n(
@@ -130,7 +128,7 @@ describe("stella-file chat rendering round-trip", () => {
     );
     expect(html).toContain("markdown-stella-file");
     expect(html).toContain(">demo.mp4</a>");
-    // The raw URI must not remain visible in the prose.
+
     expect(html).not.toContain("stella://file/");
   });
 

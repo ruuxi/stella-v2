@@ -1,28 +1,3 @@
-/**
- * @deprecated LEGACY PRE-TRANSITION COMPAT SHIM — do not add new callers.
- *
- * Historical role: the chat-events log was a second source of conversation
- * history. This projection folded `user_message` / `assistant_message` /
- * `tool_request` / `tool_result` events into orchestrator model context,
- * adding user timestamp tags.
- *
- * The durable runtime thread store is now the SINGLE model-context source:
- * typed turns persist through the run machinery, realtime-voice transcripts
- * persist via `runner.appendThreadMessage`, and connector prompts are
- * decorated + persisted per-turn (see
- * `agent-runtime/transcript-decoration.js`). The chat-events log remains a
- * display/sync log only.
- *
- * This module survives solely so conversations whose events PREDATE that
- * transition keep their history: `buildOrchestratorThreadHistory`
- * (`runner/context.ts`) calls it only for events older than the thread's
- * first durable entry (or when a conversation has events but no durable
- * entries at all, which can only be pre-transition data or the current
- * turn's own just-appended user message, which is filtered out upstream).
- * Once a conversation gains a compaction checkpoint the shim is skipped
- * entirely, so it retires organically per conversation. Delete this file
- * when the pre-transition branch in `buildOrchestratorThreadHistory` goes.
- */
 import {
   formatTimestampForHistory,
   THIRTY_MINUTES_MS,
@@ -32,9 +7,6 @@ import {
   type LocalContextEvent,
 } from "./storage/shared.js";
 
-// Internal sub-agent management tool names. Tool calls/results for these are
-// runtime coordination details; model-visible task updates are delivered as
-// hidden transcript messages instead of being reconstructed from UI events.
 const INTERNAL_TASK_TOOL_NAMES = new Set([
   "spawn_agent",
   "send_input",
@@ -290,11 +262,6 @@ const eventsToHistoryMessages = (
   return out;
 };
 
-/**
- * @deprecated Pre-transition compat only. Projects legacy chat events into
- * model-context messages for conversations whose history predates the
- * durable-store unification. See the module header.
- */
 export const buildLocalHistoryFromEvents = (args: {
   events: LocalContextEvent[];
   maxTokens?: number;

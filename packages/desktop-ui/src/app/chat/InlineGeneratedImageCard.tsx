@@ -177,7 +177,6 @@ const countLoadedStripTiles = (
   return loaded;
 };
 
-/** Renders every inline image for a turn in one row (strip or single card). */
 export const InlineGeneratedImageStrip = ({
   payloads,
   conversationId,

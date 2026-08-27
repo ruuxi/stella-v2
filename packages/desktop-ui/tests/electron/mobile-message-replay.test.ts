@@ -64,9 +64,7 @@ describe("mobile message replay acceptance", () => {
         type: "user_message",
       }),
     ).toBe(true);
-    // Acceptance is global to the canonical primary key, not the desktop's
-    // currently-active conversation. A replay after the user changes desktop
-    // conversations must not upsert/move the accepted row into the new one.
+
     expect(
       reopened.hasEventId({ eventId: sendId, type: "user_message" }),
     ).toBe(true);

@@ -9,12 +9,6 @@ import { z } from "zod";
 
 export const BRIDGE_CRYPTO_PROTOCOL = "x25519-hkdf-sha256-aes-256-gcm-v1";
 
-/**
- * Optional bridge features negotiated above the base protocol. The phone
- * advertises its own set in the `X-Stella-Bridge-Features` header; the desktop
- * advertises its set in the `mobile:hello` response. Every feature is additive
- * — either peer missing one simply keeps the legacy path.
- */
 export const BRIDGE_FEATURE_HELLO = "hello-v1";
 export const BRIDGE_FEATURE_DEFLATE = "envelope-deflate";
 export const BRIDGE_FEATURE_BINARY_FILE = "binary-file-lane";
@@ -23,12 +17,6 @@ export const BRIDGE_FEATURE_LOCAL_CHAT_PUSH = "localchat-push";
 export const BRIDGE_FEATURE_COMPACT_THREAD_ACTIVITY =
   "compact-thread-activity-v1";
 
-/**
- * JSON envelopes are control-plane/chat data, never file bodies. Keep
- * decompression bounded so an authenticated-but-corrupt peer cannot turn a
- * small deflate frame into an unbounded main-process allocation. Binary files
- * continue to use the separately bounded binary lane.
- */
 export const MAX_BRIDGE_ENVELOPE_PLAINTEXT_BYTES = 16 * 1024 * 1024;
 
 export type BridgeCryptoDirection = "m2d" | "d2m";
@@ -40,7 +28,7 @@ export type BridgeEncryptedEnvelope = {
   seq: number;
   iv: string;
   ct: string;
-  /** 1 = plaintext was raw-deflated before encryption (feature-gated). */
+
   z?: 1;
 };
 
@@ -155,16 +143,8 @@ export const isBridgeEncryptedEnvelope = (
 ): value is BridgeEncryptedEnvelope =>
   bridgeEncryptedEnvelopeSchema.safeParse(value).success;
 
-/**
- * Sliding-window replay guard for received envelope sequence numbers.
- *
- * Strict monotonic rejection would break legitimate traffic: concurrent HTTP
- * requests are encrypted in order but can complete/arrive out of order. The
- * standard fix (as in DTLS/IPsec) is a window — accept any unseen seq newer
- * than `maxSeen - windowSize`, reject duplicates and anything older.
- */
 export type BridgeReplayGuard = {
-  /** Throws on a replayed or too-old sequence number; records fresh ones. */
+
   check: (seq: number) => void;
 };
 
@@ -204,11 +184,7 @@ export const encryptBridgePayload = (
   direction: BridgeCryptoDirection,
   payload: unknown,
   options?: {
-    /**
-     * Deflate the JSON plaintext before encryption. Only pass true when the
-     * peer advertised BRIDGE_FEATURE_DEFLATE — an old peer would decrypt to
-     * binary garbage. Skipped automatically when it doesn't shrink.
-     */
+
     compress?: boolean;
   },
 ): BridgeEncryptedEnvelope => {
@@ -254,7 +230,7 @@ export const decryptBridgePayload = (
     base64UrlToBytes(envelope.iv),
     envelopeAad(session.sessionId, direction, envelope.seq),
   ).decrypt(base64UrlToBytes(envelope.ct));
-  // Only trust the compression flag after authenticated decryption succeeded.
+
   replayGuard?.check(envelope.seq);
   const json =
     envelope.z === 1
@@ -266,14 +242,6 @@ export const decryptBridgePayload = (
       : plaintext;
   return JSON.parse(new TextDecoder().decode(json)) as unknown;
 };
-
-// ── Binary lane ─────────────────────────────────────────────────────────
-// Raw file bytes are encrypted directly (no JSON, no base64) and shipped as
-// an HTTP body with the seq/iv riding headers. AAD binds the same protocol
-// string, session, direction and seq as JSON envelopes, plus a `bin` marker
-// so a binary ciphertext can never be replayed into the JSON lane or vice
-// versa. Deliberately NOT compressed: the payloads are images/PDFs/media that
-// are already entropy-coded.
 
 const binaryAad = (
   sessionId: string,
@@ -288,9 +256,9 @@ const binaryAad = (
 
 export type BridgeBinaryFrame = {
   seq: number;
-  /** base64url, 12 bytes. */
+
   iv: string;
-  /** Raw ciphertext (plaintext length + 16-byte GCM tag). */
+
   ciphertext: Uint8Array;
 };
 

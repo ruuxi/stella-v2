@@ -153,19 +153,15 @@ describe("DesktopUpdater", () => {
 
     expect(updater.restartAndInstall()).toEqual({ accepted: true });
     await new Promise((resolve) => setImmediate(resolve));
-    // Silent so Windows never shows the native NSIS installer window; the
-    // install gap is invisible and force-run relaunches Stella when it
-    // finishes.
+
     expect(client.quitAndInstall).toHaveBeenCalledWith(true, true);
-    // The restart is visible while the app tears itself down, so a window
-    // rebuilt mid-quit never re-offers "Restart to update".
+
     expect(updater.getState()).toMatchObject({
       status: "restarting",
       downloadedVersion: "1.0.1",
     });
     expect(states).toContain("restarting");
 
-    // Clicking again mid-restart must not stack another native quit.
     expect(updater.restartAndInstall()).toEqual({ accepted: true });
     await new Promise((resolve) => setImmediate(resolve));
     expect(client.quitAndInstall).toHaveBeenCalledTimes(1);

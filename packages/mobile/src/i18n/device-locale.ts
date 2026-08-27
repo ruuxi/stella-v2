@@ -1,22 +1,3 @@
-/**
- * Device locale discovery, without adding a dependency.
- *
- * `expo-localization` is NOT in this app's package.json, and the only thing
- * we need from it is the ordered list of the user's preferred language tags.
- * React Native already exposes that:
- *
- *   - `Intl.DateTimeFormat().resolvedOptions().locale` — Hermes ships Intl on
- *     both platforms and resolves against the OS locale.
- *   - iOS: `SettingsManager.settings.AppleLanguages` (ordered preference
- *     list) / `AppleLocale`.
- *   - Android: `I18nManager.getConstants().localeIdentifier`
- *     (e.g. `pt_BR`, which `matchSupportedLocale` handles — it splits on
- *     `-` and `_`).
- *
- * Every source is best-effort; whatever we collect is handed to
- * `matchSupportedLocale`, which is the same matcher the desktop uses.
- */
-
 import { I18nManager, NativeModules, Platform } from "react-native";
 
 const fromIntl = (): string[] => {
@@ -68,11 +49,6 @@ const fromAndroid = (): string[] => {
   }
 };
 
-/**
- * The device's preferred language tags, most-preferred first. Raw BCP-47 /
- * POSIX-ish tags — resolution to a supported Stella locale is the caller's
- * job (`resolveBestLocale`).
- */
 export const deviceLanguageTags = (): string[] => [
   ...fromIos(),
   ...fromAndroid(),

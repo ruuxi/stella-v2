@@ -62,7 +62,7 @@ describe("recent models", () => {
       excludeIds: new Set<string>(),
       isKnownModelId: (id) => id === "stella/x",
     });
-    // The pinned current stays (disabled); stale non-current recents drop.
+
     expect(rows).toEqual([
       { id: "openrouter/disconnected", unavailable: true },
       { id: "stella/x" },
@@ -80,8 +80,7 @@ describe("recent models", () => {
   });
 
   it("recognizes BYOK and local ids against the full merged catalog", () => {
-    // The id set must be built from allModels (merged catalog) — a
-    // Stella-only set would prune valid BYOK/local picks (regression).
+
     const mergedCatalog = new Set([
       "stella/designer",
       "openrouter/qwen-3-coder",
@@ -92,21 +91,15 @@ describe("recent models", () => {
     expect(isKnown("openrouter/qwen-3-coder")).toBe(true);
     expect(isKnown("anthropic/claude-opus-4-5")).toBe(true);
     expect(isKnown("local/http%3A%2F%2Flocalhost%3A1234/qwen2.5")).toBe(true);
-    // OpenRouter's namespace is open-ended: the custom-model input accepts
-    // arbitrary `vendor/model` slugs (stealth models never appear in the
-    // baked/pi.dev catalog), so an unlisted OpenRouter id must stay valid —
-    // the gateway is the authority and a bogus id fails loudly upstream.
+
     expect(isKnown("openrouter/stealth/ox-alpha")).toBe(true);
     expect(isKnown("openrouter/removed-model")).toBe(true);
-    // Direct vendor namespaces stay catalog-validated: their id formats are
-    // quirk-specific and encoded precisely in the registry.
+
     expect(isKnown("anthropic/removed-model")).toBe(false);
 
-    // Engine aliases resolve at run time; valid regardless of catalog.
     expect(isKnown("claude-code/opus")).toBe(true);
     expect(isKnown("codex-cli/gpt-5.5")).toBe(true);
 
-    // Empty set = catalog not loaded: validation suspended.
     const unloaded = createKnownModelIdPredicate(new Set());
     expect(unloaded("openrouter/anything")).toBe(true);
   });
@@ -128,8 +121,7 @@ describe("recent models", () => {
   });
 
   it("never prunes a custom open-ended gateway slug from recents", () => {
-    // A stealth model typed into the OpenRouter custom input is a valid
-    // pick even though no catalog will ever list it.
+
     recordRecentModel("openrouter/stealth/ox-alpha");
     const isKnown = createKnownModelIdPredicate(
       new Set(["openrouter/qwen-3-coder"]),

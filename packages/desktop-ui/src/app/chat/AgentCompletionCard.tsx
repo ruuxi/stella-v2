@@ -1,22 +1,3 @@
-/**
- * Inline "agent completed" treatment for a spawn-anchored background card.
- *
- * When the matching lifecycle occurrence completes, the original
- * `BackgroundWorkCard` slot switches to this settled presentation. It never
- * creates a second completion-time row.
- *
- * Design — deliberately minimal, matching the running row:
- *   - No card chrome, no provider icons, no completion excerpt. The task
- *     DESCRIPTION alone on one quiet line: a grey (uncolored) checkmark in
- *     the leading slot, a trailing chevron opening the agent's thread.
- *   - Produced files return as a strip of PILL-shaped chips directly under
- *     the row — no card surface around them. Same behavior as the old card:
- *     at most `PILL_CAP` pills, then an animated "+N more" expand/collapse;
- *     the pill body opens the file (`openDisplayPayloadTab`) and the "+"
- *     affordance opens the shared `OpenWithMenu`.
- *   - Several agents completing at the same point stack as sibling
- *     row+pills groups, never merged into one flat line.
- */
 import { useCallback, useLayoutEffect, useState } from "react";
 import { notifyChatContentGrowth } from "@/shell/chat-scroll-follow";
 import { Check, ChevronDown, ChevronRight } from "@/ui/icons";
@@ -37,7 +18,6 @@ import { OpenWithMenu } from "./OpenWithMenu";
 import { useT, useTPlural } from "@/shared/i18n";
 import "./agent-activity-row.css";
 
-/** Pills shown before the "+N more" control kicks in. */
 const PILL_CAP = 5;
 
 const FilePill = ({ entry }: { entry: ConversationFileEntry }) => {
@@ -70,9 +50,6 @@ const FilePill = ({ entry }: { entry: ConversationFileEntry }) => {
   );
 };
 
-/** The chip strip under a completed row — old card's cap + "+N more"
- *  expand/collapse (grid-rows 0fr -> 1fr, no JS measurement), minus the
- *  card chrome. */
 const FilePills = ({ files }: { files: ConversationFileEntry[] }) => {
   const t = useT();
   const tPlural = useTPlural();
@@ -92,8 +69,7 @@ const FilePills = ({ files }: { files: ConversationFileEntry[] }) => {
         ))}
       </div>
       {capped ? (
-        // `inert` while collapsed keeps the hidden pills out of the tab
-        // order and away from screen readers.
+
         <div
           className="agent-activity-files__overflow"
           data-expanded={expanded ? "true" : undefined}
@@ -144,14 +120,11 @@ export function AgentCompletionCard({
   sections: AgentCompletionSection[];
   cardId?: string;
   conversationId: string;
-  /** Accepted for call-site compatibility; the minimal rows no longer
-   *  surface provider icons. */
+
   modelConfigByThread?: AgentModelConfigsByThread;
 }) {
   const t = useT();
-  // The completion row usually replaces the running spawn row after the run
-  // has settled — no stream text notify fires, so tell the scroll surfaces
-  // about the growth ourselves. See `notifyChatContentGrowth`.
+
   useLayoutEffect(() => {
     notifyChatContentGrowth();
   }, []);
@@ -166,8 +139,6 @@ export function AgentCompletionCard({
     [conversationId],
   );
 
-  // Every completion renders — a fileless agent still finished its task, so
-  // the row must not depend on produced files (files only enrich it).
   const visible = sections;
   if (visible.length === 0) return null;
   const startEventIds = visible

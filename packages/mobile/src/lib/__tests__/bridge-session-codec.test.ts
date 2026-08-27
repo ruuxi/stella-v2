@@ -90,8 +90,7 @@ describe("persisted bridge session codec", () => {
   test("restored tx seq jumps past anything the old process could have sent", () => {
     expect(restoredTxSeq(17)).toBe(17 + BRIDGE_SESSION_TX_SEQ_RESTORE_SLACK);
     expect(restoredTxSeq(-5)).toBe(BRIDGE_SESSION_TX_SEQ_RESTORE_SLACK);
-    // Restore-after-restore keeps climbing (each restore re-persists its
-    // bumped counter, so slack stacks instead of colliding).
+
     expect(restoredTxSeq(restoredTxSeq(17))).toBe(
       17 + 2 * BRIDGE_SESSION_TX_SEQ_RESTORE_SLACK,
     );

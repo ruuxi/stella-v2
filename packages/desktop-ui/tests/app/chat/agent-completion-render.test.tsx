@@ -1,19 +1,3 @@
-// @vitest-environment jsdom
-/**
- * Rendered-output contract for the settled agent activity row.
- *
- * The completion presentation is a minimal, chrome-less row: an UNCOLORED
- * grey checkmark in the leading slot, the task description, a trailing
- * chevron — and, when the agent produced files, a strip of pill-shaped
- * chips directly under the row (cap + "+N more", no card surface). These
- * tests pin that shape:
- *   - the truncated completion excerpt must NOT render in the chat stream;
- *   - the done tell is the muted check, not a colored badge;
- *   - no provider icons on the rows, whatever engine ran the thread;
- *   - file pills render under the row, cap at PILL_CAP with "+N more"
- *     overflow, and open the file payload on click;
- *   - replay diagnostics identity data attributes stay intact.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -110,7 +94,7 @@ describe("AgentCompletionCard minimal row rendering", () => {
     expect(container.textContent).not.toContain("Outcome: done.");
     expect(container.querySelector(".agent-completion-card")).toBeNull();
     expect(container.querySelector(".markdown")).toBeNull();
-    // The produced file surfaces as a pill chip under the row, not a card.
+
     const pills = container.querySelector(
       ".agent-activity-group__item .agent-activity-row + .agent-activity-files",
     );
@@ -125,7 +109,7 @@ describe("AgentCompletionCard minimal row rendering", () => {
       fileEntry(`/tmp/file-${index + 1}.md`),
     );
     await renderCard({ sections: [{ ...filelessSection("Done."), files }] });
-    // Five visible pills + two behind the animated overflow region.
+
     const visiblePills = container.querySelectorAll(
       ".agent-activity-files__pills:not(.agent-activity-files__pills--overflow) .agent-activity-files__pill",
     );

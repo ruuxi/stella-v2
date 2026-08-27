@@ -10,12 +10,6 @@ const safeProcessCwd = (): string | undefined => {
   }
 };
 
-/**
- * Resolve an implicit tool cwd. Explicit user-supplied workdirs stay untouched
- * so invalid paths produce an actionable spawn diagnostic; inherited runtime
- * fallbacks must be real directories and otherwise collapse to the user's
- * home instead of poisoning every child-process launch.
- */
 export const resolveToolFallbackCwd = (
   preferredCwd?: string | null,
 ): string => {
@@ -25,7 +19,7 @@ export const resolveToolFallbackCwd = (
       const resolved = path.resolve(candidate);
       if (statSync(resolved).isDirectory()) return resolved;
     } catch {
-      // Missing paths and packaged app.asar files are invalid cwd fallbacks.
+
     }
   }
   return os.homedir();

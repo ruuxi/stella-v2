@@ -19,7 +19,6 @@ type ThemePhaseProps = {
   onThemePreviewLeave: () => void;
 };
 
-/** User-friendly display labels for option values */
 const DISPLAY_LABELS: Record<string, string> = {
   light: "Light",
   dark: "Dark",
@@ -67,7 +66,6 @@ const renderThemeOptionRow = <T extends string>(
   );
 };
 
-/** Pearl / Noir ignore gradient controls — flat surface, strong color. */
 const applyForcedThemePreferences = (
   forcedMode: "light" | "dark",
   onSelectColorMode: (mode: "light" | "dark" | "system") => void,
@@ -98,28 +96,19 @@ export function OnboardingThemePhase({
   const [showGradientStyle, setShowGradientStyle] = useState(false);
   const [showGradientColor, setShowGradientColor] = useState(false);
   const [hasSelectedGradientColor, setHasSelectedGradientColor] = useState(false);
-  // Swatches carry no text, so the caption under the grid is the only place
-  // the theme's name appears. It follows the cursor and falls back to the
-  // current selection.
+
   const [hoveredThemeId, setHoveredThemeId] = useState<string | null>(null);
 
-  // Swatches render each theme in the appearance it would actually resolve to,
-  // so they need the mode the toggle resolves "system" into, not the raw value.
   const { resolvedColorMode } = useTheme();
 
   const selectedTheme = useMemo(() => getThemeById(themeId), [themeId]);
-  // Overlay themes (Custom) inherit their forced appearance from the base.
+
   const forcedMode = useMemo(() => {
     if (!selectedTheme) return undefined;
     if (selectedTheme.forcedMode) return selectedTheme.forcedMode;
     return selectedTheme.base ? getThemeById(selectedTheme.base)?.forcedMode : undefined;
   }, [selectedTheme]);
 
-  // rAF-coalesce theme preview hover. `previewTheme(id)` writes CSS
-  // variables on `:root` and triggers a full-tree style recalc; sweeping
-  // the cursor across the pill row would otherwise fire one such
-  // recalc per `mouseenter` (potentially several per frame). We commit
-  // only the latest hovered theme on the next animation frame.
   const previewFrameRef = useRef<number | null>(null);
   const pendingPreviewIdRef = useRef<string | null>(null);
   const handleThemePreviewEnter = useCallback(
@@ -166,10 +155,7 @@ export function OnboardingThemePhase({
         );
         return;
       }
-      // Regular themes: only ensure Appearance is visible on the very
-      // first pick. Switching themes (including Pearl/Noir → anything
-      // else) never collapses the sub-rows — only pill disabled states
-      // change via `forcedMode`.
+
       setShowAppearance(true);
     },
     [
@@ -220,9 +206,6 @@ export function OnboardingThemePhase({
   const gradientStyleDisabled = forcedMode ? (["soft"] as const) : [];
   const gradientColorDisabled = forcedMode ? (["relative"] as const) : [];
 
-  // Pearl / Noir are single-surface themes — no sub-rows to reveal.
-  // Regular themes use click-to-reveal: Theme → Appearance → Gradient
-  // Style → Gradient Color.
   const canContinue =
     forcedMode
       ? true

@@ -425,9 +425,7 @@ describe("InAppBrowserService", () => {
 
   it("seeds on a plain getState once the extension is present (connect-race fix)", async () => {
     const harness = createHarness(async () => true);
-    // No explicit connect(): a state poll alone must drive the seed when the
-    // extension is available, so an extension that woke after the first
-    // automatic-connect window is still picked up on the next poll.
+
     await harness.service.getState();
     await vi.waitFor(() => expect(harness.exportAllCookies).toHaveBeenCalled());
     expect((await harness.service.getState()).connection).toBe("connected");
@@ -458,7 +456,7 @@ describe("InAppBrowserService", () => {
     await harness.service.connect();
     expect(harness.exportAllCookies).toHaveBeenCalledTimes(1);
     const seedsAfterConnect = harness.cookieSet.mock.calls.length;
-    // createTab's loadURL emits did-navigate, which triggers a throttled reseed.
+
     await harness.service.createTab({ url: "https://example.com" });
     await vi.waitFor(() =>
       expect(harness.exportAllCookies.mock.calls.length).toBeGreaterThan(1),
@@ -476,12 +474,12 @@ describe("InAppBrowserService", () => {
       });
       await harness.service.connect();
       expect(harness.exportAllCookies).toHaveBeenCalledTimes(1);
-      // The one-shot latch is gone: the mirror refreshes every interval.
+
       await vi.advanceTimersByTimeAsync(5_000);
       expect(harness.exportAllCookies).toHaveBeenCalledTimes(2);
       await vi.advanceTimersByTimeAsync(5_000);
       expect(harness.exportAllCookies).toHaveBeenCalledTimes(3);
-      // dispose() must tear the mirror down: no further passes.
+
       harness.service.dispose();
       await vi.advanceTimersByTimeAsync(20_000);
       expect(harness.exportAllCookies).toHaveBeenCalledTimes(3);
@@ -531,7 +529,7 @@ describe("InAppBrowserService", () => {
         value: "fresh",
       }),
     );
-    // A pushed set must NOT trigger a full re-export; it applies directly.
+
     expect(harness.exportAllCookies).toHaveBeenCalledOnce();
   });
 

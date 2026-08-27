@@ -144,11 +144,7 @@ describe("task lifecycle deduping", () => {
   });
 
   it("suppresses the follow-up turn when the orchestrator pauses a task itself", () => {
-    // The orchestrator already knows it just paused the task (the pause_agent
-    // tool call returned `canceled: true`). Surfacing a hidden
-    // `[Task canceled]` follow-up triggers a second assistant turn that
-    // typically responds silently and ends up overwriting the user-facing
-    // reply, which is the bug this guards against.
+
     const pausedPrompt = buildAgentEventPrompt({
       type: "agent-canceled",
       conversationId: "conversation-1",

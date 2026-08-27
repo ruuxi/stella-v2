@@ -1,5 +1,3 @@
-/** Audio encoding utilities for OpenAI Realtime transcription sessions. */
-
 export const resampleLinear = (
   samples: Float32Array,
   sourceRate: number,

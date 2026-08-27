@@ -1,28 +1,9 @@
-/**
- * Music Library Discovery
- *
- * Extracts music taste signals from local music libraries:
- *
- * Windows:
- *   - iTunes: Parses "iTunes Music Library.xml" (XML plist with tracks, artists, genres, play counts)
- *
- * macOS:
- *   - Apple Music: Queries "Music Library.musiclibrary" SQLite database
- *   - iTunes (legacy): Falls back to XML if Apple Music DB not found
- *
- * Extracts: top genres, top artists, total track count — no file paths or personal playlists.
- */
-
 import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
 import { pathToFileURL } from "node:url";
 
 const log = (...args: unknown[]) => console.error("[music-library]", ...args);
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export type MusicArtist = {
   name: string;
@@ -40,10 +21,6 @@ export type MusicLibrarySignals = {
   topArtists: MusicArtist[];
   topGenres: MusicGenre[];
 };
-
-// ---------------------------------------------------------------------------
-// iTunes XML Parser (Windows + macOS legacy)
-// ---------------------------------------------------------------------------
 
 const ITUNES_XML_PATHS_WIN = (): string[] => {
   const home = os.homedir();
@@ -71,17 +48,11 @@ const findItunesXml = async (): Promise<string | null> => {
     try {
       await fs.access(p);
       return p;
-    } catch { /* try next */ }
+    } catch {  }
   }
   return null;
 };
 
-/**
- * Lightweight XML plist track parser.
- * iTunes XML is a plist with a <dict> of track entries.
- * Each track has key-value pairs for Name, Artist, Genre, Play Count, etc.
- * We parse just the track dicts without a full XML parser.
- */
 const parseItunesXml = async (xmlPath: string): Promise<MusicLibrarySignals> => {
   const content = await fs.readFile(xmlPath, "utf-8");
 
@@ -89,24 +60,17 @@ const parseItunesXml = async (xmlPath: string): Promise<MusicLibrarySignals> => 
   const genreCounts = new Map<string, number>();
   let totalTracks = 0;
 
-  // Find the Tracks dict section
   const tracksIdx = content.indexOf("<key>Tracks</key>");
   if (tracksIdx === -1) {
     return { source: "itunes", totalTracks: 0, topArtists: [], topGenres: [] };
   }
 
-  // Match individual track entries: <key>ID</key><dict>...</dict>
-  // We iterate through key-value pairs within each track dict
-  // Start after the Tracks key
   const tracksSection = content.substring(tracksIdx);
 
-  // Simpler approach: find all Artist and Genre values with their Play Count
-  // Each track dict has sequential key-value pairs
   const trackPattern = /<key>Track ID<\/key>/g;
   let match;
   let prevIdx = 0;
 
-  // Split by Track ID to get individual track blocks
   const trackBlocks: string[] = [];
   while ((match = trackPattern.exec(tracksSection)) !== null) {
     if (prevIdx > 0) {
@@ -115,13 +79,13 @@ const parseItunesXml = async (xmlPath: string): Promise<MusicLibrarySignals> => 
     prevIdx = match.index;
   }
   if (prevIdx > 0) {
-    // Add the last block (up to the closing dict of Tracks)
+
     const endIdx = tracksSection.indexOf("</dict>", prevIdx + 1000);
     if (endIdx > 0) trackBlocks.push(tracksSection.substring(prevIdx, endIdx));
   }
 
   for (const block of trackBlocks) {
-    // Skip podcasts and audiobooks
+
     const podcastMatch = block.match(/<key>Podcast<\/key>\s*<true\/>/);
     if (podcastMatch) continue;
     const kindMatch = block.match(/<key>Kind<\/key>\s*<string>([^<]+)<\/string>/);
@@ -129,15 +93,12 @@ const parseItunesXml = async (xmlPath: string): Promise<MusicLibrarySignals> => 
 
     totalTracks++;
 
-    // Extract artist
     const artistMatch = block.match(/<key>Artist<\/key>\s*<string>([^<]+)<\/string>/);
     const artist = artistMatch?.[1];
 
-    // Extract genre
     const genreMatch = block.match(/<key>Genre<\/key>\s*<string>([^<]+)<\/string>/);
     const genre = genreMatch?.[1];
 
-    // Extract play count
     const playCountMatch = block.match(/<key>Play Count<\/key>\s*<integer>(\d+)<\/integer>/);
     const playCount = playCountMatch ? Number(playCountMatch[1]) : 0;
 
@@ -162,10 +123,6 @@ const parseItunesXml = async (xmlPath: string): Promise<MusicLibrarySignals> => 
   return { source: "itunes", totalTracks, topArtists, topGenres };
 };
 
-// ---------------------------------------------------------------------------
-// Apple Music SQLite (macOS modern)
-// ---------------------------------------------------------------------------
-
 type SqliteDatabase = {
   prepare(sql: string): { all(...params: unknown[]): unknown[] };
   close(): void;
@@ -184,7 +141,7 @@ const findAppleMusicDb = async (): Promise<string | null> => {
     try {
       await fs.access(p);
       return p;
-    } catch { /* try next */ }
+    } catch {  }
   }
   return null;
 };
@@ -207,17 +164,15 @@ const isSqliteDatabaseFile = async (dbPath: string): Promise<boolean> => {
 
 const collectFromAppleMusicDb = async (dbPath: string): Promise<MusicLibrarySignals> => {
   const { Database } = await import("bun:sqlite");
-  // Read the live DB directly via an immutable URI: skips locking and reads
-  // the main file without its WAL sidecars. Best-effort one-time snapshot.
+
   const uri = `${pathToFileURL(dbPath).href}?immutable=1`;
   const db = new Database(uri, { readonly: true }) as SqliteDatabase;
 
   try {
-    // Total tracks
+
     const countRow = db.prepare("SELECT COUNT(*) as c FROM ZTRACK WHERE ZISPODCAST = 0").all() as { c: number }[];
     const totalTracks = countRow[0]?.c ?? 0;
 
-    // Top artists by play count
     const artistRows = db.prepare(`
       SELECT ZARTIST as name, SUM(ZPLAYCOUNT) as play_count
       FROM ZTRACK
@@ -227,7 +182,6 @@ const collectFromAppleMusicDb = async (dbPath: string): Promise<MusicLibrarySign
       LIMIT 20
     `).all() as { name: string; play_count: number }[];
 
-    // Top genres by track count
     const genreRows = db.prepare(`
       SELECT ZGENRE as name, COUNT(*) as track_count
       FROM ZTRACK
@@ -248,12 +202,8 @@ const collectFromAppleMusicDb = async (dbPath: string): Promise<MusicLibrarySign
   }
 };
 
-// ---------------------------------------------------------------------------
-// Main Collection
-// ---------------------------------------------------------------------------
-
 export const collectMusicLibrary = async (): Promise<MusicLibrarySignals | null> => {
-  // macOS: Try Apple Music SQLite first, then iTunes XML
+
   if (process.platform === "darwin") {
     const appleMusicDb = await findAppleMusicDb();
     if (appleMusicDb) {
@@ -277,7 +227,6 @@ export const collectMusicLibrary = async (): Promise<MusicLibrarySignals | null>
     }
   }
 
-  // Windows + macOS fallback: Try iTunes XML
   const itunesXml = await findItunesXml();
   if (itunesXml) {
     log(`Found iTunes library at: ${itunesXml}`);
@@ -293,10 +242,6 @@ export const collectMusicLibrary = async (): Promise<MusicLibrarySignals | null>
   log("No music library found");
   return null;
 };
-
-// ---------------------------------------------------------------------------
-// Formatting
-// ---------------------------------------------------------------------------
 
 export const formatMusicLibraryForSynthesis = (signals: MusicLibrarySignals): string => {
   if (signals.totalTracks === 0) return "";

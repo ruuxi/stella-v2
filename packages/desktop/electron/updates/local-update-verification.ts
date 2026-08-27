@@ -109,10 +109,6 @@ export const runLocalUpdateVerificationFromArgs = async (
     feedValue,
   );
 
-  // Chromium's macOS os_crypt initialization can otherwise ask the login
-  // Keychain for an ad-hoc build's Safe Storage item. This verifier never
-  // exercises credential storage, so it uses Electron's in-memory test keychain
-  // and dedicated state paths before Electron becomes ready.
   app.setPath("userData", isolatedUserData);
   app.setPath("sessionData", path.join(isolatedUserData, "session-data"));
   app.setPath("logs", path.join(isolatedUserData, "logs"));

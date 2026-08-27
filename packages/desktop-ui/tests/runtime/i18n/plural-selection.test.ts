@@ -1,14 +1,3 @@
-/**
- * The parity test checks that plural entries are *shaped* correctly.
- * This one checks they are *selected* correctly — that `translatePlural`
- * picks the form a native speaker would expect for a given count, across
- * every shipped catalog.
- *
- * The invariant is asserted generically rather than against fixed copy,
- * so a translator revising wording doesn't break the test while a real
- * selection bug still does.
- */
-
 import { describe, expect, it } from "vitest";
 import { translatePlural } from "@/shared/i18n/catalogs";
 import { SUPPORTED_LOCALES, DEFAULT_LOCALE } from "@/shared/i18n/locales";
@@ -69,9 +58,6 @@ const lookup = (catalog: Record<string, unknown>, key: string): unknown =>
       catalog,
     );
 
-// Counts chosen to exercise every CLDR category across the shipped
-// languages: 1/2 (one, two), 3-4 (few in sl/ro/cs), 5/11/21/22/25
-// (few/many boundaries in ru, pl, ar), 0 and 100+ for the tails.
 const COUNTS = [0, 1, 2, 3, 4, 5, 11, 12, 21, 22, 25, 100, 101, 111];
 
 describe("plural form selection", () => {
@@ -91,8 +77,7 @@ describe("plural form selection", () => {
 
       for (const key of keys) {
         const node = lookup(catalog, key);
-        // Untranslated locales fall back to English; that path is
-        // covered by the fallback test below, not here.
+
         if (!isPluralNode(node)) continue;
 
         for (const count of COUNTS) {
@@ -119,7 +104,7 @@ describe("plural form selection", () => {
 
   it("falls back to English when a locale has not translated the key", () => {
     const key = keys[0]!;
-    // An empty catalog stands in for any locale missing the entry.
+
     const viaFallback = translatePlural({}, "ru", key, 5);
     expect(viaFallback).not.toBe(key);
     expect(viaFallback).toContain("5");
@@ -132,15 +117,14 @@ describe("plural form selection", () => {
       other: "{count} items",
     };
     const catalog = { t: { n: node } };
-    // English CLDR says 0 is "other"; the product override must win.
+
     expect(translatePlural(catalog, "en", "t.n", 0)).toBe("No items yet");
     expect(translatePlural(catalog, "en", "t.n", 1)).toBe("1 item");
     expect(translatePlural(catalog, "en", "t.n", 3)).toBe("3 items");
   });
 
   it("uses `other` when a language needs a category the catalog lacks", () => {
-    // Russian needs `few`/`many`; a catalog with only `other` must still
-    // render rather than leaking the raw key.
+
     const catalog = { t: { n: { other: "{count} шт." } } };
     expect(translatePlural(catalog, "ru", "t.n", 3)).toBe("3 шт.");
     expect(translatePlural(catalog, "ru", "t.n", 11)).toBe("11 шт.");

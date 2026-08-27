@@ -60,11 +60,6 @@ const model = (
   maxTokens: capacity.maxTokens,
 });
 
-// The first OpenRouter registry entry the runtime clones as a synthesis
-// template. Give it deliberately tiny capacity — mirroring the real
-// `ai21/jamba-large-1.7` (maxTokens 4096) that caused the silent-finish bug —
-// so the synthesis tests prove capacity is NEVER inherited from whatever
-// model happens to sort first, regardless of how small its numbers are.
 const OPENROUTER_TEMPLATE = model(
   "openrouter",
   "anthropic/claude-opus-4.6",
@@ -176,9 +171,7 @@ describe("resolveLlmRoute", () => {
   };
 
   it("fails loudly (no Stella fallback) when an explicit BYOK model has no key", async () => {
-    // The user explicitly picked an OpenAI model but saved no OpenAI key. We
-    // must NOT silently re-route through Stella's managed gateway — surface a
-    // clear error so the caller can toast and the user can switch models.
+
     const { resolveLlmRoute } = await import(
       "@stella/runtime/kernel/model-routing"
     );
@@ -338,8 +331,7 @@ describe("resolveLlmRoute", () => {
       const { resolveLlmRoute } = await import(
         "@stella/runtime/kernel/model-routing"
       );
-      // Origin-verified credentialless proxy: baseUrl present AND the route
-      // is explicitly constructed credentialless.
+
       const proxyRoute = resolveLlmRoute({
         stellaAppDir: "/tmp/stella",
         modelName: "moonshotai/config-moonshot",
@@ -348,9 +340,6 @@ describe("resolveLlmRoute", () => {
       });
       expect(proxyRoute.credentialless).toBe(true);
 
-      // A keyed direct-provider route with a baseUrl must NOT be treated as
-      // credentialless — the old heuristic inferred it from the baseUrl
-      // alone and let keyless requests reach providers that require keys.
       credentials.set("anthropic", "anthropic-key");
       const anthropicRoute = resolveLlmRoute({
         stellaAppDir: "/tmp/stella",
@@ -588,7 +577,7 @@ describe("resolveLlmRoute", () => {
 
     expect(resolved.route).toBe("stella");
     expect(resolved.model.id).toBe("stella/default");
-    // The OpenRouter-hosted Muse default rides the Responses API.
+
     expect(resolved.model.api).toBe("openai-responses");
     expect(resolved.model.provider).toBe("openrouter");
   });
@@ -806,10 +795,7 @@ describe("resolveLlmRoute", () => {
   });
 
   it("routes a mobile Codex engine reference (codex-cli/<model>) through the OpenAI-Codex provider", async () => {
-    // The mobile picker writes `codex-cli/<model>` into modelOverrides (the
-    // desktop picker writes `openai-codex/<model>`). A mobile-originated turn
-    // must resolve to the same desktop-local engine route, not fail as an
-    // unknown provider.
+
     oauthCredentials.add("openai-codex");
     const { resolveLlmRoute } = await import(
       "@stella/runtime/kernel/model-routing"
@@ -831,11 +817,7 @@ describe("resolveLlmRoute", () => {
   });
 
   it("routes a mobile Claude Code engine reference (claude-code/<model>) to the Stella prep route instead of failing", async () => {
-    // The mobile picker writes `claude-code/<model>` into modelOverrides while
-    // the desktop keeps a Stella conversation route. `claude-code` is a
-    // desktop-local engine, not a cloud provider, so the prep/orchestrator
-    // route must fall back to Stella (the engine executes the actual turn)
-    // rather than throwing `unsupported-provider`.
+
     const { resolveLlmRoute } = await import(
       "@stella/runtime/kernel/model-routing"
     );
@@ -850,7 +832,6 @@ describe("resolveLlmRoute", () => {
     expect(resolved.route).toBe("stella");
     expect(resolved.model.id).toBe("stella/default");
   });
-
 
   it("honors multiple authed providers — each model id picks its own credential", async () => {
     credentials.set("anthropic", "anthropic-key");
@@ -879,9 +860,7 @@ describe("resolveLlmRoute", () => {
   });
 
   it("never silently substitutes another provider; it fails loudly", async () => {
-    // User has only an OpenRouter key but explicitly asks for `anthropic/...`.
-    // We must not remap through OpenRouter OR Stella — the selection fails
-    // loudly so the user can add an Anthropic key or switch models.
+
     credentials.set("openrouter", "openrouter-key");
     const { resolveLlmRoute } = await import(
       "@stella/runtime/kernel/model-routing"
@@ -933,9 +912,7 @@ describe("resolveLlmRoute", () => {
   });
 
   it("synthesizes a route for an unregistered id on a pass-through gateway", async () => {
-    // The dynamic provider catalog may show an OpenRouter id the runtime
-    // registry hasn't picked up yet. Rather than failing, we clone the
-    // OpenRouter template and let OpenRouter validate the id upstream.
+
     credentials.set("openrouter", "openrouter-key");
     const { resolveLlmRoute } = await import(
       "@stella/runtime/kernel/model-routing"
@@ -955,10 +932,7 @@ describe("resolveLlmRoute", () => {
   });
 
   it("accepts a custom stealth slug end-to-end: correct openrouter id + BYOK key", async () => {
-    // The picker's custom OpenRouter input stores `openrouter/<slug>` for a
-    // slug no catalog lists (stealth models). The resolver must honor it:
-    // provider = openrouter, upstream model id = the verbatim multi-segment
-    // slug, and the user's OpenRouter BYOK key attached.
+
     credentials.set("openrouter", "openrouter-key");
     const { resolveLlmRoute } = await import(
       "@stella/runtime/kernel/model-routing"
@@ -979,15 +953,7 @@ describe("resolveLlmRoute", () => {
   });
 
   it("uses self-contained capacity defaults, never the template's limits, when synthesizing", async () => {
-    // The cloned template (OPENROUTER_TEMPLATE) deliberately carries tiny
-    // capacity (maxTokens 4096, contextWindow 8000), mirroring the real
-    // ai21/jamba-large-1.7 that triggered the silent-finish bug. Synthesis
-    // must NOT inherit those numbers: buildBaseOptions turns model.maxTokens
-    // into a hard max_tokens cap per request, which a reasoning model can
-    // exhaust entirely on thinking (run truncates with no visible reply), and
-    // a small contextWindow makes compaction/overflow prune history early.
-    // The synthesized model must send no cap (maxTokens: 0) and carry a
-    // generous 200k context floor regardless of the template.
+
     credentials.set("openrouter", "openrouter-key");
     const { resolveLlmRoute } = await import(
       "@stella/runtime/kernel/model-routing"
@@ -1000,7 +966,6 @@ describe("resolveLlmRoute", () => {
       site,
     });
 
-    // Exact constants, not the template's 4096 / 8000.
     expect(resolved.model.maxTokens).toBe(0);
     expect(resolved.model.contextWindow).toBe(200_000);
     expect(resolved.model.maxTokens).not.toBe(OPENROUTER_TEMPLATE.maxTokens);
@@ -1010,15 +975,7 @@ describe("resolveLlmRoute", () => {
   });
 
   it("recovers a large-context gateway model's real window from the catalog, not the small floor", async () => {
-    // Regression: switching an existing conversation to a big-window model
-    // reached through a gateway (e.g. an OpenRouter Google Gemini at ~1M) must
-    // resolve that model's REAL context window. When the exact slug isn't in
-    // the gateway provider's registry slice it is synthesized from a template;
-    // pinning it to the conservative 200k floor made a conversation that
-    // comfortably fits the real model cross the compaction trigger (0.7 x
-    // window) and fail the fit check — spuriously compacting on a model that
-    // never needed it. The catalog aggregates every provider's models, so the
-    // real window is recovered by matching the model id across providers.
+
     credentials.set("openrouter", "openrouter-key");
     const { resolveLlmRoute } = await import(
       "@stella/runtime/kernel/model-routing"
@@ -1032,19 +989,12 @@ describe("resolveLlmRoute", () => {
     });
 
     expect(resolved.model.provider).toBe("openrouter");
-    // The real Gemini flash window, not the 200k synthesis floor.
+
     expect(resolved.model.contextWindow).toBeGreaterThanOrEqual(1_000_000);
   });
 
-
   it("declares image input on synthesized gateway models, never the template's modalities", async () => {
-    // The template (like the real ai21/jamba-large-1.7) is text-only. If the
-    // synthesized clone inherited that, transformMessages would silently swap
-    // every user image for an "(image omitted: model does not support images)"
-    // placeholder — which is exactly how mobile photo attachments to a
-    // vision-capable OpenRouter model got dropped before the dynamic catalog
-    // finished loading. The gateway is the authority on modality: a
-    // truly text-only model rejects image blocks loudly upstream.
+
     expect(OPENROUTER_TEMPLATE.input).toEqual(["text"]);
     credentials.set("openrouter", "openrouter-key");
     const { resolveLlmRoute } = await import(
@@ -1077,8 +1027,7 @@ describe("resolveLlmRoute", () => {
   });
 
   it("fails loudly for an unknown model id on a non-gateway provider", async () => {
-    // Direct vendors are NOT synthesized — their id formats are quirk-specific,
-    // so an id missing from the static registry is a loud failure.
+
     credentials.set("anthropic", "anthropic-key");
     const { resolveLlmRoute } = await import(
       "@stella/runtime/kernel/model-routing"
@@ -1110,9 +1059,7 @@ describe("resolveLlmRoute", () => {
   });
 
   it("stays ready (canResolveLlmRoute) for an unhonorable pick when Stella is available", async () => {
-    // A bad BYOK pick must not block the composer: the orchestrator is still
-    // "ready" because a managed Stella route exists; the bad pick surfaces as a
-    // toast at run time instead.
+
     const { canResolveLlmRoute } = await import(
       "@stella/runtime/kernel/model-routing"
     );

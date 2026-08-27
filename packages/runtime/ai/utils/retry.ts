@@ -3,26 +3,18 @@ import { z } from "zod";
 const headerRecordSchema = z.record(z.string(), z.unknown());
 
 export interface RetryOptions {
-  /** Total attempts including the first try. Default: 10. */
+
   maxAttempts?: number;
-  /** Fixed delay for the first retry window. Default: 1000 ms. */
+
   baseDelayMs?: number;
-  /** Ceiling for non-header retry delays. Default: 16000 ms. */
+
   maxDelayMs?: number;
-  /**
-   * Total time budget for all retry sleeps combined. Once the accumulated
-   * sleep time would exceed this, the next failure surfaces immediately
-   * instead of waiting further. Default: 60000 ms.
-   */
+
   maxTotalDelayMs?: number;
   signal?: AbortSignal;
-  /** Return `true` for errors that should be retried. Falls back to `isRetryableConnectionError`. */
+
   isRetryable?: (error: unknown) => boolean;
-  /**
-   * Called right before each backoff sleep, with the upcoming retry's
-   * 1-based attempt number, the planned delay, and the failure reason.
-   * Use to surface a "trying again in X" status to the UI.
-   */
+
   onRetry?: (info: {
     attempt: number;
     delayMs: number;
@@ -73,7 +65,7 @@ export async function retryWithBackoff<T>(
             reason: error instanceof Error ? error.message : undefined,
           });
         } catch {
-          // Best-effort UI signal; never let a callback throw abort the retry.
+
         }
       }
       await retrySleep(delayMs, signal);
@@ -128,11 +120,6 @@ function readHeader(headers: unknown, name: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-/**
- * Parse a provider's requested backoff from a failing response. Exported so
- * provider adapters can stash it on the assistant message before the raw
- * error (and its headers) is flattened to a string.
- */
 export function readRetryAfterMs(error: unknown): number | undefined {
   const headers =
     (error as { headers?: unknown })?.headers ??
@@ -155,11 +142,6 @@ export function readRetryAfterMs(error: unknown): number | undefined {
   return undefined;
 }
 
-/**
- * Heuristic for connection / transient server errors that are safe to retry.
- * Works with OpenAI SDK error shapes (`error.status`, `error.code`) and
- * generic network errors.
- */
 export function isRetryableConnectionError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
 
@@ -200,12 +182,6 @@ export function isRetryableConnectionError(error: unknown): boolean {
   );
 }
 
-/**
- * Narrow transport-only classifier for reconnecting an in-flight stream.
- * Provider HTTP/status errors are intentionally excluded: auth, quota,
- * policy, payment, validation and explicit provider failures must surface
- * immediately rather than being mistaken for a broken socket.
- */
 export function isTransientTransportError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   if (error.name === "AbortError" || error.message === "Request was aborted") {

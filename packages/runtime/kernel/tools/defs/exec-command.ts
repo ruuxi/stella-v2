@@ -1,10 +1,3 @@
-/**
- * `exec_command` tool — shell execution for Stella agents, with opt-in PTY.
- *
- * Returns immediate output, or a `session_id` when the process is still
- * running so the model can poll / interact via `write_stdin`.
- */
-
 import {
   maybeOfferBrowserExtensionConnect,
   type BrowserExtensionConnectRequester,
@@ -13,12 +6,7 @@ import { handleExecCommand, type ShellState } from "../shell.js";
 import type { ToolDefinition } from "../types.js";
 
 export type ExecCommandToolOptions = {
-  /**
-   * Desktop hop that renders the inline "connect the Stella browser
-   * extension" card in the chat and resolves when the user connects,
-   * declines, or the card times out. When omitted, extension-bridge
-   * failures surface as plain command output.
-   */
+
   requestBrowserExtensionConnect?: BrowserExtensionConnectRequester;
 };
 
@@ -81,9 +69,7 @@ export const createExecCommandTool = (
     const result = await run();
     const command = typeof args.cmd === "string" ? args.cmd : "";
     if (!command || !options.requestBrowserExtensionConnect) return result;
-    // stella-browser dead-ends on a missing Chrome extension. Offer the
-    // inline connect card and, once the user connects, re-run the exact
-    // command so the agent continues transparently.
+
     return await maybeOfferBrowserExtensionConnect({
       result,
       command,

@@ -48,12 +48,12 @@ describe("applyCatchUpSignal", () => {
     const s = start();
     const endAt = T0 + CATCH_UP_SHOW_DELAY_MS + 100;
     const ended = applyCatchUpSignal(s, false, endAt);
-    // Still inside the minimum-visible tail.
+
     const rejoinAt = endAt + 50;
     expect(isCatchUpIndicatorVisible(ended, rejoinAt)).toBe(true);
     const merged = applyCatchUpSignal(ended, true, rejoinAt);
     expect(merged).toEqual({ startedAt: T0, endedAt: null });
-    // No blink: visible continuously through the merge.
+
     expect(isCatchUpIndicatorVisible(merged, rejoinAt)).toBe(true);
   });
 
@@ -78,14 +78,14 @@ describe("isCatchUpIndicatorVisible", () => {
     expect(isCatchUpIndicatorVisible(s, T0 + CATCH_UP_SHOW_DELAY_MS)).toBe(
       true,
     );
-    // Long-running sync: stays visible indefinitely until it ends.
+
     expect(isCatchUpIndicatorVisible(s, T0 + 60_000)).toBe(true);
   });
 
   test("minimum visible time holds after a quick post-delay end", () => {
     const shownAt = T0 + CATCH_UP_SHOW_DELAY_MS;
     const s = applyCatchUpSignal(start(), false, shownAt + 50);
-    // Ended 50ms after showing — must stay up to the minimum.
+
     expect(isCatchUpIndicatorVisible(s, shownAt + 100)).toBe(true);
     expect(
       isCatchUpIndicatorVisible(s, shownAt + CATCH_UP_MIN_VISIBLE_MS - 1),
@@ -126,7 +126,7 @@ describe("nextCatchUpTransitionAt", () => {
     expect(nextCatchUpTransitionAt(s, shownAt + 60)).toBe(
       shownAt + CATCH_UP_MIN_VISIBLE_MS,
     );
-    // Past the hide instant, nothing is scheduled.
+
     expect(
       nextCatchUpTransitionAt(s, shownAt + CATCH_UP_MIN_VISIBLE_MS + 1),
     ).toBeNull();

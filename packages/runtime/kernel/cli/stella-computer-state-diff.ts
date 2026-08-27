@@ -75,13 +75,6 @@ const occurrenceTokens = (lines: readonly string[]) => {
   return tokens;
 };
 
-/**
- * Computes an ordered line delta. Repeated equal lines receive occurrence
- * tokens, then a longest-increasing-subsequence over previous positions finds
- * the lines that remained in order. Unlike a multiset delta, moving a subtree
- * is observable as remove+add and cannot silently reuse an element index in a
- * different structural position.
- */
 const orderedDelta = (left: readonly string[], right: readonly string[]) => {
   const leftTokens = occurrenceTokens(left);
   const rightTokens = occurrenceTokens(right);

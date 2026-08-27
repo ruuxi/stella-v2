@@ -1,22 +1,3 @@
-/**
- * Translates inbound `AgentStreamEvent`s into reducer actions + side
- * effects (toasts, per-slot overlay pushes, response target).
- *
- * The dedup/ordering refs and dispatch are passed in (see the options
- * type) so the hook can be composed with the rest of
- * `useLocalAgentStream` without duplicating the reducer's source of
- * truth. Per-thread task decoration writes go straight to the module
- * `task-decoration-store`, not through the reducer. The slot-management
- * callbacks (`beginStreamingRun`, `finalizeMessageBoundary`,
- * `finalizeRunOnFinish`) own the in-memory `streamingAssistants` overlay
- * array — see `useLocalAgentStream` for the lifecycle, and
- * `useConversationDisplayMessages` for the merge with persisted
- * SQLite-backed messages.
- *
- * Assistant TEXT never streams: there is no `type: "stream"` event to
- * handle. `assistant-message` is the sole text delivery and carries the
- * whole canonical message.
- */
 import { useCallback, type Dispatch, type MutableRefObject } from 'react'
 import { showToast } from '@/ui/toast'
 import {
@@ -68,16 +49,7 @@ type UseAgentEventHandlerOptions = {
   }
   streaming: {
     setPendingUserMessageId: Dispatch<React.SetStateAction<string | null>>
-    /**
-     * Hooks into the per-slot overlay lifecycle exposed by
-     * `useLocalAgentStream`. Each runtime stream event maps onto
-     * exactly one of these so the in-memory `streamingAssistants`
-     * array stays consistent with the runtime's view of the world:
-     *
-     *   - RUN_STARTED       → beginStreamingRun
-     *   - ASSISTANT_MESSAGE → finalizeMessageBoundary
-     *   - RUN_FINISHED      → finalizeRunOnFinish
-     */
+
     beginStreamingRun: (args: {
       runId: string
       userMessageId: string | null
@@ -115,12 +87,6 @@ type UseAgentEventHandlerOptions = {
 
 type AgentEventSource = 'live' | 'replay'
 
-/**
- * Main-process `agent:event` sequences are globally monotonic, including the
- * Date.now-scale values assigned by `createMonotonicSeqGenerator`. Live
- * delivery and an in-flight resume response can contain the same event, so all
- * positive sequences must participate in deduplication.
- */
 export const acceptConversationAgentEventSequence = (
   lastSeqByConversation: Map<string, number>,
   conversationId: string,
@@ -268,13 +234,7 @@ export function useAgentEventHandler({
             args.outcome === AGENT_RUN_FINISH_OUTCOMES.CANCELED &&
             isStellaLimitOrAuthReason(finishReason)
           ) {
-            // A run that *stops mid-flight* because the user ran out of free
-            // anonymous previews / hit a usage limit can surface as a cancel
-            // rather than an error. Without this the user is left staring at a
-            // halted agent with no explanation — the sign-in toast otherwise
-            // only appeared the next time they sent a message. Only toast when
-            // the reason actually names a limit/auth issue so ordinary
-            // user-initiated cancels stay silent.
+
             showToast(resolveStellaProviderErrorToast(finishReason))
           }
         }
@@ -284,20 +244,11 @@ export function useAgentEventHandler({
             args.outcome === AGENT_RUN_FINISH_OUTCOMES.ERROR ||
             args.outcome === AGENT_RUN_FINISH_OUTCOMES.CANCELED)
         ) {
-          // Drain every received character before locking the current slot.
-          // This applies to completion, error, and cancel alike: terminal
-          // transport state must never silently discard text the provider
-          // already delivered. If no persisted twin is written for a failed
-          // run, the partial live row remains available until conversation
-          // cleanup.
+
           finalizeRunOnFinish({ runId: event.runId })
           setPendingUserMessageId(null)
         }
-        // `selfModApplied` is patched onto the persisted assistant
-        // message payload by the worker (`attachSelfModToAssistantMessage`
-        // in runtime/worker/server.ts → onEnd). The renderer projects it
-        // off the chat row in `use-event-rows.ts`, so we no longer mirror
-        // it in renderer-local state.
+
       }
 
       switch (event.type) {
@@ -339,13 +290,7 @@ export function useAgentEventHandler({
           break
         }
         case AGENT_STREAM_EVENT_TYPES.ASSISTANT_MESSAGE: {
-          // The runtime finished one whole assistant message and handed over
-          // its canonical text (`assistantMessageText`) plus the persisted
-          // SQLite row id. This is the ONLY way assistant text reaches the
-          // renderer — there are no text deltas — so this case also carries
-          // the side effects the old per-delta STREAM case owned: reviving a
-          // run the renderer already marked terminal, and clearing the
-          // transient run status line.
+
           const isReactivation =
             !isPrimaryRun &&
             isOrchestratorEvent &&
@@ -373,11 +318,7 @@ export function useAgentEventHandler({
             runId: event.runId,
             statusText: null,
           })
-          // Lock the message into its overlay slot and advance the per-turn
-          // slot index so the next message in the run lands on a fresh slot.
-          // The overlay stays visible in the chat even after its persisted
-          // counterpart lands; the display merge masks the persisted twin and
-          // borrows its metadata.
+
           if ((isPrimaryRun || isOrchestratorEvent) && isActiveConversation) {
             finalizeMessageBoundary({
               runId: event.runId,
@@ -393,10 +334,7 @@ export function useAgentEventHandler({
                 : {}),
               ...(event.workingMode ? { workingMode: event.workingMode } : {}),
             })
-            // Preamble → tool-call handoff: a message that ends with a tool
-            // call is interim, so the working indicator has to come back up
-            // at the boundary and stay up across the gap until `tool-start`
-            // arrives.
+
             if (event.followedByToolCall) {
               dispatch({
                 type: 'assistant-message-boundary',
@@ -409,10 +347,7 @@ export function useAgentEventHandler({
         }
         case AGENT_STREAM_EVENT_TYPES.STATUS: {
           if (event.statusState === 'model-fallback') {
-            // The engine swapped the model out from under the user — either
-            // the stella engine's Fable 5 -> Opus 4.8 safety retry or Claude
-            // Code's --fallback-model overload switch. The configured model
-            // is not the one answering, so make the switch visible.
+
             if (conversationId === activeConversationIdRef.current) {
               showToast({
                 title: 'Switched to a fallback model',
@@ -464,13 +399,6 @@ export function useAgentEventHandler({
             })
           }
 
-          // Authoritative thread state (status, description, timestamps,
-          // result) rides the thread-activity rows pushed from the
-          // runtime's `runtime_agents` table. Stream events only maintain
-          // the ephemeral per-thread decoration — statusText ticks, tool
-          // activity, reasoning — keyed by the durable agentId, never by
-          // run. Terminal events clear the decoration; the row itself
-          // turns terminal via the authoritative push.
           if (
             event.type === AGENT_STREAM_EVENT_TYPES.AGENT_COMPLETED ||
             event.type === AGENT_STREAM_EVENT_TYPES.AGENT_FAILED ||
@@ -509,9 +437,7 @@ export function useAgentEventHandler({
           }
 
           if (event.type === AGENT_STREAM_EVENT_TYPES.AGENT_STARTED) {
-            // A fresh start (spawn or send_input re-activation) begins a
-            // clean decoration — stale reasoning/status from the previous
-            // attempt must not bleed into the new one.
+
             discardPendingReasoningChunks(event.agentId)
           }
 

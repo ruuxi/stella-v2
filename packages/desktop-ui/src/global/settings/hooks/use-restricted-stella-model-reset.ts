@@ -9,10 +9,6 @@ type LocalModelPreferences = {
 const isStellaOverride = (modelId: string | undefined): modelId is string =>
   typeof modelId === "string" && modelId.startsWith("stella/");
 
-/**
- * Clear retired Stella overrides for every audience so stale preferences
- * cannot keep routing through a model removed from the managed catalog.
- */
 export function useRestrictedStellaModelReset() {
   const { models, loading } = useModelCatalog();
   const resetKeyRef = useRef<string | null>(null);

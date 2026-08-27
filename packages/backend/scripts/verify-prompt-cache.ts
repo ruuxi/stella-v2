@@ -1,21 +1,9 @@
-/**
- * Hits each provider stream function twice with the same large prefix
- * to verify prompt caching is taking effect. Reads keys from this shell's
- * env; pre-export them via `bunx convex env get …` before running.
- *
- *   for k in ANTHROPIC_API_KEY OPENAI_API_KEY FIREWORKS_API_KEY DEEPSEEK_API_KEY GOOGLE_AI_API_KEY OPENROUTER_API_KEY; do
- *     export $k="$(cd backend && bunx convex env get $k 2>/dev/null)";
- *   done
- *   bun backend/scripts/verify-prompt-cache.ts
- */
 import { streamAnthropic } from "../convex/runtime_ai/anthropic";
 import { streamOpenAICompletions } from "../convex/runtime_ai/openai_completions";
 import { streamOpenAIResponses } from "../convex/runtime_ai/openai_responses";
 import { streamGoogle } from "../convex/runtime_ai/google";
 import type { Api, Context, Model } from "../convex/runtime_ai/types";
 
-// Padding gets us above the 1024-token caching threshold all four providers
-// share. Keep the prefix identical across both runs in a scenario.
 const filler = Array.from({ length: 200 }, (_, i) =>
   `Section ${i}: This is filler content used to push the system prompt above the 1024-token minimum required for prompt caching. Each section repeats roughly the same pattern so that across two requests the cacheable prefix is identical.`,
 ).join("\n");
@@ -100,7 +88,6 @@ async function runScenario(name: string, runner: StreamRunner) {
 async function main() {
   const results: Array<[string, boolean | null]> = [];
 
-  // 1. Anthropic direct
   if (process.env.ANTHROPIC_API_KEY) {
     const model = makeModel({
       api: "anthropic-messages",
@@ -121,7 +108,6 @@ async function main() {
     console.log("\n⚠️  ANTHROPIC_API_KEY not set — skipping Anthropic");
   }
 
-  // 2. OpenAI Responses
   if (process.env.OPENAI_API_KEY) {
     const model = makeModel({
       api: "openai-responses",
@@ -143,7 +129,6 @@ async function main() {
     console.log("\n⚠️  OPENAI_API_KEY not set — skipping OpenAI Responses");
   }
 
-  // 3. OpenAI Completions (chat.completions API)
   if (process.env.OPENAI_API_KEY) {
     const model = makeModel({
       api: "openai-completions",
@@ -162,7 +147,6 @@ async function main() {
     results.push(["openai / gpt-4o-mini (completions)", await runScenario("OpenAI Completions (prompt_cache_key)", runner)]);
   }
 
-  // 4. Fireworks via openai-completions
   if (process.env.FIREWORKS_API_KEY) {
     const model = makeModel({
       api: "openai-completions",
@@ -183,12 +167,11 @@ async function main() {
     console.log("\n⚠️  FIREWORKS_API_KEY not set — skipping Fireworks");
   }
 
-  // 5. DeepSeek direct via Responses (automatic prefix cache)
   if (process.env.DEEPSEEK_API_KEY) {
     const model = makeModel({
       api: "openai-responses",
       id: "deepseek-v4-flash",
-      // No `/v1` — DeepSeek serves /responses off the root.
+
       baseUrl: "https://api.deepseek.com",
       provider: "deepseek",
       reasoning: true,
@@ -203,15 +186,13 @@ async function main() {
     });
     results.push([
       "deepseek / deepseek-v4-flash (responses)",
-      // DeepSeek's cache is automatic and prefix-keyed from token 0 — there is
-      // no cache-control param, so this is purely a prefix-stability check.
+
       await runScenario("DeepSeek Responses (automatic prefix cache)", runner),
     ]);
   } else {
     console.log("\n⚠️  DEEPSEEK_API_KEY not set — skipping DeepSeek");
   }
 
-  // 6. OpenRouter Anthropic (cache_control passthrough)
   if (process.env.OPENROUTER_API_KEY) {
     const model = makeModel({
       api: "openai-completions",
@@ -232,7 +213,6 @@ async function main() {
     console.log("\n⚠️  OPENROUTER_API_KEY not set — skipping OpenRouter");
   }
 
-  // 7. Google Gemini (implicit caching)
   if (process.env.GOOGLE_AI_API_KEY) {
     const model = makeModel({
       api: "google-generative-ai",
@@ -240,7 +220,7 @@ async function main() {
       baseUrl: "https://generativelanguage.googleapis.com",
       provider: "google",
     });
-    // Implicit caching needs a much larger prefix on Gemini (2.5 Flash threshold ≈1024 tokens, Pro ≈4096).
+
     const bigFiller = Array.from({ length: 800 }, (_, i) =>
       `Section ${i}: Filler text to exceed Gemini's implicit cache threshold. `,
     ).join("\n");

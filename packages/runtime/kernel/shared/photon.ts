@@ -1,10 +1,3 @@
-/**
- * Lazy loader for @silvia-odwyer/photon-node (Rust/WASM image processing).
- * Ported from pi-mono's coding-agent photon wrapper, minus the compiled-
- * binary readFileSync patching — Stella's worker always runs from a tree
- * with node_modules present, so the package's own WASM lookup just works.
- */
-
 export type { PhotonImage as PhotonImageType } from "@silvia-odwyer/photon-node";
 
 type PhotonModule = typeof import("@silvia-odwyer/photon-node");

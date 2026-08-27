@@ -329,15 +329,11 @@ describe("subscribeRuntimeAgentEvents", () => {
     );
     expect(web.activeBeforeTool).toBe(true);
     expect(web.activeDuringTool).toBe(true);
-    // Gap after a fast tool returns: keep showing the thinking label rather
-    // than going blank until the next tool/answer.
+
     expect(web.activeAfterToolBeforeAnswer).toBe(true);
     expect(web.statusAfterToolEnd).toBeNull();
     expect(web.displayStatus).toBe("Searching");
 
-    // Recall is the orchestrator's longest wait (delegates to a recall
-    // agent); the indicator must read as memory-digging, not a generic
-    // thinking/working verb, and revert to normal labels once it returns.
     const recall = await runToolStatusIntegration("Recall");
     expect(recall.rawStatusText).toBe("Running Recall");
     expect(recall.rawToolStartStatusText).toBe("Running Recall");
@@ -350,8 +346,7 @@ describe("subscribeRuntimeAgentEvents", () => {
     expect(recall.activeAfterToolBeforeAnswer).toBe(true);
     expect(recall.statusAfterToolEnd).toBeNull();
     expect(recall.displayStatus).toBe("Searching my memory");
-    // Direct tool-name path: TOOL_START carries the runtime's PascalCase
-    // name, which must normalize onto the recall phrase pool.
+
     expect(
       getWorkingIndicatorDisplayStatus({ toolName: "Recall", toolCallId: "" }),
     ).toBe("Searching my memory");
@@ -419,11 +414,8 @@ describe("subscribeRuntimeAgentEvents", () => {
         ),
       });
 
-    // Pre-tool thinking: the orchestrator line is active.
     expect(activeFor(state)).toBe(true);
 
-    // A spawned sub-agent starts working — the orchestrator's own indicator
-    // stays up.
     state = streamStoreReducer(state, {
       type: "task-upsert",
       runId,
@@ -440,7 +432,6 @@ describe("subscribeRuntimeAgentEvents", () => {
     });
     expect(activeFor(state)).toBe(true);
 
-    // The sub-agent finishes — still thinking, still visible.
     state = streamStoreReducer(state, {
       type: "task-upsert",
       runId,
@@ -458,9 +449,6 @@ describe("subscribeRuntimeAgentEvents", () => {
     });
     expect(activeFor(state)).toBe(true);
 
-    // A whole assistant message landing does NOT dismiss the indicator: the
-    // run is still live (the model may keep working), so only the terminal
-    // run event takes it down.
     state = streamStoreReducer(state, {
       type: "assistant-message-boundary",
       runId,
@@ -487,14 +475,12 @@ describe("subscribeRuntimeAgentEvents", () => {
     });
     expect(state.runsById[runId]?.pendingToolAfterPreamble).toBe(false);
 
-    // A plain boundary (the run's final answer) records nothing.
     state = streamStoreReducer(state, {
       type: "assistant-message-boundary",
       runId,
     });
     expect(state.runsById[runId]?.pendingToolAfterPreamble).toBe(false);
 
-    // A preamble that ends with a tool call arms the marker.
     state = streamStoreReducer(state, {
       type: "assistant-message-boundary",
       runId,
@@ -502,7 +488,6 @@ describe("subscribeRuntimeAgentEvents", () => {
     });
     expect(state.runsById[runId]?.pendingToolAfterPreamble).toBe(true);
 
-    // It survives the tool starting (and any parallel tool),...
     state = streamStoreReducer(state, {
       type: "tool-start",
       runId,
@@ -519,7 +504,6 @@ describe("subscribeRuntimeAgentEvents", () => {
     });
     expect(state.runsById[runId]?.pendingToolAfterPreamble).toBe(true);
 
-    // ...and is only released once the whole tool phase is over.
     state = streamStoreReducer(state, {
       type: "tool-end",
       runId,
@@ -546,7 +530,6 @@ describe("subscribeRuntimeAgentEvents", () => {
       userMessageId: "user-1",
     });
 
-    // Start keyed by toolCallId, end carries only the toolName.
     state = streamStoreReducer(state, {
       type: "tool-start",
       runId,
@@ -564,7 +547,6 @@ describe("subscribeRuntimeAgentEvents", () => {
     });
     expect(state.runsById[runId]?.activeToolCalls).toEqual({});
 
-    // End carrying an unrelated id still closes the single in-flight tool.
     state = streamStoreReducer(state, {
       type: "tool-start",
       runId,
@@ -663,7 +645,6 @@ describe("subscribeRuntimeAgentEvents", () => {
     const preambleEvent = recorder.recordAssistantMessageEnd(preambleWithTool);
     expect(preambleEvent?.followedByToolCall).toBe(true);
 
-    // A plain text message (the run's final answer) carries no such flag.
     const finalAnswer = createTextMessage("All done.");
     const finalEvent = recorder.recordAssistantMessageEnd(finalAnswer);
     expect(finalEvent?.text).toBe("All done.");
@@ -688,17 +669,16 @@ describe("subscribeRuntimeAgentEvents", () => {
       expect.objectContaining({
         runId: "run-claude",
         agentType: "orchestrator",
-        // Text deltas no longer consume a recorder seq — the assistant
-        // message is the first (and only) event this recorder emitted.
+
         seq: 1,
         userMessageId: "user-1",
         text: "Hello from Claude Code.",
         responseTarget: { type: "user_turn" },
       }),
     );
-    // The delta only stamps the segment's first-text anchor.
+
     expect(typeof event?.firstTextAtMs).toBe("number");
-    // Chunks are never persisted as run_event rows.
+
     expect(store.recordRunEvent).not.toHaveBeenCalled();
   });
 
@@ -778,8 +758,7 @@ describe("subscribeRuntimeAgentEvents", () => {
   });
 
   it("routes provider thinking_delta to onReasoning and skips thinking_end", () => {
-    // Reasoning deltas feed the per-agent reasoning UI. Text deltas emit
-    // nothing at all now — assistant text ships whole on `message_end`.
+
     let listener: ((event: AgentEvent) => void) | undefined;
     const agent = {
       state: { messages: [] },
@@ -853,8 +832,7 @@ describe("subscribeRuntimeAgentEvents", () => {
     expect(onReasoning).not.toHaveBeenCalledWith(
       expect.objectContaining({ chunk: "" }),
     );
-    // Text deltas produce no wire event; they only feed the subagent
-    // Activity feed (`onProgress`) and the segment first-text anchor.
+
     expect(onProgress).toHaveBeenCalledTimes(1);
     expect(onProgress).toHaveBeenCalledWith("Done.");
     expect(store.recordRunEvent).not.toHaveBeenCalled();

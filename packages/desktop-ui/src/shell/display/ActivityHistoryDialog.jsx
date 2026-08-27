@@ -1,24 +1,3 @@
-/**
- * Full-list "See all" dialog opened from the chat home overview
- * (`ChatHomeOverview.tsx`). Three sections share the same dialog
- * (Completed / Up next / Recent files) with a search field at the top.
- *
- * Two performance properties matter here, both addressing the user's
- * "shouldn't load all up front" concern:
- *
- *   1. The list is virtualized with `@legendapp/list/react` so even if
- *      the derived dataset has hundreds of rows, only the visible window
- *      is mounted to the DOM.
- *
- *   2. The Completed section renders the conversation's task rows
- *      directly (bounded by thread count — no paging); the Recent files
- *      section grows the files window (`useConversationFiles` →
- *      `localChat:listFiles`) when the user reaches the end of the
- *      currently loaded list.
- *
- * Schedules are always fetched live as a small bounded list and don't
- * need pagination.
- */
 import { useMemo, useState } from "react";
 import { Search, X } from "@/ui/icons";
 import { LegendList, } from "@legendapp/list/react";

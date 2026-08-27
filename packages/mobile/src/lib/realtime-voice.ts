@@ -155,11 +155,6 @@ const waitForDataChannelOpen = (channel: DataChannel): Promise<void> =>
     channel.addEventListener("close", onClose);
   });
 
-/**
- * One foreground mobile Realtime session. It mirrors the desktop's managed
- * OpenAI path but deliberately keeps the lifecycle bounded to the full-screen
- * surface: closing the surface closes the microphone, peer, and backend lease.
- */
 export class MobileRealtimeVoiceSession {
   private readonly options: SessionOptions;
   private readonly requestId =
@@ -211,11 +206,6 @@ export class MobileRealtimeVoiceSession {
     this.options = options;
   }
 
-  /**
-   * Feed settled text-chat results back into the live voice conversation.
-   * This mirrors desktop local-chat sync so a Computer/Chat action can be
-   * announced aloud when it genuinely finishes.
-   */
   syncAssistantMessages(
     messages: ChatMessage[],
     tasks: readonly MobileTask[],
@@ -257,16 +247,12 @@ export class MobileRealtimeVoiceSession {
       if (this.audioLease === null) {
         throw new Error("Another microphone session replaced realtime voice.");
       }
-      // Keep the native module lazy so an older binary receiving the JS bundle
-      // can still launch and show a useful upgrade error instead of crashing
-      // when ChatPane is imported.
+
       const { mediaDevices, RTCPeerConnection } = await import(
         "react-native-webrtc"
       );
       this.localStream = await mediaDevices.getUserMedia({
-        // The native iOS/Android audio route applies its built-in voice
-        // processing; this package's constraint type does not expose the
-        // browser-only echo/noise/AGC keys.
+
         audio: true,
         video: false,
       });
@@ -393,10 +379,6 @@ export class MobileRealtimeVoiceSession {
       await waitForDataChannelOpen(channel);
       if (this.stopped) return;
 
-      // Normal mobile chat owns the turn lifecycle, so VAD commits and
-      // transcribes speech without letting Realtime answer independently.
-      // Computer voice instead receives the connected desktop's exact runtime
-      // tool catalog and follows the same direct-tool loop as desktop voice.
       const sessionUpdateEventId = `${this.requestId}:session-update`;
       const sessionUpdated = this.waitForSessionUpdated(sessionUpdateEventId);
       this.send(
@@ -410,9 +392,7 @@ export class MobileRealtimeVoiceSession {
       await sessionUpdated;
       if (this.stopped) return;
       track.enabled = true;
-      // WebRTC activates its own call-style iOS audio session after the first
-      // configuration above. Reassert Stella's assistant-style loudspeaker
-      // route after the peer and microphone are both live.
+
       await this.ensureLoudspeakerRoute();
       this.connectedAt = Date.now();
       this.publish({
@@ -540,8 +520,7 @@ export class MobileRealtimeVoiceSession {
         return;
       case "output_audio_buffer.started":
       case "output_audio.started":
-        // iOS can reapply WebRTC's receiver route when remote audio starts.
-        // Correct it at the exact playback boundary as well as during setup.
+
         void this.ensureLoudspeakerRoute();
         if (this.goodbyeTimer) clearTimeout(this.goodbyeTimer);
         this.goodbyeTimer = null;
@@ -645,10 +624,7 @@ export class MobileRealtimeVoiceSession {
           );
           return;
         }
-        // Realtime emits recoverable protocol errors too (for example, a
-        // response.create arriving while another response is finishing).
-        // The peer/data-channel lifecycle remains the authoritative signal for
-        // a lost session.
+
         console.debug(
           "[realtime-voice] Provider event:",
           realtimeErrorMessage(event),
@@ -672,7 +648,7 @@ export class MobileRealtimeVoiceSession {
         unknown
       >;
     } catch {
-      // An invalid argument payload falls back to the latest final transcript.
+
     }
 
     if (name === "no_response") {
@@ -885,8 +861,7 @@ export class MobileRealtimeVoiceSession {
     try {
       await refreshRecordingAudioSession(lease, REALTIME_VOICE_AUDIO_MODE);
     } catch (error) {
-      // A transient OS route failure should not tear down an otherwise healthy
-      // Realtime session; the next assistant response retries the route.
+
       console.debug(
         "[realtime-voice] Could not route output through the loudspeaker:",
         error instanceof Error ? error.message : String(error),
@@ -951,8 +926,7 @@ export class MobileRealtimeVoiceSession {
         usage,
       });
     } catch {
-      // Billing telemetry is best-effort from the client; the backend lease
-      // still prevents another managed session from hiding unreported usage.
+
     }
   }
 
@@ -964,7 +938,7 @@ export class MobileRealtimeVoiceSession {
     try {
       await postJson("/api/voice/lease", { stellaSessionId, event });
     } catch {
-      // A terminal retry is not useful once the foreground surface is gone.
+
     }
   }
 
@@ -1016,13 +990,13 @@ export class MobileRealtimeVoiceSession {
     try {
       this.channel?.close();
     } catch {
-      // Already closed.
+
     }
     this.channel = null;
     try {
       this.pc?.close();
     } catch {
-      // Already closed.
+
     }
     this.pc = null;
     if (this.localStream) {
@@ -1036,7 +1010,7 @@ export class MobileRealtimeVoiceSession {
       try {
         await releaseRecordingAudioSession(audioLease);
       } catch {
-        // The OS resets its audio session when the app leaves the foreground.
+
       }
     }
     if (desktopVoice && connectedAt !== null) {

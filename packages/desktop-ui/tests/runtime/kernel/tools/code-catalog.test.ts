@@ -164,9 +164,7 @@ describe("buildCatalogSection budgeter", () => {
   });
 
   it("round-robins the shared budget so one verbose namespace cannot starve the rest", () => {
-    // Each entry costs roughly (comment + signature) / 4 tokens; give each
-    // namespace several tools and a budget that only fits a few entries.
-    // Equal-length names so every entry costs the same number of tokens.
+
     const tools = [
       makeTool("alpha_a", 200),
       makeTool("alpha_b", 200),
@@ -180,13 +178,13 @@ describe("buildCatalogSection budgeter", () => {
         "tools.alpha_a(input: { value?: string }): Promise<unknown>\n".length) /
         4,
     );
-    // Stub lines consume the budget too (widest "shown" variant estimate).
+
     const stubCost = Math.ceil("- alpha (3 tools, 3 shown)\n".length / 4);
     const section = buildCatalogSection(
       tools,
       stubCost * 2 + singleCost * 2 + 1,
     );
-    // Fairness: one from each namespace, not two from alpha.
+
     expect(section).toContain("- alpha (3 tools, 1 shown)");
     expect(section).toContain("- bravo (3 tools, 1 shown)");
     expect(section).toContain("PARTIAL — 2 of 6 shown");
@@ -276,7 +274,7 @@ describe("scoreToolSearch + searchToolCatalog", () => {
       "example_react_message",
       "example_send_message",
     ]);
-    // Both contain "message" in the name; tie broken by localeCompare.
+
     const [first, second] = results;
     expect(first!.name.localeCompare(second!.name)).toBeLessThan(0);
   });

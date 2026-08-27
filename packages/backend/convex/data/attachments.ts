@@ -14,7 +14,7 @@ const parseDataUrl = (dataUrl: string) => {
     throw new ConvexError({ code: "INVALID_ARGUMENT", message: "Invalid data URL" });
   }
   const [, mimeType, base64] = match;
-  // Use atob + Uint8Array instead of Buffer (not available in Convex runtime)
+
   const binaryString = atob(base64);
   const bytes = new Uint8Array(binaryString.length);
   for (let i = 0; i < binaryString.length; i++) {
@@ -46,9 +46,6 @@ export const createFromDataUrl = action({
     const ownerId = await requireUserId(ctx);
     await requireConversationOwnerAction(ctx, args.conversationId);
 
-    // Each call decodes and stores up to 10 MB into _storage. Without this,
-    // a misbehaving client (or compromised desktop) can fill the storage
-    // bucket and inflate the user's bill in a very tight loop.
     await enforceActionRateLimit(
       ctx,
       "attachment_create_from_data_url",
@@ -59,7 +56,7 @@ export const createFromDataUrl = action({
 
     const { mimeType, bytes } = parseDataUrl(args.dataUrl);
 
-    const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10 MB
+    const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
     if (bytes.byteLength > MAX_ATTACHMENT_BYTES) {
       throw new ConvexError({
         code: "INVALID_ARGUMENT",

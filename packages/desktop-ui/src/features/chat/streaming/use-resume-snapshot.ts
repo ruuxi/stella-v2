@@ -1,13 +1,3 @@
-/**
- * Hydrates the in-memory stream store from a runtime resume snapshot.
- *
- * The runtime owns lifecycle truth; on conversation switch / reload we
- * apply its `activeRun` snapshot once via this hook before resuming live
- * event consumption in `use-agent-event-handler`. Task state needs no
- * hydration here: the authoritative thread-activity rows are fetched
- * straight from the runtime's `runtime_agents` table by
- * `useThreadActivity`, and stream decorations rebuild from live events.
- */
 import { useCallback, type Dispatch, type MutableRefObject } from 'react'
 import type { ActiveRunSnapshot, StreamStoreAction } from './store'
 

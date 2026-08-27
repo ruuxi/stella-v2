@@ -1,16 +1,3 @@
-/**
- * Per-kind viewer components used by the workspace panel's tab manager.
- *
- * Each component is a thin wrapper that delegates to the existing card UI
- * (MediaPreviewCard sub-renderers, OfficePreviewCard, PdfViewerCard). The
- * wrappers exist so the tab spec's `render()` function can be a single
- * `createElement(Component, props)` call — no per-call branching, no
- * `kind` discriminator inside the render path.
- *
- * The media viewer is its own world (preview, prompt, action bar) and
- * lives in `./media-tab/`.
- */
-
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import type { OfficePreviewRef } from "@stella/contracts/office-preview";
 import { useDisplayFileBytes } from "@/shared/hooks/use-display-file-data";
@@ -30,11 +17,6 @@ import {
   type SourceDiffBatch,
 } from "@/features/workspace-display/source-diff-batches";
 
-// Heavy, payload-specific renderers are lazy-loaded so they stay out of the
-// always-eager shell's first-paint module graph (dev server transforms every
-// statically-reachable module before first paint). Their `createElement`
-// closures only run when a tab of the matching kind actually opens, so the
-// chunks are fetched on demand.
 const PdfViewerCard = lazy(() =>
   import("@/app/chat/PdfViewerCard").then((m) => ({
     default: m.PdfViewerCard,
@@ -61,12 +43,6 @@ type WithMediaMeta = {
 
 export { MediaTabContent } from "./media-tab";
 
-/**
- * Live URL preview tab. Used by the user-app project previews: an iframe
- * pointed at the project's Vite dev server. Includes a tiny reload
- * affordance so a refresh can be forced after edits (Vite usually HMRs
- * without it).
- */
 export const UrlTabContent = ({
   url,
   title,
@@ -485,12 +461,6 @@ const DiffRows = ({ sections }: { sections: DiffSection[] }) => (
 
 type SourceDiffPayload = Extract<DisplayPayload, { kind: "source-diff" }>;
 
-/**
- * Block variant that has a `patch` body — no file IO required.
- * Splitting the patch / file paths avoids firing N redundant
- * `useDisplayFileBytes` reads for an N-file `apply_patch` batch where
- * the patch text already contains every section.
- */
 const SourceDiffPatchBlock = ({ patch }: { patch: string }) => {
   const t = useT();
   const parsedPatchSections = useMemo(() => {
@@ -507,12 +477,6 @@ const SourceDiffPatchBlock = ({ patch }: { patch: string }) => {
   return <DiffRows sections={parsedPatchSections} />;
 };
 
-/**
- * Block variant for tools that emit fileChanges without a unified
- * diff body (write/edit-style tools). Reads the current bytes and
- * renders them as added lines — matches the existing "generated file"
- * preview semantics.
- */
 const SourceDiffFileBytesBlock = ({ filePath }: { filePath: string }) => {
   const t = useT();
   const { bytes, error, loading } = useDisplayFileBytes(

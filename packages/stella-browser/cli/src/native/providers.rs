@@ -1,19 +1,11 @@
-//! Browser provider connections for remote CDP sessions.
-//!
-//! Supports Browserbase, Browserless, Browser Use, and Kernel providers.
-//! Each provider returns a CDP WebSocket URL for connecting via BrowserManager.
-
 use serde_json::{json, Value};
 use std::env;
 
-/// Provider session info for cleanup on failure.
 pub struct ProviderSession {
     pub provider: String,
     pub session_id: String,
 }
 
-/// Connects to the specified browser provider and returns a CDP WebSocket URL
-/// along with session info for cleanup on failure.
 pub async fn connect_provider(
     provider_name: &str,
 ) -> Result<(String, Option<ProviderSession>), String> {
@@ -29,7 +21,6 @@ pub async fn connect_provider(
     }
 }
 
-/// Close a provider session (call on CDP connect failure).
 pub async fn close_provider_session(session: &ProviderSession) {
     let client = reqwest::Client::new();
     match session.provider.as_str() {
@@ -62,7 +53,7 @@ pub async fn close_provider_session(session: &ProviderSession) {
             }
         }
         "browserless" => {
-            // session_id holds the stop URL for browserless
+
             let _ = client.delete(&session.session_id).send().await;
         }
         "kernel" => {
@@ -209,7 +200,7 @@ async fn connect_browserless() -> Result<(String, Option<ProviderSession>), Stri
         connect_url,
         Some(ProviderSession {
             provider: "browserless".to_string(),
-            // Store the stop URL as the session_id for cleanup
+
             session_id: stop_url,
         }),
     ))

@@ -1,8 +1,3 @@
-/**
- * Download command handler.
- * Uses chrome.downloads API.
- */
-
 export async function handleDownload(command) {
   const url = command.url;
   if (!url) throw new Error('URL is required for download');
@@ -13,7 +8,6 @@ export async function handleDownload(command) {
     saveAs: false,
   });
 
-  // Wait for download to complete
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       chrome.downloads.onChanged.removeListener(listener);

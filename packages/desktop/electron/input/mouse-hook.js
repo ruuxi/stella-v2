@@ -4,11 +4,7 @@ const LEFT_ALT = 56;
 const RIGHT_ALT = 3640;
 const ALT_KEYCODES = new Set([LEFT_ALT, RIGHT_ALT]);
 const DICTATION_PUSH_TO_TALK_TRIGGER_DELAY_MS = 150;
-/**
- * Owns the low-level keyboard hook required for bare-Option push-to-talk
- * dictation while keeping unrelated global input off the main-process hot
- * path.
- */
+
 export class MouseHookManager {
     started = false;
     uiohookListenersAttached = false;
@@ -106,8 +102,7 @@ export class MouseHookManager {
         this.pressedKeycodes.add(event.keycode);
         const isAlt = ALT_KEYCODES.has(event.keycode);
         if (!isAlt) {
-            // Bare Option is the dictation gesture. Any chord or ordinary keypress
-            // means the user intended a normal keyboard command instead.
+
             if (this.dictationKeyDownAt !== null || this.dictationStarted) {
                 this.cancelActiveDictation();
             }

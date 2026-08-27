@@ -47,25 +47,10 @@ import { CarPlayBridge } from "../src/carplay/CarPlayBridge";
 
 void SplashScreen.preventAutoHideAsync();
 
-/** AsyncStorage key holding the last boot-crash breadcrumb (JSON). */
 const BOOT_CRASH_BREADCRUMB_KEY = "stella-mobile-last-boot-crash-v1";
 
-/**
- * Root-level render-error boundary (picked up by expo-router). Postmortem
- * armor from the 2026-07-02 OTA boot crash: a render-time ReferenceError in
- * ChatPane hit `RCTFatal` in release and killed the app before ANY UI — no
- * error screen, no diagnostics, and expo-updates never rolled back. This
- * boundary turns any future render/boot throw into a visible error screen
- * with a retry, persists a breadcrumb for diagnostics, and lifts the native
- * splash (the crash usually happens while the splash is still up, which would
- * otherwise hide the fallback and look like a hang).
- *
- * Deliberately depends on nothing but react-native primitives + AsyncStorage
- * so the fallback itself can't be taken down by whatever module just failed.
- */
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
-  // Rendered OUTSIDE the provider tree by expo-router, so this resolves
-  // through the English fallback catalog rather than throwing.
+
   const t = useT();
   useEffect(() => {
     void SplashScreen.hideAsync().catch(() => undefined);
@@ -220,7 +205,7 @@ function AuthenticatedLayout() {
     }
 
     if (isGuest()) {
-      // Guests may open /login from Sign in buttons — don't bounce them back to chat.
+
       if (onLogin) {
         return;
       }
@@ -239,12 +224,6 @@ function AuthenticatedLayout() {
     }
   }, [pathname, router, session.data, session.isPending, guestReady, initialMainHref]);
 
-  // Hold the native splash until auth + local startup state have resolved, so a
-  // returning user goes straight from splash to their app — no flash of the
-  // "Checking your session" / login screen while `useSession()` does its first
-  // network round-trip. This runs after the routing effect above, and the
-  // double `requestAnimationFrame` lets the chosen destination paint underneath
-  // the splash before it lifts.
   useEffect(() => {
     if (splashHiddenRef.current) {
       return;
@@ -271,8 +250,7 @@ function AuthenticatedLayout() {
 
 function AppLayout() {
   if (!hasMobileConfig) {
-    // No auth gate on this path, so nothing else lifts the splash — drop it
-    // once the theme has painted.
+
     return (
       <>
         <HideSplashWhenThemed />
@@ -285,16 +263,9 @@ function AppLayout() {
 }
 
 function ConvexBoundLayout() {
-  // Lazily create the Convex client once, after we've confirmed the
-  // mobile config is present. `ConvexBetterAuthProvider` wires the
-  // client's `setAuth` to Better Auth's JWT fetcher so authenticated
-  // queries/mutations/actions work out of the box.
+
   const convex = useMemo(() => getConvexClient(), []);
-  // `authClient` is a proxy whose generated type doesn't statically
-  // expose `convex.token()` — it's added at runtime by the
-  // `convexClient()` better-auth plugin. The provider just needs an
-  // object with `convex.token()`, which we already verified the proxy
-  // delegates correctly (see `src/lib/auth-token.ts`).
+
   const providerAuthClient = authClient as unknown as AuthClient;
   return (
     <ConvexBetterAuthProvider client={convex} authClient={providerAuthClient}>
@@ -303,11 +274,6 @@ function ConvexBoundLayout() {
   );
 }
 
-/**
- * Mounted inside `ThemeProvider`, which holds rendering until the stored
- * theme has loaded — so the splash only lifts once the first frame is
- * painted in the user's actual theme (no Pearl flash on cold start).
- */
 function HideSplashWhenThemed() {
   useEffect(() => {
     void SplashScreen.hideAsync();

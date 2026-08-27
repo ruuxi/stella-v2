@@ -25,35 +25,25 @@ import type { ScoredSettingsSearchEntry } from "@/global/settings/lib/settings-s
 import { useT } from "@/shared/i18n";
 import "@/global/settings/settings.css";
 
-// Settings is lazy-preloaded before the sidebar opens. Keep the tabs eager
-// inside that chunk so switching tabs does not show a blank Suspense gap.
 const LegalDialog = lazy(() =>
   import("@/global/legal/LegalDialog").then((m) => ({
     default: m.LegalDialog,
   })),
 );
 
-// ---------------------------------------------------------------------------
-// SettingsScreen (route- or sidebar-mounted, no Dialog wrapper)
-// ---------------------------------------------------------------------------
-
 export type { SettingsTab };
 
 interface SettingsScreenProps {
-  /** Tab currently in view. When omitted, defaults to basic. */
+
   activeTab?: SettingsTab;
-  /** Called when the user clicks a different tab in the sidebar. */
+
   onActiveTabChange?: (tab: SettingsTab) => void;
-  /** Called when the user signs out from the Basic tab. */
+
   onSignOut?: () => void;
-  /** Use the compact layout when Settings is hosted in the right sidebar. */
+
   embedded?: boolean;
 }
 
-/**
- * The settings UI rendered inline (no Dialog wrapper). Tab state can be
- * controlled by the legacy `/settings` route or uncontrolled in the sidebar.
- */
 export const SettingsScreen = ({
   activeTab: activeTabProp,
   onActiveTabChange,
@@ -69,10 +59,6 @@ export const SettingsScreen = ({
 
   const activeTab = activeTabProp ?? selectedTab;
 
-  // Defer the value used for filtering work. Keeps the input
-  // responsive even on slower machines while the results list catches
-  // up. For our small catalog the win is marginal but the primitive
-  // costs nothing.
   const deferredQuery = useDeferredValue(searchQuery);
   const isSearching = deferredQuery.trim().length > 0;
 
@@ -86,10 +72,6 @@ export const SettingsScreen = ({
     [activeTabProp, onActiveTabChange],
   );
 
-  // After picking a search result we need to (1) switch tabs and (2)
-  // scroll the matching card into view + briefly highlight it. Some tab
-  // content can still schedule its own DOM updates, so the panel resolves
-  // the target once the right cards are actually present.
   const [pendingScrollTarget, setPendingScrollTarget] = useState<{
     tab: SettingsTab;
     title: string;
@@ -102,26 +84,22 @@ export const SettingsScreen = ({
       handleTabClick(result.tab);
       setPendingScrollTarget({
         tab: result.tab,
-        // Row-level entries carry `cardTitle` for the actual card to
-        // scroll to; card-level entries scroll to their own title.
+
         title: result.cardTitle ?? result.title,
-        // Nonce ensures repeat-selecting the same result re-triggers
-        // the scroll/highlight effect even when tab + title are equal.
+
         nonce: Date.now(),
       });
     },
     [handleTabClick],
   );
 
-  // Edge fade is on the horizontal tab strip itself — that's where the
-  // scrollable overflow lives now that the rail is laid out as a row.
   const tabStripRef = useEdgeFadeRef<HTMLElement>();
 
   return (
     <>
-      {/* The Settings page owns its own left rail rather than borrowing
-          the global sidebar's slot — keeps Settings self-contained and
-          leaves the shell sidebar untouched while /settings is open. */}
+      {
+
+}
       <div
         className="settings-screen"
         data-search-active={isSearching ? "true" : "false"}
@@ -131,9 +109,9 @@ export const SettingsScreen = ({
             embedded ? "settings-layout--sidebar" : "settings-layout--standalone"
           }`}
         >
-          {/* Header: title row above, then horizontal tab strip. No
-              side rail — keeps the page visually centered and gives
-              the panel content the full width to breathe. */}
+          {
+
+}
           <header
             className="settings-tab-rail"
             role="tablist"
@@ -227,9 +205,6 @@ function SettingsTabContent({
 }: SettingsTabContentProps) {
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Resolve any pending "scroll to / highlight this card" request from
-  // the search results. Use a short-lived MutationObserver to wait for
-  // any delayed tab content to appear, then scroll + flash it.
   useEffect(() => {
     if (!pendingScrollTarget) return;
     if (pendingScrollTarget.tab !== activeTab) return;
@@ -275,9 +250,6 @@ function SettingsTabContent({
     });
     observer.observe(container, { subtree: true, childList: true });
 
-    // Belt-and-suspenders: stop waiting after a couple seconds so we
-    // don't leak observers if the title text changes or content fails
-    // to mount.
     timeoutId = window.setTimeout(() => {
       cancelled = true;
       observer?.disconnect();

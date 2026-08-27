@@ -13,12 +13,7 @@ type DeviceRecord = {
   deviceId: string;
   publicKey?: string;
   privateKeyProtected?: string;
-  /**
-   * The device id this record replaced, retained until the backend has been
-   * told about the succession. Persisted rather than held in memory because a
-   * rotation can happen while signed out or offline, and losing the link would
-   * strand every paired phone on the retired id permanently.
-   */
+
   supersededDeviceId?: string;
 };
 
@@ -26,22 +21,13 @@ export type DeviceIdentity = {
   deviceId: string;
   publicKey: string;
   privateKey: string;
-  /** Set when this identity replaced an earlier one whose succession is unclaimed. */
+
   supersededDeviceId?: string;
 };
 
 const DEVICE_FILE = "device.json";
 const DEVICE_PRIVATE_KEY_SCOPE = "device-private-key";
 
-/**
- * Why a stored identity could not be reused.
- *
- * Regenerating mints a new `deviceId`, which the backend treats as a different
- * machine — so every one of these is a user-visible event, not a detail. They
- * used to be indistinguishable: a single bare `catch` swallowed all of them,
- * leaving nothing to tell a missing file apart from a key the OS refused to
- * decrypt, and no way to know which path a rotation in the wild took.
- */
 type DeviceIdentityRegenerationReason =
   | "no-record"
   | "unreadable-record"
@@ -53,12 +39,11 @@ const logDeviceIdentityRegeneration = (
   reason: DeviceIdentityRegenerationReason,
   supersededDeviceId: string | undefined,
 ) => {
-  // A first run has nothing to report.
+
   if (reason === "no-record" && !supersededDeviceId) {
     return;
   }
-  // Prefer the process log so a rotation is still diagnosable after the fact;
-  // identity can be loaded before the logger exists, hence the console fallback.
+
   const logger = getFileLogger();
   if (logger) {
     logger.warn("device-identity.regenerated", {
@@ -135,10 +120,7 @@ export const getOrCreateDeviceIdentity = async (
 ): Promise<DeviceIdentity> => {
   const recordPath = getDeviceRecordPath(statePath);
   let previousPrivateKeyProtected: string | undefined;
-  // Carried into the replacement identity so the backend can move this
-  // machine's pairings, bridge registration and tunnel onto the new id. The
-  // id itself is not a secret, and the replacement is an ordinary device with
-  // its own keypair, so nothing about the key binding is relaxed by this.
+
   let supersededDeviceId: string | undefined;
   let reason: DeviceIdentityRegenerationReason = "no-record";
 
@@ -162,8 +144,7 @@ export const getOrCreateDeviceIdentity = async (
 
     if (parsed) {
       previousPrivateKeyProtected = parsed.privateKeyProtected;
-      // Captured before the decrypt attempt, which is precisely the case whose
-      // predecessor we need to keep.
+
       if (parsed.deviceId) {
         supersededDeviceId = parsed.deviceId;
       }
@@ -210,14 +191,12 @@ export const resetDeviceIdentity = async (
     const raw = await fs.readFile(recordPath, "utf-8");
     const parsed = JSON.parse(raw) as DeviceRecord;
     previousPrivateKeyProtected = parsed.privateKeyProtected;
-    // Only an involuntary rotation (recovering from a key mismatch) carries the
-    // old identity forward. A user-initiated reset is meant to cut ties, so it
-    // must not drag the previous machine's pairings onto the new id.
+
     if (options.preservePairings && parsed.deviceId) {
       supersededDeviceId = parsed.deviceId;
     }
   } catch {
-    // No usable previous record to clean up.
+
   }
   return await createAndStoreDeviceIdentity(
     recordPath,
@@ -226,10 +205,6 @@ export const resetDeviceIdentity = async (
   );
 };
 
-/**
- * Drop the retained predecessor once the backend has accepted the succession,
- * so it is claimed exactly once.
- */
 export const clearSupersededDeviceId = async (
   statePath: string,
 ): Promise<void> => {
@@ -243,7 +218,7 @@ export const clearSupersededDeviceId = async (
     const { supersededDeviceId: _dropped, ...rest } = parsed;
     await writePrivateFile(recordPath, JSON.stringify(rest, null, 2));
   } catch {
-    // Nothing to clear; the next successful claim will be a no-op anyway.
+
   }
 };
 

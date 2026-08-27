@@ -1,21 +1,3 @@
-/**
- * Hook over the agent-lifecycle activity stream for a conversation
- * (`localChat:listActivity` IPC, backed by `SessionStore.listActivity`).
- * Returns the raw activity events plus the latest user/assistant message
- * timestamp the storage layer surfaces alongside them. Task STATE no longer
- * derives from these events (that's `useThreadActivity`); the remaining
- * consumers are file-derived surfaces, which merge the `agent-completed`
- * file rollups with the files window.
- *
- * Window growth is purely activity-count based. Activity events are
- * sparse relative to messages (a handful per turn) so the cap can be
- * comfortably small; `loadOlder` doubles the window for the
- * ActivityHistoryDialog "Completed" view when the user scrolls past it.
- *
- * `hasOlderActivity` is inferred from "did the latest fetch saturate the
- * requested limit?" — exact when more rows exist, harmless 1-fetch
- * false-positive when the count is exactly the cap.
- */
 import {
   startTransition,
   useCallback,

@@ -25,19 +25,10 @@ export type StellaBrowserBridgeStatus = {
   nextRetryMs?: number;
   error?: string;
   reason?: StellaBrowserBridgeFailureReason;
-  /**
-   * Legacy flag from older desktop builds. Optional browser-bridge
-   * absence/loss is never a global toast, so this must stay ignored.
-   */
+
   notifyUser?: boolean;
 };
 
-/**
- * The browser extension/bridge is optional. Absence, disconnection, host
- * registration failure, and silent retry are in-feature connection states,
- * never a global app error toast. Both the desktop resource and the
- * renderer toast listener must go through this gate.
- */
 export const shouldEmitBrowserBridgeGlobalToast = (_status: {
   state?: string;
   reason?: string;

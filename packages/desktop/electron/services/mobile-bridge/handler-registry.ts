@@ -7,16 +7,10 @@ type HandleHandler = (
 
 type OnHandler = (event: IpcMainEvent, ...args: unknown[]) => void;
 
-/** Request/response handlers registered via ipcMain.handle */
 const handleHandlers = new Map<string, HandleHandler>();
 
-/** Fire-and-forget handlers registered via ipcMain.on (supports multiple per channel) */
 const onHandlers = new Map<string, OnHandler[]>();
 
-/**
- * Intercepts ipcMain.handle and ipcMain.on registrations to capture handler
- * references. Call before IPC handlers are registered, restore after.
- */
 export const startCapturingHandlers = () => {
   const originalHandle = ipcMain.handle.bind(ipcMain);
   const originalOn = ipcMain.on.bind(ipcMain);
@@ -42,10 +36,8 @@ export const startCapturingHandlers = () => {
   };
 };
 
-/** Look up a request/response handler (ipcMain.handle) */
 export const getHandler = (channel: string): HandleHandler | undefined =>
   handleHandlers.get(channel);
 
-/** Look up all fire-and-forget handlers (ipcMain.on) for a channel */
 export const getOnHandlers = (channel: string): OnHandler[] | undefined =>
   onHandlers.get(channel);

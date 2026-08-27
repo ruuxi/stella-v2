@@ -1,33 +1,15 @@
-/**
- * Low-power / reduced-motion performance overrides.
- *
- * Activated when `html[data-low-power]` is set by `stella-boot.js`
- * (≤4 cores or ≤4GB RAM, or system reduced-motion). Drops the three cost
- * categories that hurt weak GPUs most:
- *   1. `filter: blur()` entrance transitions
- *   2. Decorative infinite CSS/SVG animations
- *   3. `backdrop-filter` glass sampling
- *
- * Functional spinners, loading shimmers, and streaming indicators are left
- * alone — see comments on each block.
- */
-
 html[data-low-power] {
   --glass-blur: none;
   --panel-glass-blur: none;
-  /* More opaque fills when backdrop sampling is off so panels stay readable. */
+
   --glass-bg: color-mix(in srgb, var(--background) 86%, transparent);
   --panel-glass-bg: color-mix(in srgb, var(--background) 90%, transparent);
 }
-
-/* ── Backdrop-filter: disable glass sampling app-wide ─────────────── */
 
 html[data-low-power] * {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
-
-/* ── Blur entrances: keep motion, drop the expensive filter pass ───── */
 
 html[data-low-power] .onboarding-moment,
 html[data-low-power] .onboarding-split-right,
@@ -69,9 +51,6 @@ html[data-low-power] .onboarding-mock-window {
   }
 }
 
-/* ── Decorative infinite animations (marketing mocks, demos) ──────── */
-
-/* Connect hero (Phone settings / Connect dialog) */
 html[data-low-power] .anim-phone-group,
 html[data-low-power] .anim-monitor-group,
 html[data-low-power] .anim-cursor,
@@ -83,7 +62,6 @@ html[data-low-power] .anim-pulse {
   animation: none !important;
 }
 
-/* Onboarding capabilities demo player */
 html[data-low-power]
   .onboarding-cap-chapter[data-active]
   .onboarding-cap-phone-link__line::after,
@@ -97,7 +75,6 @@ html[data-low-power]
   animation: none !important;
 }
 
-/* Onboarding memory / voice demos */
 html[data-low-power]
   .onboarding-dialogue[data-phase="memory"]
   .onboarding-memory-mock__pill-dot,
@@ -113,39 +90,25 @@ html[data-low-power]
   animation: none !important;
 }
 
-/* NOTE: the display-sidebar empty-state illustrations
-   (CanvasIllustration, AppCreationIllustration, Media/Trash) are
-   intentionally NOT throttled here. They're a handful
-   of GPU-composited transform/opacity keyframes inside one small bounded SVG —
-   negligible cost even on the machines that trip this flag — and they already
-   self-pause when off-screen / the tab is hidden (`svg[data-running="false"]`).
-   Throttling them was cargo-culted alongside the genuinely expensive effects
-   (backdrop-filter blur, the canvas gradient blend) that this file targets. */
-
-/* Generated-image card ambient drift + heavy blur wash */
 html[data-low-power] .inline-generated-image-cards--strip-pending::before,
 html[data-low-power] .inline-generated-image-card__placeholder::before {
   animation: none !important;
 }
 
-/* Creature idle breathing (WorkingIndicator / onboarding) */
 html[data-low-power]
   .stella-animation-container:not(.stella-animation-container--paused) {
   animation: none !important;
 }
 
-/* Onboarding enter dots — decorative hold animation */
 html[data-low-power] .onboarding-enter-step__dots > span {
   animation: none !important;
   opacity: 0.55;
 }
 
-/* Topbar update trace — decorative chrome */
 html[data-low-power] .shell-topbar-update-pill[data-state="active"]::before {
   animation: none !important;
 }
 
-/* Launch splash dots */
 html[data-low-power] .stella-launch__dots span {
   animation: none !important;
   opacity: 0.55;

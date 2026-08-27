@@ -17,7 +17,7 @@ type PostServiceJsonOptions = ServiceRequestOptions & {
   errorMessage?: (response: Response) => Promise<string> | string;
   onResponse?: (response: Response) => void;
   parseResponse?: boolean;
-  /** Abort signal for the underlying fetch (e.g. to enforce a timeout). */
+
   signal?: AbortSignal;
 };
 
@@ -57,7 +57,6 @@ export const createServiceRequest = async (
   const includeAuth = options.includeAuth ?? true;
   const includeDeviceId = options.includeDeviceId ?? true;
 
-  // Run auth + device ID fetch in parallel
   const [requestHeaders, deviceId] = await Promise.all([
     includeAuth ? getAuthHeaders(headers) : Promise.resolve({ ...headers }),
     includeDeviceId

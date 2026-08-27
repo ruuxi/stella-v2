@@ -62,14 +62,6 @@ export const STREAM_CADENCE_TRACES: readonly StreamCadenceTrace[] = [
   },
 ]
 
-/**
- * Captured from a real Stella Claude Code run on 2026-07-09. The renderer saw
- * 242 STREAM events / 1,169 characters over 1,184.7 ms. Adjacent IPC events
- * within 1.5 ms are coalesced here, preserving the distinctive shape: a
- * 98-character opening burst, 589 ms of silence, then a dense 1,071-character
- * tail. Only timing and lengths are retained; response content is irrelevant
- * to the cadence simulation.
- */
 export const CLAUDE_CODE_CAPTURED_TRACE: StreamCadenceTrace = {
   name: 'Claude Code captured cadence',
   arrivals: [

@@ -221,10 +221,6 @@ export interface BrowserWorkerApi {
   readonly tabs: BrowserWorkerTabs;
 }
 
-/**
- * Installs the browser object graph inside the Node REPL worker. Keep every
- * runtime dependency inside this function: its source is embedded in a data URL.
- */
 export function installBrowserWorkerApi(
   callBrowser: BrowserWorkerCall,
   options: BrowserWorkerApiOptions = {},
@@ -744,9 +740,7 @@ export function installBrowserWorkerApi(
       const semantic = descriptor.selector.startsWith("aria=")
         ? JSON.parse(decodeURIComponent(descriptor.selector.slice(5)))
         : null;
-      // Search the top document plus same-origin iframes and open shadow
-      // roots, mirroring the daemon-side resolver in
-      // packages/stella-browser/cli/src/native/selector.rs.
+
       const roots = [];
       const visitRoot = (root, depth) => {
         if (!root || depth > 8) return;
@@ -883,8 +877,7 @@ export function installBrowserWorkerApi(
   ): Promise<unknown> => {
     const markerAttribute = "data-stella-worker-locator";
     const markerSelector = `[${markerAttribute}="${state.marker}"]`;
-    // Markers can land on elements inside same-origin iframes/shadow roots,
-    // so marker discovery must walk the same roots the resolver searches.
+
     const markedElementsJs = `(() => {
       const marked = [];
       const visitRoot = (root, depth) => {
@@ -968,12 +961,6 @@ export function installBrowserWorkerApi(
     }
   };
 
-  // Tab and Locator keep their methods on a frozen prototype, which
-  // Object.keys()/console.log cannot see; agents probing the API then
-  // conclude the objects have no methods and never find the keyboard or
-  // press(). Mirror the public surface onto every instance as enumerable own
-  // properties (same functions/getters, so behavior and identity are
-  // unchanged) before the instance is frozen.
   const TAB_PUBLIC_API = Object.freeze([
     "backend",
     "id",
@@ -1288,7 +1275,7 @@ export function installBrowserWorkerApi(
         );
         diagnostic = ` Diagnostics: ${JSON.stringify(fieldOrSelf(data, "result"))}`;
       } catch {
-        // Keep the original action failure if diagnostics cannot be collected.
+
       }
       const message =
         lastError instanceof Error ? lastError.message : String(lastError);
@@ -1385,8 +1372,7 @@ export function installBrowserWorkerApi(
           const file = requireString(entry, `files[${index}]`, {
             maxLength: 4_096,
           });
-          // The daemon hands these to CDP DOM.setFileInputFiles, which
-          // resolves them in the browser process: absolute paths only.
+
           if (!/^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(file)) {
             throw new TypeError(`files[${index}] must be an absolute path.`);
           }
@@ -1626,14 +1612,6 @@ export function installBrowserWorkerApi(
     activeTabId?: number;
   };
 
-  // The worker only sees payloads, so backend problems surface here as shape
-  // mismatches. Two distinct failure modes get distinct messages: a payload
-  // that identifies tabs only by position comes from a backend that predates
-  // stable tab ids (fix: update the Stella Browser daemon/extension), while
-  // any other malformed payload is a protocol drift between backend and
-  // runtime (fix: update Stella so both sides match). Neither is fixed by
-  // "update the extension" alone — the in-app CDP daemon speaks the same
-  // protocol.
   const browserProtocolMismatch = (detail: string): Error =>
     new Error(
       `Stella Browser protocol mismatch: ${detail}. The connected browser backend (in-app browser daemon or extension) returned a payload shape this runtime cannot drive. Update Stella so the browser backend and runtime versions match.`,
@@ -2175,16 +2153,14 @@ export function installBrowserWorkerApi(
       const boundCommand = (action: string, params: Record<string, unknown>) =>
         command(action, params, state.backend);
       state.keyboard = Object.freeze({
-        // Page-level key press (no selector): the key goes to whatever holds
-        // focus, or the document. Supports combos like "Control+a".
+
         press: async (key: string) =>
           await boundCommand("press", {
             tabId: currentTabId(state),
             ...tabGenerationParams(state.generation),
             key: requireString(key, "key", { maxLength: 64 }),
           }),
-        // Raw text insertion at the current focus (Input.insertText): no
-        // per-character key events, works for emoji/CJK.
+
         type: async (text: string) =>
           await boundCommand("inserttext", {
             tabId: currentTabId(state),
@@ -2326,8 +2302,7 @@ export function installBrowserWorkerApi(
         "scroll options",
       );
       const params: Record<string, unknown> = { tabId: this.id };
-      // x/y are pixel deltas (negative scrolls up/left); direction+amount is
-      // the ergonomic alternative the daemon converts to deltas.
+
       for (const key of ["x", "y"] as const) {
         if (value[key] !== undefined) {
           if (typeof value[key] !== "number" || !Number.isFinite(value[key])) {
@@ -2361,13 +2336,6 @@ export function installBrowserWorkerApi(
     }
   }
 
-  // Chain-step vocabulary offered to agents. Contract-checked against
-  // packages/stella-browser/protocol/actions.json by
-  // tests/runtime/kernel/browser-use/action-contract.test.ts: every action
-  // here must be a manifest action with "chain": true, and every key must be
-  // a manifest param (or the global tabId). finalize_tabs is deliberately
-  // absent: it is top-level-only on the daemon and exposed as
-  // browser.tabs.finalize() instead.
   const SAFE_ACTION_KEYS: Record<string, readonly string[]> = Object.freeze({
     navigate: ["tabId", "url", "waitUntil", "timeout"],
     back: ["tabId", "timeout"],
@@ -2422,12 +2390,7 @@ export function installBrowserWorkerApi(
     isvisible: ["tabId", "selector"],
     isenabled: ["tabId", "selector"],
     ischecked: ["tabId", "selector"],
-    // Network observation. These read traffic the tab was already going to
-    // make, which is what lets a caller derive a direct API client for a site
-    // instead of re-driving the UI on every run. Deliberately excluded:
-    // `route`/`unroute` (they rewrite responses) and `cookies_*` (raw session
-    // secrets). Authenticated calls are made from the page's own origin with
-    // `evaluate`, so no credential ever has to cross into the worker.
+
     requests: ["tabId", "filter", "clear", "after", "limit"],
     responsebody: ["tabId", "url", "timeout", "after"],
     har_start: ["tabId"],
@@ -2574,9 +2537,7 @@ export function installBrowserWorkerApi(
   const tabs: BrowserWorkerTabs = Object.freeze({
     list: async () => (await listTabsInternal()).tabs,
     new: async (url?: string) => {
-      // Capture before transport: browser.use() may complete while tab_new is
-      // in flight, but the returned handle belongs to the backend that
-      // actually received this dispatch.
+
       const backend = selectedBackend;
       const params: Record<string, unknown> = {};
       if (url !== undefined) {

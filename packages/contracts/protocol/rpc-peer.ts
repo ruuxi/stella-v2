@@ -168,13 +168,6 @@ export class JsonRpcPeer {
     );
   }
 
-  /**
-   * Send a response to an inbound request, swallowing transport-send
-   * failures. `handleMessage` is invoked as `void rpcPeer.handleMessage(...)`
-   * (see jsonl.ts), so a throw from a mid-request transport close would
-   * escape as an unhandled rejection. Route any send failure to onError
-   * instead of letting it propagate.
-   */
   private sendResponse(message: JsonRpcSuccess | JsonRpcFailure) {
     try {
       this.sendMessageSafely(message);

@@ -3,11 +3,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 const DATABASE_FILE = "image-tool-operations.sqlite";
-/**
- * This store is used by both Node-based tests and Stella's detached Bun
- * worker. Resolve the native SQLite implementation at runtime so a static
- * `node:sqlite` import cannot make the lazy runner chunk fail under Bun.
- */
+
 const loadSqliteDatabaseCtor = () => {
     const runtimeRequire = createRequire(import.meta.url);
     const sqliteModule = runtimeRequire(process.versions.bun ? "bun:sqlite" : "node:sqlite");
@@ -37,11 +33,7 @@ const openDatabase = (stellaDataDir) => {
     fs.mkdirSync(stellaDataDir, { recursive: true });
     const Database = loadSqliteDatabaseCtor();
     const db = new Database(path.join(stellaDataDir, DATABASE_FILE));
-    // Install the busy handler before asking SQLite to switch journal modes.
-    // `journal_mode=WAL` can still report SQLITE_BUSY immediately while a
-    // sibling process is performing the same first-open migration. That is
-    // harmless: the winner establishes WAL and the serialized BEGIN IMMEDIATE
-    // below observes the migrated schema. Non-contention failures remain fatal.
+
     db.exec("PRAGMA busy_timeout=5000");
     try {
         db.exec("PRAGMA journal_mode=WAL");
@@ -89,8 +81,7 @@ const openDatabase = (stellaDataDir) => {
             db.exec("ALTER TABLE image_tool_operation_aliases ADD COLUMN request_hash TEXT");
         }
         if (!aliasColumns.has("identity_version")) {
-            // Rows from releases before canonical external-engine identities are
-            // eligible for exactly one request-hash migration reattachment.
+
             db.exec("ALTER TABLE image_tool_operation_aliases ADD COLUMN identity_version INTEGER NOT NULL DEFAULT 1");
         }
         db.exec(`
@@ -108,7 +99,7 @@ const openDatabase = (stellaDataDir) => {
             db.exec("ROLLBACK");
         }
         catch {
-            // BEGIN may not have completed.
+
         }
         db.close();
         throw error;
@@ -148,10 +139,7 @@ export const reserveDurableImageOperation = (args) => {
             db.exec("COMMIT");
             return toOperation(alias, true);
         }
-        // Pre-canonical external-engine aliases get one migration reattachment by
-        // request hash. Current aliases never use this fallback: a different
-        // canonical tool-call identity is an intentional new invocation, even if
-        // its arguments happen to be identical.
+
         const recoverable = db
             .prepare(`SELECT operation_id, job_id, state, submission_state,
                 terminal_result_json, delivered_at, request_hash
@@ -197,7 +185,7 @@ export const reserveDurableImageOperation = (args) => {
             db.exec("ROLLBACK");
         }
         catch {
-            // The transaction may have failed before BEGIN completed.
+
         }
         throw error;
     }
@@ -205,11 +193,7 @@ export const reserveDurableImageOperation = (args) => {
         db.close();
     }
 };
-/**
- * Durable local at-most-once boundary for BYOK providers. Once this CAS wins,
- * a restart may reattach a persisted provider request id, but it must never
- * blindly repeat an ambiguous direct POST.
- */
+
 export const claimImageOperationSubmission = (args) => {
     const db = openDatabase(args.stellaDataDir);
     try {
@@ -305,7 +289,7 @@ export const pruneImageOperationLedger = (args) => {
             db.exec("ROLLBACK");
         }
         catch {
-            // Transaction may not have started.
+
         }
         throw error;
     }

@@ -1,20 +1,3 @@
-/**
- * Inline clickable rendering for `stella://file/...` references in
- * assistant chat text.
- *
- * Renders as ordinary underlined link text inside the sentence — no chip
- * or card chrome — matching how a normal hyperlink reads. Clicking opens
- * the file in the matching workspace-panel viewer (canvas for HTML,
- * media/PDF/markdown/office viewers for those types) via the same
- * `openDisplayPayloadTab` path the end-resource pill uses; types with no
- * in-app viewer fall back to the OS-default app.
- *
- * The element arrives from `remarkStellaFileLinks` as a custom
- * `<stella-file path label>` node, so no real `href` ever exists — an
- * href-less `<a role="button">` avoids both navigation and the
- * bubble-highlight regression documented in `Markdown.tsx`.
- */
-
 import { useCallback, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { displayPayloadForStellaFile } from "@/features/chat/lib/stella-file-links";
@@ -43,8 +26,7 @@ export const StellaFileLink = ({ path, label }: StellaFileLinkProps) => {
       openDisplayPayloadTab(payload);
       return;
     }
-    // No in-app viewer for this type — hand it to the OS default app.
-    // `openPath` reports missing/unopenable files as `ok: false`.
+
     const api = window.electronAPI?.system;
     if (!api?.openPath) {
       setFailed(true);
@@ -68,8 +50,6 @@ export const StellaFileLink = ({ path, label }: StellaFileLinkProps) => {
     [open],
   );
 
-  // A reference the remark plugin let through without a usable path
-  // degrades to plain text instead of a dead control.
   if (!filePath || !display) {
     return <span>{display || null}</span>;
   }

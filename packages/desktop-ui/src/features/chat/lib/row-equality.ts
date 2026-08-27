@@ -1,11 +1,3 @@
-/**
- * Field-wise equality helpers for the linear chat row view-model graph.
- *
- * Lifted out of the row component file so the `useEventRows` stable-rows
- * pipeline can share the same comparator that `<UserMessageRow>` /
- * `<AssistantMessageRow>` `memo()` use, without dragging React component
- * imports into the hook (Fast Refresh).
- */
 import type {
   Attachment,
   ChannelEnvelope,
@@ -328,8 +320,7 @@ const mapArtifactsEqual = (
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i += 1) {
     if (a[i].id !== b[i].id) return false;
-    // Artifacts are immutable once persisted; id + marker count + polyline
-    // identity is enough to detect a different payload on the same slot.
+
     if (a[i].map.markers.length !== b[i].map.markers.length) return false;
     if (
       (a[i].map.route?.polyline ?? null) !== (b[i].map.route?.polyline ?? null)
@@ -393,9 +384,7 @@ const assistantRowEqual = (
   (a.toolEventSummary?.detailCursor?.sequence ?? null) ===
     (b.toolEventSummary?.detailCursor?.sequence ?? null) &&
   Boolean(a.justArrived) === Boolean(b.justArrived) &&
-  // Controls the Copy/Read-aloud strip: flips when a locked overlay's
-  // persisted twin lands with `followedByToolCall`, with no other field
-  // changing — must participate so the strip actually unmounts.
+
   Boolean(a.isIntraTurn) === Boolean(b.isIntraTurn) &&
   (a.replyToUserMessageId ?? null) === (b.replyToUserMessageId ?? null) &&
   JSON.stringify(a.responseTarget ?? null) ===
@@ -411,10 +400,7 @@ const assistantRowEqual = (
   agentCompletionEqual(a.agentCompletion, b.agentCompletion) &&
   (a.voiceSession?.durationMs ?? null) ===
     (b.voiceSession?.durationMs ?? null) &&
-  // Compare a stable key for the custom slot (the ReactNode itself
-  // changes identity on each render of the host surface). Surfaces
-  // that mount a custom slot must supply a key derived from the
-  // payload, not from the rendered node.
+
   (a.customSlotKey ?? null) === (b.customSlotKey ?? null);
 
 export const eventRowEqual = (

@@ -1,29 +1,13 @@
-/**
- * Renderer-side client for the authoritative thread-activity IPC
- * (`localChat:listThreadActivity`). Stella-managed rows come from
- * `runtime_agents`; Claude-native rows are passive observations projected by
- * the external-engine session. Both use the same refresh stream, while only
- * Stella rows carry lifecycle authority.
- *
- * One bounded hydration read builds a thread-id index. Durable keyed pushes
- * patch that index and wake only listeners for the changed thread. Aggregate
- * subscribers (Activity surfaces) receive a rebuilt list only when one is
- * actually mounted; chat cards never subscribe to or scan that list.
- */
 import type {
   DesktopThreadActivityRecord as ThreadActivityRecord,
   DesktopThreadActivityUpdatedPayload as ThreadActivityUpdatedPayload,
   ThreadActivityAssistantUpdate,
 } from "@/features/chat/thread-activity-types";
 
-// Absent outside Electron (plain-browser `bun run dev`): degrade to an
-// empty, update-free list instead of erroring.
 const getLocalChatApi = () => window.electronAPI?.localChat ?? null;
 
 const EMPTY_RECORDS: ThreadActivityRecord[] = [];
 
-/** Legacy broad invalidations are rare, but coalesce them if an older runtime
- * sends a burst. Current runtimes push complete keyed records instead. */
 const PUSH_REFRESH_DEBOUNCE_MS = 120;
 const LOAD_RETRY_MS = 1_000;
 const RETAINED_CONVERSATION_LIMIT = 10;
@@ -58,7 +42,7 @@ type ThreadActivityEntry = {
     string,
     Set<(record: ThreadActivityRecord | null, hasLoaded: boolean) => void>
   >;
-  /** True after this live entry has completed its one authoritative read. */
+
   hasHydrated: boolean;
   loading: Promise<void> | null;
   pendingRefetch: boolean;
@@ -104,9 +88,6 @@ export const getRetainedThreadActivitySnapshot = (
   return { records: records.slice(), hasLoaded: false, error: null };
 };
 
-/** Cheap identity for "did anything the UI renders actually change" —
- * a refetch triggered by a no-op write returns byte-identical rows, and
- * notifying React for those re-renders every task surface. */
 const recordsSignature = (records: ThreadActivityRecord[]): string =>
   records
     .map(
@@ -145,10 +126,7 @@ const patchRecord = (
     (!previous?.rootRunId ||
       !incoming.rootRunId ||
       previous.rootRunId === incoming.rootRunId);
-  // Group metadata belongs to the durable thread, not an individual agent
-  // attempt. Lifecycle pushes are projected directly from runtime_agents and
-  // therefore omit the joined runtime_threads fields; retain them across both
-  // same-attempt patches and retry generations.
+
   const stableThreadFields = previous
     ? {
         ...(previous.groupKey ? { groupKey: previous.groupKey } : {}),
@@ -165,8 +143,6 @@ const patchRecord = (
     for (const listener of listeners) listener(record, true);
   }
 
-  // Only genuine aggregate views pay for an array projection. Hundreds of
-  // chat cards use recordListeners and therefore do no unrelated work.
   if (entry.listeners.size > 0) {
     const records = Array.from(entry.recordsByThreadId.values()).sort(
       (a, b) =>
@@ -189,9 +165,6 @@ const materializeAggregateSnapshot = (entry: ThreadActivityEntry) => {
   return entry.snapshot;
 };
 
-/** Overlay persisted live-message watermarks onto list results. A list request
- * started before an incremental write may return an older projection; its
- * lifecycle fields remain useful, but it cannot roll assistant text back. */
 const applyAssistantUpdateWatermarks = (
   entry: ThreadActivityEntry,
   records: ThreadActivityRecord[],
@@ -266,8 +239,6 @@ const recordVersionPayloadSignature = (record: ThreadActivityRecord): string =>
     updatedAt: record.updatedAt,
   });
 
-/** A keyed push can race an older hydration request. Keep the pushed durable
- * row until a later list result demonstrably catches up to its version. */
 const applyRecordWatermarks = (
   entry: ThreadActivityEntry,
   records: ThreadActivityRecord[],
@@ -293,10 +264,7 @@ const applyRecordWatermarks = (
           entry.equalVersionConflicts.delete(threadId);
           continue;
         }
-        // Equal timestamps/status ranks are not proof that an older hydration
-        // caught a push. Keep the pushed row and force one deterministic
-        // follow-up read; persisted Stella records use recordRevision so the
-        // next result can establish a strict order.
+
         const conflictSignature = `${fetchedSignature}\n${watermarkSignature}`;
         if (entry.equalVersionConflicts.get(threadId) !== conflictSignature) {
           entry.equalVersionConflicts.set(threadId, conflictSignature);
@@ -350,8 +318,7 @@ const refreshEntry = (entry: ThreadActivityEntry): Promise<void> => {
       if (entry.disposed || requestGeneration !== entry.requestGeneration) {
         return;
       }
-      // A keyed push may have landed before this read failed. Preserve that
-      // index rather than rebuilding it from the stale aggregate snapshot.
+
       entry.snapshot = {
         ...entry.snapshot,
         hasLoaded: false,
@@ -362,8 +329,7 @@ const refreshEntry = (entry: ThreadActivityEntry): Promise<void> => {
         const record = entry.recordsByThreadId.get(threadId) ?? null;
         for (const listener of listeners) listener(record, false);
       }
-      // A fetch can fail during a store reset / worker restart window;
-      // self-retry while anyone is subscribed, since no push may follow.
+
       if (
         (entry.listeners.size > 0 || entry.recordListeners.size > 0) &&
         entry.retryTimer === null
@@ -390,9 +356,7 @@ const refreshEntry = (entry: ThreadActivityEntry): Promise<void> => {
 };
 
 const handleThreadActivityUpdated = (payload: ThreadActivityUpdatedPayload) => {
-  // Durable transcript invalidations keep an open exact-thread reader live.
-  // They do not change the Activity projection unless accompanied by an
-  // authored update, so avoid refetching every row for tool-only traffic.
+
   if (payload.transcriptUpdate && !payload.assistantUpdate) return;
   const entry = entries.get(payload.conversationId);
   if (!entry) return;
@@ -436,8 +400,7 @@ const handleThreadActivityUpdated = (payload: ThreadActivityUpdatedPayload) => {
       }
     }
   }
-  // Keyed lifecycle and assistant deltas are complete; no durable snapshot
-  // read is needed. The timer remains only for legacy broad invalidations.
+
   if (payload.record || update) return;
   if (entry.refreshTimer !== null) return;
   entry.refreshTimer = window.setTimeout(() => {
@@ -510,8 +473,6 @@ export const subscribeToThreadActivity = (
   };
 };
 
-/** Subscribe to one indexed row. The conversation is hydrated once, but
- * subsequent updates are O(1) and never wake unrelated cards. */
 export const subscribeToThreadActivityRecord = (
   conversationId: string,
   threadId: string,

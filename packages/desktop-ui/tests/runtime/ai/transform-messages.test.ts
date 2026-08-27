@@ -73,10 +73,7 @@ describe("runtime transformMessages", () => {
   });
 
   it("drops a tool result whose only tool call was on an errored assistant turn", () => {
-    // Repro for the Anthropic 400 "tool_result ... must have a corresponding
-    // tool_use block in the previous message": an aborted/errored assistant
-    // turn is stripped, so its tool result must be dropped as an orphan rather
-    // than emitted on its own.
+
     const messages: Message[] = [
       {
         role: "user",
@@ -128,11 +125,7 @@ describe("runtime transformMessages", () => {
   });
 
   it("re-anchors tool results next to their call when a reminder is interleaved", () => {
-    // Repro for the live Anthropic 400: a runtime.task_lifecycle reminder
-    // (rebuilt as a user message) is persisted between the assistant tool_use
-    // and its results, so history replay yields tool_use -> user -> results.
-    // The fix must move the real results back adjacent to the call (in call
-    // order) and not duplicate or synthesize them.
+
     const messages: Message[] = [
       {
         role: "assistant",
@@ -148,7 +141,7 @@ describe("runtime transformMessages", () => {
           { type: "toolCall", id: "toolu_spawn", name: "spawn_agent", arguments: {} },
         ],
       },
-      // Reminder injected between the tool_use and its results.
+
       {
         role: "user",
         content: [{ type: "text", text: "<system_reminder> The agent has finished." }],
@@ -191,8 +184,7 @@ describe("runtime transformMessages", () => {
       "user",
       "assistant",
     ]);
-    // Results sit immediately after the tool_use turn, in call order, with the
-    // real content (not a synthetic "No result provided") and no duplicates.
+
     const first = result[1] as Extract<Message, { role: "toolResult" }>;
     const second = result[2] as Extract<Message, { role: "toolResult" }>;
     expect(first.toolCallId).toBe("toolu_sched");

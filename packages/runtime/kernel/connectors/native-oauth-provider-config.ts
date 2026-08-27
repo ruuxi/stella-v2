@@ -870,13 +870,6 @@ export const hasNativeOAuthProviderTemplate = (id: string) => {
   );
 };
 
-/**
- * Affirmative, reviewed policy for generic OAuth-catalog dispatchers. Empty by
- * design today: the shipped local integrations are the separately enumerated
- * Google Workspace entries in native-integrations.ts. Adding a template or
- * OAuth config must never activate execution without a deliberate allowlist
- * change here.
- */
 const PRODUCTION_READY_LOCAL_OAUTH_PROVIDER_IDS = new Set<string>([]);
 
 export const isNativeOAuthLocalExecutionProductionReady = (id: string) =>

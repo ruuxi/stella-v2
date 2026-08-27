@@ -1,25 +1,3 @@
-/**
- * Per-turn primary-resource derivation.
- *
- *   1. Walk every `tool_result` in the turn and collect normalized
- *      `fileChanges` records (explicit edit provenance) plus
- *      Stella `producedFiles` records (user-facing outputs detected from
- *      shell/CLI side effects).
- *   2. Collect `referencedFilePaths` from
- *        - office preview refs (which are "look at this file" signals,
- *          not edits, so they belong with referenced files)
- *        - markdown links in the assistant message text
- *   3. Combine both pools (deduped by absolute path) and feed into
- *      `pickPrimaryEditedPath`:
- *      a single office/PDF/media artifact wins; otherwise we only
- *      surface a pill if the entire turn touched exactly one
- *      previewable file.
- *
- * The runtime is the source of truth for what was edited. The chat
- * surface no longer sniffs tool names like `Write`, `Edit`, or
- * `apply_patch` — any new file-mutating tool that emits structured
- * `fileChanges` automatically participates in the resource pill.
- */
 import { isOfficePreviewRef } from "@stella/contracts/office-preview";
 import { isFileChangeRecordArray, isProducedFileRecordArray, } from "@stella/contracts/file-changes";
 import { kindForPath, basenameOf, extensionOf, fileArtifactPayloadForPath, isDeclaredOutputPath, isDeveloperResourceExtension, isNoiseProducedPath, pickPrimaryEditedPath, } from "@/features/workspace-display/path-to-viewer";
@@ -75,9 +53,7 @@ const resolveRelativePathFromKnownAbsolute = (candidate, absoluteCandidates) => 
     const trimmed = asNonEmptyString(candidate);
     if (!trimmed || trimmed.startsWith("/"))
         return null;
-    // Without a turn cwd we can still dedupe common `./foo/bar.pdf` links by
-    // matching them against the absolute edited / referenced paths we already
-    // collected for this turn.
+
     if (trimmed.startsWith("../"))
         return null;
     const suffix = normalizePosixPath(trimmed).replace(/^\/+/, "");
@@ -86,30 +62,7 @@ const resolveRelativePathFromKnownAbsolute = (candidate, absoluteCandidates) => 
     const matches = absoluteCandidates.filter((existing) => existing === suffix || existing.endsWith(`/${suffix}`));
     return matches.length === 1 ? matches[0] : null;
 };
-/**
- * Inline-card file collection is orchestrator-DIRECT only. Delegated-agent
- * outputs are DELIBERATELY excluded here and surface as pills on that agent's
- * own completion card (see `AgentCompletionCard`) instead of rolling up as a
- * jumpy inline artifact card on the orchestrator's reply row. Prevention at
- * the source, not render-then-strip. Two delegated shapes to exclude:
- *
- *   - `agent-completed` lifecycle events (the end-of-run rollup carrying
- *     `agentId` + the run's full `fileChanges`/`producedFiles`).
- *   - MID-RUN `tool_result` events from a delegated agent's own tool calls:
- *     the runner forwards subagent tool ends into the conversation stream, so
- *     they land on the orchestrator's current assistant row stamped with the
- *     subagent's `agentType` (e.g. `general`, a custom subagent id) — but no
- *     `agentId`. Without this guard each such write pops a loose standalone
- *     pill while the agent is still working. Every mid-run write is also
- *     collected into that run's `agent-completed` rollup, so excluding it
- *     here loses nothing — it reappears inside the owning agent's completion
- *     card, per-agent even when several agents run concurrently.
- *
- * A `tool_result` with `agentType === "orchestrator"` (the same gate
- * `imageGenPayloadsByPath` / `orchestratorHtmlPayload` use) or with no
- * `agentType` at all (legacy persisted events, which predate the stamp and
- * were always orchestrator-direct) keeps rendering inline exactly as today.
- */
+
 const isDelegatedToolResult = (event) => {
     if (!isToolResult(event))
         return false;
@@ -125,10 +78,7 @@ const fileChangesForResult = (event) => {
         ?.fileChanges;
     return isFileChangeRecordArray(candidate) ? candidate : [];
 };
-/**
- * Post-change path of a file record (`move_path` wins for moves) — the
- * location surfaces would actually open.
- */
+
 const postChangePathForRecord = (record) => record.kind.type === "update" && record.kind.move_path
     ? record.kind.move_path
     : record.path;
@@ -139,9 +89,7 @@ const producedFilesForResult = (event) => {
         ?.producedFiles;
     if (!isProducedFileRecordArray(candidate))
         return [];
-    // Snapshot-detected outputs sweep up profile/cache/log noise alongside the
-    // real deliverables — drop the noise at the extraction choke point so every
-    // consumer in this module (produced pool, html-output payload) is covered.
+
     return candidate.filter((record) => !isNoiseProducedPath(postChangePathForRecord(record)));
 };
 const officeRefForResult = (event) => {
@@ -151,14 +99,7 @@ const officeRefForResult = (event) => {
         .officePreviewRef;
     return isOfficePreviewRef(ref) ? ref : null;
 };
-/**
- * Resolve a fileChange record into the canonical post-mutation path,
- * using the post-mutation path:
- *   - `update` with `move_path` → use the new location
- *   - `update` without `move_path` / `add` → use `path`
- *   - `delete` → produces no edited path; deleted files can't be
- *     previewed.
- */
+
 const resolveFileChange = (record, timestamp) => {
     const kindType = record.kind.type;
     if (kindType === "delete")
@@ -171,13 +112,7 @@ const resolveFileChange = (record, timestamp) => {
         return null;
     return { path: trimmed, kind: kindType, timestamp };
 };
-/**
- * Pull `image_gen` rich metadata (jobId / prompt / capability) out of a
- * tool_result so the in-sidebar viewer keeps its prompt context. We
- * still rely on the tool's `fileChanges` for path collection, but the
- * rich metadata lives in `details` and isn't part of the `fileChange`
- * contract.
- */
+
 const imageGenPayloadsByPath = (toolEvents) => {
     const byPath = new Map();
     for (const event of toolEvents) {
@@ -222,17 +157,7 @@ const imageGenPayloadsByPath = (toolEvents) => {
     }
     return byPath;
 };
-/**
- * Pull the orchestrator's last `html` tool result for this turn and build
- * a file-backed `canvas-html` payload from it. The tool writes a
- * self-contained HTML document under `~/.stella/outputs/html/<slug>.html` and
- * we surface it as both an inline artifact card AND a Canvas display tab.
- *
- * Mirrors `inlineImageGenSubmissionPayload`: orchestrator-only, latest
- * call wins (the assistant rarely emits more than one canvas per turn,
- * but if it does, the freshest one is the right artifact to anchor the
- * row).
- */
+
 const orchestratorHtmlPayload = (toolEvents) => {
     for (let index = toolEvents.length - 1; index >= 0; index -= 1) {
         const event = toolEvents[index];
@@ -267,19 +192,7 @@ const orchestratorHtmlPayload = (toolEvents) => {
     }
     return null;
 };
-/**
- * Pull a `canvas-html` payload from any tool-result this turn whose
- * `fileChanges` touch an `.html` file anywhere under `~/.stella/outputs/**`
- * (the declared deliverables dir — `outputs/html/` canvases included, but
- * also e.g. reports written straight to `outputs/report.html`, which are
- * user-facing documents, not developer source). Lets the general agent (or
- * any future tool that uses `apply_patch`/`exec_command`) write a canvas to
- * the conventional output dir and have it surface as an inline artifact +
- * Canvas tab, the same way the orchestrator's `html` tool does. The
- * orchestrator's richer (title-carrying) result is preferred — this is the
- * fallback when no orchestrator html tool was used. Latest write in the
- * turn wins.
- */
+
 const HTML_OUTPUT_PATH_RE = /(?:^|\/)(?:\.stella|state)\/outputs\/(?:.+\/)?([^/]+)\.html$/;
 const titleFromHtmlSlug = (slug) => {
     const trimmed = slug.trim();
@@ -294,10 +207,7 @@ const titleFromHtmlSlug = (slug) => {
 const fileChangeHtmlOutputPayload = (toolEvents) => {
     let latest = null;
     for (const event of toolEvents) {
-        // Orchestrator-DIRECT html writes only. Delegated-agent `agent-completed`
-        // events (which may fold an auto "finishing up" canvas into producedFiles)
-        // are excluded — that canvas surfaces as a pill on the agent's completion
-        // card, not as an inline orchestrator artifact.
+
         if (!isToolResult(event))
             continue;
         if (event.payload.error)
@@ -353,11 +263,7 @@ const orchestratorImageGenRecord = (event) => {
     return candidate;
 };
 const isOrchestratorInlineImageGenResult = (event) => orchestratorImageGenRecord(event) !== null;
-/**
- * One payload per orchestrator `image_gen` call in the turn. Each payload
- * may represent multiple images; the inline card group expands it into
- * one placeholder/card per image.
- */
+
 export const deriveTurnInlineImagePayloads = (toolEvents) => {
     const payloads = [];
     for (const event of toolEvents) {
@@ -395,11 +301,7 @@ export const deriveTurnInlineImagePayloads = (toolEvents) => {
     return payloads;
 };
 export const buildPayloadFromBarePath = (filePath, createdAt, options) => {
-    // HTML artifacts under `~/.stella/outputs/**` (canvases in `outputs/html/`
-    // plus reports/documents written anywhere in the outputs tree) need to
-    // surface as a `canvas-html` payload (not a generic .html source diff) so
-    // the home overview's Recent files list, the inline chat card, completion
-    // pills, and the workspace Canvas tab all open the same viewer.
+
     const htmlMatch = HTML_OUTPUT_PATH_RE.exec(filePath);
     if (htmlMatch) {
         const slug = htmlMatch[1];
@@ -462,9 +364,7 @@ export const buildPayloadFromBarePath = (filePath, createdAt, options) => {
                     createdAt,
                 };
             }
-            // Office files opened from bare edit paths still require a preview
-            // session ref. Plain text fallbacks are unsupported by the viewers
-            // today, so skip them rather than render a pill that does nothing.
+
             return null;
     }
 };
@@ -489,20 +389,7 @@ const requestIdForEvent = (event) => {
         ? payloadRequestId
         : undefined;
 };
-/**
- * Extract local file paths referenced via markdown links in the
- * assistant message text. Walk the markdown for link nodes, decode the url,
- * and discard anything that looks like an http(s) / mailto link or otherwise
- * isn't a local path.
- *
- * Uses a regex instead of a full markdown AST walk because we don't
- * already have the parsed tree on hand and the rules are simple.
- * Handles both `[text](url)` and `[text](<url>)` forms.
- */
-// Two forms, matched in one pass:
-//   - `[text](<url with spaces>)` → group 1 captures the angle-bracket
-//     payload, which is allowed to contain whitespace
-//   - `[text](url-without-spaces)` → group 2 captures the bare payload
+
 const MARKDOWN_LINK_RE = /\[[^\]]*?\]\(\s*(?:<([^>]+)>|([^()<>\s]+))\s*\)/g;
 const NON_FILE_URL_RE = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
 export const extractMarkdownLinkPaths = (assistantText) => {
@@ -539,23 +426,7 @@ const resolveReferencedMarkdownPath = (rawLinkPath, turnCwd, absoluteCandidates)
         resolveRelativePathFromKnownAbsolute(trimmed, absoluteCandidates) ??
         trimmed);
 };
-/**
- * Derive the primary `DisplayPayload` for a turn, or `null` if no
- * eligible artifact was touched.
- */
-/**
- * Collect this turn's developer-resource source-diff payloads, in
- * edit order. Returns an empty array when the setting is off or no
- * developer files were edited.
- *
- * The list size doubles as the "N file changes" label (the chat
- * surface uses `.length`), and the payloads themselves feed the
- * singleton "Code changes" tab batch on click.
- *
- * Tool-agnostic — any tool that emits `fileChanges` participates
- * (apply_patch carries the unified-diff text in `patch`; write/edit
- * tools fall back to the file-bytes preview in `SourceDiffTabContent`).
- */
+
 export const collectTurnSourceDiffPayloads = (toolEvents, options) => {
     if (options?.developerResourcesEnabled !== true)
         return [];
@@ -591,21 +462,12 @@ export const collectTurnSourceDiffPayloads = (toolEvents, options) => {
 export const deriveTurnResource = (toolEvents, assistantText = "", turnCwd, options) => {
     if (toolEvents.length === 0 && !assistantText)
         return null;
-    // The `html` canvas wins outright when present — its purpose is
-    // "show this canvas inline + open it in the panel", and an HTML
-    // canvas is never the same artifact as an unrelated edited file, so
-    // we skip the file-pool merge and surface it directly. The
-    // orchestrator's first-class `html` tool is preferred (it carries an
-    // explicit title); otherwise any other tool (e.g. the general agent
-    // via `apply_patch`/`exec_command`) writing to
-    // `~/.stella/outputs/html/*.html` is treated the same way.
+
     const htmlPayload = orchestratorHtmlPayload(toolEvents) ??
         fileChangeHtmlOutputPayload(toolEvents);
     if (htmlPayload)
         return htmlPayload;
-    // Build payloadByPath using rich signals (office previews + image_gen
-    // metadata) so the chosen path resolves to a previewer that keeps
-    // session ids / prompts / capability context.
+
     const payloadByPath = new Map();
     const imagePayloads = imageGenPayloadsByPath(toolEvents);
     for (const [filePath, payload] of imagePayloads) {
@@ -626,7 +488,7 @@ export const deriveTurnResource = (toolEvents, assistantText = "", turnCwd, opti
             payloadByPath.set(path, { kind: "office", previewRef: office });
         }
     }
-    // Edited pool = paths from explicit fileChange items.
+
     const editedPaths = [];
     const editedSeen = new Set();
     for (const event of toolEvents) {
@@ -655,9 +517,7 @@ export const deriveTurnResource = (toolEvents, assistantText = "", turnCwd, opti
             }
         }
     }
-    // Stella's produced-file pool = user-facing outputs detected from shell/CLI
-    // side effects or rolled up from child agents. These are not explicit edit
-    // artifacts, but they should still surface in Stella's chat.
+
     const producedPaths = [];
     const producedSeen = new Set();
     for (const event of toolEvents) {
@@ -683,8 +543,7 @@ export const deriveTurnResource = (toolEvents, assistantText = "", turnCwd, opti
             }
         }
     }
-    // Referenced pool = office preview ref source paths + markdown links in the
-    // assistant message text.
+
     const referencedPaths = [];
     const referencedSeen = new Set();
     const absoluteCandidates = [
@@ -705,11 +564,7 @@ export const deriveTurnResource = (toolEvents, assistantText = "", turnCwd, opti
     for (const linkPath of extractMarkdownLinkPaths(assistantText)) {
         pushReferenced(resolveReferencedMarkdownPath(linkPath, turnCwd, absoluteCandidates));
     }
-    // Within the produced pool, declared deliverables (`~/.stella/outputs/**`)
-    // outrank incidental writes elsewhere: `pickPrimaryEditedPath` returns the
-    // FIRST preferred-extension path, so ordering decides which file anchors
-    // the card when a run produced both (e.g. a rendered video in outputs plus
-    // scratch frames in a worktree).
+
     const rankedProducedPaths = [
         ...producedPaths.filter(isDeclaredOutputPath),
         ...producedPaths.filter((path) => !isDeclaredOutputPath(path)),

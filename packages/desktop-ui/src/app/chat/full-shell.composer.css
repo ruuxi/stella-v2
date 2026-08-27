@@ -1,4 +1,3 @@
-/* Composer — normal flow, centered within parent flex column */
 .composer {
   --full-chat-composer-max-width: 50rem;
   position: relative;
@@ -11,14 +10,13 @@
   padding: 4px 24px 10px;
 }
 
-/* === Shell: visual container with animated height + border-radius === */
 .composer-shell {
   position: relative;
   width: 100%;
   max-width: min(var(--full-chat-composer-max-width), calc(100% - 48px));
   background: var(--panel-surface-bg-gradient);
   border: 1px solid var(--panel-surface-border);
-  border-radius: 999px; /* CSS fallback; overridden by motion inline style */
+  border-radius: 999px;
   box-shadow: var(--shadow-sm), var(--panel-surface-highlight);
   overflow: clip;
   transition:
@@ -26,10 +24,6 @@
     border-color 200ms ease;
 }
 
-/* Anchor for the above-composer stack (assistant reply peek + suggestion
- * chips). Constrained to the same max-width as the shell so both align
- * with the input below, and `position: relative` so the peek can absolute-
- * position itself flush above the chips row. */
 .composer-context-peek-anchor {
   width: 100%;
   max-width: min(var(--full-chat-composer-max-width), calc(100% - 48px));
@@ -39,41 +33,33 @@
   width: 100%;
 }
 
-/* Lead row: the activity / search pill (when the left sidebar is
- * collapsed), then the auto-context suggestion lanes filling the remaining
- * width. */
 .composer-context-lead-row {
   display: flex;
   align-items: center;
   gap: 6px;
   width: 100%;
-  /* Nudge the whole row (pill + suggestions) in from the shell's left edge. */
+
   padding-left: 12px;
 }
 
 .composer-context-lead-row .composer-activity-pill-slot {
-  /* Match the suggestion row's bottom padding so both sit on one baseline. */
+
   margin-bottom: 4px;
 }
 
 .composer-context-lead-row .composer-context-actions--suggestions {
   flex: 1;
   min-width: 0;
-  /* The pill leads the row and the lead-row gap supplies the spacing, so
-   * the suggestion lanes carry no extra left inset — the pill→first-chip
-   * gap matches the gap between chips. */
+
   padding-left: 0;
 }
 
-/* Wraps the optional chip strip + form so the ResizeObserver can spring
- * the shell to the right height when chips appear/disappear. */
 .composer-shell-content {
   display: flex;
   flex-direction: column;
   width: 100%;
 }
 
-/* Strip of attached chips above the textarea row, inside the shell. */
 .composer-attached-strip {
   width: 100%;
   padding: 8px 14px 0;
@@ -85,7 +71,6 @@
   width: 100%;
 }
 
-/* Focus — border tint only; avoid stacking a thick ring on the resting shadow. */
 .composer-shell:focus-within {
   border-color: color-mix(in oklch, var(--primary) 18%, var(--border));
 }
@@ -98,7 +83,6 @@
     0 0 0 6px color-mix(in oklch, var(--primary) 10%, transparent);
 }
 
-/* === Form: layout only, no visual decoration === */
 .composer-form {
   display: flex;
   flex-direction: row;
@@ -120,7 +104,6 @@
   align-self: center;
 }
 
-/* Toolbar hidden in pill mode — buttons sit inline */
 .composer-toolbar {
   display: contents;
 }
@@ -139,7 +122,6 @@
   gap: 2px;
 }
 
-/* === Expanded: stacked rounded rectangle === */
 .composer-form.expanded {
   flex-direction: column;
   align-items: stretch;
@@ -158,7 +140,6 @@
   order: -1;
 }
 
-/* In expanded mode, the top-level add button moves into the toolbar visually */
 .composer-form.expanded > .composer-add-button {
   display: none;
 }
@@ -182,9 +163,6 @@
   gap: 8px;
 }
 
-/* Dictation row — only used when starting dictation with text already in the
- * input. The recording bar sits in its own row below the toolbar so the
- * user's typed message stays visible. */
 .composer-dictation-row {
   display: none;
 }
@@ -217,14 +195,12 @@
   box-shadow: var(--focus-ring);
 }
 
-/* Add button - circular with border */
 .composer-add-button {
   width: 32px;
   height: 32px;
   cursor: default;
 }
 
-/* Toolbar add button — hidden in pill mode, shown in expanded */
 .composer-add-button--toolbar {
   display: none;
 }
@@ -233,13 +209,11 @@
   display: inline-flex;
 }
 
-/* Submit button - circular, spring animation handled by motion */
 .composer-submit {
   width: 32px;
   height: 32px;
 }
 
-/* Mic / dictation button — same footprint as add/submit */
 .composer-mic {
   width: 32px;
   height: 32px;
@@ -252,8 +226,6 @@
   cursor: default;
 }
 
-/* Reduced motion — motion library handles spring animations natively;
-   only disable the remaining box-shadow CSS transition here. */
 @media (prefers-reduced-motion: reduce) {
   .composer-shell {
     transition: none;

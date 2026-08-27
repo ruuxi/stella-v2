@@ -1,34 +1,15 @@
-/**
- * Voice catalogs for the realtime voice providers Stella supports.
- *
- * Lives in `contracts/` because both:
- *   - the main process (ipc/voice-handlers.ts) needs to validate the
- *     user-selected voice before passing it to the ephemeral-token mint, and
- *   - the renderer (settings UI + provider modules) needs to render the
- *     picker rows.
- *
- * The catalogs are the source-of-truth list of *known* voices, but voice
- * IDs are passed through to the provider as opaque strings — that lets
- * xAI's custom-voice IDs (cloned from a reference clip) work without
- * changes here.
- */
-
 export type { RealtimeVoiceUnderlyingProvider } from "./local-preferences.js";
 import type { RealtimeVoiceUnderlyingProvider } from "./local-preferences.js";
 
 export interface RealtimeVoiceCatalogEntry {
-  /** Voice id passed to the provider verbatim. */
+
   id: string;
-  /** Short user-visible name. */
+
   label: string;
-  /** One-line tone/description shown under the label. */
+
   description: string;
 }
 
-/**
- * OpenAI Realtime voices (used by the OpenAI BYOK path AND by the
- * Stella-managed path, which mints OpenAI realtime tokens server-side).
- */
 export const OPENAI_REALTIME_VOICES: readonly RealtimeVoiceCatalogEntry[] = [
   {
     id: "marin",
@@ -45,10 +26,6 @@ export const OPENAI_REALTIME_VOICES: readonly RealtimeVoiceCatalogEntry[] = [
   { id: "verse", label: "Verse", description: "Smooth and lyrical." },
 ];
 
-/**
- * xAI Grok Voice Agent voices. The model also accepts custom voice IDs
- * cloned from a reference clip via xAI's Custom Voices API.
- */
 export const XAI_REALTIME_VOICES: readonly RealtimeVoiceCatalogEntry[] = [
   { id: "eve", label: "Eve", description: "Energetic and upbeat (default)." },
   { id: "ara", label: "Ara", description: "Warm and friendly." },
@@ -65,15 +42,6 @@ export const XAI_REALTIME_VOICES: readonly RealtimeVoiceCatalogEntry[] = [
   },
 ];
 
-/**
- * Inworld Realtime voice catalog — the curated set of voices available
- * on the Stella org's Inworld account. Steerable voices can be tuned
- * further via session config; non-steerable voices play as-is.
- *
- * Custom/cloned voice IDs from a user's own Inworld account also work
- * via the BYOK Inworld path — the voice id is passed through as an
- * opaque string. To add or remove default voices, edit this list.
- */
 export const INWORLD_REALTIME_VOICES: readonly RealtimeVoiceCatalogEntry[] = [
   { id: "Brooke", label: "Brooke", description: "English female (default)." },
   { id: "Evelyn", label: "Evelyn", description: "English female, warm." },
@@ -93,19 +61,12 @@ export const INWORLD_REALTIME_VOICES: readonly RealtimeVoiceCatalogEntry[] = [
   { id: "Theodore", label: "Theodore", description: "English male, older." },
 ];
 
-/** Default Inworld LLM router model id. Must match `provider/modelName`. */
 export const DEFAULT_INWORLD_REALTIME_MODEL = "xai/grok-4.3-latest";
-/** Default Inworld TTS model id. `inworld-tts-2-flash` is their lower-latency variant. */
+
 export const DEFAULT_INWORLD_REALTIME_TTS_MODEL = "inworld-tts-2-flash";
 
-/** xAI recommends short-lived browser tokens; Stella's leases are five minutes. */
 export const XAI_REALTIME_CLIENT_SECRET_TTL_SECONDS = 5 * 60;
 
-/**
- * xAI's client-secret endpoint accepts expiry configuration only. Realtime
- * session fields (voice, instructions, tools) are sent after the WebSocket
- * opens via `session.update`.
- */
 export const buildXaiRealtimeClientSecretRequest = (
   expiresAfterSeconds = XAI_REALTIME_CLIENT_SECRET_TTL_SECONDS,
 ): { expires_after: { seconds: number } } => ({
@@ -120,11 +81,7 @@ export const buildXaiRealtimeClientSecretRequest = (
     ),
   },
 });
-/**
- * Inworld TTS playback speed multiplier. 1.0 is real-time; >1 is faster.
- * Inworld accepts roughly 0.5–2.0 on `audio.output.speed`. 1.15 is a
- * subtle bump that feels noticeably snappier without sounding cartoonish.
- */
+
 export const DEFAULT_INWORLD_REALTIME_SPEED = 1.15;
 
 export const DEFAULT_OPENAI_REALTIME_VOICE = "marin";

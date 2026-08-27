@@ -1,11 +1,4 @@
 #!/usr/bin/env node
-// Resolve, print, and (by default) open the local Stella diagnostics log
-// directory for this checkout. Pass --print to only print the path.
-//
-// Logs live at ~/.stella/logs/<rootHash>/ where rootHash mirrors
-// runtime/worker/runtime-paths.ts (sha256 of the resolved stellaAppDir,
-// first 16 hex chars). Keep this in sync with that file.
-
 import crypto from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { existsSync, readdirSync, statSync } from 'node:fs'

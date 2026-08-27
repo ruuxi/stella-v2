@@ -1,14 +1,3 @@
-/**
- * Shared composer file-attachment plumbing.
- *
- * Both `useFileDrop` (drag-and-drop) and the composer "+" menu's file
- * picker need the same routing rules: image MIME types render as
- * `regionScreenshots` thumbnails, everything else becomes a `files`
- * badge. The processing also gates on a 20 MB per-file cap.
- *
- * `recent files` reuses the already-processed shape so it can re-attach
- * without going back through the FileReader pipeline.
- */
 import type { Dispatch, SetStateAction } from "react";
 import type { ChatContext, ChatContextFile } from "@/shared/types/electron";
 
@@ -36,7 +25,6 @@ const ATTACHMENT_IMAGE_MIME_TYPES: ReadonlySet<string> = new Set([
   "image/svg+xml",
 ]);
 
-/** Max raw file size (20 MB). Matches the historical drag-drop cap. */
 const ATTACHMENT_MAX_FILE_SIZE = 20 * 1024 * 1024;
 
 type SetChatContext = Dispatch<SetStateAction<ChatContext | null>>;
@@ -51,7 +39,6 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
-/** Longest edge of the downscaled preview rendered in chips and rows. */
 const PREVIEW_MAX_EDGE_PX = 1024;
 
 function loadImageElement(dataUrl: string): Promise<HTMLImageElement | null> {
@@ -78,14 +65,6 @@ function encodePreview(
   return canvas.toDataURL("image/webp", 0.8);
 }
 
-/**
- * Single decode pass per attached image: dimensions plus a downscaled
- * preview data URL. `createImageBitmap` decodes off the main thread;
- * SVG (unsupported there in Chromium) falls back to an `<img>` decode.
- * Full-resolution decode happens once here instead of on every render
- * of every chip — attaching ~10 full-res screenshots used to freeze the
- * composer because each chip `<img>` rasterized the original.
- */
 async function decodeImageAttachment(
   file: File,
   dataUrl: string,
@@ -106,15 +85,6 @@ async function decodeImageAttachment(
   }
 }
 
-/**
- * Path-backed attach: the fast path for picker/drag-drop images. The
- * renderer decodes the file once into a small preview and keeps only
- * `{ filePath, previewUrl }` in state — the original bytes never enter
- * renderer memory or the send IPC payload; the runtime worker reads and
- * resizes them from disk. Returns null when the File has no on-disk path
- * (synthetic files) or preview decoding fails, in which case the caller
- * falls back to the inline base64 pipeline.
- */
 async function processPathBackedImage(
   file: File,
 ): Promise<AttachedScreenshot | null> {
@@ -136,11 +106,6 @@ function isAttachableImage(mimeType: string): boolean {
   return ATTACHMENT_IMAGE_MIME_TYPES.has(mimeType);
 }
 
-/**
- * Process raw `File` objects into the chatContext-shaped attachment
- * payload. Files exceeding {@link ATTACHMENT_MAX_FILE_SIZE} are silently
- * dropped; per-file read failures are skipped without throwing.
- */
 async function processInputFiles(
   files: readonly File[],
 ): Promise<ProcessedAttachments> {
@@ -164,8 +129,7 @@ async function processInputFiles(
   const fileResults = await Promise.allSettled(
     otherFiles.map(async (file): Promise<AttachedFile> => {
       const dataUrl = await readFileAsDataUrl(file);
-      // Keep the on-disk path (when the File is disk-backed) so the chip
-      // can open the original in its default app for preview.
+
       const path = window.electronAPI?.files?.getPathForFile?.(file) || undefined;
       return {
         name: file.name,
@@ -193,11 +157,6 @@ async function processInputFiles(
   };
 }
 
-/**
- * Apply already-processed attachments to a `setChatContext` setter,
- * appending to any existing screenshots/files. Returns false when there
- * was nothing to apply so callers can short-circuit UI updates.
- */
 export function applyProcessedAttachments(
   attachments: ProcessedAttachments,
   setChatContext: SetChatContext,
@@ -223,11 +182,6 @@ export function applyProcessedAttachments(
   return true;
 }
 
-/**
- * Convenience: process a `File[]` and apply the result in one call.
- * Returns the processed payload so callers (e.g. the "+" menu's recent
- * files cache) can persist a copy of what was just attached.
- */
 export async function attachFilesToContext(
   files: readonly File[],
   setChatContext: SetChatContext,

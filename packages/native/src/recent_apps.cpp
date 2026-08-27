@@ -1,19 +1,3 @@
-// recent_apps.exe - Enumerate user-facing top-level windowed processes for
-// the home "recent apps" context chips. Replaces a per-poll PowerShell
-// snapshot (PowerShell cold start + Get-Process MainWindowHandle + per-process
-// MainModule.FileName) with a single in-process EnumWindows walk.
-//
-// Output: JSON array, one entry per windowed process (deduped by pid):
-//   [{"ProcessName":"chrome","Id":1234,"MainWindowTitle":"...",
-//     "IsActive":true,"ExecutablePath":"C:\\Program Files\\..."}]
-// Matches the field shape the renderer already parses from the PowerShell
-// path so the desktop-side cleaning/filtering code is shared.
-//
-// `recent_apps.exe --serve` keeps the process alive and answers many list
-// requests over stdin/stdout (line-delimited, see runServeLoop), so the home
-// poll costs a pipe write instead of a CreateProcess + Defender scan per tick.
-//
-// Compile: cl /O2 /EHsc recent_apps.cpp /link user32.lib dwmapi.lib /OUT:recent_apps.exe
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <dwmapi.h>
@@ -126,7 +110,7 @@ static bool hasElapsedBudget()
     return g_startedAt != 0 && GetTickCount64() - g_startedAt >= ENUM_BUDGET_MS;
 }
 
-static BOOL CALLBACK enumWindowsProc(HWND hwnd, LPARAM /*lparam*/)
+static BOOL CALLBACK enumWindowsProc(HWND hwnd, LPARAM )
 {
     if (g_entries.size() >= g_rawEntryLimit || hasElapsedBudget())
     {
@@ -142,9 +126,6 @@ static BOOL CALLBACK enumWindowsProc(HWND hwnd, LPARAM /*lparam*/)
         return TRUE;
     }
 
-    // Alt-tab style heuristic: only user-facing top-level app windows. Skip
-    // tool windows and any window that isn't its own root owner (dialogs,
-    // owned popups), which is roughly what `MainWindowHandle` surfaced.
     if (GetAncestor(hwnd, GA_ROOTOWNER) != hwnd)
     {
         return TRUE;
@@ -162,8 +143,6 @@ static BOOL CALLBACK enumWindowsProc(HWND hwnd, LPARAM /*lparam*/)
         return TRUE;
     }
 
-    // Dedup by pid. EnumWindows walks top-of-z-order first, so the first
-    // window seen for a pid is its topmost.
     for (size_t i = 0; i < g_entries.size(); ++i)
     {
         if (g_entries[i].pid == pid)
@@ -181,8 +160,6 @@ static BOOL CALLBACK enumWindowsProc(HWND hwnd, LPARAM /*lparam*/)
         CloseHandle(hProc);
     }
 
-    // Process name = exe basename without extension (matches PowerShell's
-    // Get-Process ProcessName; the renderer also strips ".exe" defensively).
     const char* base = exePath;
     for (const char* p = exePath; *p; ++p)
     {
@@ -218,9 +195,6 @@ static BOOL CALLBACK enumWindowsProc(HWND hwnd, LPARAM /*lparam*/)
     return g_entries.size() < g_rawEntryLimit && !hasElapsedBudget();
 }
 
-// Run one enumeration pass and return the JSON array. Resets all the file-scope
-// enumeration globals first so the same process can answer many --serve requests
-// without state from a prior request leaking in.
 static std::string listAppsJson(size_t requestedLimit)
 {
     g_entries.clear();
@@ -264,7 +238,6 @@ static std::string listAppsJson(size_t requestedLimit)
     return out;
 }
 
-// Parse `--limit=N` from a single --serve request's tab-separated tokens.
 static size_t parseLimitFromTokens(const std::vector<std::string>& tokens)
 {
     const char prefix[] = "--limit=";
@@ -287,9 +260,6 @@ static size_t parseLimitFromTokens(const std::vector<std::string>& tokens)
     return DEFAULT_REQUEST_LIMIT;
 }
 
-// Persistent daemon: answer many list requests over stdin/stdout instead of one
-// CreateProcess per poll (Windows spawn + AV scan is the cost). Protocol matches
-// window_info.cpp --serve: request `<id>\t<token>...`, response `<id>\t<json>\n`.
 static int runServeLoop()
 {
     std::string line;

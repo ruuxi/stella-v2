@@ -1,17 +1,3 @@
-/**
- * Capability gating for HTTP routes.
- *
- * `requireCapabilityAction` mirrors `requireSignedInAccountAction`'s shape —
- * either an `ok: true` result carrying the resolved managed access, or an
- * `ok: false` result carrying the Response to return verbatim — so a route
- * gains a plan gate with the same two lines it already spends on auth.
- *
- * The denial is a 402 whose body is machine-readable end to end: the
- * renderer reads `capability` / `audience` / `minimumPlan` to build its
- * upgrade toast without re-deriving an entitlement decision, and the
- * `[capability/<id>]` marker inside `error` keeps the older
- * flatten-to-a-string error paths classifying correctly.
- */
 import type { ActionCtx } from "../_generated/server";
 import type { Capability, CapabilityDenial } from "../capability_contract";
 import {
@@ -28,13 +14,6 @@ type CapabilityRequiredOptions = {
   docsUrl?: string;
 };
 
-/**
- * HTTP 402 Payment Required — the caller is authenticated and inside their
- * usage budget, they simply do not own this surface. Deliberately not 403:
- * `403` already means "bad credential" to the shared error classifier, and
- * conflating the two would send users to the sign-in flow instead of the
- * upgrade flow.
- */
 export const capabilityRequiredResponse = (
   denial: CapabilityDenial,
   origin: string | null,

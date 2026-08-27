@@ -13,7 +13,6 @@ import { AGENT_IDS, BACKEND_TOOL_IDS } from "../lib/agent_constants";
 import { BUILTIN_OWNER_ID } from "../lib/owner_ids";
 import { coerceStringArray } from "../lib/coerce";
 
-// Agent config response (without _id, _creationTime, model)
 const agentConfigValidator = v.object({
   id: v.string(),
   name: v.string(),
@@ -27,7 +26,6 @@ const agentConfigValidator = v.object({
   updatedAt: v.number(),
 });
 
-// Inferred types from validators for type-safe sanitization
 type AgentConfig = Infer<typeof agentConfigValidator>;
 
 type AgentRecord = {
@@ -116,7 +114,6 @@ const normalizeAgent = (value: unknown): AgentRecord | null => {
   };
 };
 
-/** Strip model, _id, _creationTime for config responses */
 const toAgentConfig = (agent: Record<string, unknown>): AgentConfig => {
   const {
     model: _model,
@@ -218,25 +215,13 @@ const getAgentConfigHandler = async (
     (agent) => agent.id === args.agentType,
   );
   if (builtin) {
-    // Use the static `updatedAt` from the in-memory definition rather than
-    // `Date.now()` here. Calling `Date.now()` from a query handler defeats
-    // Convex's deterministic-result caching for `useQuery` subscribers — the
-    // result would invalidate on every read even though nothing has actually
-    // changed. The mutation that *writes* a builtin row (`ensureBuiltins`)
-    // still stamps `Date.now()`; queries should read whatever value is on
-    // the row.
+
     return toAgentConfig(builtin);
   }
 
   throw new ConvexError(`Unknown agent type: "${args.agentType}"`);
 };
 
-/**
- * Helper export for callers that want to resolve agent config inside their
- * own query handler — e.g. the bundled `agentRuntimeContext` reader in
- * `prompt_builder.ts` — without paying the round-trip cost of an extra
- * `ctx.runQuery(internal.agent.agents.getAgentConfigInternal, ...)`.
- */
 export const resolveAgentConfig = (
   ctx: QueryCtx,
   args: { agentType: string; ownerId?: string },

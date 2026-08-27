@@ -75,8 +75,7 @@ describe("launchWindowsUpdateSplash", () => {
       string[],
     ];
     expect(command).toBe(stagedExe);
-    // The helper watches for the relaunched app by exe name AND install dir,
-    // so an unrelated Stella.exe elsewhere can never dismiss the splash.
+
     expect(args).toEqual([
       "--parent-pid",
       "4242",

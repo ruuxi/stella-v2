@@ -10,14 +10,6 @@ type OwnedWindowSenderEvent = Pick<
   "sender" | "senderFrame"
 >;
 
-/**
- * Trust the main frame of a BrowserWindow Stella created itself.
- *
- * Packaged Windows file URLs can differ from the on-disk path used to seed
- * renderer URL trust (drive aliases and path normalization are the common
- * offenders). The WebContents identity is stable across those differences.
- * Child frames remain excluded so embedded content cannot inherit this trust.
- */
 export const isOwnedWindowMainFrameSender = (
   event: OwnedWindowSenderEvent,
   windows: readonly OwnedWindow[],

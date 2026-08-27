@@ -56,8 +56,7 @@ describe("billing audience model restrictions", () => {
 
 describe("capability audience", () => {
   it("collapses over-cap fallbacks onto their plan", () => {
-    // Being over a usage window is a usage problem, not an entitlement
-    // one — a Pro user who spent this week's budget still has Pro.
+
     expect(toCapabilityAudience("go_fallback")).toBe("go");
     expect(toCapabilityAudience("pro_fallback")).toBe("pro");
     expect(toCapabilityAudience("anonymous")).toBe("anonymous");

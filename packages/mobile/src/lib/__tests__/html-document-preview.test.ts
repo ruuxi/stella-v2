@@ -15,7 +15,7 @@ describe("prepareDocumentHtml", () => {
     expect(out).toContain(BASE_MARKER);
     expect(out).toContain(`background-color: ${DOCUMENT_PAGE_BACKGROUND}`);
     expect(out).toContain("color-scheme: light");
-    // Baseline precedes the author stylesheet so author rules win.
+
     expect(out.indexOf(BASE_MARKER)).toBeLessThan(
       out.indexOf("body { color: #111; }"),
     );
@@ -47,7 +47,7 @@ describe("prepareDocumentHtml", () => {
     const html =
       "<html><head><style>html { background: #0b0b0b; color: #eee; }</style></head><body></body></html>";
     const out = prepareDocumentHtml(html);
-    // Author rule still present and later in the cascade than the baseline.
+
     expect(out.indexOf(BASE_MARKER)).toBeLessThan(
       out.indexOf("background: #0b0b0b"),
     );
@@ -61,7 +61,7 @@ describe("prepareDocumentHtml", () => {
   test("does not treat <header> as <head>", () => {
     const html = "<html><body><header>h</header></body></html>";
     const out = prepareDocumentHtml(html);
-    // Injected after <html>, not inside <header>.
+
     expect(out.indexOf(BASE_MARKER)).toBeLessThan(out.indexOf("<body>"));
   });
 });

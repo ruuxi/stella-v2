@@ -436,9 +436,6 @@ describe("fileChanges emission", () => {
     };
     const filePath = path.join(root, "background-render.mp4");
 
-    // Long-running command that writes the deliverable AFTER the initial
-    // yield, so exec_command returns a running session_id and never drains
-    // produced files inline.
     const started = await handleExecCommand(
       shellState,
       {
@@ -451,13 +448,9 @@ describe("fileChanges emission", () => {
     const sessionId = (started.details as { session_id: string | null })
       .session_id;
     expect(typeof sessionId).toBe("string");
-    // Still running: nothing produced inline yet.
+
     expect(started.producedFiles).toBeUndefined();
 
-    // Wait for the command to finish (record.running flips via the child
-    // 'exit' handler) WITHOUT ever polling the session, mirroring an agent
-    // that ended its turn before the render completed. The produced files
-    // therefore stay undrained on the record.
     const record = shellState.shells.get(sessionId as string);
     expect(record).toBeDefined();
     const deadline = Date.now() + 5000;
@@ -466,19 +459,15 @@ describe("fileChanges emission", () => {
     }
     expect(record?.running).toBe(false);
 
-    // A drain scoped to an unrelated session recovers nothing.
     expect(
       await drainCompletedProducedFiles(shellState, ["no-such-session"]),
     ).toEqual([]);
 
-    // The finalize sweep pulls the late deliverable in for the rollup.
     const drained = await drainCompletedProducedFiles(shellState, [
       sessionId as string,
     ]);
     expect(drained).toEqual([{ path: filePath, kind: { type: "add" } }]);
 
-    // One-shot: a second sweep (or any later poll) reveals nothing, so the
-    // completion rollup never double-reports.
     expect(
       await drainCompletedProducedFiles(shellState, [sessionId as string]),
     ).toEqual([]);
@@ -503,9 +492,6 @@ describe("fileChanges emission", () => {
     await writeFile(path.join(root, "b.txt"), "beta\n", "utf-8");
     const shellState = createShellState(root);
 
-    // `bash -c` is not on the known-safe list, so the snapshot machinery
-    // runs — and must find nothing, because reading files is not producing
-    // them.
     const result = await handleExecCommand(
       shellState,
       {
@@ -526,9 +512,6 @@ describe("fileChanges emission", () => {
     const dataDir = path.join(external, "stella-data");
     const shellState = createShellState(root);
 
-    // Simulates a launched dev instance seeding its fresh data dir with
-    // bundled agent/skill manifests: the command mentions the dir (making it
-    // an external snapshot candidate) and 20 files appear inside it.
     const seed = Array.from(
       { length: 20 },
       (_, index) => `printf x > "${dataDir}/agent-${index}.md"`,
@@ -558,8 +541,6 @@ describe("fileChanges emission", () => {
     );
     const shellState = createShellState(root);
 
-    // Rewrite every tracked file in place (what git checkout / worktree sync
-    // does): none of these are deliverables the agent produced.
     const result = await handleExecCommand(
       shellState,
       {
@@ -583,8 +564,7 @@ describe("fileChanges emission", () => {
     const result = await handleExecCommand(
       shellState,
       {
-        // Two deliverables plus collection-time noise: a log file and a
-        // hidden profile dir. Only the deliverables may surface.
+
         cmd: "printf '# r' > report.md && printf 'a,b' > data.csv && printf noise > run.log && mkdir -p .profile && printf x > .profile/state",
         workdir: root,
         yield_time_ms: 5000,

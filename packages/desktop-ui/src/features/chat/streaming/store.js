@@ -12,16 +12,7 @@ const toToolCallKey = (args) => {
         return `${args.runId}:${toolName}`;
     return `${args.runId}:tool`;
 };
-/**
- * Resolve which active tool-call a `tool-end` refers to, tolerant of the
- * runtime keying the end event differently from its start (e.g. a
- * `toolCallId` on start but only a `toolName` on end). A `tool-end` whose
- * exact key is missing must still clear the in-flight tool — otherwise a
- * phantom entry pins `isToolActive` true and the working indicator stays
- * stuck on a tool label until the run finishes. Returns `null` only when
- * nothing can be safely matched (so concurrent tools never clear the wrong
- * entry).
- */
+
 const resolveToolEndKey = (activeToolCalls, action) => {
     const exact = toToolCallKey(action);
     if (exact in activeToolCalls)
@@ -40,7 +31,7 @@ const resolveToolEndKey = (activeToolCalls, action) => {
             return lastMatch;
     }
     const keys = Object.keys(activeToolCalls);
-    // With a single tool in flight, an unresolved end unambiguously closes it.
+
     if (keys.length === 1)
         return keys[0];
     return null;
@@ -105,11 +96,7 @@ export function streamStoreReducer(state, action) {
             };
         }
         case 'assistant-message-boundary': {
-            // A preamble message that ends with a tool call is interim, not the
-            // final answer. Record that a tool is expected next so the working
-            // indicator's label/tool tracking stays coherent across the gap
-            // before `tool-start` arrives.
-            // No-op for a plain boundary (the run's final answer).
+
             if (!action.followedByToolCall) {
                 return state;
             }
@@ -145,9 +132,7 @@ export function streamStoreReducer(state, action) {
                     [action.runId]: {
                         ...current,
                         hasToolActivity: true,
-                        // `pendingToolAfterPreamble` is released in `tool-end`, once
-                        // the whole tool phase is over — not here, so parallel tool
-                        // calls keep it set for the duration.
+
                         statusText: action.statusText ?? current.statusText,
                         latestCompletedTool: null,
                         activeToolCalls: {
@@ -183,9 +168,7 @@ export function streamStoreReducer(state, action) {
                     [action.runId]: {
                         ...current,
                         hasToolActivity: true,
-                        // Release the preamble marker only once the whole tool phase is
-                        // over (no tool still in flight); that also covers parallel
-                        // tool calls.
+
                         ...(toolPhaseOver ? { pendingToolAfterPreamble: false } : {}),
                         statusText: nextActiveTool?.statusText ?? null,
                         latestCompletedTool: action.toolName || endedTool?.toolName

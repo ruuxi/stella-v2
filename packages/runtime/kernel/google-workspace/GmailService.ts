@@ -1,9 +1,3 @@
-/**
- * @license
- * Copyright 2025 Google LLC
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { google, gmail_v1 } from 'googleapis';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -18,7 +12,6 @@ import {
 import { createGoogleClientOptions } from './GaxiosConfig.js';
 import { emailArraySchema } from './validation.js';
 
-// Type definitions for email parameters
 type SendEmailParams = {
   to: string | string[];
   subject: string;
@@ -50,9 +43,6 @@ export class GmailService {
     });
   }
 
-  /**
-   * Helper method to handle errors consistently across all methods
-   */
   private handleError(error: unknown, context: string) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     logToFile(`Error during ${context}: ${errorMessage}`);
@@ -143,7 +133,6 @@ export class GmailService {
 
       const message = response.data;
 
-      // Extract useful information based on format
       if (format === 'metadata' || format === 'full') {
         const headers = message.payload?.headers || [];
         const getHeader = (name: string) =>
@@ -154,7 +143,6 @@ export class GmailService {
         const to = getHeader('To');
         const date = getHeader('Date');
 
-        // Extract body and attachments for full format
         let body = '';
         let attachments: GmailAttachment[] = [];
         if (format === 'full' && message.payload) {
@@ -231,10 +219,8 @@ export class GmailService {
         throw new Error('Attachment data is empty');
       }
 
-      // Ensure directory exists
       await fs.mkdir(path.dirname(localPath), { recursive: true });
 
-      // Write file
       const buffer = Buffer.from(data, 'base64url');
       await fs.writeFile(localPath, buffer);
 
@@ -421,7 +407,7 @@ export class GmailService {
     isHtml = false,
   }: SendEmailParams) => {
     try {
-      // Validate email addresses
+
       try {
         emailArraySchema.parse(to);
         if (cc) emailArraySchema.parse(cc);
@@ -443,7 +429,6 @@ export class GmailService {
 
       logToFile(`Sending email to: ${to}, subject: ${subject}`);
 
-      // Create MIME message
       const mimeMessage = MimeHelper.createMimeMessage({
         to: Array.isArray(to) ? to.join(', ') : to,
         subject,
@@ -499,7 +484,6 @@ export class GmailService {
 
       const gmail = await this.getGmailClient();
 
-      // If threadId is provided, fetch the last message to get reply headers
       let inReplyTo: string | undefined;
       let references: string | undefined;
       if (threadId) {
@@ -535,7 +519,6 @@ export class GmailService {
         }
       }
 
-      // Create MIME message
       const mimeMessage = MimeHelper.createMimeMessage({
         to: Array.isArray(to) ? to.join(', ') : to,
         subject,
@@ -718,12 +701,11 @@ export class GmailService {
   ) {
     if (!payload) return result;
 
-    // Handle body parts
     if (payload.body?.data) {
-      // If it's the main body (and not an attachment)
+
       if (!payload.filename || !payload.body.attachmentId) {
         if (payload.mimeType?.startsWith('text/')) {
-          // Prioritize plain text over HTML for direct body extraction
+
           if (!result.body || payload.mimeType === 'text/plain') {
             result.body = Buffer.from(payload.body.data, 'base64').toString(
               'utf-8',
@@ -733,13 +715,12 @@ export class GmailService {
       }
     }
 
-    // Handle attachments and recursive parts
     if (payload.filename && payload.body?.attachmentId) {
       result.attachments.push({
         filename: payload.filename,
         mimeType: payload.mimeType,
         attachmentId: payload.body.attachmentId,
-        size: payload.body.size, // Size in bytes
+        size: payload.body.size,
       });
     }
 

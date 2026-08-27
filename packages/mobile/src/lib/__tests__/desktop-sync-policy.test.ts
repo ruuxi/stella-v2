@@ -113,8 +113,7 @@ describe("shouldArmDesktopTaskPoll", () => {
   });
 
   test("stays armed while the push socket is connected (build-94 regression)", () => {
-    // The pill's task snapshots ride these pulls; push must relax the
-    // cadence, never fully suspend the poll while a task is running.
+
     expect(shouldArmDesktopTaskPoll(base)).toBe(true);
     expect(desktopTaskPollIntervalMs(false)).toBe(DESKTOP_TASK_POLL_MS);
     expect(desktopTaskPollIntervalMs(true)).toBe(
@@ -156,9 +155,7 @@ describe("shouldSyncOnLocalChatPush", () => {
 
 describe("shouldDeferLocalChatPushDuringSend", () => {
   test("mid-send pushes are deferred, not dropped", () => {
-    // The turn's own agent-started/task events broadcast while sending; the
-    // flush after the send is what re-delivers the running-task snapshot if
-    // the reconcile raced the desktop persisting those rows.
+
     expect(
       shouldDeferLocalChatPushDuringSend({
         storageLoaded: true,
@@ -171,7 +168,7 @@ describe("shouldDeferLocalChatPushDuringSend", () => {
         sending: false,
       }),
     ).toBe(false);
-    // Pre-hydration pushes stay dropped: the landing sync re-pulls anyway.
+
     expect(
       shouldDeferLocalChatPushDuringSend({
         storageLoaded: false,
@@ -321,44 +318,30 @@ describe("desktopSyncPullPlan", () => {
     ).toBe(true);
   });
 
-  /**
-   * The production failure this exists for: the desktop's delta filter is
-   * strictly `(created_at, id) > cursor`, and the cursor is minted from the
-   * newest *source event* the last pull saw. Rows can land at-or-behind the
-   * cursor (backdated caller timestamps, same-millisecond inserts with a
-   * smaller random id, >maxMessages truncation) — a "cursor-ahead" state in
-   * which every delta, including Force Sync's, returns zero rows while the
-   * desktop transcript plainly has them. This models the desktop filter and
-   * shows the delta stays empty forever while the catch-up plan's full window
-   * delivers the rows.
-   */
   test("cursor-ahead: deltas are permanent no-ops, the catch-up full pull heals", () => {
     type Row = { createdAt: number; id: string };
     const desktopRows: Row[] = [
       { createdAt: 1_000, id: "a" },
-      // Same-stamp row whose id sorts BELOW the cursor id — behind the cursor.
+
       { createdAt: 2_000, id: "b" },
-      // Backdated insert: appended after the phone's last pull but stamped
-      // earlier than the cursor.
+
       { createdAt: 1_500, id: "z-late" },
     ];
-    // Cursor minted from a newer source event (e.g. a tool lifecycle row).
+
     const cursor = { createdAt: 2_000, id: "c-tool-event" };
     const afterCursor = (row: Row) =>
       row.createdAt > cursor.createdAt ||
       (row.createdAt === cursor.createdAt && row.id > cursor.id);
 
-    // Every delta pull: nothing, forever.
     expect(desktopRows.filter(afterCursor)).toEqual([]);
 
-    // The catch-up plan refuses the delta…
     const plan = desktopSyncPullPlan({
       catchUp: true,
       expectedConversationId: "conv-1",
       cursor: "1:2000:c-tool-event",
     });
     expect(plan.sinceCursor).toBeNull();
-    // …and the full-window read (no cursor filter) returns all rows.
+
     expect(desktopRows.length).toBe(3);
   });
 

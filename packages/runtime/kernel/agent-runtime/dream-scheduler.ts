@@ -1,33 +1,3 @@
-/**
- * Dream Protocol scheduler.
- *
- * Dream consolidation is driven by orchestrator context growth, not by
- * per-event pings:
- *   - `token_interval`  — the orchestrator thread has grown ~`tokenInterval`
- *                         tokens since the last run (default 20k). Keeps
- *                         durable memory reasonably fresh during normal use.
- *   - `pre_compaction`  — the orchestrator thread is about to compact; flush a
- *                         consolidation so anything accumulated since the last
- *                         interval is folded before the middle is summarized.
- *   - `startup_catchup` — app just started; drain anything left over from a
- *                         previous session that ended before consolidating.
- *   - `manual`          — user clicked "Run Dream now".
- *
- * Eligibility: there must be unprocessed Dream-inbox rows (thread summaries,
- * memory notes). `token_interval` additionally requires the
- * ~`tokenInterval` growth; `pre_compaction`, `startup_catchup`, and `manual`
- * run whenever anything is pending. Dream reads the durable inbox (not the
- * live transcript), so its cadence is independent of compaction — the
- * orchestrator already holds recent context in-window, so nothing needs to be
- * forced into durable memory until it grows past the interval or is about to
- * compact.
- *
- * Single-flight: only one Dream run may execute at a time, via a mkdir lock
- * under `.stella/locks/dream/`.
- *
- * Fire-and-forget: callers `void maybeSpawnDreamRun(...)` and never await it.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 
@@ -77,7 +47,7 @@ type DreamConfig = {
 type DreamRuntimeState = {
   inFlight: boolean;
   lastRunAt: number;
-  /** Orchestrator token estimate captured at the last Dream run. */
+
   tokensAtLastRun: number;
 };
 
@@ -112,7 +82,7 @@ const acquireLock = (stellaDataDir: string): (() => void) | null => {
       try {
         fs.rmSync(dir, { recursive: true, force: true });
       } catch {
-        // best-effort
+
       }
     };
   } catch (error) {
@@ -122,7 +92,7 @@ const acquireLock = (stellaDataDir: string): (() => void) | null => {
       });
       return null;
     }
-    // Stale lock check: remove if older than 30 min.
+
     try {
       const stat = fs.statSync(dir);
       if (Date.now() - stat.mtimeMs > 30 * 60 * 1000) {
@@ -130,7 +100,7 @@ const acquireLock = (stellaDataDir: string): (() => void) | null => {
         return acquireLock(stellaDataDir);
       }
     } catch {
-      // ignore
+
     }
     return null;
   }
@@ -143,9 +113,7 @@ const readDreamConfig = (stellaDataDir: string): DreamConfig => {
     const parsed = JSON.parse(raw) as { dream?: Partial<DreamConfig> };
     const dream = parsed.dream ?? {};
     return {
-      // Dream is on by default and consolidates the Dream inbox into the
-      // durable on-disk memory layout. The only way it stays off is if the
-      // user explicitly sets `dream.enabled: false` in `.stella/config.json`.
+
       enabled: dream.enabled !== false,
       tokenInterval:
         typeof dream.tokenInterval === "number" && dream.tokenInterval > 0
@@ -373,11 +341,7 @@ export type SpawnDreamArgs = {
   store: RuntimeStore;
   resolvedLlm: ResolvedLlmRoute;
   trigger: SpawnDreamTrigger;
-  /**
-   * Orchestrator thread token estimate for this finalize. Required for
-   * `token_interval` gating (growth since the last run); ignored by other
-   * triggers, which run whenever anything is pending.
-   */
+
   orchestratorTokenEstimate?: number;
 };
 
@@ -399,10 +363,6 @@ export type SpawnDreamResult = {
   detail?: string;
 };
 
-/**
- * Decide whether to fire a Dream run, then fire it asynchronously. Never
- * throws; never blocks the caller.
- */
 export const maybeSpawnDreamRun = async (
   args: SpawnDreamArgs,
 ): Promise<SpawnDreamResult> => {
@@ -446,12 +406,6 @@ export const maybeSpawnDreamRun = async (
     };
   }
 
-  // `token_interval` is the only gated trigger; `pre_compaction`,
-  // `startup_catchup`, and `manual` run whenever there is pending material.
-  // The interval baseline follows compaction down: if the estimate dropped
-  // below the last baseline (a compaction shrank the thread), reset the
-  // baseline so growth is measured from the new floor rather than never
-  // re-arming.
   if (args.trigger === "token_interval") {
     const estimate = args.orchestratorTokenEstimate;
     if (typeof estimate === "number" && estimate < state.tokensAtLastRun) {

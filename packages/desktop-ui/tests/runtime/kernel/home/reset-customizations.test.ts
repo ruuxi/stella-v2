@@ -63,14 +63,13 @@ describe("resetStellaCustomizations", () => {
     );
     expect(result.trashDir).toBeTruthy();
 
-    // Cleared from the live locations…
     await expect(
       readFile(path.join(home, "agents", "general.md"), "utf-8"),
     ).rejects.toThrow();
     await expect(
       readFile(path.join(home, "skills", "pdf", "SKILL.md"), "utf-8"),
     ).rejects.toThrow();
-    // …but preserved in the trash for undo.
+
     await expect(
       readFile(path.join(result.trashDir!, "agents", "general.md"), "utf-8"),
     ).resolves.toBe("overlay");
@@ -81,7 +80,6 @@ describe("resetStellaCustomizations", () => {
       ),
     ).resolves.toBe("fork");
 
-    // Purely user-created skills are not customizations of shipped content.
     await expect(
       readFile(path.join(home, "skills", "my-skill", "SKILL.md"), "utf-8"),
     ).resolves.toBe("mine");

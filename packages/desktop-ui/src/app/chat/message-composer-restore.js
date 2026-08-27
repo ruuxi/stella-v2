@@ -1,23 +1,3 @@
-/**
- * Rebuild composer state from a *sent* user message so the desktop Fork /
- * Rewind actions can drop that message back into a composer, ready to edit
- * and re-send.
- *
- * Fidelity note: a sent user row only persists the flattened `attachments`
- * (file + image) that the send path produced from the live `ChatContext`.
- * Files round-trip faithfully (name / size / mimeType / on-disk path all
- * survive). Image/screenshot attachments come back as `regionScreenshots`
- * carrying the stored (preview-resolution) data URL, with width/height
- * unknown — enough to render the chip and re-send. Richer live-only context
- * that was never persisted onto the message (window capture + AX tree, app
- * selections, pasted-text bodies, activity anchors) can't be reconstructed
- * here and is intentionally dropped; the text always carries over.
- */
-
-/**
- * @param {ReadonlyArray<import("@stella/contracts/local-chat").Attachment> | undefined} attachments
- * @returns {import("@/shared/types/electron").ChatContext | null}
- */
 export const composerContextFromSentAttachments = (attachments) => {
   const files = [];
   const regionScreenshots = [];
@@ -50,14 +30,6 @@ export const composerContextFromSentAttachments = (attachments) => {
   };
 };
 
-/**
- * True when a sent attachment should be copied to the clipboard as an image.
- * Mirrors the message row's image treatment: a `file`-kind attachment counts
- * only when its mime type is an image; screenshots (no `file` kind) and
- * image-mimed / `data:image/` attachments are images.
- *
- * @param {import("@stella/contracts/local-chat").Attachment} attachment
- */
 const isImageCopyAttachment = (attachment) => {
   const mimeType = attachment.mimeType ?? "";
   if (attachment.kind === "file" && !mimeType.startsWith("image/")) return false;
@@ -67,15 +39,6 @@ const isImageCopyAttachment = (attachment) => {
   return attachment.kind !== "file" && !mimeType;
 };
 
-/**
- * Pick the single attachment the Copy action should place on the clipboard
- * for a sent user message, and shape it for `media.copyAttachment`. Prefers
- * the FIRST image attachment (the primary/leftmost chip); falls back to the
- * first attachment that carries a usable on-disk path or data/file URL.
- * Returns null when nothing is copyable.
- *
- * @param {ReadonlyArray<import("@stella/contracts/local-chat").Attachment> | undefined} attachments
- */
 export const primaryCopyAttachment = (attachments) => {
   const usable = (attachments ?? []).filter(
     (attachment) =>
@@ -94,13 +57,6 @@ export const primaryCopyAttachment = (attachments) => {
   };
 };
 
-/**
- * The composer payload restored from a sent user row: the message text plus
- * the reconstructed attachment/context state (or null when the row carried
- * no re-hydratable attachments).
- *
- * @param {import("@/features/chat/conversation-row-types").UserRowViewModel} row
- */
 export const composerDraftFromUserRow = (row) => ({
   message: row.text ?? "",
   chatContext: composerContextFromSentAttachments(row.attachments),

@@ -118,8 +118,7 @@ export interface ProviderModelPanelProps {
   onExtraSectionExpanded?: (sectionKey: string, open: boolean) => void;
   onRefresh?: () => void;
   refreshing?: boolean;
-  /** Quiet inline notice shown when the Stella/managed catalog fetch failed.
-   * `onRefresh` doubles as its Retry. Replaces the old repeating toast. */
+
   catalogError?: string | null;
   selectedRowExtra?: ReactNode;
 }
@@ -198,19 +197,14 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             .filter((key) => key !== STELLA_PROVIDER_KEY)
         : []), [disableNonStellaProviders, tabs]);
     const [query, setQuery] = useState("");
-    // The scoped picker view keeps the search field behind a header search
-    // icon (`hideSearch` toggles it); autofocus on reveal so it reads as the
-    // icon expanding into the bar.
+
     const searchInputRef = useRef<HTMLInputElement>(null);
     const searchVisible = !hideSearch;
     useEffect(() => {
         if (searchVisible)
             searchInputRef.current?.focus();
     }, [searchVisible]);
-    // Which provider's inline form (connect / API key, or the local /
-    // OpenRouter custom-model inputs) is expanded. Only one is open at a time
-    // so the shared draft/api-key state stays unambiguous, and nothing opens
-    // by default — sections collapse to just their model list.
+
     const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
     const [draftKey, setDraftKey] = useState("");
     const [savingProvider, setSavingProvider] = useState<string | null>(null);
@@ -233,11 +227,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             let visibleModels = tab.key === STELLA_PROVIDER_KEY
                 ? dedupeStellaModels(sorted, value)
                 : sorted;
-            // OpenRouter's model-id namespace is open-ended: the custom-model
-            // input accepts any `vendor/model` slug, including ids the
-            // baked/pi.dev-fed catalog doesn't know (stealth models). Render
-            // the selected custom id as a real, checked row so the pick
-            // visibly sticks instead of the section looking unselected.
+
             if (tab.key === OPENROUTER_PROVIDER_KEY &&
                 value.startsWith(`${OPENROUTER_PROVIDER_KEY}/`) &&
                 !tab.models.some((model) => model.id === value) &&
@@ -254,8 +244,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
                 };
                 visibleModels = [customModel, ...visibleModels];
             }
-            // Hide sections with no matching models while searching so the list
-            // narrows to relevant providers instead of leaving empty headers.
+
             if (trimmed && visibleModels.length === 0)
                 continue;
             result.push({ tab, models: visibleModels });
@@ -267,12 +256,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             return;
         setFavorites(toggleEngineModelFavorite(favoriteScope, modelId));
     }, [favoriteScope]);
-    /**
-     * Collapsible mode: every provider is one section in a single scrolling
-     * list; only the section that holds the current selection starts open.
-     * Toggling is per-mount state — reopening the picker re-derives from the
-     * saved selection, which is the section the user most likely wants.
-     */
+
     const [openSections, setOpenSections] = useState<Set<string>>(() => new Set(activeSectionKey ? [activeSectionKey] : []));
     useEffect(() => {
         if (!activeSectionKey)
@@ -319,8 +303,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             void cancelPendingOAuth(pendingProvider);
         }
         setExpandedProvider(providerKey);
-        // The connect / custom form renders inside the section body, so a
-        // collapsed section must open alongside its form.
+
         if (providerKey && collapsibleGroups) {
             setOpenSections((current) => current.has(providerKey)
                 ? current
@@ -342,9 +325,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             void cancelPendingOAuth(pendingProvider);
         }
     }, [cancelPendingOAuth, tabs]);
-    // Sign-out: a connected provider shows a hover log-out icon in its section
-    // header. First click arms it (visual confirm), a second click within the
-    // window actually drops the API key + OAuth session for that provider.
+
     const [signOutArmed, setSignOutArmed] = useState<string | null>(null);
     const [signingOut, setSigningOut] = useState<string | null>(null);
     const signOutTimerRef = useRef<number | null>(null);
@@ -372,7 +353,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             }
         }
         catch {
-            // Failures surface via the credentials hook's `error` state.
+
         }
         finally {
             setSigningOut(null);
@@ -448,12 +429,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
     }, [localBaseUrl, localModelId, onSelect]);
     const trimmedQuery = query.trim();
     const isDefaultSelected = !value;
-    // Scoped single-provider view (the sidebar picker's brand rail already
-    // chose the provider): the provider label row is redundant. When search
-    // is visible the connect / custom / sign-out actions ride its row; when
-    // the embedder hides the head entirely (or lifts the actions into its
-    // own header via `headerActionsTarget`), the list renders with no
-    // heading row at all so it doesn't leave a one-sided gap.
+
     const inlineProviderActions = searchVisible && hideSelectedTitle && hideProviderLabel && tabs.length === 1;
     const renderSearchBar = () => (<div className="model-picker-search">
         <Search size={13} strokeWidth={1.75} aria-hidden/>
@@ -486,9 +462,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
                 }
                 : undefined);
         const connected = isStella || Boolean(apiKey) || Boolean(oauthCred);
-        // Providers introduced by models.json/extensions own their auth and may
-        // be intentionally credentialless (Ollama, local proxies). Do not block
-        // their model rows behind Stella's built-in provider login UI.
+
         const usesRuntimeManagedAuth = providerUsesRuntimeManagedAuth(tab);
         const requiresAuth = !isStella &&
             !isLocal &&
@@ -503,8 +477,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         const armed = signOutArmed === tab.key;
         const isSigningOut = signingOut === tab.key;
         const expanded = expandedProvider === tab.key;
-        // Local + connected OpenRouter offer a custom-model entry, tucked behind
-        // a header toggle so the section doesn't open expanded by default.
+
         const hasCustomInputs = isLocal || isOpenRouter;
         const authDescription = supportsOAuth && supportsApiKey
             ? t("settings.modelPicker.authHint.both")
@@ -552,11 +525,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             {armed ? (<Check size={13} strokeWidth={2} aria-hidden/>) : (<LogOut size={13} strokeWidth={1.75} aria-hidden/>)}
           </button>) : null}
       </>);
-    // Lift the scoped provider's connect / custom / sign-out actions into
-    // the embedder's header so the list doesn't need its own head row. The
-    // embedder owns the button styling, so we hand it a descriptor, not
-    // rendered JSX (the in-list action is a labeled pill, which looked
-    // mismatched beside the header's icon buttons).
+
     const liftActionsToHeader = Boolean(headerActionsTarget) && tabs.length === 1;
     const section = tabs.length === 1 ? getSectionContext(tabs[0]) : null;
     useEffect(() => {
@@ -617,8 +586,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
                     visibleProviders?.length === 1 &&
                     visibleProviders[0] === STELLA_PROVIDER_KEY));
         const showDefaultRow = !resolveDefaultToModel && isStella && !trimmedQuery;
-        // Models stay visible before the provider is connected; picking one
-        // opens the connect flow instead of selecting.
+
         const handleRowPick = requiresAuth
             ? () => toggleExpanded(expanded ? null : tab.key)
             : handlePick;
@@ -627,8 +595,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
                 !inlineProviderActions &&
                 !liftActionsToHeader &&
                 (!hideProviderLabel || requiresAuth || section.hasCustomInputs || section.removable));
-        // Searching force-opens every matching section (collapse state is
-        // preserved for when the query clears).
+
         const open = !collapsibleGroups || Boolean(trimmedQuery) || openSections.has(tab.key);
         const sectionHoldsSelection = isStella
             ? isDefaultSelected || (value ?? "").startsWith("stella/")
@@ -640,8 +607,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
           {collapsibleGroups ? (<button type="button" className="model-picker-group-toggle" aria-expanded={open} onClick={() => {
                 toggleSection(tab.key, false);
                 if (!open && requiresAuth && models.length === 0) {
-                    // An unconnected provider with no catalog rows would
-                    // expand to nothing — open its connect form with it.
+
                     toggleExpanded(tab.key);
                 }
                 else if (open && expanded) {
@@ -660,9 +626,9 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
               </span>
               <span className="model-picker-group-label">{tab.label}</span>
             </>)}
-          {/* Overlay, not a column: the actions are absolutely positioned
-              over the row's right end, so the toggle keeps the full width
-              and every group's chevron stays in one column. */}
+          {
+
+}
           <span className="model-picker-group-actions">{renderGroupActions(section)}</span>
         </div>) : null}
 
@@ -759,13 +725,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         </>}
       </div>);
     };
-    /**
-     * Extra sections (the ChatGPT / Claude Code engines) render through the
-     * same collapsible chrome but carry embedder-supplied content instead of
-     * catalog rows. `content` is a render-prop so collapsed engines never pay
-     * for their (potentially IPC-backed) lists. They're hidden while
-     * searching — their rows aren't part of the searchable catalog.
-     */
+
     const renderExtraSection = (extra: ProviderModelExtraSection) => {
         const open = openSections.has(extra.key);
         return (<div key={extra.key} className="model-picker-group" role="group" aria-label={extra.label} data-open={open || undefined}>
@@ -783,10 +743,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         {open ? extra.content() : null}
       </div>);
     };
-    /** Catalog + extra sections in display order. `sectionOrder` pins the
-     * listed keys to the front; everything else keeps its catalog
-     * (rail-priority) order after them — the sort is stable. Extras are
-     * hidden while searching (their rows aren't part of the catalog). */
+
     const orderedSections = useMemo(() => {
         const entries: Array<
           | { kind: "catalog"; key: string; tab: ProviderTab; models: CatalogModel[] }
@@ -838,7 +795,6 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
                 {t("settings.modelPicker.retry")}
               </button>) : null}
           </p>) : null}
-
 
         <div className="model-picker-groups" role="listbox" aria-live="polite">
           {orderedSections.length === 0 ? (<div className="model-picker-empty">

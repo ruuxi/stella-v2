@@ -4,21 +4,13 @@ import {
   supportsDisablingThinking,
 } from "@stella/runtime/ai/providers/anthropic";
 
-// Regression guard for the thinking-shape gate. 5-generation Claude models
-// (and Opus/Sonnet 4.6+) reject the legacy budget-based
-// `thinking.type=enabled` request shape with a 400 telling callers to use
-// `thinking.type.adaptive` + `output_config.effort`. The gate used to be a
-// hardcoded id list (opus-4-6/4-7/4-8, sonnet-4-6, fable-5), which broke
-// direct-path spawns on `anthropic/claude-sonnet-5`; it is now a
-// family-version predicate so future 5-family models get adaptive by default.
-
 describe("supportsAdaptiveThinking", () => {
   it("selects adaptive for all 5-generation Claude models", () => {
     expect(supportsAdaptiveThinking("claude-sonnet-5")).toBe(true);
     expect(supportsAdaptiveThinking("claude-fable-5")).toBe(true);
     expect(supportsAdaptiveThinking("claude-opus-5")).toBe(true);
     expect(supportsAdaptiveThinking("claude-haiku-5")).toBe(true);
-    // Date-suffixed and dotted-minor variants
+
     expect(supportsAdaptiveThinking("claude-sonnet-5-20260101")).toBe(true);
     expect(supportsAdaptiveThinking("claude-sonnet-5.1")).toBe(true);
   });
@@ -40,9 +32,7 @@ describe("supportsAdaptiveThinking", () => {
     expect(supportsAdaptiveThinking("claude-sonnet-4-0")).toBe(false);
     expect(supportsAdaptiveThinking("claude-haiku-4-5")).toBe(false);
     expect(supportsAdaptiveThinking("claude-opus-4-1-20250805")).toBe(false);
-    // Old-style ids put the version before the family; they never parse as
-    // a new-style family-version id (and date suffixes must not parse as
-    // version numbers).
+
     expect(supportsAdaptiveThinking("claude-3-5-sonnet-20241022")).toBe(false);
     expect(supportsAdaptiveThinking("claude-3-5-haiku-20241022")).toBe(false);
     expect(supportsAdaptiveThinking("claude-3-haiku-20240307")).toBe(false);
@@ -62,10 +52,6 @@ describe("supportsAdaptiveThinking", () => {
   });
 });
 
-// Fable models reject `thinking.type=disabled` with a 400 ("Thinking defaults
-// to adaptive"); the request must omit the `thinking` param instead. This is
-// the shape that silently killed thread compaction when `stella/max` remapped
-// to `claude-fable-5` upstream.
 describe("supportsDisablingThinking", () => {
   it("rejects disabling for Fable-family models", () => {
     expect(supportsDisablingThinking("claude-fable-5")).toBe(false);

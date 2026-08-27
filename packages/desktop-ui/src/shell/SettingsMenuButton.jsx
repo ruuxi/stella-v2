@@ -1,15 +1,3 @@
-/**
- * The top-bar gear: a destination menu for every settings-shaped surface.
- *
- * This standalone gear is what a signed-out user sees. Once signed in the same
- * destinations are folded into the account button's unified menu — both share
- * `useSettingsMenu` so the list and its anchored popovers stay identical.
- *
- * Settings itself opens the full screen as a dialog (hosted once in the root
- * chrome by `SettingsDialogHost`); Theme and Connectors open as popovers
- * anchored to the gear; Phone routes through the `?dialog=connect` URL and
- * Feedback through `FeedbackDialogHost`.
- */
 import { useState } from "react";
 import { preloadSettingsScreen } from "@/shell/topbar/nav-surface-preloads";
 import { useSettingsMenu } from "@/shell/topbar/use-settings-menu";

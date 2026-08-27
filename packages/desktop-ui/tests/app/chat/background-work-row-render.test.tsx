@@ -1,16 +1,3 @@
-// @vitest-environment jsdom
-/**
- * Rendered-output contract for the live (spawn-anchored) agent activity row.
- *
- * Status is conveyed by motion, not badges or color:
- *   - running → the description shimmers (TextShimmer) beside a tiny
- *     spinner;
- *   - follow-up (`send_input`) → an arrow status glyph once settled;
- *   - completed (without completion payload) → the quiet grey check;
- *   - failed → no invented treatment, just the settled row.
- * The leading glyph is Stella's star, or the provider's icon when the
- * thread runs on an external engine.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -74,14 +61,13 @@ describe("BackgroundWorkCard minimal row states", () => {
     expect(row!.getAttribute("data-working")).toBe("true");
     expect(row!.querySelector(".text-shimmer")).not.toBeNull();
     expect(row!.textContent).toContain("Summarize the quarterly report");
-    // The shimmer alone carries progress; the leading slot holds the star.
+
     expect(row!.querySelector(".stella-loader-circle")).toBeNull();
     expect(
       row!.querySelector(".agent-activity-row__glyph .agent-activity-star"),
     ).not.toBeNull();
     expect(row!.querySelector(".agent-activity-row__chevron")).not.toBeNull();
-    // No subtitle / completion prose — the description is the whole row
-    // (the shimmer's aria-hidden sweep layer repeats the same string).
+
     expect(row!.querySelector(".text-shimmer__base")!.textContent).toBe(
       "Summarize the quarterly report",
     );
@@ -89,10 +75,7 @@ describe("BackgroundWorkCard minimal row states", () => {
   });
 
   it("shimmer polarity: dim resting base, bright sweeping highlight (CSS contract)", async () => {
-    // jsdom doesn't apply stylesheets, so pin the scoped variable override
-    // in the shipped CSS: the row remaps TextShimmer's base ink to the
-    // muted color and the sweep band to the strong color — light sweeping
-    // across dim text, never the reverse.
+
     const fs = await import("node:fs");
     const path = await import("node:path");
     const { fileURLToPath } = await import("node:url");
@@ -109,8 +92,7 @@ describe("BackgroundWorkCard minimal row states", () => {
     );
     expect(scope).toContain("--text-shimmer-from: var(--text-base)");
     expect(scope).toContain("--text-shimmer-via: var(--text-strong)");
-    // Description size: one step above the row base (14px `--font-size-md`),
-    // matched by mobile — keep the two in sync if this changes.
+
     const titleScope = css.slice(
       css.indexOf(".agent-activity-row__title {"),
       css.indexOf("}", css.indexOf(".agent-activity-row__title {")),

@@ -106,8 +106,7 @@ export default function AccountScreen() {
     gradientPreference,
     setGradientPreference,
   } = useTheme();
-  // Pearl/Noir force flat — disable the Soft option so the toggle reflects
-  // the actual rendered surface instead of misleading the user.
+
   const gradientLocked = Boolean(activeTheme.forcedMode);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
@@ -148,11 +147,7 @@ export default function AccountScreen() {
   useEffect(() => {
     setEmailRevealed(false);
   }, [email]);
-  // The whole "you have an account" surface — name/email header, upgrade card,
-  // paired computers, sign-out, delete — only makes sense when the user has a
-  // real session. Settings, appearance, notifications, and legal all work
-  // without one, so we render the page either way and just hide the bits
-  // that need an identity.
+
   const isSignedIn = Boolean(user) && !guest;
   const showLoadingHeader = !guest && session.isPending && !user;
 
@@ -165,10 +160,6 @@ export default function AccountScreen() {
     void refreshPaired();
   }, [refreshPaired]);
 
-  // Local state carries the departing account's data — chat transcripts in
-  // AsyncStorage and desktop pairing secrets in SecureStore. Wipe it so the
-  // next sign-in on this device can't inherit (or re-send as chat history)
-  // the previous user's messages or reconnect with their computers.
   const clearLocalAccountState = async () => {
     const paired = await listStoredPairedPhoneAccess().catch(
       () => [] as StoredPhoneAccess[],
@@ -414,8 +405,7 @@ export default function AccountScreen() {
 
       <View style={styles.themeDots}>
         {themes.map((th) => {
-          // Honor pinned-mode themes (Pearl/Noir) when previewing — otherwise
-          // the swatch shows a palette the user can never actually land on.
+
           const previewDark = th.forcedMode
             ? th.forcedMode === "dark"
             : isDark;

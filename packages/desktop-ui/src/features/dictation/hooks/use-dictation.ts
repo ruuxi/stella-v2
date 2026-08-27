@@ -1,21 +1,3 @@
-/**
- * useDictation — wires an InworldDictationSession to the composer textarea.
- *
- * Flow:
- *   - First toggle: start recording. The composer swaps in a recording
- *     bar (waveform + timer + cancel/confirm) driven by the `levels`,
- *     `elapsedMs`, and `cancel` values returned here.
- *   - Confirm (or Cmd/Ctrl+Shift+M): stop. We upload the captured audio
- *     as a single WAV to `/api/dictation/transcribe`, then append the
- *     returned transcript to whatever the composer text was at the
- *     moment we started recording.
- *   - Cancel (X): tear down without uploading or appending anything.
- *
- * The global Cmd/Ctrl+Shift+M keybind dispatches a window event the
- * hook listens for, so any composer with `useDictation` mounted toggles
- * itself when the user is on its window.
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ensureDictationSuperFastWarm,
@@ -39,8 +21,6 @@ type DictationToggleEventDetail = {
   action?: "toggle" | "start" | "reveal" | "stop" | "cancel";
 };
 
-/** How many waveform bars we retain. The session emits ~12.5 ticks/sec, so
- *  this buffers ~20 s of recent activity before older bars scroll off. */
 const MAX_LEVEL_BARS = 256;
 
 type Setter<T> = (next: T | ((prev: T) => T)) => void;
@@ -51,12 +31,7 @@ interface UseDictationOptions {
   disabled?: boolean;
   onError?: (error: string) => void;
   onTranscriptCommitted?: () => void;
-  /**
-   * Invoked when `commitAndSend` finishes — i.e. the recording has stopped,
-   * any pending transcription has been appended to the composer message, and
-   * the caller should now submit the composer. Reads the latest `setMessage`
-   * via ref so it always sees the post-transcript value.
-   */
+
   onCommit?: () => void;
 }
 
@@ -66,19 +41,15 @@ interface UseDictationResult {
   isTranscribing: boolean;
   showControls: boolean;
   state: DictationSessionState;
-  /** Toggle recording: start → stop+transcribe (or stop+transcribe → start). */
+
   toggle: () => void;
-  /** Stop recording without uploading or appending anything. */
+
   cancel: () => void;
-  /**
-   * Stop, transcribe (if necessary), and then fire `onCommit`. Used by the
-   * composer's send-arrow affordance so the user can dictate-and-submit in a
-   * single tap.
-   */
+
   commitAndSend: () => void;
-  /** Rolling buffer of recent input levels in 0..1, oldest first. */
+
   levels: number[];
-  /** Elapsed time of the current recording, in milliseconds. */
+
   elapsedMs: number;
   error: string | null;
 }
@@ -114,28 +85,11 @@ export const useDictation = ({
   const onTranscriptCommittedRef = useRef(onTranscriptCommitted);
   const onCommitRef = useRef(onCommit);
   const stateRef = useRef<DictationSessionState>("idle");
-  /**
-   * When true, the next time we land on idle (whether after a successful
-   * transcription or a no-audio short-circuit), we should fire `onCommit`.
-   * Cleared every time we either fire it or transition out of idle for a
-   * new recording.
-   */
+
   const sendAfterCommitRef = useRef(false);
-  /**
-   * Perf: the local Parakeet helper used to be warmed on composer mount, which
-   * spawned the serve process + loaded the model on every launch even for users
-   * who never dictate. We now warm lazily on the first `start()` instead. This
-   * ref makes warming idempotent so it only does the work once per hook
-   * lifecycle.
-   */
+
   const warmedRef = useRef(false);
-  /**
-   * Whether on-device dictation can actually be installed + run on this machine
-   * (the native helper is present). Only then do we offer "Download voice
-   * feature"; where the helper isn't shipped (e.g. Windows today) the download
-   * can never succeed, so we surface the plain sign-in path and stay on cloud.
-   * Probed once on mount; defaults false so we never dangle a broken download.
-   */
+
   const localInstallableRef = useRef(false);
 
   messageRef.current = message;
@@ -147,14 +101,7 @@ export const useDictation = ({
   const fireCommitIfPending = useCallback(() => {
     if (!sendAfterCommitRef.current) return;
     sendAfterCommitRef.current = false;
-    // Defer one frame so the parent usually re-renders with the appended
-    // transcript before the commit submits. This is best-effort only: the
-    // rAF callback can legitimately run BEFORE React flushes that render
-    // (the render is a scheduler macrotask; a frame deadline can preempt
-    // it), so commit handlers must NOT read the message from render-synced
-    // state/refs. Consumers read a write-time-synced ref instead — see
-    // use-composer-message-state — which makes the send deterministic
-    // regardless of which side wins this race.
+
     requestAnimationFrame(() => {
       onCommitRef.current?.();
     });
@@ -162,9 +109,6 @@ export const useDictation = ({
 
   stateRef.current = state;
 
-  // Learn whether on-device dictation can actually be installed here (native
-  // helper present). Gates the "Download voice feature" affordance so we never
-  // offer a download that structurally can't succeed on this machine.
   useEffect(() => {
     let cancelled = false;
     void probeLocalDictationInstallable().then((installable) => {
@@ -175,9 +119,6 @@ export const useDictation = ({
     };
   }, []);
 
-  // While listening, tick a 4-Hz timer for the visible mm:ss display.
-  // The initial 0:00 paint is set in `start()` before the session begins
-  // so this effect only owns the running interval, not the reset.
   useEffect(() => {
     if (state !== "listening") return;
     const startedAt = performance.now();
@@ -213,8 +154,7 @@ export const useDictation = ({
     async (source: "button" | "shortcut") => {
       if (sessionRef.current) return;
       if (disabled) return;
-      // Perf: warm the local model before recording. Idempotent via warmedRef so
-      // it only does work once per hook lifecycle (warm-then-transcribe path).
+
       if (!warmedRef.current) {
         warmedRef.current = true;
         void warmLocalDictationModel().catch(() => undefined);
@@ -244,14 +184,7 @@ export const useDictation = ({
                 errMessage,
               );
               setError(errMessage);
-              // Surface a toast so a failed dictation isn't silent. Local
-              // (Parakeet) transcription falls back to the managed API, which
-              // needs the user signed in — when that returns 401/unauthorized the
-              // user previously got zero feedback and assumed dictation was just
-              // broken. Detect the auth case and route it to the sign-in toast;
-              // everything else (mic permission, pipeline, transcription
-              // failures) gets a generic "didn't work" so the user still knows
-              // something happened.
+
               const normalized = errMessage.toLowerCase();
               const needsSignIn =
                 /\b401\b|\b403\b|unauthor|unauthenticated|sign[\s-]?in|not signed in/.test(
@@ -292,10 +225,7 @@ export const useDictation = ({
               setLevels([]);
               setShowControls(false);
               setShowRecordingBar(false);
-              // For success paths the inworld session emits `idle` before
-              // `onFinalTranscript`; defer to a microtask so commit fires
-              // after the transcript has been appended. For no-audio /
-              // error paths, no transcript ever arrives so we still fire.
+
               queueMicrotask(fireCommitIfPending);
             }
           },
@@ -307,9 +237,7 @@ export const useDictation = ({
             setMessageRef.current(next);
             onTranscriptCommittedRef.current?.();
             if (meta?.partial) {
-              // Some segments of a long dictation failed; the recovered text is
-              // already in the composer, so flag that it may be incomplete
-              // rather than letting the user assume it captured everything.
+
               showToast({
                 title: t("features.dictation.partialTitle"),
                 description: t("features.dictation.partialBody"),
@@ -345,7 +273,7 @@ export const useDictation = ({
       window.electronAPI?.dictation?.playSound({ sound: "stopRecording" });
       void stop();
     } else if (current === "transcribing") {
-      // Upload in flight — ignore presses until it resolves.
+
       return;
     } else {
       sendAfterCommitRef.current = false;
@@ -365,9 +293,7 @@ export const useDictation = ({
       sendAfterCommitRef.current = true;
       return;
     }
-    // Already idle (or in an error state with no live session) — fire the
-    // commit immediately; the parent will submit whatever is in the
-    // composer right now.
+
     onCommitRef.current?.();
   }, [stop]);
 

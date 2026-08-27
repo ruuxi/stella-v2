@@ -1,13 +1,3 @@
-/**
- * Client-side device capability checks for scaling back GPU/CPU-heavy decorative
- * effects (blur entrances, infinite marketing-style loops, backdrop-filter glass)
- * on low-end machines.
- *
- * The inline `stella-boot.js` script mirrors `isLowPowerDevice()` so
- * `html[data-low-power]` is present before first paint; this module is the
- * TypeScript source of truth for components that need the same signal later.
- */
-
 let cachedLowPower: boolean | undefined;
 
 const hasForcedLowPowerFlag = (): boolean => {
@@ -20,11 +10,6 @@ export function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/**
- * Cheap heuristic for memory/CPU-constrained devices. Windows 8GB machines are
- * included because Stella's dev-server-style desktop stack is memory-bound
- * there even when CPU is mostly idle.
- */
 export function isLowPowerDevice(): boolean {
   if (cachedLowPower !== undefined) return cachedLowPower;
   if (hasForcedLowPowerFlag()) {
@@ -58,7 +43,6 @@ export function shouldUseLowPowerEffects(): boolean {
   return prefersReducedMotion() || isLowPowerDevice();
 }
 
-/** Sync `data-low-power` when boot script could not run (tests, dev HMR). */
 export function applyLowPowerDocumentFlag(): void {
   if (typeof document === "undefined") return;
   if (shouldUseLowPowerEffects()) {

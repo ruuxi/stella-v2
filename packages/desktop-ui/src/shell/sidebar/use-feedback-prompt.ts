@@ -1,28 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { uiState } from "@/platform/ui-state";
 
-/**
- * Auto-prompt scheduler for the anonymous feedback dialog.
- *
- * Goal: nudge a user to leave feedback once, but only if they've
- * actually been *using* Stella — not just leaving the window open. We
- * accumulate "active" time (window visible AND focused) into a per-day
- * bucket; once that bucket crosses ~30 minutes and the prompt has never been
- * shown before, the hook flips `shouldPrompt` to true.
- *
- * Persistence is in the shared UI state store so the budget survives reloads / restarts.
- * Acknowledging the prompt resets the day's bucket and stamps `lastPromptAt`
- * so the automatic prompt is one-shot.
- */
-
 const STORAGE_KEY_BUCKET_DAY = "stella:feedback:bucketDay";
 const STORAGE_KEY_ACTIVE_MS = "stella:feedback:activeMs";
 const STORAGE_KEY_LAST_PROMPT_AT = "stella:feedback:lastPromptAt";
 
 const ACTIVE_THRESHOLD_MS = 30 * 60 * 1000;
-// Tick every 30s. Short enough that a 30-minute threshold lands within one
-// tick of when it actually crosses; long enough that we're not waking the
-// renderer constantly.
+
 const TICK_INTERVAL_MS = 30 * 1000;
 
 const todayBucketKey = (now: number): string => {
@@ -68,9 +52,6 @@ interface FeedbackPromptController {
 export const useFeedbackPrompt = (): FeedbackPromptController => {
   const [shouldPrompt, setShouldPrompt] = useState(false);
 
-  // Tracks the wall-clock at which the current "active" stretch started.
-  // Null when the window is currently inactive. We bank elapsed time into
-  // the shared UI state store on every state change (visibility/focus flip, tick, unmount).
   const activeSinceRef = useRef<number | null>(null);
 
   const bankElapsed = useCallback((nowMs: number) => {
@@ -142,8 +123,7 @@ export const useFeedbackPrompt = (): FeedbackPromptController => {
       window.removeEventListener("focus", handleActivityChange);
       window.removeEventListener("blur", handleActivityChange);
       window.removeEventListener("pagehide", handleActivityChange);
-      // Bank one last time on unmount so a quick reload doesn't lose the
-      // current active stretch.
+
       bankElapsed(Date.now());
       activeSinceRef.current = null;
     };

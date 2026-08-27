@@ -11,14 +11,7 @@ import {
 import { isThreadCompactionForced } from "./context-budget.js";
 import { resetSkillReadDedup } from "../tools/skill-read-dedup.js";
 const logger = createRuntimeLogger("agent-runtime.completion");
-/**
- * Ceiling on each awaited finalization stage between "final answer produced"
- * and the RUN_FINISHED emit. A stage that pends past this is force-skipped
- * with a loud log naming it: the user has already seen the reply, and
- * withholding run-end makes the whole conversation read as "busy" forever
- * (observed in the field with no log trail — this ceiling is also the
- * instrumentation that names the culprit next time).
- */
+
 const FINALIZE_STAGE_TIMEOUT_MS = 30_000;
 const boundedFinalizeStage = async (args) => {
   let timer;
@@ -123,9 +116,7 @@ const emitAgentEndHook = async (opts, args) => {
         runId: args.runId,
         ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
         isUserTurn: opts.uiVisibility !== "hidden",
-        // Stella-runtime post-finalize hooks (memory review, dream notify,
-        // thread summaries) read accessors off `services`
-        // instead of being baked into the kernel.
+
         services: {
           resolvedLlm: opts.resolvedLlm,
           messagesSnapshot: args.messagesSnapshot,
@@ -152,12 +143,7 @@ const emitAgentEndHook = async (opts, args) => {
     return;
   }
 };
-/**
- * Cleanup-only `agent_end` emission for non-success outcomes.
- *
- * The result is discarded, but the event still lets hooks reclaim run-scoped
- * state.
- */
+
 const emitAgentEndCleanup = (opts, args) => {
   if (!opts.hookEmitter) return;
   void opts.hookEmitter
@@ -177,11 +163,7 @@ const emitAgentEndCleanup = (opts, args) => {
     )
     .catch(() => undefined);
 };
-/**
- * Subagent counterpart to {@link emitAgentEndCleanup} and
- * {@link emitAgentEndHook}. Subagent results are not threaded onto
- * user-facing events, but the lifecycle event still closes run-scoped hooks.
- */
+
 const emitSubagentAgentEnd = (opts, args) => {
   if (!opts.hookEmitter) return;
   void opts.hookEmitter
@@ -196,9 +178,7 @@ const emitSubagentAgentEnd = (opts, args) => {
         runId: args.runId,
         ...(opts.uiVisibility ? { uiVisibility: opts.uiVisibility } : {}),
         isUserTurn: opts.uiVisibility !== "hidden",
-        // Only populate services when side-effects are allowed; the
-        // post-finalize hooks read accessors off `services` and
-        // self-skip when omitted.
+
         ...(args.sideEffectsAllowed
           ? {
               services: {
@@ -222,15 +202,7 @@ const emitSubagentAgentEnd = (opts, args) => {
     )
     .catch(() => undefined);
 };
-/**
- * Run thread compaction through the shared hook lifecycle.
- *
- * `messageCount` is informational for the hook payload — the orchestrator
- * passes its live `agent.state.messages.length`, the subagent passes
- * the snapshot length (or 0 when the live agent isn't accessible from
- * the call site). Hooks that need a precise pre-compaction count should
- * read from the SQLite store directly via the threadKey.
- */
+
 export const runCompactionWithHooks = async (args) => {
   let shouldCompact = true;
   let hookCompaction;
@@ -260,9 +232,7 @@ export const runCompactionWithHooks = async (args) => {
         { agentType: args.opts.agentType },
       )
       .catch(() => undefined);
-    // A hook may veto a routine compaction, but never a forced one —
-    // overflow recovery forces compaction as the only alternative to
-    // resetting the thread, and a veto there would trigger the reset.
+
     if (
       hookResult?.cancel &&
       !hardImagePressure &&
@@ -298,7 +268,7 @@ export const runCompactionWithHooks = async (args) => {
         }
       : {}),
   });
-  // Only notify observers when an overlay was actually written.
+
   if (result.compacted && args.opts.hookEmitter && hookCompaction?.summary) {
     void args.opts.hookEmitter
       .emit(
@@ -341,18 +311,14 @@ export const finalizeOrchestratorSuccess = async (args) => {
     fallback: undefined,
     work: runBeforeRunEnd,
   });
-  // Estimated orchestrator thread size on the same basis the compaction
-  // trigger uses, so post-finalize hooks can drive the token-interval Dream
-  // cadence and detect when a compaction is imminent (flush boundary).
+
   let orchestratorTokenEstimate;
   try {
     orchestratorTokenEstimate = getThreadTokenEstimate(
       args.opts.store.loadThreadMessages(args.threadKey),
     );
   } catch (error) {
-    // The token-interval / pre-compaction Dream cadence keys off this number;
-    // without it the orchestrator-driven cadence stalls until restart, so warn
-    // (don't silently swallow) to keep the stall diagnosable.
+
     orchestratorTokenEstimate = undefined;
     logger.warn("orchestrator.token-estimate-failed", {
       threadKey: args.threadKey,
@@ -368,17 +334,14 @@ export const finalizeOrchestratorSuccess = async (args) => {
         finalText: args.finalText,
         runId: args.runId,
         threadKey: args.threadKey,
-        // Snapshot the messages array now so memory-review / other
-        // post-finalize hooks see the state at end-of-turn rather than a
-        // mutated state if a follow-up turn lands before the hook handler
-        // runs.
+
         messagesSnapshot: [...args.agent.state.messages],
         ...(orchestratorTokenEstimate != null
           ? { orchestratorTokenEstimate }
           : {}),
       }),
   });
-  // Finish the visible turn before scheduling compaction.
+
   args.opts.callbacks.onEnd(
     args.runEvents.recordRunEnd({
       finalText: args.finalText,
@@ -407,11 +370,7 @@ export const finalizeOrchestratorSuccess = async (args) => {
       args.opts.agentContext.shouldInjectDynamicReminder,
     finalText: args.finalText,
   });
-  // Memory review now lives as an `agent_end` hook in
-  // `runtime/extensions/stella-runtime/hooks/memory-review.hook.ts`.
-  // The hook reads `userTurnsSinceMemoryReview` off
-  // `payload.services` (populated by `emitAgentEndHook` above) and
-  // self-skips when the threshold isn't met.
+
 };
 export const finalizeOrchestratorError = (args) => {
   const errorMessage = safeErrorMessage(args.error, "Stella runtime failed");
@@ -440,21 +399,11 @@ export const finalizeOrchestratorInterrupted = (args) => {
   }
   return args.reason;
 };
-/**
- * Sentinel surfaced to the orchestrator when a sub-agent run finishes
- * cleanly but the model produced no user-visible text. Without this
- * the orchestrator's hidden `[Agent completed]` reminder arrives with
- * no `result:` line and the model treats it as a hung run, wasting
- * turns asking the sub-agent what happened. Covers the Kimi K2 family
- * "thinking-only stop" pathology even after the agent-loop retry.
- */
+
 export const SUBAGENT_EMPTY_RESULT_SENTINEL =
   "(Agent completed without a user-visible reply. Re-prompt with send_input if you need the outcome.)";
 export const finalizeSubagentSuccess = async (args) => {
-  // Thread-summaries record and dream-scheduler notify
-  // live as `agent_end` hooks in `runtime/extensions/stella-runtime/`.
-  // The kernel just fires the lifecycle event with the per-run services
-  // populated; each hook self-skips when its capability gate doesn't match.
+
   const trimmedResult = args.result.trim();
   const resolvedResult = trimmedResult || SUBAGENT_EMPTY_RESULT_SENTINEL;
   const sideEffectsAllowed = !args.opts.suppressCompletionSideEffects;
@@ -465,14 +414,13 @@ export const finalizeSubagentSuccess = async (args) => {
     finalText: resolvedResult,
     sideEffectsAllowed,
   });
-  // Finish the parent-visible run before scheduling subagent compaction.
+
   if (!args.opts.suppressCompletionSideEffects) {
     args.opts.callbacks?.onEnd?.(
       args.runEvents.recordRunEnd({ finalText: resolvedResult }),
     );
   }
-  // Only schedule compaction when the model actually produced output;
-  // sentinel-only finals carry no new history worth compacting.
+
   if (trimmedResult) {
     const messageCount = args.agentMessageCount ?? 0;
     void args.opts.compactionScheduler.schedule({
@@ -505,7 +453,7 @@ export const finalizeSubagentError = (args) => {
       threadKey: args.threadKey,
       outcome: "error",
       finalText: errorMessage,
-      // Error path never fires post-finalize side-effects.
+
       sideEffectsAllowed: false,
     });
   }
@@ -525,7 +473,7 @@ export const finalizeSubagentInterrupted = (args) => {
       threadKey: args.threadKey,
       outcome: "interrupted",
       finalText: args.reason,
-      // Interrupted path never fires post-finalize side-effects.
+
       sideEffectsAllowed: false,
     });
   }

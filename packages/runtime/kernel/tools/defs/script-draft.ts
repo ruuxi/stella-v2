@@ -1,27 +1,3 @@
-/**
- * `ScriptDraft` — watch-sensor script authoring tool.
- *
- * Single tool that fuses three steps a watch-setup agent would otherwise
- * have to chain via shell + file edits + a separate run:
- *
- *  1. Pick a fresh `<uuid>.ts` path under `~/.stella/schedule-scripts/`
- *     (the agent never picks the path — the tool owns it).
- *  2. Write the provided `code` to that path.
- *  3. Immediately dry-run it under the exact same `bun run` runtime that the
- *     scheduler tick uses for `watch` (and legacy `script`) cron fires.
- *
- * This is the "verified at birth" half of the watch trigger: the agent
- * investigates the target, writes the deterministic check (fetch + extract
- * + diff against the `<scriptPath>.state.json` baseline), sees a clean
- * dry-run here, and only then registers the sensor via
- * `schedule_add({ kind: 'watch', scriptPath })`.
- *
- * Iterated calls leave orphan files until either:
- *   - `schedule_remove` deletes a referenced script's file, or
- *   - the scheduler's startup `collectOrphanScripts` pass sweeps the
- *     directory for any `.ts` not referenced by an active cron job.
- */
-
 import crypto from "node:crypto";
 import path from "node:path";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
@@ -35,7 +11,7 @@ import {
 import type { ToolDefinition } from "../types.js";
 
 export type ScriptDraftToolOptions = {
-  /** Stella home root (e.g. `~/.stella`). Required. */
+
   stellaDataDir: string;
   getStellaSiteAuth?: () => { baseUrl: string; authToken: string } | null;
 };

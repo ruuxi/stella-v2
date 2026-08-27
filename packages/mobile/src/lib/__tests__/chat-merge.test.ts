@@ -84,8 +84,7 @@ describe("mergeMessagesById", () => {
   });
 
   test("collapses an unlinked canonical twin into the linked local row", () => {
-    // A mid-turn sync merged desk-1 as its own row before the reconcile linked
-    // the optimistic bubble; the next delivery of desk-1 heals the duplicate.
+
     const current = [
       user("local-1", "hello", { canonicalId: "desk-1", createdAt: 100 }),
       user("desk-1", "hello", { createdAt: 95 }),
@@ -134,7 +133,7 @@ describe("mergeMessagesById", () => {
   });
 
   test("slots a synced row between its canonical neighbours", () => {
-    // History previously merged off the bridge — rows carry canonical stamps.
+
     const current = mergeMessagesById(
       [],
       [
@@ -148,16 +147,9 @@ describe("mergeMessagesById", () => {
 });
 
 describe("canonical ordering across clock skew (older desktop row filed below newer exchange)", () => {
-  // Regression: the desktop clock ran ahead of the phone's. A deferred pull
-  // delivered an OLDER desktop reply ("that's the full cycle done, 5 reviews,
-  // 7 fix agents…") after the user's next phone-sent exchange ("review loop"
-  // → "round 2 dispatched…") had already streamed and reconciled with
-  // phone-clock anchors. Comparing the desktop stamp against those anchors
-  // filed the older reply at the tail — below the newer exchange. Ordering
-  // now runs on `canonicalCreatedAt` (the desktop's own clock, which its
-  // cursor orders by), so the transcript converges to the desktop's sequence.
+
   test("a deferred pull's older desktop reply slots above the newer phone-sent exchange", () => {
-    // Already-synced canonical history (desktop clock ~90s ahead).
+
     let transcript = mergeMessagesById(
       [],
       [
@@ -165,8 +157,7 @@ describe("canonical ordering across clock skew (older desktop row filed below ne
         assistant("desk-a1", "starting the loop", { createdAt: 1_001_000 }),
       ],
     );
-    // Phone sends the next turn; optimistic rows anchor to the phone clock —
-    // numerically BEHIND every desktop stamp above.
+
     transcript = [
       ...transcript,
       user("local-u", "start round 2 of the review loop", {
@@ -174,7 +165,7 @@ describe("canonical ordering across clock skew (older desktop row filed below ne
       }),
       assistant("local-a", "round 2 dispatched", { createdAt: 911_500 }),
     ];
-    // Turn ends; the reconcile links the optimistic rows to canonical ids.
+
     transcript = reconcileSentDesktopTurn({
       current: transcript,
       userMessageId: "local-u",
@@ -197,10 +188,7 @@ describe("canonical ordering across clock skew (older desktop row filed below ne
       "local-u",
       "local-a",
     ]);
-    // A later (e.g. mid-send-deferred) pull finally delivers the OLDER
-    // desktop reply the phone had never seen. Canonically it precedes the
-    // new exchange; its desktop stamp is numerically LARGER than the
-    // phone-clock anchors, which used to file it at the tail.
+
     const merged = mergeMessagesById(transcript, [
       assistant(
         "desk-a1b",
@@ -215,18 +203,14 @@ describe("canonical ordering across clock skew (older desktop row filed below ne
       "local-u",
       "local-a",
     ]);
-    // Display anchors survive; only the ordering key is canonical.
+
     const localU = merged.find((m) => m.id === "local-u");
     expect(localU?.createdAt).toBe(911_000);
     expect(localU?.canonicalCreatedAt).toBe(1_003_000);
   });
 
   test("rows without canonical identity stay glued to their neighbours", () => {
-    // A local-only turn (e.g. an offline error exchange that will never gain
-    // canonical ids) must never be split or re-filed by cross-clock
-    // comparison when canonical rows merge around it: it stays attached
-    // behind its predecessor, in its own relative order, regardless of how
-    // its phone-clock anchors compare to the desktop stamps.
+
     const transcript = mergeMessagesById(
       [
         ...mergeMessagesById(
@@ -249,8 +233,7 @@ describe("canonical ordering across clock skew (older desktop row filed below ne
   });
 
   test("a linked-by-requestId reply cannot invert above its unstamped user row", () => {
-    // Phone clock AHEAD of the desktop's this time: the user bubble's local
-    // anchor (100) is numerically larger than the canonical reply stamp (96).
+
     const merged = mergeMessagesById(
       [
         user("local-u", "question", { canonicalId: "desk-u", createdAt: 100 }),
@@ -262,10 +245,7 @@ describe("canonical ordering across clock skew (older desktop row filed below ne
   });
 
   test("same-stamp canonical rows delivered in reverse converge to id order", () => {
-    // Two desktop rows share a millisecond stamp; the later delta happens to
-    // deliver the id-lower one second. The desktop cursor orders by
-    // (timestamp, id), so the transcript must converge to id order —
-    // delivery order alone would diverge from the desktop.
+
     const current = mergeMessagesById(
       [],
       [assistant("desk-b", "second by id", { createdAt: 1_000_000 })],
@@ -277,9 +257,7 @@ describe("canonical ordering across clock skew (older desktop row filed below ne
   });
 
   test("a linked row ties by its canonical id, not its local id", () => {
-    // The linked bubble's LOCAL id ("zzz-local") would sort after "desk-m";
-    // its canonical identity ("desk-a") sorts before. The canonical id must
-    // drive the tie so linked and direct rows converge identically.
+
     const merged = mergeMessagesById(
       [
         {
@@ -296,9 +274,7 @@ describe("canonical ordering across clock skew (older desktop row filed below ne
   });
 
   test("the healed twin donates its canonical stamp to the linked survivor", () => {
-    // The linked bubble was stamped only locally (stream-end link); the twin
-    // IS the canonical row — its desktop stamp must survive the collapse so
-    // later merges order the turn canonically.
+
     const healed = collapseLinkedDuplicates([
       user("local-u", "hello", { canonicalId: "desk-u", createdAt: 100 }),
       user("desk-u", "hello", { createdAt: 1_002_000 }),
@@ -357,9 +333,6 @@ describe("visible agent-card order is immutable", () => {
     const originalCardId = current[1]?.artifacts?.[0]?.id;
     const originalNextTurn = current.slice(2);
 
-    // A task projection can be replayed with a normalized/older row timestamp.
-    // That timestamp is metadata for a row already visible, never permission to
-    // move it above its user message or the preceding history.
     const completed = mergeMessagesById(current, [
       assistant("desk-a1", "On it", {
         requestId: "desk-u1",
@@ -400,9 +373,6 @@ describe("visible agent-card order is immutable", () => {
       }),
     ];
 
-    // Reconcile the card turn after the follow-up is already visible. The
-    // canonical projection intentionally omits the live card and carries an
-    // earlier stamp: neither may remove/reinsert/move what the user saw.
     const firstReconcile = reconcileSentDesktopTurn({
       current,
       userMessageId: "local-u1",
@@ -426,9 +396,6 @@ describe("visible agent-card order is immutable", () => {
     ]);
     expect(firstReconcile[2]?.artifacts?.[0]).toBe(runningCard);
 
-    // The next assistant response reconciles on the same desktop millisecond.
-    // Canonical ids could sort in either lexical direction, but those already
-    // visible rows retain their insertion order and stable local list keys.
     const secondReconcile = reconcileSentDesktopTurn({
       current: firstReconcile,
       userMessageId: "local-u2",
@@ -545,26 +512,19 @@ describe("visible agent-card order is immutable", () => {
 });
 
 describe("mid-send foreground sync duplicate (user row rendered twice)", () => {
-  // Regression: a foreground/refocus/Force-Sync pull that fired MID-SEND
-  // merged the turn's canonical user row before the optimistic bubble was
-  // linked. The twin sorted onto the (skewed-ahead) desktop clock, below the
-  // streaming reply, and — because that pull advanced the cursor past the
-  // turn — the post-turn reconcile's delta never re-delivered it, so nothing
-  // healed the duplicate and it persisted to storage.
+
   test("merge heals the twin even when the canonical row is never re-delivered", () => {
-    // Optimistic turn, anchored to the phone clock.
+
     let transcript: ChatMessage[] = [
       user("local-u", "By the way, for the redesign…", { createdAt: 100 }),
       assistant("local-a", "", { createdAt: 101 }),
     ];
-    // Mid-send pull: canonical user row, desktop clock slightly ahead. No
-    // link exists yet (text matching is deliberately excluded), so it lands
-    // as its own row BELOW the reply — the bug's visible symptom.
+
     transcript = mergeMessagesById(transcript, [
       user("desk-u", "By the way, for the redesign…", { createdAt: 105 }),
     ]);
     expect(ids(transcript)).toEqual(["local-u", "local-a", "desk-u"]);
-    // Stream end: the bridge result links the optimistic rows directly.
+
     transcript = transcript.map((m) =>
       m.id === "local-u"
         ? { ...m, canonicalId: "desk-u" }
@@ -572,9 +532,7 @@ describe("mid-send foreground sync duplicate (user row rendered twice)", () => {
           ? { ...m, text: "Sounds good.", requestId: "desk-u" }
           : m,
     );
-    // Post-turn reconcile delta: only the canonical reply — desk-u was
-    // already consumed by the mid-send pull. The merge must still collapse
-    // the twin into the linked bubble.
+
     const healed = mergeMessagesById(transcript, [
       assistant("desk-a", "Sounds good.", {
         requestId: "desk-u",
@@ -598,11 +556,7 @@ describe("mid-send foreground sync duplicate (user row rendered twice)", () => {
 
 describe("queued send followed by full catch-up", () => {
   test("collapses a request-linked twin of the prior assistant", () => {
-    // An interleaved sync inserted the prior turn's canonical assistant before
-    // the stream-end state update stamped the optimistic bubble's requestId.
-    // The queued follow-up is visible by the time a full catch-up replays both
-    // turns. Before the fix, direct-id matching kept updating desk-a1 and never
-    // applied the requestId fallback to local-a1, so both identical rows stayed.
+
     let current: ChatMessage[] = [
       user("local-u1", "Run the review", {
         canonicalId: "desk-u1",
@@ -627,8 +581,7 @@ describe("queued send followed by full catch-up", () => {
     expect(
       current.filter((message) => message.text === "Review dispatched"),
     ).toHaveLength(2);
-    // Stream completion now supplies the request link, but the direct canonical
-    // twin is already in the array and used to mask that fallback forever.
+
     current = current.map((message) =>
       message.id === "local-a1"
         ? { ...message, requestId: "desk-u1" }
@@ -642,8 +595,7 @@ describe("queued send followed by full catch-up", () => {
         createdAt: 91,
         artifacts: [agentCard("agent-work:t1", "done", 91, ["t1"])],
       }),
-      // Durable queued sends use their local outbox id as the canonical user
-      // row id, so the catch-up must update this row rather than append it.
+
       user("local-u2", "Now summarize it", { createdAt: 93 }),
     ]);
 
@@ -702,9 +654,7 @@ describe("collapseLinkedDuplicates", () => {
 describe("interrupted partial turns (orphaned partial assistant rows)", () => {
   const FULL_TEXT =
     "Here's the plan. Acknowledges their Jul 8 answer (the pricing one) and builds on your existing thread with a concrete follow-up.";
-  // Each interruption strands a snapshot holding only what had landed — in
-  // practice a segment boundary, but the sweep is prefix-based, so these
-  // mid-word cuts also cover any partial a legacy transcript still carries.
+
   const PARTIAL_1 = "Here's the plan. Acknowledges their Jul 8 answer (";
   const PARTIAL_2 =
     "Here's the plan. Acknowledges their Jul 8 answer (the pricing one) and builds on your existing th";
@@ -715,8 +665,7 @@ describe("interrupted partial turns (orphaned partial assistant rows)", () => {
         canonicalId: "desk-u",
         createdAt: 100,
       }),
-      // Interruption #1 and #2: replayed dispatches streamed into fresh rows;
-      // both partials carry the turn linkage stamped at desktop acceptance.
+
       assistant("partial-1", PARTIAL_1, {
         requestId: "desk-u",
         createdAt: 101,
@@ -741,8 +690,7 @@ describe("interrupted partial turns (orphaned partial assistant rows)", () => {
   });
 
   test("persisted damage heals on hydration: partials + already-merged canonical row collapse to one", () => {
-    // The exact on-disk shape of the screenshot: two stale partials above the
-    // full canonical reply, all rendered as separate assistant messages.
+
     const healed = collapseLinkedDuplicates([
       user("local-u", "draft the reply", {
         canonicalId: "desk-u",
@@ -768,8 +716,7 @@ describe("interrupted partial turns (orphaned partial assistant rows)", () => {
   });
 
   test("resumed dispatch completes: turn reconcile sweeps the earlier partial", () => {
-    // Interruption stranded partial-1; the replayed dispatch streamed the full
-    // reply into a fresh row which the post-turn reconcile links canonically.
+
     const reconciled = reconcileSentDesktopTurn({
       current: [
         user("local-u", "draft the reply", { createdAt: 100 }),
@@ -802,7 +749,7 @@ describe("interrupted partial turns (orphaned partial assistant rows)", () => {
   });
 
   test("whitespace normalization differences do not block the sweep", () => {
-    // The canonical text carries a blank line the raw streamed chunks did not.
+
     const healed = collapseLinkedDuplicates([
       assistant("partial-1", "First li", {
         requestId: "desk-u",
@@ -849,8 +796,7 @@ describe("interrupted partial turns (orphaned partial assistant rows)", () => {
 
   test("never deletes genuinely distinct messages", () => {
     const current = [
-      // Multi-message turn: preamble + post-tool answer, same requestId, both
-      // canonical-backed and not prefixes of each other — both stay.
+
       assistant("desk-a1", "Let me check that first.", {
         requestId: "desk-u",
         createdAt: 100,
@@ -861,17 +807,17 @@ describe("interrupted partial turns (orphaned partial assistant rows)", () => {
         createdAt: 110,
         canonicalCreatedAt: 110,
       }),
-      // Prefix text but a DIFFERENT turn — stays.
+
       assistant("other-turn", PARTIAL_1, {
         requestId: "desk-u2",
         createdAt: 111,
       }),
-      // Same turn but not a prefix of any backed row — stays.
+
       assistant("not-prefix", "Something else entirely.", {
         requestId: "desk-u",
         createdAt: 112,
       }),
-      // No turn linkage at all — never considered, even with prefix text.
+
       assistant("unlinked", PARTIAL_2, { createdAt: 113 }),
     ];
     expect(collapseLinkedDuplicates(current)).toBe(current);
@@ -911,7 +857,7 @@ describe("reconcileSentDesktopTurn", () => {
       ...turn,
       current: [
         ...turn.current,
-        // Duplicates merged mid-turn by the task poll.
+
         user("desk-u", "do the thing", { createdAt: 90 }),
         assistant("desk-a", "done!", { createdAt: 91 }),
       ],
@@ -949,7 +895,7 @@ describe("reconcileSentDesktopTurn", () => {
       canonicalMessages: [
         user("desk-u", "do the thing", { createdAt: 90 }),
         assistant("desk-a", "done!", { requestId: "desk-u", createdAt: 91 }),
-        // A desktop-side turn that finished after ours.
+
         user("desk-u2", "unrelated", { createdAt: 92 }),
         assistant("desk-a2", "other reply", {
           requestId: "desk-u2",
@@ -961,7 +907,7 @@ describe("reconcileSentDesktopTurn", () => {
     const reply = result.find((m) => m.id === "local-a");
     expect(reply?.canonicalId).toBe("desk-a");
     expect(reply?.text).toBe("done!");
-    // The desktop-side turn still merges as its own rows.
+
     expect(ids(result)).toContain("desk-u2");
     expect(ids(result)).toContain("desk-a2");
   });
@@ -1069,24 +1015,19 @@ describe("linkOptimisticTurnToCanonical (interrupted/stopped turn)", () => {
   });
 
   test("send → stop → send: the first user message stays single after reconcile", () => {
-    // Message A was sent; the user stopped the turn mid-stream. Without the
-    // stop-path link, the optimistic bubble keeps only its local id, so the
-    // next send's wake→sync pulls the canonical user row and mergeMessagesById
-    // (id/canonicalId only) appends it as a duplicate of message A.
+
     const afterStopUnlinked = [
       user("local-u", "message A", { createdAt: 100 }),
       assistant("local-a", "", { createdAt: 101, stopped: true }),
     ];
     const canonicalPull = [user("desk-u", "message A", { createdAt: 100 })];
-    // The bug: unlinked bubble + canonical pull duplicates message A.
+
     expect(
       mergeMessagesById(afterStopUnlinked, canonicalPull).filter(
         (m) => m.role === "user",
       ),
     ).toHaveLength(2);
 
-    // The fix: the stop path links the bubble to its canonical id first, so
-    // the same pull folds into the existing bubble — message A stays single.
     const afterStopLinked = linkOptimisticTurnToCanonical(afterStopUnlinked, {
       userMessageId: "local-u",
       replyId: "local-a",
@@ -1151,7 +1092,7 @@ describe("retargetOptimisticReplyToUser (rapid mobile steering)", () => {
 describe("assistant turn finalizes in place (no rewrite, no remount)", () => {
   test("finalizeAssistantTurnText keeps the assembled string when only whitespace differs", () => {
     const streamed = "Hello **world**.\n\nAll done.\n";
-    // The bridge's final text is trimmed/normalized — same content.
+
     expect(finalizeAssistantTurnText(streamed, "Hello **world**.\n\nAll done.")).toBe(
       streamed,
     );
@@ -1169,7 +1110,7 @@ describe("assistant turn finalizes in place (no rewrite, no remount)", () => {
     expect(finalizeAssistantTurnText("", "The answer is 42.")).toBe(
       "The answer is 42.",
     );
-    // Delivery was cut short; the final text carries the full reply.
+
     expect(
       finalizeAssistantTurnText("The answ", "The answer is 42."),
     ).toBe("The answer is 42.");
@@ -1198,13 +1139,11 @@ describe("assistant turn finalizes in place (no rewrite, no remount)", () => {
       ],
       canonicalUserMessageId: "desk-u",
     });
-    // Same list key from first streamed token through finalized message: the
-    // streamed row is updated, never replaced by a differently-keyed twin.
+
     expect(ids(reconciled)).toEqual(["local-u", "local-a"]);
     const reply = reconciled.find((m) => m.id === "local-a");
     expect(reply?.canonicalId).toBe("desk-a");
-    // Text keeps the exact streamed string reference, so the incremental
-    // markdown renderer sees no change and never resets/re-animates.
+
     expect(reply?.text).toBe(streamedText);
   });
 

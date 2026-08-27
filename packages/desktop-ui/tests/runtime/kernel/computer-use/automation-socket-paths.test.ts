@@ -9,11 +9,6 @@ import {
   resolveAutomationSocketPath,
 } from "@stella/runtime/kernel/computer-use/automation-socket-paths";
 
-// The desktop app points STELLA_DATA_DIR at Electron userData, so the
-// executor's state dir looks like this in dev. The old layout appended
-// "/daemon-sockets/<hash>.sock" to it, which blew past the macOS 104-byte
-// sockaddr_un cap (~117 chars); the daemon then refused to start with
-// "Daemon socket path is too long".
 const devStateDir = (homeDir: string) =>
   path.join(
     homeDir,
@@ -41,13 +36,12 @@ describe("automation socket paths", () => {
       { homeDir },
     );
 
-    // 103 usable chars: 104 bytes including the trailing NUL.
     expect(Buffer.byteLength(socketPath, "utf8")).toBeLessThanOrEqual(103);
-    // The executor guards at a stricter internal ceiling.
+
     expect(Buffer.byteLength(socketPath, "utf8")).toBeLessThanOrEqual(
       maxAutomationSocketPathBytes,
     );
-    // Anchored at the short home-relative dir, not the data dir.
+
     expect(
       socketPath.startsWith(
         path.join(homeDir, ".stella", "computer-sockets") + path.sep,
@@ -79,9 +73,8 @@ describe("automation socket paths", () => {
       { homeDir },
     );
 
-    // Both live in the one shared directory...
     expect(path.dirname(dev)).toBe(path.dirname(packaged));
-    // ...but never collide on a socket file.
+
     expect(dev).not.toBe(packaged);
   });
 

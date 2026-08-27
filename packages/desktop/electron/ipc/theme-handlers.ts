@@ -1,10 +1,3 @@
-/**
- * IPC handlers for locally installed themes.
- *
- * Themes are plain JSON files the user drops into `~/.stella/themes`; the
- * renderer's theme context merges them with the built-in palettes.
- */
-
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { ipcMain } from "electron";
@@ -31,7 +24,7 @@ const listInstalledThemes = async (stellaDataDir: string) => {
           themes.push(theme);
         }
       } catch {
-        // Skip invalid theme files.
+
       }
     }
     return themes;

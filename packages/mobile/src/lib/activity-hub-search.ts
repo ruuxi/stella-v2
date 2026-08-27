@@ -1,11 +1,6 @@
 import type { ChatArtifact, MobileTask } from "../types";
 import { artifactSubtitle, artifactTitle } from "./mobile-artifacts";
 
-/**
- * Search scope for the activity hub sheet: case-insensitive substring match
- * across each item's visible text. Empty / whitespace-only queries match
- * everything (the sheet shows the full overview).
- */
 const normalize = (value: string) => value.trim().toLowerCase();
 
 const fieldsMatch = (
@@ -18,7 +13,6 @@ const fieldsMatch = (
   return false;
 };
 
-/** Tasks matching `query` by title, live status text, or reasoning summaries. */
 export function filterHubTasks(
   tasks: readonly MobileTask[],
   query: string,
@@ -30,7 +24,6 @@ export function filterHubTasks(
   );
 }
 
-/** Artifacts matching `query` by their card title or subtitle. */
 export function filterHubArtifacts(
   artifacts: readonly ChatArtifact[],
   query: string,

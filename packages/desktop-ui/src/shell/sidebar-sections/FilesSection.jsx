@@ -1,14 +1,3 @@
-/**
- * Home — the sidebar's default view: one recent, searchable index of agent
- * threads and files, with the Models picker anchored as a popover off the
- * footer. Theme, Phone, Connectors and Feedback live behind the top bar's
- * settings gear menu instead.
- *
- * The persisted section id remains `files` so existing locations migrate
- * without churn. Its default view merges both sources by their latest
- * update; selecting either kind opens its viewer inside the resizable
- * right sidebar.
- */
 import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, } from "react";
 import { DropOverlay } from "@/app/chat/DropOverlay";
 import { useChatRuntime } from "@/context/use-chat-runtime";
@@ -30,11 +19,7 @@ import { bucketByRecency } from "@/shared/lib/recency-buckets";
 import { ChevronRight, Eye, LayoutList, Search, X } from "@/ui/icons";
 import { DeferredDisplayContent } from "./DeferredDisplayContent";
 import "./files-section.css";
-/**
- * Keep the Work panel cheap to open even after a long-running conversation.
- * Fifty rows covers more than a typical sidebar viewport while avoiding a
- * large burst of buttons, icons, and hover handlers on the initial render.
- */
+
 export const WORK_PAGE_SIZE = 50;
 export const WORK_PAGE_END_THRESHOLD_PX = 160;
 const forgetEntry = (entry) => {
@@ -52,7 +37,7 @@ const forgetEntry = (entry) => {
 };
 const workItemLabel = (item) => item.kind === "agent" ? item.task.description : item.entry.title;
 const taskTimestamp = (task) => task.lastUpdatedAtMs || task.completedAtMs || task.startedAtMs;
-/** Headings for the recency groups the list is broken into. */
+
 const RECENCY_LABELS = {
     today: "Today",
     yesterday: "Yesterday",
@@ -60,8 +45,7 @@ const RECENCY_LABELS = {
     thisMonth: "This month",
     older: "Older",
 };
-/** A single agent-thread row: opens the delegated thread's read-only viewer.
- *  Shared by top-level agent items and the expanded children of a group. */
+
 function AgentThreadButton({ task, conversationId }) {
     return (<button type="button" className="files-list__open" onClick={() => conversationId
         ? openAgentThreadTab({
@@ -83,10 +67,7 @@ function AgentThreadButton({ task, conversationId }) {
       </span>
     </button>);
 }
-/** A parent (general) agent that owns subagents, collapsed by default into the
- *  same compact count/progress summary the activity workspace strip shows.
- *  Toggling reveals the flat list of owned subagents; the eye opens the parent
- *  thread. Returns a fragment of `<li>`s so it drops straight into the list. */
+
 function AgentGroupRow({ hierarchy, conversationId, expanded, onToggle }) {
     const owner = hierarchy.owner;
     const descendants = useMemo(() => flattenActivityTasks(hierarchy.children), [hierarchy.children]);
@@ -127,15 +108,9 @@ function AgentGroupRow({ hierarchy, conversationId, expanded, onToggle }) {
         : null}
     </>);
 }
-/**
- * @param {{
- *   section?: "home" | "files",
- *   idleContent?: import("react").ReactNode,
- * }} props
- */
+
 export function WorkList({ section = "files", idleContent = null }) {
-    // Home owns the search field (the launcher's top bar); Files is a plain
-    // browsable list that never mounts its own search input.
+
     const showSearch = section === "home";
     const chat = useChatRuntime();
     const { state } = useUiState();
@@ -152,9 +127,7 @@ export function WorkList({ section = "files", idleContent = null }) {
     const pageEndRef = useRef(null);
     const [draggingMedia, setDraggingMedia] = useState(false);
     const [visibleItemCount, setVisibleItemCount] = useState(WORK_PAGE_SIZE);
-    // Collapsed-by-default expansion for subagent groups, mirroring the
-    // activity workspace strip. Session-local (not persisted) and reset per
-    // conversation so stale ids can't leak across a switch.
+
     const [expandedGroupIds, setExpandedGroupIds] = useState(() => new Set());
     const toggleGroup = useCallback((id) => {
         setExpandedGroupIds((prev) => {
@@ -191,19 +164,14 @@ export function WorkList({ section = "files", idleContent = null }) {
         return () => window.cancelAnimationFrame(frame);
     }, [focusRequest, searchOpen, showSearch]);
     useEffect(() => {
-        // Search is owned by Home; close it whenever the panel closes or the
-        // user navigates away from Home to any other destination.
+
         if (searchOpen && (!panelOpen || activeSection !== "home")) {
             displaySearchStore.close();
         }
     }, [activeSection, panelOpen, searchOpen]);
     const query = showSearch && searchOpen ? deferredQuery : "";
     const items = useMemo(() => {
-        // Home lists FILES only by default; agents live in the ambient
-        // activity strip. They stay findable here through search, so agent
-        // rows are folded in only while a query is active (mirroring the
-        // activity strip's nesting so a match on a hidden child surfaces its
-        // group; `getActivityRowSearchText` folds in nested descendant text).
+
         const agents = query
             ? groupActivityTasks(chat.conversation.tasks)
             .filter((row) => {
@@ -243,12 +211,7 @@ export function WorkList({ section = "files", idleContent = null }) {
     }, [chat.conversation.tasks, entries, query]);
     const visibleItems = useMemo(() => items.slice(0, visibleItemCount), [items, visibleItemCount]);
     const hasOlderItems = visibleItemCount < items.length;
-    // Break the (already newest-first) page into calendar groups so a long
-    // history reads as dated runs instead of one undifferentiated column.
-    // Bucketing the visible slice, not the full list, keeps this proportional
-    // to what is actually rendered; the next page re-groups when it arrives.
-    // The clock is truncated to the minute so paging in more rows doesn't
-    // rebuild the groups against a different `now` each time.
+
     const bucketNowMs = Math.floor(Date.now() / 60000) * 60000;
     const itemGroups = useMemo(() => bucketByRecency(visibleItems, (item) => item.timestamp, bucketNowMs), [bucketNowMs, visibleItems]);
     useEffect(() => {
@@ -379,24 +342,17 @@ export function WorkList({ section = "files", idleContent = null }) {
         </div>)}
     </div>);
 }
-/**
- * One Files tab: the browsable list (no `location`) or a single file/agent
- * viewer (`location` = a display-tab id). Prop-driven so multiple file tabs can
- * coexist, each keeping its own mounted viewer.
- *
- * @param {{ location?: string | null }} props
- */
+
 export function FilesSection({ location = null }) {
     const { tabs } = useDisplayTabList();
     const openTab = location
         ? (tabs.find((tab) => tab.id === location) ?? null)
         : null;
-    // The Models control now lives globally in the shell (GlobalModelsControl),
-    // so there is no per-section footer here.
+
     return (<div className="work-section">
       <div className="work-section__body">
-        {/* The drill-back to the list lives in the top bar now (browser-tab
-            model), so no in-body viewer header here. */}
+        {
+}
         {!openTab ? (<WorkList section="files" />) : (<div className="sidebar-section__viewer-body">
             <DeferredDisplayContent key={openTab.id} render={openTab.render}/>
           </div>)}

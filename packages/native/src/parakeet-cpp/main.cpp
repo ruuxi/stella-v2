@@ -1,20 +1,3 @@
-// parakeet_cpp_transcriber — local dictation helper for platforms without the
-// CoreML/ANE path (Windows, Intel macOS). Wraps parakeet.cpp's flat C-API
-// (libparakeet) and speaks the exact same newline-delimited JSON protocol as
-// the Swift CoreML helper (`parakeet_transcriber`) so the Electron service in
-// `desktop/electron/dictation/local-parakeet.ts` is engine-agnostic.
-//
-// Commands:
-//   --probe                                  -> {"ok":true,"model":...}
-//   --transcribe --audio <wav> --model <gguf>
-//   --serve --model <gguf>                   load once, then read one JSON
-//                                            request per line from stdin:
-//                                              {"id":"...","audioPath":"..."}
-//                                            and emit one JSON response per line.
-//
-// The model is downloaded/cached on the TypeScript side; this binary only ever
-// receives a concrete `--model <path>` and never touches the network.
-
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -82,9 +65,6 @@ void emit(bool ok, const char* transcript, const char* error, const char* id) {
   std::fflush(stdout);
 }
 
-// Extract a string field's value from a single-line JSON object. The input is
-// always produced by our own TS service, so this only needs to handle
-// well-formed `"key":"value"` pairs with standard JSON string escapes.
 bool extractJsonString(const std::string& json, const std::string& key,
                        std::string& out) {
   const std::string needle = "\"" + key + "\"";
@@ -112,9 +92,7 @@ bool extractJsonString(const std::string& json, const std::string& key,
         case 'f': out += '\f'; break;
         case 'u': {
           if (pos + 5 < json.size()) {
-            // Pass through BMP escapes as-is in UTF-8 for the ASCII range we
-            // realistically see in file paths; higher code points are left
-            // encoded since paths from our TS layer don't contain them.
+
             unsigned int code = 0;
             std::sscanf(json.substr(pos + 2, 4).c_str(), "%4x", &code);
             if (code < 0x80) {
@@ -179,7 +157,7 @@ int runServe(const char* modelPath) {
     emit(false, nullptr, "Failed to load Parakeet model.", nullptr);
     return 1;
   }
-  // Service-ready message (no id), matching the Swift helper protocol.
+
   emit(true, nullptr, nullptr, nullptr);
 
   std::string line;
@@ -233,7 +211,7 @@ int runTranscribe(int argc, char** argv) {
   return rc;
 }
 
-}  // namespace
+}
 
 int main(int argc, char** argv) {
   if (hasArg(argc, argv, "--probe")) {
@@ -241,7 +219,7 @@ int main(int argc, char** argv) {
     return 0;
   }
   if (hasArg(argc, argv, "--download")) {
-    // Model fetch/caching is owned by the TS service; nothing to do here.
+
     emit(true, nullptr, nullptr, nullptr);
     return 0;
   }

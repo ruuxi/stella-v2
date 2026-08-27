@@ -60,7 +60,7 @@ const TELEMETRY_PATH_HINTS = [
   "/heartbeat",
   "/ping"
 ];
-const CREDENTIAL_HEADERS = /* @__PURE__ */ new Set([
+const CREDENTIAL_HEADERS =  new Set([
   "authorization",
   "cookie",
   "x-csrf-token",
@@ -76,7 +76,7 @@ const CREDENTIAL_HEADERS = /* @__PURE__ */ new Set([
   "authentication",
   "x-amz-security-token"
 ]);
-const BORING_HEADERS = /* @__PURE__ */ new Set([
+const BORING_HEADERS =  new Set([
   "accept-encoding",
   "accept-language",
   "cache-control",
@@ -213,9 +213,9 @@ const isObviousId = (segment) => {
   if (OPAQUE_ID.test(segment) && !/^[a-z-]+$/i.test(segment)) return "{id}";
   return null;
 };
-const variableSegments = /* @__PURE__ */ new Set();
+const variableSegments =  new Set();
 {
-  const buckets = /* @__PURE__ */ new Map();
+  const buckets =  new Map();
   for (const entry of apiEntries) {
     let url;
     try {
@@ -227,13 +227,13 @@ const variableSegments = /* @__PURE__ */ new Set();
     const bucketKey = `${entry.request.method}|${url.host}|${segments.length}`;
     let positions = buckets.get(bucketKey);
     if (!positions) {
-      positions = /* @__PURE__ */ new Map();
+      positions =  new Map();
       buckets.set(bucketKey, positions);
     }
     segments.forEach((segment, index) => {
       let seen = positions.get(index);
       if (!seen) {
-        seen = /* @__PURE__ */ new Set();
+        seen =  new Set();
         positions.set(index, seen);
       }
       seen.add(segment);
@@ -260,7 +260,7 @@ const templatePath = (method, host, pathname) => {
     return segment;
   }).join("/");
 };
-const groups = /* @__PURE__ */ new Map();
+const groups =  new Map();
 for (const entry of apiEntries) {
   let url;
   try {
@@ -288,9 +288,9 @@ for (const entry of apiEntries) {
       path,
       operation,
       count: 0,
-      statuses: /* @__PURE__ */ new Map(),
-      queryParams: /* @__PURE__ */ new Map(),
-      requestHeaders: /* @__PURE__ */ new Map(),
+      statuses:  new Map(),
+      queryParams:  new Map(),
+      requestHeaders:  new Map(),
       graphqlQuery,
       sampleUrl: entry.request.url,
       streamKind: isStreamEntry(entry) ? entry._resourceType : void 0,
@@ -328,7 +328,7 @@ for (const entry of apiEntries) {
     if (responseBody !== void 0) group.responseShape = inferShape(responseBody);
   }
 }
-const credentialUsage = /* @__PURE__ */ new Map();
+const credentialUsage =  new Map();
 for (const group of groups.values()) {
   for (const name of group.requestHeaders.keys()) {
     if (CREDENTIAL_HEADERS.has(name)) {
@@ -357,7 +357,7 @@ const ranked = [...groups.values()].sort((a, b) => {
   return b.count - a.count;
 });
 const shown = ranked.slice(0, maxEndpoints);
-const hostCounts = /* @__PURE__ */ new Map();
+const hostCounts =  new Map();
 for (const group of groups.values()) {
   hostCounts.set(group.host, (hostCounts.get(group.host) ?? 0) + group.count);
 }
@@ -422,7 +422,7 @@ for (const group of shown) {
     lines.push("```");
   }
   if (group.frames.length > 0) {
-    const bySignature = /* @__PURE__ */ new Map();
+    const bySignature =  new Map();
     for (const frame of group.frames) {
       let parsed;
       try {

@@ -14,7 +14,6 @@ const ev = (overrides: Partial<EventRecord>): EventRecord => ({
   ...overrides,
 });
 
-/** An agent-completed event that produced a file under `/path`. */
 const completedWithFile = (
   id: string,
   agentId: string,
@@ -31,7 +30,6 @@ const completedWithFile = (
     },
   });
 
-/** A non-file lifecycle event (the per-token streaming flood). */
 const progress = (
   id: string,
   agentId: string,
@@ -50,8 +48,7 @@ describe("agentFilesSignature — cache gating", () => {
       progress("p1", "a1", 1),
       completedWithFile("c1", "a1", "/a.md", 2),
     ];
-    // Next delta: the activity window is refetched (new array, new objects)
-    // with extra progress/reasoning events — but no file change.
+
     const next: EventRecord[] = [
       progress("p1", "a1", 1),
       completedWithFile("c1", "a1", "/a.md", 2),
@@ -93,7 +90,7 @@ describe("agentFilesSignature — cache gating", () => {
     const withAgent = [completedWithFile("c1", "a1", "/a.md", 2)];
     const plusOrphan = [
       completedWithFile("c1", "a1", "/a.md", 2),
-      // Same file payload shape but no agentId → not attributable to an agent.
+
       ev({
         _id: "orphan",
         timestamp: 3,
@@ -113,13 +110,13 @@ describe("agentFilesSignature — cache gating", () => {
       completedWithFile("c2", "a2", "/b.md", 3),
     ];
     const nextNoFileChange: EventRecord[] = [
-      ...base.map((e) => ({ ...e })), // fresh objects, as a refetch would
+      ...base.map((e) => ({ ...e })),
       progress("p9", "a1", 9),
     ];
     expect(agentFilesSignature(nextNoFileChange)).toBe(
       agentFilesSignature(base),
     );
-    // Same signature ⇒ deriveAgentFilesMap yields the same per-agent files.
+
     const a = deriveAgentFilesMap(base);
     const b = deriveAgentFilesMap(nextNoFileChange);
     const norm = (m: Map<string, { path: string }[]>) =>
@@ -134,7 +131,6 @@ describe("agentFilesSignature — cache gating", () => {
   });
 });
 
-/** A live tool_result stamped with the spawned agent's id. */
 const toolResultWithFile = (
   id: string,
   agentId: string,
@@ -166,10 +162,9 @@ describe("mergeAgentFileEvents — live per-agent file sourcing", () => {
       progress("p1", "a1", 1),
       completedWithFile("c1", "a1", "/a.md", 2),
     ];
-    // Empty files window.
+
     expect(mergeAgentFileEvents(activities, [])).toBe(activities);
-    // File events without an agentId (orchestrator direct writes) and
-    // non-file tool_results never merge in.
+
     expect(
       mergeAgentFileEvents(activities, [
         ev({
@@ -186,8 +181,7 @@ describe("mergeAgentFileEvents — live per-agent file sourcing", () => {
         }),
       ]),
     ).toBe(activities);
-    // Events already present in the activity window (agent-completed lives
-    // in both feeds) dedupe by _id.
+
     expect(
       mergeAgentFileEvents(activities, [
         completedWithFile("c1", "a1", "/a.md", 2),
@@ -207,7 +201,7 @@ describe("mergeAgentFileEvents — live per-agent file sourcing", () => {
     const merged = mergeAgentFileEvents(activities, fileEvents);
     const files = deriveAgentFilesMap(merged);
     expect(files.get("a1")?.map((f) => f.path)).toEqual(["/a.md"]);
-    // Most-recent occurrence wins: the rollup's timestamp sticks.
+
     expect(files.get("a1")?.[0]?.timestamp).toBe(10);
   });
 
@@ -231,8 +225,7 @@ describe("mergeAgentFileEvents — live per-agent file sourcing", () => {
     ];
     const fileEvents = [toolResultWithFile("t1", "a1", "/live.md", 3)];
     const base = mergeAgentFileEvents(activities, fileEvents);
-    // Next delta: refetched activity window (fresh objects, extra progress),
-    // unchanged files window.
+
     const next = mergeAgentFileEvents(
       [...activities.map((e) => ({ ...e })), progress("p2", "a1", 4)],
       fileEvents,

@@ -628,8 +628,7 @@ describe("browser worker API", () => {
   });
 
   it("exposes enumerable method names so agents can introspect the frozen API", async () => {
-    // Run against the data-URL-restored function: introspection must survive
-    // stringification exactly like the rest of the worker API.
+
     const restored = (0, eval)(
       `(${installBrowserWorkerApi.toString()})`,
     ) as typeof installBrowserWorkerApi;
@@ -693,12 +692,11 @@ describe("browser worker API", () => {
         name,
       );
     }
-    // TS-private internals stay hidden.
+
     expect(Object.keys(locator)).not.toContain("state");
     expect(Object.keys(locator)).not.toContain("action");
     expect(Object.keys(tab)).not.toContain("state");
 
-    // Introspection must not weaken freezing, identity, or behavior.
     expect(Object.isFrozen(tab)).toBe(true);
     expect(Object.isFrozen(locator)).toBe(true);
     expect(tab.press).toBe(Object.getPrototypeOf(tab).press);
@@ -765,11 +763,9 @@ describe("browser worker API", () => {
       },
     ]);
 
-    // Keyboard handle is frozen and identity-stable per tab.
     expect(Object.isFrozen(tab.keyboard)).toBe(true);
     expect(tab.keyboard).toBe(tab.keyboard);
 
-    // Invalid inputs are rejected before transport.
     await expect(tab.press("")).rejects.toThrow(TypeError);
     await expect(tab.press("x".repeat(65))).rejects.toThrow(RangeError);
     await expect(tab.keyboard.type(42 as unknown as string)).rejects.toThrow(
@@ -878,7 +874,6 @@ describe("browser worker API", () => {
       },
     ]);
 
-    // Relative paths and non-strings are rejected before transport.
     await expect(input.setInputFiles("relative/path.txt")).rejects.toThrow(
       TypeError,
     );
@@ -1163,8 +1158,7 @@ describe("browser worker API", () => {
   });
 
   it("round-trips a filtered locator through the daemon chain response shape", async () => {
-    // Mocks the CDP daemon's native chain executor response: per-step results
-    // with step/action/success/data/durationMs plus completed/total counters.
+
     const calls: RecordedCall[] = [];
     const callBrowser: BrowserWorkerCall = vi.fn(async (method, args) => {
       calls.push({ method, args });
@@ -1206,8 +1200,6 @@ describe("browser worker API", () => {
 
     await expect(locator.innerText()).resolves.toBe("Ready row");
 
-    // Exact chain payload: a two-step marker chain (tag via evaluate, act via
-    // the marker attribute selector) with waits disabled.
     expect(calls[0]!.method).toBe("chain");
     const [steps, options] = calls[0]!.args as [
       ReadonlyArray<{ action: string; params: Record<string, unknown> }>,
@@ -1234,13 +1226,12 @@ describe("browser worker API", () => {
         ),
       },
     });
-    // The marker the tag script writes is the marker the action step targets.
+
     const marker = /data-stella-worker-locator="([^"]+)"/.exec(
       steps[1]!.params.selector as string,
     )![1]!;
     expect(steps[0]!.params.script).toContain(JSON.stringify(marker));
 
-    // Cleanup runs as a separate top-level evaluate afterwards.
     expect(calls[1]).toMatchObject({
       method: "command",
       args: [
@@ -1255,9 +1246,7 @@ describe("browser worker API", () => {
   });
 
   it("surfaces the daemon chain failure envelope for filtered locators", async () => {
-    // The CDP daemon fails the whole chain envelope when a step fails
-    // (success: false + "Chain step N (action) failed: ..."), which the
-    // transport surfaces as a rejection before per-step parsing.
+
     const calls: RecordedCall[] = [];
     const callBrowser: BrowserWorkerCall = vi.fn(async (method, args) => {
       calls.push({ method, args });
@@ -1296,7 +1285,7 @@ describe("browser worker API", () => {
     await expect(locator.click()).rejects.toThrow(
       /Chain step 1 \(click\) failed: Element found but not visible/,
     );
-    // Marker cleanup still runs after the failure.
+
     expect(calls[1]).toMatchObject({
       method: "command",
       args: [
@@ -1629,9 +1618,7 @@ describe("browser worker API", () => {
   });
 
   it("round-trips finalize against the CDP daemon response shape", async () => {
-    // Mirrors the CDP backend's finalize_tabs envelope: the daemon wraps
-    // { closedTabIds, releasedTabIds, kept } in a success envelope, and
-    // finalize() resolves with the unwrapped data.
+
     const callBrowser = vi.fn<BrowserWorkerCall>(async (method, args) => {
       expect(method).toBe("command");
       expect(args[0]).toBe("finalize_tabs");

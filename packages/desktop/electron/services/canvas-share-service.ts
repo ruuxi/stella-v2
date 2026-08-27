@@ -6,19 +6,6 @@ import {
   readCanvasShareBaseUrl,
 } from "@stella/contracts/canvas-share";
 
-/**
- * Main-process side of the canvas-share deep link. Given a
- * `<CANVAS_SHARE_BASE_URL>/c/<slug>` URL, fetch the remote HTML and
- * materialize it into the same `~/.stella/outputs/html/<slug>.html` store the
- * `html` tool writes local canvases to, so the renderer can display it through
- * the identical sandboxed canvas path with no extra privileges.
- *
- * Fetching + writing happen here (privileged, and free of renderer CORS). The
- * slug is validated against the shared grammar before it ever reaches the
- * filesystem, so a share URL can't smuggle path traversal into the target
- * file name.
- */
-
 const MAX_SHARED_CANVAS_BYTES = 8 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 15_000;
 
@@ -30,7 +17,6 @@ export type SharedCanvasPayload = {
   createdAt: number;
 };
 
-/** Configured public base URL for shared canvases (final domain TBD/pending). */
 export const readConfiguredCanvasShareBaseUrl = (): string | null =>
   readCanvasShareBaseUrl(process.env.CANVAS_SHARE_BASE_URL);
 
@@ -43,11 +29,6 @@ const titleFromHtml = (html: string, slug: string): string => {
     .replace(/\b\w/g, (char: string) => char.toUpperCase());
 };
 
-/**
- * Resolve a canvas-share URL into a file-backed canvas payload, or `null` when
- * the URL is not a valid share link for the configured base, the fetch fails,
- * or the response is empty / oversized.
- */
 export const resolveSharedCanvasPayload = async (options: {
   url: string;
   baseUrl: string | null;

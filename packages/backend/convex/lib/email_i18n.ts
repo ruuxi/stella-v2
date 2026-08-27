@@ -1,14 +1,3 @@
-/**
- * Email-only translation strings. Kept separate from the desktop
- * renderer's i18n catalogs because the backend can't import from
- * `desktop/src/`. Mirrors the same supported-locale set so the user's
- * stored locale (BCP-47) maps to a copy bundle here.
- *
- * Keys are intentionally minimal — only what the email templates
- * actually render. New surfaces should add their own bundle next to
- * this one, not extend the magic-link strings.
- */
-
 type EmailStrings = {
   signInTitle: string;
   signInDescription: string;
@@ -264,8 +253,6 @@ const STRINGS: Record<string, EmailStrings> = {
   },
 };
 
-// Own-property lookup so user-controlled locale strings like "constructor"
-// can't resolve to Object.prototype members.
 const lookupStrings = (key: string): EmailStrings | undefined =>
   Object.prototype.hasOwnProperty.call(STRINGS, key) ? STRINGS[key] : undefined;
 
@@ -277,7 +264,7 @@ export const getEmailStrings = (
   if (!trimmed) return STRINGS.en;
   const exact = lookupStrings(trimmed);
   if (exact) return exact;
-  // Match `pt-BR` → `pt`, `zh-CN` → `zh-Hans`, etc.
+
   if (trimmed.toLowerCase().startsWith("zh")) {
     return STRINGS["zh-Hans"];
   }
@@ -289,10 +276,6 @@ export const getEmailStrings = (
   return STRINGS.en;
 };
 
-/**
- * RTL-aware HTML lang/dir attributes for the email's `<html>` tag.
- * The body still inherits the document direction via parent attributes.
- */
 export const emailDir = (locale: string | null | undefined): "ltr" | "rtl" => {
   const primary = locale?.trim().split(/[-_]/)[0]?.toLowerCase();
   return primary === "ar" || primary === "he" ? "rtl" : "ltr";

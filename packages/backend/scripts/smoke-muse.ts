@@ -1,7 +1,3 @@
-/**
- * Live smoke test: hit OpenRouter's meta/muse-spark-1.2-contributor through
- * the real runtime parser (streamOpenAICompletions). Needs OPENROUTER_API_KEY.
- */
 import { streamOpenAICompletions } from "../convex/runtime_ai/openai_completions";
 
 const model = {

@@ -2,22 +2,16 @@
   position: fixed;
   inset: 0;
   z-index: 50;
-  /* Calm modal scrim — a single soft dim behind the dialog surface. */
+
   background-color: rgba(0, 0, 0, 0.35);
 }
 
 [data-component="dialog"] {
   --dialog-width: 480px;
   --dialog-height: 512px;
-  /*
-   * Canonical dialog header identity — shared by EVERY dialog in the
-   * family so titles read as one system. One sans font, one fixed size,
-   * one weight, one letter-spacing, one header padding. Per-dialog CSS
-   * should NOT redefine the title font/size/weight — only layout
-   * (padding/scroll) — so the surface stays uniform.
-   */
+
   --dialog-title-font: var(--font-family-display);
-  --dialog-title-size: var(--font-size-3xl); /* 24px */
+  --dialog-title-size: var(--font-size-3xl);
   --dialog-title-weight: var(--weight-regular);
   --dialog-title-spacing: -0.03em;
   --dialog-title-line: 1.2;
@@ -59,21 +53,10 @@
   width: 100%;
   max-height: 100%;
   min-height: 280px;
-  /*
-   * Canonical dialog surface — opaque panel with a light blur (dialogs
-   * are transient overlays, so they keep the panel-glass treatment).
-   * Applied as the DEFAULT here instead of forcing each dialog to opt
-   * in. Per-dialog CSS should only override layout (padding, sizing,
-   * scroll behavior) — not the background/border/shadow — so the surface
-   * stays uniform.
-   */
+
   border: 1px solid var(--border-weak);
   border-radius: var(--radius-2xl, 14px);
-  /* `--panel-glass-bg` layers the panel tint over `--card`, but several
-     themes give `--card` an alpha channel, so the "opaque panel" promised
-     above still let live content read through. Re-lay the same two tints
-     over an opaque `--background` backstop: identical color, no
-     bleed-through. */
+
   background-color: var(--background);
   background-image:
     var(--panel-surface-bg-gradient), linear-gradient(var(--card), var(--card));

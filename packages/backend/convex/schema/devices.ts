@@ -2,9 +2,7 @@ import { defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export const devicesSchema = {
-  // Stable per-device profile data. High-churn presence fields live in
-  // `device_presence` so that frequent heartbeat writes do not contend with
-  // reads of identity/profile data.
+
   devices: defineTable({
     ownerId: v.string(),
     deviceId: v.string(),
@@ -15,9 +13,6 @@ export const devicesSchema = {
     .index("by_ownerId", ["ownerId"])
     .index("by_ownerId_and_deviceId", ["ownerId", "deviceId"]),
 
-  // High-churn presence/heartbeat state for devices. One row per (ownerId,
-  // deviceId), upserted on every heartbeat. Kept separate from `devices` to
-  // avoid rewriting the stable profile row on each heartbeat tick.
   device_presence: defineTable({
     ownerId: v.string(),
     deviceId: v.string(),
@@ -30,15 +25,6 @@ export const devicesSchema = {
     .index("by_ownerId", ["ownerId"])
     .index("by_online_and_lastSignedAtMs", ["online", "lastSignedAtMs"]),
 
-  // Maps a retired desktop device id to the identity that replaced it.
-  //
-  // A desktop mints a new `deviceId` whenever its local keypair stops being
-  // readable (the backend binds `deviceId -> devicePublicKey` permanently, so a
-  // key change can only ever surface as a new identity). Without a successor
-  // record every paired phone is stranded on the retired id: it keeps polling a
-  // device that will never register a bridge again, so the desktop reads as
-  // permanently offline and only re-pairing recovers it. Phones resolve through
-  // this table and adopt the current id.
   device_identity_successors: defineTable({
     ownerId: v.string(),
     previousDeviceId: v.string(),
@@ -50,16 +36,13 @@ export const devicesSchema = {
 
   anon_device_usage: defineTable({
     deviceId: v.string(),
-    /** The anonymous trial allowance. This count is what gates access. */
+
     requestCount: v.number(),
     firstRequestAt: v.number(),
     lastRequestAt: v.number(),
   })
     .index("by_deviceId", ["deviceId"])
-    // Lets the retention cron range-scan the oldest rows without a full
-    // table scan. Rows past the retention window are equivalent to absent
-    // ones (a returning device/IP just starts a fresh count), so deleting
-    // them is purely a storage reclaim.
+
     .index("by_lastRequestAt", ["lastRequestAt"]),
 
   mobile_bridge_registrations: defineTable({
@@ -73,9 +56,6 @@ export const devicesSchema = {
     .index("by_ownerId_and_deviceId", ["ownerId", "deviceId"])
     .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"]),
 
-  // Dedicated fixed-window state for the public one-call bridge registration
-  // mutation. Keeping this in the app transaction avoids a second billed
-  // function invocation through the shared rate-limiter component.
   mobile_bridge_registration_limits: defineTable({
     ownerId: v.string(),
     windowStartedAt: v.number(),
@@ -164,7 +144,7 @@ export const devicesSchema = {
 
   cloudflare_tunnels: defineTable({
     ownerId: v.string(),
-    /** Desktop machine id (matches `devices.deviceId` / mobile bridge device). Omitted until claimed for older one-row-per-owner tunnel records. */
+
     deviceId: v.optional(v.string()),
     tunnelId: v.string(),
     tunnelName: v.string(),

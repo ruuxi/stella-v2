@@ -1,8 +1,3 @@
-/**
- * Minimal ambient types for `bun:test`, just enough for the pure-function
- * tests in this folder to typecheck without pulling `@types/bun` into the
- * Expo app. Run the tests with `bun test` from `packages/mobile/`.
- */
 declare module "bun:test" {
   interface Matchers {
     toBe(expected: unknown): void;
@@ -37,7 +32,7 @@ declare module "bun:test" {
   export const expect: (value: unknown) => Matchers;
   export const beforeEach: (fn: () => void | Promise<void>) => void;
   export const afterEach: (fn: () => void | Promise<void>) => void;
-  /** Only `mock.module` is used here — to stand in for native Expo modules. */
+
   export const mock: {
     module: (specifier: string, factory: () => unknown) => void;
   };

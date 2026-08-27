@@ -53,26 +53,19 @@ export const registerBootstrapProcessCleanups = (context) => {
         const stellaDataDir = context.state.stellaDataDirPath ?? context.config.stellaDataDirPath;
         await stopOfficePreviewSessions(stellaDataDir);
     });
-    // Meeting capture finalizes any in-flight recording (patches WAV headers,
-    // writes session.json) before the daemon exits.
+
     processRuntime.registerCleanup("before-quit", "meeting-capture-daemon", async () => {
         await context.state.meetingCaptureController?.shutdown();
         context.state.meetingCaptureController = null;
     });
-    // The desktop_automation daemon is a long-lived child process spawned
-    // on demand by stella-computer. macOS doesn't reload an executable
-    // under a live process, so without killing it on quit a rebuilt
-    // binary would never be picked up until the user manually killed the
-    // old one. Stopping here also clears the per-session pidfiles +
-    // sockets so the next launch starts clean.
+
     processRuntime.registerCleanup("before-quit", "desktop-automation-daemon", async () => {
         await stopAllDesktopAutomationDaemons();
     });
     processRuntime.registerCleanup("before-quit", "local-parakeet", () => {
         stopLocalParakeet();
     });
-    // Long-lived `--serve` helper daemons (window_info, recent_apps). Kill them
-    // on quit so a rebuilt binary is picked up next launch and no orphan lingers.
+
     processRuntime.registerCleanup("before-quit", "native-helper-daemons", () => {
         stopNativeHelperDaemons();
     });

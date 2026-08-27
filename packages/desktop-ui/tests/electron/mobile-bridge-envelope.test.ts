@@ -47,7 +47,7 @@ describe("bridge envelope compression", () => {
 
   it("skips the z flag when compression does not shrink the payload", () => {
     const { sender, receiver } = makeSessionPair();
-    // Tiny payload — deflate's own header/overhead makes it larger.
+
     const payload = { a: 1 };
     const envelope = encryptBridgePayload(sender, "d2m", payload, {
       compress: true,
@@ -120,7 +120,7 @@ describe("binary frame lane", () => {
     const { sender, receiver } = makeSessionPair();
     const frame = encryptBridgeBytes(sender, "m2d", new Uint8Array([1, 2, 3]));
     expect(() => decryptBridgeBytes(receiver, "d2m", frame)).toThrow();
-    // And a binary frame can't be replayed into the JSON lane.
+
     expect(() =>
       decryptBridgePayload(receiver, "m2d", {
         v: 1,

@@ -1,5 +1,3 @@
-/// <reference types="vite/client" />
-
 import { convexTest } from "convex-test";
 import { register as registerRateLimiter } from "@convex-dev/rate-limiter/test";
 import { describe, expect, it } from "vitest";
@@ -20,11 +18,7 @@ const createTest = () => {
   return t;
 };
 const ownerSessionId = "session-bridge-owner";
-/**
- * `sessionId: null` omits the claim entirely (modelling a token that predates
- * or loses it). Note it must be `null`, not `undefined` — passing `undefined`
- * for an optional parameter selects its default value in JS.
- */
+
 const asOwner = (
   t: ReturnType<typeof createTest>,
   sessionId: string | null = ownerSessionId,
@@ -33,9 +27,7 @@ const asOwner = (
     issuer: "https://issuer.test",
     subject: "bridge-owner",
     tokenIdentifier: ownerId,
-    // Mirrors the real token: the Convex plugin stamps `sessionId` on every
-    // JWT and Convex surfaces it (`iat` is stripped by the customJwt decoder,
-    // which is why revocation keys on this claim instead).
+
     ...(sessionId === null ? {} : { sessionId }),
   });
 
@@ -87,9 +79,6 @@ describe("desktop bridge registration", () => {
     ).rejects.toThrow("Session has been revoked");
   });
 
-  // The old `iat`-based test only covered the reject path, so a mechanism
-  // that rejected *everything* would still have passed. These three pin the
-  // allow paths that actually matter.
   it("allows a session that was never revoked", async () => {
     const t = createTest();
     const result = await asOwner(t).mutation(
@@ -138,8 +127,6 @@ describe("desktop bridge registration", () => {
   it("denies an unidentifiable session only when revocations exist", async () => {
     const t = createTest();
 
-    // No tombstones: a token without `sessionId` still works, so a future
-    // regression in the claim cannot mass-lock accounts.
     const before = await asOwner(t, null).mutation(
       api.mobile_bridge.registerDesktopBridge,
       registrationArgs,

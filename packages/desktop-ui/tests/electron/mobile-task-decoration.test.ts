@@ -29,8 +29,7 @@ const spawnRunningTask = (
   service: LocalChatHistoryService,
   conversationId: string,
 ) => {
-  // Recent timestamps: a spawn older than the serializer's staleness window
-  // would settle the task to "completed" and hide the decoration under test.
+
   const now = Date.now();
   service.appendEvent({
     conversationId,
@@ -111,13 +110,11 @@ describe("mobile task decoration bridge", () => {
       statusTextByAgentId: { "agent-1": "Comparing fares" },
     });
 
-    // Identical republish: silent.
     service.setTaskDecoration({
       statusTextByAgentId: { "agent-1": "Comparing fares" },
     });
     expect(onTaskDecorationUpdated).toHaveBeenCalledTimes(1);
 
-    // A cleared snapshot still broadcasts (the phone must drop stale ticks).
     service.setTaskDecoration({ statusTextByAgentId: {} });
     expect(onTaskDecorationUpdated).toHaveBeenCalledTimes(2);
     expect(onTaskDecorationUpdated).toHaveBeenLastCalledWith({

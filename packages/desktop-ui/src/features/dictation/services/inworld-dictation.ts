@@ -1,15 +1,3 @@
-/**
- * InworldDictationSession — captures the microphone, buffers downsampled
- * 16 kHz mono PCM, and on stop ships a single WAV-encoded request to our
- * `/api/dictation/transcribe` proxy. The backend forwards to OpenRouter
- * Nemotron 3.5 ASR (one-shot) by default so the API key never leaves the
- * server. Set `DICTATION_STT_PROVIDER=inworld` on the backend to roll back.
- *
- * Why sync HTTP and not a live stream: OpenRouter STT is one-shot JSON,
- * and Inworld's STT WebSocket only accepts JWTs in the `Authorization`
- * HEADER. Browser/Electron renderer WebSockets cannot set custom headers.
- */
-
 import { postServiceJson } from "@/platform/http/service-request";
 import { callChatCompletion, extractChatText } from "@/platform/ai/llm";
 import { uiState } from "@/platform/ui-state";
@@ -29,39 +17,16 @@ const PCM_WORKLET_FILE = "dictation-pcm-worklet.js";
 const DICTATION_SUPER_FAST_KEY = "stella-dictation-super-fast";
 const DICTATION_ENHANCE_KEY = "stella-dictation-enhance";
 const DICTATION_LOCAL_KEY = "stella-dictation-local";
-/** Hard cap on a single dictation recording before we auto-stop and
- *  transcribe. 15 minutes lets users dictate long-form without being cut
- *  off mid-thought. The managed transcription endpoint caps a single
- *  upload (see `MANAGED_MAX_SEGMENT_SAMPLES`), so longer recordings sent
- *  through it are split into segments that each stay under that limit; the
- *  on-device path has no upload-size limit and transcribes in one pass. */
+
 const MAX_DICTATION_DURATION_MS = 15 * 60 * 1000;
 
-/** Per-request sample budget for the managed `/api/dictation/transcribe`
- *  endpoint, which rejects uploads over ~14 MB of base64 audio. 16 kHz
- *  int16 mono = 32 KB/s, so 4 minutes ≈ 7.68 MB raw → ~10.2 MB base64,
- *  comfortably under the cap with WAV-header overhead. A 15-minute
- *  recording therefore splits into 4 sequential segments. Recordings short
- *  enough to fit in one segment are sent exactly as before. */
 const MANAGED_MAX_SEGMENT_SAMPLES = 4 * 60 * TARGET_SAMPLE_RATE;
 
-/** How often we emit a level tick to consumers (≈ 12 Hz). The waveform UI
- *  appends one bar per tick, so this also controls the bar density of the
- *  scrolling visualization. */
 const LEVEL_EMIT_INTERVAL_MS = 80;
 
-/** RMS values during normal speech sit around 0.05–0.15. Multiplying by
- *  this constant maps that range onto a perceptually pleasing 0–1 scale
- *  for the waveform without immediately clipping at the top. */
 const LEVEL_GAIN = 6;
 const SUPER_FAST_PRE_ROLL_MS = 450;
 
-/** Per-segment transcription timeout. Each managed upload is ~10 MB of audio
- *  (≤ 4 minutes), so 90 s is generous headroom for a slow connection while
- *  still bounding the wait — a stalled request must never leave the session
- *  permanently stuck in `transcribing`. The on-device path transcribes the
- *  whole recording in one pass, so it gets this budget scaled by the number
- *  of equivalent segments (see `transcribeCapturedAudio`). */
 const TRANSCRIBE_SEGMENT_TIMEOUT_MS = 90_000;
 
 export const resolveDictationPcmWorkletUrl = (rendererHref: string): string =>
@@ -74,17 +39,10 @@ export type DictationSessionState =
   | "error";
 
 type DictationCallbacks = {
-  /**
-   * Fired with the transcribed text. `meta.partial` is true when one or more
-   * segments of a multi-segment (managed) transcription failed — the text is
-   * what succeeded, and the caller should signal to the user that the result
-   * may be incomplete rather than treating it as a clean transcript.
-   */
+
   onFinalTranscript?: (text: string, meta?: { partial?: boolean }) => void;
   onStateChange?: (state: DictationSessionState, error?: string) => void;
-  /** Periodic 0..1 input-level tick used by the recording UI to render a
-   *  scrolling waveform. Fires at ~12 Hz while listening; the value is the
-   *  peak RMS observed since the previous tick. */
+
   onLevel?: (level: number) => void;
 };
 
@@ -98,11 +56,9 @@ type TranscribeResponse = {
 type DictationTranscriptResult = {
   transcript: string;
   source: "local" | "cloud";
-  /** True when at least one segment failed but others succeeded — the
-   *  transcript holds the recovered parts. */
+
   partial?: boolean;
-  /** Set when every segment failed, so the caller can error out instead of
-   *  silently returning an empty transcript. */
+
   error?: string;
 };
 
@@ -118,30 +74,11 @@ export function isLocalDictationEnabled(): boolean {
   return uiState.getItem(DICTATION_LOCAL_KEY) !== "false";
 }
 
-/**
- * Platforms that ship a local on-device dictation engine: macOS (CoreML on
- * Apple Silicon, parakeet.cpp on Intel) and Windows (parakeet.cpp). The main
- * process is the source of truth for actual availability — this is just a cheap
- * gate to avoid an IPC round-trip on platforms with no local engine at all.
- */
 export function isLocalDictationPlatform(): boolean {
   const platform = window.electronAPI?.platform;
   return platform === "darwin" || platform === "win32";
 }
 
-/**
- * Whether on-device dictation can actually be installed + run on THIS machine.
- *
- * `isLocalDictationPlatform()` is only a coarse OS gate; being on Windows or
- * macOS does not guarantee the native transcriber helper is present. On Windows
- * the `parakeet_cpp_transcriber.exe` helper is not yet published, so the model
- * download can never make local dictation work — offering "Download voice
- * feature" there just fails ("voice feature couldn't be downloaded"). The main
- * process is the source of truth (`dictation.localStatus().installable`); when
- * it reports the helper is missing we stay on cloud transcription and never
- * dangle a broken download. The result is memoized because helper presence only
- * changes across an app update (which restarts the renderer).
- */
 let localInstallableProbe: Promise<boolean> | null = null;
 export async function probeLocalDictationInstallable(): Promise<boolean> {
   if (!isLocalDictationPlatform()) return false;
@@ -170,12 +107,6 @@ export function setDictationSuperFastPreference(enabled: boolean): void {
   uiState.setItem(DICTATION_SUPER_FAST_KEY, enabled ? "true" : "false");
 }
 
-/**
- * Reject if `promise` doesn't settle within `ms`. Used to bound the on-device
- * IPC transcription, which we can't abort directly — on timeout the renderer
- * recovers (the underlying work may keep running in the main process, but the
- * session no longer waits on it forever).
- */
 const withTimeout = async <T>(
   promise: Promise<T>,
   ms: number,
@@ -446,11 +377,11 @@ export class InworldDictationSession {
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private workletNode: AudioWorkletNode | null = null;
   private callbacks: DictationCallbacks = {};
-  /** Concatenated 16 kHz int16 PCM samples captured this session. */
+
   private pcmChunks: Int16Array[] = [];
   private durationLimitTimer: ReturnType<typeof setTimeout> | null = null;
   private cancelled = false;
-  /** Peak RMS seen since the last `onLevel` emit, reset every tick. */
+
   private peakSinceLastEmit = 0;
   private levelEmitTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -509,7 +440,7 @@ export class InworldDictationSession {
       try {
         this.micLease.release();
       } catch {
-        // ignore
+
       }
       this.micLease = null;
     }
@@ -517,7 +448,7 @@ export class InworldDictationSession {
       try {
         await this.audioContext.close();
       } catch {
-        // ignore
+
       }
       this.audioContext = null;
     }
@@ -548,8 +479,7 @@ export class InworldDictationSession {
       const chunks = this.pcmChunks;
       this.pcmChunks = [];
       const result = await this.transcribeCapturedAudio(chunks);
-      // Nothing came back at all (every segment failed / timed out) — fail
-      // into the recoverable error state so the mic re-enables for a retry.
+
       if (!result.transcript) {
         if (result.error) {
           this.setState("error", result.error);
@@ -574,26 +504,11 @@ export class InworldDictationSession {
     }
   }
 
-  /** Stop without uploading. Used on unmount / error paths. */
   async cancel(): Promise<void> {
     this.cancelled = true;
     await this.stop();
   }
 
-  /**
-   * Transcribe the full captured recording. The on-device (Parakeet) engine
-   * has no upload-size limit, so we transcribe the whole thing in a single
-   * pass. The managed endpoint caps a single upload, so when we fall back to
-   * it we split the audio into segments that each stay under the limit (see
-   * `MANAGED_MAX_SEGMENT_SAMPLES`), transcribe them sequentially, and join
-   * the parts. Short recordings produce a single segment, so their behaviour
-   * is unchanged.
-   *
-   * Both paths are time-bounded so a stalled request can't wedge the session
-   * in `transcribing`. If some segments succeed and others fail, we keep the
-   * recovered text and flag the result `partial` rather than discarding the
-   * whole transcript; only when every segment fails do we surface `error`.
-   */
   private async transcribeCapturedAudio(
     chunks: Int16Array[],
   ): Promise<DictationTranscriptResult> {
@@ -601,9 +516,7 @@ export class InworldDictationSession {
       isLocalDictationPlatform() &&
       isLocalDictationEnabled() &&
       window.electronAPI?.dictation?.transcribeLocal &&
-      // Only attempt on-device transcription when the native helper is actually
-      // present. Where it isn't (e.g. Windows today), skip straight to cloud so
-      // the mic "just works" instead of failing a local attempt every time.
+
       (await probeLocalDictationInstallable())
     ) {
       try {
@@ -611,8 +524,7 @@ export class InworldDictationSession {
           (sum, chunk) => sum + chunk.length,
           0,
         );
-        // Local runs in one pass over the whole recording, so scale the
-        // timeout by how many managed segments it would have been.
+
         const localTimeoutMs =
           Math.max(1, Math.ceil(totalSamples / MANAGED_MAX_SEGMENT_SAMPLES)) *
           TRANSCRIBE_SEGMENT_TIMEOUT_MS;
@@ -660,8 +572,7 @@ export class InworldDictationSession {
       transcript: parts.join(" ").trim(),
       source: "cloud",
       partial: failures > 0 && parts.length > 0,
-      // Surface an error only when nothing came back at all; a partial
-      // success keeps its recovered text and is flagged via `partial`.
+
       error: parts.length === 0 ? firstError : undefined,
     };
   }
@@ -724,8 +635,6 @@ export class InworldDictationSession {
       const samples = event.data;
       if (!samples || samples.length === 0) return;
 
-      // Cheap RMS over the raw chunk for the level meter — feeds the
-      // scrolling waveform UI without allocating anything.
       let sumSq = 0;
       for (let i = 0; i < samples.length; i += 1) {
         const s = samples[i]!;
@@ -751,12 +660,12 @@ export class InworldDictationSession {
         this.workletNode.port.onmessage = null;
         this.workletNode.port.close();
       } catch {
-        // ignore
+
       }
       try {
         this.workletNode.disconnect();
       } catch {
-        // ignore
+
       }
       this.workletNode = null;
     }
@@ -764,7 +673,7 @@ export class InworldDictationSession {
       try {
         this.sourceNode.disconnect();
       } catch {
-        // ignore
+
       }
       this.sourceNode = null;
     }
@@ -776,7 +685,7 @@ export class InworldDictationSession {
       try {
         await this.audioContext.close();
       } catch {
-        // ignore
+
       }
       this.audioContext = null;
     }
@@ -784,7 +693,7 @@ export class InworldDictationSession {
       try {
         this.micLease.release();
       } catch {
-        // ignore
+
       }
       this.micLease = null;
     }
@@ -819,18 +728,6 @@ export class InworldDictationSession {
   }
 }
 
-// ---------------------------------------------------------------------------
-// WAV encoding — Inworld's sync STT requires a container (WAV/MP3/OGG/FLAC),
-// raw LINEAR16 isn't accepted on this endpoint.
-// ---------------------------------------------------------------------------
-
-/**
- * Split a list of PCM chunks into segments whose combined sample count never
- * exceeds `maxSamples`, slicing across a chunk boundary when needed. Used to
- * keep each managed-transcription upload under the backend's size limit so a
- * long (up to 15-minute) recording can be transcribed in pieces. Returns a
- * single segment when the whole recording already fits.
- */
 const splitPcmBySampleBudget = (
   chunks: Int16Array[],
   maxSamples: number,
@@ -866,13 +763,13 @@ const encodeWav16 = (chunks: Int16Array[], sampleRate: number): Uint8Array => {
   view.setUint32(4, 36 + dataSize, true);
   writeAscii(view, 8, "WAVE");
   writeAscii(view, 12, "fmt ");
-  view.setUint32(16, 16, true); // PCM chunk size
-  view.setUint16(20, 1, true); // audio format = PCM
-  view.setUint16(22, 1, true); // channels
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
   view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true); // byte rate
-  view.setUint16(32, 2, true); // block align
-  view.setUint16(34, 16, true); // bits per sample
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
   writeAscii(view, 36, "data");
   view.setUint32(40, dataSize, true);
 

@@ -1,6 +1,5 @@
 import { useT } from "@/shared/i18n";
 
-/** Recent assistant text authored by an active background agent. */
 export function AgentAssistantUpdates({
   messages,
   max,

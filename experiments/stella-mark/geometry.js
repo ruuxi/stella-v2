@@ -1,15 +1,7 @@
-// Shared geometry helpers for the Stella character mark.
-// No dependencies. Everything works on closed rings of N points.
-
 export const TAU = Math.PI * 2;
 export const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 export const r2 = (v) => Math.round(v * 100) / 100;
 
-/**
- * Flatten an SVG path string into a polyline of roughly `step`-spaced points.
- * Handles M/L/C/Q/Z, absolute and relative. Ported in spirit from the same
- * trick Grok Bot uses: sample once at build time, then only ever lerp rings.
- */
 export function flattenPath(d, step = 1.2) {
   const tk = d.match(/[MLCQZmlcqz]|-?\d*\.?\d+(?:e[-+]?\d+)?/g) ?? [];
   const out = [];
@@ -53,7 +45,6 @@ export function flattenPath(d, step = 1.2) {
   return out;
 }
 
-/** Centroid-ish center: the midpoint of the bounding box, which is what a mark wants. */
 export function boundsCenter(pts) {
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (const [x, y] of pts) {
@@ -63,11 +54,6 @@ export function boundsCenter(pts) {
   return [(x0 + x1) / 2, (y0 + y1) / 2];
 }
 
-/**
- * Cast N rays from `center` and keep the farthest boundary hit on each.
- * Valid for star-shaped outlines (every boundary point visible from the
- * center) — which is exactly what a star is.
- */
 export function radialProfile(pts, center, N) {
   const [cx, cy] = center;
   const prof = new Float64Array(N);
@@ -89,7 +75,6 @@ export function radialProfile(pts, center, N) {
   return prof;
 }
 
-/** Circular box-blur, repeated 3x — a cheap Gaussian. `sigma` is in samples. */
 export function smoothProfile(prof, sigma) {
   const N = prof.length;
   const half = Math.max(0, Math.round(sigma));
@@ -109,7 +94,6 @@ export function smoothProfile(prof, sigma) {
 
 export const profileMax = (prof) => { let m = 0; for (const v of prof) if (v > m) m = v; return m; };
 
-/** Profile → ring of [x,y] points on a circle of radius `radius` around `center`. */
 export function profileToRing(prof, radius, center) {
   const N = prof.length, [cx, cy] = center;
   const max = profileMax(prof) || 1;
@@ -119,7 +103,6 @@ export function profileToRing(prof, radius, center) {
   });
 }
 
-/** Closed Catmull-Rom through every point, emitted as cubic Béziers. */
 export function toPath(p) {
   const n = p.length;
   let d = `M${r2(p[0][0])} ${r2(p[0][1])}`;
@@ -135,15 +118,8 @@ export function toPath(p) {
 export const lerpRing = (a, b, t) =>
   a.map(([x, y], i) => [x + (b[i][0] - x) * t, y + (b[i][1] - y) * t]);
 
-/** Polygon path with straight segments — used for eyes, which want crisp corners. */
 export const polyPath = (p) => "M" + p.map((q) => `${r2(q[0])} ${r2(q[1])}`).join("L") + "Z";
 
-/**
- * Largest inscribed axis-aligned ellipse, found by coarse-then-fine search.
- * This is how the rig decides where a face fits: on a six-ray star the answer
- * is a wide, slightly squat ellipse sitting in the central mass, well clear of
- * the rays. Ported from the same approach Grok Bot uses for its blob shapes.
- */
 export function fitFace(ring, center, radius) {
   const [cx, cy] = center;
   const sample = [];
@@ -159,8 +135,7 @@ export function fitFace(ring, center, radius) {
       if (q < d2) d2 = q;
     }
     const d = Math.sqrt(d2), b = d / k;
-    // Prefer big, and prefer centred — the two penalty terms keep the face from
-    // sliding off into one of the rays when a ray happens to be fat.
+
     const score = d * b * (1 - 0.0018 * Math.abs(y - cy) - 0.004 * Math.abs(x - cx));
     if (score > best.score) best = { score, x, y, a: d, b };
   };
@@ -179,7 +154,6 @@ export function fitFace(ring, center, radius) {
   };
 }
 
-/** Horizontal span of the ring at height y — used to keep eyes inside the silhouette. */
 export function spanAt(ring, y, center) {
   let left = -Infinity, right = Infinity;
   const cx = center[0];

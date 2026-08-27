@@ -1094,14 +1094,14 @@ describe("agent_status tool", () => {
     expect(payload.status).toBe("active");
     expect(payload.description).toBe("Long build");
     expect(payload.last_active_at).toBe(new Date(5_000).toISOString());
-    // Last FOUR assistant messages, chronological, each timestamped.
+
     expect(payload.recent_assistant_messages).toEqual([
       { timestamp: new Date(2_000).toISOString(), content: "two" },
       { timestamp: new Date(3_000).toISOString(), content: "three" },
       { timestamp: new Date(4_000).toISOString(), content: "four" },
       { timestamp: new Date(5_000).toISOString(), content: "five" },
     ]);
-    // The latest tool CALL (name + args), never the tool result.
+
     expect(payload.latest_tool_call).toEqual({
       timestamp: new Date(3_000).toISOString(),
       tool_name: "exec_command",
@@ -1113,7 +1113,7 @@ describe("agent_status tool", () => {
     const currentTime = Date.parse(payload.current_time);
     expect(currentTime).toBeGreaterThanOrEqual(before);
     expect(currentTime).toBeLessThanOrEqual(after);
-    // Read-only: no create/cancel/send ever fires against the thread.
+
     expect(mutations).toEqual([]);
   });
 

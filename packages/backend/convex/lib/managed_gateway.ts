@@ -16,22 +16,11 @@ export type ManagedGatewayProvider = (typeof MANAGED_GATEWAY_PROVIDERS)[number];
 export type ManagedGatewayConfig = {
   provider: ManagedGatewayProvider;
   baseURL: string;
-  /**
-   * Primary Convex env var name for the managed upstream key. Some providers
-   * accept additional documented aliases via `apiKeyEnvVarFallbacks`.
-   */
+
   apiKeyEnvVar: string;
-  /**
-   * Optional secondary env var names tried when `apiKeyEnvVar` is unset.
-   * Used for Meta's documented `MODEL_API_KEY` alias alongside Stella's
-   * namespaced `META_MODEL_API_KEY`.
-   */
+
   apiKeyEnvVarFallbacks?: readonly string[];
-  /**
-   * Static headers sent on every request to this gateway. Used for
-   * provider-specific requirements like Wafer's per-request zero-data-
-   * retention opt-in, which has no request-body equivalent.
-   */
+
   extraHeaders?: Record<string, string>;
 };
 
@@ -49,21 +38,19 @@ const MANAGED_GATEWAY_CONFIGS: Record<
     baseURL: "https://api.fireworks.ai/inference/v1",
     apiKeyEnvVar: "FIREWORKS_API_KEY",
   },
-  // DeepSeek first-party API. Both `/responses` and `/chat/completions` hang
-  // off the root — there is no `/v1` segment for the Responses endpoint.
+
   deepseek: {
     provider: "deepseek",
     baseURL: "https://api.deepseek.com",
     apiKeyEnvVar: "DEEPSEEK_API_KEY",
   },
-  // CrofAI (nahcrof) exposes an OpenAI-compatible Chat Completions API.
+
   crof: {
     provider: "crof",
     baseURL: "https://crof.ai/v1",
     apiKeyEnvVar: "CROF_API_KEY",
   },
-  // Wafer exposes an OpenAI-compatible Chat Completions API. ZDR is opted
-  // into per request — every call must carry the header below.
+
   wafer: {
     provider: "wafer",
     baseURL: "https://pass.wafer.ai/v1",
@@ -90,13 +77,12 @@ const MANAGED_GATEWAY_CONFIGS: Record<
     baseURL: "https://generativelanguage.googleapis.com",
     apiKeyEnvVar: "GOOGLE_AI_API_KEY",
   },
-  // Meta Model API (Muse Spark). OpenAI-compatible chat completions / responses
-  // at api.meta.ai. Stella hosts the key — no end-user BYOK for Meta.
+
   meta: {
     provider: "meta",
     baseURL: "https://api.meta.ai/v1",
     apiKeyEnvVar: "META_MODEL_API_KEY",
-    // Meta's own docs export the key as MODEL_API_KEY; accept either name.
+
     apiKeyEnvVarFallbacks: ["MODEL_API_KEY"],
   },
 };
@@ -115,13 +101,9 @@ const DIRECT_MODEL_PROVIDER_PREFIXES = [
   ["openai/", "openai"],
   ["anthropic/", "anthropic"],
   ["google/", "google"],
-  // `meta/muse-spark-1.2` (first-party Meta Model API) belongs here, but the
-  // OpenRouter-hosted `-contributor` variant must NOT match this prefix — its
-  // mode config pins `managedGatewayProvider: "openrouter"`, which
-  // `resolveManagedGatewayProvider` honors over prefix inference.
+
   ["meta/", "meta"],
-  // OpenRouter-namespaced slugs (e.g. `openrouter/<vendor>/<model>`)
-  // pass through the OpenRouter gateway verbatim.
+
   ["openrouter/", "openrouter"],
 ] as const;
 
@@ -131,10 +113,6 @@ export function getManagedGatewayConfig(
   return MANAGED_GATEWAY_CONFIGS[provider];
 }
 
-/**
- * Resolve the managed upstream API key for a gateway, honoring any
- * documented env-var aliases (`apiKeyEnvVarFallbacks`).
- */
 export function resolveManagedGatewayApiKey(
   config: ManagedGatewayConfig,
 ): string | undefined {

@@ -1,9 +1,3 @@
-/**
- * Media viewer for one generated asset: the capability chip, prompt and
- * action bar over a full-bleed preview. Which asset is showing is the Files
- * section's business, so this takes the item it should render.
- */
-
 import { useCallback } from "react";
 import { MediaPreviewCard } from "@/shell/MediaPreviewCard";
 import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
@@ -19,8 +13,7 @@ export const MediaTabContent = ({ item }: { item: MediaTabItem }) => {
   const t = useT();
   const handleDelete = useCallback(() => {
     removeGeneratedMediaItem(item.id);
-    // Deleting the asset leaves the viewer with nothing to show, so retire
-    // the tab and drop back to the Files list.
+
     displayTabs.closeTab(item.id);
     sidebarSections.clearLocation("files");
   }, [item.id]);

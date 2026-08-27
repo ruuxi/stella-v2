@@ -23,12 +23,6 @@ const fetchSequence = (responses: Array<() => Response>) => {
   return { fetchImpl, calls };
 };
 
-/**
- * A fetch that never settles on its own — it only rejects when the
- * request's AbortSignal fires. Models the hung request (half-open
- * socket, stalled body) that used to wedge the completion wait, and
- * with it the connect card, forever.
- */
 const hangingFetch = () => {
   const seenSignals: AbortSignal[] = [];
   const fetchImpl = ((input: RequestInfo | URL, init?: RequestInit) => {
@@ -145,8 +139,7 @@ describe("waitForBackendIntegrationConnection", () => {
   });
 
   it("fails closed when auth is unavailable — never polls, never reports connected", async () => {
-    // Transient auth loss between connect-link creation and polling must
-    // surface as a failure, not degrade into an optimistic success.
+
     const { fetchImpl, calls } = fetchSequence([
       () => jsonResponse({ connected: true }),
     ]);
@@ -185,9 +178,7 @@ describe("waitForBackendIntegrationConnection", () => {
   });
 
   it("cannot be wedged past its deadline by requests that never settle", async () => {
-    // Regression: the deadline is only checked between probes, so an
-    // unbounded in-flight request used to stall the wait — and the
-    // connect card stuck on "Waiting for …" — indefinitely.
+
     const { fetchImpl, seenSignals } = hangingFetch();
     let clock = 0;
     const result = await waitForBackendIntegrationConnection({
@@ -215,7 +206,7 @@ describe("waitForBackendIntegrationConnection", () => {
       intervalMs: 1,
       signal: controller.signal,
     });
-    // Let the first probe start before cancelling it mid-flight.
+
     await new Promise((resolve) => setTimeout(resolve, 0));
     controller.abort();
     expect(await pending).toBe("cancelled");

@@ -43,7 +43,7 @@ export function useOnboardingDiscovery({ isAuthenticated, onDiscoveryConfirm, on
                 setSelectedBrowser(detectedId);
             }
             catch {
-                // Detection is best-effort only.
+
             }
         };
         void detectBrowser();
@@ -109,7 +109,7 @@ export function useOnboardingDiscovery({ isAuthenticated, onDiscoveryConfirm, on
             void savePreferredBrowser({
                 browser: preferredBrowser,
             }).catch(() => {
-                // Browser preference sync is best-effort only.
+
             });
         }
         onDiscoveryConfirm?.(selected);

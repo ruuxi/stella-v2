@@ -1,21 +1,3 @@
-/**
- * Tiny local-IPC RPC the worker exposes for sidecar processes (the
- * `stella-computer` daemon spawn path) and the in-process connector
- * client (node_repl `connect.*` via `connectors/connect-service.ts`)
- * that need to call back into the host without speaking the full
- * host↔worker JSON-RPC protocol.
- *
- * Protocol: one connection = one request line of JSON, one response line
- * of JSON, server closes. Request: `{ id, method, params }`. Response:
- * `{ id, result }` on success or `{ id, error: { message } }` on failure.
- *
- * Surface is intentionally narrow. Connector backend actions are brokered as
- * action-specific requests; the protocol never exposes Stella site auth or an
- * arbitrary HTTP proxy. New methods get added as separate handler entries —
- * no introspection, no versioning, no streaming. If we ever need more
- * than this we should reconsider rather than grow the protocol here.
- */
-
 import { constants as fsConstants, promises as fsPromises } from "node:fs";
 import { z } from "zod";
 import { createServer, type Server, type Socket } from "node:net";
@@ -27,15 +9,6 @@ import type {
   BackendConnectorActionResult,
 } from "../kernel/connectors/cli-broker-client.js";
 
-/**
- * Defensive ceiling kept below the 104-byte BSD `sun_path` limit (UTF-8
- * bytes + NUL, so 103 usable; Linux allows 108). Mirrors
- * `maxAutomationSocketPathBytes` in
- * `runtime/kernel/computer-use/automation-socket-paths.ts`. The endpoint from
- * `createSecureCliBridgeEndpoint` is homedir + 63 bytes, so tripping this
- * means the home directory itself is extraordinarily long; fail with an
- * error naming the path instead of an opaque bind failure.
- */
 export const maxCliBridgeSocketPathBytes = 100;
 
 type RequestMessage = {
@@ -49,21 +22,7 @@ type ResponseMessage =
   | { id: string | number; error: { message: string } };
 
 export type CliBridgeHandlers = {
-  /**
-   * Resolves with `{ ok: true }` once the credential is persisted on
-   * disk, or `{ ok: false, reason }` when the user dismisses the dialog
-   * or the host can't service the request.
-   *
-   * `authType: "oauth"` switches the host to the browser-based OAuth
-   * flow (`connectConnectorOAuth`) and requires `resourceUrl` (the MCP
-   * server URL — used for protected-resource metadata discovery). The
-   * renderer shows a no-input "Connecting <X>... Authorize in the
-   * browser tab Stella opened." indicator with Cancel; the host opens
-   * the user's external browser via `shell.openExternal` and listens
-   * on a local 127.0.0.1 callback port. Cancel aborts the listener.
-   *
-   * `authType: "api_key"` (or omitted) keeps the paste-key modal flow.
-   */
+
   requestConnectorCredential: (params: {
     tokenKey: string;
     displayName: string;
@@ -115,11 +74,7 @@ export type CliBridgeHandlers = {
       >
     | { ok: true; granted: boolean; alreadyGranted: boolean }
     | { ok: false; reason: string };
-  /**
-   * Forwarded to the Electron host so the desktop_automation daemon is
-   * spawned by the live app process (single "Stella" TCC identity) instead
-   * of the detached worker's process tree.
-   */
+
   spawnAutomationDaemon?: (
     params: AutomationDaemonSpawnParams,
   ) => Promise<AutomationDaemonSpawnResult>;
@@ -571,12 +526,6 @@ export const startCliBridgeServer = async ({
     }
   }
 
-  // Track live connections so `stop()` can tear them down rather than
-  // waiting indefinitely for an in-flight credential round-trip to
-  // complete. An accepted socket whose handler is awaiting the host
-  // dialog can otherwise outlive the worker's intended shutdown window
-  // (reset/reinit/app quit) because `server.close()` only stops
-  // accepting new connections — it does not interrupt existing ones.
   const activeSockets = new Set<Socket>();
 
   let acceptingRequests = false;
@@ -630,14 +579,7 @@ export const startCliBridgeServer = async ({
     socketPath,
     stop: () =>
       new Promise<void>((resolve) => {
-        // Forcibly destroy any in-flight connections. Their handler
-        // promises will settle on the next event-loop tick (the await
-        // chain hits a destroyed socket / cancelled write) so `close()`
-        // can fire its callback. We can't politely respond — the
-        // host-side request may already be on its way back — but the
-        // CLI side handles a closed-without-response as the same
-        // "fall through to exit-2 auth_required" path it uses for any
-        // other bridge failure.
+
         for (const socket of activeSockets) {
           socket.destroy();
         }

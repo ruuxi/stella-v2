@@ -141,8 +141,7 @@ export function PhoneAccessBridge() {
   const pairedDeviceCount = phoneAccessState?.pairedDevices.length;
   useEffect(() => {
     if (hasConnectedAccount && pairedDeviceCount === undefined) {
-      // Do not tear down a retained bridge while the authoritative pairing
-      // subscription is still loading.
+
       return;
     }
 
@@ -153,9 +152,6 @@ export function PhoneAccessBridge() {
     });
   }, [hasConnectedAccount, pairedDeviceCount, requestBridgeState]);
 
-  // Omit `nowMs` so this subscription stays reactively cacheable on the
-  // backend (a per-tick client clock would bust Convex's cache every poll).
-  // The query returns `expiresAt`; expiry is checked client-side below.
   const intent = useQuery(
     api.mobile_access.watchIncomingConnectIntent,
     hasConnectedAccount && desktopDeviceId ? { desktopDeviceId } : "skip",
@@ -181,8 +177,7 @@ export function PhoneAccessBridge() {
     ) {
       return;
     }
-    // Gate on the backend-provided expiry instead of passing a client clock
-    // into the query: ignore intents that have already lapsed.
+
     if (
       typeof intent.expiresAt === "number" &&
       Date.now() > intent.expiresAt

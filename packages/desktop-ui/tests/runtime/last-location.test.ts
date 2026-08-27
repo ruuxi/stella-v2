@@ -1,18 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * Renderer-side persistence is the source of truth for "where was the user
- * when they last closed the app". Backed by the shared UI state store
- * (`~/.stella/ui-state.json`) via the `uiState` client. This test pins the
- * contract:
- *
- *  - We accept only well-formed paths (must start with `/`).
- *  - We refuse pathological values (oversize) so a corrupted store can't
- *    DoS the restore effect or stuff junk into navigate().
- *  - Round-trip is lossless for valid input.
- *  - Windowless / misbehaving-localStorage environments don't throw.
- */
-
 const STORAGE_KEY = "stella:lastLocation";
 
 type FakeWindow = {
@@ -38,8 +25,6 @@ const uninstallWindow = () => {
   delete (globalThis as unknown as { window?: unknown }).window;
 };
 
-// The uiState client caches its in-memory map at module scope, so each test
-// re-imports a fresh module graph against the current fake window.
 const importFreshModules = async () => {
   vi.resetModules();
   const { uiState } = await import("../../src/platform/ui-state");

@@ -1,15 +1,3 @@
-/**
- * `multi_tool_use_parallel` tool — fan-out wrapper.
- *
- * Pass `tool_uses` as an array of `{ recipient_name, parameters }` entries;
- * each entry runs in parallel and the combined results are returned. Only
- * batch calls that don't depend on each other and stay within the same tool
- * family.
- *
- * Needs a `executeTool` callback that re-enters the host's dispatcher for
- * each child call.
- */
-
 import { handleMultiToolUseParallel } from "../parallel.js";
 import type {
   ToolContext,

@@ -8,31 +8,15 @@ import Svg, {
   Use,
 } from "react-native-svg";
 
-/**
- * The Stella brand mark, as vector. Shares its geometry with the web
- * `stella-mark` component and `assets/stella-logo.svg`.
- *
- * The outline is painted twice: a fixed vertical hue ramp, then an elliptical
- * fade out to `color`. Passing the surrounding foreground colour is what lets
- * one asset read on both themes - the gradient core blends to black on light
- * and to white on dark, instead of always sinking into black.
- *
- * Web inlines the SVG and lets that fade take `currentColor`. React Native
- * cannot: react-native-svg rejects `currentColor` in gradient stops ("not a
- * valid color"), which drops the fade entirely and leaves the raw hue ramp
- * glowing pink. Hence the explicit `color` prop.
- */
 export type StellaMarkProps = {
-  /** Rendered edge length in px. */
+
   size?: number;
-  /** Foreground colour the mark fades out to. Pass the theme's text colour. */
+
   color: string;
 };
 
 export function StellaMark({ size = 28, color }: StellaMarkProps) {
-  // Gradient ids are per-instance: two marks sharing ids make the second
-  // resolve against the first one's gradients, so a dark-theme copy next to a
-  // light one silently paints with the wrong fade colour.
+
   const uid = useId().replace(/[^a-zA-Z0-9-]/g, "");
   const shape = `${uid}-shape`;
   const core = `${uid}-core`;

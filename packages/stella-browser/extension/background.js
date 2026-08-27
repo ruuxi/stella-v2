@@ -1,10 +1,3 @@
-/**
- * Stella Browser Bridge - Background Service Worker
- *
- * Connects to the stella-browser daemon via native messaging and routes
- * commands to Chrome extension APIs.
- */
-
 import {
   connect,
   disconnect,
@@ -104,22 +97,18 @@ import {
   syncContentScriptRegistration,
 } from "./commands/site-mods.js";
 
-// --- Command Router ---
-
 const HANDLERS = {
-  // Health check (used by daemon to verify service worker is alive)
+
   healthcheck: async (cmd) => ({ id: cmd.id, success: true, data: {} }),
 
-  // Navigation
   navigate: handleNavigate,
-  open: handleNavigate, // alias
+  open: handleNavigate,
   back: handleBack,
   forward: handleForward,
   reload: handleReload,
   url: handleUrl,
   title: handleTitle,
 
-  // DOM Interaction
   click: handleClick,
   fill: handleFill,
   type: handleType,
@@ -134,7 +123,6 @@ const HANDLERS = {
   dblclick: handleDblclick,
   wait: handleWait,
 
-  // Capture
   screenshot: handleScreenshot,
   snapshot: handleSnapshot,
   content: handleContent,
@@ -143,7 +131,6 @@ const HANDLERS = {
   getattribute: handleGetAttribute,
   pdf: handlePdf,
 
-  // Element Queries
   innertext: handleInnerText,
   innerhtml: handleInnerHtml,
   inputvalue: handleInputValue,
@@ -157,7 +144,6 @@ const HANDLERS = {
   waitforurl: handleWaitForUrl,
   bringtofront: handleBringToFront,
 
-  // Network
   requests: handleRequests,
   responsebody: handleResponseBody,
   route: handleRoute,
@@ -165,13 +151,10 @@ const HANDLERS = {
   har_start: handleHarStart,
   har_stop: handleHarStop,
 
-  // Downloads
   download: handleDownload,
 
-  // Clipboard
   clipboard: handleClipboard,
 
-  // Advanced Input
   mousemove: handleMouseMove,
   mousedown: handleMouseDown,
   mouseup: handleMouseUp,
@@ -180,7 +163,6 @@ const HANDLERS = {
   keyup: handleKeyUp,
   inserttext: handleInsertText,
 
-  // Tabs
   tab_new: handleTabNew,
   tab_list: handleTabList,
   tab_switch: handleTabSwitch,
@@ -201,23 +183,19 @@ const HANDLERS = {
     return { id: cmd.id, success: true, data: { released: true } };
   },
 
-  // Cookies
   cookies_get: handleCookiesGet,
   cookies_export_all: handleCookiesExportAll,
   cookies_set: handleCookiesSet,
   cookies_clear: handleCookiesClear,
 
-  // Chain (batched sequential execution)
   chain: (cmd) => handleChain(cmd, HANDLERS),
 
-  // Site Mods (persistent per-site CSS/JS overrides)
   site_mod_set: handleSiteModSet,
   site_mod_list: handleSiteModList,
   site_mod_remove: handleSiteModRemove,
   site_mod_toggle: handleSiteModToggle,
 };
 
-// Commands that we acknowledge but don't support in extension mode
 const UNSUPPORTED = new Set([
   "launch",
   "trace_start",
@@ -282,7 +260,6 @@ const UNSUPPORTED = new Set([
 async function handleCommand(message) {
   const { action, id } = message;
 
-  // Handle 'close' command - close agent window, then acknowledge
   if (action === "close") {
     if (typeof message.ownerId === "string" && message.ownerId.trim()) {
       await authorizeOwnerLease(message);
@@ -295,7 +272,6 @@ async function handleCommand(message) {
     return { type: "response", id, success: true, data: { closed: true } };
   }
 
-  // Handle 'launch' - in extension mode the browser is already running
   if (action === "launch") {
     return {
       type: "response",
@@ -305,7 +281,6 @@ async function handleCommand(message) {
     };
   }
 
-  // Known handler
   const handler = HANDLERS[action];
   if (handler) {
     try {
@@ -327,7 +302,6 @@ async function handleCommand(message) {
     }
   }
 
-  // Known unsupported
   if (UNSUPPORTED.has(action)) {
     return {
       type: "response",
@@ -337,7 +311,6 @@ async function handleCommand(message) {
     };
   }
 
-  // Unknown command
   return {
     type: "response",
     id,
@@ -346,30 +319,21 @@ async function handleCommand(message) {
   };
 }
 
-// --- Initialization ---
-
 onCommand(handleCommand);
 
-// The Stella tab group is persistent across daemon restarts and agent runs.
-// Daemon disconnects (e.g. idle shutdown between agent invocations, transient
-// connection blips, Chrome service worker restarts) must NOT destroy the
-// window/group — otherwise every subsequent agent invocation would spawn a
-// fresh "Stella" group instead of reusing the shared one. Use `closeAgentWindow`
-// only for the explicit `close` action initiated by the user.
 onStatus((connected) => {
   console.log(
     "[background] Connection status:",
     connected ? "connected" : "disconnected",
   );
 });
-// Keep service worker alive via offscreen document port
+
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name === "keepalive") {
-    // Port keeps the service worker alive - nothing else needed
+
   }
 });
 
-// Create offscreen document to maintain keepalive port
 async function ensureOffscreen() {
   try {
     const contexts = await chrome.runtime.getContexts({
@@ -391,7 +355,6 @@ async function ensureOffscreen() {
 
 ensureOffscreen();
 
-// Clean up stale unnamed tab groups from previous sessions
 cleanupStaleGroups();
 cleanupStaleTabs();
 
@@ -402,27 +365,13 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
-// Ensure site-mods content script is registered for pages with saved mods
 syncContentScriptRegistration();
 
-// --- Real-time cookie mirroring ---------------------------------------------
-//
-// Push every cookie change in the user's real browser to the daemon as an
-// UNSOLICITED event, so the desktop can keep the in-app browser's session in
-// sync in real time instead of polling. Changes are coalesced into small
-// batches to absorb login storms (a single sign-in can rewrite dozens of
-// cookies at once). If we're disconnected the buffer is dropped and the
-// desktop's periodic reconcile is the backstop that recovers missed changes.
 const COOKIE_EVENT_DEBOUNCE_MS = 120;
 const COOKIE_EVENT_MAX_BATCH = 200;
 let pendingCookieChanges = [];
 let cookieFlushTimer = null;
 
-// Known incognito cookie-store ids. cookies_export_all deliberately excludes
-// incognito stores; the real-time push must match that so a private-window
-// session never leaks into the in-app browser. Refreshed from
-// getAllCookieStores (best-effort; default extensions can't see incognito at
-// all, so this is belt-and-suspenders).
 let incognitoStoreIds = new Set();
 function refreshCookieStores() {
   try {
@@ -437,7 +386,7 @@ function refreshCookieStores() {
         .catch(() => {});
     }
   } catch {
-    // cookies API unavailable; leave the set empty.
+
   }
 }
 refreshCookieStores();
@@ -455,13 +404,10 @@ function flushCookieChanges() {
 }
 
 function queueCookieChange(changeInfo) {
-  // changeInfo: { removed, cookie, cause }. Forward the raw Chrome cookie shape
-  // (name/value/domain/hostOnly/path/secure/httpOnly/sameSite/session/
-  // expirationDate/storeId/partitionKey) the desktop already understands from
-  // cookies_export_all.
+
   const cookie = changeInfo?.cookie;
   if (!cookie || !cookie.name) return;
-  // Never mirror incognito cookies into the in-app session.
+
   if (cookie.storeId && incognitoStoreIds.has(cookie.storeId)) return;
   pendingCookieChanges.push({
     removed: changeInfo.removed === true,
@@ -483,8 +429,6 @@ function queueCookieChange(changeInfo) {
 
 chrome.cookies.onChanged.addListener(queueCookieChange);
 
-// Auto-connect on service worker load (this runs on every SW start, including
-// browser startup and extension install/update - no need for separate listeners)
 async function autoConnect() {
   console.log("[background] Auto-connecting via native messaging");
   connect();
@@ -492,7 +436,6 @@ async function autoConnect() {
 
 autoConnect();
 
-// Listen for messages from popup and content scripts
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "connect") {
     connect();
@@ -503,7 +446,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.type === "getStatus") {
     sendResponse({ connected: isConnected() });
   } else if (message.type === "hookHistory" && sender.tab) {
-    // Inject history hook into the page's main world (bypasses CSP)
+
     chrome.scripting
       .executeScript({
         target: { tabId: sender.tab.id },

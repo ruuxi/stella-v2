@@ -1,51 +1,42 @@
 import { soften } from "./oklch";
 
 export type Colors = {
-  // Core backgrounds
+
   background: string;
   backgroundWeak: string;
   backgroundStrong: string;
   surface: string;
   panel: string;
 
-  // Borders
   border: string;
   borderWeak: string;
   borderStrong: string;
 
-  // Text
   text: string;
   textMuted: string;
   textStrong: string;
 
-  // Brand / primary
   accent: string;
   accentHover: string;
   accentSoft: string;
   accentForeground: string;
 
-  // Decorative accent (distinct from brand — e.g. pink in Carbon, orange in Neon)
   decorative: string;
   decorativeForeground: string;
 
-  // Status
   ok: string;
   warning: string;
   danger: string;
   info: string;
 
-  // Surfaces
   card: string;
   cardForeground: string;
   muted: string;
   mutedForeground: string;
 
-  // Overlay
   overlay: string;
 };
 
-/** Fallback light palette — mirrors the Pearl theme (desktop default) so the
- *  pre-load flash matches the real theme rather than an unrelated palette. */
 export const lightColors: Colors = {
   background: "#ffffff",
   backgroundWeak: "#ffffff",
@@ -82,8 +73,6 @@ export const lightColors: Colors = {
   overlay: soften("#000000", "#ffffff", 0.38),
 };
 
-/** Fallback dark palette — mirrors the Noir theme so the pre-load flash matches
- *  the real theme rather than an unrelated palette. */
 export const darkColors: Colors = {
   background: "#0a0a0a",
   backgroundWeak: "#050505",
@@ -120,5 +109,4 @@ export const darkColors: Colors = {
   overlay: soften("#fbfbf7", "#0a0a0a", 0.38),
 };
 
-/** @deprecated Use `useColors()` from theme-context instead. */
 export const colors = lightColors;

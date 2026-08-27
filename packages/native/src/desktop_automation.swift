@@ -18,10 +18,6 @@ struct Rect: Codable, Equatable {
     let height: Double
 }
 
-// Inline screenshot payload returned alongside snapshot/action results so the
-// caller does not need a follow-up file read step. `path` is preserved for
-// compatibility with consumers that still want to attach via filesystem; new
-// consumers should prefer `data` (base64 PNG) for direct vision-input use.
 struct Screenshot: Codable {
     let mimeType: String
     let data: String
@@ -199,9 +195,7 @@ struct ListedAppPayload: Codable {
     let activationPolicy: String
     let isRunning: Bool
     let isActive: Bool
-    // Spotlight-tracked usage signals so the wrapper can emit
-    // `[running, last-used=YYYY-MM-DD, uses=N]` annotations. Both are nil
-    // when LaunchServices has no Spotlight metadata for the app bundle.
+
     let lastUsedDate: String?
     let useCount: Int?
 }
@@ -556,12 +550,7 @@ struct ActionOptions {
     let coordinateFallback: Bool
     let allowHid: Bool
     let captureScreenshot: Bool
-    // Whether to bring the target app frontmost before dispatching this
-    // action. Default is false: stella-computer drives apps via Accessibility
-    // in the background and the user's active window must not be disturbed.
-    // Opt in with --raise (or STELLA_COMPUTER_RAISE=1) only when the action
-    // genuinely requires the app to be focused (e.g. global HID coordinate
-    // clicks). The legacy --no-raise flag is accepted as a no-op.
+
     let raise: Bool
     let inlineScreenshot: Bool
     let showOverlay: Bool
@@ -757,40 +746,17 @@ let roleSpecificSingleChildAttributes: [String: [String]] = [
     "AXWindow": ["AXToolbar", "AXSheet"],
 ]
 
-// Roles where we'll fall back to `kAXChildren` when no role-specific child
-// attribute produced descendants. Without an entry here, `axChildren`
-// returns the empty array even if the underlying element has children —
-// that's deliberate for opaque containers we don't want to walk into.
-//
-// We MUST descend into AXGroup, AXWebArea, AXScrollArea, AXSplitGroup,
-// and AXGenericElement because that's how CEF/Electron/WebKit hosts
-// expose their entire DOM under the parent app's window:
-//
-//   AXWindow
-//     AXGroup (URL: https://...)        ← the whole webview
-//       AXGroup → AXGroup → AXButton ...  ← actual app UI
-//
-// Without these, Spotify, Discord, Slack, VS Code, Notion, and any
-// app with a WKWebView/Chromium subtree comes back as an empty shell.
 let safeFallbackChildRoles: Set<String> = [
     "AXApplication",
     "AXBrowser",
-    // Mail/Finder/Notes table cells contain the actual content nodes
-    // (AXUnknown view holders + AXText fields for sender/date/subject).
-    // Without this entry, every message row collapses to "row > cell"
-    // with no addressable content — the model can see there are messages
-    // but cannot read any of them.
+
     "AXCell",
     "AXGenericElement",
     "AXGroup",
     "AXList",
     "AXMenu",
     "AXMenuBar",
-    // Menu bar items expose their AXMenu child via kAXChildren even before
-    // the menu is opened, but only if the walker actually falls through to
-    // kAXChildren. That's how we surface Spotify > Playback > Play (and the
-    // equivalent for any other app) so background AXPress targeting works
-    // without raising the window.
+
     "AXMenuBarItem",
     "AXMenuItem",
     "AXMenuButton",
@@ -802,10 +768,7 @@ let safeFallbackChildRoles: Set<String> = [
     "AXTable",
     "AXTabGroup",
     "AXToolbar",
-    // AppKit table cells often nest their content nodes under a custom
-    // AXUnknown view holder (e.g. `Mail.messageList.cell.view`). Walking
-    // through it surfaces the sender/date/subject text fields the model
-    // needs to summarize a message list.
+
     "AXUnknown",
     "AXWebArea",
     "AXWindow",
@@ -948,22 +911,20 @@ let daemonScopedEnvironmentKeys: [String] = [
     "STELLA_COMPUTER_TRACE",
 ]
 
-// Hardcoded forbidden bundle identifiers. The agent must never automate these
-// to prevent self-takeover or sensitive-app interference.
 let baseForbiddenBundleIdentifiers: Set<String> = [
-    // Stella's own surfaces (defense-in-depth).
+
     "com.stella.desktop",
     "com.stella.app",
     "com.stella.app.dev",
     "com.stella.runtime",
-    // System security / privacy surfaces.
+
     "com.apple.systempreferences",
     "com.apple.SystemSettings",
     "com.apple.keychainaccess",
     "com.apple.security.Keychain-Access",
     "com.apple.SecurityAgent",
     "com.apple.LocalAuthentication.UIAgent",
-    // Common password managers.
+
     "com.1password.1password",
     "com.1password.1password7",
     "com.agilebits.onepassword7",
@@ -985,10 +946,6 @@ func forbiddenBundleIdentifiers() -> Set<String> {
     return set
 }
 
-// Per-app operator manuals that ship with the binary. Keyed by bundle id.
-// When `get_app_state` resolves to one of these targets we surface the
-// matching guidance to the agent so it doesn't have to rediscover app
-// quirks each session.
 let bundledAppInstructions: [String: String] = [
     "com.apple.iCal": """
         # Calendar Computer Use
@@ -1064,9 +1021,7 @@ func bundleAppInstructions(for bundleId: String?) -> String? {
     if let exact = bundledAppInstructions[bundleId] {
         return exact
     }
-    // Allow STELLA_COMPUTER_APP_INSTRUCTIONS_DIR to host extra .md files
-    // keyed by bundle id (e.g. "com.example.app.md"). This is how we let
-    // users add per-app manuals without rebuilding the binary.
+
     if let extraDir = ProcessInfo.processInfo.environment["STELLA_COMPUTER_APP_INSTRUCTIONS_DIR"] {
         let url = URL(fileURLWithPath: extraDir)
             .appendingPathComponent("\(bundleId).md")
@@ -1077,8 +1032,6 @@ func bundleAppInstructions(for bundleId: String?) -> String? {
     return nil
 }
 
-// URL substrings that should never be operated on. Hosts of internet banking,
-// auth surfaces, etc. Substring match is intentional (catches subdomains).
 let baseForbiddenUrlSubstrings: [String] = [
     "accounts.google.com/signin",
     "appleid.apple.com",
@@ -1110,10 +1063,6 @@ let axMessagingTimeoutSeconds: Float = 0.5
 let axRetryAttempts = 2
 let axRetrySleepUSec: useconds_t = 30_000
 
-// Bundle identifiers known to host UI in helper child processes via
-// Chromium / WebKit frame trees. When AX queries against them fail with
-// `cannotComplete` we treat that as an Out-Of-Process element rather than
-// a hard failure.
 let oopHostingBundleIdentifierPrefixes: [String] = [
     "com.google.Chrome",
     "com.brave.Browser",
@@ -1361,8 +1310,7 @@ func resolveOnScreenWindow(
         if let existingBest = best {
             if titleMatched != existingBest.titleMatched {
                 if titleMatched {
-                    // title match wins over pure area when we have an AX hint
-                    // for which window the snapshot is about.
+
                     best = (window: current, titleMatched: titleMatched, score: score)
                 }
                 continue
@@ -1397,9 +1345,6 @@ func frameCenter(_ rect: Rect) -> CGPoint {
     )
 }
 
-// Tracks per-process notes (e.g. OOP element warnings) for the current
-// command so commands can surface diagnostics in their warnings array
-// without threading state through every helper.
 final class AxDiagnostics {
     static let shared = AxDiagnostics()
     private(set) var oopHits = 0
@@ -1441,8 +1386,7 @@ func axAttributeValueRaw(
             trace("attr:end id=\(elementHash(element)) name=\(attribute) result=ok")
             return (value, .success)
         }
-        // Only retry on transient cannotComplete; everything else is final
-        // (e.g. attributeUnsupported, noValue, invalidUIElement).
+
         if result != .cannotComplete {
             trace("attr:end id=\(elementHash(element)) name=\(attribute) result=\(result.rawValue)")
             if result == .noValue {
@@ -1470,10 +1414,6 @@ func axAttributeValue(_ element: AXUIElement, _ attribute: String) -> AnyObject?
     return value
 }
 
-// Batched read using AXUIElementCopyMultipleAttributeValues. Returns a
-// dictionary keyed by attribute name; missing or error values are omitted.
-// `.stopOnError` is intentionally NOT set so that one bad attribute does not
-// poison the rest of the read.
 func axBatchedAttributes(
     _ element: AXUIElement,
     _ attributes: [String]
@@ -1501,14 +1441,9 @@ func axBatchedAttributes(
         let raw = CFArrayGetValueAtIndex(values, index)
         guard let raw else { continue }
         let value = unsafeBitCast(raw, to: AnyObject.self)
-        // CFArray entries that came back as AXError get represented as a
-        // CFNumber wrapping the AXError value; skip those.
+
         if CFGetTypeID(value) == CFNumberGetTypeID() {
-            // Heuristic: CFNumberRef of AXError code; skip if matches.
-            // We can't disambiguate a real number-valued attribute from an
-            // error sentinel, so only skip when value == an AXError raw.
-            // In practice, attributes we batch (role/title/value/...) are not
-            // numeric, so this is safe for our usage.
+
             continue
         }
         dict[attributes[index]] = value
@@ -1662,12 +1597,7 @@ func axChildren(_ element: AXUIElement, role: String? = nil) -> [AXUIElement] {
     appendResult(axElementValue(element, "AXContents"))
 
     if let role {
-        // For roles that expose both a "Visible*" and an all-* variant
-        // (AXTable: AXVisibleRows + AXRows; AXOutline: same; AXBrowser:
-        // AXVisibleColumns + AXColumns), prefer the visible variant when it
-        // returns anything. Mail's inbox table reports 5,032 rows via
-        // AXRows but only ~30 via AXVisibleRows; walking the union is what
-        // makes the snapshot blow past every node budget.
+
         var consumed = false
         for attribute in roleSpecificArrayChildAttributes[role] ?? [] {
             if consumed && !attribute.hasPrefix("AXVisible") {
@@ -1719,11 +1649,6 @@ func axActions(_ element: AXUIElement) -> [String] {
     return actions
 }
 
-// macOS Mail (and a handful of other AppKit apps) surfaces NSAccessibilityCustomAction
-// objects through `AXUIElementCopyActionNames` whose `description` is the multi-line
-// `Name:X\nTarget:0x0\nSelector:(null)` block instead of the bare action label.
-// Strip everything down to just the human-readable name so downstream consumers
-// can pattern-match on familiar tokens like "Read", "Remind Me", "Delete".
 private func normalizeAxActionName(_ raw: String) -> String {
     guard raw.contains("Name:") else { return raw }
     if let nameRange = raw.range(of: "Name:") {
@@ -1737,8 +1662,6 @@ private func normalizeAxActionName(_ raw: String) -> String {
     return raw
 }
 
-// Helper that pulls a string value out of a heterogeneous AnyObject result,
-// matching the same coercion rules `axStringValue` uses for single reads.
 func coerceString(_ raw: AnyObject?) -> String? {
     guard let raw else { return nil }
     if let s = raw as? String { return trimmed(s) }
@@ -1968,9 +1891,7 @@ func nodeSignature(
 }
 
 func nodeDetails(for element: AXUIElement) -> NodeDetails {
-    // First batched read: cheap "always need" attributes that we use to decide
-    // whether the node deserves the deeper attribute set. role + title + focus
-    // + value (some roles always carry it).
+
     let firstBatch = axBatchedAttributes(
         element,
         [
@@ -2005,9 +1926,6 @@ func nodeDetails(for element: AXUIElement) -> NodeDetails {
         ? axAttributeSettable(element, kAXValueAttribute as String)
         : nil
 
-    // Second batched read: the deeper attribute set, only if the node is
-    // potentially actionable. This avoids paying ~6 round-trips on every
-    // static-text leaf node.
     var subrole: String? = nil
     var description: String? = nil
     var details: String? = nil
@@ -2047,22 +1965,14 @@ func nodeDetails(for element: AXUIElement) -> NodeDetails {
         details = truncateValue(coerceString(secondBatch["AXValueDescription"]))
         help = truncateValue(coerceString(secondBatch[kAXHelpAttribute as String]))
         identifier = truncateValue(coerceString(secondBatch[kAXIdentifierAttribute as String]))
-        // AXPlaceholderValue carries the empty-state hint of text/search
-        // fields (Brave's address bar, Spotlight search, Mail's To:/Subject
-        // fields). We only surface it on text-bearing roles to avoid
-        // padding every actionable node with empty placeholders.
+
         placeholder = truncateValue(
             coerceString(secondBatch[kAXPlaceholderValueAttribute as String]) ??
                 coerceString(secondBatch["AXPlaceholder"])
         )
         enabled = coerceBool(secondBatch[kAXEnabledAttribute as String])
         selected = coerceBool(secondBatch[kAXSelectedAttribute as String])
-        // AXExpanded is only meaningful on disclosable elements. Reading
-        // it on AXWebArea / AXButton / AXTextField / etc. returns false
-        // and would falsely render `(collapsed)` on every interactive
-        // element. Restrict to roles where expanded/collapsed actually
-        // describes user-visible state (outline rows for the Mail/Finder
-        // sidebars, disclosure triangles in Inspector-style panels).
+
         let expandedRoles: Set<String> = [
             "AXDisclosureTriangle",
             "AXOutline",
@@ -2081,11 +1991,11 @@ func nodeDetails(for element: AXUIElement) -> NodeDetails {
         )
         actions = axActions(element)
         if value == nil {
-            // Some elements only expose value lazily; pick it up here.
+
             value = truncateValue(axStringValue(element, kAXValueAttribute as String))
         }
     } else if selectableRoles.contains(role) {
-        // Selection-bearing leaf rows: cheap single read.
+
         selected = axBoolValue(element, kAXSelectedAttribute as String)
     }
 
@@ -2197,9 +2107,7 @@ final class SnapshotBuilder {
         occurrenceCounts[occurrenceKey] = occurrence
 
         var children: [SnapshotNode] = []
-        // Don't recurse into menu bar items if an app exposes them under a
-        // fallback root. They are global app chrome and should not become
-        // default computer-use targets.
+
         let descendsIntoChildren =
             depth < maxDepth && details.role != "AXMenuBarItem"
         if descendsIntoChildren {
@@ -2360,8 +2268,6 @@ func resolveTarget(
         }
     }
 
-    // Keep Stella's explicit target requirement, but once the caller has
-    // named an app, attempt launch before failing.
     launchTargetIfPossible(appName: appName, bundleId: bundleId)
     for _ in 0..<20 {
         if let bundleId = trimmed(bundleId),
@@ -2383,12 +2289,6 @@ func resolveTarget(
         Thread.sleep(forTimeInterval: 0.25)
     }
 
-    // No frontmost-app fallback. The whole point of stella-computer is to
-    // act on a specific app in the background without disturbing whatever
-    // the user is currently doing. Falling back to frontmost would routinely
-    // hijack the user's active window (and on this machine that's Stella
-    // itself, which is on the forbidden list anyway). Force the caller to
-    // name the target via --app, --bundle-id, or --pid.
     throw NSError(domain: "desktop_automation", code: 1, userInfo: [
         NSLocalizedDescriptionKey:
             "stella-computer requires a target app. Pass --app <name>, --bundle-id <id>, or --pid <pid>. "
@@ -2397,10 +2297,6 @@ func resolveTarget(
     ])
 }
 
-// Verify the target pid is still alive and resolves to the same bundle id
-// we last saw. Returns a fresh AppTarget if the pid is gone but a same-bundle
-// app is still running (auto-recovery for app restarts), or nil if the
-// caller should report a clean error.
 func revalidateTarget(_ snapshot: SnapshotDocument) -> AppTarget? {
     let workspace = NSWorkspace.shared
     if let app = workspace.runningApplications.first(where: { $0.processIdentifier == snapshot.pid }) {
@@ -2432,16 +2328,6 @@ func shouldEnableManualAccessibility(for app: NSRunningApplication) -> Bool {
     }
 }
 
-// Note: an earlier iteration tried to enumerate renderer child pids
-// via `sysctl(KERN_PROC_ALL)` + `proc_pidpath` and wake each renderer's
-// AX tree separately. That's the wrong layer. CEF/Electron exposes the
-// entire renderer DOM through a single `AXGroup` (or `AXWebArea`) that
-// is already a child of the parent app's window. The fix is just to let
-// the snapshot walker descend into `AXGroup` / `AXWebArea` instead of
-// stopping at it, which is now done via `safeFallbackChildRoles`.
-
-// Tracks per-pid one-time setup so we don't re-set kAXEnhancedUserInterface
-// (which can be visually disruptive in some apps) every command invocation.
 var preparedTargetPids: Set<Int32> = []
 
 let observedAutomationNotificationNames: [String] = [
@@ -2850,8 +2736,6 @@ final class AutomationStateCache {
 func prepareTargetForAutomation(_ target: AppTarget) {
     let pid = target.app.processIdentifier
 
-    // 1) The messaging timeout applies to ALL descendants of the app element,
-    //    so set it once on the app element itself, not on every leaf.
     AXUIElementSetMessagingTimeout(target.axApp, axMessagingTimeoutSeconds)
 
     if preparedTargetPids.contains(pid) {
@@ -2860,7 +2744,6 @@ func prepareTargetForAutomation(_ target: AppTarget) {
     }
     preparedTargetPids.insert(pid)
 
-    // 2) Wake Electron / Chromium AX trees that are dormant by default.
     if shouldEnableManualAccessibility(for: target.app) {
         trace("target:manual-accessibility pid=\(pid)")
         _ = AXUIElementSetAttributeValue(
@@ -2870,9 +2753,6 @@ func prepareTargetForAutomation(_ target: AppTarget) {
         )
     }
 
-    // 3) Apps backed by AppKit expose a richer attribute set when this is
-    //    enabled. This is what assistive technologies set when starting a
-    //    session, so it's the same code path the app already supports.
     _ = AXUIElementSetAttributeValue(
         target.axApp,
         "AXEnhancedUserInterface" as CFString,
@@ -2885,23 +2765,15 @@ func configureMessagingTimeout(for target: AppTarget) {
     prepareTargetForAutomation(target)
 }
 
-// Called when a target's pid disappears between snapshot and action so we
-// don't keep stale "prepared" state across runs.
 func forgetPreparedTarget(pid: Int32) {
     preparedTargetPids.remove(pid)
     AutomationObserverManager.shared.forget(pid: pid)
     AutomationStateCache.shared.forget(pid: pid)
 }
 
-// MARK: - Overlay support
-//
-// The long-lived daemon path below owns the real session overlay state.
-// Keep the older one-shot controller only as a fallback for direct helper
-// execution outside daemon mode.
-
 let overlayFadeInDuration: TimeInterval = 0.18
 let legacyOverlayFadeOutDuration: TimeInterval = 0.22
-let overlayHoldDuration: TimeInterval = 0.30  // visible time after fade-in completes
+let overlayHoldDuration: TimeInterval = 0.30
 let legacyOverlayCursorMoveDuration: TimeInterval = 1.10
 let overlayCursorPreRotationDuration: TimeInterval = 0.55
 let overlayCursorPreRotationLeadFraction: CGFloat = 0.55
@@ -2965,11 +2837,6 @@ final class ActionOverlayWindow: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-// Programmatic cursor sprite. Draws a small white pointer with a soft
-// drop shadow and a thin black outline so it remains visible on both
-// light and dark surfaces. Drawn once per process and cached.
-//
-// Shape: sleek triangular pointer, 24pt × 30pt, anchor at the tip.
 private var cachedSoftwareCursorImage: NSImage?
 
 func softwareCursorImage() -> NSImage {
@@ -3031,20 +2898,6 @@ func softwareCursorImage() -> NSImage {
     return image
 }
 
-// One-shot AppKit bootstrap for the overlay path. The CLI is launched as a
-// stdio process (activationPolicy == .prohibited), so the very first call
-// into AppKit / SkyLight tears down with `Assertion failed: (did_initialize),
-// CGS_REQUIRE_INIT` because we have no WindowServer connection yet. Calling
-// `setActivationPolicy(.accessory)` is necessary but not sufficient — we
-// also have to give NSApplication a chance to `finishLaunching`, which
-// establishes the SkyLight connection. After this runs once per process,
-// every subsequent NSScreen / NSPanel call works.
-//
-// This is wrapped in `tryBootstrapAppKit()` so that, when WindowServer
-// itself can't be reached (headless ssh, stripped environment, missing
-// DISPLAY-equivalent), we degrade gracefully: the overlay is skipped and
-// the action proceeds without visual feedback rather than crashing the
-// whole CLI on a CG assertion.
 private var appKitBootstrapped = false
 private var appKitBootstrapFailed = false
 
@@ -3052,10 +2905,6 @@ func tryBootstrapAppKit() -> Bool {
     if appKitBootstrapped { return true }
     if appKitBootstrapFailed { return false }
 
-    // Touching CGSessionCopyCurrentDictionary is a cheap way to probe whether
-    // the process actually has a WindowServer session. Returns nil when run
-    // outside a logged-in graphical context (ssh, launchd job without
-    // user-graphical, etc.). In those cases we must NOT touch AppKit.
     guard let _ = CGSessionCopyCurrentDictionary() as Dictionary? else {
         trace("overlay:bootstrap-failed reason=no-window-server-session")
         appKitBootstrapFailed = true
@@ -3066,11 +2915,9 @@ func tryBootstrapAppKit() -> Bool {
     if app.activationPolicy() != .accessory {
         _ = app.setActivationPolicy(.accessory)
     }
-    // finishLaunching primes the SkyLight connection. Without it, the very
-    // first NSPanel/NSScreen.main call asserts in CGInitialization.
+
     app.finishLaunching()
-    // One run-loop tick lets WindowServer finish the handshake. Empirically
-    // 0 ticks is sometimes enough on warm systems but 1 tick is bulletproof.
+
     RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
 
     appKitBootstrapped = true
@@ -3083,9 +2930,7 @@ final class ActionOverlayController {
     private var cursorLayer: CALayer?
 
     func show(at _: CGRect, cursorAt cursorPoint: CGPoint, viewportFrame: CGRect) {
-        // Bootstrap AppKit before we touch any AppKit/SkyLight types. If the
-        // bootstrap fails (no WindowServer session), bail out silently so the
-        // caller's action body still runs.
+
         guard tryBootstrapAppKit() else { return }
         let viewportCenter = CGPoint(x: viewportFrame.midX, y: viewportFrame.midY)
         guard let screen = screenContaining(point: viewportCenter) ?? screenContaining(point: cursorPoint) ?? NSScreen.main else {
@@ -3103,7 +2948,6 @@ final class ActionOverlayController {
         host.layer?.addSublayer(cursor)
         cursorLayer = cursor
 
-        // Fade-in from 0 to 1 with a quick spring-y curve.
         host.layer?.opacity = 0
         win.alphaValue = 1
         win.orderFrontRegardless()
@@ -3155,9 +2999,7 @@ final class ActionOverlayController {
         layer.contents = img
         layer.contentsScale = screen.backingScaleFactor
         let size = img.size
-        // Anchor at the cursor tip so rotation
-        // pivots around the visible action point rather than the sprite
-        // center.
+
         layer.bounds = CGRect(origin: .zero, size: size)
         layer.anchorPoint = CGPoint(x: 0.5, y: 36.0 / 38.0)
         layer.position = overlayLocalPoint(fromAXPoint: point, viewportFrame: viewportFrame)
@@ -3177,11 +3019,9 @@ final class ActionOverlayController {
     }
 }
 
-// NSView subclass that hosts the overlay layers. Layer-backed so we can add
-// CAShapeLayers + CALayers directly without per-view drawing.
 final class OverlayHostView: NSView {
-    override var isFlipped: Bool { false } // AppKit default; bottom-left origin
-    override func mouseDown(with event: NSEvent) { /* click-through */ }
+    override var isFlipped: Bool { false }
+    override func mouseDown(with event: NSEvent) {  }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { false }
 }
 
@@ -3621,8 +3461,6 @@ func overlayViewportFrame(statePath: String) -> Rect? {
     return nil
 }
 
-// Legacy one-shot overlay path used only when the helper is executed
-// outside daemon mode.
 func withActionOverlay<T>(
     enabled: Bool,
     statePath: String,
@@ -3643,9 +3481,6 @@ func withActionOverlay<T>(
     let overlay = ActionOverlayController()
     overlay.show(at: cgFrame, cursorAt: previousCursor ?? cursor, viewportFrame: viewport)
 
-    // Let AppKit/CoreAnimation present the overlay window before we start any
-    // movement or action body. Without a live run loop here the fade-in and
-    // cursor layer can be committed too late to ever become visible.
     runAnimationLoop(for: 0.05)
     if let previousCursor,
        hypot(previousCursor.x - cursor.x, previousCursor.y - cursor.y) >= 2 {
@@ -3654,8 +3489,6 @@ func withActionOverlay<T>(
         runAnimationLoop(for: preLead + legacyOverlayCursorMoveDuration + overlayCursorSettleDuration + 0.04)
     }
 
-    // Brief hold so the user actually sees the cursor land before the action
-    // perturbs the UI.
     runAnimationLoop(for: overlayHoldDuration)
 
     let result = body()
@@ -3667,9 +3500,7 @@ func withActionOverlay<T>(
 
 func overlayEnabled(_ options: ActionOptions) -> Bool {
     if envBool("STELLA_COMPUTER_NO_OVERLAY") { return false }
-    // Deferred chains optimize for command throughput. The daemon can keep
-    // its decorative overlay alive, but the action must not synchronously
-    // wait for cursor travel/click animation.
+
     return options.showOverlay && !options.deferObservation
 }
 
@@ -4026,8 +3857,7 @@ final class PersistentOverlayController {
                 lastOrderedAboveWindowID = aboveWindowID
             }
         } else {
-            // The target is already the frontmost normal window. In that case
-            // fronting the overlay cannot lift the target above another app.
+
             win.orderFrontRegardless()
             if targetWindowID != lastOrderedAboveWindowID {
                 lastOrderedAboveWindowID = targetWindowID
@@ -4426,11 +4256,6 @@ func withUnifiedActionOverlay<T>(
     )
 }
 
-// PNG encoder for `SCScreenshotManager.captureImage(...)` output. No format
-// conversion, no quality knob — the screenshot ships at the native pixel
-// scale that ScreenCaptureKit produces. CGImageDestination is preferred over
-// NSBitmapImageRep here because it accepts ImageIO compression hints and
-// produces a slightly tighter PNG for typical UI content.
 func encodePNGViaImageIO(_ image: CGImage) -> Data? {
     let data = NSMutableData()
     guard let destination = CGImageDestinationCreateWithData(
@@ -4448,21 +4273,6 @@ func encodePNGViaImageIO(_ image: CGImage) -> Data? {
     return data as Data
 }
 
-// ScreenCaptureKit-backed window capture. Falls back to /usr/sbin/screencapture
-// when SCK is unavailable, or when an SCK call fails (which can happen if
-// the user has not granted the bundle screen recording permission).
-//
-// When `pid` is provided we filter by the target app's frontmost window so
-// the capture is window-isolated even when other apps overlap. When pid is
-// nil we fall back to the screencapture shell-out (full screen / rect).
-//
-// Returns `(screenshot, warning)`: when `screenshot` is non-nil the capture
-// succeeded and the file was written; when `warning` is non-nil something
-// went wrong and the caller should surface the message. `includeBase64`
-// controls whether the returned `Screenshot.data` is populated. Callers that
-// only need a file path on disk can pass `false` to skip the encode cost,
-// but the default is `true` so consumers (model agents) can read the image
-// inline without a follow-up file read.
 func captureScreenshot(
     to outputPath: String,
     rect: Rect?,
@@ -4480,7 +4290,6 @@ func captureScreenshot(
         return (nil, "Failed to write screenshot: \(error.localizedDescription)")
     }
 
-    // Try SCK first when we have a target pid.
     if let pid,
        #available(macOS 14.0, *),
        CGPreflightScreenCaptureAccess(),
@@ -4496,20 +4305,13 @@ func captureScreenshot(
             return (screenshot, nil)
         }
         if let warning {
-            // SCK explicitly failed; fall through to screencapture shell-out.
+
             trace("screenshot:sck-failed reason=\(warning)")
         }
     } else if pid != nil {
         trace("screenshot:sck-skipped unavailable-for-process")
     }
 
-    // Fallback: /usr/sbin/screencapture with -l<windowID>. Captures ONLY
-    // the targeted window's content even if other windows overlap it on
-    // screen — critical for computer-use, where the model must see the
-    // targeted app and not whatever happens to be on top of it on the
-    // user's real desktop. We only fall back to -R<rect> as a last
-    // resort, and even then prefer to fail loudly: a screen-rect capture
-    // would mislead the model about what it's clicking on.
     if let pid,
        let window = resolveOnScreenWindow(
            pid: pid,
@@ -4540,11 +4342,6 @@ func captureScreenshot(
         }
     }
 
-    // Last resort: /usr/sbin/screencapture -R<rect>. This DOES include
-    // overlapping windows because it's a pure screen-rect capture; we
-    // only reach here when SCK and the windowID-targeted shell-out both
-    // failed, which is rare enough that returning a possibly-confusing
-    // image is preferable to returning no image at all.
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
     var arguments = ["-x"]
@@ -4576,18 +4373,6 @@ func captureScreenshot(
     }
 }
 
-// `resolveOnScreenWindow(...)` now owns Stella's window-selection policy for
-// both screenshot capture and overlay targeting: prefer an exact AX title
-// match when we have one, then maximize frame overlap with the expected AX
-// window frame, then fall back to largest area.
-
-// Read a PNG that was just written by /usr/sbin/screencapture and turn it
-// into a Screenshot value. Failure here is non-fatal: callers fall back to
-// returning a Screenshot with only the path populated. `nil` is returned
-// only if the file genuinely cannot be opened.
-//
-// Apply the same SCREENSHOT_MAX_LONG_EDGE cap the SCK path uses so the
-// fallback shell-out doesn't ship a 5 MB retina PNG into the prompt.
 func screenshotFromOnDiskPNG(
     path: String,
     includeBase64: Bool,
@@ -4701,11 +4486,6 @@ private func captureViaScreenCaptureKit(
         return (nil, "captureImage returned no image")
     }
 
-    // Cap screenshots at SCREENSHOT_MAX_LONG_EDGE on the longer side before
-    // PNG-encoding. ScreenCaptureKit hands us native retina pixels — a
-    // 1700x1000-point window comes back as 3400x2000, which encodes to 2-5
-    // MB and overflows downstream prompt budgets on multi-step tool runs.
-    // Stella ships PNGs straight to the model, so resize in-process.
     let resized = resizeCGImageIfLargerThan(cgImage, maxLongEdge: SCREENSHOT_MAX_LONG_EDGE)
     guard let png = encodePNGViaImageIO(resized) else {
         return (nil, "PNG encoding failed")
@@ -5165,19 +4945,14 @@ func collectCandidates(
     return results
 }
 
-// Maximum score `scoreCandidate` could possibly return for a given entry,
-// based on which attributes are populated. Used to convert an absolute score
-// into a confidence ratio so thresholds scale with how identifying the
-// stored ref actually is. (A ref with no identifier/title/value can never
-// score very high; a ref with all of them can score ~600+.)
 func maxPossibleScore(for entry: PreparedRefEntry) -> Int {
-    var max = 50 // role match (gate; without it the candidate is rejected)
+    var max = 50
 
     if !entry.identifier.normalized.isEmpty {
         max += 150 + 24
     }
     if !entry.primaryLabel.normalized.isEmpty {
-        max += 95 + 34 + 10 // exact + token-similarity + contains-bonus
+        max += 95 + 34 + 10
     }
     if !entry.title.normalized.isEmpty {
         max += 42 + 16
@@ -5195,13 +4970,13 @@ func maxPossibleScore(for entry: PreparedRefEntry) -> Int {
         max += 24 + 8
     }
     if !entry.identifier.normalized.isEmpty && !entry.primaryLabel.normalized.isEmpty {
-        max += 60 // identifier+label super-bonus
+        max += 60
     }
-    // Path: full match (72) + per-prefix (14*N), where N is path length.
+
     max += 72 + 14 * Swift.max(entry.childPath.count, 1)
     max += 4 * Swift.max(entry.ancestry.count, 1)
-    max += 12 // occurrence
-    if entry.frame != nil { max += 30 } // best-case frameScore
+    max += 12
+    if entry.frame != nil { max += 30 }
     if !entry.actionsSet.isEmpty { max += 10 }
     if entry.enabled != nil { max += 6 }
     if entry.focused != nil { max += 6 }
@@ -5243,9 +5018,7 @@ func rankedCandidates(
 ) -> [RankedCandidate] {
     let preparedEntry = prepareRefEntry(entry)
     let cap = maxPossibleScore(for: preparedEntry)
-    // Cheap pre-filter: candidates that can't even reach 12% of the cap
-    // aren't worth keeping in the tail. Floor at 50 so very thin entries
-    // (no identifier/label) aren't pruned away entirely.
+
     let absoluteFloor = Swift.max(50, cap / 8)
     var top: [RankedCandidate] = []
     top.reserveCapacity(Swift.max(limit, 0))
@@ -5264,11 +5037,6 @@ func rankedCandidates(
     return top
 }
 
-// Tunables for percentile-based gating. Override at runtime via env if a
-// caller wants to relax/tighten matching for a specific app.
-//
-//   minimum confidence ratio the best match must clear (relative to the
-//   theoretical max for this entry)
 let stellaMinConfidenceRatio: Double = {
     if let raw = ProcessInfo.processInfo.environment["STELLA_COMPUTER_MIN_CONFIDENCE"],
        let v = Double(raw), v > 0, v <= 1 {
@@ -5277,9 +5045,6 @@ let stellaMinConfidenceRatio: Double = {
     return 0.30
 }()
 
-//   minimum gap between #1 and #2 (relative to the theoretical max). A
-//   small gap means the matcher is uncertain which of two candidates is
-//   "the" element; we'd rather fail loudly than guess.
 let stellaMinGapRatio: Double = {
     if let raw = ProcessInfo.processInfo.environment["STELLA_COMPUTER_MIN_GAP"],
        let v = Double(raw), v >= 0, v <= 1 {
@@ -5315,7 +5080,6 @@ func bestCandidate(
     let cap = Swift.max(maxPossibleScore(for: preparedEntry), 1)
     let confidence = Double(best.score) / Double(cap)
 
-    // Gap test: if a runner-up is too close, declare ambiguous.
     if let second = ranked.dropFirst().first {
         let gapRatio = Double(best.score - second.score) / Double(cap)
         if !stableExactMatch && gapRatio < stellaMinGapRatio {
@@ -5323,8 +5087,6 @@ func bestCandidate(
         }
     }
 
-    // Confidence test: even if there's no runner-up, the best match has to
-    // clear a minimum confidence ratio to count.
     if !stableExactMatch && confidence < stellaMinConfidenceRatio {
         return nil
     }
@@ -5392,11 +5154,6 @@ func activationPolicyRank(_ policy: NSApplication.ActivationPolicy) -> Int {
     }
 }
 
-// Spotlight has tracked per-bundle usage since macOS 10.6. Reading these
-// keys via `MDItemCreateWithURL` is a synchronous, in-process lookup and
-// matches the data Apple's own "Recent Applications" UIs use. Falls back
-// to nil silently for unindexed bundles (network volumes, sandboxed apps
-// without permission, etc.) — callers must already tolerate missing data.
 private let spotlightDateFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -5412,11 +5169,7 @@ private func appUsageMetadata(
     guard let mdItem = MDItemCreateWithURL(kCFAllocatorDefault, bundleURL as CFURL) else {
         return (nil, nil)
     }
-    // `kMDItemLastUsedDate` is public; `kMDItemUseCount` is documented but
-    // not exposed as a Swift constant in the macOS SDK headers. Falling
-    // back to the raw CFString literal — Spotlight has honored it since
-    // 10.6 and Apple ships the same key as part of the public metadata
-    // schema.
+
     let lastUsedRaw = MDItemCopyAttribute(mdItem, kMDItemLastUsedDate)
     let useCountRaw = MDItemCopyAttribute(mdItem, "kMDItemUseCount" as CFString)
     let lastUsed = (lastUsedRaw as? Date).map { spotlightDateFormatter.string(from: $0) }
@@ -6027,10 +5780,6 @@ func performClick(
         }
     }
 
-    // Fall back to a targeted per-pid pointer click for element clicks even
-    // when AX couldn't press the element. This path is *not* global HID
-    // injection and should not require Stella's explicit
-    // `--coordinate-fallback`/`--allow-hid` gate.
     if let point,
        simulateLeftClickToPid(
            at: point,
@@ -6041,8 +5790,6 @@ func performClick(
         return (true, "targeted-coordinate-fallback", .perPid)
     }
 
-    // Only after the targeted fallback fails do we consider the legacy
-    // global/HID coordinate fallback, which remains explicitly gated.
     if coordinateFallback,
        let point,
        let dispatchResult = postLeftClick(
@@ -6172,10 +5919,6 @@ func performScroll(
         warnings.append("Element did not advertise \(actionName); falling back to scroll-wheel CGEvent.")
     }
 
-    // Fallback: synthesize a real scroll-wheel event posted to the
-    // target app's pid so the scroll handler in the hovered view fires.
-    // Falls through to targeted scroll for elements without an
-    // AXScroll<dir>ByPage action.
     guard let target,
           let frame = candidate.frame else {
         return nil
@@ -6192,9 +5935,6 @@ func performScroll(
     return ("scroll-wheel-postToPid", warnings, .perPid)
 }
 
-// Returns (succeeded, usedAction) where usedAction is "AXValue" for the
-// AX-set fast path, or "keystroke" for the typing fallback. The fallback
-// is gated by `target` (when nil, only the AX path is attempted).
 func setValue(
     candidate: CandidateNode,
     text: String,
@@ -6203,8 +5943,6 @@ func setValue(
 ) -> (Bool, String?, ActionDispatch?) {
     _ = setFocused(candidate.element)
 
-    // Some elements (Slider, ProgressIndicator) want a CFNumber, not a string.
-    // We always try the string path first; numeric coercion fallback is below.
     let setStringResult = AXUIElementSetAttributeValue(
         candidate.element,
         kAXValueAttribute as CFString,
@@ -6216,16 +5954,10 @@ func setValue(
         if observed == normalized(text) {
             return (true, "AXValue", .accessibility)
         }
-        // Set succeeded but readback differs: the app accepted the write
-        // and then transformed the value (e.g. capitalized, formatted as a
-        // date, truncated). Treat this as success — falling through to
-        // keystroke would re-dispatch the input and risk duplicate edits
-        // (Numbers cells, formatted-text fields). The caller can re-snapshot
-        // to confirm whether the transformation was acceptable.
+
         return (true, "AXValue(transformed)", .accessibility)
     }
 
-    // Numeric coercion: slider, level indicator, etc.
     if let asDouble = Double(text) {
         let number = NSNumber(value: asDouble)
         let setNumericResult = AXUIElementSetAttributeValue(
@@ -6238,18 +5970,15 @@ func setValue(
         }
     }
 
-    // Keystroke fallback: focus + type via System Events. This works for text
-    // fields that reject AXValue assignment but honor synthesized typing.
     if let target {
-        // Best-effort clear: select-all then delete current value before typing.
+
         let selectAll = postKeyChord("cmd+a", target: target, raise: raise)
         let delete = postKeyChord("delete", target: target, raise: raise)
         if !raise, selectAll == nil || delete == nil {
             return (false, nil, nil)
         }
         if let typing = postUnicodeText(text, target: target, raise: raise) {
-            // Optional readback to make sure something landed; not authoritative
-            // since the app may format the value.
+
             return (true, "keystroke:\(typing.usedAction)", typing.dispatch)
         }
     }
@@ -6388,20 +6117,11 @@ func envBool(_ key: String) -> Bool {
     return raw == "1" || raw == "true" || raw == "yes"
 }
 
-// Apply uniformly to click, type, press. Old click-specific name retained
-// for back-compat in tests; new uniform name takes precedence if both set.
 func alwaysSimulateInput() -> Bool {
     envBool("STELLA_COMPUTER_ALWAYS_SIMULATE_INPUT") ||
         envBool("STELLA_COMPUTER_ALWAYS_SIMULATE_CLICK")
 }
 
-// Toggle whether System Events should bring the target frontmost before
-// dispatching click/keystroke commands. Default: false. stella-computer
-// drives apps via Accessibility in the background; raising would steal
-// focus from whatever the user is currently doing. Action commands flip
-// this on only when --raise (or STELLA_COMPUTER_RAISE=1) is passed
-// explicitly. The legacy --no-raise flag and STELLA_COMPUTER_NO_RAISE
-// env var are accepted as no-ops to keep older callers from breaking.
 func shouldRaiseTarget(_ argOverride: Bool? = nil) -> Bool {
     if let argOverride { return argOverride }
     if envBool("STELLA_COMPUTER_RAISE") {
@@ -6410,9 +6130,6 @@ func shouldRaiseTarget(_ argOverride: Bool? = nil) -> Bool {
     return false
 }
 
-// Cached compiled NSAppleScript objects keyed by source. AppleScript
-// compilation is expensive (~30ms); we reuse the compiled form across
-// invocations of the same source.
 var compiledScriptCache: [String: NSAppleScript] = [:]
 
 func compiledScript(for source: String) -> NSAppleScript? {
@@ -6457,7 +6174,6 @@ func runAppleScriptWithArgs(source: String, arguments: [String]) -> (Bool, Strin
         return (false, message)
     }
 
-    // Build NSAppleEventDescriptor of typeAEList containing the args.
     let argList = NSAppleEventDescriptor.list()
     for (index, arg) in arguments.enumerated() {
         argList.insert(NSAppleEventDescriptor(string: arg), at: index + 1)
@@ -6549,11 +6265,6 @@ func runSystemEventsOnTarget(
     return ok
 }
 
-// Global HID-tap left click. Last-resort fallback used only when the
-// per-pid path has failed. Posts 3 events (mouseMoved → down → up),
-// `mouseEventClickState` set on each so the receiver's click-state machine
-// sees a coherent sequence, and a 30 ms inter-event sleep so the run loop
-// has time to dispatch each event.
 func simulateLeftClick(at point: CGPoint, clickCount: Int = 1, button: CGMouseButton = .left) -> Bool {
     guard let source = CGEventSource(stateID: .hidSystemState) else {
         return false
@@ -6772,10 +6483,6 @@ struct SyntheticAppFocusState: Equatable {
     }
 }
 
-// Keeps one background target logically active/focused for a Computer Use
-// session while leaving NSWorkspace's actual frontmost application unchanged.
-// The state names mirror the current Computer Use focus enforcer so the three
-// independently meaningful conditions never collapse into one "focused" bit.
 final class SyntheticAppFocusEnforcer {
     static let shared = SyntheticAppFocusEnforcer()
 
@@ -7128,10 +6835,6 @@ func clickViaSignedPidPost(
     }
     Thread.sleep(forTimeInterval: 0.015)
 
-    // The offscreen down/up pair primes some web wrappers, but it also
-    // dismisses an already-open background menu. Suppress only that synthetic
-    // primer while a Computer Use action is in flight. Physical foreground
-    // events never pass through this path and remain completely untouched.
     if !SyntheticAppFocusEnforcer.shared.isMenuDismissalSuppressionEnabled {
         let primerPoint = CGPoint(x: -1, y: -1)
         guard let primerDown = buildMouseCGEvent(
@@ -7191,12 +6894,6 @@ func clickViaSignedPidPost(
     return true
 }
 
-// Post a click directly to the target pid's event queue. This remains a
-// background path: it does not raise the app, does not activate the app, and
-// does not use the global HID tap. The event recipe intentionally mirrors the
-// working cua-driver path more closely than raw `CGEvent(mouseEventSource:)`:
-// build via NSEvent, stamp the target window, post through SkyLight's per-pid
-// path, then also post through the public pid route.
 func simulateLeftClickToPid(
     at point: CGPoint,
     pid: pid_t,
@@ -7258,11 +6955,6 @@ func simulateLeftClickToPid(
     return true
 }
 
-// Per-pid Unicode typing: one character at a time, each as a
-// keyboardSetUnicodeString event posted directly to the target pid.
-// Background apps (web-views, non-frontmost apps) drop bulk keystroke events;
-// this delivery
-// pattern is what they actually receive reliably.
 func simulateUnicodeTextToPid(_ text: String, pid: pid_t) -> Bool {
     for character in text.utf16 {
         var mutableCharacter = character
@@ -7283,10 +6975,6 @@ func simulateUnicodeTextToPid(_ text: String, pid: pid_t) -> Bool {
     return true
 }
 
-// Per-pid key chord: modifier keyDown events first (with cumulative flag
-// mask), then the main key down/up with the full mask, then modifier keyUp in
-// reverse. Each event is posted directly to the target pid so the chord lands
-// inside the targeted app even when it is not frontmost.
 func simulateKeyChordToPid(_ keySpec: String, pid: pid_t) -> Bool {
     let parts = keySpec.split(separator: "+").map(String.init)
     guard let keyToken = parts.last else {
@@ -7315,8 +7003,7 @@ func simulateKeyChordToPid(_ keySpec: String, pid: pid_t) -> Bool {
     }
 
     guard let mainKeyCode = keyCode(for: keyToken) else {
-        // Unknown key token: try Unicode-fallback only for single-char
-        // chords with no modifiers (e.g. press "?").
+
         if parts.count == 1 {
             return simulateUnicodeTextToPid(keySpec, pid: pid)
         }
@@ -7363,10 +7050,6 @@ func simulateKeyChordToPid(_ keySpec: String, pid: pid_t) -> Bool {
     return true
 }
 
-// Per-pid drag: mouseMoved + mouseDown at the start, 10 leftMouseDragged
-// steps along the path (fixed step count is what AppKit's drag-tracking
-// expects), mouseUp at the end. Each event is posted to the target pid with
-// click-state set so the receiver registers a contiguous drag gesture.
 func simulateDragToPid(from start: CGPoint, to end: CGPoint, pid: pid_t) -> Bool {
     guard let source = CGEventSource(stateID: .combinedSessionState) else {
         return false
@@ -7402,10 +7085,6 @@ func simulateDragToPid(from start: CGPoint, to end: CGPoint, pid: pid_t) -> Bool
     return post(.leftMouseUp, at: end)
 }
 
-// Per-pid scroll wheel. Used when an element does not advertise an
-// `AXScroll<dir>ByPage` action; we fall back to synthesizing a real
-// scroll-wheel event posted to the target pid so the wheel handler in the
-// focused view fires.
 func simulateScrollToPid(at point: CGPoint, direction: String, pages: Double, pid: pid_t) -> Bool {
     let raw = max(1.0, (12.0 * pages).rounded(.toNearestOrAwayFromZero))
     let delta = Int32(min(Double(Int32.max), raw))
@@ -7443,9 +7122,6 @@ func simulateScrollToPid(at point: CGPoint, direction: String, pages: Double, pi
     return true
 }
 
-// Try the preferred AX action sequence on `element`, repeating
-// `clickCount` times for double/triple clicks. Returns the action name
-// that fired, or nil if none of them succeeded.
 private func performPreferredAxAction(
     on element: AXUIElement,
     button: CGMouseButton,
@@ -7475,14 +7151,12 @@ private func performPreferredAxAction(
                 }
                 continue
             }
-            // First attempt failed: the element does not support this
-            // action; try the next preferred one.
+
             if index == 0 {
                 fired = false
                 break
             }
-            // Subsequent attempt failed mid-sequence: still treat as
-            // success — at least one click landed.
+
             return action
         }
         if fired {
@@ -7492,11 +7166,6 @@ private func performPreferredAxAction(
     return nil
 }
 
-// Walk a few levels of descendants looking for one that exposes a
-// pressable AX action. This helps when the leaf returned by
-// `AXUIElementCopyElementAtPosition` is a non-actionable container
-// (e.g. an `AXGroup` wrapping the real button); the model's coordinate
-// landed on the container's bounds rather than the button's.
 private func findPressableDescendant(
     of element: AXUIElement,
     depth: Int = 0,
@@ -7521,12 +7190,6 @@ private func findPressableDescendant(
     return nil
 }
 
-// Click an element of the target app at the given screen point WITHOUT
-// raising the window. Uses AXUIElementCopyElementAtPosition rooted at the
-// target's AX node, so element resolution is filtered to the target app's
-// tree even if another window is visually on top at that screen point.
-// Returns true only when an AX press action actually fired against an
-// element belonging to the target.
 func clickViaAxAtScreenPoint(
     target: AppTarget,
     point: CGPoint,
@@ -7545,8 +7208,6 @@ func clickViaAxAtScreenPoint(
         return false
     }
 
-    // Confirm the element belongs to the target app — otherwise the AX
-    // walk drifted (rare but possible for tooltip / menu surfaces).
     var ownerPid: pid_t = 0
     if AXUIElementGetPid(element, &ownerPid) == .success,
        ownerPid != target.app.processIdentifier {
@@ -7580,19 +7241,7 @@ func postLeftClick(
     clickCount: Int = 1,
     button: CGMouseButton = .left
 ) -> InputDispatchResult? {
-    // System Events `click at {x, y}` and HID-tap CGEvent posts both
-    // route to whatever window is on top at the screen point — useless
-    // when the target app is backgrounded. When raise=false (the
-    // computer-use default) we walk three
-    // steps in order:
-    //   1) AX-at-position press: best for native AX-mapped UI (buttons,
-    //      menu items). No-op for web-view content.
-    //   2) CGEventPostToPid: delivers the event directly to the target
-    //      process's event queue, bypassing the screen-stacking event
-    //      router. Works inside web-wrapped apps (Spotify, Slack,
-    //      Discord) without focusing them.
-    //   3) HID-tap CGEvent: last resort. May land on the wrong window if
-    //      another app overlaps the screen point.
+
     if !raise {
         if clickViaAxAtScreenPoint(
             target: target,
@@ -7613,9 +7262,7 @@ func postLeftClick(
         }
         return nil
     }
-    // System Events `click at` only supports left-click; for right /
-    // middle / multi-click in the raise path we drop straight to
-    // CGEvent with the appropriate button.
+
     if raise,
        !alwaysSimulateInput(),
        button == .left,
@@ -7635,11 +7282,6 @@ func postLeftClick(
     return InputDispatchResult(usedAction: "global-coordinate-fallback", dispatch: .globalHid)
 }
 
-// Global HID-tap drag. Last-resort fallback; the per-pid path
-// (`simulateDragToPid`) is preferred. Sends mouseMoved + mouseDown at start,
-// 10 fixed leftMouseDragged steps, and mouseUp at end. Click-state is set on
-// every event so the receiver registers a contiguous gesture instead of stray
-// button events.
 func simulateDrag(from start: CGPoint, to end: CGPoint) -> Bool {
     guard let source = CGEventSource(stateID: .hidSystemState) else {
         return false
@@ -7679,11 +7321,6 @@ func simulateDrag(from start: CGPoint, to end: CGPoint) -> Bool {
     return true
 }
 
-// Background-friendly drag dispatch. Preferred path for `drag` /
-// `drag-screenshot` from computer-use: per-pid CGEvent injection so
-// the gesture lands in the targeted app even when not frontmost.
-// With raise=false, per-pid failure is terminal. Explicit raise=true is the
-// only mode allowed to enter the global HID path.
 func postDrag(
     from start: CGPoint,
     to end: CGPoint,
@@ -7700,20 +7337,6 @@ func postDrag(
     guard simulateDrag(from: start, to: end) else { return nil }
     return InputDispatchResult(usedAction: "global-drag", dispatch: .globalHid)
 }
-
-// MARK: - NSDraggingSession content drag
-//
-// `drag-element` uses NSDraggingSession (not raw mouse-drag CGEvents). That
-// gives the destination app a real drag-and-drop pipeline: the right
-// pasteboard types, drag-image animation, and `NSDraggingDestination`
-// callbacks fire correctly.
-//
-// The host of an NSDraggingSession must be an NSView in our process. We
-// create a tiny transparent overlay window at the source point, host a
-// `DragSourceView` in it (which conforms to `NSDraggingSource`), call
-// `beginDraggingSession(...)`, then drive the cursor over to the destination
-// with synthesized mouseDragged events so AppKit's drag-tracking sees the
-// motion. The destination app's own drag receivers handle the drop.
 
 final class DragSourceView: NSView, NSDraggingSource {
     var operationMask: NSDragOperation = .every
@@ -7747,9 +7370,6 @@ func parseDragOperation(_ token: String?) -> NSDragOperation {
     }
 }
 
-// macOS screens use a bottom-left origin in `NSScreen.frame`, but
-// CoreGraphics / AX coordinates are top-left. Convert AX/CG screen
-// coordinates to AppKit screen coordinates so windows land where intended.
 func axPointToAppKitPoint(_ point: CGPoint) -> NSPoint {
     let mainHeight = NSScreen.screens.first?.frame.height ?? 1080
     return NSPoint(x: point.x, y: mainHeight - point.y)
@@ -7761,11 +7381,7 @@ func performNSDragSession(
     toScreen: CGPoint,
     operation: NSDragOperation
 ) -> (Bool, String?) {
-    // NSDraggingSession requires an active NSApplication that has finished
-    // launching against WindowServer. tryBootstrapAppKit() handles the
-    // activation-policy promotion, the finishLaunching call, and the brief
-    // run-loop tick that establishes the SkyLight connection. Without it,
-    // the first NSPanel/NSScreen call asserts in CGInitialization.
+
     guard tryBootstrapAppKit() else {
         return (false, "drag-element requires a graphical (window-server) session")
     }
@@ -7790,7 +7406,7 @@ func performNSDragSession(
     overlay.hasShadow = false
     overlay.level = .popUpMenu
     overlay.ignoresMouseEvents = false
-    overlay.alphaValue = 0.01 // visible to event system, invisible to user
+    overlay.alphaValue = 0.01
 
     let dragView = DragSourceView(frame: NSRect(x: 0, y: 0, width: windowSize, height: windowSize))
     dragView.operationMask = operation
@@ -7821,14 +7437,12 @@ func performNSDragSession(
         source: dragView
     )
 
-    // Drive the cursor from source to destination on a background queue so
-    // our run loop (below) is free to deliver dragging-session callbacks.
     let cursorWorker = DispatchQueue.global(qos: .userInitiated)
     cursorWorker.async {
         guard let cgSource = CGEventSource(stateID: .hidSystemState) else { return }
         let totalDistance = hypot(toScreen.x - fromScreen.x, toScreen.y - fromScreen.y)
         let stepCount = max(8, Int(totalDistance / 18.0))
-        // Initial small movement to "kick" the session out of the source frame.
+
         usleep(40_000)
         for step in 1...stepCount {
             let progress = CGFloat(step) / CGFloat(stepCount)
@@ -7846,7 +7460,7 @@ func performNSDragSession(
             }
             usleep(7_000)
         }
-        // Brief settle so destination drag-receivers can update their state.
+
         usleep(40_000)
         if let upEvt = CGEvent(
             mouseEventSource: cgSource,
@@ -7858,7 +7472,6 @@ func performNSDragSession(
         }
     }
 
-    // Spin run loop while waiting for the dragging session to end (or time out).
     let deadline = Date().addingTimeInterval(8)
     var done = false
     while !done && Date() < deadline {
@@ -7885,7 +7498,6 @@ func pasteboardItemsForCandidate(
 ) -> ([NSDraggingItem], String)? {
     let kind = normalized(explicitType)
 
-    // 1. Explicit URL (file:// for Finder items, https:// for browsers).
     if kind == "url" || kind == "file" || kind == "" {
         if let urlString = candidate.url, let url = URL(string: urlString) {
             let item = NSDraggingItem(pasteboardWriter: url as NSURL)
@@ -7900,7 +7512,7 @@ func pasteboardItemsForCandidate(
             let chosen = url.isFileURL ? "file-url" : "url"
             return ([item], chosen)
         }
-        // Some Finder items expose path via title/value rather than AXURL.
+
         if (kind == "file" || kind == ""),
            let value = candidate.value ?? candidate.title,
            value.hasPrefix("/") || value.hasPrefix("file://") {
@@ -7914,7 +7526,6 @@ func pasteboardItemsForCandidate(
         }
     }
 
-    // 2. Explicit text drag.
     if kind == "text" || kind == "" {
         if let value = candidate.value, !value.isEmpty {
             let item = NSDraggingItem(pasteboardWriter: value as NSString)
@@ -7950,8 +7561,6 @@ func keyCode(for token: String) -> CGKeyCode? {
     return namedKeyCodes[key] ?? letterKeyCodes[key] ?? digitKeyCodes[key]
 }
 
-// Maximum chunk size for a single SystemEvents `keystroke` call. Some apps
-// (Notes, Mail) drop characters when fed >256 chars in one event.
 let unicodeChunkSize = 200
 
 func chunkText(_ text: String, size: Int) -> [String] {
@@ -7970,10 +7579,7 @@ func postUnicodeText(
     target: AppTarget,
     raise: Bool = true
 ) -> InputDispatchResult? {
-    // Same reasoning as postLeftClick: System Events `keystroke` only
-    // delivers reliably when the target process is frontmost. When
-    // raise=false drop straight to per-pid CGEvent Unicode injection so
-    // the background app receives the text without focus theft.
+
     if !raise {
         if simulateUnicodeTextToPid(text, pid: target.app.processIdentifier) {
             trace("input:type path=cgevent-postToPid pid=\(target.app.processIdentifier) length=\(text.count)")
@@ -8056,8 +7662,6 @@ func postKeyChord(
         return nil
     }
 
-    // raise=false: drop straight to per-pid CGEvent so the chord lands
-    // inside the target app's event queue regardless of frontmost state.
     if !raise {
         if simulateKeyChordToPid(keySpec, pid: target.app.processIdentifier) {
             trace("input:key path=cgevent-postToPid pid=\(target.app.processIdentifier) key=\(keySpec)")
@@ -8068,8 +7672,7 @@ func postKeyChord(
     }
 
     let modifiers = Array(rawParts.dropLast())
-    // System Events `key code` only fires reliably when the process is
-    // frontmost; we already short-circuited the !raise case above.
+
     if !alwaysSimulateInput(), let keyCode = keyCode(for: keyToken) {
         var command = "key code \(keyCode)"
         if let modifierList = systemEventsModifierList(modifiers) {
@@ -8300,20 +7903,6 @@ func snapshotCommand(_ options: SnapshotOptions) throws -> SnapshotDocument {
         return document
     }
 
-    // Snapshot the app's currently relevant window roots. For Electron/CEF
-    // hosts, `prepareTargetForAutomation(...)` enables manual accessibility
-    // and `axChildren(...)` descends through webview container roles when
-    // the app exposes meaningful descendants through the parent AX tree.
-    //
-    // CEF/Electron apps publish their renderer's AX subtree lazily: the
-    // first snapshot after a process launch (or after the AX broker has
-    // been quiescent) returns only the native shell — window, traffic
-    // lights, menu bar — usually under ~30 nodes. Setting
-    // AXManualAccessibility a second time after a brief delay reliably
-    // wakes the broker, after which subsequent walks return the full
-    // ~1500-node tree. Without retry, the agent gets a "successful but
-    // useless" snapshot and dead-ends because no actionable elements
-    // (Play buttons, links, list rows, etc.) are exposed.
     let isWebViewBacked = shouldEnableManualAccessibility(for: target.app)
     let webViewSparseThreshold = 50
     let maxRetries = isWebViewBacked ? 2 : 0
@@ -8479,8 +8068,7 @@ func refreshSnapshotAfterAction(
         deferred: options.deferObservation,
         visualContextNeeded: visualContextNeeded || options.explicitVision
     )
-    // Navigation-sensitive safety is deliberately independent of snapshot
-    // materialization so deferred chains cannot bypass a forbidden URL.
+
     try ensureSafeActionContext(snapshot: snapshot, target: target)
     if options.deferObservation {
         return (nil, [], nil, receipt)
@@ -8506,8 +8094,7 @@ func refreshSnapshotAfterAction(
         let refreshed = try snapshotCommand(options)
         try ensureSafeActionContext(snapshot: snapshot, target: target)
         let extraWarnings: [String] = []
-        // Defense in depth for URL hints retained in the materialized tree.
-        // The full, untruncated live context check above is authoritative.
+
         if let urlNode = focusedUrlNode(in: refreshed.nodes) {
             let lower = urlNode.lowercased()
             for needle in forbiddenUrlSubstrings() {
@@ -8532,8 +8119,6 @@ func refreshSnapshotAfterAction(
     }
 }
 
-// Walk a snapshot tree looking for the first URL hint on a focused or
-// window-root node. Used by the post-action URL safety re-check.
 func focusedUrlNode(in nodes: [SnapshotNode]) -> String? {
     for node in nodes {
         if let url = node.url, !url.isEmpty, (node.focused == true || node.role == kAXWindowRole as String) {
@@ -8546,11 +8131,6 @@ func focusedUrlNode(in nodes: [SnapshotNode]) -> String? {
     return nil
 }
 
-// When --all-windows is requested, snapshot every accessibility window the
-// app advertises plus the focused window (deduplicated). This is the only
-// way to interact with non-frontmost windows of a multi-window app like
-// Finder or Terminal without first having to focus them via a click that
-// the model can't reliably target.
 func allWindowRoots(for app: AXUIElement) -> [AXUIElement] {
     var roots: [AXUIElement] = []
     let rootBatch = axBatchedAttributes(
@@ -8697,20 +8277,15 @@ func actionCandidate(
         throw failure("Unknown element: \(targetId)")
     }
 
-    // Re-resolve via NSWorkspace first to detect "app died between snapshot
-    // and action". If the original pid is gone but the same bundle is still
-    // running, transparently rebind to the new instance.
     var target: AppTarget
     if let revalidated = revalidateTarget(snapshot) {
         target = revalidated
         try ensureTargetAllowed(revalidated.app)
         if revalidated.app.processIdentifier != snapshot.pid {
-            // Bound to a new pid; previous snapshot positions may be stale.
-            // Fall through to the candidate match (which is structural, not
-            // pid-bound), but signal with a warning later.
+
         }
     } else {
-        // App is fully gone; produce a clean error.
+
         throw failure(
             "Target app '\(snapshot.appName)' (pid \(snapshot.pid)) is no longer running. Take a fresh snapshot to continue."
         )
@@ -8730,8 +8305,6 @@ func actionCandidate(
         return (snapshot, target, entry, cached)
     }
 
-    // URL safety: if the snapshot's matched window or focused element
-    // resolves to a forbidden URL, block the action.
     if let entryUrl = entry.url, !entryUrl.isEmpty {
         let lower = entryUrl.lowercased()
         for needle in forbiddenUrlSubstrings() {
@@ -8744,9 +8317,7 @@ func actionCandidate(
     }
 
     AxDiagnostics.shared.reset()
-    // Action-time lookup must reach at least as deep as the snapshot did.
-    // CEF/Electron wrappers are nested ~30 levels deep before reaching
-    // anything actionable; floor at 32 to match the snapshot defaults.
+
     let lookupDepth = max(snapshot.maxDepth ?? 32, 32)
     let lookupNodes = max((snapshot.maxNodes ?? 1500) * 2, 3000)
     let candidates = collectCandidates(
@@ -8784,7 +8355,7 @@ func actionCandidate(
             warnings: extra + AxDiagnostics.shared.warnings()
         )
     }
-    // Append OOP diagnostics to the resolved candidate's warnings.
+
     let oopWarnings = AxDiagnostics.shared.warnings()
     if !oopWarnings.isEmpty {
         candidate = ResolvedCandidate(
@@ -8834,8 +8405,7 @@ func screenshotPolicy(from args: [String]) throws -> ScreenshotPolicy {
         return policy
     }
     if parseNamedOption(args, key: "--screenshot") != nil { return .always }
-    // Preserve the historical helper contract unless the caller opts in
-    // to adaptive capture explicitly.
+
     return .always
 }
 
@@ -8848,14 +8418,7 @@ func snapshotOptions(from args: [String]) throws -> SnapshotOptions {
     let pidValue = parseNamedOption(args, key: "--pid").flatMap(Int32.init)
     let appName = parseNamedOption(args, key: "--app")
     let bundleId = parseNamedOption(args, key: "--bundle-id")
-    // Depth/node defaults are driven by CEF/Electron worst case. Spotify
-    // wraps the actual content in 9-12 nested empty `AXGroup` containers
-    // before reaching the search field or track row, then needs another
-    // 6-10 levels inside the row itself. Discord, Slack, Notion, Cursor,
-    // VS Code, and any other Electron app are similar. AppKit-native apps
-    // never come close to these depths so the only cost is a slightly
-    // larger snapshot for them; on the other hand, getting these too low
-    // for CEF means the snapshot stops before reaching anything actionable.
+
     let maxDepth = parseNamedOption(args, key: "--max-depth").flatMap(Int.init) ?? 32
     let maxNodes = parseNamedOption(args, key: "--max-nodes").flatMap(Int.init) ?? 1500
     let policy = try screenshotPolicy(from: args)
@@ -8889,14 +8452,10 @@ func actionOptions(from args: [String]) throws -> ActionOptions {
     }
     let inlineScreenshot = !hasFlag(args, key: "--no-inline-screenshot")
         && !envBool("STELLA_COMPUTER_NO_INLINE_SCREENSHOT")
-    // Visual overlay (software cursor only) is on by default; agent-driven
-    // sessions get the visible "Stella is acting on this element" feedback.
-    // Pass `--no-overlay` (or set STELLA_COMPUTER_NO_OVERLAY=1) to disable
-    // when chained-action latency matters more than visual feedback.
+
     let showOverlay = !hasFlag(args, key: "--no-overlay")
         && !envBool("STELLA_COMPUTER_NO_OVERLAY")
-    // Default is no-raise. Opt in via --raise or STELLA_COMPUTER_RAISE=1.
-    // --no-raise is accepted as a no-op for back-compat with older callers.
+
     let raise = hasFlag(args, key: "--raise") || envBool("STELLA_COMPUTER_RAISE")
     let policy = try screenshotPolicy(from: args)
     return ActionOptions(
@@ -9348,8 +8907,6 @@ func executeCommandInternal(args: [String]) throws -> CommandExecutionResult {
     }
     let commandArgs = Array(args.dropFirst())
 
-    // `list-apps` is pure NSWorkspace + LaunchServices and does not need a
-    // WindowServer connection, so it short-circuits before the bootstrap.
     if command == "list-apps" {
         return commandResult(listAppsCommand())
     }
@@ -9410,18 +8967,6 @@ func executeCommandInternal(args: [String]) throws -> CommandExecutionResult {
         }
     }
 
-    // Every other command touches a GUI-bound API: ScreenCaptureKit (used
-    // by `snapshot`), NSBitmapImageRep, NSPanel, NSScreen, the action
-    // overlay, NSDraggingSession. All of those assert inside
-    // `CGS_REQUIRE_INIT` if the process hasn't first promoted its
-    // activation policy, called `finishLaunching`, and spun the run-loop
-    // once to let SkyLight finish the handshake. This is the same
-    // bootstrap happens at LSApplicationCheckIn time; Stella never operates
-    // in a degraded "no graphical session" mode. Surface a clean error
-    // envelope if the host has
-    // no WindowServer session at all (headless ssh, non-user launchd
-    // job, etc.) so the model gets a directly actionable message instead
-    // of a process-killing CG assertion.
     guard tryBootstrapAppKit() else {
         return commandResult(
             ErrorPayload(
@@ -10024,10 +9569,7 @@ func executeCommandInternal(args: [String]) throws -> CommandExecutionResult {
             )
         )
     case "drag-element":
-        // Content drag: source identified by a ref, destination by either
-        // another ref or x/y coords. Uses NSDraggingSession so the destination
-        // app sees a real drag-and-drop with proper pasteboard types, not
-        // synthesized mouse events at the destination view.
+
         let options = try actionOptions(from: commandArgs)
         guard options.raise else {
             throw failure(
@@ -10067,7 +9609,6 @@ func executeCommandInternal(args: [String]) throws -> CommandExecutionResult {
         }
         let fromPoint = frameCenter(sourceFrame)
 
-        // Destination: either positional ref / coords, or --to-ref / --to-x --to-y.
         var toPoint: CGPoint? = nil
         var destDescription = ""
         if positional.count >= 3,
@@ -10076,7 +9617,7 @@ func executeCommandInternal(args: [String]) throws -> CommandExecutionResult {
             toPoint = CGPoint(x: toX, y: toY)
             destDescription = "(\(toX), \(toY))"
         } else if positional.count >= 2 {
-            // Treat positional[1] as a destination ref.
+
             let destRef = positional[1]
             let (_, _, _, destResolved) = try actionCandidate(
                 statePath: options.statePath,
@@ -11682,9 +11223,6 @@ struct AtomicBatchStepResult<Output> {
     let shouldContinue: Bool
 }
 
-// Every validation completes before the first execute callback can run. This
-// is the native batch transaction boundary: stale/invalid observations fail
-// the whole batch without partially mutating the target application.
 func executeAtomicBatchPhases<Item, Output>(
     _ items: [Item],
     validate: (Item) throws -> Void,

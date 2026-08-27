@@ -1,5 +1,3 @@
-/// <reference types="vite/client" />
-
 import { register as registerRateLimiter } from "@convex-dev/rate-limiter/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -10,8 +8,6 @@ import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 
-// Mirror billing.convex.test.ts's window config so the free lifetime cap is a
-// known, small dollar figure ($0.50) we can push an owner past deterministically.
 const FREE_LIFETIME_LIMIT_USD = 0.5;
 
 beforeAll(() => {
@@ -88,8 +84,6 @@ const readTotalUsageMicroCents = async (
     return row?.totalUsageMicroCents ?? 0;
   });
 
-// A generous rate limit so the usage/capability gates, not the rate gate, are
-// what a given test is exercising.
 const looseRate = (key: string) => ({
   scope: "test_gate",
   key,
@@ -116,12 +110,9 @@ describe("enforceManagedGate — combined pre-check gate", () => {
   it("rejects an over-limit user on the usage gate before consuming a rate token", async () => {
     const t = createTest();
     const ownerId = "https://issuer.test|dictation-over-limit";
-    // Spend past the $0.50 free lifetime allowance.
+
     await seedLifetimeSpend(t, { ownerId, spentUsd: 1.0 });
 
-    // The rate bucket is 1/window. If usage is checked first and short-circuits,
-    // the single rate token is never spent — so even many denied calls keep
-    // reporting the usage gate, never flipping to a spurious rate denial.
     const call = () =>
       t.mutation(internal.lib.gate_and_meter.enforceManagedGate, {
         ownerId,
@@ -146,7 +137,7 @@ describe("enforceManagedGate — combined pre-check gate", () => {
   it("rejects on the rate gate once the bucket is exhausted (rate still enforced)", async () => {
     const t = createTest();
     const ownerId = "https://issuer.test|dictation-rate";
-    // limit 3 => single shard => exact, deterministic counting.
+
     const rateLimit = { scope: "test_gate", key: ownerId, limit: 3, windowMs: 60_000, blockMs: 60_000 };
     const call = () =>
       t.mutation(internal.lib.gate_and_meter.enforceManagedGate, {
@@ -173,7 +164,7 @@ describe("enforceManagedGate — combined pre-check gate", () => {
   it("rejects an off-plan user on the capability gate (voice ordering)", async () => {
     const t = createTest();
     const ownerId = "https://issuer.test|voice-free";
-    // Free plan (default records): audio_generation is a paid capability.
+
     const result = await t.mutation(internal.lib.gate_and_meter.enforceManagedGate, {
       ownerId,
       order: ["rate", "capability", "usage"],
@@ -197,7 +188,6 @@ describe("enforceManagedGate — combined pre-check gate", () => {
     const ownerId = "https://issuer.test|voice-rate-first";
     const rateLimit = { scope: "test_gate", key: ownerId, limit: 1, windowMs: 60_000, blockMs: 60_000 };
 
-    // First call: passes rate, then denied on capability (free lacks audio).
     const first = await t.mutation(internal.lib.gate_and_meter.enforceManagedGate, {
       ownerId,
       order: ["rate", "capability", "usage"],
@@ -208,8 +198,6 @@ describe("enforceManagedGate — combined pre-check gate", () => {
     expect(first.ok).toBe(false);
     if (!first.ok) expect(first.gate).toBe("capability");
 
-    // Second call: the single rate token is now spent, so rate (checked first)
-    // is the gate that fires — precedence is preserved.
     const second = await t.mutation(internal.lib.gate_and_meter.enforceManagedGate, {
       ownerId,
       order: ["rate", "capability", "usage"],
@@ -245,7 +233,6 @@ describe("meterManagedUsage — durable off-path accounting", () => {
       });
     });
 
-    // The metering write is scheduled off the response path; drain it.
     await t.finishAllScheduledFunctions(vi.runAllTimers);
 
     expect(await readTotalUsageMicroCents(t, ownerId)).toBeGreaterThan(0);

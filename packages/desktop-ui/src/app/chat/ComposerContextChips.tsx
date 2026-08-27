@@ -47,17 +47,6 @@ import "./composer-context.css";
 
 type SetChatContext = Dispatch<SetStateAction<ChatContext | null>>;
 
-/* ------------------------------------------------------------------ */
-/*  Shared chip affordances                                           */
-/* ------------------------------------------------------------------ */
-
-/**
- * Small × pinned to the chip's top-right corner. Removal is deliberately
- * separated from the chip body — the body is the preview click target —
- * so the handlers stop propagation to keep the two from triggering each
- * other. Subtle until the chip is hovered or focused (CSS), but always
- * reachable via Tab.
- */
 function ChipRemoveButton({
   label,
   onRemove,
@@ -83,10 +72,6 @@ function ChipRemoveButton({
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Canonical context pill                                            */
-/* ------------------------------------------------------------------ */
-
 export type ContextPillKind =
   | "window"
   | "app-selection"
@@ -105,20 +90,12 @@ const CONTEXT_PILL_ICONS = {
 type ContextPillProps = HTMLAttributes<HTMLElement> & {
   kind: ContextPillKind;
   label: ReactNode;
-  /** Render as a button when the pill body is itself a click/hover target. */
+
   as?: "span" | "button";
   pillRef?: Ref<HTMLElement>;
   "data-has-preview"?: string;
 };
 
-/**
- * Canonical attached-context pill: leading type glyph + label with the
- * primary-tinted treatment. The single source of chip visuals for BOTH
- * the composer (pre-send) and the sent user message row, so the two
- * surfaces cannot drift apart. Wrappers add surface behavior: the
- * composer contributes the × remove control and hover previews; the
- * sent row contributes hovercards and the "+N" overflow.
- */
 export function ContextPill({
   kind,
   label,
@@ -168,11 +145,7 @@ export function ContextPill({
 type WindowContextChipProps = {
   chatWindow: NonNullable<ChatContext["window"]>;
   chatWindowScreenshot?: ChatContext["windowScreenshot"];
-  /**
-   * When true, the chip is showing eagerly-attached metadata while the
-   * screenshot capture is still in flight. Renders a subtle pulse so the
-   * user knows we're working on it.
-   */
+
   capturePending?: boolean;
   setChatContext: SetChatContext;
   className?: string;
@@ -312,7 +285,7 @@ export function SelectedTextChip({
 
 type AppSelectionChipProps = {
   appSelection: NonNullable<ChatContext["appSelection"]>;
-  /** Position in the composer's selection list; drives per-chip removal. */
+
   index?: number;
   setChatContext: SetChatContext;
   className?: string;
@@ -356,10 +329,6 @@ type AppSelectionChipsProps = {
   className?: string;
 };
 
-/**
- * Selected-area chips accumulate like attachments — one chip per
- * selection, each with its own remove ×.
- */
 export function AppSelectionChips({
   appSelections,
   setChatContext,
@@ -430,9 +399,7 @@ export function PendingCaptureChip({
 type ScreenshotContextChipsProps = {
   screenshots: NonNullable<ChatContext["regionScreenshots"]>;
   setChatContext: SetChatContext;
-  // Legacy overlay hook — the chip now opens the shared ImageLightbox
-  // itself, but the param is retained so callers can still pass it
-  // without a type error.
+
   onPreviewScreenshot?: (index: number) => void;
   chipClassName?: string;
   imageClassName?: string;
@@ -449,14 +416,6 @@ type ImageAttachmentChipProps = {
   onRemove?: () => void;
 };
 
-/**
- * Canonical compact image-attachment chip used before and after send.
- * Owns its full class list — callers may add hooks via `chipClassName`
- * but the card/thumb geometry lives here so the composer and the sent
- * message row render identical thumbnails. Composer callers add removal;
- * sent-message callers keep the same visual body and lightbox behavior
- * without exposing a remove affordance.
- */
 export function ImageAttachmentChip({
   thumbnailUrl,
   fullImageUrl,
@@ -534,10 +493,6 @@ export function ScreenshotContextChips({
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  File attachment chips                                             */
-/* ------------------------------------------------------------------ */
-
 function resolveFileCategory(
   mimeType: string,
   name: string,
@@ -599,8 +554,6 @@ function formatFileSize(bytes: number): string {
 
 const FILE_NAME_MAX_CHARS = 12;
 
-// Truncate to FILE_NAME_MAX_CHARS but keep the extension visible when it
-// fits — losing the extension drops a lot of context for short caps.
 function truncateFileName(name: string, max: number = FILE_NAME_MAX_CHARS): string {
   if (name.length <= max) return name;
   const dotIdx = name.lastIndexOf(".");
@@ -628,12 +581,6 @@ const FILE_CATEGORY_LABEL_KEYS: Record<
   file: "app.chat.fileCategory.file",
 };
 
-/**
- * Catalog key for the human type label of a file attachment whose real
- * filename is missing (older persisted payloads). Never a generic
- * "Attachment" string that a narrow chip would clip into nonsense.
- * Callers resolve it with `t()` at render time.
- */
 export function fileAttachmentTypeLabelKey(mimeType?: string): string {
   return FILE_CATEGORY_LABEL_KEYS[resolveFileCategory(mimeType ?? "", "")];
 }
@@ -642,22 +589,13 @@ type FileAttachmentChipProps = {
   name: string;
   size?: number;
   mimeType?: string;
-  /**
-   * On-disk source path. When present the chip opens the original in its
-   * default app — the same preview convention as the composer.
-   */
+
   path?: string;
   chipClassName?: string;
   removeLabel?: string;
   onRemove?: () => void;
 };
 
-/**
- * Canonical document/file chip used before and after send: file-type
- * glyph, real filename (extension-preserving truncation), optional size.
- * Composer callers add removal; sent-message callers keep the same
- * visual body without a remove affordance.
- */
 export function FileAttachmentChip({
   name,
   size,
@@ -669,8 +607,7 @@ export function FileAttachmentChip({
 }: FileAttachmentChipProps) {
   const t = useT();
   const category = resolveFileCategory(mimeType ?? "", name);
-  // Disk-backed attachments open in their default app for preview;
-  // synthetic files (no on-disk path) have no preview target.
+
   const canOpen = Boolean(path);
   return (
     <span className="composer-chip-shell">
@@ -759,10 +696,6 @@ export function FileContextChips({
     </>
   );
 }
-
-/* ------------------------------------------------------------------ */
-/*  Pasted-text chips                                                 */
-/* ------------------------------------------------------------------ */
 
 function PastedTextChip({
   text,

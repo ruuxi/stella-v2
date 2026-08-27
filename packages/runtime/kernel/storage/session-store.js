@@ -38,16 +38,10 @@ import {
   QUARANTINE_CUSTOM_TYPE,
   parseQuarantineRecord,
 } from "../agent-runtime/provider-abort-containment.js";
-/**
- * Upper bound on raw source events returned by one mobile sync delta.
- */
+
 const CUTOFF_SCAN_CEILING = 4000;
 const MAX_VISIBLE_MESSAGE_WINDOW = 500;
-/**
- * A transcript row is an index/preview, not a transport for an arbitrarily
- * large turn. Keep a symmetric head/tail sample so starts and terminal state
- * survive while SQLite remains the source for complete detail.
- */
+
 export const EAGER_TOOL_EVENT_LIMIT = 32;
 export const EAGER_TOOL_EVENT_PAYLOAD_BYTES = 4096;
 const EAGER_TOOL_EVENT_SIDE_LIMIT = EAGER_TOOL_EVENT_LIMIT / 2;
@@ -118,7 +112,7 @@ const projectEagerEventPayload = (payload) => {
       return { payload, projected: false };
     }
   } catch {
-    // Fall through to the defensive projection.
+
   }
   const projected = markProjected(
     projectBoundedJsonValue(payload, 5, {
@@ -132,7 +126,7 @@ const projectEagerEventPayload = (payload) => {
       return { payload: projected, projected: true };
     }
   } catch {
-    // Fall through to the smallest projection.
+
   }
   const minimal = markProjected(
     projectBoundedJsonValue(payload, 3, {
@@ -146,7 +140,7 @@ const projectEagerEventPayload = (payload) => {
       return { payload: minimal, projected: true };
     }
   } catch {
-    // Fall through to the artifact-preserving fallback.
+
   }
   const artifactFallback = {};
   for (const key of ["fileChanges", "producedFiles"]) {
@@ -161,7 +155,7 @@ const projectEagerEventPayload = (payload) => {
         return { payload: projectedArtifacts, projected: true };
       }
     } catch {
-      // Fall through to the constant-size marker.
+
     }
   }
   return {
@@ -176,7 +170,6 @@ const projectEagerEventPayload = (payload) => {
   };
 };
 
-/** Keep invalidation pushes bounded without truncating authored chat text. */
 const projectLocalChatUpdateEventWithMetadata = (event) => {
   if (
     !event?.payload ||
@@ -196,10 +189,7 @@ export const projectLocalChatUpdateEvent = (event) => {
   return projectLocalChatUpdateEventWithMetadata(event).event;
 };
 const compareTimelineCursor = (a, b) => {
-  // Sequence-aware: when both cursors carry a finite `sequence` (populated only
-  // when the ordering-by-sequence flip is active), order by the dedicated
-  // monotonic key. Falls back to the legacy (timestamp, id) tuple otherwise, so
-  // the default path is byte-identical.
+
   if (
     typeof a.sequence === "number" &&
     Number.isFinite(a.sequence) &&
@@ -212,7 +202,7 @@ const compareTimelineCursor = (a, b) => {
   if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
   return a.id.localeCompare(b.id);
 };
-/** Hard storage/transport envelope for authored Activity updates. */
+
 export const AGENT_ASSISTANT_UPDATE_LIMITS = {
   activeThreads: 16,
   messagesPerThread: 3,
@@ -266,23 +256,14 @@ const eventRoleForType = (type) => {
   }
 };
 const THREAD_CHECKPOINT_MARKER = "[[THREAD_CHECKPOINT]]";
-// Hard cap on the text returned per transcript-search hit; the recall
-// formatter windows it further around the first match.
+
 const TRANSCRIPT_SEARCH_TEXT_CAP = 4_000;
-// Step-1 candidate cap for the FTS-backed thread search. Generous (the
-// result limit tops out at 25) so ordering parity with the LIKE scan is
-// preserved in practice; `ORDER BY rank` keeps the most relevant candidates
-// on the rare query where the cap binds.
+
 const THREAD_SEARCH_FTS_CANDIDATE_CAP = 200;
-// SQL-side truncation for the index's result/error excerpts: real final
-// results average ~4k chars, so untruncated excerpts would multiply the
-// index size ~10x for no identification gain.
+
 const RECALL_INDEX_RESULT_EXCERPT_CHARS = 400;
 const RECALL_INDEX_ERROR_EXCERPT_CHARS = 300;
-// English function words dropped from search queries before matching.
-// Under OR-with-ranking semantics a stray stopword can never exclude a
-// result, only pad the 6-token budget and inflate scores with rows that
-// merely contain "the" — so the list errs toward inclusion.
+
 const SEARCH_STOPWORDS = new Set([
   "a",
   "an",
@@ -382,16 +363,7 @@ const SEARCH_STOPWORDS = new Set([
   "last",
   "recent",
 ]);
-/**
- * Shared tokenizer for the OR-with-ranking searches (`searchThreads`,
- * `searchTranscripts`) and the recall formatter that scores their merged
- * results: whitespace split, stopwords dropped — unless the query is ALL
- * stopwords, which still searches with what it has rather than silently
- * degrading into a recency dump — capped at 12 tokens. The cap was 6, but
- * recall queries routinely enumerate candidates ("was it Apache Trail,
- * Tortilla Flat, Bush Highway/Saguaro Lake?") and truncating at 6 cut
- * exactly the tokens the right transcript rows contained.
- */
+
 export const tokenizeSearchQuery = (query) => {
   const rawTokens = (query ?? "")
     .split(/\s+/)
@@ -531,13 +503,7 @@ const buildFallbackThreadPayload = (message) => {
   };
 };
 const rowSizeTextEncoder = new TextEncoder();
-// Tool results that include a screenshot (vision content block) routinely
-// run 1–2 MB once the PNG is base64-encoded — that's a normal payload, not
-// pathological. The previous 1.8 MB cap was below that threshold, so every
-// computer-use snapshot result with an inline screenshot got dropped
-// to a "too large to persist" placeholder, breaking the agent's context for
-// the very next turn. SQLite handles multi-MB rows fine; bump high enough
-// to fit a screenshot + element tree comfortably.
+
 const THREAD_ROW_MAX_BYTES = 6_000_000;
 const THREAD_ROW_MAX_TEXT_CHARS = 1_000;
 const THREAD_ROW_PREVIEW_CHARS = 500;
@@ -741,10 +707,7 @@ const enforceThreadPayloadRowSizeLimit = (payload) => {
   if (payloadByteLength(compacted) <= THREAD_ROW_MAX_BYTES) {
     return compacted;
   }
-  // Still too big — almost always because an inline image (vision content
-  // block) ballooned the row. Drop the base64 payload of every image and
-  // leave a small text breadcrumb in its place so the rest of the result
-  // (and any other text blocks the model still needs) survives.
+
   const withoutImageData = {
     ...compacted,
     content: compacted.content.map((block) => {
@@ -991,9 +954,7 @@ const buildThreadPathEntries = (entries) => {
   const reversePath = [];
   const visited = new Set();
   while (leaf) {
-    // Malformed imported history must not hang reconstruction. Falling back
-    // to the durable insertion order also retains every legitimate legacy
-    // sibling created by the former same-millisecond parent race.
+
     if (visited.has(leaf.id)) return entries;
     visited.add(leaf.id);
     reversePath.push(leaf);
@@ -1006,11 +967,7 @@ const buildRawThreadMessages = (path) =>
   path
     .map((entry) => toThreadMessageRecord(entry))
     .filter((message) => message !== null);
-/**
- * Validate a `pinnedUserInstruction` recovered from a persisted compaction
- * entry's `details` (written by `maybeCompactRuntimeThread`). Returns
- * `{ text }` or null when absent/malformed.
- */
+
 const parsePinnedUserInstruction = (details) => {
   const pinned =
     details && typeof details === "object" && !Array.isArray(details)
@@ -1129,23 +1086,7 @@ const buildThreadCompactionOverlays = (path, rawMessages) =>
     .filter((entry) => entry.type === "compaction")
     .map((entry) => normalizeCompactionOverlay(entry, rawMessages))
     .filter((entry) => entry !== null);
-/**
- * Resident-block fold-in half of the overlay application. The newest applied
- * overlay that carries a `residentFold` (written by `maybeCompactRuntimeThread`)
- * re-establishes the canonical resident context:
- *
- *   1. every older copy of a folded block (stale head docs, mid-thread
- *      re-appends that survived in the kept tail) and every accumulated
- *      `runtime.context_delta.*` notice from before the compaction is
- *      dropped from the materialized window;
- *   2. exactly one fresh copy of each folded block is emitted immediately
- *      before that overlay's checkpoint message — i.e. at the head of the
- *      rebuilt window, where compaction head-protection keeps it pinned.
- *
- * Copies appended AFTER the compaction (timestamp > overlay timestamp) are
- * genuine new deltas and are left in place. Purely derived from persisted
- * entries, so every store rebuild materializes the same canonical window.
- */
+
 const applyResidentFold = (messages, overlay) => {
   const fold = overlay.residentFold;
   const checkpointIndex = messages.findIndex(
@@ -1231,11 +1172,7 @@ const applyCompactionOverlays = (rawMessages, overlays) => {
             ? { checkpointImageReceipts: overlay.imageReceipts }
             : {}),
         });
-        // Re-emit the pinned latest-user-instruction copy carried on the
-        // overlay right after its checkpoint, so the current instruction
-        // stays model-visible verbatim even though its original turn was
-        // summarized into the middle. Synthetic entryId — span boundaries
-        // never land on it (see thread-runtime split guards).
+
         if (overlay.pinnedUserInstruction) {
           result.push({
             entryId: `${overlay.id}${PINNED_INSTRUCTION_ENTRY_ID_MARKER}`,
@@ -1280,18 +1217,7 @@ export class SessionStore {
     this.options = options;
   }
   #orderingBySequenceCache = null;
-  /**
-   * Whether chat timeline ordering keys on the monotonic `ordering_sequence`.
-   * There is NO feature flag — sequence ordering is the default. This is the
-   * SAFETY GATE for graceful degradation: it is true only when the column
-   * exists AND every row is backfilled. If the unconditional startup migration
-   * failed (disk/IO/busy) or is mid-backfill, the column is absent or has NULL
-   * rows, and the store transparently falls back to the legacy `(created_at,
-   * id)` ordering so queries keep working and no row is mis-placed/dropped —
-   * rather than emitting `ORDER BY ordering_sequence` against a missing column
-   * or a NULL that sorts to an end. Cached per store (the column only
-   * transitions absent→present→complete once, before the store serves queries).
-   */
+
   get orderingBySequence() {
     if (this.#orderingBySequenceCache === null) {
       let ok = false;
@@ -1312,18 +1238,13 @@ export class SessionStore {
     }
     return this.#orderingBySequenceCache;
   }
-  /** SELECT fragment adding `ordering_sequence AS sequence`, only when active. */
+
   orderingSequenceSelect(alias) {
     if (!this.orderingBySequence) return "";
     const p = alias ? `${alias}.` : "";
     return `, ${p}ordering_sequence AS sequence`;
   }
-  /**
-   * ORDER BY fragment for a table (optional `alias`). Keys on the monotonic
-   * `ordering_sequence` in the steady state; falls back to the legacy
-   * `(created_at, id)` tuple when the sequence is unavailable/incomplete (see
-   * orderingBySequence).
-   */
+
   timelineOrderBy(alias, direction) {
     const p = alias ? `${alias}.` : "";
     const dir = direction === "DESC" ? "DESC" : "ASC";
@@ -1331,16 +1252,7 @@ export class SessionStore {
       ? `${p}ordering_sequence ${dir}, ${p}id ${dir}`
       : `${p}created_at ${dir}, ${p}id ${dir}`;
   }
-  /**
-   * Keyset comparison predicate for a table (optional `alias`) against a bound
-   * cursor, e.g. ">=". Keys on `ordering_sequence` whenever the cursor carries
-   * one. FALLBACK (version skew / defensive): when a cursor has no resolvable
-   * sequence — an external cursor whose row was deleted (Rewind), or a row from
-   * a peer on an older build that never carried a sequence — it degrades to the
-   * legacy `(created_at, id)` value comparison, which still works on a bound
-   * timestamp/id even when the row is gone. Returns { clause, params } so call
-   * sites bind the right arity (1 for sequence, 2 for the legacy tuple).
-   */
+
   timelineKeyset(alias, op, cursor) {
     const p = alias ? `${alias}.` : "";
     if (
@@ -1353,19 +1265,14 @@ export class SessionStore {
         params: [cursor.sequence],
       };
     }
-    // Legacy (created_at, id) keyset. Outer bound is strict (> for >/>=, < for
-    // </<=); the same-timestamp tie uses the exact operator.
+
     const outer = op === ">" || op === ">=" ? ">" : "<";
     return {
       clause: `(${p}created_at ${outer} ? OR (${p}created_at = ? AND ${p}id ${op} ?))`,
       params: [cursor.timestamp, cursor.timestamp, cursor.id],
     };
   }
-  /**
-   * Lazily-constructed singleton DreamInboxStore — the unified queue of
-   * everything Dream consolidates: subagent rollout summaries, orchestrator
-   * memory-review notes.
-   */
+
   get dreamInboxStore() {
     if (!this.dreamInboxStoreInstance) {
       this.dreamInboxStoreInstance = new DreamInboxStore(this.db);
@@ -1382,7 +1289,7 @@ export class SessionStore {
       throw error;
     }
   }
-  /** Reserve the WAL writer before a read-then-write decision. */
+
   withImmediateTransaction(work) {
     this.db.exec("BEGIN IMMEDIATE;");
     try {
@@ -1712,26 +1619,7 @@ export class SessionStore {
       type ? statement.get(eventId, type) : statement.get(eventId),
     );
   }
-  /**
-   * Shallow-merge a partial payload into an existing local-chat event's
-   * stored payload. Returns the updated record (so callers can fire
-   * `notifyLocalChatUpdated`), or null when the event/payload row is
-   * missing. Used by the worker to attach post-run fields after the run finalizes.
-   *
-   * Atomicity: the SELECT, merge, and write all run inside a single
-   * `withTransaction` block so a concurrent writer to the same eventId
-   * can't slip a write between the read and the merge.
-   *
-   * Caveat: the write replaces every `part` row for the message via
-   * `replaceMessageParts`, then re-inserts a single merged payload at
-   * `ord: 0`. Today every chat event only stores its payload at ord 0,
-   * but a future feature adding multi-part chat events would have its
-   * non-ord:0 parts wiped by a subsequent `mergeEventPayload` call.
-   * If that becomes a concern, switch to a part-level merge instead of
-   * full replacement. The transaction below logs a tripwire warning
-   * when it observes more than one existing part row for the target
-   * message so we notice the moment a multi-part event type lands.
-   */
+
   mergeEventPayload(args) {
     const conversationId = this.sanitizeConversationId(args.conversationId);
     const eventId = asTrimmedString(args.eventId);
@@ -1764,10 +1652,7 @@ export class SessionStore {
       if (!existingRow) {
         return;
       }
-      // Tripwire: see JSDoc caveat. `replaceMessageParts` below is
-      // destructive across all ords for this message id; if we ever
-      // see >1 part row pre-merge it means a multi-part event type
-      // has landed and this method silently dropped sibling parts.
+
       const existingPartCount =
         this.db
           .prepare(`SELECT COUNT(*) AS n FROM part WHERE message_id = ?`)
@@ -1822,12 +1707,7 @@ export class SessionStore {
       const activeConversationId = this.getSetting(
         DEFAULT_CONVERSATION_SETTING_KEY,
       );
-      // "Empty" follows the durable UI-visibility contract: every
-      // displayable user/assistant row occupies a chat, including an
-      // attachment/context-only or malformed row with no title text.
-      // Hidden workspace triggers and system/tool-only rows do not. A
-      // conversation that has owned an agent is also excluded so a
-      // task-only thread is never repurposed as a blank user chat.
+
       const reusable = this.db
         .prepare(
           `
@@ -1867,7 +1747,7 @@ export class SessionStore {
         .get(activeConversationId ?? "");
       if (typeof reusable?.id === "string" && reusable.id) {
         resolvedConversationId = reusable.id;
-        // Repeated New Chat on the active empty chat is a true no-op.
+
         if (reusable.id !== activeConversationId) {
           this.setSetting(DEFAULT_CONVERSATION_SETTING_KEY, reusable.id);
         }
@@ -1881,14 +1761,7 @@ export class SessionStore {
     });
     return resolvedConversationId;
   }
-  /**
-   * Point the durable "active conversation" pointer at `conversationId`.
-   * This is the single durable source of truth the desktop restores from on
-   * boot (renderer hard-reload and full restart alike); the renderer writes
-   * it whenever the active conversation changes. Unlike
-   * `createNewDefaultConversationId`, this never mints a new id — it records
-   * the conversation the user is actually viewing.
-   */
+
   setActiveDefaultConversationId(conversationIdInput) {
     const conversationId = this.sanitizeConversationId(conversationIdInput);
     const now = Date.now();
@@ -1897,7 +1770,7 @@ export class SessionStore {
       this.setSetting(DEFAULT_CONVERSATION_SETTING_KEY, conversationId);
     });
   }
-  /** Permanently remove one local conversation and its conversation-owned data. */
+
   deleteConversation(conversationIdInput) {
     const conversationId = this.sanitizeConversationId(conversationIdInput);
     const exists = this.db
@@ -1947,10 +1820,7 @@ export class SessionStore {
     });
     return true;
   }
-  /**
-   * Ordering cursor `(created_at, id)` for one event within a conversation.
-   * Returns null when the event id is absent from the conversation.
-   */
+
   getEventCursor(conversationIdInput, eventIdInput) {
     const conversationId = this.sanitizeConversationId(conversationIdInput);
     const eventId = asTrimmedString(eventIdInput);
@@ -1970,12 +1840,7 @@ export class SessionStore {
       ...(typeof row.sequence === "number" ? { sequence: row.sequence } : {}),
     };
   }
-  /**
-   * Mint a fresh, empty conversation id WITHOUT touching the durable
-   * "active conversation" pointer or reusing an existing empty chat. Used
-   * by the desktop Fork action, which needs a brand-new destination that
-   * leaves the user's current chat (and the active pointer) untouched.
-   */
+
   createConversation() {
     const created = generateLocalId();
     const createdAt = Date.now();
@@ -1984,34 +1849,17 @@ export class SessionStore {
     });
     return created;
   }
-  /**
-   * Truncate a conversation at a message: permanently remove the event
-   * identified by `eventId` AND every event at-or-after it in
-   * `(created_at, id)` order. Backs the desktop "Rewind here" action.
-   *
-   * Deleting `message` rows cascades to their `part` rows
-   * (FOREIGN KEY ... ON DELETE CASCADE) and refreshes the FTS mirror via
-   * triggers. Best-effort: any background agents this conversation spawned
-   * within the removed range (non-running only) are pruned too, so the
-   * Activity surface doesn't keep dangling task cards for turns that no
-   * longer exist. A running agent is left alone — the renderer stops the
-   * active stream before rewinding.
-   */
+
   truncateConversationAtEvent(conversationIdInput, eventIdInput) {
     const conversationId = this.sanitizeConversationId(conversationIdInput);
     const cursor = this.getEventCursor(conversationId, eventIdInput);
     if (!cursor) return { removed: 0 };
     let removed = 0;
     this.withImmediateTransaction(() => {
-      // "At or after" the target event, in the ACTIVE ordering key — so Rewind
-      // removes exactly the suffix the user sees, whether ordering by the
-      // sequence (flip) or the legacy (created_at, id) tuple.
+
       const keyset = this.timelineKeyset("", ">=", cursor);
       const cutoffCondition = `session_id = ? AND ${keyset.clause}`;
-      // The DELETE's own `changes` count is the number of removed rows —
-      // no separate COUNT(*) pass over the same index range. (SQLite's
-      // changes() counts only the directly-deleted `message` rows, not the
-      // cascaded `part` rows, which is exactly the total we want.)
+
       const deleteResult = this.db
         .prepare(`DELETE FROM message WHERE ${cutoffCondition}`)
         .run(conversationId, ...keyset.params);
@@ -2042,26 +1890,12 @@ export class SessionStore {
     });
     return { removed };
   }
-  /**
-   * Fork a conversation: copy every user/assistant message BEFORE
-   * `eventId` (exclusive) into a brand-new conversation, preserving order
-   * and timestamps, and return the new conversation id. Backs the desktop
-   * "Fork to new chat" action; the source conversation is left untouched.
-   *
-   * Only `user_message` / `assistant_message` rows are copied — tool and
-   * agent-lifecycle events are intentionally dropped so the branch carries
-   * a clean transcript with no dangling agent/task references. Event ids
-   * are re-minted (they are a globally-unique primary key) and each
-   * assistant row's `userMessageId` back-reference is remapped onto the
-   * copied user id so streaming/overlay correlation stays sound if the
-   * fork is continued.
-   */
+
   forkConversationBeforeEvent(conversationIdInput, eventIdInput) {
     const conversationId = this.sanitizeConversationId(conversationIdInput);
     const cursor = this.getEventCursor(conversationId, eventIdInput);
     if (!cursor) return null;
-    // Copy every user/assistant message strictly BEFORE the target event, in
-    // the ACTIVE ordering key.
+
     const forkKeyset = this.timelineKeyset("source", "<", cursor);
     const rows = this.db
       .prepare(
@@ -2120,7 +1954,7 @@ export class SessionStore {
     });
     return { conversationId: newConversationId };
   }
-  /** Cursor-paginated conversation history for the renderer's top bar. */
+
   listConversationSummaries(args = {}) {
     const requestedLimit = asFiniteNumber(args.limit);
     const limit = Math.min(100, Math.max(1, Math.floor(requestedLimit ?? 50)));
@@ -2252,13 +2086,7 @@ export class SessionStore {
       .all(conversationId, normalizedLimit);
     return rows.map((row) => this.deserializeEventRow(row));
   }
-  /**
-   * Provider-call ledger projected from the durable assistant messages in
-   * runtime_thread_entries. This intentionally reads the canonical thread
-   * history instead of maintaining a second write path that could drift or
-   * double-count retries. Historical native calls become visible as soon as
-   * this reader ships; synthetic `model: history` replay rows are excluded.
-   */
+
   listModelUsage(args = {}) {
     const fromMs = asFiniteNumber(args.fromMs);
     const toMs = asFiniteNumber(args.toMs);
@@ -2271,9 +2099,7 @@ export class SessionStore {
       10000,
       Math.max(1, Math.floor(asFiniteNumber(args.limit) ?? 5000)),
     );
-    // The first three clauses must stay textually in sync with the WHERE
-    // of idx_runtime_thread_entries_usage (database-init.ts) so SQLite's
-    // partial-index prover keeps this off the full-table-scan path.
+
     const clauses = [
       "entry.entry_type = 'message'",
       "json_extract(entry.data_json, '$.message.role') = 'assistant'",
@@ -2421,13 +2247,7 @@ export class SessionStore {
       .all(...eventIds);
     return rows.map((row) => this.deserializeEventRow(row));
   }
-  /**
-   * Return cross-conversation activity newer than `sinceMs` (plain ms
-   * since the Unix epoch — same unit `message.created_at` is written
-   * with by every `appendLocalChatEvent` call). Capped at `limit`
-   * (default 80) of the most recent events and returned oldest→newest
-   * so callers can fold them into a chronological brief.
-   */
+
   listRecentActivitySince(args) {
     const sinceMs = Number.isFinite(args.sinceMs)
       ? Math.max(0, Math.floor(args.sinceMs))
@@ -2478,17 +2298,7 @@ export class SessionStore {
       ...this.deserializeEventRow(row),
     }));
   }
-  /**
-   * Page strictly older events than a `(beforeTimestampMs, beforeId)` cursor.
-   * Used by the chat home overview's "See all" dialog to walk SQLite for
-   * additional history beyond the renderer's in-memory event window —
-   * without that, the dialog can only ever show what's already loaded for
-   * the live chat (capped at ~500 events).
-   *
-   * Mirrors `listEvents`'s exclusion of internal types (`thread_message`,
-   * `run_event`, `memory`) so the rows roundtrip through the same
-   * `EventRecord` shape downstream consumers already use.
-   */
+
   listEventsBefore(conversationIdInput, opts) {
     const conversationId = this.sanitizeConversationId(conversationIdInput);
     const beforeTimestamp = Math.floor(opts.beforeTimestampMs);
@@ -2533,27 +2343,7 @@ export class SessionStore {
       );
     return rows.map((row) => this.deserializeEventRow(row));
   }
-  /**
-   * Window of visible chat messages with each assistant message's turn-
-   * scoped tool/agent lifecycle events attached as `toolEvents`. This is
-   * the read shape the chat UI consumes — pure event-log readers should
-   * keep using `listEvents` / `listEventsBefore`.
-   *
-   * Two-step query: first locate the (timestamp, id) cutoff of the
-   * `maxVisibleMessages`-th most-recent user/assistant row, then fetch all
-   * tool/agent lifecycle events from the cutoff forward and group them by
-   * turn (boundary = `user_message`). Mirrors the renderer's prior
-   * `segmentToolEventsByAssistant` so the inline-artifact /
-   * schedule-receipt projections that hung off the flat event stream keep
-   * working without a flat event stream.
-   *
-   * `messages` is the ordered visible chat (oldest → newest). Trailing
-   * tool/agent lifecycle events that landed after the last visible
-   * `user_message` with no following assistant yet (typical for
-   * fire-and-forget image submissions in-flight at fetch time) stay on
-   * that user message's `toolEvents`, so the renderer can synthesize the
-   * standalone artifact row it always has.
-   */
+
   listMessages(conversationIdInput, args = {}) {
     const conversationId = this.sanitizeConversationId(conversationIdInput);
     const maxVisibleMessages = Math.max(
@@ -2589,13 +2379,7 @@ export class SessionStore {
       ...(nextCursor ? { nextCursor } : {}),
     };
   }
-  /**
-   * Same projection as `listMessages` but returns strictly-older messages
-   * than `(beforeTimestampMs, beforeId)`. Drives the chat's "load older"
-   * pagination — the cursor is the oldest message in the currently-loaded
-   * window so successive calls walk the conversation backwards a page at
-   * a time.
-   */
+
   listMessagesBefore(conversationIdInput, args) {
     const conversationId = this.sanitizeConversationId(conversationIdInput);
     const maxVisibleMessages = Math.max(
@@ -2631,12 +2415,7 @@ export class SessionStore {
     );
     return this.trimMessageWindow(projected, cutoff);
   }
-  /**
-   * Same projection as `listMessages`, but walks forward from a known mobile
-   * cursor. The returned rows are the new user/assistant messages plus any
-   * existing message rows whose turn gained new tool-derived artifacts after
-   * the cursor.
-   */
+
   listMessagesAfter(conversationIdInput, args) {
     const conversationId = this.sanitizeConversationId(conversationIdInput);
     const maxVisibleMessages = Math.max(
@@ -2658,21 +2437,12 @@ export class SessionStore {
       maxVisibleMessages,
       after,
     );
-    // Stop immediately before the next turn anchor after the page. This keeps
-    // the page bounded while still including tool/lifecycle rows belonging to
-    // its final assistant message. With no newer visible message, leave the
-    // upper bound open so artifact-only updates to the current turn continue
-    // to refresh that already-loaded message.
+
     const until = pageEnd
       ? this.findVisibleMessageCursorAfter(conversationId, pageEnd)
       : null;
     const fetchCutoff = this.findTurnFetchCutoff(conversationId, after);
-    // The renderer never needs the raw source-event stream: fetch just the
-    // turn's few message anchors, then attach bounded event projections.
-    // Mobile source events use their own strict cursor query. Starting that
-    // bounded query at the turn anchor can spend its entire row budget on
-    // events the mobile client already processed and then skip the remainder
-    // when advancing its cursor.
+
     const includeSourceEvents = args.includeSourceEvents !== false;
     const messageRows = this.fetchTimelineRows(
       conversationId,
@@ -2704,11 +2474,7 @@ export class SessionStore {
               after,
             ) > 0,
         );
-    // Mobile advances its durable cursor over `sourceEvents`, so every event
-    // before that cursor must participate in the delta projection. Applying
-    // the desktop head/tail projection here would permanently skip artifacts
-    // in the omitted middle of a busy turn. The source page itself is strictly
-    // capped, and subsequent calls continue from its exact last row.
+
     const projectionRows = includeSourceEvents
       ? Array.from(
           new Map(
@@ -2773,13 +2539,7 @@ export class SessionStore {
       .get(conversationId, ...keyset.params);
     return row?.found === 1;
   }
-  /**
-   * Resolve lifecycle state only for task ids a cursor delta touched. This is
-   * deliberately separate from `listMessages`: incremental mobile sync must
-   * not scan/project the latest 100 transcript rows merely to recover an old
-   * task's spawning anchor. Each matching start event loads only its own turn,
-   * then later lifecycle events for that agent are folded onto that anchor.
-   */
+
   listMobileTaskContext(conversationIdInput, agentIdsInput) {
     const conversationId = this.sanitizeConversationId(conversationIdInput);
     const agentIds = [
@@ -2867,7 +2627,7 @@ export class SessionStore {
       ).length,
     };
   }
-  /** UI visibility is materialized and indexed by database-init triggers. */
+
   findVisibleMessageCutoff(conversationId, maxVisibleMessages) {
     return this.findVisibleMessageCutoffPaged(
       conversationId,
@@ -3391,13 +3151,7 @@ export class SessionStore {
         }
       : null;
   }
-  /**
-   * Ensure a keyset cursor carries `sequence`. External cursors (mobile delta
-   * `after`, pagination `before`) arrive as (timestamp, id); resolve the row's
-   * ordering_sequence by id once so the keyset predicate can key on it. No-op
-   * when the sequence is already present, or when the id no longer resolves (the
-   * keyset then degrades to the legacy tuple — see timelineKeyset).
-   */
+
   resolveCursorSequence(conversationId, cursor) {
     if (!cursor) return cursor;
     if (!this.orderingBySequence) return cursor;
@@ -3488,52 +3242,14 @@ export class SessionStore {
     }
     return { messages, visibleMessageCount };
   }
-  /**
-   * Walk fetched rows forward, group them into turns (boundary =
-   * `user_message`), and attach every tool/agent lifecycle event in
-   * a turn to the assistant message that most-recently preceded it:
-   *
-   *   - **most-recent preceding assistant** of the turn — orchestrator
-   *     runs that emit a preamble → tools → post-tool answer render
-   *     linearly with tool-derived artifacts on the preamble bubble
-   *     (rather than collapsing every assistant in the turn into one
-   *     row that owns every tool).
-   *
-   *   - **first assistant** of the turn for tools that fired BEFORE
-   *     any assistant text (common for `image_gen` / `html` /
-   *     `Schedule` called eagerly) — those tools defer until the first
-   *     assistant arrives and attach to it, so inline image / schedule
-   *     receipt / office preview / source-diff artifacts still surface
-   *     on the assistant row.
-   *
-   *   - **user_message** of the turn when no assistant fires — fixes
-   *     the prior port's silent drop of tools in turns where the
-   *     agent's first action is a fire-and-forget tool. The renderer's
-   *     trailing artifact paths already read from `user_message.toolEvents`,
-   *     so they surface correctly.
-   *
-   * `visibleMessageCount` is the count of user/assistant rows whose
-   * payload doesn't satisfy `isUiHiddenChatMessagePayload`. The chat
-   * hook bases `hasOlderMessages` / `isLoadingOlder` on this rather
-   * than raw `messages.length` so UI-hidden system reminders or
-   * workspace-creation requests in the window don't make pagination
-   * state latch against the wrong threshold.
-   *
-   * Mirror this in lockstep with `groupEventsIntoMessages` on the
-   * renderer so cloud-mode and local-mode produce identical shapes.
-   */
+
   assembleMessageWindow(rows) {
     const messages = [];
     let turnUserMessage = null;
     let currentAssistant = null;
     let pendingPreAssistantTools = [];
     let visibleMessageCount = 0;
-    /**
-     * Flush tools that arrived in the current turn without ever seeing
-     * an assistant message — fall back to the user_message anchor so
-     * inline artifacts on fire-and-forget turns
-     * still render. Mirrors `groupEventsIntoMessages` on the renderer.
-     */
+
     const finalizePreAssistantTools = () => {
       if (pendingPreAssistantTools.length > 0 && turnUserMessage) {
         turnUserMessage.toolEvents = [
@@ -3559,13 +3275,7 @@ export class SessionStore {
         const message = { ...row, toolEvents: [] };
         messages.push(message);
         const hidden = isUiHiddenChatMessagePayload(row.payload ?? null);
-        // Tools that fired before any assistant in this turn attach to
-        // the FIRST assistant (preserves the prior inline-artifact
-        // behavior for tools called before any reply text). Tools that
-        // fired between two assistants attach to whichever was most
-        // recently seen — so an orchestrator run that does
-        // preamble → tools → post-tool answer renders linearly with
-        // tool-derived artifacts on the preamble bubble.
+
         if (!hidden && pendingPreAssistantTools.length > 0) {
           message.toolEvents = [
             ...message.toolEvents,
@@ -3588,19 +3298,7 @@ export class SessionStore {
     finalizePreAssistantTools();
     return { messages, visibleMessageCount };
   }
-  /**
-   * Agent lifecycle events (`agent-started` / `agent-progress` /
-   * `agent-completed` / `agent-failed` / `agent-canceled`) for the
-   * conversation, ordered ASC by `(timestamp, _id)`.
-   *
-   * Task STATE no longer derives from these events (that's
-   * `listThreadActivity`); the remaining consumers are file-derived
-   * surfaces (per-agent file lists merge the `agent-completed` rollups)
-   * and the inline chat cards' per-occurrence history.
-   *
-   * Optional `beforeTimestampMs` / `beforeId` cursor returns strictly-
-   * older activity.
-   */
+
   listActivity(conversationIdInput, args = {}) {
     const conversationId = this.sanitizeConversationId(conversationIdInput);
     const normalizedLimit = Math.max(1, Math.floor(args.limit ?? 500));
@@ -3650,21 +3348,7 @@ export class SessionStore {
     const activities = rows.map((row) => this.deserializeEventRow(row));
     return { activities };
   }
-  /**
-   * File-carrying events (`tool_result` / `agent-completed` whose
-   * payload has a non-empty `fileChanges` or `producedFiles` array)
-   * for the conversation, ordered ASC by `(timestamp, _id)`.
-   *
-   * The Recent Files surfaces use this instead of scanning the full
-   * event stream. The SQL pre-filter via `json_extract` +
-   * `json_array_length` keeps the window genuinely scoped to events
-   * that touch disk, so a `limit` of 500 buys 500 file events rather
-   * than 500 arbitrary tool results that may or may not have produced
-   * a file.
-   *
-   * Optional `beforeTimestampMs` / `beforeId` cursor pages strictly-
-   * older file events for the ActivityHistoryDialog "files" section.
-   */
+
   listFiles(conversationIdInput, args = {}) {
     const conversationId = this.sanitizeConversationId(conversationIdInput);
     const normalizedLimit = Math.max(1, Math.floor(args.limit ?? 500));
@@ -3679,10 +3363,7 @@ export class SessionStore {
       "m.session_id = ?",
       "m.type IN ('tool_result', 'agent-completed')",
       "p.data_json IS NOT NULL",
-      // `json_array_length` on a missing/non-array path returns NULL in
-      // SQLite, and `NULL > 0` is `NULL` (falsy), so this naturally
-      // excludes events without file changes without needing explicit
-      // null guards.
+
       "(json_array_length(json_extract(p.data_json, '$.fileChanges')) > 0 OR json_array_length(json_extract(p.data_json, '$.producedFiles')) > 0)",
     ];
     const params = [conversationId];
@@ -4116,11 +3797,7 @@ export class SessionStore {
         }
       : null;
   }
-  /**
-   * Cheap compaction probe over bounded row metadata only. It never joins or
-   * reconstructs `runtime_thread_entry_payload_chunks`; callers fall back to
-   * full history only when a legacy/malformed active row lacks metadata.
-   */
+
   getThreadContextPressureStats(threadKeyInput) {
     const threadKey = normalizeRuntimeThreadId(threadKeyInput);
     if (!threadKey) {
@@ -4175,9 +3852,7 @@ export class SessionStore {
       }
       const stored = parseJsonRecord(quarantineRow?.dataJson);
       const record = parseQuarantineRecord(stored?.content);
-      // A covered record is resolved only when the checkpoint explicitly says
-      // its tool result was masked. Malformed or unacknowledged records remain
-      // active so the full-history quarantine rebuild path still runs.
+
       if (!record || !resolvedCoveredQuarantineKeys.has(record.key)) {
         quarantineCount += 1;
       }
@@ -4285,10 +3960,7 @@ export class SessionStore {
       const fallbackPayload = buildFallbackThreadPayload(message);
       const boundedPayload = enforceThreadPayloadRowSizeLimit(fallbackPayload);
       const contextPressure = buildThreadContextPressure(fallbackPayload);
-      // Image pressure must be measured from the same payload the live agent
-      // can replay. Never let the 6MB row limiter silently replace image data
-      // with text; automatically spill image-bearing payloads into exact
-      // chunks even for non-orchestrator writers.
+
       const storage =
         message.preservePayloadExactly === true ||
         payloadContainsImage(fallbackPayload)
@@ -4357,8 +4029,7 @@ export class SessionStore {
           this.emitThreadAssistantUpdate(threadKey, message.timestamp);
         }
       } catch {
-        // The transaction already committed. Notification failures must not
-        // make the caller retry and duplicate a durably appended turn group.
+
       }
     }
   }
@@ -4554,15 +4225,7 @@ export class SessionStore {
         : {}),
     }));
   }
-  /**
-   * Newest-first sample of recent user-role messages in a thread. Used by
-   * write-time transcript decoration (`agent-runtime/transcript-decoration.js`)
-   * to decide whether a freshly persisted user message needs a timestamp tag —
-   * the same thirty-minute suppression window the retired local-events history
-   * projection applied. Content is returned so callers can skip user-role rows
-   * that are not actual user utterances (e.g. voice tool results persisted with
-   * role "user" and a "[Tool result]" prefix).
-   */
+
   listRecentThreadUserMessages(threadKeyInput, limit = 8) {
     const threadKey = normalizeRuntimeThreadId(threadKeyInput);
     if (!threadKey) {
@@ -4596,7 +4259,7 @@ export class SessionStore {
           content = rawContent;
         }
       } catch {
-        // Malformed rows simply don't inform tagging.
+
       }
       results.push({ content, timestamp });
     }
@@ -4659,15 +4322,7 @@ export class SessionStore {
       });
     }
   }
-  /**
-   * Delete a single trailing thread-message entry by id. Used by context-overflow
-   * recovery to drop the content-less failed-overflow assistant marker so the forced
-   * compaction preserves the real resume anchor (the tool result / user turn it
-   * followed) instead of spending its tail budget on the marker. Only removes a leaf
-   * entry (nothing references it as a parent) so the parent chain and the next
-   * append's parent link stay consistent under concurrent writers. Returns true when
-   * a row was removed.
-   */
+
   removeThreadMessageEntry(threadKeyInput, entryIdInput) {
     const threadKey = normalizeRuntimeThreadId(threadKeyInput);
     const entryId = typeof entryIdInput === "string" ? entryIdInput.trim() : "";
@@ -4786,7 +4441,7 @@ export class SessionStore {
         ON runtime_agents.thread_id = runtime_threads.thread_key
   `;
   listActiveThreads(conversationId) {
-    // Active-thread eviction keeps this query bounded to the same cap.
+
     const rows = this.db
       .prepare(
         `
@@ -4800,35 +4455,11 @@ export class SessionStore {
       .all(conversationId, MAX_ACTIVE_RUNTIME_THREADS);
     return rows.map((row) => this.deserializeRuntimeThread(row));
   }
-  /**
-   * Search EVERY delegated agent thread across ALL conversations —
-   * including evicted ones — by key, name, summary, group label, and
-   * agent description. Results from `conversationId` (the caller's
-   * current conversation) sort ahead of other conversations' threads;
-   * the record's own `conversationId` lets callers label which scope a
-   * hit came from. A result must match at least one token and ranks by
-   * how many tokens it matches (ties break newest-first). Strict AND
-   * would make the verbose natural-language queries an LLM writes ("the
-   * flight comparison from last week") return nothing — the one failure
-   * this tool exists to prevent — so stopwords are dropped up front and
-   * the rest is scored, not filtered. No query returns the most recent
-   * work first. Orchestrator threads are excluded (they are the
-   * conversations themselves, not work — transcript content is
-   * `searchTranscripts`' job).
-   *
-   * Matching is backed by the `thread_search_fts` FTS5 index (see
-   * database-init) so the lookup scales with match count instead of total
-   * thread history, porter stemming matches word forms ("deploys" ~
-   * "deploy"), and — the main quality win — the agent's final
-   * `result`/`error` text is searchable, which no LIKE column ever was.
-   * Missing or broken FTS is a surfaced retrieval failure. The LIKE scan is
-   * available only when a caller deliberately opts into degraded mode.
-   */
+
   searchThreads(args) {
     const limit = Math.max(1, Math.min(25, Math.floor(args.limit ?? 12)));
     const tokens = tokenizeSearchQuery(args.query);
-    // No tokens means "most recent work" — a pure recency read of the base
-    // table that the FTS index (matching only) has nothing to add to.
+
     if (tokens.length === 0) {
       return this.searchThreadsLike(args.conversationId, tokens, limit);
     }
@@ -4865,19 +4496,9 @@ export class SessionStore {
     }
     return this.hasThreadFts;
   }
-  /**
-   * Two-step FTS search: the index answers WHICH threads match, the base
-   * tables answer everything else. Step 1 collects candidate thread keys
-   * via MATCH; step 2 re-runs the exact LIKE-scan query shape over just
-   * those candidates — same eligibility clauses, same ORDER BY (scope,
-   * per-token LIKE match count, recency) — so ranking semantics are
-   * byte-identical to the fallback. Stemmed-only hits (which the LIKE
-   * CASEs score 0) rank after literal matches within their scope, ties
-   * newest-first.
-   */
+
   searchThreadsFts(conversationId, tokens, limit) {
-    // Each token becomes a quoted FTS phrase (quoting neutralizes MATCH
-    // operators in user text), OR'd to keep the any-token-matches semantics.
+
     const matchQuery = tokens
       .map((token) => `"${token.replace(/"/g, '""')}"`)
       .join(" OR ");
@@ -4901,8 +4522,7 @@ export class SessionStore {
         OR runtime_threads.summary LIKE ? ESCAPE '\\'
         OR runtime_agents.description LIKE ? ESCAPE '\\'
       )`;
-    // The index already enforced eligibility at write time, but the clauses
-    // stay here so a stale index row can never resurrect an excluded thread.
+
     const where = [
       "runtime_threads.agent_type != 'orchestrator'",
       "thread_key != ?",
@@ -4943,17 +4563,13 @@ export class SessionStore {
     const where = [
       "runtime_threads.agent_type != 'orchestrator'",
       "thread_key != ?",
-      // Implicit transcript rows (ephemeral workflow agents, internal
-      // subagent sessions) are not orchestrator-resumable work — offering
-      // them as results would hand the model dead "resumable" ids.
+
       "thread_key NOT LIKE '%::subagent::%'",
       ...(tokens.length > 0
         ? [`(${tokens.map(() => tokenClause).join("\n        OR ")})`]
         : []),
     ].join("\n        AND ");
-    // Current-conversation hits outrank other conversations' regardless of
-    // token score — the caller almost always means "my work" first, and the
-    // cross-conversation tail is the fallback.
+
     const scopeOrder = `(runtime_threads.conversation_id = ?) DESC`;
     const orderBy =
       tokens.length > 0
@@ -4971,9 +4587,9 @@ export class SessionStore {
         params.push(pattern, pattern, pattern, pattern);
       }
     };
-    pushTokenParams(); // WHERE token binds,
-    params.push(conversationId); // then the ORDER BY scope bind,
-    pushTokenParams(); // then ORDER BY rebinds the same patterns.
+    pushTokenParams();
+    params.push(conversationId);
+    pushTokenParams();
     params.push(limit);
     const rows = this.db
       .prepare(
@@ -4987,26 +4603,7 @@ export class SessionStore {
       .all(...params);
     return rows.map((row) => this.deserializeRuntimeThread(row));
   }
-  /**
-   * The rows behind Recall's inline "# Thread Index": the most recent
-   * `limit` delegated agent threads across ALL conversations (including
-   * evicted ones), by genuine last-active time. Carries the fields the
-   * index renders that the generic thread record lacks — the agent's final
-   * `result` and `error` text (truncated in SQL; `summary` is empty on
-   * nearly every real thread, so `result` is the only durable record of
-   * what a finished thread actually did). Exclusions mirror
-   * `searchThreads`: orchestrator threads and implicit subagent sessions
-   * are not resumable work.
-   *
-   * Ordering by MAX(last_used_at, agent updated_at) can't use an index
-   * directly, so the query gathers candidates from TWO indexed recency
-   * scans (top `limit` by thread last_used_at, top `limit` by agent
-   * updated_at) and only sorts that ≤2·limit union by the MAX. That union
-   * provably contains the true top `limit` by last-active: if a thread
-   * ranked top-N by the max of the two columns, it must rank top-N on
-   * whichever column supplied that max. No full-table scan or whole-table
-   * temp sort as history grows.
-   */
+
   listThreadsForRecallIndex(args) {
     const limit = Math.max(1, Math.min(2_000, Math.floor(args.limit)));
     const activeSinceMs =
@@ -5083,12 +4680,7 @@ export class SessionStore {
       ...(row.errorExcerpt?.trim() ? { errorExcerpt: row.errorExcerpt } : {}),
     }));
   }
-  /**
-   * Final result/error excerpts for a set of threads, keyed by thread id.
-   * Recall's thread search renders these because `summary` is empty on
-   * nearly every real thread — the agent's final `result` is the only
-   * durable record of what a finished thread actually did.
-   */
+
   listThreadResultExcerpts(threadIds) {
     const ids = [...new Set(threadIds)].slice(0, 64);
     const map = new Map();
@@ -5115,14 +4707,7 @@ export class SessionStore {
     }
     return map;
   }
-  /**
-   * How many index-eligible threads were created since `sinceMs` — the
-   * cheap signal Recall uses to size its thread index (a high-volume day
-   * widens the index so heavy users keep their realistic recall window).
-   * `idx_runtime_threads_created` makes this a range scan over just the
-   * recent window (the eligibility filters apply as residuals on those few
-   * rows), so the preflight scales with daily volume, not total history.
-   */
+
   countThreadsCreatedSince(sinceMs) {
     const row = this.db
       .prepare(
@@ -5137,23 +4722,7 @@ export class SessionStore {
       .get(sinceMs);
     return typeof row?.count === "number" ? row.count : 0;
   }
-  /**
-   * Search what was actually SAID in chat: user/assistant message text
-   * across ALL conversations (not just the caller's). This is the only
-   * durable index over things the user merely mentioned in conversation —
-   * no agent thread, no memory note — so it is what answers episodic
-   * questions ("did I ever tell you…", "where did we…"). Same
-   * OR-with-ranking token semantics as `searchThreads`: a hit must match
-   * at least one non-stopword token, ranks by how many tokens it matches,
-   * ties break newest-first. Matching runs against the extracted `$.text`
-   * of each chat payload, never the raw JSON, so attachments/base64 and
-   * metadata cannot produce false hits.
-   *
-   * Backed by the `message_text_fts` FTS5 index (see database-init) so the
-   * lookup scales with match count, not history size, and porter stemming
-   * matches word forms ("drive" ~ "drives"). Missing or broken FTS is a
-   * surfaced retrieval failure; LIKE requires an explicit degraded-mode opt-in.
-   */
+
   searchTranscripts(args) {
     const limit = Math.max(1, Math.min(25, Math.floor(args.limit ?? 12)));
     const tokens = tokenizeSearchQuery(args.query);
@@ -5196,12 +4765,7 @@ export class SessionStore {
     return this.hasTranscriptFts;
   }
   searchTranscriptsFts(tokens, limit) {
-    // Each token becomes a quoted FTS phrase (quoting neutralizes MATCH
-    // operators in user text), OR'd to keep the any-token-matches
-    // semantics. The matched-token count for RANKING is computed with the
-    // same LIKE test the scan used — but only over the FTS matches, never
-    // the whole table — so ordering is unchanged: more matched tokens
-    // first, ties newest-first.
+
     const matchQuery = tokens
       .map((token) => `"${token.replace(/"/g, '""')}"`)
       .join(" OR ");
@@ -5259,8 +4823,8 @@ export class SessionStore {
     `,
       )
       .all(
-        ...tokens.map((token) => `%${escapeLike(token)}%`), // WHERE binds,
-        ...tokens.map((token) => `%${escapeLike(token)}%`), // ORDER BY rebinds.
+        ...tokens.map((token) => `%${escapeLike(token)}%`),
+        ...tokens.map((token) => `%${escapeLike(token)}%`),
         limit,
       );
     return this.deserializeTranscriptHits(rows);
@@ -5279,19 +4843,11 @@ export class SessionStore {
       ];
     });
   }
-  /**
-   * The chat messages immediately surrounding a `searchTranscripts` hit, in
-   * chronological order (excluding the hit itself). Keyword search finds the
-   * message that NAMES the thing; the messages around it are usually what
-   * actually happened ("give me the address" → drove there → "damn i love
-   * the car"), so recall renders a hit's neighbors as its evidence context.
-   */
+
   listTranscriptNeighbors(args) {
     const before = Math.max(0, Math.min(8, Math.floor(args.before ?? 2)));
     const after = Math.max(0, Math.min(10, Math.floor(args.after ?? 2)));
-    // The follow-through to a matched message ("give me the address" → drove
-    // there → reaction) routinely lands tens of minutes later, so the
-    // episode boundary is a time window, not just a message count.
+
     const windowMs = Math.max(60_000, args.windowMs ?? 2 * 60 * 60 * 1000);
     const textExpr = `json_extract(part.data_json, '$.text')`;
     const base = `
@@ -5401,7 +4957,7 @@ export class SessionStore {
       .get(key);
     return Boolean(row);
   }
-  /** Mint a globally unique thread key, suffixing collisions with -2, -3, …. */
+
   mintUniqueKey(base) {
     if (!this.threadKeyExists(base)) return base;
     for (let ordinal = 2; ; ordinal++) {
@@ -5411,14 +4967,11 @@ export class SessionStore {
   }
   mintThreadKey(args) {
     const slug = slugify(args.nameHint ?? "");
-    // `legacy-` is the seeded feature roster's id namespace
-    // (store-mod-store.ts); a thread key landing there would merge unrelated
-    // identities downstream.
+
     if (slug && !slug.startsWith("legacy-")) {
       return this.mintUniqueKey(slug);
     }
-    // Fallback for descriptions that slug to nothing (emoji, non-Latin
-    // scripts): the historical per-agent-type ordinal.
+
     const prefix = "task-";
     const rows = this.db
       .prepare(
@@ -5589,9 +5142,7 @@ export class SessionStore {
     }
   }
   getThreadName(threadKey) {
-    // Deliberately side-effect-free: callers probe arbitrary agent ids, and
-    // creating implicit rows for
-    // them would leak phantom threads into search results.
+
     const row = this.db
       .prepare(
         `
@@ -5993,13 +5544,7 @@ export class SessionStore {
       };
     });
   }
-  /**
-   * Authoritative Activity read: one row per background-agent thread in the
-   * conversation, straight from `runtime_agents` (the single writer is the
-   * LocalAgentManager's `persistTask`). Initial hydration is active work plus
-   * a bounded recent terminal window; keyed pushes keep it current afterward.
-   * SQLite retains every older record.
-   */
+
   selectBoundedThreadActivityIds(conversationId, maxItems) {
     const activeRows = this.db
       .prepare(
@@ -6298,12 +5843,7 @@ export class SessionStore {
       )
       .run(conversationId, reminderTokensSinceLastInjection);
   }
-  /**
-   * Increment the memory-review user-turn counter for the given conversation
-   * and return the new value. Caller is responsible for gating on
-   * `uiVisibility !== "hidden"` so that synthetic task-callback turns do not
-   * inflate the count.
-   */
+
   incrementUserTurnsSinceMemoryReview(conversationId) {
     const row = this.db
       .prepare(
@@ -6336,14 +5876,7 @@ export class SessionStore {
       .run(conversationId, next);
     return next;
   }
-  /**
-   * Current memory-review state for a conversation. `lastReviewedMessageTs`
-   * is the timestamp of the newest message the last review consumed; the
-   * review pass slices the transcript to messages newer than this so each
-   * pass only sees the delta since the previous review. It is a message
-   * timestamp (a value), not an array index, so it stays valid across
-   * compaction rebuilds and worker restarts.
-   */
+
   getMemoryReviewState(conversationId) {
     const row = this.db
       .prepare(
@@ -6367,13 +5900,7 @@ export class SessionStore {
           : 0,
     };
   }
-  /**
-   * Reset the memory-review user-turn counter to zero and stamp the time of
-   * the review. Call after a memory review fires so a quick second turn does
-   * not double-trigger. When `lastReviewedMessageTs` is provided it advances
-   * the review watermark so the next pass only reviews newer messages; when
-   * omitted the existing watermark is preserved (never silently cleared).
-   */
+
   resetUserTurnsSinceMemoryReview(conversationId, lastReviewedMessageTs) {
     const now = Date.now();
     const reviewedTs =
@@ -6403,12 +5930,7 @@ export class SessionStore {
       )
       .run(conversationId, now, reviewedTs);
   }
-  /**
-   * Advance only the review watermark, without touching the user-turn counter.
-   * Called after a review actually completes so a transient review failure does
-   * not permanently skip the messages it failed on. Never regresses an existing
-   * watermark.
-   */
+
   advanceMemoryReviewWatermark(conversationId, lastReviewedMessageTs) {
     if (!Number.isFinite(lastReviewedMessageTs) || lastReviewedMessageTs <= 0) {
       return;

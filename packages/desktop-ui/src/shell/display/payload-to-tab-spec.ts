@@ -1,14 +1,3 @@
-/**
- * Bridge from the `DisplayPayload` IPC contract (one-payload-at-a-time,
- * used by the media materializer and a few other channels) to the
- * `DisplayTabSpec` model.
- *
- * Keeping the bridge isolated means the worker / IPC / Convex hooks don't
- * have to learn about the tab manager — they keep speaking
- * `DisplayPayload` and a single mapper turns each one into a tab spec at
- * the renderer boundary.
- */
-
 import { createElement } from "react";
 import { uiState } from "@/platform/ui-state";
 import type {
@@ -49,13 +38,6 @@ import {
 import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
 import { displayTabs } from "@/features/workspace-display/tab-store";
 
-
-/**
- * Spec for the singleton "Code changes" tab. All source-diff payloads
- * activate this one tab; the content subscribes to the source-diff
- * batches store, so the click side effect (pushing the turn's batch
- * into the store) drives what renders rather than per-payload props.
- */
 export const createSourceDiffTabSpec = (): DisplayTabSpec => ({
   id: SOURCE_DIFF_TAB_ID,
   kind: "source-diff",
@@ -113,9 +95,7 @@ const generatedMediaItems: GeneratedMediaItem[] = loadGeneratedMediaItems();
 const generatedMediaItemIds = new Set(
   generatedMediaItems.map((item) => item.id),
 );
-// Cached snapshot reference. Refresh only when the underlying list
-// actually mutates so consumers can rely on referential equality to
-// skip work.
+
 let generatedMediaSnapshot: ReadonlyArray<GeneratedMediaItem> = [];
 
 const filePathForMediaItem = (item: GeneratedMediaItem): string | undefined => {
@@ -135,10 +115,6 @@ const filePathForMediaItem = (item: GeneratedMediaItem): string | undefined => {
 const basename = (filePath: string): string =>
   filePath.split(/[\\/]/).pop() || filePath;
 
-/**
- * Text assets have no file behind them, so their prompt is the only
- * human-readable handle they have.
- */
 const titleForMediaItem = (item: GeneratedMediaItem): string => {
   const filePath = filePathForMediaItem(item);
   if (filePath) return basename(filePath);
@@ -156,8 +132,7 @@ const toFileEntry = (item: GeneratedMediaItem): FileEntry => {
   const filePath = filePathForMediaItem(item);
   return {
     source: "media",
-    // The store's own id is already unique per asset, so it doubles as the
-    // display-tab id and keeps entry, tab and store row in step.
+
     id: item.id,
     kind: displayTabKindForPayload(payload),
     title: titleForMediaItem(item),
@@ -235,10 +210,6 @@ const selectedIdForMediaPayload = (
     ? `image:${payload.asset.filePaths[0] ?? ""}`
     : idForMediaPayload(payload);
 
-/**
- * Remove a generated media item from the shared store. Returns the new
- * snapshot so callers can re-register the tab to surface the change.
- */
 export const removeGeneratedMediaItem = (
   id: string,
 ): ReadonlyArray<GeneratedMediaItem> => {
@@ -251,18 +222,6 @@ export const removeGeneratedMediaItem = (
   return generatedMediaSnapshot;
 };
 
-/**
- * Every artifact resolves into the Files section: the section is told which
- * file it would land on, and the kinds with no store behind them are indexed
- * so the Files list can offer them after a restart.
- *
- * Background refreshes — the `display:update` IPC, the media materializer —
- * map their payloads through here too, which is why remembering is
- * conditional on the panel being closed. While it is open the file the user
- * is reading wins, and a refreshed spec only changes what's on screen if it
- * happens to be that same file. Pointing the panel at Files is the open
- * verb's job (`openDisplayPayloadTab`), never this one's.
- */
 const rememberInFiles = (spec: DisplayTabSpec): DisplayTabSpec => {
   if (!displayTabs.getLayoutSnapshot().panelOpen) {
     sidebarSections.setLocation("files", spec.id);
@@ -280,9 +239,7 @@ const indexInFiles = (
     kind: spec.kind,
     title: spec.title,
     ...(filePath ? { filePath } : {}),
-    // Payloads that carry no timestamp (a URL preview, an office preview ref)
-    // are sorted by when they were last opened, which is the only ordering
-    // signal they have.
+
     createdAt: ("createdAt" in payload ? payload.createdAt : null) ?? Date.now(),
     payload,
   });
@@ -344,10 +301,7 @@ export const payloadToTabSpec = (
       );
 
     case "source-diff":
-      // Singleton tab: every source-diff payload maps to the same
-      // tab id. The tab content reads from the source-diff batches
-      // store, populated by the chat-side click handler before
-      // `openTab` is called.
+
       return indexInFiles(createSourceDiffTabSpec(), payload);
 
     case "office": {
@@ -421,8 +375,7 @@ export const payloadToTabSpec = (
       );
 
     case "trash":
-      // Deferred-delete trash is a shell surface rather than an artifact, so
-      // it stays out of the Files index.
+
       return {
         id: "trash:deferred-delete",
         kind: "trash",
@@ -433,8 +386,7 @@ export const payloadToTabSpec = (
 
     case "media": {
       const items = addGeneratedMediaItem(payload);
-      // A multi-image job lands as several entries; the tab points at the
-      // first, which is the one the user clicked through to.
+
       const itemId = selectedIdForMediaPayload(payload);
       const item = items.find((entry) => entry.id === itemId)!;
       return rememberInFiles({

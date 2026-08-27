@@ -74,13 +74,6 @@ const MEDIA_JOB_PATH = `${MEDIA_API_BASE_PATH}/job`;
 const MEDIA_FAL_WEBHOOK_PATH = `${MEDIA_API_BASE_PATH}/webhooks/fal`;
 const MEDIA_SUBSCRIPTION_QUERY = "api.media_jobs.getByJobId";
 
-/**
- * Public agent-facing docs are served from the marketing site, not from the
- * backend. The backend just points callers at the right URL.
- *
- * Pages live at /docs/media (overview) and /docs/media/{images,video,audio,music,3d}.
- * See `stella-website/src/lib/media-docs.ts` for the source content.
- */
 const MEDIA_DOCS_URL = "https://stella.sh/docs/media";
 
 const MEDIA_RATE_LIMIT = 20;
@@ -114,17 +107,6 @@ const asTrimmedString = (value: unknown): string | undefined =>
 const hasAspectRatioSupport = (capability: MediaCapability): boolean =>
   capability.supportsAspectRatio === true;
 
-/**
- * Maps a Stella-style aspect ratio (e.g. "16:9") to a {width, height} pair
- * sized to satisfy the GPT Image 2 input constraints:
- *   - width and height are multiples of 16
- *   - max edge ≤ 3840
- *   - 655,360 ≤ width × height ≤ 8,294,400
- *   - longest edge ≤ 3× shortest edge
- *
- * Anything we don't recognize maps to undefined so the upstream default
- * (`landscape_4_3`) kicks in instead of us hard-failing the request.
- */
 const GPT_IMAGE_2_ASPECT_PRESETS: Record<
   string,
   { width: number; height: number }
@@ -168,13 +150,6 @@ const applyCapabilityDefaults = (args: {
   return normalized;
 };
 
-/**
- * Endpoint-specific final pass after all the convenience-field merging is
- * done. This is where we translate from the gateway's neutral schema (e.g.
- * `aspect_ratio`) into whatever shape a particular upstream model expects
- * (e.g. GPT Image 2's `image_size`). Keeping this separate from
- * `applyCapabilityDefaults` means it sees the *final* merged input.
- */
 const applyEndpointTransforms = (args: {
   capability: MediaCapability;
   profile?: MediaProfile;
@@ -261,7 +236,7 @@ const isValidBase64Payload = (value: unknown): value is string => {
     return false;
   }
   const normalized = normalizeBase64Payload(value);
-  // Only validate a small prefix — decoding multi-MB payloads crashes the runtime.
+
   const sample = normalized.slice(0, 256);
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(sample)) {
     return false;
@@ -699,10 +674,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
         let rawRequestBody = "";
         let requestBody: unknown = null;
         try {
-          // Durable image_gen requests are identifiable before body access by
-          // their required idempotency key, so their strict ingress cap does
-          // not silently alter legacy video/audio/3D request semantics on this
-          // shared endpoint.
+
           rawRequestBody = clientRequestKey
             ? await readRequestTextBounded(
                 request,
@@ -794,15 +766,6 @@ export const registerMediaRoutes = (http: HttpRouter) => {
             }
           }
 
-          // Reattachments above bypass admission and rate limiting: they do
-          // not allocate new provider work or usage. Only a fresh reservation
-          // consumes the media-generation rate budget.
-          //
-          // Entitlement first, then budget: a Go user asking for video should
-          // be told video is a Pro surface, not that they are out of credit.
-          // `capabilityForMediaCapabilityId` returns null for the non-
-          // generative entries (speech-to-text, stem separation), which stay
-          // open to every plan.
           const requiredCapability = capabilityForMediaCapabilityId(
             resolved.capability.id,
           );
@@ -1356,10 +1319,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                 }) as never,
               });
             } else {
-              // A timeout/network failure after POST send is ambiguous: Fal
-              // may have accepted work and will still call our jobId webhook.
-              // Keep the durable reservation queued instead of resubmitting;
-              // the webhook completes it, or the stale-job policy fails it.
+
               console.warn(
                 `[media/generate] Ambiguous Fal submission for ${jobId}; awaiting webhook/stale timeout:`,
                 error,
@@ -1515,8 +1475,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
           },
         );
         if (applied.notFound) {
-          // Do not consume the webhook identity before its durable job is
-          // visible. Fal will retry this non-2xx response.
+
           return errorResponse(
             503,
             "Media job is not ready for webhook reconciliation.",

@@ -1,12 +1,3 @@
-/**
- * Display-tab body shown for the Home tab while the user is on the home
- * (`/chat`) route.
- *
- * Home itself IS the chat, so this surface never hosts a duplicate
- * conversation. Instead it's a quiet launcher of the other display surfaces
- * the user might want (Files, Trash) — click one and that surface
- * takes over. Models lives in the sidebar footer rather than here.
- */
 import type { ReactNode } from "react";
 import { DisplayTabIcon } from "@/features/workspace-display/icons";
 import type { DisplayTabKind } from "@/features/workspace-display/types";
@@ -29,8 +20,7 @@ const ENTRIES: ReadonlyArray<LauncherEntry> = [
     labelKey: "shell.display.homeLauncher.files.label",
     descriptionKey: "shell.display.homeLauncher.files.description",
     kind: "media",
-    // A launcher entry is a jump to the top of a surface, so this lands on
-    // the list rather than on whichever file the section was last showing.
+
     onSelect: () => sidebarSections.openLocation("files", null),
   },
   {

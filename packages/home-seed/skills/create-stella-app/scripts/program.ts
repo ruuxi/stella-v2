@@ -1,6 +1,4 @@
 #!/usr/bin/env bun
-/** Scaffold an external Vite React app under Stella's workspace/apps root. */
-
 import {
   closeSync,
   existsSync,
@@ -125,7 +123,7 @@ function scaffold(argv: string[]) {
       try {
         unlinkSync(lockPath);
       } catch {
-        // The acquired lock may already have been cleaned up externally.
+
       }
     }
   }

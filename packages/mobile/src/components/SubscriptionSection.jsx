@@ -35,20 +35,6 @@ function formatDate(ms) {
   }
 }
 
-/**
- * Mobile subscription surface.
- *
- * Purchase is offered ONLY when StoreKit reports the US storefront
- * (`useStorefrontEligibility`). For every other storefront — and whenever the
- * storefront is unknown — the UI fails closed: no plans, no prices, no
- * subscribe CTA, no instructions to buy elsewhere. Existing paid subscribers
- * are recognized in every region (they simply sign in) and can view their
- * plan; management routes to Stripe where policy permits.
- *
- * Entitlement is always read from the reactive `getSubscriptionStatus` query,
- * so a Stripe webhook landing after Checkout updates this screen without a
- * restart. The client's Checkout result is never trusted as entitlement.
- */
 export function SubscriptionSection() {
   const colors = useColors();
   const t = useT();
@@ -61,8 +47,7 @@ export function SubscriptionSection() {
 
   const [justSubscribedPlan, setJustSubscribedPlan] = useState(null);
   const startedPlanRef = useRef(null);
-  // Dev-only cycle through US -> non-US -> unknown to exercise both branches
-  // in the simulator. Guarded by __DEV__ in the hook; a no-op in release.
+
   const debugTapRef = useRef(0);
 
   const plan = status ? status.plan : "free";
@@ -71,8 +56,6 @@ export function SubscriptionSection() {
   const eligible = storefront.status === "eligible";
   const plans = status ? status.plans : null;
 
-  // Success detection: while a checkout is pending, a plan that becomes paid
-  // and differs from the pre-checkout plan means Stripe confirmed the purchase.
   const checkoutPhase = checkout.phase;
   const currentPlan = status ? status.plan : null;
   useEffect(() => {
@@ -114,15 +97,12 @@ export function SubscriptionSection() {
     </Pressable>
   );
 
-  // While either signal is resolving, render nothing to avoid flashing a
-  // section that may not apply (e.g. a signed-out non-US user).
   if (status === undefined || storefront.status === "loading") {
     return null;
   }
 
-  // Signed out.
   if (!signedIn) {
-    if (!eligible) return null; // fail closed: no purchase surface off the US storefront
+    if (!eligible) return null;
     return (
       <View style={styles.section}>
         {header}
@@ -144,12 +124,11 @@ export function SubscriptionSection() {
     );
   }
 
-  // Signed in.
   return (
     <View style={styles.section}>
       {header}
       <View style={styles.card}>
-        {/* Current plan */}
+        {}
         <View style={styles.currentPlanRow}>
           <Text style={styles.currentPlanLabel}>
             {t("billing.mobile.currentPlanLabel")}
@@ -166,7 +145,7 @@ export function SubscriptionSection() {
           ? renderManage()
           : eligible
             ? renderPurchase()
-            : null /* non-US free: current plan only, no promotion */}
+            : null }
       </View>
     </View>
   );
@@ -207,8 +186,7 @@ export function SubscriptionSection() {
   }
 
   function renderManage() {
-    // US: open the Stripe customer portal in the external browser. Non-US:
-    // neutral, management-only guidance to the web — no in-app steering.
+
     if (eligible) {
       return (
         <>

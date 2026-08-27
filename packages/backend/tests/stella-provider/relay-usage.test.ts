@@ -32,9 +32,6 @@ describe("createRelayUsageParser", () => {
         })}\n\n`,
       ]);
 
-      // Anthropic's `input_tokens` excludes the cache buckets; the parser
-      // reports gross input (100 + 40) so billing's subtraction lands on the
-      // 100 uncached tokens instead of clamping to zero.
       expect(usage).toEqual({
         model: "claude-opus-5",
         inputTokens: 140,
@@ -65,8 +62,7 @@ describe("createRelayUsageParser", () => {
     });
 
     it("keeps gross input correct when message_delta repeats input_tokens alone", () => {
-      // Cache counts arrive only on message_start, so the gross conversion has
-      // to run after the stream's fields merge, not per event.
+
       const parser = createRelayUsageParser("anthropic");
       const usage = feed(parser, [
         `event: message_start\ndata: ${JSON.stringify({
@@ -147,9 +143,7 @@ describe("createRelayUsageParser", () => {
     });
 
     it("reads Responses usage off response.completed for the Muse default", () => {
-      // Muse Spark 1.2 Contributor streams standard Responses events through
-      // OpenRouter: usage nests under `response` with input_tokens /
-      // output_tokens (+ reasoning in output_tokens_details).
+
       const parser = createRelayUsageParser("openrouter");
       const usage = feed(parser, [
         `data: ${JSON.stringify({ type: "response.created", response: { id: "resp_1" } })}\n\n`,
@@ -301,8 +295,7 @@ describe("createRelayUsageParser", () => {
     });
 
     it("reads cached_tokens off a non-streamed Responses body", () => {
-      // Plain JSON, so usage sits at the top level with no `response`
-      // envelope — the parser has to pick its shape from the usage fields.
+
       const parser = createRelayUsageParser("deepseek");
       const usage = feed(parser, [
         JSON.stringify({
@@ -330,9 +323,7 @@ describe("createRelayUsageParser", () => {
     });
 
     it("reads prompt_cache_hit_tokens off chat completions", () => {
-      // DeepSeek reports chat-completions cache hits at the top level rather
-      // than under prompt_tokens_details, and `prompt_tokens` is already
-      // gross (hit + miss). Missing this bills every cached read at full rate.
+
       const parser = createRelayUsageParser("deepseek");
       const usage = feed(parser, [
         `data: ${JSON.stringify({
@@ -429,8 +420,6 @@ describe("createRelayUsageParser", () => {
         })}\n\n`,
       ]);
 
-      // `candidatesTokenCount` excludes thinking, so output is reported as
-      // 20 + 5 to keep it inclusive of `reasoningTokens`.
       expect(usage).toEqual({
         model: "gemini-3.6-flash",
         inputTokens: 10,

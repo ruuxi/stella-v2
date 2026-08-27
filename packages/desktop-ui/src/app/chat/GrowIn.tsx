@@ -1,24 +1,14 @@
-/**
- * GrowIn: height animation wrapper.
- * Animates content height from 0 → auto using motion springs + ResizeObserver.
- * Includes fade+blur entrance on inner content.
- *
- * When `show` transitions to false, animates height → 0 with fade+blur out,
- * then unmounts children. Caches last visible children during exit so the
- * content doesn't disappear before the shrink animation finishes.
- */
-
 import { useRef, useEffect, useState, type ReactNode } from "react";
 import { animate } from "motion";
 import "./grow-in.css";
 
 interface GrowInProps {
   children: ReactNode;
-  /** Whether to animate. When false, renders at full height immediately. */
+
   animate?: boolean;
-  /** Controls visibility with animated enter/exit. Default true. */
+
   show?: boolean;
-  /** Spring duration in ms (default 500) */
+
   duration?: number;
   className?: string;
 }
@@ -40,12 +30,10 @@ export function GrowIn({
   const showRef = useRef(show);
   const entranceDoneRef = useRef(!canAnimate);
 
-  // Cache children while visible so exit animation has content to shrink
   if (show) {
     cachedChildrenRef.current = children;
   }
 
-  // Handle show/hide transitions
   useEffect(() => {
     const prevShow = showRef.current;
     showRef.current = show;
@@ -59,7 +47,7 @@ export function GrowIn({
     if (!outer) return;
 
     if (prevShow && !show) {
-      // Exit: shrink to 0
+
       controlsRef.current?.stop();
       setSettled(false);
       entranceDoneRef.current = false;
@@ -75,7 +63,7 @@ export function GrowIn({
         },
       );
     } else if (!prevShow && show) {
-      // Re-enter: reset for grow-in
+
       setExited(false);
       setSettled(false);
       entranceDoneRef.current = false;
@@ -84,11 +72,6 @@ export function GrowIn({
     }
   }, [show, canAnimate, duration]);
 
-  // After the entrance animation period, remove overflow:clip and return to
-  // natural height. During streaming the ResizeObserver restarts the spring on
-  // every chunk, so onComplete never fires and overflow:clip persists — clipping
-  // the bottom of the last assistant message. This timer guarantees the clip is
-  // lifted after the entrance window regardless.
   useEffect(() => {
     if (!canAnimate || !show) {
       entranceDoneRef.current = false;
@@ -106,7 +89,6 @@ export function GrowIn({
     return () => clearTimeout(timer);
   }, [canAnimate, show, duration]);
 
-  // ResizeObserver for entrance/resize tracking (only when showing)
   useEffect(() => {
     const inner = innerRef.current;
     const outer = outerRef.current;
@@ -117,8 +99,6 @@ export function GrowIn({
       if (!entry) return;
       const h = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
 
-      // After the entrance period, let normal layout own height so late
-      // markdown/font/resource reflows cannot paint outside a stale wrapper.
       if (entranceDoneRef.current) {
         controlsRef.current?.stop();
         outer.style.height = "auto";
@@ -154,7 +134,6 @@ export function GrowIn({
     return <div className={className}>{children}</div>;
   }
 
-  // Fully exited — render nothing
   if (exited && !show) return null;
 
   const displayChildren = show ? children : cachedChildrenRef.current;

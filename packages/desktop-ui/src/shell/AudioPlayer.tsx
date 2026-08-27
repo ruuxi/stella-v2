@@ -1,9 +1,3 @@
-/**
- * Custom audio player used by the media surfaces — a minimal scrubber
- * with play/pause and time readout, replacing the basic native
- * `<audio controls>` element.
- */
-
 import { useCallback, useRef, useState } from "react";
 import { Pause, Play } from "@/ui/icons";
 import { useT } from "@/shared/i18n";
@@ -24,9 +18,6 @@ export const AudioPlayer = ({ src }: { src: string | null }) => {
   const [duration, setDuration] = useState(0);
   const [scrubbing, setScrubbing] = useState(false);
 
-  // Reset transport state when the source swaps so the player can stay
-  // mounted across selection changes instead of remounting (which would
-  // flash the surface). The <audio> element reloads on src change.
   const progress = duration > 0 ? Math.min(1, current / duration) : 0;
   const remaining = Math.max(0, duration - current);
   const disabled = !src;
@@ -104,7 +95,7 @@ export const AudioPlayer = ({ src }: { src: string | null }) => {
             try {
               e.currentTarget.releasePointerCapture(e.pointerId);
             } catch {
-              // pointer already released
+
             }
           }}
           onKeyDown={(e) => {

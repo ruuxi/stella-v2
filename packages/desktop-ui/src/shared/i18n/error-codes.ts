@@ -1,11 +1,3 @@
-/**
- * Map known `ConvexError` codes (as thrown by the backend) to
- * localized message keys in the renderer's i18n catalogs. Backend
- * `ConvexError` always carries an English `message` for logs/devs;
- * the renderer should call `localizeBackendError` to surface the
- * user-friendly version in their language.
- */
-
 import { translate, type TranslateParams, type Catalog } from "./catalogs";
 
 const CODE_TO_KEY: Record<string, string> = {
@@ -47,15 +39,6 @@ const extractFallbackMessage = (error: ConvexErrorLike): string | undefined => {
   return undefined;
 };
 
-/**
- * Resolve a backend error to a localized message. Pass the active
- * catalog (from `useI18n().t` callsites or from the fallback) and an
- * optional generic-error fallback string.
- *
- * Returns the localized string for known codes, otherwise the
- * backend's English `message`, otherwise the generic-error
- * translation.
- */
 export const localizeBackendError = (
   error: unknown,
   catalog: Catalog | undefined,

@@ -1,23 +1,10 @@
-/* ============================================================
- * Compact chat surface (sidebar, orb)
- *
- * Typography tokens (`--chat-text-*`) live on `.chat-viewport-region`
- * in `full-shell.chat.css`. The variant blocks below only override
- * the values they want to change (most commonly `--chat-text-size`).
- *
- * `--compact-chat-*` tokens that remain here are layout-only —
- * bubble shape, padding, gap, per-side colors. They have no full-chat
- * equivalent, so they don't need parallel naming.
- * ============================================================ */
 .chat-conversation-surface {
   width: 100%;
   min-height: 100%;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  /* Mirror the `--chat-text-*` defaults from `.chat-viewport-region`
-     so compact hosts that don't live inside a viewport region (most
-     notably the sidebar thread) still resolve every token. */
+
   --chat-text-size: var(--font-size-lg);
   --chat-text-weight: var(--weight-regular);
   --chat-text-strong-weight: var(--weight-medium);
@@ -32,9 +19,7 @@
   --compact-chat-user-tail-radius: var(--compact-chat-user-radius);
   --compact-chat-user-max-width: 85%;
   --compact-chat-user-color: var(--text-strong);
-  /* Assistant bubble — the user bubble mirrored left, same as the full
-     chat. Applied to `.assistant-message-text` (the text container) so
-     cards/artifacts stay full-width outside it. */
+
   --compact-chat-assistant-bg: var(--surface-inset);
   --compact-chat-assistant-border-width: 1px;
   --compact-chat-assistant-border-color: var(--border);
@@ -44,30 +29,8 @@
   --compact-chat-assistant-padding: 6px 12px;
 }
 
-/*
- * When the surface hosts the virtualized LegendList (sidebar or orb),
- * it needs to be a true flex slot inside `.chat-viewport-region` so the
- * list can claim a definite height. The side panel keeps the original
- * `min-height: 100%` flow because its messages render flat (no list).
- *
- * `.chat-viewport-region` is a non-flex block in compact surfaces (the
- * full chat puts the LegendList directly inside it, so it never needed
- * to be a flex column). Make it a flex column here so the surface child
- * gets a definite height; otherwise the LegendList's `height: 100%`
- * collapses to 0 and the sidebar can't scroll.
- */
 .chat-viewport-region:has(> .chat-conversation-surface) {
-  /*
-   * Self-contained sizing so compact surfaces do not depend on
-   * `full-shell.layout.css`. The full chat's `.chat-viewport-region` gets
-   * these same properties from
-   * `full-shell.layout.css`; scoping them to `:has(> .chat-conversation-surface)`
-   * limits them to compact surfaces (the full chat hosts the LegendList
-   * directly, with no `.chat-conversation-surface` wrapper) and the values
-   * are identical, so the sidebar/orb are unaffected. Without these, the
-   * region collapses to 0 height (no scrolling messages) and the
-   * `min-height: 100%` surface shoves the composer off-screen.
-   */
+
   flex: 1;
   min-height: 0;
   position: relative;
@@ -82,7 +45,6 @@
   min-height: 0;
 }
 
-/* Compact surfaces share the same smaller body size. */
 .chat-conversation-surface--orb,
 .chat-conversation-surface--sidebar {
   --chat-text-size: var(--font-size-base);
@@ -99,9 +61,7 @@
 }
 
 .chat-conversation-surface--sidebar {
-  /* Match the full chat's user bubble exactly — same contrast-guaranteed
-     `--chat-user-bubble-*` fill/text pair (see `.event-item.user` in
-     full-shell.chat.css) so the two surfaces can't drift apart. */
+
   --compact-chat-user-bg: var(--chat-user-bubble-fill);
   --compact-chat-user-color: var(--chat-user-bubble-text);
   --compact-chat-user-radius: 14px;
@@ -133,19 +93,12 @@
   margin-left: auto;
   max-width: var(--compact-chat-user-max-width);
   width: fit-content;
-  /* The full-chat user bubble is a solid accent fill with the derived
-     `--chat-user-bubble-text`. The sidebar variant mirrors that exactly; other
-     compact surfaces (e.g. the orb) use a subtle tint instead, so the
-     body text color (`.event-body` reads `--chat-text-color`) routes through
-     `--compact-chat-user-color` and each variant keeps text legible on its
-     own bubble fill. */
+
   --chat-text-color: var(--compact-chat-user-color);
   color: var(--compact-chat-user-color);
   padding: var(--compact-chat-user-padding);
 }
 
-/* The assistant ITEM stays chrome-less and full width — it wraps the text
-   bubble plus any inline cards / artifacts / action strip. */
 .chat-conversation-surface .event-item.assistant {
   background: transparent;
   border: none;
@@ -168,16 +121,6 @@
   padding: var(--compact-chat-assistant-padding);
 }
 
-/*
- * Compact surfaces inherit `.event-body` and `.event-item.assistant .markdown`
- * typography from `full-shell.chat.css` via the shared `--chat-text-*` tokens.
- * Only the size differs (set on the variant block above).
- *
- * Full-chat assistant markdown intentionally keeps the airier base
- * `.markdown` line-height for long-form readability; in narrow
- * compact bubbles that ratio leaves too much vertical air between
- * lines, so tighten back down to the chat body line-height.
- */
 .chat-conversation-surface .event-item.assistant .markdown {
   line-height: var(--chat-text-line-height);
 }
@@ -192,9 +135,6 @@
   margin-bottom: 0.5rem;
 }
 
-/* Compact surfaces share the full-chat heading scale (defined in
-   full-shell.chat.css) — no separate flatten-to-body behavior. */
-
 .chat-conversation-surface .event-item.assistant .markdown :is(pre, code, .shiki, kbd, samp) {
   font-weight: var(--weight-regular);
   letter-spacing: normal;
@@ -207,10 +147,6 @@
 .chat-conversation-surface .event-item.assistant .markdown blockquote {
   color: var(--text-base);
 }
-
-/* Compact surfaces inherit the same 4-line user-message clamp as the
-   full chat. Width-driven wrap still decides overflow; we do not raise
-   the line count just because the bubble is narrower. */
 
 .chat-conversation-surface--orb .event-item.assistant .text-shimmer {
   background-image: linear-gradient(

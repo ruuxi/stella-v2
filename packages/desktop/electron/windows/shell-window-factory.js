@@ -51,21 +51,7 @@ export const reloadShellMainWindow = (window, options) => {
     }
     loadShellMainWindow(window, options);
 };
-/**
- * Resolves a readable path to `recovery.html` from the running main process.
- *
- * `tsc` does not copy static assets into `dist-electron/`, so the historical
- * `loadFile(path.join(electronDir, 'recovery.html'))` always pointed at a
- * non-existent file. We instead resolve from the source tree at runtime:
- *
- *   - In dev, `electronDir` is `desktop/dist-electron/desktop/electron`, so
- *     `../../../electron/recovery.html` walks back to the source file.
- *   - In packaged builds, `electron-builder` ships the entire `desktop/`
- *     source tree (the `files` glob is `dist-electron/**`, but ASAR resolves
- *     relative paths within the bundle and we register the source layout via
- *     `extraFiles` below). We probe both the compiled-adjacent path and the
- *     dev fallback so packaging changes can't silently re-break recovery.
- */
+
 const resolveRecoveryHtmlPath = (electronDir) => {
     const candidates = [
         path.join(electronDir, 'recovery.html'),
@@ -79,17 +65,12 @@ const resolveRecoveryHtmlPath = (electronDir) => {
             }
         }
         catch {
-            /* try next */
+
         }
     }
     return null;
 };
-/**
- * Loads the recovery surface into a window. Reads `recovery.html` from disk
- * and serves it via a `data:` URL so we never have to do a `file://`
- * navigation from an `http://` (dev) origin — Chromium blocks that as
- * "Not allowed to load local resource", which used to leave the window blank.
- */
+
 export const loadShellRecoveryPage = (window, electronDir) => {
     if (!window || window.isDestroyed()) {
         return;

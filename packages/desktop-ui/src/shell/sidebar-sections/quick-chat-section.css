@@ -1,6 +1,3 @@
-/* Quick chat — see `QuickChatSection.tsx`. An ephemeral chat that reuses the
-   normal sidebar chat surface (`ChatPanelTab`) inside the panel. */
-
 .quick-chat {
   display: flex;
   flex-direction: column;

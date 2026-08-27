@@ -28,7 +28,6 @@ import "./agent-thread-chat-tab.css";
 const MESSAGE_LIMIT = 200;
 const NEAR_BOTTOM_PX = 56;
 
-/** Returns a catalog *key*; the caller resolves it against the active locale. */
 const roleLabelKey = (role: AgentThreadMessageRecord["role"]): string => {
   switch (role) {
     case "user":
@@ -46,7 +45,6 @@ const roleLabelKey = (role: AgentThreadMessageRecord["role"]): string => {
   }
 };
 
-/** Local-timezone "h:mm AM/PM" for the hover timestamp gutter. */
 const formatMessageTime = (timestampMs: number): string =>
   new Date(timestampMs).toLocaleTimeString([], {
     hour: "numeric",
@@ -227,9 +225,7 @@ export function AgentThreadChatTab({
   const isClaudeNative = resolvedSource === "claude-native";
   const resolvedReadOnly = activityRecord?.readOnly ?? readOnly;
   const resolvedParentId = activityRecord?.parentAgentId ?? parentAgentId;
-  // Codex surfaces its reasoning AS its working assistant message, so a Codex
-  // thread keeps reasoning (rendered as assistant) while every other engine's
-  // reasoning is dropped from this transcript.
+
   const isCodex =
     activityRecord?.modelConfigSnapshot?.engine === "codex_cli";
   const parentRecord = useMemo(
@@ -275,10 +271,9 @@ export function AgentThreadChatTab({
     () =>
       messages
         .filter((message) => {
-          // Tool calls are never shown in this transcript.
+
           if (message.role === "tool") return false;
-          // Reasoning is dropped everywhere except Codex, whose reasoning is
-          // its working assistant message (surfaced as assistant below).
+
           if (message.role === "reasoning") return isCodex;
           if (message.role !== "lifecycle") return true;
           if (
@@ -294,7 +289,7 @@ export function AgentThreadChatTab({
           );
         })
         .map((message) =>
-          // Codex reasoning renders exactly like an assistant message.
+
           message.role === "reasoning"
             ? { ...message, role: "assistant" as const }
             : message,
@@ -349,8 +344,7 @@ export function AgentThreadChatTab({
             ? cause.message
             : t("shell.display.agentThread.loadFailed");
         setError(nextError);
-        // The visible error owns its focused live announcement through
-        // `role=alert`; do not repeat it through the update status region.
+
         setAnnouncement("");
       } finally {
         if (generation === requestGeneration.current) {
@@ -400,10 +394,7 @@ export function AgentThreadChatTab({
         const exactThreadId =
           activityPayload.transcriptUpdate?.threadId ??
           activityPayload.assistantUpdate?.threadId;
-        // Transcript/authored-update pushes identify their exact thread.
-        // Lifecycle persistence also emits a conversation-level invalidation
-        // with no thread id; refresh the one visible viewer for that signal so
-        // external-engine/finalization writes cannot leave it frozen.
+
         if (exactThreadId && exactThreadId !== threadId) return;
         scheduleRefresh();
       });
@@ -501,9 +492,7 @@ export function AgentThreadChatTab({
             <span>{t("shell.display.agentThread.empty")}</span>
           </div>
         ) : (
-          // `chat-conversation-surface--sidebar` reuses the panel chat's
-          // shared bubble styling (see compact-conversation.css) so this
-          // read-only view renders exactly like the normal sidebar chat.
+
           <ol className="agent-thread-chat__messages chat-conversation-surface chat-conversation-surface--sidebar">
             {visibleMessages.map((message, index) => {
               const isAssistant =
@@ -542,9 +531,9 @@ export function AgentThreadChatTab({
                   />
                 ) : (
                   <>
-                    {/* The "Agent" role label above assistant messages is
-                        dropped; the message keeps its indent. Non-assistant
-                        (user/instruction) rows still show their eyebrow. */}
+                    {
+
+}
                     {!isAssistant ? (
                       <span className="agent-thread-chat__role">
                         {t(roleLabelKey(message.role))}

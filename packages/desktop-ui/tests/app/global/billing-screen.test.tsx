@@ -1,5 +1,3 @@
-// @vitest-environment jsdom
-
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { withI18n } from "../../helpers/i18n";
@@ -156,7 +154,7 @@ describe("billing panel", () => {
     expect(container.querySelectorAll(".billing-plan")).toHaveLength(3);
     expect(findButton("Choose Go")).not.toBeUndefined();
     expect(findButton("Choose Pro")).not.toBeUndefined();
-    // Free user has no subscription to manage.
+
     expect(findButton("Manage subscription")).toBeUndefined();
     expect(container.textContent).toContain("Free to try.");
     expect(container.textContent).not.toContain("3x the usage");
@@ -178,7 +176,6 @@ describe("billing panel", () => {
 
     const [free, go, pro] = [1, 2, 3].map(rowsFor);
 
-    // No card ever renders a feature it does not include.
     expect(free).toEqual([
       "Personal assistant",
       "Coding agent",
@@ -186,9 +183,7 @@ describe("billing panel", () => {
       "Dictation and read-aloud",
     ]);
     expect(go).toEqual(free);
-    // Multiple agents works across plans but is intentionally marketed only
-    // on Pro. The media rows are enforced capabilities derived from the
-    // capability matrix.
+
     expect(pro).toEqual([
       ...go,
       "Multiple agents",
@@ -198,14 +193,10 @@ describe("billing panel", () => {
       "3D generation",
     ]);
 
-    // The rows plans share stay in the same sequence in every column, so
-    // a longer card reads as an extension of the one beside it.
     expect(go.slice(0, free.length)).toEqual(free);
     expect(pro.slice(0, go.length)).toEqual(go);
   });
 
-  // The Free plan's allowance is spent once and never refreshes, so the
-  // screen must not present it through windows that visibly refill.
   const freeWithAllowance = (usedUsd: number) => {
     const status = subscriptionStatus();
     return {
@@ -263,10 +254,6 @@ describe("billing panel", () => {
     expect(container.textContent).not.toContain("Free allowance");
   });
 
-  // Cancelling is not a cut-off — Stripe keeps the plan live to the end of
-  // the paid period. What this surface owes the user is what happens
-  // *after* that date: the Free allowance is granted once, so a subscriber
-  // who already spent theirs has no usable tier to land on.
   const cancelledPaidStatus = (lifetimeUsedUsd: number) => {
     const status = subscriptionStatus({
       plan: "pro",
@@ -293,13 +280,10 @@ describe("billing panel", () => {
 
     const notice = container.querySelector(".billing-allowance--spent");
     expect(notice?.textContent).toContain("Stella stops when your plan ends");
-    // Names the plan that is ending, so the sentence reads as theirs.
+
     expect(notice?.textContent).toContain("Pro");
   });
 
-  // The warning is gated on the real numbers, not on the fact of
-  // cancelling: someone still under the Free cap keeps a usable remainder,
-  // and telling them Stella stops would simply be false.
   it("spares the warning when the free allowance is still usable", async () => {
     seedQueries(cancelledPaidStatus(0.1));
     await render();
@@ -310,9 +294,6 @@ describe("billing panel", () => {
     );
   });
 
-  // The Go discount is a Stripe coupon created `duration=once`: it comes
-  // off the first invoice only. The headline may lead with the
-  // discounted price, but it must never imply that price recurs.
   const discountedGo = (overrides: Record<string, unknown> = {}) => {
     const status = subscriptionStatus(overrides);
     return {
@@ -334,7 +315,7 @@ describe("billing panel", () => {
     await render();
 
     const price = goPriceBlock();
-    // The charged price is the headline; the standard rate is demoted.
+
     expect(price?.querySelector(".billing-plan-amount")?.textContent).toBe(
       "$3",
     );
@@ -342,7 +323,6 @@ describe("billing panel", () => {
       "$5",
     );
 
-    // …and the term never gets separated from the number.
     expect(price?.textContent).toContain("first month");
     expect(price?.querySelector(".billing-plan-terms")?.textContent).toBe(
       "then $5/month",

@@ -1,5 +1,3 @@
-/// <reference types="vite/client" />
-
 import { convexTest } from "convex-test";
 import { register as registerRateLimiter } from "@convex-dev/rate-limiter/test";
 import { describe, expect, it } from "vitest";
@@ -25,7 +23,6 @@ const asOwner = (t: ReturnType<typeof createTest>) =>
     iat: 1_000,
   });
 
-/** Seed a registered successor plus whatever the retired identity still owns. */
 const seed = async (
   t: ReturnType<typeof createTest>,
   options: { pairedPhone?: string; retiredRegistration?: boolean } = {},
@@ -83,8 +80,6 @@ describe("device identity succession", () => {
       });
     });
 
-    // Before succession the retired id resolves to nothing, which is what the
-    // phone reads as a permanently offline desktop.
     const stranded = await t.query(
       internal.mobile_bridge.getRegistrationForOwnerDevice,
       { ownerId, deviceId: previousDeviceId, nowMs: Date.now() },
@@ -101,7 +96,7 @@ describe("device identity succession", () => {
       { ownerId, deviceId: previousDeviceId, nowMs: Date.now() },
     );
     expect(resolved?.available).toBe(true);
-    // The phone learns its new id from this, and re-files its pairing under it.
+
     expect(resolved?.deviceId).toBe(deviceId);
   });
 
@@ -167,7 +162,6 @@ describe("device identity succession", () => {
       { previousDeviceId, deviceId },
     );
 
-    // Otherwise a later rotation could claim an earlier one's paired phones.
     await expect(
       asOwner(t).mutation(api.device_identity.adoptDeviceIdentitySuccession, {
         previousDeviceId,

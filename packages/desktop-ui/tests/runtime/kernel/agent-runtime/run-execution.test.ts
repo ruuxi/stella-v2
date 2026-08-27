@@ -690,10 +690,10 @@ describe("executeRuntimeAgentPrompt", () => {
         toolName: "exec_command",
         args: {},
       } as never);
-      // Outlives the plain idle window (25ms) because a tool is in flight...
+
       await new Promise((resolve) => setTimeout(resolve, 40));
       expect(agent.abort).not.toHaveBeenCalled();
-      // ...but the tool ceiling (60ms) still bounds a leaked entry.
+
       await expect(execution).rejects.toThrow(/still marked in flight/);
       expect(agent.abort).toHaveBeenCalled();
     } finally {

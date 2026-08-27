@@ -1,20 +1,12 @@
-/**
- * Serialization for persisted desktop-bridge sessions (pure — no Expo
- * imports, tested under `bun test`). Persisting the session lets an app
- * cold-start skip the challenge → Convex-mint → consume handshake (~3 RTTs)
- * whenever the desktop still honors the session; the liveness probe before
- * reuse catches every case where it doesn't.
- */
-
 export type PersistedBridgeSession = {
   v: 1;
   baseUrl: string;
   sessionId: string;
-  /** Auth headers exactly as sent on every bridge request. */
+
   headers: Record<string, string>;
-  /** Derived AES-256-GCM session key, base64url. */
+
   keyB64: string;
-  /** Envelope tx sequence at save time (restored with slack, see below). */
+
   txSeq: number;
   expiresAt: number;
   features: string[];
@@ -22,17 +14,8 @@ export type PersistedBridgeSession = {
   includeDeveloperArtifacts: boolean;
 };
 
-/**
- * On restore the desktop's anti-replay window has seen seqs we may not have
- * persisted (saves are not per-message). Restart the counter well past
- * anything the previous process could plausibly have sent so no fresh
- * envelope reuses a seq the desktop already recorded. Seqs are plain numbers;
- * even at one envelope per millisecond this costs ~3 months of headroom per
- * restore against Number.MAX_SAFE_INTEGER.
- */
 export const BRIDGE_SESSION_TX_SEQ_RESTORE_SLACK = 8192;
 
-/** Don't bother restoring a session that is about to expire anyway. */
 export const BRIDGE_SESSION_RESTORE_MIN_REMAINING_MS = 2 * 60_000;
 
 export const serializePersistedBridgeSession = (
@@ -95,6 +78,5 @@ export const deserializePersistedBridgeSession = (
   };
 };
 
-/** The tx seq a restored crypto session must resume from. */
 export const restoredTxSeq = (persistedTxSeq: number): number =>
   Math.max(0, Math.floor(persistedTxSeq)) + BRIDGE_SESSION_TX_SEQ_RESTORE_SLACK;

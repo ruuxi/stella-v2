@@ -42,8 +42,6 @@ function FolderIcon() {
   return <Folder size={16} strokeWidth={1.5} />;
 }
 
-/* ── Capability catalog ── */
-
 type Category = "image" | "audio" | "music" | "video" | "3d";
 
 type ExtraField = {
@@ -77,16 +75,6 @@ const CATEGORIES: { id: Category; labelKey: string }[] = [
   { id: "3d", labelKey: "app.media.studio.category3d" },
 ];
 
-/**
- * The plan capability each studio category needs. This map is the only
- * plan knowledge in the studio — the lock state, the badge and the copy
- * all come from the shared matrix via `useCapabilityAccess`, so flipping
- * a boolean there re-opens these tabs without touching this file.
- *
- * (Note the two senses of "capability" in this file: `CapabilityDef` is
- * a generator in the studio's own catalog; `PlanCapability` is an
- * entitlement on the user's plan.)
- */
 const CATEGORY_PLAN_CAPABILITY: Record<Category, PlanCapability> = {
   image: "image_generation",
   audio: "audio_generation",
@@ -214,8 +202,6 @@ const CAPABILITIES: CapabilityDef[] = [
 
 const ASPECT_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4"] as const;
 
-/* ── Service ── */
-
 type GenerateResponse = {
   jobId: string;
   capability: string;
@@ -254,12 +240,10 @@ async function generateMedia(
   return res.json() as Promise<GenerateResponse>;
 }
 
-/* ── Component ── */
-
 export default function MediaStudio() {
   const t = useT();
   const { restrictionFor } = useCapabilityAccess();
-  // Restore persisted state
+
   const [savedForm] = useState(loadFormState);
   const [history, setHistory] = useState(loadHistory);
 
@@ -311,7 +295,6 @@ export default function MediaStudio() {
     ? (capability.sourceAccept?.startsWith(sourceType ?? "") ?? false)
     : false;
 
-  // Convex subscription for active job
   const job = useQuery(
     api.media_jobs.getByJobId,
     activeJobId ? { jobId: activeJobId } : "skip",
@@ -321,7 +304,6 @@ export default function MediaStudio() {
   const jobOutput = job?.output;
   const jobError = job?.error as { message?: string } | undefined;
 
-  // When job completes, save to history + desktop/state
   useEffect(() => {
     if (!activeJobId) return;
     if (savedJobRef.current.has(activeJobId)) return;
@@ -337,14 +319,12 @@ export default function MediaStudio() {
       const jobIdCopy = activeJobId;
       let cancelled = false;
 
-      // Save files to desktop/state
       void saveOutputToStella(output, jobIdCopy).then((saved) => {
         if (!cancelled && saved !== output) {
           setHistory(updateHistoryEntry(jobIdCopy, { output: saved }));
         }
       });
 
-      // Generate thumbnail for the strip
       if (output.kind === "image" && output.urls[0]) {
         void generateThumb(output.urls[0]).then((thumb) => {
           if (!cancelled && thumb) {
@@ -369,17 +349,13 @@ export default function MediaStudio() {
     }
   }, [activeJobId, jobStatus, jobOutput, jobError, t]);
 
-  // Persist form state on changes
   const persistForm = useCallback((patch: Partial<FormState>) => {
     saveFormState({ ...loadFormState(), ...patch });
   }, []);
 
-  /* ── Handlers ── */
-
   const handleCategoryChange = useCallback(
     (cat: Category) => {
-      // Pre-emptive gate: a locked tab never opens onto a form whose
-      // only possible outcome is a 402.
+
       const restriction = restrictionFor(CATEGORY_PLAN_CAPABILITY[cat]);
       if (restriction) {
         showToast(buildCapabilityRestrictionToast(restriction, t));
@@ -517,9 +493,6 @@ export default function MediaStudio() {
   const handleGenerate = useCallback(async () => {
     if (!capability) return;
 
-    // Restored form state can point at a category the plan no longer
-    // covers, so the gate is re-checked here rather than trusting the
-    // tab that was open when the state was saved.
     const planCapability = CATEGORY_PLAN_CAPABILITY[capability.category];
     const restriction = restrictionFor(planCapability);
     if (restriction) {
@@ -554,10 +527,6 @@ export default function MediaStudio() {
         status: "pending",
       };
 
-      // Tell the global materializer to skip this job — MediaStudio will
-      // present the result inline. Mark up-front (not on success) to avoid a
-      // race where the materializer's subscription registers a duplicate
-      // workspace media entry first.
       markMediaJobMaterialized(result.jobId);
 
       startTransition(() => {
@@ -612,18 +581,16 @@ export default function MediaStudio() {
         new ClipboardItem({ "image/png": pngBlob }),
       ]);
     } catch {
-      // silent fail
+
     }
   }, []);
 
-  /** Load an output URL as the source and switch to a target capability. */
   const handleSendTo = useCallback(
     (targetCapId: string, url: string) => {
       const cap = CAPABILITIES.find((c) => c.id === targetCapId);
       if (!cap) return;
       const targetCat = cap.category as Category;
 
-      // Infer a file name from the URL
       const urlName = url.split("/").pop()?.split("?")[0] ?? "output";
 
       startTransition(() => {
@@ -663,7 +630,6 @@ export default function MediaStudio() {
     (!capability.needsPrompt || prompt.trim().length > 0) &&
     (!capability.needsSource || (sourceUri !== null && sourceCompatible));
 
-  // Determine what to show in the output panel
   const liveOutput = useMemo(
     () =>
       activeJobId && jobStatus === "succeeded" && jobOutput
@@ -694,7 +660,7 @@ export default function MediaStudio() {
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
-      {/* ── Left: controls ── */}
+      {}
       <div className="ms-controls">
         <div className="ms-controls-header">
           <h1 className="ms-title">
@@ -705,10 +671,7 @@ export default function MediaStudio() {
 
         <nav className="ms-categories">
           {CATEGORIES.map((cat) => {
-            // Annotated rather than removed: a locked tab still tells
-            // the user the feature exists and which plan carries it.
-            // `aria-disabled` over `disabled` keeps it focusable, so the
-            // explanation is reachable from the keyboard too.
+
             const restriction = restrictionFor(
               CATEGORY_PLAN_CAPABILITY[cat.id],
             );
@@ -738,7 +701,7 @@ export default function MediaStudio() {
         </nav>
 
         <div className="ms-controls-body">
-          {/* Capability list */}
+          {}
           <div className="ms-capabilities">
             {filteredCapabilities.map((cap) => (
               <button
@@ -755,7 +718,7 @@ export default function MediaStudio() {
             ))}
           </div>
 
-          {/* Form */}
+          {}
           {capability && (
             <>
               <hr className="ms-rule" />
@@ -900,7 +863,7 @@ export default function MediaStudio() {
         </div>
       </div>
 
-      {/* ── Right: output + history strip ── */}
+      {}
       <div className="ms-right">
         <div className="ms-output-panel">
           {dragging && (
@@ -1041,7 +1004,7 @@ export default function MediaStudio() {
           )}
         </div>
 
-        {/* History strip */}
+        {}
         {history.length > 0 && (
           <div className="ms-strip">
             <div className="ms-strip-scroll">
@@ -1104,7 +1067,7 @@ export default function MediaStudio() {
         )}
       </div>
 
-      {/* Lightbox */}
+      {}
       {lightboxUrl && (
         <div className="ms-lightbox" onClick={() => setLightboxUrl(null)}>
           <img

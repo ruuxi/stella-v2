@@ -88,7 +88,7 @@ function parseTextSignature(
         };
       }
     } catch {
-      // fall through
+
     }
   }
   return { id: signature };
@@ -149,8 +149,7 @@ export function convertResponsesMessages<TApi extends Api>(
     }
     const [callId, itemId] = id.split("|");
     const normalizedCallId = normalizeIdPart(callId);
-    // Foreign tool-calls (different provider OR api) get hashed item ids so OpenAI
-    // doesn't reject the replayed fc_xxx because it never paired with a known rs_xxx.
+
     const isForeignToolCall =
       source.provider !== model.provider || source.api !== model.api;
     let normalizedItemId = isForeignToolCall
@@ -220,8 +219,7 @@ export function convertResponsesMessages<TApi extends Api>(
 
     if (message.role === "assistant") {
       const assistantOutput: ResponseInput = [];
-      // Counts unsigned text blocks within this single assistant message so
-      // 2nd+ fallback ids don't collide (OpenAI rejects duplicate input ids).
+
       let textBlockIndex = 0;
       const assistantMessage = message as AssistantMessage;
       const isDifferentModel =
@@ -237,9 +235,7 @@ export function convertResponsesMessages<TApi extends Api>(
                 JSON.parse(block.thinkingSignature) as ResponseReasoningItem,
               );
             } catch {
-              // Signature isn't a serialized reasoning item (e.g. a foreign
-              // provider's signature that survived history transforms) —
-              // skip it rather than failing the whole request.
+
             }
           }
           continue;
@@ -318,18 +314,6 @@ export function convertResponsesMessages<TApi extends Api>(
     );
     const [callId] = message.toolCallId.split("|");
 
-    // Always emit `function_call_output` with text-only content. Several
-    // OpenAI-Responses-compatible providers (notably Fireworks routers,
-    // including kimi-k2p6 and kimi-k2p5) do NOT parse
-    // `input_image` parts inside `function_call_output.output` — they
-    // stringify the entire array, including the base64 data URL, which
-    // tokenizes into hundreds of thousands of input tokens and busts the
-    // model's context window. The image is forwarded as a follow-up
-    // user message below using the same shape `openai_completions.ts`
-    // uses for the chat-completions API. Verified via direct Fireworks
-    // POST: 451K tokens (mixed-content output) → 2K tokens
-    // (follow-up user image), with the model correctly describing the
-    // screenshot in the second case.
     messages.push({
       type: "function_call_output",
       call_id: callId,
@@ -387,13 +371,7 @@ export async function processResponsesStream<TApi extends Api>(
     | TextContent
     | (ToolCall & { partialJson: string })
     | null = null;
-  // Set to the item.id of the most recently finalized message item so we can
-  // ignore stray duplicate events that some Fireworks routers emit AFTER
-  // `output_item.done` (e.g. a second wave of `output_text.delta` carrying
-  // the same text, or a repeated `output_item.added` for the same `msg_id`).
-  // Lazy text-block creation must stay disabled in that window — otherwise
-  // `ensureTextBlock` allocates a fresh block and the assistant reply
-  // renders twice (the finalized block + the resurrected block).
+
   let lastFinalizedMessageItemId: string | null = null;
 
   const contentIndex = () => output.content.length - 1;
@@ -401,9 +379,7 @@ export async function processResponsesStream<TApi extends Api>(
     if (currentItem?.type === "message" && currentBlock?.type === "text") {
       return currentBlock;
     }
-    // A prior `output_item.done` finalized a message — drop stray text
-    // events (some Fireworks routers re-emit the full reply after
-    // `output_item.done`) instead of resurrecting a duplicate block.
+
     if (lastFinalizedMessageItemId !== null) {
       return null;
     }
@@ -433,23 +409,12 @@ export async function processResponsesStream<TApi extends Api>(
         output.content.push(currentBlock);
         stream.push({ type: "thinking_start", contentIndex: contentIndex(), partial: output });
       } else if (event.item.type === "message") {
-        // Fireworks's Responses API for kimi-k2p6 emits
-        // `output_text.delta` events BEFORE `output_item.added` for the
-        // message they belong to. `ensureTextBlock` (called from the
-        // delta handler) lazy-creates a text block in that case. When
-        // the real `output_item.added` then arrives, we must adopt the
-        // existing block instead of allocating a duplicate — otherwise
-        // every assistant reply ends up rendered twice (textA from the
-        // lazy creation, textB from this handler, both with the full
-        // text once `output_item.done` writes `item.content` into B).
+
         if (
           lastFinalizedMessageItemId !== null
           && event.item.id === lastFinalizedMessageItemId
         ) {
-          // Duplicate `item.added` for an already-finalized message
-          // (Fireworks kimi-k2p6 occasionally re-emits the full reply
-          // after `output_item.done`). Ignore so we don't open a second
-          // text block and render the assistant reply twice.
+
           continue;
         }
         if (currentBlock?.type === "text") {
@@ -460,9 +425,7 @@ export async function processResponsesStream<TApi extends Api>(
           output.content.push(currentBlock);
           stream.push({ type: "text_start", contentIndex: contentIndex(), partial: output });
         }
-        // A new (different) message item is now in flight — clear the
-        // finalized marker so lazy text-block creation works for any
-        // out-of-order events that belong to *this* item.
+
         lastFinalizedMessageItemId = null;
       } else if (event.item.type === "function_call") {
         currentItem = event.item;
@@ -507,10 +470,7 @@ export async function processResponsesStream<TApi extends Api>(
 
     if (event.type === "response.output_text.delta" || event.type === "response.refusal.delta") {
       const textBlock = ensureTextBlock();
-      // `ensureTextBlock` returns null once a message item has already been
-      // finalized — stray duplicate deltas (Fireworks kimi-k2p6 occasionally
-      // re-emits the full reply after `output_item.done`) would otherwise
-      // open a second text block and render the assistant reply twice.
+
       if (!textBlock) continue;
       textBlock.text += event.delta;
       stream.push({
@@ -523,11 +483,7 @@ export async function processResponsesStream<TApi extends Api>(
     }
 
     if (event.type === "response.output_text.done" || event.type === "response.refusal.done") {
-      // If we've already finalized the text block (e.g. via a prior
-      // `output_item.done` for the same message), do NOT lazy-resurrect
-      // a new empty block via `ensureTextBlock`. Otherwise we'd push a
-      // fresh `text_start` + `text_delta` carrying the full final text
-      // and double the assistant reply in the UI.
+
       if (currentBlock?.type !== "text") {
         continue;
       }
@@ -577,8 +533,6 @@ export async function processResponsesStream<TApi extends Api>(
         currentBlock.partialJson = event.arguments;
         currentBlock.arguments = parseStreamingJson(currentBlock.partialJson);
 
-        // Some upstreams emit no `function_call_arguments.delta` events and only deliver
-        // the final arguments here. Emit the missing suffix so consumers see a complete delta stream.
         if (event.arguments.startsWith(previousPartialJson)) {
           const delta = event.arguments.slice(previousPartialJson.length);
           if (delta.length > 0) {
@@ -659,7 +613,7 @@ export async function processResponsesStream<TApi extends Api>(
         const cachedTokens = response.usage.input_tokens_details?.cached_tokens || 0;
         const reasoningTokens = response.usage.output_tokens_details?.reasoning_tokens || 0;
         output.usage = {
-          // OpenAI includes cached tokens in input_tokens, so subtract to get non-cached input
+
           input: (response.usage.input_tokens || 0) - cachedTokens,
           output: response.usage.output_tokens || 0,
           cacheRead: cachedTokens,

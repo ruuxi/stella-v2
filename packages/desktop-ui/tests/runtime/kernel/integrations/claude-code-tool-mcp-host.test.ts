@@ -112,8 +112,7 @@ describe("claude-code-tool-mcp-host", () => {
         text: expect.stringContaining("get_weather:Paris"),
       },
     ]);
-    // File-change accounting stays on Stella's internal turn result and is
-    // not reflected back into Claude's tool payload.
+
     expect(JSON.stringify(result.content)).not.toContain("/tmp/weather.txt");
     expect(onToolUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -227,9 +226,6 @@ describe("claude-code-tool-mcp-host", () => {
     );
     expect(Number.isFinite(firstRequestId)).toBe(true);
 
-    // Reuse the first native request id. Once the 512-entry settled window
-    // rolls over, this must execute again rather than retaining/replaying the
-    // old large result forever.
     (
       client as unknown as {
         _requestMessageId: number;

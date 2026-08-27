@@ -14,23 +14,12 @@ const redactSensitiveLogText = (value) => value
     .replace(/\b([A-Za-z0-9_-]{20,}\.[A-Za-z0-9._-]{10,})\b/g, "[redacted-token]");
 const AGENT_EVENT_BUFFER_LIMIT = 1000;
 const AGENT_EVENT_BUFFER_TTL_MS = 10 * 60 * 1000;
-/**
- * How long a client-supplied idempotency key (`clientRequestId`) maps to a
- * started run. A reconnecting client (e.g. mobile over a flaky tunnel) can
- * safely re-send the same `startChat` within this window without spawning a
- * duplicate run; we just hand back the original `requestId`.
- */
+
 const CLIENT_REQUEST_DEDUPE_TTL_MS = 5 * 60 * 1000;
-// The worker persists the canonical user row before it enters orchestrator
-// dispatch. A mobile send should be acknowledged from that durable receipt,
-// even when the active turn has not consumed the steer yet. Keep this window
-// short; if persistence itself is delayed, fall back to the normal startChat
-// result/error path instead of claiming acceptance prematurely.
+
 const DURABLE_CHAT_ACCEPTANCE_WAIT_MS = 2_000;
 const waitForDurableChatAcceptance = async (history, eventId) => {
-    // Give an already-resolved startChat call its microtask first so normal
-    // starts retain their concrete runId; durable acceptance wins only when
-    // execution is genuinely still pending.
+
     await new Promise((resolve) => setTimeout(resolve, 0));
     const deadline = Date.now() + DURABLE_CHAT_ACCEPTANCE_WAIT_MS;
     while (Date.now() < deadline) {
@@ -42,22 +31,7 @@ const waitForDurableChatAcceptance = async (history, eventId) => {
     return history.hasEventId({ eventId, type: "user_message" });
 };
 const requestIdForClientSend = (clientRequestId) => `req:client:${crypto.createHash("sha256").update(clientRequestId).digest("hex").slice(0, 32)}`;
-/**
- * Mobile clients (the desktop-bridge chat) abort a run after a fixed window
- * of event silence (`BRIDGE_RUN_TIMEOUT_MS`, 45s) and, once their reconnect
- * attempts are exhausted, surface "Stella did not reply in time." Long silent
- * stretches are legitimate: a slow first token, a multi-minute shell/tool
- * call, or context compaction (worst on the Claude Code / Codex engines, but
- * possible on the default engine too) can all run well past 45s without
- * emitting any event. Since assistant text is delivered whole (one
- * `assistant-message` event per finished segment instead of a token stream),
- * even ordinary long answers now produce no traffic while they generate —
- * which makes this ticker the only thing keeping mobile's inactivity timer
- * alive through them. While a user-visible run is active we broadcast a
- * lightweight keepalive to mobile so its inactivity timer keeps resetting
- * instead of tearing down a healthy run. The interval sits comfortably below
- * the mobile window so a couple of keepalives land before it would fire.
- */
+
 const MOBILE_KEEPALIVE_INTERVAL_MS = 15_000;
 export const pageMobileAgentReplayEvents = (events, requestedMaxEvents) => {
     const maxEvents = typeof requestedMaxEvents === "number" &&
@@ -78,23 +52,15 @@ export const registerAgentHandlers = (options) => {
     const requestToRunId = new Map();
     const terminalRunIds = new Set();
     const activeRunByConversation = new Map();
-    // Which agent threads are still running under each root run — the only
-    // thing the main process needs to know about tasks. Keeps run→owner /
-    // run→conversation routing alive (scheduleRunCleanup) while background
-    // agents outlive their spawning run; the renderer's task STATE comes from
-    // the runtime's thread-activity rows, not from here.
+
     const runningAgentsByRunId = new Map();
     const nextAgentEventSeq = createMonotonicSeqGenerator();
     const conversationEventBuffers = new Map();
     const clientRequestIndex = new Map();
     const clientRequestKeyByRequestId = new Map();
-    // A mobile send can be durably accepted before the runtime has assigned
-    // its root run id. Preserve Stop against that stable request identity and
-    // apply it as soon as the delayed run-start boundary arrives.
+
     const pendingCancelRequestIds = new Set();
-    // Timestamp of the most recent frame pushed to mobile on the `agent:event`
-    // channel (real events and keepalives alike). The keepalive ticker uses it
-    // to avoid piling frames on top of an already-chatty run.
+
     let lastMobileAgentBroadcastAt = 0;
     const pruneClientRequestIndex = () => {
         const now = Date.now();
@@ -197,13 +163,7 @@ export const registerAgentHandlers = (options) => {
             receiver.send("agent:event", normalizedEvent);
         }
     };
-    // While a user-visible run is active and no real `agent:event` has been
-    // pushed to mobile within the interval, broadcast a benign keepalive so the
-    // mobile bridge's inactivity timer keeps resetting across long silent
-    // stretches. Keepalives go to mobile ONLY: they are not buffered for
-    // `agent:resume`, carry no recorder seq, and are never sent to the desktop
-    // renderer, so they cannot perturb replay ordering or the local UI. Mobile
-    // ignores the unknown `keepalive` type after resetting its timer.
+
     const emitMobileKeepalives = () => {
         const broadcastToMobile = options.getBroadcastToMobile?.();
         if (!broadcastToMobile)
@@ -346,7 +306,7 @@ export const registerAgentHandlers = (options) => {
                     }
                 }
                 catch {
-                    // Resume can still hydrate from local chat and task snapshots.
+
                 }
             }
         }
@@ -404,11 +364,7 @@ export const registerAgentHandlers = (options) => {
         if (!stellaHostRunner) {
             throw new Error("Stella runtime not available");
         }
-        // Idempotent send: a client (e.g. mobile over a flaky tunnel) can retry
-        // the same logical message with a stable `clientRequestId`. If we already
-        // started a run for it, hand back the original `requestId` instead of
-        // spawning a duplicate. Reserve the key before any await so two retries
-        // racing through here can't both start a run.
+
         const clientRequestId = typeof payload.clientRequestId === "string"
             ? payload.clientRequestId.trim()
             : "";
@@ -420,11 +376,7 @@ export const registerAgentHandlers = (options) => {
             : "";
         if (clientRequestId) {
             pruneClientRequestIndex();
-            // The canonical user row is the durable acceptance receipt. Mobile
-            // supplies its outbox identity as `userMessageEventId`; the worker
-            // persists that exact primary key before startChat returns. Checking it
-            // here makes replay idempotent across main-process/desktop restarts,
-            // long delays, and expiration of the in-memory fast-path index.
+
             if (stableUserMessageId &&
                 options.localChatHistoryService.hasEventId({
                     eventId: stableUserMessageId,
@@ -443,10 +395,7 @@ export const registerAgentHandlers = (options) => {
             }
             const existing = clientRequestIndex.get(clientRequestId);
             if (existing) {
-                // A concurrent retry may arrive while the first call is still
-                // waiting for the worker to persist. It shares the request identity,
-                // but is not an acknowledgment yet; mobile keeps its outbox record
-                // until the run event or a later persisted replay proves acceptance.
+
                 return {
                     requestId: existing.requestId,
                     ...(requestToRunId.get(existing.requestId)
@@ -481,7 +430,7 @@ export const registerAgentHandlers = (options) => {
             await stellaHostRunner.waitUntilReady(15_000);
         }
         catch (error) {
-            // Never started a run; let a future retry try again from scratch.
+
             requestOwners.delete(requestId);
             releaseClientRequest();
             throw error;
@@ -537,9 +486,7 @@ export const registerAgentHandlers = (options) => {
                 waitForDurableChatAcceptance(options.localChatHistoryService, stableUserMessageId).then((accepted) => ({ kind: accepted ? "accepted" : "pending" })),
             ]);
             if (startOutcome.kind === "accepted") {
-                // Runtime delivery continues on the same request/callbacks. Any
-                // later run-start event supplies the concrete run id; the phone
-                // can clear its outbox now because the canonical row is durable.
+
                 void localChatStartPromise.catch((error) => {
                     console.error("[chat] Durably accepted chat failed before runtime run start:", error instanceof Error ? error.message : String(error));
                 });
@@ -602,7 +549,7 @@ export const registerAgentHandlers = (options) => {
             pendingCancelRequestIds.add(requestId);
         }
     });
-    // Dev-only: trigger/fix a Vite compile error for testing the error overlay
+
     const TEST_BROKEN_FILE = path.join(options.stellaAppDir, "src", "testing", "__vite_error_trigger.tsx");
     registerPrivilegedHandle(options, "devtest:triggerViteError", async () => {
         await fs.mkdir(path.dirname(TEST_BROKEN_FILE), { recursive: true });
@@ -614,7 +561,7 @@ export const registerAgentHandlers = (options) => {
             await fs.unlink(TEST_BROKEN_FILE);
         }
         catch {
-            // Ignore missing temp files during cleanup.
+
         }
         return { ok: true };
     });

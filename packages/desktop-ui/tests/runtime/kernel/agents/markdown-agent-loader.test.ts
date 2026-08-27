@@ -81,21 +81,12 @@ describe("loadParsedAgentsFromDir", () => {
     expect(agents[0]?.toolsAllowlist).toContain("spawn_agent");
   });
 
-  // Production callers pass a `file://` URL built from `import.meta.url`.
-  // On Windows that URL's `pathname` is `/C:/...` with `%20`-encoded
-  // characters, which `URL.pathname` (the old impl) turned into an
-  // unreadable path so every agent was silently skipped — collapsing the
-  // orchestrator to only the universal RequestCredential/no_response
-  // tools. A directory containing a space reproduces the encoding half of
-  // that failure on any platform.
   it("loads agents from a file:// URL whose path needs decoding", () => {
     const base = tempDirs.create("agent loader url-");
     const dir = path.join(base, "agents dir");
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, "orchestrator.md"), AGENT_MD, "utf-8");
 
-    // Trailing slash so `new URL` treats it as a directory, matching the
-    // `new URL("./agents/", import.meta.url)` production callers.
     const dirUrl = pathToFileURL(`${dir}${path.sep}`);
     expect(dirUrl.pathname).toContain("%20");
 

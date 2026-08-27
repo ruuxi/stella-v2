@@ -1,9 +1,3 @@
-/**
- * @license
- * Copyright 2025 Google LLC
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { google, drive_v3 } from 'googleapis';
 import { AuthManager } from './AuthManager.js';
 import { logToFile } from './logger.js';
@@ -162,7 +156,6 @@ export class DriveService {
     let q = query;
     let isProcessed = false;
 
-    // Check if query is a Google Drive URL
     if (
       query &&
       (query.includes('drive.google.com') || query.includes('docs.google.com'))
@@ -545,7 +538,6 @@ export class DriveService {
       const drive = await this.getDriveClient();
       const id = extractDocumentId(fileId);
 
-      // 1. Check if it's a Google Doc (special handling required, export instead of download)
       const metadata = await drive.files.get({
         fileId: id,
         fields: 'id, name, mimeType',
@@ -597,7 +589,6 @@ export class DriveService {
         };
       }
 
-      // 2. Download media
       const response = await drive.files.get(
         {
           fileId: id,
@@ -609,7 +600,6 @@ export class DriveService {
 
       const buffer = Buffer.from(response.data as unknown as ArrayBuffer);
 
-      // 3. Save to localPath
         const absolutePath = path.isAbsolute(localPath)
           ? localPath
           : path.resolve(getProjectRoot(), localPath);

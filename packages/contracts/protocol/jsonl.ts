@@ -32,14 +32,6 @@ export const attachJsonRpcPeerToStreams = (args: {
     }
   };
 
-  // Transport-level write coalescing. During an active chat the worker emits a
-  // burst of STREAM/STATUS/TOOL notifications, often several within a single
-  // synchronous tick. cork()/uncork() batches those into one socket flush
-  // instead of one write() syscall per message. This is purely a transport
-  // optimization: each message is still serialized as its own `\n`-terminated
-  // JSON line, so framing, ordering, seq-dedup and run-id remapping on the
-  // receiving side are byte-for-byte identical. We uncork on the next tick (not
-  // a timer) so no streaming latency is added — only same-tick bursts coalesce.
   const output = args.output as Writable & {
     cork?: () => void;
     uncork?: () => void;

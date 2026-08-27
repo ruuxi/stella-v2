@@ -5,7 +5,6 @@ type ClaudeLogoIconProps = Omit<SVGProps<SVGSVGElement>, "width" | "height"> & {
   variant?: "mark" | "tile";
 };
 
-/** Claude's starburst mark, optionally rendered on its orange app tile. */
 export function ClaudeLogoIcon({
   size = 16,
   variant = "tile",

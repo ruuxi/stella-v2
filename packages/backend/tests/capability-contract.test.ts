@@ -22,10 +22,7 @@ import { MEDIA_CAPABILITIES } from "../convex/media_catalog";
 const AUDIENCES: CapabilityAudience[] = ["anonymous", "free", "go", "pro"];
 
 describe("capability contract parity", () => {
-  // Convex cannot import `@stella/contracts`, so `capability_contract.ts` is a
-  // hand-kept copy. Everything the two sides both declare is compared here —
-  // a plan reshuffle that lands in only one file fails the build instead of
-  // silently letting the backend and the desktop disagree about who owns what.
+
   it("declares the same capability list as the shared contract", () => {
     expect([...CAPABILITIES]).toEqual([...contract.CAPABILITIES]);
   });
@@ -96,10 +93,7 @@ describe("capability contract parity", () => {
 
 describe("capability matrix", () => {
   it("holds only the four enforced generative surfaces", () => {
-    // Orchestrator mode is deliberately absent: any plan may use it, and it
-    // is sold on Pro through marketing copy alone. A matrix that mixes
-    // enforced rows with decorative ones invites the next reader to gate the
-    // wrong thing, so the decorative ones simply do not live here.
+
     expect([...CAPABILITIES]).toEqual([
       "image_generation",
       "video_generation",
@@ -119,9 +113,7 @@ describe("capability matrix", () => {
   });
 
   it("follows the table rather than a hardcoded plan", () => {
-    // The whole point of the matrix is that a single boolean flip moves a
-    // capability between tiers. Prove the readers derive from the table by
-    // mutating it under them and restoring it afterwards.
+
     const original = CAPABILITY_MATRIX.image_generation.go;
     try {
       CAPABILITY_MATRIX.image_generation.go = true;
@@ -178,9 +170,7 @@ describe("capability denial payload", () => {
     for (const capability of CAPABILITIES) {
       const denial = buildCapabilityDenial(capability, "free");
       expect(denial.message).toContain(capabilityDenialMarker(capability));
-      // The desktop classifier reads a lowercased message and checks earlier
-      // matchers first. None of them may fire on our prose, or a plan denial
-      // would surface as a sign-in or free-allowance toast instead.
+
       const normalized = denial.message.toLowerCase();
       for (const foreignMatcher of [
         "sign in required",
@@ -201,8 +191,7 @@ describe("media capability mapping", () => {
     const ungated = MEDIA_CAPABILITIES.filter(
       (entry) => capabilityForMediaCapabilityId(entry.id) === null,
     ).map((entry) => entry.id);
-    // Transcription and stem separation are input/analysis paths, not
-    // generation — Go buys a full text assistant and must keep both.
+
     expect(ungated.sort()).toEqual(["audio_visual_separate", "speech_to_text"]);
   });
 

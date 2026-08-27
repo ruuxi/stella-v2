@@ -1,10 +1,3 @@
-/**
- * `write_stdin` tool — continue/poll a pipe-backed or PTY exec session.
- *
- * Pass empty `chars` to poll for more output without sending input.
- * Required: `session_id` returned by a still-running `exec_command`.
- */
-
 import {
   maybeOfferBrowserExtensionConnect,
   type BrowserExtensionConnectRequester,
@@ -17,7 +10,7 @@ import {
 import type { ToolDefinition } from "../types.js";
 
 export type WriteStdinToolOptions = {
-  /** See `ExecCommandToolOptions.requestBrowserExtensionConnect`. */
+
   requestBrowserExtensionConnect?: BrowserExtensionConnectRequester;
 };
 
@@ -33,8 +26,7 @@ export const createWriteStdinTool = (
     type: "object",
     properties: {
       session_id: {
-        // Stella allocates UUID session ids; advertised as `string` so strict
-        // tool validators don't reject the value the model echoes back.
+
         type: "string",
         description:
           "Identifier returned by exec_command. Completed results keep it as shell_session_id provenance even when session_id becomes null.",
@@ -89,11 +81,7 @@ export const createWriteStdinTool = (
       extras?.signal,
     );
     if (!options.requestBrowserExtensionConnect) return result;
-    // A cold-start stella-browser failure usually outlives exec_command's
-    // default yield (the daemon waits up to 60s for the extension), so the
-    // "Extension not connected" error typically surfaces on a poll here
-    // rather than on the original exec_command call. Same offer + re-run
-    // flow, reconstructing the command from the completed session record.
+
     const payload = result.details;
     const record =
       payload && typeof payload === "object" && !Array.isArray(payload)

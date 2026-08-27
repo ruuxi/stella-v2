@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SPLIT_STEP_ORDER, type Phase } from "./onboarding-flow";
 
-// Permissions are macOS TCC concepts (Accessibility, Screen Capture);
-// on other platforms the cards are no-ops, so skip the phase entirely.
 const PLATFORM_SKIPPED_PHASES: ReadonlySet<Phase> =
   typeof window !== "undefined" && window.electronAPI?.platform !== "darwin"
     ? new Set<Phase>(["permissions"])
@@ -150,9 +148,6 @@ export function useOnboardingFlow({
     }
   }, [effectiveSkippedPhases, onInteract, phase, transitionTo]);
 
-  // The steps the user will actually walk through — platform and
-  // conditional skips removed. Drives the progress strip so a macOS
-  // user and a Windows user each see an honest step count.
   const visibleSteps = useMemo(
     () => SPLIT_STEP_ORDER.filter((step) => !effectiveSkippedPhases.has(step)),
     [effectiveSkippedPhases],

@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -124,7 +123,7 @@ if (!force && existsSync(binaryPath)) {
       process.exit(0);
     }
   } catch {
-    // Missing/stale local metadata falls through to a verified refresh.
+
   }
 }
 

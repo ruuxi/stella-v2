@@ -13,15 +13,7 @@ import { isStellaLimitOrAuthReason, resolveStellaProviderErrorToast, } from "./s
 export function useLocalAgentStream({ activeConversationId, storageMode, onRunStarted, onRunFinished, }) {
     const [storeState, dispatch] = useReducer(streamStoreReducer, initialStoreState);
     const [pendingUserMessageId, setPendingUserMessageId] = useState(null);
-    /**
-     * In-memory assistant messages delivered for the active conversation.
-     * Each entry is a WHOLE message (the runtime's canonical text for one
-     * `assistant-message` segment), materialized the moment the event lands
-     * so the reply is on screen before SQLite catches up. The renderer merges
-     * these into `displayMessages`; entries keep owning the visible text
-     * while present, even after SQLite has persisted the matching
-     * `(userMessageId, indexInTurn)` slot.
-     */
+
     const [streamingAssistants, setStreamingAssistants] = useState([]);
     const streamingAssistantsRef = useRef([]);
     const commitStreamingAssistants = useCallback((update) => {
@@ -40,11 +32,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
     const seenSourceEventKeysRef = useRef(new Set());
     const terminalRunIdsRef = useRef(new Set());
     const pendingRequestIdsRef = useRef(new Set());
-    /**
-     * Next overlay slot index per `userMessageId` for the in-flight run.
-     * The first `assistant-message` of a turn takes slot 1; each following
-     * one takes the next index.
-     */
+
     const nextSlotIndexByUserMessageIdRef = useRef(new Map());
     const startAttemptRef = useRef(0);
     const agentStreamCleanupRef = useRef(null);
@@ -63,27 +51,13 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
     const hasToolActivity = Boolean(activeRun?.hasToolActivity);
     const isToolActive = Boolean(activeToolName);
     const reasoningText = "";
-    /**
-     * RUN_STARTED for a visible run: reset the per-turn slot index so the
-     * run's first `assistant-message` lands on a fresh slot. Prior overlays
-     * remain in the timeline; failed/canceled runs may not have a persisted
-     * twin, so dropping them here would lose received response text.
-     */
+
     const beginStreamingRun = useCallback((args) => {
         if (args.userMessageId) {
             nextSlotIndexByUserMessageIdRef.current.set(args.userMessageId, 1);
         }
     }, []);
-    /**
-     * `ASSISTANT_MESSAGE`: the runtime finished a whole assistant message and
-     * handed over its canonical text. Materialize it as a locked overlay slot
-     * at `(userMessageId, indexInTurn)` and advance the index so the next
-     * message in the turn takes the following slot.
-     *
-     * Nothing is ever partial: the overlay is created with the final text, so
-     * there is no reveal clock, no queue, and no unlock path. A repeat
-     * delivery for the same slot (resume replay) reconciles in place.
-     */
+
     const finalizeMessageBoundary = useCallback((args) => {
         if (!args.userMessageId)
             return;
@@ -122,17 +96,10 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
                 },
             ];
         });
-        // A whole message just appeared below the live tail. There is no
-        // per-delta follow anymore, so announce it as content growth and let
-        // each scroll surface decide whether to settle toward the new end.
+
         notifyChatContentGrowth();
     }, [commitStreamingAssistants]);
-    /**
-     * `RUN_FINISHED` (any outcome). Overlays are already whole + locked, so
-     * there is nothing to drain; the entries stay in the array so the active
-     * UI does not swap from the delivered text to SQLite just because
-     * persistence completed.
-     */
+
     const finalizeRunOnFinish = useCallback(() => { }, []);
     activeConversationIdRef.current = activeConversationId;
     activeRunIdByConversationRef.current = storeState.activeRunIdByConversation;
@@ -151,10 +118,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
         setPendingUserMessageId(null);
         commitStreamingAssistants([]);
         nextSlotIndexByUserMessageIdRef.current.clear();
-        // This callback is handed to `useResumeAgentRun`, whose effect depends on
-        // its identity. Reading the live ids from refs keeps the callback stable
-        // across RUN_FINISHED; otherwise terminal state changed `activeRunId`
-        // and restarted the resume effect on every run completion.
+
         const conversationId = activeConversationIdRef.current;
         if (conversationId) {
             clearConversationTaskDecorations(conversationId);
@@ -235,11 +199,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
         }
         const attemptId = ++startAttemptRef.current;
         const startChatAttachments = attachmentsForStartChat(args.attachments);
-        // The composer's attached images/files already travel as
-        // `attachments` — shipping them again inside chatContext doubles a
-        // potentially huge base64 payload across the IPC bridge for fields
-        // the runtime never reads (it only consumes windowScreenshot,
-        // window/AX, selection, and pasted text from chatContext).
+
         const startChatContext = args.chatContext
             ? {
                 ...args.chatContext,
@@ -289,13 +249,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
                 setPendingUserMessageId((current) => current === args.userMessageEventId ? null : current);
             }
             const reason = error.message || null;
-            // A queued / follow-up message whose start fails because the user hit
-            // an anonymous cap or usage/auth limit must show the same actionable
-            // "Sign in to keep using Stella" toast as the live send path — not the
-            // generic "Stella is still starting up". `resolveAgentNotReadyToast`
-            // only understands local startup hiccups, so route real backend
-            // limit/auth reasons through the provider-error resolver (which
-            // carries the Sign in / Upgrade / BYOK CTAs).
+
             if (isStellaLimitOrAuthReason(reason)) {
                 showToast(resolveStellaProviderErrorToast(reason));
             }
@@ -320,11 +274,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
         }
         window.electronAPI.agent.cancelChat(activeRunId);
     }, [activeRunId]);
-    // Ephemeral per-thread stream decoration (statusText ticks, tool
-    // activity, reasoning) for the active conversation, keyed by agentId.
-    // The authoritative task rows come from `useThreadActivity`; callers
-    // overlay these via `buildActivityTasks`. Backed by the module-level
-    // decoration store, which inline chat cards also subscribe to per-agent.
+
     const decorationsSnapshot = useSyncExternalStore(subscribeTaskDecorations, getTaskDecorationsSnapshot);
     const taskDecorations = useMemo(() => activeConversationId
         ? Object.fromEntries(Object.entries(decorationsSnapshot).filter(([, decoration]) => decoration.conversationId === activeConversationId))

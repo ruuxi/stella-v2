@@ -17,8 +17,7 @@ describe("AudioSessionCoordinator", () => {
     let recorderActive = false;
     const captured: string[] = [];
     const coordinator = new AudioSessionCoordinator(async (mode) => {
-      // Mirrors expo-audio iOS: a partial playback mode decodes its omitted
-      // allowsRecording field as false and synchronously stops all recorders.
+
       recorderActive = mode.allowsRecording === true;
     });
     const speak = (words: string) => {

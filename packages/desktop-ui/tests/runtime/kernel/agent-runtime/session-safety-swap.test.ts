@@ -79,7 +79,6 @@ const fableStellaRoute = (): ResolvedLlmRoute => {
   };
 };
 
-/** Expose PiSessionCore's protected containment surface for direct testing. */
 class TestSession extends PiSessionCore {
   constructor() {
     super({ threadKey: "test-thread", loggerName: "test-session" });
@@ -146,10 +145,7 @@ const fakeAgent = (messages: AgentMessage[], route: ResolvedLlmRoute) =>
 
 describe("prepareSafetyModelSwap bail path", () => {
   it("does not mutate the context when it bails on an assistant tail", () => {
-    // Shape: popping the errored assistant would leave another assistant at
-    // the tail (mid-loop failure). The swap must bail WITHOUT popping —
-    // a mutating bail would corrupt the appended slice that failure
-    // classification reads and silently reset the containment streak.
+
     const route = fableStellaRoute();
     const session = new TestSession();
     session.setRoute(route);
@@ -166,8 +162,6 @@ describe("prepareSafetyModelSwap bail path", () => {
     expect(messages).toHaveLength(3);
     expect(agent.state.model.id).toBe("stella/max");
 
-    // Failure classification still sees the errored assistant → the
-    // deterministic-abort streak advances instead of resetting.
     const surfaced = session.fail(agent, {
       messagesBefore: 2,
       errorMessage: SAFETY_ABORT_MESSAGE,
@@ -211,7 +205,7 @@ describe("prepareSafetySameModelRetry", () => {
     expect(retry).toEqual({ modelId: "stella/max" });
     expect(messages).toHaveLength(1);
     expect(messages[0].role).toBe("user");
-    // The route is untouched — the retry runs on the configured model.
+
     expect(agent.state.model.id).toBe("stella/max");
   });
 
@@ -228,8 +222,6 @@ describe("prepareSafetySameModelRetry", () => {
     );
     expect(session.retrySameModel(agent, "boring timeout")).toBeNull();
 
-    // Same safety error, but the route already swapped to opus: no retry —
-    // failures on the fallback surface normally.
     const swapped = session.swap(agent, SAFETY_ABORT_MESSAGE);
     expect(swapped).not.toBeNull();
     expect(session.retrySameModel(agent, SAFETY_ABORT_MESSAGE)).toBeNull();
@@ -259,14 +251,14 @@ describe("swap-resume flow (end to end)", () => {
 
     const messages: AgentMessage[] = [];
     const agent = fakeAgent(messages, route);
-    // Attempt 1: the provider aborts on the first model call.
+
     agent.prompt.mockImplementation(async (prompted: AgentMessage[]) => {
       messages.push(...prompted);
       messages.push(
         assistantMessage(100, "error", { errorMessage: SAFETY_ABORT_MESSAGE }),
       );
     });
-    // Attempt 2 (after swap): the loop resumes cleanly on the new model.
+
     agent.continue.mockImplementation(async () => {
       messages.push(assistantMessage(200, "stop", { text: "recovered" }));
     });
@@ -289,7 +281,7 @@ describe("swap-resume flow (end to end)", () => {
     expect(swap!.fromModelId).toBe("stella/max");
     expect(swap!.toModelId).toBe(SAFETY_SWAP_STELLA_MODEL_ID);
     expect(agent.state.model.id).toBe(SAFETY_SWAP_STELLA_MODEL_ID);
-    // The errored assistant was dropped; the prompt is still in context.
+
     expect(messages.at(-1)?.role).toBe("user");
 
     const attempt2 = await executeRuntimeAgentPrompt({
@@ -298,7 +290,7 @@ describe("swap-resume flow (end to end)", () => {
     });
     expect(attempt2.errorMessage).toBeUndefined();
     expect(attempt2.finalText).toBe("recovered");
-    // Resume mode: no second prompt append, exactly one continue.
+
     expect(agent.prompt).toHaveBeenCalledTimes(1);
     expect(agent.continue).toHaveBeenCalledTimes(1);
   });

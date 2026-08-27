@@ -8,9 +8,9 @@ export const getDevServerUrl = (): string =>
 
 export const resolveRendererRoot = (electronDir: string): string => {
   const candidates = [
-    // Packaged app: app.asar/renderer.
+
     path.resolve(electronDir, "../../renderer"),
-    // Monorepo build output: packages/desktop-ui/dist.
+
     path.resolve(electronDir, "../../../desktop-ui/dist"),
   ];
   return (

@@ -4,11 +4,6 @@ import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
 
-/**
- * The app's accent CTA pill ("Pair phone", "Scan QR code", "Sign in", …).
- * One canonical implementation so the primary-button look can't drift
- * between screens.
- */
 export function PrimaryButton({
   label,
   onPress,
@@ -20,7 +15,7 @@ export function PrimaryButton({
   onPress: () => void;
   disabled?: boolean;
   accessibilityLabel?: string;
-  /** Layout-only adjustments (margins, alignSelf); the pill look is fixed. */
+
   style?: ViewStyle;
 }) {
   const colors = useColors();

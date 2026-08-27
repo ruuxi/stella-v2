@@ -1,5 +1,3 @@
-// @vitest-environment jsdom
-
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -140,13 +138,11 @@ describe("AgentThreadChatTab read-only transcript", () => {
 
     await render();
 
-    // The "Read-only agent thread" eyebrow header is gone.
     expect(
       container.querySelector(".agent-thread-chat__header"),
     ).toBeNull();
     expect(container.textContent).not.toContain("Read-only agent thread");
 
-    // Tools and (non-Codex) reasoning are not rendered.
     expect(
       container.querySelector('[data-trace-kind="tool"]'),
     ).toBeNull();
@@ -158,14 +154,12 @@ describe("AgentThreadChatTab read-only transcript", () => {
     );
     expect(container.textContent).not.toContain("exec_command");
 
-    // User, assistant, and checkpoint content survive.
     expect(container.textContent).toContain("Do the thing.");
     expect(container.textContent).toContain("Here is the answer.");
     expect(
       container.querySelector('details[data-trace-kind="checkpoint"]'),
     ).not.toBeNull();
 
-    // Assistant rows drop the "Agent" role label; user rows keep their eyebrow.
     const assistantLi = container.querySelector('li[data-role="assistant"]');
     expect(
       assistantLi?.querySelector(".agent-thread-chat__role"),

@@ -75,24 +75,16 @@ const readResidentMemoryDoc = (
   }
 };
 
-/**
- * Dream's memory map, read synchronously for resident injection.
- */
 export const readMemoryMapDoc = (stellaDataDir: string): string | undefined =>
   readResidentMemoryDoc(
     path.join(stellaDataDir, "memories", "memory_map.md"),
     MEMORY_MAP_MAX_CHARS,
   );
 
-/**
- * The durable user-profile facts written by the `Remember` tool, read
- * synchronously for resident injection.
- */
 export const readUserProfileDoc = (stellaDataDir: string): string | undefined =>
   readResidentMemoryDoc(
     path.join(stellaDataDir, "memories", "profile.md"),
-    // Coupled to the write cap: bound the always-resident block so a
-    // hand-edited or over-cap profile.md can never blow the context budget.
+
     USER_PROFILE_INJECT_MAX_CHARS,
   );
 
@@ -208,16 +200,6 @@ export const buildAgentEventPrompt = (
   return formatAgentTerminalStateSystemReminder(lines);
 };
 
-/**
- * Delivery mode for a chat message injected into a live orchestrator run.
- *
- * Every live message is steering, regardless of sender or engine. The user
- * always talks to the Orchestrator, and runtime messages (including descendant
- * lifecycle reports) are equally time-sensitive context for its active turn.
- * Codex appends it to the active turn with `turn/steer`; Claude Code uses its
- * native interrupt control and writes the message to the same streaming
- * session. Descendant agents continue independently.
- */
 export const resolveLiveChatMessageDelivery = (args: {
   role: string;
   engine: "native" | "external";
@@ -226,13 +208,6 @@ export const resolveLiveChatMessageDelivery = (args: {
   return "steer";
 };
 
-/**
- * Mirror an injected live-run user message for abnormal-termination recovery.
- * If the run dies before the message is delivered, `flushPendingFollowUpReplies`
- * answers it in a fresh turn. Entries are keyed by `userMessageId` so
- * `prunePendingFollowUpReplies` can drop them once the message is actually
- * delivered to the model.
- */
 export const recordPendingFollowUpReplyEntry = (
   replies: Map<string, import("./types.js").PendingFollowUpReply[]>,
   conversationId: string,
@@ -251,14 +226,6 @@ export const recordPendingFollowUpReplyEntry = (
   }
 };
 
-/**
- * Drop recovery mirrors for a queued user message once it has been delivered
- * into the model context (the queued-user-message `message_start`). Without
- * this, a steered message answered mid-run would still be flushed — and
- * re-answered — if the run later ended abnormally. The remaining window (run
- * dies after delivery but before the answer completes) is a single turn, far
- * smaller than flushing every already-answered message.
- */
 export const prunePendingFollowUpReplies = (
   replies: Map<string, import("./types.js").PendingFollowUpReply[]>,
   conversationId: string,

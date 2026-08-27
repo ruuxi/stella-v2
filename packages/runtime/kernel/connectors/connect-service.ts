@@ -1,18 +1,3 @@
-/**
- * Connector client engine behind the node_repl `connect` client
- * (`createReplConnectClient`) — the first-class agent surface for
- * third-party app integrations (discover / connectors / actions /
- * schema / call), dispatched host-side by the Node REPL kernel.
- *
- * Everything here throws plain Errors (the broker's message included);
- * the REPL kernel serializes them across the worker boundary so agent
- * code sees a thrown Error.
- *
- * Backend Composio actions run through the same trusted path as always:
- * CLI bridge UDS → worker `backend-connector-action-broker` (Ajv input
- * validation + tiered action allowlist) → stella.sh backend.
- */
-
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
@@ -68,21 +53,15 @@ import { loadGoogleWorkspaceTools } from "../google-workspace/load-google-worksp
 
 export type ConnectClientOptions = {
   stellaAppDir: string;
-  /** UDS path of the worker's CLI bridge (credential dialogs + broker). */
+
   cliBridgeSocketPath?: string;
-  /** Non-fatal bridge diagnostics (logged by the host). */
+
   onBridgeUnreachable?: (message: string) => void;
 };
 
-/** Default/hard caps for `connect.actions` listings. */
 export const CONNECT_ACTIONS_DEFAULT_LIMIT = 25;
 export const CONNECT_ACTIONS_MAX_LIMIT = 100;
 
-/**
- * Broker refusals/failures surface as this error so callers can branch on
- * `reason` without parsing the message. The message carries the broker's
- * own text plus status/request diagnostics.
- */
 export class ConnectorBrokerActionError extends Error {
   constructor(
     message: string,
@@ -206,14 +185,6 @@ export const resolveConnectorAuthHints = async (
   return { authType: undefined };
 };
 
-/**
- * Run `attempt`. If it throws `ConnectorAuthError` AND the bridge socket
- * is wired AND the error carries a `tokenKey`, dial the bridge to pop a
- * credential dialog; on `{ ok: true }` retry once. Anything else (no
- * socket, no tokenKey, user cancel/timeout, second auth failure) rethrows
- * to the caller. Single retry is intentional: a second auth failure means
- * a bad key, not that another round-trip would help.
- */
 export const withAuthRetry = async <T>(
   options: ConnectClientOptions,
   attempt: () => Promise<T>,
@@ -235,9 +206,7 @@ export const withAuthRetry = async <T>(
 
     let result: ConnectorCredentialResult;
     try {
-      // No `description` — we deliberately let the renderer's canonical
-      // copy fire instead of leaking the upstream HTTP status /
-      // generic-error verbiage into a user-facing dialog.
+
       result = await requestConnectorCredentialFromBridge({
         socketPath,
         tokenKey: error.tokenKey,
@@ -250,9 +219,7 @@ export const withAuthRetry = async <T>(
         preregisteredOAuth: hints.preregisteredOAuth,
       });
     } catch (bridgeError) {
-      // The bridge was advertised but isn't reachable — fall through to
-      // the original auth error so the agent gets a clean signal rather
-      // than a confusing "socket refused" string.
+
       options.onBridgeUnreachable?.(
         `cli-bridge unreachable: ${(bridgeError as Error).message}`,
       );
@@ -312,12 +279,6 @@ export const nativeCatalogDiagnostics = (
   };
 };
 
-/**
- * Catalog policy shared by every consumer here: disk cache / bundled
- * fallback, never a network fetch (the connect client must stay fast and
- * offline-capable; the broker re-resolves the live catalog server-side
- * before running anything).
- */
 export const loadConnectCatalog = async (
   stellaAppDir: string,
 ): Promise<ResolvedNativeCatalog> =>
@@ -399,10 +360,7 @@ export const callNativeConnector = async (
   const { stellaAppDir } = options;
   const locallyEnabled = await isNativeConnectorEnabled(stellaAppDir, id);
   const locallyResolved = getNativeConnectorCatalogEntry(id, catalogEntries);
-  // A freshly authenticated desktop may have a live authoritative connector
-  // entry before this process has a disk cache. Do not reinterpret bundled
-  // metadata as executable, but allow the trusted broker to resolve and
-  // authorize the canonical backend identity for an already-enabled id.
+
   if (
     locallyEnabled &&
     options.cliBridgeSocketPath?.trim() &&
@@ -648,27 +606,16 @@ export const callNativeConnector = async (
   }
 };
 
-// ---------------------------------------------------------------------------
-// MCP connector management (connect.addMcp / connect.remove)
-// ---------------------------------------------------------------------------
-
-/** Marks skills this module generated so remove/refresh never touch user files. */
 const MCP_GENERATED_SKILL_MARKER = "<!-- stella-connect-mcp-skill -->";
-/**
- * Sentinel inside a generated MCP skill whose probe was deferred on auth.
- * `connect.actions`/`connect.schema` regenerate the skill automatically the
- * first time a tools listing succeeds after the credential lands (that is
- * the folded-in replacement for the old CLI's `refresh-skill`).
- */
+
 const MCP_SKILL_DEFERRED_MARKER =
   "Action list deferred until credentials are configured";
-/** Same cap as the native skill generator's ACTIONS.md top-N. */
+
 const MCP_SKILL_ACTIONS_LIMIT = 30;
 
 const connectorSkillDir = (stellaAppDir: string, id: string) =>
   path.join(stellaAppDir, "skills", id);
 
-/** Mirrors the old CLI's `safeId`, throwing instead of exiting. */
 export const validateMcpConnectorId = (value: string): string => {
   const id = value.trim().toLowerCase();
   if (
@@ -726,7 +673,6 @@ const isStringRecordValue = (
   isPlainRecord(value) &&
   Object.values(value).every((entry) => typeof entry === "string");
 
-/** Strict shape check for `connect.addMcp` options with actionable errors. */
 export const parseAddMcpOptions = (raw: Record<string, unknown>): {
   command: ConnectorCommandConfig;
 } => {
@@ -843,7 +789,6 @@ export const parseAddMcpOptions = (raw: Record<string, unknown>): {
   return { command };
 };
 
-/** Port of the old CLI skill generator, teaching connect.* instead of a shell CLI. */
 export const writeGeneratedMcpSkill = async (
   stellaAppDir: string,
   command: ConnectorCommandConfig,
@@ -888,7 +833,7 @@ Imported MCP connector. Use the frozen \`connect\` client inside \`node_repl\`:
 \`\`\`js
 await connect.actions("${command.id}", { query: "<keywords>" }); // find actions (capped list)
 await connect.schema("${command.id}", "<ACTION>");               // full input schema for one action
-await connect.call("${command.id}", "<ACTION>", { /* args */ }); // execute; throws on refusal
+await connect.call("${command.id}", "<ACTION>", {  }); // execute; throws on refusal
 \`\`\`
 ${instructionsSection}
 ## Actions
@@ -900,12 +845,6 @@ ${toolLines}
   return skillPath;
 };
 
-/**
- * Auto-refresh for auth-deferred imports: once a real tools listing
- * succeeds, rewrite the stub skill with the actual action list (and the
- * server's `instructions`, if it published any). No-ops on user-authored
- * or already-complete skills.
- */
 const refreshDeferredMcpSkill = async (
   stellaAppDir: string,
   command: ConnectorCommandConfig,
@@ -928,11 +867,6 @@ const refreshDeferredMcpSkill = async (
   });
 };
 
-/**
- * Shared MCP tools listing: probe through the bridge (popping the auth
- * dialog on 401/403 via `withAuthRetry`), then opportunistically complete
- * a deferred generated skill while the session is still warm.
- */
 const probeMcpConnector = async (
   options: ConnectClientOptions,
   command: ConnectorCommandConfig,
@@ -951,11 +885,6 @@ const probeMcpConnector = async (
   return probe;
 };
 
-/**
- * `connect.addMcp` engine: validate → probe (auth failures deferred,
- * other failures fatal) → persist to commands.json → generate the
- * connector skill.
- */
 export const addMcpConnector = async (
   options: ConnectClientOptions,
   raw: Record<string, unknown>,
@@ -963,9 +892,6 @@ export const addMcpConnector = async (
   const { stellaAppDir } = options;
   const { command } = parseAddMcpOptions(raw);
 
-  // Probe before persisting (a broken server must not get silently
-  // imported); auth failures are non-fatal because the user already
-  // declared the auth shape — credentials land on first use instead.
   let probe: ConnectorBridgeProbe = { tools: [] };
   let probeDeferred = false;
   let probeDeferredReason: string | undefined;
@@ -1024,12 +950,6 @@ export const addMcpConnector = async (
   };
 };
 
-/**
- * `connect.remove` engine: drop from commands.json/api-connectors.json →
- * close live bridge sessions → delete the generated skill → delete stored
- * credentials for the connector's tokenKeys (fixing the old CLI's
- * token-leak wart).
- */
 export const removeMcpConnector = async (
   options: ConnectClientOptions,
   rawId: string,
@@ -1084,10 +1004,6 @@ export const removeMcpConnector = async (
   };
 };
 
-// ---------------------------------------------------------------------------
-// Discovery / listing surface (shared by the CLI and the REPL client)
-// ---------------------------------------------------------------------------
-
 export type DetailedDiscoveryMatch = {
   id: string;
   name: string;
@@ -1106,11 +1022,6 @@ export type DetailedDiscoveryMatch = {
   executable?: boolean;
 };
 
-/**
- * Discovery enriched with live connection state and a `next` hint per
- * match, so `connect.discover` tells the agent what to do with each
- * result instead of leaving it to guess.
- */
 export const discoverConnectorsDetailed = async (
   options: ConnectClientOptions,
   query: string,
@@ -1150,8 +1061,7 @@ export const discoverConnectorsDetailed = async (
           stellaAppDir,
           config?.auth,
         );
-        // "unsupported" means the connector needs no credential — it is
-        // usable as-is.
+
         connected = authStatus === "connected" || authStatus === "unsupported";
       }
       const next = connected
@@ -1201,7 +1111,6 @@ export type ConnectorSummary = {
   description: string;
 };
 
-/** Enabled/connected connectors as one-liners (REPL `connect.connectors()`). */
 export const listEnabledConnectorSummaries = async (
   options: ConnectClientOptions,
   resolved: ResolvedNativeCatalog,
@@ -1321,7 +1230,6 @@ const toActionsList = (
   };
 };
 
-/** Capped, filterable action listing for one connector. */
 export const listConnectorActionSummaries = async (
   options: ConnectClientOptions,
   id: string,
@@ -1381,7 +1289,6 @@ export type ConnectorActionSchema = {
   note?: string;
 };
 
-/** Full input schema for one action (on-demand replacement for ACTIONS.md). */
 export const getConnectorActionSchema = async (
   options: ConnectClientOptions,
   id: string,
@@ -1458,11 +1365,6 @@ const toQueryRecord = (
       ) as Record<string, string | number | boolean>)
     : undefined;
 
-/**
- * Execute a connector action with REPL-shaped arguments. `target` is an
- * action name, or (for REST-capable connectors) an API path beginning with
- * "/" whose `args` may carry `{ method, query, body, headers }`.
- */
 export const callConnectorAction = async (
   options: ConnectClientOptions,
   id: string,
@@ -1481,9 +1383,7 @@ export const callConnectorAction = async (
   };
   const isKnownNative =
     getNativeConnectorCatalogEntry(id, resolved.entries) !== undefined;
-  // An enabled id with a bridge socket may execute through the trusted
-  // broker even when the local catalog cannot resolve it (fresh desktop
-  // sign-in before the disk cache exists).
+
   const brokerEligible =
     !isKnownNative &&
     options.cliBridgeSocketPath?.trim() &&
@@ -1533,15 +1433,6 @@ export const callConnectorAction = async (
   );
 };
 
-// ---------------------------------------------------------------------------
-// node_repl `connect` client
-// ---------------------------------------------------------------------------
-
-/**
- * Host-side implementation of the frozen `connect` object inside node_repl.
- * The Node REPL kernel dispatches worker `connect-call` messages onto these
- * methods; results/thrown Errors are serialized back into the REPL.
- */
 export type ReplConnectClient = {
   discover(query: string): Promise<unknown>;
   connectors(): Promise<unknown>;

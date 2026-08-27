@@ -1,12 +1,3 @@
-//! End-to-end tests for the native daemon.
-//!
-//! These tests launch a real Chrome instance and exercise the full command
-//! pipeline. They require Chrome to be installed and are marked `#[ignore]`
-//! so they don't run during normal `cargo test`.
-//!
-//! Run serially to avoid Chrome instance contention:
-//!   cargo test e2e -- --ignored --test-threads=1
-
 use serde_json::{json, Value};
 
 use super::actions::{execute_command, DaemonState};
@@ -24,16 +15,11 @@ fn get_data(resp: &Value) -> &Value {
     resp.get("data").expect("Missing 'data' in response")
 }
 
-// ---------------------------------------------------------------------------
-// Core: launch, navigate, evaluate, url, title, close
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 #[ignore]
 async fn e2e_launch_navigate_evaluate_close() {
     let mut state = DaemonState::new();
 
-    // Launch headless Chrome
     let resp = execute_command(
         &json!({ "id": "1", "action": "launch", "headless": true }),
         &mut state,
@@ -42,7 +28,6 @@ async fn e2e_launch_navigate_evaluate_close() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["launched"], true);
 
-    // Navigate to example.com
     let resp = execute_command(
         &json!({ "id": "2", "action": "navigate", "url": "https://example.com" }),
         &mut state,
@@ -52,17 +37,14 @@ async fn e2e_launch_navigate_evaluate_close() {
     assert_eq!(get_data(&resp)["url"], "https://example.com/");
     assert_eq!(get_data(&resp)["title"], "Example Domain");
 
-    // Get URL
     let resp = execute_command(&json!({ "id": "3", "action": "url" }), &mut state).await;
     assert_success(&resp);
     assert_eq!(get_data(&resp)["url"], "https://example.com/");
 
-    // Get title
     let resp = execute_command(&json!({ "id": "4", "action": "title" }), &mut state).await;
     assert_success(&resp);
     assert_eq!(get_data(&resp)["title"], "Example Domain");
 
-    // Evaluate JS
     let resp = execute_command(
         &json!({ "id": "5", "action": "evaluate", "script": "1 + 2" }),
         &mut state,
@@ -71,7 +53,6 @@ async fn e2e_launch_navigate_evaluate_close() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], 3);
 
-    // Evaluate document.title
     let resp = execute_command(
         &json!({ "id": "6", "action": "evaluate", "script": "document.title" }),
         &mut state,
@@ -80,7 +61,6 @@ async fn e2e_launch_navigate_evaluate_close() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], "Example Domain");
 
-    // Close
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);
     assert_eq!(get_data(&resp)["closed"], true);
@@ -172,10 +152,6 @@ async fn e2e_lightpanda_auto_launch_can_open_page() {
     assert_eq!(get_data(&resp)["closed"], true);
 }
 
-// ---------------------------------------------------------------------------
-// Snapshot with refs and ref-based click
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 #[ignore]
 async fn e2e_snapshot_and_click_ref() {
@@ -195,7 +171,6 @@ async fn e2e_snapshot_and_click_ref() {
     .await;
     assert_success(&resp);
 
-    // Take snapshot
     let resp = execute_command(&json!({ "id": "3", "action": "snapshot" }), &mut state).await;
     assert_success(&resp);
     let snapshot = get_data(&resp)["snapshot"].as_str().unwrap();
@@ -210,7 +185,6 @@ async fn e2e_snapshot_and_click_ref() {
         "Snapshot should have a link element"
     );
 
-    // Click the link by ref (e2 is the "More information..." link)
     let resp = execute_command(
         &json!({ "id": "4", "action": "click", "selector": "e2" }),
         &mut state,
@@ -218,10 +192,8 @@ async fn e2e_snapshot_and_click_ref() {
     .await;
     assert_success(&resp);
 
-    // Wait for navigation
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-    // Verify URL changed
     let resp = execute_command(&json!({ "id": "5", "action": "url" }), &mut state).await;
     assert_success(&resp);
     let url = get_data(&resp)["url"].as_str().unwrap();
@@ -234,10 +206,6 @@ async fn e2e_snapshot_and_click_ref() {
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);
 }
-
-// ---------------------------------------------------------------------------
-// Screenshot
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 #[ignore]
@@ -258,7 +226,6 @@ async fn e2e_screenshot() {
     .await;
     assert_success(&resp);
 
-    // Default screenshot
     let resp = execute_command(&json!({ "id": "3", "action": "screenshot" }), &mut state).await;
     assert_success(&resp);
     let path = get_data(&resp)["path"].as_str().unwrap();
@@ -269,7 +236,6 @@ async fn e2e_screenshot() {
         "Screenshot should be non-trivial size"
     );
 
-    // Named screenshot
     let tmp_path = std::env::temp_dir()
         .join("stella-browser-e2e-test-screenshot.png")
         .to_string_lossy()
@@ -355,10 +321,6 @@ async fn e2e_screenshot() {
     assert_success(&resp);
 }
 
-// ---------------------------------------------------------------------------
-// Form interaction: fill, type, select, check
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 #[ignore]
 async fn e2e_form_interaction() {
@@ -389,7 +351,6 @@ async fn e2e_form_interaction() {
     .await;
     assert_success(&resp);
 
-    // Fill name
     let resp = execute_command(
         &json!({ "id": "10", "action": "fill", "selector": "#name", "value": "John Doe" }),
         &mut state,
@@ -397,7 +358,6 @@ async fn e2e_form_interaction() {
     .await;
     assert_success(&resp);
 
-    // Verify fill
     let resp = execute_command(
         &json!({ "id": "11", "action": "evaluate", "script": "document.getElementById('name').value" }),
         &mut state,
@@ -406,7 +366,6 @@ async fn e2e_form_interaction() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], "John Doe");
 
-    // Type email – the type action now correctly handles punctuation like '.'
     let resp = execute_command(
         &json!({ "id": "12", "action": "type", "selector": "#email", "text": "john@example.com" }),
         &mut state,
@@ -422,7 +381,6 @@ async fn e2e_form_interaction() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], "john@example.com");
 
-    // Select option
     let resp = execute_command(
         &json!({ "id": "14", "action": "select", "selector": "#color", "values": ["blue"] }),
         &mut state,
@@ -438,7 +396,6 @@ async fn e2e_form_interaction() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], "blue");
 
-    // Check checkbox
     let resp = execute_command(
         &json!({ "id": "16", "action": "check", "selector": "#agree" }),
         &mut state,
@@ -454,7 +411,6 @@ async fn e2e_form_interaction() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["checked"], true);
 
-    // Uncheck
     let resp = execute_command(
         &json!({ "id": "18", "action": "uncheck", "selector": "#agree" }),
         &mut state,
@@ -470,7 +426,6 @@ async fn e2e_form_interaction() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["checked"], false);
 
-    // Snapshot should show form state
     let resp = execute_command(&json!({ "id": "20", "action": "snapshot" }), &mut state).await;
     assert_success(&resp);
     let snap = get_data(&resp)["snapshot"].as_str().unwrap();
@@ -485,10 +440,6 @@ async fn e2e_form_interaction() {
     assert_success(&resp);
 }
 
-// ---------------------------------------------------------------------------
-// Navigation: back, forward, reload
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 #[ignore]
 async fn e2e_navigation_history() {
@@ -501,7 +452,6 @@ async fn e2e_navigation_history() {
     .await;
     assert_success(&resp);
 
-    // Navigate to page 1
     let resp = execute_command(
         &json!({ "id": "2", "action": "navigate", "url": "data:text/html,<h1>Page 1</h1>" }),
         &mut state,
@@ -509,7 +459,6 @@ async fn e2e_navigation_history() {
     .await;
     assert_success(&resp);
 
-    // Navigate to page 2
     let resp = execute_command(
         &json!({ "id": "3", "action": "navigate", "url": "data:text/html,<h1>Page 2</h1>" }),
         &mut state,
@@ -517,7 +466,6 @@ async fn e2e_navigation_history() {
     .await;
     assert_success(&resp);
 
-    // Back
     let resp = execute_command(&json!({ "id": "4", "action": "back" }), &mut state).await;
     assert_success(&resp);
 
@@ -529,7 +477,6 @@ async fn e2e_navigation_history() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], "Page 1");
 
-    // Forward
     let resp = execute_command(&json!({ "id": "6", "action": "forward" }), &mut state).await;
     assert_success(&resp);
 
@@ -541,7 +488,6 @@ async fn e2e_navigation_history() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], "Page 2");
 
-    // Reload
     let resp = execute_command(&json!({ "id": "8", "action": "reload" }), &mut state).await;
     assert_success(&resp);
 
@@ -556,10 +502,6 @@ async fn e2e_navigation_history() {
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);
 }
-
-// ---------------------------------------------------------------------------
-// Cookies
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 #[ignore]
@@ -580,7 +522,6 @@ async fn e2e_cookies() {
     .await;
     assert_success(&resp);
 
-    // Set cookie
     let resp = execute_command(
         &json!({
             "id": "3",
@@ -593,7 +534,6 @@ async fn e2e_cookies() {
     .await;
     assert_success(&resp);
 
-    // Get cookies
     let resp = execute_command(&json!({ "id": "4", "action": "cookies_get" }), &mut state).await;
     assert_success(&resp);
     let cookies = get_data(&resp)["cookies"].as_array().unwrap();
@@ -602,11 +542,9 @@ async fn e2e_cookies() {
         .any(|c| c["name"] == "test_cookie" && c["value"] == "hello123");
     assert!(found, "Should find the set cookie");
 
-    // Clear cookies
     let resp = execute_command(&json!({ "id": "5", "action": "cookies_clear" }), &mut state).await;
     assert_success(&resp);
 
-    // Verify cleared
     let resp = execute_command(&json!({ "id": "6", "action": "cookies_get" }), &mut state).await;
     assert_success(&resp);
     let cookies = get_data(&resp)["cookies"].as_array().unwrap();
@@ -616,10 +554,6 @@ async fn e2e_cookies() {
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);
 }
-
-// ---------------------------------------------------------------------------
-// localStorage / sessionStorage
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 #[ignore]
@@ -640,7 +574,6 @@ async fn e2e_storage() {
     .await;
     assert_success(&resp);
 
-    // Set local storage
     let resp = execute_command(
         &json!({ "id": "3", "action": "storage_set", "type": "local", "key": "mykey", "value": "myvalue" }),
         &mut state,
@@ -648,7 +581,6 @@ async fn e2e_storage() {
     .await;
     assert_success(&resp);
 
-    // Get local storage key
     let resp = execute_command(
         &json!({ "id": "4", "action": "storage_get", "type": "local", "key": "mykey" }),
         &mut state,
@@ -657,7 +589,6 @@ async fn e2e_storage() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["value"], "myvalue");
 
-    // Get all local storage
     let resp = execute_command(
         &json!({ "id": "5", "action": "storage_get", "type": "local" }),
         &mut state,
@@ -666,7 +597,6 @@ async fn e2e_storage() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["data"]["mykey"], "myvalue");
 
-    // Clear
     let resp = execute_command(
         &json!({ "id": "6", "action": "storage_clear", "type": "local" }),
         &mut state,
@@ -674,7 +604,6 @@ async fn e2e_storage() {
     .await;
     assert_success(&resp);
 
-    // Verify cleared
     let resp = execute_command(
         &json!({ "id": "7", "action": "storage_get", "type": "local" }),
         &mut state,
@@ -690,10 +619,6 @@ async fn e2e_storage() {
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);
 }
-
-// ---------------------------------------------------------------------------
-// Tab management
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 #[ignore]
@@ -714,14 +639,12 @@ async fn e2e_tabs() {
     .await;
     assert_success(&resp);
 
-    // Tab list should show 1 tab
     let resp = execute_command(&json!({ "id": "3", "action": "tab_list" }), &mut state).await;
     assert_success(&resp);
     let tabs = get_data(&resp)["tabs"].as_array().unwrap();
     assert_eq!(tabs.len(), 1);
     assert_eq!(tabs[0]["active"], true);
 
-    // Open new tab
     let resp = execute_command(
         &json!({ "id": "4", "action": "tab_new", "url": "data:text/html,<h1>Tab 2</h1>" }),
         &mut state,
@@ -732,7 +655,6 @@ async fn e2e_tabs() {
     let new_tab_id = get_data(&resp)["tabId"].as_u64().unwrap();
     assert!(new_tab_id > 0);
 
-    // Tab list should show 2 tabs with stable positive tabIds
     let resp = execute_command(&json!({ "id": "5", "action": "tab_list" }), &mut state).await;
     assert_success(&resp);
     let tabs = get_data(&resp)["tabs"].as_array().unwrap();
@@ -745,14 +667,12 @@ async fn e2e_tabs() {
     assert_ne!(first_tab_id, second_tab_id);
     assert_eq!(get_data(&resp)["activeTabId"].as_u64(), Some(second_tab_id));
 
-    // Ids stay stable across list calls
     let resp = execute_command(&json!({ "id": "5b", "action": "tab_list" }), &mut state).await;
     assert_success(&resp);
     let tabs = get_data(&resp)["tabs"].as_array().unwrap();
     assert_eq!(tabs[0]["tabId"].as_u64(), Some(first_tab_id));
     assert_eq!(tabs[1]["tabId"].as_u64(), Some(second_tab_id));
 
-    // Switch to first tab by stable tabId
     let resp = execute_command(
         &json!({ "id": "6", "action": "tab_switch", "tabId": first_tab_id }),
         &mut state,
@@ -769,7 +689,6 @@ async fn e2e_tabs() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], "Tab 1");
 
-    // Close second tab by stable tabId
     let resp = execute_command(
         &json!({ "id": "8", "action": "tab_close", "tabId": second_tab_id }),
         &mut state,
@@ -778,7 +697,6 @@ async fn e2e_tabs() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["closedTabId"].as_u64(), Some(second_tab_id));
 
-    // Should have 1 tab left
     let resp = execute_command(&json!({ "id": "9", "action": "tab_list" }), &mut state).await;
     assert_success(&resp);
     let tabs = get_data(&resp)["tabs"].as_array().unwrap();
@@ -787,10 +705,6 @@ async fn e2e_tabs() {
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);
 }
-
-// ---------------------------------------------------------------------------
-// Element queries: isvisible, isenabled, gettext, getattribute
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 #[ignore]
@@ -821,7 +735,6 @@ async fn e2e_element_queries() {
     .await;
     assert_success(&resp);
 
-    // isvisible
     let resp = execute_command(
         &json!({ "id": "3", "action": "isvisible", "selector": "#visible" }),
         &mut state,
@@ -838,7 +751,6 @@ async fn e2e_element_queries() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["visible"], false);
 
-    // isenabled
     let resp = execute_command(
         &json!({ "id": "5", "action": "isenabled", "selector": "#enabled" }),
         &mut state,
@@ -855,7 +767,6 @@ async fn e2e_element_queries() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["enabled"], false);
 
-    // gettext
     let resp = execute_command(
         &json!({ "id": "7", "action": "gettext", "selector": "#visible" }),
         &mut state,
@@ -864,7 +775,6 @@ async fn e2e_element_queries() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["text"], "Hello World");
 
-    // getattribute
     let resp = execute_command(
         &json!({ "id": "8", "action": "getattribute", "selector": "#link", "attribute": "href" }),
         &mut state,
@@ -884,10 +794,6 @@ async fn e2e_element_queries() {
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);
 }
-
-// ---------------------------------------------------------------------------
-// Wait command
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 #[ignore]
@@ -915,7 +821,6 @@ async fn e2e_wait() {
     .await;
     assert_success(&resp);
 
-    // Wait for selector to become visible
     let resp = execute_command(
         &json!({ "id": "3", "action": "wait", "selector": "#target", "state": "visible", "timeout": 5000 }),
         &mut state,
@@ -923,7 +828,6 @@ async fn e2e_wait() {
     .await;
     assert_success(&resp);
 
-    // Wait for text
     let resp = execute_command(
         &json!({ "id": "4", "action": "wait", "text": "Appeared!", "timeout": 5000 }),
         &mut state,
@@ -931,7 +835,6 @@ async fn e2e_wait() {
     .await;
     assert_success(&resp);
 
-    // Timeout wait
     let start = std::time::Instant::now();
     let resp = execute_command(
         &json!({ "id": "5", "action": "wait", "timeout": 200 }),
@@ -947,10 +850,6 @@ async fn e2e_wait() {
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);
 }
-
-// ---------------------------------------------------------------------------
-// Viewport with deviceScaleFactor (retina)
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 #[ignore]
@@ -971,7 +870,6 @@ async fn e2e_viewport_scale_factor() {
     .await;
     assert_success(&resp);
 
-    // Default devicePixelRatio should be 1
     let resp = execute_command(
         &json!({ "id": "3", "action": "evaluate", "script": "window.devicePixelRatio" }),
         &mut state,
@@ -981,7 +879,6 @@ async fn e2e_viewport_scale_factor() {
     let default_dpr = get_data(&resp)["result"].as_f64().unwrap();
     assert_eq!(default_dpr, 1.0, "Default devicePixelRatio should be 1");
 
-    // Set viewport with 2x scale factor
     let resp = execute_command(
         &json!({ "id": "4", "action": "viewport", "width": 1920, "height": 1080, "deviceScaleFactor": 2.0 }),
         &mut state,
@@ -992,7 +889,6 @@ async fn e2e_viewport_scale_factor() {
     assert_eq!(get_data(&resp)["height"], 1080);
     assert_eq!(get_data(&resp)["deviceScaleFactor"], 2.0);
 
-    // devicePixelRatio should now be 2
     let resp = execute_command(
         &json!({ "id": "5", "action": "evaluate", "script": "window.devicePixelRatio" }),
         &mut state,
@@ -1005,7 +901,6 @@ async fn e2e_viewport_scale_factor() {
         "devicePixelRatio should be 2 after setting scale factor"
     );
 
-    // CSS viewport width should still be 1920 (not 3840)
     let resp = execute_command(
         &json!({ "id": "6", "action": "evaluate", "script": "window.innerWidth" }),
         &mut state,
@@ -1018,10 +913,6 @@ async fn e2e_viewport_scale_factor() {
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);
 }
-
-// ---------------------------------------------------------------------------
-// Viewport and emulation
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 #[ignore]
@@ -1042,7 +933,6 @@ async fn e2e_viewport_emulation() {
     .await;
     assert_success(&resp);
 
-    // Get initial width
     let resp = execute_command(
         &json!({ "id": "3", "action": "evaluate", "script": "window.innerWidth" }),
         &mut state,
@@ -1051,7 +941,6 @@ async fn e2e_viewport_emulation() {
     assert_success(&resp);
     let initial_width = get_data(&resp)["result"].as_i64().unwrap();
 
-    // Set viewport to a different size
     let resp = execute_command(
         &json!({ "id": "4", "action": "viewport", "width": 375, "height": 812, "deviceScaleFactor": 3.0, "mobile": true }),
         &mut state,
@@ -1062,11 +951,9 @@ async fn e2e_viewport_emulation() {
     assert_eq!(get_data(&resp)["height"], 812);
     assert_eq!(get_data(&resp)["mobile"], true);
 
-    // Reload to apply viewport change
     let resp = execute_command(&json!({ "id": "5", "action": "reload" }), &mut state).await;
     assert_success(&resp);
 
-    // Width should differ from default (setDeviceMetricsOverride applied)
     let resp = execute_command(
         &json!({ "id": "6", "action": "evaluate", "script": "window.innerWidth" }),
         &mut state,
@@ -1081,7 +968,6 @@ async fn e2e_viewport_emulation() {
         new_width
     );
 
-    // Set user agent
     let resp = execute_command(
         &json!({ "id": "5", "action": "user_agent", "userAgent": "TestBot/1.0" }),
         &mut state,
@@ -1100,10 +986,6 @@ async fn e2e_viewport_emulation() {
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);
 }
-
-// ---------------------------------------------------------------------------
-// Hover, scroll, press
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 #[ignore]
@@ -1131,7 +1013,6 @@ async fn e2e_hover_scroll_press() {
     .await;
     assert_success(&resp);
 
-    // Hover
     let resp = execute_command(
         &json!({ "id": "3", "action": "hover", "selector": "#btn" }),
         &mut state,
@@ -1139,7 +1020,6 @@ async fn e2e_hover_scroll_press() {
     .await;
     assert_success(&resp);
 
-    // Scroll
     let resp = execute_command(
         &json!({ "id": "4", "action": "scroll", "y": 500 }),
         &mut state,
@@ -1156,7 +1036,6 @@ async fn e2e_hover_scroll_press() {
     let scroll_y = get_data(&resp)["result"].as_f64().unwrap();
     assert!(scroll_y > 0.0, "Should have scrolled down");
 
-    // Press key
     let resp = execute_command(
         &json!({ "id": "6", "action": "press", "key": "Enter" }),
         &mut state,
@@ -1168,10 +1047,6 @@ async fn e2e_hover_scroll_press() {
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);
 }
-
-// ---------------------------------------------------------------------------
-// State save/load, state management
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 #[ignore]
@@ -1192,7 +1067,6 @@ async fn e2e_state_management() {
     .await;
     assert_success(&resp);
 
-    // Set some storage
     let resp = execute_command(
         &json!({ "id": "3", "action": "storage_set", "type": "local", "key": "persist_key", "value": "persist_val" }),
         &mut state,
@@ -1200,7 +1074,6 @@ async fn e2e_state_management() {
     .await;
     assert_success(&resp);
 
-    // Save state
     let tmp_state = std::env::temp_dir()
         .join("stella-browser-e2e-state.json")
         .to_string_lossy()
@@ -1213,7 +1086,6 @@ async fn e2e_state_management() {
     assert_success(&resp);
     assert!(std::path::Path::new(&tmp_state).exists());
 
-    // State show
     let resp = execute_command(
         &json!({ "id": "5", "action": "state_show", "path": &tmp_state }),
         &mut state,
@@ -1223,21 +1095,15 @@ async fn e2e_state_management() {
     let state_data = get_data(&resp);
     assert!(state_data.get("state").is_some());
 
-    // State list
     let resp = execute_command(&json!({ "id": "6", "action": "state_list" }), &mut state).await;
     assert_success(&resp);
     assert!(get_data(&resp)["files"].is_array());
 
-    // Clean up
     let _ = std::fs::remove_file(&tmp_state);
 
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);
 }
-
-// ---------------------------------------------------------------------------
-// Domain filter
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 #[ignore]
@@ -1251,10 +1117,8 @@ async fn e2e_domain_filter() {
     .await;
     assert_success(&resp);
 
-    // Set domain filter after launch to avoid Fetch.enable deadlock in tests.
     state.domain_filter = Some(super::network::DomainFilter::new("example.com"));
 
-    // Allowed domain
     let resp = execute_command(
         &json!({ "id": "2", "action": "navigate", "url": "https://example.com" }),
         &mut state,
@@ -1262,7 +1126,6 @@ async fn e2e_domain_filter() {
     .await;
     assert_success(&resp);
 
-    // Blocked domain
     let resp = execute_command(
         &json!({ "id": "3", "action": "navigate", "url": "https://blocked.com" }),
         &mut state,
@@ -1279,10 +1142,6 @@ async fn e2e_domain_filter() {
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);
 }
-
-// ---------------------------------------------------------------------------
-// Diff engine
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 #[ignore]
@@ -1303,12 +1162,10 @@ async fn e2e_diff_snapshot() {
     .await;
     assert_success(&resp);
 
-    // Take a snapshot and use it as baseline for diff
     let resp = execute_command(&json!({ "id": "3", "action": "snapshot" }), &mut state).await;
     assert_success(&resp);
     let baseline = get_data(&resp)["snapshot"].as_str().unwrap().to_string();
 
-    // Modify the page
     let resp = execute_command(
         &json!({ "id": "4", "action": "evaluate", "script": "document.querySelector('h1').textContent = 'Changed'" }),
         &mut state,
@@ -1316,7 +1173,6 @@ async fn e2e_diff_snapshot() {
     .await;
     assert_success(&resp);
 
-    // Diff against baseline
     let resp = execute_command(
         &json!({ "id": "5", "action": "diff_snapshot", "baseline": baseline }),
         &mut state,
@@ -1329,10 +1185,6 @@ async fn e2e_diff_snapshot() {
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);
 }
-
-// ---------------------------------------------------------------------------
-// Phase 8 commands: focus, clear, count, boundingbox, innertext, setvalue
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 #[ignore]
@@ -1364,7 +1216,6 @@ async fn e2e_phase8_commands() {
     .await;
     assert_success(&resp);
 
-    // Focus
     let resp = execute_command(
         &json!({ "id": "10", "action": "focus", "selector": "#a" }),
         &mut state,
@@ -1372,7 +1223,6 @@ async fn e2e_phase8_commands() {
     .await;
     assert_success(&resp);
 
-    // Clear
     let resp = execute_command(
         &json!({ "id": "11", "action": "clear", "selector": "#a" }),
         &mut state,
@@ -1388,7 +1238,6 @@ async fn e2e_phase8_commands() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], "");
 
-    // Set value
     let resp = execute_command(
         &json!({ "id": "13", "action": "setvalue", "selector": "#b", "value": "new-value" }),
         &mut state,
@@ -1404,7 +1253,6 @@ async fn e2e_phase8_commands() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["value"], "new-value");
 
-    // Count
     let resp = execute_command(
         &json!({ "id": "15", "action": "count", "selector": ".item" }),
         &mut state,
@@ -1413,7 +1261,6 @@ async fn e2e_phase8_commands() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["count"], 3);
 
-    // Bounding box
     let resp = execute_command(
         &json!({ "id": "16", "action": "boundingbox", "selector": "#box" }),
         &mut state,
@@ -1426,7 +1273,6 @@ async fn e2e_phase8_commands() {
     assert!(bbox["x"].as_f64().is_some());
     assert!(bbox["y"].as_f64().is_some());
 
-    // Inner text
     let resp = execute_command(
         &json!({ "id": "17", "action": "innertext", "selector": "#box" }),
         &mut state,
@@ -1439,16 +1285,11 @@ async fn e2e_phase8_commands() {
     assert_success(&resp);
 }
 
-// ---------------------------------------------------------------------------
-// Auto-launch (tests that commands auto-launch when no browser exists)
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 #[ignore]
 async fn e2e_auto_launch() {
     let mut state = DaemonState::new();
 
-    // Navigate without explicit launch -- should auto-launch
     let resp = execute_command(
         &json!({ "id": "1", "action": "navigate", "url": "data:text/html,<h1>Auto</h1>" }),
         &mut state,
@@ -1469,10 +1310,6 @@ async fn e2e_auto_launch() {
     assert_success(&resp);
 }
 
-// ---------------------------------------------------------------------------
-// Error handling
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 #[ignore]
 async fn e2e_error_handling() {
@@ -1492,7 +1329,6 @@ async fn e2e_error_handling() {
     .await;
     assert_success(&resp);
 
-    // Unknown action
     let resp = execute_command(
         &json!({ "id": "10", "action": "nonexistent_action" }),
         &mut state,
@@ -1504,7 +1340,6 @@ async fn e2e_error_handling() {
         .unwrap()
         .contains("Not yet implemented"));
 
-    // Missing required parameter
     let resp = execute_command(
         &json!({ "id": "11", "action": "fill", "selector": "#x" }),
         &mut state,
@@ -1513,7 +1348,6 @@ async fn e2e_error_handling() {
     assert_eq!(resp["success"], false);
     assert!(resp["error"].as_str().unwrap().contains("value"));
 
-    // Click on non-existent element
     let resp = execute_command(
         &json!({ "id": "12", "action": "click", "selector": "#does-not-exist" }),
         &mut state,
@@ -1521,7 +1355,6 @@ async fn e2e_error_handling() {
     .await;
     assert_eq!(resp["success"], false);
 
-    // Evaluate syntax error
     let resp = execute_command(
         &json!({ "id": "13", "action": "evaluate", "script": "}{invalid" }),
         &mut state,
@@ -1534,10 +1367,6 @@ async fn e2e_error_handling() {
     assert_success(&resp);
 }
 
-// ---------------------------------------------------------------------------
-// Profile cookie persistence across restarts
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 #[ignore]
 async fn e2e_profile_cookie_persistence() {
@@ -1546,7 +1375,6 @@ async fn e2e_profile_cookie_persistence() {
         uuid::Uuid::new_v4()
     ));
 
-    // Session 1: launch with profile, set a cookie, close
     {
         let mut state = DaemonState::new();
 
@@ -1584,7 +1412,6 @@ async fn e2e_profile_cookie_persistence() {
         .await;
         assert_success(&resp);
 
-        // Verify cookie is set
         let resp =
             execute_command(&json!({ "id": "4", "action": "cookies_get" }), &mut state).await;
         assert_success(&resp);
@@ -1600,7 +1427,6 @@ async fn e2e_profile_cookie_persistence() {
 
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-    // Session 2: reopen with the same profile, verify cookie persisted
     {
         let mut state = DaemonState::new();
 
@@ -1645,10 +1471,6 @@ async fn e2e_profile_cookie_persistence() {
 
     let _ = std::fs::remove_dir_all(&profile_dir);
 }
-
-// ---------------------------------------------------------------------------
-// Inspect / CDP URL
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 #[ignore]
@@ -1709,7 +1531,6 @@ async fn e2e_inspect() {
         url
     );
 
-    // Verify the HTTP redirect serves a 302 to the DevTools frontend
     let http_resp = reqwest::get(url).await;
     match http_resp {
         Ok(r) => {
@@ -1729,11 +1550,6 @@ async fn e2e_inspect() {
     assert_success(&resp);
 }
 
-// ---------------------------------------------------------------------------
-// Stale ref fallback (#805): clicking a ref after the DOM has been replaced
-// should fall back to role/name lookup instead of failing.
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 #[ignore]
 async fn e2e_click_stale_ref_falls_back_to_role_name() {
@@ -1746,7 +1562,6 @@ async fn e2e_click_stale_ref_falls_back_to_role_name() {
     .await;
     assert_success(&resp);
 
-    // Navigate to a page with a button that replaces the DOM when clicked.
     let html = r#"data:text/html,<body>
         <div id="c">
             <button onclick="
@@ -1769,7 +1584,6 @@ async fn e2e_click_stale_ref_falls_back_to_role_name() {
     .await;
     assert_success(&resp);
 
-    // Snapshot to populate the ref_map with backend_node_ids.
     let resp = execute_command(&json!({ "id": "3", "action": "snapshot" }), &mut state).await;
     assert_success(&resp);
     let snapshot = get_data(&resp)["snapshot"].as_str().unwrap();
@@ -1782,8 +1596,6 @@ async fn e2e_click_stale_ref_falls_back_to_role_name() {
         "Snapshot should contain Target button"
     );
 
-    // Click "Replace" — this removes all DOM nodes and recreates them,
-    // making the backend_node_id for "Target" stale.
     let resp = execute_command(
         &json!({ "id": "4", "action": "click", "selector": "e1" }),
         &mut state,
@@ -1792,14 +1604,10 @@ async fn e2e_click_stale_ref_falls_back_to_role_name() {
     assert_success(&resp);
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
-    // Verify the DOM was actually replaced.
     let resp = execute_command(&json!({ "id": "5", "action": "title" }), &mut state).await;
     assert_success(&resp);
     assert_eq!(get_data(&resp)["title"], "replaced");
 
-    // Now click the stale "Target" ref. Before the fix this returned:
-    //   "CDP error (DOM.getBoxModel): Could not compute box model."
-    // After the fix it falls back to role/name lookup and succeeds.
     let resp = execute_command(
         &json!({ "id": "6", "action": "click", "selector": "e2" }),
         &mut state,
@@ -1808,7 +1616,6 @@ async fn e2e_click_stale_ref_falls_back_to_role_name() {
     assert_success(&resp);
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
-    // Verify the fallback click hit the right (recreated) button.
     let resp = execute_command(&json!({ "id": "7", "action": "title" }), &mut state).await;
     assert_success(&resp);
     assert_eq!(
@@ -1820,16 +1627,6 @@ async fn e2e_click_stale_ref_falls_back_to_role_name() {
     let resp = execute_command(&json!({ "id": "99", "action": "close" }), &mut state).await;
     assert_success(&resp);
 }
-
-// ---------------------------------------------------------------------------
-// Regression: Material Design checkbox/radio (#832)
-//
-// Material Design controls hide the native <input> off-screen and place
-// overlay elements (ripple, touch-target) on top.  Coordinate-based CDP
-// clicks may therefore miss the actual input.  The check/uncheck actions
-// must detect this and fall back to a JS .click() — matching the behaviour
-// that Playwright provided in v0.19.0.
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 #[ignore]
@@ -1843,21 +1640,17 @@ async fn e2e_material_checkbox_check_uncheck() {
     .await;
     assert_success(&resp);
 
-    // Inline HTML that reproduces the Material Design DOM pattern:
-    // - Native <input> is visually hidden (position:absolute, opacity:0, off-screen)
-    // - A ripple overlay sits on top with pointer-events:all, intercepting coordinate clicks
-    // - An ARIA-only checkbox uses role="checkbox" + aria-checked (no native input)
     let html = concat!(
         "data:text/html,<html><body>",
-        // -- Native baseline --
+
         "<input id='native' type='checkbox'>",
-        // -- Material-style hidden-input checkbox --
+
         "<div id='mat' style='position:relative;padding:12px'>",
           "<input id='mat-input' type='checkbox' style='position:absolute;opacity:0;width:1px;height:1px;top:-9999px;left:-9999px;pointer-events:none'>",
           "<div style='position:absolute;top:0;left:0;width:48px;height:48px;pointer-events:all;z-index:10'></div>",
           "<span>Material CB</span>",
         "</div>",
-        // -- ARIA-only checkbox (no native input) --
+
         "<div id='aria' role='checkbox' aria-checked='false' tabindex='0'>ARIA CB</div>",
         "<script>",
           "document.getElementById('aria').addEventListener('click',function(){",
@@ -1875,7 +1668,6 @@ async fn e2e_material_checkbox_check_uncheck() {
     .await;
     assert_success(&resp);
 
-    // ---- Native checkbox (sanity baseline) ----
     let resp = execute_command(
         &json!({ "id": "10", "action": "ischecked", "selector": "#native" }),
         &mut state,
@@ -1899,8 +1691,6 @@ async fn e2e_material_checkbox_check_uncheck() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["checked"], true, "native check failed");
 
-    // ---- Material checkbox (hidden input + overlay) ----
-    // ischecked on the wrapper should detect the nested hidden input's state
     let resp = execute_command(
         &json!({ "id": "20", "action": "ischecked", "selector": "#mat" }),
         &mut state,
@@ -1928,7 +1718,6 @@ async fn e2e_material_checkbox_check_uncheck() {
         "Material checkbox should be checked after check action (#832)"
     );
 
-    // Idempotency: check again should be a no-op
     let resp = execute_command(
         &json!({ "id": "23", "action": "check", "selector": "#mat" }),
         &mut state,
@@ -1948,7 +1737,6 @@ async fn e2e_material_checkbox_check_uncheck() {
         "Material checkbox should stay checked on redundant check"
     );
 
-    // Uncheck
     let resp = execute_command(
         &json!({ "id": "25", "action": "uncheck", "selector": "#mat" }),
         &mut state,
@@ -1968,7 +1756,6 @@ async fn e2e_material_checkbox_check_uncheck() {
         "Material checkbox should be unchecked after uncheck action"
     );
 
-    // ---- ARIA-only checkbox ----
     let resp = execute_command(
         &json!({ "id": "30", "action": "ischecked", "selector": "#aria" }),
         &mut state,
@@ -2000,14 +1787,6 @@ async fn e2e_material_checkbox_check_uncheck() {
     assert_success(&resp);
 }
 
-// ---------------------------------------------------------------------------
-// Issue #841 – snapshot -C and screenshot --annotate must not hang over WSS
-// ---------------------------------------------------------------------------
-
-/// Verifies that `snapshot -C` (cursor-interactive mode) detects elements with
-/// cursor:pointer / onclick / tabindex, produces the correct v0.19.0-compatible
-/// output format, deduplicates against the ARIA tree, and completes in bounded
-/// time (no sequential CDP round-trip explosion).
 #[tokio::test]
 #[ignore]
 async fn e2e_snapshot_cursor_interactive() {
@@ -2020,12 +1799,6 @@ async fn e2e_snapshot_cursor_interactive() {
     .await;
     assert_success(&resp);
 
-    // Page with:
-    //  - <button> and <a> (standard interactive – ARIA tree, NOT in cursor section)
-    //  - <div cursor:pointer onclick> (clickable – cursor section)
-    //  - <div tabindex=0> (focusable – cursor section)
-    //  - <span cursor:pointer> (clickable – cursor section)
-    //  - <span cursor:pointer> child of <div cursor:pointer> (inherited – skip)
     let html = concat!(
         "<html><body>",
         "<a href='#'>Link</a>",
@@ -2044,7 +1817,6 @@ async fn e2e_snapshot_cursor_interactive() {
     .await;
     assert_success(&resp);
 
-    // snapshot -i -C: interactive tree + cursor section
     let start = std::time::Instant::now();
     let resp = execute_command(
         &json!({ "id": "3", "action": "snapshot", "interactive": true, "cursor": true }),
@@ -2056,22 +1828,18 @@ async fn e2e_snapshot_cursor_interactive() {
 
     let snapshot = get_data(&resp)["snapshot"].as_str().unwrap();
 
-    // v0.19.0 output format: role + hints
     assert!(
         snapshot.contains("clickable") && snapshot.contains("[cursor:pointer"),
         "Expected v0.19.0-format cursor output with hints:\n{}",
         snapshot,
     );
 
-    // Role differentiation: tabindex-only → focusable
     assert!(
         snapshot.contains("focusable") && snapshot.contains("[tabindex]"),
         "Expected focusable role for tabindex-only element:\n{}",
         snapshot,
     );
 
-    // Text dedup: "Link" and "Btn" are in the ARIA tree, so must NOT suffix
-    // with cursor-interactive info. Verify line by line.
     for line in snapshot.lines() {
         assert!(
             !(line.contains("\"Link\"")
@@ -2091,7 +1859,6 @@ async fn e2e_snapshot_cursor_interactive() {
         );
     }
 
-    // Must complete quickly (< 5s), not hit the 30s CDP timeout
     assert!(
         elapsed.as_secs() < 5,
         "snapshot -C took {:?}, expected < 5s (Issue #841 regression)",
@@ -2102,9 +1869,6 @@ async fn e2e_snapshot_cursor_interactive() {
     assert_success(&resp);
 }
 
-/// Verifies that `screenshot --annotate` completes in bounded time even with
-/// many interactive elements. Guards against the sequential CDP round-trip
-/// regression that caused hangs over high-latency WSS (Issue #841).
 #[tokio::test]
 #[ignore]
 async fn e2e_screenshot_annotate_many_elements() {
@@ -2117,7 +1881,6 @@ async fn e2e_screenshot_annotate_many_elements() {
     .await;
     assert_success(&resp);
 
-    // 50 buttons: old sequential code would do 50×2×200ms ≈ 20s over WSS.
     let mut html = String::from("<html><body>");
     for i in 1..=50 {
         html.push_str(&format!("<button>Button {}</button>", i));
@@ -2150,7 +1913,6 @@ async fn e2e_screenshot_annotate_many_elements() {
         annotations.len(),
     );
 
-    // Must complete quickly (< 10s), not hit the 30s CDP timeout
     assert!(
         elapsed.as_secs() < 10,
         "screenshot --annotate with 50 elements took {:?}, expected < 10s (Issue #841)",
@@ -2161,9 +1923,6 @@ async fn e2e_screenshot_annotate_many_elements() {
     assert_success(&resp);
 }
 
-/// Verifies `snapshot -C` with many cursor-interactive elements completes in
-/// bounded time. Direct regression test for Issue #841's root cause: N×2
-/// sequential CDP round-trips per cursor-interactive element.
 #[tokio::test]
 #[ignore]
 async fn e2e_snapshot_cursor_many_elements() {
@@ -2176,8 +1935,6 @@ async fn e2e_snapshot_cursor_many_elements() {
     .await;
     assert_success(&resp);
 
-    // 100 cursor-interactive divs: old code = 200 sequential CDP calls,
-    // at 200ms WSS latency = 40s timeout. New code must finish in seconds.
     let mut html = String::from("<html><body>");
     for i in 1..=100 {
         html.push_str(&format!(
@@ -2205,19 +1962,16 @@ async fn e2e_snapshot_cursor_many_elements() {
 
     let snapshot = get_data(&resp)["snapshot"].as_str().unwrap();
 
-    // All 100 items should appear
     assert!(
         snapshot.contains("Item 1") && snapshot.contains("Item 100"),
         "Expected all 100 cursor-interactive items in output",
     );
 
-    // All should have v0.19.0-format hints
     assert!(
         snapshot.contains("[cursor:pointer, onclick]"),
         "Expected v0.19.0-format hints",
     );
 
-    // Must complete quickly
     assert!(
         elapsed.as_secs() < 10,
         "snapshot -C with 100 cursor elements took {:?}, expected < 10s (Issue #841)",
@@ -2228,11 +1982,6 @@ async fn e2e_snapshot_cursor_many_elements() {
     assert_success(&resp);
 }
 
-// ---------------------------------------------------------------------------
-// Unified selector resolver (aria= semantic selectors) + actionability layer
-// ---------------------------------------------------------------------------
-
-/// Encode a semantic selector the way worker-api.ts / the extension do.
 fn aria_selector(payload: Value) -> String {
     let semantic = match payload.get("kind").and_then(|v| v.as_str()) {
         Some("role") => super::selector::SemanticSelector::by_role(
@@ -2295,8 +2044,6 @@ async fn e2e_semantic_selector_click_and_fill() {
     )
     .await;
 
-    // getByRole("button", { name: "Save changes" }).click() equivalent:
-    // worker-api sends an aria= selector string on an ordinary click command.
     let selector =
         aria_selector(json!({ "kind": "role", "role": "button", "name": "Save changes" }));
     let resp = execute_command(
@@ -2313,7 +2060,6 @@ async fn e2e_semantic_selector_click_and_fill() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], true);
 
-    // getByPlaceholder(...).fill(...)
     let selector = aria_selector(json!({ "kind": "placeholder", "value": "you@example.com" }));
     let resp = execute_command(
         &json!({ "id": "3", "action": "fill", "selector": selector, "value": "a@b.co" }),
@@ -2322,7 +2068,6 @@ async fn e2e_semantic_selector_click_and_fill() {
     .await;
     assert_success(&resp);
 
-    // getByLabel(...).inputvalue()
     let selector = aria_selector(json!({ "kind": "label", "value": "Email address" }));
     let resp = execute_command(
         &json!({ "id": "4", "action": "inputvalue", "selector": selector }),
@@ -2332,7 +2077,6 @@ async fn e2e_semantic_selector_click_and_fill() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["value"], "a@b.co");
 
-    // getByTestId(...).textContent() + count on a semantic selector
     let selector = aria_selector(json!({ "kind": "testid", "value": "status" }));
     let resp = execute_command(
         &json!({ "id": "5", "action": "gettext", "selector": selector }),
@@ -2350,7 +2094,6 @@ async fn e2e_semantic_selector_click_and_fill() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["count"], 1);
 
-    // No match => precise semantic error, not a CSS fallback error.
     let selector = aria_selector(json!({ "kind": "role", "role": "button", "name": "Nope" }));
     let resp = execute_command(
         &json!({ "id": "7", "action": "gettext", "selector": selector }),
@@ -2382,7 +2125,6 @@ async fn e2e_semantic_nth_and_exact() {
     )
     .await;
 
-    // nth targets the second match
     let mut semantic =
         super::selector::SemanticSelector::by_role("button", Some("Repeat"), true).unwrap();
     semantic.nth = Some(1);
@@ -2400,7 +2142,6 @@ async fn e2e_semantic_nth_and_exact() {
     .await;
     assert_eq!(get_data(&resp)["result"], "second");
 
-    // exact: false substring-matches all three; exact: true only two
     let loose = aria_selector(
         json!({ "kind": "role", "role": "button", "name": "Repeat", "exact": false }),
     );
@@ -2419,7 +2160,6 @@ async fn e2e_semantic_nth_and_exact() {
     .await;
     assert_eq!(get_data(&resp)["count"], 2);
 
-    // nth out of range => precise error
     let mut semantic =
         super::selector::SemanticSelector::by_role("button", Some("Repeat"), true).unwrap();
     semantic.nth = Some(9);
@@ -2480,7 +2220,6 @@ async fn e2e_getby_commands_use_unified_resolver() {
     .await;
     assert_eq!(get_data(&resp)["result"], "zed");
 
-    // getbyalttext / getbytitle keep working through the shared resolver
     let resp = execute_command(
         &json!({ "id": "5", "action": "getbyalttext", "text": "Logo mark", "subaction": "text" }),
         &mut state,
@@ -2494,7 +2233,6 @@ async fn e2e_getby_commands_use_unified_resolver() {
     .await;
     assert_success(&resp);
 
-    // No marker attributes may linger after getby* commands.
     let resp = execute_command(
         &json!({ "id": "7", "action": "evaluate", "script": "document.querySelectorAll('[data-stella-browser-located]').length" }),
         &mut state,
@@ -2519,8 +2257,6 @@ async fn e2e_actionability_scrolls_below_fold_click() {
     )
     .await;
 
-    // Below-the-fold clicks used to dispatch at an off-viewport point and
-    // silently miss; the actionability layer must scroll first.
     let resp = execute_command(
         &json!({ "id": "1", "action": "click", "selector": "#deep" }),
         &mut state,
@@ -2553,7 +2289,6 @@ async fn e2e_actionability_precise_failures() {
     )
     .await;
 
-    // Covered element: precise occlusion error naming the covering element.
     let resp = execute_command(
         &json!({ "id": "1", "action": "click", "selector": "#covered" }),
         &mut state,
@@ -2566,7 +2301,7 @@ async fn e2e_actionability_precise_failures() {
         "unexpected error: {}",
         err
     );
-    // And the click must NOT have fired.
+
     let resp = execute_command(
         &json!({ "id": "2", "action": "evaluate", "script": "window.__covered === true" }),
         &mut state,
@@ -2574,7 +2309,6 @@ async fn e2e_actionability_precise_failures() {
     .await;
     assert_eq!(get_data(&resp)["result"], false);
 
-    // display:none element
     let resp = execute_command(
         &json!({ "id": "3", "action": "click", "selector": "#invisible" }),
         &mut state,
@@ -2587,7 +2321,6 @@ async fn e2e_actionability_precise_failures() {
         error_text(&resp)
     );
 
-    // zero-size element
     let resp = execute_command(
         &json!({ "id": "4", "action": "click", "selector": "#flat" }),
         &mut state,
@@ -2608,9 +2341,7 @@ async fn e2e_actionability_precise_failures() {
 #[ignore]
 async fn e2e_actionability_custom_checkbox_fallback() {
     let mut state = DaemonState::new();
-    // Common custom-checkbox pattern: the native input is visually hidden and
-    // a styled sibling renders the box. check() must still work via the DOM
-    // click fallback.
+
     launch_with_content(
         &mut state,
         r#"<html><body>
@@ -2671,10 +2402,6 @@ async fn e2e_wait_supports_semantic_selectors() {
     assert_success(&resp);
 }
 
-// ---------------------------------------------------------------------------
-// Chain: sequential steps through the shared dispatch (Milestone 3)
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 #[ignore]
 async fn e2e_chain_runs_steps_and_marker_chain_flow() {
@@ -2692,9 +2419,6 @@ async fn e2e_chain_runs_steps_and_marker_chain_flow() {
     )
     .await;
 
-    // Marker-chain round trip exactly like worker-api.ts makeMarkerChain:
-    // step 0 tags the target element with the marker attribute, step 1 acts
-    // on the marker CSS selector. Options mirror makeMarkerChain too.
     let marker_script = r##"(() => {
         const elements = [...document.querySelectorAll("#results > .row")];
         const element = elements[1];
@@ -2731,7 +2455,6 @@ async fn e2e_chain_runs_steps_and_marker_chain_flow() {
     assert_eq!(results[1]["success"], true);
     assert_eq!(results[1]["data"]["text"], "beta");
 
-    // The cleanup evaluate makeMarkerChain issues afterwards.
     let resp = execute_command(
         &json!({
             "id": "chain-cleanup",
@@ -2749,7 +2472,6 @@ async fn e2e_chain_runs_steps_and_marker_chain_flow() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], 0);
 
-    // Element-targeted steps with implicit waits plus a trailing snapshot.
     let resp = execute_command(
         &json!({
             "id": "chain-fill",
@@ -2773,7 +2495,6 @@ async fn e2e_chain_runs_steps_and_marker_chain_flow() {
         data
     );
 
-    // Stop-on-first-error with the failing step index in the chain error.
     let resp = execute_command(
         &json!({
             "id": "chain-fail",
@@ -2803,10 +2524,6 @@ async fn e2e_chain_runs_steps_and_marker_chain_flow() {
     assert_success(&resp);
 }
 
-// ---------------------------------------------------------------------------
-// Owner tab lifecycle: finalize_tabs / close_owner / release_owner_lease
-// ---------------------------------------------------------------------------
-
 fn with_owner_lease(
     mut command: Value,
     owner_id: &str,
@@ -2835,7 +2552,6 @@ async fn e2e_owner_finalize_closes_owned_tabs_and_is_idempotent() {
     .await;
     assert_success(&resp);
 
-    // Two owner-tracked tabs plus the launch tab (unowned).
     let resp = execute_command(
         &with_owner_lease(
             json!({ "id": "2", "action": "tab_new" }),
@@ -2863,7 +2579,6 @@ async fn e2e_owner_finalize_closes_owned_tabs_and_is_idempotent() {
     assert_success(&resp);
     let second_tab = get_data(&resp)["tabId"].as_u64().unwrap();
 
-    // Keep the first tab as a handoff; the second must be closed.
     let resp = execute_command(
         &with_owner_lease(
             json!({
@@ -2885,15 +2600,12 @@ async fn e2e_owner_finalize_closes_owned_tabs_and_is_idempotent() {
     assert_eq!(data["releasedTabIds"], json!([first_tab]));
     assert_eq!(data["kept"][0]["tabId"], first_tab);
 
-    // The kept tab survives; the closed tab is gone from tab_list.
     let resp = execute_command(&json!({ "id": "5", "action": "tab_list" }), &mut state).await;
     assert_success(&resp);
     let tabs = get_data(&resp)["tabs"].as_array().unwrap().clone();
     assert!(tabs.iter().any(|tab| tab["tabId"] == first_tab));
     assert!(tabs.iter().all(|tab| tab["tabId"] != second_tab));
 
-    // Finalizing again is success with nothing left to close (the kept tab
-    // was released from ownership).
     let resp = execute_command(
         &with_owner_lease(
             json!({ "id": "6", "action": "close_owner" }),
@@ -2908,7 +2620,6 @@ async fn e2e_owner_finalize_closes_owned_tabs_and_is_idempotent() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["closedTabIds"], json!([]));
 
-    // Lease release detaches this exact turn without touching the handoff.
     let resp = execute_command(
         &with_owner_lease(
             json!({ "id": "7", "action": "release_owner_lease" }),
@@ -2939,8 +2650,6 @@ async fn e2e_owner_tab_discovery_and_commands_reject_foreign_tabs() {
     .await;
     assert_success(&resp);
 
-    // The first owner-scoped command receives its own implicit tab instead of
-    // adopting the launch tab or another owner's active page.
     let resp = execute_command(
         &with_owner_lease(
             json!({ "id": "2", "action": "tab_list" }),
@@ -3014,7 +2723,6 @@ async fn e2e_owner_tab_discovery_and_commands_reject_foreign_tabs() {
         .iter()
         .all(|tab| tab["tabId"] != owner_b_tab));
 
-    // Unscoped/manual discovery keeps the legacy full browser view.
     let resp = execute_command(&json!({ "id": "5", "action": "tab_list" }), &mut state).await;
     assert_success(&resp);
     let all_tabs = get_data(&resp)["tabs"].as_array().unwrap();
@@ -3065,7 +2773,6 @@ async fn e2e_owner_tab_discovery_and_commands_reject_foreign_tabs() {
             .contains("another browser owner"));
     }
 
-    // A step cannot spoof owner-b inside an owner-a chain.
     let resp = execute_command(
         &with_owner_lease(
             json!({
@@ -3091,7 +2798,6 @@ async fn e2e_owner_tab_discovery_and_commands_reject_foreign_tabs() {
         .unwrap()
         .contains("another browser owner"));
 
-    // Failed foreign close did not touch owner-b's tab.
     let resp = execute_command(
         &with_owner_lease(
             json!({ "id": "6", "action": "tab_list" }),
@@ -3110,8 +2816,6 @@ async fn e2e_owner_tab_discovery_and_commands_reject_foreign_tabs() {
         .iter()
         .any(|tab| tab["tabId"] == owner_b_tab));
 
-    // A newer lease for the same owner closes prior-lease owned tabs before it
-    // receives a fresh implicit tab. It cannot inherit the old active tab.
     let resp = execute_command(
         &with_owner_lease(
             json!({ "id": "7", "action": "tab_list" }),
@@ -3131,8 +2835,6 @@ async fn e2e_owner_tab_discovery_and_commands_reject_foreign_tabs() {
         .all(|tab| { tab["tabId"] != owner_a_first_tab && tab["tabId"] != owner_a_tab }));
     let newer_tab = superseding_tabs[0]["tabId"].as_u64().unwrap();
 
-    // Late disposal from the prior turn is rejected before finalization, so it
-    // cannot close the newer lease's fresh tab.
     let stale_cleanup = execute_command(
         &with_owner_lease(
             json!({ "id": "8", "action": "finalize_tabs", "keep": [] }),
@@ -3176,14 +2878,6 @@ async fn e2e_owner_tab_discovery_and_commands_reject_foreign_tabs() {
     assert_success(&resp);
 }
 
-// ---------------------------------------------------------------------------
-// Same-origin iframe resolution + input, cross-origin frame error notes
-// ---------------------------------------------------------------------------
-
-/// Selectors (CSS and aria=) must find elements inside same-origin iframes,
-/// focus-based and coordinate-based input must work on them (coordinates
-/// translated to the top viewport), and not-found errors must report frames
-/// that could not be searched.
 #[tokio::test]
 #[ignore]
 async fn e2e_same_origin_iframe_resolution_and_input() {
@@ -3197,9 +2891,6 @@ async fn e2e_same_origin_iframe_resolution_and_input() {
     )
     .await;
 
-    // Build the frames from page JS to avoid data-URL/srcdoc quoting: an
-    // about:blank iframe inherits the parent origin (reachable), while a
-    // data: URL iframe is opaque-origin (cross-origin, unreachable).
     let resp = execute_command(
         &json!({ "id": "1", "action": "evaluate", "script": r#"
             (() => {
@@ -3222,10 +2913,9 @@ async fn e2e_same_origin_iframe_resolution_and_input() {
     )
     .await;
     assert_success(&resp);
-    // Let the data: iframe finish loading so its document turns opaque.
+
     tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
 
-    // CSS count pierces the same-origin frame.
     let resp = execute_command(
         &json!({ "id": "2", "action": "count", "selector": "#msg" }),
         &mut state,
@@ -3234,7 +2924,6 @@ async fn e2e_same_origin_iframe_resolution_and_input() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["count"], 1);
 
-    // Focus-based input (fill) on an in-frame element via plain CSS.
     let resp = execute_command(
         &json!({ "id": "3", "action": "fill", "selector": "#msg", "value": "hello frame" }),
         &mut state,
@@ -3250,7 +2939,6 @@ async fn e2e_same_origin_iframe_resolution_and_input() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], "hello frame");
 
-    // Semantic selectors resolve into the frame too.
     let selector = aria_selector(json!({ "kind": "placeholder", "value": "frame-input" }));
     let resp = execute_command(
         &json!({ "id": "5", "action": "inputvalue", "selector": selector }),
@@ -3269,8 +2957,6 @@ async fn e2e_same_origin_iframe_resolution_and_input() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["count"], 1);
 
-    // Coordinate-based click: the click point must be translated across the
-    // iframe boundary (border offset included) so the button actually fires.
     let selector =
         aria_selector(json!({ "kind": "role", "role": "button", "name": "Frame button" }));
     let resp = execute_command(
@@ -3288,8 +2974,6 @@ async fn e2e_same_origin_iframe_resolution_and_input() {
     assert_success(&resp);
     assert_eq!(get_data(&resp)["result"], "clicked");
 
-    // Not-found errors report the unreachable cross-origin frame for both
-    // selector flavors.
     let resp = execute_command(
         &json!({ "id": "9", "action": "gettext", "selector": "#does-not-exist" }),
         &mut state,

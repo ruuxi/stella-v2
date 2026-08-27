@@ -10,24 +10,10 @@ import { type Infer, v } from "convex/values";
 import { requireUserId } from "./auth";
 import { enforceActionRateLimit, RATE_SENSITIVE } from "./lib/rate_limits";
 
-/**
- * Per-mutation deletion batch size. Conservative because each `reset.*` call
- * runs inside a single Convex transaction and we want to stay well below the
- * read/write limits even when the caller chains many invocations.
- */
 const BATCH = 200;
 
-/** How many conversation ids we'll fetch in one paginated page. */
 const CONVERSATION_PAGE = 200;
 
-/**
- * Tables that hold owner-scoped data and can be drained per-table without
- * needing per-conversation traversal. Each entry maps to the index that lets
- * us look the rows up by `ownerId`.
- *
- * Kept here as a typed tuple so the orchestrator action can iterate over them
- * without losing the strong typing on `ctx.db.query` / `withIndex`.
- */
 const OWNER_TABLES = [
   ["user_preferences", "by_ownerId_and_key"],
   ["devices", "by_ownerId"],
@@ -46,19 +32,12 @@ const OWNER_TABLES = [
 
 type OwnerTable = (typeof OWNER_TABLES)[number][0];
 
-// ---------------------------------------------------------------------------
-// Public action - orchestrates full user data reset across many small mutations
-// ---------------------------------------------------------------------------
-
 export const resetAllUserData = action({
   args: {},
   returns: v.null(),
   handler: async (ctx) => {
     const ownerId = await requireUserId(ctx);
 
-    // Destructive: wipes the user's entire data set across many mutations.
-    // A hijacked session shouldn't be able to fire-and-forget this multiple
-    // times in parallel.
     await enforceActionRateLimit(
       ctx,
       "reset_all_user_data",
@@ -67,10 +46,6 @@ export const resetAllUserData = action({
       "Too many account reset attempts. Please wait a minute and try again.",
     );
 
-    // 1. Drain conversations one page at a time. We don't store all ids in
-    //    memory because a long-lived account could have up to
-    //    `MAX_CONVERSATIONS_PER_USER` rows (1000), which exceeds the safe
-    //    array-return size for a single query.
     let cursor: string | null = null;
     while (true) {
       const page: { ids: Id<"conversations">[]; nextCursor: string | null } =
@@ -94,9 +69,6 @@ export const resetAllUserData = action({
       cursor = page.nextCursor;
     }
 
-    // 2. Drain each owner-scoped table in its own mutation so we never
-    //    read + delete from N tables in a single transaction. The per-table
-    //    drains are independent, so run them concurrently.
     await Promise.all([
       ...OWNER_TABLES.map(async ([table]) => {
         let hasMore = true;
@@ -113,10 +85,6 @@ export const resetAllUserData = action({
     return null;
   },
 });
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 export const _listConversationIdsPage = internalQuery({
   args: {
@@ -143,9 +111,7 @@ export const _deleteConversationBatch = internalMutation({
   args: { conversationId: v.id("conversations") },
   returns: v.object({ hasMore: v.boolean() }),
   handler: async (ctx, { conversationId }) => {
-    // Phase A: drain `events` for this conversation in tight batches. We
-    // process events first so they always disappear before the conversation
-    // row itself.
+
     const events = await ctx.db
       .query("events")
       .withIndex("by_conversationId_and_timestamp", (q) =>
@@ -157,9 +123,6 @@ export const _deleteConversationBatch = internalMutation({
       return { hasMore: true };
     }
 
-    // Phase B: drain ONE thread's messages per call. Doing this per-thread
-    // keeps the per-mutation read/write count bounded by `BATCH` even if a
-    // conversation has hundreds of threads with thousands of messages each.
     const [thread] = await ctx.db
       .query("threads")
       .withIndex("by_conversationId_and_lastUsedAt", (q) =>
@@ -177,16 +140,11 @@ export const _deleteConversationBatch = internalMutation({
         await Promise.all(messages.map((m) => ctx.db.delete(m._id)));
         return { hasMore: true };
       }
-      // No more messages for this thread — delete the thread row and let the
-      // caller invoke us again to advance to the next thread / conversation
-      // tear-down phase.
+
       await ctx.db.delete(thread._id);
       return { hasMore: true };
     }
 
-    // Phase B': connector_turn_payloads is a child table keyed by
-    // conversationId. Drain it before deleting the conversation row so we
-    // don't leave dangling FK references.
     const turnPayloads = await ctx.db
       .query("connector_turn_payloads")
       .withIndex("by_conversationId", (q) =>
@@ -198,9 +156,6 @@ export const _deleteConversationBatch = internalMutation({
       return { hasMore: true };
     }
 
-    // Phase B'': attachments reference both the conversation and a
-    // `_storage` blob. Delete the blob alongside each row so reset doesn't
-    // leave dangling FK references or leak storage objects.
     const attachments = await ctx.db
       .query("attachments")
       .withIndex("by_conversationId", (q) =>
@@ -217,9 +172,6 @@ export const _deleteConversationBatch = internalMutation({
       return { hasMore: true };
     }
 
-    // Phase B''': pending_device_selections is a child table keyed by
-    // conversationId. Drain it before deleting the conversation row so we
-    // don't leave dangling FK references.
     const pendingSelections = await ctx.db
       .query("pending_device_selections")
       .withIndex("by_conversationId", (q) =>
@@ -228,12 +180,9 @@ export const _deleteConversationBatch = internalMutation({
       .take(BATCH);
     if (pendingSelections.length > 0) {
       await Promise.all(pendingSelections.map((row) => ctx.db.delete(row._id)));
-      // The unique constraint means this almost always returns 0 or 1, so
-      // we don't need a `hasMore: true` round-trip here.
+
     }
 
-    // Phase C: events + threads are gone — delete the conversation row and
-    // decrement the denormalized counter so quota checks stay accurate.
     const conv = await ctx.db.get(conversationId);
     if (conv) {
       await ctx.db.delete(conversationId);
@@ -269,9 +218,6 @@ const ownerTableValidator = v.union(
   v.literal("connector_turn_payloads"),
 );
 
-// Static guard: keeps `ownerTableValidator` and `OWNER_TABLES` in sync. If
-// a table is added/removed from one but not the other this file stops
-// type-checking. Matches both directions so neither side can drift.
 type _OwnerTableMatchesValidator =
   OwnerTable extends Infer<typeof ownerTableValidator>
     ? Infer<typeof ownerTableValidator> extends OwnerTable
@@ -281,11 +227,6 @@ type _OwnerTableMatchesValidator =
 const _ownerTablesInSync: _OwnerTableMatchesValidator = true;
 void _ownerTablesInSync;
 
-/**
- * Deletes one batch of rows from a single owner-scoped table. The orchestrator
- * action loops on `hasMore` and walks `OWNER_TABLES` so that each invocation
- * stays inside one mutation transaction.
- */
 export const _deleteOwnerTableBatch = internalMutation({
   args: {
     ownerId: v.string(),
@@ -298,11 +239,6 @@ export const _deleteOwnerTableBatch = internalMutation({
   },
 });
 
-/**
- * Per-table dispatch that keeps the typed `ctx.db.query` / `withIndex`
- * builder. Adding a new owner-scoped table here is a single switch case
- * addition (plus an entry in `OWNER_TABLES`).
- */
 async function deleteOneOwnerTableBatch(
   ctx: MutationCtx,
   ownerId: string,

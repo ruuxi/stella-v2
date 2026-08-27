@@ -460,8 +460,7 @@ describe("active-turn working-set boundaries", () => {
     });
     agent.subscribe((event) => {
       if (event.type === "message_end") {
-        // Runtime persistence is a synchronous message_end subscriber. This
-        // stand-in asserts the boundary hook cannot run before those flushes.
+
         durablyFlushedRoles.push(event.message.role);
       }
     });

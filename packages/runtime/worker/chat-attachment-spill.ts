@@ -5,16 +5,6 @@ import path from "node:path";
 import { ANTHROPIC_DIRECT_MAX_IMAGE_BASE64_BYTES } from "../ai/utils/image-caps.js";
 import type { RuntimeAttachmentRef } from "@stella/contracts/protocol";
 
-/**
- * Total decoded bytes of composer images allowed inline on a single chat
- * turn. Past this, the request body (system prompt + history + base64
- * images) risks blowing provider/relay request-size caps — the Stella
- * relay rejects bodies over ~20MiB with HTTP 413 before any model sees
- * them, and the oversized user message then poisons every later turn in
- * the thread. Over-budget turns write the images to disk and reference
- * them by absolute path so the model pulls in specific ones on demand via
- * `Read`.
- */
 export const INLINE_IMAGE_ATTACHMENT_BUDGET_BYTES = 10 * 1024 * 1024;
 
 export type SpilledImageAttachment = {
@@ -48,13 +38,6 @@ export const approximateDataUrlBytes = (url: string): number => {
   return Math.floor(((match?.[2]?.length ?? 0) * 3) / 4);
 };
 
-/**
- * Per-image cap, measured on the base64 payload — Anthropic rejects any
- * single image whose base64 exceeds its direct-API limit with a fatal 400. A
- * turn whose total is under the spill budget can still carry one such image,
- * so the spill decision checks both. Sourced from the shared `image-caps`
- * definition so this can't drift from the resize target and send boundary.
- */
 export const MAX_INLINE_IMAGE_BASE64_BYTES =
   ANTHROPIC_DIRECT_MAX_IMAGE_BASE64_BYTES;
 

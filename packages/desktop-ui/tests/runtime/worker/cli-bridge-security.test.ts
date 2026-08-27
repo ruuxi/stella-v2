@@ -39,16 +39,14 @@ describe("CLI bridge transport security", () => {
     const first = createSecureCliBridgeEndpoint(paths);
     const second = createSecureCliBridgeEndpoint(paths);
     expect(first).not.toBe(second);
-    // The nonce must stay its own directory component (the 0700 dir is the
-    // unpredictability barrier) and carry >= 128 bits (22 base64url chars).
+
     expect(path.dirname(path.dirname(first))).toBe(root);
     expect(path.basename(path.dirname(first))).toMatch(/^[A-Za-z0-9_-]{22}$/u);
     expect(path.basename(first)).toBe("b.sock");
   });
 
   it("stays under the 104-byte macOS sun_path cap for long home directories", () => {
-    // Simulated long-username home dir; the real rootDir shape is
-    // ~/.stella/runtime/<16-hex>.
+
     const homeDir = "/Users/alexandra.rodriguez";
     const rootDir = path.join(
       homeDir,
@@ -73,7 +71,7 @@ describe("CLI bridge transport security", () => {
         "128 bits",
       );
     }
-    // 22 base64url chars (current default) and legacy 32-hex both pass.
+
     expect(() =>
       createSecureCliBridgeEndpoint(paths, { nonce: "A-_b".repeat(5) + "Zz" }),
     ).not.toThrow();

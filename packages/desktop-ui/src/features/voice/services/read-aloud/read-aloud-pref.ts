@@ -1,19 +1,3 @@
-/**
- * Renderer-side mirror of the `readAloudEnabled` preference.
- *
- * Backed by the main-process IPC handlers — we load once on first
- * subscribe, keep an in-memory cache so toggling re-renders both the
- * toggle UI and any active read-aloud subscribers in lock-step, and
- * write back through IPC. Main broadcasts changes to every renderer so
- * turning the setting off in one window immediately stops playback in
- * chat surfaces mounted in another window.
- *
- * Exposed as a `useSyncExternalStore`-compatible store so multiple
- * components (toggle button in the suggestion row, the play hook in
- * the full chat AND the sidebar chat) observe the same value without
- * prop-drilling.
- */
-
 type Listener = () => void;
 
 let cachedValue = false;

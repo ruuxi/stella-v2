@@ -44,9 +44,7 @@ const createTestContext = (): TestContext => {
 };
 
 beforeEach(() => {
-  // last_used_at is driven by Date.now(); slot eviction picks the slot
-  // whose MAX(last_used_at) is smallest, so tests advance fake time
-  // between spawns to make LRU ordering deterministic.
+
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-06-11T12:00:00Z"));
 });
@@ -60,7 +58,6 @@ afterEach(async () => {
   activeContexts.clear();
 });
 
-/** Spawn a new general thread, advancing fake time so recency ordering is strict. */
 const spawnThread = (
   store: SessionStore,
   conversationId: string,
@@ -108,8 +105,7 @@ describe("slugify", () => {
     const slug = slugify(
       "Compare international flight prices Tokyo Osaka Kyoto",
     );
-    // Full slug is 53 chars; the 48-char cut lands on the dash after
-    // "osaka", so "kyoto" is dropped whole rather than mid-word.
+
     expect(slug).toBe("compare-international-flight-prices-tokyo-osaka");
     expect(slug.length).toBeLessThanOrEqual(48);
   });
@@ -169,15 +165,13 @@ describe("slug-based thread naming", () => {
     const second = spawnThread(store, conversationId, "💡");
     expect(first.threadId).toBe("task-1");
     expect(second.threadId).toBe("task-2");
-    // The display name still keeps the raw (trimmed) hint.
+
     const record = store
       .listActiveThreads(conversationId)
       .find((thread) => thread.threadId === first.threadId);
     expect(record?.name).toBe("🔥🚀✨");
   });
 
-  // `grp-` used to be a reserved namespace for thread groups. Groups are
-  // gone, so a hint that slugs into it is now just an ordinary thread id.
   it("allows grp-prefixed hints now that thread groups do not exist", () => {
     const { store } = createTestContext();
     const conversationId = "conv-grp-hint";
@@ -228,7 +222,7 @@ describe("per-thread active budget", () => {
     });
     expect(resumed.reused).toBe(true);
     expect(threadStatus(db, oldest.threadId)).toBe("active");
-    // Reactivating at budget evicts the LRU thread.
+
     expect(threadStatus(db, fillers[0]!)).toBe("evicted");
   });
 });
@@ -273,8 +267,6 @@ describe("searchThreads", () => {
     );
     spawnThread(store, conversationId, "Organize tax documents");
 
-    // Two-token match outranks single-token matches; among equal scores
-    // the most recently used thread wins; zero-token matches drop out.
     const results = store.searchThreads({
       conversationId,
       query: "flight tokyo",
@@ -296,8 +288,6 @@ describe("searchThreads", () => {
     );
     spawnThread(store, conversationId, "Organize tax documents");
 
-    // Under strict AND this query returned nothing: "the"/"from"/"last"
-    // never appear in the thread, and unmatched tokens excluded it.
     const results = store.searchThreads({
       conversationId,
       query: "the flight comparison from last week",
@@ -335,8 +325,7 @@ describe("searchThreads", () => {
 
   it("is dual-scoped: current-conversation hits sort ahead of other conversations'", () => {
     const { store } = createTestContext();
-    // The other conversation's thread is more recent AND matches the same
-    // token — scope still wins the tie-break ordering.
+
     const mine = spawnThread(store, "conv-mine", "Compare flight prices");
     const other = spawnThread(store, "conv-other", "Compare flight schedules");
 
@@ -348,8 +337,7 @@ describe("searchThreads", () => {
       mine.threadId,
       other.threadId,
     ]);
-    // The record's own conversationId tells callers which scope a hit
-    // came from.
+
     expect(results[0]?.conversationId).toBe("conv-mine");
     expect(results[1]?.conversationId).toBe("conv-other");
   });
@@ -374,8 +362,7 @@ describe("searchThreads", () => {
       agentType: "orchestrator",
       nameHint: "Coordinate flight booking",
     });
-    // A general-typed thread keyed by the conversation id itself is also
-    // excluded (it is the conversation, not work).
+
     store.resolveOrCreateActiveThread({
       conversationId,
       agentType: "general",
@@ -476,7 +463,6 @@ describe("buildActiveThreadsPrompt", () => {
     ...overrides,
   });
 
-
   it("labels a currently executing thread active and an idle one paused", () => {
     const now = 1_700_000_000_000;
     const prompt = buildActiveThreadsPrompt(
@@ -484,8 +470,7 @@ describe("buildActiveThreadsPrompt", () => {
         makeThread({
           threadId: "running-now",
           lastUsedAt: now - 10 * 60_000,
-          // A fresh agent turn keeps recency honest even if the thread row
-          // wasn't re-touched.
+
           agentUpdatedAt: now - 60_000,
           agentStatus: "running",
         }),
@@ -508,7 +493,7 @@ describe("buildActiveThreadsPrompt", () => {
     expect(prompt).toContain(
       "\n- errored-thread (paused (last run errored), last active 2m ago)",
     );
-    // The roster is flat and recency-ordered, and still points at Recall.
+
     expect(prompt.indexOf("running-now")).toBeLessThan(
       prompt.indexOf("errored-thread"),
     );
@@ -521,9 +506,7 @@ describe("buildActiveThreadsPrompt", () => {
   });
 
   it("derives active vs paused end-to-end from the runtime_agents.status join", () => {
-    // Full-stack proof: real SessionStore + real SQLite. The roster's
-    // active/paused signal must come from runtime_agents.status via the
-    // LEFT JOIN, not from anything the caller mocks.
+
     const { store } = createTestContext();
     const conversationId = "conv-live-state";
     const running = spawnThread(store, conversationId, "Deploy the backend");
@@ -567,7 +550,7 @@ describe("review-fix regressions", () => {
   it("searchThreads excludes implicit ::subagent:: transcript rows", () => {
     const { store } = createTestContext();
     spawnThread(store, "conv-x", "Real flight research");
-    // Simulate an ephemeral workflow agent's implicit transcript row.
+
     store.updateThreadSummary(
       "conv-x::subagent::general::wf-research-a1",
       "internal transcript",
@@ -577,7 +560,6 @@ describe("review-fix regressions", () => {
       "real-flight-research",
     ]);
   });
-
 
   it("thread slugs never land in the legacy- feature-id namespace", () => {
     const { store } = createTestContext();

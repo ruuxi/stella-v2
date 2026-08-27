@@ -1,17 +1,3 @@
-/**
- * Apps — the user-app library, and the apps themselves.
- *
- * Sub-location (`sidebarSections` → `locations.apps`) is a user-app slug, or
- * `null` for the library list.
- *
- * `<PersistentUserAppsHost />` renders here as a sibling of the library, not
- * inside the branch that shows the open app, and it is never conditioned on
- * which app is open. App surfaces have to be mounted in their final home and
- * only ever hidden: portalling or re-parenting a live subtree preserves React
- * state but destroys iframe browsing contexts and resets `<video>`/`<canvas>`
- * and scroll position. Everything about where the host sits in this tree
- * exists to keep its DOM nodes still.
- */
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { PersistentUserAppsHost } from "@/app/apps/PersistentUserAppsHost";
 import { listUserApps, useRequestUserApp, } from "@/app/apps/user-app-library";
@@ -41,16 +27,15 @@ export function AppsSection() {
         for (const tabId of removedTabIds)
             sidebarSections.closeTab(tabId);
     }, [apps, registry.phase, sidebarTabs]);
-    // The list counts as "seen" only when the user can actually see it: every
-    // section stays mounted, so mounting alone says nothing about attention.
+
     const listVisible = panelOpen && activeSection === "apps" && !openApp;
     useEffect(() => {
         if (listVisible)
             markAllUserAppsSeen();
     }, [apps, listVisible]);
     return (<>
-      {/* Back-to-library nav lives in the top bar now (browser-tab model),
-          so there is no in-body section header here. */}
+      {
+}
       <div className="apps-section__body">
         {openApp ? null : <AppsLibrary registry={registry}/>}
         <PersistentUserAppsHost />
@@ -67,8 +52,7 @@ function AppsLibrary({ registry }) {
             await stopUserApp(slug);
         }
         catch {
-            // The status refresh keeps the card truthful; restoring the action
-            // is enough for a lightweight retry without another error surface.
+
         }
         finally {
             setStoppingSlugs((current) => {

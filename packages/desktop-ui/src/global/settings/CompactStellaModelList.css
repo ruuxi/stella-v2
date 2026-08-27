@@ -105,9 +105,6 @@
   text-align: center;
 }
 
-/* Loaded-but-empty / failed state: message + retry stacked and centered,
-   distinct from the transient "Loading…" text so a stalled fetch is
-   recoverable instead of looking like an eternal spinner. */
 .compact-stella-list-empty--state {
   display: flex;
   flex-direction: column;
@@ -135,9 +132,6 @@
   color: var(--text-weak);
 }
 
-/* Upgrade affordance — Stella's small ghost pill, mirroring the
-   composer model submenu's restricted-upgrade button. No underline,
-   no bold; hairline border + soft hover. */
 .compact-stella-list-restricted-link {
   appearance: none;
   display: inline-flex;

@@ -1,17 +1,3 @@
-/**
- * Shared (browser-safe) vocabulary for "couldn't resolve an LLM route".
- *
- * The runtime route resolver (runtime/kernel/model-routing.ts) builds these
- * failures and throws `formatLlmRouteFailure(...)`. The desktop toast resolver
- * (desktop/src/features/chat/streaming/stella-provider-error-toast.ts) maps the
- * thrown message back to an actionable toast via `detectLlmRouteFailureKind`.
- *
- * The two ends are linked by the stable `kind` markers embedded in the
- * message — NEVER by matching human-readable prose. Reworded or translated copy
- * therefore can't silently drop the specific error handling. The
- * `formatLlmRouteFailure`/`detectLlmRouteFailureKind` round-trip is covered by a
- * test so the contract can't drift.
- */
 import { getProviderDisplayName } from "./provider-display.js";
 
 export type LlmRouteFailure =
@@ -27,10 +13,6 @@ export type LlmRouteFailure =
 
 export type LlmRouteFailureKind = LlmRouteFailure["kind"];
 
-/**
- * Stable, machine-readable markers appended to thrown route-failure messages.
- * UI matches on these tokens, not the surrounding prose.
- */
 export const LLM_ROUTE_FAILURE_MARKERS: Record<LlmRouteFailureKind, string> = {
   "unsupported-provider": "stella.route_error.unsupported_provider",
   "unknown-model": "stella.route_error.unknown_model",
@@ -41,11 +23,6 @@ export const LLM_ROUTE_FAILURE_MARKERS: Record<LlmRouteFailureKind, string> = {
 const markerSuffix = (kind: LlmRouteFailureKind): string =>
   ` [${LLM_ROUTE_FAILURE_MARKERS[kind]}]`;
 
-/**
- * Render a route failure into a user-facing message with a trailing stable
- * marker. The prose is for humans and logs; the marker is the contract the UI
- * matches on.
- */
 export const formatLlmRouteFailure = (failure: LlmRouteFailure): string => {
   switch (failure.kind) {
     case "missing-credential": {
@@ -74,10 +51,6 @@ export const formatLlmRouteFailure = (failure: LlmRouteFailure): string => {
   }
 };
 
-/**
- * Recover the failure kind from a thrown message via its stable marker.
- * Returns null when the message isn't a recognized route failure.
- */
 export const detectLlmRouteFailureKind = (
   message: string | null | undefined,
 ): LlmRouteFailureKind | null => {

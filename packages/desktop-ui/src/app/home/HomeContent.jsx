@@ -59,7 +59,7 @@ const FUN_GREETINGS = [
     "What's the plan?",
     "Let's make something",
 ];
-// Probability the greeting is a random fun message instead of the time-of-day greeting.
+
 const FUN_GREETING_CHANCE = 0.25;
 function pickInitialGreetingState() {
     if (Math.random() < FUN_GREETING_CHANCE) {
@@ -74,7 +74,7 @@ function useGreeting() {
     useEffect(() => {
         if (state.kind !== "time")
             return;
-        // Re-evaluate every minute so the time-of-day greeting stays accurate across boundaries.
+
         const interval = setInterval(() => forceTick((n) => n + 1), 60_000);
         return () => clearInterval(interval);
     }, [state.kind]);
@@ -90,9 +90,7 @@ export function HomeContent({ children }) {
             return;
         uiState.setItem(SIDEBAR_HINT_STORAGE_KEY, "1");
     }, [showSidebarHint]);
-    // Dismiss the hint the moment the user actually right-clicks anywhere —
-    // waiting for the next mount felt broken because the cue lingered after
-    // its instruction was followed.
+
     useEffect(() => {
         if (!showSidebarHint)
             return;

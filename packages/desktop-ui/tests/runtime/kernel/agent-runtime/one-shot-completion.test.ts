@@ -3,8 +3,6 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
-// Capture calls into the Claude Code agent runtime so we can assert the
-// one-shot pipeline reaches the local engine without any resolvable route.
 const claudeCodeCalls: Array<Record<string, unknown>> = [];
 let claudeCodeEngineActive = false;
 const closedSessionKeys: string[] = [];
@@ -133,7 +131,7 @@ describe("runOneShotCompletion", () => {
     });
     expect(result.text).toBe("summarizing agent progress now");
     expect(claudeCodeCalls).toHaveLength(1);
-    // The explicit stella/light pin must flow through so CC maps it to Haiku.
+
     expect(claudeCodeCalls[0]?.stellaModel).toBe("stella/light");
     expect(claudeCodeCalls[0]?.effortLevel).toBe("low");
     expect(completeSimpleCalls).toHaveLength(0);
@@ -146,10 +144,9 @@ describe("runOneShotCompletion", () => {
       runtime: makeRuntime({ authToken: null, dataDir }),
     });
     expect(claudeCodeCalls).toHaveLength(1);
-    // Preferences (claudeCodeModel, effort) resolve against the data dir…
+
     expect(claudeCodeCalls[0]?.stellaAppDir).toBe(dataDir);
-    // …while a non-`frontend` local CLI agent runs from the user's home
-    // directory, never inside the data dir or the app bundle.
+
     expect(claudeCodeCalls[0]?.cwd).toBe(os.homedir());
   });
 

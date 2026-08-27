@@ -1,15 +1,3 @@
-/**
- * Wires the Fashion subagent's `FashionToolApi` to the Convex actions
- * defined in `backend/convex/agent/local_runtime.ts`. Each method just
- * forwards to one Convex action; the backend owns auth, rate limits,
- * and Shopify HTTP plumbing.
- *
- * The wiring is built once at runtime startup; the actual Convex client
- * is resolved lazily inside `convexAction` so this works the same way
- * `queryConvex` does (the client may not exist yet when the host is
- * constructed).
- */
-
 import type {
   FashionContextSummary,
   FashionShopProduct,

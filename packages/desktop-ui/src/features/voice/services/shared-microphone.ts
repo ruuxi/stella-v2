@@ -7,8 +7,6 @@ export const PREFERRED_MIC_KEY = "stella-preferred-mic-id";
 export const PREFERRED_SPEAKER_KEY = "stella-preferred-speaker-id";
 export const MIC_ENABLED_KEY = "stella-mic-enabled";
 
-// All renderer voice features intentionally share one speech-capture profile
-// so browser/OS echo cancellation is configured consistently everywhere.
 const SHARED_MIC_SPEECH_CAPTURE_CONSTRAINTS: MediaTrackConstraints = {
   channelCount: 1,
   echoCancellation: true,

@@ -77,7 +77,7 @@ type WindowsComputerHelperBatchResponse = WinHelperResponse &
 
 export type WindowsComputerUseSessionOptions = Readonly<{
   requestHelper?: WindowsComputerHelperRequest;
-  /** Test-only override. Production sessions share the process-wide arbiter. */
+
   resourceArbiter?: ComputerUseResourceArbiter;
 }>;
 

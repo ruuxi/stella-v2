@@ -60,7 +60,7 @@ type TabId = MainTabId;
 
 const TABS: {
   id: TabId;
-  /** Catalog key for the sidebar label. */
+
   labelKey: string;
   icon: IconName;
   href: string;
@@ -85,28 +85,18 @@ const TABS: {
   },
 ];
 
-// Message search is built but hidden for now — flip to true to surface the
-// top-bar search button (chat + computer chat).
 const SHOW_SEARCH_BUTTON = false;
 
 const SIDEBAR_WIDTH = 320;
-/** How far the foreground slides right when the drawer opens. Decoupled
- * from SIDEBAR_WIDTH so the sidebar can be widened (more breathing room
- * for its content) without pushing the main content further right. */
+
 const DRAWER_REVEAL = 232;
-/** Snappy, lightly-springy settle for the drawer — tuned to feel closer to
- * ChatGPT iOS: it starts moving instantly (unlike an ease-in curve) and rests
- * fast with just a hint of overshoot for tactility. `duration` is the
- * perceptual duration; `dampingRatio` just under 1 keeps the bounce subtle
- * rather than wobbly. Gesture releases additionally hand the fling velocity to
- * the spring so the panel continues from the finger's speed. */
+
 const DRAWER_SPRING = { duration: 260, dampingRatio: 0.88 } as const;
 
 function readActiveTab(pathname: string): TabId | null {
   const tab = readMainTabFromPath(pathname);
   if (tab) return tab;
-  // /stella (desktop WebView) is reached from the composer "+" menu and
-  // doesn't correspond to a sidebar entry — leave nothing highlighted.
+
   return null;
 }
 
@@ -180,8 +170,7 @@ export default function MainLayout() {
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [consentVisible, setConsentVisible] = useState(false);
-  // First-time hint dot on the Computer icon, dismissed once the user opens
-  // the Computer tab.
+
   const [showComputerHint, setShowComputerHint] = useState(false);
   const colors = useColors();
   const t = useT();
@@ -207,14 +196,13 @@ export default function MainLayout() {
       try {
         await authClient.signOut();
       } catch {
-        /* ignore — guests have nothing to sign out of */
+
       }
       await setGuestMode(false);
       router.replace("/login");
     })();
   }, [router]);
 
-  // Reanimated shared value: 0 = closed, 1 = fully open
   const drawerProgress = useSharedValue(0);
 
   const activeTab = readActiveTab(pathname);
@@ -222,12 +210,10 @@ export default function MainLayout() {
   const onChatSurface = pathname === "/chat" || pathname === "/computer";
 
   const search = useChatSearch();
-  // Collapse + clear search whenever the route changes (e.g. switching tabs or
-  // toggling between Chat and Computer) so search never leaks across surfaces.
+
   useEffect(() => {
     search.close();
-    // `search.close` is stable; only react to route changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [pathname]);
 
   useEffect(() => {
@@ -240,7 +226,6 @@ export default function MainLayout() {
     void hasSeenComputerHint().then((seen) => setShowComputerHint(!seen));
   }, []);
 
-  // Dismiss the hint the moment the user lands on the Computer tab.
   useEffect(() => {
     if (!onComputer || !showComputerHint) return;
     setShowComputerHint(false);
@@ -254,10 +239,6 @@ export default function MainLayout() {
     drawerProgress.value = withSpring(1, DRAWER_SPRING);
   };
 
-  // `haptic` defaults on so direct user closes (scrim tap, back) feel the
-  // commit. Callers that already fire their own feedback or close the drawer
-  // programmatically (tab navigation, rotating into the wide layout) pass
-  // false to avoid a double buzz.
   const closeSidebar = (haptic = true) => {
     if (haptic) tapLight();
     setSidebarOpen(false);
@@ -274,10 +255,6 @@ export default function MainLayout() {
     if (wide) closeSidebar(false);
   }, [wide]);
 
-  // -- Gesture: swipe right anywhere on the app to open --
-  // `Keyboard.dismiss` is a method on the native Keyboard module and isn't
-  // serializable into the Worklets UI runtime, so wrap it in a plain JS
-  // function before handing it to `runOnJS`.
   const dismissKeyboard = () => Keyboard.dismiss();
   const openPan = Gesture.Pan()
     .enabled(!sidebarOpen)
@@ -294,8 +271,7 @@ export default function MainLayout() {
     })
     .onEnd((e) => {
       if (e.velocityX > 500 || drawerProgress.value > 0.4) {
-        // Commit open: continue from the fling velocity so the spring picks up
-        // where the finger left off, and fire the open haptic on the detent.
+
         drawerProgress.value = withSpring(1, {
           ...DRAWER_SPRING,
           velocity: e.velocityX / DRAWER_REVEAL,
@@ -303,7 +279,7 @@ export default function MainLayout() {
         runOnJS(setSidebarOpen)(true);
         runOnJS(tapLight)();
       } else {
-        // Snap back to closed — no haptic, the drawer never left its rest state.
+
         drawerProgress.value = withSpring(0, {
           ...DRAWER_SPRING,
           velocity: e.velocityX / DRAWER_REVEAL,
@@ -311,7 +287,6 @@ export default function MainLayout() {
       }
     });
 
-  // -- Gesture: swipe left to close --
   const makeCloseGesture = () =>
     Gesture.Pan()
       .enabled(sidebarOpen)
@@ -325,8 +300,7 @@ export default function MainLayout() {
       })
       .onEnd((e) => {
         if (e.velocityX < -500 || drawerProgress.value < 0.6) {
-          // Commit closed: ride the fling velocity into the spring and fire the
-          // close haptic on the detent.
+
           drawerProgress.value = withSpring(0, {
             ...DRAWER_SPRING,
             velocity: e.velocityX / DRAWER_REVEAL,
@@ -334,7 +308,7 @@ export default function MainLayout() {
           runOnJS(setSidebarOpen)(false);
           runOnJS(tapLight)();
         } else {
-          // Snap back to open — no haptic, the drawer stays where it was.
+
           drawerProgress.value = withSpring(1, {
             ...DRAWER_SPRING,
             velocity: e.velocityX / DRAWER_REVEAL,
@@ -345,10 +319,6 @@ export default function MainLayout() {
   const closePanDrawer = makeCloseGesture();
   const drawerPan = sidebarOpen ? closePanDrawer : openPan;
 
-  // -- Animated styles --
-  // Sidebar sits underneath the foreground at rest. As the drawer opens we
-  // gently fade and parallax it in (-12px → 0) so the reveal reads as the
-  // content lifting away rather than the menu sliding in.
   const sidebarStyle = useAnimatedStyle(() => ({
     opacity: interpolate(drawerProgress.value, [0, 0.4, 1], [0, 0.6, 1]),
     transform: [
@@ -358,8 +328,6 @@ export default function MainLayout() {
     ],
   }));
 
-  // Foreground (top bar + content) is the elevated layer. It slides right
-  // to expose the sidebar parked beneath it.
   const foregroundStyle = useAnimatedStyle(() => ({
     transform: [
       {
@@ -372,19 +340,12 @@ export default function MainLayout() {
     ],
   }));
 
-  // Soft scrim painted onto the foreground itself — a faint dim while the
-  // drawer is open, plus a tap-to-close target. Lives above content but
-  // travels with the foreground so it never covers the sidebar.
   const scrimStyle = useAnimatedStyle(() => ({
     opacity: drawerProgress.value * 0.18,
   }));
 
   return (
-    // edges=[] disables SafeAreaView's auto-padding so every layer below
-    // (gradient, sidebar, foreground) can extend edge-to-edge through the
-    // status-bar and home-indicator regions. The chrome that needs to clear
-    // those areas (top bar, chat composer, scrollable content) reads
-    // `useSafeAreaInsets()` and pads itself.
+
     <SafeAreaView style={styles.shell} edges={[]}>
       <StatusBar style={isDark ? "light" : "dark"} />
 
@@ -409,15 +370,13 @@ export default function MainLayout() {
         </>
       ) : (
         <View style={styles.narrowLayout}>
-          {/* Gradient backdrop — painted behind both sidebar and foreground
-              so the inset/rounded foreground reveals the same continuous
-              canvas through its curved corners (no contrasting bands). */}
+          {
+
+}
           <AppBackdrop />
-          {/* Sidebar parked underneath at the left edge. Always mounted,
-              statically positioned, edge-to-edge vertically. The foreground
-              (below) slides right to reveal it, so the menu reads as a layer
-              the app is lifting off of rather than a panel sliding in over
-              the content. */}
+          {
+
+}
           <Animated.View
             pointerEvents={sidebarOpen ? "auto" : "none"}
             style={[styles.sidebarLayer, sidebarStyle]}
@@ -432,16 +391,14 @@ export default function MainLayout() {
             />
           </Animated.View>
 
-          {/* Foreground — the elevated layer. Top bar + content travel
-              together, with a soft left-edge shadow for depth, and a scrim
-              painted on top so taps behind the controls dismiss the drawer
-              without ever obscuring the sidebar. */}
+          {
+
+}
           <GestureDetector gesture={drawerPan}>
             <Animated.View style={[styles.foregroundLayer, foregroundStyle]}>
-              {/* The foreground carries the backdrop as its own opaque surface
-                  so soft/flat is actually visible in the app (and the parked
-                  sidebar stays hidden) instead of being covered by a flat
-                  fill. Clipped to the rounded corners via overflow:hidden. */}
+              {
+
+}
               <AppBackdrop />
               <View
                 style={[
@@ -528,8 +485,8 @@ export default function MainLayout() {
                 <Slot />
               </View>
 
-              {/* Scrim — sits on top of the foreground while the drawer is
-                  open. Tap anywhere on the visible app area to close. */}
+              {
+}
               <Animated.View
                 pointerEvents={sidebarOpen ? "auto" : "none"}
                 style={[styles.foregroundScrim, scrimStyle]}
@@ -560,21 +517,15 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.background,
     },
 
-    // Wide (tablet / landscape)
     wideLayout: {
       flex: 1,
       flexDirection: "row",
     },
 
-    // Narrow (phone)
     narrowLayout: {
       flex: 1,
     },
 
-    // Top bar — phone only (hamburger | centered pill on Chat | action).
-    // Height is set inline as `insets.top + barHeight` so the safe-area inset
-    // is added on top of the bar's own height rather than eating into it
-    // (RN box model is border-box, so a fixed `height` would absorb the inset).
     topBar: {
       alignItems: "flex-end",
       flexDirection: "row",
@@ -586,14 +537,13 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "center",
       width: 44,
     },
-    // Right-side action cluster (search + chat/computer toggle).
+
     topBarRight: {
       alignItems: "center",
       flexDirection: "row",
       height: 44,
     },
-    // Brand/sync indicator, absolutely centered across the whole bar so it stays
-    // screen-centered regardless of how many action buttons flank it.
+
     topBarBrand: {
       alignItems: "center",
       bottom: 0,
@@ -609,7 +559,7 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "center",
       width: 44,
     },
-    // Expanded search field that replaces the top-bar contents.
+
     searchRow: {
       alignItems: "center",
       flex: 1,
@@ -662,7 +612,7 @@ const makeStyles = (colors: Colors) =>
       flex: 1,
       minHeight: 0,
     },
-    // Sidebar
+
     sidebar: {
       flex: 1,
       width: SIDEBAR_WIDTH,
@@ -692,8 +642,7 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "center",
       width: 20,
     },
-    // First-time hint dot on the Computer nav item, pinned to the top-right of
-    // the 18px glyph.
+
     navHintDot: {
       backgroundColor: colors.danger,
       borderColor: colors.background,
@@ -714,8 +663,6 @@ const makeStyles = (colors: Colors) =>
       color: colors.accent,
     },
 
-    // Sidebar layer — sits underneath the foreground, anchored to the left
-    // edge. Stays mounted so swipe-to-open reveals an already-laid-out menu.
     sidebarLayer: {
       bottom: 0,
       left: 0,
@@ -725,9 +672,6 @@ const makeStyles = (colors: Colors) =>
       zIndex: 1,
     },
 
-    // Foreground layer — elevated above the sidebar. Carries the canvas
-    // color so the parked sidebar doesn't show through the app, and a soft
-    // left-edge shadow so the layering reads when the drawer is open.
     foregroundLayer: {
       flex: 1,
       backgroundColor: colors.background,
@@ -744,15 +688,12 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.border,
     },
 
-    // Scrim painted on the foreground while the drawer is open. Dims the
-    // app slightly and provides a tap target to close.
     foregroundScrim: {
       ...StyleSheet.absoluteFillObject,
       backgroundColor: "#000",
       zIndex: 3,
     },
 
-    // Shared content area
     content: {
       flex: 1,
       minHeight: 0,

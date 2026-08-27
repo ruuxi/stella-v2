@@ -1,5 +1,3 @@
-// @vitest-environment jsdom
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   __privateThreadActivityStore,
@@ -95,9 +93,6 @@ describe("thread activity tab cache", () => {
     expect(second).toHaveLength(secondCount);
     expect(listThreadActivity).toHaveBeenCalledTimes(1);
 
-    // Cards mount and unmount as the transcript window moves. Once this live
-    // conversation entry is hydrated, a later card must reuse the index rather
-    // than rereading all thread rows.
     unsubscribeSecond();
     const unsubscribeRemounted = subscribeToThreadActivityRecord(
       "a",
@@ -120,8 +115,7 @@ describe("thread activity tab cache", () => {
     const stale = {
       ...record("race"),
       status: "running" as const,
-      // Millisecond timestamps can collide across a fast lifecycle. A stale
-      // running hydration must not outrank a terminal push in the same tick.
+
       updatedAt: 3_000,
     };
     const listThreadActivity = vi.fn(

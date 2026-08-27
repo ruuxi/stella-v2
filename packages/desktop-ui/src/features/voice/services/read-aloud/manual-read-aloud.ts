@@ -1,15 +1,3 @@
-/**
- * On-demand ("read aloud this message") TTS, driven by the per-message
- * volume button in the chat. Distinct from `use-read-aloud.ts`, which
- * automatically speaks every finalized assistant reply while the global
- * toggle is on.
- *
- * One message plays at a time: starting a new one (or re-clicking the
- * active one) cancels the current playback. State is held in a module
- * store so the action bars across the full chat and the sidebar reflect
- * the same playing/loading status, and an incrementing request token
- * discards audio that finishes fetching after the user moved on.
- */
 import { useSyncExternalStore } from "react";
 import { stripMarkdownForTts } from "./markdown-strip";
 import { fetchReadAloudAudio, openReadAloudStream } from "./tts-client";
@@ -24,7 +12,7 @@ import { resolveReadAloudVoicePrefs } from "./read-aloud-voice-prefs";
 export type ManualReadAloudStatus = "idle" | "loading" | "playing";
 
 type ManualReadAloudState = {
-  /** The message key currently loading/playing, or null when idle. */
+
   key: string | null;
   status: ManualReadAloudStatus;
 };
@@ -47,16 +35,11 @@ const setState = (next: ManualReadAloudState) => {
 
 const goIdle = () => setState(IDLE_STATE);
 
-/**
- * Toggle on-demand read-aloud for a message. Clicking the active
- * message stops it; clicking a different one interrupts the previous
- * and speaks the new text.
- */
 export async function toggleManualReadAloud(
   key: string,
   text: string,
 ): Promise<void> {
-  // Re-click on the active message → stop.
+
   if (state.key === key && state.status !== "idle") {
     requestToken += 1;
     stopReadAloud();
@@ -81,10 +64,6 @@ export async function toggleManualReadAloud(
     const prefs = await resolveReadAloudVoicePrefs();
     if (token !== requestToken) return;
 
-    // Prefer progressive Inworld streaming so audio starts before the whole
-    // reply is synthesized. Fall back to one-shot synthesis for the OpenAI
-    // voice family, unsupported runtimes, or a stream that fails before any
-    // audio arrives.
     if (prefs.family === "inworld" && canStreamReadAloud()) {
       try {
         const response = await openReadAloudStream({
@@ -132,7 +111,6 @@ const subscribe = (listener: () => void): (() => void) => {
 
 const getSnapshot = (): ManualReadAloudState => state;
 
-/** Status of on-demand read-aloud for a specific message key. */
 export function useManualReadAloudStatus(key: string): ManualReadAloudStatus {
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   return snapshot.key === key ? snapshot.status : "idle";

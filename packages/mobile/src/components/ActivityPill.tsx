@@ -19,22 +19,11 @@ import type { MobileTask } from "../types";
 
 const SHIMMER_MS = 1900;
 
-// Stepped bar heights for the level-meter glyph. Uneven, frozen heights read
-// as a live activity meter (signal / processing) rather than a chart, without
-// any motion that would distract.
 const ACTIVITY_BAR_HEIGHTS = [6, 11, 8];
 
 const runningCountOf = (tasks: readonly MobileTask[]) =>
   tasks.reduce((n, task) => (task.status === "running" ? n + 1 : n), 0);
 
-/**
- * Floating activity pill — sits to the left of the floating settings button
- * with the same glass language and visibility rules (mobile take on the
- * desktop `ComposerActivityPill`). Always present while the floating controls
- * are: idle it reads "Search" (the entry point to the activity hub's search),
- * and while background work runs it shimmers the running count. Tapping it in
- * any state opens the activity hub sheet.
- */
 export function ActivityPill({
   tasks,
   colors,
@@ -46,13 +35,9 @@ export function ActivityPill({
   tasks: readonly MobileTask[];
   colors: Colors;
   onPress: () => void;
-  /** Materialize/dissolve the glass with the sibling floating controls. */
+
   present: boolean;
-  /**
-   * Shared fade (the floating controls' show/hide anim) applied to the label
-   * and hairline ring — never to the glass itself (see ScrollToBottomFab:
-   * fading a Liquid Glass ancestor's opacity drops the material).
-   */
+
   contentOpacity: Animated.Value | Animated.AnimatedInterpolation<number>;
   style?: StyleProp<ViewStyle>;
 }) {
@@ -87,8 +72,8 @@ export function ActivityPill({
         fallbackColor={colors.surface}
         style={styles.glass}
       >
-        {/* Fading border overlay so the hairline dissolves with the glass
-            instead of lingering as an outline when hidden. */}
+        {
+}
         <Animated.View
           pointerEvents="none"
           style={[
@@ -177,7 +162,7 @@ const makeStyles = (colors: Colors) =>
     glyph: {
       alignItems: "flex-end",
       flexDirection: "row",
-      // Fixed footprint so the pill never reflows as bars/labels change.
+
       gap: 2.5,
       height: 11,
     },

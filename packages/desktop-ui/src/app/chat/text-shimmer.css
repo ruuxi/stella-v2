@@ -1,11 +1,7 @@
-/* TextShimmer — a compositor-only masked window crosses stationary text. */
-
 .text-shimmer {
   --text-shimmer-from: var(--text-strong);
   --text-shimmer-via: var(--text-weaker);
-  /* The pre-optimization gradient's soft shoulder covered roughly a third of
-   * its 200% track. A wider window keeps that luminous character without
-   * animating paint-affecting gradient properties. */
+
   --text-shimmer-window: 44%;
   display: inline-block;
   position: relative;

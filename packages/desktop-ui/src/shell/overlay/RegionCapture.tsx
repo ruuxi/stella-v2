@@ -31,11 +31,7 @@ type VacuumState = {
 };
 
 const MIN_SELECTION_SIZE = 6;
-// Window hover preview throttling. Each preview probe is a native
-// `window_info` query on the main side (daemon pipe write, or a full
-// CreateProcess on Windows when the daemon is down), so we cap at ~10/s
-// (leading + trailing edge) instead of one-per-frame and skip probes when the
-// cursor has barely moved since the last one — the highlight is still valid.
+
 const HOVER_PREVIEW_DEBOUNCE_MS = 100;
 const HOVER_PREVIEW_MOVE_THRESHOLD_PX = 6;
 export function RegionCapture() {
@@ -46,7 +42,7 @@ export function RegionCapture() {
   const [currentPoint, setCurrentPoint] = useState<Point | null>(null);
   const [vacuum, setVacuum] = useState<VacuumState | null>(null);
   const [isPreparingCapture, setIsPreparingCapture] = useState(false);
-  /** After the vacuum animation, keep the dim layer off until the overlay closes (avoids a flash while IPC runs). */
+
   const [dimSuppressedAfterVacuum, setDimSuppressedAfterVacuum] =
     useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -92,8 +88,7 @@ export function RegionCapture() {
       Math.abs(prev.x - latest.x) + Math.abs(prev.y - latest.y) <
         HOVER_PREVIEW_MOVE_THRESHOLD_PX
     ) {
-      // Cursor barely moved since the last probe — existing highlight is
-      // still valid, so skip the spawn entirely.
+
       return;
     }
     lastProbedPointRef.current = latest;
@@ -104,12 +99,9 @@ export function RegionCapture() {
   const previewWindowAtPoint = useCallback(
     (point: Point) => {
       hoverPointRef.current = point;
-      // A trailing probe is already scheduled; it will pick up the latest
-      // point when it fires, so don't stack a spawn per mouse-move event.
+
       if (hoverPreviewTimerRef.current) return;
-      // Leading edge: when the probe budget allows, fire immediately so the
-      // ring tracks the cursor without the trailing-debounce lag. Overall
-      // rate stays capped at one probe per debounce window.
+
       if (Date.now() - lastProbeAtRef.current >= HOVER_PREVIEW_DEBOUNCE_MS) {
         probeLatestHoverPoint();
       }
@@ -173,10 +165,7 @@ export function RegionCapture() {
 
   const handleMouseMove = (event: MouseEvent<HTMLDivElement>) => {
     if (!startPoint) {
-      // Mouse-up starts an async window/region capture. Do not let cursor
-      // movement during that handoff launch a new hover probe: its ring
-      // could otherwise arrive after the clicked target was captured and
-      // keep the full-screen overlay alive over an unrelated app.
+
       if (!vacuum && !isPreparingCapture) {
         previewWindowAtPoint({ x: event.clientX, y: event.clientY });
       }

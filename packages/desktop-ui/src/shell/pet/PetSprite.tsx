@@ -26,27 +26,18 @@ const usePrefersReducedMotion = (): boolean => {
 };
 
 export type PetSpriteProps = {
-  /** Spritesheet URL of the bundled mascot sprite sheet. */
+
   spritesheetUrl: string;
-  /** Which animation row to play. Falls back to "idle". */
+
   state: PetAnimationState;
-  /** Pixel size of the rendered frame. Defaults to a 96px square-ish frame. */
+
   size?: number;
-  /** Keep a reactive row looping, used for ongoing voice listening/speaking. */
+
   continuous?: boolean;
   className?: string;
   style?: CSSProperties;
 };
 
-/**
- * Renders one pet, animating its sprite sheet by mutating
- * `background-position` directly on the DOM node.
- *
- * Why direct DOM mutation? React re-renders are unnecessary work on
- * every frame and would invalidate the sprite-sheet's loaded texture
- * across hot-paths (the overlay window also hosts voice / capture
- * surfaces).
- */
 export const PetSprite = ({
   spritesheetUrl,
   state,
@@ -105,7 +96,6 @@ export const PetSprite = ({
     };
   }, [state, prefersReducedMotion, spritesheetUrl, continuous]);
 
-  // Aspect-ratio-locked block (192:208) so the sprite never squashes.
   const computedHeight = Math.round(size * (208 / 192));
 
   return (

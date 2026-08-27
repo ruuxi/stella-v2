@@ -1,12 +1,3 @@
-/**
- * User-BYOK xAI Voice Agent provider.
- *
- * Token is minted in main-process using the user's stored xAI API key
- * (`voiceApi.createXaiSession`). The connection uses xAI's WebSocket
- * realtime endpoint, which is OpenAI-Realtime-compatible at the event
- * level but ships audio in-band rather than over a media track.
- */
-
 import { XaiWebSocketTransport } from "../transports/xai-websocket-transport";
 import type { ProviderModule, VoiceSessionToken } from "./types";
 

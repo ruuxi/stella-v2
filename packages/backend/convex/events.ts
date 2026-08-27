@@ -102,12 +102,6 @@ const hydrateConnectorRemoteTurnPayload = async (
   });
 };
 
-/**
- * Returns the number of events in a conversation. Reads the denormalized
- * `eventCount` counter on the conversation doc, which is initialised to 0
- * on `createConversation`/`getOrCreateDefaultConversation` and bumped by
- * `appendEventCore`.
- */
 export const countByConversation = internalQuery({
   args: { conversationId: v.id("conversations") },
   returns: v.number(),
@@ -126,7 +120,7 @@ export const listOlderMessages = internalQuery({
   },
   handler: async (ctx, args) => {
     const afterTs = args.afterTimestamp ?? 0;
-    // Use by_conversation_type index for efficient type-scoped queries.
+
     const [userMessages, assistantMessages] = await Promise.all([
       ctx.db
         .query("events")
@@ -222,11 +216,9 @@ export const listRecentMessages = internalQuery({
       return [];
     }
     const limit = Math.min(Math.floor(requestedLimit), 100);
-    // 3x overfetch: we query 2 type-specific indexes and merge, so ~1/2 of rows match per type
+
     const take = Math.min(Math.max(limit * 3, 50), 200);
 
-    // `beforeTimestamp` is part of the index range (not a JS post-filter) so
-    // the newest `take` rows we read are already at-or-before the bound.
     const takeMessagesOfType = (
       type: "user_message" | "assistant_message",
     ) => {
@@ -293,9 +285,7 @@ const fetchRecentConversationEvents = async (
   ctx: QueryCtx,
   args: RecentConversationEventsArgs,
 ): Promise<ContextEvent[]> => {
-  // The two branches are kept explicit so the index hint doesn't depend on
-  // a runtime conditional; the typed query builder generates the right index
-  // range either way.
+
   const base = ctx.db.query("events");
   const query =
     args.beforeTimestamp !== undefined
@@ -355,7 +345,7 @@ export const listRecentContextEvents = internalQuery({
       return [];
     }
     const limit = Math.min(Math.floor(requestedLimit), 120);
-    // 8x overfetch: context events include many non-message types (tool calls, task events, etc.) that get filtered
+
     const take = Math.min(Math.max(limit * 8, 80), 800);
     let events = await fetchRecentConversationEvents(ctx, {
       conversationId: args.conversationId,
@@ -373,11 +363,6 @@ export const listRecentContextEvents = internalQuery({
   },
 });
 
-/**
- * Hard cap on session-context event reads. Stays comfortably below Convex's
- * 8192 array-return limit so a session-restore query can't fail at runtime
- * the moment a busy conversation grows past a few thousand events.
- */
 const MAX_SESSION_CONTEXT_EVENTS = 4_000;
 
 export const listSessionContextEvents = internalQuery({
@@ -423,8 +408,7 @@ export const listRecentContextEventsByTokens = internalQuery({
       Math.max(Math.floor(args.maxTokens ?? 24_000), 1),
       MAX_CONTEXT_TOKENS,
     );
-    // Approximate how many recent rows we may need to cover maxTokens.
-    // Clamp for predictable query cost.
+
     const scanLimit = Math.min(
       Math.max(Math.ceil(maxTokens / 6), MIN_SCAN_LIMIT),
       MAX_SCAN_LIMIT,
@@ -507,11 +491,7 @@ type AppendEventArgs = {
   deviceId?: string;
   requestId?: string;
   targetDeviceId?: string;
-  /**
-   * Initial lifecycle state for `remote_turn_request` events. Defaults to
-   * `"pending"` if the caller doesn't provide one. Ignored for every other
-   * event type.
-   */
+
   requestState?: "pending" | "claimed" | "fulfilled" | "cancelled";
   payload: Value;
   channelEnvelope?: Infer<typeof optionalChannelEnvelopeValidator>;
@@ -554,9 +534,7 @@ const appendEventCore = async (ctx: MutationCtx, args: AppendEventArgs) => {
     resolveAppendEventPayload(args);
 
   const conversation = await ctx.db.get(args.conversationId);
-  // Stamp `requestState: "pending"` on freshly-inserted remote-turn requests
-  // so the device subscription can filter unhandled rows at the index level
-  // without doing per-event extra reads.
+
   const requestState =
     args.type === "remote_turn_request"
       ? (args.requestState ?? "pending")
@@ -573,8 +551,6 @@ const appendEventCore = async (ctx: MutationCtx, args: AppendEventArgs) => {
     channelEnvelope: args.channelEnvelope,
   });
 
-  // Maintain the denormalized event counter so `countByConversation` can
-  // serve in O(1) without paginating the events table.
   await ctx.db.patch(args.conversationId, {
     updatedAt: timestamp,
     eventCount: (conversation?.eventCount ?? 0) + 1,
@@ -648,11 +624,6 @@ export const getConversationEventHead = internalQuery({
   },
 });
 
-/**
- * Batch-load conversation ownership for a set of (possibly repeated)
- * conversation ids so the device subscription queries don't issue one
- * sequential `ctx.db.get` per candidate event.
- */
 const loadConversationOwnership = async (
   ctx: QueryCtx,
   conversationIds: Id<"conversations">[],
@@ -692,10 +663,6 @@ export const subscribeRemoteTurnRequestsForDevice = query({
       max: 50,
     });
 
-    // Type-scoped index lets us read exactly the rows we need; ownership
-    // still has to be confirmed per row because the index is keyed on the
-    // device, not the conversation owner. The lifecycle filter is now an
-    // O(1) field read on each row instead of two extra index lookups.
     const events = await ctx.db
       .query("events")
       .withIndex("by_targetDeviceId_and_type_and_timestamp", (q) =>
@@ -731,20 +698,6 @@ export const subscribeRemoteTurnRequestsForDevice = query({
   },
 });
 
-/**
- * Reactive feed of `remote_turn_request` rows targeted at this device that
- * have transitioned to `requestState: "cancelled"`. The local device's
- * remote-turn bridge subscribes here and, when a cancelled requestId
- * matches an in-flight orchestrator run, aborts it via the worker.
- *
- * Cancelled rows for not-yet-claimed requests are also surfaced — the
- * bridge can de-dup with its own pending map without harm.
- *
- * The cancel state is intentionally a separate query from
- * `subscribeRemoteTurnRequestsForDevice` (which filters out anything
- * non-`pending`): the request feed drives "should I start this turn?" while
- * the cancel feed drives "should I abort a turn I already started?".
- */
 export const subscribeRemoteTurnCancelsForDevice = query({
   args: {
     deviceId: v.string(),
@@ -813,7 +766,6 @@ export const subscribeRemoteTurnCancelsForDevice = query({
   },
 });
 
-/** Look up the original `remote_turn_request` event by its requestId. */
 const findRemoteTurnRequest = async (
   ctx: QueryCtx | MutationCtx,
   requestId: string,
@@ -823,13 +775,6 @@ const findRemoteTurnRequest = async (
     .withIndex("by_requestId", (q) => q.eq("requestId", requestId))
     .first();
 
-/**
- * Public query — used by the local device runner for cross-restart dedup.
- *
- * Scoped to the caller's own conversation so this can't double as an
- * existence/state oracle for arbitrary `requestId` values: we treat any row
- * the caller doesn't own as if it didn't exist (returning `false`).
- */
 export const isRemoteTurnClaimed = query({
   args: {
     requestId: v.string(),

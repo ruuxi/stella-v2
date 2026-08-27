@@ -1,14 +1,3 @@
-/* ============================================================
- * Chat typography contract
- *
- * Every chat surface — full chat, sidebar, orb — lives inside
- * `.chat-viewport-region`.
- * Defining the message typography tokens here means the
- * virtualized rows (which are NOT descendants of any `.event-list`
- * wrapper) reliably inherit them. Surfaces override individual
- * tokens (most commonly `--chat-text-size`) rather than inventing
- * parallel variables.
- * ============================================================ */
 .chat-viewport-region {
   --chat-text-size: var(--font-size-lg);
   --chat-text-weight: var(--weight-regular);
@@ -17,28 +6,8 @@
   --chat-text-line-height: 1.5;
   --chat-text-color: var(--text-strong);
 
-  /* Resting footer floor. The scroll hook expands this to the viewport-derived
-     response area only for an accepted latest-turn placement, then consumes
-     that synthetic space as the user scrolls away. */
   --chat-response-spacer-height: 160px;
 
-  /* ------------------------------------------------------------
-   * Vertical rhythm contract (see also the ROW_GAP family of
-   * constants in ChatTimeline.tsx — the BETWEEN-rows half of the
-   * budget lives there as JS separator heights):
-   *
-   *   --chat-item-part-gap — spacing between the parts of ONE row
-   *     (message text -> cards -> action strip, context chips ->
-   *     user bubble). Everything inside a row groups at this gap so
-   *     a turn reads as one block.
-   *
-   * The assistant bubble is transparent/borderless, so it must NOT
-   * carry the visible bubbles' 12px vertical padding — that used to
-   * add 24px of invisible chrome around every assistant message and
-   * was the main contributor to the huge inter-message voids.
-   * `--chat-bubble-padding` is the seam: visible bubbles keep the
-   * default, the assistant variant zeroes the vertical component.
-   * ------------------------------------------------------------ */
   --chat-item-part-gap: 8px;
 }
 
@@ -47,10 +16,6 @@
   --chat-response-spacer-height: 120px;
 }
 
-/* Fallback wrapper used only by the empty / loading-history states in
-   `ChatTimeline`. Real messages render directly inside the virtualized
-   LegendList, so this wrapper is NOT in the message tree. The name
-   makes that explicit; do not hang typography tokens on it. */
 .event-list-fallback {
   display: flex;
   flex-direction: column;
@@ -66,26 +31,15 @@
   min-height: 100%;
 }
 
-/* Per-event row container. Each visible message renders a single row
-   in chronological order — there is no per-turn user/assistant grouping. */
 .event-row {
   width: 100%;
   display: flex;
   flex-direction: column;
-  /* Intra-row gap between the row's own parts (context chips, bubble,
-     action strip). Spacing BETWEEN rows is the virtualized separator
-     rendered by ChatTimeline (`gapAfterRow`), not this flex gap. */
+
   gap: var(--chat-item-part-gap);
   overflow-anchor: none;
 }
 
-/* Assistant message bubble — the user bubble mirrored to the left.
- *
- * The bubble is the TEXT container, not `.event-item.assistant`: that
- * element also wraps inline cards, artifacts and the hover action strip,
- * all of which must stay full-width OUTSIDE the bubble. A tool-only turn
- * has no text node at all (see `AssistantMessageRow`), so it renders no
- * empty bubble. */
 .assistant-message-text {
   width: fit-content;
   max-width: 85%;
@@ -97,16 +51,10 @@
   border: 1px solid var(--border);
 }
 
-/* Wide content (code fences, tables) must scroll inside the bubble rather
-   than push past its 85% cap. `fit-content` sizes to max-content, so the cap
-   is what stops the growth; these keep the overflowing child inside it. */
 .assistant-message-text :is(pre, .shiki, table, [data-streamdown="table-wrapper"]) {
   max-width: 100%;
 }
 
-/* Freshly ARRIVED assistant bubble grows/fades in once, mirroring the
-   just-sent user bubble. Tagged from `ConversationEvents` only for a message
-   that lands live — history mounts and scrollback never carry it. */
 .event-row--assistant--just-arrived .event-item.assistant {
   animation: assistant-message-enter 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
   transform-origin: left bottom;
@@ -130,27 +78,11 @@
   }
 }
 
-/* Pretext row-height arithmetic (see `features/chat/pretext/measure.ts`)
-   measures segments additively, which kerning pairs and ligatures straddle.
-   Both bubbles opt out so the predicted height matches the rendered one. */
 .chat-bubble-text {
   font-kerning: none;
   font-variant-ligatures: none;
 }
 
-/*
- * Trailing region: renders as the LegendList footer underneath every
- * virtualized row. Hosts any surface-specific `extraTail` node and a
- * turn-scoped response spacer so a freshly-sent user bubble settles near the
- * top with room for the assistant to stream beneath it. The scroll hook grows
- * `--chat-response-spacer-height` from this real footer floor on accepted send,
- * then consumes the extra space as the user scrolls upward. Pre-virtualization
- * this lived on a synthetic "tail"
- * list item that wrapped the latest user + assistant rows; that caused
- * the rows to migrate between virtualized contexts on send, losing
- * their measured sizes and producing a visible upward scroll jump back
- * to the top of the previous assistant reply.
- */
 .event-list-trailing-region {
   display: flex;
   flex-direction: column;
@@ -163,10 +95,6 @@
   min-height: var(--chat-response-spacer-height, 120px);
 }
 
-/* The queued virtual item owns the normal trailing floor and bottom-aligns
-   its bubble inside it. Once that item exists, the footer only supplies the
-   small physical gap between the bubble and composer. This preserves total
-   scroll geometry while moving the empty space above the queued state. */
 .event-list-trailing-region--after-queue,
 .chat-viewport-region--sidebar .event-list-trailing-region--after-queue,
 .chat-viewport-region--orb .event-list-trailing-region--after-queue {
@@ -179,9 +107,6 @@
   gap: 20px;
 }
 
-/* The queue is one keyed virtualized item after the active assistant slots
-   and working indicator. It keeps the same right-aligned bubble language as
-   normal user messages while waiting for its turn. */
 .composer-queued-stack {
   width: 100%;
   padding-top: 148px;
@@ -222,8 +147,7 @@
   padding: 7px 11px;
   max-width: 78%;
   width: fit-content;
-  /* Match the settled user bubble so a message doesn't visibly resize or
-     reflow when it transitions from queued to sent. */
+
   font-size: var(--chat-text-size);
   font-family: inherit;
   line-height: var(--chat-text-line-height);
@@ -257,11 +181,6 @@
   box-shadow: var(--focus-ring);
 }
 
-/* When a long queued message is actually clamped (detected in JS), fade the
-   bottom edge instead of hard-cutting mid-line. `-webkit-line-clamp`'s own
-   ellipsis is suppressed under `white-space: pre-wrap` in Chromium, so the
-   soft mask is what makes the truncation read as intentional. The fade is
-   applied only on overflowing bubbles so short messages keep a crisp edge. */
 .composer-queued-message__bubble--truncated {
   -webkit-mask-image: linear-gradient(
     to bottom,
@@ -277,9 +196,6 @@
   );
 }
 
-/* Hover-reveal cancel control, mirroring the per-message action buttons
-   (`.message-actions__btn`). Sits to the right of the right-aligned bubble
-   and reserves its footprint so revealing it never reflows the stack. */
 .composer-queued-message__cancel {
   flex: none;
   display: inline-flex;
@@ -317,8 +233,6 @@
   box-shadow: var(--focus-ring);
 }
 
-/* Reuses the composer's pasted-text preview shell; these rules only provide
-   ordered queue rows and their retained cancel affordances. */
 .composer-queued-preview {
   max-height: min(320px, calc(100vh - 96px));
 }
@@ -424,12 +338,8 @@
   }
 }
 
-/* Event item - iOS-style speech bubbles */
 .event-item {
-  /* Custom-property seam (not a direct `padding` override on the
-     assistant variant) so the compact surfaces' own
-     `.chat-conversation-surface .event-item { padding: … }` rules keep
-     winning by specificity regardless of CSS import order. */
+
   padding: var(--chat-bubble-padding, 12px);
   border-radius: var(--radius-3xl);
   background: var(--surface-inset);
@@ -442,11 +352,7 @@
 }
 
 .event-item.user {
-  /* Solid accent-derived fill so the user bubble reads as "mine" at a
-     glance. Fill and text both come from the `--chat-user-bubble-*` pair
-     (index.css), which guarantees their contrast for any theme — never
-     use `--primary-foreground` here; it's paired against raw `--primary`,
-     not this derived fill. */
+
   background: var(--chat-user-bubble-fill);
   --chat-text-color: var(--chat-user-bubble-text);
   color: var(--chat-user-bubble-text);
@@ -459,10 +365,6 @@
   padding: 5px 12px;
 }
 
-/* Freshly-sent user bubble grows/fades in once. Tagged from
-   `ConversationEvents` while `pendingUserMessageId` matches the row;
-   the class drops after one play so the animation never replays on
-   remount or scrollback. */
 .event-row--user--just-sent .event-item.user {
   animation: user-message-enter 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
   transform-origin: right bottom;
@@ -492,10 +394,7 @@
   border: none;
   width: 100%;
   max-width: 100%;
-  /* No visible bubble -> no vertical bubble padding. The 12px sides stay
-     so assistant text/cards keep their gutter alignment; the 12px top +
-     12px bottom were pure dead space stacked into every inter-message
-     gap. */
+
   --chat-bubble-padding: 0 12px;
 }
 
@@ -521,9 +420,6 @@
   letter-spacing: var(--chat-text-tracking);
 }
 
-/* Long user-message truncation. Every chat surface — full and compact —
-   clamps to 4 rendered lines so a long prompt never dominates the
-   transcript. Overflow is measured from the laid-out box in JS. */
 .event-user-body {
   --user-message-clamp-lines: 4;
   display: flex;
@@ -538,7 +434,7 @@
   -webkit-line-clamp: var(--user-message-clamp-lines);
   -webkit-box-orient: vertical;
   overflow: hidden;
-  /* Allow wrapping of long unbroken strings so clamp engages predictably. */
+
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -555,9 +451,7 @@
   font-size: var(--font-size-sm);
   font-weight: var(--weight-medium);
   line-height: 1;
-  /* Muted version of the bubble's own text color so the affordance stays
-     legible on the solid `--primary` user bubble (and on compact tinted
-     bubbles, which re-point `--chat-text-color`) in both themes. */
+
   color: color-mix(in srgb, var(--chat-text-color) 68%, transparent);
   cursor: default;
   border-radius: 6px;
@@ -590,11 +484,6 @@
   font-weight: var(--chat-text-strong-weight);
 }
 
-/* Heading scale for every chat surface (full + compact). Sized clearly
-   above the 15px body so the hierarchy reads at a glance; the shared
-   token scale tops out too low for this, so chat uses explicit px. h5/h6
-   land at body size but stay distinct via the bold weight + base uppercase
-   styling. Compact surfaces share this exact scale. */
 .event-item.assistant .markdown :is(h1, h2, h3, h4, h5, h6) {
   font-weight: var(--weight-bold);
   line-height: 1.3;
@@ -613,10 +502,6 @@
 .event-item.assistant .markdown h5,
 .event-item.assistant .markdown h6 { font-size: var(--font-size-lg); }
 
-/* Context chip row inside the user bubble — surfaces the window / screen
-   selection attached to the message. Pill aesthetic mirrors the composer
-   context chips so attached context reads consistently before and after
-   send. */
 .event-context-chips {
   position: relative;
   display: flex;
@@ -627,13 +512,6 @@
   min-width: 0;
 }
 
-/* Chips sit above the bubble as their own row at the row's part gap.
-   (The old 24px row gap needed a negative-margin pull-in here; the 8px
-   `--chat-item-part-gap` already groups them with the bubble.) */
-
-/* Off-flow row used purely to measure each chip's natural width so the
-   layout effect can decide how many fit before collapsing the rest into
-   the "+N" pill. Absolute so it never inflates the fit-content bubble. */
 .event-context-chips__measure {
   position: absolute;
   top: 0;
@@ -649,8 +527,6 @@
   white-space: nowrap;
 }
 
-/* Popover holding the collapsed chips. Portaled to document.body, so the
-   portal owns position/opacity; this paints the floating panel only. */
 .event-context-overflow-card {
   display: flex;
   flex-direction: column;
@@ -671,9 +547,6 @@
   max-width: min(100%, 340px);
 }
 
-/* Unified chip shell. Every attached-context chip (window, screen
-   selection, channel, attachment, overflow "+N") shares the same
-   primary-tinted "image chip" look. */
 .event-context-chip,
 .event-channel-badge,
 .event-attachment-fallback,
@@ -698,7 +571,6 @@
     background 120ms ease;
 }
 
-/* Tighten the leading padding when a chip carries an icon. */
 .event-context-chip:has(> .event-context-chip__icon),
 .event-attachment-fallback {
   padding-left: 8px;
@@ -743,9 +615,6 @@ button.event-context-chip--overflow:focus-visible {
   background: color-mix(in oklch, var(--primary) 16%, var(--card));
 }
 
-/* Window screenshot preview. Portaled to document.body via
-   `ChipPreviewPortal`, which owns position/opacity/transform inline, so
-   this rule only paints the floating card shell. */
 .event-window-preview-card {
   width: fit-content;
   max-width: min(460px, calc(100vw - 64px));
@@ -766,8 +635,6 @@ button.event-context-chip--overflow:focus-visible {
   background: var(--surface-inset);
 }
 
-/* Pasted-text hover preview. Same floating shell as the window preview
-   card; scrollable so the pointer can move onto it to read long blobs. */
 .event-pasted-text-preview-card {
   width: min(460px, calc(100vw - 64px));
   max-height: 220px;
@@ -821,7 +688,6 @@ button.event-context-chip--overflow:focus-visible {
   line-height: 1;
 }
 
-/* Scroll to bottom — same soft panel surface as composer / activity pill. */
 .scroll-to-bottom {
   position: absolute;
   bottom: 28px;
@@ -860,7 +726,6 @@ button.event-context-chip--overflow:focus-visible {
   transform: translateX(-50%) scale(0.95);
 }
 
-/* Custom scrollbar — overlaid on hidden native scrollbar */
 .chat-scrollbar {
   position: absolute;
   top: 0;

@@ -1,18 +1,8 @@
-/**
- * Renderer-side client for the agent-lifecycle activity window IPC
- * (`localChat:listActivity`). Uses the renderer stores' external-snapshot shape:
- * one entry per `(conversationId, limit, anchor)` key, re-fetched on every
- * `localChat:updated` notification with a `pendingRefetch` flag so updates
- * that fire mid-read don't get dropped.
- *
- */
 import type {
   EventRecord,
   LocalChatUpdatedPayload,
 } from "@stella/contracts/local-chat";
 
-// Absent outside Electron (plain-browser `bun run dev`): degrade to an
-// empty, update-free activity window instead of erroring.
 const getLocalChatApi = () => window.electronAPI?.localChat ?? null;
 
 export type LocalActivityWindow = {
@@ -150,12 +140,7 @@ const getOrCreateEntry = (
   const key = localActivityWindowKey(options);
   const existing = localActivityWindows.get(key);
   if (existing) return existing;
-  // Seed from the largest already-loaded smaller window for the same
-  // conversation so growing the limit (e.g. ActivityHistoryDialog
-  // 500 → 1000 on `loadOlder`) doesn't briefly empty the visible list
-  // while the larger fetch is in flight. Mirrors `local-files-store`.
-  // `hasLoaded: false` so consumers still know a fresh fetch is in
-  // progress for the new limit.
+
   const seed = [...localActivityWindows.values()]
     .filter(
       (entry) =>

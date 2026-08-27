@@ -1,11 +1,3 @@
-/**
- * Discovery-specific fact extraction prompt.
- *
- * Different from the conversation fact extraction prompt because:
- * 1. Input is system-collected signals, not conversation text
- * 2. Emphasizes patterns over raw data items
- */
-
 export const DISCOVERY_FACT_EXTRACTION_PROMPT = `You extract discrete facts from user discovery signals collected from their local device. These are system-collected signals about a user's environment, habits, and preferences (NOT conversation messages).
 
 Output valid JSON array:

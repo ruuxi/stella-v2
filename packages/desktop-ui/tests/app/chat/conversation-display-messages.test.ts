@@ -75,9 +75,7 @@ describe("conversation display message merge", () => {
   });
 
   it("shows a whole assistant message the instant its event lands, before SQLite", () => {
-    // Exactly what `finalizeMessageBoundary` builds from an
-    // `assistant-message` event: a LOCKED overlay carrying the runtime's
-    // canonical text, with no persisted twin yet.
+
     const landed = overlay({
       _id: "stream-overlay:u1:1",
       userMessageId: "u1",
@@ -105,7 +103,7 @@ describe("conversation display message merge", () => {
     expect(row.type).toBe("assistant_message");
     expect(row.payload?.text).toBe("Here is the whole answer.");
     expect(row.payload?.userMessageId).toBe("u1");
-    // No partial-state marker survives: nothing is ever mid-flight.
+
     expect(
       (row.payload?.metadata as { runtime?: Record<string, unknown> })?.runtime,
     ).not.toHaveProperty("isStreaming");
@@ -142,7 +140,7 @@ describe("conversation display message merge", () => {
       payload: { text: "same reply", userMessageId: "u1" },
     });
     const live = overlay({
-      // A replayed boundary used to advance this to the wrong ordinal.
+
       _id: "stream-overlay:u1:2",
       indexInTurn: 2,
       text: "same reply",
@@ -172,7 +170,7 @@ describe("conversation display message merge", () => {
   it("keeps a queued user send after an assistant that was visible first on cold load", () => {
     const assistant = message({
       _id: "assistant-before-queue",
-      // Persistence completed after the queued send.
+
       timestamp: 400,
       payload: {
         text: "earlier visible reply",
@@ -214,13 +212,13 @@ describe("conversation display message merge", () => {
     const drainedQueuedUser = message({
       _id: "u2",
       type: "user_message",
-      // The click happened while u1 was running.
+
       timestamp: 200,
       payload: { text: "follow up" },
     });
     const postToolAnswer = message({
       _id: "assistant-post-tool",
-      // This slot first streamed after the queued click.
+
       timestamp: 300,
       payload: { text: "Done.", userMessageId: "u1" },
     });
@@ -273,7 +271,7 @@ describe("conversation display message merge", () => {
     const dequeuedUser = message({
       _id: "u2",
       type: "user_message",
-      // Enqueued at 150, but officially dequeued after both prior replies.
+
       timestamp: 400,
       payload: { text: "Nevermind, let it publish." },
     });
@@ -478,10 +476,7 @@ describe("conversation display message merge", () => {
   });
 
   it("defines an antisymmetric and transitive order for every tied-bucket triple", () => {
-    // z-first and a-second share an owner (slot order z before a) while
-    // m-other belongs to a different turn. The retired conditional comparator
-    // ordered z < a by slot ordinal but a < m < z lexically — an explicit
-    // z < a < m < z cycle. This fixture must keep failing that comparator.
+
     const bucket = [
       { _id: "z-first", ownerId: "owner-current" },
       { _id: "a-second", ownerId: "owner-current" },
@@ -500,10 +495,6 @@ describe("conversation display message merge", () => {
       () => 1_001,
     );
 
-    // Guard: reconstruct the retired conditional comparator (same-owner slot
-    // ordinal, lexical _id otherwise) and prove this fixture forms a cycle
-    // under it, so the regression fixture cannot silently rot into one both
-    // comparators satisfy.
     const ordinalById = new Map<string, { ownerId: string; ordinal: number }>();
     const nextOrdinalByOwner = new Map<string, number>();
     for (const row of bucket) {
@@ -535,8 +526,6 @@ describe("conversation display message merge", () => {
 
     const compare = createDisplayOrderComparator(bucket, clampedResolver);
 
-    // The cyclic triple resolves to one consistent direction under the new
-    // comparator (input order: z < a < m).
     expect(compare(zFirst!, aSecond!)).toBeLessThan(0);
     expect(compare(aSecond!, mOther!)).toBeLessThan(0);
     expect(compare(zFirst!, mOther!)).toBeLessThan(0);
@@ -680,9 +669,7 @@ describe("conversation display message merge", () => {
 
 describe("conversation display merge — ordering", () => {
   it("merges an already-ordered union into the same order as a full sort (skip path)", () => {
-    // Persisted already in (timestamp, _id) order; overlay is the newest →
-    // the deduped union is already sorted, so the merge skips the sort. Result
-    // must still be exactly the display order.
+
     const persistedMessages = [
       message({ _id: "u1", type: "user_message", timestamp: 0 }),
       message({ _id: "a1", timestamp: 1 }),
@@ -701,8 +688,7 @@ describe("conversation display merge — ordering", () => {
   });
 
   it("fully sorts a union that arrives out of order (sort path)", () => {
-    // Overlay timestamp lands BEFORE a persisted message → adjacency scan finds
-    // an inversion and the full sort runs, producing correct display order.
+
     const persistedMessages = [
       message({ _id: "u1", type: "user_message", timestamp: 0 }),
       message({ _id: "a3", timestamp: 3 }),
@@ -728,7 +714,7 @@ describe("conversation display merge — ordering", () => {
       message({ _id: "a", timestamp: 5 }),
     ];
     const overlayMessages = [
-      // Same id as a persisted message → persisted must win (listed first).
+
       message({ _id: "dup", timestamp: 5, payload: { text: "overlay" } }),
       message({ _id: "c", timestamp: 5 }),
     ];
@@ -738,8 +724,7 @@ describe("conversation display merge — ordering", () => {
       streamingAssistants: [],
       persistedAssistantSlots: getPersistedAssistantSlots(persistedMessages),
     });
-    // Equal timestamps retain the pre-sort union order; "dup" resolves to the
-    // persisted object because that source is merged first.
+
     expect(merged.map((m) => m._id)).toEqual(["b", "dup", "a", "c"]);
     expect(merged.find((m) => m._id === "dup")).toBe(persistedWinner);
   });
@@ -747,17 +732,9 @@ describe("conversation display merge — ordering", () => {
 });
 
 describe("stable slot ordering across the overlay -> persisted handoff", () => {
-  // Reproduces the agent/artifact-card reorder: an assistant turn's card
-  // sorts by the overlay's `Date.now()` (message START) while streaming, then
-  // by the runtime `message.timestamp` (message END) once persisted. A
-  // neighbor whose timestamp lands between the two makes the card cross it on
-  // handoff. A frozen per-slot resolver pins the persisted twin to the
-  // position its overlay first held.
+
   const user = message({ _id: "u1", type: "user_message", timestamp: 10 });
-  // A concurrent producer's row (e.g. scheduled/heartbeat turn) that landed
-  // WHILE the card turn was still streaming — its runtime timestamp (25) sits
-  // between the overlay's first-chunk time (20) and the persisted twin's
-  // message-end time (40).
+
   const neighbor = message({
     _id: "assistant-neighbor",
     timestamp: 25,
@@ -772,7 +749,7 @@ describe("stable slot ordering across the overlay -> persisted handoff", () => {
 
   it("streaming phase: overlay card renders above the concurrent neighbor", () => {
     const merged = mergeConversationDisplayMessageSources({
-      // Twin already persisted (masked) but overlay still owns the slot.
+
       persistedMessages: [user, neighbor, persistedTwin],
       overlayMessages: [overlayToMessageRecord(live, persistedTwin)],
       streamingAssistants: [live],
@@ -792,7 +769,7 @@ describe("stable slot ordering across the overlay -> persisted handoff", () => {
       streamingAssistants: [],
       persistedAssistantSlots: getPersistedAssistantSlots([persistedTwin]),
     });
-    // Twin's own timestamp (40) sorts it AFTER the neighbor (25): reorder.
+
     expect(merged.map((m) => m._id)).toEqual([
       "u1",
       "assistant-neighbor",
@@ -801,8 +778,7 @@ describe("stable slot ordering across the overlay -> persisted handoff", () => {
   });
 
   it("finalized WITH the frozen resolver: the card holds its position", () => {
-    // Frozen slot ts captured from the overlay (20) — the position the card
-    // first rendered at.
+
     const getSortTimestamp = (m: MessageRecord): number =>
       m._id === persistedTwin._id ? 20 : m.timestamp;
     const merged = mergeConversationDisplayMessageSources({
@@ -812,8 +788,7 @@ describe("stable slot ordering across the overlay -> persisted handoff", () => {
       persistedAssistantSlots: getPersistedAssistantSlots([persistedTwin]),
       getSortTimestamp,
     });
-    // Twin holds the overlay's slot (20 < 25), so the card stays above the
-    // neighbor exactly where it first appeared.
+
     expect(merged.map((m) => m._id)).toEqual([
       "u1",
       "assistant-msg-run-1-10",

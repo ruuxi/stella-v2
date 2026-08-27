@@ -66,7 +66,6 @@ describe("life knowledge discovery writer", () => {
 
     expect(await discoveryKnowledgeExists(stellaDataDir)).toBe(true);
 
-    // Skill file (user-profile/SKILL.md) and per-category summary pages
     const skillFile = await fs.readFile(
       path.join(stellaDataDir, "skills", "user-profile", "SKILL.md"),
       "utf-8",
@@ -80,7 +79,6 @@ describe("life knowledge discovery writer", () => {
       "utf-8",
     );
 
-    // Raw signal dumps
     const rawBrowsing = await fs.readFile(
       path.join(stellaDataDir, "raw", "discovery", "browsing-bookmarks.md"),
       "utf-8",
@@ -90,7 +88,6 @@ describe("life knowledge discovery writer", () => {
       "utf-8",
     );
 
-    // SKILL.md links to both summary pages and raw
     expect(skillFile).toContain("## Summary Pages");
     expect(skillFile).toContain(
       "[Browsing & Bookmarks](browsing-bookmarks.md)",
@@ -101,7 +98,6 @@ describe("life knowledge discovery writer", () => {
     expect(skillFile).toContain("## Raw Discovery Data");
     expect(skillFile).toContain("../../raw/discovery/browsing-bookmarks.md");
 
-    // Summary pages have LLM-summarized content, not raw domain lists
     expect(browsingSummary).toContain("heavy user of AI coding tools");
     expect(browsingSummary).not.toContain("cursor.com (12)");
     expect(browsingSummary).toContain("Raw: [Browsing & Bookmarks]");
@@ -109,7 +105,6 @@ describe("life knowledge discovery writer", () => {
     expect(devSummary).toContain("Two active projects");
     expect(devSummary).not.toContain("847 files");
 
-    // Raw files contain the unprocessed signal data
     expect(rawBrowsing).toContain("Browsing & Bookmarks (Raw)");
     expect(rawBrowsing).toContain("cursor.com (12)");
     expect(rawBrowsing).toContain("github.com (45)");
@@ -130,21 +125,18 @@ describe("life knowledge discovery writer", () => {
 
     await writeDiscoveryKnowledge(stellaDataDir, payload);
 
-    // SKILL.md exists
     const skillFile = await fs.readFile(
       path.join(stellaDataDir, "skills", "user-profile", "SKILL.md"),
       "utf-8",
     );
     expect(skillFile).toContain("No summary pages are populated yet.");
 
-    // Raw still written
     const rawBrowsing = await fs.readFile(
       path.join(stellaDataDir, "raw", "discovery", "browsing-bookmarks.md"),
       "utf-8",
     );
     expect(rawBrowsing).toContain("cursor.com (5)");
 
-    // No summary page for browsing since no analysis was provided
     await expect(
       fs.access(
         path.join(

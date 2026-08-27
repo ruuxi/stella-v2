@@ -1,6 +1,3 @@
-//! ExtensionBridge — localhost TCP server that bridges the daemon to the Chrome
-//! extension via the native messaging host (stdio ↔ this socket).
-
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::env;
@@ -15,25 +12,17 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex, Notify};
 use uuid::Uuid;
 
-/// Default port for the extension bridge TCP server.
 const DEFAULT_EXT_PORT: u16 = 39040;
 
-/// Timeout for individual commands sent to the extension (ms).
 const DEFAULT_COMMAND_TIMEOUT_MS: u64 = 60_000;
 const CHAIN_COMMAND_TIMEOUT_MS: u64 = 5 * 60_000;
 
-/// How long to wait for the extension to connect before failing. The extension
-/// discovers a freshly-started daemon via its periodic HTTP probe of the bridge
-/// port, so this must comfortably cover one probe interval plus host spawn.
 const DEFAULT_WAIT_TIMEOUT_MS: u64 = 60_000;
 
-/// Health check TTL — skip health check if one succeeded within this window.
 const HEALTH_CHECK_TTL_MS: u64 = 5_000;
 
-/// Auto-shutdown after extension disconnects for this long.
 const DISCONNECT_SHUTDOWN_MS: u64 = 30_000;
 
-/// Reconnect wait after a dead connection is detected.
 const RECONNECT_WAIT_MS: u64 = 10_000;
 const EXTENSION_PROTOCOL_VERSION: &str = "2.1";
 const MIN_EXTENSION_VERSION: (u64, u64, u64) = (1, 2, 12);
@@ -93,9 +82,6 @@ struct BridgeInner {
     last_health_check: Instant,
 }
 
-/// Buffer of unsolicited events (e.g. cookie changes) held per subscriber. A
-/// subscriber that falls this far behind is told it lagged (so it can do a full
-/// reconcile) rather than stalling the bridge.
 const EVENT_BROADCAST_CAPACITY: usize = 256;
 
 #[derive(Clone)]
@@ -105,15 +91,12 @@ pub struct ExtensionBridge {
     inner: Arc<Mutex<BridgeInner>>,
     connected_notify: Arc<Notify>,
     shutdown_tx: Option<mpsc::Sender<()>>,
-    /// Fan-out of unsolicited extension events (cookie changes) to desktop
-    /// subscribers. Lives outside `inner` so subscribing never contends the
-    /// command-path mutex. Cloned into each accepted extension connection.
+
     events_tx: broadcast::Sender<String>,
 }
 
 impl ExtensionBridge {
-    /// Create a new ExtensionBridge. Pass `token = Some("")` to disable auth,
-    /// `token = None` to auto-generate a random token.
+
     pub fn new(port: Option<u16>, token: Option<String>) -> Self {
         let port = port.unwrap_or_else(|| {
             env::var("STELLA_BROWSER_EXT_PORT")
@@ -148,27 +131,19 @@ impl ExtensionBridge {
         }
     }
 
-    /// Subscribe to unsolicited events the extension pushes (currently cookie
-    /// changes). Each caller gets an independent receiver. A receiver that lags
-    /// past the buffer drops the oldest events (surfaced as `RecvError::Lagged`)
-    /// instead of blocking the bridge — the desktop reacts by full-reconciling.
     pub fn subscribe_events(&self) -> broadcast::Receiver<String> {
         self.events_tx.subscribe()
     }
 
-    /// Start the TCP server (native host connects from localhost). Returns a channel
-    /// that fires when the extension has been disconnected too long (for daemon auto-shutdown).
     pub async fn start(&mut self, session: &str) -> Result<mpsc::Receiver<()>, String> {
         let socket_dir = get_socket_dir();
         if !socket_dir.exists() {
             let _ = fs::create_dir_all(&socket_dir);
         }
 
-        // Write discovery files
         let token_file = socket_dir.join(format!("{}.ext-token", session));
         let port_file = socket_dir.join(format!("{}.ext-port", session));
 
-        // Write token file with restrictive permissions
         fs::write(&token_file, &self.token)
             .map_err(|e| format!("Failed to write token file: {}", e))?;
         #[cfg(unix)]
@@ -180,12 +155,10 @@ impl ExtensionBridge {
         fs::write(&port_file, self.port.to_string())
             .map_err(|e| format!("Failed to write port file: {}", e))?;
 
-        // Bind with SO_REUSEADDR so we can rebind immediately after a daemon kill
-        // (avoids TIME_WAIT blocking the port for 30-120 seconds).
         let listener = match bind_reuse(self.port) {
             Ok(l) => l,
             Err(_) => {
-                // Port is actively held by a stale process — kill it and retry
+
                 kill_process_on_port(self.port);
                 let mut bound = None;
                 for _ in 0..20 {
@@ -215,7 +188,6 @@ impl ExtensionBridge {
         let session_str = session.to_string();
         let events_tx = self.events_tx.clone();
 
-        // Spawn the TCP accept loop (native messaging host connects to 127.0.0.1:port).
         tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -257,7 +229,6 @@ impl ExtensionBridge {
                 }
             }
 
-            // Cleanup discovery files
             let _ = fs::remove_file(&token_file);
             let _ = fs::remove_file(&port_file);
         });
@@ -265,7 +236,6 @@ impl ExtensionBridge {
         Ok(disconnect_shutdown_rx)
     }
 
-    /// Wait for the extension to connect. Returns true if connected within timeout.
     pub async fn wait_for_connection(&self) -> bool {
         {
             let guard = self.inner.lock().await;
@@ -287,16 +257,11 @@ impl ExtensionBridge {
         }
     }
 
-    /// Check if the extension is currently connected.
     pub async fn is_connected(&self) -> bool {
         let guard = self.inner.lock().await;
         guard.connected
     }
 
-    /// Return the live connection generation only after a command-level
-    /// health exchange. A transport socket alone is not authorization: the
-    /// extension service worker may have restarted while native messaging
-    /// still appears connected.
     pub async fn verified_connection_generation(&self) -> Option<u64> {
         let (alive, generation) = self.verify_connection().await;
         if alive {
@@ -309,9 +274,8 @@ impl ExtensionBridge {
         }
     }
 
-    /// Send a command to the extension and wait for the response.
     pub async fn execute_command(&self, command: &Value) -> Result<Value, String> {
-        // Wait for connection if not connected
+
         {
             let guard = self.inner.lock().await;
             if !guard.connected || guard.cmd_tx.is_none() {
@@ -325,7 +289,6 @@ impl ExtensionBridge {
             }
         }
 
-        // Health check (skip if recent)
         let needs_health_check = {
             let guard = self.inner.lock().await;
             guard.last_health_check.elapsed() > Duration::from_millis(HEALTH_CHECK_TTL_MS)
@@ -334,7 +297,7 @@ impl ExtensionBridge {
         if needs_health_check {
             let (alive, checked_generation) = self.verify_connection().await;
             if !alive {
-                // Connection is dead — wait for reconnection
+
                 if let Some(generation) = checked_generation {
                     deactivate_connection(&self.inner, generation).await;
                 }
@@ -364,7 +327,6 @@ impl ExtensionBridge {
             }
         }
 
-        // Send the command
         let id = command
             .get("id")
             .and_then(|v| v.as_str())
@@ -377,7 +339,6 @@ impl ExtensionBridge {
             "action": command.get("action").and_then(|v| v.as_str()).unwrap_or(""),
         });
 
-        // Merge all command fields into the message
         let mut msg_obj = msg.as_object().unwrap().clone();
         if let Some(cmd_obj) = command.as_object() {
             for (k, v) in cmd_obj {
@@ -413,9 +374,6 @@ impl ExtensionBridge {
             }
         }
 
-        // Chains have their own bounded extension-side runtime and may include
-        // several waits. Keep the bridge deadline above that bound so a late
-        // response cannot leave unobserved steps running after timeout.
         let command_timeout_ms = if command.get("action").and_then(Value::as_str) == Some("chain") {
             CHAIN_COMMAND_TIMEOUT_MS
         } else {
@@ -423,7 +381,7 @@ impl ExtensionBridge {
         };
         match tokio::time::timeout(Duration::from_millis(command_timeout_ms), rx).await {
             Ok(Ok(response)) => {
-                // Update health check timestamp on successful response
+
                 {
                     let mut guard = self.inner.lock().await;
                     if guard.connection_generation == Some(generation) {
@@ -445,7 +403,6 @@ impl ExtensionBridge {
         }
     }
 
-    /// Health check — send a command-level ping and wait for response.
     async fn verify_connection(&self) -> (bool, Option<u64>) {
         let hc_id = format!("_hc_{}", Instant::now().elapsed().as_micros());
         let msg = json!({
@@ -494,7 +451,6 @@ impl ExtensionBridge {
         }
     }
 
-    /// Stop the bridge and clean up.
     pub async fn stop(&mut self) {
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(()).await;
@@ -517,9 +473,6 @@ impl ExtensionBridge {
     }
 }
 
-/// Minimal HTTP reply for extension liveness probes (see `probe_daemon` in the
-/// extension's connection.js). Lets the extension detect "Stella is running"
-/// with a plain fetch() instead of spawning the native messaging host process.
 const HEALTH_PROBE_RESPONSE: &str =
     "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n";
 
@@ -601,7 +554,6 @@ async fn should_shutdown_for_disconnect(inner: &Arc<Mutex<BridgeInner>>, generat
     !guard.connected && guard.connection_generation.is_none() && guard.next_generation == generation
 }
 
-/// Handle a single TCP connection from the native messaging host (line-delimited JSON).
 async fn handle_extension_connection(
     mut stream: TcpStream,
     inner: Arc<Mutex<BridgeInner>>,
@@ -611,8 +563,7 @@ async fn handle_extension_connection(
     disconnect_shutdown_tx: mpsc::Sender<()>,
     events_tx: broadcast::Sender<String>,
 ) {
-    // Liveness-probe short-circuit: answer HTTP and bail before touching any
-    // bridge state so probes never disturb an active native-host connection.
+
     let mut probe_buf = [0u8; 8];
     match tokio::time::timeout(Duration::from_secs(10), stream.peek(&mut probe_buf)).await {
         Ok(Ok(n)) if n > 0 => {
@@ -623,8 +574,7 @@ async fn handle_extension_connection(
                 return;
             }
         }
-        // EOF, socket error, or 10s without a single byte — give up before
-        // the JSONL path so a silent dialer can't churn bridge state.
+
         _ => return,
     }
 
@@ -635,7 +585,6 @@ async fn handle_extension_connection(
     let (read_half, mut write_half) = stream.into_split();
     let mut reader = BufReader::new(read_half);
 
-    // Spawn writer task — one JSON object per line
     let write_handle = tokio::spawn(async move {
         while let Some(msg) = cmd_rx.recv().await {
             let mut line = msg;
@@ -709,7 +658,6 @@ async fn handle_extension_connection(
                 let token = parsed.get("token").and_then(|v| v.as_str()).unwrap_or("");
                 let token_matches = token == expected_token;
 
-                // Native host injects token from disk; empty expected_token disables auth (dev only).
                 if token_matches || expected_token.is_empty() {
                     authenticated = true;
                     connection_generation = Some(activate_connection(&inner, cmd_tx.clone()).await);
@@ -761,10 +709,7 @@ async fn handle_extension_connection(
                 }
             }
             "event" => {
-                // Unsolicited event pushed by the extension (e.g. a cookie
-                // change). Fan it out to desktop subscribers verbatim. No
-                // subscribers (send Err) or a lagging subscriber is not fatal to
-                // the bridge — the desktop full-reconciles on a lag notice.
+
                 if !authenticated {
                     break;
                 }
@@ -793,9 +738,7 @@ async fn handle_extension_connection(
 }
 
 fn normalize_extension_command_response(id: &str, parsed: &Value) -> Value {
-    // The extension owns the complete command receipt. Preserve failure data,
-    // mutation uncertainty, deadline metadata, and future fields instead of
-    // reducing failures to an error string at the native-message boundary.
+
     let Some(source) = parsed.as_object() else {
         return json!({
             "id": id,
@@ -852,8 +795,6 @@ fn get_socket_dir() -> PathBuf {
     std::env::temp_dir().join("stella-browser")
 }
 
-/// Create a TcpListener with SO_REUSEADDR set, so we can rebind immediately
-/// even if the port is in TIME_WAIT from a recently killed daemon.
 fn bind_reuse(port: u16) -> Result<TcpListener, String> {
     use socket2::{Domain, Protocol, Socket, Type};
 
@@ -886,17 +827,16 @@ fn bind_reuse(port: u16) -> Result<TcpListener, String> {
         .map_err(|e| format!("Failed to convert to tokio listener: {}", e))
 }
 
-/// Kill any process currently listening on the given port.
 pub fn kill_process_on_port(port: u16) {
     #[cfg(windows)]
     {
         use std::process::Command;
-        // Use PowerShell with base64-encoded command to avoid escaping issues
+
         let script = format!(
             "Get-NetTCPConnection -LocalPort {} -State Listen -ErrorAction SilentlyContinue | ForEach-Object {{ Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }}",
             port
         );
-        // Encode as UTF-16LE for -EncodedCommand
+
         let utf16: Vec<u8> = script
             .encode_utf16()
             .flat_map(|c| c.to_le_bytes())
@@ -1070,10 +1010,6 @@ mod tests {
     async fn extension_event_message_is_broadcast_to_subscribers() {
         use tokio::io::AsyncWriteExt;
 
-        // A real loopback socket exercises the full accept → parse → broadcast
-        // path (handle_extension_connection peeks the stream, so a plain duplex
-        // pipe would not do). No discovery files are written — only start()
-        // touches the filesystem, which we deliberately do not call here.
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind loopback");
@@ -1094,7 +1030,7 @@ mod tests {
                     stream,
                     inner,
                     notify,
-                    String::new(), // empty token disables auth in tests
+                    String::new(),
                     "test-session".to_string(),
                     disconnect_tx,
                     events_tx,

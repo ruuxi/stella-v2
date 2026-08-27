@@ -6,28 +6,6 @@ import { getCompactionTriggerTokens } from "../../../kernel/thread-runtime.js";
 
 const logger = createRuntimeLogger("stella-runtime.dream-notify");
 
-/**
- * Dream scheduler notify (stella-runtime).
- *
- * On a successful orchestrator turn, evaluates whether Dream should run based
- * on orchestrator context growth — not on per-event pings:
- *   - the thread has grown ~`tokenInterval` since the last run
- *     (`token_interval`), or
- *   - the thread is at/over the compaction trigger, so a consolidation flush
- *     should happen before the middle is summarized (`pre_compaction`).
- *
- * Dream reads the durable Dream inbox, so it
- * still self-skips via its own eligibility gate when nothing is pending. Only
- * the orchestrator declares `triggersDreamScheduler`; subagent rollouts just
- * accumulate as Dream-inbox rows and get folded on the next
- * orchestrator-driven Dream run.
- *
- * Service deps:
- *   - `store`, `stellaDataDir` (factory-time, closure).
- *   - `payload.services.resolvedLlm` + `orchestratorTokenEstimate` (per-turn).
- *   - The `dream-scheduler` module is dynamically imported inside the handler
- *     to keep it off the runtime worker's cold-start path.
- */
 export const createDreamSchedulerNotifyHook = (opts: {
   stellaDataDir: string;
   store: RuntimeStore;
@@ -43,10 +21,7 @@ export const createDreamSchedulerNotifyHook = (opts: {
 
     const tokenEstimate = services.orchestratorTokenEstimate;
     if (typeof tokenEstimate !== "number") {
-      // Without the estimate, `token_interval` can't measure growth and
-      // `pre_compaction` can't be detected — the orchestrator-driven cadence
-      // stalls (only startup_catchup/manual remain). Surface it so the stall is
-      // diagnosable rather than silent.
+
       logger.debug("dream-scheduler.notify-missing-token-estimate", {
         agentType: payload.agentType,
       });

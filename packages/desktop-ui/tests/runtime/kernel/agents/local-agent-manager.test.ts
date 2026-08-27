@@ -614,7 +614,6 @@ describe("LocalAgentManager Exec fs locking", () => {
     finishSecondRun?.();
     await waitForAgentSettled(manager, task.threadId);
 
-    // The initial spawn's agent-started is NOT flagged a follow-up.
     const spawnStarted = events
       .slice(0, eventOffset)
       .find(
@@ -625,8 +624,7 @@ describe("LocalAgentManager Exec fs locking", () => {
     expect(spawnStarted?.isFollowUp).toBeUndefined();
 
     const resumedEvents = events.slice(eventOffset);
-    // The send_input re-activation IS explicitly flagged a follow-up and
-    // reuses the durable spawn description on `statusText`.
+
     expect(resumedEvents).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -648,9 +646,6 @@ describe("LocalAgentManager Exec fs locking", () => {
       resumedEvents.every((event) => event.rootRunId === "root-current"),
     ).toBe(true);
 
-    // Renderer side: the follow-up's stream events maintain only the
-    // ephemeral decoration (keyed by thread, rebound to the current run),
-    // and the completion clears it — no per-run task copies to leak.
     for (const event of resumedEvents) {
       if (!event.agentId) continue;
       if (event.type === "agent-completed") {
@@ -665,7 +660,7 @@ describe("LocalAgentManager Exec fs locking", () => {
       });
       expect(getTaskDecoration(event.agentId)?.runId).toBe("root-current");
     }
-    // Completion left no lingering decoration behind.
+
     expect(getTaskDecoration(task.threadId)).toBeUndefined();
     __privateTaskDecorationStore.resetForTests();
   });
@@ -764,16 +759,12 @@ describe("LocalAgentManager Exec fs locking", () => {
       agentId: task.threadId,
       statusText: "long research task",
       isFollowUp: true,
-      // A steering receipt is a new UI occurrence on the same live attempt,
-      // not evidence of an engine restart.
+
       attemptGeneration: startedEvents[0]?.attemptGeneration,
     });
-    // Fully finished — nothing pending keeps the thread "active".
+
     expect(manager.getActiveAgentCount()).toBe(0);
 
-    // Orchestrator resumes the now-idle thread: that's a NEW run with its
-    // own completion card at its own completion. Done → running-again is
-    // honest history, not a glitch to suppress.
     await manager.sendAgentMessage(
       task.threadId,
       "continue the task",
@@ -824,8 +815,7 @@ describe("LocalAgentManager Exec fs locking", () => {
         runCount += 1;
         if (runCount === 1) {
           firstRunStarted?.();
-          // This mock does not attach any live agent, so send_input must stay
-          // queued while the current engine run finishes naturally.
+
           await new Promise<void>((resolve) => {
             releaseFirstRun = resolve;
           });
@@ -862,8 +852,7 @@ describe("LocalAgentManager Exec fs locking", () => {
     releaseFirstRun?.();
 
     await waitForCompletions(1);
-    // Exactly one completion: the queued continuation's. The naturally
-    // finished internal boundary (done-1) never emitted a completion card.
+
     expect(completions()).toHaveLength(1);
     expect(completions()[0]).toMatchObject({ result: "done-2" });
     expect(completions()[0]?.audience).toBeUndefined();
@@ -1147,8 +1136,7 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
           await new Promise<void>((resolve) => {
             releaseFirstRun = resolve;
           });
-          // This mock has no live Pi Agent, so the current engine run
-          // finishes naturally before the queued update becomes turn 2.
+
           return {
             runId: args.runId,
             result: "done-1",
@@ -1167,8 +1155,7 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
           };
         }
         if (runCount === 2) {
-          // Follow-up run re-reports one banked write (dedupe) and adds a
-          // new one.
+
           return {
             runId: args.runId,
             result: `done-${runCount}`,
@@ -1184,7 +1171,7 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
             ],
           };
         }
-        // Post-drain run: only its own new file.
+
         return {
           runId: args.runId,
           result: `done-${runCount}`,
@@ -1216,8 +1203,6 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
     });
     await firstRunStartedPromise;
 
-    // No live Pi loop is available in this mock. The update queues without
-    // aborting run 1, then becomes the next turn once run 1 finishes.
     await manager.sendAgentMessage(
       task.threadId,
       "add music to the videos",
@@ -1227,8 +1212,6 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
     releaseFirstRun?.();
     await waitForCompletions(1);
 
-    // The first EMITTED completion must carry run 1's banked files merged
-    // with run 2's, deduped by path+kind.
     const first = completions()[0]!;
     expect(first.fileChanges).toEqual([
       {
@@ -1247,10 +1230,6 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
       },
     ]);
 
-    // Resume the now-idle thread: the bank was drained when the first
-    // completion emitted, so the resumed run's own completion only reveals
-    // the new run's files (append-only property). No audience-split
-    // duplicates exist under the state-based completion rule.
     await manager.sendAgentMessage(
       task.threadId,
       "export a final pdf",
@@ -1289,8 +1268,7 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
         dynamicContext: "",
         maxAgentDepth: 3,
       }),
-      // Simulates a run whose only activity is one slow tool: no streamed
-      // progress (onProgress never fires), just a tool_start then a long wait.
+
       runSubagent: async (args) => {
         args.onToolStart?.({
           runId: args.runId,
@@ -1330,17 +1308,13 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
 
     const midToolSnapshot = await manager.getAgent(task.threadId);
     expect(midToolSnapshot?.status).toBe("running");
-    // Tool start stamped liveness and marked the tool in flight.
+
     expect(midToolSnapshot?.lastActivityAt).toBeGreaterThanOrEqual(
       beforeCreate,
     );
     expect(midToolSnapshot?.activeToolCount).toBe(1);
     expect(midToolSnapshot?.recentActivity).toEqual(["Running exec_command"]);
 
-    // Real manager behavior while the tool keeps running: the stamp does
-    // NOT move (nothing re-stamps it mid-call) — `activeToolCount` is the
-    // only signal that the agent isn't idle. This is exactly the window
-    // where a stamp-only idle test would wrongly cancel.
     const stampAfterStart = midToolSnapshot?.lastActivityAt ?? 0;
     await sleep(30);
     const stillMidToolSnapshot = await manager.getAgent(task.threadId);
@@ -1352,8 +1326,7 @@ describe("LocalAgentManager file records across queued send_input turns", () => 
 
     const finalSnapshot = await manager.getAgent(task.threadId);
     expect(finalSnapshot?.status).toBe("completed");
-    // Tool end bumped the stamp past the tool-start one and cleared the
-    // in-flight count.
+
     expect(finalSnapshot?.lastActivityAt).toBeGreaterThan(stampAfterStart);
     expect(finalSnapshot?.activeToolCount).toBe(0);
   });
@@ -1506,12 +1479,7 @@ describe("send_input durable description and run rebind", () => {
   });
 
   it("rebinds a thread's decoration to the follow-up's run without leaking per-run copies", () => {
-    // The old per-run task store leaked a frozen "running" copy under the
-    // spawn run when send_input rebound a thread to the caller's run —
-    // that copy pinned the Activity row open forever. Decorations are
-    // keyed by thread: a rebind is an in-place update, and the terminal
-    // stream event clears it. Authoritative status lives in the
-    // thread-activity rows and never depends on this map.
+
     decorateTask({
       agentId: "thread-1",
       conversationId: "conv-1",
@@ -1521,7 +1489,6 @@ describe("send_input durable description and run rebind", () => {
     });
     expect(getTaskDecoration("thread-1")?.runId).toBe("root-1");
 
-    // Follow-up streams under the new run: same single entry, new runId.
     decorateTask({
       agentId: "thread-1",
       conversationId: "conv-1",

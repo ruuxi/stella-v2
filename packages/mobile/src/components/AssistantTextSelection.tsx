@@ -14,19 +14,6 @@ import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
 import { fonts } from "../theme/fonts";
 import type { Colors } from "../theme/colors";
 
-/**
- * Native text selection for a finished message, with a small pill above the
- * text (Ask Stella / Copy). Assistant replies enter this on long-press (like
- * holding text anywhere on the phone); user messages reach it via the context
- * menu's "Select text". The body renders into a read-only, keyboard-suppressed
- * `TextInput` so iOS/Android give real selection handles and a live highlight;
- * the OS callout menu is hidden (`contextMenuHidden`) so only our pill shows.
- * Entering selection mode selects the whole message so Copy/Ask act immediately;
- * the user can then drag the handles to narrow it.
- *
- * `onAskStella` is optional: assistant replies pass it to expose the "Ask
- * Stella" button; user messages omit it, leaving just Copy.
- */
 export function AssistantTextSelection({
   text,
   colors,
@@ -35,18 +22,16 @@ export function AssistantTextSelection({
 }: {
   text: string;
   colors: Colors;
-  /** Places the current selection into the composer input (assistant only). */
+
   onAskStella?: (selected: string) => void;
-  /** Leave selection mode (back to the rendered markdown). */
+
   onDismiss: () => void;
 }) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const inputRef = useRef<TextInput>(null);
-  // Selection is controlled: it starts as the whole message (so Copy/Ask act
-  // immediately) and mirrors the user's drags via onSelectionChange.
+
   const [selection, setSelection] = useState({ start: 0, end: text.length });
-  // A tapped action button blurs the TextInput first; guard the blur-dismiss so
-  // the button's own handler runs (and owns the dismiss) instead of racing it.
+
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cancelPendingDismiss = () => {
@@ -84,8 +69,7 @@ export function AssistantTextSelection({
 
   const scheduleDismiss = () => {
     cancelPendingDismiss();
-    // Blurred by a tap elsewhere / scroll — leave selection mode, unless an
-    // action button claimed the blur (it cancels this first).
+
     dismissTimerRef.current = setTimeout(onDismiss, 150);
   };
 
@@ -107,9 +91,7 @@ export function AssistantTextSelection({
       <TextInput
         ref={inputRef}
         value={text}
-        // Read-only: never mutate the reply. `editable` is required for
-        // selection handles on iOS, so edits are neutralised by the fixed
-        // `value` + no-op `onChangeText`, and the keyboard is suppressed.
+
         editable
         onChangeText={() => {}}
         showSoftInputOnFocus={false}

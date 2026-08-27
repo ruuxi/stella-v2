@@ -1,25 +1,3 @@
-/**
- * Rehearsal / backfill / verify / unset tool for the Phase-0 chat-ordering
- * sequence migration (see the hardened plan v2.1). Run with bun.
- *
- * SAFETY: the default mode is a DRY RUN on a COPY of the database — it never
- * touches the real file. It proves the backfill preserves current display order
- * (`ORDER BY ordering_sequence` == `ORDER BY (created_at, id)` per session)
- * before anyone runs `--apply` against real user data. `--apply` is the only
- * mode that writes to the target, and it is intended to run only with explicit
- * sign-off.
- *
- * Usage:
- *   bun packages/runtime/scripts/chat-ordering-backfill.ts <db-path> [--apply] [--unset]
- *
- *   (no flags)   Copy <db-path> to a temp file, run the migration on the copy,
- *                verify order-preservation, print a report. Real DB untouched.
- *   --apply      Run the migration IN PLACE on <db-path> (writes real data).
- *   --unset      Reverse the migration (drop trigger/counter/indexes, NULL the
- *                column). Combine with --apply to reverse the real DB; otherwise
- *                rehearsed on a copy.
- */
-
 import { Database } from "bun:sqlite";
 import { copyFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";

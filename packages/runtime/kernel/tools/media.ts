@@ -70,7 +70,7 @@ const createImageGenHandler =
           limit: 50,
         });
       } catch {
-        // Retention cleanup must never block a current generation.
+
       }
     }
 
@@ -90,8 +90,6 @@ const createImageGenHandler =
       input.num_images = Math.max(1, Math.min(numImages, 4));
     }
 
-    // Optional explicit pixel dimensions. Validate the GPT Image 2 envelope
-    // locally so the agent gets a clear error instead of a 4xx from upstream.
     const sizeArg = args.size as
       | { width?: unknown; height?: unknown }
       | undefined;
@@ -131,9 +129,6 @@ const createImageGenHandler =
       input.image_size = { width, height };
     }
 
-    // Reference paths are authorized and signature-checked before any read.
-    // BYOK sends them only to the selected provider. Managed Stella requires
-    // an explicit per-call upload consent flag below.
     const referencePaths = collectStringList(args.referenceImagePaths);
     const referenceUrlsRaw = collectStringList(args.referenceImageUrls);
     if (

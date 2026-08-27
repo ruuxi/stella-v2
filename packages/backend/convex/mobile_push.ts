@@ -17,16 +17,9 @@ const MAX_PLATFORM_LENGTH = 32;
 const MAX_TITLE_LENGTH = 120;
 const MAX_BODY_LENGTH = 400;
 const MAX_TOKENS_PER_OWNER = 25;
-// How stale a token row's `updatedAt` may get before an otherwise-unchanged
-// re-registration bothers to refresh it. Keeps the "last seen" stamp roughly
-// current for future pruning without turning every repeat registration into a
-// write (and thus an OCC-conflict risk) on the hot device row.
+
 const TOKEN_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
-/**
- * Stable shape for the structured `data` payload tapped on a notification —
- * mobile uses it to route the user into the right place when they tap.
- */
 const pushDataValidator = v.object({
   kind: v.union(v.literal("computer_reply"), v.literal("agent_activity")),
 });
@@ -107,9 +100,6 @@ export const upsertToken = internalMutation({
     }
     const platform = args.platform?.trim().slice(0, MAX_PLATFORM_LENGTH);
 
-    // Reclaim a row that holds this exact token under a different owner —
-    // happens when a user signs out of one account and into another on the
-    // same phone.
     const tokenHolders = await ctx.db
       .query("mobile_push_tokens")
       .withIndex("by_expoPushToken", (q) =>
@@ -130,14 +120,7 @@ export const upsertToken = internalMutation({
       .unique();
 
     if (existing) {
-      // The mobile client re-registers the same (owner, device, token) on every
-      // launch/foreground. Blindly patching `updatedAt` each time makes every
-      // one of those calls a write on the same row, so concurrent registrations
-      // from the same device collide as OCC write conflicts (observed on prod:
-      // repeated conflicts on a single `mobile_push_tokens` row). Only write
-      // when something the readers care about actually changed, or when the
-      // freshness stamp is stale enough to be worth refreshing — the common
-      // "nothing changed" path then stays read-only and can't conflict.
+
       const nextPlatform = platform ?? existing.platform;
       const tokenChanged = existing.expoPushToken !== expoPushToken;
       const platformChanged = existing.platform !== nextPlatform;
@@ -265,10 +248,7 @@ export const sendToOwner = internalAction({
 
     for (let i = 0; i < tokens.length; i += EXPO_PUSH_BATCH_SIZE) {
       const batch = tokens.slice(i, i + EXPO_PUSH_BATCH_SIZE);
-      // Group together pushes of the same kind so iOS coalesces them in
-      // the Lock Screen / Notification Center, and Android stacks them on
-      // a single channel. `categoryId` opts the iOS notification into
-      // the interactive actions registered on the mobile client.
+
       const threadId = args.data.kind;
       const messages: Record<string, unknown>[] = batch.map((entry) => ({
         to: entry.expoPushToken,
@@ -312,7 +292,7 @@ export const sendToOwner = internalAction({
       try {
         parsed = (await response.json()) as ExpoPushResponse;
       } catch {
-        // Expo returned non-JSON; nothing actionable.
+
         continue;
       }
 

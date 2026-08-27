@@ -42,12 +42,6 @@ interface StepItem {
   status: 'pending' | 'running' | 'completed' | 'error'
 }
 
-/**
- * Extract the human-readable text from an event payload.
- *
- * Checks `text`, `content`, and `message` fields (in that order), returning
- * the first non-empty string found.  Returns `""` when no text is present.
- */
 export const getEventText = (event: EventRecord): string => {
   if (!event.payload || typeof event.payload !== 'object') return ''
   const payload = event.payload as MessagePayload
@@ -57,17 +51,10 @@ export const getEventText = (event: EventRecord): string => {
   return ''
 }
 
-// Persisted lifecycle event payloads (kebab-case `agent-*` events). These
-// mirror the data emitted by `appendAgentLifecycleChatEvent` in the runner.
-
 type AgentLifecycleFields = {
-  /** Root orchestrator run that observed this task transition. This correlates
-   * lifecycle packets, but is not a card identity by itself: one root run can
-   * call `send_input` on the same thread more than once. Timeline cards use
-   * the matching persisted `agent-started` event id. */
+
   rootRunId?: string
-  /** Durable execution epoch for a reused thread. New lifecycle events carry
-   *  this on starts, progress, and terminal packets; legacy rows omit it. */
+
   attemptGeneration?: number
 }
 
@@ -79,10 +66,7 @@ type AgentStartedEventPayload = AgentLifecycleFields & {
   agentDepth?: number
   maxAgentDepth?: number
   statusText?: string
-  /** `true` when this start re-activates an existing thread (a `send_input`
-   *  follow-up) rather than spawning fresh work. The explicit signal the
-   *  inline background-work card keys its follow-up variant off. Absent on a
-   *  fresh spawn (and on legacy persisted events, which read as spawns). */
+
   isFollowUp?: boolean
 }
 
@@ -109,22 +93,19 @@ type AgentProgressEventPayload = AgentLifecycleFields & {
   toolActivity?: TaskToolActivity
 }
 
-// Task item for UI display
 export type TaskItem = {
   id: string
   description: string
   agentType: string
-  /** Execution authority for this Activity row. Claude-native entries are
-   * passive projections: visible and inspectable, but never runnable through
-   * Stella's lifecycle controls. */
+
   source: ThreadActivityRecord['source']
   readOnly: boolean
   status: TaskLifecycleStatus
-  /** Durable execution epoch for retry/resume deduplication. */
+
   attemptGeneration?: number
-  /** Root run that owns the thread's latest lifecycle. */
+
   runId?: string
-  /** Exact engine/model configuration captured for this thread's run. */
+
   modelConfigSnapshot?: AgentModelConfigSnapshot
   anchorTurnId?: string
   parentAgentId?: string
@@ -142,24 +123,17 @@ export type TaskItem = {
 
 export const TASK_COMPLETION_INDICATOR_MS = 3000
 
-/**
- * Ephemeral stream-fed extras for a running thread, keyed by thread id.
- * Structurally matches the streaming store's `TaskDecoration` (defined
- * there to avoid an import cycle). Decoration never carries authoritative
- * fields — status, description, and timestamps come only from the
- * thread-activity rows.
- */
 export type TaskLiveDecoration = {
   runId?: string
-  /** Lifecycle state observed directly from the ordered agent stream. */
+
   status?: TaskLifecycleStatus
-  /** Durable attempt epoch; lets a resumed run supersede a stale terminal row. */
+
   attemptGeneration?: number
-  /** Receipt time of this attempt's start, used only for legacy packets. */
+
   startedAtMs?: number
-  /** Receipt time of the latest lifecycle packet for this attempt. */
+
   observedAtMs?: number
-  /** Monotonic runtime-recorder sequence for stale packet fencing. */
+
   lifecycleSequence?: number
   anchorTurnId?: string
   statusText?: string
@@ -167,13 +141,6 @@ export type TaskLiveDecoration = {
   reasoningText?: string
 }
 
-/**
- * Tasks that should drive "is Stella working right now" surfaces: running
- * rows plus terminals fresh enough to still deserve a completion beat.
- * The full task list is durable history (rows persist forever), so
- * presence-driven consumers (pet mood, transient chips) select from this
- * instead — an hour-old error row must not read as "Stella just failed".
- */
 export function selectFreshActivityTasks(
   tasks: readonly TaskItem[],
   nowMs = Date.now(),
@@ -187,13 +154,6 @@ export function selectFreshActivityTasks(
   )
 }
 
-/**
- * The Activity task list: authoritative thread rows (from the runtime's
- * `runtime_agents` table via `useThreadActivity`) overlaid with the live
- * stream lifecycle observation. The durable row wins within one attempt;
- * only a strictly newer observed generation may temporarily supersede it
- * while the row refetch catches up.
- */
 export function buildActivityTasks(
   records: readonly ThreadActivityRecord[],
   decorations?: Record<string, TaskLiveDecoration>,
@@ -231,11 +191,7 @@ export function buildActivityTasks(
       const recordOwnsAttempt = !latestAttemptOwns
       return {
         id: record.threadId,
-        // The row title identifies the delegated task and must stay stable.
-        // A newer live attempt may temporarily own lifecycle presentation
-        // while the durable row catches up, but its statusText is ephemeral
-        // tool/progress activity (for example, "Running Node Repl"), not a
-        // replacement description.
+
         description: record.description,
         agentType: record.agentType,
         source: record.source,
@@ -300,18 +256,6 @@ export function isGenericTaskDescription(
   )
 }
 
-/**
- * Best-effort display name for a task whose spawn description is missing
- * (e.g. a resumed legacy thread rebuilt from reasoning-only events). Thread
- * ids are slugs of the original spawn description (`compare-flight-prices`),
- * so de-slugging the id recovers a meaningful label. Ordinal ids
- * (`task-7`, `legacy-…`) carry no words, so they fall back to plain "Task".
- */
-// Spawn-thread ids are minted by `slugify()` (runtime/kernel/shared/slug.ts):
-// lowercase a-z0-9 words joined by single dashes, no leading/trailing dash,
-// capped at 48 chars. Ids from any other generator (uppercase, underscores,
-// other alphabets, overlong) may embed text that was never meant as a display
-// label — treat those as opaque and keep the generic "Task".
 const SPAWN_SLUG_MAX_LENGTH = 48
 const SPAWN_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
@@ -323,28 +267,19 @@ export function fallbackTaskDescription(agentId: string | undefined): string {
   }
   const words = slug.split('-')
   const letterCount = (words.join('').match(/[a-z]/gi) ?? []).length
-  // Short single-token ids ("a1", "x7f3") are opaque junk, not slugged
-  // descriptions — keep the generic label for those.
+
   if (words.length < 2 && letterCount < 4) return 'Task'
   if (letterCount === 0) return 'Task'
   const text = words.join(' ')
   return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
-/**
- * The user-facing activity feed shows durable delegated work: General agents
- * including those spawned by another agent. Orchestrator-internal helpers (schedule
- * specialists, recall lookups, and any future machinery agent types) remain
- * execution detail and must not surface as activity rows.
- */
 export function isActivityFeedTask(
   task: Pick<TaskItem, 'agentType' | 'source'>,
 ): boolean {
   return task.source === 'claude-native' || task.agentType === AGENT_IDS.GENERAL
 }
 
-/** Rows that Stella owns and may use for work counts, notifications, and
- * lifecycle aggregation. Claude-native rows are observability only. */
 export function isManagedActivityTask(task: Pick<TaskItem, 'source'>): boolean {
   return task.source === 'stella'
 }
@@ -392,7 +327,6 @@ export function getTaskWorkingIndicatorText(task: TaskItem): string {
   return getTaskDisplayText(task)
 }
 
-// Generic type guard factory — reduces per-event-type boilerplate.
 function createEventGuard<T extends Record<string, unknown>>(
   type: string,
   requiredFields?: (keyof T)[],
@@ -492,11 +426,10 @@ export function extractToolTitle(event: EventRecord): string {
   }
 }
 
-// Helper to get requestId from event (can be at top level or in payload)
 function getRequestId(event: EventRecord): string | undefined {
-  // Check top level first
+
   if (event.requestId) return event.requestId
-  // Then check payload
+
   if (event.payload && typeof event.payload === 'object') {
     const payload = event.payload as { requestId?: string }
     if (payload.requestId) return payload.requestId
@@ -547,17 +480,6 @@ export function extractStepsFromEvents(events: EventRecord[]): StepItem[] {
   return steps
 }
 
-/**
- * Returns the currently-running tool call (name + stable request id),
- * if any.
- *
- * Walks each message's turn-scoped `toolEvents` and pairs requests with
- * results by requestId. Returns the unmatched (still running) one.
- *
- * The `id` doubles as a stable seed for the working-indicator's
- * variation picker — it stays constant for the duration of one tool
- * call so the friendly label doesn't flicker on each re-render.
- */
 export function getCurrentRunningTool(
   messages: { toolEvents: EventRecord[] }[],
 ): { tool: string; id: string } | undefined {
@@ -572,18 +494,12 @@ export function getCurrentRunningTool(
   return running ? { tool: running.tool, id: running.id } : undefined
 }
 
-/**
- * One persisted ownership tree rooted at a Manager (or any future nested
- * owner). `parentAgentId` is the only edge source; labels/group names never
- * participate in ownership. Child rows reuse the same ActivityRow model, so
- * descendants can nest without a second visual language.
- */
 export type TaskHierarchy = {
   owner: TaskItem
   children: ActivityRow[]
-  /** All descendants, excluding `owner`. */
+
   descendantCount: number
-  /** Aggregate owner/descendant status used by collapsed Activity surfaces. */
+
   status: TaskLifecycleStatus
 }
 
@@ -606,7 +522,6 @@ export type CompactActivitySummary = {
   usesProgressBar: boolean
 }
 
-/** Flatten a nested ownership/group projection into one visual per agent. */
 export const flattenActivityTasks = (
   rows: readonly ActivityRow[],
 ): TaskItem[] => {
@@ -672,7 +587,6 @@ const compareCompactAssistantRecency = (a: TaskItem, b: TaskItem): number => {
   return compareCompactTaskRecency(a, b)
 }
 
-/** Counts and newest-event selection for compact Manager rows. */
 export function summarizeCompactActivity(
   tasks: readonly TaskItem[],
 ): CompactActivitySummary {
@@ -693,7 +607,6 @@ export function summarizeCompactActivity(
   }
 }
 
-/** Single tally line shown under the compact state visualization. */
 export function getCompactActivityStatusText(
   summary: CompactActivitySummary,
   prioritizeFailure: boolean,
@@ -709,7 +622,6 @@ export function getCompactActivityStatusText(
   return `${tally}${failed}${stopped}`
 }
 
-/** Stable, namespaced identity shared by sorting state and React keys. */
 export const activityRowKey = (row: ActivityRow): string =>
   row.kind === 'task'
     ? `task:${row.task.id}`
@@ -720,13 +632,6 @@ export type TopLevelActivityWorkUnit = {
   status: TaskLifecycleStatus
 }
 
-/**
- * The units represented by top-level Activity rows. A Manager hierarchy is
- * governed by its owner rather than its descendants: owned children never
- * become extra ambient work, even if one remains active while the Manager is
- * paused. Missing/detached parents already fail open as standalone rows in
- * `groupActivityTasks`, so adoption and detachment update the count naturally.
- */
 export const deriveTopLevelActivityWorkUnits = (
   tasks: readonly TaskItem[],
 ): TopLevelActivityWorkUnit[] => {
@@ -766,12 +671,6 @@ export const getActivityRowCompletedAtMs = (row: ActivityRow): number => {
   return entry.completedAtMs ?? entry.lastUpdatedAtMs ?? entry.startedAtMs
 }
 
-/**
- * Immutable lifecycle ordering for top-level Activity rows. The durable
- * thread start time is unaffected by progress, reasoning, tool activity, or
- * refetch arrival order; the namespaced row key makes equal timestamps fully
- * deterministic across mounts.
- */
 export const compareActivityRowsByLifecycleStart = (
   a: ActivityRow,
   b: ActivityRow,
@@ -784,7 +683,6 @@ export const compareActivityRowsByLifecycleStart = (
   )
 }
 
-/** Search text for a whole visible row, including nested owned descendants. */
 export const getActivityRowSearchText = (row: ActivityRow): string => {
   if (row.kind === 'task') {
     return [row.task.description, row.task.statusText, row.task.outputPreview]
@@ -801,15 +699,6 @@ export const getActivityRowSearchText = (row: ActivityRow): string => {
     .join(' ')
 }
 
-/**
- * Project the persisted task list into Activity rows.
- *
- * Ownership wins first: a task whose `parentAgentId` resolves to another
- * visible task is removed from the root list and nested under that owner.
- * This is what turns Manager + managed agents into one hierarchy, including
- * adopted agents whose persisted parent changes later. Missing parents stay
- * top-level rather than disappearing.
- */
 export function groupActivityTasks(tasks: readonly TaskItem[]): ActivityRow[] {
   const taskById = new Map(tasks.map((task) => [task.id, task]))
   const childrenByParentId = new Map<string, TaskItem[]>()
@@ -872,8 +761,7 @@ export function groupActivityTasks(tasks: readonly TaskItem[]): ActivityRow[] {
 
   const roots = tasks.filter((task) => !ownedTaskIds.has(task.id))
   const rows = buildRows(roots, new Set())
-  // Corrupt/cyclic ownership must not make work disappear. Runtime rejects
-  // cycles, but old/imported rows still fail open as top-level activity.
+
   const unvisited = tasks.filter((task) => !visited.has(task.id))
   if (unvisited.length > 0) rows.push(...buildRows(unvisited, new Set()))
   return rows
@@ -885,30 +773,18 @@ const countActivityTasks = (rows: readonly ActivityRow[]): number =>
     return total + 1 + row.hierarchy.descendantCount
   }, 0)
 
-/** Descendant count as the meta line for a collapsed hierarchy row. */
 export function getTaskHierarchyStatusText(hierarchy: TaskHierarchy): string {
   return hierarchy.descendantCount === 1
     ? '1 agent'
     : `${hierarchy.descendantCount} agents`
 }
 
-/** Agent-authored prose for Activity rows, active or completed. */
 export function getTaskAgentUpdates(
   task: Pick<TaskItem, 'status' | 'agentType' | 'assistantMessages'>,
 ): readonly string[] {
   return (task.assistantMessages ?? []).filter((message) => message.trim())
 }
 
-/**
- * Roll the "has been seen running this session" id set forward for a new
- * task list. An id enters the set while its task is running and STAYS in it
- * after the task completes — this is what keeps a finished agent's activity
- * row expanded (its default expansion is `running || seenRunning`) instead
- * of snapping shut the moment the terminal lifecycle event lands. Ids whose
- * task left the list entirely (aged out of the activity window, conversation
- * switch) are pruned so the set can't grow unboundedly. Returns `seen`
- * unchanged (same reference) when nothing changed.
- */
 export function updateSeenRunningTaskIds(
   seen: ReadonlySet<string>,
   tasks: readonly TaskItem[],

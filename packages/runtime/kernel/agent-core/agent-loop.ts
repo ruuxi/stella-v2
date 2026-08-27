@@ -1,8 +1,3 @@
-/**
- * Agent loop that works with AgentMessage throughout.
- * Transforms to Message[] only at the LLM call boundary.
- */
-
 import type { AssistantMessage, Context, ToolResultMessage } from "../../ai/types.js";
 import { streamSimple } from "../../ai/stream.js";
 import { EventStream } from "../../ai/utils/event-stream.js";
@@ -21,19 +16,6 @@ import type {
 
 export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
 
-/**
- * True when an assistant message looks like an upstream pathology:
- * the model terminated but produced neither user-visible text nor a
- * tool call. Covers two flavors:
- *  - `stopReason: "stop"` with only thinking content — Kimi K2 family
- *    pathology where the model self-terminates after burning its
- *    reasoning trace.
- *  - `stopReason: "length"` with no usable output — provider-side
- *    truncation that hit a cap before any visible text was emitted
- *    (e.g. a reasoning model that exhausted the combined cap during
- *    thinking).
- * Reasoning-only `thinking` blocks do not count as a usable result.
- */
 const isDegenerateAssistantMessage = (
 	message: AssistantMessage | null,
 ): boolean => {
@@ -56,9 +38,6 @@ const isDegenerateAssistantMessage = (
 	return !hasText && !hasToolCall;
 };
 
-/**
- * Start an agent loop with new prompt messages and expose emitted events as a stream.
- */
 export function agentLoop(
 	prompts: AgentMessage[],
 	context: AgentContext,
@@ -84,9 +63,6 @@ export function agentLoop(
 	return stream;
 }
 
-/**
- * Continue an agent loop from the current context and expose emitted events as a stream.
- */
 export function agentLoopContinue(
 	context: AgentContext,
 	config: AgentLoopConfig,
@@ -127,8 +103,7 @@ export async function runAgentLoop(
 	streamFn?: StreamFn,
 ): Promise<AgentMessage[]> {
 	const newMessages: AgentMessage[] = [...prompts];
-	// Reuse the caller's context object so a later boundary replacement releases
-	// its pre-compaction history reference during a normal prompt run too.
+
 	const currentContext = context;
 	currentContext.messages = [...currentContext.messages, ...prompts];
 
@@ -159,8 +134,7 @@ export async function runAgentLoopContinue(
 	}
 
 	const newMessages: AgentMessage[] = [];
-	// Keep one context object so a boundary replacement also releases the
-	// caller's reference to the pre-compaction message array.
+
 	const currentContext = context;
 
 	await emit({ type: "agent_start" });
@@ -177,9 +151,6 @@ function createAgentStream(): EventStream<AgentEvent, AgentMessage[]> {
 	);
 }
 
-/**
- * Main loop logic shared by the agent loop entrypoints.
- */
 async function runLoop(
 	currentContext: AgentContext,
 	newMessages: AgentMessage[],
@@ -207,8 +178,7 @@ async function runLoop(
 		completedTurnMessages = [];
 		if (!replacement) return;
 		currentContext.messages = replacement.slice();
-		// The replacement durably represents everything completed before this
-		// boundary, so do not retain those messages in the loop result as well.
+
 		newMessages.length = 0;
 	};
 
@@ -285,10 +255,6 @@ async function runLoop(
 	await emit({ type: "agent_end", messages: newMessages });
 }
 
-/**
- * Stream an assistant response from the LLM.
- * This is where AgentMessage[] gets transformed to Message[] for the LLM.
- */
 async function streamAssistantResponse(
 	context: AgentContext,
 	config: AgentLoopConfig,
@@ -327,13 +293,6 @@ async function streamAssistantResponse(
 		(config.getApiKey ? await config.getApiKey(config.model.provider) : undefined) || config.apiKey;
 	throwIfAbortedBeforeDispatch();
 
-	// Intentionally do NOT inject a `maxTokens` cap here. Setting a
-	// hard cap truncates mid-sentence / mid-tool-call when hit, and
-	// for reasoning models can leave zero budget for the visible
-	// answer (cap exhausted by thinking). Trust the model to
-	// self-terminate; the degenerate-response retry below handles
-	// pathological terminations, and `Model.maxTokens` is reserved
-	// for explicit per-call overrides via `config.maxTokens`.
 	const streamOptions = {
 		...config,
 		apiKey: resolvedApiKey,
@@ -429,20 +388,11 @@ async function streamAssistantResponse(
 
 	let finalMessage: AssistantMessage = (await runOnce()).message;
 
-	// Defensive degenerate-response retry: when the upstream returns
-	// a clean `stop` with neither text nor tool calls (e.g. Kimi K2
-	// burning its reasoning budget without producing output), pop the
-	// dud from history and try once more with the same context. Cap
-	// at one retry — if the model is genuinely stuck, the sentinel
-	// downstream (finalizeSubagentSuccess) will surface a clear
-	// message to the orchestrator instead of an empty result.
 	if (isDegenerateAssistantMessage(finalMessage)) {
 		if (context.messages[context.messages.length - 1] === finalMessage) {
 			context.messages.pop();
 		}
-		// Close and durably classify the discarded attempt as non-replayable
-		// before retrying. Persistence and compaction filter error assistants, so
-		// this diagnostic row cannot return through a later SQLite page-in.
+
 		await emit({
 			type: "message_end",
 			message: {
@@ -459,9 +409,6 @@ async function streamAssistantResponse(
 	return finalMessage;
 }
 
-/**
- * Execute tool calls from an assistant message.
- */
 async function executeToolCalls(
 	currentContext: AgentContext,
 	assistantMessage: AssistantMessage,
@@ -729,17 +676,6 @@ async function prepareToolCall(
 	}
 }
 
-/**
- * Tools that emit no `onUpdate` progress for this long are cancelled and
- * reported to the model as an error tool result; the agent loop keeps
- * running. Progress resets the clock, so a long-running tool survives as
- * long as it shows signs of life. Ten minutes of TOTAL silence almost
- * always means stuck — and because only the tool dies (the agent gets the
- * error and can retry), a rare false positive is cheap, so the bound errs
- * tight rather than leaving a wedged tool holding the turn for half an
- * hour. Override via `AgentLoopConfig.toolInactivityTimeoutMs`; <= 0
- * disables the bound.
- */
 export const DEFAULT_TOOL_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
 
 export async function executePreparedToolCall(
@@ -751,9 +687,6 @@ export async function executePreparedToolCall(
 	const updateEvents: Promise<void>[] = [];
 	const timeoutMs = inactivityTimeoutMs ?? DEFAULT_TOOL_INACTIVITY_TIMEOUT_MS;
 
-	// Bound the tool, not the agent. The tool gets a composed abort signal so
-	// a cooperative implementation can clean up; a tool that ignores it is
-	// abandoned via the race below so the loop still gets its error result.
 	const toolAbort = new AbortController();
 	const onOuterAbort = () => toolAbort.abort(signal?.reason);
 	if (signal?.aborted) onOuterAbort();

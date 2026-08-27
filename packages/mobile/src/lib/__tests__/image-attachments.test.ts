@@ -9,9 +9,6 @@ import { standardBase64ToBytes } from "../bridge-envelope";
 
 const toBase64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
 
-// Minimal-but-real headers followed by arbitrary payload bytes, mirroring the
-// production repro: a full-resolution iPhone HEIC whose stored bytes began
-// `00 00 00 28 66 74 79 70 68 65 69 63` ("....ftypheic").
 const makeBytes = (header: number[], length = 256) => {
   const bytes = new Uint8Array(length);
   bytes.set(header);
@@ -22,20 +19,20 @@ const makeBytes = (header: number[], length = 256) => {
 const JPEG = makeBytes([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]);
 const PNG = makeBytes([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const WEBP = makeBytes([
-  ...[0x52, 0x49, 0x46, 0x46], // RIFF
+  ...[0x52, 0x49, 0x46, 0x46],
   ...[0x00, 0x01, 0x00, 0x00],
-  ...[0x57, 0x45, 0x42, 0x50], // WEBP
+  ...[0x57, 0x45, 0x42, 0x50],
 ]);
 const GIF = makeBytes([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]);
 const HEIC = makeBytes([
   ...[0x00, 0x00, 0x00, 0x28],
-  ...[0x66, 0x74, 0x79, 0x70], // ftyp
-  ...[0x68, 0x65, 0x69, 0x63], // heic
+  ...[0x66, 0x74, 0x79, 0x70],
+  ...[0x68, 0x65, 0x69, 0x63],
 ]);
 const AVIF = makeBytes([
   ...[0x00, 0x00, 0x00, 0x1c],
   ...[0x66, 0x74, 0x79, 0x70],
-  ...[0x61, 0x76, 0x69, 0x66], // avif
+  ...[0x61, 0x76, 0x69, 0x66],
 ]);
 
 describe("sniffImageMimeType", () => {
@@ -67,7 +64,7 @@ describe("toSendableImage round-trip", () => {
         failIfTranscoded,
       );
       expect(sent === null).toBe(false);
-      // Exact same base64 — no double-encode, no truncation.
+
       expect(sent!.base64).toBe(base64);
       expect(standardBase64ToBytes(sent!.base64)).toEqual(bytes);
       expect(PROVIDER_SAFE_IMAGE_MIME_TYPES.has(sent!.mimeType)).toBe(true);
@@ -114,7 +111,7 @@ describe("toSendableImage round-trip", () => {
       { uri: "file:///photo.heic", base64: heicBase64, mimeType: "image/jpeg" },
       unavailable,
     );
-    // Never lie about the format even if we couldn't convert.
+
     expect(sent).toEqual({ base64: heicBase64, mimeType: "image/heic" });
   });
 

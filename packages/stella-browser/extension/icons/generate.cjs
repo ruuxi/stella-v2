@@ -1,11 +1,6 @@
 const fs = require("fs");
 const path = require("path");
 
-/**
- * The extension icons are curated derivatives of the canonical Stella brand
- * master. Keep them committed as binary assets; procedurally redrawing the mark
- * would change its geometry. This script validates the checked-in sizes instead.
- */
 const sizes = [16, 48, 128];
 
 for (const size of sizes) {

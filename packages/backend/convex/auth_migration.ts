@@ -1,16 +1,3 @@
-/**
- * Ownership migration for anonymous → real account linking.
- *
- * When an anonymous user signs in with a real identity, all owner-scoped
- * data must be transferred to the new ownerId. This module performs that
- * migration in batches to stay within Convex mutation limits.
- *
- * Each per-table migration is its own typed `internalMutation` so we keep the
- * `ctx.db.query` builder fully typed (no `as any` / `_id: any`). The
- * orchestrator action below walks the table list and re-invokes each batch
- * mutation until it returns `hasMore: false`.
- */
-
 import { v } from "convex/values";
 import {
   internalAction,
@@ -27,14 +14,6 @@ const ownerArgs = { fromOwnerId: v.string(), toOwnerId: v.string() } as const;
 const hasMoreReturn = v.object({ hasMore: v.boolean() });
 
 const isFullPage = (rows: readonly unknown[]) => rows.length === BATCH_SIZE;
-
-// ---------------------------------------------------------------------------
-// Per-table batch mutations.
-//
-// Each one stays inside the schema's strong typing for `ctx.db.patch` so we
-// don't need a `db.patch as unknown as ...` widening — the compiler proves
-// that `{ ownerId }` is a valid partial patch for each table.
-// ---------------------------------------------------------------------------
 
 export const migrateConversationsBatch = internalMutation({
   args: ownerArgs,
@@ -61,9 +40,7 @@ export const migrateUserPreferencesBatch = internalMutation({
       .query("user_preferences")
       .withIndex("by_ownerId_and_key", (q) => q.eq("ownerId", args.fromOwnerId))
       .take(BATCH_SIZE);
-    // (ownerId, key) is looked up with `.unique()` elsewhere; if the target
-    // owner already has a row for this key, keep theirs and drop the source
-    // row instead of creating a duplicate.
+
     for (const row of rows) {
       const existing = await ctx.db
         .query("user_preferences")
@@ -91,11 +68,7 @@ export const migrateAuthSessionPoliciesBatch = internalMutation({
         q.eq("ownerId", args.fromOwnerId),
       )
       .take(BATCH_SIZE);
-    // Tombstones are unique per (ownerId, sessionId) and
-    // `isSessionRevokedInDb` reads them with `.unique()`. If the target owner
-    // already carries a tombstone for the same session, keep the stronger
-    // (later-expiring) one and drop the source row rather than creating a
-    // duplicate that would make the lookup throw.
+
     for (const row of rows) {
       const existing = await ctx.db
         .query("auth_revoked_sessions")
@@ -163,9 +136,7 @@ export const migrateUserIntegrationsBatch = internalMutation({
         q.eq("ownerId", args.fromOwnerId),
       )
       .take(BATCH_SIZE);
-    // (ownerId, provider) is looked up with `.unique()` elsewhere; if the
-    // target owner already has an integration for this provider, keep theirs
-    // and drop the source row instead of creating a duplicate.
+
     for (const row of rows) {
       const existing = await ctx.db
         .query("user_integrations")
@@ -255,8 +226,7 @@ export const migrateMediaJobsBatch = internalMutation({
             )
             .unique()
         : null;
-      // Preserve both historical jobs, but keep only the destination row as
-      // the canonical reattachment target when owner linking collides.
+
       await ctx.db.patch(row._id, {
         ownerId: args.toOwnerId,
         ...(existing
@@ -329,14 +299,8 @@ export const migrateUserCountersBatch = internalMutation({
   },
 });
 
-/** Bound on how many duplicate-default conversations we'll consider. */
 const DEDUPLICATE_DEFAULT_BATCH = 200;
 
-/**
- * Deduplicate default conversations after migration.
- * If the target user already has a default conversation, un-default the
- * migrated ones to avoid constraint violations.
- */
 export const deduplicateDefaultConversation = internalMutation({
   args: {
     toOwnerId: v.string(),
@@ -363,12 +327,6 @@ export const deduplicateDefaultConversation = internalMutation({
   },
 });
 
-/**
- * After ownership migration, both the source and destination owner may have
- * a `user_counters` row. Collapse them by summing the conversation counts
- * into the oldest row and deleting the duplicates so future quota lookups
- * find a single row via `unique()`.
- */
 export const deduplicateUserCounters = internalMutation({
   args: { toOwnerId: v.string() },
   returns: v.null(),
@@ -395,12 +353,6 @@ export const deduplicateUserCounters = internalMutation({
   },
 });
 
-/**
- * Tables whose batches are independent of every other table — drainable in
- * parallel from the orchestrator. `devices` / `device_presence` are NOT here: they go through
- * `migrateDevicesForAccountLink` because that mutation enforces the
- * devices→presence write order to keep partial migrations consistent.
- */
 const PARALLEL_TABLE_MUTATIONS = [
   internal.auth_migration.migrateConversationsBatch,
   internal.auth_migration.migrateUserPreferencesBatch,
@@ -424,11 +376,6 @@ type OwnerBatchMutation = FunctionReference<
   { hasMore: boolean }
 >;
 
-/**
- * Drain a single per-table batch mutation by repeatedly invoking it until
- * `hasMore: false`. Each invocation is its own Convex transaction so the
- * mutation stays inside the per-mutation read/write limits.
- */
 async function drainTableMutation(
   ctx: ActionCtx,
   mutation: OwnerBatchMutation,
@@ -441,17 +388,6 @@ async function drainTableMutation(
   }
 }
 
-/**
- * Orchestrate the full ownership migration across all tables. Called
- * asynchronously via scheduler when an anonymous user links to a real
- * account.
- *
- * Tables whose drain is independent run concurrently (`Promise.all`) so a
- * tenant with data in many tables doesn't pay the sum of every per-table
- * round-trip. The devices/presence/connections migration runs first and
- * sequentially because `migrateDevicesForAccountLink` enforces a strict
- * order across those three tables.
- */
 export const migrateOwnership = internalAction({
   args: {
     fromOwnerId: v.string(),
@@ -482,9 +418,6 @@ export const migrateOwnership = internalAction({
       ),
     );
 
-    // Deduplicate default conversations and per-owner counters that may now
-    // have collided with the destination owner's pre-existing rows. These
-    // depend on the per-table migrations finishing first.
     await Promise.all([
       ctx.runMutation(internal.auth_migration.deduplicateDefaultConversation, {
         toOwnerId: args.toOwnerId,
@@ -501,17 +434,6 @@ export const migrateOwnership = internalAction({
   },
 });
 
-/**
- * Migrate devices and device_presence rows for an account-link in bounded
- * batches. Each invocation processes at most `BATCH_SIZE` rows per table and
- * returns `hasMore` so the caller (`migrateOwnership`) can re-invoke until
- * both tables are drained, staying within Convex mutation transaction limits
- * even for owners with many devices/presence rows.
- *
- * Migration order is preserved across batches: presence migrates after
- * devices, so a partial migration never leaves presence pointing at the old
- * owner while devices have already moved.
- */
 export const migrateDevicesForAccountLink = internalMutation({
   args: {
     fromOwnerId: v.string(),
@@ -519,7 +441,7 @@ export const migrateDevicesForAccountLink = internalMutation({
   },
   returns: v.object({ hasMore: v.boolean() }),
   handler: async (ctx, args) => {
-    // --- devices (stable profile rows) ---
+
     const deviceRows = await ctx.db
       .query("devices")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))
@@ -543,7 +465,6 @@ export const migrateDevicesForAccountLink = internalMutation({
       return { hasMore: deviceRows.length === BATCH_SIZE };
     }
 
-    // --- device_presence (high-churn) ---
     const presenceRows = await ctx.db
       .query("device_presence")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", args.fromOwnerId))

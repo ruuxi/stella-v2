@@ -23,12 +23,7 @@ import { setActiveLocalConversationId } from "@/features/chat/services/local-cha
 import { conversationTabs } from "@/features/chat/services/conversation-tabs-store";
 import { writeActiveConversationIdCache } from "@/features/chat/services/active-conversation-cache";
 import type { RightSidebarHandle } from "@/shell/RightSidebar";
-// The workspace panel is a ~410-line surface not needed for first
-// interaction, so it is lazy-loaded to keep it out of the always-eager
-// shell's first-paint module graph. The imperative `ref` handle is null
-// until the chunk mounts; every consumer (`use-workspace-panel-events`,
-// `use-display-payload-routing`) already accesses it defensively with `?.`,
-// and only from event/async callbacks — never synchronously on mount.
+
 const RightSidebar = lazy(() =>
   import("@/shell/RightSidebar").then((m) => ({ default: m.RightSidebar })),
 );
@@ -37,14 +32,7 @@ const WorkspaceHomeSurface = lazy(() =>
     default: m.WorkspaceHomeSurface,
   })),
 );
-// These dialogs are rarely seen on first interaction (onboarding welcome,
-// nickname prompt, post-OAuth confirmation, billing upgrade) and each already
-// renders null until its own open/visibility state flips. In a dev-server-in-prod
-// app every static import is a separate first-paint transform, so they are
-// lazy-loaded — wrapped in <Suspense fallback={null}> at their conditional mount
-// sites — to keep them off the always-eager shell's first-paint graph. Behavior
-// is unchanged: each dialog still renders null until its own state opens, so
-// nothing visual depends on the deferred chunk and there is no fallback flash.
+
 const WelcomeDialog = lazy(() =>
   import("@/global/onboarding/WelcomeDialog").then((m) => ({
     default: m.WelcomeDialog,
@@ -105,12 +93,6 @@ import {
   useShellBreakpointState,
 } from "@/shell/shell-breakpoints";
 
-/**
- * The root route owns the app chrome — top shell bar, workspace panel,
- * dialogs, welcome — plus an `<Outlet />` where the active route renders.
- * Chat runtime state is hoisted into a provider so both the chat route and
- * the workspace panel consume the same hook output.
- */
 function RootLayout() {
   const { state, setConversationId } = useUiState();
   const matchRoute = useMatchRoute();
@@ -130,21 +112,12 @@ function RootLayout() {
     }
   }, [routerConversationId, setConversationId, state.conversationId]);
 
-  // Single writer for the active-conversation pointer. The router
-  // (`/chat?c=<id>`) is the live source of truth; whenever it changes we
-  // mirror the id into SQLite (durable, cross-process) and a synchronous
-  // shared-UI-state cache (fast boot read). Together they let the next boot
-  // restore exactly this conversation — surviving both renderer hard reloads
-  // and full restarts — without the empty-state flash an IPC-only read causes.
   useEffect(() => {
     if (!routerConversationId) return;
     writeActiveConversationIdCache(routerConversationId);
     void setActiveLocalConversationId(routerConversationId);
   }, [routerConversationId]);
 
-  // Opens + navigates to a conversation (tab strip + router). Mirrors the
-  // top bar's new-chat navigation and is handed to the chat runtime so the
-  // Fork action can jump to the newly branched conversation.
   const navigateToConversation = useCallback(
     (targetConversationId: string, title?: string) => {
       conversationTabs.openConversation(targetConversationId, title);
@@ -184,24 +157,9 @@ function RootChrome() {
   const panelExpanded = useDisplayPanelExpanded();
   const shellBreakpoints = useShellBreakpointState();
   const activeSidebarSection = useActiveSidebarSection();
-  // Authoritative "is anything legitimately on the right?" signal, shared with
-  // WorkspaceHomeSurface / WorkspaceSections: the count of Activity rows that
-  // actually qualify to be shown (running + terminal rows still inside their
-  // auto-hide window), NOT the raw conversation task count. The raw count stays
-  // > 0 after every row has auto-hidden, which is what left an empty right
-  // gutter — and this stray Models button — mounted with nothing to show.
+
   const hasQualifyingActivity = useHasQualifyingActivity();
-  // Authoritative visibility for the global Models control. It shows only when
-  //  1) the right-side Activity workspace is legitimately present — the panel is
-  //     open, or the ambient Activity strip is showing (not breakpoint-hidden,
-  //     and there is qualifying activity), the same inputs WorkspaceHomeSurface
-  //     uses — and
-  //  2) the active surface supports choosing the main conversation model. Quick
-  //     chat is its own ephemeral thread, so the main-model picker is excluded
-  //     there (only relevant while that surface is actually on screen, i.e. the
-  //     panel is open on it).
-  // The control only reads this state; it never contributes to it or forces the
-  // right region into existence.
+
   const activityWorkspaceVisible =
     panelOpen ||
     (!shellBreakpoints.hideWorkspaceStrip && hasQualifyingActivity);
@@ -213,7 +171,6 @@ function RootChrome() {
   const displayBreakpointTransitionTimeoutRef = useRef<number | null>(null);
 
   const rightSidebarRef = useRef<RightSidebarHandle>(null);
-
 
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const isOnChatRoute = pathname === "/chat";
@@ -284,7 +241,6 @@ function RootChrome() {
     return () => window.removeEventListener(OPEN_CONNECT_DIALOG_EVENT, handler);
   }, [showConnectDialog]);
 
-
   const handleDialogOpenChange = useCallback(
     (open: boolean) => {
       if (!open) closeDialog();
@@ -299,11 +255,6 @@ function RootChrome() {
     [],
   );
 
-  // Route-aware default surface for a manual panel open (right-click /
-  // keyboard). Home never opens to a duplicate chat — it shows the Home
-  // launcher; every other route opens the chat viewer. An already-active
-  // artifact viewer (media / canvas / pdf / …) reopens as-is regardless of
-  // route so summoning doesn't lose what the user was looking at.
   const openDefaultPanelSurface = useCallback(() => {
     const { activeTabId } = displayTabs.getTabListSnapshot();
     const isArtifactViewer =
@@ -376,10 +327,6 @@ function RootChrome() {
     };
   }, [chat.composer, isOnChatRoute]);
 
-  // Display tab rule: Chat is always present in the strip; its body
-  // adapts to the route inside `ChatDisplayTab` (home shows the activity
-  // / files overview, every other route shows the live chat panel).
-  // Tabs are otherwise sticky — only the user closes them.
   useEffect(() => {
     ensureChatDisplayTab();
   }, []);
@@ -405,12 +352,6 @@ function RootChrome() {
     openDefaultPanelSurface,
   });
 
-  // Auto-follow the route with the panel's default surface: navigating to
-  // home flips an open Chat panel to the Home launcher, and navigating away
-  // from home flips an open Home launcher to Chat. Only the default
-  // surfaces follow the route — an open artifact viewer (Media / Canvas /
-  // PDF / …) is left untouched so navigation never yanks the user off it,
-  // and a closed panel stays closed (it picks the right surface when opened).
   useEffect(() => {
     const { panelOpen, activeTabId } = displayTabs.getSnapshot();
     if (!panelOpen) return;
@@ -578,10 +519,9 @@ function RootChrome() {
           </div>
         </div>
 
-        {/* The top bar spans the whole shell while Activity is visible, then
-            follows the main column's right edge when the display panel opens.
-            It is rendered after the content area's drag strip so its
-            `no-drag` controls remain interactive. */}
+        {
+
+}
         <ShellTopBarFull onSignIn={showAuthDialog} />
 
         <Suspense fallback={null}>
@@ -597,12 +537,9 @@ function RootChrome() {
         </Suspense>
       </StellaContextMenu>
 
-      {/* Global bottom-right Models control — top-level, not owned by the
-          right sidebar (state/overlay/lifecycle stay global), but its on-screen
-          visibility follows the right-side Activity workspace so it never
-          creates an empty right gutter when there is nothing on the right.
-          Developer-mode gate: the whole control (and the picker popover it
-          anchors) is not mounted at all in the default experience. */}
+      {
+
+}
       {developerModeEnabled ? (
         <GlobalModelsControl visible={modelControlVisible} />
       ) : null}
@@ -616,9 +553,9 @@ function RootChrome() {
 
       <FeedbackDialogHost />
 
-      {/* Suspense fallback={null} mirrors the lazy RightSidebar above: the
-          deferred chunk stays off the first-paint graph, and each dialog still
-          renders null until its own open state flips — no flash, no behavior change. */}
+      {
+
+}
       <Suspense fallback={null}>
         <WelcomeDialog
           conversationId={conversationId}
@@ -642,11 +579,6 @@ function RootChrome() {
   );
 }
 
-/**
- * Root-level search params: dialogs (auth/connect) become URL state so they
- * are deep-linkable (e.g. an auth deep-link from an external browser opens
- * the AuthDialog without any other glue).
- */
 const RootSearch = z.object({
   dialog: z.enum(["auth", "connect"]).optional(),
 });

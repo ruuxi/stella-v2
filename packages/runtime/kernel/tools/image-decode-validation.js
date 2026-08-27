@@ -47,7 +47,7 @@ const readJpegDimensions = (bytes) => {
     }
     return null;
 };
-/** Parse only bounded container headers before handing untrusted bytes to WASM. */
+
 export const inspectEncodedImage = (bytes) => {
     const mimeType = detectImageMediaType(bytes);
     if (!mimeType)
@@ -158,11 +158,7 @@ export const readResponseBodyBounded = async (response, options = {}) => {
         reader.releaseLock();
     }
 };
-/**
- * Fail-closed image validation used before references or generated artifacts
- * cross a trust boundary. Signatures and terminators are only prefilters;
- * Photon must decode the complete pixel structure before the image is valid.
- */
+
 export const decodeAndValidateImage = async (bytes) => {
     const mimeType = detectImageMediaType(bytes);
     if (!mimeType || !isCompleteImage(bytes, mimeType))

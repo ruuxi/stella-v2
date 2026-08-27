@@ -14,11 +14,6 @@ const getAssistantPayloadText = (message: MessageRecord): string => {
   return typeof text === "string" ? text.trim() : "";
 };
 
-/**
- * Newest assistant message with non-empty body, projected to a plain
- * one-line preview suitable for the peek bar. Returns `null` when no
- * assistant message has produced text yet.
- */
 export const getLatestAssistantPreview = (
   messages: MessageRecord[],
 ): LatestAssistantPreview | null => {

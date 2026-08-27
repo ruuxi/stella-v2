@@ -93,8 +93,6 @@ impl Serialize for ScreenshotAnnotation {
     }
 }
 
-/// Captures a screenshot via CDP and optionally overlays numbered annotations
-/// that mirror the Node.js screenshot `annotate` mode.
 pub async fn take_screenshot(
     client: &CdpClient,
     session_id: &str,
@@ -228,7 +226,6 @@ async fn collect_annotations(
         return Ok(Vec::new());
     }
 
-    // Collect entries that have backend_node_ids for batch resolution.
     let with_backend_ids: Vec<(String, super::element::RefEntry, i64)> = entries
         .iter()
         .filter_map(|(ref_id, entry)| {
@@ -242,7 +239,6 @@ async fn collect_annotations(
         return Ok(Vec::new());
     }
 
-    // Batch-resolve all backend_node_ids to object IDs using concurrent CDP calls.
     let resolve_futures: Vec<_> = with_backend_ids
         .iter()
         .map(|(_, _, backend_node_id)| {
@@ -259,7 +255,6 @@ async fn collect_annotations(
 
     let resolve_results = futures_util::future::join_all(resolve_futures).await;
 
-    // Collect resolved object IDs paired with their ref info.
     let mut resolved: Vec<(String, super::element::RefEntry, String)> = Vec::new();
     for (i, result) in resolve_results.into_iter().enumerate() {
         if let Ok(val) = result {
@@ -278,7 +273,6 @@ async fn collect_annotations(
         return Ok(Vec::new());
     }
 
-    // Batch-get bounding rects for all resolved elements using concurrent CDP calls.
     let rect_futures: Vec<_> = resolved
         .iter()
         .map(|(_, _, object_id)| get_rect_for_object(client, session_id, object_id))
@@ -560,20 +554,12 @@ fn save_screenshot(
     let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, base64_data)
         .map_err(|e| format!("Failed to decode screenshot: {}", e))?;
 
-    // Write to a sibling temp file, flush it to disk, then atomically rename
-    // into place. A plain `fs::write` truncates-then-writes the final path, so
-    // a concurrent reader (the runtime's Read / auto-attach reading the
-    // path we return) can observe a partially written, truncated PNG. The
-    // rename makes the complete file appear at the final path in one step, so
-    // readers only ever see whole bytes.
     write_file_atomic(&save_path, &bytes)
         .map_err(|e| format!("Failed to save screenshot to {}: {}", save_path, e))?;
 
     Ok(save_path)
 }
 
-/// Write `bytes` to `path` atomically: stage to a sibling temp file, fsync it,
-/// then rename over the destination so readers never observe a partial file.
 fn write_file_atomic(path: &str, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
 
@@ -605,8 +591,7 @@ fn write_file_atomic(path: &str, bytes: &[u8]) -> std::io::Result<()> {
     }
 
     if let Err(err) = std::fs::rename(&tmp_path, &target) {
-        // Rename failed (e.g. cross-device): clean up the temp file and fall
-        // back to a direct write so the screenshot still lands.
+
         let _ = std::fs::remove_file(&tmp_path);
         std::fs::write(&target, bytes).map_err(|_| err)?;
     }
@@ -734,7 +719,6 @@ mod tests {
         let target = dir.join("screenshot.png");
         let target_str = target.to_string_lossy().to_string();
 
-        // A minimal, complete PNG (signature + IHDR + IEND-terminated stream).
         let png = base64::Engine::decode(
             &base64::engine::general_purpose::STANDARD,
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=",
@@ -743,11 +727,9 @@ mod tests {
 
         write_file_atomic(&target_str, &png).unwrap();
 
-        // The final path holds the whole file...
         let read_back = std::fs::read(&target).unwrap();
         assert_eq!(read_back, png);
 
-        // ...and no `.tmp` staging file is left behind in the directory.
         let leftovers: Vec<_> = std::fs::read_dir(&dir)
             .unwrap()
             .filter_map(|e| e.ok())

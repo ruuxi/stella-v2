@@ -1,15 +1,3 @@
-/**
- * Browser Data Collection Script
- * 
- * Extracts browsing patterns from local browser databases.
- * Runs once on first launch to populate core memory data.
- * 
- * Detection strategy:
- * 1. Detect the user's DEFAULT browser from OS settings
- * 2. Find the LAST USED profile from the browser's Local State file
- * 3. Fall back to checking all browsers/profiles if detection fails
- */
-
 import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
@@ -60,22 +48,16 @@ type SqliteDatabase = {
 
 const openDatabase = async (dbPath: string): Promise<SqliteDatabase> => {
   const { Database } = await import("bun:sqlite");
-  // Read the live DB directly via an immutable URI: skips locking (no
-  // SQLITE_BUSY while the browser runs) and reads the main file without its
-  // WAL sidecars (no SQLITE_CANTOPEN). Best-effort one-time snapshot.
+
   const uri = `${pathToFileURL(dbPath).href}?immutable=1`;
   return new Database(uri, { readonly: true }) as SqliteDatabase;
 };
 
 const log = (...args: unknown[]) => console.error("[browser-data]", ...args);
 
-// ---------------------------------------------------------------------------
-// Platform Paths
-// ---------------------------------------------------------------------------
-
 type BrowserConfig = {
   type: BrowserType;
-  // Multiple path variants per platform (checked in order)
+
   paths: {
     win32: string[];
     darwin: string[];
@@ -83,12 +65,8 @@ type BrowserConfig = {
   };
 };
 
-// Profile variants to check (Default is most common, but users may have multiple)
 const PROFILE_VARIANTS = ["Default", "Profile 1", "Profile 2", "Profile 3"];
 
-/**
- * Generate path variants for all profile combinations
- */
 const generateProfilePaths = (basePath: string): string[] => {
   return PROFILE_VARIANTS.map((profile) =>
     basePath.replace("/Default/", `/${profile}/`)
@@ -100,13 +78,13 @@ const BROWSER_CONFIGS: BrowserConfig[] = [
     type: "chrome",
     paths: {
       win32: [
-        // Standard Chrome installation with all profile variants
+
         ...generateProfilePaths("Google/Chrome/User Data/Default/History"),
-        // Some installations use "User" instead of "User Data"
+
         ...generateProfilePaths("Google/Chrome/User/Default/History"),
-        // Chrome Beta
+
         ...generateProfilePaths("Google/Chrome Beta/User Data/Default/History"),
-        // Chrome Canary
+
         ...generateProfilePaths("Google/Chrome SxS/User Data/Default/History"),
       ],
       darwin: [
@@ -125,11 +103,11 @@ const BROWSER_CONFIGS: BrowserConfig[] = [
     type: "arc",
     paths: {
       win32: [
-        // Arc browser (Windows - relatively new)
+
         ...generateProfilePaths("Arc/User Data/Default/History"),
       ],
       darwin: [
-        // Arc is primarily macOS
+
         ...generateProfilePaths("Arc/User Data/Default/History"),
       ],
       linux: [],
@@ -201,13 +179,6 @@ const BROWSER_CONFIGS: BrowserConfig[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Default Browser Detection
-// ---------------------------------------------------------------------------
-
-/**
- * Execute a shell command and return stdout
- */
 const execAsync = (command: string): Promise<string> => {
   return new Promise((resolve, reject) => {
     exec(command, { encoding: "utf-8", windowsHide: true }, (error, stdout, stderr) => {
@@ -220,9 +191,6 @@ const execAsync = (command: string): Promise<string> => {
   });
 };
 
-/**
- * Browser process names for each platform
- */
 const BROWSER_PROCESSES: Record<BrowserType, Record<string, string[]>> = {
   chrome: {
     win32: ["chrome.exe"],
@@ -256,10 +224,6 @@ const BROWSER_PROCESSES: Record<BrowserType, Record<string, string[]>> = {
   },
 };
 
-/**
- * Detect currently running browsers by checking active processes
- * Returns browsers in order of priority (Chrome first, etc.)
- */
 const detectRunningBrowsers = async (): Promise<BrowserType[]> => {
   const platform = process.platform;
   const running: BrowserType[] = [];
@@ -268,28 +232,27 @@ const detectRunningBrowsers = async (): Promise<BrowserType[]> => {
     let processList: string;
 
     if (platform === "win32") {
-      // Windows: use tasklist
+
       processList = await execAsync("tasklist /FO CSV /NH");
     } else if (platform === "darwin") {
-      // macOS: use ps
+
       processList = await execAsync("ps -eo comm");
     } else {
-      // Linux: use ps
+
       processList = await execAsync("ps -eo comm");
     }
 
     const processListLower = processList.toLowerCase();
 
-    // Check each browser in priority order
     const browserOrder: BrowserType[] = ["chrome", "arc", "edge", "brave", "opera", "vivaldi"];
 
     for (const browser of browserOrder) {
       const processNames = BROWSER_PROCESSES[browser]?.[platform] || [];
-      
+
       for (const processName of processNames) {
         if (processListLower.includes(processName.toLowerCase())) {
           running.push(browser);
-          break; // Found this browser, move to next
+          break;
         }
       }
     }
@@ -304,33 +267,23 @@ const detectRunningBrowsers = async (): Promise<BrowserType[]> => {
   return running;
 };
 
-/**
- * Detect the default browser on Windows via registry
- */
 const detectDefaultBrowserWindows = async (): Promise<BrowserType | null> => {
   try {
-    // Query the registry for the default http handler
-    // Use double backslashes for the registry path
+
     const output = await execAsync(
       'reg query "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\http\\UserChoice" /v ProgId'
     );
-    
+
     const progId = output.toLowerCase();
     log("Registry ProgId output:", progId);
-    
-    // Match common ProgId values:
-    // Chrome: ChromeHTML, ChromeHTM
-    // Edge: MSEdgeHTM, MSEdgeDHTML  
-    // Brave: BraveHTML, BraveHTM
-    // etc.
+
     if (progId.includes("chromehtm") || progId.includes("chromehtml")) return "chrome";
     if (progId.includes("msedge") || progId.includes("edgehtm")) return "edge";
     if (progId.includes("bravehtm") || progId.includes("bravehtml")) return "brave";
     if (progId.includes("archtml") || progId.includes("archtm")) return "arc";
     if (progId.includes("operahtml") || progId.includes("operahtm")) return "opera";
     if (progId.includes("vivaldi")) return "vivaldi";
-    // Firefox not supported (different DB format)
-    
+
     log("Could not match ProgId to a supported browser");
     return null;
   } catch (error) {
@@ -339,57 +292,51 @@ const detectDefaultBrowserWindows = async (): Promise<BrowserType | null> => {
   }
 };
 
-/**
- * Detect the default browser on macOS
- */
 const detectDefaultBrowserMac = async (): Promise<BrowserType | null> => {
   try {
-    // Use LaunchServices to find the default browser
+
     const output = await execAsync(
       "defaults read ~/Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure LSHandlers 2>/dev/null | grep -A2 'LSHandlerURLScheme = http;' | grep LSHandlerRoleAll | head -1"
     );
-    
+
     const bundleId = output.toLowerCase();
-    
+
     if (bundleId.includes("chrome")) return "chrome";
     if (bundleId.includes("edge")) return "edge";
     if (bundleId.includes("brave")) return "brave";
     if (bundleId.includes("arc")) return "arc";
     if (bundleId.includes("opera")) return "opera";
     if (bundleId.includes("vivaldi")) return "vivaldi";
-    
+
     log("Default browser bundle ID:", bundleId);
     return null;
   } catch {
-    // Fallback: try open command
+
     try {
       const output = await execAsync(
         "perl -MMac::InternetConfig -le 'print +(GetICHelper \"http\")[1]' 2>/dev/null || true"
       );
       const app = output.toLowerCase();
       if (app.includes("chrome")) return "chrome";
-      if (app.includes("safari")) return null; // Safari not supported
+      if (app.includes("safari")) return null;
     } catch {
-      // Ignore
+
     }
     return null;
   }
 };
 
-/**
- * Detect the default browser on Linux
- */
 const detectDefaultBrowserLinux = async (): Promise<BrowserType | null> => {
   try {
     const output = await execAsync("xdg-settings get default-web-browser 2>/dev/null");
     const desktop = output.toLowerCase();
-    
+
     if (desktop.includes("chrome") || desktop.includes("chromium")) return "chrome";
     if (desktop.includes("edge")) return "edge";
     if (desktop.includes("brave")) return "brave";
     if (desktop.includes("opera")) return "opera";
     if (desktop.includes("vivaldi")) return "vivaldi";
-    
+
     log("Default browser desktop file:", desktop);
     return null;
   } catch {
@@ -397,12 +344,9 @@ const detectDefaultBrowserLinux = async (): Promise<BrowserType | null> => {
   }
 };
 
-/**
- * Detect the user's default browser from OS settings
- */
 const detectDefaultBrowser = async (): Promise<BrowserType | null> => {
   const platform = process.platform;
-  
+
   switch (platform) {
     case "win32":
       return detectDefaultBrowserWindows();
@@ -415,13 +359,6 @@ const detectDefaultBrowser = async (): Promise<BrowserType | null> => {
   }
 };
 
-// ---------------------------------------------------------------------------
-// Profile Detection
-// ---------------------------------------------------------------------------
-
-/**
- * Browser base directories (without profile path)
- */
 const BROWSER_BASE_DIRS: Record<BrowserType, Record<string, string>> = {
   chrome: {
     win32: "Google/Chrome/User Data",
@@ -456,26 +393,19 @@ const BROWSER_BASE_DIRS: Record<BrowserType, Record<string, string>> = {
   },
 };
 
-/**
- * Find the most recently used profile by checking folder modification times
- * This is more reliable than parsing Local State JSON
- */
 const getMostRecentlyUsedProfile = async (browserType: BrowserType): Promise<string> => {
   const platform = process.platform;
   const basePath = getBasePath(platform);
-  
-  // Get browser's base directory
+
   const browserDirs = [
     BROWSER_BASE_DIRS[browserType]?.[platform as string],
     platform === "win32" ? BROWSER_BASE_DIRS[browserType]?.win32Alt : null,
   ].filter(Boolean) as string[];
-  
+
   if (browserDirs.length === 0) return "Default";
-  
-  // Profile patterns to look for
+
   const profilePatterns = ["Default", "Profile 1", "Profile 2", "Profile 3", "Profile 4", "Profile 5"];
-  
-  // Check all profile paths in parallel
+
   const profileChecks = browserDirs.flatMap((browserDir) => {
     const userDataPath = path.join(basePath, browserDir);
     return profilePatterns.map(async (profile) => {
@@ -505,35 +435,31 @@ const getMostRecentlyUsedProfile = async (browserType: BrowserType): Promise<str
       mostRecentProfile = result.profile;
     }
   }
-  
+
   if (mostRecentTime > 0) {
     const lastModified = new Date(mostRecentTime).toISOString();
     log(`Most recent profile for ${browserType}: ${mostRecentProfile} (last modified: ${lastModified})`);
   }
-  
+
   return mostRecentProfile;
 };
 
-/**
- * Get the history path for a specific browser and profile
- */
 const getHistoryPathForBrowserProfile = async (
   browserType: BrowserType,
   profile: string
 ): Promise<string | null> => {
   const platform = process.platform;
   const basePath = getBasePath(platform);
-  
+
   const browserDir = BROWSER_BASE_DIRS[browserType]?.[platform as string];
   if (!browserDir) return null;
-  
-  // Try main path
+
   const historyPath = path.join(basePath, browserDir, profile, "History");
   try {
     await fs.access(historyPath);
     return historyPath;
   } catch {
-    // Try alternate path on Windows
+
     if (platform === "win32" && BROWSER_BASE_DIRS[browserType]?.win32Alt) {
       const altDir = BROWSER_BASE_DIRS[browserType].win32Alt;
       const altHistoryPath = path.join(basePath, altDir, profile, "History");
@@ -541,11 +467,11 @@ const getHistoryPathForBrowserProfile = async (
         await fs.access(altHistoryPath);
         return altHistoryPath;
       } catch {
-        // Path doesn't exist
+
       }
     }
   }
-  
+
   return null;
 };
 
@@ -561,9 +487,6 @@ const getBasePath = (platform: NodeJS.Platform): string => {
   }
 };
 
-/**
- * Get all possible history paths for a browser type
- */
 const getBrowserHistoryPaths = (
   browserType: BrowserType,
   platform: NodeJS.Platform
@@ -586,43 +509,32 @@ const parseProfileFromHistoryPath = (historyPath: string): string | null => {
   return profile ?? null;
 };
 
-// ---------------------------------------------------------------------------
-// Chrome Time Conversion
-// ---------------------------------------------------------------------------
-
-// Chrome stores timestamps as microseconds since January 1, 1601
-const CHROME_EPOCH_OFFSET = 11644473600000; // ms between 1601 and 1970
+const CHROME_EPOCH_OFFSET = 11644473600000;
 
 const toChromeTime = (date: Date): number => {
-  return (date.getTime() + CHROME_EPOCH_OFFSET) * 1000; // to microseconds
+  return (date.getTime() + CHROME_EPOCH_OFFSET) * 1000;
 };
 
-// ---------------------------------------------------------------------------
-// Title Noise Filters
-// ---------------------------------------------------------------------------
-
-// Titles that are universally noise (technical issues, not content)
 const NOISE_TITLE_PATTERNS = [
-  // Cloudflare/loading challenges
+
   /^just a moment\.{0,3}$/i,
   /^loading\.{0,3}$/i,
   /^please wait\.{0,3}$/i,
   /^redirecting\.{0,3}$/i,
-  // HTTP errors
+
   /^access denied/i,
   /^403 forbidden/i,
   /^404 not found/i,
   /^500 /i,
   /^error$/i,
-  // Empty/placeholder titles
+
   /^untitled$/i,
   /^new tab$/i,
-  // Raw URLs as titles (page didn't have a real title)
+
   /^https?:\/\//i,
-  /^\w+\.\w+\/[\w/-]+$/, // Matches "domain.com/path/to/page" patterns
+  /^\w+\.\w+\/[\w/-]+$/,
 ];
 
-// Auth/infrastructure domains to exclude from title queries
 const AUTH_DOMAINS = [
   "accounts.google.com",
   "login.",
@@ -633,36 +545,20 @@ const AUTH_DOMAINS = [
   "id.",
 ];
 
-// ---------------------------------------------------------------------------
-// Domain Normalization
-// ---------------------------------------------------------------------------
-
-/**
- * Normalize a domain by stripping common prefixes (www, m, mobile)
- * This collapses variations like www.github.com and github.com into one entry
- */
 const normalizeDomain = (domain: string): string => {
   let normalized = domain.toLowerCase().trim();
-  
-  // Strip common prefixes (order matters - check longer prefixes first)
+
   const prefixes = ["www.", "mobile.", "m."];
   for (const prefix of prefixes) {
     if (normalized.startsWith(prefix)) {
       normalized = normalized.slice(prefix.length);
-      break; // Only strip one prefix
+      break;
     }
   }
-  
+
   return normalized;
 };
 
-/**
- * Filter and aggregate domain visit rows
- * - Removes empty domains
- * - Normalizes domains (strips www/m/mobile prefixes)
- * - Aggregates visits by normalized domain
- * - Sorts by visit count descending
- */
 const filterAndAggregateDomains = (
   rows: Array<{ domain: string; visits: number }>
 ): DomainVisit[] => {
@@ -679,38 +575,31 @@ const filterAndAggregateDomains = (
     .sort((a, b) => b.visits - a.visits);
 };
 
-// ---------------------------------------------------------------------------
-// SQL Queries
-// ---------------------------------------------------------------------------
-
-// Query 1: Top cluster domains (session-based groupings)
-// Note: clusters table may not exist in all browser versions
 const CLUSTER_QUERY = `
-SELECT label, COUNT(*) as sessions 
-FROM clusters 
-WHERE label != '' 
-  AND label NOT LIKE '%localhost%' 
-  AND label NOT LIKE '%127.0.0.1%' 
-GROUP BY label 
-ORDER BY sessions DESC 
+SELECT label, COUNT(*) as sessions
+FROM clusters
+WHERE label != ''
+  AND label NOT LIKE '%localhost%'
+  AND label NOT LIKE '%127.0.0.1%'
+GROUP BY label
+ORDER BY sessions DESC
 LIMIT 40
 `;
 
-// Query 2: Most active domains (last 7 days)
 const RECENT_DOMAINS_QUERY = `
-SELECT 
+SELECT
   SUBSTR(
-    SUBSTR(u.url, INSTR(u.url, '://') + 3), 
-    1, 
-    CASE 
-      WHEN INSTR(SUBSTR(u.url, INSTR(u.url, '://') + 3), '/') = 0 
-      THEN LENGTH(SUBSTR(u.url, INSTR(u.url, '://') + 3)) 
-      ELSE INSTR(SUBSTR(u.url, INSTR(u.url, '://') + 3), '/') - 1 
+    SUBSTR(u.url, INSTR(u.url, '://') + 3),
+    1,
+    CASE
+      WHEN INSTR(SUBSTR(u.url, INSTR(u.url, '://') + 3), '/') = 0
+      THEN LENGTH(SUBSTR(u.url, INSTR(u.url, '://') + 3))
+      ELSE INSTR(SUBSTR(u.url, INSTR(u.url, '://') + 3), '/') - 1
     END
-  ) as domain, 
-  COUNT(*) as visits 
-FROM urls u 
-JOIN visits v ON u.id = v.url 
+  ) as domain,
+  COUNT(*) as visits
+FROM urls u
+JOIN visits v ON u.id = v.url
 WHERE v.visit_time > ?
   AND u.url NOT LIKE '%localhost%'
   AND u.url NOT LIKE '%127.0.0.1%'
@@ -718,34 +607,32 @@ WHERE v.visit_time > ?
   AND u.url NOT LIKE '%chrome://%'
   AND u.url NOT LIKE '%edge://%'
   AND u.url NOT LIKE '%brave://%'
-GROUP BY domain 
-ORDER BY visits DESC 
+GROUP BY domain
+ORDER BY visits DESC
 LIMIT 30
 `;
 
-// Query 3: Page titles for a specific domain
 const DOMAIN_TITLES_QUERY = `
-SELECT title, url, visit_count 
-FROM urls 
-WHERE url LIKE ? 
-  AND title != '' 
-ORDER BY visit_count DESC 
+SELECT title, url, visit_count
+FROM urls
+WHERE url LIKE ?
+  AND title != ''
+ORDER BY visit_count DESC
 LIMIT 25
 `;
 
-// Query 4: All-time top domains (by total visit count)
 const ALL_TIME_DOMAINS_QUERY = `
-SELECT 
+SELECT
   SUBSTR(
-    SUBSTR(url, INSTR(url, '://') + 3), 
-    1, 
-    CASE 
-      WHEN INSTR(SUBSTR(url, INSTR(url, '://') + 3), '/') = 0 
-      THEN LENGTH(SUBSTR(url, INSTR(url, '://') + 3)) 
-      ELSE INSTR(SUBSTR(url, INSTR(url, '://') + 3), '/') - 1 
+    SUBSTR(url, INSTR(url, '://') + 3),
+    1,
+    CASE
+      WHEN INSTR(SUBSTR(url, INSTR(url, '://') + 3), '/') = 0
+      THEN LENGTH(SUBSTR(url, INSTR(url, '://') + 3))
+      ELSE INSTR(SUBSTR(url, INSTR(url, '://') + 3), '/') - 1
     END
-  ) as domain, 
-  SUM(visit_count) as visits 
+  ) as domain,
+  SUM(visit_count) as visits
 FROM urls
 WHERE url NOT LIKE '%localhost%'
   AND url NOT LIKE '%127.0.0.1%'
@@ -753,12 +640,11 @@ WHERE url NOT LIKE '%localhost%'
   AND url NOT LIKE '%chrome://%'
   AND url NOT LIKE '%edge://%'
   AND url NOT LIKE '%brave://%'
-GROUP BY domain 
-ORDER BY visits DESC 
+GROUP BY domain
+ORDER BY visits DESC
 LIMIT 50
 `;
 
-// Query 5: Cluster keywords (Chrome's journey/research topics)
 const CLUSTER_KEYWORDS_QUERY = `
 SELECT ck.keyword, ck.score,
        MAX(v.visit_time) as latest_visit
@@ -773,20 +659,12 @@ ORDER BY latest_visit DESC
 LIMIT 40
 `;
 
-// ---------------------------------------------------------------------------
-// Main Collection Logic
-// ---------------------------------------------------------------------------
-
-/**
- * Find the most recently modified browser history across ALL browsers
- * Returns the browser with the most recently modified history file
- */
 const findMostRecentlyModifiedBrowser = async (): Promise<{
   type: BrowserType;
   historyPath: string;
   mtime: number;
 } | null> => {
-  // Check all browsers in parallel
+
   const candidateResults = await Promise.all(
     BROWSER_CONFIGS.map(async (config) => {
       const recentProfile = await getMostRecentlyUsedProfile(config.type);
@@ -808,12 +686,11 @@ const findMostRecentlyModifiedBrowser = async (): Promise<{
     return null;
   }
 
-  // Sort by modification time, most recent first
   candidates.sort((a, b) => b.mtime - a.mtime);
-  
+
   const winner = candidates[0];
   log(`Most recently modified browser: ${winner.type} (modified ${new Date(winner.mtime).toISOString()})`);
-  
+
   return winner;
 };
 
@@ -904,15 +781,6 @@ const resolveSelectedBrowser = async (
   return null;
 };
 
-/**
- * Find the user's browser with history data
- * 
- * Strategy (in order of reliability):
- * 1. Check currently RUNNING browsers (most accurate - what they're using right now)
- * 2. Detect default browser from OS settings
- * 3. Find most recently modified browser history
- * 4. Fall back to checking all browsers in priority order
- */
 const findBrowserWithOptions = async (
   options: BrowserCollectionOptions = {},
 ): Promise<{
@@ -926,14 +794,12 @@ const findBrowserWithOptions = async (
 
   const platform = process.platform;
 
-  // Steps 1 & 2: Detect running browsers and OS default browser in parallel
   log("Detecting running browsers and OS default browser...");
   const [runningBrowsers, defaultBrowser] = await Promise.all([
     detectRunningBrowsers(),
     detectDefaultBrowser(),
   ]);
 
-  // Prefer running browsers (most reliable)
   if (runningBrowsers.length > 0) {
     for (const browser of runningBrowsers) {
       const lastProfile = await getMostRecentlyUsedProfile(browser);
@@ -947,7 +813,6 @@ const findBrowserWithOptions = async (
     log("Running browsers detected but history not accessible, continuing...");
   }
 
-  // Fall back to OS default browser
   if (defaultBrowser) {
     log(`OS default browser: ${defaultBrowser}`);
 
@@ -972,10 +837,9 @@ const findBrowserWithOptions = async (
     log("Could not detect OS default browser, trying most recently modified...");
   }
 
-  // Step 3: Find the most recently modified browser history
   log("Finding most recently modified browser...");
   const mostRecent = await findMostRecentlyModifiedBrowser();
-  
+
   if (mostRecent) {
     log(`Using most recently modified: ${mostRecent.type} at ${mostRecent.historyPath}`);
     return {
@@ -985,7 +849,6 @@ const findBrowserWithOptions = async (
     };
   }
 
-  // Step 4: Check all browsers in priority order (exhaustive search)
   log("Most recent detection failed, checking all browsers in priority order...");
   for (const config of BROWSER_CONFIGS) {
     const historyPaths = getBrowserHistoryPaths(config.type, platform);
@@ -1008,9 +871,6 @@ const findBrowserWithOptions = async (
   return null;
 };
 
-/**
- * Run cluster query (may not exist in all browsers)
- */
 const queryClusterDomains = (db: SqliteDatabase): string[] => {
   try {
     const rows = db.prepare(CLUSTER_QUERY).all() as Array<{
@@ -1019,27 +879,25 @@ const queryClusterDomains = (db: SqliteDatabase): string[] => {
     }>;
     return rows.map((r) => r.label);
   } catch {
-    // clusters table doesn't exist in this browser version
+
     log("Clusters table not available");
     return [];
   }
 };
 
-// Fallback query: Get top domains from urls table directly (no time filter)
-// Used only when the visits-based recent query fails (schema/runtime issue).
 const FALLBACK_DOMAINS_QUERY = `
-SELECT 
+SELECT
   SUBSTR(
-    SUBSTR(url, INSTR(url, '://') + 3), 
-    1, 
-    CASE 
-      WHEN INSTR(SUBSTR(url, INSTR(url, '://') + 3), '/') = 0 
-      THEN LENGTH(SUBSTR(url, INSTR(url, '://') + 3)) 
-      ELSE INSTR(SUBSTR(url, INSTR(url, '://') + 3), '/') - 1 
+    SUBSTR(url, INSTR(url, '://') + 3),
+    1,
+    CASE
+      WHEN INSTR(SUBSTR(url, INSTR(url, '://') + 3), '/') = 0
+      THEN LENGTH(SUBSTR(url, INSTR(url, '://') + 3))
+      ELSE INSTR(SUBSTR(url, INSTR(url, '://') + 3), '/') - 1
     END
-  ) as domain, 
-  SUM(visit_count) as visits 
-FROM urls 
+  ) as domain,
+  SUM(visit_count) as visits
+FROM urls
 WHERE url NOT LIKE '%localhost%'
   AND url NOT LIKE '%127.0.0.1%'
   AND url NOT LIKE '%file://%'
@@ -1047,20 +905,15 @@ WHERE url NOT LIKE '%localhost%'
   AND url NOT LIKE '%edge://%'
   AND url NOT LIKE '%brave://%'
   AND visit_count > 0
-GROUP BY domain 
-ORDER BY visits DESC 
+GROUP BY domain
+ORDER BY visits DESC
 LIMIT 30
 `;
 
 type DomainRow = { domain: string; visits: number };
 
-// ---------------------------------------------------------------------------
-// Search Themes
-// ---------------------------------------------------------------------------
-
 const SEARCH_QUERIES_LIMIT = 15;
 
-// Broad SQL prefilter; JS validates the host and extracts the real query param.
 const SEARCH_QUERY_URL_FILTER = `
 SELECT url, visit_count
 FROM urls
@@ -1074,7 +927,6 @@ ORDER BY visit_count DESC
 LIMIT 800
 `;
 
-// Search-engine host → the query-string param holding the user's text.
 const SEARCH_HOST_PARAMS: { match: (host: string) => boolean; param: string }[] =
   [
     { match: (h) => h.includes("google."), param: "q" },
@@ -1087,12 +939,6 @@ const SEARCH_HOST_PARAMS: { match: (host: string) => boolean; param: string }[] 
     { match: (h) => h.endsWith("startpage.com"), param: "query" },
   ];
 
-/**
- * Extract the user's recurring search queries from history. Operates on the
- * live history DB (cross-platform), parses the query text out of
- * search-engine URLs, and aggregates by frequency. Counts feed ranking only —
- * the synthesis output lists themes without raw numbers.
- */
 const querySearchQueries = (db: SqliteDatabase): SearchQuery[] => {
   let rows: { url: string; visit_count: number }[];
   try {
@@ -1117,7 +963,7 @@ const querySearchQueries = (db: SqliteDatabase): SearchQuery[] => {
     const spec = SEARCH_HOST_PARAMS.find((s) => s.match(host));
     if (!spec) continue;
     const raw = parsed.searchParams.get(spec.param)?.trim();
-    // Skip empty, single-char, or absurdly long values (rarely real queries).
+
     if (!raw || raw.length < 2 || raw.length > 80) continue;
     const key = raw.toLowerCase();
     const existing = counts.get(key);
@@ -1147,7 +993,6 @@ const queryRecentDomains = (
     return [];
   }
 
-  // Fallback: Query all-time data from urls table only when recent query fails.
   try {
     const rows = db.prepare(FALLBACK_DOMAINS_QUERY).all() as DomainRow[];
     return filterAndAggregateDomains(rows);
@@ -1157,27 +1002,17 @@ const queryRecentDomains = (
   }
 };
 
-/**
- * Check if a title is noise (Cloudflare challenge, loading state, etc.)
- */
 const isNoiseTitle = (title: string): boolean => {
   const trimmed = title.trim();
   if (!trimmed) return true;
   return NOISE_TITLE_PATTERNS.some((pattern) => pattern.test(trimmed));
 };
 
-/**
- * Check if a domain is auth/infrastructure (excluded from title queries)
- */
 const isAuthDomain = (domain: string): boolean => {
   const lower = domain.toLowerCase();
   return AUTH_DOMAINS.some((auth) => lower.includes(auth));
 };
 
-/**
- * Extract top domains to query for content details
- * Uses the user's actual top visited domains instead of a hardcoded list
- */
 const getTopDomainsForDetails = (
   domains: DomainVisit[],
   limit: number = 15
@@ -1188,11 +1023,6 @@ const getTopDomainsForDetails = (
     .map((d) => d.domain);
 };
 
-/**
- * Query page titles for the user's top domains
- * Dynamically determined from their actual browsing patterns
- * Deduplicates by title and aggregates visit counts
- */
 const queryDomainDetails = (
   db: SqliteDatabase,
   topDomains: string[]
@@ -1207,7 +1037,6 @@ const queryDomainDetails = (
         visit_count: number;
       }>;
 
-      // Filter noise and deduplicate by normalized title
       const titleMap = new Map<string, DomainDetail>();
       for (const row of rows) {
         if (isNoiseTitle(row.title)) continue;
@@ -1226,22 +1055,19 @@ const queryDomainDetails = (
       }
 
       if (titleMap.size > 0) {
-        // Sort by visit count and limit to top 15
+
         details[domain] = Array.from(titleMap.values())
           .sort((a, b) => b.visitCount - a.visitCount)
           .slice(0, 15);
       }
     } catch {
-      // Skip domains that fail
+
     }
   }
 
   return details;
 };
 
-/**
- * Query all-time top domains by cumulative visit count
- */
 const queryAllTimeDomains = (db: SqliteDatabase): DomainVisit[] => {
   try {
     const rows = db.prepare(ALL_TIME_DOMAINS_QUERY).all() as DomainRow[];
@@ -1252,10 +1078,6 @@ const queryAllTimeDomains = (db: SqliteDatabase): DomainVisit[] => {
   }
 };
 
-/**
- * Query Chrome's cluster keywords — research topics from browsing journeys.
- * These are Chrome's own groupings of related browsing sessions.
- */
 const queryClusterKeywords = (db: SqliteDatabase, sinceChromeTime: number): ClusterKeyword[] => {
   try {
     const rows = db.prepare(CLUSTER_KEYWORDS_QUERY).all(sinceChromeTime) as Array<{
@@ -1264,8 +1086,6 @@ const queryClusterKeywords = (db: SqliteDatabase, sinceChromeTime: number): Clus
       latest_visit: number | bigint;
     }>;
 
-    // Chrome timestamps: microseconds since 1601-01-01
-    // Convert to ms since Unix epoch: (chromeTime / 1000) - 11644473600000
     const CHROME_TO_UNIX_MS = 11644473600000n;
     return rows.map((r) => ({
       keyword: r.keyword,
@@ -1308,9 +1128,6 @@ const buildBrowserDataWindow = (
   };
 };
 
-/**
- * Collect browser data from the user's default browser
- */
 export const collectBrowserData = async (
   StellaDataDir: string,
   options: BrowserCollectionOptions = {},
@@ -1327,7 +1144,6 @@ export const collectBrowserData = async (
   try {
     db = await openDatabase(browser.historyPath);
 
-    // Run queries
     const clusterDomains = queryClusterDomains(db);
     const recentDomains = queryRecentDomains(db);
     const rawAllTimeDomains = queryAllTimeDomains(db);
@@ -1335,13 +1151,11 @@ export const collectBrowserData = async (
     const clusterKeywords = queryClusterKeywords(db, thirtyDaysAgo);
     const searchQueries = querySearchQueries(db);
 
-    // Soft dedupe: exclude domains from all-time that already appear in recent
     const recentDomainSet = new Set(recentDomains.map((d) => d.domain.toLowerCase()));
     const allTimeDomains = rawAllTimeDomains
       .filter((d) => !recentDomainSet.has(d.domain.toLowerCase()))
       .slice(0, 20);
 
-    // Get titles for combined top domains
     const combinedDomains = [
       ...new Set([
         ...getTopDomainsForDetails(recentDomains, 15),
@@ -1408,9 +1222,6 @@ export const collectBrowserActivityWindows = async (
   }
 };
 
-/**
- * Check if core memory already exists
- */
 export const coreMemoryExists = async (StellaDataDir: string): Promise<boolean> => {
   const candidatePaths = [
     path.join(StellaDataDir, "core-memory.md"),
@@ -1426,9 +1237,7 @@ export const coreMemoryExists = async (StellaDataDir: string): Promise<boolean> 
   }
   return false;
 };
-// IP geolocation providers, tried in order. Each maps its response shape onto
-// the same city/region/postal/country fields. Multiple providers guard against
-// any single one being down or rate-limiting the user's IP.
+
 type LocationProvider = {
   url: string;
   extract: (body: Record<string, unknown>) => {
@@ -1450,7 +1259,7 @@ const LOCATION_PROVIDERS: LocationProvider[] = [
     }),
   },
   {
-    // GeoJS: keyless, no per-IP rate limit. Returns no postal code.
+
     url: "https://get.geojs.io/v1/ip/geo.json",
     extract: (b) => ({
       city: b.city,
@@ -1500,7 +1309,7 @@ const fetchLocationFromProvider = async (
     const parsed = (await response.json()) as unknown;
     if (!isJsonRecord(parsed)) return null;
     const body = parsed;
-    // ipwho.is uses `success:false`; ipapi.co uses `error:true` on failure.
+
     if (body.success === false || body.error === true) return null;
     const fields = provider.extract(body);
     const city = asTrimmed(fields.city);
@@ -1508,7 +1317,7 @@ const fetchLocationFromProvider = async (
     const postal = asTrimmed(fields.postal);
     const country = asTrimmed(fields.country);
     if (!city || !country) return null;
-    // "City, Region postal, Country" — postal hugs the region when present.
+
     const cityRegion = region ? `${city}, ${region}` : city;
     const cityRegionPostal = postal ? `${cityRegion} ${postal}` : cityRegion;
     return `${cityRegionPostal}, ${country}`;
@@ -1520,14 +1329,6 @@ const fetchLocationFromProvider = async (
   }
 };
 
-/**
- * Resolve the user's coarse location via IP geolocation. The app's very first
- * network call can hit cold DNS/TLS (and a VPN adds latency), so a single
- * best-effort request dropped location too often — and once core memory is
- * written without it, it never retries. Retries across providers within a
- * bounded total budget so a transient blip doesn't permanently lose location,
- * while still failing fast (and not blocking onboarding) when truly offline.
- */
 const fetchUserLocationLine = async (): Promise<string | null> => {
   const deadline = Date.now() + 12_000;
   let attempt = 0;
@@ -1544,13 +1345,6 @@ const fetchUserLocationLine = async (): Promise<string | null> => {
   return null;
 };
 
-/**
- * Write core memory profile to disk. When `includeLocation` is true (gated by
- * the discovery categories the user opted into during onboarding), appends a
- * one-time `## Location` section resolved via IP geolocation (cross-platform,
- * no native APIs) so the agent always knows the user's city/region/postal/
- * country.
- */
 export const writeCoreMemory = async (
   StellaDataDir: string,
   content: string,
@@ -1569,13 +1363,9 @@ export const writeCoreMemory = async (
   log(`Wrote ~/.stella/core-memory.md${location ? " (with location)" : ""}`);
 };
 
-
 const formatDomainList = (domains: DomainVisit[]): string =>
   domains.map((d) => `${d.domain} (${d.visits})`).join("\n");
 
-/**
- * Format browser data for LLM synthesis input
- */
 export const formatBrowserDataForSynthesis = (data: BrowserData): string => {
   if (!data.browser) return "No browser data available.";
 
@@ -1631,10 +1421,6 @@ export const detectPreferredBrowserProfile = async (): Promise<PreferredBrowserP
   };
 };
 
-/**
- * List all available profiles for a given browser type.
- * Reads display names from the browser's Local State JSON when available.
- */
 export const listBrowserProfiles = async (browserType: BrowserType): Promise<BrowserProfile[]> => {
   const platform = process.platform;
   const basePath = getBasePath(platform);
@@ -1646,7 +1432,6 @@ export const listBrowserProfiles = async (browserType: BrowserType): Promise<Bro
 
   if (browserDirs.length === 0) return [];
 
-  // Try to read display names from Local State JSON
   const displayNames = new Map<string, string>();
   for (const browserDir of browserDirs) {
     const localStatePath = path.join(basePath, browserDir, "Local State");
@@ -1664,11 +1449,10 @@ export const listBrowserProfiles = async (browserType: BrowserType): Promise<Bro
         }
       }
     } catch {
-      // Local State doesn't exist or can't be parsed — we'll fall back to folder names
+
     }
   }
 
-  // Scan for profile directories that have a History file
   const profilePatterns = ["Default", "Profile 1", "Profile 2", "Profile 3", "Profile 4", "Profile 5",
     "Profile 6", "Profile 7", "Profile 8", "Profile 9", "Profile 10"];
 
@@ -1679,7 +1463,7 @@ export const listBrowserProfiles = async (browserType: BrowserType): Promise<Bro
       try {
         const stat = await fs.stat(profilePath);
         if (!stat.isDirectory()) return null;
-        // Verify a History file exists
+
         await fs.access(path.join(profilePath, "History"));
         return {
           id: profile,

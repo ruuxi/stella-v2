@@ -1,10 +1,3 @@
-/**
- * Backend-local device tool schemas and descriptions for backend-driven flows.
- *
- * Stella's default General agent surface is now codex-style instead of
- * `Exec` / `Wait`.
- */
-
 import { z } from "zod";
 
 export const DEVICE_TOOL_NAMES = [

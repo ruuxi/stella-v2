@@ -1,16 +1,4 @@
-/**
- * Signal Processing — filtering and tiering for synthesis input.
- *
- * Applied as post-processing on formatted signals before sending to the LLM.
- * - filterLowSignalDomains: removes low-visit-count domains using an adaptive threshold
- * - tierFormattedSignals: reorganizes flat sections into priority tiers
- */
-
 const log = (...args: unknown[]) => console.error("[signal-processing]", ...args);
-
-// ---------------------------------------------------------------------------
-// Low-Signal Domain Filtering
-// ---------------------------------------------------------------------------
 
 const normalizeDomain = (domain: string) => domain.trim().toLowerCase().replace(/^www\./, "");
 
@@ -26,7 +14,6 @@ const parseConfiguredAiChatSites = () => {
     .filter((domain) => domain.length > 0);
 };
 
-/** AI chat sites whose page titles reveal user intent — always kept regardless of count */
 const DEFAULT_AI_CHAT_SITES = [
   "chatgpt.com",
   "chat.openai.com",
@@ -46,18 +33,8 @@ const AI_CHAT_SITES = new Set(
 
 const isAiChatDomain = (domain: string) => AI_CHAT_SITES.has(normalizeDomain(domain));
 
-/** Minimum page-title count for non-chat sites in Content Details */
 const TITLE_MIN_COUNT = 3;
 
-/**
- * Remove low-visit-count domains from browser signals.
- *
- * Formula: threshold = max(ABSOLUTE_MIN, top5_avg * RELATIVE_FACTOR)
- * - ABSOLUTE_MIN = 5 — always drops domains with < 5 visits
- * - RELATIVE_FACTOR = 0.05 — 5% of the top-5 domain average; scales with activity
- * - AI chat sites always bypass the threshold
- * - Individual page titles with count < TITLE_MIN_COUNT are pruned for non-chat sites
- */
 export function filterLowSignalDomains(formatted: string): string {
   const ABSOLUTE_MIN = 5;
   const RELATIVE_FACTOR = 0.05;
@@ -105,7 +82,6 @@ export function filterLowSignalDomains(formatted: string): string {
     log(`Removed ${removedDomains.length} low-signal domains: ${removedDomains.join(", ")}`);
   }
 
-  // Filter domain lines from summary sections
   let result = formatted;
   for (const header of sectionHeaders) {
     const escaped = header.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -120,7 +96,6 @@ export function filterLowSignalDomains(formatted: string): string {
     });
   }
 
-  // Filter Content Details blocks and prune low-count titles
   const contentRegex = /(### Content Details\s*\n)([\s\S]*?)(?=\n## |$)/;
   const contentMatch = result.match(contentRegex);
   if (contentMatch) {
@@ -152,23 +127,10 @@ export function filterLowSignalDomains(formatted: string): string {
   return result;
 }
 
-// ---------------------------------------------------------------------------
-// Signal Tiering
-// ---------------------------------------------------------------------------
-
-/** Tier 1: highest priority — active projects, browsing, shell history */
 const TIER_1_HEADERS = ["Active Projects", "Browser Data", "Shell History"];
 
-/** Tier 3: supplementary — apps and system signals */
 const TIER_3_HEADERS = ["Apps", "System Signals"];
 
-/**
- * Reorganize flat formatted signals into priority tiers.
- *
- * - Tier 1 (Core): Active Projects, Browser Data, Shell History
- * - Tier 2 (Supporting): Everything not in Tier 1 or 3
- * - Tier 3 (Supplementary): Apps, System Signals
- */
 export function tierFormattedSignals(formatted: string): string {
   const sections: { header: string; content: string }[] = [];
   const parts = formatted.split(/\n(?=## )/);

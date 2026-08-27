@@ -7,7 +7,7 @@ export const STELLA_COMPOSE_TEXT_EVENT = "stella:compose-text";
 
 export type StellaOpenPanelChatDetail = {
   chatContext?: ChatContext | null;
-  /** Optional text to prefill in the panel composer (e.g. a clicked suggestion). */
+
   prefillText?: string;
 };
 

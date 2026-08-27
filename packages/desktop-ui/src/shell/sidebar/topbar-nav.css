@@ -1,10 +1,3 @@
-/* ============================================
-   Top-bar primary nav (Chat / Apps / Settings ...)
-   Bare text segments; the current section reads through
-   text emphasis alone (stronger color + weight) — no
-   selection pill and no enclosing track around the group.
-   ============================================ */
-
 .shell-topbar-nav {
   position: relative;
   display: inline-flex;
@@ -16,8 +9,7 @@
   padding: 2px;
   box-sizing: border-box;
   -webkit-app-region: no-drag;
-  /* When the window narrows, the nav scrolls internally instead of
-     pushing the account / sidebar controls off the right edge. */
+
   overflow-x: auto;
   overflow-y: visible;
   scrollbar-width: none;
@@ -51,7 +43,6 @@
   transition: color 0.12s ease;
 }
 
-/* Hover only brightens the text — no fill, matching the bare selected state. */
 .shell-topbar-nav-item:hover {
   color: var(--text-strong);
 }
@@ -72,7 +63,6 @@
   text-overflow: ellipsis;
 }
 
-/* Unread / badge pill anchored on the nav item. */
 .shell-topbar-nav-badge {
   position: absolute;
   top: 0;
@@ -90,8 +80,6 @@
   pointer-events: none;
 }
 
-/* One-shot post-onboarding nudge dot — auto-suppressed when a numeric
-   badge is also present so the two never stack. */
 .shell-topbar-nav-hint-dot {
   position: absolute;
   top: 2px;
@@ -104,9 +92,6 @@
   pointer-events: none;
 }
 
-/* The same nudge dot echoed inside the settings menu, anchored to the
-   "Stella on your phone" row's icon so the opened menu shows which item
-   clears the dot on the trigger. */
 .shell-settings-menu [data-slot="dropdown-menu-item-icon"] {
   position: relative;
 }
@@ -118,14 +103,6 @@
   height: 6px;
   box-shadow: 0 0 0 2px var(--popover, var(--surface-base));
 }
-
-/* ============================================
-   Account cluster (avatar / sign-in)
-   Sits just left of the display-tabs region, so
-   when the display sidebar opens the tabs slide
-   in to its right and account stays anchored on
-   the main-content side.
-   ============================================ */
 
 .shell-topbar-account {
   position: relative;
@@ -200,8 +177,6 @@
   pointer-events: none;
 }
 
-/* Gear inside the signed-in account button: a clickability affordance only —
-   the whole button is one target that opens the unified account menu. */
 .shell-topbar-account-settings-icon {
   display: inline-flex;
   align-items: center;
@@ -287,8 +262,6 @@
     color 0.12s ease;
 }
 
-/* The gear's destination menu anchors its Theme and Connectors popovers to
-   hidden targets that sit exactly on top of the button. */
 .shell-settings-menu-anchor {
   position: relative;
   display: inline-flex;

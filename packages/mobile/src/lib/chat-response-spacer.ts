@@ -1,19 +1,9 @@
-/** Portion of the readable viewport reserved for the incoming response. */
 export const RESPONSE_SPACER_VIEWPORT_RATIO = 2 / 3;
 
-/** Keep this much readable room for the latest turn above the spacer. */
 export const RESPONSE_SPACER_CONTENT_FLOOR_PX = 240;
 
-/** Do not pull a submit out of scrollback when the user is reading history. */
 export const LATEST_TURN_PLACEMENT_THRESHOLD_PX = 300;
 
-/**
- * Codex-style empty response area beneath the latest turn.
- *
- * `bottomInsetPx` is the part of the list covered by the composer, keyboard,
- * and edge fade. It remains part of the physical spacer, while the two-thirds
- * ratio is calculated over the viewport that is actually readable.
- */
 export function resolveResponseSpacerHeight({
   viewportHeight,
   bottomInsetPx,
@@ -34,7 +24,6 @@ export function resolveResponseSpacerHeight({
   return Math.max(minimumHeightPx, bottomInsetPx + blankResponseArea);
 }
 
-/** Consume synthetic response space one-for-one with scroll-away motion. */
 export function consumeResponseSpacerHeight({
   currentHeightPx,
   minimumHeightPx,
@@ -50,11 +39,6 @@ export function consumeResponseSpacerHeight({
   );
 }
 
-/**
- * Apply latest-turn placement only while following the live tail. The literal
- * list end includes the synthetic response spacer, so exclude it before
- * applying the scrollback threshold.
- */
 export function shouldPlaceLatestTurn({
   distanceFromBottomPx,
   responseSpacerHeightPx,
@@ -71,10 +55,6 @@ export function shouldPlaceLatestTurn({
   );
 }
 
-/**
- * Frame a short user row above the response spacer. A user message taller than
- * the remaining reading area is aligned by its top instead.
- */
 export function resolvePostSendTarget({
   rowTop,
   rowBottom,
@@ -93,15 +73,6 @@ export function resolvePostSendTarget({
     : rowTop;
 }
 
-/**
- * Post-send anchor for the latest user row, derived from live list geometry.
- * `trailingSlackPx` is everything below the row (response spacer + reserved
- * bottom inset), so `contentHeightPx - trailingSlackPx` is the row's bottom.
- *
- * Recomputed whenever the row's measured height settles (e.g. the four-line
- * user-message clamp collapsing a tall row after its first unclamped-ish
- * paint), so the committed scroll target always matches the final geometry.
- */
 export function resolvePostSendPlacement({
   contentHeightPx,
   viewportHeightPx,

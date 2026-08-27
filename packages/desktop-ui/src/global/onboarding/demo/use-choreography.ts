@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export type ChoreographyCue = {
   id: string;
-  /** Milliseconds after the script starts. */
+
   at: number;
 };
 
 type UseChoreographyArgs = {
   cues: readonly ChoreographyCue[];
-  /** The script only runs while active; flipping to false resets it. */
+
   active: boolean;
   onDone?: () => void;
 };
@@ -20,15 +20,6 @@ const prefersReducedMotion = () =>
 
 const TYPED_TEXT_CHARACTERS_PER_TICK = 3;
 
-/**
- * Timeline driver for the onboarding demos. A demo declares named cues
- * ("user-message", "work-1", "reply", …) with millisecond offsets; the
- * hook reveals each cue as its time passes and reports completion. The
- * cue set — not CSS animation-delays — is the single source of truth
- * for what's on screen, so a demo can be restarted, fast-forwarded for
- * reduced motion, or paused when the window is hidden without any
- * keyframe bookkeeping drifting out of sync.
- */
 export function useChoreography({ cues, active, onDone }: UseChoreographyArgs) {
   const [passed, setPassed] = useState<ReadonlySet<string>>(() => new Set());
   const [done, setDone] = useState(false);
@@ -61,8 +52,7 @@ export function useChoreography({ cues, active, onDone }: UseChoreographyArgs) {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let cursor = 0;
-    // Pause bookkeeping: `elapsed` accumulates run time across hidden
-    // periods so resuming continues where the scene left off.
+
     let elapsed = 0;
     let segmentStartedAt = Date.now();
     let paused = false;
@@ -140,11 +130,6 @@ export function useChoreography({ cues, active, onDone }: UseChoreographyArgs) {
   return { passed, has, done, restart, runKey };
 }
 
-/**
- * Character-by-character typing for the demo composer. Returns the
- * visible prefix of `text`; empty until `active`, full text instantly
- * under reduced motion.
- */
 export function useTypedText(
   text: string,
   active: boolean,
@@ -154,10 +139,6 @@ export function useTypedText(
   }: { startDelay?: number; charMs?: number } = {},
 ) {
   const [count, setCount] = useState(0);
-  // Batch a few characters into each state update. At the previous one-React-
-  // render-per-character cadence, the longer dictation demo repeatedly laid
-  // out the mail mock dozens of times per second. The apparent typing speed is
-  // unchanged; there are simply fewer main-thread commits.
 
   useEffect(() => {
     if (!active) {

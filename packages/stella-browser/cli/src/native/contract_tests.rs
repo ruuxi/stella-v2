@@ -1,23 +1,3 @@
-//! Static contract tests binding the daemon's command vocabulary to the
-//! checked-in manifest at packages/stella-browser/protocol/actions.json.
-//!
-//! The manifest is the single source of truth for the CDP backend's action
-//! vocabulary. These tests parse the *source* of actions.rs (no browser, no
-//! Chrome launch) and assert that:
-//!
-//! 1. `is_known_action` accepts exactly the manifest's action set;
-//! 2. `is_chain_allowed_action` accepts exactly the manifest's
-//!    `"chain": true` subset;
-//! 3. every manifest action has a real `dispatch_action` arm (nothing can be
-//!    "known but Not yet implemented") and every dispatch arm is in the
-//!    manifest (nothing can be dispatched without being contract-visible).
-//!
-//! The JS layers (client.ts allowlists, worker-api.ts SAFE_ACTION_KEYS) are
-//! held to the same manifest by
-//! packages/desktop-ui/tests/runtime/kernel/browser-use/action-contract.test.ts.
-//! Renaming, adding, or removing an action in any layer fails one of these
-//! tests until the manifest and every layer agree again.
-
 use std::collections::BTreeSet;
 
 const ACTIONS_RS: &str = include_str!("actions.rs");
@@ -50,8 +30,6 @@ fn manifest_actions() -> (BTreeSet<String>, BTreeSet<String>) {
     (all, chain)
 }
 
-/// Text of `source` from the first occurrence of `needle` to the next line
-/// consisting of a lone closing brace (the end of a top-level fn).
 fn function_body<'a>(source: &'a str, needle: &str) -> &'a str {
     let start = source
         .find(needle)
@@ -63,7 +41,6 @@ fn function_body<'a>(source: &'a str, needle: &str) -> &'a str {
     &rest[..end]
 }
 
-/// Every double-quoted string literal in `body`, in order.
 fn string_literals(body: &str) -> Vec<String> {
     let mut literals = Vec::new();
     let mut chars = body.char_indices();
@@ -80,8 +57,7 @@ fn string_literals(body: &str) -> Vec<String> {
                     break;
                 }
                 '\\' => {
-                    // Contract literals are plain action names; escapes only
-                    // appear in message strings, which callers filter out.
+
                     literal.push(inner);
                 }
                 _ => literal.push(inner),
@@ -93,8 +69,6 @@ fn string_literals(body: &str) -> Vec<String> {
     literals
 }
 
-/// The action set accepted by a `matches!`-based membership fn: every string
-/// literal inside its body.
 fn membership_fn_actions(needle: &str) -> BTreeSet<String> {
     string_literals(function_body(ACTIONS_RS, needle))
         .into_iter()
@@ -102,9 +76,6 @@ fn membership_fn_actions(needle: &str) -> BTreeSet<String> {
         .collect()
 }
 
-/// Every action literal that appears as a `match` arm pattern in
-/// `dispatch_action`. Handles multi-line patterns (`"a" | "b" =>` wrapped by
-/// rustfmt) by accumulating pattern lines until the `=>` is seen.
 fn dispatch_arm_actions() -> BTreeSet<String> {
     let body = function_body(ACTIONS_RS, "async fn dispatch_action(");
     let mut actions = BTreeSet::new();
@@ -117,7 +88,7 @@ fn dispatch_arm_actions() -> BTreeSet<String> {
         pattern.push(' ');
         if let Some(arrow) = trimmed.find("=>") {
             pattern.push_str(&trimmed[..arrow]);
-            // A pattern is only action literals separated by `|`.
+
             if pattern
                 .split('|')
                 .all(|part| part.trim().starts_with('"') && part.trim().ends_with('"'))
@@ -181,9 +152,7 @@ fn chain_allowed_actions_match_manifest() {
         chain.is_subset(&manifest_all),
         "chain-allowed actions must be known actions"
     );
-    // Lifecycle / policy-sensitive actions must never be chainable: chains
-    // must not smuggle them past top-level confirmation flows
-    // (validate_chain_actions enforces this at runtime).
+
     for top_level_only in [
         "chain",
         "mark_tab",
@@ -220,8 +189,7 @@ fn every_manifest_action_dispatches_and_every_arm_is_in_the_manifest() {
 
 #[test]
 fn manifest_chain_steps_have_no_daemon_only_params() {
-    // The `chain` container's own params are chain-level options, not an
-    // action contract; make sure it stays top-level-only in the manifest.
+
     let manifest: serde_json::Value = serde_json::from_str(MANIFEST).unwrap();
     let chain_entry = &manifest["actions"]["chain"];
     assert_eq!(chain_entry["chain"], serde_json::Value::Bool(false));

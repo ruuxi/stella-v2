@@ -65,13 +65,6 @@ const warmSessionFromCache = (store: ClientStore) => {
 const toHeaderRecord = (headersInit: HeadersInit | undefined) =>
   Object.fromEntries(new Headers(headersInit).entries());
 
-/**
- * Native Better Auth client support without a userspace cookie jar.
- *
- * It preserves Expo's OAuth browser orchestration and session warm-start, but
- * stores only an opaque bearer token in SecureStore. Browser callbacks return
- * a three-minute OTT, which is exchanged immediately through Better Auth.
- */
 export const nativeBearerClient = ({ scheme }: NativeAuthClientOptions) => {
   let authFetch: BetterFetch | null = null;
   let store: ClientStore | null = null;
@@ -194,9 +187,6 @@ export const nativeBearerClient = ({ scheme }: NativeAuthClientOptions) => {
           }
         : options.body;
 
-      // Attach the current token above, then clear local state before sending
-      // sign-out. This matches the old Expo client behavior while ensuring the
-      // server still receives the credential it needs to revoke the session.
       if (url.includes("/sign-out")) {
         await clearMobileAuthStorage();
         store?.atoms.session?.set({

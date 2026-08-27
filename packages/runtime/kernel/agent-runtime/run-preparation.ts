@@ -41,11 +41,6 @@ const toImageContent = (
   };
 };
 
-/**
- * Validate and resize inline images before they enter native agent history.
- * Invalid or unshrinkable images are omitted instead of becoming permanent,
- * replayed request failures.
- */
 export const prepareRuntimeAttachments = async (
   attachments: RuntimeAttachmentRef[] | undefined,
   target: ImageCapTarget = {},
@@ -152,8 +147,6 @@ export const buildRuntimeSystemPrompt = async (
     return effectiveSystemPrompt;
   }
 
-  // Compose every hook result in registration order; `emit` would only keep
-  // the last non-empty result.
   const hookResults = await opts.hookEmitter.emitAll(
     "before_agent_start",
     {
@@ -185,11 +178,7 @@ export const buildSubagentSystemPrompt = async (
     buildSystemPrompt(opts.agentContext),
     opts,
   );
-  // Symmetric with `buildRuntimeSystemPrompt` (orchestrator). Subagents
-  // get the same `before_agent_start` fan-out so user extensions that
-  // subscribe to the event for a subagent agentType (e.g. layering
-  // additional system-prompt context onto General/Explore runs) are
-  // actually invoked without extensions needing engine-specific knowledge.
+
   if (!opts.hookEmitter) {
     return effectiveSystemPrompt;
   }

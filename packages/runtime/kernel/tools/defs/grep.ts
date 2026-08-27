@@ -1,7 +1,3 @@
-/**
- * `Grep` — local ripgrep wrapper used by the Explore subagent.
- */
-
 import { handleGrep } from "../search.js";
 import type { ToolDefinition } from "../types.js";
 

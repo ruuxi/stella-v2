@@ -41,11 +41,7 @@ import { listAgentThreadMessages } from "./agent-thread-history.js";
 type LocalChatHistoryServiceOptions = {
   stellaAppDir: string;
   onUpdated?: (payload: LocalChatUpdatedPayload | null) => void;
-  /**
-   * Fired when the mirrored task decoration (statusText / reasoning
-   * summaries) changes. Wired to a mobile-only broadcast — desktop windows
-   * maintain their own decoration stores from the live stream.
-   */
+
   onTaskDecorationUpdated?: (payload: TaskDecorationUpdatedPayload) => void;
 };
 
@@ -157,15 +153,9 @@ export class LocalChatHistoryService {
     payload: TaskDecorationUpdatedPayload,
   ) => void;
   private resetInProgress = false;
-  /**
-   * Latest per-agent mid-run statusText mirrored from the renderer's
-   * task-decoration store via `publishTaskDecoration`. Same lifecycle as the
-   * reasoning summaries above: in-memory only, replaced wholesale per publish,
-   * present only for running threads (the renderer clears a thread's
-   * decoration on its terminal stream event).
-   */
+
   private statusTextByAgent = new Map<string, string>();
-  /** Last decoration payload serialization, so repeat publishes don't re-broadcast. */
+
   private lastTaskDecorationSerialized = "";
 
   constructor(options: LocalChatHistoryServiceOptions) {
@@ -256,12 +246,6 @@ export class LocalChatHistoryService {
     return { deleted: this.getStore().deleteConversation(conversationId) };
   }
 
-  /**
-   * Truncate a conversation at (and including) a user message — the
-   * desktop "Rewind here" action. Notifies the renderer with a
-   * payload that omits `event`, forcing a full window re-read so removed
-   * rows drop out of the visible timeline.
-   */
   truncateConversation(args: { conversationId: string; eventId: string }): {
     removed: number;
   } {
@@ -273,13 +257,6 @@ export class LocalChatHistoryService {
     return result;
   }
 
-  /**
-   * Branch a conversation's prefix (everything before a user message)
-   * into a brand-new conversation — the desktop "Fork to new chat"
-   * action. Returns the new conversation id (or null when the anchor
-   * event is gone). The source conversation is untouched; the renderer
-   * navigates to the new conversation and subscribes fresh.
-   */
   forkConversation(args: {
     conversationId: string;
     eventId: string;
@@ -333,12 +310,6 @@ export class LocalChatHistoryService {
     });
   }
 
-  /**
-   * Changed-rows query for the renderer's tail-only refresh: new
-   * user/assistant messages after the cursor plus existing rows whose turn
-   * gained tool-derived artifacts after it. The mobile-sync `sourceEvents`
-   * are dropped — the renderer merge only needs the message rows.
-   */
   listMessagesAfter(args: {
     conversationId: string;
     afterTimestampMs: number;
@@ -531,12 +502,6 @@ export class LocalChatHistoryService {
     return { ok: true };
   }
 
-  /**
-   * Mirror the renderer's per-thread mid-run statusText (the task-decoration
-   * store) into the in-memory snapshot the mobile sync serializer reads.
-   * Progress ticks are no longer persisted as message rows, so this mirror is
-   * the only bridge-side source of a running task's current statusText.
-   */
   setTaskDecoration(args: { statusTextByAgentId: Record<string, string> }): {
     ok: true;
   } {
@@ -553,12 +518,6 @@ export class LocalChatHistoryService {
     return { ok: true };
   }
 
-  /**
-   * Push the status decoration snapshot
-   * to the mobile bridge so the phone's activity pill updates mid-run without
-   * a persisted event to resync from. Deduped against the last broadcast —
-   * identical publishes stay silent.
-   */
   private emitTaskDecorationUpdated(): void {
     if (!this.onTaskDecorationUpdated) return;
     const payload: TaskDecorationUpdatedPayload = {

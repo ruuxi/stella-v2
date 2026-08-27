@@ -1,35 +1,5 @@
 import type { SqliteDatabase } from "./shared.js";
 
-/**
- * The chat `message` table's dedicated, strictly-increasing, NEVER-REUSED
- * monotonic ordering key, assigned by the authoritative desktop. This is now the
- * DEFAULT and ONLY ordering key for the chat timeline — there are no feature
- * flags; the migration runs unconditionally at database init.
- *
- * Design:
- *  - GLOBAL-per-database counter (never "per-thread"): a global monotone integer
- *    yields a correct per-thread subsequence for free; the random ULID stays the
- *    identity/tiebreak.
- *  - NEVER-REUSED via a persistent high-water counter row that DELETE / "Rewind
- *    here" (truncateConversationAtEvent) / ON DELETE CASCADE can never lower —
- *    unlike a live `MAX(...)+1`, which recycles freed numbers and re-poisons a
- *    monotonic cursor.
- *  - ORDER-PRESERVING backfill: existing rows are numbered in current display
- *    order `(created_at, id)`, so `ORDER BY ordering_sequence` reproduces the
- *    exact order users already see. New rows get arrival order (the counter).
- *  - CHUNKED + RESUMABLE so a large history never holds the write lock for a
- *    single long transaction and never hangs launch (L1). The bulk of the
- *    backfill runs in bounded chunks, each its own short transaction; only a
- *    tiny final step (stragglers + trigger install) holds the write lock, and
- *    it is atomic so no insert can interleave. A crash mid-backfill resumes on
- *    the next launch (only NULL rows are touched).
- *  - The trigger is installed LAST, in the final atomic step AFTER every row has
- *    a sequence, so it can never mint a value that collides with the backfill
- *    range — and, because no trigger exists during the chunked phase, a
- *    concurrent insert lands as a NULL row that the backfill picks up in order.
- */
-
-/** Rows backfilled per short transaction. Keeps each write-lock hold brief. */
 const BACKFILL_CHUNK_SIZE = 5000;
 
 const hasColumn = (
@@ -55,18 +25,11 @@ const hasNullSequences = (db: SqliteDatabase): boolean => {
   return Boolean(row);
 };
 
-/**
- * True once every message row carries a non-NULL ordering_sequence (the column
- * exists and the backfill has completed). Callers that need a hard guarantee the
- * sequence is populated — e.g. before advertising it as a cross-device ordering
- * key — gate on this.
- */
 export const chatOrderingSequenceIsComplete = (db: SqliteDatabase): boolean => {
   if (!hasColumn(db, "message", "ordering_sequence")) return false;
   return !hasNullSequences(db);
 };
 
-/** Install the column, counter, and both indexes (no trigger yet). Short lock. */
 const installSchema = (db: SqliteDatabase): void => {
   db.exec("BEGIN IMMEDIATE;");
   try {
@@ -74,7 +37,7 @@ const installSchema = (db: SqliteDatabase): void => {
       try {
         db.exec("ALTER TABLE message ADD COLUMN ordering_sequence INTEGER;");
       } catch {
-        // Column already exists (raced by another connection under the lock).
+
       }
     }
     db.exec(`
@@ -83,9 +46,7 @@ const installSchema = (db: SqliteDatabase): void => {
         next_sequence INTEGER NOT NULL
       );
     `);
-    // Uniqueness assertion (never-reuse tripwire) — partial, so it is a no-op
-    // while every sequence is still NULL, and enforces uniqueness as the
-    // backfill assigns contiguous values.
+
     db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_message_sequence_unique
       ON message(ordering_sequence)
@@ -100,18 +61,12 @@ const installSchema = (db: SqliteDatabase): void => {
     try {
       db.exec("ROLLBACK;");
     } catch {
-      // Preserve the original failure.
+
     }
     throw error;
   }
 };
 
-/**
- * Assign the next chunk of still-NULL rows contiguous sequence values in
- * `(created_at, id)` order, in one short transaction. Returns the number of rows
- * stamped (0 when none remain). `base` is the current max, recomputed each chunk
- * so the process is resumable after a crash.
- */
 const backfillChunk = (db: SqliteDatabase, limit: number): number => {
   db.exec("BEGIN IMMEDIATE;");
   try {
@@ -143,25 +98,15 @@ const backfillChunk = (db: SqliteDatabase, limit: number): number => {
     try {
       db.exec("ROLLBACK;");
     } catch {
-      // Preserve the original failure.
+
     }
     throw error;
   }
 };
 
-/**
- * Install the ordering-sequence machinery and backfill existing rows. Runs
- * unconditionally at database init. Idempotent (a fully-migrated DB skips
- * straight to the trigger check), chunked/resumable, and order-preserving.
- */
 export const installChatOrderingSequence = (db: SqliteDatabase): void => {
   installSchema(db);
 
-  // Chunked bulk backfill under short, interleavable locks. Bounded by the row
-  // count observed at the start (plus generous slack) so a pathological writer
-  // inserting NULL rows faster than a chunk drains them can never livelock the
-  // loop — whatever remains is finished by the final atomic step below, which
-  // holds the write lock and therefore blocks concurrent inserts to completion.
   const totalRow = db
     .prepare(`SELECT COUNT(*) AS n FROM message`)
     .get() as { n?: number };
@@ -172,12 +117,6 @@ export const installChatOrderingSequence = (db: SqliteDatabase): void => {
     if (stamped === 0) break;
   }
 
-  // Final atomic step: stamp any stragglers that raced in during the chunked
-  // phase (they land as NULL because no trigger exists yet), seed the counter
-  // strictly above every assigned value, then install the trigger — all while
-  // the write lock is held, so no insert can interleave between "no NULL rows"
-  // and "trigger installed". After this, minted values are always > every
-  // backfilled value, so a mint can never collide with the backfill range.
   db.exec("BEGIN IMMEDIATE;");
   try {
     const baseRow = db
@@ -228,13 +167,12 @@ export const installChatOrderingSequence = (db: SqliteDatabase): void => {
     try {
       db.exec("ROLLBACK;");
     } catch {
-      // Preserve the original failure.
+
     }
     throw error;
   }
 };
 
-/** A single per-session ordering divergence found by the verifier. */
 export type ChatOrderingSequenceDivergence = {
   sessionId: string;
   position: number;
@@ -242,12 +180,6 @@ export type ChatOrderingSequenceDivergence = {
   byTimestampId: string;
 };
 
-/**
- * Prove the backfill preserved current display order: for every session,
- * `ORDER BY ordering_sequence` must equal `ORDER BY (created_at, id)`. Returns
- * the divergences (empty === order-preserving). Intended to run on a COPY of a
- * DB as a rehearsal.
- */
 export const verifyChatOrderingSequenceOrder = (
   db: SqliteDatabase,
 ): ChatOrderingSequenceDivergence[] => {
@@ -288,13 +220,6 @@ export const verifyChatOrderingSequenceOrder = (
   return divergences;
 };
 
-/**
- * Reverse the migration: drop the trigger/indexes/counter and NULL the column.
- * The column itself is left in place (dropping a column is a heavier rewrite and
- * unnecessary). Provided for a clean rollback / rehearsal; note that a
- * subsequent install re-ranks by `(created_at, id)`, so it is a rollback, not a
- * byte-perfect round-trip of arrival order.
- */
 export const uninstallChatOrderingSequence = (db: SqliteDatabase): void => {
   db.exec("BEGIN IMMEDIATE;");
   try {
@@ -310,7 +235,7 @@ export const uninstallChatOrderingSequence = (db: SqliteDatabase): void => {
     try {
       db.exec("ROLLBACK;");
     } catch {
-      // Preserve the original failure.
+
     }
     throw error;
   }

@@ -57,15 +57,12 @@ describe("sourceDiffBatches.push", () => {
       createdAt: 2,
       payloads: [sourceDiffPayload("/x/b.ts")],
     });
-    // "newer" was just inserted → active.
+
     expect(peekSourceDiffBatches().activeBatchId).toBe("newer");
 
-    // User chips back to "older".
     sourceDiffBatches.select("older");
     expect(peekSourceDiffBatches().activeBatchId).toBe("older");
 
-    // Same turn re-fires (e.g. streaming finalize) and pushes "newer"
-    // again. This must NOT yank the user away from "older".
     sourceDiffBatches.push({
       id: "newer",
       createdAt: 3,
@@ -76,7 +73,7 @@ describe("sourceDiffBatches.push", () => {
     });
     const snapshot = peekSourceDiffBatches();
     expect(snapshot.activeBatchId).toBe("older");
-    // Replacement happened in place — payload list updated.
+
     const updated = snapshot.batches.find((entry) => entry.id === "newer")!;
     expect(updated.payloads).toHaveLength(2);
   });

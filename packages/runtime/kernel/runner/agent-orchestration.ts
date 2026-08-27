@@ -207,17 +207,12 @@ const buildLifecycleEventPayload = (
         agentType: event.agentType,
         ...(event.parentAgentId ? { parentAgentId: event.parentAgentId } : {}),
         ...(event.statusText ? { statusText: event.statusText } : {}),
-        // Persist the spawn-vs-follow-up discriminator so the inline
-        // background-work card can pick its follow-up variant on reload.
+
         ...(event.isFollowUp ? { isFollowUp: true } : {}),
         ...groupFields,
       };
     case "agent-completed":
-      // `result` is always persisted (even if empty) so the
-      // orchestrator's hidden `[Agent completed]` reminder always
-      // carries a `result:` line. `finalizeSubagentSuccess`
-      // substitutes a sentinel for empty/whitespace outputs upstream;
-      // this guard catches any other emitter that forgets.
+
       return {
         agentId: event.agentId,
         ...runFields,
@@ -299,11 +294,11 @@ export const createAgentOrchestration = (
       agentType: string;
       runId: string;
       threadId?: string;
-      /** Per-spawn model override from spawn_agent's `model` parameter. */
+
       model?: string;
-      /** Per-spawn engine selection from spawn_agent's `model` parameter. */
+
       spawnEngine?: AgentToolRequest["spawnEngine"];
-      /** Per-spawn reasoning override from spawn_agent's model suffix. */
+
       spawnReasoningEffort?: AgentToolRequest["spawnReasoningEffort"];
     }) => Promise<LocalAgentContext>;
     sendMessage: (input: {
@@ -318,7 +313,7 @@ export const createAgentOrchestration = (
       display?: boolean;
       timestamp?: number;
     }) => Promise<void>;
-    /** Test/embedding override; production uses the manager's bounded default. */
+
     attemptTeardownTimeoutMs?: number;
   },
 ) => {
@@ -334,21 +329,13 @@ export const createAgentOrchestration = (
       typeof parentOwner === "string" ? parentOwner : undefined;
     const isParentOwned = parentThreadId !== undefined;
     const hasUnresolvedParentAncestry = parentOwner === null;
-    // Some lifecycle transitions are control-plane-only (see
-    // `AgentLifecycleEvent.audience`): `orchestrator-only` skips every
-    // display surface (persisted chat event, renderer/run callbacks,
-    // OS notification). Interjection completions use it before their deferred
-    // `display-only` replay; internal owner wake-ups use it so reviewing a
-    // privately routed child report does not create a root-chat card.
+
     if (
       event.audience !== "orchestrator-only" &&
       !isParentOwned &&
       !hasUnresolvedParentAncestry
     ) {
-      // Progress ticks are ephemeral decoration: they stream to the renderer
-      // below but are never persisted — thread state lives in
-      // `runtime_agents` (see `listThreadActivity`), and persisting every
-      // tick grew the message table without bound.
+
       if (event.type !== "agent-progress") {
         appendAgentLifecycleChatEvent(context, event);
       }
@@ -359,12 +346,7 @@ export const createAgentOrchestration = (
       }
     }
     if (parentThreadId && event.audience !== "orchestrator-only") {
-      // Subagents stay out of the root event table, but the parent's own
-      // read-only thread viewer still needs the canonical lifecycle semantics
-      // so spawns and completions render as cards there. Store a display-only
-      // structured entry beside (not inside) the model-visible terminal
-      // reminder. Starts/progress have no reminder at all, and this entry type
-      // is never replayed into the parent's model context.
+
       const lifecycleEvent = buildThreadLifecycleEvent(event, Date.now());
       if (
         !context.runtimeStore.hasThreadLifecycleEvent(
@@ -381,9 +363,7 @@ export const createAgentOrchestration = (
     if (event.audience === "display-only") {
       return;
     }
-    // A legacy/malformed parent link or ancestry cycle cannot be attributed
-    // safely. Keep the task in Activity, but never guess that it belongs in
-    // root chat or let it finalize the root turn.
+
     if (hasUnresolvedParentAncestry) return;
     const userPrompt = buildAgentEventPrompt(event, {
       recipient: isParentOwned ? "parent_agent" : "orchestrator",
@@ -392,10 +372,7 @@ export const createAgentOrchestration = (
       return;
     }
     if (parentThreadId) {
-      // Subagent reports live in the parent agent's durable thread and wake
-      // that parent directly. They never enter the top-level orchestrator's
-      // history, callbacks, or hidden steering stream — so a nested
-      // completion produces no root card and no OS notification.
+
       if (
         !hasPersistedThreadCustomEvent(context, parentThreadId, event.eventId)
       ) {
@@ -432,8 +409,7 @@ export const createAgentOrchestration = (
       }
       return;
     }
-    // The steer below is in-memory delivery for the active orchestrator
-    // session; this row is the durable record read by the next history rebuild.
+
     const orchestratorThreadKey = resolveOrchestratorThreadKey(
       event.conversationId,
     );
@@ -442,8 +418,7 @@ export const createAgentOrchestration = (
       orchestratorThreadKey,
       event.eventId,
     );
-    // A replay after persistence but before delivery must reuse the durable
-    // row's timestamp so the live prompt can be reconciled with that exact row.
+
     const lifecycleTimestamp = persistedLifecycleMessage?.timestamp ?? Date.now();
     if (!persistedLifecycleMessage) {
       persistThreadCustomMessage(context.runtimeStore, {
@@ -459,16 +434,7 @@ export const createAgentOrchestration = (
     context.state.orchestratorSessions
       .get(event.conversationId)
       ?.notifyHistoryChanged();
-    // Two-phase Dream-inbox stamp, phase 2 (persist-time invariant): the
-    // terminal report is now durably in this conversation's orchestrator
-    // thread — the exact premise mechanical delta consumption relies on —
-    // so promote the matching NULL-conversation row recorded at finalize.
-    // Only THIS branch ever promotes: a superseded/adopted/crashed run
-    // whose report never reached here leaves its row NULL forever (model-
-    // driven path). Content-matched, so a later attempt's event can never
-    // stamp an earlier attempt's unreported row. Best-effort: a missed
-    // promotion (partial store, hook write racing behind) only keeps the
-    // row on the model path — never enables consumption.
+
     if (event.type === "agent-completed" && event.result?.trim()) {
       try {
         const inbox = context.runtimeStore.dreamInboxStore;
@@ -483,8 +449,7 @@ export const createAgentOrchestration = (
           });
         }
       } catch {
-        // Promotion is bookkeeping for an optimization; the row remains
-        // consolidatable through the model-driven list either way.
+
       }
     }
     void deps.sendMessage({
@@ -560,15 +525,7 @@ export const createAgentOrchestration = (
         agentContext.resolvedLlm ??
         (await withStellaModelCatalogMetadata({
           route: resolveLlmRouteForCatalogEnrichment({
-            // `resolveLlmRoute`'s `stellaAppDir` arg is the directory it reads
-            // BYOK/local provider credentials from, which live under the data
-            // dir (~/.stella), not the install/code tree. Every other runner
-            // call site (model-selection.ts, resolveSubsidiaryLlmRoute below)
-            // passes `stellaDataDir`; this fallback previously passed
-            // `stellaAppDir`, so if a subagent ever hit this branch it would
-            // look for credentials in the wrong place and diverge from the
-            // orchestrator's resolution — surfacing as a spurious
-            // missing-credential/provider error after a provider switch.
+
             stellaAppDir: context.stellaDataDir,
             modelName: agentContext.model,
             agentType,
@@ -610,10 +567,7 @@ export const createAgentOrchestration = (
       const subagentFileChangeKeys = new Set<string>();
       const subagentProducedFiles: ProducedFileRecord[] = [];
       const subagentProducedFileKeys = new Set<string>();
-      // Shell sessions this run interacted with. Background/long-running
-      // commands can finish after the model's last poll, so their produced
-      // files never drain inline; we sweep these sessions at finalize to pull
-      // late deliverables into the completion rollup.
+
       const touchedShellSessions = new Set<string>();
       const subagentToolExecutor = async (
         toolName: string,
@@ -635,9 +589,7 @@ export const createAgentOrchestration = (
           onUpdate,
         );
         const shellState = getShellExecutionState(result);
-        // Remember every shell session this run touched so finalize can
-        // sweep background/long-running commands that completed after their
-        // last poll for undrained produced files.
+
         if (shellSessionId) touchedShellSessions.add(shellSessionId);
         if (shellState?.sessionId)
           touchedShellSessions.add(shellState.sessionId);
@@ -685,10 +637,7 @@ export const createAgentOrchestration = (
         resolveSubsidiaryLlmRoute: (subsidiaryAgentType: string) =>
           resolveLlmRoute({
             stellaAppDir: context.stellaDataDir,
-            // Honor any per-agent override the user set for this
-            // subsidiary agent (or our Assistant-tab propagation would
-            // silently hit Stella even when the user moved Assistant
-            // onto BYOK).
+
             modelName: getModelOverride(
               context.stellaDataDir,
               subsidiaryAgentType,
@@ -744,23 +693,13 @@ export const createAgentOrchestration = (
               subagentProducedFileKeys,
               event.producedFiles?.length ? event : event.details,
             );
-            // Stamp the spawned agent's thread id onto the tool-end event
-            // so the persisted `tool_result` payload carries `agentId` —
-            // that's what lets the left sidebar attribute files to this
-            // agent's Activity row live, before the completion rollup.
+
             runnerCallbacks?.onToolEnd(agentId ? { ...event, agentId } : event);
           },
         },
         hookEmitter: context.hookEmitter,
       }).finally(() => context.toolHost.endBrowserTurn(runId, "close-tabs"));
-      // Late/background flush: long-running shell commands (e.g. video
-      // renders) can finish after the model's last poll, so their produced
-      // files were never drained inline and would ride only individual
-      // tool_result entries — missing from the completion rollup that both
-      // desktop and mobile source exclusively. Sweep the sessions this run
-      // touched for completed-but-unreported deliverables and merge them
-      // (dedup + noise/MAX guards preserved by the shell drain) before the
-      // rollup assembles off `result.producedFiles`.
+
       if (touchedShellSessions.size > 0) {
         try {
           const lateProducedFiles =
@@ -800,8 +739,7 @@ export const createAgentOrchestration = (
     saveAgentRecord: (record) => {
       const recordRevision = context.runtimeStore.saveAgentRecord?.(record);
       if (recordRevision === null) return;
-      // Project the just-persisted row so consumers patch one keyed record
-      // instead of refetching every thread in the conversation.
+
       const threadMetadata =
         context.runtimeStore.getThreadActivityMetadata?.(record.threadId);
       const activityRecord: ThreadActivityRecord = {

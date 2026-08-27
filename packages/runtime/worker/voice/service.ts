@@ -152,11 +152,7 @@ export class VoiceRuntimeService {
     uiVisibility?: "visible" | "hidden";
     voiceSession?: { durationMs: number };
   }) {
-    // Durable thread store is the model-context source for every provider's
-    // voice transcripts (OpenAI realtime, xAI/Grok realtime, Inworld — they
-    // all funnel through this single persist path). User utterances carry
-    // the same timestamp tag the retired events projection used to render;
-    // the chat-events write below stays raw for display/sync.
+
     this.ensureRunner().appendThreadMessage({
       threadKey: payload.conversationId,
       role: payload.role,
@@ -481,14 +477,7 @@ export class VoiceRuntimeService {
             storageMode: "local",
           },
           {
-            // Assistant text arrives whole, one event per completed segment
-            // (a tool-calling turn emits several: preamble, post-tool answer).
-            // Concatenating them keeps `fullText` as the belt-and-braces
-            // fallback for the spoken reply when `run-finished` carries no
-            // `finalText`. Nothing is emitted on the voice agent-event wire:
-            // the voice overlay only renders tool/lifecycle cards, and the
-            // reply text reaches the caller through this promise's resolution
-            // (it discarded the old per-chunk STREAM frames anyway).
+
             onAssistantMessage: (event) => {
               if (event.text) {
                 fullText += (fullText ? "\n\n" : "") + event.text;

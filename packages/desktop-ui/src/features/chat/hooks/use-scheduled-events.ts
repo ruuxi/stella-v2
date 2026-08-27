@@ -6,19 +6,10 @@ const EMPTY_EVENTS: EventRecord[] = [];
 type UseScheduledEventsOptions = {
   conversationId: string | undefined;
   enabled: boolean;
-  /** Maximum number of scheduled events to surface (window cap). */
+
   maxItems: number;
 };
 
-/**
- * Pulls the per-conversation scheduler-pending events for use as a
- * synthetic overlay on top of the SQLite-backed message stream.
- * Refreshes whenever the scheduler service signals an update.
- *
- * Scheduled events are rare (a handful per active cron / heartbeat) so
- * the renderer takes them in bulk up to `maxItems`; there's no
- * pagination and no separate total-count read.
- */
 export function useScheduledEvents({
   conversationId,
   enabled,

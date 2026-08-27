@@ -10,7 +10,7 @@ const chmodBestEffort = async (targetPath: string, mode: number) => {
   try {
     await fsPromises.chmod(targetPath, mode);
   } catch {
-    // Ignore platforms and filesystems that do not support POSIX modes.
+
   }
 };
 
@@ -18,15 +18,10 @@ const chmodBestEffortSync = (targetPath: string, mode: number) => {
   try {
     fs.chmodSync(targetPath, mode);
   } catch {
-    // Ignore platforms and filesystems that do not support POSIX modes.
+
   }
 };
 
-// The (OI)(CI) flags make the grant inheritable by files and subdirectories
-// created inside, so one icacls per directory covers every subsequent private
-// file write — no per-file spawn. Hardened paths are memoized per process;
-// every CreateProcess on Windows is Defender-scanned, so repeat
-// ensurePrivateDir calls must not re-spawn.
 const hardenedWindowsDirs = new Set<string>();
 
 const windowsDirAclArgs = (dirPath: string): string[] | null => {
@@ -73,7 +68,7 @@ const tightenWindowsDirAclSync = (dirPath: string) => {
       windowsHide: true,
     });
   } catch {
-    // Ignore ACL hardening failures.
+
   }
 };
 

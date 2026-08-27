@@ -15,9 +15,6 @@ import {
   resolveStellaDataSeedDir,
 } from "./stella-paths.js";
 
-// Path helpers are re-exported so existing Electron-side importers keep
-// working; runtime-worker code must import `stella-paths.js` directly so this
-// module (and the sync machinery it drags in) stays out of the worker bundle.
 export {
   resolveBundledAgentMetadataDir,
   resolveDefaultStellaDataDir,
@@ -65,9 +62,6 @@ const copyPathIfMissing = async (sourcePath: string, targetPath: string) => {
   await fs.copyFile(sourcePath, targetPath);
 };
 
-// One-shot copies into the user's space. Bundled skills are reconciled into
-// the canonical `skills/` directory below; system prompts live in the app
-// bundle and never materialize into the data dir at all.
 const STELLA_DATA_SEED_ENTRIES = [
   "DREAM.md",
   path.join("outputs", "README.md"),
@@ -111,11 +105,7 @@ export const resolveStellaDataDir = async (
     stellaAppDir,
     explicitStatePath,
   );
-  // Development may load runtime code from the checkout, but user-created
-  // projects must always live in Stella's writable data root. Keeping the
-  // workspace under `stellaAppDir` in dev made the external-app scaffold and
-  // runtime look in different directories and reintroduced source-tree
-  // mutation in the one mode where it is easiest to miss.
+
   const runtimeRoot = path.join(
     app.isPackaged ? statePath : stellaAppDir,
     "runtime",
@@ -128,12 +118,6 @@ export const resolveStellaDataDir = async (
   process.env.STELLA_APP_DIR = stellaAppDir;
   process.env.STELLA_DATA_DIR = statePath;
 
-  // NOTE: `ensureStellaDataDirSeeded` (migration + skills mirror) is
-  // intentionally NOT invoked here — nothing on the first-paint path consumes
-  // the mirrored dirs, only the deferred runtime worker does. It is awaited in
-  // `initializeStellaHostRunner` (host-runner.ts), off the pre-window path,
-  // before the worker that reads those dirs connects. `resolveStellaDataDir`
-  // keeps only the cheap path resolution + env + dir ensures.
   await ensureDir(workspacePath);
   await ensureDir(workspaceAppsPath);
 

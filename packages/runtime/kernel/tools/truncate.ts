@@ -1,14 +1,3 @@
-/**
- * Shared truncation utilities for tool outputs.
- *
- * Truncation is based on two independent limits — whichever is hit first wins:
- * - Line limit (default: 2000 lines)
- * - Byte limit (default: 50KB, UTF-8)
- *
- * Never returns partial lines except the bash-style tail edge case (and the
- * matching head prefix used when a single line exceeds the byte budget).
- */
-
 export const DEFAULT_MAX_LINES = 2000;
 export const DEFAULT_MAX_BYTES = 50 * 1024;
 export const GREP_MAX_LINE_LENGTH = 500;

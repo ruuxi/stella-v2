@@ -1,28 +1,3 @@
-/**
- * Inline working indicator — the Claude-style "next-line" indicator.
- *
- * Mounted (persistently) as a keyed `ChatTimeline` item
- * (`.event-list-working-indicator`), so it reads as the line directly below
- * the streaming/last assistant message and above any queued user messages.
- *
- * Behavior:
- *  - While the assistant is reasoning (no answer text yet) it shows a
- *    rotating thinking label ("Thinking", "Mulling it over", …); while a
- *    tool is running it shows that tool's friendly
- *    status. After a tool it returns to thinking until the next tool or
- *    the first visible answer text, which deactivates it immediately.
- *  - Long-running agent task presence lives in the composer's task chip; this
- *    inline indicator only follows the orchestrator's thinking/tool lifecycle.
- *  - When the work finishes (`active` flips false) the indicator stays visible
- *    for at least `MIN_VISIBLE_MS`, then plays a short grow-out/fade for
- *    `EXIT_ANIMATION_MS` showing its last-known label. The parent mounts the
- *    indicator unconditionally and toggles `active` so React doesn't rip
- *    the node out before the exit animation runs. If `active` flips back
- *    true mid-exit, the exit is canceled and live updates resume.
- *  - Once fully exited, the inner content is removed (`--vacated`); the
- *    timeline wrapper's `:has(--vacated)` rule then collapses the slot so an
- *    idle chat carries no ghost gutter.
- */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { notifyChatContentGrowth } from "@/shell/chat-scroll-follow";
 import {
@@ -39,11 +14,6 @@ export type {
   InlineWorkingIndicatorProps,
 } from "@/features/chat/working-indicator-state";
 
-/**
- * Exit timing. There's no hold beat anymore (the indicator used to linger
- * to show a "Done · task" state) — once work stops we want the indicator
- * gone promptly, with just a short grow-out so it doesn't snap away.
- */
 const EXIT_ANIMATION_MS = 240;
 const ENTER_ANIMATION_MS = 320;
 const MIN_VISIBLE_MS = INLINE_WORKING_INDICATOR_MIN_VISIBLE_MS;
@@ -60,9 +30,7 @@ export function InlineWorkingIndicator({
   status,
   minimumVisibleMs,
 }: InlineWorkingIndicatorMountProps) {
-  // Snapshot the live props the moment `active` flips false so the exit
-  // animation displays a stable last-known label even though upstream
-  // tool/status flags clear out.
+
   const liveProps = useMemo<InlineWorkingIndicatorProps>(
     () => ({ runningTool, runningToolId, status, minimumVisibleMs }),
     [runningTool, runningToolId, status, minimumVisibleMs],
@@ -77,8 +45,6 @@ export function InlineWorkingIndicator({
 
   const displayProps = active ? liveProps : frozenPropsRef.current;
 
-  // Stay mounted until the exit animation finishes. If `active` flips back
-  // to true mid-animation, cancel the exit and resume live updates.
   const [renderShell, setRenderShell] = useState(active);
   const [entering, setEntering] = useState(active);
   const [leaving, setLeaving] = useState(false);
@@ -143,8 +109,7 @@ export function InlineWorkingIndicator({
         setLeaving(false);
       }, EXIT_ANIMATION_MS);
     };
-    // A visible answer handoff or terminal run must not leave a stale row
-    // behind — skip the minimum-visible hold and exit now.
+
     const remainingMs = exitImmediately
       ? 0
       : getInlineWorkingIndicatorExitDelayMs({
@@ -163,19 +128,8 @@ export function InlineWorkingIndicator({
     };
   }, [active, renderShell, exitImmediately]);
 
-  // The wrapper itself is always rendered with a fixed height once the
-  // indicator has appeared — `renderShell` only gates the inner content,
-  // so the gutter the indicator carved out below the assistant message
-  // remains after the grow-out exit completes (no layout shift). A new
-  // turn replaces the wrapper entirely (different React key in
-  // `ChatTimeline`), at which point the new wrapper occupies the slot.
   const showInner = renderShell;
 
-  // The indicator is its own timeline item below the assistant row, so it
-  // extends the live tail without touching any subtree the keyed scroll-follow
-  // watches — nothing would re-run targeting for it, and the row-only follow
-  // would leave it parked under the viewport edge. Announce the growth the way
-  // the inline cards do; the scroll surfaces decide whether to act on it.
   useLayoutEffect(() => {
     if (!showInner) return;
     notifyChatContentGrowth();

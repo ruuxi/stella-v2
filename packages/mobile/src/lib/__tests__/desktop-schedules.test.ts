@@ -72,7 +72,7 @@ describe("parseMobileSchedules", () => {
         { id: "" },
         null,
         { nope: true },
-        // Missing the required nextRunAtMs — dropped, not defaulted.
+
         cronRow({ nextRunAtMs: undefined }),
       ],
       heartbeats: [{ id: "bad" }],
@@ -124,12 +124,10 @@ describe("parseMobileSchedules", () => {
 
 describe("fetchMobileSchedules (request shape)", () => {
   test("requests both bridge list channels against the paired computer", async () => {
-    // Expo's module setup runs on import and expects the RN global.
+
     (globalThis as Record<string, unknown>).__DEV__ = false;
     const { mock } = await import("bun:test");
 
-    // Stand in for the paired-desktop record so the bridge resolves without
-    // native secure storage, and capture the channels the module requests.
     const store = new Map<string, string>();
     mock.module("expo-secure-store", () => ({
       getItemAsync: async (key: string) => store.get(key) ?? null,
@@ -217,10 +215,7 @@ describe("mutateMobileSchedule (request shape)", () => {
     await mutate("pause", cron);
     await mutate("resume", cron);
     await mutate("remove", cron);
-    // This is the exact wire shape the desktop's mobile-bridge invoke guard
-    // allowlists ({ jobId, patch: { enabled } } / { jobId }) — anything
-    // wider is rejected desktop-side, so this test pins both halves of the
-    // contract from the client end.
+
     expect(calls).toEqual([
       {
         channel: "schedule:updateCronJob",
@@ -302,7 +297,7 @@ describe("row rendering inputs", () => {
 
   test("paused rows badge as Paused; active rows badge the next run", () => {
     const now = Date.UTC(2026, 6, 20, 12, 0);
-    // Paused wins even with an imminent nextRunAtMs still on the record.
+
     expect(
       scheduleRowBadge(shape({ enabled: false, nextRunAtMs: now + 60_000 }), now),
     ).toEqual({ kind: "paused" });
@@ -318,7 +313,7 @@ describe("row rendering inputs", () => {
       }),
     ).toBe("Daily 09:00");
     expect(scheduleCadence({ intervalMs: 30 * 60_000 })).toBe("Every 30 min");
-    // Corrupt stored JSON yields "" — the UI's localized fallback takes over.
+
     expect(scheduleCadence({ scheduleJson: "{corrupt" })).toBe("");
     expect(scheduleCadence({})).toBe("");
   });

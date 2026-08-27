@@ -4,8 +4,7 @@ import { assert, assertObject } from "./assert";
 let cachedToken = "";
 let cachedTokenExpiresAt = 0;
 let inflightTokenPromise: Promise<string> | null = null;
-// Bumped by clearCachedToken so a fetch already in flight at sign-out can't
-// re-cache the previous account's JWT when it resolves.
+
 let cacheGeneration = 0;
 
 const REFRESH_MARGIN_MS = 60_000;

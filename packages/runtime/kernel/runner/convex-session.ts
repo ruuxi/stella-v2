@@ -9,7 +9,7 @@ export const createConvexSession = (
   context: RunnerContext,
   options: {
     onAuthTokenSet?: () => void;
-    /** Called before clearing auth so the client can still authenticate (e.g. goOffline). */
+
     onBeforeAuthTokenClear?: () => void | Promise<void>;
   } = {},
 ) => {
@@ -147,7 +147,7 @@ export const createConvexSession = (
     const needsClear = Boolean(prev);
     const applyNew = () => {
       context.state.authToken = value;
-      // Recreate the client so background subscriptions reconnect with fresh auth.
+
       disposeConvexClient();
       if (next) {
         options.onAuthTokenSet?.();

@@ -6,7 +6,6 @@ import {
 import { useDisplayTabList } from "@/features/workspace-display/tab-store";
 import type { DisplayTab } from "@/features/workspace-display/types";
 
-/** Closes file sidebar tabs after their display-tab id is actually removed. */
 export function FileSidebarTabExistenceReconciler() {
   const sidebarTabs = useSidebarOpenTabs();
   const { tabs } = useDisplayTabList() as { tabs: DisplayTab[] };

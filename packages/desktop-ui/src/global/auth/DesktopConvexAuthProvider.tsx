@@ -73,13 +73,6 @@ const getHostTokenRefreshDelayMs = (token: string): number => {
   }
 };
 
-/**
- * `useAuth` hook for `ConvexProviderWithAuth`. Exported so secondary
- * windows (e.g. the floating pet overlay) can wire Convex auth without
- * the full `DesktopConvexAuthProvider` bootstrap chain (anonymous-session
- * creation, magic-link layer, runtime token sync). Those side effects
- * only belong in the primary shell window.
- */
 export function useDesktopConvexAuth() {
   const session = useDesktopAuthSession();
 
@@ -104,10 +97,7 @@ export function useDesktopConvexAuth() {
     }: { forceRefreshToken?: boolean } = {}) => {
       return await getConvexToken({ forceRefresh: forceRefreshToken });
     },
-    // Intentionally keyed on sessionUserId and sessionIsAnonymous so
-    // ConvexProviderWithAuth re-calls setAuth when the signed-in identity
-    // changes, including anonymous → real account links that preserve user.id.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
     [sessionIsAnonymous, sessionUserId],
   );
 
@@ -181,7 +171,6 @@ function DesktopAuthRuntimeEffects({
       return;
     }
 
-    // Cloud sync stays intentionally disabled; auth sessions are local-only for now.
     void systemApi.setCloudSyncEnabled({ enabled: false });
 
     return () => {
@@ -336,8 +325,7 @@ function DesktopAuthRuntimeEffects({
           ...nextState,
         });
       }
-      // A live refresh request (heartbeat/subscription) is not part of the
-      // initial bootstrap loop — it can fail without poisoning startup.
+
       if (requestId) {
         return;
       }

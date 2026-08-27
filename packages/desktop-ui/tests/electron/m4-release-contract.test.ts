@@ -28,11 +28,10 @@ describe("M4 desktop release contracts", () => {
     };
     const parent = read(rootPackage.build.mac.entitlements);
     const inherit = read(rootPackage.build.mac.entitlementsInherit);
-    // Only the parent prompts for the mic; helpers must never inherit it.
+
     expect(parent).toContain("com.apple.security.device.audio-input");
     expect(inherit).not.toContain("com.apple.security.device.audio-input");
-    // Electron's own renderer needs JIT too, so this pair is shared rather
-    // than helper-only.
+
     expect(parent).toContain("com.apple.security.cs.allow-jit");
     expect(inherit).toContain("com.apple.security.cs.allow-jit");
     expect(inherit).toContain(
@@ -54,9 +53,7 @@ describe("M4 desktop release contracts", () => {
     const pill = read(
       "packages/desktop-ui/src/shell/ShellTopBarUpdatePill.tsx",
     );
-    // The strings are localized now, so pin the key here and the English
-    // wording in the catalog — the point is that a finished download does not
-    // announce itself as still downloading.
+
     expect(pill).toContain('t("shell.updatePill.toasts.downloadedTitle")');
     const en = JSON.parse(
       read("packages/desktop-ui/src/shared/i18n/locales/en.json"),

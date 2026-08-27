@@ -1,12 +1,3 @@
-/**
- * Fashion-tab CRUD: profiles, generated outfits, likes, cart, checkout sessions.
- *
- * The body photo itself is *not* stored on the backend — it lives only in
- * `state/fashion/body.{ext}` on the user's machine. We persist a `hasBodyPhoto`
- * flag plus mime-type/timestamp so the UI knows what shape the on-disk asset
- * should be without ever round-tripping bytes through Convex storage.
- */
-
 import {
   internalMutation,
   internalQuery,
@@ -114,12 +105,6 @@ const getProfileForOwner = async (
     .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
     .unique();
 
-// ---------------------------------------------------------------------------
-// Feature flag — true when SHOPIFY_UCP_CLIENT_ID + SHOPIFY_UCP_CLIENT_SECRET
-// are set on the backend deployment. The Fashion tab uses this to render a
-// graceful "not configured" state instead of failing inside Shopify actions.
-// ---------------------------------------------------------------------------
-
 export const getFashionFeatureStatus = query({
   args: {},
   returns: v.object({
@@ -129,10 +114,6 @@ export const getFashionFeatureStatus = query({
     shopifyConfigured: isShopifyUcpConfigured(),
   }),
 });
-
-// ---------------------------------------------------------------------------
-// Profile
-// ---------------------------------------------------------------------------
 
 export const getProfile = query({
   args: {},
@@ -261,10 +242,6 @@ export const setBodyPhotoFlag = mutation({
   },
 });
 
-// ---------------------------------------------------------------------------
-// Outfits
-// ---------------------------------------------------------------------------
-
 const normalizeProduct = (
   raw: unknown,
   index: number,
@@ -390,9 +367,6 @@ export const insertOutfit = internalMutation({
     const stylePrompt = optionalText(args.stylePrompt, "stylePrompt", MAX_PROMPT);
     const tryOnPrompt = optionalText(args.tryOnPrompt, "tryOnPrompt", MAX_PROMPT);
 
-    // Empty `products` is allowed: the user-driven Try-On flow registers an
-    // outfit that's just the rendered image (no shoppable products attached).
-    // The Shopify outfit-builder agent always submits ≥1 product.
     if (args.products.length > MAX_PRODUCTS_PER_OUTFIT) {
       throw new ConvexError({
         code: "INVALID_ARGUMENT",
@@ -525,10 +499,6 @@ export const getRecentOutfitProductIdsInternal = internalQuery({
   },
 });
 
-// ---------------------------------------------------------------------------
-// Likes
-// ---------------------------------------------------------------------------
-
 export const listLikes = query({
   args: { limit: v.optional(v.number()) },
   returns: v.array(fashion_like_validator),
@@ -630,10 +600,6 @@ export const getRecentLikesForOwnerInternal = internalQuery({
       .take(limit);
   },
 });
-
-// ---------------------------------------------------------------------------
-// Cart
-// ---------------------------------------------------------------------------
 
 export const listCart = query({
   args: {},
@@ -786,10 +752,6 @@ export const getCartForOwnerInternal = internalQuery({
   },
 });
 
-// ---------------------------------------------------------------------------
-// Checkout sessions (persisted for "open in store" + retry)
-// ---------------------------------------------------------------------------
-
 export const recordCheckoutSession = internalMutation({
   args: {
     ownerId: v.string(),
@@ -852,8 +814,6 @@ export const updateCheckoutSession = internalMutation({
   },
 });
 
-// Surfaced for the orchestrator-spawned fashion agent so it doesn't have to
-// rebuild like-context from raw model state.
 export type FashionContextSummary = {
   profile: {
     gender?: string;

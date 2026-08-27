@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-
 import { randomUUID } from "crypto";
 import { spawn } from "child_process";
 import {

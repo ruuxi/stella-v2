@@ -1,11 +1,3 @@
-/**
- * OpenAI Codex (ChatGPT OAuth) flow
- *
- * NOTE: This module uses Node.js crypto and http for the OAuth callback.
- * It is only intended for CLI use, not browser environments.
- */
-
-// NEVER convert to top-level imports - breaks browser/Vite builds (web-ui)
 let _randomBytes: typeof import("node:crypto").randomBytes | null = null;
 let _http: typeof import("node:http") | null = null;
 if (
@@ -108,7 +100,7 @@ function parseAuthorizationInput(input: string): {
       state: url.searchParams.get("state") ?? undefined,
     };
   } catch {
-    // not a URL
+
   }
 
   if (value.includes("#")) {
@@ -395,7 +387,7 @@ function startLocalOAuthServer(
             try {
               server.close();
             } catch {
-              // ignore
+
             }
           },
           cancelWait: () => {},
@@ -416,17 +408,6 @@ function getAccountId(accessToken: string): string | null {
     : null;
 }
 
-/**
- * Login with OpenAI Codex OAuth
- *
- * @param options.onAuth - Called with URL and instructions when auth starts
- * @param options.onPrompt - Called to prompt user for manual code paste (fallback if no onManualCodeInput)
- * @param options.onProgress - Optional progress messages
- * @param options.onManualCodeInput - Optional promise that resolves with user-pasted code.
- *                                    Races with browser callback - whichever completes first wins.
- *                                    Useful for showing paste input immediately alongside browser flow.
- * @param options.originator - OAuth originator parameter (defaults to "stella")
- */
 export async function loginOpenAICodex(options: {
   onAuth: (info: { url: string; instructions?: string }) => void;
   onPrompt: (prompt: OAuthPrompt) => Promise<string>;
@@ -469,7 +450,7 @@ export async function loginOpenAICodex(options: {
 
     let code: string | undefined;
     if (options.onManualCodeInput) {
-      // Race between browser callback and manual input
+
       let manualCode: string | undefined;
       let manualError: Error | undefined;
       const manualPromise = options
@@ -490,16 +471,15 @@ export async function loginOpenAICodex(options: {
       throwIfOAuthAborted(signal);
       if (result?.error) throw new Error(result.error);
 
-      // If manual input was cancelled, throw that error
       if (manualError) {
         throw manualError;
       }
 
       if (result?.code) {
-        // Browser callback won
+
         code = result.code;
       } else if (manualCode) {
-        // Manual input won (or callback timed out and user had entered code)
+
         const parsed = parseAuthorizationInput(manualCode);
         if (parsed.state && parsed.state !== state) {
           throw new Error("State mismatch");
@@ -507,7 +487,6 @@ export async function loginOpenAICodex(options: {
         code = parsed.code;
       }
 
-      // If still no code, wait for manual promise to complete and try that
       if (!code) {
         await awaitWithOAuthAbort(manualPromise, signal);
         throwIfOAuthAborted(signal);
@@ -523,7 +502,7 @@ export async function loginOpenAICodex(options: {
         }
       }
     } else {
-      // Original flow: wait for callback, then prompt if needed
+
       const result = await awaitWithOAuthAbort(
         callbackServer.waitForCode(),
         signal,
@@ -535,7 +514,6 @@ export async function loginOpenAICodex(options: {
       }
     }
 
-    // Fallback to onPrompt if still no code
     throwIfOAuthAborted(signal);
     if (!code) {
       const input = await awaitWithOAuthAbort(
@@ -595,9 +573,6 @@ export async function loginOpenAICodex(options: {
   }
 }
 
-/**
- * Refresh OpenAI Codex OAuth token
- */
 export async function refreshOpenAICodexToken(
   refreshToken: string,
 ): Promise<OAuthCredentials> {

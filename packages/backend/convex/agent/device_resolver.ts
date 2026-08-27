@@ -106,19 +106,13 @@ const upsertDeviceProfile = async (
   ownerId: string,
   deviceId: string,
   fields: DeviceProfileFields,
-  // Callers that already loaded the profile row (e.g. the hot heartbeat path,
-  // which reads it for the key-mismatch check) pass it through to avoid a
-  // second identical indexed lookup.
+
   preloadedProfile?: Awaited<ReturnType<typeof loadDeviceProfile>>,
 ) => {
   const existing =
     preloadedProfile ?? (await loadDeviceProfile(ctx, ownerId, deviceId));
   if (existing) {
-    // The hot heartbeat path calls this every ~30s with the same profile
-    // fields, so patching unconditionally rewrites the `devices` row (and
-    // invalidates its subscribers) on every beat. Only write when a provided
-    // field actually differs from what is stored; presence freshness is
-    // tracked separately in `device_presence`.
+
     const deviceNameChanged =
       fields.deviceName !== undefined &&
       fields.deviceName !== existing.deviceName;
@@ -181,8 +175,6 @@ const upsertDevicePresence = async (
   });
 };
 
-// Owners typically have a small handful of devices; cap the scan so this
-// stays bounded even if device rows accumulate over time.
 const MAX_DEVICES_PER_OWNER_SCAN = 200;
 
 const listDevicesForOwner = async (
@@ -218,8 +210,6 @@ const listDevicesForOwner = async (
     };
   });
 
-  // Surface presence rows that lack a profile row (shouldn't normally happen
-  // but keeps the merge total) so callers don't silently drop them.
   for (const presence of presenceByDeviceId.values()) {
     rows.push({
       deviceId: presence.deviceId,
@@ -265,13 +255,6 @@ const pickBestOnlineTarget = (
   return sorted[0]?.deviceId ?? null;
 };
 
-// ---------------------------------------------------------------------------
-// Public Mutations - called from Electron app
-// ---------------------------------------------------------------------------
-
-/**
- * Heartbeat: upsert the local device record with online = true.
- */
 export const heartbeat = mutation({
   args: {
     deviceId: v.string(),
@@ -284,9 +267,7 @@ export const heartbeat = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const ownerId = await requireSensitiveUserId(ctx);
-    // Heartbeats are intentionally hot (~every 30s per device), but a
-    // misbehaving client can still spin and churn both device tables. Use
-    // the loose hot-path tier keyed by (owner, device).
+
     await enforceMutationRateLimit(
       ctx,
       "device_heartbeat",
@@ -342,10 +323,6 @@ export const heartbeat = mutation({
   },
 });
 
-/**
- * Register: upsert a device record for the authenticated user.
- * No Ed25519 signing required — auth token is sufficient.
- */
 export const registerDevice = mutation({
   args: {
     deviceId: v.string(),
@@ -375,9 +352,6 @@ export const registerDevice = mutation({
   },
 });
 
-/**
- * Go offline: mark this desktop machine as offline.
- */
 export const goOffline = mutation({
   args: {
     deviceId: v.string(),
@@ -402,10 +376,6 @@ export const goOffline = mutation({
   },
 });
 
-// ---------------------------------------------------------------------------
-// Internal Queries - used by channels, schedulers, and agent execution
-// ---------------------------------------------------------------------------
-
 export const listFreshDevicesForOwner = internalQuery({
   args: {
     ownerId: v.string(),
@@ -426,10 +396,6 @@ export const listFreshDevicesForOwner = internalQuery({
   },
 });
 
-/**
- * Resolve execution target for connector / remote turns.
- * Prefers conversation affinity when the last user_message device is still registered.
- */
 export const resolveExecutionTarget = internalQuery({
   args: {
     ownerId: v.string(),
@@ -482,11 +448,6 @@ export const resolveExecutionTarget = internalQuery({
   },
 });
 
-/**
- * Get device status for system prompt injection (any desktop online).
- * Reads only the high-churn presence table to avoid scanning device profile
- * data we don't need.
- */
 export const getDeviceStatus = internalQuery({
   args: { ownerId: v.string(), nowMs: v.number() },
   handler: async (ctx, args) => {

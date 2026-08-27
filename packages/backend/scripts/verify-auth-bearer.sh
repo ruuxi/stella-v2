@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Proves the bearer and first-party OTT paths work end to end without using
-# cookies as client credentials.
 set -uo pipefail
 SITE="${1:-https://impartial-crab-34.convex.site}"
 CLOUD="$(echo "$SITE" | sed s/.convex.site/.convex.cloud/)"

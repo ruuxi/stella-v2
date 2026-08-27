@@ -14,8 +14,7 @@ let widgetFailed = false;
 const loadWidget = (): Widget<StellaWidgetProps> | null => {
   if (cachedWidget) return cachedWidget;
   if (widgetFailed) return null;
-  // expo-widgets is iOS-only and ExpoWidgets is unavailable in Expo Go;
-  // degrade gracefully when the native module is missing.
+
   if (Platform.OS !== "ios") {
     widgetFailed = true;
     return null;
@@ -25,7 +24,7 @@ const loadWidget = (): Widget<StellaWidgetProps> | null => {
     return null;
   }
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+
     const mod = require("../../widgets/StellaWidget") as {
       default: Widget<StellaWidgetProps>;
     };
@@ -37,16 +36,12 @@ const loadWidget = (): Widget<StellaWidgetProps> | null => {
   }
 };
 
-/**
- * Push the latest pairing/bridge snapshot to the home-screen widget.
- * No-ops when widgets aren't available on this build/device.
- */
 export function updateStellaWidget(props: StellaWidgetProps): void {
   const widget = loadWidget();
   if (!widget) return;
   try {
     widget.updateSnapshot(props);
   } catch {
-    // best-effort
+
   }
 }

@@ -23,7 +23,6 @@ const MUSIC_KEY_PATH = "/api/music/api-key";
 const MUSIC_STREAM_RATE_LIMIT = 10;
 const MUSIC_STREAM_RATE_WINDOW_MS = 300_000;
 
-// Lyria 3 Pro Preview pricing as of 2026-05: one song per request.
 const LYRIA_USD_PER_SONG = 0.08;
 const LYRIA_MODEL_LABEL = "lyria-3-pro-preview";
 
@@ -42,8 +41,6 @@ export const registerMusicRoutes = (http: HttpRouter) => {
         if (!auth.ok) return auth.response;
         const ownerId = auth.ownerId;
 
-        // Music is generative audio — a Pro surface. Checked before the
-        // usage window so a plan mismatch never reads as "out of credit".
         const capabilityCheck = await requireCapabilityAction(
           ctx,
           ownerId,
@@ -92,8 +89,7 @@ export const registerMusicRoutes = (http: HttpRouter) => {
           ownerId,
           "llm:google",
         );
-        // Only meter against the user's plan when Stella's key paid for it —
-        // BYO-key callers don't cost Stella anything.
+
         const billable = !userProvidedKey;
         const apiKey = userProvidedKey ?? process.env.GOOGLE_AI_API_KEY ?? null;
         if (!apiKey) {

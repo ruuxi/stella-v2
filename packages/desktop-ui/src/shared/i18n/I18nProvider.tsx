@@ -29,34 +29,19 @@ import {
 } from "./locales";
 
 type I18nContextValue = {
-  /** Currently active locale (BCP-47). */
+
   locale: Locale;
-  /** True when the active locale renders right-to-left. */
+
   isRTL: boolean;
-  /**
-   * Update the locale. Persists to the shared UI state store immediately
-   * and, when the user is signed in, fan out to Convex `user_preferences`
-   * so it follows them across devices.
-   */
+
   setLocale: (locale: Locale) => void;
-  /**
-   * Translate a dotted key (e.g. `settings.tabs.general`) against the
-   * active catalog. Falls back to English, then the raw key.
-   */
+
   t: (key: string, params?: TranslateParams) => string;
-  /**
-   * Resolve an array-valued key (e.g. plan feature lists). Falls back to
-   * English, then an empty array.
-   */
+
   tArray: (key: string, params?: TranslateParams) => string[];
-  /**
-   * Resolve a pluralised key against the active locale's CLDR plural
-   * rules. `count` is interpolated as `{count}` automatically. Use this
-   * instead of `n === 1 ? "item" : "items"`, which is only ever correct
-   * for English.
-   */
+
   tPlural: (key: string, count: number, params?: TranslateParams) => string;
-  /** All supported locales — handy for picker rendering. */
+
   supportedLocales: ReadonlyArray<Locale>;
 };
 
@@ -119,14 +104,10 @@ export function I18nProviderBase({
     getEagerCatalog(locale),
   );
 
-  // Keep <html lang/dir> in lockstep with the active locale so platform
-  // affordances (form inputs, native context menus, browser hyphenation)
-  // pick up the right script direction.
   useEffect(() => {
     applyDocumentLocale(locale);
   }, [locale]);
 
-  // Lazily fetch the active locale's JSON. English is bundled eagerly.
   useEffect(() => {
     let cancelled = false;
     void loadCatalog(locale).then((next) => {
@@ -138,7 +119,6 @@ export function I18nProviderBase({
     };
   }, [locale]);
 
-  // Stay in sync across renderer windows on the same device.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const handler = (event: StorageEvent) => {
@@ -151,12 +131,6 @@ export function I18nProviderBase({
     return () => window.removeEventListener("storage", handler);
   }, [locale]);
 
-  // Pull the user's stored locale from Convex when signed in. Treats
-  // the renderer-local UI-state value as an instant cache, then
-  // upgrades once the server replies. The Convex query is the
-  // external state we're syncing with — setting state in this effect
-  // is exactly the "subscribe + setState" shape the lint rule
-  // exempts.
   useEffect(() => {
     if (remotePreference === undefined) return;
     if (!remotePreference) return;
@@ -172,10 +146,9 @@ export function I18nProviderBase({
       if (!isSupportedLocale(next)) return;
       setLocaleState(next);
       writePersistedLocale(next);
-      // Best-effort remote sync; signed-out/local-only surfaces just keep the
-      // shared-UI-state value.
+
       void Promise.resolve(persistRemoteLocale?.(next)).catch(() => {
-        /* signed-out / network — preference still lives locally */
+
       });
     },
     [persistRemoteLocale],
@@ -242,7 +215,7 @@ const FALLBACK: I18nContextValue = {
   locale: DEFAULT_LOCALE,
   isRTL: false,
   setLocale: () => {
-    /* no-op — provider missing */
+
   },
   t: (key, params) => translate(getEagerCatalog(DEFAULT_LOCALE), key, params),
   tArray: (key, params) =>
@@ -258,8 +231,4 @@ const FALLBACK: I18nContextValue = {
   supportedLocales: SUPPORTED_LOCALES,
 };
 
-/**
- * Static accessor for environments without a React tree (e.g. tests,
- * non-React modules). Always reads from the English fallback catalog.
- */
 export const i18nFallback = FALLBACK;

@@ -8,13 +8,7 @@ import { PROVIDER_CREDENTIALS, isApiKeyOnlyPlaceholder, } from "@/global/setting
 import { useT } from "@/shared/i18n";
 import "./ProviderOnlyPicker.css";
 const STELLA_PROVIDER_KEY = "stella";
-/**
- * Flat, provider-first picker used for image and voice settings. Unlike the
- * full provider/model panel, every option is "the provider itself" — the
- * runtime picks the model. If the user taps a non-Stella provider they are
- * not connected to, the row expands inline with the OAuth / API-key flow
- * and we auto-select once credentials land.
- */
+
 export function ProviderOnlyPicker({ providers, value, onSelect, disabled = false, ariaLabel, }) {
     const t = useT();
     const credentials = useLlmCredentials();

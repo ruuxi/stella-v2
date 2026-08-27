@@ -12,10 +12,7 @@ export type ConversationTab = {
   title: string;
   latestMessageAt?: number;
   latestMessageId?: string;
-  /**
-   * A message landed on this conversation while the user was looking at a
-   * different tab. Persisted so a restart doesn't quietly drop the notice.
-   */
+
   unread?: boolean;
 };
 
@@ -179,16 +176,7 @@ export const conversationTabs = {
         : tabs,
     );
   },
-  /**
-   * Browser-like in-place navigation: swap the current tab's conversation for
-   * another one without growing the tab strip. New Chat (+) is the only path
-   * that should append a tab.
-   *
-   * - If `nextConversationId` is already open, just updates that existing
-   *   tab's title/cursor (caller still navigates to it).
-   * - If there is no current tab, falls back to `openConversation`.
-   * - Otherwise the current slot is overwritten in place, keeping order.
-   */
+
   replaceConversation(
     currentConversationIdInput: string | null,
     nextConversationIdInput: string,
@@ -271,11 +259,7 @@ export const conversationTabs = {
     });
     if (changed) emit(tabs);
   },
-  /**
-   * Flag a background tab as having new activity. Only tabs that are open
-   * carry the notice — an update for a conversation with no tab is ignored
-   * rather than opening one.
-   */
+
   markUnread(conversationIdInput: string): void {
     const conversationId = normalizeId(conversationIdInput);
     const index = findTabIndex(conversationId);

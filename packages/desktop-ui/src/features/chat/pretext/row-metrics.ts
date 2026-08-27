@@ -1,18 +1,3 @@
-/**
- * Exact virtualized row heights for plain-text chat bubbles.
- *
- * `ChatTimeline` hands LegendList a `getFixedItemSize`; for a row whose body
- * is nothing but plain text (no markdown constructs, no chips, attachments,
- * cards or artifacts) this module returns the row's precise pixel height so
- * the list never has to guess and correct. Every other row returns
- * `undefined` and keeps today's measure-after-mount behavior.
- *
- * The arithmetic is deliberately conservative: it is built from geometry read
- * off a real probe element (so it tracks theme, zoom and per-surface CSS
- * rather than hard-coded numbers), and anything it cannot account for exactly
- * bails out. Under-measuring is far worse than falling back, so when in doubt
- * this returns `undefined`.
- */
 import type { EventRowViewModel } from "@/features/chat/conversation-row-types";
 import {
   measurePlainTextHeight,
@@ -21,28 +6,24 @@ import {
   type TranscriptTypography,
 } from "./measure";
 
-/**
- * Every piece of row chrome the height arithmetic needs, read once from a
- * probe rendered inside the live transcript.
- */
 export interface TranscriptRowMetrics {
-  /** Inner width of one virtualized row (`.event-row` is `width: 100%`). */
+
   columnWidthPx: number;
-  /** Gap between a row's parts (bubble → cards → action strip). */
+
   partGapPx: number;
-  /** In-flow height of the hover action strip. */
+
   actionsHeightPx: number;
 
   assistant: {
     typography: TranscriptTypography;
-    /** Horizontal padding on `.event-item.assistant` (the bubble's container). */
+
     itemPadXPx: number;
-    /** Bubble padding + border, split by axis. */
+
     bubblePadXPx: number;
     bubblePadYPx: number;
-    /** `max-width` of the bubble as a fraction of its container. */
+
     maxWidthRatio: number;
-    /** `margin-bottom` between two markdown paragraphs. */
+
     paragraphGapPx: number;
   };
 
@@ -51,11 +32,10 @@ export interface TranscriptRowMetrics {
     bubblePadXPx: number;
     bubblePadYPx: number;
     maxWidthRatio: number;
-    /** `-webkit-line-clamp` on a collapsed user bubble. */
+
     clampLines: number;
   };
 
-  /** Invalidation key: changes whenever any input above changes. */
   epoch: string;
 }
 
@@ -69,16 +49,6 @@ const ratioOf = (maxWidth: string): number => {
   return maxWidth.trim().endsWith("%") ? parsed / 100 : 1;
 };
 
-/**
- * Builds a hidden probe with the transcript's real class chain inside
- * `host`, reads its computed geometry, and tears it down. `host` must be
- * inside the surface that owns the `--chat-*` tokens (the LegendList scroll
- * node is), so per-surface overrides (sidebar, orb, agent thread) are picked
- * up for free.
- *
- * `columnWidthPx` is NOT taken from the probe — the probe is positioned out
- * of flow, so the caller supplies the width of a real laid-out row.
- */
 export function measureTranscriptRowMetrics(
   host: HTMLElement,
   columnWidthPx: number,
@@ -213,11 +183,6 @@ export function measureTranscriptRowMetrics(
   }
 }
 
-/**
- * An assistant row qualifies only when its whole body is the text bubble.
- * Any card, artifact, receipt or voice summary adds height this module does
- * not model.
- */
 const assistantRowIsTextOnly = (row: EventRowViewModel): boolean =>
   row.kind === "assistant" &&
   !row.officePreviewRef &&
@@ -231,11 +196,6 @@ const assistantRowIsTextOnly = (row: EventRowViewModel): boolean =>
   (row.mapArtifacts?.length ?? 0) === 0 &&
   (row.sourceDiffPayloads?.length ?? 0) === 0;
 
-/**
- * A user row qualifies only when it is a bare text bubble: no context chips,
- * no attachments, no quoted text, no channel envelope — and no `@` mention,
- * which `ModelMentionText` renders as an inline pill of its own metrics.
- */
 const userRowIsTextOnly = (row: EventRowViewModel): boolean =>
   row.kind === "user" &&
   (row.attachments?.length ?? 0) === 0 &&
@@ -247,12 +207,6 @@ const userRowIsTextOnly = (row: EventRowViewModel): boolean =>
   (row.pastedTexts?.length ?? 0) === 0 &&
   !row.text.includes("@");
 
-/**
- * Exact height of one timeline row, or `undefined` to fall back to
- * measure-after-mount. Rounded UP to a whole pixel: a fractional
- * under-estimate is what produces overlap/clipping, so the arithmetic always
- * errs on the generous side by at most 1px.
- */
 export function getFixedRowHeight(
   row: EventRowViewModel,
   metrics: TranscriptRowMetrics,
@@ -273,8 +227,7 @@ export function getFixedRowHeight(
     );
     if (textHeight === undefined) return undefined;
     let height = textHeight + metrics.assistant.bubblePadYPx;
-    // Only a turn's FINAL assistant message carries the action strip; a
-    // mid-turn preamble reserves no height for it (see `AssistantMessageRow`).
+
     if (!row.isIntraTurn) {
       height += metrics.partGapPx + metrics.actionsHeightPx;
     }
@@ -293,8 +246,7 @@ export function getFixedRowHeight(
     contentWidth,
   );
   if (textHeight === undefined) return undefined;
-  // A long user message clamps to N lines and grows a "Show more" toggle
-  // whose height is not modeled here — bail rather than under-measure.
+
   const lineHeight = metrics.user.typography.lineHeightPx;
   if (metrics.user.clampLines > 0 && lineHeight > 0) {
     const lines = Math.round(textHeight / lineHeight);

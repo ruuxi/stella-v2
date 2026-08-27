@@ -1,15 +1,3 @@
-/**
- * Copy text to the clipboard, robust against the Async Clipboard API
- * being unavailable or rejected.
- *
- * `navigator.clipboard.writeText` can reject in the Electron renderer
- * when the `clipboard-sanitized-write` permission is denied or the
- * document isn't focused. We fall back to a hidden-textarea +
- * `document.execCommand("copy")`, which works inside the click's user
- * gesture without going through the Async Clipboard permission system.
- *
- * Returns whether the copy succeeded.
- */
 export async function copyTextToClipboard(text: string): Promise<boolean> {
   if (!text) return false;
 
@@ -19,7 +7,7 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
       return true;
     }
   } catch {
-    // Fall through to the legacy execCommand path.
+
   }
 
   try {
@@ -41,8 +29,7 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
     textarea.select();
     const ok = document.execCommand("copy");
     document.body.removeChild(textarea);
-    // Restore any prior selection so copying doesn't clobber the user's
-    // highlight in the chat.
+
     if (previousRange && selection) {
       selection.removeAllRanges();
       selection.addRange(previousRange);

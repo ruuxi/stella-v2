@@ -1,17 +1,3 @@
-// @vitest-environment jsdom
-/**
- * Fallback contract for the pretext row-height path.
- *
- * `measurePlainTextHeight` must return `undefined` for anything it cannot
- * predict exactly — markdown, empty text, a degenerate width — so
- * `getFixedItemSize` falls back to LegendList's measure-after-mount path
- * instead of handing it a wrong number (which is what produces overlap).
- *
- * pretext measures against a real canvas 2D context. jsdom has no font
- * engine, so `prepare()` either throws or returns zero-width segments there;
- * the measuring assertions are skipped when that is the case, while the pure
- * guard clauses (which never reach `prepare()`) always run.
- */
 import { describe, expect, it } from "vitest";
 import {
   clearMeasurementCache,
@@ -27,7 +13,6 @@ const typography: TranscriptTypography = {
   epoch: "test-epoch",
 };
 
-/** True when this environment can actually measure glyph advances. */
 const canMeasureText = (() => {
   try {
     const height = measurePlainTextHeight("hello world", typography, 400);

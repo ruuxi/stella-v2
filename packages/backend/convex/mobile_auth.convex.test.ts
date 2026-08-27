@@ -1,5 +1,3 @@
-/// <reference types="vite/client" />
-
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import { internal } from "./_generated/api";
@@ -14,15 +12,6 @@ const TOKEN_ENC = "encrypted-bearer-token-blob";
 
 const MINUTE = 60_000;
 
-/**
- * Covers the browser -> app session handoff.
- *
- * These live in a Convex test rather than the live shell scripts because the
- * flow needs a *completed* handoff to claim, and the only endpoint that could
- * complete one synchronously was the App Review sign-in backdoor, which has
- * been removed. Driving the internal mutations directly is both deterministic
- * and covers cases the HTTP path could not reach (expiry, attempt cap).
- */
 const seedCompleted = async (
   t: ReturnType<typeof convexTest>,
   overrides: Partial<{
@@ -78,7 +67,7 @@ describe("auth handoff claim", () => {
     const now = await seedCompleted(t);
 
     expect((await claim(t, CLAIM_HASH, now)).ok).toBe(true);
-    // Replay must fail, and the row must be gone rather than merely flagged.
+
     expect((await claim(t, CLAIM_HASH, now)).ok).toBe(false);
     const remaining = await t.run(async (ctx) =>
       ctx.db
@@ -94,7 +83,7 @@ describe("auth handoff claim", () => {
     const now = await seedCompleted(t);
 
     expect((await claim(t, OTHER_HASH, now)).ok).toBe(false);
-    // The legitimate client must still be able to claim afterwards.
+
     expect((await claim(t, CLAIM_HASH, now)).ok).toBe(true);
   });
 
@@ -120,8 +109,7 @@ describe("auth handoff claim", () => {
     for (let attempt = 0; attempt < 5; attempt += 1) {
       expect((await claim(t, OTHER_HASH, now)).ok).toBe(false);
     }
-    // The cap has been consumed: even the CORRECT secret no longer works,
-    // and the row is gone so a brute force cannot resume.
+
     expect((await claim(t, CLAIM_HASH, now)).ok).toBe(false);
     const remaining = await t.run(async (ctx) =>
       ctx.db

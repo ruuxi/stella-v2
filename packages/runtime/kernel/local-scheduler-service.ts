@@ -43,13 +43,6 @@ type LocalSchedulerState = {
   generatedEvents: Record<string, ScheduledConversationEvent[]>
 }
 
-/**
- * Optional OS-notification surface. The runtime client wires this to the
- * Electron-side `showStellaNotification` so each delivered scheduled
- * message also pops a native banner. Headless contexts (tests, the
- * mobile runtime if it ever embeds the scheduler) leave it
- * undefined and silently skip notifications.
- */
 export type LocalSchedulerNotifier = (params: {
   title: string
   body: string
@@ -104,7 +97,6 @@ const cloneCronJob = (job: LocalCronJobRecord): LocalCronJobRecord => ({
     : {}),
 })
 
-/** Script file backing a payload, if any (`watch` sensors and legacy `script` jobs). */
 const payloadScriptPath = (payload: LocalCronPayload): string | null =>
   payload.kind === 'script' || payload.kind === 'watch'
     ? payload.scriptPath
@@ -302,11 +294,6 @@ const resolveHeartbeatPrompt = (params: {
   return `${base}\n\nHeartbeat checklist:\n${checklist}`
 }
 
-/**
- * Fire-time prompts for orchestrator-bound triggers. The automation turn is
- * hidden; the scheduler delivers the turn's final text as the assistant
- * message + OS notification, so each prompt says so explicitly.
- */
 const buildTaskFirePrompt = (name: string, intent: string) =>
   `Scheduled task "${name}" fired. Carry out the stored intent below now — answer directly or spawn agents as you normally would. Your final reply is delivered to the user as an assistant message and a native notification, so make it a concise user-facing report of what happened.
 
@@ -627,11 +614,6 @@ export class LocalSchedulerService {
     this.scriptsDir = scheduleScriptsDir(options.stellaDataDir)
   }
 
-  /**
-   * Absolute directory under which `payload.kind === 'script'` cron jobs
-   * live. Surfaced so the `ScriptDraft` tool can resolve the same path
-   * the scheduler validates against.
-   */
   getScheduleScriptsDir(): string {
     return this.scriptsDir
   }
@@ -762,9 +744,6 @@ export class LocalSchedulerService {
     job.nextRunAtMs = computeNextRunAtMs(nextSchedule, now)
     job.updatedAt = now
 
-    // If we replaced a `script` payload (or swapped to a different kind),
-    // the prior script file is now orphaned. Clean it up immediately so
-    // we don't accumulate dead `.ts` files in `~/.stella/schedule-scripts`.
     if (
       priorScriptPath &&
       payloadScriptPath(nextPayload) !== priorScriptPath &&
@@ -927,15 +906,6 @@ export class LocalSchedulerService {
     }
   }
 
-  /**
-   * Sweep the schedule-scripts directory and remove any `.ts` file (and
-   * matching `.state.json` sidecar) not referenced by an active cron's
-   * `payload.scriptPath`. Runs once at startup so iterated `ScriptDraft`
-   * attempts that the agent ultimately abandoned don't accumulate.
-   *
-   * Best-effort: any failure is swallowed — the scripts directory is just
-   * a cache of authored work, never load-bearing for live cron firing.
-   */
   private collectOrphanScripts() {
     let entries: string[]
     try {
@@ -964,7 +934,7 @@ export class LocalSchedulerService {
       try {
         fs.rmSync(abs, { force: true })
       } catch {
-        // Ignore — best-effort cleanup.
+
       }
     }
   }
@@ -982,12 +952,12 @@ export class LocalSchedulerService {
     try {
       fs.rmSync(scriptPath, { force: true })
     } catch {
-      // Ignore — script may already be gone.
+
     }
     try {
       fs.rmSync(`${scriptPath}.state.json`, { force: true })
     } catch {
-      // Ignore — sidecar is optional.
+
     }
   }
 
@@ -1141,8 +1111,7 @@ export class LocalSchedulerService {
         const needsRunner = this.requiresRunner(dueItem)
         const runner = needsRunner ? this.options.runnerTarget.getRunner() : null
         if (needsRunner && !runner) {
-          // Worker isn't ready yet; back off and retry. notify/script
-          // fires don't need the runner so they continue to drain.
+
           nextDelayOverride = 5_000
           break
         }
@@ -1192,17 +1161,10 @@ export class LocalSchedulerService {
     try {
       this.options.showNotification(params)
     } catch {
-      // Best-effort: never let a notifier failure break the scheduler tick.
+
     }
   }
 
-  /**
-   * Advance a fired cron's nextRunAtMs / enabled / deleteAfterRun
-   * book-keeping. Centralizes the at-vs-recurring policy that ran inline
-   * inside the old monolithic executor.
-   *
-   * Returns whether the job survived (`true`) or was deleted (`false`).
-   */
   private advanceCronAfterRun(
     active: LocalCronJobRecord,
     finishedAt: number,
@@ -1249,9 +1211,6 @@ export class LocalSchedulerService {
     this.persistState()
     this.emitChange()
 
-    // Runner-dependent payloads share one busy guard. Shouldn't trigger —
-    // `requiresRunner` gates this — but if the runner went away mid-tick
-    // treat it as busy and retry.
     const markBusyWithoutRunner = (): 'busy' => {
       active.runningAtMs = undefined
       active.updatedAt = Date.now()
@@ -1390,12 +1349,6 @@ export class LocalSchedulerService {
     return 'done'
   }
 
-  /**
-   * Task trigger: deliver the stored intent as a hidden orchestrator turn.
-   * The orchestrator answers directly or spawns agents as it normally
-   * would; its final text is delivered as the assistant message + OS
-   * notification (consistent with every other cron fire).
-   */
   private async executeCronTask(
     active: LocalCronJobRecord,
     runner: NonNullable<LocalSchedulerRunner>,
@@ -1461,21 +1414,6 @@ export class LocalSchedulerService {
     return 'done'
   }
 
-  /**
-   * Watch (sensor) trigger. Runs the verified check script with NO LLM:
-   *
-   *  - exit 0, empty stdout — no change. Nothing happens: no message, no
-   *    notification, just book-keeping and the next tick.
-   *  - exit 0, non-empty stdout — the sensor saw a change. Escalate to an
-   *    orchestrator turn carrying the change details, which notifies/acts.
-   *  - non-zero exit — the sensor itself broke (site changed, auth died).
-   *    Escalate to an orchestrator turn flagging the failure so the sensor
-   *    gets investigated and repaired instead of dying silently.
-   *
-   * A busy worker parks the escalation on `pendingEscalation` and retries
-   * WITHOUT re-running the script — the script may have already advanced
-   * its baseline sidecar, so re-running would swallow the diff.
-   */
   private async executeCronWatch(
     active: LocalCronJobRecord,
     runner: NonNullable<LocalSchedulerRunner>,
@@ -1513,7 +1451,7 @@ export class LocalSchedulerService {
       if (runResult.exitCode === 0) {
         const text = runResult.stdout.trim()
         if (!text) {
-          // Deterministic no-op: unchanged sensors are silent.
+
           active.runningAtMs = undefined
           active.lastStatus = 'no-change'
           active.lastError = undefined

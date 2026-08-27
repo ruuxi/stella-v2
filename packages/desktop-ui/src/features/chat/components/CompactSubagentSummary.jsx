@@ -1,23 +1,10 @@
-/**
- * Condensed subagent-group summary — the collapsed presentation of a general
- * agent that owns subagents. It renders either a per-agent dot grid (≤16 owned
- * agents) or a segmented progress bar (17+), plus a single running/done/failed
- * tally line.
- *
- * Extracted from the activity workspace strip so the right-sidebar Home list
- * (`FilesSection`) and the workspace strip (`WorkspaceSections`) share ONE
- * implementation of the collapsed group summary and stay visually identical.
- */
 import { memo, useEffect, useState } from "react";
 import { getCompactActivityStatusText } from "@/features/chat/lib/event-transforms";
 import { selectLatestAgentAssistantMessage } from "@/features/chat/lib/agent-assistant-summary";
 import "@/app/chat/chat-workspace-strip.css";
 
-// Past this the elapsed timer stops resolving to a duration and shows a short
-// placeholder phrase instead (owner may tweak the copy).
 const ELAPSED_STILL_GOING_MS = 2 * 60 * 60 * 1000;
 
-/** "3s" → "12m" → "1h", then "still going" past ~2h. */
 const formatElapsedLabel = (elapsedMs) => {
   const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
   if (totalSeconds < 60) return `${totalSeconds}s`;
@@ -27,11 +14,6 @@ const formatElapsedLabel = (elapsedMs) => {
   return `${Math.floor(totalMinutes / 60)}h`;
 };
 
-/**
- * Live elapsed-running label. Ticks every second under a minute, then every
- * minute (cheap, self-scheduling), and stops once it settles into "still
- * going". Returns null when there's nothing to time.
- */
 const useElapsedRunningLabel = (startedAtMs) => {
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -40,7 +22,7 @@ const useElapsedRunningLabel = (startedAtMs) => {
     const schedule = () => {
       const elapsed = Date.now() - startedAtMs;
       setNowMs(Date.now());
-      // No further ticks needed once we've crossed into "still going".
+
       if (elapsed >= ELAPSED_STILL_GOING_MS) return;
       timer = window.setTimeout(schedule, elapsed < 60_000 ? 1_000 : 60_000);
     };
@@ -75,11 +57,6 @@ const compactTaskTooltip = (task) => {
   return `${label} · ${compactTaskState(task)}${clipped ? ` — ${clipped}` : ""}`;
 };
 
-/**
- * Compact state visualization + tally for a collapsed group of owned agents.
- * `summary` comes from `summarizeCompactActivity`; `prioritizeFailure` pulls a
- * failing child to the front of the tally while the owner is still running.
- */
 export const CompactChildState = memo(function CompactChildState({
   summary,
   prioritizeFailure,
@@ -136,8 +113,7 @@ export const CompactChildState = memo(function CompactChildState({
             <span
               key={task.id}
               className={`chat-workspace-strip__compact-cell chat-workspace-strip__compact-cell--${task.status}`}
-              // Stable task identity keeps state changes on this final grid
-              // slot; only the local paint fades/pulses, never its position.
+
               style={{ "--cell-order": index }}
               title={compactTaskTooltip(task)}
             />

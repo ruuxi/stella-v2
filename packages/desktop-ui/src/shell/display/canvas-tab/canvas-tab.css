@@ -18,11 +18,7 @@
   align-items: stretch;
   border-radius: 0;
   overflow: hidden;
-  /*
-   * Intentionally no painted background — the canvas iframe handles its
-   * own styling, and a flat card behind it just adds a bright slab in
-   * light themes that fights the global gradient.
-   */
+
   background: transparent;
 }
 
@@ -92,8 +88,7 @@
   display: block;
   width: 100%;
   height: 100%;
-  /* Cursor/sparkle animations sit low-right in the viewBox; nudge so
-     the window reads centered under the loading label. */
+
   transform: translate(-6px, -8px);
 }
 

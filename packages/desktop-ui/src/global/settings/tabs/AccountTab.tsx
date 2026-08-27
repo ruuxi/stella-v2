@@ -40,13 +40,13 @@ async function clearLocalAccountState() {
   try {
     localStorage.clear();
   } catch {
-    /* best-effort local cleanup */
+
   }
 
   try {
     sessionStorage.clear();
   } catch {
-    /* best-effort local cleanup */
+
   }
 
   if (
@@ -62,7 +62,7 @@ async function clearLocalAccountState() {
         );
       await Promise.all(names.map(deleteIndexedDatabase));
     } catch {
-      /* best-effort local cleanup */
+
     }
   }
 
@@ -73,7 +73,7 @@ async function clearLocalAccountState() {
         cacheNames.map((cacheName) => caches.delete(cacheName)),
       );
     } catch {
-      /* best-effort local cleanup */
+
     }
   }
 

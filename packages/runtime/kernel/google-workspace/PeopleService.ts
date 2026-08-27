@@ -1,9 +1,3 @@
-/**
- * @license
- * Copyright 2025 Google LLC
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { google, people_v1 } from 'googleapis';
 import { AuthManager } from './AuthManager.js';
 import { logToFile } from './logger.js';
@@ -129,11 +123,6 @@ export class PeopleService {
     }
   };
 
-  /**
-   * Gets a user's relations (e.g., manager, spouse, assistant).
-   * Defaults to the authenticated user if no userId is provided.
-   * Optionally filters by a specific relation type.
-   */
   public getUserRelations = async ({
     userId,
     relationType,

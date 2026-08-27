@@ -38,11 +38,9 @@ const OPEN_ENDED_GATEWAY_PROVIDERS = new Set([
   "vercel-ai-gateway",
 ]);
 
-/** Gateways whose provider owns an open-ended model-id namespace. */
 export const isOpenEndedGatewayProvider = (provider: string): boolean =>
   OPEN_ENDED_GATEWAY_PROVIDERS.has(provider.trim().toLowerCase());
 
-/** Upstream id carried verbatim by a `stella/<provider>/<model>` reference. */
 export const getStellaVerbatimUpstreamModel = (
   rawModel: string,
 ): string | null => {
@@ -53,11 +51,6 @@ export const getStellaVerbatimUpstreamModel = (
   return parsed.modelId;
 };
 
-/**
- * References routing accepts verbatim instead of validating against a closed
- * registry namespace. Colons in these references are always model-id data,
- * never spawn-agent effort delimiters.
- */
 export const isOpenEndedModelReference = (rawModel: string): boolean => {
   const parsed = parseModelReference(rawModel);
   if (!parsed) return false;
@@ -75,7 +68,6 @@ export type RegistryModelMatch = {
   model: Model<Api>;
 };
 
-/** Exact id matches across every live registry namespace. */
 export const findRegistryModelsById = (
   modelId: string,
 ): RegistryModelMatch[] => {
@@ -88,7 +80,6 @@ export const findRegistryModelsById = (
   );
 };
 
-/** A closed `stella/<bare-id>` reference backed by any registry namespace. */
 export const isRegisteredBareStellaModelReference = (
   rawModel: string,
 ): boolean => {

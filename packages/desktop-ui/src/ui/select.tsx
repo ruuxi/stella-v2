@@ -17,7 +17,7 @@ interface SelectProps<T extends string = string> {
   className?: string;
   placeholder?: React.ReactNode;
   "aria-label"?: string;
-  /** Optional label rendered above the trigger. */
+
   label?: string;
   hideLabel?: boolean;
   id?: string;

@@ -37,7 +37,7 @@ function useWelcomeMessage(conversationId: string | null): string | null {
           if (text) setMessage(text);
         }
       } catch {
-        // silent - fallback will be used
+
       }
     };
 
@@ -110,8 +110,8 @@ export function WelcomeDialog({
           </p>
 
           <div className="welcome-dialog-cards">
-            {/* Model choice is a developer-mode surface; default Stella is
-                just Stella, so the card is not rendered at all without it. */}
+            {
+}
             {developerModeEnabled ? (
               <div
                 className="welcome-dialog-card welcome-dialog-card--interactive"

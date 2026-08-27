@@ -6,10 +6,7 @@ import { BootstrapLifecycleBindings } from "./lifecycle-bindings.js";
 import { ProcessRuntime } from "../process-runtime.js";
 import { createBootstrapServices } from "./bootstrap-services.js";
 import { registerBootstrapProcessCleanups } from "./cleanup.js";
-/**
- * Retrieve the mobile bridge broadcast function from context.
- * Returns null if the bridge service hasn't started yet.
- */
+
 export const getMobileBroadcast = (context) => {
     return context.state.mobileBridgeResource?.broadcastToMobile ?? null;
 };

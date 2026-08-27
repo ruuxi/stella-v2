@@ -1,12 +1,3 @@
-/**
- * Local tool implementations for tools that don't need the server.
- *
- * These replace the backend passthrough (`callBackendTool`) for tools
- * that can execute entirely in the Electron process:
- * - WebFetch: direct fetch() + HTML-to-text
- * - NoResponse: immediate return
- */
-
 import { parse, type DefaultTreeAdapterMap } from "parse5";
 import TurndownService from "turndown";
 import { normalizeSafeExternalUrl } from "./network-guards.js";
@@ -40,8 +31,6 @@ const PROMPT_STOP_WORDS = new Set([
   "what",
   "with",
 ]);
-
-// WebFetch
 
 export type WebFetchFormat = "text" | "markdown" | "html";
 
@@ -91,7 +80,6 @@ const BLOCK_HTML_ELEMENTS = new Set([
   "ul",
 ]);
 
-/** Parse HTML into a DOM tree before extracting visible text. */
 export const htmlToText = (html: string): string => {
   const document = parse(html);
   const chunks: string[] = [];
@@ -135,7 +123,6 @@ turndown.remove([
   "canvas",
 ]);
 
-/** Convert parsed HTML semantics to Markdown (links, lists, headings, code, etc.). */
 export const htmlToMarkdown = (html: string): string =>
   turndown
     .turndown(html)
@@ -219,11 +206,6 @@ const boundedText = (text: string, maxChars: number): string => {
   return `${text.slice(0, headChars)}${marker}${text.slice(-tailChars)}`;
 };
 
-/**
- * Select prompt-relevant windows from a long page before it becomes model
- * context. The extraction is deterministic and intentionally conservative:
- * when no useful term matches, the normal bounded head/tail projection wins.
- */
 export const extractRelevantWebText = (
   text: string,
   prompt?: string,
@@ -357,8 +339,6 @@ export const localWebFetch = async (args: {
       if (format === "markdown") text = htmlToMarkdown(rawBody);
     }
 
-    // Prompt extraction is useful for readable text/Markdown, but would
-    // destroy the structural validity of callers explicitly requesting HTML.
     text =
       format === "html"
         ? boundedText(text, MAX_FETCH_BODY_CHARS)
@@ -379,8 +359,6 @@ export const localWebFetch = async (args: {
     clearTimeout(timeout);
   }
 };
-
-// NoResponse
 
 export const localNoResponse = async (): Promise<string> => {
   return "";

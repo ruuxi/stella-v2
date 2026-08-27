@@ -27,17 +27,11 @@ import "./right-sidebar-panel.css";
 import "./shell-junction.css";
 
 export interface RightSidebarHandle {
-  /**
-   * User-initiated open (or refresh) for a payload tab. Activates the tab and
-   * opens the panel through `displayTabs.openTab`.
-   */
+
   open(payload: DisplayTabPayload): void;
-  /**
-   * Refresh a tab's content without forcing the panel open or stealing
-   * focus from another active tab.
-   */
+
   update(payload: DisplayTabPayload): void;
-  /** Close the panel; tabs are kept in memory for the next open. */
+
   close(): void;
 }
 
@@ -57,15 +51,6 @@ const measureShellWidth = (): number => {
   return shell?.getBoundingClientRect().width ?? window.innerWidth;
 };
 
-/**
- * Compute the current upper bound for the user-resizable width from the shell
- * width after reserving the main outlet's minimum width. This mirrors Codex's
- * pressure behavior: the right panel shrinks and grows with the app window
- * instead of holding a fixed width until it disappears.
- *
- * The left sidebar used to be subtracted here too; with it gone the center
- * column and this panel split the full shell width.
- */
 const computeMaxWidth = (): number => {
   const available = measureShellWidth() - DISPLAY_MAIN_CONTENT_MIN_WIDTH;
   return Math.max(DISPLAY_PANEL_MIN_WIDTH, Math.floor(available));
@@ -80,22 +65,11 @@ const resolveDisplayPanelWidth = (preferredWidth: number | null): number => {
   );
 };
 
-// Extra drag past the max resize width before snapping to expanded mode.
 const DISPLAY_PANEL_EXPAND_SNAP_THRESHOLD = 260;
 const DISPLAY_PANEL_WIDTH_CSS_VAR = "--display-panel-width";
 
-// Last rounded px written per `:root`, shared by every writer (RO sync,
-// pointer drags) so redundant writes can be skipped — re-setting an inline
-// custom property on the root invalidates style for every `var()` consumer,
-// and during the left sidebar's 460ms width slide the ResizeObserver below
-// fires on every animation frame. Keyed by the document element (not module
-// state) so multiple documents in one JS context — e.g. a detached panel
-// window — each track their own last-written value instead of suppressing
-// each other's writes.
 const lastAppliedDisplayPanelWidthPx = new WeakMap<HTMLElement, number>();
 
-// Set on `:root` (not on `.right-sidebar`) so siblings outside the panel
-// (e.g. the topbar tab strip width calc) can inherit the same value.
 const applyDisplayPanelWidthCssVar = (width: number | null): void => {
   const root = document.documentElement;
   const nextWidth = Math.round(resolveDisplayPanelWidth(width));
@@ -110,15 +84,6 @@ const clearDisplayPanelWidthCssVar = (): void => {
   root.style.removeProperty(DISPLAY_PANEL_WIDTH_CSS_VAR);
 };
 
-/**
- * workspace panel shell.
- *
- * Stateful tab list lives in the singleton `displayTabs` store so that
- * non-React surfaces (Convex materializer, IPC handlers, chat resource
- * pills) can register tabs with a single `displayTabs.openTab(spec)`
- * call. This component just observes the store and renders the active
- * tab's `render()`.
- */
 export const RightSidebar = forwardRef<
   RightSidebarHandle,
   RightSidebarProps
@@ -128,10 +93,6 @@ export const RightSidebar = forwardRef<
   const panelExpanded = useDisplayPanelExpanded();
   const asideRef = useRef<HTMLElement | null>(null);
 
-  // The panel carries the shell's whole index now that the left sidebar is
-  // gone. Home/Activity now lives in its own sibling surface; this panel owns
-  // Files, Apps and Settings, takes up width only while open, and keeps those
-  // section hosts mounted either way.
   const shellVisible = panelOpen;
 
   useImperativeHandle(
@@ -147,11 +108,7 @@ export const RightSidebar = forwardRef<
         if (!next) return;
         const spec = payloadToTabSpec(next);
         const { panelOpen } = displayTabs.getSnapshot();
-        // Refresh the underlying tab without activating / opening the
-        // panel. If the panel is already open and this tab happens to be
-        // active, the new render() takes effect immediately. If the panel is
-        // closed, make the updated tab the next active tab without reopening
-        // the UI; the next explicit open will land on the freshest payload.
+
         displayTabs.openTab(
           spec,
           panelOpen
@@ -170,11 +127,9 @@ export const RightSidebar = forwardRef<
     if (!panelOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      // An Escape already handled by a menu/dialog shouldn't also collapse the
-      // panel.
+
       if (e.defaultPrevented) return;
-      // Esc collapses an expanded panel before fully closing it, so the
-      // first press feels like "back out" and the second like "dismiss".
+
       if (displayTabs.getSnapshot().panelExpanded) {
         displayTabs.setPanelExpanded(false);
       } else {
@@ -193,17 +148,12 @@ export const RightSidebar = forwardRef<
     };
 
     const scheduleWidthVarSync = () => {
-      // While the panel is closed nothing visible consumes the var, so avoid
-      // re-measuring until opening makes the panel/header visible again.
+
       if (!displayTabs.getLayoutSnapshot().panelOpen) return;
       if (frame !== 0) return;
       frame = requestAnimationFrame(syncWidthVarNow);
     };
 
-    // Store changes (open/close, width commits) sync immediately instead of
-    // via rAF so the var is fresh before the open transition's first paint —
-    // a deferred sync would let the panel start animating toward a width
-    // measured while it was closed.
     const syncOnLayoutChange = () => {
       if (frame !== 0) {
         cancelAnimationFrame(frame);
@@ -230,13 +180,6 @@ export const RightSidebar = forwardRef<
     };
   }, []);
 
-  // Toggling expand/restore swaps the panel between flex-row and absolute
-  // layout instantly (no width animation on the panel itself), so the
-  // tab strip's open/close transition would visibly re-animate from its
-  // expanded full-width slot back to the narrow right-aligned slot. Pin
-  // a one-frame `data-display-expanding` flag on <body> so the topbar
-  // CSS can suppress its transition through the swap, mirroring the
-  // existing `data-display-resizing` pattern used during pointer drags.
   const isFirstExpandedSync = useRef(true);
   useEffect(() => {
     if (isFirstExpandedSync.current) {
@@ -257,8 +200,7 @@ export const RightSidebar = forwardRef<
 
   const handleResizeStart = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
-      // Only respond to primary-button drags; ignore right-clicks and
-      // touch contextmenu emulation.
+
       if (event.button !== 0) return;
       event.preventDefault();
       event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -271,17 +213,10 @@ export const RightSidebar = forwardRef<
       const startX = event.clientX;
       const pointerId = event.pointerId;
       const handle = event.currentTarget;
-      // Compute the upper bound once at pointerdown — recomputing per
-      // move would force a `getComputedStyle` layout flush at 60–120 Hz
-      // for a value that doesn't change unless the OS window is
-      // simultaneously resized (which is exceedingly rare during a
-      // user-initiated panel drag).
+
       const maxWidth = computeMaxWidth();
       const startWidth = panelExpanded ? maxWidth : measuredStartWidth;
-      // Keep the live drag on the CSS variable. Committing through React's
-      // store every frame wakes route-level layout subscribers and makes the
-      // handle trail the cursor. `latestWidth` doubles as the "user actually
-      // dragged" signal — null means no commit needed on pointer up.
+
       let latestWidth: number | null = null;
       let frame = 0;
       let snappedToExpanded = panelExpanded;
@@ -293,23 +228,17 @@ export const RightSidebar = forwardRef<
         applyDisplayPanelWidthCssVar(latestWidth);
       };
 
-      // Pin the cursor / disable selection globally so dragging across
-      // the chat outlet doesn't accidentally start a text selection.
       const previousCursor = document.body.style.cursor;
       const previousUserSelect = document.body.style.userSelect;
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
       aside?.classList.add("right-sidebar--resizing");
-      // Lets the topbar (which lives in a separate React tree above the
-      // panel) drop its open/close transition for the duration of the
-      // drag — otherwise the centered store tabs and right-aligned tab
-      // strip visibly lag the pointer.
+
       document.body.dataset.displayResizing = "true";
 
       const onMove = (ev: PointerEvent) => {
         if (collapsedFromExpanded) return;
 
-        // Panel sits on the right edge, so dragging left increases width.
         const delta = startX - ev.clientX;
         const rawWidth = startWidth + delta;
 
@@ -364,9 +293,7 @@ export const RightSidebar = forwardRef<
         if (latestWidth != null) {
           displayTabs.setPanelWidth(latestWidth);
         }
-        // Force any pending coalesced width to disk so the user's most
-        // recent position survives a reload, even if the next debounce
-        // tick was still in flight.
+
         displayTabs.flushPersistedWidth();
       };
 
@@ -378,19 +305,12 @@ export const RightSidebar = forwardRef<
   );
 
   const handleResizeDoubleClick = useCallback(() => {
-    // Snap back to the stylesheet default.
+
     displayTabs.setPanelWidth(null);
   }, []);
 
   const resolvedPortalTarget =
     portalTarget ?? document.querySelector(".full-body") ?? document.body;
-
-  // Keep-alive used to be a per-tab policy here: closing the panel unmounted
-  // the active tab, which destroys a canvas iframe's browsing context, so the
-  // just-viewed canvas was held in a hidden host while every other kind
-  // unmounted. `SidebarSectionBody` supersedes that with a stronger and
-  // simpler guarantee — all four sections stay mounted for the panel's
-  // lifetime, so nothing needs rescuing on close.
 
   return createPortal(
     <aside
@@ -415,10 +335,9 @@ export const RightSidebar = forwardRef<
         />
       ) : null}
       <div className="right-sidebar-inner right-sidebar-panel__frame">
-        {/* All panel-owned sections stay mounted; only the active one displays,
-            and the host itself survives the panel closing. Files' canvas
-            iframes and Apps' running user apps both lose their state to an
-            unmount, so neither a tab switch nor a close may remove them. */}
+        {
+
+}
         <div className="right-sidebar-panel__body">
           <div
             className={`right-sidebar__active${

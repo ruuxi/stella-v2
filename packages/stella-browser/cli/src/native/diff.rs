@@ -99,7 +99,6 @@ pub fn diff_screenshot(
     })
 }
 
-/// Compute a snapshot diff using the Myers algorithm via the `similar` crate.
 pub fn diff_snapshots(before: &str, after: &str) -> SnapshotDiffResult {
     let text_diff = TextDiff::from_lines(before, after);
 
@@ -132,7 +131,6 @@ pub fn diff_snapshots(before: &str, after: &str) -> SnapshotDiffResult {
     }
 }
 
-/// Legacy JSON diff output for backwards compatibility.
 pub fn diff_text(a: &str, b: &str) -> Value {
     let result = diff_snapshots(a, b);
     json!({

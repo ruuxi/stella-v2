@@ -1,13 +1,3 @@
-// Mobile port of `desktop/src/shell/ascii-creature/renderer.ts`.
-//
-// Differences from desktop:
-//   * Atlas is uploaded via the pixel-pointer `texImage2D` overload (no DOM
-//     canvas source).
-//   * Texture flip / premultiplied-alpha `pixelStorei` are no-ops for
-//     ArrayBufferView uploads, so we skip them.
-//   * Buffer size comes from `gl.drawingBufferWidth/Height` (the GLView's
-//     attached framebuffer), not a `<canvas>` element.
-
 import type { ExpoWebGLRenderingContext } from "expo-gl";
 import { DOT_COUNT, type GlyphAtlas } from "./glyph-atlas";
 import { VERTEX_SOURCE, createProgram, getFragmentShader } from "./shader";
@@ -208,10 +198,7 @@ export const initRenderer = (
     voiceEnergy = 0,
     showEyes = false,
   ) => {
-    // expo-gl does not preserve GL state between `endFrameEXP()` calls the
-    // way browser WebGL does — re-bind program / buffer / texture / viewport
-    // every frame, otherwise only the first frame draws and the surface
-    // freezes afterwards.
+
     gl.useProgram(program);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);

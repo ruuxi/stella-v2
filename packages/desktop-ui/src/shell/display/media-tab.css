@@ -1,6 +1,3 @@
-/* Media viewer — one asset, filling the panel.
-   No nested cards, no glass, no drop shadows. Hairlines only. */
-
 .media-tab {
   position: relative;
   flex: 1;
@@ -24,8 +21,6 @@
   border-radius: 0;
   overflow: hidden;
 }
-
-/* ── Viewer (hero) ─────────────────────────────────────────────── */
 
 .media-tab__hero {
   flex: 1;
@@ -163,9 +158,6 @@
   padding: 12px;
 }
 
-/* Fill the hero with a definite-height chain so the image's
-   `max-height: 100%` resolves and `object-fit: contain` can shrink large
-   images to fit instead of overflowing and getting clipped. */
 .media-tab__hero-preview .display-media {
   flex: 1 1 auto;
   width: 100%;

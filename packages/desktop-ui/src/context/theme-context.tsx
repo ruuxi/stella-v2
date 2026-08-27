@@ -28,38 +28,23 @@ type ColorMode = "light" | "dark" | "system";
 type GradientMode = "soft" | "flat";
 type GradientColor = "relative" | "strong";
 
-// ─── Stable read-only context (rarely changes) ────────────────────────────
-
 interface ThemeReadValue {
   theme: Theme;
-  /** The effective active theme id ("custom" whenever Custom is unpopulated). */
+
   themeId: string;
-  /**
-   * The id a picker should show as selected. While Custom is unpopulated this
-   * is the stock theme it's displaying (its base); otherwise it's the active id.
-   */
+
   selectedThemeId: string;
   colorMode: ColorMode;
   resolvedColorMode: "light" | "dark";
-  /**
-   * The effective forced appearance, resolved through overlay themes (so the
-   * Custom overlay reports its base theme's forced mode). Undefined for normal
-   * themes that follow the user's Light/Dark choice.
-   */
+
   forcedMode?: "light" | "dark";
-  /**
-   * Whether the active theme renders flat (gradient-suppressed). True for the
-   * stock Default theme (solid macOS surface in both modes) and for any
-   * `forcedMode`-pinned theme. Undefined-vs-false is coerced to boolean.
-   */
+
   flat: boolean;
   gradientMode: GradientMode;
   gradientColor: GradientColor;
   colors: ThemeColors;
   themes: readonly Theme[];
 }
-
-// ─── Control context (mutators + preview, only used by ThemePicker/Onboarding) ─
 
 interface ThemeControlValue {
   setTheme: (id: string) => void;
@@ -79,7 +64,7 @@ const ThemeReadContext = createContext<ThemeReadValue | null>(null);
 const ThemeControlContext = createContext<ThemeControlValue | null>(null);
 
 const THEME_STORAGE_KEY = "stella-theme-id";
-// The stock theme the Custom overlay displays while it is unpopulated.
+
 const CUSTOM_BASE_STORAGE_KEY = "stella-custom-base";
 const COLOR_MODE_STORAGE_KEY = "stella-color-mode";
 const GRADIENT_MODE_STORAGE_KEY = "stella-gradient-mode";
@@ -91,15 +76,11 @@ function getSystemColorMode(): "light" | "dark" {
     : "light";
 }
 
-// The old separate "light"/"dark" themes were `forcedMode`-pinned and are now a
-// single mode-driven "Default" theme. Migrate any stored selection onto Default.
 const LEGACY_FORCED_THEME_IDS = new Set(["light", "dark"]);
 function migrateThemeId<T extends string | null>(id: T): T | string {
   return id && LEGACY_FORCED_THEME_IDS.has(id) ? "default" : id;
 }
-// The pinned appearance a legacy "light"/"dark" selection was actually showing,
-// so migration can carry it onto the Appearance mode toggle instead of silently
-// flipping the look. Reads the raw stored ids (theme first, then Custom base).
+
 function readLegacyForcedAppearance(): "light" | "dark" | null {
   const stored = uiState.getItem(THEME_STORAGE_KEY);
   if (stored === "light" || stored === "dark") return stored;
@@ -108,11 +89,6 @@ function readLegacyForcedAppearance(): "light" | "dark" | null {
   return null;
 }
 
-// Module-level single-entry memo for the OKLCH gradient math. The inputs only
-// change when the palette or light/dark mode changes, so on mount (and on
-// unrelated re-renders that re-run the apply effect) we reuse the last result
-// instead of recomputing. Cached by a structural signature of the exact inputs
-// passed to `generateGradientTokens`.
 type GradientPalette = Parameters<typeof generateGradientTokens>[0];
 let gradientTokensCacheSignature: string | null = null;
 let gradientTokensCacheValue: ReturnType<typeof generateGradientTokens> | null =
@@ -136,9 +112,7 @@ function applyThemeToDocument(
 
   root.classList.toggle("dark", isDark);
   root.dataset.theme = themeId;
-  // Overlay themes (Custom) inherit the base theme's CSS tuning via
-  // `data-base-theme`, while `data-theme="custom"` stays available for any
-  // custom styling written on top.
+
   if (baseThemeId && baseThemeId !== themeId) {
     root.dataset.baseTheme = baseThemeId;
   } else {
@@ -171,10 +145,6 @@ function applyThemeToDocument(
   root.style.setProperty("--stella-animation-color-2", colors.success);
   root.style.setProperty("--stella-animation-color-3", colors.warning);
 
-  // Five aurora ramp stops for the StellaAnimation (see shell/aurora),
-  // derived from the theme's interactive/accent hues. The animation's
-  // MutationObserver re-reads these on every root style change, so theme
-  // switches and picker previews recolor the aurora live.
   const auroraStops = generateAuroraStops(
     colors.interactive,
     colors.accent,
@@ -201,13 +171,9 @@ function applyThemeToDocument(
   );
 }
 
-// ─── Persistence helpers ─────────────────────────────────────────────────
-
 function readStorage<T extends string>(key: string, fallback: T): T {
   return (uiState.getItem(key) as T) ?? fallback;
 }
-
-// ─── useThemePersistence — shared UI state + storage-event sync ──────────
 
 interface PersistedThemeState {
   themeId: string;
@@ -271,10 +237,6 @@ function useThemePersistence(clearPreviews: () => void): PersistedThemeState {
     return () => mq.removeEventListener("change", handler);
   }, []);
 
-  // One-time migration of legacy "light"/"dark" theme selections. The init
-  // state above already reflects the migrated values; here we persist them so
-  // the migration is durable and does not re-fire, carrying the pinned
-  // appearance onto the Appearance mode toggle to preserve the current look.
   useEffect(() => {
     const legacy = readLegacyForcedAppearance();
     if (!legacy) return;
@@ -288,8 +250,6 @@ function useThemePersistence(clearPreviews: () => void): PersistedThemeState {
     setColorModeRaw(legacy);
   }, []);
 
-  // Cross-window and cross-host changes arrive as synthetic `storage` events
-  // dispatched by the shared UI state client.
   useEffect(() => {
     const handler = (e: StorageEvent) => {
       if (e.key === THEME_STORAGE_KEY && e.newValue) {
@@ -347,8 +307,6 @@ function useThemePersistence(clearPreviews: () => void): PersistedThemeState {
     setGradientColor,
   };
 }
-
-// ─── useThemePreview — temporary preview state ───────────────────────────
 
 interface ThemePreviewState {
   previewThemeId: string | null;
@@ -410,8 +368,6 @@ function useThemePreview(): ThemePreviewState {
   };
 }
 
-// ─── ThemeProvider ───────────────────────────────────────────────────────
-
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const preview = useThemePreview();
   const persisted = useThemePersistence(preview.clearAll);
@@ -421,15 +377,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     getThemesSnapshot,
   );
 
-  // ─ Custom overlay two-phase model ─
-  // Phase 1 (Custom unpopulated): the user is always on Custom; picking a theme
-  // only changes the base it displays. Phase 2 (an agent populated Custom): the
-  // stored id is literal, so picking a stock theme actually leaves Custom.
   const customTheme = getThemeById("custom");
   const customPopulated = customTheme?.populated === true;
 
-  // The base Custom displays: the user's saved pick, else a legacy stored stock
-  // id, else Custom's declared default base.
   const customBaseId =
     persisted.customBase && getThemeById(persisted.customBase)
       ? persisted.customBase
@@ -446,11 +396,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     persisted.colorMode === "system"
       ? persisted.systemMode
       : persisted.colorMode;
-  // Custom inherits colors, forced mode, and flatness from the base it
-  // currently displays. The stock Default theme is `flat` (solid surface, no
-  // blob) but has no `forcedMode`, so its light↔dark follows the mode toggle.
-  // Any `forcedMode`-pinned theme still ignores the mode toggle and the
-  // Gradient controls.
+
   const { colors, baseThemeId, forcedMode, flat } = resolveThemeColors(
     theme,
     userResolvedColorMode === "dark",
@@ -463,8 +409,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const effectiveGradientColor =
     preview.previewGradientColor ?? persisted.gradientColor;
 
-  // Normalize legacy/stock selections onto Custom while it is unpopulated, so
-  // the instant a redesign populates Custom the user is already on it.
   const { themeId: rawThemeId, setCustomBase, setThemeId } = persisted;
   useEffect(() => {
     if (customPopulated) return;
@@ -517,7 +461,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         if (customPopulated) {
           persisted.setThemeId(id);
         } else {
-          // Phase 1: picking a theme just changes what Custom displays.
+
           persisted.setCustomBase(id);
           if (persisted.themeId !== "custom") persisted.setThemeId("custom");
         }
@@ -552,7 +496,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/** Read-only theme values. Most components should use this. */
 export function useTheme(): ThemeReadValue {
   const context = useContext(ThemeReadContext);
   if (!context) {
@@ -561,7 +504,6 @@ export function useTheme(): ThemeReadValue {
   return context;
 }
 
-/** Theme mutation and preview controls. Only used by theme pickers. */
 export function useThemeControl(): ThemeControlValue {
   const context = useContext(ThemeControlContext);
   if (!context) {

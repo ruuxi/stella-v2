@@ -20,11 +20,6 @@ export {
   TRASH_DISPLAY_TAB_ID,
 } from "@/features/workspace-display/default-tabs";
 
-/**
- * Chat display tab body — the live in-panel chat, available from any route
- * so users can keep talking to Stella while a viewer is open. (The home
- * index now lives in the right sidebar's Tasks section, not here.)
- */
 function ChatDisplayTab({
   openRequest,
 }: {
@@ -78,11 +73,6 @@ export function openChatDisplayTab(
   );
 }
 
-/**
- * Open the Home launcher tab — the quiet launcher of the other display
- * surfaces shown when the user summons the panel while on home. Home itself
- * is the chat, so the panel never opens to a duplicate chat there.
- */
 export function openHomeDisplayTab(): void {
   displayTabs.openTab({
     id: HOME_DISPLAY_TAB_ID,
@@ -93,12 +83,6 @@ export function openHomeDisplayTab(): void {
   });
 }
 
-/**
- * Ensure the Chat tab is registered. The tab is always present so users
- * can switch to it from any route — content adapts inside `ChatDisplayTab`
- * based on the active route. This is a passive register: it never steals
- * activation from the user's current selection or opens the panel.
- */
 export function ensureChatDisplayTab(): void {
   openChatDisplayTab(null, { activate: false, openPanel: false });
 }
@@ -112,11 +96,6 @@ export function openTrashDisplayTab(): void {
   });
 }
 
-/**
- * Open the Models picker. It is a footer popover now, anchored by whichever
- * footer is on screen, so this only flips the shared store — it deliberately
- * does not move or open the right sidebar.
- */
 export function openModelPicker(): void {
   engineOverlay.setOpen(true);
 }

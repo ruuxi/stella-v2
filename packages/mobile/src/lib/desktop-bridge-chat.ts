@@ -63,12 +63,7 @@ const DESKTOP_WAKE_RETRY_MS = 3_000;
 const BRIDGE_INVOKE_TIMEOUT_MS = 10_000;
 const BRIDGE_HEALTH_TIMEOUT_MS = 3_000;
 const BRIDGE_SYNC_TIMEOUT_MS = 5_000;
-/**
- * Max stretch of silence (no agent events) before we give up on a run. The
- * desktop keeps the run alive across socket drops, so we reset this on every
- * event and on every successful reconnect rather than treating it as a hard
- * wall-clock deadline.
- */
+
 const BRIDGE_RUN_TIMEOUT_MS = 45_000;
 const BRIDGE_RECONNECT_MAX_ATTEMPTS = 4;
 const BRIDGE_RECONNECT_BASE_DELAY_MS = 400;
@@ -101,11 +96,11 @@ export type DesktopBridgeConnection = {
   headers: Record<string, string>;
   crypto: BridgeCryptoSession;
   includeDeveloperArtifacts: boolean;
-  /** Optional features the desktop advertised via `mobile:hello`. */
+
   features: Set<string>;
-  /** False once `mobile:hello` returned "unknown channel" (older desktop). */
+
   helloSupported: boolean;
-  /** First real hello result produced while a fresh session was authorized. */
+
   pendingHello?: {
     requestKey: string;
     result?: Record<string, unknown>;
@@ -119,98 +114,61 @@ const bridgeSupportsDeflate = (bridge: DesktopBridgeConnection) =>
 export const bridgeSupportsLocalChatPush = (bridge: DesktopBridgeConnection) =>
   bridge.features.has(BRIDGE_FEATURE_LOCAL_CHAT_PUSH);
 
-/** Coarse send progress surfaced in the working indicator. */
 export type DesktopBridgeSendStatus = "connecting" | "waking" | "running";
 
 export type DesktopBridgeAttachment = {
-  /** Data URL (`data:image/jpeg;base64,…`) — same shape the desktop composer sends. */
+
   url: string;
   mimeType?: string;
 };
 
-/**
- * Live working-indicator inputs derived from the run's agent events. Emitted on
- * every tool-start / tool-end / status / assistant-message so the mobile
- * indicator can reflect the current activity and step aside once this turn's
- * answer message has actually landed.
- */
 export type DesktopBridgeActivity = {
   toolName?: string;
   toolCallId?: string;
   statusText?: string;
-  /**
-   * True once an assistant message arrived that is NOT followed by more tool
-   * work — i.e. the answer the user is waiting for is on screen.
-   */
+
   answerLanded: boolean;
   hasToolActivity: boolean;
 };
 
-/**
- * One completed assistant message segment, delivered whole. The desktop
- * persists a row per segment (preamble → tool → answer), and the bridge emits
- * exactly one `assistant-message` event per row with its full canonical text.
- */
 export type DesktopBridgeAssistantSegment = {
-  /** Persisted desktop row id for this segment (also the replay dedupe key). */
+
   eventId: string;
-  /** The segment's full canonical text. */
+
   text: string;
-  /** True when the runtime went straight on to a tool call after this text. */
+
   followedByToolCall: boolean;
 };
 
 type DesktopBridgeChatArgs = {
   access: StoredPhoneAccess;
-  /** Reused only for a serialized queued-send batch. */
+
   batch?: DesktopBridgeSendBatch;
   message: string;
-  /**
-   * Quoted / "Ask Stella" context for a fresh turn. Delivered to the desktop
-   * worker as a dedicated field so it reaches the model as hidden context and
-   * renders as a chip — never folded into the visible user body.
-   */
+
   selectedText?: string;
-  /** Durable logical-send identity, persisted by mobile before transmission. */
+
   clientRequestId?: string;
-  /** Stable canonical user-row identity for desktop persistence. */
+
   userMessageEventId?: string;
   model?: string | null;
   attachments?: DesktopBridgeAttachment[];
   signal?: AbortSignal;
   onStatus?: (status: DesktopBridgeSendStatus) => void;
-  /**
-   * Fired once per completed assistant message segment with its full text.
-   * Assistant text is never streamed: a segment arrives whole or not at all.
-   */
+
   onAssistantSegment?: (segment: DesktopBridgeAssistantSegment) => void;
   onActivity?: (activity: DesktopBridgeActivity) => void;
   onArtifacts?: (artifacts: ChatArtifact[]) => void;
-  /**
-   * Fired when the runtime actually starts consuming a user steer. Callback
-   * ownership moves at this exact boundary, so the single optimistic reply
-   * row can move after that user message without guessing from durable ACK
-   * timing.
-   */
+
   onResponseBoundary?: (boundary: DesktopBridgeSteerReceipt) => void;
-  /**
-   * Fired once with the canonical desktop id of the submitted user message as
-   * soon as the bridge reports it (well before the run settles). Lets the
-   * caller link its optimistic bubble to the canonical row even when the turn
-   * later errors/times out — so a subsequent sync reconciles the turn in place
-   * instead of pulling the canonical user row as a duplicate.
-   */
+
   onUserMessageId?: (userMessageId: string) => void;
 };
 
 type DesktopBridgeChatResult = {
   text: string;
   artifacts: ChatArtifact[];
-  /**
-   * Canonical desktop id of the user message this turn submitted (empty if the
-   * bridge never reported it). Canonical assistant rows carry it as their
-   * `requestId`, so it links both rows of the turn precisely.
-   */
+
   userMessageId: string;
 };
 
@@ -243,10 +201,7 @@ const buildDesktopBridgeStartChatArgs = (args: {
 }) => ({
   conversationId: args.conversationId,
   userPrompt: args.text || "See the attached image.",
-  // The worker folds this into hidden model context and stores it as chip
-  // metadata (see kernel/chat-prompt-context.ts) — it is never concatenated
-  // into the visible user body. `agent:startChat` is a passthrough bridge
-  // method, so this rides straight through to the worker payload.
+
   ...(args.selectedText?.trim()
     ? { selectedText: args.selectedText.trim() }
     : {}),
@@ -275,7 +230,7 @@ export type DesktopBridgeChatSyncResult = {
   conversationChanged: boolean;
   cursor: string | null;
   messages: ChatMessage[];
-  /** Resolved bridge + conversation identity reusable by the send that follows. */
+
   preparedSend: DesktopBridgeSendBatch;
 };
 
@@ -315,7 +270,6 @@ class BridgeAbortError extends Error {
   }
 }
 
-/** The paired desktop never came online — wake attempts all missed. */
 export class DesktopOfflineError extends Error {
   constructor() {
     super(
@@ -360,9 +314,7 @@ const readBridgeChallenge = async (
   baseUrl: string,
   desktopDeviceId: string,
 ): Promise<DesktopBridgeChallenge> => {
-  // Scoped (`?d=`) challenge with a one-shot bare-URL fallback for pre-380
-  // desktops; never raw-parses an HTML/error-page body. The device-id check
-  // below still rejects wrong desktops on the fallback path.
+
   const record = asRecord(
     await fetchBridgeChallengeBody(baseUrl, desktopDeviceId),
   );
@@ -448,9 +400,7 @@ export const createDesktopBridgeSession = async (
       "X-Stella-Bridge-Session-Secret": session.sessionSecret,
       "X-Stella-Bridge-Challenge-Id": challenge.challengeId,
       "X-Stella-Bridge-Encrypted": BRIDGE_CRYPTO_PROTOCOL,
-      // Advertise the phone's optional receive-features (e.g. envelope
-      // deflate) so the desktop can gate response-side encoding. Old desktops
-      // ignore the header.
+
       "X-Stella-Bridge-Features": MOBILE_SUPPORTED_BRIDGE_FEATURES.join(","),
     },
     crypto: deriveBridgeCryptoSession({
@@ -516,7 +466,6 @@ type CachedDesktopBridge = {
   expiresAt: number;
 };
 
-/** One encrypted bridge session is reused across sends/loads. */
 const desktopBridgeCache = new Map<string, CachedDesktopBridge>();
 const inflightBridgeResolves = new Map<
   string,
@@ -536,13 +485,6 @@ const getCachedDesktopBridge = (
   return entry.connection;
 };
 
-/**
- * Forget cached bridge sessions. Call on sign-out / unpair so a signed-out
- * phone can't keep talking to the desktop on a still-valid cached session.
- * Sign-out/unpair also wipes the persisted copy (and the cached tunnel URL
- * that rides in the same record); internal cache invalidation keeps it so the
- * next handshake can still fast-probe the last-known URL.
- */
 export const clearCachedDesktopBridge = (
   desktopDeviceId?: string,
   options?: { keepPersisted?: boolean },
@@ -568,7 +510,6 @@ export const clearCachedDesktopBridge = (
   }
 };
 
-/** Persist the session so an app restart can skip the full handshake. */
 const persistDesktopBridge = (
   connection: DesktopBridgeConnection,
   expiresAt: number,
@@ -587,12 +528,6 @@ const persistDesktopBridge = (
   });
 };
 
-/**
- * Rebuild a connection from the persisted session (app cold start). The tx
- * seq restarts with slack so the desktop's anti-replay window never sees a
- * reused seq. The caller's real hello/socket operation is the liveness probe;
- * a confirmed route/session failure gets one rediscovery attempt.
- */
 const restorePersistedDesktopBridge = async (
   desktopDeviceId: string,
 ): Promise<DesktopBridgeConnection | null> => {
@@ -622,7 +557,7 @@ const restorePersistedDesktopBridge = async (
     connection,
     expiresAt: persisted.expiresAt,
   });
-  // Re-persist immediately so the next restore's slack stacks on this one's.
+
   persistDesktopBridge(connection, persisted.expiresAt);
   return getCachedDesktopBridge(desktopDeviceId);
 };
@@ -674,11 +609,6 @@ async function handshakeDesktopBridge(
 ): Promise<DesktopBridgeConnection> {
   onStatus?.("connecting");
 
-  // The tunnel hostname is stable per desktop, so probe the last-known URL
-  // directly *in parallel with* the wake intent. When the desktop is already
-  // up this removes the Convex status round-trips (and their 3s poll
-  // granularity) from the connect path entirely; the wake intent still lands
-  // either way for compatibility and recovery on older or restarted desktops.
   const cachedBaseUrl = await loadCachedBridgeBaseUrl(access.desktopDeviceId);
   const wakePromise = requestDesktopConnection(access).then(
     () => null,
@@ -689,9 +619,7 @@ async function handshakeDesktopBridge(
   if (cachedBaseUrl && (await canReachBridgeHealth(cachedBaseUrl))) {
     baseUrl = cachedBaseUrl;
   } else {
-    // Slow path: the cached URL missed (asleep desktop, rotated tunnel, or
-    // first connect). Preserve the original behavior — a failed wake request
-    // is fatal here — then poll Convex for the advertised URL.
+
     const wakeError = await wakePromise;
     if (wakeError) throw wakeError;
   }
@@ -716,16 +644,12 @@ async function handshakeDesktopBridge(
       break;
     }
     if (attempt < DESKTOP_WAKE_ATTEMPTS - 1) {
-      // First probe missed — the desktop is likely asleep and being woken by
-      // the connection request above. Tell the UI we're waking it.
+
       onStatus?.("waking");
       await sleep(DESKTOP_WAKE_RETRY_MS);
     }
   }
 
-  // Prefer a health-confirmed URL, but if the desktop advertised one and the
-  // probe never passed (e.g. an older desktop without /bridge/health, or a slow
-  // edge), try it anyway rather than blocking the user.
   if (!baseUrl && lastCandidateUrl) {
     baseUrl = lastCandidateUrl;
   }
@@ -745,9 +669,7 @@ async function handshakeDesktopBridge(
     features: new Set<string>(),
     helloSupported: true,
   };
-  // Fold the caller's real first sync into session authorization. Callers that
-  // only need capabilities send negotiateOnly; old desktops ignore that field
-  // but honor maxMessages:1, preserving compatibility without a large read.
+
   const helloRequest: DesktopBridgeHelloRequest = initialHello ?? {
     negotiateOnly: true,
     maxMessages: 1,
@@ -771,21 +693,16 @@ async function handshakeDesktopBridge(
     }
   } catch (error) {
     if (isBridgeEndpointMissingError(error)) {
-      // Older desktop (channel rejected, or its catch-all answered with an
-      // HTML page): permanently demote to the legacy multi-RTT path.
+
       connection.helloSupported = false;
     } else if (initialHello) {
-      // Surface the real initial operation through the caller's one-recovery
-      // boundary. Deterministic handler errors are therefore not silently
-      // replayed, while route/session failures get exactly one rediscovery.
+
       connection.pendingHello = {
         requestKey: JSON.stringify(initialHello),
         error,
       };
     } else {
-      // Transient failure (timeout, edge hiccup): don't kill the handshake
-      // over an optional call, and don't permanently demote a capable
-      // desktop — the next sync retries hello.
+
       console.warn(
         "[desktop-bridge] hello probe failed; continuing with legacy defaults:",
         error instanceof Error ? error.message : String(error),
@@ -837,9 +754,7 @@ export async function invokeDesktopBridge<T>(
         throw new BridgeRecoveryError(recoveryReason, message);
       throw new Error(message);
     }
-    // Never raw-parse: a 200 with an HTML body (edge error page, or an older
-    // desktop's catch-all answering an unrouted path with index.html) must
-    // become a structured error the capability gates can classify.
+
     const responseRecord = asRecord(await readBridgeJsonBody(response));
     if (!isBridgeEncryptedEnvelope(responseRecord?.envelope)) {
       throw new Error("Desktop bridge returned an unencrypted response.");
@@ -879,12 +794,6 @@ export async function invokeDesktopBridge<T>(
   }
 }
 
-/**
- * Encrypted-binary file download (`POST /bridge/file`). Ships raw AES-GCM
- * ciphertext (~1.0x file size) instead of the legacy JSON-serialized byte
- * array (~8-10x). Returns null when the desktop doesn't support the lane so
- * the caller can fall back to `display:readFile`.
- */
 export async function fetchDesktopBridgeFileBytes(
   bridge: DesktopBridgeConnection,
   conversationId: string,
@@ -911,8 +820,7 @@ export async function fetchDesktopBridgeFileBytes(
       signal: controller.signal,
     });
     if (!response.ok) {
-      // Anything from a 401 (session churn) to a Cloudflare error page: let
-      // the legacy `display:readFile` lane own the error semantics.
+
       return null;
     }
     if (response.headers.get("x-stella-bridge-bin") === "1") {
@@ -936,10 +844,7 @@ export async function fetchDesktopBridgeFileBytes(
         mimeType,
       };
     }
-    // JSON (encrypted) response — the missing-file case. A 200 that isn't
-    // JSON at all is an older desktop's catch-all answering the unrouted
-    // `/bridge/file` path with index.html: demote the lane for this session
-    // and fall back to the legacy invoke.
+
     let record: Record<string, unknown> | null;
     try {
       record = asRecord(await readBridgeJsonBody(response));
@@ -967,15 +872,6 @@ export async function fetchDesktopBridgeFileBytes(
   }
 }
 
-/**
- * Stage attachments through the encrypted-binary upload lane
- * (`POST /bridge/upload`) and return `{ uploadId, mimeType }` references for
- * `agent:startChat`. Raw ciphertext bodies cost ~1.0x the file size (the
- * legacy base64-in-encrypted-JSON path costs ~1.78x), which also raises the
- * effective attachment ceiling under the desktop's 5 MB body cap from
- * ~2.6 MB to ~5 MB. Returns null (caller keeps inline data URLs) when the
- * lane is unsupported or any upload fails.
- */
 async function stageBridgeAttachments(
   bridge: DesktopBridgeConnection,
   attachments: DesktopBridgeAttachment[],
@@ -998,8 +894,7 @@ async function stageBridgeAttachments(
           "X-Stella-Bridge-Bin-Iv": frame.iv,
           "X-Stella-Bridge-Bin-Mime": mimeType,
         },
-        // Copy into a standalone ArrayBuffer — expo/fetch's BodyInit typing
-        // doesn't name Uint8Array, though the runtime normalizes both.
+
         body: frame.ciphertext.buffer.slice(
           frame.ciphertext.byteOffset,
           frame.ciphertext.byteOffset + frame.ciphertext.byteLength,
@@ -1011,9 +906,7 @@ async function stageBridgeAttachments(
         record = asRecord(await readBridgeJsonBody(response));
       } catch (error) {
         if (error instanceof BridgeEndpointUnavailableError) {
-          // Older desktop without /bridge/upload (its catch-all answered
-          // with HTML): demote so later sends go straight to inline data
-          // URLs instead of re-attempting the upload every time.
+
           bridge.features.delete(BRIDGE_FEATURE_BINARY_UPLOAD);
         }
         return null;
@@ -1098,8 +991,7 @@ function parseToolSteps(value: unknown): ToolStep[] {
       }
       if (Object.keys(collected).length > 0) args = collected;
     }
-    // Schedule receipts ride the step so the chat can render the tool's
-    // human-readable result as a plain text line. Bounded desktop-side.
+
     const resultPreview = asString(record.resultPreview).trim();
     steps.push({
       id,
@@ -1172,24 +1064,13 @@ function parseTasks(value: unknown): MobileTask[] {
   return tasks;
 }
 
-/**
- * Fetch the conversation's authoritative background-task set from the
- * desktop's `runtime_agents` projection. Returns null against older desktops
- * that don't advertise the bounded mobile-summary view (callers keep the
- * synced-message task fold as their only source rather than downloading the
- * legacy full projection).
- */
 export async function fetchDesktopBridgeThreadTasks(
   access: StoredPhoneAccess,
   conversationId: string,
 ): Promise<MobileTask[] | null> {
   try {
     const bridge = await resolveDesktopBridge(access);
-    // Legacy desktops only expose the full runtime_agents projection. Large
-    // threads can make that response approach a megabyte and force Hermes to
-    // synchronously decode hundreds of fields the phone never reads. Keep the
-    // existing live-event projection instead of freezing the UI; upgraded
-    // desktops advertise the bounded summary lane below.
+
     if (!bridge.features.has(BRIDGE_FEATURE_COMPACT_THREAD_ACTIVITY)) {
       return null;
     }
@@ -1210,11 +1091,6 @@ export async function fetchDesktopBridgeThreadTasks(
   }
 }
 
-/**
- * The desktop renderer's ephemeral per-thread status decoration snapshot,
- * broadcast as `localChat:taskDecorationUpdated`. Agent-authored updates are
- * durable thread activity and do not travel through this renderer channel.
- */
 export type DesktopTaskDecoration = {
   statusTextByAgentId: Record<string, string>;
 };
@@ -1304,9 +1180,7 @@ export async function syncDesktopBridgeChatMessages({
   const perform = async (
     bridge: DesktopBridgeConnection,
   ): Promise<DesktopBridgeChatSyncResult> => {
-    // A fresh handshake may already have performed this exact hello while the
-    // desktop consumed the new session. Consume it once instead of spending a
-    // second RTT and rebuilding the same transcript window.
+
     let pendingHello: Record<string, unknown> | null = null;
     if (bridge.pendingHello?.requestKey === JSON.stringify(helloRequest)) {
       const pending = bridge.pendingHello;
@@ -1315,9 +1189,6 @@ export async function syncDesktopBridgeChatMessages({
       pendingHello = pending.result ?? null;
     }
 
-    // Fast path: `mobile:hello` folds conversation-id resolution, the developer
-    // flag and the message delta into one round-trip. Falls back to the legacy
-    // multi-invoke path against older desktops.
     if (bridge.helloSupported) {
       try {
         const hello =
@@ -1628,12 +1499,6 @@ export const closeDesktopBridgeSendBatch = (
   socket?.close();
 };
 
-/**
- * Durably submit one additional user message while an existing mobile reply
- * observer continues following the conversation. This waits only for
- * `agent:startChat` acceptance; it never opens a second event socket or waits
- * for the shared root run to finish.
- */
 export async function sendDesktopBridgeSteer({
   access,
   batch,
@@ -1717,12 +1582,6 @@ export async function sendDesktopBridgeSteer({
   });
 }
 
-/**
- * Open a lightweight event-subscription socket on an existing bridge
- * connection. Used by the localChat push channel (desktop broadcasts
- * `localChat:updated` on every persisted event); the send path keeps its own
- * socket. The returned handle must be closed by the caller.
- */
 export async function openDesktopBridgeEventSocket(
   bridge: DesktopBridgeConnection,
   options: {
@@ -1849,14 +1708,11 @@ export async function sendDesktopBridgeChat({
   const conversationId =
     batch?.conversationId ??
     (await getDesktopBridgeConversationId(activeBridge));
-  // Prefer the encrypted-binary upload lane for attachments (~1.0x wire cost
-  // vs ~1.78x inline, and a ~5 MB ceiling instead of ~2.6 MB). Falls back to
-  // inline data URLs when the desktop lacks the lane or an upload fails.
+
   const stagedAttachments = attachments?.length
     ? await stageBridgeAttachments(activeBridge, attachments)
     : null;
-  // Stable idempotency key: the desktop dedupes retries of this exact send, so
-  // reconnecting and re-issuing startChat can never spawn a duplicate run.
+
   const clientRequestId =
     suppliedClientRequestId?.trim() || createClientRequestId(conversationId);
   const startChatArgs = buildDesktopBridgeStartChatArgs({
@@ -1870,16 +1726,13 @@ export async function sendDesktopBridgeChat({
     attachments: stagedAttachments ?? attachments,
   });
 
-  // ── Run state shared across reconnect attempts ──────────────────────────
   let lastSeq = 0;
   let lastSourceSeq = 0;
   const seenSourceEventKeys = new Set<string>();
   let runId = "";
   let requestId = "";
   let submittedUserMessageId = "";
-  // Record the canonical user-message id the first time the bridge reports it
-  // and notify the caller exactly once, so an optimistic bubble can be linked
-  // even if the turn later errors before returning a result.
+
   const noteSubmittedUserMessageId = (id: string) => {
     const trimmed = id.trim();
     if (!trimmed || submittedUserMessageId) return;
@@ -1893,34 +1746,23 @@ export async function sendDesktopBridgeChat({
   let finalError: unknown = null;
 
   const cancelDesktopChat = (client: BridgeSocketClient) => {
-    // Durable acceptance may arrive before the runtime assigns a run id. The
-    // desktop follows the stable request id and applies Stop at run-start; once
-    // a run id exists, retain the legacy direct cancellation shape.
+
     const target = runId || (requestId ? { requestId } : null);
     if (!target) return;
     try {
       void client.invoke("agent:cancelChat", [target]).catch(() => {});
     } catch {
-      // best-effort cancellation
+
     }
   };
 
-  // ── Live working-indicator activity (mirrors the desktop streaming store) ─
-  // `activeToolCalls` is insertion-ordered so the "last" entry is the most
-  // recent in-flight tool, matching the desktop's `Object.entries(...).at(-1)`.
   const activeToolCalls = new Map<string, { toolName: string }>();
   let activityStatusText: string | undefined;
   let activityAnswerLanded = false;
   let activityHasToolActivity = false;
-  // Total assistant text delivered so far this run (seq-gated, so a reconnect
-  // replay never double-counts). Captured as chronology metadata for live
-  // artifacts and agent occurrences. ChatPane keeps the assistant markdown
-  // cohesive and renders those cards at the message boundary.
+
   let streamedChars = 0;
-  // Persisted row ids of the assistant messages already delivered this run.
-  // `agent:resume` replays assistant-message events, and a replayed frame can
-  // carry a fresh seq, so the row id is the authoritative idempotency key —
-  // without it a reconnect would append the same segment twice.
+
   const deliveredAssistantMessageIds = new Set<string>();
 
   const emitActivity = () => {
@@ -2040,8 +1882,7 @@ export async function sendDesktopBridgeChat({
           }
           artifact = { ...artifact, id: coveredByExistingGroup.id };
         } else if (covered.length > 0) {
-          // Preserve the first card that became visible; a later aggregate
-          // projection updates it and removes only the now-covered siblings.
+
           const stableId = covered[0]!.id;
           const textOffsetsByAgentId: Record<string, number> = {
             ...(artifact.payload.kind === "agent-work"
@@ -2192,9 +2033,6 @@ export async function sendDesktopBridgeChat({
     return true;
   };
 
-  // Process one agent event (live broadcast or replayed via agent:resume).
-  // Resolves to true once the run reaches a terminal state. Seq-gating makes
-  // replay idempotent against events we already saw live.
   const processAgentEvent = async (data: unknown): Promise<boolean> => {
     const event = asRecord(data);
     if (!event || !eventMatchesRun(event)) {
@@ -2229,9 +2067,7 @@ export async function sendDesktopBridgeChat({
     if (event.type === "run-started") {
       const boundaryUserMessageId = eventUserMessageId.trim();
       if (boundaryUserMessageId) {
-        // Unlike the initial durable receipt, this is intentionally
-        // replaceable: every consumed steer becomes the response target for
-        // the one continuing assistant row.
+
         submittedUserMessageId = boundaryUserMessageId;
         onResponseBoundary?.({
           requestId: eventRequestId.trim(),
@@ -2245,10 +2081,7 @@ export async function sendDesktopBridgeChat({
     if (event.type === "agent-started") {
       const agentId = asString(event.agentId).trim();
       if (agentId) {
-        // A `send_input` re-activation (steer) fires a fresh agent-started with
-        // `isFollowUp` and the new title in `statusText`; a plain spawn carries
-        // it in `description`. Read the follow-up label so a steered agent's
-        // card updates its description live — matching desktop's getBackgroundWork.
+
         const isFollowUp = event.isFollowUp === true;
         const followUpLabel = asString(event.statusText).trim();
         const description = asString(event.description).trim();
@@ -2256,8 +2089,7 @@ export async function sendDesktopBridgeChat({
           (isFollowUp ? followUpLabel || description : description) ||
           "Background work";
         const id = agentWorkArtifactId([agentId]);
-        // Preserve the card's original insertion timestamp across a steer so it
-        // holds its position instead of jumping.
+
         let existingCreatedAt: number | undefined;
         const prior = artifactById.get(id);
         if (prior && prior.payload.kind === "agent-work") {
@@ -2278,8 +2110,7 @@ export async function sendDesktopBridgeChat({
               createdAt: existingCreatedAt ?? Date.now(),
               textOffset: streamedChars,
               textOffsetsByAgentId: { [agentId]: streamedChars },
-              // A steer re-activation renders with the arrow tell once it
-              // settles; a fresh spawn resets the card to the plain variant.
+
               ...(isFollowUp ? { followUp: true } : {}),
             },
           },
@@ -2293,12 +2124,7 @@ export async function sendDesktopBridgeChat({
       event.type === "agent-failed" ||
       event.type === "agent-canceled"
     ) {
-      // Flip the running agent-work card to its finished ("done") copy LIVE,
-      // instead of leaving it spinning until the next transcript sync. The
-      // mobile agent-work card in `done` state is the analogue of the desktop
-      // AgentCompletionCard, so this makes the completion card appear on mobile
-      // the moment the agent finishes — matching desktop. The next sync fills in
-      // the per-agent files/result rollup; here we only settle the state.
+
       const agentId = asString(event.agentId).trim();
       if (agentId) {
         const id = agentWorkArtifactId([agentId]);
@@ -2339,8 +2165,7 @@ export async function sendDesktopBridgeChat({
                 : {}),
               ...(basePayload?.agents ? { agents: basePayload.agents } : {}),
               ...(basePayload?.followUp ? { followUp: true } : {}),
-              // Failure/cancel settles the row plain — the card face keeps the
-              // star instead of flipping to the done check.
+
               ...(event.type !== "agent-completed" ? { failed: true } : {}),
             },
           },
@@ -2353,9 +2178,7 @@ export async function sendDesktopBridgeChat({
       const text = asString(event.assistantMessageText);
       const eventId = asString(event.assistantMessageEventId).trim();
       const followedByToolCall = event.followedByToolCall === true;
-      // Replay-safe: `agent:resume` re-delivers assistant-message events, and
-      // the persisted row id is stable across those replays even when the
-      // envelope seq is not.
+
       if (eventId) {
         if (deliveredAssistantMessageIds.has(eventId)) return false;
         deliveredAssistantMessageIds.add(eventId);
@@ -2364,9 +2187,7 @@ export async function sendDesktopBridgeChat({
         streamedChars += text.length;
         onAssistantSegment?.({ eventId, text, followedByToolCall });
       }
-      // Clear any lingering run-level status (mirrors the desktop's
-      // `run-status: null` when assistant text lands). A segment that hands off
-      // to a tool leaves the indicator up: the answer has not arrived yet.
+
       activityStatusText = undefined;
       if (!followedByToolCall && /\S/.test(text)) activityAnswerLanded = true;
       emitActivity();
@@ -2378,8 +2199,7 @@ export async function sendDesktopBridgeChat({
       const statusText = asString(event.statusText).trim();
       const key = toolCallId || toolName;
       activityHasToolActivity = true;
-      // The model went back to work after its last message; clear the landed
-      // flag so the post-tool reasoning gap shows the indicator again.
+
       activityAnswerLanded = false;
       if (statusText) activityStatusText = statusText;
       activeToolCalls.set(key, { toolName });
@@ -2407,8 +2227,7 @@ export async function sendDesktopBridgeChat({
       const toolName = asString(event.toolName).trim();
       const toolCallId = asString(event.toolCallId).trim();
       activityHasToolActivity = true;
-      // Resolve the entry this end refers to, tolerant of a missing/renamed
-      // id, so a phantom entry can't pin a tool active forever.
+
       let key =
         toolCallId && activeToolCalls.has(toolCallId) ? toolCallId : undefined;
       if (!key && toolName) {
@@ -2445,8 +2264,7 @@ export async function sendDesktopBridgeChat({
       return false;
     }
     if (event.type === "status") {
-      // `provider-retry` is a transient reconnect notice on the desktop; don't
-      // surface it as a working-indicator label.
+
       if (asString(event.statusState) !== "provider-retry") {
         const statusText = asString(event.statusText).trim();
         activityStatusText = statusText || undefined;
@@ -2460,8 +2278,6 @@ export async function sendDesktopBridgeChat({
     return false;
   };
 
-  // Recover the final reply when the run completed while we were disconnected
-  // and the desktop's event buffer no longer holds the terminal event.
   const recoverFinalFromDesktop = async (): Promise<boolean> => {
     if (settled) return true;
     if (!submittedUserMessageId) return false;
@@ -2494,10 +2310,7 @@ export async function sendDesktopBridgeChat({
 
     return await new Promise<ConnectionOutcome>((resolve) => {
       let outcomeSettled = false;
-      // Always prime before consuming live events. On a first connection the
-      // socket can immediately broadcast the previous active run; until
-      // startChat returns this send's request/run ids, accepting that event
-      // would attach stale text to the new optimistic reply.
+
       let resuming = true;
       let acceptedReplay = false;
       const pendingLive: unknown[] = [];
@@ -2511,11 +2324,7 @@ export async function sendDesktopBridgeChat({
         outcomeSettled = true;
         if (inactivityTimer) clearTimeout(inactivityTimer);
         signal?.removeEventListener("abort", onAbort);
-        // Cancel the desktop run ONLY on a user-initiated abort. An
-        // inactivity timeout must not kill a healthy run (a single tool call
-        // can legitimately stay silent past the window, and iOS suspends JS
-        // timers in the background so the timer fires the moment the app
-        // foregrounds) — instead the outer loop re-attaches like a disconnect.
+
         if (outcome.kind === "aborted") {
           cancelDesktopChat(client);
         }
@@ -2605,11 +2414,7 @@ export async function sendDesktopBridgeChat({
               runId = runId || startedRunId;
               runStarted = true;
             }
-            // A normal startChat response is returned only after the worker has
-            // durably appended the canonical user row. A replay can also return
-            // the same persisted acceptance directly. Pending in-memory races
-            // deliberately report accepted:false and continue waiting for the
-            // run event instead of cleaning the outbox early.
+
             if (startResult?.accepted === true) {
               const acceptedUserMessageId = asString(
                 startResult.userMessageId,
@@ -2620,9 +2425,7 @@ export async function sendDesktopBridgeChat({
               acceptedReplay = startResult.deduplicated === true;
               if (acceptedReplay) resuming = true;
             }
-            // Stop can arrive while startChat is awaiting desktop readiness.
-            // Once the response gives us either the stable request id or the
-            // concrete run id, honor it instead of leaving the run orphaned.
+
             if (signal?.aborted) {
               cancelDesktopChat(client);
               return;
@@ -2672,15 +2475,12 @@ export async function sendDesktopBridgeChat({
               hasMoreReplay =
                 resume?.hasMore === true && replayEvents.length > 0;
               if (hasMoreReplay) {
-                // Let React/native input run between bounded replay pages.
+
                 await sleep(0);
               }
             } while (hasMoreReplay && !settled);
           }
 
-          // Drain anything that arrived live while we were priming, in order,
-          // before switching to direct live handling. Done inside the resuming
-          // guard so no event can slip past unprocessed.
           while (pendingLive.length > 0) {
             const next = pendingLive.shift();
             if (await processAgentEvent(next)) {
@@ -2690,8 +2490,6 @@ export async function sendDesktopBridgeChat({
           }
           resuming = false;
 
-          // On reconnect, if the desktop reports no active run and never
-          // replayed a terminal event, the run finished while we were away.
           if (
             (isReconnect || acceptedReplay) &&
             !settled &&
@@ -2744,10 +2542,7 @@ export async function sendDesktopBridgeChat({
     if (outcome.kind === "fatal") {
       throw finalError ?? outcome.error;
     }
-    // timeout (event silence) and disconnected both fall through to the
-    // re-attach path: the desktop keeps runs alive across socket drops, and
-    // agent:resume replays what we missed (or recovers a finished reply), so
-    // neither outcome should destroy the run or error before retrying.
+
     if (attempt >= BRIDGE_RECONNECT_MAX_ATTEMPTS) {
       await recoverFinalFromDesktop().catch(() => false);
       if (settled) break;
@@ -2768,10 +2563,7 @@ export async function sendDesktopBridgeChat({
       settlePendingGeneratedImages("canceled");
       throw new BridgeAbortError();
     }
-    // First retry the existing authenticated route: most socket closures are
-    // transient and the desktop session remains valid. Rediscover exactly once
-    // only after that reattach also fails, rather than minting a new session on
-    // every backoff attempt.
+
     if (attemptedReconnect && !rediscovered) {
       const refreshed = await resolveDesktopBridge(access, undefined, {
         forceRefresh: true,

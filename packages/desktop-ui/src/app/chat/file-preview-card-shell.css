@@ -1,5 +1,5 @@
 .file-preview-card {
-  /* Blended panel surface — matches the background-work / artifact cards. */
+
   border: 1px solid var(--panel-surface-border);
   border-radius: var(--radius-lg);
   overflow: hidden;

@@ -7,11 +7,7 @@ import { persistThreadCustomMessage, persistThreadPayloadMessage, } from "./thre
 import { THREAD_PERSISTENCE_ERROR_CODE } from "./agent-run-retry.js";
 const DEFAULT_AGENT_STARTUP_IDLE_TIMEOUT_MS = 15 * 1000;
 const DEFAULT_AGENT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
-// Ceiling while tool calls are in flight. Deliberately above the agent-core
-// per-tool inactivity bound (10 min) so the tool-level cancellation — which
-// fails only the tool and lets the agent continue — always wins when tool
-// tracking is intact. This run-killing backstop fires only when tracking
-// leaked (e.g. a lost tool_execution_end).
+
 const DEFAULT_AGENT_TOOL_IDLE_TIMEOUT_MS = 20 * 60 * 1000;
 const configuredTimeoutMs = (envName, fallbackMs) => {
     const raw = process.env[envName]?.trim();
@@ -64,8 +60,7 @@ export const isDurablyPersistedRuntimePromptInput = (input) => input.messageType
     Boolean(input.customType?.trim()) &&
     input.customType !== "runtime.queued_message_reply";
 const shouldPersistRuntimePromptInput = (input) => isDurablyPersistedRuntimePromptInput(input) &&
-    // Task lifecycle rows are written before delivery so crash/restart cannot
-    // lose a child report. Re-appending them here would duplicate the report.
+
     input.customType !== "runtime.task_lifecycle";
 const canonicalizeRuntimePromptContent = (value) => {
     if (Array.isArray(value))
@@ -108,9 +103,7 @@ const reusePrePersistedRuntimePromptMessages = (agent, promptMessages) => {
         }
         if (existingIndex < 0)
             continue;
-        // The crash-safe lifecycle row was loaded into the Agent's history before
-        // this run. Move that exact object into the prompt rather than showing it
-        // to the provider once from history and once again as the new prompt.
+
         promptMessage.message = retained[existingIndex];
         retained.splice(existingIndex, 1);
         changed = true;
@@ -152,13 +145,7 @@ export const executeRuntimeAgentPrompt = async (args) => {
         if (idleTimer)
             clearTimeout(idleTimer);
         idleTimer = undefined;
-        // A tool owns its own completion/cancellation semantics. Long-running
-        // commands can legitimately be silent for more than the agent stream's
-        // idle window, so while tool calls are in flight the watchdog is armed
-        // with the much longer tool ceiling instead of the stream idle window.
-        // The agent-core per-tool inactivity bound cancels a silent tool (with
-        // an error result the agent survives) well before this fires; reaching
-        // this timeout means tool tracking leaked and the run really is dead.
+
         const toolsInFlight = activeToolCallIds.size > 0;
         const timeoutMs = toolsInFlight
             ? toolIdleTimeoutMs
@@ -171,7 +158,7 @@ export const executeRuntimeAgentPrompt = async (args) => {
                 args.agent.abort();
             }
             catch {
-                // Best effort; the prompt race below owns surfacing the timeout.
+
             }
             rejectIdle(new Error(toolsInFlight
                 ? `Agent produced no activity for ${Math.round(timeoutMs / 1000)}s while ${activeToolCallIds.size} tool call(s) were still marked in flight.`
@@ -220,8 +207,7 @@ export const executeRuntimeAgentPrompt = async (args) => {
             catch (retryError) {
                 threadPersistenceError = retryError;
             }
-            // Do not let a continuously steered/follow-up prompt begin another
-            // provider turn after its completed group failed to become durable.
+
             args.agent.abort();
         },
     });
@@ -347,9 +333,7 @@ export const executeRuntimeAgentPrompt = async (args) => {
                 });
             }
         }
-        // The signal may have fired while attachments or image descriptions
-        // were awaited. Agent.abort() is a no-op before Agent.prompt() creates
-        // its controller, so recheck before provider dispatch.
+
         throwIfPromptAborted();
         const promptPromise = args.agent.prompt(promptMessages.map((message) => message.message));
         promptPromise.catch(() => undefined);

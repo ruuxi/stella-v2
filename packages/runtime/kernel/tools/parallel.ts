@@ -7,11 +7,6 @@ import type { ToolContext, ToolHandlerExtras, ToolResult } from "./types.js";
 export const MULTI_TOOL_USE_PARALLEL_TOOL_NAME = "multi_tool_use_parallel";
 const COMMAND_OUTPUT_TOOL_NAMES = new Set(["exec_command", "write_stdin"]);
 
-/**
- * Tools that mutate session state and must never be invoked concurrently
- * inside a single `multi_tool_use_parallel` batch. These tools mutate shared
- * state, so `write_stdin` would race other writes against the same PTY session.
- */
 const NON_PARALLEL_TOOL_NAMES = new Set<string>([
   "apply_patch",
   "Write",
@@ -86,8 +81,6 @@ export const handleMultiToolUseParallel = async (
     ? new Set(context.allowedToolNames)
     : null;
 
-  // Pre-compute normalized entries so we validate the whole batch before any
-  // tool runs.
   const normalizedEntries = requested.map((entry, index) => {
     const record =
       entry && typeof entry === "object"

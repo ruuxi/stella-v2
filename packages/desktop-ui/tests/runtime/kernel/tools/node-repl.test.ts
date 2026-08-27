@@ -107,10 +107,7 @@ describe("node_repl tool", () => {
       ).resolves.toMatchObject({
         result: expect.stringContaining("values: [ 1, 2 ]"),
       });
-      // `tools` is now a Proxy with a mutable backing map (refreshed each
-      // evaluate), so Object.isFrozen can no longer be true — immutability
-      // from REPL code is enforced by refusing traps instead. Sloppy-mode
-      // assignments fail silently, so probe values rather than throws.
+
       const output = await registry.evaluate(
         [
           "tools.injected = () => 'nope';",
@@ -133,9 +130,6 @@ describe("node_repl tool", () => {
       expect(output).not.toContain("node_repl");
       expect(maxActiveCalls).toBe(2);
 
-      // Narrowing allowedToolNames removes the entry from the refreshed
-      // tools object itself, so the call fails in the REPL before it can
-      // even reach the kernel's allowlist gate.
       await expect(
         registry.evaluate("await tools.fake_tool({id: 3})", {
           ...context,
@@ -171,8 +165,7 @@ describe("node_repl tool", () => {
     });
     const tool = createNodeReplTool({ registry });
     try {
-      // `connector_status` is demoted: never in the model's direct tool
-      // list, but present in allowedToolNames via the REPL-reachable union.
+
       const demotedContext = {
         ...context,
         allowedToolNames: ["node_repl", "connector_status"],
@@ -622,7 +615,7 @@ describe("node_repl tool", () => {
   it("fails in bounded time with a diagnosis when an unawaited nested tool never settles, keeping the kernel alive", async () => {
     const registry = new NodeReplKernelRegistry({
       sessionFactory: () => ({ request: async () => ({}) }),
-      // Never settles: simulates a nested call wedged on a dead transport.
+
       executeTool: () => new Promise(() => {}),
       toolDrainTimeoutMs: 250,
     });
@@ -635,7 +628,7 @@ describe("node_repl tool", () => {
         ),
       ).rejects.toThrow(/never settled within 250ms: tools\.fake_tool/);
       expect(Date.now() - startedAt).toBeLessThan(5_000);
-      // The drain timeout must not kill the kernel: REPL state survives.
+
       await expect(registry.evaluate(`probe + 1`, context)).resolves.toBe("42");
     } finally {
       await registry.dispose();
@@ -645,8 +638,7 @@ describe("node_repl tool", () => {
   it("rejects with the eval timeout instead of hanging when an awaited browser call and its dispose never settle", async () => {
     const registry = new NodeReplKernelRegistry({
       sessionFactory: () => ({ request: async () => ({}) }),
-      // Wedged bridge: commands and teardown never settle (observed with a
-      // hung Brave extension bridge on 2026-07-12).
+
       browserSessionFactory: () =>
         ({
           command: () => new Promise(() => {}),
@@ -662,8 +654,7 @@ describe("node_repl tool", () => {
         registry.evaluate(`await browser.tabs.list()`, context),
       ).rejects.toThrow("Node REPL timed out after 300ms.");
       expect(Date.now() - startedAt).toBeLessThan(5_000);
-      // The wedged kernel was dropped; a follow-up evaluate gets a fresh
-      // kernel instead of queueing behind the dead one.
+
       await expect(
         registry.evaluate(`1 + 1`, context, { timeoutMs: 2_000 }),
       ).resolves.toBe("2");

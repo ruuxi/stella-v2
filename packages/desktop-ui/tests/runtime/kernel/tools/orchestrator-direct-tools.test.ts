@@ -136,8 +136,7 @@ describe("working orchestrator surface", () => {
 
   it("exposes the canonical concise model selectors in the generated tool schema", async () => {
     const { host, rootPath } = await createTestHost();
-    // The spawn_agent `model` parameter is a developer-mode surface; this
-    // test asserts the dev-mode (power-user) schema, so enable it explicitly.
+
     setDeveloperModeEnabled(rootPath, true);
     const orchestrator = loadParsedAgentsFromDir(metadataDir).find(
       (agent) => agent.id === AGENT_IDS.ORCHESTRATOR,
@@ -257,8 +256,6 @@ describe("working orchestrator surface", () => {
       agents.find((agent) => agent.id === AGENT_IDS.GENERAL)?.systemPrompt,
     ).toBeTruthy();
 
-    // System prompts are not user-customizable: files in the data dir never
-    // register or override anything.
     const agentsDir = path.join(rootPath, "agents");
     await mkdir(agentsDir, { recursive: true });
     await writeFile(
@@ -307,9 +304,6 @@ describe("working orchestrator surface", () => {
       expect(orchestrator.has(toolName), toolName).toBe(true);
     }
 
-    // A top-level (root-spawned) General agent is in orchestrator mode: it
-    // owns subagents, so it gets the orchestration tools including the
-    // read-only agent_status.
     const topLevelGeneral = advertised(AGENT_IDS.GENERAL);
     expect(topLevelGeneral.has("spawn_agent")).toBe(true);
     expect(topLevelGeneral.has("send_input")).toBe(true);
@@ -356,8 +350,6 @@ describe("working orchestrator surface", () => {
       return new Set(tools.map((tool) => tool.name));
     };
 
-    // Working orchestrator has node_repl → demoted tools leave the direct
-    // list and are advertised inside node_repl's description instead.
     const working = directToolNames(AGENT_IDS.ORCHESTRATOR);
     expect(working.has("node_repl")).toBe(true);
     expect(working.has("connector_status")).toBe(false);
@@ -365,8 +357,6 @@ describe("working orchestrator surface", () => {
     expect(working.has("schedule_list")).toBe(false);
     expect(working.has("ScriptDraft")).toBe(false);
 
-    // Coordinator variant has no node_repl → never-strand fallback puts
-    // demoted tools straight into its direct list.
     const orchestrated = directToolNames(ORCHESTRATED_ORCHESTRATOR_ID);
     expect(orchestrated.has("node_repl")).toBe(false);
     expect(orchestrated.has("connector_status")).toBe(true);
@@ -392,8 +382,7 @@ describe("working orchestrator surface", () => {
       expect(entry, toolName).toBeDefined();
       expect(entry?.demoted, toolName).toBeUndefined();
     }
-    // The demoted surface: the connector-status affordance plus the
-    // deferred scheduling tools (and the watch-script authoring tool).
+
     expect(
       catalog
         .filter((tool) => tool.demoted)
@@ -407,7 +396,7 @@ describe("working orchestrator surface", () => {
       "schedule_remove",
       "schedule_update",
     ]);
-    // Voice paths filter demoted entries out of the realtime function list.
+
     const voiceCatalog = catalog.filter((tool) => !tool.demoted);
     expect(voiceCatalog.some((tool) => tool.name === "connector_status")).toBe(
       false,

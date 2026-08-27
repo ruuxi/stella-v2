@@ -1,7 +1,3 @@
-/**
- * GitHub Copilot OAuth flow
- */
-
 import { getModels } from "../../models.js";
 import type { Api, Model } from "../../types.js";
 import type { OAuthCredentials, OAuthLoginCallbacks, OAuthProviderInterface } from "./types.js";
@@ -66,27 +62,22 @@ function getUrls(domain: string): {
 	};
 }
 
-/**
- * Parse the proxy-ep from a Copilot token and convert to API base URL.
- * Token format: tid=...;exp=...;proxy-ep=proxy.individual.githubcopilot.com;...
- * Returns API URL like https://api.individual.githubcopilot.com
- */
 function getBaseUrlFromToken(token: string): string | null {
 	const match = token.match(/proxy-ep=([^;]+)/);
 	if (!match) return null;
 	const proxyHost = match[1];
-	// Convert proxy.xxx to api.xxx
+
 	const apiHost = proxyHost.replace(/^proxy\./, "api.");
 	return `https://${apiHost}`;
 }
 
 export function getGitHubCopilotBaseUrl(token?: string, enterpriseDomain?: string): string {
-	// If we have a token, extract the base URL from proxy-ep
+
 	if (token) {
 		const urlFromToken = getBaseUrlFromToken(token);
 		if (urlFromToken) return urlFromToken;
 	}
-	// Fallback for enterprise or if token parsing fails
+
 	if (enterpriseDomain) return `https://copilot-api.${enterpriseDomain}`;
 	return "https://api.individual.githubcopilot.com";
 }
@@ -144,9 +135,6 @@ async function startDeviceFlow(domain: string): Promise<DeviceCodeResponse> {
 	};
 }
 
-/**
- * Sleep that can be interrupted by an AbortSignal
- */
 function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
 	return new Promise((resolve, reject) => {
 		if (signal?.aborted) {
@@ -236,9 +224,6 @@ async function pollForGitHubAccessToken(
 	throw new Error("Device flow timed out");
 }
 
-/**
- * Refresh GitHub Copilot token
- */
 export async function refreshGitHubCopilotToken(
 	refreshToken: string,
 	enterpriseDomain?: string,
@@ -273,10 +258,6 @@ export async function refreshGitHubCopilotToken(
 	};
 }
 
-/**
- * Enable a model for the user's GitHub Copilot account.
- * This is required for some models (like Claude, Grok) before they can be used.
- */
 async function enableGitHubCopilotModel(token: string, modelId: string, enterpriseDomain?: string): Promise<boolean> {
 	const baseUrl = getGitHubCopilotBaseUrl(token, enterpriseDomain);
 	const url = `${baseUrl}/models/${modelId}/policy`;
@@ -299,10 +280,6 @@ async function enableGitHubCopilotModel(token: string, modelId: string, enterpri
 	}
 }
 
-/**
- * Enable all known GitHub Copilot models that may require policy acceptance.
- * Called after successful login to ensure all models are available.
- */
 async function enableAllGitHubCopilotModels(
 	token: string,
 	enterpriseDomain?: string,
@@ -317,14 +294,6 @@ async function enableAllGitHubCopilotModels(
 	);
 }
 
-/**
- * Login with GitHub Copilot OAuth (device code flow)
- *
- * @param options.onAuth - Callback with URL and optional instructions (user code)
- * @param options.onPrompt - Callback to prompt user for input
- * @param options.onProgress - Optional progress callback
- * @param options.signal - Optional AbortSignal for cancellation
- */
 export async function loginGitHubCopilot(options: {
 	onAuth: (url: string, instructions?: string) => void;
 	onPrompt: (prompt: { message: string; placeholder?: string; allowEmpty?: boolean }) => Promise<string>;
@@ -360,7 +329,6 @@ export async function loginGitHubCopilot(options: {
 	);
 	const credentials = await refreshGitHubCopilotToken(githubAccessToken, enterpriseDomain ?? undefined);
 
-	// Enable all models after successful login
 	options.onProgress?.("Enabling models...");
 	await enableAllGitHubCopilotModels(credentials.access, enterpriseDomain ?? undefined);
 	return credentials;

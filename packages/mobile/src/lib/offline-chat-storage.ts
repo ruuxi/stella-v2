@@ -7,19 +7,6 @@ import {
 } from "./desktop-chat-outbox";
 import { parseChatArtifacts } from "./mobile-artifacts";
 
-/**
- * The independent chat transcripts. The cloud thread keeps the original key
- * (it was the cloud-only store before chat unification) so existing local
- * history stays put; the computer thread gets its own key and re-hydrates from
- * the desktop bridge on mount. The carplay thread is the hands-free voice loop
- * driven from CarPlay — it rides the same cloud send pipeline but keeps its own
- * short transcript so the always-mounted CarPlay bridge never races the Chat
- * tab's "cloud" store. The carplay-computer thread is that same voice loop
- * when it targets the paired desktop: it converses with the SAME canonical
- * desktop conversation as the computer thread, but keeps its own local store
- * and sync cursor so the two mounted surfaces never race each other's
- * persistence.
- */
 export type ChatThreadId = "cloud" | "computer" | "carplay" | "carplay-computer";
 
 const MESSAGES_KEY: Record<ChatThreadId, string> = {
@@ -43,11 +30,6 @@ export type ChatSyncState = {
 
 const TASK_STATUSES = new Set(["running", "completed", "error", "canceled"]);
 
-/**
- * A persisted `running` snapshot older than this loads as settled, mirroring
- * the desktop projection's stale-settle (`AGENT_WORK_STALE_MS`) so a task
- * that finished while the app was closed can't shimmer the pill forever.
- */
 const STORED_RUNNING_TASK_STALE_MS = 5 * 60_000;
 
 function parseStoredToolSteps(value: unknown): ToolStep[] {
@@ -85,13 +67,6 @@ function parseStoredToolSteps(value: unknown): ToolStep[] {
   });
 }
 
-/**
- * Round-trip the background-task snapshots riding a persisted row. Tasks feed
- * the activity pill/tray via `collectConversationTasks`; dropping them on load
- * (the pre-fix behavior) killed the pill on every app relaunch — the sync
- * cursor is already past the spawning rows, so a cursor delta only re-delivers
- * them when the agent happens to emit another lifecycle event.
- */
 function parseStoredTasks(value: unknown): MobileTask[] {
   if (!Array.isArray(value)) return [];
   const tasks: MobileTask[] = [];
@@ -177,11 +152,7 @@ function parseRow(row: unknown): ChatMessage | null {
     ...(typeof o.canonicalId === "string" && o.canonicalId.trim()
       ? { canonicalId: o.canonicalId.trim() }
       : {}),
-    // The turn `requestId` links a phone-sent reply to its canonical desktop
-    // row (see `mergeMessagesById`). Dropping it on reload let a restart's
-    // catch-up sync re-append the already-stored reply as a duplicate when the
-    // row carried a `requestId` but hadn't been stamped with a `canonicalId`
-    // yet (killed before the background reconcile landed).
+
     ...(typeof o.requestId === "string" && o.requestId.trim()
       ? { requestId: o.requestId.trim() }
       : {}),
@@ -200,9 +171,7 @@ function parseRow(row: unknown): ChatMessage | null {
     ...(o.hasImage === true ? { hasImage: true } : {}),
     ...(thumbnailUris.length > 0 ? { thumbnailUris } : {}),
     ...(o.cloudFallback === true ? { cloudFallback: true } : {}),
-    // A queued-but-unsent bubble must reload as queued, never as a delivered
-    // message. The hook re-enqueues these on hydration so a restart actually
-    // sends them (see `useChatThread`).
+
     ...(o.queued === true ? { queued: true } : {}),
     ...(o.stopped === true ? { stopped: true } : {}),
   };
@@ -222,10 +191,7 @@ export async function loadChatMessages(
     }
     const out: ChatMessage[] = [];
     for (const item of parsed) {
-      // Hydration must be corruption-tolerant per ROW: parseRow is defensive,
-      // but if a row written by a different code version still manages to
-      // throw, only that row is dropped — never the whole transcript, and
-      // never the boot (this runs during initial mount).
+
       let row: ChatMessage | null = null;
       try {
         row = parseRow(item);
@@ -293,12 +259,6 @@ export async function saveChatSyncState(
   await AsyncStorage.setItem(SYNC_STATE_KEY[thread], JSON.stringify(next));
 }
 
-/**
- * Wipe every thread's transcript and sync cursor. The stores are keyed
- * globally (not per account), so sign-out and account deletion must clear
- * them or the next signed-in user inherits — and re-sends as history — the
- * previous user's messages.
- */
 export async function clearAllChatStorage(): Promise<void> {
   const keys = [
     ...Object.values(MESSAGES_KEY),
@@ -306,11 +266,10 @@ export async function clearAllChatStorage(): Promise<void> {
     ...desktopChatOutboxStorageKeys(),
   ];
   try {
-    // Do not let an enqueue already committing in the background recreate the
-    // old account's outbox after sign-out has removed its storage keys.
+
     await waitForDesktopChatOutboxWrites();
     await AsyncStorage.multiRemove(keys);
   } catch {
-    // Best-effort: a failed wipe must not block sign-out.
+
   }
 }

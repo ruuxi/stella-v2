@@ -15,24 +15,17 @@ const INDICATOR_PAD_TOP = 0;
 const INDICATOR_PAD_BOTTOM = 0;
 const INDICATOR_VIEWPORT_SIZE = 34;
 
-/**
- * Reserved vertical space above the composer for the working mark.
- */
 export const WORKING_INDICATOR_SLOT_HEIGHT = INDICATOR_VIEWPORT_SIZE;
 
 interface WorkingIndicatorProps {
-  /** When true, the indicator is visible and the brand pulse animates. */
+
   active: boolean;
-  /** Optional explicit status. Defaults to the same reasoning copy as desktop. */
+
   status?: string;
   toolName?: string;
   toolCallId?: string;
   isReasoning?: boolean;
-  /**
-   * Skip the brief exit hold when deactivating. Set once this turn's answer
-   * message has landed, so the indicator gets out of the way immediately
-   * instead of trailing a reply the user can already read.
-   */
+
   exitImmediately?: boolean;
 }
 
@@ -153,12 +146,6 @@ function SwapText({
   );
 }
 
-/**
- * Stella's working state at the chat tail.
- *
- * Entrance/exit is a plain opacity fade on the whole row, and the row is
- * unmounted after the desktop-matched hold so no animation remains active.
- */
 export const WorkingIndicator = memo(function WorkingIndicator({
   active,
   status,
@@ -169,9 +156,7 @@ export const WorkingIndicator = memo(function WorkingIndicator({
 }: WorkingIndicatorProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  // Per-activation seed so the no-tool reasoning/idle label varies across
-  // turns instead of always reading "Thinking" (mirrors the desktop's
-  // `reasoningSeed`). Refreshed on each rising edge of `active` below.
+
   const [reasoningSeed, setReasoningSeed] = useState(() => String(Date.now()));
   const wasActiveRef = useRef(active);
   const liveStatus = computeWorkingIndicatorStatus({
@@ -180,9 +165,7 @@ export const WorkingIndicator = memo(function WorkingIndicator({
     seed: toolCallId ?? reasoningSeed,
     isReasoning,
   });
-  // Snapshot the label while active so the exit animation shows a stable
-  // last-known phrase even though the upstream activity clears the moment
-  // `active` flips false (mirrors the desktop's frozen props).
+
   const frozenStatusRef = useRef(liveStatus);
   if (active) frozenStatusRef.current = liveStatus;
   const displayStatus = active ? liveStatus : frozenStatusRef.current;
@@ -234,9 +217,6 @@ export const WorkingIndicator = memo(function WorkingIndicator({
       }, EXIT_ANIMATION_MS);
     };
 
-    // Skip the hold once the answer message is on screen so the indicator
-    // doesn't trail it; otherwise hold briefly so a fast turn still flashes
-    // the indicator.
     if (exitImmediately) {
       startExit();
     } else {
@@ -277,8 +257,7 @@ const makeStyles = (colors: Colors) =>
       height: WORKING_INDICATOR_SLOT_HEIGHT,
       flexShrink: 0,
     },
-    // Inline at the chat tail the slot must take no space once the indicator
-    // has fully left, otherwise it leaves a permanent gap above the composer.
+
     slotCollapsed: {
       height: 0,
     },
@@ -289,10 +268,7 @@ const makeStyles = (colors: Colors) =>
       height: WORKING_INDICATOR_SLOT_HEIGHT,
       justifyContent: "flex-start",
       paddingBottom: INDICATOR_PAD_BOTTOM,
-      // Inline at the chat tail this row already inherits the list's horizontal
-      // inset, so its glyph must hug the left to line up with the assistant
-      // message text rather than floating in with an extra indent. Keep a right
-      // inset only so the status label has room before the edge.
+
       paddingLeft: 0,
       paddingRight: 18,
       paddingTop: INDICATOR_PAD_TOP,

@@ -1,9 +1,3 @@
-// window_info.exe - Returns JSON info about the window at a given screen point
-// Usage: window_info.exe <x> <y> [--exclude-pids=1,2,3] [--exclude-title-prefixes=Title] [--screenshot=path.png] [--set-bounds=x,y,w,h]
-//        window_info.exe --shot <x> <y> | --shot --pid=<pid>   (inline base64 JPEG capture)
-// Output: {"title":"...","process":"...","pid":123,"bounds":{"x":0,"y":0,"width":800,"height":600}}
-// Compile: cl /O2 /EHsc window_info.cpp /link user32.lib gdi32.lib gdiplus.lib ole32.lib dwmapi.lib /OUT:window_info.exe
-
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <dwmapi.h>
@@ -244,7 +238,6 @@ static bool parseSetBoundsArg(const char* arg, RECT& rect)
     return true;
 }
 
-// Parse `--region=x,y,w,h` (virtual-screen physical pixels) into x/y/w/h.
 static bool parseRegionArg(const char* arg, int& x, int& y, int& w, int& h)
 {
     const char* prefix = "--region=";
@@ -284,7 +277,6 @@ static bool parseRegionArg(const char* arg, int& x, int& y, int& w, int& h)
     return true;
 }
 
-// Parse `--pid=<pid>` into a process id (0 = not this arg / invalid).
 static bool parsePidArg(const char* arg, DWORD& outPid)
 {
     const char* prefix = "--pid=";
@@ -341,10 +333,6 @@ static HWND findTopLevelWindowAtPoint(POINT pt, const WindowExclusions& excluded
     return NULL;
 }
 
-// Topmost top-level window at `pt` as a JSON object string
-// (`{title,process,pid,bounds}`) or "null". Reuses the same
-// findTopLevelWindowAtPoint z-order walk, and is shared by the one-shot CLI
-// and the `--serve` daemon entrypoints.
 static std::string windowInfoJsonAtPoint(POINT pt, const WindowExclusions& excluded)
 {
     HWND hwnd = findTopLevelWindowAtPoint(pt, excluded);
@@ -421,27 +409,12 @@ static int GetPngEncoderClsid(CLSID* clsid)
     return -1;
 }
 
-// ── Fast capture path (base64, no temp file) ────────────────────────────
-// The desktop's hot capture paths (radial-dial "Capture" wedge, composer "+"
-// → Capture) want a window/region screenshot as fast as possible. The legacy
-// `--screenshot=path` path PNG-encodes to disk, which the host then re-reads
-// and re-encodes — three image passes plus disk I/O. These helpers instead
-// BitBlt/PrintWindow into an in-memory bitmap, JPEG-encode it (far cheaper
-// than PNG for a large window), and base64 it straight onto stdout / the
-// --serve pipe so the host consumes the data URL with no decode/re-encode.
-
-// Per-monitor DPI awareness so GetWindowRect and screen-DC BitBlt coordinates
-// are real physical pixels (the host sends physical coords = DIP * scaleFactor
-// and divides returned bounds back by scaleFactor). At 100% scale this is a
-// no-op; on HiDPI it's what makes region BitBlt land on the right pixels.
 static void enableDpiAwareness()
 {
     HMODULE user32 = GetModuleHandleW(L"user32.dll");
     if (user32)
     {
-        // SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2 = (HANDLE)-4),
-        // Windows 10 1703+. Loaded dynamically so the helper still builds and
-        // runs on older SDKs / OSes that lack the symbol.
+
         typedef BOOL(WINAPI * SetCtxFn)(HANDLE);
         SetCtxFn setCtx =
             reinterpret_cast<SetCtxFn>(GetProcAddress(user32, "SetProcessDpiAwarenessContext"));
@@ -520,8 +493,6 @@ static std::string base64Encode(const BYTE* data, size_t len)
     return out;
 }
 
-// JPEG-encode an HBITMAP into a base64 string (no line wrapping, so it stays a
-// single line for the --serve protocol). Reports the encoded image dimensions.
 static bool encodeBitmapToJpegBase64(HBITMAP hbmp, std::string& outB64, int& outW, int& outH)
 {
     ensureGdiplus();
@@ -569,10 +540,6 @@ static bool encodeBitmapToJpegBase64(HBITMAP hbmp, std::string& outB64, int& out
     return ok;
 }
 
-// BitBlt a virtual-screen rectangle (physical pixels) straight from the screen
-// DC. Far cheaper than capturing every display at full resolution and cropping
-// (what Electron's desktopCapturer does). Includes occluding windows, which is
-// correct for a user-drawn region selection.
 static bool captureRegionBase64(int x, int y, int w, int h, std::string& outB64, int& ow, int& oh)
 {
     if (w <= 0 || h <= 0) return false;
@@ -582,7 +549,6 @@ static bool captureRegionBase64(int x, int y, int w, int h, std::string& outB64,
     HBITMAP hbmp = CreateCompatibleBitmap(hdcScreen, w, h);
     HGDIOBJ hOld = SelectObject(hdcMem, hbmp);
 
-    // CAPTUREBLT so layered / alpha-blended windows are included.
     BOOL ok = BitBlt(hdcMem, 0, 0, w, h, hdcScreen, x, y, SRCCOPY | CAPTUREBLT);
     bool done = ok && encodeBitmapToJpegBase64(hbmp, outB64, ow, oh);
 
@@ -593,12 +559,6 @@ static bool captureRegionBase64(int x, int y, int w, int h, std::string& outB64,
     return done;
 }
 
-// PrintWindow can "succeed" while producing an all-black (or otherwise
-// uniform) bitmap for some GPU-composited / hardware-accelerated apps. Sample
-// a sparse row grid and report whether every sampled pixel is identical so
-// callers can treat the capture as failed and fall back. Alpha is masked out
-// because PrintWindow often leaves it zeroed. Must be called while the bitmap
-// is NOT selected into a DC (GetDIBits requirement).
 static bool isBitmapUniform(HBITMAP hbmp, int w, int h)
 {
     if (w <= 0 || h <= 0) return true;
@@ -624,7 +584,7 @@ static bool isBitmapUniform(HBITMAP hbmp, int w, int h)
         const int y = (h - 1) * i / (sampleRows - 1);
         if (GetDIBits(hdc, hbmp, static_cast<UINT>(y), 1, row.data(), &bmi, DIB_RGB_COLORS) != 1)
         {
-            // Can't sample — assume real content rather than a blank capture.
+
             uniform = false;
             break;
         }
@@ -649,12 +609,6 @@ static bool isBitmapUniform(HBITMAP hbmp, int w, int h)
     return uniform && haveFirst;
 }
 
-// Capture a single window via PrintWindow. When `allowScreenFallback` is set
-// and PrintWindow fails or renders a blank frame (common for GPU-composited
-// apps), fall back to BitBlt-ing the window's rect straight from the screen
-// DC — correct for the click-at-point path where the target window is on
-// screen under the cursor. PID-based captures keep the fallback off because
-// the target window may be occluded (typically by Stella itself).
 static bool captureWindowBase64(HWND hwnd, std::string& outB64, int& ow, int& oh, bool allowScreenFallback)
 {
     RECT rect = {};
@@ -669,11 +623,9 @@ static bool captureWindowBase64(HWND hwnd, std::string& outB64, int& ow, int& oh
     HBITMAP hbmp = CreateCompatibleBitmap(hdcScreen, w, h);
     HGDIOBJ hOld = SelectObject(hdcMem, hbmp);
 
-    // PW_RENDERFULLCONTENT (0x2) captures DWM-composited content; fall back to 0.
     BOOL ok = PrintWindow(hwnd, hdcMem, 2);
     if (!ok) ok = PrintWindow(hwnd, hdcMem, 0);
 
-    // Deselect before sampling/encoding — GetDIBits needs the bitmap free.
     SelectObject(hdcMem, hOld);
     DeleteDC(hdcMem);
     ReleaseDC(NULL, hdcScreen);
@@ -692,9 +644,6 @@ static bool captureWindowBase64(HWND hwnd, std::string& outB64, int& ow, int& oh
     return done;
 }
 
-// Resolve the top-level window at a point (z-order walk, then WindowFromPoint
-// fallback), honoring PID exclusion. Mirrors the one-shot main() resolution so
-// the served --shot path picks the same window the host would.
 static HWND resolveHwndAtPoint(POINT pt, const WindowExclusions& excluded)
 {
     HWND hwnd = findTopLevelWindowAtPoint(pt, excluded);
@@ -714,12 +663,6 @@ static HWND resolveHwndAtPoint(POINT pt, const WindowExclusions& excluded)
     return hwnd;
 }
 
-// Topmost user-facing top-level window owned by `pid`. Mirrors the
-// recent_apps alt-tab heuristic (visible, non-cloaked, root-owner, not a tool
-// window) so the window captured for a recent-app chip is the same one the
-// chip list surfaced. Prefers a non-minimized window; falls back to a
-// minimized one (PrintWindow with PW_RENDERFULLCONTENT can often still render
-// those via DWM).
 static HWND findTopLevelWindowForPid(DWORD pid)
 {
     HWND iconicFallback = NULL;
@@ -754,15 +697,12 @@ static HWND findTopLevelWindowForPid(DWORD pid)
             if (!iconicFallback) iconicFallback = hwnd;
             continue;
         }
-        // GetTopWindow walks top-of-z-order first, so the first hit is the
-        // process's topmost window.
+
         return hwnd;
     }
     return iconicFallback;
 }
 
-// `{title,process,pid,bounds,image,imageWidth,imageHeight}` for a resolved
-// window, or an error object. Shared by the at-point and by-pid shot paths.
 static std::string windowShotJsonForHwnd(HWND hwnd, bool allowScreenFallback)
 {
     std::string b64;
@@ -815,8 +755,6 @@ static std::string windowShotJsonForHwnd(HWND hwnd, bool allowScreenFallback)
     return out;
 }
 
-// Shot JSON for the window at a point. The window is on screen under the
-// cursor, so the screen-DC fallback is enabled.
 static std::string windowShotJsonAtPoint(POINT pt, const WindowExclusions& excluded)
 {
     HWND hwnd = resolveHwndAtPoint(pt, excluded);
@@ -824,9 +762,6 @@ static std::string windowShotJsonAtPoint(POINT pt, const WindowExclusions& exclu
     return windowShotJsonForHwnd(hwnd, true);
 }
 
-// Shot JSON for a process's topmost window (recent-app chip lazy capture).
-// No screen fallback: the target is usually occluded by Stella itself, so a
-// screen BitBlt of its rect would capture the wrong content.
 static std::string windowShotJsonForPid(DWORD pid)
 {
     HWND hwnd = findTopLevelWindowForPid(pid);
@@ -834,7 +769,6 @@ static std::string windowShotJsonForPid(DWORD pid)
     return windowShotJsonForHwnd(hwnd, false);
 }
 
-// `{image,imageWidth,imageHeight}` for a virtual-screen rectangle.
 static std::string regionShotJson(int x, int y, int w, int h)
 {
     std::string b64;
@@ -864,11 +798,10 @@ static bool captureWindowToFile(HWND hwnd, const wchar_t* filePath)
     HBITMAP hBitmap = CreateCompatibleBitmap(hdcScreen, w, h);
     HGDIOBJ hOld = SelectObject(hdcMem, hBitmap);
 
-    // PW_RENDERFULLCONTENT (0x2) captures the full window including DWM-composited content
     BOOL ok = PrintWindow(hwnd, hdcMem, 2);
     if (!ok)
     {
-        // Fallback: try without PW_RENDERFULLCONTENT
+
         ok = PrintWindow(hwnd, hdcMem, 0);
     }
 
@@ -890,20 +823,6 @@ static bool captureWindowToFile(HWND hwnd, const wchar_t* filePath)
     return saved;
 }
 
-// ── Persistent daemon mode ──────────────────────────────────────────────
-// `window_info.exe --serve` keeps the process alive and answers many
-// read-only point queries over stdin/stdout, so the desktop avoids a
-// CreateProcess (and its per-spawn Defender scan) for every hover probe
-// on Windows. Protocol is line-delimited:
-//   request:  <id>\t<token>\t<token>...   (tokens mirror the one-shot CLI:
-//                                           "<x> <y> [--exclude-pids=..]")
-//   response: <id>\t<json>\n              (object or "null" — the same shapes
-//                                           the one-shot helper prints)
-// Read-only captures are also served: `--shot <x> <y>` returns the window at a
-// point with an inline base64 JPEG, and `--region=x,y,w,h` returns a base64
-// JPEG of a screen rect — both as single-line JSON (base64 has no tab/newline),
-// so the radial/menu capture paths cost a pipe write instead of a spawn. Only
-// `--set-bounds` (which mutates window state) stays a one-shot spawn.
 static std::string serveHandleTokens(const std::vector<std::string>& tokens)
 {
     WindowExclusions excluded;
@@ -919,7 +838,7 @@ static std::string serveHandleTokens(const std::vector<std::string>& tokens)
             continue;
         }
         const char* arg = token.c_str();
-        // Region capture: `--region=x,y,w,h` → base64 JPEG of that screen rect.
+
         {
             int rx = 0, ry = 0, rw = 0, rh = 0;
             if (parseRegionArg(arg, rx, ry, rw, rh))
@@ -927,7 +846,7 @@ static std::string serveHandleTokens(const std::vector<std::string>& tokens)
                 return regionShotJson(rx, ry, rw, rh);
             }
         }
-        // Window capture: `--shot <x> <y>` (at point) or `--shot --pid=<pid>`.
+
         if (strcmp(arg, "--shot") == 0)
         {
             wantShot = true;
@@ -1029,21 +948,14 @@ static int runServeLoop()
 
 int main(int argc, char* argv[])
 {
-    // Physical-pixel coordinates everywhere (see enableDpiAwareness). Must run
-    // before any window/screen query so bounds and BitBlt rects are correct on
-    // HiDPI; no-op at 100% scale.
+
     enableDpiAwareness();
 
-    // Persistent daemon: serve point queries over stdin/stdout instead
-    // of one CreateProcess per call (Windows spawn + AV scan is the hot cost).
     if (argc >= 2 && strcmp(argv[1], "--serve") == 0)
     {
         return runServeLoop();
     }
 
-    // One-shot region capture: `window_info --region=x,y,w,h` prints
-    // `{image,imageWidth,imageHeight}`. Daemon-less fallback for the region
-    // path so it never has to fall all the way back to desktopCapturer.
     for (int i = 1; i < argc; ++i)
     {
         int rx = 0, ry = 0, rw = 0, rh = 0;
@@ -1054,11 +966,6 @@ int main(int argc, char* argv[])
         }
     }
 
-    // One-shot window capture: `window_info --shot <x> <y> [--exclude-pids=..]`
-    // or `window_info --shot --pid=<pid>` prints
-    // `{title,process,pid,bounds,image,...}`. Daemon-less fallback for the
-    // window-click and recent-app-chip capture paths (no temp file, JPEG
-    // base64 inline).
     if (argc >= 3 && strcmp(argv[1], "--shot") == 0)
     {
         DWORD shotPid = 0;
@@ -1131,7 +1038,6 @@ int main(int argc, char* argv[])
         }
     }
 
-    // Initialize GDI+ only when screenshot is requested
     ULONG_PTR gdiplusToken = 0;
     if (screenshotPath)
     {
@@ -1142,8 +1048,7 @@ int main(int argc, char* argv[])
     HWND hwnd = findTopLevelWindowAtPoint(pt, excluded);
     if (!hwnd)
     {
-        // Fallback: WindowFromPoint can find child/nested windows that the
-        // top-level z-order walk misses, but we must still respect PID exclusion.
+
         hwnd = WindowFromPoint(pt);
         if (hwnd)
         {
@@ -1171,18 +1076,14 @@ int main(int argc, char* argv[])
         return 0;
     }
 
-    // Walk up to the top-level (non-child) window
     HWND root = GetAncestor(hwnd, GA_ROOT);
     if (root) hwnd = root;
 
-    // Title
     std::string title = getWindowTitle(hwnd);
 
-    // Bounds
     RECT rect = {};
     GetWindowRect(hwnd, &rect);
 
-    // PID + process name
     DWORD pid = 0;
     GetWindowThreadProcessId(hwnd, &pid);
     char processName[MAX_PATH] = {};
@@ -1197,7 +1098,6 @@ int main(int argc, char* argv[])
         }
     }
 
-    // Extract just the exe name from the full path
     const char* exeName = processName;
     const char* p = processName;
     for (; *p; ++p)
@@ -1241,10 +1141,9 @@ int main(int argc, char* argv[])
            outputRect.left, outputRect.top, w, h,
            moved ? "true" : "false");
 
-    // Capture screenshot if requested
     if (screenshotPath)
     {
-        // Convert path to wide string
+
         int wideLen = MultiByteToWideChar(CP_UTF8, 0, screenshotPath, -1, NULL, 0);
         std::vector<wchar_t> widePath(wideLen);
         MultiByteToWideChar(CP_UTF8, 0, screenshotPath, -1, widePath.data(), wideLen);

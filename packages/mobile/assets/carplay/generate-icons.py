@@ -14,17 +14,13 @@ Run:  python3 assets/carplay/generate-icons.py
 
 from PIL import Image, ImageDraw
 
-# Stella green accent — the success/ok green from the shared theme palette,
-# nudged to Apple's system green so it reads native against CarPlay's dark UI.
-STELLA_GREEN = (52, 199, 89, 255)  # #34C759
+STELLA_GREEN = (52, 199, 89, 255)
 
-BASE = 88  # @1x point box
-SS = 4     # supersample factor for anti-aliasing
-
+BASE = 88
+SS = 4
 
 def _canvas():
     return Image.new("RGBA", (BASE * SS, BASE * SS), (0, 0, 0, 0))
-
 
 def _finish(img, name):
     for scale, suffix in ((1, ""), (2, "@2x"), (3, "@3x")):
@@ -32,14 +28,13 @@ def _finish(img, name):
         out.save(f"{name}{suffix}.png")
     print(f"wrote {name}.png (+@2x/@3x)")
 
-
 def mic():
     """Microphone — the tap-to-talk affordance."""
     img = _canvas()
     d = ImageDraw.Draw(img)
     s = SS
     cx = BASE * s / 2
-    # Capsule body
+
     bw, bh = 26 * s, 44 * s
     top = 14 * s
     d.rounded_rectangle(
@@ -47,7 +42,7 @@ def mic():
         radius=bw / 2,
         fill=STELLA_GREEN,
     )
-    # Stand arc (cradle)
+
     arc_w = 46 * s
     arc_top = 30 * s
     arc_bottom = 30 * s + 40 * s
@@ -58,7 +53,7 @@ def mic():
         fill=STELLA_GREEN,
         width=6 * s,
     )
-    # Stem + base
+
     stem_top = arc_bottom - 6 * s
     d.line([cx, stem_top, cx, stem_top + 12 * s], fill=STELLA_GREEN, width=6 * s)
     d.line(
@@ -67,7 +62,6 @@ def mic():
         width=6 * s,
     )
     _finish(img, "stella-voice-mic")
-
 
 def replay():
     """Circular arrow — replay the last spoken reply."""
@@ -83,7 +77,7 @@ def replay():
         fill=STELLA_GREEN,
         width=7 * s,
     )
-    # Arrowhead at the open end (top-right)
+
     import math
 
     ang = math.radians(70)
@@ -100,17 +94,16 @@ def replay():
     )
     _finish(img, "stella-voice-replay")
 
-
 def listening():
     """Concentric pulse — the live listening / thinking state."""
     img = _canvas()
     d = ImageDraw.Draw(img)
     s = SS
     cx = cy = BASE * s / 2
-    # Solid core
+
     core = 9 * s
     d.ellipse([cx - core, cy - core, cx + core, cy + core], fill=STELLA_GREEN)
-    # Two pulse rings, fading out
+
     for r, alpha in ((20 * s, 200), (31 * s, 110)):
         d.ellipse(
             [cx - r, cy - r, cx + r, cy + r],
@@ -118,7 +111,6 @@ def listening():
             width=5 * s,
         )
     _finish(img, "stella-voice-listening")
-
 
 if __name__ == "__main__":
     import os

@@ -76,7 +76,7 @@ export function OnboardingPermissions({
   splitTransitionActive,
   onContinue,
 }: OnboardingPermissionsProps) {
-  /** Windows/Linux: main process cannot read mic TCC; set after successful getUserMedia. */
+
   const micSessionGrantedRef = useRef(false);
   const screenSettingsOpenedRef = useRef(false);
   const screenRestartPendingRef = useRef(false);

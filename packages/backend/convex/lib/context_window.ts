@@ -66,10 +66,6 @@ export type SelectByTokenBudgetArgs<T> = {
   estimateTokens: (item: T) => number;
 };
 
-/**
- * Select a recent tail by token budget from newest-first items.
- * Always returns at least one item when input is non-empty.
- */
 export const selectRecentByTokenBudget = <T>({
   itemsNewestFirst,
   maxTokens,

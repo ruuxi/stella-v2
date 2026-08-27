@@ -10,13 +10,6 @@ import {
 import { createRequire } from "node:module";
 import path from "node:path";
 
-// Electron's own postinstall (`node_modules/electron/install.js`) downloads the
-// binary fine but extracts it with `extract-zip`, which can die silently
-// mid-extraction on newer Node versions -- leaving a half-written
-// `dist/Electron.app` and no `path.txt`, so `require('electron')` throws ENOENT.
-// This guard verifies the install and, when broken, re-extracts the already
-// cached zip with native OS tooling instead of trusting `extract-zip`.
-
 const scriptDir = import.meta.dirname;
 const repoRootDir = path.resolve(scriptDir, "..", "..", "..");
 const electronDir = path.join(repoRootDir, "node_modules", "electron");
@@ -52,7 +45,7 @@ function readElectronVersion() {
 
 export function isElectronBinaryHealthy() {
   if (!existsSync(electronDir)) {
-    // Electron isn't installed at all; nothing this guard can repair.
+
     return true;
   }
 
@@ -69,11 +62,6 @@ export function isElectronBinaryHealthy() {
       return false;
     }
 
-    // `path.txt` is the source of truth `node_modules/electron/index.js` uses
-    // to locate the binary. We deliberately do NOT compare it against the stock
-    // `Electron.app` path used by the ordinary development command.
-    // (see `patchDevAppName` in `dev-electron.mjs`) and rewrites `path.txt`
-    // accordingly, so a healthy install can legitimately point elsewhere.
     const recordedPath = readFileSync(
       path.join(electronDir, "path.txt"),
       "utf8",
@@ -99,8 +87,7 @@ function resolveDownloadArch() {
     arch === "x64" &&
     process.env.npm_config_arch === undefined
   ) {
-    // Match Electron's installer: a Rosetta-translated x64 Node should still
-    // pull the arm64 binary.
+
     try {
       const output = spawnSync("sysctl", ["-in", "sysctl.proc_translated"], {
         encoding: "utf8",
@@ -109,7 +96,7 @@ function resolveDownloadArch() {
         arch = "arm64";
       }
     } catch {
-      // Ignore detection failures and keep the reported arch.
+
     }
   }
 
@@ -167,9 +154,7 @@ export async function ensureElectronBinary() {
   log("Electron binary is missing or incomplete; repairing...");
 
   const require = createRequire(import.meta.url);
-  // Bun may keep Electron's dependencies beside the package in its virtual
-  // store instead of hoisting them to the workspace root. Resolve from the
-  // real Electron package location so @electron/get remains reachable there.
+
   const electronRequire = createRequire(
     require.resolve("electron/package.json"),
   );
@@ -202,7 +187,6 @@ export async function ensureElectronBinary() {
   const distDir = path.join(electronDir, "dist");
   extractZipNatively(zipPath, distDir);
 
-  // Mirror Electron's installer: hoist the bundled type definitions out of dist.
   const srcTypeDefPath = path.join(distDir, "electron.d.ts");
   if (existsSync(srcTypeDefPath)) {
     renameSync(srcTypeDefPath, path.join(electronDir, "electron.d.ts"));

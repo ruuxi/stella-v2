@@ -1,11 +1,3 @@
-/* Markdown Component Styles
- *
- * `.markdown` inherits typography from its host (chat bubble, display
- * viewer, blueprint dialog, etc.). It deliberately sets no font-size
- * or font-weight here so a missing rule on the host can't silently
- * fall back to a hard-coded default that drifts from the surrounding
- * UI (the chat-text refactor relies on this). Hosts MUST set
- * font-size on the wrapping element. */
 .markdown {
   min-width: 0;
   max-width: 100%;
@@ -15,23 +7,14 @@
   font-feature-settings: var(--font-family-sans--font-feature-settings, normal);
   font-size: inherit;
   font-weight: inherit;
-  /* Generous default for non-chat hosts (display viewer, blueprint
-     dialog) and full-chat assistant markdown. Compact chat surfaces
-     and other hosts that want a tighter ratio set line-height
-     themselves. */
+
   line-height: 1.75;
 }
 
-/* Parsing the entire growing markdown string eventually costs more than a
-   frame. Keep very large in-flight replies as safe plain text; the settled
-   render restores complete markdown once, after streaming ends. */
 .markdown--streaming-plaintext {
   white-space: pre-wrap;
 }
 
-/* Native word animation is prose-only. Streamdown still uses its wrappers to
-   preserve incremental Markdown identity, but controls and structured inline
-   content must remain immediately readable and behaviorally stable. */
 .markdown
   :is(
     [data-streamdown="link"],
@@ -44,7 +27,6 @@
   animation: none;
 }
 
-/* Spacing for flow */
 .markdown > *:first-child {
   margin-top: 0;
 }
@@ -53,9 +35,6 @@
   margin-bottom: 0;
 }
 
-/* Headings: an absolute scale used by non-chat hosts (display viewer,
-   blueprint dialog). Chat surfaces override these via higher-specificity
-   `.event-item.assistant .markdown :is(h1, …)` rules. */
 .markdown h1,
 .markdown h2,
 .markdown h3,
@@ -81,19 +60,16 @@
   color: var(--text-weak, var(--muted-foreground));
 }
 
-/* Emphasis & Strong */
 .markdown strong,
 .markdown b {
   color: var(--text-strong, var(--foreground));
   font-weight: var(--weight-medium);
 }
 
-/* Paragraphs */
 .markdown p {
   margin-bottom: 0.75rem;
 }
 
-/* Links */
 .markdown a {
   color: var(--text-interactive-base, var(--primary));
   text-decoration: none;
@@ -111,9 +87,6 @@
   border-radius: var(--radius-sm);
 }
 
-/* stella://file references — inline underlined link text that opens the
-   file in a workspace viewer (or the OS default app) on click. Reads as
-   part of the sentence, not a chip. */
 .markdown .markdown-stella-file {
   color: var(--text-interactive-base, var(--primary));
   text-decoration: underline;
@@ -139,7 +112,6 @@
   text-decoration-style: dotted;
 }
 
-/* Lists */
 .markdown ul,
 .markdown ol {
   margin-top: 0.25rem;
@@ -164,7 +136,6 @@
   color: var(--text-weak, var(--muted-foreground));
 }
 
-/* Nested lists spacing */
 .markdown li > ul,
 .markdown li > ol {
   margin-top: 0.25rem;
@@ -172,7 +143,6 @@
   padding-left: 1rem;
 }
 
-/* Blockquotes */
 .markdown blockquote {
   border-left: 2px solid var(--border-weak, var(--border));
   margin: 1rem 0;
@@ -181,8 +151,6 @@
   font-style: normal;
 }
 
-/* Horizontal rule — hidden in chat via `hideHorizontalRules`; still used
- * in blueprint / right-sidebar markdown. */
 .markdown hr,
 .markdown [data-streamdown="horizontal-rule"] {
   border: none;
@@ -191,7 +159,6 @@
   border-top: 1px solid var(--border-weak, var(--border));
 }
 
-/* Code blocks - Shiki output */
 .markdown pre,
 .markdown .shiki {
   font-size: var(--font-size-sm);
@@ -223,32 +190,6 @@
   color: inherit;
 }
 
-/*
- * Streamdown code blocks — one frame, no reserved toolbar band.
- *
- * Streamdown nests three chrome layers for a fenced block:
- *   container  `rounded-xl border border-border bg-sidebar p-2`
- *     header   the language label, `h-8`
- *     actions  copy / download in a `bg-sidebar/80` chip, pulled up onto
- *              the header row by `sticky top-2 -mt-10`
- *     body     `overflow-x-auto rounded-md border border-border bg-background p-4`
- *       pre    which our own `.markdown pre` rule frames a third time.
- *
- * Two things get fixed here:
- *
- *   1. Framing — the container is the single card; body and `pre` go
- *      transparent and unpadded so there's one border, not three.
- *
- *   2. The empty band — a fence with no language still renders the `h-8`
- *      header (an empty `<span>`), and the actions chip lives on that
- *      reserved row in its own tinted pill. On a two-line snippet that's
- *      32px of blank space plus a box that reads as separate chrome. So:
- *      the header collapses when there's no language to show, and the
- *      actions are lifted out of flow into the container's top-right
- *      corner, revealed on hover / focus. They overlay the code instead
- *      of reserving space above it, which means `-mt-10` and `sticky`
- *      have to be neutralized — they positioned it for the old flow.
- */
 .markdown [data-streamdown="code-block"] {
   position: relative;
   padding: 10px 12px;
@@ -267,20 +208,15 @@
 .markdown [data-streamdown="code-block-header"] {
   height: auto;
   margin-bottom: 4px;
-  /* Keep a long language label clear of the hover buttons. */
+
   padding-right: 60px;
   color: var(--text-weak, var(--muted-foreground));
 }
 
-/* No language on the fence → Streamdown still emits the header with an
-   empty `<span>`. Nothing to show, so don't hold the row open. */
 .markdown [data-streamdown="code-block-header"]:has(> span:empty) {
   display: none;
 }
 
-/* The wrapper Streamdown puts around the actions chip — it carries the
-   `-mt-10 sticky` flow positioning, so it's what has to become the
-   absolutely-positioned overlay. */
 .markdown :has(> [data-streamdown="code-block-actions"]) {
   position: absolute;
   top: 6px;
@@ -298,9 +234,6 @@
   }
 }
 
-/* Sit on the code surface rather than introducing a second tint — the
-   chip exists to keep the glyphs underneath from muddying the icons, not
-   to read as its own panel. */
 .markdown [data-streamdown="code-block-actions"] {
   border-color: transparent;
   background: color-mix(in oklab, var(--surface-inset) 88%, transparent);
@@ -319,48 +252,19 @@
   border-radius: 0;
   padding: 0;
   background: transparent;
-  /* The body div owns the horizontal scroll. */
+
   overflow-x: visible;
 }
 
-/*
- * Disable Streamdown's per-code-block `content-visibility: auto` /
- * `contain-intrinsic-size: auto 200px` inline-style optimization
- * inside virtualized chat rows.
- *
- * Inside a chat bubble the optimization actively *causes* scroll
- * jitter: each code block sits at the 200px placeholder while
- * off-screen, then expands to its real (often 500–1500px) height
- * the moment it crosses into the viewport. That intrinsic-size
- * change resizes the assistant row, which fires
- * `@legendapp/list`'s `maintainVisibleContentPosition` and writes
- * a compensating `scrollBy` into the scroll element — visible to
- * the user as a tiny "jump back" while slowly scrolling through a
- * single long assistant message that contains many code blocks.
- *
- * The row itself is already virtualized by Legend (off-screen
- * rows are fully unmounted via `drawDistance`), so the per-block
- * `content-visibility: auto` is redundant inside chat AND it
- * fights the row-level virtualization. `!important` is required
- * because Streamdown sets these as inline styles via
- * `data-streamdown="code-block"`.
- *
- * Non-chat hosts (display viewer, blueprint dialog) keep
- * Streamdown's default behavior — they are not virtualized and
- * the lazy paint is a pure win there.
- */
 .event-item .markdown [data-streamdown="code-block"] {
   content-visibility: visible !important;
   contain-intrinsic-size: auto !important;
 }
 
-/* Inline code */
 .markdown :not(pre) > code {
   font-family: var(--font-family-mono, ui-monospace, monospace);
   font-feature-settings: var(--font-family-mono--font-feature-settings, normal);
-  /* --text-strong (not --primary) so inline code stops masquerading as a
-     link — links are --primary. The mono font + tinted background already
-     mark it as code. */
+
   color: var(--text-strong);
   font-weight: var(--weight-medium);
   font-size: var(--font-size-sm);
@@ -369,16 +273,8 @@
   background: var(--surface-inset, var(--muted));
 }
 
-/*
- * Tables — Streamdown owns the structural styling (row dividers via
- * `divide-y divide-border`, cell padding `px-4 py-2`, semibold header,
- * a `bg-sidebar` outer wrapper with `bg-background` inner). We only
- * undo the double-frame (since `--sidebar` aliases `--background` in
- * our themes) and let cell content wrap so narrow chat columns don't
- * force horizontal scroll.
- */
 .markdown [data-streamdown="table-wrapper"] {
-  /* Outer card collapses to invisible — inner border already frames the table. */
+
   border-color: transparent;
   background: transparent;
   padding: 0;
@@ -390,8 +286,7 @@
 
 .markdown [data-streamdown="table-header-cell"],
 .markdown [data-streamdown="table-cell"] {
-  /* `whitespace-nowrap` on <th> in narrow surfaces makes the chat scroll
-   * sideways for any table with multi-word headers — wrap instead. */
+
   white-space: normal;
   vertical-align: top;
 }
@@ -400,7 +295,6 @@
   color: var(--text-strong, var(--foreground));
 }
 
-/* Images */
 .markdown img {
   max-width: 100%;
   height: auto;
@@ -409,13 +303,6 @@
   display: block;
 }
 
-/*
- * AI-generated emoji sprite. The renderer's `<img>` override emits this
- * span instead of a real image — `--ai-emoji-row`/`--ai-emoji-col` pick
- * the cell out of the 6×6 sheet via `background-position`. One sprite
- * fetch per sheet (browser-cached after first render), no per-emoji
- * `<img>` reflow.
- */
 .markdown .ai-emoji {
   display: inline-block;
   width: 1.25em;
@@ -429,7 +316,6 @@
   background-color: transparent;
 }
 
-/* Task lists (checkboxes) */
 .markdown input[type="checkbox"] {
   margin-right: 0.5rem;
 }

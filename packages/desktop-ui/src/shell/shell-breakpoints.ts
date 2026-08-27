@@ -1,12 +1,3 @@
-/**
- * Width thresholds at which the shell changes presentation.
- *
- * The left sidebar is gone, so both remaining thresholds are now plain width
- * comparisons. They used to branch on whether the sidebar was docked (its
- * 252px shifted how much room the center column had left); without it there is
- * only one layout to measure.
- */
-
 import { useSyncExternalStore } from "react";
 
 const SHELL_WORKSPACE_STRIP_AUTO_HIDE_WIDTH = 1120;
@@ -38,12 +29,6 @@ const sameBreakpointState = (
   left.hideWorkspaceStrip === right.hideWorkspaceStrip &&
   left.displayPanelTakeover === right.displayPanelTakeover;
 
-/**
- * RootChrome owns the ResizeObserver because it measures the actual shell,
- * not the browser viewport. The tiny store lets composer chrome consume that
- * same resolved state without installing a second observer or duplicating the
- * breakpoint constants.
- */
 export const shellBreakpointStore = {
   subscribe(listener: () => void): () => void {
     listeners.add(listener);

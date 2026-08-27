@@ -16,17 +16,9 @@ import { useT } from "@/shared/i18n";
 interface FeedbackDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /**
-   * Distinguishes the auto-prompted variant from the user-initiated dropdown
-   * variant. The auto variant uses softer language and a "Not now" button
-   * label so the prompt feels invited rather than demanded.
-   */
+
   variant?: "manual" | "auto";
-  /**
-   * Fired after the backend accepts a submission. The Sidebar uses this to
-   * reset the auto-prompt cooldown so a user who *just* sent feedback isn't
-   * re-prompted in the same 24h window.
-   */
+
   onSubmitted?: () => void;
 }
 

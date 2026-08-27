@@ -3,19 +3,6 @@
 import { useId } from "react";
 import type { CSSProperties } from "react";
 
-/**
- * The Stella brand mark, as vector. Shares its geometry with the desktop and
- * web `stella-mark` components.
- *
- * The outline is painted twice: a fixed vertical hue ramp, then an elliptical
- * fade out to `color`. Pass the theme's foreground so the mark stays legible -
- * the flat PNG this replaced was a transparent black glyph, which vanished on
- * the dark screenshot themes.
- *
- * Takes an explicit `color` rather than `currentColor`: these screens are
- * rasterised by html-to-image, and a literal colour survives serialisation
- * without depending on inherited style.
- */
 export function StellaMark({
   color,
   style,
@@ -23,8 +10,7 @@ export function StellaMark({
   color: string;
   style?: CSSProperties;
 }) {
-  // Per-instance ids: shared ids would make one mark resolve against another's
-  // gradients, so two themes on screen at once would paint the same colour.
+
   const uid = useId().replace(/[^a-zA-Z0-9-]/g, "");
   const shape = `${uid}-shape`;
   const core = `${uid}-core`;

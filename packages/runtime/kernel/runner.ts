@@ -359,10 +359,7 @@ export const createStellaHostRunner = (
     getActiveOrchestratorRun: orchestratorController.getActiveOrchestratorRun,
     appendThreadMessage: (args) => {
       const timestamp = Date.now();
-      // The durable thread store is the single model-context source, so
-      // user transcripts persisted directly (realtime voice) get the same
-      // metadata the retired local-events projection used to add at read
-      // time — see `agent-runtime/transcript-decoration.js`.
+
       const content =
         args.role === "user" && args.decorateUserTimestampTag
           ? decorateUserTranscriptContent({
@@ -405,9 +402,7 @@ export const createStellaHostRunner = (
         agentContext,
         callbacks: noopRuntimeCallbacks,
         toolExecutor: async () => ({ error: "Voice config has no executor." }),
-        // Voice has no node_repl surface: demoted tools would be
-        // unreachable dead weight in the realtime function list, so they
-        // are filtered out of both the prompt build and the tool list.
+
         toolCatalog: context.toolHost
           .getToolCatalog(agentType, {
             model:

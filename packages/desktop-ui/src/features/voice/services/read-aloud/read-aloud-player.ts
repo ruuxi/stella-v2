@@ -1,19 +1,3 @@
-/**
- * Read-aloud player — single-instance audio playback for the
- * "read finalized assistant replies" toggle and the per-message button.
- *
- * Two playback paths sit behind one "at most one active playback" invariant:
- *   - `playReadAloud(buffer)` — one-shot: decode a complete encoded buffer and
- *     play via Web Audio (OpenAI mp3, Inworld wav, or the streaming fallback).
- *   - `playReadAloudStream(response)` — progressive: play a chunked
- *     `audio/mpeg` response through Media Source Extensions so speech starts
- *     before Inworld has finished synthesizing the whole reply.
- *
- * Either path cancels the other so a fresh assistant turn never overlaps the
- * previous one's audio. `stop()` cancels playback without queuing anything;
- * `dispose()` tears everything down. Both leave the surface reusable.
- */
-
 let context: AudioContext | null = null;
 let currentSource: AudioBufferSourceNode | null = null;
 let currentStream: StreamPlayback | null = null;
@@ -30,12 +14,12 @@ const stopWebAudio = () => {
     currentSource.onended = null;
     currentSource.stop();
   } catch {
-    /* already stopped */
+
   }
   try {
     currentSource.disconnect();
   } catch {
-    /* already disconnected */
+
   }
   currentSource = null;
 };
@@ -47,7 +31,7 @@ const stopStream = () => {
     try {
       stream.teardown();
     } catch {
-      /* already torn down */
+
     }
   }
 };
@@ -58,14 +42,10 @@ const stopCurrent = () => {
 };
 
 export type PlayOptions = {
-  /** Called once playback ends naturally (not when interrupted by a new play). */
+
   onEnded?: () => void;
 };
 
-/**
- * Decode and play an encoded audio buffer. Resolves once playback has
- * begun; the optional `onEnded` callback fires at natural completion.
- */
 export async function playReadAloud(
   encoded: ArrayBuffer,
   options: PlayOptions = {},
@@ -75,9 +55,6 @@ export async function playReadAloud(
     await ctx.resume().catch(() => undefined);
   }
 
-  // decodeAudioData detaches the buffer in newer browsers, so clone
-  // once defensively to keep the input usable for callers that retain
-  // a reference.
   const decoded = await ctx.decodeAudioData(encoded.slice(0));
 
   stopCurrent();
@@ -86,8 +63,6 @@ export async function playReadAloud(
   source.buffer = decoded;
   source.connect(ctx.destination);
 
-  // Capture this source so a subsequent play() only nulls ours if
-  // we're still the active node.
   const thisSource = source;
   source.onended = () => {
     if (currentSource === thisSource) {
@@ -100,22 +75,12 @@ export async function playReadAloud(
   source.start();
 }
 
-// ---------------------------------------------------------------------------
-// Progressive (streaming) playback via Media Source Extensions
-// ---------------------------------------------------------------------------
-
 const STREAM_MIME = "audio/mpeg";
-// Keep only a few seconds of already-played audio buffered so a long reply
-// cannot grow the SourceBuffer without bound.
+
 const KEEP_BEHIND_SECONDS = 3;
 
 type StreamPlayback = { teardown: () => void };
 
-/**
- * Whether progressive read-aloud playback is available in this runtime.
- * MP3-in-MSE is supported in Chromium/Electron; the guard keeps a graceful
- * fallback to `playReadAloud` on any runtime that lacks it.
- */
 export function canStreamReadAloud(): boolean {
   return (
     typeof MediaSource !== "undefined" &&
@@ -124,14 +89,6 @@ export function canStreamReadAloud(): boolean {
   );
 }
 
-/**
- * Play a chunked `audio/mpeg` fetch response progressively.
- *
- * Resolves once playback has begun. Rejects if playback never starts (no
- * usable audio arrives / MSE errors before the first append) so the caller
- * can fall back to a one-shot request. After playback has started, a late
- * upstream error is treated as a natural end (fires `onEnded`).
- */
 export async function playReadAloudStream(
   response: Response,
   options: PlayOptions = {},
@@ -168,30 +125,30 @@ export async function playReadAloudStream(
     try {
       void reader.cancel().catch(() => undefined);
     } catch {
-      /* already released */
+
     }
     try {
       audio.pause();
     } catch {
-      /* ignore */
+
     }
     try {
       if (sourceBuffer && mediaSource.readyState === "open") {
         sourceBuffer.abort();
       }
     } catch {
-      /* ignore */
+
     }
     try {
       audio.removeAttribute("src");
       audio.load();
     } catch {
-      /* ignore */
+
     }
     try {
       URL.revokeObjectURL(objectUrl);
     } catch {
-      /* ignore */
+
     }
   };
 
@@ -215,7 +172,7 @@ export async function playReadAloudStream(
       detach();
       teardown();
       if (wasStarted) {
-        // Already audible — treat a late failure as a natural end.
+
         options.onEnded?.();
       } else {
         reject(error instanceof Error ? error : new Error(String(error)));
@@ -229,8 +186,6 @@ export async function playReadAloudStream(
       return removeEnd > start + 0.5;
     };
 
-    // Runs exactly one SourceBuffer operation (remove or append) per idle
-    // cycle; each operation's `updateend` re-enters this pump.
     const pump = () => {
       if (torn || !sourceBuffer || sourceBuffer.updating) return;
 
@@ -247,7 +202,7 @@ export async function playReadAloudStream(
             return;
           }
         } catch {
-          /* fall through to append */
+
         }
       }
 
@@ -257,7 +212,7 @@ export async function playReadAloudStream(
           sourceBuffer.appendBuffer(chunk as BufferSource);
         } catch (error) {
           if ((error as DOMException)?.name === "QuotaExceededError") {
-            // Buffer full: put the chunk back and evict played audio first.
+
             queue.unshift(chunk);
             forceEvict = true;
             pump();
@@ -273,7 +228,7 @@ export async function playReadAloudStream(
         try {
           if (mediaSource.readyState === "open") mediaSource.endOfStream();
         } catch {
-          /* ignore */
+
         }
       }
     };
@@ -330,9 +285,8 @@ export async function playReadAloudStream(
       { once: true },
     );
 
-    // If the element errors while wiring up the MediaSource, surface it.
     if (mediaSource.readyState === "closed") {
-      // Normal: sourceopen fires after src assignment. No-op guard for lint.
+
     }
   });
 }

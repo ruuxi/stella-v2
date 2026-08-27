@@ -5,10 +5,6 @@ export type MediaJobErrorLike =
     }
   | undefined;
 
-/**
- * Catalog key for the user-facing copy describing why an image job failed.
- * Callers resolve it with `t()` (or `i18nFallback.t` outside React).
- */
 export const imageGenerationFailureKey = (error: MediaJobErrorLike): string => {
   const code =
     typeof error?.code === "string" ? error.code.trim().toLowerCase() : "";

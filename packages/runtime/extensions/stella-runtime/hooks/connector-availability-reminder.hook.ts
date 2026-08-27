@@ -14,32 +14,6 @@ import {
   type ReminderWindowStore,
 } from "../../../kernel/runner/reminder-window-gate.js";
 
-/**
- * Connector-availability reminder (stella-runtime).
- *
- * Deterministic, LLM-free: every visible orchestrator user message is
- * keyword-matched against the connector catalog index (catalog-derived
- * names + a loose synonym layer — "mail" → gmail/outlook, "calendar" →
- * google calendar, …). On a hit, a hidden `<system-reminder>` is
- * attached to that user message:
- *
- *  - connected  → notes it's connected (agents use the node_repl
- *    `connect` client); nothing else
- *    to do, the orchestrator proceeds/delegates with that knowledge.
- *  - not connected → tells the orchestrator it can call the
- *    `connector_status` tool for this connector if relevant (directly, or
- *    as `tools.connector_status({...})` inside node_repl when the tool is
- *    demoted out of the direct list) — that call shows the inline connect
- *    card.
- *
- * Each variant is deduped through the generic once-per-active-context-
- * window gate: while a copy of the same reminder sits in the current
- * model-facing window, it is not injected again; a compaction
- * checkpoint resets eligibility. A persisted user decline suppresses
- * the not-connected variant entirely, regardless of window resets (the
- * connected variant may still show — that's just useful info).
- */
-
 export const CONNECTOR_AVAILABILITY_REMINDER_CUSTOM_TYPE =
   "runtime.connector_availability_reminder";
 
@@ -49,10 +23,6 @@ export const connectedReminderKey = (id: string) => `connector-connected:${id}`;
 export const offerReminderKey = (id: string) => `connector-offer:${id}`;
 export const MCP_HINT_REMINDER_KEY = "connector-mcp-hint";
 
-/**
- * "mcp" / "mcp server(s)" in the user message: not a catalog entry, but the
- * connect client can register one — surface that in one sentence.
- */
 const MCP_KEYWORD_RE = /\bmcp\b/iu;
 
 export const MCP_HINT_REMINDER_TEXT =
@@ -73,7 +43,7 @@ export const buildOfferReminderText = (
   ].join(" ");
 
 export const createConnectorAvailabilityReminderHook = (options: {
-  /** `~/.stella` — where connector state and the catalog cache live. */
+
   stellaDataDir: string;
   store: ReminderWindowStore;
 }): HookDefinition<"before_user_message"> => ({
@@ -133,10 +103,9 @@ export const createConnectorAvailabilityReminderHook = (options: {
           reminders.push({ key, text: buildConnectedReminderText(entry) });
           continue;
         }
-        // Only connectable entries can be offered through the card.
+
         if (!entry.connectable) continue;
-        // Decline persistence wins over window resets: once the user
-        // declined the connect card, the offer reminder stays suppressed.
+
         const declined = await getConnectorDecline(
           options.stellaDataDir,
           entry.id,
@@ -155,13 +124,11 @@ export const createConnectorAvailabilityReminderHook = (options: {
         }
         reminders.push({ key, text: buildOfferReminderText(entry) });
       } catch {
-        // Per-entry state lookups are best-effort; skip on failure.
+
       }
     }
     if (reminders.length === 0) return;
 
-    // Record before returning: the prepends are handed to the prompt
-    // build unconditionally from here on.
     for (const reminder of reminders) {
       await recordReminderShown({
         stellaDataDir: options.stellaDataDir,

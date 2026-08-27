@@ -146,9 +146,7 @@ describe("deriveConversationFiles", () => {
   });
 
   it("drops legacy bulk-churn producedFiles on a tool_result (per-command guard)", () => {
-    // Rows persisted before collection-side filtering: a dev-instance launch
-    // "produced" dozens of seeded agent/skill manifests. None are
-    // deliverables even though the paths individually look legit.
+
     const churn = Array.from({ length: 30 }, (_, index) => ({
       path: `/Users/me/projects/worktrees/harness/stella-data/skills/skill-${index}/SKILL.md`,
       kind: { type: "add" as const },
@@ -171,15 +169,13 @@ describe("deriveConversationFiles", () => {
       }),
     ]);
 
-    // Explicit fileChanges survive; the bulk producedFiles batch is dropped.
     expect(files.map((entry) => entry.path)).toEqual([
       "/Users/me/.stella/outputs/report.md",
     ]);
   });
 
   it("does not apply the per-command bulk guard to agent-completed rollups", () => {
-    // A completion rollup aggregates many commands and may legitimately
-    // exceed the per-command cap.
+
     const produced = Array.from({ length: 14 }, (_, index) => ({
       path: `/Users/me/.stella/outputs/batch/photo-${index}.png`,
       kind: { type: "add" as const },

@@ -6,8 +6,6 @@
   min-height: 0;
 }
 
-/* Keep the chat panel usable when the shell narrows below its normal rail
-   width. */
 @media (max-width: 600px) {
   .chat-sidebar-inner {
     min-width: 0;
@@ -45,7 +43,6 @@
   box-shadow: none;
 }
 
-/* Expanded display panel — match the main chat column width + composer. */
 .chat-panel-tab--wide {
   min-height: 0;
 }
@@ -77,7 +74,6 @@
   max-width: min(50rem, calc(100% - 48px));
 }
 
-/* Scroll + composer sit above the contained shifting gradient */
 .chat-sidebar-main {
   position: relative;
   z-index: 1;
@@ -87,31 +83,12 @@
   min-height: 0;
 }
 
-/*
- * Sidebar viewport-region wrapper — owns flex sizing, position, and the
- * `container-type: size` that lets the shared `100cqh` last-turn floor
- * resolve to the sidebar's height (so `pendingUserMessageId` pin-to-top
- * leaves a full sidebar of room below the user bubble for the assistant
- * to stream into, exactly like the full chat).
- *
- * The base `.chat-viewport-region` rule already supplies
- * `flex: 1; min-height: 0; position: relative; overflow: hidden;
- *  container-type: size` — no override needed here.
- */
-
-/*
- * Sidebar list scroll element. The Legend List itself manages
- * overflow/scroll; this rule layers the panel-specific mask gradient
- * and trims the native scrollbar. Centering + padding live in the
- * `contentContainerStyle` prop on the list (see `ChatSidebar.tsx`).
- */
 .chat-sidebar-messages {
   scrollbar-width: thin;
   mask-image: linear-gradient(to bottom, transparent 0%, black 16px, black 100%);
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 16px, black 100%);
   transition: mask-image 160ms ease, -webkit-mask-image 160ms ease;
 }
-
 
 .chat-sidebar-composer {
   flex-shrink: 0;
@@ -123,29 +100,23 @@
   padding: 4px 12px 8px;
 }
 
-/* Shell: animated height + border-radius (motion inline; same pattern as .composer-shell). */
 .chat-sidebar-shell {
   position: relative;
   width: 100%;
   background: var(--panel-surface-bg-gradient);
   border: 1px solid var(--panel-surface-border);
-  border-radius: 999px; /* fallback before JS; overridden by motion */
+  border-radius: 999px;
   box-shadow: var(--shadow-sm), var(--panel-surface-highlight);
   overflow: clip;
   transition: box-shadow 200ms ease, border-color 200ms ease;
 }
 
-/* Wraps the optional chip strip + form so the ResizeObserver can spring
- * the shell to the right height when chips appear/disappear. Mirrors the
- * full-shell composer-shell-content. */
 .chat-sidebar-shell-content {
   display: flex;
   flex-direction: column;
   width: 100%;
 }
 
-/* Compact attached chip strip — tighter padding to match the
- * sidebar form's compact toolbar density. */
 .composer-attached-strip--compact {
   padding: 6px 10px 0;
 }
@@ -162,7 +133,6 @@
     0 0 0 6px color-mix(in oklch, var(--primary) 10%, transparent);
 }
 
-/* Form: layout only, mirrors composer-form */
 .chat-sidebar-form {
   display: flex;
   flex-direction: row;
@@ -180,7 +150,6 @@
   padding: 2px 4px;
 }
 
-/* Toolbar hidden in pill mode — buttons sit inline */
 .chat-sidebar-form .composer-toolbar {
   display: contents;
 }
@@ -193,7 +162,6 @@
   display: contents;
 }
 
-/* === Expanded: stacked rounded rectangle === */
 .chat-sidebar-form.expanded {
   flex-direction: column;
   align-items: stretch;
@@ -231,9 +199,6 @@
   gap: 8px;
 }
 
-/* Dictation row — shown only when dictation starts while the input already
- * has text, so the recording bar gets its own row below the typed message
- * instead of replacing the textarea. */
 .chat-sidebar-form .composer-dictation-row {
   display: none;
 }

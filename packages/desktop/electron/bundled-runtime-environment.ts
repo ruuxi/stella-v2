@@ -61,10 +61,6 @@ export const resolveBundledBunPath = (
   );
 };
 
-/**
- * Point every runtime child at the Bun executable shipped inside Stella.
- * Packaged installs must never depend on a user-level Bun installation or PATH.
- */
 export const configurePackagedBunEnvironment = (options: {
   resourcesPath: string;
   platform?: NodeJS.Platform;
@@ -106,10 +102,6 @@ const prependPath = (
     .join(pathApi.delimiter);
 };
 
-/**
- * Configure every managed command-line runtime shipped inside a packaged app.
- * This keeps agent and background work independent from the user's PATH.
- */
 export const configurePackagedRuntimeEnvironment = (options: {
   resourcesPath: string;
   platform?: NodeJS.Platform;
@@ -151,9 +143,6 @@ export const configurePackagedRuntimeEnvironment = (options: {
     }
   }
 
-  // Linux (beta) ships no bundled git runtime; leaving STELLA_GIT_BIN unset
-  // makes every downstream consumer (git-environment.ts, the shell shim's
-  // `command git` fallback) resolve git from the system PATH instead.
   if (platform !== "linux" && !env.STELLA_GIT_BIN?.trim()) {
     env.STELLA_GIT_BIN = runtimes.gitBin;
     env.LOCAL_GIT_DIRECTORY = runtimes.gitRoot;

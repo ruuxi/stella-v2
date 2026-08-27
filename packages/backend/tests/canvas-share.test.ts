@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, setSystemTime } from "bun:test";
 
-import { signR2Put } from "../convex/lib/r2_sigv4";
+import { deleteR2Object, signR2Put } from "../convex/lib/r2_sigv4";
 import {
   CANVAS_SHARE_BASE_URL_PLACEHOLDER,
   buildCanvasShareUrl,
@@ -80,6 +80,97 @@ describe("r2 sigv4 signer", () => {
     )?.[1];
     expect(signedHeaders).toContain("x-amz-meta-expires-at");
     expect(signedHeaders).toContain("x-amz-meta-owner");
+  });
+
+  it("constructs the exact encoded object pathname segment by segment", () => {
+    const { putUrl } = signR2Put({
+      ...R2,
+      key: "shares/space snow/é!()*.txt",
+      payloadHash: "d".repeat(64),
+      contentType: "text/plain",
+      cacheControl: "private",
+    });
+    expect(putUrl).toBe(
+      "https://accountid.r2.cloudflarestorage.com/stella-canvas-shares/shares/space%20snow/%C3%A9%21%28%29%2A.txt",
+    );
+  });
+
+  it.each([
+    "",
+    "/shares/a",
+    "shares/a/",
+    "shares//a",
+    "shares/./a",
+    "shares/../a",
+    "shares/%252F..%252Fvictim",
+    "user-pets/attacker/../../../user-pets/victim/pet.webp",
+    "user-pets/attacker/../../../../emoji-dev/emoji-packs/victim/sheet.webp",
+    String.raw`user-pets\attacker\..\victim\pet.webp`,
+  ])("rejects an unsafe R2 key before signing: %s", (key) => {
+    expect(() =>
+      signR2Put({
+        ...R2,
+        key,
+        payloadHash: "e".repeat(64),
+        contentType: "text/plain",
+        cacheControl: "private",
+      }),
+    ).toThrow(/unsafe path segment/u);
+  });
+
+  it.each(["", ".", "..", "pets/victim", String.raw`pets\victim`])(
+    "rejects an unsafe R2 bucket before signing: %s",
+    (bucket) => {
+      expect(() =>
+        signR2Put({
+          ...R2,
+          bucket,
+          key: "shares/safe.html",
+          payloadHash: "f".repeat(64),
+          contentType: "text/html",
+          cacheControl: "private",
+        }),
+      ).toThrow(/unsafe path segment/u);
+    },
+  );
+
+  it.each([
+    "http://accountid.r2.cloudflarestorage.com",
+    "https://user:secret@accountid.r2.cloudflarestorage.com",
+    "https://accountid.r2.cloudflarestorage.com/prefix",
+    "https://accountid.r2.cloudflarestorage.com?bucket=other",
+    "https://accountid.r2.cloudflarestorage.com#other",
+  ])("rejects a non-origin R2 endpoint: %s", (endpoint) => {
+    expect(() =>
+      signR2Put({
+        ...R2,
+        endpoint,
+        key: "shares/safe.html",
+        payloadHash: "1".repeat(64),
+        contentType: "text/html",
+        cacheControl: "private",
+      }),
+    ).toThrow(/exact HTTPS origin/u);
+  });
+
+  it("rejects a cross-bucket DELETE key before external I/O", async () => {
+    const originalFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+    try {
+      await expect(
+        deleteR2Object({
+          key: "user-pets/attacker/../../../../emoji-dev/emoji-packs/victim/sheet.webp",
+          r2: R2,
+        }),
+      ).rejects.toThrow(/unsafe path segment/u);
+      expect(fetchCalls).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 

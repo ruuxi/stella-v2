@@ -52,6 +52,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   createdAt: number;
                   expiresAt: number;
                   ipAddress?: null | string;
+                  ownerGeneration?: string;
                   token: string;
                   updatedAt: number;
                   userAgent?: null | string;
@@ -66,6 +67,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   accountId: string;
                   createdAt: number;
                   idToken?: null | string;
+                  ownerGeneration?: string;
                   password?: null | string;
                   providerId: string;
                   refreshToken?: null | string;
@@ -81,6 +83,8 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   createdAt: number;
                   expiresAt: number;
                   identifier: string;
+                  ownerGeneration?: string;
+                  ownerId?: string;
                   updatedAt: number;
                   value: string;
                 };
@@ -213,6 +217,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "ipAddress"
                     | "userAgent"
                     | "userId"
+                    | "ownerGeneration"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -253,6 +258,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "password"
                     | "createdAt"
                     | "updatedAt"
+                    | "ownerGeneration"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -286,6 +292,8 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "expiresAt"
                     | "createdAt"
                     | "updatedAt"
+                    | "ownerId"
+                    | "ownerGeneration"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -581,6 +589,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "ipAddress"
                     | "userAgent"
                     | "userId"
+                    | "ownerGeneration"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -621,6 +630,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "password"
                     | "createdAt"
                     | "updatedAt"
+                    | "ownerGeneration"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -654,6 +664,8 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "expiresAt"
                     | "createdAt"
                     | "updatedAt"
+                    | "ownerId"
+                    | "ownerGeneration"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -1051,6 +1063,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   createdAt?: number;
                   expiresAt?: number;
                   ipAddress?: null | string;
+                  ownerGeneration?: string;
                   token?: string;
                   updatedAt?: number;
                   userAgent?: null | string;
@@ -1066,6 +1079,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "ipAddress"
                     | "userAgent"
                     | "userId"
+                    | "ownerGeneration"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -1097,6 +1111,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   accountId?: string;
                   createdAt?: number;
                   idToken?: null | string;
+                  ownerGeneration?: string;
                   password?: null | string;
                   providerId?: string;
                   refreshToken?: null | string;
@@ -1120,6 +1135,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "password"
                     | "createdAt"
                     | "updatedAt"
+                    | "ownerGeneration"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -1149,6 +1165,8 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   createdAt?: number;
                   expiresAt?: number;
                   identifier?: string;
+                  ownerGeneration?: string;
+                  ownerId?: string;
                   updatedAt?: number;
                   value?: string;
                 };
@@ -1160,6 +1178,8 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "expiresAt"
                     | "createdAt"
                     | "updatedAt"
+                    | "ownerId"
+                    | "ownerGeneration"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -1509,6 +1529,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   createdAt?: number;
                   expiresAt?: number;
                   ipAddress?: null | string;
+                  ownerGeneration?: string;
                   token?: string;
                   updatedAt?: number;
                   userAgent?: null | string;
@@ -1524,6 +1545,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "ipAddress"
                     | "userAgent"
                     | "userId"
+                    | "ownerGeneration"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -1555,6 +1577,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   accountId?: string;
                   createdAt?: number;
                   idToken?: null | string;
+                  ownerGeneration?: string;
                   password?: null | string;
                   providerId?: string;
                   refreshToken?: null | string;
@@ -1578,6 +1601,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "password"
                     | "createdAt"
                     | "updatedAt"
+                    | "ownerGeneration"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -1607,6 +1631,8 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   createdAt?: number;
                   expiresAt?: number;
                   identifier?: string;
+                  ownerGeneration?: string;
+                  ownerId?: string;
                   updatedAt?: number;
                   value?: string;
                 };
@@ -1618,6 +1644,8 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "expiresAt"
                     | "createdAt"
                     | "updatedAt"
+                    | "ownerId"
+                    | "ownerGeneration"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:

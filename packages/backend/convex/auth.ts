@@ -16,18 +16,29 @@ import {
 } from "./_generated/server";
 import { components, internal } from "./_generated/api";
 import type { DataModel, Id } from "./_generated/dataModel";
+import type { FunctionReference } from "convex/server";
 import authConfig from "./auth.config";
 import { ConvexError, v } from "convex/values";
+import { makeFunctionReference } from "convex/server";
 import betterAuthSchema from "./betterAuth/schema";
 import {
   buildMagicLinkEmail,
   getMagicLinkSubject,
 } from "./lib/email_templates";
 import { appReviewAuth } from "./lib/app_review_auth";
+import { enforceMutationRateLimit, RATE_SENSITIVE } from "./lib/rate_limits";
 import {
-  enforceMutationRateLimit,
-  RATE_SENSITIVE,
-} from "./lib/rate_limits";
+  ownerMigrationSourceFenceActive,
+  ownershipMigrationSourceDigest,
+} from "./lib/auth_migration_paths";
+import {
+  assertOwnerDataAccessActive,
+  assertOwnerDataWriteAllowed,
+} from "./owner_lifecycle";
+import {
+  getTrustedDevAppsHostOrigin,
+  resolvesToDevAppsHostOrigin,
+} from "./lib/dev_apps_host_origin";
 import { importPKCS8, SignJWT } from "jose";
 
 const getRequiredEnv = (name: string) => {
@@ -106,9 +117,9 @@ const getDeepLinkOrigin = () => {
 /** Matches `EXPO_PUBLIC_STELLA_MOBILE_SCHEME` default in `packages/mobile/src/config/env.ts` (magic-link callback). */
 const getMobileDeepLinkOrigins = () => {
   const scheme =
-    process.env.EXPO_PUBLIC_STELLA_MOBILE_SCHEME?.trim()
-    || process.env.STELLA_MOBILE_SCHEME?.trim()
-    || "stella-mobile";
+    process.env.EXPO_PUBLIC_STELLA_MOBILE_SCHEME?.trim() ||
+    process.env.STELLA_MOBILE_SCHEME?.trim() ||
+    "stella-mobile";
   // expoClient sends `Linking.createURL("", { scheme })` as expo-origin,
   // which varies by platform (e.g. "stella-mobile://", "stella-mobile:///").
   // Include both with and without the /auth path.
@@ -136,11 +147,13 @@ const parseExpirationSeconds = (raw: string | undefined): number => {
   }
   const value = Number(match[1]);
   const unit = (match[2] ?? "s").toLowerCase();
-  const multiplier =
-    unit.startsWith("d") ? 86400
-    : unit.startsWith("h") ? 3600
-    : unit.startsWith("m") ? 60
-    : 1;
+  const multiplier = unit.startsWith("d")
+    ? 86400
+    : unit.startsWith("h")
+      ? 3600
+      : unit.startsWith("m")
+        ? 60
+        : 1;
   return value * multiplier;
 };
 
@@ -232,14 +245,95 @@ const parseNumericClaim = (
   return null;
 };
 
+const onBetterAuthComponentCreateRef = makeFunctionReference<
+  "mutation",
+  { model: string; doc: unknown },
+  unknown
+>("auth:onBetterAuthComponentCreate") as unknown as FunctionReference<
+  "mutation",
+  "internal",
+  { model: string; doc: unknown },
+  unknown
+>;
+const onBetterAuthComponentUpdateRef = makeFunctionReference<
+  "mutation",
+  { model: string; oldDoc: unknown; newDoc: unknown },
+  unknown
+>("auth:onBetterAuthComponentUpdate") as unknown as FunctionReference<
+  "mutation",
+  "internal",
+  { model: string; oldDoc: unknown; newDoc: unknown },
+  unknown
+>;
+
+const assertAttributedAuthDocWrite = async (
+  ctx: MutationCtx,
+  doc: Record<string, unknown>,
+  model: "user" | "session" | "account" | "verification",
+): Promise<void> => {
+  const authUserId =
+    model === "user"
+      ? typeof doc._id === "string"
+        ? doc._id
+        : undefined
+      : typeof doc.userId === "string"
+        ? doc.userId
+        : undefined;
+  const ownerId =
+    model === "verification" && typeof doc.ownerId === "string"
+      ? doc.ownerId
+      : authUserId
+        ? tokenIdentifierForBetterAuthUserId(authUserId)
+        : undefined;
+  if (!ownerId) return;
+  await assertOwnerMigrationWriteAllowed(
+    ctx,
+    ownerId,
+    typeof doc.ownerGeneration === "string" ? doc.ownerGeneration : undefined,
+  );
+};
+
+const authWriteTriggers = {
+  user: {
+    onUpdate: async (ctx: MutationCtx, newDoc: Record<string, unknown>) =>
+      await assertAttributedAuthDocWrite(ctx, newDoc, "user"),
+  },
+  session: {
+    onCreate: async (ctx: MutationCtx, doc: Record<string, unknown>) =>
+      await assertAttributedAuthDocWrite(ctx, doc, "session"),
+    onUpdate: async (ctx: MutationCtx, newDoc: Record<string, unknown>) =>
+      await assertAttributedAuthDocWrite(ctx, newDoc, "session"),
+  },
+  account: {
+    onCreate: async (ctx: MutationCtx, doc: Record<string, unknown>) =>
+      await assertAttributedAuthDocWrite(ctx, doc, "account"),
+    onUpdate: async (ctx: MutationCtx, newDoc: Record<string, unknown>) =>
+      await assertAttributedAuthDocWrite(ctx, newDoc, "account"),
+  },
+  verification: {
+    onCreate: async (ctx: MutationCtx, doc: Record<string, unknown>) =>
+      await assertAttributedAuthDocWrite(ctx, doc, "verification"),
+    onUpdate: async (ctx: MutationCtx, newDoc: Record<string, unknown>) =>
+      await assertAttributedAuthDocWrite(ctx, newDoc, "verification"),
+  },
+} as const;
+
 export const authComponent = createClient<DataModel, typeof betterAuthSchema>(
   components.betterAuth,
   {
     local: {
       schema: betterAuthSchema,
     },
+    authFunctions: {
+      onCreate: onBetterAuthComponentCreateRef,
+      onUpdate: onBetterAuthComponentUpdateRef,
+    },
+    triggers: authWriteTriggers,
   },
 );
+const authComponentTriggers = authComponent.triggersApi();
+export const onBetterAuthComponentCreate = authComponentTriggers.onCreate;
+export const onBetterAuthComponentUpdate = authComponentTriggers.onUpdate;
 const resend = new Resend(components.resend, { testMode: false });
 
 /**
@@ -300,9 +394,70 @@ export const assertSensitiveSessionPolicyAction = async (
   enforceMinIssuedAt(identity, policy.minIssuedAtSec);
 };
 
+const assertAuthOwnerActionActive = async (
+  ctx: Pick<ActionCtx, "runQuery">,
+  ownerId: string,
+): Promise<string> => {
+  const { generation } = await assertOwnerDataAccessActive(ctx, ownerId);
+  if (
+    await ctx.runQuery(internal.auth.hasOwnerMigrationSourceFenceInternal, {
+      ownerId,
+    })
+  ) {
+    throwMigratedAnonymousIdentity();
+  }
+  return generation;
+};
+
+const authUserIdFromVerificationPayload = async (
+  ctx: ActionCtx,
+  verification: { identifier: string; value: string },
+): Promise<string | null> => {
+  const findUser = async (field: "id" | "email", value: string) => {
+    const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: "user",
+      where: [{ field: field === "id" ? "_id" : "email", value }],
+    })) as { _id?: string } | null;
+    return user?._id ?? null;
+  };
+
+  const direct = await findUser("id", verification.value);
+  if (direct) return direct;
+  const byIdentifier = await findUser("email", verification.identifier);
+  if (byIdentifier) return byIdentifier;
+
+  try {
+    const parsed = JSON.parse(verification.value) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const record = parsed as Record<string, unknown>;
+      if (typeof record.userId === "string") {
+        const byId = await findUser("id", record.userId);
+        if (byId) return byId;
+      }
+      if (typeof record.email === "string") {
+        const byEmail = await findUser("email", record.email);
+        if (byEmail) return byEmail;
+      }
+    }
+  } catch {
+    // Opaque verification values are expected for unbound sign-in attempts.
+  }
+  return null;
+};
+
 export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
   const siteUrl = getRequiredEnv("SITE_URL");
   const authBaseUrl = getAuthBaseUrl();
+  const trustedDevAppsHostOrigin = getTrustedDevAppsHostOrigin(process.env);
+  if (
+    !trustedDevAppsHostOrigin &&
+    (resolvesToDevAppsHostOrigin(siteUrl) ||
+      resolvesToDevAppsHostOrigin(authBaseUrl))
+  ) {
+    throw new Error(
+      "The development Apps host cannot be an auth origin without the exact deployment contract.",
+    );
+  }
   const googleClientId =
     getOptionalEnv("GOOGLE_CLIENT_ID") ??
     getOptionalEnv("WORKSPACE_CLIENT_ID") ??
@@ -319,6 +474,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
         ...getMobileDeepLinkOrigins(),
         "https://appleid.apple.com",
         ...extraTrustedOrigins,
+        trustedDevAppsHostOrigin,
       ].filter((origin): origin is string => Boolean(origin)),
     ),
   );
@@ -331,6 +487,9 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
       user: {
         create: {
           after: async (user) => {
+            // Anonymous identities cannot use the connected-only social
+            // surface. A profile here would become permanent migration residue.
+            if (user.isAnonymous === true) return;
             const actionCtx = requireActionCtx(ctx);
             await actionCtx.scheduler.runAfter(
               0,
@@ -342,15 +501,107 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
           },
         },
       },
+      session: {
+        create: {
+          before: async (session) => {
+            const actionCtx = requireActionCtx(ctx);
+            const ownerId = tokenIdentifierForBetterAuthUserId(session.userId);
+            const ownerGeneration = await assertAuthOwnerActionActive(
+              actionCtx,
+              ownerId,
+            );
+            return { data: { ...session, ownerGeneration } };
+          },
+        },
+      },
+      account: {
+        create: {
+          before: async (account) => {
+            const actionCtx = requireActionCtx(ctx);
+            const ownerId = tokenIdentifierForBetterAuthUserId(account.userId);
+            const ownerGeneration = await assertAuthOwnerActionActive(
+              actionCtx,
+              ownerId,
+            );
+            return { data: { ...account, ownerGeneration } };
+          },
+        },
+      },
+      verification: {
+        create: {
+          before: async (verification) => {
+            const actionCtx = requireActionCtx(ctx);
+            const authUserId = await authUserIdFromVerificationPayload(
+              actionCtx,
+              verification,
+            );
+            if (!authUserId) return;
+            const ownerId = tokenIdentifierForBetterAuthUserId(authUserId);
+            const ownerGeneration = await assertAuthOwnerActionActive(
+              actionCtx,
+              ownerId,
+            );
+            return {
+              data: { ...verification, ownerId, ownerGeneration },
+            };
+          },
+        },
+      },
     },
     user: {
       deleteUser: {
         enabled: true,
         beforeDelete: async (user) => {
           const actionCtx = requireActionCtx(ctx);
-          await actionCtx.runAction(internal.account_deletion.purgeOwnerCloudData, {
-            ownerId: tokenIdentifierForBetterAuthUserId(user.id),
-          });
+          const ownerId = tokenIdentifierForBetterAuthUserId(user.id);
+          const lifecycle: { operationId: string; generation: string } =
+            await actionCtx.runMutation(
+              internal.owner_lifecycle.beginOwnerDataPurgeInternal,
+              {
+                ownerId,
+                operationId: crypto.randomUUID(),
+                mode: "delete",
+                authUserId: user.id,
+                authUserEmail: user.email,
+                now: Date.now(),
+              },
+            );
+          const authPreparation = await actionCtx.runAction(
+            internal.auth_account_deletion
+              .prepareAuthAccountDeletionForRouteInternal,
+            {
+              ownerId,
+              authUserId: user.id,
+              operationId: lifecycle.operationId,
+              generation: lifecycle.generation,
+            },
+          );
+          if (!authPreparation.ready) {
+            throw new Error(
+              "Account deletion is continuing in the background. Retry shortly.",
+            );
+          }
+          await actionCtx.runAction(
+            internal.account_deletion.purgeOwnerCloudData,
+            {
+              ownerId,
+              operationId: lifecycle.operationId,
+              generation: lifecycle.generation,
+            },
+          );
+        },
+        afterDelete: async (user) => {
+          const actionCtx = requireActionCtx(ctx);
+          // Wake the durable finalizer. It deliberately retains its locator
+          // until optional Better Auth plugin and verification rows are gone.
+          await actionCtx.runMutation(
+            internal.auth_account_deletion
+              .acknowledgeAuthAccountDeletedInternal,
+            {
+              ownerId: tokenIdentifierForBetterAuthUserId(user.id),
+              authUserId: user.id,
+            },
+          );
         },
       },
     },
@@ -370,13 +621,23 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
         disableDeleteAnonymousUser: true,
         onLinkAccount: async ({ anonymousUser, newUser }) => {
           const actionCtx = requireActionCtx(ctx);
-          await actionCtx.scheduler.runAfter(
-            0,
-            internal.auth_migration.migrateOwnership,
-            {
-              fromOwnerId: tokenIdentifierForBetterAuthUserId(anonymousUser.user.id),
-              toOwnerId: tokenIdentifierForBetterAuthUserId(newUser.user.id),
-            },
+          const migration = {
+            fromOwnerId: tokenIdentifierForBetterAuthUserId(
+              anonymousUser.user.id,
+            ),
+            toOwnerId: tokenIdentifierForBetterAuthUserId(newUser.user.id),
+            sourceAuthUserId: anonymousUser.user.id,
+            ...(typeof anonymousUser.user.email === "string"
+              ? { sourceAuthUserEmail: anonymousUser.user.email }
+              : {}),
+          };
+          // Publish a durable pending marker before Better Auth exposes the
+          // connected session. The renderer can then preserve the anonymous
+          // route until its ownership transfer becomes visible instead of
+          // jumping to a blank account conversation.
+          await actionCtx.runMutation(
+            internal.auth_migration.prepareOwnershipMigration,
+            migration,
           );
         },
       }),
@@ -425,6 +686,76 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>) => {
 
 export const createAuth = (ctx: GenericCtx<DataModel>) =>
   betterAuth(createAuthOptions(ctx));
+
+/**
+ * Remove exact user-linked rows from optional Better Auth component tables.
+ *
+ * The app-level Better Auth adapter only recognizes plugins enabled in the
+ * current configuration. The component schema intentionally retains optional
+ * plugin tables, so account deletion uses the component's typed adapter API to
+ * clean legacy rows even after a plugin has been disabled.
+ */
+export const deleteBetterAuthOwnerAuxiliaryRows = async (
+  ctx: Pick<ActionCtx, "runMutation">,
+  args: { authUserId: string; email?: string },
+): Promise<boolean> => {
+  const paginationOpts = { cursor: null, numItems: 100 } as const;
+  const results = await Promise.all([
+    ctx.runMutation(components.betterAuth.adapter.deleteMany, {
+      input: {
+        model: "twoFactor",
+        where: [{ field: "userId", value: args.authUserId }],
+      },
+      paginationOpts,
+    }),
+    ctx.runMutation(components.betterAuth.adapter.deleteMany, {
+      input: {
+        model: "oauthAccessToken",
+        where: [{ field: "userId", value: args.authUserId }],
+      },
+      paginationOpts,
+    }),
+    ctx.runMutation(components.betterAuth.adapter.deleteMany, {
+      input: {
+        model: "oauthConsent",
+        where: [{ field: "userId", value: args.authUserId }],
+      },
+      paginationOpts,
+    }),
+    ctx.runMutation(components.betterAuth.adapter.deleteMany, {
+      input: {
+        model: "oauthApplication",
+        where: [{ field: "userId", value: args.authUserId }],
+      },
+      paginationOpts,
+    }),
+    ctx.runMutation(components.betterAuth.adapter.deleteMany, {
+      input: {
+        model: "verification",
+        where: [{ field: "value", value: args.authUserId }],
+      },
+      paginationOpts,
+    }),
+    ...(args.email
+      ? [
+          ctx.runMutation(components.betterAuth.adapter.deleteMany, {
+            input: {
+              model: "verification" as const,
+              where: [{ field: "identifier", value: args.email }],
+            },
+            paginationOpts,
+          }),
+        ]
+      : []),
+  ]);
+  return results.every(
+    (result) =>
+      typeof result === "object" &&
+      result !== null &&
+      "isDone" in result &&
+      result.isDone === true,
+  );
+};
 
 export const { getAuthUser } = authComponent.clientApi();
 
@@ -539,6 +870,120 @@ export const revokeActiveSessions = mutation({
   },
 });
 
+export const isAnonymousIdentity = (identity: unknown): boolean =>
+  Boolean(
+    identity &&
+      typeof identity === "object" &&
+      (identity as Record<string, unknown>).isAnonymous === true,
+  );
+
+/**
+ * An operational source-owner migration row, or its minimized digest successor,
+ * is a permanent revocation fence for the anonymous identity that was linked.
+ * Status is deliberately irrelevant: pending/running/failed fence partial
+ * transfers, and complete/minimized rows still stop valid anonymous JWTs from
+ * recreating source-owned state after residue audit.
+ */
+export const hasOwnerMigrationSourceFence = async (
+  ctx: QueryCtx | MutationCtx,
+  ownerId: string,
+): Promise<boolean> => {
+  const sourceOwnerDigest = await ownershipMigrationSourceDigest(ownerId);
+  const [rows, tombstones] = await Promise.all([
+    ctx.db
+      .query("auth_owner_migrations")
+      .withIndex("by_fromOwnerId_and_updatedAt", (q) =>
+        q.eq("fromOwnerId", ownerId),
+      )
+      .take(1),
+    ctx.db
+      .query("auth_owner_migration_tombstones")
+      .withIndex("by_sourceOwnerDigest", (q) =>
+        q.eq("sourceOwnerDigest", sourceOwnerDigest),
+      )
+      .take(1),
+  ]);
+  return (
+    tombstones.length > 0 || ownerMigrationSourceFenceActive(ownerId, rows)
+  );
+};
+
+const hasOwnerMigrationDestinationFence = async (
+  ctx: QueryCtx | MutationCtx,
+  ownerId: string,
+): Promise<boolean> => {
+  const rows = await Promise.all(
+    (["pending", "running", "failed"] as const).map(
+      async (status) =>
+        await ctx.db
+          .query("auth_owner_migrations")
+          .withIndex("by_toOwnerId_and_status_and_updatedAt", (q) =>
+            q.eq("toOwnerId", ownerId).eq("status", status),
+          )
+          .take(1),
+    ),
+  );
+  return rows.some((page) => page.length > 0);
+};
+
+export const hasOwnerMigrationWriteFence = async (
+  ctx: QueryCtx | MutationCtx,
+  ownerId: string,
+): Promise<boolean> =>
+  (await hasOwnerMigrationSourceFence(ctx, ownerId)) ||
+  (await hasOwnerMigrationDestinationFence(ctx, ownerId));
+
+export const hasOwnerMigrationSourceFenceInternal = internalQuery({
+  args: { ownerId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) =>
+    await hasOwnerMigrationSourceFence(ctx, args.ownerId),
+});
+
+export const hasOwnerMigrationWriteFenceInternal = internalQuery({
+  args: { ownerId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) =>
+    await hasOwnerMigrationWriteFence(ctx, args.ownerId),
+});
+
+const throwMigratedAnonymousIdentity = (): never => {
+  throw new ConvexError({
+    code: "OWNERSHIP_MIGRATED",
+    message:
+      "This anonymous session was linked to an account. Refresh authentication and retry.",
+  });
+};
+
+type ActionIdentityCtx = Pick<ActionCtx, "auth" | "runQuery">;
+
+const identityWriteFence = async (
+  ctx: QueryCtx | MutationCtx | ActionIdentityCtx,
+  identity: NonNullable<
+    Awaited<ReturnType<QueryCtx["auth"]["getUserIdentity"]>>
+  >,
+): Promise<"migration" | null> => {
+  if ("db" in ctx) {
+    const databaseCtx = ctx as QueryCtx | MutationCtx;
+    await assertOwnerDataWriteAllowed(databaseCtx, identity.tokenIdentifier);
+    return isAnonymousIdentity(identity) &&
+      (await hasOwnerMigrationSourceFence(
+        databaseCtx,
+        identity.tokenIdentifier,
+      ))
+      ? "migration"
+      : null;
+  }
+  const actionCtx = ctx as ActionIdentityCtx;
+  await assertOwnerDataAccessActive(actionCtx, identity.tokenIdentifier);
+  return (await actionCtx.runQuery(
+    internal.auth.hasOwnerMigrationWriteFenceInternal,
+    { ownerId: identity.tokenIdentifier },
+  ))
+    ? "migration"
+    : null;
+};
+
 export const requireUserIdentity = async (
   ctx: QueryCtx | MutationCtx | ActionCtx,
 ) => {
@@ -549,6 +994,8 @@ export const requireUserIdentity = async (
       message: "Authentication required",
     });
   }
+  const fence = await identityWriteFence(ctx, identity);
+  if (fence === "migration") throwMigratedAnonymousIdentity();
   return identity;
 };
 
@@ -559,12 +1006,44 @@ export const requireUserId = async (
   return identity.tokenIdentifier;
 };
 
-export const isAnonymousIdentity = (identity: unknown): boolean =>
-  Boolean(
-    identity
-    && typeof identity === "object"
-    && (identity as Record<string, unknown>).isAnonymous === true,
-  );
+/**
+ * Atomic mutation-side guard for internal writers that receive an owner id
+ * rather than authenticating directly. The indexed read participates in the
+ * same transaction as the caller's writes, so marker insertion races retry
+ * instead of committing source-owned rows after the migration audit.
+ */
+export const assertOwnerMigrationWriteAllowed = async (
+  ctx: QueryCtx | MutationCtx,
+  ownerId: string,
+  expectedGeneration?: string,
+): Promise<{ generation: string }> => {
+  if (await hasOwnerMigrationWriteFence(ctx, ownerId)) {
+    throwMigratedAnonymousIdentity();
+  }
+  return await assertOwnerDataWriteAllowed(ctx, ownerId, expectedGeneration);
+};
+
+export const getUserIdentityOrNull = async (ctx: QueryCtx | MutationCtx) => {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) return null;
+  try {
+    if (await identityWriteFence(ctx, identity)) return null;
+  } catch {
+    return null;
+  }
+  return identity;
+};
+
+export const getUserIdentityOrNullAction = async (ctx: ActionIdentityCtx) => {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) return null;
+  try {
+    if (await identityWriteFence(ctx, identity)) return null;
+  } catch {
+    return null;
+  }
+  return identity;
+};
 
 export const requireConnectedUserIdentity = async (
   ctx: QueryCtx | MutationCtx,
@@ -579,9 +1058,7 @@ export const requireConnectedUserIdentity = async (
   return identity;
 };
 
-export const requireConnectedUserIdentityAction = async (
-  ctx: ActionCtx,
-) => {
+export const requireConnectedUserIdentityAction = async (ctx: ActionCtx) => {
   const identity = await requireUserIdentity(ctx);
   if (isAnonymousIdentity(identity)) {
     throw new ConvexError({
@@ -592,17 +1069,13 @@ export const requireConnectedUserIdentityAction = async (
   return identity;
 };
 
-export const requireConnectedUserId = async (
-  ctx: QueryCtx | MutationCtx,
-) => {
+export const requireConnectedUserId = async (ctx: QueryCtx | MutationCtx) => {
   const identity = await requireConnectedUserIdentity(ctx);
   return identity.tokenIdentifier;
 };
 
-export const getConnectedUserIdOrNull = async (
-  ctx: QueryCtx | MutationCtx,
-) => {
-  const identity = await ctx.auth.getUserIdentity();
+export const getConnectedUserIdOrNull = async (ctx: QueryCtx | MutationCtx) => {
+  const identity = await getUserIdentityOrNull(ctx);
   if (!identity || isAnonymousIdentity(identity)) {
     return null;
   }
@@ -617,16 +1090,12 @@ export const getConnectedUserIdOrNull = async (
  * React error boundary. Mutations and actions should keep using
  * `requireUserId` / `requireConnectedUserId` to enforce auth strictly.
  */
-export const getUserIdOrNull = async (
-  ctx: QueryCtx | MutationCtx,
-) => {
-  const identity = await ctx.auth.getUserIdentity();
+export const getUserIdOrNull = async (ctx: QueryCtx | MutationCtx) => {
+  const identity = await getUserIdentityOrNull(ctx);
   return identity?.tokenIdentifier ?? null;
 };
 
-export const requireConnectedUserIdAction = async (
-  ctx: ActionCtx,
-) => {
+export const requireConnectedUserIdAction = async (ctx: ActionCtx) => {
   const identity = await requireConnectedUserIdentityAction(ctx);
   return identity.tokenIdentifier;
 };
@@ -639,24 +1108,18 @@ export const requireSensitiveUserIdentity = async (
   return identity;
 };
 
-export const requireSensitiveUserIdentityAction = async (
-  ctx: ActionCtx,
-) => {
+export const requireSensitiveUserIdentityAction = async (ctx: ActionCtx) => {
   const identity = await requireUserIdentity(ctx);
   await assertSensitiveSessionPolicyAction(ctx, identity);
   return identity;
 };
 
-export const requireSensitiveUserId = async (
-  ctx: QueryCtx | MutationCtx,
-) => {
+export const requireSensitiveUserId = async (ctx: QueryCtx | MutationCtx) => {
   const identity = await requireSensitiveUserIdentity(ctx);
   return identity.tokenIdentifier;
 };
 
-export const requireSensitiveUserIdAction = async (
-  ctx: ActionCtx,
-) => {
+export const requireSensitiveUserIdAction = async (ctx: ActionCtx) => {
   const identity = await requireSensitiveUserIdentityAction(ctx);
   return identity.tokenIdentifier;
 };

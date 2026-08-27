@@ -264,7 +264,12 @@ const loadTokenPriceCatalog = (): TokenPriceCatalog => {
   }
 };
 
-const TOKEN_PRICE_CATALOG = loadTokenPriceCatalog();
+// Convex evaluates every module while deriving the schema, where environment
+// variables are deliberately unavailable. Price configuration is runtime
+// policy, so load it lazily on the first billed operation in each isolate.
+let tokenPriceCatalog: TokenPriceCatalog | undefined;
+const getTokenPriceCatalog = (): TokenPriceCatalog =>
+  (tokenPriceCatalog ??= loadTokenPriceCatalog());
 
 const normalizeServiceKey = (value: string): string =>
   value.trim().toLowerCase();
@@ -309,7 +314,9 @@ const loadServicePriceCatalog = (): ServicePriceCatalog => {
   }
 };
 
-const SERVICE_PRICE_CATALOG = loadServicePriceCatalog();
+let servicePriceCatalog: ServicePriceCatalog | undefined;
+const getServicePriceCatalog = (): ServicePriceCatalog =>
+  (servicePriceCatalog ??= loadServicePriceCatalog());
 
 const XAI_REALTIME_AUDIO_PER_MINUTE_USD = 0.05;
 
@@ -355,10 +362,8 @@ export const computeUsageCostMicroCents = (args: {
   reasoningTokens?: number;
   price?: TokenPriceConfig;
 }) => {
-  const price =
-    args.price ??
-    TOKEN_PRICE_CATALOG.models[args.model] ??
-    TOKEN_PRICE_CATALOG.default;
+  const catalog = getTokenPriceCatalog();
+  const price = args.price ?? catalog.models[args.model] ?? catalog.default;
   const cachedInputTokens = Math.max(0, args.cachedInputTokens ?? 0);
   const cacheWriteInputTokens = Math.max(0, args.cacheWriteInputTokens ?? 0);
   const billableInputTokens = Math.max(
@@ -388,9 +393,10 @@ export const computeUsageCostMicroCents = (args: {
 };
 
 export const resolveServicePriceUsd = (serviceKey: string): number => {
+  const catalog = getServicePriceCatalog();
   let currentKey = normalizeServiceKey(serviceKey);
   while (currentKey) {
-    const configured = SERVICE_PRICE_CATALOG.services[currentKey];
+    const configured = catalog.services[currentKey];
     if (typeof configured === "number") {
       return configured;
     }
@@ -402,7 +408,7 @@ export const resolveServicePriceUsd = (serviceKey: string): number => {
     currentKey = currentKey.slice(0, separatorIndex);
   }
 
-  return SERVICE_PRICE_CATALOG.defaultUsd;
+  return catalog.defaultUsd;
 };
 
 export const computeServiceCostMicroCents = (serviceKey: string): number =>

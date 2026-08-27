@@ -6,32 +6,31 @@ import { Buffer } from "node:buffer";
 import { PNG } from "pngjs";
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
-import { action } from "../_generated/server";
+import { action, internalAction, type ActionCtx } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
 import { requireConnectedUserIdAction } from "../auth";
+import { assertOwnerDataAccessActive } from "../owner_lifecycle";
+import { EXTERNAL_MEDIA_SERVER_WRITE_BARRIER_MS } from "../account_external_media_store";
+import { getFalApiKey } from "../media_fal_webhooks";
+import { createMediaProviderDispatch } from "../lib/media_provider_dispatch";
 import {
-  fetchFalResultPayload,
-  getFalApiKey,
-  submitFalRequest,
-} from "../media_fal_webhooks";
+  reserveDurableFalImageJob,
+  waitForDurableFalImageUrl,
+} from "../lib/durable_fal_image_job";
 import {
   assertPaidMediaTier,
   checkManagedUsageLimit,
 } from "../lib/managed_billing";
-import {
-  RATE_STANDARD,
-  enforceActionRateLimit,
-} from "../lib/rate_limits";
+import { RATE_STANDARD, enforceActionRateLimit } from "../lib/rate_limits";
+import { requireConfiguredRawR2MediaTarget } from "../lib/raw_r2_media_target";
 import {
   user_pet_validator,
   user_pet_visibility_validator,
 } from "../schema/user_pets";
 import { requireBoundedString } from "../shared_validators";
+import { assertC8RetiredSurfaceUnavailable } from "../lib/c8_retired_surface";
 
-const DEFAULT_BUCKET = "stella-emotes";
 const DEFAULT_PREFIX = "user-pets";
-const DEFAULT_PUBLIC_BASE =
-  "https://pub-58708621bfa94e3bb92de37cde354c0d.r2.dev";
 const CACHE_CONTROL = "public, max-age=31536000, immutable";
 const FAL_ENDPOINT_ID = "openai/gpt-image-2";
 const POLL_INTERVAL_MS = 2_000;
@@ -118,9 +117,6 @@ const normalizePrefix = (value: string | undefined): string =>
 const sha256Hex = (data: string | Buffer): string =>
   createHash("sha256").update(data).digest("hex");
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
 const slugify = (value: string): string =>
   value
     .normalize("NFKD")
@@ -177,81 +173,113 @@ Background everywhere outside the pet silhouette is a single flat ${USER_PET_ATL
 - No silhouette crossing into a neighboring cell. Scale the silhouette down when needed.`;
 };
 
-const extractFirstImageUrl = (output: unknown): string | null => {
-  if (!output || typeof output !== "object") return null;
-  const images = (output as { images?: Array<{ url?: unknown }> }).images;
-  if (!Array.isArray(images)) return null;
-  for (const entry of images) {
-    if (entry && typeof entry.url === "string" && entry.url.length > 0) {
-      return entry.url;
-    }
-  }
-  return null;
-};
+const buildPetGenerationInput = (prompt: string) => ({
+  prompt: buildAtlasPrompt(prompt),
+  image_size: {
+    width: USER_PET_ATLAS.width,
+    height: USER_PET_ATLAS.height,
+  },
+  quality: "medium",
+  output_format: "png",
+});
 
-const pollFalImageUrl = async (args: {
-  apiKey: string;
-  responseUrl: string;
-}): Promise<string> => {
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
-  let lastError = "";
-  while (Date.now() < deadline) {
-    try {
-      const output = await fetchFalResultPayload({
-        apiKey: args.apiKey,
-        url: args.responseUrl,
-      });
-      const imageUrl = extractFirstImageUrl(output);
-      if (imageUrl) return imageUrl;
-      lastError = "Fal result did not include an image URL.";
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : "Fal result was not ready.";
-    }
-    await sleep(POLL_INTERVAL_MS);
-  }
-  throw new Error(lastError || "Timed out waiting for pet generation.");
-};
-
-const submitPetAtlas = async (args: {
-  apiKey: string;
-  webhookUrl: string;
-  prompt: string;
-}): Promise<string> => {
-  const submitted = await submitFalRequest({
-    apiKey: args.apiKey,
+const reservePetGenerationJobForOwner = async (
+  ctx: ActionCtx,
+  args: {
+    ownerId: string;
+    ownerGeneration: string;
+    uploadId: string;
+    prompt: string;
+  },
+) => {
+  const generationInput = buildPetGenerationInput(args.prompt);
+  const clientRequestHash = sha256Hex(
+    JSON.stringify({
+      capability: "text_to_image",
+      profile: "best",
+      input: generationInput,
+    }),
+  );
+  const identityHash = sha256Hex(
+    [
+      "user-pet:v3",
+      args.ownerId,
+      args.ownerGeneration,
+      args.uploadId,
+      clientRequestHash,
+    ].join("\0"),
+  );
+  return await reserveDurableFalImageJob(ctx, {
+    ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
+    jobId: `user_pet_generation_${identityHash.slice(0, 40)}`,
+    clientRequestKey: `user-pet-v3-${identityHash}`,
+    clientRequestHash,
+    capability: "text_to_image",
+    profile: "best",
     endpointId: FAL_ENDPOINT_ID,
-    webhookUrl: args.webhookUrl,
-    input: {
-      prompt: buildAtlasPrompt(args.prompt),
-      image_size: {
-        width: USER_PET_ATLAS.width,
-        height: USER_PET_ATLAS.height,
-      },
-      quality: "medium",
-      output_format: "png",
-    },
+    prompt: generationInput.prompt,
+    input: generationInput,
   });
-  const responseUrl =
-    submitted.responseUrl ??
-    `https://queue.fal.run/${FAL_ENDPOINT_ID}/requests/${submitted.requestId}`;
-  return await pollFalImageUrl({ apiKey: args.apiKey, responseUrl });
 };
 
-const downloadImage = async (url: string): Promise<Buffer> => {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Image download failed (${response.status})`);
+/** Durable reservation seam shared with recovery and focused race tests. */
+export const reservePetGenerationJob = internalAction({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    uploadId: v.string(),
+    prompt: v.string(),
+  },
+  returns: v.union(v.null(), v.object({ jobId: v.string() })),
+  handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Custom pet generation");
+    return await reservePetGenerationJobForOwner(ctx, args);
+  },
+});
+
+const downloadImage = async (args: {
+  ctx: Pick<ActionCtx, "runMutation">;
+  ownerId: string;
+  ownerGeneration: string;
+  authorityId: string;
+  url: string;
+}): Promise<Buffer> => {
+  const dispatch = createMediaProviderDispatch(args.ctx, {
+    ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
+    dispatchId: `media:fal_download:user_pet:${args.authorityId}`,
+    kind: "fal_download",
+  });
+  try {
+    const bytes = await dispatch.run(async (signal) => {
+      const response = await fetch(args.url, { signal });
+      if (!response.ok) {
+        throw new Error(`Image download failed (${response.status})`);
+      }
+      return Buffer.from(await response.arrayBuffer());
+    });
+    await dispatch.settle();
+    return bytes;
+  } catch (error) {
+    await dispatch.settle().catch(() => false);
+    throw error;
   }
-  return Buffer.from(await response.arrayBuffer());
 };
 
 const resizeNearest = (source: PNG, width: number, height: number): PNG => {
   if (source.width === width && source.height === height) return source;
   const target = new PNG({ width, height });
   for (let y = 0; y < height; y += 1) {
-    const sy = Math.min(source.height - 1, Math.floor((y * source.height) / height));
+    const sy = Math.min(
+      source.height - 1,
+      Math.floor((y * source.height) / height),
+    );
     for (let x = 0; x < width; x += 1) {
-      const sx = Math.min(source.width - 1, Math.floor((x * source.width) / width));
+      const sx = Math.min(
+        source.width - 1,
+        Math.floor((x * source.width) / width),
+      );
       const sourceIndex = (sy * source.width + sx) * 4;
       const targetIndex = (y * width + x) * 4;
       source.data.copy(target.data, targetIndex, sourceIndex, sourceIndex + 4);
@@ -284,9 +312,15 @@ const buildIdlePreviewStrip = (atlas: PNG): PNG => {
   const sourceWidth = USER_PET_ATLAS.cellWidth * USER_PET_ATLAS.columns;
   const sourceHeight = USER_PET_ATLAS.cellHeight;
   for (let y = 0; y < PREVIEW_STRIP.height; y += 1) {
-    const sy = Math.min(sourceHeight - 1, Math.floor((y * sourceHeight) / PREVIEW_STRIP.height));
+    const sy = Math.min(
+      sourceHeight - 1,
+      Math.floor((y * sourceHeight) / PREVIEW_STRIP.height),
+    );
     for (let x = 0; x < PREVIEW_STRIP.width; x += 1) {
-      const sx = Math.min(sourceWidth - 1, Math.floor((x * sourceWidth) / PREVIEW_STRIP.width));
+      const sx = Math.min(
+        sourceWidth - 1,
+        Math.floor((x * sourceWidth) / PREVIEW_STRIP.width),
+      );
       const sourceIndex = (sy * atlas.width + sx) * 4;
       const targetIndex = (y * preview.width + x) * 4;
       atlas.data.copy(preview.data, targetIndex, sourceIndex, sourceIndex + 4);
@@ -295,7 +329,9 @@ const buildIdlePreviewStrip = (atlas: PNG): PNG => {
   return preview;
 };
 
-const processPetAtlas = (bytes: Buffer): {
+const processPetAtlas = (
+  bytes: Buffer,
+): {
   spritesheet: Buffer;
   preview: Buffer;
 } => {
@@ -319,7 +355,12 @@ export const generatePet = action({
   },
   returns: user_pet_validator,
   handler: async (ctx, args): Promise<Doc<"user_pets">> => {
+    assertC8RetiredSurfaceUnavailable("Custom pet generation");
     const ownerId = await requireConnectedUserIdAction(ctx);
+    const { generation: ownerGeneration } = await assertOwnerDataAccessActive(
+      ctx,
+      ownerId,
+    );
     // Pet sprite sheets are fal image generations like any other, so they sit
     // behind the same capability as the media pipeline.
     await assertPaidMediaTier(ctx, ownerId, "image_generation");
@@ -345,39 +386,90 @@ export const generatePet = action({
         message: "Prompt is required.",
       });
     }
-    const apiKey = getFalApiKey();
-    if (!apiKey) {
+    if (!getFalApiKey()) {
       throw new ConvexError({
         code: "SERVER_MISCONFIGURED",
         message: "Media generation is not configured yet.",
       });
     }
 
-    const siteUrl = requireEnv("CONVEX_SITE_URL").replace(/\/+$/, "");
-    const webhookUrl = `${siteUrl}/api/media/v1/webhooks/fal?jobId=${encodeURIComponent(`user-pet-${randomUUID()}`)}`;
+    const { bucket, publicBase } = requireConfiguredRawR2MediaTarget({
+      bucketEnv: "R2_PETS_BUCKET",
+      purpose: "Pet generation",
+    });
     const r2 = {
       accessKeyId: requireEnv("R2_ACCESS_KEY_ID"),
       secretAccessKey: requireEnv("R2_SECRET_ACCESS_KEY"),
       endpoint: requireEnv("R2_ENDPOINT"),
-      bucket:
-        process.env.R2_PETS_BUCKET?.trim() ||
-        process.env.R2_EMOJI_BUCKET?.trim() ||
-        DEFAULT_BUCKET,
+      bucket,
     };
     const prefix = normalizePrefix(process.env.R2_PETS_PREFIX);
-    const publicBase = (
-      process.env.R2_PUBLIC_BASE_URL?.trim() || DEFAULT_PUBLIC_BASE
-    ).replace(/\/+$/, "");
     const petId = buildPetId(prompt);
     const ownerKey = sha256Hex(ownerId).slice(0, 24);
     const uploadId = randomUUID();
     const baseKey = `${prefix}/${ownerKey}/${petId}/${uploadId}`;
-
-    const imageUrl = await submitPetAtlas({ apiKey, webhookUrl, prompt });
-    const generated = await downloadImage(imageUrl);
+    const reserved = await reservePetGenerationJobForOwner(ctx, {
+      ownerId,
+      ownerGeneration,
+      uploadId,
+      prompt,
+    });
+    if (!reserved) {
+      throw new Error("Pet generation was canceled before provider dispatch.");
+    }
+    const imageUrl = await waitForDurableFalImageUrl(ctx, {
+      ownerId,
+      ownerGeneration,
+      jobId: reserved.jobId,
+      deadlineAt: Date.now() + POLL_TIMEOUT_MS,
+      pollIntervalMs: POLL_INTERVAL_MS,
+    });
+    const generated = await downloadImage({
+      ctx,
+      ownerId,
+      ownerGeneration,
+      authorityId: reserved.jobId,
+      url: imageUrl,
+    });
     const processed = processPetAtlas(generated);
     const spritesheetKey = `${baseKey}/spritesheet.png`;
     const previewKey = `${baseKey}/preview.png`;
+    const spritesheetUrl = `${publicBase}/${spritesheetKey}`;
+    const previewUrl = `${publicBase}/${previewKey}`;
+    const now = Date.now();
+    await ctx.runMutation(
+      internal.account_external_media_store.reserveExternalMediaUploadInternal,
+      {
+        ownerId,
+        ownerGeneration,
+        uploadId,
+        uploadExpiresAt: now + EXTERNAL_MEDIA_SERVER_WRITE_BARRIER_MS,
+        objects: [
+          {
+            objectRole: "spritesheet",
+            storageKind: "raw-r2",
+            bucket: r2.bucket,
+            r2Key: spritesheetKey,
+            payloadSha256: sha256Hex(processed.spritesheet),
+            publicUrl: spritesheetUrl,
+          },
+          {
+            objectRole: "preview",
+            storageKind: "raw-r2",
+            bucket: r2.bucket,
+            r2Key: previewKey,
+            payloadSha256: sha256Hex(processed.preview),
+            publicUrl: previewUrl,
+          },
+        ],
+        now,
+      },
+    );
+    await ctx.runMutation(
+      internal.account_external_media_store
+        .assertExternalMediaUploadDispatchInternal,
+      { ownerId, ownerGeneration, uploadId, now: Date.now() },
+    );
     await Promise.all([
       uploadR2Object({
         key: spritesheetKey,
@@ -397,12 +489,14 @@ export const generatePet = action({
 
     return await ctx.runMutation(internal.data.user_pets.createGeneratedPet, {
       ownerId,
+      uploadId,
+      ownerGeneration,
       petId,
       displayName: "Stella pet",
       description: prompt,
       prompt,
-      spritesheetUrl: `${publicBase}/${spritesheetKey}`,
-      previewUrl: `${publicBase}/${previewKey}`,
+      spritesheetUrl,
+      previewUrl,
       visibility: args.visibility,
     });
   },

@@ -35,6 +35,18 @@ const asOwner = (t: Awaited<ReturnType<typeof createTest>>) =>
     tokenIdentifier: MEDIA_OWNER_ID,
   });
 
+const beginDeleteFence = async (
+  t: Awaited<ReturnType<typeof createTest>>,
+  ownerId: string,
+) => {
+  const operationId = `test-delete-${crypto.randomUUID()}`;
+  const lifecycle = await t.mutation(
+    internal.owner_lifecycle.beginOwnerDataPurgeInternal,
+    { ownerId, operationId, mode: "delete", now: Date.now() },
+  );
+  return { ownerId, operationId, generation: lifecycle.generation };
+};
+
 const ensureMediaEnv = () => {
   const values: Record<string, string> = {
     FAL_KEY: "test-fal-key",
@@ -154,6 +166,7 @@ describe("managed media idempotency and cancellation", () => {
       expect(
         await t.mutation(internal.media_jobs.createPrivatePayloadManifest, {
           ownerId,
+          ownerGeneration: "legacy",
           manifestId,
           jobId: `chunk-crash-job-${crashAfterChunks}`,
           clientRequestKey: `chunk-crash-key-${crashAfterChunks}`,
@@ -166,6 +179,7 @@ describe("managed media idempotency and cancellation", () => {
         expect(
           await t.mutation(internal.media_jobs.appendPrivatePayloadChunk, {
             ownerId,
+            ownerGeneration: "legacy",
             manifestId,
             index,
             data: "xx",
@@ -227,6 +241,7 @@ describe("managed media idempotency and cancellation", () => {
     const [created] = await Promise.all([
       t.mutation(internal.media_jobs.createPrivatePayloadManifest, {
         ownerId,
+        ownerGeneration: "legacy",
         manifestId,
         jobId: "concurrent-manifest-job",
         clientRequestKey: "concurrent-manifest-key",
@@ -245,6 +260,7 @@ describe("managed media idempotency and cancellation", () => {
         internal.media_jobs.appendPrivatePayloadChunk,
         {
           ownerId,
+          ownerGeneration: "legacy",
           manifestId,
           index: 0,
           data: "xx",
@@ -274,6 +290,7 @@ describe("managed media idempotency and cancellation", () => {
     await expect(
       t.mutation(internal.media_jobs.appendPrivatePayloadChunk, {
         ownerId: "missing-manifest-owner",
+        ownerGeneration: "legacy",
         manifestId: "missing-manifest",
         index: 0,
         data: "secret",
@@ -288,6 +305,7 @@ describe("managed media idempotency and cancellation", () => {
 
     await t.mutation(internal.media_jobs.createPrivatePayloadManifest, {
       ownerId: "incomplete-owner",
+      ownerGeneration: "legacy",
       manifestId: "incomplete-manifest",
       jobId: "incomplete-job",
       clientRequestKey: "incomplete-key",
@@ -297,6 +315,7 @@ describe("managed media idempotency and cancellation", () => {
     });
     await t.mutation(internal.media_jobs.appendPrivatePayloadChunk, {
       ownerId: "incomplete-owner",
+      ownerGeneration: "legacy",
       manifestId: "incomplete-manifest",
       index: 0,
       data: "xx",
@@ -305,6 +324,7 @@ describe("managed media idempotency and cancellation", () => {
     await expect(
       t.mutation(internal.media_jobs.finalizePrivatePayloadManifest, {
         ownerId: "incomplete-owner",
+        ownerGeneration: "legacy",
         manifestId: "incomplete-manifest",
         finalizedAt: Date.now(),
       }),
@@ -312,6 +332,7 @@ describe("managed media idempotency and cancellation", () => {
     await expect(
       t.mutation(internal.media_jobs.reserveIdempotentJob, {
         ownerId: "incomplete-owner",
+        ownerGeneration: "legacy",
         jobId: "incomplete-job",
         clientRequestKey: "incomplete-key",
         clientRequestHash: "incomplete-hash",
@@ -336,6 +357,7 @@ describe("managed media idempotency and cancellation", () => {
     );
     await t.mutation(internal.media_jobs.reserveIdempotentJob, {
       ownerId: "legacy-envelope-owner",
+      ownerGeneration: "legacy",
       jobId: "legacy-envelope-job",
       clientRequestKey: "legacy-envelope-key",
       clientRequestHash: "legacy-envelope-hash",
@@ -349,6 +371,7 @@ describe("managed media idempotency and cancellation", () => {
     const providerFetch = vi.spyOn(globalThis, "fetch");
     await t.action(internal.media_image_submission.submitReservedImageJob, {
       jobId: "legacy-envelope-job",
+      ownerGeneration: "legacy",
       encryptedPayload: "x".repeat(MAX_PRIVATE_MEDIA_PAYLOAD_CHARS + 1),
     });
     expect(
@@ -380,6 +403,7 @@ describe("managed media idempotency and cancellation", () => {
     const t = await createTest();
     await t.mutation(internal.media_jobs.createPrivatePayloadManifest, {
       ownerId: "cleanup-crash-owner",
+      ownerGeneration: "legacy",
       manifestId: "cleanup-crash-manifest",
       jobId: "cleanup-crash-job",
       clientRequestKey: "cleanup-crash-key",
@@ -390,6 +414,7 @@ describe("managed media idempotency and cancellation", () => {
     for (let index = 0; index < 2; index += 1) {
       await t.mutation(internal.media_jobs.appendPrivatePayloadChunk, {
         ownerId: "cleanup-crash-owner",
+        ownerGeneration: "legacy",
         manifestId: "cleanup-crash-manifest",
         index,
         data: "xx",
@@ -398,6 +423,7 @@ describe("managed media idempotency and cancellation", () => {
     }
     await t.mutation(internal.media_jobs.finalizePrivatePayloadManifest, {
       ownerId: "cleanup-crash-owner",
+      ownerGeneration: "legacy",
       manifestId: "cleanup-crash-manifest",
       finalizedAt: Date.now(),
     });
@@ -434,6 +460,7 @@ describe("managed media idempotency and cancellation", () => {
     const clientRequestKey = "attached-manifest-key";
     await t.mutation(internal.media_jobs.createPrivatePayloadManifest, {
       ownerId,
+      ownerGeneration: "legacy",
       manifestId,
       jobId,
       clientRequestKey,
@@ -443,6 +470,7 @@ describe("managed media idempotency and cancellation", () => {
     });
     await t.mutation(internal.media_jobs.appendPrivatePayloadChunk, {
       ownerId,
+      ownerGeneration: "legacy",
       manifestId,
       index: 0,
       data: "private",
@@ -450,12 +478,14 @@ describe("managed media idempotency and cancellation", () => {
     });
     await t.mutation(internal.media_jobs.finalizePrivatePayloadManifest, {
       ownerId,
+      ownerGeneration: "legacy",
       manifestId,
       finalizedAt: Date.now(),
     });
     await expect(
       t.mutation(internal.media_jobs.reserveIdempotentJob, {
         ownerId,
+        ownerGeneration: "legacy",
         jobId,
         clientRequestKey,
         clientRequestHash: "attached-manifest-hash",
@@ -472,9 +502,10 @@ describe("managed media idempotency and cancellation", () => {
       ownerId,
       startedAt: Date.now(),
     });
+    const deleteFence = await beginDeleteFence(t, ownerId);
     await expect(
       t.mutation(internal.account_deletion._deleteExtraTableBatch, {
-        ownerId,
+        ...deleteFence,
         table: "media_jobs",
       }),
     ).resolves.toEqual({ hasMore: true });
@@ -514,6 +545,7 @@ describe("managed media idempotency and cancellation", () => {
     expect(
       await t.mutation(internal.media_jobs.reserveIdempotentJob, {
         ownerId: "purged-media-owner",
+        ownerGeneration: "legacy",
         jobId: "must-not-exist",
         clientRequestKey: "purged-request",
         clientRequestHash: "purged-hash",
@@ -589,23 +621,28 @@ describe("managed media idempotency and cancellation", () => {
         }
       });
 
+      const deleteFence = await beginDeleteFence(
+        t,
+        "account-delete-media-owner",
+      );
       const firstDrain = await t.mutation(
         internal.account_deletion._deleteExtraTableBatch,
         {
-          ownerId: "account-delete-media-owner",
+          ...deleteFence,
           table: "media_jobs",
         },
       );
       expect(firstDrain.hasMore).toBe(true);
       expect(
         await t.mutation(internal.account_deletion._deleteExtraTableBatch, {
-          ownerId: "account-delete-media-owner",
+          ...deleteFence,
           table: "media_jobs",
         }),
       ).toEqual({ hasMore: false });
       expect(
         await t.mutation(internal.media_jobs.releaseImageSubmissionPayload, {
           jobId: "account-delete-media-1",
+          ownerGeneration: "legacy",
           storageId: dispatchingStorageId,
         }),
       ).toBe(false);
@@ -625,12 +662,13 @@ describe("managed media idempotency and cancellation", () => {
       ).toEqual({ request: {}, submissionPayloadStorageId: undefined });
       await t.mutation(internal.media_jobs.markSubmitted, {
         jobId: "account-delete-media-1",
+        ownerGeneration: "legacy",
         submissionAttemptId: "in-flight-at-delete",
         providerRequestId: "provider-accepted-during-delete",
         upstreamStatus: "IN_QUEUE",
       });
       await t.mutation(internal.account_deletion._deleteExtraTableBatch, {
-        ownerId: "account-delete-media-owner",
+        ...deleteFence,
         table: "media_jobs",
       });
       expect(
@@ -678,17 +716,18 @@ describe("managed media idempotency and cancellation", () => {
     }
   });
 
-  it("uses a late purge webhook only to reconcile provider cancellation", async () => {
+  it("uses a late purge webhook to reconcile cancellation and the exact old-generation receipt", async () => {
     ensureMediaEnv();
     const t = await createTest();
     await t.mutation(internal.media_jobs.createJob, {
       ownerId: "purge-webhook-owner",
+      ownerGeneration: "legacy",
       jobId: "purge-webhook-job",
       capability: "text_to_image",
       profile: "best",
       provider: "fal",
       endpointId: "fal-ai/flux/dev",
-      request: { prompt: "must never bill" },
+      request: { prompt: "retain paid disposition without resurrection" },
     });
     await t.run(async (ctx) => {
       const row = await ctx.db
@@ -707,6 +746,7 @@ describe("managed media idempotency and cancellation", () => {
     });
 
     await t.mutation(internal.media_jobs.applyFalWebhook, {
+      ownerGeneration: "legacy",
       dedupKey: "purge-late-provider-id",
       jobId: "purge-webhook-job",
       providerRequestId: "fal-purge-late-request",
@@ -742,7 +782,15 @@ describe("managed media idempotency and cancellation", () => {
         providerRequestId: "fal-purge-late-request",
       }),
     ]);
-    expect(receipts).toEqual([]);
+    expect(receipts).toEqual([
+      expect.objectContaining({
+        ownerId: "purge-webhook-owner",
+        ownerGeneration: "legacy",
+        jobId: "purge-webhook-job",
+        providerRequestId: "fal-purge-late-request",
+        costMicroCents: 1_000_000,
+      }),
+    ]);
   });
 
   it("purges an ambiguous canceled claim after the provider reconciliation envelope", async () => {
@@ -779,9 +827,10 @@ describe("managed media idempotency and cancellation", () => {
       });
     });
 
+    const deleteFence = await beginDeleteFence(t, "expired-purge-owner");
     await expect(
       t.mutation(internal.account_deletion._deleteExtraTableBatch, {
-        ownerId: "expired-purge-owner",
+        ...deleteFence,
         table: "media_jobs",
       }),
     ).resolves.toEqual({ hasMore: true });
@@ -858,10 +907,19 @@ describe("managed media idempotency and cancellation", () => {
     await vi.waitFor(() => expect(upstreamSubmissions).toBe(1));
     expect(
       await t.mutation(internal.media_jobs.applyFalWebhook, {
+        ownerGeneration: "legacy",
         jobId: firstBody.jobId,
         providerRequestId: "fal-accepted-response-lost",
         upstreamStatus: "OK",
         output: { images: [{ url: "https://example.test/reconciled.png" }] },
+        billing: {
+          endpointId: "openai/gpt-image-2",
+          billingUnit: "image",
+          unitPriceUsd: 0.01,
+          quantity: 1,
+          costMicroCents: 1_000_000,
+          meteredFrom: "output",
+        },
         receivedAt: Date.now(),
       }),
     ).toMatchObject({ updated: true });
@@ -958,6 +1016,7 @@ describe("managed media idempotency and cancellation", () => {
 
     expect(
       await t.mutation(internal.media_jobs.applyFalWebhook, {
+        ownerGeneration: "legacy",
         jobId,
         providerRequestId: "fal-request-cancel",
         upstreamStatus: "OK",
@@ -988,8 +1047,18 @@ describe("managed media idempotency and cancellation", () => {
       owner.fetch("/api/media/v1/generate", imageRequest()),
       owner.fetch("/api/media/v1/generate", imageRequest()),
     ]);
-    const leftBody = (await left.json()) as { jobId: string };
-    const rightBody = (await right.json()) as { jobId: string };
+    const leftBody = (await left.json()) as { jobId?: string; error?: string };
+    const rightBody = (await right.json()) as {
+      jobId?: string;
+      error?: string;
+    };
+    expect({
+      left: { status: left.status, body: leftBody },
+      right: { status: right.status, body: rightBody },
+    }).toMatchObject({
+      left: { status: 202, body: { jobId: expect.any(String) } },
+      right: { status: 202, body: { jobId: expect.any(String) } },
+    });
     expect(leftBody.jobId).toBe(rightBody.jobId);
     await vi.waitFor(() => expect(submissions).toBe(1));
   });
@@ -1002,6 +1071,7 @@ describe("managed media idempotency and cancellation", () => {
     );
     await t.mutation(internal.media_jobs.reserveIdempotentJob, {
       ownerId: "owner-crash",
+      ownerGeneration: "legacy",
       jobId: "job-crash-before-post",
       clientRequestKey: "crash-key",
       clientRequestHash: "request-hash",
@@ -1020,11 +1090,13 @@ describe("managed media idempotency and cancellation", () => {
 
     const [first, second] = await Promise.all([
       t.mutation(internal.media_jobs.claimImageSubmission, {
+        ownerGeneration: "legacy",
         jobId: "job-crash-before-post",
         attemptId: "attempt-one",
         claimedAt: 10,
       }),
       t.mutation(internal.media_jobs.claimImageSubmission, {
+        ownerGeneration: "legacy",
         jobId: "job-crash-before-post",
         attemptId: "attempt-two",
         claimedAt: 11,
@@ -1064,6 +1136,7 @@ describe("managed media idempotency and cancellation", () => {
     );
     await t.mutation(internal.media_jobs.reserveIdempotentJob, {
       ownerId: "retention-owner",
+      ownerGeneration: "legacy",
       jobId: "retention-job",
       clientRequestKey: "retention-key",
       clientRequestHash: "retention-hash",
@@ -1109,6 +1182,7 @@ describe("managed media idempotency and cancellation", () => {
     const t = await createTest();
     await t.mutation(internal.media_jobs.createJob, {
       ownerId: "terminal-owner",
+      ownerGeneration: "legacy",
       jobId: "terminal-success",
       capability: "text_to_image",
       profile: "best",
@@ -1117,12 +1191,14 @@ describe("managed media idempotency and cancellation", () => {
       request: { prompt: "terminal" },
     });
     await t.mutation(internal.media_jobs.markGenerated, {
+      ownerGeneration: "legacy",
       jobId: "terminal-success",
       upstreamStatus: "OK",
       output: { images: [{ url: "https://example.test/success.png" }] },
     });
     expect(
       await t.mutation(internal.media_jobs.applyFalWebhook, {
+        ownerGeneration: "legacy",
         jobId: "terminal-success",
         upstreamStatus: "ERROR",
         error: { message: "late opposite webhook" },
@@ -1148,6 +1224,7 @@ describe("managed media idempotency and cancellation", () => {
     for (const jobId of ["terminal-failure", "terminal-timeout"]) {
       await t.mutation(internal.media_jobs.createJob, {
         ownerId: "terminal-owner",
+        ownerGeneration: "legacy",
         jobId,
         capability: "text_to_image",
         profile: "best",
@@ -1157,6 +1234,7 @@ describe("managed media idempotency and cancellation", () => {
       });
     }
     await t.mutation(internal.media_jobs.markSubmissionFailed, {
+      ownerGeneration: "legacy",
       jobId: "terminal-failure",
       upstreamStatus: "ERROR",
       error: { message: "definitive failure" },
@@ -1167,6 +1245,7 @@ describe("managed media idempotency and cancellation", () => {
     for (const jobId of ["terminal-failure", "terminal-timeout"]) {
       expect(
         await t.mutation(internal.media_jobs.applyFalWebhook, {
+          ownerGeneration: "legacy",
           jobId,
           upstreamStatus: "OK",
           output: { images: [{ url: "https://example.test/late.png" }] },
@@ -1223,6 +1302,7 @@ describe("managed media idempotency and cancellation", () => {
     const t = await createTest();
     await t.mutation(internal.media_jobs.createJob, {
       ownerId: "billing-owner",
+      ownerGeneration: "legacy",
       jobId: "webhook-atomic-job",
       capability: "text_to_image",
       profile: "best",
@@ -1231,6 +1311,7 @@ describe("managed media idempotency and cancellation", () => {
       request: { prompt: "atomic" },
     });
     const webhook = {
+      ownerGeneration: "legacy",
       dedupKey: "fal-request:payload-hash",
       jobId: "webhook-atomic-job",
       providerRequestId: "fal-request",
@@ -1283,6 +1364,7 @@ describe("managed media idempotency and cancellation", () => {
     for (const jobId of ["late-canceled", "late-unknown"]) {
       await t.mutation(internal.media_jobs.createJob, {
         ownerId: "late-billing-owner",
+        ownerGeneration: "legacy",
         jobId,
         capability: "text_to_image",
         profile: "best",
@@ -1309,6 +1391,7 @@ describe("managed media idempotency and cancellation", () => {
     for (const jobId of ["late-canceled", "late-unknown"]) {
       expect(
         await t.mutation(internal.media_jobs.applyFalWebhook, {
+          ownerGeneration: "legacy",
           dedupKey: `${jobId}:late-success`,
           jobId,
           upstreamStatus: "OK",
@@ -1337,6 +1420,7 @@ describe("managed media idempotency and cancellation", () => {
     const t = await createTest();
     await t.mutation(internal.media_jobs.createJob, {
       ownerId: "connector-owner",
+      ownerGeneration: "legacy",
       jobId: "connector-image-job",
       capability: "text_to_image",
       profile: "best",
@@ -1346,6 +1430,7 @@ describe("managed media idempotency and cancellation", () => {
       connectorRequestId: "missing-connector-turn",
     });
     await t.mutation(internal.media_jobs.markGenerated, {
+      ownerGeneration: "legacy",
       jobId: "connector-image-job",
       upstreamStatus: "OK",
       output: { images: [{ url: "https://example.test/connector.png" }] },

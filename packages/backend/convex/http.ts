@@ -5,7 +5,6 @@ import { corsPreflightHandler } from "./http_shared/cors";
 
 // Route modules
 import { registerAdminRoutes } from "./http_routes/admin";
-import { registerBackupRoutes } from "./http_routes/backups";
 import { registerDesktopReleaseRoutes } from "./http_routes/desktop_releases";
 import { registerMediaRoutes } from "./http_routes/media";
 import { registerMobileRoutes } from "./http_routes/mobile";
@@ -18,10 +17,19 @@ import { registerSynthesisRoutes } from "./http_routes/synthesis";
 import { registerVoiceRoutes } from "./http_routes/voice";
 import { registerDictationRoutes } from "./http_routes/dictation";
 import { registerXRoutes } from "./http_routes/x";
+import { registerCloudAppRoutes } from "./http_routes/cloud_apps";
+import { registerCloudAgentRoutes } from "./http_routes/cloud_agent";
+import { registerCloudHomeRoutes } from "./http_routes/cloud_home";
+import { registerCloudDriveRoutes } from "./http_routes/cloud_drive";
+import { registerCloudProjectRoutes } from "./http_routes/cloud_projects";
+import { registerCloudIntegrationRoutes } from "./http_routes/cloud_integrations";
+import { registerAppsSdkRoutes } from "./http_routes/apps_sdk";
+import { STELLA_PROMPTS_PATH, stellaPrompts } from "./stella_prompts_http";
 
 // Stella provider endpoints
 import {
   STELLA_ANTHROPIC_MESSAGES_PATH,
+  STELLA_CLOUD_MODEL_PATH,
   STELLA_CROF_CHAT_COMPLETIONS_PATH,
   STELLA_WAFER_CHAT_COMPLETIONS_PATH,
   STELLA_DEEPSEEK_CHAT_COMPLETIONS_PATH,
@@ -39,8 +47,11 @@ import {
   STELLA_XAI_RESPONSES_PATH,
   STELLA_RELAY_PATH_PREFIX,
   stellaProviderModels,
+  stellaProviderCloudModel,
+  stellaProviderCancel,
   stellaProviderOptions,
   stellaProviderRelay,
+  stellaProviderResume,
 } from "./stella_provider";
 
 const http = httpRouter();
@@ -57,7 +68,6 @@ authComponent.registerRoutes(http, createAuth, { cors: true });
 
 registerAdminRoutes(http);
 registerSynthesisRoutes(http);
-registerBackupRoutes(http);
 registerDesktopReleaseRoutes(http);
 registerMusicRoutes(http);
 registerMediaRoutes(http);
@@ -67,6 +77,13 @@ registerPetRoutes(http);
 registerVoiceRoutes(http);
 registerDictationRoutes(http);
 registerXRoutes(http);
+registerCloudAppRoutes(http);
+registerCloudAgentRoutes(http);
+registerCloudHomeRoutes(http);
+registerCloudDriveRoutes(http);
+registerCloudProjectRoutes(http);
+registerCloudIntegrationRoutes(http);
+registerAppsSdkRoutes(http);
 
 registerStripeRoutes(http);
 
@@ -84,9 +101,24 @@ http.route({
   handler: stellaModelsOptionsHandler,
 });
 http.route({
+  path: STELLA_PROMPTS_PATH,
+  method: "OPTIONS",
+  handler: stellaModelsOptionsHandler,
+});
+http.route({
+  path: STELLA_PROMPTS_PATH,
+  method: "GET",
+  handler: stellaPrompts,
+});
+http.route({
   path: STELLA_MODELS_PATH,
   method: "GET",
   handler: stellaProviderModels,
+});
+http.route({
+  path: STELLA_CLOUD_MODEL_PATH,
+  method: "POST",
+  handler: stellaProviderCloudModel,
 });
 
 for (const [path, provider] of [
@@ -126,6 +158,16 @@ http.route({
   pathPrefix: STELLA_RELAY_PATH_PREFIX,
   method: "POST",
   handler: stellaProviderRelay(),
+});
+http.route({
+  pathPrefix: STELLA_RELAY_PATH_PREFIX,
+  method: "GET",
+  handler: stellaProviderResume,
+});
+http.route({
+  pathPrefix: STELLA_RELAY_PATH_PREFIX,
+  method: "DELETE",
+  handler: stellaProviderCancel,
 });
 http.route({
   pathPrefix: STELLA_GOOGLE_MODELS_PATH_PREFIX,

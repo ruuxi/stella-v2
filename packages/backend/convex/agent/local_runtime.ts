@@ -15,6 +15,7 @@ import {
 } from "../lib/rate_limits";
 import { createBackendTools, executeWebSearch } from "../tools/backend";
 import { jsonValueValidator } from "../shared_validators";
+import { assertOwnerDataAccessActive } from "../owner_lifecycle";
 // Shopify integration is currently disabled on the backend. All
 // `shopify*` actions reject with this error so misbehaving clients can't
 // use the backend as a free Shopify proxy/crawler.
@@ -24,6 +25,7 @@ const SHOPIFY_DISABLED_ERROR = new ConvexError({
 });
 
 const DEFAULT_MAX_AGENT_DEPTH = 2;
+const BACKEND_TOOL_TIMEOUT_MS = 90_000;
 const ALLOWED_LOCAL_RUNTIME_BACKEND_TOOLS = new Set<string>(
   LOCAL_RUNTIME_BACKEND_TOOL_NAMES,
 );
@@ -35,8 +37,10 @@ const executeBackendTool = async (
   ctx: Parameters<typeof createBackendTools>[0],
   args: {
     ownerId: string;
+    ownerGeneration: string;
     conversationId?: Id<"conversations">;
     agentType?: string;
+    signal: AbortSignal;
   },
   toolName: string,
   toolArgs: Record<string, unknown>,
@@ -46,12 +50,18 @@ const executeBackendTool = async (
   }
   const tools = createBackendTools(ctx, {
     ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
     conversationId: args.conversationId,
     agentType: args.agentType ?? AGENT_IDS.GENERAL,
     maxAgentDepth: DEFAULT_MAX_AGENT_DEPTH,
   }) as Record<
     string,
-    { execute?: (input: Record<string, unknown>) => Promise<unknown> }
+    {
+      execute?: (
+        input: Record<string, unknown>,
+        options: { signal: AbortSignal },
+      ) => Promise<unknown>;
+    }
   >;
 
   const tool = tools[toolName];
@@ -59,7 +69,7 @@ const executeBackendTool = async (
     throw new ConvexError(`${toolName} is unavailable`);
   }
 
-  const output = await tool.execute(toolArgs);
+  const output = await tool.execute(toolArgs, { signal: args.signal });
   return toToolResultText(output);
 };
 
@@ -73,6 +83,10 @@ export const executeTool = action({
   returns: v.string(),
   handler: async (ctx, args) => {
     const ownerId = await requireUserId(ctx);
+    const { generation: ownerGeneration } = await assertOwnerDataAccessActive(
+      ctx,
+      ownerId,
+    );
     await enforceActionRateLimit(
       ctx,
       "agent_local_runtime_execute_tool",
@@ -93,8 +107,10 @@ export const executeTool = action({
       ctx,
       {
         ownerId,
+        ownerGeneration,
         conversationId: args.conversationId,
         agentType: args.agentType,
+        signal: AbortSignal.timeout(BACKEND_TOOL_TIMEOUT_MS),
       },
       args.toolName,
       toolArgs,
@@ -128,6 +144,10 @@ export const webSearch = action({
   }),
   handler: async (ctx, args) => {
     const ownerId = await requireUserId(ctx);
+    const { generation: ownerGeneration } = await assertOwnerDataAccessActive(
+      ctx,
+      ownerId,
+    );
     // Outbound HTTP on the user's behalf — without a cap, the backend
     // becomes a free crawler.
     await enforceActionRateLimit(
@@ -151,6 +171,8 @@ export const webSearch = action({
     if (query) {
       return await executeWebSearch(ctx, query, {
         ownerId,
+        ownerGeneration,
+        signal: AbortSignal.timeout(BACKEND_TOOL_TIMEOUT_MS),
         category: args.category,
       });
     }
@@ -159,8 +181,10 @@ export const webSearch = action({
       ctx,
       {
         ownerId,
+        ownerGeneration,
         conversationId: args.conversationId,
         agentType: args.agentType,
+        signal: AbortSignal.timeout(BACKEND_TOOL_TIMEOUT_MS),
       },
       "WebFetch",
       {

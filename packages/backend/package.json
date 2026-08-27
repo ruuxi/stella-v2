@@ -7,14 +7,19 @@
     "dev": "convex dev",
     "deploy": "convex deploy",
     "auth:jwks": "convex run auth:getLatestJwks | convex env set JWKS",
-      "generate:desktop-api": "node scripts/generate-desktop-convex-api.mjs",
+    "generate:desktop-api": "node scripts/generate-desktop-convex-api.mjs",
     "generate:desktop-api:deployment": "convex-helpers ts-api-spec --output-file ../contracts/convex-api.ts",
     "integrations:publish-composio": "node scripts/publish-composio-native-integrations.mjs",
+    "prompts:sync-defaults": "bun scripts/sync-stella-prompt-defaults.ts",
+    "prompts:check-defaults": "bun scripts/sync-stella-prompt-defaults.ts --check",
     "typecheck": "tsc --noEmit -p convex/tsconfig.json",
     "test": "bun test tests/",
-    "test:convex": "vitest run --config vitest.config.ts"
+    "test:convex": "vitest run --config vitest.config.ts",
+    "test:lib": "bun scripts/run-convex-helper-tests.mjs",
+    "test:all": "bun run test && bun run test:convex && bun run test:lib"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1106.0",
     "@better-auth/expo": "1.6.11",
     "@convex-dev/better-auth": "^0.12.5",
     "@convex-dev/r2": "^0.10.2",

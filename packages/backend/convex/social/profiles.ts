@@ -12,10 +12,9 @@ import {
   getSocialProfileByOwnerId,
   normalizeUsername,
 } from "./shared";
+import { requireBoundedString } from "../shared_validators";
 import {
-  requireBoundedString,
-} from "../shared_validators";
-import {
+  assertOwnerMigrationWriteAllowed,
   getConnectedUserIdOrNull,
   requireConnectedUserId,
 } from "../auth";
@@ -27,6 +26,7 @@ import {
 import { findBannedTerm } from "./censor";
 import { socialBadgeValidator } from "../schema/social";
 import type { Doc } from "../_generated/dataModel";
+import { assertC8RetiredSurfaceUnavailable } from "../lib/c8_retired_surface";
 
 const optionalProfileValidator = v.union(v.null(), socialProfileValidator);
 
@@ -91,6 +91,7 @@ export const ensureProfileInternal = internalMutation({
   args: {},
   returns: socialProfileValidator,
   handler: async (ctx) => {
+    assertC8RetiredSurfaceUnavailable("Social profiles");
     const ownerId = await requireConnectedUserId(ctx);
     return await ensureSocialProfileDoc(ctx, ownerId);
   },
@@ -100,6 +101,7 @@ export const ensureProfileForOwnerInternal = internalMutation({
   args: { ownerId: v.string() },
   returns: socialProfileValidator,
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Social profiles");
     const profile = await ensureSocialProfileDoc(ctx, args.ownerId);
     await syncStoreAuthorProfile(
       ctx,
@@ -121,8 +123,10 @@ export const recomputeBadgeForOwnerInternal = internalMutation({
   args: { ownerId: v.string() },
   returns: v.union(socialBadgeValidator, v.null()),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Social profiles");
     const ownerId = args.ownerId.trim();
     if (!ownerId) return null;
+    await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     const profile = await getSocialProfileByOwnerId(ctx, ownerId);
     // No social profile yet — nothing to denormalize onto. We'll set
     // the badge correctly the first time a profile gets created
@@ -134,7 +138,10 @@ export const recomputeBadgeForOwnerInternal = internalMutation({
       .query("billing_profiles")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
       .unique();
-    const nextBadge = resolveBadgeForProfile(profile, hasActivePaidPlan(billing));
+    const nextBadge = resolveBadgeForProfile(
+      profile,
+      hasActivePaidPlan(billing),
+    );
     if (profile.badge === nextBadge) {
       return nextBadge ?? null;
     }
@@ -162,6 +169,7 @@ export const setPartnerBadgeForOwnerInternal = internalMutation({
     badge: v.union(socialBadgeValidator, v.null()),
   }),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Social profiles");
     const ownerId = args.ownerId.trim();
     if (!ownerId) {
       throw new ConvexError({
@@ -214,7 +222,9 @@ export const ensureProfile = mutation({
   args: {},
   returns: socialProfileValidator,
   handler: async (ctx) => {
+    assertC8RetiredSurfaceUnavailable("Social profiles");
     const ownerId = await requireConnectedUserId(ctx);
+    await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     await enforceMutationRateLimit(
       ctx,
       "social_ensure_profile",
@@ -230,7 +240,10 @@ export const getMyProfile = query({
   returns: optionalProfileValidator,
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity || (identity as Record<string, unknown>).isAnonymous === true) {
+    if (
+      !identity ||
+      (identity as Record<string, unknown>).isAnonymous === true
+    ) {
       return null;
     }
     return await getSocialProfileByOwnerId(ctx, identity.tokenIdentifier);
@@ -276,7 +289,9 @@ export const claimUsername = mutation({
   args: { username: v.string() },
   returns: socialProfileValidator,
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Social profiles");
     const ownerId = await requireConnectedUserId(ctx);
+    await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     await enforceMutationRateLimit(
       ctx,
       "social_claim_username",
@@ -365,7 +380,9 @@ export const updateMyAvatar = mutation({
   },
   returns: socialProfileValidator,
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Social profiles");
     const ownerId = await requireConnectedUserId(ctx);
+    await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     await enforceMutationRateLimit(
       ctx,
       "social_update_my_avatar",

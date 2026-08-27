@@ -6,7 +6,10 @@ import {
   internalMutation,
   internalQuery,
 } from "./_generated/server";
-import { requireSensitiveUserIdAction } from "./auth";
+import {
+  assertOwnerMigrationWriteAllowed,
+  requireSensitiveUserIdAction,
+} from "./auth";
 import { enforceActionRateLimit, RATE_STANDARD } from "./lib/rate_limits";
 
 const EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send";
@@ -57,10 +60,7 @@ const activityNotificationCopy = (kind: ActivityNotificationKind) => {
   }
 };
 
-type ActivityNotificationKind =
-  | "started"
-  | "completed"
-  | "failed";
+type ActivityNotificationKind = "started" | "completed" | "failed";
 
 export const sendActivityNotification = action({
   args: {
@@ -91,6 +91,7 @@ export const sendActivityNotification = action({
 export const upsertToken = internalMutation({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
     mobileDeviceId: v.string(),
     expoPushToken: v.string(),
     platform: v.optional(v.string()),
@@ -105,6 +106,11 @@ export const upsertToken = internalMutation({
     if (!expoPushToken || !mobileDeviceId) {
       return null;
     }
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
     const platform = args.platform?.trim().slice(0, MAX_PLATFORM_LENGTH);
 
     // Reclaim a row that holds this exact token under a different owner —
@@ -141,10 +147,14 @@ export const upsertToken = internalMutation({
       const nextPlatform = platform ?? existing.platform;
       const tokenChanged = existing.expoPushToken !== expoPushToken;
       const platformChanged = existing.platform !== nextPlatform;
-      const stampStale = args.nowMs - existing.updatedAt > TOKEN_REFRESH_INTERVAL_MS;
-      if (tokenChanged || platformChanged || stampStale) {
+      const generationChanged =
+        existing.ownerGeneration !== args.ownerGeneration;
+      const stampStale =
+        args.nowMs - existing.updatedAt > TOKEN_REFRESH_INTERVAL_MS;
+      if (tokenChanged || platformChanged || generationChanged || stampStale) {
         await ctx.db.patch(existing._id, {
           expoPushToken,
+          ownerGeneration: args.ownerGeneration,
           ...(platform ? { platform } : {}),
           updatedAt: args.nowMs,
         });
@@ -154,6 +164,7 @@ export const upsertToken = internalMutation({
 
     await ctx.db.insert("mobile_push_tokens", {
       ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
       mobileDeviceId,
       expoPushToken,
       ...(platform ? { platform } : {}),
@@ -255,10 +266,9 @@ export const sendToOwner = internalAction({
     const title = args.title.slice(0, MAX_TITLE_LENGTH);
     const body = args.body.slice(0, MAX_BODY_LENGTH);
 
-    const tokens = await ctx.runQuery(
-      internal.mobile_push.listTokensForOwner,
-      { ownerId: args.ownerId },
-    );
+    const tokens = await ctx.runQuery(internal.mobile_push.listTokensForOwner, {
+      ownerId: args.ownerId,
+    });
     if (tokens.length === 0) {
       return null;
     }
@@ -270,16 +280,18 @@ export const sendToOwner = internalAction({
       // a single channel. `categoryId` opts the iOS notification into
       // the interactive actions registered on the mobile client.
       const threadId = args.data.kind;
-      const messages: Record<string, unknown>[] = batch.map((entry) => ({
-        to: entry.expoPushToken,
-        title,
-        body,
-        sound: "default",
-        data: args.data,
-        categoryId: threadId,
-        threadId,
-        collapseId: threadId,
-      }));
+      const messages: Record<string, unknown>[] = batch.map(
+        (entry: { expoPushToken: string }) => ({
+          to: entry.expoPushToken,
+          title,
+          body,
+          sound: "default",
+          data: args.data,
+          categoryId: threadId,
+          threadId,
+          collapseId: threadId,
+        }),
+      );
 
       let response: Response;
       try {

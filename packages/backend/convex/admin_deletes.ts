@@ -2,6 +2,7 @@ import { internalMutation, type MutationCtx } from "./_generated/server";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { filterDisplayableTags } from "./lib/content_tags";
+import { assertC8RetiredSurfaceUnavailable } from "./lib/c8_retired_surface";
 
 const BATCH = 100;
 
@@ -56,6 +57,7 @@ export const deleteStorePackage = internalMutation({
   args: { packageId: v.string() },
   returns: deletedResult,
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Store admin deletes");
     const packageId = normalizeSlug(args.packageId);
     const pkg = await ctx.db
       .query("store_packages")
@@ -85,6 +87,7 @@ export const deleteUserPet = internalMutation({
   args: { petId: v.string() },
   returns: deletedResult,
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Custom pet admin deletes");
     const petId = normalizeSlug(args.petId);
     const row = await ctx.db
       .query("user_pets")
@@ -200,6 +203,7 @@ export const deleteSocialMessage = internalMutation({
   args: { id: v.string() },
   returns: deletedResult,
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Social admin deletes");
     const id = asId<"social_messages">(args.id);
     const row = await getByStringId<"social_messages">(ctx, args.id);
     if (!row) return { deleted: false, kind: "social_message", id: args.id };
@@ -212,6 +216,7 @@ export const deleteStellaSessionBatch = internalMutation({
   args: { id: v.string() },
   returns: deletedResult,
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Shared session admin deletes");
     const sessionId = asId<"stella_sessions">(args.id);
     const session = await getByStringId<"stella_sessions">(ctx, args.id);
     if (!session) {
@@ -301,6 +306,7 @@ export const deleteSocialRoomBatch = internalMutation({
   args: { id: v.string() },
   returns: deletedResult,
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Social admin deletes");
     const roomId = asId<"social_rooms">(args.id);
     const room = await getByStringId<"social_rooms">(ctx, args.id);
     if (!room) return { deleted: false, kind: "social_room", id: args.id };

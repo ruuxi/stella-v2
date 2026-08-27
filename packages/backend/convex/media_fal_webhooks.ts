@@ -30,14 +30,19 @@ const markDefinitiveFalSubmissionRejection = (error: Error): Error => {
   return error;
 };
 
-export const isDefinitiveFalSubmissionRejection = (
-  error: unknown,
-): boolean =>
+const markProviderOutcomeUnknown = (error: Error): Error => {
+  (
+    error as Error & { providerOutcomeUnknown?: boolean }
+  ).providerOutcomeUnknown = true;
+  return error;
+};
+
+export const isDefinitiveFalSubmissionRejection = (error: unknown): boolean =>
   Boolean(
     error &&
-      typeof error === "object" &&
-      (error as { falSubmissionRejected?: unknown }).falSubmissionRejected ===
-        true,
+    typeof error === "object" &&
+    (error as { falSubmissionRejected?: unknown }).falSubmissionRejected ===
+      true,
   );
 
 type FalWebhookJwkSet = {
@@ -64,7 +69,10 @@ const fetchFalJson = async (
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FAL_FETCH_TIMEOUT_MS);
   try {
-    const response = await fetch(url, { ...init, signal: controller.signal });
+    const signal = init.signal
+      ? AbortSignal.any([controller.signal, init.signal])
+      : controller.signal;
+    const response = await fetch(url, { ...init, signal });
     const text = await response.text();
     let data: unknown = null;
     try {
@@ -81,7 +89,9 @@ const fetchFalJson = async (
     };
   } catch (error) {
     if (controller.signal.aborted) {
-      throw new Error("Fal request timed out after 30 seconds");
+      throw markProviderOutcomeUnknown(
+        new Error("Fal request timed out after 30 seconds"),
+      );
     }
     throw error;
   } finally {
@@ -132,12 +142,14 @@ export const cancelFalRequest = async (args: {
   apiKey: string;
   endpointId: string;
   requestId: string;
+  signal?: AbortSignal;
 }): Promise<void> => {
   const upstream = await fetchFalJson(
     buildFalCancelUrl(args.endpointId, args.requestId),
     {
       method: "PUT",
       headers: falHeaders(args.apiKey),
+      ...(args.signal ? { signal: args.signal } : {}),
     },
   );
   // Fal cancellation is idempotent. A completed/missing request may report
@@ -154,6 +166,7 @@ export const submitFalRequest = async (args: {
   endpointId: string;
   input: Record<string, unknown>;
   webhookUrl: string;
+  signal?: AbortSignal;
 }) => {
   const upstream = await fetchFalJson(
     buildFalSubmissionUrl(args.endpointId, args.webhookUrl),
@@ -161,6 +174,7 @@ export const submitFalRequest = async (args: {
       method: "POST",
       headers: falHeaders(args.apiKey),
       body: JSON.stringify(args.input),
+      ...(args.signal ? { signal: args.signal } : {}),
     },
   );
 
@@ -199,7 +213,9 @@ export const submitFalRequest = async (args: {
     : {};
   const requestId = asTrimmedString(data.request_id);
   if (!requestId) {
-    throw new Error("Fal submission succeeded but no request_id was returned");
+    throw markProviderOutcomeUnknown(
+      new Error("Fal submission succeeded but no request_id was returned"),
+    );
   }
 
   return {
@@ -216,10 +232,12 @@ export const submitFalRequest = async (args: {
 export const fetchFalResultPayload = async (args: {
   apiKey: string;
   url: string;
+  signal?: AbortSignal;
 }): Promise<unknown> => {
   const upstream = await fetchFalJson(args.url, {
     method: "GET",
     headers: falHeaders(args.apiKey),
+    ...(args.signal ? { signal: args.signal } : {}),
   });
   if (!upstream.ok) {
     throw new Error(
@@ -236,6 +254,9 @@ let cachedFalWebhookKeys: {
 } | null = null;
 
 const loadFalWebhookKeys = async (): Promise<CryptoKey[]> => {
+  // Global provider-verification metadata, shared across owners and never a
+  // paid owner dispatch. It deliberately does not acquire an owner-scoped
+  // managed-usage or media-generation lease.
   const now = Date.now();
   if (cachedFalWebhookKeys && cachedFalWebhookKeys.expiresAt > now) {
     return cachedFalWebhookKeys.keys;

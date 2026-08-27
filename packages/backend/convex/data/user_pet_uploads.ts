@@ -4,17 +4,16 @@ import { createHash, randomUUID } from "node:crypto";
 import { signR2Put } from "../lib/r2_sigv4";
 import { ConvexError, v } from "convex/values";
 import { action } from "../_generated/server";
+import { internal } from "../_generated/api";
 import { requireConnectedUserIdAction } from "../auth";
-import {
-  RATE_STANDARD,
-  enforceActionRateLimit,
-} from "../lib/rate_limits";
+import { assertOwnerDataAccessActive } from "../owner_lifecycle";
+import { EXTERNAL_MEDIA_PRESIGNED_BARRIER_MS } from "../account_external_media_store";
+import { RATE_STANDARD, enforceActionRateLimit } from "../lib/rate_limits";
+import { requireConfiguredRawR2MediaTarget } from "../lib/raw_r2_media_target";
 import { requireBoundedString } from "../shared_validators";
+import { assertC8RetiredSurfaceUnavailable } from "../lib/c8_retired_surface";
 
-const DEFAULT_BUCKET = "stella-emotes";
 const DEFAULT_PREFIX = "user-pets";
-const DEFAULT_PUBLIC_BASE =
-  "https://pub-58708621bfa94e3bb92de37cde354c0d.r2.dev";
 const MAX_PET_ID = 64;
 const PET_ID_PATTERN = /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/;
 const CACHE_CONTROL = "public, max-age=31536000, immutable";
@@ -76,11 +75,17 @@ export const createUploadUrl = action({
   },
   returns: v.object({
     uploadId: v.string(),
+    ownerGeneration: v.string(),
     spritesheet: uploadTargetValidator,
     preview: v.optional(uploadTargetValidator),
   }),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Custom pet uploads");
     const ownerId = await requireConnectedUserIdAction(ctx);
+    const { generation: ownerGeneration } = await assertOwnerDataAccessActive(
+      ctx,
+      ownerId,
+    );
     await enforceActionRateLimit(
       ctx,
       "userPets.createUploadUrl",
@@ -98,48 +103,95 @@ export const createUploadUrl = action({
     const accessKeyId = requireEnv("R2_ACCESS_KEY_ID");
     const secretAccessKey = requireEnv("R2_SECRET_ACCESS_KEY");
     const endpoint = requireEnv("R2_ENDPOINT");
-    const bucket =
-      process.env.R2_PETS_BUCKET?.trim() ||
-      process.env.R2_EMOJI_BUCKET?.trim() ||
-      DEFAULT_BUCKET;
+    const { bucket, publicBase } = requireConfiguredRawR2MediaTarget({
+      bucketEnv: "R2_PETS_BUCKET",
+      purpose: "Pet uploads",
+    });
     const prefix = normalizePrefix(process.env.R2_PETS_PREFIX);
-    const publicBase = (
-      process.env.R2_PUBLIC_BASE_URL?.trim() || DEFAULT_PUBLIC_BASE
-    ).replace(/\/+$/, "");
     const uploadId = randomUUID();
     const ownerKey = sha256Hex(ownerId).slice(0, 24);
     const baseKey = `${prefix}/${ownerKey}/${petId}/${uploadId}`;
-    const makeTarget = (filename: string, payloadHash: string) => {
+    const makeDescriptor = (
+      objectRole: string,
+      filename: string,
+      payloadHash: string,
+    ) => {
       const key = `${baseKey}/${filename}`;
+      return {
+        objectRole,
+        storageKind: "raw-r2" as const,
+        bucket,
+        key,
+        payloadHash,
+        publicUrl: `${publicBase}/${key}`,
+      };
+    };
+    const spritesheetDescriptor = makeDescriptor(
+      "spritesheet",
+      "spritesheet.webp",
+      normalizeSha256(args.spritesheetSha256, "spritesheetSha256"),
+    );
+    const previewDescriptor = args.previewSha256
+      ? makeDescriptor(
+          "preview",
+          "preview.webp",
+          normalizeSha256(args.previewSha256, "previewSha256"),
+        )
+      : undefined;
+    const descriptors = [
+      spritesheetDescriptor,
+      ...(previewDescriptor ? [previewDescriptor] : []),
+    ];
+    const now = Date.now();
+    const uploadExpiresAt = now + EXTERNAL_MEDIA_PRESIGNED_BARRIER_MS;
+    await ctx.runMutation(
+      internal.account_external_media_store.reserveExternalMediaUploadInternal,
+      {
+        ownerId,
+        ownerGeneration,
+        uploadId,
+        uploadExpiresAt,
+        objects: descriptors.map((descriptor) => ({
+          objectRole: descriptor.objectRole,
+          storageKind: descriptor.storageKind,
+          bucket: descriptor.bucket,
+          r2Key: descriptor.key,
+          payloadSha256: descriptor.payloadHash,
+          publicUrl: descriptor.publicUrl,
+        })),
+        now,
+      },
+    );
+    await ctx.runMutation(
+      internal.account_external_media_store
+        .assertExternalMediaUploadDispatchInternal,
+      { ownerId, ownerGeneration, uploadId, now: Date.now() },
+    );
+    const signTarget = (descriptor: (typeof descriptors)[number]) => {
       const signed = signR2Put({
         accessKeyId,
         secretAccessKey,
         endpoint,
         bucket,
-        key,
-        payloadHash,
+        key: descriptor.key,
+        payloadHash: descriptor.payloadHash,
         contentType,
         cacheControl: CACHE_CONTROL,
       });
       return {
-        key,
-        publicUrl: `${publicBase}/${key}`,
+        key: descriptor.key,
+        publicUrl: descriptor.publicUrl,
         putUrl: signed.putUrl,
         headers: signed.headers,
       };
     };
-    const spritesheet = makeTarget(
-      "spritesheet.webp",
-      normalizeSha256(args.spritesheetSha256, "spritesheetSha256"),
-    );
-    const preview = args.previewSha256
-      ? makeTarget(
-          "preview.webp",
-          normalizeSha256(args.previewSha256, "previewSha256"),
-        )
+    const spritesheet = signTarget(spritesheetDescriptor);
+    const preview = previewDescriptor
+      ? signTarget(previewDescriptor)
       : undefined;
     return {
       uploadId,
+      ownerGeneration,
       spritesheet,
       ...(preview ? { preview } : {}),
     };

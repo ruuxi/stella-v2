@@ -22,6 +22,15 @@ const canvasShareFields = {
   expiresAt: v.number(),
   /** True once the owner revokes; the row is retained for auditing. */
   revoked: v.boolean(),
+  /**
+   * A row is reserved before the R2 PUT so destructive flows always have a
+   * locator for an in-flight publication. Undefined is legacy/published.
+   */
+  publicationState: v.optional(
+    v.union(v.literal("uploading"), v.literal("published")),
+  ),
+  publicationGeneration: v.optional(v.string()),
+  publicationLeaseExpiresAt: v.optional(v.number()),
 };
 
 export const canvas_share_validator = v.object({
@@ -34,5 +43,11 @@ export const canvasSharesSchema = {
   canvas_shares: defineTable(canvasShareFields)
     .index("by_slug", ["slug"])
     .index("by_ownerUserId", ["ownerUserId"])
+    .index("by_ownerUserId_and_revoked_and_publicationState_and_expiresAt", [
+      "ownerUserId",
+      "revoked",
+      "publicationState",
+      "expiresAt",
+    ])
     .index("by_expiresAt", ["expiresAt"]),
 };

@@ -3,7 +3,11 @@ import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { getModeConfig } from "../agent/model";
 import { withModelFailoverAsync } from "../agent/model_failover";
-import { scheduleManagedUsage } from "./managed_billing";
+import { createManagedUsageDispatchGuard } from "./managed_billing";
+import {
+  createManagedDispatchRequestFingerprint,
+  estimateManagedModelFallbackCostMicroCents,
+} from "./managed_dispatch";
 import {
   buildStoreImageSafetyReviewPrompt,
   buildStoreSecurityReviewPrompt,
@@ -17,7 +21,7 @@ import {
   assistantText,
   completeManagedChat,
   type ManagedModelConfig,
-  usageSummaryFromAssistant,
+  type ManagedModelBillingContext,
 } from "../runtime_ai/managed";
 
 const STANDARD_REVIEW = getModeConfig("standard");
@@ -368,35 +372,66 @@ class StoreReviewAttemptError extends Error {
   }
 }
 
-const logStoreReviewUsage = async (
-  ctx: Pick<ActionCtx, "scheduler">,
-  args: {
-    ownerId: string;
-    conversationId?: Id<"conversations">;
-    agentType:
-      | "service:store_security_review"
-      | "service:store_image_safety_review";
-    message?: Awaited<ReturnType<typeof completeManagedChat>>;
-    model: string;
-    startedAt: number;
-    success: boolean;
-  },
-) => {
-  await scheduleManagedUsage(ctx, {
-    ownerId: args.ownerId,
-    ...(args.conversationId ? { conversationId: args.conversationId } : {}),
-    agentType: args.agentType,
-    model: args.model,
-    durationMs: Date.now() - args.startedAt,
-    success: args.success,
-    ...(args.message ? { usage: usageSummaryFromAssistant(args.message) } : {}),
-  });
+const estimateStoreReviewInputTokens = (
+  context: Parameters<typeof completeManagedChat>[0]["context"],
+): number => {
+  let estimate = new TextEncoder().encode(context.systemPrompt ?? "").byteLength;
+  for (const message of context.messages) {
+    if (typeof message.content === "string") {
+      estimate += new TextEncoder().encode(message.content).byteLength;
+      continue;
+    }
+    for (const part of message.content) {
+      if (part.type === "text") {
+        estimate += new TextEncoder().encode(part.text).byteLength;
+      } else if (part.type === "image") {
+        if (!part.data) {
+          throw new Error(
+            "Store review image input must embed base64 data before dispatch.",
+          );
+        }
+        // The provider accepts base64 image input. One token per three encoded
+        // characters is a conservative ambiguity estimate without treating
+        // the entire data URL as ordinary text tokens.
+        estimate += Math.ceil(part.data.length / 3);
+      }
+    }
+  }
+  return Math.max(1, estimate);
 };
 
+const createStoreReviewBilling = async (args: {
+  ownerId: string;
+  ownerGeneration: string;
+  conversationId?: Id<"conversations">;
+  agentType:
+    | "service:store_security_review"
+    | "service:store_image_safety_review";
+  context: Parameters<typeof completeManagedChat>[0]["context"];
+  config: ManagedModelConfig;
+}): Promise<ManagedModelBillingContext> => ({
+  requestFingerprint: await createManagedDispatchRequestFingerprint(
+    args.agentType,
+    [
+      args.ownerId,
+      args.ownerGeneration,
+      JSON.stringify(args.context),
+    ].join("\0"),
+  ),
+  agentType: args.agentType,
+  ...(args.conversationId ? { conversationId: args.conversationId } : {}),
+  fallbackCostMicroCents: estimateManagedModelFallbackCostMicroCents({
+    model: args.config.model,
+    inputTokens: estimateStoreReviewInputTokens(args.context),
+    maxOutputTokens: args.config.maxOutputTokens ?? 4_096,
+  }),
+});
+
 const completeStoreReviewVerdict = async (
-  ctx: Pick<ActionCtx, "scheduler">,
+  ctx: Pick<ActionCtx, "runMutation">,
   args: {
     ownerId: string;
+    ownerGeneration: string;
     conversationId?: Id<"conversations">;
     agentType:
       | "service:store_security_review"
@@ -415,6 +450,18 @@ const completeStoreReviewVerdict = async (
     try {
       message = await completeManagedChat({
         config,
+        dispatchGuard: createManagedUsageDispatchGuard(ctx, {
+          ownerId: args.ownerId,
+          ownerGeneration: args.ownerGeneration,
+        }),
+        billing: await createStoreReviewBilling({
+          ownerId: args.ownerId,
+          ownerGeneration: args.ownerGeneration,
+          conversationId: args.conversationId,
+          agentType: args.agentType,
+          context: args.context,
+          config,
+        }),
         context: args.context,
         api: "openai-completions",
         request: {
@@ -434,7 +481,6 @@ const completeStoreReviewVerdict = async (
     }
   };
 
-  const startedAt = Date.now();
   try {
     const result = await withModelFailoverAsync(
       () => executeAttempt(args.config),
@@ -442,30 +488,8 @@ const completeStoreReviewVerdict = async (
         ? () => executeAttempt(args.fallbackConfig!)
         : undefined,
     );
-    await logStoreReviewUsage(ctx, {
-      ownerId: args.ownerId,
-      conversationId: args.conversationId,
-      agentType: args.agentType,
-      message: result.message,
-      model: result.message.model,
-      startedAt,
-      success: true,
-    });
     return result.verdict;
   } catch (error) {
-    const reviewError =
-      error instanceof StoreReviewAttemptError ? error : undefined;
-    await logStoreReviewUsage(ctx, {
-      ownerId: args.ownerId,
-      conversationId: args.conversationId,
-      agentType: args.agentType,
-      ...(reviewError?.reviewMessage
-        ? { message: reviewError.reviewMessage }
-        : {}),
-      model: reviewError?.model ?? args.config.model,
-      startedAt,
-      success: false,
-    });
     console.warn("[store-review] Review attempt failed:", error);
     throw error;
   }
@@ -651,6 +675,7 @@ const reviewCodeFile = async (
   ctx: Pick<ActionCtx, "runQuery" | "scheduler" | "runMutation">,
   args: {
     ownerId: string;
+    ownerGeneration: string;
     conversationId?: Id<"conversations">;
     packageId: string;
     displayName: string;
@@ -661,6 +686,7 @@ const reviewCodeFile = async (
 ) => {
   return await completeStoreReviewVerdict(ctx, {
     ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
     conversationId: args.conversationId,
     agentType: "service:store_security_review",
     config: STORE_REVIEW_MODEL_CONFIG,
@@ -704,6 +730,7 @@ const reviewImageFile = async (
   ctx: Pick<ActionCtx, "runQuery" | "scheduler" | "runMutation">,
   args: {
     ownerId: string;
+    ownerGeneration: string;
     conversationId?: Id<"conversations">;
     packageId: string;
     displayName: string;
@@ -719,6 +746,7 @@ const reviewImageFile = async (
 
   return await completeStoreReviewVerdict(ctx, {
     ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
     conversationId: args.conversationId,
     agentType: "service:store_image_safety_review",
     config: STORE_REVIEW_MODEL_CONFIG,
@@ -782,6 +810,7 @@ export const runStoreReleaseReviewAdvisory = async (
   ctx: Pick<ActionCtx, "runQuery" | "scheduler" | "runMutation">,
   args: {
     ownerId: string;
+    ownerGeneration: string;
     conversationId?: Id<"conversations">;
     packageId: string;
     displayName: string;
@@ -801,8 +830,7 @@ export const runStoreReleaseReviewAdvisory = async (
     console.error("[store-review] Failed to parse artifact for review:", error);
     return {
       outcome: "failed",
-      summary:
-        "Automated pre-review could not inspect the release artifact.",
+      summary: "Automated pre-review could not inspect the release artifact.",
       findings: [],
       reviewedAt: Date.now(),
     };
@@ -817,6 +845,7 @@ export const runStoreReleaseReviewAdvisory = async (
     for (const file of parsedArtifact.codeFiles) {
       const verdict = await reviewCodeFile(ctx, {
         ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
         conversationId: args.conversationId,
         packageId: args.packageId,
         displayName: args.displayName,
@@ -841,6 +870,7 @@ export const runStoreReleaseReviewAdvisory = async (
     for (const file of parsedArtifact.imageFiles) {
       const verdict = await reviewImageFile(ctx, {
         ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
         conversationId: args.conversationId,
         packageId: args.packageId,
         displayName: args.displayName,

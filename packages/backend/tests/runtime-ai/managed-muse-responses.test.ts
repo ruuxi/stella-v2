@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
 import { getModeConfig } from "../../convex/agent/model";
-import { streamManagedChat } from "../../convex/runtime_ai/managed";
+import {
+  streamManagedChat,
+  type ManagedDispatchGuard,
+} from "../../convex/runtime_ai/managed";
 import type { Context } from "../../convex/runtime_ai/types";
 
 /**
@@ -55,13 +58,32 @@ type CapturedCall = { url: string; init?: RequestInit };
 
 const originalFetch: typeof fetch = globalThis.fetch;
 
+// Transport-only tests use an explicit local fake. Production code must use
+// the durable owner/generation guard from lib/managed_billing.
+const testDispatchGuard = (): ManagedDispatchGuard => ({
+  signal: new AbortController().signal,
+  beginDispatch: async () => ({
+    signal: new AbortController().signal,
+    deadlineAt: Date.now() + 5_000,
+    settle: async () => undefined,
+  }),
+});
+
 afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
 describe("managed Muse Spark 1.2 Contributor transport", () => {
   it("mode config pins openai-responses on the OpenRouter gateway", () => {
-    for (const mode of ["standard", "priority", "light", "builder", "designer", "vision", "max"] as const) {
+    for (const mode of [
+      "standard",
+      "priority",
+      "light",
+      "builder",
+      "designer",
+      "vision",
+      "max",
+    ] as const) {
       const config = getModeConfig(mode, "pro");
       expect(config.model).toBe(MUSE_MODEL);
       expect(config.managedGatewayProvider).toBe("openrouter");
@@ -95,6 +117,7 @@ describe("managed Muse Spark 1.2 Contributor transport", () => {
       config,
       context: context("hi"),
       request: { maxTokens: 2048 },
+      dispatchGuard: testDispatchGuard(),
     })) {
       if (event.type === "done") {
         finalMessage = event.message;

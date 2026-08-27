@@ -9,9 +9,11 @@ import {
 } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
+  assertOwnerMigrationWriteAllowed,
   getConnectedUserIdOrNull,
   requireConnectedUserId,
 } from "../auth";
+import { commitExternalMediaUploadByUrls } from "../account_external_media_store";
 import {
   RATE_HOT_PATH,
   RATE_STANDARD,
@@ -23,6 +25,7 @@ import {
   user_pet_visibility_validator,
 } from "../schema/user_pets";
 import { requireBoundedString } from "../shared_validators";
+import { assertC8RetiredSurfaceUnavailable } from "../lib/c8_retired_surface";
 
 const MAX_PAGE_SIZE = 64;
 const MAX_DISPLAY_NAME = 80;
@@ -201,12 +204,21 @@ export const getByIdInternal = internalQuery({
 export const patchGeneratedMetadata = internalMutation({
   args: {
     petId: v.id("user_pets"),
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
     metadata: generatedMetadataValidator,
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Custom pets");
     const row = await ctx.db.get(args.petId);
     if (!row) return null;
+    if (row.ownerId !== args.ownerId) return null;
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
     const displayableTags = filterDisplayableTags(args.metadata.tags);
     await ctx.db.patch(args.petId, {
       ...args.metadata,
@@ -233,6 +245,8 @@ export const getByPetId = query({
 
 export const createPet = mutation({
   args: {
+    uploadId: v.string(),
+    ownerGeneration: v.string(),
     petId: v.string(),
     displayName: v.string(),
     description: v.string(),
@@ -243,6 +257,7 @@ export const createPet = mutation({
   },
   returns: user_pet_validator,
   handler: async (ctx, args): Promise<Doc<"user_pets">> => {
+    assertC8RetiredSurfaceUnavailable("Custom pets");
     const ownerId = await requireConnectedUserId(ctx);
     await enforceMutationRateLimit(
       ctx,
@@ -252,6 +267,8 @@ export const createPet = mutation({
     );
     return await ctx.runMutation(internal.data.user_pets.createGeneratedPet, {
       ownerId,
+      uploadId: args.uploadId,
+      ownerGeneration: args.ownerGeneration,
       petId: args.petId,
       displayName: args.displayName,
       description: args.description,
@@ -266,6 +283,8 @@ export const createPet = mutation({
 export const createGeneratedPet = internalMutation({
   args: {
     ownerId: v.string(),
+    uploadId: v.string(),
+    ownerGeneration: v.string(),
     petId: v.string(),
     displayName: v.string(),
     description: v.string(),
@@ -276,7 +295,9 @@ export const createGeneratedPet = internalMutation({
   },
   returns: user_pet_validator,
   handler: async (ctx, args): Promise<Doc<"user_pets">> => {
+    assertC8RetiredSurfaceUnavailable("Custom pets");
     const ownerId = normalizeRequiredText(args.ownerId, "ownerId", 256);
+    await assertOwnerMigrationWriteAllowed(ctx, ownerId, args.ownerGeneration);
     const petId = normalizePetId(args.petId);
     const existing = await ctx.db
       .query("user_pets")
@@ -331,10 +352,28 @@ export const createGeneratedPet = internalMutation({
       createdAt: now,
       updatedAt: now,
     });
+    await commitExternalMediaUploadByUrls(ctx, {
+      ownerId,
+      ownerGeneration: args.ownerGeneration,
+      uploadId: args.uploadId,
+      sourceKind: "user_pet",
+      sourceId: id,
+      objects: [
+        { objectRole: "spritesheet", publicUrl: spritesheetUrl },
+        ...(previewUrl
+          ? [{ objectRole: "preview", publicUrl: previewUrl }]
+          : []),
+      ],
+      now,
+    });
     await ctx.scheduler.runAfter(
       0,
       internal.data.store_asset_metadata.enrichUserPet,
-      { petId: id },
+      {
+        petId: id,
+        ownerId,
+        ownerGeneration: args.ownerGeneration,
+      },
     );
     const row = await ctx.db.get(id);
     if (!row) {
@@ -354,6 +393,7 @@ export const setVisibility = mutation({
   },
   returns: user_pet_validator,
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Custom pets");
     const ownerId = await requireConnectedUserId(ctx);
     const petId = normalizePetId(args.petId);
     const row = await ctx.db
@@ -387,6 +427,7 @@ export const deletePet = mutation({
   args: { petId: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Custom pets");
     const ownerId = await requireConnectedUserId(ctx);
     const petId = normalizePetId(args.petId);
     const row = await ctx.db
@@ -405,6 +446,7 @@ export const recordInstall = mutation({
   args: { petId: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Custom pets");
     const ownerId = await requireConnectedUserId(ctx);
     await enforceMutationRateLimit(
       ctx,

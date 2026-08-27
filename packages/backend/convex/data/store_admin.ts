@@ -7,6 +7,7 @@ import {
 } from "../schema/store";
 import { isStoreAdminCtx, requireStoreAdmin } from "../lib/store_admin";
 import { requireBoundedString } from "../shared_validators";
+import { assertC8RetiredSurfaceUnavailable } from "../lib/c8_retired_surface";
 
 // ── Manual approval queue (Stella team only) ─────────────────────────────────
 //
@@ -100,6 +101,7 @@ export const approveSubmission = mutation({
   args: { releaseId: v.id("store_package_releases") },
   returns: v.null(),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Store");
     await requireStoreAdmin(ctx);
     const release = await ctx.db.get(args.releaseId);
     if (!release) {
@@ -161,6 +163,7 @@ export const rejectSubmission = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Store");
     await requireStoreAdmin(ctx);
     const release = await ctx.db.get(args.releaseId);
     if (!release) {

@@ -116,6 +116,8 @@ export interface AssistantMessage {
   usage: Usage;
   stopReason: StopReason;
   errorMessage?: string;
+  /** The physical provider request may have been accepted before transport loss. */
+  providerOutcomeUnknown?: boolean;
   timestamp: number;
 }
 

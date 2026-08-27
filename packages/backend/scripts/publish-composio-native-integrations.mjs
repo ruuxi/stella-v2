@@ -3,6 +3,15 @@
 // Backend-owned administrative publisher. This script requires Composio and
 // Stella admin credentials and must never be shipped with the desktop runtime.
 import AjvModule from "ajv";
+import {
+  codeModePolicyForAction,
+  reviewedCodeModeActionKeys,
+} from "./composio-code-mode-policy.mjs";
+import {
+  assertCatalogPageWithinLimit,
+  readCatalogResponseTextBounded,
+  setCatalogEntryBounded,
+} from "./composio-catalog-io.mjs";
 
 const siteUrl = (
   process.env.STELLA_CONVEX_SITE_URL ||
@@ -18,15 +27,23 @@ const adminToken =
 const composioApiKey = process.env.COMPOSIO_API_KEY || "";
 const composioToolsUrl =
   process.env.COMPOSIO_TOOLS_URL ||
-  "https://backend.composio.dev/api/v3/tools";
+  "https://backend.composio.dev/api/v3.1/tools";
 const composioToolkitsUrl =
   process.env.COMPOSIO_TOOLKITS_URL ||
   "https://backend.composio.dev/api/v3.1/toolkits";
 const apply = process.argv.includes("--apply");
 const MAX_ACTIONS_PER_INTEGRATION = 2_000;
+const MAX_TOTAL_ACTIONS = 40_000;
+const MAX_TOTAL_ACTION_BYTES = 64 * 1024 * 1024;
 const MAX_ACTION_SCHEMA_BYTES = 64 * 1024;
 const MAX_PUBLISH_BODY_BYTES = 4 * 1024 * 1024;
+const MAX_TOTAL_PUBLISH_BODY_BYTES = 64 * 1024 * 1024;
+const MAX_COMPOSIO_CATALOG_PAGE_BYTES = 8 * 1024 * 1024;
+const MAX_ADMIN_RESPONSE_BYTES = 64 * 1024;
 const TOOL_PAGE_SIZE = 1_000;
+const MAX_PROVIDER_ITEMS_PER_PAGE = TOOL_PAGE_SIZE;
+const MAX_TOOLKIT_PAGES = 8;
+const MAX_ACTION_PAGES_PER_INTEGRATION = 4;
 const FETCH_CONCURRENCY = Math.max(
   1,
   Math.min(Number(process.env.COMPOSIO_CATALOG_CONCURRENCY || "6"), 12),
@@ -172,11 +189,81 @@ const schemaFromComposioTool = (tool) =>
     tool.input_schema ?? tool.inputSchema ?? tool.input_parameters,
   );
 
+// Composio's catalog publishes behavioral tags used by Tool Router session
+// filters. Only that structured field is authoritative here: slugs,
+// descriptions, scopes, and HTTP-looking words are never treated as a safety
+// classification. Missing tags stay missing in Convex and therefore cannot be
+// invoked from Code.
+const annotationsFromComposioTool = (tool) => {
+  if (!Array.isArray(tool.tags)) return undefined;
+  const tags = new Set(
+    tool.tags.filter((tag) => typeof tag === "string").map((tag) => tag.trim()),
+  );
+  return {
+    readOnlyHint: tags.has("readOnlyHint"),
+    destructiveHint: tags.has("destructiveHint"),
+    idempotentHint: tags.has("idempotentHint"),
+    source: "composio_tool_tags",
+  };
+};
+
+const actionFromComposioTool = (row, tool, codeModePolicy) => {
+  if (!isObject(tool)) return null;
+  const name = typeof tool.slug === "string" ? tool.slug.trim() : "";
+  const toolkit =
+    isObject(tool.toolkit) && typeof tool.toolkit.slug === "string"
+      ? tool.toolkit.slug.trim().toLowerCase()
+      : "";
+  if (toolkit !== row.id || !SAFE_ACTION_NAME.test(name)) return null;
+  const inputSchema = schemaFromComposioTool(tool);
+  if (!inputSchema || !hasCompilableSchema(inputSchema)) return null;
+  if (Buffer.byteLength(JSON.stringify(inputSchema)) > MAX_ACTION_SCHEMA_BYTES) {
+    return null;
+  }
+  return {
+    name,
+    title:
+      (typeof tool.name === "string" && tool.name.trim()) ||
+      titleFromSlug(name),
+    description:
+      (typeof tool.human_description === "string" &&
+        tool.human_description.trim()) ||
+      (typeof tool.description === "string" && tool.description.trim()) ||
+      undefined,
+    annotations: annotationsFromComposioTool(tool),
+    ...(codeModePolicy ? { codeModePolicy } : {}),
+    inputSchema,
+  };
+};
+
+const exactToolFromPayload = (payload) => {
+  if (!isObject(payload)) return null;
+  if (isObject(payload.tool)) return payload.tool;
+  if (isObject(payload.data)) return payload.data;
+  return payload;
+};
+
+const toolVersionFromComposioTool = (tool) => {
+  if (!isObject(tool)) return null;
+  if (typeof tool.version === "string") return tool.version.trim();
+  if (typeof tool.toolkit_version === "string") {
+    return tool.toolkit_version.trim();
+  }
+  return isObject(tool.toolkit) && typeof tool.toolkit.version === "string"
+    ? tool.toolkit.version.trim()
+    : null;
+};
+
 const fetchComposioJson = async (url, label) => {
   const response = await fetch(url, {
     headers: { accept: "application/json", "x-api-key": composioApiKey },
+    redirect: "error",
   });
-  const text = await response.text();
+  const text = await readCatalogResponseTextBounded(
+    response,
+    MAX_COMPOSIO_CATALOG_PAGE_BYTES,
+    label,
+  );
   if (!response.ok) {
     throw new Error(`${label}: Composio returned ${response.status}.`);
   }
@@ -191,7 +278,8 @@ const fetchPublishedToolkitRows = async () => {
   const rows = new Map();
   const seenCursors = new Set();
   let cursor = null;
-  for (;;) {
+  for (let page = 0; ; page += 1) {
+    assertCatalogPageWithinLimit(page, MAX_TOOLKIT_PAGES, "toolkit catalog");
     const url = new URL(composioToolkitsUrl);
     url.searchParams.set("managed_by", "composio");
     url.searchParams.set("sort_by", "alphabetically");
@@ -201,6 +289,9 @@ const fetchPublishedToolkitRows = async () => {
     const payload = await fetchComposioJson(url, "toolkit catalog");
     if (!Array.isArray(payload.items)) {
       throw new Error("Composio toolkit catalog has no items array.");
+    }
+    if (payload.items.length > MAX_PROVIDER_ITEMS_PER_PAGE) {
+      throw new Error("Composio toolkit page exceeds its item limit.");
     }
     for (const toolkit of payload.items) {
       if (!isObject(toolkit)) continue;
@@ -234,7 +325,15 @@ const fetchPublishedToolkitRows = async () => {
           typeof toolkit.meta?.logo === "string" ? toolkit.meta.logo : undefined,
         composioManagedAuthSchemes,
       };
-      if (shouldPublish(entry)) rows.set(id, toBaseRow(entry));
+      if (shouldPublish(entry)) {
+        setCatalogEntryBounded(
+          rows,
+          id,
+          toBaseRow(entry),
+          SUPPORTED_TOOLKIT_IDS.size,
+          "toolkit catalog",
+        );
+      }
     }
     const nextCursor =
       typeof payload.next_cursor === "string" && payload.next_cursor.trim()
@@ -259,12 +358,17 @@ const fetchPublishedToolkitRows = async () => {
   return sorted;
 };
 
-const fetchToolkitActions = async (row) => {
+const fetchToolkitActions = async (row, aggregateBudget) => {
   const actions = new Map();
-  const skippedActions = new Map();
+  let skippedActionCount = 0;
   const seenCursors = new Set();
   let cursor = null;
-  for (;;) {
+  for (let page = 0; ; page += 1) {
+    assertCatalogPageWithinLimit(
+      page,
+      MAX_ACTION_PAGES_PER_INTEGRATION,
+      `${row.id} action catalog`,
+    );
     const url = new URL(composioToolsUrl);
     url.searchParams.set("toolkit_slug", row.id);
     url.searchParams.set("toolkit_versions", "latest");
@@ -275,36 +379,42 @@ const fetchToolkitActions = async (row) => {
     if (!Array.isArray(payload.items)) {
       throw new Error(`${row.id}: Composio tools response has no items array.`);
     }
+    if (payload.items.length > MAX_PROVIDER_ITEMS_PER_PAGE) {
+      throw new Error(`${row.id}: Composio tools page exceeds its item limit.`);
+    }
     for (const tool of payload.items) {
-      if (!isObject(tool)) continue;
-      const name = typeof tool.slug === "string" ? tool.slug.trim() : "";
-      const toolkit =
-        isObject(tool.toolkit) && typeof tool.toolkit.slug === "string"
-          ? tool.toolkit.slug.trim().toLowerCase()
-          : "";
-      if (toolkit !== row.id || !SAFE_ACTION_NAME.test(name)) continue;
-      const inputSchema = schemaFromComposioTool(tool);
-      if (!inputSchema || !hasCompilableSchema(inputSchema)) {
-        skippedActions.set(name, "invalid_schema");
+      const name = isObject(tool) && typeof tool.slug === "string"
+        ? tool.slug.trim()
+        : "<unknown>";
+      const normalized = actionFromComposioTool(row, tool);
+      if (!normalized) {
+        skippedActionCount += 1;
         continue;
       }
-      const schemaBytes = Buffer.byteLength(JSON.stringify(inputSchema));
-      if (schemaBytes > MAX_ACTION_SCHEMA_BYTES) {
-        skippedActions.set(name, "schema_too_large");
-        continue;
+      // The general Store catalog may follow `latest`, but no Code policy is
+      // attached here. Reviewed actions are replaced below only after fetching
+      // and checking their exact dated provider contract.
+      if (actions.has(normalized.name)) {
+        throw new Error(
+          `${row.id}: Composio repeated action ${normalized.name}.`,
+        );
       }
-      actions.set(name, {
-        name,
-        title:
-          (typeof tool.name === "string" && tool.name.trim()) ||
-          titleFromSlug(name),
-        description:
-          (typeof tool.human_description === "string" &&
-            tool.human_description.trim()) ||
-          (typeof tool.description === "string" && tool.description.trim()) ||
-          undefined,
-        inputSchema,
-      });
+      const retainedBytes = Buffer.byteLength(JSON.stringify(normalized));
+      if (
+        aggregateBudget.actions >= MAX_TOTAL_ACTIONS ||
+        aggregateBudget.bytes + retainedBytes > MAX_TOTAL_ACTION_BYTES
+      ) {
+        throw new Error("Composio action catalog exceeds its aggregate budget.");
+      }
+      setCatalogEntryBounded(
+        actions,
+        normalized.name,
+        normalized,
+        MAX_ACTIONS_PER_INTEGRATION,
+        `${row.id} action catalog`,
+      );
+      aggregateBudget.actions += 1;
+      aggregateBudget.bytes += retainedBytes;
     }
     const nextCursor =
       typeof payload.next_cursor === "string" && payload.next_cursor.trim()
@@ -316,6 +426,64 @@ const fetchToolkitActions = async (row) => {
     }
     seenCursors.add(nextCursor);
     cursor = nextCursor;
+  }
+
+  for (const reviewedKey of reviewedCodeModeActionKeys()) {
+    const separator = reviewedKey.indexOf(":");
+    const integrationId = reviewedKey.slice(0, separator);
+    const actionName = reviewedKey.slice(separator + 1);
+    if (integrationId !== row.id) continue;
+    const policy = codeModePolicyForAction(integrationId, actionName);
+    if (!policy) {
+      throw new Error(`${reviewedKey}: reviewed policy is unavailable.`);
+    }
+    const exactUrl = new URL(
+      `${composioToolsUrl.replace(/\/$/u, "")}/${encodeURIComponent(actionName)}`,
+    );
+    exactUrl.searchParams.set("version", policy.toolkitVersion);
+    const payload = await fetchComposioJson(
+      exactUrl,
+      `${reviewedKey}@${policy.toolkitVersion}`,
+    );
+    const exactTool = exactToolFromPayload(payload);
+    if (
+      !exactTool ||
+      toolVersionFromComposioTool(exactTool) !== policy.toolkitVersion
+    ) {
+      throw new Error(
+        `${reviewedKey}: Composio did not return the exact reviewed toolkit version ${policy.toolkitVersion}.`,
+      );
+    }
+    const reviewed = actionFromComposioTool(row, exactTool, policy);
+    if (
+      !reviewed ||
+      reviewed.name !== actionName ||
+      reviewed.annotations?.readOnlyHint !== true ||
+      reviewed.annotations.destructiveHint !== false ||
+      !hasCompilableSchema(policy.reviewedInputSchema)
+    ) {
+      throw new Error(
+        `${reviewedKey}: exact provider contract no longer satisfies the independent Stella Code review.`,
+      );
+    }
+    if (!actions.has(actionName)) {
+      throw new Error(
+        `${reviewedKey}: the reviewed action is absent from the general catalog.`,
+      );
+    }
+    const previousBytes = Buffer.byteLength(
+      JSON.stringify(actions.get(actionName)),
+    );
+    const reviewedBytes = Buffer.byteLength(JSON.stringify(reviewed));
+    if (
+      aggregateBudget.bytes - previousBytes + reviewedBytes >
+      MAX_TOTAL_ACTION_BYTES
+    ) {
+      throw new Error("Composio action catalog exceeds its aggregate budget.");
+    }
+    aggregateBudget.bytes =
+      aggregateBudget.bytes - previousBytes + reviewedBytes;
+    actions.set(actionName, reviewed);
   }
   const sorted = [...actions.values()].sort((left, right) =>
     left.name.localeCompare(right.name),
@@ -330,7 +498,7 @@ const fetchToolkitActions = async (row) => {
   }
   return {
     publication: { ...row, actions: sorted, catalogToolCount: sorted.length },
-    skippedActions: [...skippedActions].map(([name, reason]) => ({ name, reason })),
+    skippedActionCount,
   };
 };
 
@@ -360,7 +528,7 @@ if (!composioApiKey) {
       {
         count: null,
         catalogSource: "Composio v3.1 toolkits API",
-        actionSource: "Composio v3 tools API",
+        actionSource: "Composio v3.1 tools API",
         hint: "Set COMPOSIO_API_KEY to preview; also set STELLA_CONVEX_SITE_URL and STELLA_ADMIN_TOKEN, then pass --apply to publish.",
       },
       null,
@@ -379,7 +547,7 @@ if (!apply) {
         count: rows.length,
         first: rows.slice(0, 5).map((row) => row.id),
         catalogSource: "Composio v3.1 toolkits API",
-        actionSource: "Composio v3 tools API (resolved during --apply)",
+        actionSource: "Composio v3.1 tools API (resolved during --apply)",
         hint: "Set STELLA_CONVEX_SITE_URL and STELLA_ADMIN_TOKEN, then pass --apply to validate and publish.",
       },
       null,
@@ -398,14 +566,36 @@ if (!siteUrl || !adminToken) {
 
 // Resolve and validate the complete publication before mutating the backend.
 // A provider/API failure therefore leaves every existing action set untouched.
+const aggregateCatalogBudget = { actions: 0, bytes: 0 };
 const resolvedRows = await mapConcurrent(rows, FETCH_CONCURRENCY, async (row) => {
-  return await fetchToolkitActions(row);
+  return await fetchToolkitActions(row, aggregateCatalogBudget);
 });
+const publishedActionKeys = new Set(
+  resolvedRows.flatMap(({ publication }) =>
+    publication.actions.map((action) => `${publication.id}:${action.name}`),
+  ),
+);
+const missingReviewedActions = reviewedCodeModeActionKeys().filter(
+  (key) => !publishedActionKeys.has(key),
+);
+if (missingReviewedActions.length > 0) {
+  throw new Error(
+    `Stella-reviewed Code actions are absent from the live catalog: ${missingReviewedActions.join(", ")}. Re-review the policy manifest before publishing.`,
+  );
+}
+let aggregatePublishBytes = 0;
 const publicationBodies = resolvedRows.map(({ publication }) => {
   const body = JSON.stringify(publication);
-  if (Buffer.byteLength(body) > MAX_PUBLISH_BODY_BYTES) {
+  const bodyBytes = Buffer.byteLength(body);
+  if (bodyBytes > MAX_PUBLISH_BODY_BYTES) {
     throw new Error(
       `${publication.id}: publication exceeds ${MAX_PUBLISH_BODY_BYTES} bytes.`,
+    );
+  }
+  aggregatePublishBytes += bodyBytes;
+  if (aggregatePublishBytes > MAX_TOTAL_PUBLISH_BODY_BYTES) {
+    throw new Error(
+      `Publication set exceeds ${MAX_TOTAL_PUBLISH_BODY_BYTES} bytes.`,
     );
   }
   return { publication, body };
@@ -425,7 +615,11 @@ for (const { publication, body } of publicationBodies) {
     },
   );
   if (!response.ok) {
-    const text = await response.text();
+    const text = await readCatalogResponseTextBounded(
+      response,
+      MAX_ADMIN_RESPONSE_BYTES,
+      publication.id,
+    );
     throw new Error(
       `${publication.id}: ${response.status} ${text.slice(0, 500)}`,
     );
@@ -441,14 +635,14 @@ process.stdout.write(
         0,
       ),
       skippedActions: resolvedRows.reduce(
-        (sum, row) => sum + row.skippedActions.length,
+        (sum, row) => sum + row.skippedActionCount,
         0,
       ),
       skippedByToolkit: resolvedRows
-        .filter((row) => row.skippedActions.length > 0)
+        .filter((row) => row.skippedActionCount > 0)
         .map((row) => ({
           id: row.publication.id,
-          count: row.skippedActions.length,
+          count: row.skippedActionCount,
         })),
     },
     null,

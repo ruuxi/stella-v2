@@ -36,8 +36,11 @@ import {
   registerCorsOptions,
 } from "../http_shared/cors";
 import { requireSignedInAccountAction } from "../http_shared/auth";
-import { meterManagedUsage, runManagedGate } from "../lib/gate_and_meter";
+import { runManagedGate } from "../lib/gate_and_meter";
+import { createManagedUsageDispatchGuard } from "../lib/managed_billing";
+import { runManagedDispatchAttempt } from "../runtime_ai/managed";
 import { dollarsToMicroCents } from "../lib/billing_money";
+import { MANAGED_USAGE_BILLING_KIND } from "../lib/managed_dispatch";
 import {
   getManagedGatewayConfig,
   resolveManagedGatewayApiKey,
@@ -132,6 +135,27 @@ const formatFromAudioEncoding = (
 const asFiniteNumber = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isFinite(value) ? value : undefined;
 
+const estimatedAudioSeconds = (audioBase64: string): number =>
+  Math.max(1, (audioBase64.length * 0.75) / (16_000 * 2));
+
+const dictationBilling = (args: {
+  provider: DictationProvider;
+  model: string;
+  audioBase64: string;
+  usdPerSecond: number;
+}) => ({
+  kind: MANAGED_USAGE_BILLING_KIND,
+  requestFingerprint: `dictation:${args.provider}:${crypto.randomUUID()}`,
+  agentType: "service:dictation",
+  model: args.model,
+  fallbackCostMicroCents: Math.max(
+    1,
+    dollarsToMicroCents(
+      estimatedAudioSeconds(args.audioBase64) * args.usdPerSecond,
+    ),
+  ),
+});
+
 export const registerDictationRoutes = (http: HttpRouter) => {
   registerCorsOptions(http, ["/api/dictation/transcribe"]);
 
@@ -170,12 +194,13 @@ export const registerDictationRoutes = (http: HttpRouter) => {
           },
         });
         if (!gate.ok) return gate.response;
+        const ownerGeneration = gate.ownerGeneration;
 
         const provider = resolveDictationProvider();
         // Same org key the realtime Grok Voice path uses (voice.ts); it
         // never leaves the backend.
         const xaiKey =
-          provider === "xai" ? (process.env.XAI_API_KEY?.trim() || null) : null;
+          provider === "xai" ? process.env.XAI_API_KEY?.trim() || null : null;
         const openRouterKey =
           provider === "openrouter"
             ? (resolveManagedGatewayApiKey(
@@ -184,7 +209,7 @@ export const registerDictationRoutes = (http: HttpRouter) => {
             : null;
         const inworldKey =
           provider === "inworld"
-            ? (process.env.INWORLD_API_KEY?.trim() || null)
+            ? process.env.INWORLD_API_KEY?.trim() || null
             : null;
         if (provider === "xai" && !xaiKey) {
           return errorResponse(
@@ -232,9 +257,11 @@ export const registerDictationRoutes = (http: HttpRouter) => {
             ctx,
             origin,
             ownerId,
+            ownerGeneration,
             inworldKey: inworldKey!,
             body,
             audioBase64,
+            signal: request.signal,
           });
         }
 
@@ -243,9 +270,11 @@ export const registerDictationRoutes = (http: HttpRouter) => {
             ctx,
             origin,
             ownerId,
+            ownerGeneration,
             openRouterKey: openRouterKey!,
             body,
             audioBase64,
+            signal: request.signal,
           });
         }
 
@@ -253,9 +282,11 @@ export const registerDictationRoutes = (http: HttpRouter) => {
           ctx,
           origin,
           ownerId,
+          ownerGeneration,
           xaiKey: xaiKey!,
           body,
           audioBase64,
+          signal: request.signal,
         });
       }),
     ),
@@ -288,9 +319,11 @@ const transcribeWithXai = async (args: {
   ctx: ActionCtx;
   origin: string | null;
   ownerId: string;
+  ownerGeneration: string;
   xaiKey: string;
   body: TranscribeRequestBody;
   audioBase64: string;
+  signal: AbortSignal;
 }) => {
   const modelId = resolveDictationModel("xai", args.body.modelId);
   const language = args.body.language?.trim();
@@ -319,90 +352,100 @@ const transcribeWithXai = async (args: {
     `audio.${format}`,
   );
 
-  try {
-    const upstream = await fetch(XAI_TRANSCRIBE_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${args.xaiKey}`,
-      },
-      body: form,
-    });
-    const text = await upstream.text();
-    if (!upstream.ok) {
-      console.error(
-        "[dictation/transcribe] xAI STT returned",
-        upstream.status,
-        text.slice(0, 400),
-      );
-      await meterManagedUsage(args.ctx, {
-        ownerId: args.ownerId,
-        agentType: "service:dictation",
-        model: modelId,
-        durationMs: Date.now() - startedAt,
-        success: false,
-      });
-      return errorResponse(502, "Failed to transcribe audio", args.origin);
-    }
-    let parsed: {
-      text?: unknown;
-      duration?: unknown;
-    };
-    try {
-      parsed = JSON.parse(text) as typeof parsed;
-    } catch {
-      await meterManagedUsage(args.ctx, {
-        ownerId: args.ownerId,
-        agentType: "service:dictation",
-        model: modelId,
-        durationMs: Date.now() - startedAt,
-        success: false,
-      });
-      return errorResponse(
-        502,
-        "xAI returned a non-JSON transcription response",
-        args.origin,
-      );
-    }
+  const dispatchGuard = createManagedUsageDispatchGuard(args.ctx, {
+    ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
+  });
+  const billing = dictationBilling({
+    provider: "xai",
+    model: modelId,
+    audioBase64: args.audioBase64,
+    usdPerSecond: XAI_USD_PER_SECOND,
+  });
 
-    const transcript = typeof parsed.text === "string" ? parsed.text : "";
-    const durationSeconds = asFiniteNumber(parsed.duration);
-    const transcribedAudioMs =
-      durationSeconds !== undefined ? Math.round(durationSeconds * 1000) : null;
-    const costUsd =
-      durationSeconds !== undefined
-        ? Math.max(0, durationSeconds) * XAI_USD_PER_SECOND
-        : 0;
-    await meterManagedUsage(args.ctx, {
-      ownerId: args.ownerId,
-      agentType: "service:dictation",
-      model: modelId,
-      durationMs: Date.now() - startedAt,
-      success: true,
-      costMicroCents: dollarsToMicroCents(costUsd),
+  try {
+    const result = await runManagedDispatchAttempt({
+      dispatchGuard,
+      callerSignal: args.signal,
+      billing,
+      run: async (signal, receipt) => {
+        const upstream = await fetch(XAI_TRANSCRIBE_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${args.xaiKey}`,
+          },
+          body: form,
+          signal,
+        });
+        const text = await upstream.text();
+        if (!upstream.ok) {
+          console.error(
+            "[dictation/transcribe] xAI STT returned",
+            upstream.status,
+            text.slice(0, 400),
+          );
+          await receipt.captureUsage({
+            durationMs: Date.now() - startedAt,
+            success: false,
+            costMicroCents: billing.fallbackCostMicroCents,
+          });
+          throw new Error(`xAI STT returned ${upstream.status}`);
+        }
+        let parsed: { text?: unknown; duration?: unknown };
+        try {
+          parsed = JSON.parse(text) as typeof parsed;
+        } catch {
+          await receipt.captureUsage({
+            durationMs: Date.now() - startedAt,
+            success: false,
+            costMicroCents: billing.fallbackCostMicroCents,
+          });
+          throw new Error("xAI returned a non-JSON transcription response");
+        }
+
+        const transcript = typeof parsed.text === "string" ? parsed.text : "";
+        const durationSeconds = asFiniteNumber(parsed.duration);
+        const transcribedAudioMs =
+          durationSeconds !== undefined
+            ? Math.round(durationSeconds * 1000)
+            : null;
+        const costMicroCents =
+          durationSeconds !== undefined
+            ? dollarsToMicroCents(
+                Math.max(0, durationSeconds) * XAI_USD_PER_SECOND,
+              )
+            : billing.fallbackCostMicroCents;
+        await receipt.captureUsage({
+          durationMs: Date.now() - startedAt,
+          success: true,
+          costMicroCents,
+        });
+        return { transcript, transcribedAudioMs };
+      },
     });
 
     return jsonResponse(
       {
-        transcript,
+        transcript: result.transcript,
         isFinal: true,
-        transcribedAudioMs,
+        transcribedAudioMs: result.transcribedAudioMs,
         modelId,
       },
       200,
       args.origin,
     );
   } catch (error) {
+    if (dispatchGuard.signal.aborted || args.signal.aborted) {
+      return errorResponse(
+        409,
+        "Your account changed before dictation could start. Please retry.",
+        args.origin,
+      );
+    }
     console.error(
       "[dictation/transcribe] Failed to contact xAI:",
       (error as Error).message,
     );
-    await meterManagedUsage(args.ctx, {
-      ownerId: args.ownerId,
-      agentType: "service:dictation",
-      model: modelId,
-      durationMs: Date.now() - startedAt,
-      success: false,
-    });
     return errorResponse(502, "Failed to transcribe audio", args.origin);
   }
 };
@@ -411,114 +454,127 @@ const transcribeWithOpenRouter = async (args: {
   ctx: ActionCtx;
   origin: string | null;
   ownerId: string;
+  ownerGeneration: string;
   openRouterKey: string;
   body: TranscribeRequestBody;
   audioBase64: string;
+  signal: AbortSignal;
 }) => {
   const modelId = resolveDictationModel("openrouter", args.body.modelId);
   const language = args.body.language?.trim();
   const format = formatFromAudioEncoding(args.body.audioEncoding);
   const startedAt = Date.now();
+  const dispatchGuard = createManagedUsageDispatchGuard(args.ctx, {
+    ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
+  });
+  const billing = dictationBilling({
+    provider: "openrouter",
+    model: modelId,
+    audioBase64: args.audioBase64,
+    usdPerSecond: OPENROUTER_USD_PER_SECOND,
+  });
   try {
-    const upstream = await fetch(OPENROUTER_TRANSCRIPTIONS_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${args.openRouterKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://stella.sh",
-        "X-OpenRouter-Title": "Stella",
-      },
-      body: JSON.stringify({
-        model: modelId,
-        input_audio: {
-          data: args.audioBase64,
-          format,
-        },
-        ...(language ? { language } : {}),
-      }),
-    });
-    const text = await upstream.text();
-    if (!upstream.ok) {
-      console.error(
-        "[dictation/transcribe] OpenRouter STT returned",
-        upstream.status,
-        text.slice(0, 400),
-      );
-      await meterManagedUsage(args.ctx, {
-        ownerId: args.ownerId,
-        agentType: "service:dictation",
-        model: modelId,
-        durationMs: Date.now() - startedAt,
-        success: false,
-      });
-      return errorResponse(502, "Failed to transcribe audio", args.origin);
-    }
-    let parsed: {
-      text?: unknown;
-      usage?: {
-        seconds?: unknown;
-        cost?: unknown;
-      };
-    };
-    try {
-      parsed = JSON.parse(text) as typeof parsed;
-    } catch {
-      await meterManagedUsage(args.ctx, {
-        ownerId: args.ownerId,
-        agentType: "service:dictation",
-        model: modelId,
-        durationMs: Date.now() - startedAt,
-        success: false,
-      });
-      return errorResponse(
-        502,
-        "OpenRouter returned a non-JSON transcription response",
-        args.origin,
-      );
-    }
+    const result = await runManagedDispatchAttempt({
+      dispatchGuard,
+      callerSignal: args.signal,
+      billing,
+      run: async (signal, receipt) => {
+        const upstream = await fetch(OPENROUTER_TRANSCRIPTIONS_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${args.openRouterKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://stella.sh",
+            "X-OpenRouter-Title": "Stella",
+          },
+          body: JSON.stringify({
+            model: modelId,
+            input_audio: {
+              data: args.audioBase64,
+              format,
+            },
+            ...(language ? { language } : {}),
+          }),
+          signal,
+        });
+        const text = await upstream.text();
+        if (!upstream.ok) {
+          console.error(
+            "[dictation/transcribe] OpenRouter STT returned",
+            upstream.status,
+            text.slice(0, 400),
+          );
+          await receipt.captureUsage({
+            durationMs: Date.now() - startedAt,
+            success: false,
+            costMicroCents: billing.fallbackCostMicroCents,
+          });
+          throw new Error(`OpenRouter STT returned ${upstream.status}`);
+        }
+        let parsed: {
+          text?: unknown;
+          usage?: { seconds?: unknown; cost?: unknown };
+        };
+        try {
+          parsed = JSON.parse(text) as typeof parsed;
+        } catch {
+          await receipt.captureUsage({
+            durationMs: Date.now() - startedAt,
+            success: false,
+            costMicroCents: billing.fallbackCostMicroCents,
+          });
+          throw new Error(
+            "OpenRouter returned a non-JSON transcription response",
+          );
+        }
 
-    const transcript = typeof parsed.text === "string" ? parsed.text : "";
-    const usageSeconds = asFiniteNumber(parsed.usage?.seconds);
-    const usageCost = asFiniteNumber(parsed.usage?.cost);
-    const transcribedAudioMs =
-      usageSeconds !== undefined ? Math.round(usageSeconds * 1000) : null;
-    const costUsd =
-      usageCost !== undefined
-        ? Math.max(0, usageCost)
-        : usageSeconds !== undefined
-          ? Math.max(0, usageSeconds) * OPENROUTER_USD_PER_SECOND
-          : 0;
-    await meterManagedUsage(args.ctx, {
-      ownerId: args.ownerId,
-      agentType: "service:dictation",
-      model: modelId,
-      durationMs: Date.now() - startedAt,
-      success: true,
-      costMicroCents: dollarsToMicroCents(costUsd),
+        const transcript = typeof parsed.text === "string" ? parsed.text : "";
+        const usageSeconds = asFiniteNumber(parsed.usage?.seconds);
+        const usageCost = asFiniteNumber(parsed.usage?.cost);
+        const transcribedAudioMs =
+          usageSeconds !== undefined
+            ? Math.round(usageSeconds * 1000)
+            : null;
+        const costMicroCents =
+          usageCost !== undefined
+            ? dollarsToMicroCents(Math.max(0, usageCost))
+            : usageSeconds !== undefined
+              ? dollarsToMicroCents(
+                  Math.max(0, usageSeconds) * OPENROUTER_USD_PER_SECOND,
+                )
+              : billing.fallbackCostMicroCents;
+        await receipt.captureUsage({
+          durationMs: Date.now() - startedAt,
+          success: true,
+          costMicroCents,
+        });
+        return { transcript, transcribedAudioMs };
+      },
     });
 
     return jsonResponse(
       {
-        transcript,
+        transcript: result.transcript,
         isFinal: true,
-        transcribedAudioMs,
+        transcribedAudioMs: result.transcribedAudioMs,
         modelId,
       },
       200,
       args.origin,
     );
   } catch (error) {
+    if (dispatchGuard.signal.aborted || args.signal.aborted) {
+      return errorResponse(
+        409,
+        "Your account changed before dictation could start. Please retry.",
+        args.origin,
+      );
+    }
     console.error(
       "[dictation/transcribe] Failed to contact OpenRouter:",
       (error as Error).message,
     );
-    await meterManagedUsage(args.ctx, {
-      ownerId: args.ownerId,
-      agentType: "service:dictation",
-      model: modelId,
-      durationMs: Date.now() - startedAt,
-      success: false,
-    });
     return errorResponse(502, "Failed to transcribe audio", args.origin);
   }
 };
@@ -527,9 +583,11 @@ const transcribeWithInworld = async (args: {
   ctx: ActionCtx;
   origin: string | null;
   ownerId: string;
+  ownerGeneration: string;
   inworldKey: string;
   body: TranscribeRequestBody;
   audioBase64: string;
+  signal: AbortSignal;
 }) => {
   const modelId = resolveDictationModel("inworld", args.body.modelId);
   const inworldBody = {
@@ -542,90 +600,94 @@ const transcribeWithInworld = async (args: {
   };
 
   const startedAt = Date.now();
+  const dispatchGuard = createManagedUsageDispatchGuard(args.ctx, {
+    ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
+  });
+  const billing = dictationBilling({
+    provider: "inworld",
+    model: modelId,
+    audioBase64: args.audioBase64,
+    usdPerSecond: INWORLD_USD_PER_HOUR / 3600,
+  });
   try {
-    const inworldResponse = await fetch(INWORLD_TRANSCRIBE_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${args.inworldKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(inworldBody),
-    });
-    const text = await inworldResponse.text();
-    if (!inworldResponse.ok) {
-      console.error(
-        "[dictation/transcribe] Inworld STT returned",
-        inworldResponse.status,
-        text,
-      );
-      await meterManagedUsage(args.ctx, {
-        ownerId: args.ownerId,
-        agentType: "service:dictation",
-        model: modelId,
-        durationMs: Date.now() - startedAt,
-        success: false,
-      });
-      return errorResponse(502, "Failed to transcribe audio", args.origin);
-    }
-    let parsed: {
-      transcription?: {
-        transcript?: string;
-        isFinal?: boolean;
-      };
-      usage?: { transcribedAudioMs?: number; modelId?: string };
-    };
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      await meterManagedUsage(args.ctx, {
-        ownerId: args.ownerId,
-        agentType: "service:dictation",
-        model: modelId,
-        durationMs: Date.now() - startedAt,
-        success: false,
-      });
-      return errorResponse(
-        502,
-        "Inworld returned a non-JSON transcription response",
-        args.origin,
-      );
-    }
+    const result = await runManagedDispatchAttempt({
+      dispatchGuard,
+      callerSignal: args.signal,
+      billing,
+      run: async (signal, receipt) => {
+        const inworldResponse = await fetch(INWORLD_TRANSCRIBE_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Basic ${args.inworldKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(inworldBody),
+          signal,
+        });
+        const text = await inworldResponse.text();
+        if (!inworldResponse.ok) {
+          console.error(
+            "[dictation/transcribe] Inworld STT returned",
+            inworldResponse.status,
+            text,
+          );
+          await receipt.captureUsage({
+            durationMs: Date.now() - startedAt,
+            success: false,
+            costMicroCents: billing.fallbackCostMicroCents,
+          });
+          throw new Error(`Inworld STT returned ${inworldResponse.status}`);
+        }
+        let parsed: {
+          transcription?: { transcript?: string; isFinal?: boolean };
+          usage?: { transcribedAudioMs?: number; modelId?: string };
+        };
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          await receipt.captureUsage({
+            durationMs: Date.now() - startedAt,
+            success: false,
+            costMicroCents: billing.fallbackCostMicroCents,
+          });
+          throw new Error("Inworld returned a non-JSON transcription response");
+        }
 
-    const transcribedAudioMs = parsed.usage?.transcribedAudioMs ?? 0;
-    const costMicroCents = dollarsToMicroCents(
-      Math.max(0, transcribedAudioMs) * INWORLD_USD_PER_MS,
-    );
-    await meterManagedUsage(args.ctx, {
-      ownerId: args.ownerId,
-      agentType: "service:dictation",
-      model: parsed.usage?.modelId ?? modelId,
-      durationMs: Date.now() - startedAt,
-      success: true,
-      costMicroCents,
+        const transcribedAudioMs = parsed.usage?.transcribedAudioMs ?? 0;
+        await receipt.captureUsage({
+          durationMs: Date.now() - startedAt,
+          success: true,
+          costMicroCents: dollarsToMicroCents(
+            Math.max(0, transcribedAudioMs) * INWORLD_USD_PER_MS,
+          ),
+        });
+        return parsed;
+      },
     });
 
     return jsonResponse(
       {
-        transcript: parsed.transcription?.transcript ?? "",
-        isFinal: parsed.transcription?.isFinal ?? true,
-        transcribedAudioMs: parsed.usage?.transcribedAudioMs ?? null,
-        modelId: parsed.usage?.modelId ?? null,
+        transcript: result.transcription?.transcript ?? "",
+        isFinal: result.transcription?.isFinal ?? true,
+        transcribedAudioMs: result.usage?.transcribedAudioMs ?? null,
+        modelId: result.usage?.modelId ?? null,
       },
       200,
       args.origin,
     );
   } catch (error) {
+    if (dispatchGuard.signal.aborted || args.signal.aborted) {
+      return errorResponse(
+        409,
+        "Your account changed before dictation could start. Please retry.",
+        args.origin,
+      );
+    }
     console.error(
       "[dictation/transcribe] Failed to contact Inworld:",
       (error as Error).message,
     );
-    await meterManagedUsage(args.ctx, {
-      ownerId: args.ownerId,
-      agentType: "service:dictation",
-      model: modelId,
-      durationMs: Date.now() - startedAt,
-      success: false,
-    });
     return errorResponse(502, "Failed to transcribe audio", args.origin);
   }
 };

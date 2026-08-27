@@ -24,6 +24,37 @@ type RetryOptions = {
 const capDelay = (ms: number): number =>
   Math.min(Math.max(0, ms), RETRY_MAX_DELAY_MS);
 
+function abortError(signal: AbortSignal): Error {
+  if (signal.reason instanceof Error) return signal.reason;
+  const error = new Error("Provider retry was aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+export async function sleepForProviderRetry(
+  delayMs: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!signal) {
+    await sleep(delayMs);
+    return;
+  }
+  if (signal.aborted) throw abortError(signal);
+
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      signal.removeEventListener("abort", onAbort);
+      reject(abortError(signal));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 const readHeader = (headers: unknown, name: string): string | undefined => {
   if (!headers) return undefined;
   if (headers instanceof Headers) return headers.get(name) ?? undefined;
@@ -83,6 +114,14 @@ const errorMessage = (error: unknown): string => {
 
 export const isRetryableProviderError = (error: unknown): boolean => {
   if (isAbortError(error) || isContextOverflowError(error)) return false;
+  if (
+    error &&
+    typeof error === "object" &&
+    (error as { providerOutcomeUnknown?: unknown }).providerOutcomeUnknown ===
+      true
+  ) {
+    return true;
+  }
   const status =
     (error as { status?: number })?.status ??
     (error as { statusCode?: number })?.statusCode;
@@ -99,6 +138,8 @@ export const isRetryableProviderError = (error: unknown): boolean => {
     msg.includes("fetch failed") ||
     msg.includes("econnreset") ||
     msg.includes("etimedout") ||
+    msg.includes("timed out") ||
+    msg.includes("timeout") ||
     msg.includes("socket hang up")
   );
 };
@@ -127,7 +168,7 @@ export async function retryProviderRequest<T>(
       }
       const delayMs = retryDelayMs(attempt, error);
       options.onRetry?.({ attempt, delayMs, error });
-      await sleep(delayMs);
+      await sleepForProviderRetry(delayMs, options.signal);
     }
   }
 

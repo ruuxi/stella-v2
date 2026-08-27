@@ -10,6 +10,7 @@ import {
   enforceMutationRateLimit,
 } from "../lib/rate_limits";
 import { filterDisplayableTags, isBlockedContentTag } from "../lib/content_tags";
+import { assertC8RetiredSurfaceUnavailable } from "../lib/c8_retired_surface";
 
 /** Public catalog rows always carry these display-safe fields. */
 const publicPetValidator = v.object({
@@ -236,6 +237,7 @@ export const incrementDownloads = mutation({
   args: { id: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Pet catalog");
     const identity = await ctx.auth.getUserIdentity();
     const rateKey = identity?.tokenIdentifier ?? `anon:${args.id}`;
     await enforceMutationRateLimit(
@@ -274,6 +276,7 @@ export const upsertMany = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Pet catalog");
     for (const pet of args.pets) {
       const displayableTags = filterDisplayableTags(pet.tags);
       const sanitizedPet = { ...pet, tags: displayableTags };
@@ -358,6 +361,7 @@ export const deleteByPetId = internalMutation({
     ownerName: v.optional(v.union(v.string(), v.null())),
   }),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Pet catalog");
     const row = await ctx.db
       .query("pet_catalog")
       .withIndex("by_petId", (q) => q.eq("id", args.id))

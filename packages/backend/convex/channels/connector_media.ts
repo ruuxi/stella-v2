@@ -5,6 +5,8 @@ import { internalAction, type ActionCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { r2 } from "../r2_files";
 import { retryFetch } from "../lib/retry_fetch";
+import { deleteComponentR2ObjectsRef } from "../lib/component_r2_deletion";
+import { makeFunctionReference } from "convex/server";
 import {
   connectorDeliveryMediaInputValidator,
   connectorMediaRefArrayValidator,
@@ -17,6 +19,13 @@ const MAX_CONNECTOR_MEDIA_ITEMS = 5;
 const MAX_CONNECTOR_MEDIA_BYTES = 25 * 1024 * 1024;
 const CACHE_CONTROL = "private, max-age=900";
 const DEFAULT_R2_PREFIX = "ephemeral/connectors";
+const RELAYED_MEDIA_DELETE_RETRY_MAX_MS = 15 * 60_000;
+
+const deleteRelayedMediaRef = makeFunctionReference<
+  "action",
+  { media: ConnectorMediaRef[]; attempt?: number },
+  null
+>("channels/connector_media:deleteRelayedMedia");
 
 const asString = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim().length > 0
@@ -58,9 +67,13 @@ const extensionForMime = (mimeType?: string, fallbackName?: string): string => {
   }
 };
 
-const mimeFromResponse = (response: Response, fallback?: string): string | undefined =>
-  asString(response.headers.get("content-type"))?.split(";")[0]?.toLowerCase() ??
-  fallback;
+const mimeFromResponse = (
+  response: Response,
+  fallback?: string,
+): string | undefined =>
+  asString(response.headers.get("content-type"))
+    ?.split(";")[0]
+    ?.toLowerCase() ?? fallback;
 
 const buildR2Key = (args: {
   scopeId: string;
@@ -68,8 +81,10 @@ const buildR2Key = (args: {
   name?: string;
 }): string => {
   const prefix =
-    process.env.R2_CONNECTOR_EPHEMERAL_PREFIX?.trim().replace(/^\/+|\/+$/g, "") ||
-    DEFAULT_R2_PREFIX;
+    process.env.R2_CONNECTOR_EPHEMERAL_PREFIX?.trim().replace(
+      /^\/+|\/+$/g,
+      "",
+    ) || DEFAULT_R2_PREFIX;
   const ext = extensionForMime(args.mimeType, args.name);
   return `${prefix}/${args.scopeId}/${randomUUID()}.${ext}`;
 };
@@ -164,22 +179,47 @@ export const materializeRemoteMedia = internalAction({
 export const deleteRelayedMedia = internalAction({
   args: {
     media: connectorMediaRefArrayValidator,
+    attempt: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    for (const ref of args.media) {
-      if (!ref.r2Key) continue;
-      // Failure here means we leaked a relayed-media object in R2 — log
-      // loudly so storage-cost leaks are visible rather than silent.
-      await r2.deleteObject(ctx, ref.r2Key).catch((error) => {
-        console.warn(
-          "[connector_media] failed to delete relayed media object:",
-          {
-            r2Key: ref.r2Key,
-            error: error instanceof Error ? error.message : String(error),
-          },
-        );
+    const uniqueKeys = [
+      ...new Set(
+        args.media
+          .map((ref) => ref.r2Key)
+          .filter((key): key is string => Boolean(key)),
+      ),
+    ];
+    if (uniqueKeys.length === 0) return null;
+
+    const attempt = Number.isSafeInteger(args.attempt)
+      ? Math.max(0, Math.min(args.attempt ?? 0, 30))
+      : 0;
+    const retryDelay = Math.min(
+      RELAYED_MEDIA_DELETE_RETRY_MAX_MS,
+      2 ** Math.min(attempt, 9) * 1_000,
+    );
+    // Keep the exact locators in a durable scheduled payload before any
+    // provider I/O. If this action crashes or loses a response, the successor
+    // repeats the idempotent direct DELETE and metadata removal.
+    const retryId = await ctx.scheduler.runAfter(
+      retryDelay,
+      deleteRelayedMediaRef,
+      { media: args.media, attempt: attempt + 1 },
+    );
+    const objects = uniqueKeys.map((r2Key) => ({
+      locatorId: randomUUID(),
+      r2Key,
+    }));
+    try {
+      const deleted = await ctx.runAction(deleteComponentR2ObjectsRef, {
+        objects,
       });
+      if (deleted.confirmedLocatorIds.length !== objects.length) return null;
+      await ctx.scheduler.cancel(retryId).catch(() => undefined);
+    } catch {
+      // The successor owns the last durable locator; never log raw keys,
+      // credentials, signed URLs, or provider response bodies here.
     }
     return null;
   },

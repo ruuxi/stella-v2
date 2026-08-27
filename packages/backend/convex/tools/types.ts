@@ -3,21 +3,38 @@ import { AGENT_IDS, BASE_BACKEND_TOOL_NAMES } from "../lib/agent_constants";
 
 export type BackendToolExecuteResult = string;
 
+export type BackendToolExecutionOptions = {
+  /** Stable enclosing-run cancellation propagated into every external read. */
+  signal: AbortSignal;
+};
+
 export type BackendToolDefinition = {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
   strict?: boolean;
-  execute: (args: Record<string, unknown>) => Promise<BackendToolExecuteResult>;
+  execute: (
+    args: Record<string, unknown>,
+    options: BackendToolExecutionOptions,
+  ) => Promise<BackendToolExecuteResult>;
 };
 
 export type BackendToolSet = Record<string, BackendToolDefinition>;
 
-export type ToolOptions = {
+type ToolOwnerScope =
+  | {
+      ownerId: string;
+      ownerGeneration: string;
+    }
+  | {
+      ownerId?: undefined;
+      ownerGeneration?: undefined;
+    };
+
+export type ToolOptions = ToolOwnerScope & {
   agentType: string;
   toolsAllowlist?: string[];
   maxAgentDepth: number;
-  ownerId?: string;
   conversationId?: Id<"conversations">;
   userMessageId?: Id<"events">;
   transient?: boolean;

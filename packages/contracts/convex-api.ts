@@ -10,7 +10,7 @@ export type PublicApiType = {
   "agent": {
     "local_runtime": {
       "executeTool": FunctionReference<'action', 'public', { conversationId?: Id<'conversations'> | undefined; agentType?: string | undefined; toolArgs?: Value | undefined; toolName: string; }, any, string | undefined>;
-      "webSearch": FunctionReference<'action', 'public', { conversationId?: Id<'conversations'> | undefined; category?: string | undefined; agentType?: string | undefined; query: string; }, any, string | undefined>;
+      "webSearch": FunctionReference<'action', 'public', { conversationId?: Id<'conversations'> | undefined; url?: string | undefined; category?: string | undefined; agentType?: string | undefined; prompt?: string | undefined; query?: string | undefined; format?: 'text' | 'markdown' | 'html' | undefined; }, any, string | undefined>;
       "shopifySearchProducts": FunctionReference<'action', 'public', { limit?: number | undefined; context?: string | undefined; savedCatalog?: string | undefined; query: string; }, any, string | undefined>;
       "shopifyDebugSearchProducts": FunctionReference<'action', 'public', { limit?: number | undefined; context?: string | undefined; savedCatalog?: string | undefined; query: string; }, any, string | undefined>;
       "shopifyGetProductDetails": FunctionReference<'action', 'public', { productId: string; }, any, string | undefined>;
@@ -32,22 +32,121 @@ export type PublicApiType = {
     "getCurrentUser": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "revokeActiveSessions": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
   };
+  "auth_migration": {
+    "getMyOwnershipMigrationStatus": FunctionReference<'query', 'public', {}, any, string | undefined>;
+    "retryMyLatestFailedOwnershipMigration": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
+  };
   "billing": {
     "getSubscriptionStatus": FunctionReference<'query', 'public', { now?: number | undefined; }, any, string | undefined>;
-    "createCheckoutSession": FunctionReference<'action', 'public', { plan: 'go' | 'pro'; returnUrl: string; }, any, string | undefined>;
+    "createCheckoutSession": FunctionReference<'action', 'public', { source?: string | undefined; appStoreCountry?: string | undefined; requestId: string; plan: 'go' | 'pro'; returnUrl: string; }, any, string | undefined>;
     "getUsageCreditPurchaseOptions": FunctionReference<'query', 'public', {}, any, string | undefined>;
     "getUsageCreditStatus": FunctionReference<'query', 'public', {}, any, string | undefined>;
-    "createUsageCreditCheckoutSession": FunctionReference<'action', 'public', { amountCents: number; returnUrl: string; }, any, string | undefined>;
-    "createBillingPortalSession": FunctionReference<'action', 'public', { returnUrl: string; }, any, string | undefined>;
+    "createUsageCreditCheckoutSession": FunctionReference<'action', 'public', { requestId: string; amountCents: number; returnUrl: string; }, any, string | undefined>;
+    "createBillingPortalSession": FunctionReference<'action', 'public', { requestId: string; returnUrl: string; }, any, string | undefined>;
     "getCurrentPlan": FunctionReference<'query', 'public', {}, any, string | undefined>;
   };
   "channels": {
     "connector_delivery": {
-      "claimRemoteTurn": FunctionReference<'mutation', 'public', { deviceId?: string | undefined; conversationId: Id<'conversations'>; requestId: string; }, any, string | undefined>;
+      "claimRemoteTurn": FunctionReference<'mutation', 'public', { conversationId: Id<'conversations'>; deviceId: string; requestId: string; attemptId: string; }, any, string | undefined>;
+      "heartbeatRemoteTurn": FunctionReference<'mutation', 'public', { conversationId: Id<'conversations'>; deviceId: string; requestId: string; attemptId: string; }, any, string | undefined>;
       "cancelRemoteTurn": FunctionReference<'mutation', 'public', { requestId: string; }, any, string | undefined>;
-      "completeRemoteTurn": FunctionReference<'mutation', 'public', { deviceId?: string | undefined; conversationId: Id<'conversations'>; text: string; requestId: string; }, any, string | undefined>;
+      "completeRemoteTurn": FunctionReference<'mutation', 'public', { conversationId: Id<'conversations'>; text: string; deviceId: string; requestId: string; attemptId: string; }, any, string | undefined>;
+      "finishRemoteTurnAttempt": FunctionReference<'mutation', 'public', { conversationId: Id<'conversations'>; deviceId: string; requestId: string; attemptId: string; outcome: 'failed' | 'aborted' | 'timed_out'; }, any, string | undefined>;
       "sendConnectorFollowup": FunctionReference<'mutation', 'public', { deviceId?: string | undefined; conversationId: Id<'conversations'>; text: string; requestId: string; }, any, string | undefined>;
     };
+  };
+  "cloud_apps": {
+    "confirmMySessionIdentity": FunctionReference<'query', 'public', { expectedSubject: string; identityRevision: number; }, any, string | undefined>;
+    "createMyConversation": FunctionReference<'mutation', 'public', { execution?: { model: string; provider: 'anthropic' | 'stella' | 'openai-codex'; engine: 'anthropic' | 'stella' | 'openai-codex'; reasoningEffort: 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; } | undefined; title?: string | undefined; clientCreateId: string; expectedOwnerGeneration: string; }, any, string | undefined>;
+    "getMyConversation": FunctionReference<'query', 'public', { conversationId: string; }, any, string | undefined>;
+    "listMyConversations": FunctionReference<'query', 'public', {}, any, string | undefined>;
+    "getMyConversationHistorySnapshot": FunctionReference<'query', 'public', {}, any, string | undefined>;
+    "listMyConversationsPage": FunctionReference<'query', 'public', { snapshotUpdatedAt: number; paginationOpts: { id?: number; endCursor?: string | null; maximumRowsRead?: number; maximumBytesRead?: number; numItems: number; cursor: string | null; }; }, any, string | undefined>;
+    "listMyApps": FunctionReference<'query', 'public', {}, any, string | undefined>;
+    "getCloudRealtimeConfig": FunctionReference<'query', 'public', {}, any, string | undefined>;
+    "listMyAppBuilds": FunctionReference<'query', 'public', { appId: string; }, any, string | undefined>;
+    "getMyCloudLimits": FunctionReference<'query', 'public', {}, any, string | undefined>;
+    "startCloudChat": FunctionReference<'mutation', 'public', { attachments?: string[] | undefined; execution?: { model: string; provider: 'anthropic' | 'stella' | 'openai-codex'; engine: 'anthropic' | 'stella' | 'openai-codex'; reasoningEffort: 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; } | undefined; conversationId?: string | undefined; appId?: string | undefined; clientMsgId?: string | undefined; locale?: string | undefined; prompt: string; expectedOwnerGeneration: string; }, any, string | undefined>;
+    "deleteMyConversation": FunctionReference<'action', 'public', { conversationId: string; }, any, string | undefined>;
+    "spawnCloudAgentFromDesktop": FunctionReference<'mutation', 'public', { execution?: { model: string; provider: 'anthropic' | 'stella' | 'openai-codex'; engine: 'anthropic' | 'stella' | 'openai-codex'; reasoningEffort: 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; } | undefined; conversationId?: string | undefined; originDeviceId?: string | undefined; originConversationId?: string | undefined; ownerGeneration: string; description: string; prompt: string; workspace: string; clientMsgId: string; }, any, string | undefined>;
+    "continueMyCloudAgentFromDesktop": FunctionReference<'mutation', 'public', { threadId: string; ownerGeneration: string; description: string; prompt: string; originDeviceId: string; originConversationId: string; expectedAttemptGeneration: number; expectedTerminalUpdatedAt: number; controlRequestId: string; }, any, string | undefined>;
+    "getMyCloudAgentThreadControl": FunctionReference<'query', 'public', { threadId: string; ownerGeneration: string; originDeviceId: string; originConversationId: string; }, any, string | undefined>;
+    "cancelMyCloudAgentThread": FunctionReference<'action', 'public', { threadId: string; ownerGeneration: string; originDeviceId: string; originConversationId: string; expectedAttemptGeneration: number; controlRequestId: string; expectedThreadUpdatedAt: number; }, any, string | undefined>;
+    "listMyAgentThreads": FunctionReference<'query', 'public', { conversationId: string; }, any, string | undefined>;
+    "listMyAgentThreadsPage": FunctionReference<'query', 'public', { conversationId: string; identityRevision: number; paginationOpts: { id?: number; endCursor?: string | null; maximumRowsRead?: number; maximumBytesRead?: number; numItems: number; cursor: string | null; }; }, any, string | undefined>;
+    "listMyRunningAgentThreads": FunctionReference<'query', 'public', { conversationId: string; identityRevision: number; }, any, string | undefined>;
+    "listMyRecentAgentThreads": FunctionReference<'query', 'public', { limit?: number | undefined; }, any, string | undefined>;
+    "listMyDeviceAgentThreads": FunctionReference<'query', 'public', { limit?: number | undefined; sinceUpdatedAt?: number | undefined; ownerGeneration: string; originDeviceId: string; }, any, string | undefined>;
+    "acknowledgeMyDeviceAgentThreadDelivery": FunctionReference<'mutation', 'public', { threadId: string; ownerGeneration: string; attemptGeneration: number; originDeviceId: string; terminalUpdatedAt: number; }, any, string | undefined>;
+    "applyMyBuild": FunctionReference<'action', 'public', { buildId: string; }, any, string | undefined>;
+    "deleteMyApp": FunctionReference<'action', 'public', { appId: string; }, any, string | undefined>;
+    "publishMyAppOperations": FunctionReference<'mutation', 'public', { appId: string; manifestJson: string; }, any, string | undefined>;
+    "listPendingOpInvocations": FunctionReference<'query', 'public', { appId: string; }, any, string | undefined>;
+    "claimOpInvocation": FunctionReference<'mutation', 'public', { invocationId: string; }, any, string | undefined>;
+    "completeOpInvocation": FunctionReference<'mutation', 'public', { resultJson?: string | undefined; errorMessage?: string | undefined; invocationId: string; ok: boolean; }, any, string | undefined>;
+  };
+  "cloud_conversation_edits": {
+    "forkMyConversation": FunctionReference<'action', 'public', { requestId: string; sourceConversationId: string; throughSeq: number; expectedEpoch: number; expectedLastSeq: number; }, any, string | undefined>;
+    "rewindMyConversation": FunctionReference<'action', 'public', { conversationId: string; requestId: string; throughSeq: number; expectedEpoch: number; expectedLastSeq: number; activeTurnPolicy: 'conflict' | 'cancel'; }, any, string | undefined>;
+  };
+  "cloud_deployments": {
+    "getMyActiveInteriorManifest": FunctionReference<'query', 'public', {}, any, string | undefined>;
+    "listMyInteriorBuilds": FunctionReference<'query', 'public', { limit?: number | undefined; }, any, string | undefined>;
+    "ensureMyInteriorStableRoute": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
+    "rotateMyInteriorStableRoute": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
+    "promoteMyInteriorBuild": FunctionReference<'mutation', 'public', { buildId: string; expectedRouteRevision: number; }, any, string | undefined>;
+    "rollbackMyInteriorBuild": FunctionReference<'mutation', 'public', { expectedRouteRevision: number; }, any, string | undefined>;
+  };
+  "cloud_dream": {
+    "getMyDreamStatus": FunctionReference<'query', 'public', {}, any, string | undefined>;
+  };
+  "cloud_drive": {
+    "prepareDriveUpload": FunctionReference<'action', 'public', { contentType?: string | undefined; sizeBytes: number; path: string; }, any, string | undefined>;
+    "finalizeDriveUpload": FunctionReference<'action', 'public', { source?: string | undefined; contentType?: string | undefined; path: string; uploadId: string; }, any, string | undefined>;
+    "listMyDriveFiles": FunctionReference<'query', 'public', { limit?: number | undefined; prefix?: string | undefined; }, any, string | undefined>;
+    "getMyDriveUsage": FunctionReference<'query', 'public', {}, any, string | undefined>;
+    "getMyDriveFileUrl": FunctionReference<'action', 'public', { path: string; }, any, string | undefined>;
+    "deleteMyDriveFile": FunctionReference<'action', 'public', { path: string; }, any, string | undefined>;
+  };
+  "cloud_engines": {
+    "startEngineConnect": FunctionReference<'action', 'public', { provider: string; }, any, string | undefined>;
+    "finishEngineConnect": FunctionReference<'action', 'public', { connectId: string; pastedInput: string; }, any, string | undefined>;
+    "disconnectEngine": FunctionReference<'mutation', 'public', { provider: string; }, any, string | undefined>;
+    "listMyEngineConnections": FunctionReference<'query', 'public', {}, any, string | undefined>;
+    "activateImportedCredential": FunctionReference<'mutation', 'public', { credentialId: Id<'cloud_llm_credentials'>; }, any, string | undefined>;
+    "activateImportedEngineSettings": FunctionReference<'mutation', 'public', { settingsId: Id<'cloud_engine_settings'>; }, any, string | undefined>;
+    "setMyCloudEngine": FunctionReference<'mutation', 'public', { engine: string; }, any, string | undefined>;
+    "setMyCloudExecution": FunctionReference<'mutation', 'public', { execution: { model: string; provider: 'anthropic' | 'stella' | 'openai-codex'; engine: 'anthropic' | 'stella' | 'openai-codex'; reasoningEffort: 'default' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; }; }, any, string | undefined>;
+  };
+  "cloud_memory": {
+    "getMyMemoryPreference": FunctionReference<'query', 'public', { expectedSubject: string; }, any, string | undefined>;
+    "setMyMemoryEnabled": FunctionReference<'mutation', 'public', { requestId: string; memoryEnabled: boolean; expectedRevision: number; expectedSubject: string; expectedOwnerGeneration: string; }, any, string | undefined>;
+    "listMyMemoryDocuments": FunctionReference<'query', 'public', { limit?: number | undefined; }, any, string | undefined>;
+    "getMyMemoryDocument": FunctionReference<'query', 'public', { kind: 'profile' | 'memory' | 'memory_map' | 'core_memory' | 'personality' | 'imported_markdown' | 'user_markdown' | 'archive'; name: string; }, any, string | undefined>;
+  };
+  "cloud_memory_lifecycle": {
+    "getMyMemoryWipeStatus": FunctionReference<'query', 'public', { expectedSubject: string; }, any, string | undefined>;
+    "startMyMemoryWipe": FunctionReference<'mutation', 'public', { requestId: string; expectedSubject: string; expectedOwnerGeneration: string; expectedMemoryEpoch: string; }, any, string | undefined>;
+    "authorizeMyMemoryReimport": FunctionReference<'mutation', 'public', { requestId: string; expectedSubject: string; expectedOwnerGeneration: string; expectedMemoryEpoch: string; }, any, string | undefined>;
+  };
+  "cloud_projects": {
+    "listMyProjects": FunctionReference<'query', 'public', {}, any, string | undefined>;
+    "getMyProject": FunctionReference<'query', 'public', { slug?: string | undefined; projectId?: string | undefined; }, any, string | undefined>;
+    "createMyProject": FunctionReference<'mutation', 'public', { slug?: string | undefined; remoteUrl?: string | undefined; installationId?: string | undefined; defaultBranch?: string | undefined; name: string; }, any, string | undefined>;
+    "renameMyProject": FunctionReference<'mutation', 'public', { name: string; projectId: string; }, any, string | undefined>;
+    "setMyProjectRemote": FunctionReference<'mutation', 'public', { installationId?: string | undefined; defaultBranch?: string | undefined; projectId: string; remoteUrl: string; }, any, string | undefined>;
+    "deleteMyProject": FunctionReference<'action', 'public', { projectId: string; }, any, string | undefined>;
+    "listMyGithubInstallations": FunctionReference<'query', 'public', {}, any, string | undefined>;
+    "startGithubAppInstall": FunctionReference<'action', 'public', {}, any, string | undefined>;
+    "finishGithubConnect": FunctionReference<'mutation', 'public', { connectCode: string; }, any, string | undefined>;
+    "disconnectGithubInstallation": FunctionReference<'mutation', 'public', { installationId: string; }, any, string | undefined>;
+    "listMyGithubRepositories": FunctionReference<'action', 'public', { installationId?: string | undefined; }, any, string | undefined>;
+  };
+  "cloud_skills": {
+    "authorizeMySkill": FunctionReference<'mutation', 'public', { versionId: string; skillId: string; allowedAgentTypes: ('orchestrator' | 'general')[]; allowedToolNames: string[]; expectedOwnerGeneration: string; expectedAuthorizationRevision: number; }, any, string | undefined>;
+    "revokeMySkill": FunctionReference<'mutation', 'public', { skillId: string; expectedOwnerGeneration: string; expectedAuthorizationRevision: number; }, any, string | undefined>;
+    "setMySkillEnabled": FunctionReference<'mutation', 'public', { enabled: boolean; skillId: string; expectedRevision: number; expectedOwnerGeneration: string; }, any, string | undefined>;
+    "listMySkills": FunctionReference<'query', 'public', { clientScope: string; }, any, string | undefined>;
   };
   "conversations": {
     "getOrCreateDefaultConversation": FunctionReference<'mutation', 'public', { title?: string | undefined; }, any, string | undefined>;
@@ -58,7 +157,7 @@ export type PublicApiType = {
       "createFromDataUrl": FunctionReference<'action', 'public', { conversationId: Id<'conversations'>; deviceId: string; dataUrl: string; }, any, string | undefined>;
     };
     "canvas_shares": {
-      "listMine": FunctionReference<'query', 'public', {}, any, string | undefined>;
+      "listMine": FunctionReference<'query', 'public', { limit?: number | undefined; snapshotAt: number; }, any, string | undefined>;
     };
     "canvas_shares_actions": {
       "publish": FunctionReference<'action', 'public', { title?: string | undefined; html: string; }, any, string | undefined>;
@@ -81,7 +180,7 @@ export type PublicApiType = {
       "listTagFacets": FunctionReference<'query', 'public', {}, any, string | undefined>;
       "listMine": FunctionReference<'query', 'public', {}, any, string | undefined>;
       "getByPackId": FunctionReference<'query', 'public', { packId: string; }, any, string | undefined>;
-      "createPack": FunctionReference<'mutation', 'public', { description?: string | undefined; prompt?: string | undefined; coverUrl?: string | undefined; displayName: string; visibility: 'public' | 'unlisted' | 'private'; packId: string; coverEmoji: string; sheetUrls: string[]; }, any, string | undefined>;
+      "createPack": FunctionReference<'mutation', 'public', { description?: string | undefined; prompt?: string | undefined; coverUrl?: string | undefined; ownerGeneration: string; displayName: string; visibility: 'public' | 'unlisted' | 'private'; packId: string; coverEmoji: string; sheetUrls: string[]; uploadId: string; }, any, string | undefined>;
       "setVisibility": FunctionReference<'mutation', 'public', { visibility: 'public' | 'unlisted' | 'private'; packId: string; }, any, string | undefined>;
       "deletePack": FunctionReference<'mutation', 'public', { packId: string; }, any, string | undefined>;
       "recordInstall": FunctionReference<'mutation', 'public', { packId: string; }, any, string | undefined>;
@@ -173,7 +272,7 @@ export type PublicApiType = {
       "listPublicPage": FunctionReference<'query', 'public', { search?: string | undefined; paginationOpts: { id?: number; endCursor?: string | null; maximumRowsRead?: number; maximumBytesRead?: number; numItems: number; cursor: string | null; }; }, any, string | undefined>;
       "listMine": FunctionReference<'query', 'public', {}, any, string | undefined>;
       "getByPetId": FunctionReference<'query', 'public', { petId: string; }, any, string | undefined>;
-      "createPet": FunctionReference<'mutation', 'public', { prompt?: string | undefined; previewUrl?: string | undefined; description: string; displayName: string; visibility: 'public' | 'unlisted' | 'private'; spritesheetUrl: string; petId: string; }, any, string | undefined>;
+      "createPet": FunctionReference<'mutation', 'public', { prompt?: string | undefined; previewUrl?: string | undefined; ownerGeneration: string; description: string; displayName: string; visibility: 'public' | 'unlisted' | 'private'; spritesheetUrl: string; petId: string; uploadId: string; }, any, string | undefined>;
       "setVisibility": FunctionReference<'mutation', 'public', { visibility: 'public' | 'unlisted' | 'private'; petId: string; }, any, string | undefined>;
       "deletePet": FunctionReference<'mutation', 'public', { petId: string; }, any, string | undefined>;
       "recordInstall": FunctionReference<'mutation', 'public', { petId: string; }, any, string | undefined>;
@@ -187,8 +286,33 @@ export type PublicApiType = {
     "subscribeRemoteTurnCancelsForDevice": FunctionReference<'query', 'public', { limit?: number | undefined; deviceId: string; since: number; }, any, string | undefined>;
     "isRemoteTurnClaimed": FunctionReference<'query', 'public', { requestId: string; }, any, string | undefined>;
   };
+  "execution_placement": {
+    "submitMyBrowserExecution": FunctionReference<'mutation', 'public', { threadId?: string | undefined; workspace?: string | undefined; parentTurnId?: string | undefined; conversationId: string; kind: 'agent' | 'chat'; idempotencyKey: string; subject: 'cloud' | 'portable' | 'computer'; payloadJson: string; payloadHash: string; requiredCapabilities: ('agent' | 'chat' | 'computer-use' | 'local-files' | 'local-apps')[]; expectedOwnerGeneration: string; }, any, string | undefined>;
+    "getMyExecutionPlacementIdentity": FunctionReference<'query', 'public', {}, any, string | undefined>;
+    "registerMyExecutionPresence": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; status: 'ready' | 'draining'; devicePublicKey: string; protocolVersion: number; appVersion: string; sequence: number; presenceSessionId: string; capabilities: ('agent' | 'chat' | 'computer-use' | 'local-files' | 'local-apps')[]; chatSlotCapacity: number; agentSlotCapacity: number; availableChatSlots: number; availableAgentSlots: number; bodyHash: string; signature: string; }, any, string | undefined>;
+    "heartbeatMyExecutionPresence": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; status: 'ready' | 'draining'; sequence: number; presenceSessionId: string; chatSlotCapacity: number; agentSlotCapacity: number; availableChatSlots: number; availableAgentSlots: number; bodyHash: string; signature: string; }, any, string | undefined>;
+    "drainMyExecutionPresence": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; sequence: number; presenceSessionId: string; bodyHash: string; signature: string; }, any, string | undefined>;
+    "clearMyExecutionPresence": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; sequence: number; presenceSessionId: string; bodyHash: string; signature: string; }, any, string | undefined>;
+    "listMyExecutionOffers": FunctionReference<'query', 'public', { limit?: number | undefined; deviceId: string; presenceSessionId: string; }, any, string | undefined>;
+    "claimMyExecutionOffer": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; dispatchId: string; sequence: number; presenceSessionId: string; claimRequestId: string; bodyHash: string; signature: string; claimToken: string; }, any, string | undefined>;
+    "releaseMyExecutionClaim": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; reason: string; dispatchId: string; sequence: number; presenceSessionId: string; bodyHash: string; signature: string; claimToken: string; }, any, string | undefined>;
+    "ackMyExecutionClaim": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; dispatchId: string; sequence: number; presenceSessionId: string; payloadHash: string; bodyHash: string; signature: string; claimToken: string; }, any, string | undefined>;
+    "markMyExecutionRunning": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; dispatchId: string; sequence: number; presenceSessionId: string; bodyHash: string; signature: string; claimToken: string; }, any, string | undefined>;
+    "renewMyExecutionClaim": FunctionReference<'mutation', 'public', { deviceId: string; ownerGeneration: string; dispatchId: string; sequence: number; presenceSessionId: string; bodyHash: string; signature: string; claimToken: string; }, any, string | undefined>;
+    "completeMyExecutionDispatch": FunctionReference<'mutation', 'public', { resultJson?: string | undefined; errorCode?: string | undefined; errorMessage?: string | undefined; deviceId: string; ownerGeneration: string; outcome: 'failed' | 'completed' | 'canceled'; dispatchId: string; sequence: number; presenceSessionId: string; bodyHash: string; signature: string; claimToken: string; }, any, string | undefined>;
+    "cancelMyExecutionDispatch": FunctionReference<'mutation', 'public', { reason?: string | undefined; dispatchId: string; cancelRequestId: string; }, any, string | undefined>;
+    "getMyExecutionDispatchStatus": FunctionReference<'query', 'public', { dispatchId: string; }, any, string | undefined>;
+    "listMyAcceptedExecutionDispatches": FunctionReference<'query', 'public', { limit?: number | undefined; deviceId: string; presenceSessionId: string; }, any, string | undefined>;
+    "listMyExecutionActivity": FunctionReference<'query', 'public', { limit?: number | undefined; }, any, string | undefined>;
+  };
   "feedback": {
     "submitFeedback": FunctionReference<'mutation', 'public', { platform?: string | undefined; appVersion?: string | undefined; message: string; }, any, string | undefined>;
+  };
+  "local_agent_threads": {
+    "startMyComputerAgentThread": FunctionReference<'mutation', 'public', { conversationId: string; threadId: string; ownerGeneration: string; description: string; agentType: string; attemptGeneration: number; originDeviceId: string; }, any, string | undefined>;
+    "completeMyComputerAgentThread": FunctionReference<'mutation', 'public', { error?: string | undefined; result?: string | undefined; threadId: string; ownerGeneration: string; status: 'failed' | 'completed' | 'canceled'; attemptGeneration: number; originDeviceId: string; }, any, string | undefined>;
+    "getMyComputerAgentThread": FunctionReference<'query', 'public', { threadId: string; ownerGeneration: string; originDeviceId: string; }, any, string | undefined>;
+    "cancelMyComputerAgentThread": FunctionReference<'mutation', 'public', { reason?: string | undefined; threadId: string; ownerGeneration: string; attemptGeneration: number; originDeviceId: string; }, any, string | undefined>;
   };
   "media_jobs": {
     "getByJobId": FunctionReference<'query', 'public', { jobId: string; }, any, string | undefined>;
@@ -210,7 +334,7 @@ export type PublicApiType = {
     "cancelChat": FunctionReference<'action', 'public', { requestId: string; desktopDeviceId: string; mobileDeviceId: string; pairSecret: string; }, any, string | undefined>;
   };
   "mobile_push": {
-    "sendActivityNotification": FunctionReference<'action', 'public', { kind: 'completed' | 'failed' | 'started'; }, any, string | undefined>;
+    "sendActivityNotification": FunctionReference<'action', 'public', { kind: 'failed' | 'completed' | 'started'; }, any, string | undefined>;
   };
   "r2_files": {
     "generateUploadUrl": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
@@ -221,7 +345,7 @@ export type PublicApiType = {
   };
   "scheduling": {
     "cron_jobs": {
-      "completeCronTurnResult": FunctionReference<'mutation', 'public', { conversationId: Id<'conversations'>; text: string; requestId: string; }, any, string | undefined>;
+      "completeCronTurnResult": FunctionReference<'mutation', 'public', { conversationId: Id<'conversations'>; text: string; deviceId: string; requestId: string; attemptId: string; }, any, string | undefined>;
     };
   };
   "social": {
@@ -252,7 +376,7 @@ export type PublicApiType = {
       "getUnseenIncomingFriendRequestCount": FunctionReference<'query', 'public', {}, any, string | undefined>;
       "markIncomingFriendRequestsSeen": FunctionReference<'mutation', 'public', {}, any, string | undefined>;
       "sendFriendRequest": FunctionReference<'mutation', 'public', { username: string; }, any, string | undefined>;
-      "respondToFriendRequest": FunctionReference<'mutation', 'public', { action: 'accept' | 'decline' | 'block'; requesterOwnerId: string; }, any, string | undefined>;
+      "respondToFriendRequest": FunctionReference<'mutation', 'public', { action: 'block' | 'accept' | 'decline'; requesterOwnerId: string; }, any, string | undefined>;
       "removeFriend": FunctionReference<'mutation', 'public', { otherOwnerId: string; }, any, string | undefined>;
     };
     "rooms": {

@@ -1,11 +1,14 @@
 "use node";
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { inflateSync } from "node:zlib";
 import { ConvexError, Infer, v } from "convex/values";
+import { makeFunctionReference } from "convex/server";
 import { action, internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { requireSensitiveUserIdAction } from "../auth";
+import { assertOwnerDataAccessActive } from "../owner_lifecycle";
+import { EXTERNAL_MEDIA_PRESIGNED_BARRIER_MS } from "../account_external_media_store";
 import { r2 } from "../r2_files";
 import { enforceActionRateLimit, RATE_STANDARD } from "../lib/rate_limits";
 import {
@@ -15,6 +18,8 @@ import {
   store_release_git_object_validator,
 } from "../schema/store";
 import { requireBoundedString } from "../shared_validators";
+import { assertC8RetiredSurfaceUnavailable } from "../lib/c8_retired_surface";
+import { deleteComponentR2ObjectsRef } from "../lib/component_r2_deletion";
 
 const PACKAGE_ID_PATTERN = /^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/;
 const GIT_SHA_PATTERN = /^[0-9a-f]{40}$/;
@@ -28,12 +33,24 @@ const MAX_GIT_OBJECT_BYTES = 25 * 1024 * 1024;
 const MAX_DIFF_UPLOAD_BYTES = 5 * 1024 * 1024;
 const URL_EXPIRES_SECONDS = 5 * 60;
 const GIT_OBJECT_VERIFY_CONCURRENCY = 16;
+const REJECTED_DIFF_DELETE_RETRY_MAX_MS = 15 * 60_000;
 
 type StoreReleaseGitObject = Infer<typeof store_release_git_object_validator>;
 type StoreReleaseGitArtifact = Infer<
   typeof store_release_git_artifact_validator
 >;
 type StoreReleaseDiffRef = Infer<typeof store_release_diff_ref_validator>;
+
+const deleteDiffRefInternalRef = makeFunctionReference<
+  "action",
+  {
+    ownerId: string;
+    packageId: string;
+    ref: StoreReleaseDiffRef;
+    attempt?: number;
+  },
+  null
+>("data/store_git_artifacts:deleteDiffRef");
 
 const normalizePackageId = (value: string): string => {
   const normalized = value.trim().toLowerCase();
@@ -277,7 +294,12 @@ export const prepareGitObjectUploads = action({
     ),
   }),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Store");
     const ownerId = await requireSensitiveUserIdAction(ctx);
+    const { generation: ownerGeneration } = await assertOwnerDataAccessActive(
+      ctx,
+      ownerId,
+    );
     await enforceActionRateLimit(
       ctx,
       "store_git_object_prepare_upload",
@@ -293,6 +315,11 @@ export const prepareGitObjectUploads = action({
         object,
         existsWithMatchingBytes: await r2GitObjectMatchesManifest(object),
       }),
+    );
+    await ctx.runMutation(
+      internal.account_external_media_store
+        .assertExternalMediaDomainDispatchInternal,
+      { ownerId, ownerGeneration },
     );
     const uploads = [];
     for (const { object, existsWithMatchingBytes } of uploadCandidates) {
@@ -352,7 +379,12 @@ export const prepareDiffUpload = action({
     uploadUrl: v.string(),
   }),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Store");
     const ownerId = await requireSensitiveUserIdAction(ctx);
+    const { generation: ownerGeneration } = await assertOwnerDataAccessActive(
+      ctx,
+      ownerId,
+    );
     await enforceActionRateLimit(
       ctx,
       "store_git_diff_prepare_upload",
@@ -364,7 +396,32 @@ export const prepareDiffUpload = action({
     const sha256 = normalizeSha256(args.sha256, "diffRef.sha256");
     const sizeBytes = normalizeDiffSize(args.sizeBytes);
     const shortHash = sha256.slice("sha256:".length, "sha256:".length + 16);
-    const r2Key = `${diffR2Prefix(ownerId, packageId)}/${shortHash}.diff`;
+    const uploadId = randomUUID();
+    const r2Key = `${diffR2Prefix(ownerId, packageId)}/${uploadId}-${shortHash}.diff`;
+    const now = Date.now();
+    await ctx.runMutation(
+      internal.account_external_media_store.reserveExternalMediaUploadInternal,
+      {
+        ownerId,
+        ownerGeneration,
+        uploadId,
+        uploadExpiresAt: now + EXTERNAL_MEDIA_PRESIGNED_BARRIER_MS,
+        objects: [
+          {
+            objectRole: "store-diff",
+            storageKind: "component-r2",
+            r2Key,
+            payloadSha256: sha256,
+          },
+        ],
+        now,
+      },
+    );
+    await ctx.runMutation(
+      internal.account_external_media_store
+        .assertExternalMediaUploadDispatchInternal,
+      { ownerId, ownerGeneration, uploadId, now: Date.now() },
+    );
     const upload = await r2.generateUploadUrl(r2Key);
     return {
       ref: {
@@ -434,15 +491,46 @@ export const deleteDiffRef = internalAction({
     ownerId: v.string(),
     packageId: v.string(),
     ref: store_release_diff_ref_validator,
+    attempt: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Store");
     const packageId = normalizePackageId(args.packageId);
     const expectedPrefix = `${diffR2Prefix(args.ownerId, packageId)}/`;
     if (!args.ref.r2Key.startsWith(expectedPrefix)) return null;
-    await r2.deleteObject(ctx, args.ref.r2Key).catch((error) => {
-      console.warn("[store-git-artifacts] failed to delete diff:", error);
-    });
+
+    const attempt = Number.isSafeInteger(args.attempt)
+      ? Math.max(0, Math.min(args.attempt ?? 0, 30))
+      : 0;
+    // The initial full barrier outlives the presigned PUT issued by
+    // prepareDiffUpload. Deleting sooner would let an old URL recreate bytes
+    // after we discarded the only locator. Later attempts use bounded retry.
+    const retryDelay =
+      attempt === 0
+        ? EXTERNAL_MEDIA_PRESIGNED_BARRIER_MS
+        : Math.min(
+            REJECTED_DIFF_DELETE_RETRY_MAX_MS,
+            2 ** Math.min(attempt - 1, 9) * 1_000,
+          );
+    const retryId = await ctx.scheduler.runAfter(
+      retryDelay,
+      deleteDiffRefInternalRef,
+      { ...args, attempt: attempt + 1 },
+    );
+    if (attempt === 0) return null;
+
+    const locatorId = randomUUID();
+    try {
+      const deleted = await ctx.runAction(deleteComponentR2ObjectsRef, {
+        objects: [{ locatorId, r2Key: args.ref.r2Key }],
+      });
+      if (!deleted.confirmedLocatorIds.includes(locatorId)) return null;
+      await ctx.scheduler.cancel(retryId).catch(() => undefined);
+    } catch {
+      // The scheduled successor retains the exact ref. Raw keys and provider
+      // errors must not be written to logs or returned across this boundary.
+    }
     return null;
   },
 });

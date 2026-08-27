@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import type { ResponseCreateParamsStreaming } from "openai/resources/responses/responses.js";
 import { AssistantMessageEventStream } from "./event_stream";
 import { headersToRecord } from "./headers";
+import { isRetryableProviderError } from "./retry";
 import { supportsXhigh } from "./model_utils";
 import {
   convertResponsesMessages,
@@ -225,6 +226,9 @@ export const streamOpenAIResponses: StreamFunction<
       output.stopReason = options?.signal?.aborted ? "aborted" : "error";
       output.errorMessage =
         error instanceof Error ? error.message : JSON.stringify(error);
+      if (!options?.signal?.aborted && isRetryableProviderError(error)) {
+        output.providerOutcomeUnknown = true;
+      }
       stream.push({ type: "error", reason: output.stopReason, error: output });
       stream.end();
     }

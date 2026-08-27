@@ -1,4 +1,5 @@
 import Stripe from "stripe";
+import { makeFunctionReference } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import {
   action,
@@ -6,13 +7,16 @@ import {
   internalMutation,
   internalQuery,
   query,
+  type ActionCtx,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
+  assertOwnerMigrationWriteAllowed,
   getUserIdOrNull,
+  hasOwnerMigrationSourceFence,
   requireSensitiveUserIdentityAction,
 } from "./auth";
 import { getMonthlyBounds, getWeekBounds } from "./lib/billing_date";
@@ -28,8 +32,6 @@ import {
   centsToMicroCents,
   type TokenPriceConfig,
   computeRealtimeUsageCostMicroCents,
-  computeTtsUsageCostMicroCents,
-  computeInworldTtsCostMicroCents,
   computeUsageCostMicroCents,
   dollarsToMicroCents,
   microCentsToDollars,
@@ -50,6 +52,79 @@ import {
   getMaxAnonRequests,
   getMaxAnonRequestsPerIp,
 } from "./lib/anonymous_usage";
+import {
+  hashStripeBillingLocator,
+  hashStripeDeletedOperationTuple,
+  stripeHistoricalResultShape,
+} from "./lib/billing_deletion";
+import {
+  ensureLegacyStripeOperationPhysicalReceiptProvenance,
+  hasStripePhysicalReceiptCapacityForInsert,
+  hasCleanIdleStripeOperationTransport,
+  hasCleanLegacyStripeOperationTransport,
+  hasCurrentStripeOperationIntegrity,
+  hasLegacyStripeOperationIntegrityVersion,
+  hasMatchingStripeManualResolutionProof,
+  hasValidStripeOperationStateLocators,
+  moveStripeOperationResolutionProofs,
+  STRIPE_RECEIPT_INTEGRITY_VERSION,
+} from "./lib/stripe_operation_integrity";
+import { hashSha256Hex } from "./lib/crypto_utils";
+import { ownershipMigrationSourceDigest } from "./lib/auth_migration_paths";
+import {
+  activeManagedUsageReservationMicroCents,
+  adjustManagedUsageReservationAuthorized,
+} from "./lib/managed_usage_reservation";
+import {
+  createManagedDispatchRequestFingerprint,
+  MANAGED_USAGE_BILLING_KIND,
+  managedDispatchOutcomeRequiresQuiescence,
+  PARALLEL_SEARCH_FAST_AGENT_TYPE,
+  PARALLEL_SEARCH_FAST_BILLING_KIND,
+  PARALLEL_SEARCH_FAST_COST_MICRO_CENTS,
+  PARALLEL_SEARCH_FAST_MODEL,
+  type DurableManagedDispatchOutcome,
+  type ManagedDispatchBillingEnvelope,
+  type ManagedDispatchCapturedUsage,
+} from "./lib/managed_dispatch";
+import {
+  assertOwnerDataAccessActive,
+  LEGACY_OWNER_GENERATION,
+} from "./owner_lifecycle";
+import {
+  isDefinitiveStripeNoCreateError,
+  remainingStripeProviderBudgetMs,
+  resolvePinnedStripeCustomerAuthorityKey,
+} from "./stripe_operation_dispatch";
+import { relayBillingUsageForDelivery } from "./stella_provider/relay_billing";
+import {
+  managedDispatchBillingEnvelopeValidator,
+  managedDispatchCapturedUsageValidator,
+  managedProviderDispatchOutcomeValidator,
+} from "./schema/billing";
+import { readExactVoiceProviderAttempt } from "./voice_dispatch";
+import {
+  VOICE_REALTIME_AUTHORITY_LEASE_MS,
+  VOICE_REALTIME_AUTHORITY_POLL_MS,
+  VOICE_REALTIME_AUTHORITY_QUIESCENCE_MS,
+  voiceAuthorityQuiescentAfter,
+} from "./lib/voice_authority";
+
+export {
+  VOICE_REALTIME_AUTHORITY_LEASE_MS,
+  VOICE_REALTIME_AUTHORITY_POLL_MS,
+  VOICE_REALTIME_AUTHORITY_QUIESCENCE_MS,
+} from "./lib/voice_authority";
+
+export const MANAGED_PROVIDER_DISPATCH_DEADLINE_MS = 90_000;
+export const MANAGED_PROVIDER_DISPATCH_LEASE_MS = 120_000;
+export const MANAGED_PROVIDER_DISPATCH_QUIESCENCE_MS = 15_000;
+const MANAGED_PROVIDER_DISPATCH_TERMINAL_RETENTION_MS = 5 * 60_000;
+const MANAGED_PROVIDER_DISPATCH_SWEEP_BATCH = 100;
+export const MANAGED_EXECUTION_HEARTBEAT_MS = 15_000;
+export const MANAGED_EXECUTION_LEASE_MS = 60_000;
+export const MANAGED_EXECUTION_HARD_MS = 10 * 60_000;
+export const MANAGED_EXECUTION_QUIESCENCE_MS = 15_000;
 
 const planValidator = v.union(
   v.literal("free"),
@@ -57,10 +132,7 @@ const planValidator = v.union(
   v.literal("pro"),
 );
 
-const paidPlanValidator = v.union(
-  v.literal("go"),
-  v.literal("pro"),
-);
+const paidPlanValidator = v.union(v.literal("go"), v.literal("pro"));
 
 const usageModeValidator = v.union(
   v.literal("default"),
@@ -78,6 +150,18 @@ const voiceRealtimeLeaseEventValidator = v.union(
   v.literal("ended"),
   v.literal("expired"),
   v.literal("lost"),
+  v.literal("cancel_ack"),
+);
+
+const voiceRealtimeTerminalUsageDispositionValidator = v.union(
+  v.literal("drained"),
+  v.literal("unresolved"),
+);
+
+const voiceRealtimeAuthorityValidDirectiveValidator = v.union(
+  v.literal("continue"),
+  v.literal("cancel"),
+  v.literal("closed"),
 );
 
 /**
@@ -88,8 +172,47 @@ const voiceRealtimeLeaseEventValidator = v.union(
 const LIFETIME_LIMIT_RETRY_AFTER_MS = 24 * 60 * 60 * 1000;
 
 const VOICE_REALTIME_LEASE_DURATION_MS = 5 * 60 * 1000;
+// OpenAI Realtime sessions have a provider-enforced 60 minute maximum. The
+// full horizon is reserved because a create response can be lost before its
+// Location revocation handle reaches Stella.
+const OPENAI_REALTIME_PROVIDER_HARD_MAX_MS = 60 * 60 * 1000;
 const VOICE_REALTIME_LEASE_HEARTBEAT_GRACE_MS = 30 * 1000;
 const VOICE_REALTIME_LEASE_EXPIRY_GRACE_MS = 15 * 1000;
+const VOICE_REALTIME_MINT_REAPER_MS = 91 * 1000;
+const VOICE_REALTIME_HANGUP_INITIAL_RETRY_MS = 1_000;
+const VOICE_REALTIME_HANGUP_MAX_RETRY_MS = 5 * 60 * 1000;
+const VOICE_REALTIME_HANGUP_ATTEMPT_LEASE_MS = 20_000;
+const VOICE_REALTIME_USAGE_BILLING_QUANTUM_MS = 1_000;
+const VOICE_REALTIME_FALLBACK_PRICING_REVISION = "voice-duplex-2026-08-26-v1";
+/**
+ * Conservative continuously-open duplex envelopes, pinned with the revision
+ * above rather than read from mutable environment pricing. OpenAI assumes
+ * continuous audio input (10 tokens/s) plus output (20 tokens/s) at the
+ * catalog's $32/$64 per-million audio rates. xAI uses its $0.05/minute audio
+ * meter, rounded up. Inworld covers simultaneous STT, LLM, and TTS at a
+ * deliberately conservative speech-rate envelope.
+ */
+const VOICE_REALTIME_FALLBACK_RATE_MICRO_CENTS_PER_SECOND = {
+  openai: 160_000,
+  xai: 83_334,
+  inworld: 50_000,
+} as const;
+const voiceRealtimeAuthorityResultValidator = v.union(
+  v.object({
+    recorded: v.boolean(),
+    directive: v.literal("invalid"),
+    authorityEpoch: v.null(),
+    authorityExpiresAt: v.null(),
+    cancelReason: v.null(),
+  }),
+  v.object({
+    recorded: v.boolean(),
+    directive: voiceRealtimeAuthorityValidDirectiveValidator,
+    authorityEpoch: v.number(),
+    authorityExpiresAt: v.number(),
+    cancelReason: v.union(v.string(), v.null()),
+  }),
+);
 
 const planConfigShapeValidator = v.object({
   label: v.string(),
@@ -144,6 +267,9 @@ const subscriptionStatusReturnValidator = v.object({
 });
 
 const STRIPE_API_VERSION = "2026-05-27.dahlia";
+const STRIPE_PROVIDER_TIMEOUT_MS = 30_000;
+const STRIPE_EVENT_CLAIM_MS = 5 * 60_000;
+const STRIPE_OPERATION_LEASE_MS = 2 * 60_000;
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set([
   "active",
   "trialing",
@@ -156,6 +282,284 @@ const USAGE_CREDIT_MIN_PURCHASE_CENTS = 100;
 const USAGE_CREDIT_MAX_PURCHASE_CENTS = 50_000;
 const USAGE_CREDIT_PRESET_AMOUNTS_CENTS = [500, 1_000, 2_500, 5_000] as const;
 
+const stripeOperationKindValidator = v.union(
+  v.literal("subscription_checkout"),
+  v.literal("usage_credit_checkout"),
+  v.literal("billing_portal"),
+);
+
+const STRIPE_REQUEST_ID_MAX_BYTES = 256;
+
+const stripeOperationRequestIdentity = async (
+  kind: "subscription_checkout" | "usage_credit_checkout" | "billing_portal",
+  requestId: string,
+  parts: readonly unknown[],
+) => {
+  const requestScope = requestId.trim();
+  if (!requestScope) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: "Billing request ID is required.",
+    });
+  }
+  if (
+    new TextEncoder().encode(requestScope).byteLength >
+    STRIPE_REQUEST_ID_MAX_BYTES
+  ) {
+    throw new ConvexError({
+      code: "INVALID_ARGUMENT",
+      message: "Billing request ID is too long.",
+    });
+  }
+  const requestKey = await hashSha256Hex(requestScope);
+  const requestFingerprint = await hashSha256Hex(
+    JSON.stringify({
+      kind,
+      requestKey,
+      parts,
+    }),
+  );
+  return { requestKey, requestFingerprint };
+};
+
+type StripeOperationStep =
+  | "customer_create"
+  | "checkout_create"
+  | "portal_create";
+
+type StripeDispatchMark = {
+  attemptId: string;
+  requestFingerprint: string;
+  idempotencyKey: string;
+  providerDeadlineAt: number;
+  quiescentAfterAt: number;
+  replayed: boolean;
+};
+
+/**
+ * A replayed durable mark names provider work already owned by the winning
+ * action (or by its crash-recovery worker). It is never fresh authority for a
+ * second physical Stripe request, even though Stripe would deduplicate the
+ * remote resource by idempotency key.
+ */
+export const assertFreshStripeProviderDispatch = (
+  marked: Pick<StripeDispatchMark, "replayed">,
+): void => {
+  if (marked.replayed) {
+    throw new ConvexError({
+      code: "CONFLICT",
+      message:
+        "This Stripe request already has a provider dispatch in progress.",
+    });
+  }
+};
+
+type StripeDispatchTuple = {
+  ownerId: string;
+  ownerGeneration: string;
+  operationId: string;
+  attemptId: string;
+  step: StripeOperationStep;
+  requestFingerprint: string;
+  idempotencyKey: string;
+  providerDeadlineAt: number;
+};
+
+const markStripeOperationDispatchRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    ownerGeneration: string;
+    operationId: string;
+    attemptId: string;
+    step: StripeOperationStep;
+    requestJson: string;
+    now: number;
+  },
+  StripeDispatchMark
+>("stripe_operation_dispatch:markStripeOperationDispatchInternal");
+
+const settleStripeOperationDispatchRef = makeFunctionReference<
+  "mutation",
+  StripeDispatchTuple & {
+    stripeCustomerId?: string;
+    stripeCheckoutSessionId?: string;
+    stripePortalSessionId?: string;
+    now: number;
+  },
+  { recorded: boolean; duplicate: boolean; customerDeleted: boolean }
+>("stripe_operation_dispatch:settleStripeOperationDispatchInternal");
+
+const settleStripeOperationNotCreatedRef = makeFunctionReference<
+  "mutation",
+  StripeDispatchTuple & { now: number },
+  { recorded: boolean; duplicate: boolean; customerDeleted: boolean }
+>("stripe_operation_dispatch:settleStripeOperationNotCreatedInternal");
+
+const markStripeStep = async (
+  ctx: ActionCtx,
+  args: {
+    ownerId: string;
+    ownerGeneration: string;
+    operationId: string;
+    step: StripeOperationStep;
+    requestJson: string;
+  },
+): Promise<StripeDispatchTuple> => {
+  const marked = await ctx.runMutation(markStripeOperationDispatchRef, {
+    ...args,
+    attemptId: crypto.randomUUID(),
+    now: Date.now(),
+  });
+  assertFreshStripeProviderDispatch(marked);
+  return {
+    ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
+    operationId: args.operationId,
+    attemptId: marked.attemptId,
+    step: args.step,
+    requestFingerprint: marked.requestFingerprint,
+    idempotencyKey: marked.idempotencyKey,
+    providerDeadlineAt: marked.providerDeadlineAt,
+  };
+};
+
+const revalidateStripeInitialProviderCallRef = makeFunctionReference<
+  "mutation",
+  StripeDispatchTuple & { now: number },
+  { providerCallDeadlineAt: number } | null
+>("stripe_operation_dispatch:revalidateStripeInitialProviderCallInternal");
+
+const adoptStripeOperationCustomerRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    ownerGeneration: string;
+    operationId: string;
+    stripeCustomerId: string;
+    now: number;
+  },
+  { adopted: boolean; customerDeleted: boolean }
+>("stripe_operation_dispatch:adoptStripeOperationCustomerInternal");
+
+const completeStripeOperationRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    ownerGeneration: string;
+    operationId: string;
+    now: number;
+  },
+  boolean
+>("stripe_operation_dispatch:completeStripeOperationInternal");
+
+const authorizeStripeOperationResultReturnRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    ownerGeneration: string;
+    operationId: string;
+    stripeCustomerId: string;
+    stripeCheckoutSessionId?: string;
+    stripePortalSessionId?: string;
+  },
+  boolean
+>("stripe_operation_dispatch:authorizeStripeOperationResultReturnInternal");
+
+const assertStripeOperationResultReturn = async (
+  ctx: ActionCtx,
+  args: {
+    ownerId: string;
+    ownerGeneration: string;
+    operationId: string;
+    stripeCustomerId: string;
+    stripeCheckoutSessionId?: string;
+    stripePortalSessionId?: string;
+  },
+): Promise<void> => {
+  const authorized = await ctx.runMutation(
+    authorizeStripeOperationResultReturnRef,
+    args,
+  );
+  if (!authorized) {
+    throw new ConvexError({
+      code: "CONFLICT",
+      message: "Stripe result authority changed before delivery.",
+    });
+  }
+};
+
+const stripeCustomerReferenceId = (
+  customer: string | Stripe.Customer | Stripe.DeletedCustomer | null,
+): string | null =>
+  typeof customer === "string" ? customer : customer?.id?.trim() || null;
+
+const assertStripeCheckoutSessionProviderBinding = (
+  session: Stripe.Checkout.Session,
+  args: {
+    operationId: string;
+    stripeCustomerId: string;
+    expectedSessionId?: string;
+  },
+): void => {
+  if (
+    (args.expectedSessionId && session.id !== args.expectedSessionId) ||
+    stripeCustomerReferenceId(session.customer) !== args.stripeCustomerId ||
+    session.metadata?.stellaOperationId !== args.operationId
+  ) {
+    throw new ConvexError({
+      code: "CONFLICT",
+      message: "Stripe checkout result is bound to another operation.",
+    });
+  }
+};
+
+const assertStripePortalSessionProviderBinding = (
+  session: Stripe.BillingPortal.Session,
+  stripeCustomerId: string,
+): void => {
+  if (stripeCustomerReferenceId(session.customer) !== stripeCustomerId) {
+    throw new ConvexError({
+      code: "CONFLICT",
+      message: "Stripe portal result is bound to another customer.",
+    });
+  }
+};
+
+const settleDefinitiveStripeNoCreate = async (
+  ctx: ActionCtx,
+  tuple: StripeDispatchTuple,
+  error: unknown,
+) => {
+  if (isDefinitiveStripeNoCreateError(error)) {
+    await ctx.runMutation(settleStripeOperationNotCreatedRef, {
+      ...tuple,
+      now: Date.now(),
+    });
+  }
+};
+
+const shouldApplyStripeResourceEvent = (args: {
+  storedAt: number;
+  storedEventId?: string;
+  storedTerminal?: boolean;
+  incomingAt: number;
+  incomingEventId?: string;
+  incomingTerminal?: boolean;
+}): boolean => {
+  if (args.incomingAt !== args.storedAt) {
+    return args.incomingAt > args.storedAt;
+  }
+  if (args.storedTerminal !== args.incomingTerminal) {
+    return args.incomingTerminal === true;
+  }
+  // Stripe event ids are unique but are not documented as a causal ordering.
+  // Same-second nonterminal handlers read the current provider resource before
+  // projecting it, so accepting the tie converges instead of inventing an id
+  // ordering that could resurrect stale state.
+  return true;
+};
+
 const isAnonymousIdentity = (identity: unknown) =>
   Boolean(
     identity &&
@@ -166,7 +570,7 @@ const isAnonymousIdentity = (identity: unknown) =>
 const hasUnlimitedUsage = (profile: { usageMode?: string }) =>
   profile.usageMode === "unlimited";
 
-const getStripeClient = () => {
+const getStripeClient = (timeoutMs = STRIPE_PROVIDER_TIMEOUT_MS) => {
   const secretKey = process.env.STRIPE_SECRET_KEY?.trim();
   if (!secretKey) {
     throw new ConvexError({
@@ -178,7 +582,38 @@ const getStripeClient = () => {
   return new Stripe(secretKey, {
     apiVersion: STRIPE_API_VERSION,
     httpClient: Stripe.createFetchHttpClient(),
+    // Operation rows + idempotency keys own retries. Disabling SDK-internal
+    // retries ensures every provider attempt first re-enters the exact owner
+    // generation/operation dispatch fence.
+    maxNetworkRetries: 0,
+    timeout: timeoutMs,
   });
+};
+
+class StripeProviderAuthorityExpiredError extends Error {
+  constructor() {
+    super("Stripe provider-call authority expired before physical I/O.");
+    this.name = "StripeProviderAuthorityExpiredError";
+  }
+}
+
+const withInitialStripeProviderAuthority = async <T>(
+  ctx: ActionCtx,
+  tuple: StripeDispatchTuple,
+  call: (stripe: Stripe) => Promise<T>,
+): Promise<T> => {
+  const authority = await ctx.runMutation(
+    revalidateStripeInitialProviderCallRef,
+    { ...tuple, now: Date.now() },
+  );
+  if (!authority) throw new StripeProviderAuthorityExpiredError();
+  // Invoke synchronously after checking the persisted absolute deadline. If a
+  // suspended action resumes after the tuple was cleared or its deadline, it
+  // performs zero provider I/O.
+  const stripe = getStripeClient(
+    remainingStripeProviderBudgetMs(authority.providerCallDeadlineAt),
+  );
+  return await call(stripe);
 };
 
 const toCurrencyAmount = (microCents: number) =>
@@ -217,6 +652,8 @@ const createDefaultProfile = (ownerId: string, now: number) => ({
   activePlan: "free" as const,
   subscriptionStatus: "none",
   stripeCustomerId: emptyString,
+  stripeCustomerAuthorityEpoch: 0,
+  stripeCustomerAdoptionScanEpoch: -1,
   stripeSubscriptionId: emptyString,
   stripePriceId: emptyString,
   defaultPaymentMethodId: emptyString,
@@ -236,6 +673,7 @@ const createDefaultUsage = (ownerId: string, now: number) => {
 
   return {
     ownerId,
+    activeReservedMicroCents: 0,
     rollingUsageMicroCents: 0,
     rollingWindowStartedAt: now,
     weeklyUsageMicroCents: 0,
@@ -258,7 +696,7 @@ const createDefaultUsageCredit = (ownerId: string, now: number) => ({
   updatedAt: now,
 });
 
-const ensureBillingRecordsForOwner = async (
+const ensureBillingRecordsForOwnerAuthorized = async (
   ctx: MutationCtx,
   ownerId: string,
 ) => {
@@ -298,7 +736,17 @@ const ensureBillingRecordsForOwner = async (
   return { profile, usage };
 };
 
+const ensureBillingRecordsForOwner = async (
+  ctx: MutationCtx,
+  ownerId: string,
+  expectedGeneration?: string,
+) => {
+  await assertOwnerMigrationWriteAllowed(ctx, ownerId, expectedGeneration);
+  return await ensureBillingRecordsForOwnerAuthorized(ctx, ownerId);
+};
+
 const ensureUsageCreditForOwner = async (ctx: MutationCtx, ownerId: string) => {
+  await assertOwnerMigrationWriteAllowed(ctx, ownerId);
   const now = Date.now();
   let credit = await getOwnerUsageCreditRow(ctx, ownerId);
   if (!credit) {
@@ -540,6 +988,37 @@ const buildUsageSnapshot = (args: {
   };
 };
 
+const getOwnerAvailableManagedUsageMicroCents = async (
+  ctx: MutationCtx,
+  args: { ownerId: string; now: number },
+): Promise<number> => {
+  const { profile, usage } = await ensureBillingRecordsForOwnerAuthorized(
+    ctx,
+    args.ownerId,
+  );
+  if (hasUnlimitedUsage(profile)) return Number.POSITIVE_INFINITY;
+  const snapshot = buildUsageSnapshot({
+    profile,
+    usage,
+    plan: profile.activePlan as SubscriptionPlan,
+    now: args.now,
+  });
+  if (snapshot.changed) {
+    await ctx.db.patch(usage._id, {
+      ...snapshot.normalizedUsage,
+      updatedAt: args.now,
+    });
+  }
+  const credit = await getOwnerUsageCreditRow(ctx, args.ownerId);
+  const reservedMicroCents = activeManagedUsageReservationMicroCents(usage);
+  return Math.max(
+    0,
+    getIncludedUsageHeadroomMicroCents(snapshot) +
+      getUsageCreditBalanceMicroCents(credit) -
+      reservedMicroCents,
+  );
+};
+
 /**
  * Picks the window that blocks a request, lifetime first: when the one-shot
  * allowance is gone the shorter windows are irrelevant, and reporting the
@@ -548,16 +1027,22 @@ const buildUsageSnapshot = (args: {
  */
 const findExceededWindow = (
   snapshot: UsageSnapshot,
-  isBlocked: (window: { used: number; limit: number }) => boolean = () => false,
+  isBlocked?: (window: UsageSnapshot["rolling"]) => boolean,
 ) => {
-  if (snapshot.lifetime && (snapshot.lifetime.exceeded || isBlocked(snapshot.lifetime))) {
+  // A supplied predicate is the complete admission decision for a window.
+  // This lets callers combine included headroom, purchased credits, and the
+  // OCC-serialized reservation aggregate without an exhausted free bucket
+  // short-circuiting before those paid credits are considered.
+  const blocks =
+    isBlocked ?? ((window: UsageSnapshot["rolling"]) => window.exceeded);
+  if (snapshot.lifetime && blocks(snapshot.lifetime)) {
     return { window: snapshot.lifetime, lifetime: true as const };
   }
-  const windowed = snapshot.rolling.exceeded || isBlocked(snapshot.rolling)
+  const windowed = blocks(snapshot.rolling)
     ? snapshot.rolling
-    : snapshot.weekly.exceeded || isBlocked(snapshot.weekly)
+    : blocks(snapshot.weekly)
       ? snapshot.weekly
-      : snapshot.monthly.exceeded || isBlocked(snapshot.monthly)
+      : blocks(snapshot.monthly)
         ? snapshot.monthly
         : null;
   return windowed ? { window: windowed, lifetime: false as const } : null;
@@ -651,6 +1136,7 @@ const buildManagedModelAccessResult = (args: {
 
 export type ManagedUsageRecordArgs = {
   ownerId: string;
+  ownerGeneration: string;
   agentType: string;
   model: string;
   durationMs: number;
@@ -713,7 +1199,7 @@ const getDefaultConversationIdForOwner = async (
   return conversation?._id ?? null;
 };
 
-export const persistManagedUsage = async (
+const persistManagedUsageAuthorized = async (
   ctx: MutationCtx,
   args: ManagedUsageRecordArgs,
 ) => {
@@ -743,7 +1229,7 @@ export const persistManagedUsage = async (
           price: modelPrice,
         });
 
-  const { profile, usage } = await ensureBillingRecordsForOwner(
+  const { profile, usage } = await ensureBillingRecordsForOwnerAuthorized(
     ctx,
     args.ownerId,
   );
@@ -833,6 +1319,22 @@ export const persistManagedUsage = async (
   };
 };
 
+export const persistManagedUsage = async (
+  ctx: MutationCtx,
+  args: ManagedUsageRecordArgs,
+) => {
+  // This read is deliberately in the same transaction as every billing
+  // mutation below. A reset/delete fence racing this mutation therefore
+  // causes an OCC retry, which observes the blocked lifecycle. Carrying the
+  // admission generation additionally rejects delayed callbacks after reset.
+  await assertOwnerMigrationWriteAllowed(
+    ctx,
+    args.ownerId,
+    args.ownerGeneration,
+  );
+  return await persistManagedUsageAuthorized(ctx, args);
+};
+
 const getExistingVoiceUsageReceipt = async (
   ctx: MutationCtx,
   ownerId: string,
@@ -868,17 +1370,701 @@ const isVoiceLeaseReported = (lease: {
   typeof lease.lastHeartbeatAt === "number" ||
   typeof lease.lastUsageAt === "number";
 
+const getVoiceRealtimeLease = async (
+  ctx: Pick<QueryCtx, "db">,
+  stellaSessionId: string,
+) =>
+  await ctx.db
+    .query("billing_voice_sessions")
+    .withIndex("by_stellaSessionId", (q) =>
+      q.eq("stellaSessionId", stellaSessionId),
+    )
+    .unique();
+
+type VoiceRealtimeLeaseRow = Doc<"billing_voice_sessions">;
+
+const getVoiceRealtimeFallbackRate = (provider: string): number => {
+  switch (provider) {
+    case "openai":
+    case "xai":
+    case "inworld":
+      return VOICE_REALTIME_FALLBACK_RATE_MICRO_CENTS_PER_SECOND[provider];
+    default:
+      throw new Error("Unsupported realtime voice fallback provider.");
+  }
+};
+
+const voiceFallbackReceiptId = (
+  stellaSessionId: string,
+  providerAttemptId: string,
+) => `voice-fallback:${stellaSessionId}:${providerAttemptId}`;
+
+const voiceUsageAuthorityEpochAllowed = (
+  lease: VoiceRealtimeLeaseRow,
+  authorityEpoch: number,
+): boolean => {
+  const currentEpoch = lease.authorityEpoch;
+  if (!Number.isSafeInteger(currentEpoch) || (currentEpoch ?? 0) < 1) {
+    return false;
+  }
+  if (lease.authorityState === "active") {
+    return authorityEpoch === currentEpoch;
+  }
+  // Lifecycle cancellation advances the renderer fence exactly once. Usage
+  // already posted under the immediately preceding epoch remains authorized
+  // until the exact cancel acknowledgement closes the shared authority.
+  return (
+    lease.authorityState === "cancel_requested" &&
+    (authorityEpoch === currentEpoch || authorityEpoch + 1 === currentEpoch)
+  );
+};
+
+const voiceUsageAuthorityMatches = (
+  lease: VoiceRealtimeLeaseRow,
+  args: {
+    ownerId: string;
+    ownerGeneration: string;
+    stellaSessionId: string;
+    providerDispatchId: string;
+    providerAttemptId: string;
+    authorityLeaseId: string;
+    authorityEpoch: number;
+  },
+): boolean =>
+  lease.ownerId === args.ownerId &&
+  (lease.ownerGeneration ?? "legacy") === args.ownerGeneration &&
+  lease.stellaSessionId === args.stellaSessionId &&
+  lease.providerDispatchId === args.providerDispatchId &&
+  lease.providerAttemptId === args.providerAttemptId &&
+  lease.authorityLeaseId === args.authorityLeaseId &&
+  voiceUsageAuthorityEpochAllowed(lease, args.authorityEpoch) &&
+  // Time does not silently close spend authority. The renderer ACK, terminal
+  // event, or expiry mutation must win the OCC race and atomically change the
+  // authority/disposition before a new exact receipt is rejected.
+  (lease.usageDisposition ?? "pending") === "pending";
+
+const voiceUsageRequestFingerprint = async (args: {
+  ownerGeneration: string;
+  providerDispatchId: string;
+  providerAttemptId: string;
+  authorityLeaseId: string;
+  authorityEpoch: number;
+  stellaSessionId: string;
+  responseId: string;
+  model: string;
+  conversationId?: Id<"conversations">;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  textInputTokens: number;
+  textCachedInputTokens: number;
+  textOutputTokens: number;
+  audioInputTokens: number;
+  audioCachedInputTokens: number;
+  audioOutputTokens: number;
+  imageInputTokens: number;
+  imageCachedInputTokens: number;
+  exactCostMicroCents?: number;
+  realtimeAudioSeconds?: number;
+  realtimeTextInputMessages?: number;
+  sttModel?: string;
+  sttAudioSeconds?: number;
+}): Promise<string> =>
+  await hashSha256Hex(
+    JSON.stringify({
+      ownerGeneration: args.ownerGeneration,
+      providerDispatchId: args.providerDispatchId,
+      providerAttemptId: args.providerAttemptId,
+      authorityLeaseId: args.authorityLeaseId,
+      authorityEpoch: args.authorityEpoch,
+      stellaSessionId: args.stellaSessionId,
+      responseId: args.responseId,
+      model: args.model,
+      conversationId: args.conversationId ?? null,
+      inputTokens: args.inputTokens,
+      outputTokens: args.outputTokens,
+      totalTokens: args.totalTokens,
+      textInputTokens: args.textInputTokens,
+      textCachedInputTokens: args.textCachedInputTokens,
+      textOutputTokens: args.textOutputTokens,
+      audioInputTokens: args.audioInputTokens,
+      audioCachedInputTokens: args.audioCachedInputTokens,
+      audioOutputTokens: args.audioOutputTokens,
+      imageInputTokens: args.imageInputTokens,
+      imageCachedInputTokens: args.imageCachedInputTokens,
+      exactCostMicroCents: args.exactCostMicroCents ?? null,
+      realtimeAudioSeconds: args.realtimeAudioSeconds ?? null,
+      realtimeTextInputMessages: args.realtimeTextInputMessages ?? null,
+      sttModel: args.sttModel ?? null,
+      sttAudioSeconds: args.sttAudioSeconds ?? null,
+    }),
+  );
+
+/**
+ * Narrow late-receipt writer. This is intentionally private to billing.ts and
+ * couples the authorized ledger write to the exact still-open physical voice
+ * authority in the same Convex transaction. Lifecycle generation may already
+ * be fenced while reset/delete waits for this authority to close.
+ */
+const persistExactVoiceRealtimeUsageAuthorized = async (
+  ctx: MutationCtx,
+  lease: VoiceRealtimeLeaseRow,
+  args: {
+    ownerId: string;
+    ownerGeneration: string;
+    stellaSessionId: string;
+    providerDispatchId: string;
+    providerAttemptId: string;
+    authorityLeaseId: string;
+    authorityEpoch: number;
+    usage: ManagedUsageRecordArgs;
+  },
+) => {
+  if (!voiceUsageAuthorityMatches(lease, args)) {
+    throw new ConvexError({
+      code: "VOICE_USAGE_AUTHORITY_CLOSED",
+      message: "The realtime voice usage authority is closed.",
+    });
+  }
+  return await persistManagedUsageAuthorized(ctx, args.usage);
+};
+
+const consumeVoiceUsageReservationAuthorized = async (
+  ctx: MutationCtx,
+  lease: VoiceRealtimeLeaseRow,
+  costMicroCents: number,
+  now: number,
+): Promise<number> => {
+  if (lease.usageReservationState !== "active") return 0;
+  const remaining = Math.max(0, Math.floor(lease.usageReservedMicroCents ?? 0));
+  const consumed = Math.min(remaining, Math.max(0, Math.floor(costMicroCents)));
+  if (consumed > 0) {
+    await adjustManagedUsageReservationAuthorized(ctx, {
+      ownerId: lease.ownerId,
+      deltaMicroCents: -consumed,
+      now,
+    });
+  }
+  return remaining - consumed;
+};
+
+const releaseVoiceUsageReservationAuthorized = async (
+  ctx: MutationCtx,
+  lease: VoiceRealtimeLeaseRow,
+  now: number,
+): Promise<void> => {
+  if (lease.usageReservationState !== "active") return;
+  const remaining = Math.max(0, Math.floor(lease.usageReservedMicroCents ?? 0));
+  if (remaining > 0) {
+    await adjustManagedUsageReservationAuthorized(ctx, {
+      ownerId: lease.ownerId,
+      deltaMicroCents: -remaining,
+      now,
+    });
+  }
+};
+
+const finalizeVoiceRealtimeUsageAuthority = async (
+  ctx: MutationCtx,
+  lease: VoiceRealtimeLeaseRow,
+  args: {
+    now: number;
+    reason: string;
+    disposition: "drained" | "unresolved";
+    /** Untrusted renderer telemetry; never sufficient to release spend. */
+    transportClosedAt?: number;
+    /** Stella-observed OpenAI hangup success (or provider-terminal 404). */
+    providerVerifiedClosedAt?: number;
+  },
+): Promise<void> => {
+  const existingDisposition = lease.usageDisposition ?? "pending";
+  if (
+    existingDisposition === "exact" ||
+    existingDisposition === "conservative_fallback"
+  ) {
+    if (lease.usageReservationState === "active") {
+      await releaseVoiceUsageReservationAuthorized(ctx, lease, args.now);
+      await ctx.db.patch(lease._id, {
+        usageReservationState: "released",
+        usageReservedMicroCents: 0,
+        updatedAt: args.now,
+      });
+    }
+    return;
+  }
+  const claimedTransportCloseAt =
+    typeof args.transportClosedAt === "number" &&
+    Number.isFinite(args.transportClosedAt)
+      ? Math.floor(args.transportClosedAt)
+      : null;
+
+  if (claimedTransportCloseAt !== null) {
+    await ctx.db.patch(lease._id, {
+      clientTransportClosedAt: claimedTransportCloseAt,
+      updatedAt: args.now,
+    });
+  }
+
+  // A managed OpenAI call can be closed only with the server-held Location
+  // locator. Renderer ACK/drained claims are telemetry and never release the
+  // reservation. The durable action is replay-safe across crashes/restarts.
+  if (lease.providerCallId && args.providerVerifiedClosedAt === undefined) {
+    const retryAt = args.now;
+    const hardReapAt = lease.providerHardExpiresAt;
+    await ctx.db.patch(lease._id, {
+      usageDisposition: "revocation_pending",
+      usageAuthorityClosedAt: lease.usageAuthorityClosedAt ?? args.now,
+      usageAuthorityClosedReason: args.reason,
+      providerHangupState:
+        lease.providerHangupState === "ambiguous" ? "ambiguous" : "requested",
+      providerHangupRequestedReason:
+        lease.providerHangupRequestedReason ?? args.reason,
+      providerHangupNextRetryAt: retryAt,
+      ...(hardReapAt !== undefined ? { sessionReapAt: hardReapAt } : {}),
+      updatedAt: args.now,
+    });
+    await ctx.scheduler.runAfter(
+      0,
+      internal.billing.hangupOpenAiVoiceCallInternal,
+      {
+        ownerId: lease.ownerId,
+        ownerGeneration: lease.ownerGeneration ?? "legacy",
+        stellaSessionId: lease.stellaSessionId,
+        providerCallId: lease.providerCallId,
+      },
+    );
+    if (hardReapAt !== undefined && hardReapAt > args.now) {
+      await ctx.scheduler.runAt(
+        hardReapAt,
+        internal.billing.reapVoiceRealtimeSessionInternal,
+        {
+          ownerId: lease.ownerId,
+          ownerGeneration: lease.ownerGeneration ?? "legacy",
+          stellaSessionId: lease.stellaSessionId,
+          reapAt: hardReapAt,
+        },
+      );
+    }
+    return;
+  }
+
+  // No provider call locator means either the renderer never started SDP, or
+  // the provider-create attempt is still ambiguous. Release only after the
+  // exact dispatch-debt row is absent in this OCC transaction.
+  if (!lease.providerCallId) {
+    if (lease.provider !== "openai") {
+      await ctx.db.patch(lease._id, {
+        usageDisposition: "unresolved",
+        usageAuthorityClosedAt: lease.usageAuthorityClosedAt ?? args.now,
+        usageAuthorityClosedReason: "managed_provider_without_revocation",
+        updatedAt: args.now,
+      });
+      return;
+    }
+    const providerAttempt = await ctx.db
+      .query("voice_provider_dispatch_leases")
+      .withIndex("by_ownerId_and_stellaSessionId_and_createdAt", (q) =>
+        q
+          .eq("ownerId", lease.ownerId)
+          .eq("stellaSessionId", lease.stellaSessionId),
+      )
+      .first();
+    if (providerAttempt) {
+      const reapAt = Math.max(args.now + 1, providerAttempt.quiescentAfterAt);
+      await ctx.db.patch(lease._id, {
+        usageDisposition: "unresolved",
+        usageAuthorityClosedAt: lease.usageAuthorityClosedAt ?? args.now,
+        usageAuthorityClosedReason: args.reason,
+        sessionReapAt: reapAt,
+        updatedAt: args.now,
+      });
+      await ctx.scheduler.runAt(
+        reapAt,
+        internal.billing.reapVoiceRealtimeSessionInternal,
+        {
+          ownerId: lease.ownerId,
+          ownerGeneration: lease.ownerGeneration ?? "legacy",
+          stellaSessionId: lease.stellaSessionId,
+          reapAt,
+        },
+      );
+      return;
+    }
+
+    if (
+      lease.providerCallCreateStartedAt !== undefined &&
+      args.providerVerifiedClosedAt === undefined
+    ) {
+      const hardReapAt = Math.max(
+        args.now + 1,
+        lease.providerHardExpiresAt ??
+          lease.providerCallCreateStartedAt +
+            OPENAI_REALTIME_PROVIDER_HARD_MAX_MS,
+      );
+      await ctx.db.patch(lease._id, {
+        usageDisposition: "unresolved",
+        usageAuthorityClosedAt: lease.usageAuthorityClosedAt ?? args.now,
+        usageAuthorityClosedReason: "provider_call_response_lost",
+        providerHangupState: "ambiguous",
+        providerHangupLastError: "provider_call_response_lost",
+        sessionReapAt: hardReapAt,
+        updatedAt: args.now,
+      });
+      await ctx.scheduler.runAt(
+        hardReapAt,
+        internal.billing.reapVoiceRealtimeSessionInternal,
+        {
+          ownerId: lease.ownerId,
+          ownerGeneration: lease.ownerGeneration ?? "legacy",
+          stellaSessionId: lease.stellaSessionId,
+          reapAt: hardReapAt,
+        },
+      );
+      return;
+    }
+
+    if (lease.providerCallCreateStartedAt === undefined) {
+      await releaseVoiceUsageReservationAuthorized(ctx, lease, args.now);
+      await ctx.db.patch(lease._id, {
+        usageDisposition: "exact",
+        usageDispositionAt: args.now,
+        usageAuthorityClosedAt: args.now,
+        usageAuthorityClosedReason: args.reason,
+        usageReservationState: "released",
+        usageReservedMicroCents: 0,
+        updatedAt: args.now,
+      });
+      return;
+    }
+  }
+
+  const openedAt = Math.max(
+    lease.leaseStartedAt,
+    lease.providerCallCreateStartedAt ??
+      lease.providerCallBoundAt ??
+      lease.providerOpenedAt ??
+      lease.leaseStartedAt,
+  );
+  const boundedCloseAt = Math.max(
+    openedAt,
+    Math.floor(args.providerVerifiedClosedAt ?? openedAt),
+  );
+  const lastProvenOpenAt = Math.max(
+    openedAt,
+    Math.min(boundedCloseAt, lease.providerLastProvenOpenAt ?? openedAt),
+  );
+
+  const providerDispatchId =
+    lease.providerDispatchId ?? `legacy-dispatch:${lease.stellaSessionId}`;
+  const providerAttemptId =
+    lease.providerAttemptId ??
+    lease.authorityLeaseId ??
+    `legacy-attempt:${lease.stellaSessionId}`;
+  const authorityLeaseId = lease.authorityLeaseId ?? providerAttemptId;
+  const authorityEpoch = Math.max(1, Math.floor(lease.authorityEpoch ?? 1));
+  const quantumMs = Math.max(
+    1,
+    Math.floor(
+      lease.usageBillingQuantumMs ?? VOICE_REALTIME_USAGE_BILLING_QUANTUM_MS,
+    ),
+  );
+  const rateMicroCents = Math.max(
+    1,
+    Math.floor(
+      lease.usageFallbackRateMicroCentsPerQuantum ??
+        getVoiceRealtimeFallbackRate(lease.provider),
+    ),
+  );
+  const fallbackDurationMs = Math.max(0, boundedCloseAt - openedAt);
+  const billedQuanta = Math.max(1, Math.ceil(fallbackDurationMs / quantumMs));
+  const defaultCap = Math.max(
+    0,
+    Math.floor(lease.usageReservedMicroCents ?? 0) +
+      Math.max(0, Math.floor(lease.estimatedCostMicroCents)),
+  );
+  const chargeCapMicroCents = Math.max(
+    0,
+    Math.floor(lease.usageFallbackChargeCapMicroCents ?? defaultCap),
+  );
+  const conservativeEnvelopeMicroCents = Math.min(
+    chargeCapMicroCents,
+    billedQuanta * rateMicroCents,
+  );
+  // Exact response receipts already charged against this physical session are
+  // subtracted, so the fallback is a conservative residual, never a double
+  // charge for responses that successfully crossed the receipt boundary.
+  const fallbackCostMicroCents = Math.min(
+    Math.max(0, Math.floor(lease.usageReservedMicroCents ?? 0)),
+    Math.max(
+      0,
+      conservativeEnvelopeMicroCents -
+        Math.max(0, Math.floor(lease.estimatedCostMicroCents)),
+    ),
+  );
+  const responseId = voiceFallbackReceiptId(
+    lease.stellaSessionId,
+    providerAttemptId,
+  );
+  const requestFingerprint = await hashSha256Hex(
+    JSON.stringify({
+      disposition: "conservative_fallback",
+      ownerGeneration: lease.ownerGeneration ?? "legacy",
+      stellaSessionId: lease.stellaSessionId,
+      providerDispatchId,
+      providerAttemptId,
+      authorityLeaseId,
+      authorityEpoch,
+      pricingRevision:
+        lease.usagePricingRevision ?? VOICE_REALTIME_FALLBACK_PRICING_REVISION,
+      quantumMs,
+      rateMicroCents,
+      chargeCapMicroCents,
+      openedAt,
+      lastProvenOpenAt,
+      boundedCloseAt,
+      fallbackDurationMs,
+      fallbackCostMicroCents,
+    }),
+  );
+  const existingReceipt = await getExistingVoiceUsageReceipt(
+    ctx,
+    lease.ownerId,
+    responseId,
+  );
+  if (existingReceipt) {
+    if (
+      existingReceipt.providerDispatchId !== providerDispatchId ||
+      existingReceipt.providerAttemptId !== providerAttemptId ||
+      existingReceipt.requestFingerprint !== requestFingerprint ||
+      existingReceipt.disposition !== "conservative_fallback" ||
+      existingReceipt.costMicroCents !== fallbackCostMicroCents
+    ) {
+      throw new Error("Realtime voice fallback receipt changed on replay.");
+    }
+  } else {
+    if (fallbackCostMicroCents > 0) {
+      await persistManagedUsageAuthorized(ctx, {
+        ownerId: lease.ownerId,
+        ownerGeneration: lease.ownerGeneration ?? "legacy",
+        conversationId: lease.conversationId ?? null,
+        agentType: "service:voice:realtime:fallback",
+        model: lease.model,
+        durationMs: fallbackDurationMs,
+        success: false,
+        costMicroCents: fallbackCostMicroCents,
+      });
+    }
+    await ctx.db.insert("billing_voice_usage_receipts", {
+      ownerId: lease.ownerId,
+      ownerGeneration: lease.ownerGeneration ?? "legacy",
+      providerDispatchId,
+      providerAttemptId,
+      stellaSessionId: lease.stellaSessionId,
+      authorityLeaseId,
+      authorityEpoch,
+      requestFingerprint,
+      disposition: "conservative_fallback",
+      responseId,
+      model: lease.model,
+      ...(lease.conversationId ? { conversationId: lease.conversationId } : {}),
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      textInputTokens: 0,
+      textCachedInputTokens: 0,
+      textOutputTokens: 0,
+      audioInputTokens: 0,
+      audioCachedInputTokens: 0,
+      audioOutputTokens: 0,
+      imageInputTokens: 0,
+      imageCachedInputTokens: 0,
+      costMicroCents: fallbackCostMicroCents,
+      createdAt: args.now,
+    });
+  }
+  await releaseVoiceUsageReservationAuthorized(ctx, lease, args.now);
+  await ctx.db.patch(lease._id, {
+    usageDisposition: "conservative_fallback",
+    usageDispositionAt: args.now,
+    usageAuthorityClosedAt: args.now,
+    usageAuthorityClosedReason:
+      args.disposition === "drained"
+        ? `client_drained_unverified:${args.reason}`.slice(0, 160)
+        : args.reason,
+    providerClosedAt: boundedCloseAt,
+    providerHangupState: "confirmed",
+    providerHangupConfirmedAt: boundedCloseAt,
+    providerHangupActiveAttemptId: undefined,
+    providerHangupLeaseExpiresAt: undefined,
+    providerHangupNextRetryAt: undefined,
+    providerHangupLastError: undefined,
+    fallbackDurationMs,
+    fallbackCostMicroCents,
+    usageReservationState: "released",
+    usageReservedMicroCents: 0,
+    updatedAt: args.now,
+  });
+};
+
+const voiceDispatchKindMatchesProvider = (
+  kind:
+    | "xai_client_secret"
+    | "openai_client_secret"
+    | "openai_call"
+    | "inworld_ice_servers"
+    | "inworld_sdp",
+  provider: string,
+): boolean =>
+  (kind === "xai_client_secret" && provider === "xai") ||
+  ((kind === "openai_client_secret" || kind === "openai_call") &&
+    provider === "openai") ||
+  ((kind === "inworld_ice_servers" || kind === "inworld_sdp") &&
+    provider === "inworld");
+
+const exactVoiceProviderAttemptActive = async (
+  ctx: MutationCtx,
+  args: {
+    ownerId: string;
+    ownerGeneration: string;
+    stellaSessionId: string;
+    dispatchId: string;
+    attemptId: string;
+    provider: string;
+    now: number;
+  },
+): Promise<boolean> => {
+  const attempt = await readExactVoiceProviderAttempt(
+    ctx,
+    args.dispatchId,
+    args.attemptId,
+  );
+  return Boolean(
+    attempt &&
+      attempt.ownerId === args.ownerId &&
+      attempt.ownerGeneration === args.ownerGeneration &&
+      attempt.stellaSessionId === args.stellaSessionId &&
+      voiceDispatchKindMatchesProvider(attempt.kind, args.provider) &&
+      attempt.state === "active" &&
+      args.now < attempt.providerDeadlineAt &&
+      args.now < attempt.leaseExpiresAt,
+  );
+};
+
+export const getVoiceRealtimeLeaseFence = internalQuery({
+  args: {
+    ownerId: v.string(),
+    stellaSessionId: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      ownerGeneration: v.string(),
+      provider: voiceRealtimeProviderValidator,
+      status: v.string(),
+      providerDispatchId: v.union(v.string(), v.null()),
+      providerAttemptId: v.union(v.string(), v.null()),
+      authorityLeaseId: v.union(v.string(), v.null()),
+      authorityEpoch: v.union(v.number(), v.null()),
+      authorityExpiresAt: v.union(v.number(), v.null()),
+      authorityState: v.union(v.string(), v.null()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const lease = await getVoiceRealtimeLease(ctx, args.stellaSessionId);
+    if (!lease || lease.ownerId !== args.ownerId) return null;
+    const provider = lease.provider;
+    let normalizedProvider: "openai" | "xai" | "inworld";
+    switch (provider) {
+      case "openai":
+      case "xai":
+      case "inworld":
+        normalizedProvider = provider;
+        break;
+      default:
+        return null;
+    }
+    return {
+      ownerGeneration: lease.ownerGeneration ?? "legacy",
+      provider: normalizedProvider,
+      status: lease.status,
+      providerDispatchId: lease.providerDispatchId ?? null,
+      providerAttemptId: lease.providerAttemptId ?? null,
+      authorityLeaseId: lease.authorityLeaseId ?? null,
+      authorityEpoch: lease.authorityEpoch ?? null,
+      authorityExpiresAt: lease.authorityExpiresAt ?? null,
+      authorityState: lease.authorityState ?? null,
+    };
+  },
+});
+
+/** Final transaction-plane fence immediately before realtime provider IO. */
+export const assertVoiceRealtimeProviderDispatchAllowed = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    stellaSessionId: v.string(),
+    provider: voiceRealtimeProviderValidator,
+    phase: v.union(v.literal("minting"), v.literal("active")),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
+    const lease = await getVoiceRealtimeLease(ctx, args.stellaSessionId);
+    return Boolean(
+      lease &&
+        lease.ownerId === args.ownerId &&
+        (lease.ownerGeneration ?? "legacy") === args.ownerGeneration &&
+        lease.provider === args.provider &&
+        lease.status === args.phase,
+    );
+  },
+});
+
 export const prepareVoiceRealtimeLease = internalMutation({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
     provider: voiceRealtimeProviderValidator,
     model: v.string(),
     voice: v.string(),
     stellaSessionId: v.string(),
     conversationId: v.optional(v.id("conversations")),
+    providerSessionConfigJson: v.optional(v.string()),
   },
+  returns: v.union(
+    v.object({
+      allowed: v.literal(false),
+      message: v.string(),
+      blockedSessionId: v.string(),
+    }),
+    v.object({
+      allowed: v.literal(true),
+      ownerGeneration: v.string(),
+      stellaSessionId: v.string(),
+      leaseExpiresAt: v.number(),
+      leaseDurationMs: v.number(),
+    }),
+  ),
   handler: async (ctx, args) => {
+    const { generation: ownerGeneration } =
+      await assertOwnerMigrationWriteAllowed(
+        ctx,
+        args.ownerId,
+        args.ownerGeneration,
+      );
     const now = Date.now();
+    if (args.provider !== "openai") {
+      return {
+        allowed: false as const,
+        message:
+          "Managed realtime voice is unavailable for providers without a Stella-verifiable revocation boundary.",
+        blockedSessionId: args.stellaSessionId,
+      };
+    }
     const [activeVoiceLeases, mintingVoiceLeases, unreportedGraceVoiceLeases] =
       await Promise.all([
         ctx.db
@@ -909,7 +2095,31 @@ export const prepareVoiceRealtimeLease = internalMutation({
     ];
 
     for (const lease of activeLeases) {
+      if ((lease.ownerGeneration ?? "legacy") !== ownerGeneration) continue;
+      // Superseding a managed session is a server-side cancellation event,
+      // not merely a renderer hint. A bound OpenAI call is moved to durable
+      // revocation debt and its hangup action is scheduled immediately. An
+      // exactly-undispatched prepare is released in this same OCC transaction;
+      // an in-flight or response-lost create remains reserved until its fixed
+      // provider-safety boundary proves settlement.
+      await finalizeVoiceRealtimeUsageAuthority(ctx, lease, {
+        now,
+        reason: "new_lease",
+        disposition: "unresolved",
+      });
       const reported = isVoiceLeaseReported(lease);
+      const authorityCancelPatch =
+        lease.authorityState === "active" &&
+        lease.authorityLeaseId &&
+        typeof lease.authorityEpoch === "number" &&
+        typeof lease.authorityExpiresAt === "number"
+          ? {
+              authorityState: "cancel_requested" as const,
+              authorityEpoch: Math.max(1, Math.floor(lease.authorityEpoch)) + 1,
+              authorityCancelReason: "new_lease",
+              authorityCancelRequestedAt: now,
+            }
+          : {};
       const pastHeartbeatGrace =
         now - lease.createdAt > VOICE_REALTIME_LEASE_HEARTBEAT_GRACE_MS;
       const pastExpiryGrace =
@@ -920,10 +2130,11 @@ export const prepareVoiceRealtimeLease = internalMutation({
           status: "blocked_missing_report",
           endedAt: now,
           endReason: "missing_report",
+          ...authorityCancelPatch,
           updatedAt: now,
         });
         return {
-          allowed: false,
+          allowed: false as const,
           message:
             "Realtime voice paused because the previous session did not report usage. Restart Stella and try again.",
           blockedSessionId: lease.stellaSessionId,
@@ -935,6 +2146,7 @@ export const prepareVoiceRealtimeLease = internalMutation({
           status: "superseded",
           endedAt: now,
           endReason: "new_lease",
+          ...authorityCancelPatch,
           updatedAt: now,
         });
       } else if (lease.status !== "superseded_unreported_grace") {
@@ -942,22 +2154,84 @@ export const prepareVoiceRealtimeLease = internalMutation({
           status: "superseded_unreported_grace",
           endedAt: now,
           endReason: "new_lease",
+          ...authorityCancelPatch,
           updatedAt: now,
         });
       }
     }
 
+    const outstandingReservation = await ctx.db
+      .query("billing_voice_sessions")
+      .withIndex("by_ownerId_and_usageReservationState_and_createdAt", (q) =>
+        q.eq("ownerId", args.ownerId).eq("usageReservationState", "active"),
+      )
+      .first();
+    if (outstandingReservation) {
+      return {
+        allowed: false as const,
+        message:
+          "Realtime voice is waiting for the previous managed-usage reservation to settle.",
+        blockedSessionId: outstandingReservation.stellaSessionId,
+      };
+    }
+
+    const usageFallbackRateMicroCentsPerQuantum = getVoiceRealtimeFallbackRate(
+      args.provider,
+    );
+    const maximumSessionReservationMicroCents =
+      Math.ceil(
+        OPENAI_REALTIME_PROVIDER_HARD_MAX_MS /
+          VOICE_REALTIME_USAGE_BILLING_QUANTUM_MS,
+      ) * usageFallbackRateMicroCentsPerQuantum;
+    const availableManagedUsageMicroCents =
+      await getOwnerAvailableManagedUsageMicroCents(ctx, {
+        ownerId: args.ownerId,
+        now,
+      });
+    if (
+      Number.isFinite(availableManagedUsageMicroCents) &&
+      availableManagedUsageMicroCents < maximumSessionReservationMicroCents
+    ) {
+      return {
+        allowed: false as const,
+        message:
+          "Realtime voice needs enough unreserved managed usage for its bounded session lease.",
+        blockedSessionId:
+          activeLeases[0]?.stellaSessionId ?? args.stellaSessionId,
+      };
+    }
+    const usageFallbackChargeCapMicroCents =
+      maximumSessionReservationMicroCents;
     const leaseExpiresAt = now + VOICE_REALTIME_LEASE_DURATION_MS;
+    const sessionReapAt = now + VOICE_REALTIME_MINT_REAPER_MS;
+    await adjustManagedUsageReservationAuthorized(ctx, {
+      ownerId: args.ownerId,
+      deltaMicroCents: usageFallbackChargeCapMicroCents,
+      now,
+    });
     await ctx.db.insert("billing_voice_sessions", {
       ownerId: args.ownerId,
+      ownerGeneration,
       stellaSessionId: args.stellaSessionId,
       provider: args.provider,
       model: args.model,
       voice: args.voice,
       ...(args.conversationId ? { conversationId: args.conversationId } : {}),
+      ...(args.providerSessionConfigJson
+        ? { providerSessionConfigJson: args.providerSessionConfigJson }
+        : {}),
       status: "minting",
+      usageDisposition: "pending",
+      usagePricingRevision: VOICE_REALTIME_FALLBACK_PRICING_REVISION,
+      usageBillingQuantumMs: VOICE_REALTIME_USAGE_BILLING_QUANTUM_MS,
+      usageFallbackRateMicroCentsPerQuantum,
+      usageFallbackChargeCapMicroCents,
+      usageReservationState: "active",
+      usageReservedMicroCents: usageFallbackChargeCapMicroCents,
+      providerHardExpiresAt: now + OPENAI_REALTIME_PROVIDER_HARD_MAX_MS,
       leaseStartedAt: now,
       leaseExpiresAt,
+      sessionReapAt,
       heartbeatCount: 0,
       responseCount: 0,
       estimatedCostMicroCents: 0,
@@ -969,9 +2243,20 @@ export const prepareVoiceRealtimeLease = internalMutation({
       createdAt: now,
       updatedAt: now,
     });
+    await ctx.scheduler.runAt(
+      sessionReapAt,
+      internal.billing.reapVoiceRealtimeSessionInternal,
+      {
+        ownerId: args.ownerId,
+        ownerGeneration,
+        stellaSessionId: args.stellaSessionId,
+        reapAt: sessionReapAt,
+      },
+    );
 
     return {
-      allowed: true,
+      allowed: true as const,
+      ownerGeneration,
       stellaSessionId: args.stellaSessionId,
       leaseExpiresAt,
       leaseDurationMs: VOICE_REALTIME_LEASE_DURATION_MS,
@@ -979,27 +2264,507 @@ export const prepareVoiceRealtimeLease = internalMutation({
   },
 });
 
-export const activateVoiceRealtimeLease = internalMutation({
+/**
+ * Compensates the narrow prepare -> provider-dispatch race without reopening
+ * lifecycle authority. The empty exact-attempt index range and the session
+ * patch share one OCC transaction with reservation release: a concurrent
+ * provider reservation either wins first (and this returns false) or retries
+ * after the session becomes non-dispatchable.
+ */
+export const releaseUndispatchedVoiceRealtimeLeaseInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    stellaSessionId: v.string(),
+    reason: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const lease = await getVoiceRealtimeLease(ctx, args.stellaSessionId);
+    if (
+      !lease ||
+      lease.ownerId !== args.ownerId ||
+      (lease.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
+      lease.providerDispatchId !== undefined ||
+      lease.providerAttemptId !== undefined ||
+      lease.providerOpenedAt !== undefined ||
+      (lease.usageDisposition ?? "pending") !== "pending"
+    ) {
+      return false;
+    }
+    const providerAttempt = await ctx.db
+      .query("voice_provider_dispatch_leases")
+      .withIndex("by_ownerId_and_stellaSessionId_and_createdAt", (q) =>
+        q
+          .eq("ownerId", args.ownerId)
+          .eq("stellaSessionId", args.stellaSessionId),
+      )
+      .first();
+    if (providerAttempt) return false;
+    const now = Date.now();
+    await releaseVoiceUsageReservationAuthorized(ctx, lease, now);
+    await ctx.db.patch(lease._id, {
+      status: "failed",
+      usageDisposition: "exact",
+      usageDispositionAt: now,
+      usageAuthorityClosedAt: now,
+      usageAuthorityClosedReason: args.reason.slice(0, 120),
+      usageReservationState: "released",
+      usageReservedMicroCents: 0,
+      endedAt: now,
+      endReason: args.reason.slice(0, 120),
+      updatedAt: now,
+    });
+    return true;
+  },
+});
+
+const openAiVoiceAuthorityResultValidator = v.union(
+  v.object({ activated: v.literal(false) }),
+  v.object({
+    activated: v.literal(true),
+    ownerGeneration: v.string(),
+    providerDispatchId: v.string(),
+    providerAttemptId: v.string(),
+    authorityLeaseId: v.string(),
+    authorityEpoch: v.number(),
+    authorityExpiresAt: v.number(),
+    authorityLeaseDurationMs: v.number(),
+    authorityPollIntervalMs: v.number(),
+  }),
+);
+
+/**
+ * Issues renderer authority without minting a provider credential. The exact
+ * provider attempt id is pre-bound so the later SDP action cannot switch the
+ * physical call behind an already-issued usage tuple.
+ */
+export const issueOpenAiVoiceRealtimeAuthority = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    stellaSessionId: v.string(),
+    providerDispatchId: v.string(),
+    providerAttemptId: v.string(),
+  },
+  returns: openAiVoiceAuthorityResultValidator,
+  handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
+    const lease = await getVoiceRealtimeLease(ctx, args.stellaSessionId);
+    const expectedDispatchId = `voice:openai_call:${args.stellaSessionId}`;
+    if (
+      !lease ||
+      lease.ownerId !== args.ownerId ||
+      (lease.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
+      lease.provider !== "openai" ||
+      lease.status !== "minting" ||
+      args.providerDispatchId !== expectedDispatchId ||
+      !args.providerAttemptId.trim() ||
+      !lease.providerSessionConfigJson
+    ) {
+      return { activated: false as const };
+    }
+    const now = Date.now();
+    const authorityLeaseId = args.providerAttemptId;
+    const authorityEpoch = 1;
+    const authorityExpiresAt = Math.min(
+      lease.leaseExpiresAt,
+      now + VOICE_REALTIME_AUTHORITY_LEASE_MS,
+    );
+    const sessionReapAt = voiceAuthorityQuiescentAfter(authorityExpiresAt);
+    await ctx.db.patch(lease._id, {
+      status: "active",
+      providerDispatchId: args.providerDispatchId,
+      providerAttemptId: args.providerAttemptId,
+      authorityLeaseId,
+      authorityEpoch,
+      authorityState: "active",
+      authorityExpiresAt,
+      usageDisposition: "pending",
+      sessionReapAt,
+      updatedAt: now,
+    });
+    await ctx.scheduler.runAt(
+      sessionReapAt,
+      internal.billing.reapVoiceRealtimeSessionInternal,
+      {
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        stellaSessionId: args.stellaSessionId,
+        reapAt: sessionReapAt,
+      },
+    );
+    return {
+      activated: true as const,
+      ownerGeneration: args.ownerGeneration,
+      providerDispatchId: args.providerDispatchId,
+      providerAttemptId: args.providerAttemptId,
+      authorityLeaseId,
+      authorityEpoch,
+      authorityExpiresAt,
+      authorityLeaseDurationMs: VOICE_REALTIME_AUTHORITY_LEASE_MS,
+      authorityPollIntervalMs: VOICE_REALTIME_AUTHORITY_POLL_MS,
+    };
+  },
+});
+
+export const getOpenAiVoiceCallFence = internalQuery({
   args: {
     ownerId: v.string(),
     stellaSessionId: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      ownerGeneration: v.string(),
+      providerDispatchId: v.string(),
+      providerAttemptId: v.string(),
+      authorityLeaseId: v.string(),
+      authorityEpoch: v.number(),
+      authorityExpiresAt: v.number(),
+      status: v.string(),
+      authorityState: v.string(),
+      usageDisposition: v.string(),
+      model: v.string(),
+      providerSessionConfigJson: v.string(),
+      providerCallId: v.union(v.string(), v.null()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const lease = await getVoiceRealtimeLease(ctx, args.stellaSessionId);
+    if (
+      !lease ||
+      lease.ownerId !== args.ownerId ||
+      lease.provider !== "openai" ||
+      !lease.providerDispatchId ||
+      !lease.providerAttemptId ||
+      !lease.authorityLeaseId ||
+      typeof lease.authorityEpoch !== "number" ||
+      typeof lease.authorityExpiresAt !== "number" ||
+      !lease.authorityState ||
+      !lease.providerSessionConfigJson
+    ) {
+      return null;
+    }
+    return {
+      ownerGeneration: lease.ownerGeneration ?? "legacy",
+      providerDispatchId: lease.providerDispatchId,
+      providerAttemptId: lease.providerAttemptId,
+      authorityLeaseId: lease.authorityLeaseId,
+      authorityEpoch: lease.authorityEpoch,
+      authorityExpiresAt: lease.authorityExpiresAt,
+      status: lease.status,
+      authorityState: lease.authorityState,
+      usageDisposition: lease.usageDisposition ?? "pending",
+      model: lease.model,
+      providerSessionConfigJson: lease.providerSessionConfigJson,
+      providerCallId: lease.providerCallId ?? null,
+    };
+  },
+});
+
+export const markOpenAiVoiceProviderCallStarted = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    stellaSessionId: v.string(),
+    providerDispatchId: v.string(),
+    providerAttemptId: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
+    const lease = await getVoiceRealtimeLease(ctx, args.stellaSessionId);
+    if (
+      !lease ||
+      lease.ownerId !== args.ownerId ||
+      (lease.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
+      lease.provider !== "openai" ||
+      lease.status !== "active" ||
+      lease.authorityState !== "active" ||
+      lease.providerCallCreateStartedAt !== undefined ||
+      lease.providerDispatchId !== args.providerDispatchId ||
+      lease.providerAttemptId !== args.providerAttemptId ||
+      !(await exactVoiceProviderAttemptActive(ctx, {
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        stellaSessionId: args.stellaSessionId,
+        dispatchId: args.providerDispatchId,
+        attemptId: args.providerAttemptId,
+        provider: "openai",
+        now: Date.now(),
+      }))
+    ) {
+      return false;
+    }
+    const now = Date.now();
+    await ctx.db.patch(lease._id, {
+      providerCallCreateStartedAt: now,
+      providerHardExpiresAt: now + OPENAI_REALTIME_PROVIDER_HARD_MAX_MS,
+      providerLastProvenOpenAt: now,
+      updatedAt: now,
+    });
+    return true;
+  },
+});
+
+/** A consumed non-success response proves this exact create made no call. */
+export const markOpenAiVoiceProviderCallNotCreated = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    stellaSessionId: v.string(),
+    providerDispatchId: v.string(),
+    providerAttemptId: v.string(),
+    providerStatus: v.number(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const lease = await getVoiceRealtimeLease(ctx, args.stellaSessionId);
+    const attempt = await readExactVoiceProviderAttempt(
+      ctx,
+      args.providerDispatchId,
+      args.providerAttemptId,
+    );
+    if (
+      !lease ||
+      lease.ownerId !== args.ownerId ||
+      (lease.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
+      lease.provider !== "openai" ||
+      lease.providerDispatchId !== args.providerDispatchId ||
+      lease.providerAttemptId !== args.providerAttemptId ||
+      lease.providerCallCreateStartedAt === undefined ||
+      lease.providerCallId !== undefined ||
+      !attempt ||
+      attempt.ownerId !== args.ownerId ||
+      attempt.ownerGeneration !== args.ownerGeneration ||
+      attempt.stellaSessionId !== args.stellaSessionId ||
+      attempt.kind !== "openai_call"
+    ) {
+      return false;
+    }
+    const now = Date.now();
+    await releaseVoiceUsageReservationAuthorized(ctx, lease, now);
+    await ctx.db.patch(lease._id, {
+      status: "failed",
+      authorityState: "released",
+      authorityExpiresAt: now,
+      usageDisposition: "exact",
+      usageDispositionAt: now,
+      usageAuthorityClosedAt: now,
+      usageAuthorityClosedReason: `openai_call_not_created_${Math.floor(args.providerStatus)}`,
+      usageReservationState: "released",
+      usageReservedMicroCents: 0,
+      sessionReapAt: undefined,
+      endedAt: now,
+      endReason: `openai_call_not_created_${Math.floor(args.providerStatus)}`,
+      updatedAt: now,
+    });
+    return true;
+  },
+});
+
+/** Capture the OpenAI Location call id before the SDP answer is publishable. */
+export const bindOpenAiVoiceProviderCall = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    stellaSessionId: v.string(),
+    providerDispatchId: v.string(),
+    providerAttemptId: v.string(),
+    providerCallId: v.string(),
+  },
+  returns: v.object({ bound: v.boolean(), deliveryAllowed: v.boolean() }),
+  handler: async (ctx, args) => {
+    const lease = await getVoiceRealtimeLease(ctx, args.stellaSessionId);
+    const attempt = await readExactVoiceProviderAttempt(
+      ctx,
+      args.providerDispatchId,
+      args.providerAttemptId,
+    );
+    if (
+      !lease ||
+      lease.ownerId !== args.ownerId ||
+      (lease.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
+      lease.provider !== "openai" ||
+      lease.providerDispatchId !== args.providerDispatchId ||
+      lease.providerAttemptId !== args.providerAttemptId ||
+      !attempt ||
+      attempt.ownerId !== args.ownerId ||
+      attempt.ownerGeneration !== args.ownerGeneration ||
+      attempt.stellaSessionId !== args.stellaSessionId ||
+      attempt.kind !== "openai_call" ||
+      !args.providerCallId.trim()
+    ) {
+      return { bound: false, deliveryAllowed: false };
+    }
+    if (lease.providerCallId && lease.providerCallId !== args.providerCallId) {
+      throw new ConvexError({
+        code: "VOICE_PROVIDER_CALL_CONFLICT",
+        message: "The voice attempt is already bound to another provider call.",
+      });
+    }
+    const now = Date.now();
+    let lifecycleAllowed = true;
+    try {
+      await assertOwnerMigrationWriteAllowed(
+        ctx,
+        args.ownerId,
+        args.ownerGeneration,
+      );
+    } catch {
+      lifecycleAllowed = false;
+    }
+    const deliveryAllowed = Boolean(
+      lifecycleAllowed &&
+        lease.status === "active" &&
+        lease.authorityState === "active" &&
+        (lease.usageDisposition ?? "pending") === "pending" &&
+        attempt.state === "active" &&
+        now < attempt.providerDeadlineAt &&
+        now < attempt.leaseExpiresAt,
+    );
+    await ctx.db.patch(lease._id, {
+      providerCallId: args.providerCallId,
+      providerCallBoundAt: lease.providerCallBoundAt ?? now,
+      providerOpenedAt: lease.providerOpenedAt ?? now,
+      providerLastProvenOpenAt: now,
+      providerHangupState: deliveryAllowed ? "open" : "requested",
+      ...(deliveryAllowed
+        ? {}
+        : {
+            usageDisposition: "revocation_pending" as const,
+            usageAuthorityClosedAt: now,
+            usageAuthorityClosedReason: "provider_response_fenced",
+            providerHangupRequestedReason: "provider_response_fenced",
+            providerHangupNextRetryAt: now,
+          }),
+      updatedAt: now,
+    });
+    if (!deliveryAllowed) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.billing.hangupOpenAiVoiceCallInternal,
+        {
+          ownerId: args.ownerId,
+          ownerGeneration: args.ownerGeneration,
+          stellaSessionId: args.stellaSessionId,
+          providerCallId: args.providerCallId,
+        },
+      );
+    }
+    return { bound: true, deliveryAllowed };
+  },
+});
+
+export const requestOpenAiVoiceHangupInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    stellaSessionId: v.string(),
+    providerCallId: v.string(),
+    reason: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const lease = await getVoiceRealtimeLease(ctx, args.stellaSessionId);
+    if (
+      !lease ||
+      lease.ownerId !== args.ownerId ||
+      (lease.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
+      lease.provider !== "openai" ||
+      lease.providerCallId !== args.providerCallId ||
+      lease.providerHangupState === "confirmed"
+    ) {
+      return false;
+    }
+    await finalizeVoiceRealtimeUsageAuthority(ctx, lease, {
+      now: Date.now(),
+      reason: args.reason.slice(0, 160),
+      disposition: "unresolved",
+    });
+    return true;
+  },
+});
+
+export const activateVoiceRealtimeLease = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    stellaSessionId: v.string(),
+    dispatchId: v.string(),
+    attemptId: v.string(),
     clientSecretFingerprint: v.optional(v.string()),
     providerSessionId: v.optional(v.string()),
     providerExpiresAt: v.optional(v.number()),
   },
+  returns: v.union(
+    v.object({ activated: v.literal(false) }),
+    v.object({
+      activated: v.literal(true),
+      ownerGeneration: v.string(),
+      providerDispatchId: v.string(),
+      providerAttemptId: v.string(),
+      authorityLeaseId: v.string(),
+      authorityEpoch: v.number(),
+      authorityExpiresAt: v.number(),
+      authorityLeaseDurationMs: v.number(),
+      authorityPollIntervalMs: v.number(),
+    }),
+  ),
   handler: async (ctx, args) => {
-    const lease = await ctx.db
-      .query("billing_voice_sessions")
-      .withIndex("by_stellaSessionId", (q) =>
-        q.eq("stellaSessionId", args.stellaSessionId),
-      )
-      .unique();
-    if (!lease || lease.ownerId !== args.ownerId) {
-      return { activated: false };
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
+    const lease = await getVoiceRealtimeLease(ctx, args.stellaSessionId);
+    const now = Date.now();
+    if (
+      !lease ||
+      lease.ownerId !== args.ownerId ||
+      (lease.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
+      lease.status !== "minting" ||
+      !(await exactVoiceProviderAttemptActive(ctx, {
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        stellaSessionId: args.stellaSessionId,
+        dispatchId: args.dispatchId,
+        attemptId: args.attemptId,
+        provider: lease.provider,
+        now,
+      }))
+    ) {
+      return { activated: false as const };
     }
 
+    const authorityLeaseId = args.attemptId;
+    const authorityEpoch = 1;
+    const authorityExpiresAt = Math.min(
+      lease.leaseExpiresAt,
+      now + VOICE_REALTIME_AUTHORITY_LEASE_MS,
+    );
+    const sessionReapAt = voiceAuthorityQuiescentAfter(authorityExpiresAt);
     await ctx.db.patch(lease._id, {
       status: "active",
+      providerDispatchId: args.dispatchId,
+      providerAttemptId: args.attemptId,
+      authorityLeaseId,
+      authorityEpoch,
+      authorityState: "active",
+      authorityExpiresAt,
+      sessionReapAt,
+      usageDisposition: "pending",
+      providerOpenedAt: now,
+      providerLastProvenOpenAt: now,
       ...(args.clientSecretFingerprint
         ? { clientSecretFingerprint: args.clientSecretFingerprint }
         : {}),
@@ -1009,31 +2774,80 @@ export const activateVoiceRealtimeLease = internalMutation({
       ...(args.providerExpiresAt !== undefined
         ? { providerExpiresAt: args.providerExpiresAt }
         : {}),
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
-    return { activated: true };
+    await ctx.scheduler.runAt(
+      sessionReapAt,
+      internal.billing.reapVoiceRealtimeSessionInternal,
+      {
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        stellaSessionId: args.stellaSessionId,
+        reapAt: sessionReapAt,
+      },
+    );
+    return {
+      activated: true as const,
+      ownerGeneration: args.ownerGeneration,
+      providerDispatchId: args.dispatchId,
+      providerAttemptId: args.attemptId,
+      authorityLeaseId,
+      authorityEpoch,
+      authorityExpiresAt,
+      authorityLeaseDurationMs: VOICE_REALTIME_AUTHORITY_LEASE_MS,
+      authorityPollIntervalMs: VOICE_REALTIME_AUTHORITY_POLL_MS,
+    };
   },
 });
 
 export const failVoiceRealtimeLease = internalMutation({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
     stellaSessionId: v.string(),
+    dispatchId: v.string(),
+    attemptId: v.string(),
     reason: v.string(),
   },
+  returns: v.object({ updated: v.boolean() }),
   handler: async (ctx, args) => {
-    const lease = await ctx.db
-      .query("billing_voice_sessions")
-      .withIndex("by_stellaSessionId", (q) =>
-        q.eq("stellaSessionId", args.stellaSessionId),
-      )
-      .unique();
-    if (!lease || lease.ownerId !== args.ownerId) {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
+    const lease = await getVoiceRealtimeLease(ctx, args.stellaSessionId);
+    const now = Date.now();
+    if (
+      !lease ||
+      lease.ownerId !== args.ownerId ||
+      (lease.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
+      (lease.status !== "minting" && lease.status !== "active") ||
+      !(await exactVoiceProviderAttemptActive(ctx, {
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        stellaSessionId: args.stellaSessionId,
+        dispatchId: args.dispatchId,
+        attemptId: args.attemptId,
+        provider: lease.provider,
+        now,
+      }))
+    ) {
       return { updated: false };
     }
-    const now = Date.now();
+    await finalizeVoiceRealtimeUsageAuthority(ctx, lease, {
+      now,
+      reason: args.reason.slice(0, 120),
+      disposition: "drained",
+    });
     await ctx.db.patch(lease._id, {
       status: "failed",
+      ...(lease.authorityState
+        ? {
+            authorityState: "released" as const,
+            authorityExpiresAt: now,
+          }
+        : {}),
       endedAt: now,
       endReason: args.reason.slice(0, 120),
       updatedAt: now,
@@ -1045,51 +2859,644 @@ export const failVoiceRealtimeLease = internalMutation({
 export const recordVoiceRealtimeLeaseEvent = internalMutation({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
     stellaSessionId: v.string(),
+    authorityLeaseId: v.string(),
+    authorityEpoch: v.number(),
     event: voiceRealtimeLeaseEventValidator,
+    usageDisposition: v.optional(
+      voiceRealtimeTerminalUsageDispositionValidator,
+    ),
+    transportClosedAt: v.optional(v.number()),
   },
+  returns: voiceRealtimeAuthorityResultValidator,
   handler: async (ctx, args) => {
-    const lease = await ctx.db
-      .query("billing_voice_sessions")
-      .withIndex("by_stellaSessionId", (q) =>
-        q.eq("stellaSessionId", args.stellaSessionId),
-      )
-      .unique();
-    if (!lease || lease.ownerId !== args.ownerId) {
-      return { recorded: false, reason: "not_found" };
+    const lease = await getVoiceRealtimeLease(ctx, args.stellaSessionId);
+    if (
+      !lease ||
+      lease.ownerId !== args.ownerId ||
+      (lease.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
+      !args.authorityLeaseId.trim() ||
+      lease.authorityLeaseId !== args.authorityLeaseId ||
+      !lease.authorityState ||
+      typeof lease.authorityEpoch !== "number" ||
+      typeof lease.authorityExpiresAt !== "number" ||
+      !Number.isSafeInteger(args.authorityEpoch) ||
+      args.authorityEpoch < 1
+    ) {
+      return {
+        recorded: false,
+        directive: "invalid" as const,
+        authorityEpoch: null,
+        authorityExpiresAt: null,
+        cancelReason: null,
+      };
     }
 
     const now = Date.now();
-    if (args.event === "heartbeat") {
-      await ctx.db.patch(lease._id, {
-        heartbeatCount: Math.max(0, Math.floor(lease.heartbeatCount)) + 1,
-        lastHeartbeatAt: now,
-        updatedAt: now,
-      });
-      return { recorded: true, status: lease.status };
+    const currentEpoch = Math.max(1, Math.floor(lease.authorityEpoch));
+    const currentExpiry = lease.authorityExpiresAt;
+    const cancelReason = lease.authorityCancelReason ?? null;
+
+    if (
+      args.event === "heartbeat" &&
+      (args.usageDisposition !== undefined ||
+        args.transportClosedAt !== undefined)
+    ) {
+      return {
+        recorded: false,
+        directive: "invalid" as const,
+        authorityEpoch: null,
+        authorityExpiresAt: null,
+        cancelReason: null,
+      };
     }
 
-    await ctx.db.patch(lease._id, {
-      status:
+    if (lease.authorityState === "cancel_requested") {
+      if (args.event === "cancel_ack" && args.authorityEpoch === currentEpoch) {
+        await finalizeVoiceRealtimeUsageAuthority(ctx, lease, {
+          now,
+          reason: cancelReason ?? "server_cancel",
+          disposition: args.usageDisposition ?? "unresolved",
+          transportClosedAt: args.transportClosedAt,
+        });
+        await ctx.db.patch(lease._id, {
+          status: "canceled",
+          authorityState: "acknowledged",
+          authorityExpiresAt: now,
+          authorityAcknowledgedAt: now,
+          authorityAcknowledgedEpoch: currentEpoch,
+          endedAt: lease.endedAt ?? now,
+          endReason: lease.endReason ?? cancelReason ?? "server_cancel",
+          updatedAt: now,
+        });
+        return {
+          recorded: true,
+          directive: "closed" as const,
+          authorityEpoch: currentEpoch,
+          authorityExpiresAt: now,
+          cancelReason,
+        };
+      }
+      if (args.authorityEpoch <= currentEpoch) {
+        return {
+          recorded: false,
+          directive: "cancel" as const,
+          authorityEpoch: currentEpoch,
+          authorityExpiresAt: currentExpiry,
+          cancelReason,
+        };
+      }
+      return {
+        recorded: false,
+        directive: "invalid" as const,
+        authorityEpoch: null,
+        authorityExpiresAt: null,
+        cancelReason: null,
+      };
+    }
+
+    if (
+      lease.authorityState === "acknowledged" ||
+      lease.authorityState === "expired" ||
+      lease.authorityState === "released"
+    ) {
+      return {
+        recorded: false,
+        directive: "closed" as const,
+        authorityEpoch: currentEpoch,
+        authorityExpiresAt: currentExpiry,
+        cancelReason,
+      };
+    }
+
+    if (args.authorityEpoch !== currentEpoch) {
+      return {
+        recorded: false,
+        directive: "invalid" as const,
+        authorityEpoch: null,
+        authorityExpiresAt: null,
+        cancelReason: null,
+      };
+    }
+
+    if (args.event === "cancel_ack") {
+      return {
+        recorded: false,
+        directive: "invalid" as const,
+        authorityEpoch: null,
+        authorityExpiresAt: null,
+        cancelReason: null,
+      };
+    }
+
+    if (args.event !== "heartbeat") {
+      const status =
         args.event === "ended"
           ? "ended"
           : args.event === "expired"
             ? "client_expired"
-            : "connection_lost",
-      endedAt: now,
-      endReason: args.event,
+            : "connection_lost";
+      await finalizeVoiceRealtimeUsageAuthority(ctx, lease, {
+        now,
+        reason: args.event,
+        disposition: args.usageDisposition ?? "unresolved",
+        transportClosedAt: args.transportClosedAt,
+      });
+      await ctx.db.patch(lease._id, {
+        status,
+        authorityState: "released",
+        authorityExpiresAt: now,
+        endedAt: now,
+        endReason: args.event,
+        updatedAt: now,
+      });
+      return {
+        recorded: true,
+        directive: "closed" as const,
+        authorityEpoch: currentEpoch,
+        authorityExpiresAt: now,
+        cancelReason: null,
+      };
+    }
+
+    let lifecycleAllowsRenewal = true;
+    try {
+      await assertOwnerMigrationWriteAllowed(
+        ctx,
+        args.ownerId,
+        args.ownerGeneration,
+      );
+    } catch {
+      lifecycleAllowsRenewal = false;
+    }
+    const authorityLive = now < currentExpiry;
+    const sessionLive = now < lease.leaseExpiresAt;
+    if (
+      lifecycleAllowsRenewal &&
+      authorityLive &&
+      sessionLive &&
+      lease.status === "active"
+    ) {
+      const renewedExpiresAt = Math.min(
+        lease.leaseExpiresAt,
+        now + VOICE_REALTIME_AUTHORITY_LEASE_MS,
+      );
+      const sessionReapAt = voiceAuthorityQuiescentAfter(renewedExpiresAt);
+      await ctx.db.patch(lease._id, {
+        heartbeatCount: Math.max(0, Math.floor(lease.heartbeatCount)) + 1,
+        lastHeartbeatAt: now,
+        providerLastProvenOpenAt: now,
+        authorityExpiresAt: renewedExpiresAt,
+        sessionReapAt,
+        updatedAt: now,
+      });
+      await ctx.scheduler.runAt(
+        sessionReapAt,
+        internal.billing.reapVoiceRealtimeSessionInternal,
+        {
+          ownerId: lease.ownerId,
+          ownerGeneration: lease.ownerGeneration ?? "legacy",
+          stellaSessionId: lease.stellaSessionId,
+          reapAt: sessionReapAt,
+        },
+      );
+      return {
+        recorded: true,
+        directive: "continue" as const,
+        authorityEpoch: currentEpoch,
+        authorityExpiresAt: renewedExpiresAt,
+        cancelReason: null,
+      };
+    }
+
+    const nextEpoch = currentEpoch + 1;
+    const nextCancelReason = !lifecycleAllowsRenewal
+      ? "owner_lifecycle"
+      : !authorityLive
+        ? "authority_expired"
+        : !sessionLive
+          ? "session_expired"
+          : "session_closed";
+    await ctx.db.patch(lease._id, {
+      authorityState: "cancel_requested",
+      authorityEpoch: nextEpoch,
+      authorityCancelReason: nextCancelReason,
+      authorityCancelRequestedAt: now,
       updatedAt: now,
     });
-    return { recorded: true, status: args.event };
+    return {
+      recorded: false,
+      directive: "cancel" as const,
+      authorityEpoch: nextEpoch,
+      authorityExpiresAt: currentExpiry,
+      cancelReason: nextCancelReason,
+    };
+  },
+});
+
+/**
+ * Crash/offline expiry settlement. The lifecycle quiescence pass first closes
+ * renderer and usage authority and leaves an explicit unresolved disposition;
+ * this exact-tuple wake then materializes the bounded conservative receipt.
+ */
+export const finalizeExpiredVoiceRealtimeUsageInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    stellaSessionId: v.string(),
+    authorityLeaseId: v.string(),
+    authorityEpoch: v.number(),
+    authorityExpiresAt: v.number(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const lease = await getVoiceRealtimeLease(ctx, args.stellaSessionId);
+    if (
+      !lease ||
+      lease.ownerId !== args.ownerId ||
+      (lease.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
+      lease.authorityLeaseId !== args.authorityLeaseId ||
+      lease.authorityEpoch !== args.authorityEpoch ||
+      lease.authorityExpiresAt !== args.authorityExpiresAt ||
+      lease.authorityState !== "expired" ||
+      lease.usageDisposition !== "unresolved"
+    ) {
+      return false;
+    }
+    await finalizeVoiceRealtimeUsageAuthority(ctx, lease, {
+      now: Date.now(),
+      reason: lease.endReason ?? "authority_expired",
+      disposition: "unresolved",
+    });
+    return true;
+  },
+});
+
+/**
+ * Exact scheduled reaper for both prepare crashes and renderer crashes. It
+ * never treats disappearance of an ambiguous provider-create response as
+ * proof that no remote call exists.
+ */
+export const reapVoiceRealtimeSessionInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    stellaSessionId: v.string(),
+    reapAt: v.number(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const lease = await getVoiceRealtimeLease(ctx, args.stellaSessionId);
+    const now = Date.now();
+    if (
+      !lease ||
+      lease.ownerId !== args.ownerId ||
+      (lease.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
+      lease.sessionReapAt !== args.reapAt ||
+      now < args.reapAt ||
+      lease.usageReservationState !== "active" ||
+      lease.usageDisposition === "exact" ||
+      lease.usageDisposition === "conservative_fallback"
+    ) {
+      return false;
+    }
+    const providerAttempt = await ctx.db
+      .query("voice_provider_dispatch_leases")
+      .withIndex("by_ownerId_and_stellaSessionId_and_createdAt", (q) =>
+        q
+          .eq("ownerId", args.ownerId)
+          .eq("stellaSessionId", args.stellaSessionId),
+      )
+      .first();
+    if (providerAttempt) {
+      const reapAt = Math.max(
+        now + 1_000,
+        providerAttempt.quiescentAfterAt + 1,
+      );
+      await ctx.db.patch(lease._id, { sessionReapAt: reapAt, updatedAt: now });
+      await ctx.scheduler.runAt(
+        reapAt,
+        internal.billing.reapVoiceRealtimeSessionInternal,
+        { ...args, reapAt },
+      );
+      return true;
+    }
+
+    if (lease.providerCallId) {
+      const providerHardExpiresAt =
+        lease.providerHardExpiresAt ??
+        (lease.providerCallCreateStartedAt ??
+          lease.providerCallBoundAt ??
+          now) + OPENAI_REALTIME_PROVIDER_HARD_MAX_MS;
+      await ctx.db.patch(lease._id, {
+        authorityState:
+          lease.authorityState === "acknowledged" ? "acknowledged" : "expired",
+        authorityExpiresAt: Math.min(lease.authorityExpiresAt ?? now, now),
+        status:
+          lease.status === "canceled" || lease.status === "ended"
+            ? lease.status
+            : "client_expired",
+        endedAt: lease.endedAt ?? now,
+        endReason: lease.endReason ?? "authority_expired",
+        updatedAt: now,
+      });
+      await finalizeVoiceRealtimeUsageAuthority(ctx, lease, {
+        now,
+        reason: lease.endReason ?? "authority_expired",
+        disposition: "unresolved",
+        ...(now >= providerHardExpiresAt
+          ? { providerVerifiedClosedAt: providerHardExpiresAt }
+          : {}),
+      });
+      return true;
+    }
+
+    if (lease.providerCallCreateStartedAt !== undefined) {
+      const providerHardExpiresAt =
+        lease.providerHardExpiresAt ??
+        lease.providerCallCreateStartedAt +
+          OPENAI_REALTIME_PROVIDER_HARD_MAX_MS;
+      if (now < providerHardExpiresAt) {
+        await ctx.db.patch(lease._id, {
+          status: "blocked_missing_report",
+          authorityState: lease.authorityState ? "expired" : undefined,
+          authorityExpiresAt: lease.authorityState ? now : undefined,
+          usageDisposition: "unresolved",
+          usageAuthorityClosedAt: lease.usageAuthorityClosedAt ?? now,
+          usageAuthorityClosedReason: "provider_call_response_lost",
+          providerHangupState: "ambiguous",
+          providerHangupLastError: "provider_call_response_lost",
+          sessionReapAt: providerHardExpiresAt,
+          endedAt: lease.endedAt ?? now,
+          endReason: lease.endReason ?? "provider_call_response_lost",
+          updatedAt: now,
+        });
+        await ctx.scheduler.runAt(
+          providerHardExpiresAt,
+          internal.billing.reapVoiceRealtimeSessionInternal,
+          { ...args, reapAt: providerHardExpiresAt },
+        );
+        return true;
+      }
+      // At the documented provider hard horizon even an unlocated call is
+      // terminal. Settle the pinned conservative envelope exactly once.
+      await finalizeVoiceRealtimeUsageAuthority(ctx, lease, {
+        now,
+        reason: "provider_call_response_lost_hard_expiry",
+        disposition: "unresolved",
+        providerVerifiedClosedAt: providerHardExpiresAt,
+      });
+      await ctx.db.patch(lease._id, {
+        status: "blocked_missing_report",
+        authorityState: lease.authorityState ? "expired" : undefined,
+        authorityExpiresAt: lease.authorityState ? now : undefined,
+        sessionReapAt: undefined,
+        endedAt: lease.endedAt ?? now,
+        endReason: lease.endReason ?? "provider_call_response_lost_hard_expiry",
+        updatedAt: now,
+      });
+      return true;
+    }
+
+    await releaseVoiceUsageReservationAuthorized(ctx, lease, now);
+    await ctx.db.patch(lease._id, {
+      status: "failed",
+      authorityState: lease.authorityState ? "released" : undefined,
+      authorityExpiresAt: lease.authorityState ? now : undefined,
+      usageDisposition: "exact",
+      usageDispositionAt: now,
+      usageAuthorityClosedAt: now,
+      usageAuthorityClosedReason: "session_reaped_undispatched",
+      usageReservationState: "released",
+      usageReservedMicroCents: 0,
+      sessionReapAt: undefined,
+      endedAt: lease.endedAt ?? now,
+      endReason: lease.endReason ?? "session_reaped_undispatched",
+      updatedAt: now,
+    });
+    return true;
+  },
+});
+
+/**
+ * Atomically acquire one exact provider-hangup attempt. The scheduled wake at
+ * the lease boundary is the crash/restart recovery path when an action dies
+ * after POSTing but before it can record the provider response.
+ */
+export const acquireOpenAiVoiceHangupCommandInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    stellaSessionId: v.string(),
+    providerCallId: v.string(),
+    attemptId: v.string(),
+    now: v.number(),
+  },
+  returns: v.union(v.null(), v.object({ providerCallId: v.string() })),
+  handler: async (ctx, args) => {
+    const lease = await getVoiceRealtimeLease(ctx, args.stellaSessionId);
+    if (
+      !lease ||
+      lease.ownerId !== args.ownerId ||
+      (lease.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
+      lease.provider !== "openai" ||
+      lease.providerCallId !== args.providerCallId ||
+      lease.providerHangupState === "confirmed" ||
+      !args.attemptId.trim()
+    ) {
+      return null;
+    }
+    if (
+      lease.providerHangupActiveAttemptId &&
+      typeof lease.providerHangupLeaseExpiresAt === "number" &&
+      args.now < lease.providerHangupLeaseExpiresAt
+    ) {
+      return null;
+    }
+    const leaseExpiresAt = args.now + VOICE_REALTIME_HANGUP_ATTEMPT_LEASE_MS;
+    await ctx.db.patch(lease._id, {
+      providerHangupState:
+        lease.providerHangupState === "ambiguous" ? "ambiguous" : "requested",
+      providerHangupActiveAttemptId: args.attemptId,
+      providerHangupLeaseExpiresAt: leaseExpiresAt,
+      providerHangupLastAttemptAt: args.now,
+      updatedAt: args.now,
+    });
+    await ctx.scheduler.runAt(
+      leaseExpiresAt,
+      internal.billing.hangupOpenAiVoiceCallInternal,
+      {
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        stellaSessionId: args.stellaSessionId,
+        providerCallId: args.providerCallId,
+      },
+    );
+    return { providerCallId: lease.providerCallId };
+  },
+});
+
+export const recordOpenAiVoiceHangupAttemptInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    stellaSessionId: v.string(),
+    providerCallId: v.string(),
+    attemptId: v.string(),
+    terminal: v.boolean(),
+    providerStatus: v.optional(v.number()),
+    error: v.optional(v.string()),
+    now: v.number(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const lease = await getVoiceRealtimeLease(ctx, args.stellaSessionId);
+    if (
+      !lease ||
+      lease.ownerId !== args.ownerId ||
+      (lease.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
+      lease.provider !== "openai" ||
+      lease.providerCallId !== args.providerCallId ||
+      lease.providerHangupActiveAttemptId !== args.attemptId
+    ) {
+      return false;
+    }
+    if (lease.providerHangupState === "confirmed") return true;
+    const attempts = Math.max(
+      1,
+      Math.floor(lease.providerHangupAttempts ?? 0) + 1,
+    );
+    const providerHardExpiresAt =
+      lease.providerHardExpiresAt ??
+      (lease.providerCallCreateStartedAt ??
+        lease.providerCallBoundAt ??
+        args.now) + OPENAI_REALTIME_PROVIDER_HARD_MAX_MS;
+    if (args.terminal || args.now >= providerHardExpiresAt) {
+      const verifiedClosedAt = args.terminal ? args.now : providerHardExpiresAt;
+      await finalizeVoiceRealtimeUsageAuthority(ctx, lease, {
+        now: args.now,
+        reason: lease.providerHangupRequestedReason ?? "provider_hangup",
+        disposition: "unresolved",
+        providerVerifiedClosedAt: verifiedClosedAt,
+      });
+      await ctx.db.patch(lease._id, {
+        providerHangupState: "confirmed",
+        providerHangupAttempts: attempts,
+        providerHangupLastAttemptAt: args.now,
+        providerHangupConfirmedAt: verifiedClosedAt,
+        providerHangupActiveAttemptId: undefined,
+        providerHangupLeaseExpiresAt: undefined,
+        providerHangupNextRetryAt: undefined,
+        providerHangupLastError: undefined,
+        sessionReapAt: undefined,
+        updatedAt: args.now,
+      });
+      return true;
+    }
+    const retryDelay = Math.min(
+      VOICE_REALTIME_HANGUP_MAX_RETRY_MS,
+      VOICE_REALTIME_HANGUP_INITIAL_RETRY_MS *
+        2 ** Math.min(8, Math.max(0, attempts - 1)),
+    );
+    const retryAt = args.now + retryDelay;
+    await ctx.db.patch(lease._id, {
+      usageDisposition: "revocation_pending",
+      providerHangupState: "ambiguous",
+      providerHangupAttempts: attempts,
+      providerHangupLastAttemptAt: args.now,
+      providerHangupActiveAttemptId: undefined,
+      providerHangupLeaseExpiresAt: undefined,
+      providerHangupNextRetryAt: retryAt,
+      providerHangupLastError: (
+        args.error ?? `provider_status_${args.providerStatus ?? "unknown"}`
+      ).slice(0, 240),
+      updatedAt: args.now,
+    });
+    await ctx.scheduler.runAt(
+      retryAt,
+      internal.billing.hangupOpenAiVoiceCallInternal,
+      {
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        stellaSessionId: args.stellaSessionId,
+        providerCallId: args.providerCallId,
+      },
+    );
+    return true;
+  },
+});
+
+/** Provider-verifiable, replay-safe OpenAI call revocation. */
+export const hangupOpenAiVoiceCallInternal = internalAction({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    stellaSessionId: v.string(),
+    providerCallId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const attemptId = crypto.randomUUID();
+    const command = await ctx.runMutation(
+      internal.billing.acquireOpenAiVoiceHangupCommandInternal,
+      {
+        ...args,
+        attemptId,
+        now: Date.now(),
+      },
+    );
+    if (!command) return null;
+    const apiKey = process.env.OPENAI_API_KEY?.trim();
+    let terminal = false;
+    let providerStatus: number | undefined;
+    let error: string | undefined;
+    if (!apiKey) {
+      error = "OPENAI_API_KEY is not configured";
+    } else {
+      try {
+        const response = await fetch(
+          `https://api.openai.com/v1/realtime/calls/${encodeURIComponent(command.providerCallId)}/hangup`,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${apiKey}` },
+            signal: AbortSignal.timeout(15_000),
+          },
+        );
+        providerStatus = response.status;
+        await response.body?.cancel().catch(() => undefined);
+        terminal = response.ok || response.status === 404;
+        if (!terminal) error = `OpenAI hangup returned ${response.status}`;
+      } catch (cause) {
+        error = cause instanceof Error ? cause.message : String(cause);
+      }
+    }
+    await ctx.runMutation(
+      internal.billing.recordOpenAiVoiceHangupAttemptInternal,
+      {
+        ...args,
+        attemptId,
+        terminal,
+        ...(providerStatus !== undefined ? { providerStatus } : {}),
+        ...(error ? { error } : {}),
+        now: Date.now(),
+      },
+    );
+    return null;
   },
 });
 
 export const recordVoiceRealtimeUsage = internalMutation({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
+    providerDispatchId: v.string(),
+    providerAttemptId: v.string(),
+    authorityLeaseId: v.string(),
+    authorityEpoch: v.number(),
     responseId: v.string(),
     model: v.string(),
-    stellaSessionId: v.optional(v.string()),
+    stellaSessionId: v.string(),
     conversationId: v.optional(v.id("conversations")),
     inputTokens: v.number(),
     outputTokens: v.number(),
@@ -1108,21 +3515,70 @@ export const recordVoiceRealtimeUsage = internalMutation({
     sttModel: v.optional(v.string()),
     sttAudioSeconds: v.optional(v.number()),
   },
+  returns: v.union(
+    v.object({
+      recorded: v.literal(false),
+      duplicate: v.literal(true),
+      costMicroCents: v.number(),
+    }),
+    v.object({
+      recorded: v.literal(true),
+      duplicate: v.literal(false),
+      costMicroCents: v.number(),
+    }),
+  ),
   handler: async (ctx, args) => {
+    const now = Date.now();
+    if (!Number.isSafeInteger(args.authorityEpoch) || args.authorityEpoch < 1) {
+      throw new ConvexError({
+        code: "VOICE_USAGE_AUTHORITY_INVALID",
+        message: "The realtime voice usage authority is invalid.",
+      });
+    }
+    const requestFingerprint = await voiceUsageRequestFingerprint(args);
     const existing = await getExistingVoiceUsageReceipt(
       ctx,
       args.ownerId,
       args.responseId,
     );
     if (existing) {
+      if (
+        (existing.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
+        existing.providerDispatchId !== args.providerDispatchId ||
+        existing.providerAttemptId !== args.providerAttemptId ||
+        (existing.stellaSessionId !== undefined &&
+          existing.stellaSessionId !== args.stellaSessionId) ||
+        (existing.authorityLeaseId !== undefined &&
+          existing.authorityLeaseId !== args.authorityLeaseId) ||
+        (existing.authorityEpoch !== undefined &&
+          existing.authorityEpoch !== args.authorityEpoch) ||
+        (existing.disposition !== undefined &&
+          existing.disposition !== "exact") ||
+        (existing.requestFingerprint !== undefined &&
+          existing.requestFingerprint !== requestFingerprint)
+      ) {
+        throw new ConvexError({
+          code: "VOICE_USAGE_IDEMPOTENCY_CONFLICT",
+          message:
+            "This voice response id is bound to a different usage receipt.",
+        });
+      }
       return {
-        recorded: false,
-        duplicate: true,
+        recorded: false as const,
+        duplicate: true as const,
         costMicroCents: existing.costMicroCents,
       };
     }
 
-    const costMicroCents = computeRealtimeUsageCostMicroCents({
+    const lease = await getVoiceRealtimeLease(ctx, args.stellaSessionId);
+    if (!lease) {
+      throw new ConvexError({
+        code: "VOICE_SESSION_UNAVAILABLE",
+        message: "The realtime voice session is no longer available.",
+      });
+    }
+
+    const reportedCostMicroCents = computeRealtimeUsageCostMicroCents({
       model: args.model,
       textInputTokens: args.textInputTokens,
       textCachedInputTokens: args.textCachedInputTokens,
@@ -1138,22 +3594,61 @@ export const recordVoiceRealtimeUsage = internalMutation({
       sttModel: args.sttModel,
       sttAudioSeconds: args.sttAudioSeconds,
     });
+    const remainingSessionChargeCapMicroCents = Math.max(
+      0,
+      Math.floor(
+        lease.usageFallbackChargeCapMicroCents ?? Number.MAX_SAFE_INTEGER,
+      ) - Math.max(0, Math.floor(lease.estimatedCostMicroCents)),
+    );
+    // Renderer/provider-channel usage is useful exact telemetry, but it may be
+    // fabricated by a modified client. Never let it charge beyond the exact
+    // admission-time physical-session ceiling; conservative finalization later
+    // fills any under-reporting residual to the server-known lease envelope.
+    const costMicroCents = Math.min(
+      reportedCostMicroCents,
+      remainingSessionChargeCapMicroCents,
+    );
 
-    await persistManagedUsage(ctx, {
+    await persistExactVoiceRealtimeUsageAuthorized(ctx, lease, {
       ownerId: args.ownerId,
-      conversationId: args.conversationId ?? null,
-      agentType: "service:voice:realtime",
-      model: args.model,
-      durationMs: 0,
-      success: true,
-      inputTokens: args.inputTokens,
-      outputTokens: args.outputTokens,
-      totalTokens: args.totalTokens,
-      costMicroCents,
+      ownerGeneration: args.ownerGeneration,
+      stellaSessionId: args.stellaSessionId,
+      providerDispatchId: args.providerDispatchId,
+      providerAttemptId: args.providerAttemptId,
+      authorityLeaseId: args.authorityLeaseId,
+      authorityEpoch: args.authorityEpoch,
+      usage: {
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        conversationId: args.conversationId ?? null,
+        agentType: "service:voice:realtime",
+        model: args.model,
+        durationMs: 0,
+        success: true,
+        inputTokens: args.inputTokens,
+        outputTokens: args.outputTokens,
+        totalTokens: args.totalTokens,
+        costMicroCents,
+      },
     });
+    const usageReservedMicroCents =
+      await consumeVoiceUsageReservationAuthorized(
+        ctx,
+        lease,
+        costMicroCents,
+        now,
+      );
 
     await ctx.db.insert("billing_voice_usage_receipts", {
       ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      providerDispatchId: args.providerDispatchId,
+      providerAttemptId: args.providerAttemptId,
+      stellaSessionId: args.stellaSessionId,
+      authorityLeaseId: args.authorityLeaseId,
+      authorityEpoch: args.authorityEpoch,
+      requestFingerprint,
+      disposition: "exact",
       responseId: args.responseId,
       model: args.model,
       ...(args.conversationId ? { conversationId: args.conversationId } : {}),
@@ -1182,225 +3677,126 @@ export const recordVoiceRealtimeUsage = internalMutation({
         ? { sttAudioSeconds: args.sttAudioSeconds }
         : {}),
       costMicroCents,
-      createdAt: Date.now(),
+      createdAt: now,
     });
 
-    const stellaSessionId = args.stellaSessionId;
-    if (stellaSessionId) {
-      const lease = await ctx.db
-        .query("billing_voice_sessions")
-        .withIndex("by_stellaSessionId", (q) =>
-          q.eq("stellaSessionId", stellaSessionId),
-        )
-        .unique();
-      if (lease && lease.ownerId === args.ownerId) {
-        await ctx.db.patch(lease._id, {
-          lastUsageAt: Date.now(),
-          responseCount: Math.max(0, Math.floor(lease.responseCount)) + 1,
-          estimatedCostMicroCents:
-            Math.max(0, Math.floor(lease.estimatedCostMicroCents)) +
-            costMicroCents,
-          inputTokens:
-            Math.max(0, Math.floor(lease.inputTokens)) + args.inputTokens,
-          outputTokens:
-            Math.max(0, Math.floor(lease.outputTokens)) + args.outputTokens,
-          totalTokens:
-            Math.max(0, Math.floor(lease.totalTokens)) + args.totalTokens,
-          realtimeAudioSeconds:
-            Math.max(0, lease.realtimeAudioSeconds) +
-            Math.max(0, args.realtimeAudioSeconds ?? 0),
-          sttAudioSeconds:
-            Math.max(0, lease.sttAudioSeconds) +
-            Math.max(0, args.sttAudioSeconds ?? 0),
-          updatedAt: Date.now(),
-        });
-      }
+    await ctx.db.patch(lease._id, {
+      lastUsageAt: now,
+      responseCount: Math.max(0, Math.floor(lease.responseCount)) + 1,
+      estimatedCostMicroCents:
+        Math.max(0, Math.floor(lease.estimatedCostMicroCents)) + costMicroCents,
+      inputTokens:
+        Math.max(0, Math.floor(lease.inputTokens)) + args.inputTokens,
+      outputTokens:
+        Math.max(0, Math.floor(lease.outputTokens)) + args.outputTokens,
+      totalTokens:
+        Math.max(0, Math.floor(lease.totalTokens)) + args.totalTokens,
+      realtimeAudioSeconds:
+        Math.max(0, lease.realtimeAudioSeconds) +
+        Math.max(0, args.realtimeAudioSeconds ?? 0),
+      sttAudioSeconds:
+        Math.max(0, lease.sttAudioSeconds) +
+        Math.max(0, args.sttAudioSeconds ?? 0),
+      usageReservedMicroCents,
+      updatedAt: now,
+    });
+
+    return {
+      recorded: true as const,
+      duplicate: false as const,
+      costMicroCents,
+    };
+  },
+});
+
+type MediaCompletedUsageArgs = {
+  ownerId: string;
+  ownerGeneration: string;
+  jobId: string;
+  providerRequestId?: string;
+  endpointId: string;
+  billingUnit: string;
+  quantity: number;
+  costMicroCents: number;
+};
+
+/**
+ * Same-transaction media receipt finalizer. The caller must already hold an
+ * exact owner-generation write authority in this transaction. Keeping this
+ * helper lifecycle-independent lets a media success commit its billing
+ * disposition before releasing provider authority, with no scheduled gap.
+ */
+export const recordMediaCompletedUsageAuthorized = async (
+  ctx: MutationCtx,
+  args: MediaCompletedUsageArgs,
+) => {
+  const existing = await getExistingMediaUsageReceipt(
+    ctx,
+    args.ownerId,
+    args.jobId,
+  );
+  if (existing) {
+    if ((existing.ownerGeneration ?? "legacy") !== args.ownerGeneration) {
+      throw new ConvexError({
+        code: "OWNER_DATA_GENERATION_STALE",
+        message:
+          "This media completion started before the account data was reset.",
+      });
     }
-
+    if (
+      existing.providerRequestId !== args.providerRequestId ||
+      existing.endpointId !== args.endpointId ||
+      existing.billingUnit !== args.billingUnit ||
+      existing.quantity !== args.quantity ||
+      existing.costMicroCents !== args.costMicroCents
+    ) {
+      throw new ConvexError({
+        code: "MEDIA_BILLING_RECEIPT_CONFLICT",
+        message: "The media job billing disposition changed on replay.",
+      });
+    }
     return {
-      recorded: true,
-      duplicate: false,
-      costMicroCents,
+      recorded: false,
+      duplicate: true,
+      costMicroCents: existing.costMicroCents,
     };
-  },
-});
+  }
 
-export const recordVoiceTtsUsage = internalMutation({
-  args: {
-    ownerId: v.string(),
-    model: v.string(),
-    conversationId: v.optional(v.id("conversations")),
-    textInputTokens: v.number(),
-    audioOutputTokens: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const textInputTokens = Math.max(0, Math.floor(args.textInputTokens));
-    const audioOutputTokens = Math.max(0, Math.floor(args.audioOutputTokens));
-    const costMicroCents = computeTtsUsageCostMicroCents({
-      model: args.model,
-      textInputTokens,
-      audioOutputTokens,
-    });
+  await persistManagedUsageAuthorized(ctx, {
+    ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
+    agentType: "service:media",
+    model: args.endpointId,
+    durationMs: 0,
+    success: true,
+    costMicroCents: args.costMicroCents,
+  });
 
-    await persistManagedUsage(ctx, {
-      ownerId: args.ownerId,
-      conversationId: args.conversationId ?? null,
-      agentType: "service:voice:tts",
-      model: args.model,
-      durationMs: 0,
-      success: true,
-      inputTokens: textInputTokens,
-      outputTokens: audioOutputTokens,
-      totalTokens: textInputTokens + audioOutputTokens,
-      costMicroCents,
-    });
+  await ctx.db.insert("billing_media_usage_receipts", {
+    ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
+    jobId: args.jobId,
+    ...(args.providerRequestId
+      ? { providerRequestId: args.providerRequestId }
+      : {}),
+    endpointId: args.endpointId,
+    billingUnit: args.billingUnit,
+    quantity: args.quantity,
+    costMicroCents: args.costMicroCents,
+    createdAt: Date.now(),
+  });
 
-    return {
-      recorded: true,
-      costMicroCents,
-    };
-  },
-});
-
-/**
- * Internal-only TTS/read-aloud spend ledger.
- *
- * Read-aloud is free on every plan, so — unlike `recordVoiceTtsUsage` above —
- * this mutation deliberately does NOT call `persistManagedUsage`. It never
- * touches the user's usage windows, credit balance, `usage_logs`, or any plan
- * entitlement. It only writes a row to `internal_tts_usage` capturing provider
- * spend, including for interrupted/partial/failed generations, so internal
- * cost reporting stays accurate without ever charging a user.
- */
-export const recordInternalTtsUsage = internalMutation({
-  args: {
-    ownerId: v.string(),
-    provider: v.union(v.literal("inworld"), v.literal("openai")),
-    model: v.string(),
-    voice: v.optional(v.string()),
-    conversationId: v.optional(v.id("conversations")),
-    streaming: v.boolean(),
-    status: v.union(
-      v.literal("completed"),
-      v.literal("failed"),
-      v.literal("interrupted"),
-      v.literal("partial"),
-    ),
-    requestChars: v.number(),
-    synthesizedChars: v.number(),
-    audioBytes: v.number(),
-    textInputTokens: v.optional(v.number()),
-    audioOutputTokens: v.optional(v.number()),
-    durationMs: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const requestChars = Math.max(0, Math.floor(args.requestChars));
-    const synthesizedChars = Math.max(
-      0,
-      Math.min(requestChars, Math.floor(args.synthesizedChars)),
-    );
-    const audioBytes = Math.max(0, Math.floor(args.audioBytes));
-    const textInputTokens = Math.max(
-      0,
-      Math.floor(
-        args.textInputTokens ?? Math.ceil(synthesizedChars / 4),
-      ),
-    );
-    const audioOutputTokens = Math.max(
-      0,
-      Math.floor(args.audioOutputTokens ?? 0),
-    );
-
-    const costMicroCents =
-      args.provider === "inworld"
-        ? computeInworldTtsCostMicroCents({
-            model: args.model,
-            chars: synthesizedChars,
-          })
-        : computeTtsUsageCostMicroCents({
-            model: args.model,
-            textInputTokens,
-            audioOutputTokens,
-          });
-
-    const usageId = await ctx.db.insert("internal_tts_usage", {
-      ownerId: args.ownerId,
-      provider: args.provider,
-      model: args.model,
-      ...(args.voice ? { voice: args.voice } : {}),
-      ...(args.conversationId ? { conversationId: args.conversationId } : {}),
-      streaming: args.streaming,
-      status: args.status,
-      requestChars,
-      synthesizedChars,
-      audioBytes,
-      textInputTokens,
-      audioOutputTokens,
-      costMicroCents,
-      durationMs: Math.max(0, Math.floor(args.durationMs ?? 0)),
-      createdAt: Date.now(),
-    });
-
-    return { recorded: true, costMicroCents, usageId };
-  },
-});
-
-/**
- * Finalize a streaming TTS ledger row created up front.
- *
- * A streaming synthesis inserts a pessimistic "interrupted" row before it
- * begins, then updates it to the real terminal status when the stream ends.
- * If the client disconnects mid-stream the serving action is terminated and
- * this update never runs — the row is left as "interrupted", which is exactly
- * the correct accounting (the provider received the full text and the client
- * stopped early). Cost is recomputed from the final synthesized-character
- * count so a clean completion is billed exactly.
- */
-export const finalizeInternalTtsUsage = internalMutation({
-  args: {
-    usageId: v.id("internal_tts_usage"),
-    status: v.union(
-      v.literal("completed"),
-      v.literal("failed"),
-      v.literal("interrupted"),
-      v.literal("partial"),
-    ),
-    synthesizedChars: v.number(),
-    audioBytes: v.number(),
-    durationMs: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const row = await ctx.db.get(args.usageId);
-    if (!row) return { updated: false };
-    const synthesizedChars = Math.max(
-      0,
-      Math.min(row.requestChars, Math.floor(args.synthesizedChars)),
-    );
-    const costMicroCents =
-      row.provider === "inworld"
-        ? computeInworldTtsCostMicroCents({
-            model: row.model,
-            chars: synthesizedChars,
-          })
-        : computeTtsUsageCostMicroCents({
-            model: row.model,
-            textInputTokens: row.textInputTokens,
-            audioOutputTokens: row.audioOutputTokens,
-          });
-    await ctx.db.patch(args.usageId, {
-      status: args.status,
-      synthesizedChars,
-      audioBytes: Math.max(0, Math.floor(args.audioBytes)),
-      durationMs: Math.max(0, Math.floor(args.durationMs)),
-      costMicroCents,
-    });
-    return { updated: true, costMicroCents };
-  },
-});
+  return {
+    recorded: true,
+    duplicate: false,
+    costMicroCents: args.costMicroCents,
+  };
+};
 
 export const recordMediaCompletedUsage = internalMutation({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
     jobId: v.string(),
     providerRequestId: v.optional(v.string()),
     endpointId: v.string(),
@@ -1408,47 +3804,18 @@ export const recordMediaCompletedUsage = internalMutation({
     quantity: v.number(),
     costMicroCents: v.number(),
   },
+  returns: v.object({
+    recorded: v.boolean(),
+    duplicate: v.boolean(),
+    costMicroCents: v.number(),
+  }),
   handler: async (ctx, args) => {
-    const existing = await getExistingMediaUsageReceipt(
+    await assertOwnerMigrationWriteAllowed(
       ctx,
       args.ownerId,
-      args.jobId,
+      args.ownerGeneration,
     );
-    if (existing) {
-      return {
-        recorded: false,
-        duplicate: true,
-        costMicroCents: existing.costMicroCents,
-      };
-    }
-
-    await persistManagedUsage(ctx, {
-      ownerId: args.ownerId,
-      agentType: "service:media",
-      model: args.endpointId,
-      durationMs: 0,
-      success: true,
-      costMicroCents: args.costMicroCents,
-    });
-
-    await ctx.db.insert("billing_media_usage_receipts", {
-      ownerId: args.ownerId,
-      jobId: args.jobId,
-      ...(args.providerRequestId
-        ? { providerRequestId: args.providerRequestId }
-        : {}),
-      endpointId: args.endpointId,
-      billingUnit: args.billingUnit,
-      quantity: args.quantity,
-      costMicroCents: args.costMicroCents,
-      createdAt: Date.now(),
-    });
-
-    return {
-      recorded: true,
-      duplicate: false,
-      costMicroCents: args.costMicroCents,
-    };
+    return await recordMediaCompletedUsageAuthorized(ctx, args);
   },
 });
 
@@ -1485,14 +3852,1104 @@ const appendCheckoutStatus = (
   return parsed.toString();
 };
 
+/**
+ * Exact pre-provider gate for managed model calls. Keeping the lifecycle and
+ * auth-migration source reads in one mutation transaction serializes dispatch
+ * against both reset/delete and anonymous-owner transfer.
+ */
+export const assertManagedUsageDispatchAllowedInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
+    return null;
+  },
+});
+
+const requireManagedDispatchId = (value: string, field: string) => {
+  const normalized = value.trim();
+  if (normalized.length < 8 || normalized.length > 256) {
+    throw new Error(`Invalid managed dispatch ${field}.`);
+  }
+  return normalized;
+};
+
+const managedDispatchTimingValidator = v.object({
+  providerDeadlineAt: v.number(),
+  leaseExpiresAt: v.number(),
+  quiescentAfterAt: v.number(),
+});
+
+const MANAGED_REQUEST_ROUTE_PATTERN = /^[a-z][a-z0-9:_-]{2,63}$/u;
+const MANAGED_REQUEST_ID_PATTERN = /^[A-Za-z0-9:._-]{8,256}$/u;
+const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/u;
+
+/**
+ * Freeze one logical paid-provider request to its canonical provider body.
+ * This durable binding outlives short-lived physical-attempt receipts, making
+ * service retries idempotent while rejecting request-id rebinding before I/O.
+ */
+export const bindManagedProviderRequestInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    route: v.string(),
+    requestId: v.string(),
+    bodyFingerprint: v.string(),
+    now: v.number(),
+  },
+  returns: v.object({
+    requestFingerprint: v.string(),
+    replayed: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const ownerId = args.ownerId.trim();
+    const { generation: ownerGeneration } =
+      await assertOwnerMigrationWriteAllowed(
+        ctx,
+        ownerId,
+        args.ownerGeneration,
+      );
+    const route = args.route.trim();
+    const requestId = args.requestId.trim();
+    const bodyFingerprint = args.bodyFingerprint.trim().toLowerCase();
+    if (!MANAGED_REQUEST_ROUTE_PATTERN.test(route)) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: "Managed provider request route is invalid.",
+      });
+    }
+    if (!MANAGED_REQUEST_ID_PATTERN.test(requestId)) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: "Managed provider request id is invalid.",
+      });
+    }
+    if (!SHA256_HEX_PATTERN.test(bodyFingerprint)) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: "Managed provider request body fingerprint is invalid.",
+      });
+    }
+
+    const requestFingerprint = await createManagedDispatchRequestFingerprint(
+      route,
+      `${ownerId}\u0000${ownerGeneration}\u0000${requestId}`,
+    );
+    const existing = await ctx.db
+      .query("billing_managed_request_bindings")
+      .withIndex(
+        "by_ownerId_and_ownerGeneration_and_route_and_requestId",
+        (q) =>
+          q
+            .eq("ownerId", ownerId)
+            .eq("ownerGeneration", ownerGeneration)
+            .eq("route", route)
+            .eq("requestId", requestId),
+      )
+      .unique();
+    if (existing) {
+      if (
+        existing.bodyFingerprint !== bodyFingerprint ||
+        existing.requestFingerprint !== requestFingerprint
+      ) {
+        throw new ConvexError({
+          code: "IDEMPOTENCY_CONFLICT",
+          message:
+            "Managed provider request id was reused with different input.",
+        });
+      }
+      return { requestFingerprint, replayed: true };
+    }
+
+    await ctx.db.insert("billing_managed_request_bindings", {
+      ownerId,
+      ownerGeneration,
+      route,
+      requestId,
+      bodyFingerprint,
+      requestFingerprint,
+      createdAt: args.now,
+      updatedAt: args.now,
+    });
+    return { requestFingerprint, replayed: false };
+  },
+});
+
+type ManagedDispatchRow = Doc<"billing_managed_dispatch_leases">;
+
+const normalizeManagedDispatchBillingEnvelope = (
+  billing: ManagedDispatchBillingEnvelope,
+): ManagedDispatchBillingEnvelope => {
+  const requestFingerprint = billing.requestFingerprint.trim();
+  if (requestFingerprint.length < 16 || requestFingerprint.length > 256) {
+    throw new Error("Invalid managed dispatch billing fingerprint.");
+  }
+  if (billing.kind === PARALLEL_SEARCH_FAST_BILLING_KIND) {
+    if (billing.chargeMicroCents !== PARALLEL_SEARCH_FAST_COST_MICRO_CENTS) {
+      throw new Error("Unsupported managed dispatch billing envelope.");
+    }
+    return { ...billing, requestFingerprint };
+  }
+
+  if (billing.kind !== MANAGED_USAGE_BILLING_KIND) {
+    throw new Error("Unsupported managed dispatch billing envelope.");
+  }
+  const agentType = billing.agentType.trim();
+  const model = billing.model.trim();
+  if (!agentType || agentType.length > 256 || !model || model.length > 512) {
+    throw new Error("Invalid managed usage billing attribution.");
+  }
+  const fallbackCostMicroCents = Math.floor(billing.fallbackCostMicroCents);
+  if (
+    !Number.isFinite(billing.fallbackCostMicroCents) ||
+    !Number.isSafeInteger(fallbackCostMicroCents) ||
+    fallbackCostMicroCents <= 0
+  ) {
+    throw new Error("Managed usage fallback estimate must be positive.");
+  }
+  return {
+    ...billing,
+    requestFingerprint,
+    agentType,
+    model,
+    fallbackCostMicroCents,
+  };
+};
+
+const managedDispatchBillingEnvelopeMatches = (
+  row: ManagedDispatchRow,
+  billing: ManagedDispatchBillingEnvelope | undefined,
+): boolean => {
+  if (!row.billing || !billing) return row.billing === undefined && !billing;
+  if (
+    row.billing.kind !== billing.kind ||
+    row.billing.requestFingerprint !== billing.requestFingerprint
+  ) {
+    return false;
+  }
+  if (row.billing.kind === PARALLEL_SEARCH_FAST_BILLING_KIND) {
+    return (
+      billing.kind === PARALLEL_SEARCH_FAST_BILLING_KIND &&
+      row.billing.chargeMicroCents === billing.chargeMicroCents
+    );
+  }
+  return (
+    billing.kind === MANAGED_USAGE_BILLING_KIND &&
+    row.billing.agentType === billing.agentType &&
+    row.billing.model === billing.model &&
+    row.billing.conversationId === billing.conversationId &&
+    row.billing.fallbackCostMicroCents === billing.fallbackCostMicroCents
+  );
+};
+
+const normalizeManagedDispatchCapturedUsage = (
+  usage: ManagedDispatchCapturedUsage,
+): ManagedDispatchCapturedUsage => {
+  const nonNegativeInt = (value: number, field: string): number => {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error(
+        `Managed usage ${field} must be finite and non-negative.`,
+      );
+    }
+    const normalized = Math.floor(value);
+    if (!Number.isSafeInteger(normalized)) {
+      throw new Error(`Managed usage ${field} is outside the safe range.`);
+    }
+    return normalized;
+  };
+  const optionalCount = (value: number | undefined, field: string) =>
+    value === undefined ? undefined : nonNegativeInt(value, field);
+  const costMicroCents =
+    usage.costMicroCents === undefined
+      ? undefined
+      : nonNegativeInt(usage.costMicroCents, "cost");
+  const inputTokens = optionalCount(usage.inputTokens, "input token count");
+  const outputTokens = optionalCount(usage.outputTokens, "output token count");
+  const totalTokens = optionalCount(usage.totalTokens, "total token count");
+  const cachedInputTokens = optionalCount(
+    usage.cachedInputTokens,
+    "cached input token count",
+  );
+  const cacheWriteInputTokens = optionalCount(
+    usage.cacheWriteInputTokens,
+    "cache-write input token count",
+  );
+  const reasoningTokens = optionalCount(
+    usage.reasoningTokens,
+    "reasoning token count",
+  );
+  return {
+    durationMs: nonNegativeInt(usage.durationMs, "duration"),
+    success: usage.success,
+    ...(inputTokens !== undefined ? { inputTokens } : {}),
+    ...(outputTokens !== undefined ? { outputTokens } : {}),
+    ...(totalTokens !== undefined ? { totalTokens } : {}),
+    ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
+    ...(cacheWriteInputTokens !== undefined ? { cacheWriteInputTokens } : {}),
+    ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
+    ...(costMicroCents !== undefined ? { costMicroCents } : {}),
+  };
+};
+
+const managedDispatchCapturedUsageMatches = (
+  left: ManagedDispatchCapturedUsage,
+  right: ManagedDispatchCapturedUsage,
+): boolean =>
+  left.durationMs === right.durationMs &&
+  left.success === right.success &&
+  left.inputTokens === right.inputTokens &&
+  left.outputTokens === right.outputTokens &&
+  left.totalTokens === right.totalTokens &&
+  left.cachedInputTokens === right.cachedInputTokens &&
+  left.cacheWriteInputTokens === right.cacheWriteInputTokens &&
+  left.reasoningTokens === right.reasoningTokens &&
+  left.costMicroCents === right.costMicroCents;
+
+export const managedDispatchHasPendingBilling = (
+  row: ManagedDispatchRow,
+): boolean => row.billing?.billingState === "pending";
+
+const releaseManagedDispatchUsageReservation = async (
+  ctx: MutationCtx,
+  row: ManagedDispatchRow,
+  now: number,
+): Promise<void> => {
+  if (row.usageReservationState !== "active") return;
+  const reservedMicroCents = Math.max(
+    0,
+    Math.floor(row.usageReservedMicroCents ?? 0),
+  );
+  if (reservedMicroCents <= 0) {
+    throw new Error("Managed dispatch has an empty active reservation.");
+  }
+  await adjustManagedUsageReservationAuthorized(ctx, {
+    ownerId: row.ownerId,
+    deltaMicroCents: -reservedMicroCents,
+    now,
+  });
+  await ctx.db.patch(row._id, {
+    usageReservationState: "released",
+    usageReservedMicroCents: 0,
+    updatedAt: now,
+  });
+};
+
+/**
+ * Materialize one fixed-cost provider-attempt charge from its exact durable
+ * receipt. This is intentionally the sole post-lifecycle-fence billing path:
+ * callers already hold the receipt row in their mutation transaction, so no
+ * new provider work can be admitted and reset/delete/migration can safely wait
+ * for or finalize the old generation before removing the receipt.
+ */
+export const finalizeManagedDispatchBillingFromReceipt = async (
+  ctx: MutationCtx,
+  row: ManagedDispatchRow,
+  outcome: DurableManagedDispatchOutcome,
+  now: number,
+): Promise<"not_metered" | "not_chargeable" | "billed"> => {
+  const billing = row.billing;
+  if (!billing) return "not_metered";
+  if (billing.billingState === "billed") {
+    await releaseManagedDispatchUsageReservation(ctx, row, now);
+    return "billed";
+  }
+  if (billing.billingState === "not_chargeable") {
+    await releaseManagedDispatchUsageReservation(ctx, row, now);
+    return "not_chargeable";
+  }
+
+  if (billing.providerState === "reserved") {
+    await releaseManagedDispatchUsageReservation(ctx, row, now);
+    await ctx.db.patch(row._id, {
+      billing: {
+        ...billing,
+        billingState: "not_chargeable",
+        finalizedAt: now,
+      },
+    });
+    return "not_chargeable";
+  }
+
+  let billedReceipt: typeof billing;
+  if (billing.kind === PARALLEL_SEARCH_FAST_BILLING_KIND) {
+    if (billing.chargeMicroCents !== PARALLEL_SEARCH_FAST_COST_MICRO_CENTS) {
+      throw new Error(
+        "Managed dispatch receipt has invalid billing authority.",
+      );
+    }
+    await persistManagedUsageAuthorized(ctx, {
+      ownerId: row.ownerId,
+      ownerGeneration: row.ownerGeneration,
+      agentType: `proxy:${PARALLEL_SEARCH_FAST_AGENT_TYPE}`,
+      model: PARALLEL_SEARCH_FAST_MODEL,
+      durationMs: Math.max(0, now - row.createdAt),
+      success: outcome === "succeeded",
+      costMicroCents: billing.chargeMicroCents,
+    });
+    billedReceipt = billing;
+  } else {
+    const capturedUsage =
+      billing.capturedUsage ??
+      normalizeManagedDispatchCapturedUsage({
+        durationMs: Math.max(0, now - row.createdAt),
+        success: false,
+        costMicroCents: billing.fallbackCostMicroCents,
+      });
+    await persistManagedUsageAuthorized(ctx, {
+      ownerId: row.ownerId,
+      ownerGeneration: row.ownerGeneration,
+      agentType: billing.agentType,
+      model: billing.model,
+      conversationId: billing.conversationId,
+      ...capturedUsage,
+    });
+    billedReceipt = { ...billing, capturedUsage };
+  }
+  await releaseManagedDispatchUsageReservation(ctx, row, now);
+  await ctx.db.patch(row._id, {
+    billing: {
+      ...billedReceipt,
+      billingState: "billed",
+      finalizedAt: now,
+      billedAt: now,
+    },
+  });
+  return "billed";
+};
+
+/** Reserve one exact physical managed-provider request. */
+export const acquireManagedProviderDispatchInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    executionId: v.string(),
+    attemptId: v.string(),
+    leaseId: v.string(),
+    billing: v.optional(managedDispatchBillingEnvelopeValidator),
+    now: v.number(),
+  },
+  returns: managedDispatchTimingValidator,
+  handler: async (ctx, args) => {
+    const executionId = requireManagedDispatchId(
+      args.executionId,
+      "execution id",
+    );
+    const attemptId = requireManagedDispatchId(args.attemptId, "attempt id");
+    const leaseId = requireManagedDispatchId(args.leaseId, "lease id");
+    const billing = args.billing
+      ? normalizeManagedDispatchBillingEnvelope(args.billing)
+      : undefined;
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
+
+    const existing = await ctx.db
+      .query("billing_managed_dispatch_leases")
+      .withIndex("by_attemptId", (q) => q.eq("attemptId", attemptId))
+      .unique();
+    if (existing) {
+      if (
+        existing.ownerId !== args.ownerId ||
+        existing.ownerGeneration !== args.ownerGeneration ||
+        existing.executionId !== executionId ||
+        existing.leaseId !== leaseId ||
+        !managedDispatchBillingEnvelopeMatches(existing, billing)
+      ) {
+        throw new Error("Managed provider attempt id was reused.");
+      }
+      if (existing.state !== "active") {
+        throw new Error("Managed provider attempt is already terminal.");
+      }
+      return {
+        providerDeadlineAt: existing.providerDeadlineAt,
+        leaseExpiresAt: existing.leaseExpiresAt,
+        quiescentAfterAt: existing.quiescentAfterAt,
+      };
+    }
+
+    const activeForExecution = await ctx.db
+      .query("billing_managed_dispatch_leases")
+      .withIndex("by_ownerId_and_executionId_and_state_and_createdAt", (q) =>
+        q
+          .eq("ownerId", args.ownerId)
+          .eq("executionId", executionId)
+          .eq("state", "active"),
+      )
+      .first();
+    if (activeForExecution) {
+      throw new Error("Managed provider execution already has an active try.");
+    }
+
+    const providerDeadlineAt = args.now + MANAGED_PROVIDER_DISPATCH_DEADLINE_MS;
+    const leaseExpiresAt = args.now + MANAGED_PROVIDER_DISPATCH_LEASE_MS;
+    const quiescentAfterAt =
+      leaseExpiresAt + MANAGED_PROVIDER_DISPATCH_QUIESCENCE_MS;
+    await ctx.db.insert("billing_managed_dispatch_leases", {
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      executionId,
+      attemptId,
+      leaseId,
+      state: "active",
+      providerDeadlineAt,
+      leaseExpiresAt,
+      quiescentAfterAt,
+      cleanupAt: quiescentAfterAt,
+      ...(billing
+        ? {
+            billing: {
+              ...billing,
+              providerState: "reserved" as const,
+              billingState: "pending" as const,
+            },
+          }
+        : {}),
+      createdAt: args.now,
+      updatedAt: args.now,
+    });
+    if (billing) {
+      await ctx.scheduler.runAt(
+        quiescentAfterAt,
+        internal.billing.finalizeManagedProviderDispatchBillingInternal,
+        { attemptId, leaseId },
+      );
+    }
+    return { providerDeadlineAt, leaseExpiresAt, quiescentAfterAt };
+  },
+});
+
+/**
+ * Last transaction before a metered physical provider request. Lifecycle and
+ * migration fences plus fixed-cost admission commit with the durable
+ * `may_have_dispatched` marker; after this point a crash is conservatively
+ * billable because Stella can no longer prove the request stayed local.
+ */
+export const markManagedProviderDispatchMayHaveStartedInternal =
+  internalMutation({
+    args: {
+      ownerId: v.string(),
+      ownerGeneration: v.string(),
+      executionId: v.string(),
+      attemptId: v.string(),
+      leaseId: v.string(),
+      billing: managedDispatchBillingEnvelopeValidator,
+      turnAuthority: v.optional(
+        v.object({ tokenHash: v.string(), turnId: v.string() }),
+      ),
+      now: v.number(),
+    },
+    returns: v.boolean(),
+    handler: async (ctx, args) => {
+      const billing = normalizeManagedDispatchBillingEnvelope(args.billing);
+      const row = await ctx.db
+        .query("billing_managed_dispatch_leases")
+        .withIndex("by_attemptId", (q) => q.eq("attemptId", args.attemptId))
+        .unique();
+      if (!row) return false;
+      if (
+        row.ownerId !== args.ownerId ||
+        row.ownerGeneration !== args.ownerGeneration ||
+        row.executionId !== args.executionId ||
+        row.leaseId !== args.leaseId ||
+        !managedDispatchBillingEnvelopeMatches(row, billing)
+      ) {
+        throw new Error(
+          "Managed provider dispatch marker lost exact authority.",
+        );
+      }
+      if (row.state !== "active" || row.billing?.billingState !== "pending") {
+        throw new Error("Managed provider dispatch marker is already closed.");
+      }
+      if (row.billing.providerState === "may_have_dispatched") return true;
+
+      await assertOwnerMigrationWriteAllowed(
+        ctx,
+        args.ownerId,
+        args.ownerGeneration,
+      );
+      if (args.turnAuthority) {
+        if (!SHA256_HEX_PATTERN.test(args.turnAuthority.tokenHash)) {
+          throw new ConvexError({
+            code: "TURN_NOT_ACTIVE",
+            message: "Cloud turn dispatch authority is invalid.",
+          });
+        }
+        const [tokenRows, currentAttempts, turn] = await Promise.all([
+          ctx.db
+            .query("cloud_turn_tokens")
+            .withIndex("by_tokenHash", (q) =>
+              q.eq("tokenHash", args.turnAuthority!.tokenHash),
+            )
+            .take(2),
+          ctx.db
+            .query("cloud_turn_tokens")
+            .withIndex("by_turnId_and_ownerId", (q) =>
+              q
+                .eq("turnId", args.turnAuthority!.turnId)
+                .eq("ownerId", args.ownerId),
+            )
+            .take(2),
+          ctx.db
+            .query("agent_turns")
+            .withIndex("by_turnId", (q) =>
+              q.eq("turnId", args.turnAuthority!.turnId),
+            )
+            .unique(),
+        ]);
+        const token = tokenRows.length === 1 ? tokenRows[0] : undefined;
+        if (
+          !token ||
+          currentAttempts.length !== 1 ||
+          currentAttempts[0]!._id !== token._id ||
+          token.expiresAt <= args.now ||
+          token.ownerId !== args.ownerId ||
+          token.ownerGeneration !== args.ownerGeneration ||
+          token.turnId !== args.turnAuthority.turnId ||
+          !turn ||
+          turn.ownerId !== args.ownerId ||
+          turn.status !== "running" ||
+          turn.terminalKind
+        ) {
+          throw new ConvexError({
+            code: "TURN_NOT_ACTIVE",
+            message: "Cloud turn is no longer active.",
+          });
+        }
+      }
+      const admission = await runEnforceManagedUsageLimit(ctx, {
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        minimumRemainingMicroCents:
+          billing.kind === PARALLEL_SEARCH_FAST_BILLING_KIND
+            ? billing.chargeMicroCents
+            : billing.fallbackCostMicroCents,
+      });
+      if (!admission.allowed) {
+        throw new ConvexError({
+          code: "USAGE_LIMIT_REACHED",
+          message: admission.message,
+          retryAfterMs: admission.retryAfterMs,
+        });
+      }
+      const reservedMicroCents =
+        billing.kind === PARALLEL_SEARCH_FAST_BILLING_KIND
+          ? billing.chargeMicroCents
+          : billing.fallbackCostMicroCents;
+      await adjustManagedUsageReservationAuthorized(ctx, {
+        ownerId: row.ownerId,
+        deltaMicroCents: reservedMicroCents,
+        now: args.now,
+      });
+      await ctx.db.patch(row._id, {
+        usageReservationState: "active",
+        usageReservedMicroCents: reservedMicroCents,
+        billing: {
+          ...row.billing,
+          providerState: "may_have_dispatched",
+        },
+        updatedAt: args.now,
+      });
+      return true;
+    },
+  });
+
+/**
+ * Attach and bill exact variable usage while the provider-attempt receipt is
+ * authoritative. Unlike ordinary usage writes, this remains valid after a
+ * lifecycle/migration fence only for the exact already-admitted lease tuple;
+ * it cannot admit or recreate provider work.
+ */
+export const captureManagedProviderDispatchUsageInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    executionId: v.string(),
+    attemptId: v.string(),
+    leaseId: v.string(),
+    billing: managedDispatchBillingEnvelopeValidator,
+    usage: managedDispatchCapturedUsageValidator,
+    now: v.number(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const billingEnvelope = normalizeManagedDispatchBillingEnvelope(
+      args.billing,
+    );
+    if (billingEnvelope.kind !== MANAGED_USAGE_BILLING_KIND) {
+      throw new Error("Fixed-cost dispatches do not accept captured usage.");
+    }
+    const usage = normalizeManagedDispatchCapturedUsage(args.usage);
+    const row = await ctx.db
+      .query("billing_managed_dispatch_leases")
+      .withIndex("by_attemptId", (q) => q.eq("attemptId", args.attemptId))
+      .unique();
+    if (!row) return false;
+    if (
+      row.ownerId !== args.ownerId ||
+      row.ownerGeneration !== args.ownerGeneration ||
+      row.executionId !== args.executionId ||
+      row.leaseId !== args.leaseId ||
+      !managedDispatchBillingEnvelopeMatches(row, billingEnvelope)
+    ) {
+      throw new Error("Managed usage capture lost exact attempt authority.");
+    }
+    if (
+      !row.billing ||
+      row.billing.kind !== MANAGED_USAGE_BILLING_KIND ||
+      row.billing.providerState !== "may_have_dispatched" ||
+      row.billing.billingState === "not_chargeable"
+    ) {
+      throw new Error(
+        "Managed usage capture has no billable provider attempt.",
+      );
+    }
+    if (row.billing.capturedUsage) {
+      if (
+        !managedDispatchCapturedUsageMatches(row.billing.capturedUsage, usage)
+      ) {
+        throw new Error("Managed usage changed on exact-attempt replay.");
+      }
+      if (row.billing.billingState !== "billed") {
+        throw new Error("Captured managed usage was not durably billed.");
+      }
+      return true;
+    }
+    if (row.state !== "active" || row.billing.billingState !== "pending") {
+      throw new Error("Managed usage capture arrived after attempt closure.");
+    }
+
+    await persistManagedUsageAuthorized(ctx, {
+      ownerId: row.ownerId,
+      ownerGeneration: row.ownerGeneration,
+      agentType: row.billing.agentType,
+      model: row.billing.model,
+      conversationId: row.billing.conversationId,
+      ...usage,
+    });
+    await releaseManagedDispatchUsageReservation(ctx, row, args.now);
+    await ctx.db.patch(row._id, {
+      billing: {
+        ...row.billing,
+        capturedUsage: usage,
+        billingState: "billed",
+        finalizedAt: args.now,
+        billedAt: args.now,
+      },
+      updatedAt: args.now,
+    });
+    return true;
+  },
+});
+
+/** Exact-attempt terminal CAS; intentionally allowed after a purge fence. */
+export const settleManagedProviderDispatchInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    executionId: v.string(),
+    attemptId: v.string(),
+    leaseId: v.string(),
+    outcome: managedProviderDispatchOutcomeValidator,
+    now: v.number(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("billing_managed_dispatch_leases")
+      .withIndex("by_attemptId", (q) => q.eq("attemptId", args.attemptId))
+      .unique();
+    if (!row) return false;
+    if (
+      row.ownerId !== args.ownerId ||
+      row.ownerGeneration !== args.ownerGeneration ||
+      row.executionId !== args.executionId ||
+      row.leaseId !== args.leaseId
+    ) {
+      throw new Error("Managed provider dispatch settlement lost its lease.");
+    }
+    if (row.state === "terminal") {
+      if (row.outcome !== args.outcome) {
+        throw new Error("Managed provider dispatch outcome changed on replay.");
+      }
+      await finalizeManagedDispatchBillingFromReceipt(
+        ctx,
+        row,
+        args.outcome,
+        args.now,
+      );
+      return true;
+    }
+    const cleanupAt = Math.max(
+      args.now + MANAGED_PROVIDER_DISPATCH_TERMINAL_RETENTION_MS,
+      managedDispatchOutcomeRequiresQuiescence(args.outcome)
+        ? row.quiescentAfterAt
+        : args.now,
+    );
+    await finalizeManagedDispatchBillingFromReceipt(
+      ctx,
+      row,
+      args.outcome,
+      args.now,
+    );
+    await ctx.db.patch(row._id, {
+      state: "terminal",
+      outcome: args.outcome,
+      terminalAt: args.now,
+      cleanupAt,
+      updatedAt: args.now,
+    });
+    await ctx.scheduler.runAfter(
+      Math.max(0, cleanupAt - args.now),
+      internal.billing.cleanupManagedProviderDispatchInternal,
+      { attemptId: args.attemptId, leaseId: args.leaseId, cleanupAt },
+    );
+    return true;
+  },
+});
+
+/** Crash-safe wake for a metered attempt whose action never settled. */
+export const finalizeManagedProviderDispatchBillingInternal = internalMutation({
+  args: {
+    attemptId: v.string(),
+    leaseId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("billing_managed_dispatch_leases")
+      .withIndex("by_attemptId", (q) => q.eq("attemptId", args.attemptId))
+      .unique();
+    if (!row || row.leaseId !== args.leaseId || !row.billing) return null;
+    const now = Date.now();
+    if (row.state === "active" && row.quiescentAfterAt > now) return null;
+    const outcome =
+      row.state === "terminal" && row.outcome
+        ? row.outcome
+        : row.billing.providerState === "may_have_dispatched"
+          ? "outcome_unknown"
+          : "aborted";
+    if (row.billing.billingState === "pending") {
+      await finalizeManagedDispatchBillingFromReceipt(ctx, row, outcome, now);
+    }
+    if (row.state === "active") {
+      const cleanupAt = now + MANAGED_PROVIDER_DISPATCH_TERMINAL_RETENTION_MS;
+      await ctx.db.patch(row._id, {
+        state: "terminal",
+        outcome,
+        terminalAt: now,
+        cleanupAt,
+        updatedAt: now,
+      });
+      await ctx.scheduler.runAt(
+        cleanupAt,
+        internal.billing.cleanupManagedProviderDispatchInternal,
+        { attemptId: row.attemptId, leaseId: row.leaseId, cleanupAt },
+      );
+      return null;
+    }
+    await ctx.scheduler.runAfter(
+      Math.max(0, row.cleanupAt - now),
+      internal.billing.cleanupManagedProviderDispatchInternal,
+      {
+        attemptId: row.attemptId,
+        leaseId: row.leaseId,
+        cleanupAt: row.cleanupAt,
+      },
+    );
+    return null;
+  },
+});
+
+export const cleanupManagedProviderDispatchInternal = internalMutation({
+  args: {
+    attemptId: v.string(),
+    leaseId: v.string(),
+    cleanupAt: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("billing_managed_dispatch_leases")
+      .withIndex("by_attemptId", (q) => q.eq("attemptId", args.attemptId))
+      .unique();
+    if (
+      row?.state === "terminal" &&
+      row.leaseId === args.leaseId &&
+      row.cleanupAt === args.cleanupAt &&
+      row.cleanupAt <= Date.now()
+    ) {
+      if (managedDispatchHasPendingBilling(row)) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.billing.finalizeManagedProviderDispatchBillingInternal,
+          { attemptId: row.attemptId, leaseId: row.leaseId },
+        );
+        return null;
+      }
+      await ctx.db.delete(row._id);
+    }
+    return null;
+  },
+});
+
+const managedExecutionTimingValidator = v.object({
+  leaseExpiresAt: v.number(),
+  hardExpiresAt: v.number(),
+  quiescentAfterAt: v.number(),
+});
+
+/** Reserve the enclosing model/tool execution before its first provider try. */
+export const acquireManagedExecutionInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    executionId: v.string(),
+    leaseId: v.string(),
+    now: v.number(),
+  },
+  returns: managedExecutionTimingValidator,
+  handler: async (ctx, args) => {
+    const executionId = requireManagedDispatchId(
+      args.executionId,
+      "execution id",
+    );
+    const leaseId = requireManagedDispatchId(args.leaseId, "execution lease");
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
+    const existing = await ctx.db
+      .query("billing_managed_execution_leases")
+      .withIndex("by_executionId", (q) => q.eq("executionId", executionId))
+      .unique();
+    if (existing) {
+      if (
+        existing.ownerId !== args.ownerId ||
+        existing.ownerGeneration !== args.ownerGeneration ||
+        existing.leaseId !== leaseId ||
+        existing.state !== "active"
+      ) {
+        throw new Error("Managed execution authority was reused or closed.");
+      }
+      return {
+        leaseExpiresAt: existing.leaseExpiresAt,
+        hardExpiresAt: existing.hardExpiresAt,
+        quiescentAfterAt: existing.quiescentAfterAt,
+      };
+    }
+    const hardExpiresAt = args.now + MANAGED_EXECUTION_HARD_MS;
+    const leaseExpiresAt = Math.min(
+      hardExpiresAt,
+      args.now + MANAGED_EXECUTION_LEASE_MS,
+    );
+    const quiescentAfterAt = leaseExpiresAt + MANAGED_EXECUTION_QUIESCENCE_MS;
+    await ctx.db.insert("billing_managed_execution_leases", {
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      executionId,
+      leaseId,
+      state: "active",
+      leaseExpiresAt,
+      hardExpiresAt,
+      quiescentAfterAt,
+      cleanupAt: quiescentAfterAt,
+      createdAt: args.now,
+      updatedAt: args.now,
+    });
+    return { leaseExpiresAt, hardExpiresAt, quiescentAfterAt };
+  },
+});
+
+/** Heartbeat also re-enters lifecycle and both auth-migration fences. */
+export const heartbeatManagedExecutionInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    executionId: v.string(),
+    leaseId: v.string(),
+    now: v.number(),
+  },
+  returns: v.union(v.null(), managedExecutionTimingValidator),
+  handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
+    const row = await ctx.db
+      .query("billing_managed_execution_leases")
+      .withIndex("by_executionId", (q) => q.eq("executionId", args.executionId))
+      .unique();
+    if (
+      !row ||
+      row.ownerId !== args.ownerId ||
+      row.ownerGeneration !== args.ownerGeneration ||
+      row.leaseId !== args.leaseId ||
+      row.state !== "active" ||
+      row.hardExpiresAt <= args.now
+    ) {
+      return null;
+    }
+    const leaseExpiresAt = Math.min(
+      row.hardExpiresAt,
+      args.now + MANAGED_EXECUTION_LEASE_MS,
+    );
+    const quiescentAfterAt = leaseExpiresAt + MANAGED_EXECUTION_QUIESCENCE_MS;
+    await ctx.db.patch(row._id, {
+      leaseExpiresAt,
+      quiescentAfterAt,
+      cleanupAt: quiescentAfterAt,
+      updatedAt: args.now,
+    });
+    return {
+      leaseExpiresAt,
+      hardExpiresAt: row.hardExpiresAt,
+      quiescentAfterAt,
+    };
+  },
+});
+
+/** Exact execution settlement; permitted after a lifecycle fence is published. */
+export const settleManagedExecutionInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    executionId: v.string(),
+    leaseId: v.string(),
+    outcome: managedProviderDispatchOutcomeValidator,
+    now: v.number(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("billing_managed_execution_leases")
+      .withIndex("by_executionId", (q) => q.eq("executionId", args.executionId))
+      .unique();
+    if (!row) return false;
+    if (
+      row.ownerId !== args.ownerId ||
+      row.ownerGeneration !== args.ownerGeneration ||
+      row.leaseId !== args.leaseId
+    ) {
+      throw new Error("Managed execution settlement lost exact authority.");
+    }
+    if (row.state === "terminal") {
+      if (row.outcome !== args.outcome) {
+        throw new Error("Managed execution outcome changed on replay.");
+      }
+      return true;
+    }
+    await ctx.db.patch(row._id, {
+      state: "terminal",
+      outcome: args.outcome,
+      terminalAt: args.now,
+      cleanupAt: args.now + MANAGED_PROVIDER_DISPATCH_TERMINAL_RETENTION_MS,
+      updatedAt: args.now,
+    });
+    return true;
+  },
+});
+
+/** Bounded crash recovery for attempts whose action never settled. */
+export const sweepManagedProviderDispatchesInternal = internalMutation({
+  args: { now: v.optional(v.number()) },
+  returns: v.object({ visited: v.number(), remaining: v.boolean() }),
+  handler: async (ctx, args) => {
+    const now = args.now ?? Date.now();
+    const rows = await ctx.db
+      .query("billing_managed_dispatch_leases")
+      .withIndex("by_cleanupAt", (q) => q.lte("cleanupAt", now))
+      .take(MANAGED_PROVIDER_DISPATCH_SWEEP_BATCH);
+    for (const row of rows) {
+      if (managedDispatchHasPendingBilling(row)) {
+        if (row.state === "active" && row.quiescentAfterAt > now) continue;
+        const outcome =
+          row.state === "terminal" && row.outcome
+            ? row.outcome
+            : row.billing?.providerState === "may_have_dispatched"
+              ? "outcome_unknown"
+              : "aborted";
+        await finalizeManagedDispatchBillingFromReceipt(ctx, row, outcome, now);
+        if (row.state === "terminal") {
+          await ctx.db.delete(row._id);
+        } else {
+          await ctx.db.patch(row._id, {
+            state: "terminal",
+            outcome,
+            terminalAt: now,
+            cleanupAt: now + MANAGED_PROVIDER_DISPATCH_TERMINAL_RETENTION_MS,
+            updatedAt: now,
+          });
+        }
+      } else if (row.state === "terminal") {
+        await ctx.db.delete(row._id);
+      } else if (row.quiescentAfterAt <= now) {
+        await ctx.db.patch(row._id, {
+          state: "terminal",
+          outcome: "outcome_unknown",
+          terminalAt: now,
+          cleanupAt: now + MANAGED_PROVIDER_DISPATCH_TERMINAL_RETENTION_MS,
+          updatedAt: now,
+        });
+      }
+    }
+    const executions = await ctx.db
+      .query("billing_managed_execution_leases")
+      .withIndex("by_cleanupAt", (q) => q.lte("cleanupAt", now))
+      .take(MANAGED_PROVIDER_DISPATCH_SWEEP_BATCH);
+    for (const row of executions) {
+      if (row.state === "terminal") {
+        await ctx.db.delete(row._id);
+      } else if (row.quiescentAfterAt <= now) {
+        await ctx.db.patch(row._id, {
+          state: "terminal",
+          outcome: "aborted",
+          terminalAt: now,
+          cleanupAt: now + MANAGED_PROVIDER_DISPATCH_TERMINAL_RETENTION_MS,
+          updatedAt: now,
+        });
+      }
+    }
+    return {
+      visited: rows.length + executions.length,
+      remaining:
+        rows.length === MANAGED_PROVIDER_DISPATCH_SWEEP_BATCH ||
+        executions.length === MANAGED_PROVIDER_DISPATCH_SWEEP_BATCH,
+    };
+  },
+});
+
 export const ensureBillingRecords = internalMutation({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
   },
+  returns: v.object({
+    ownerId: v.string(),
+    activePlan: planValidator,
+    subscriptionStatus: v.string(),
+    stripeCustomerId: v.string(),
+    stripeSubscriptionId: v.string(),
+    stripePriceId: v.string(),
+    currentPeriodEnd: v.number(),
+    usageUpdatedAt: v.number(),
+  }),
   handler: async (ctx, args) => {
     const { profile, usage } = await ensureBillingRecordsForOwner(
       ctx,
       args.ownerId,
+      args.ownerGeneration,
     );
     return {
       ownerId: profile.ownerId,
@@ -1544,56 +5001,17 @@ export const assertPaidSubscriptionForOwner = internalQuery({
   },
 });
 
-export const linkStripeCustomerToOwner = internalMutation({
-  args: {
-    ownerId: v.string(),
-    stripeCustomerId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const stripeCustomerId = args.stripeCustomerId.trim();
-    if (!stripeCustomerId) {
-      throw new ConvexError({
-        code: "INVALID_ARGUMENT",
-        message: "Stripe customer ID is required.",
-      });
-    }
-
-    const existingCustomerOwner = await ctx.db
-      .query("billing_profiles")
-      .withIndex("by_stripeCustomerId", (q) =>
-        q.eq("stripeCustomerId", stripeCustomerId),
-      )
-      .unique();
-
-    if (
-      existingCustomerOwner &&
-      existingCustomerOwner.ownerId !== args.ownerId
-    ) {
-      throw new ConvexError({
-        code: "CONFLICT",
-        message: "Stripe customer is already linked to a different account.",
-      });
-    }
-
-    const { profile } = await ensureBillingRecordsForOwner(ctx, args.ownerId);
-    if (profile.stripeCustomerId !== stripeCustomerId) {
-      await ctx.db.patch(profile._id, {
-        stripeCustomerId,
-        updatedAt: Date.now(),
-      });
-    }
-
-    return { ownerId: args.ownerId, stripeCustomerId };
-  },
-});
-
 export const updatePaymentMethodForCustomer = internalMutation({
   args: {
     stripeCustomerId: v.string(),
+    ownerGeneration: v.string(),
+    stripeEventCreatedAt: v.number(),
+    stripeEventId: v.optional(v.string()),
     defaultPaymentMethodId: v.optional(v.string()),
     paymentMethodBrand: v.optional(v.string()),
     paymentMethodLast4: v.optional(v.string()),
   },
+  returns: v.object({ updated: v.boolean() }),
   handler: async (ctx, args) => {
     const customerId = args.stripeCustomerId.trim();
     if (!customerId) {
@@ -1610,46 +5028,512 @@ export const updatePaymentMethodForCustomer = internalMutation({
       return { updated: false };
     }
 
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      profile.ownerId,
+      args.ownerGeneration,
+    );
+    if (profile.stripeCustomerTerminal === true) {
+      return { updated: false };
+    }
+    if (
+      !shouldApplyStripeResourceEvent({
+        storedAt:
+          profile.stripePaymentMethodUpdatedAt ?? profile.stripeUpdatedAt ?? 0,
+        storedEventId: profile.stripePaymentMethodEventId,
+        incomingAt: args.stripeEventCreatedAt,
+        incomingEventId: args.stripeEventId,
+      })
+    ) {
+      return { updated: false };
+    }
+
     await ctx.db.patch(profile._id, {
       defaultPaymentMethodId: toSafeString(args.defaultPaymentMethodId),
       paymentMethodBrand: toSafeString(args.paymentMethodBrand),
       paymentMethodLast4: toSafeString(args.paymentMethodLast4),
+      stripePaymentMethodUpdatedAt: args.stripeEventCreatedAt,
+      stripePaymentMethodEventId: args.stripeEventId?.trim() || undefined,
       updatedAt: Date.now(),
     });
     return { updated: true };
   },
 });
 
+/**
+ * Projects Stripe's terminal customer deletion transactionally. The hashed
+ * customer tombstone is written before the raw customer locator is unlinked,
+ * so a delayed subscription/customer webhook cannot recreate the profile.
+ */
+export const syncCustomerDeletionFromStripe = internalMutation({
+  args: {
+    stripeCustomerId: v.string(),
+    ownerGeneration: v.string(),
+    stripeEventCreatedAt: v.number(),
+    stripeEventId: v.optional(v.string()),
+  },
+  returns: v.object({ updated: v.boolean() }),
+  handler: async (ctx, args) => {
+    const customerId = args.stripeCustomerId.trim();
+    if (!customerId) return { updated: false };
+
+    // A signed customer.deleted event is global negative authority for this
+    // immutable Stripe locator even when customer_create has returned but its
+    // exact result has not yet converged into a billing profile. Persist the
+    // tombstone before the owner lookup so a delayed settle cannot resurrect
+    // the deleted customer. If a profile does exist, the lifecycle assertion
+    // below remains in this transaction and rolls the insert back on a stale
+    // owner-generation fence.
+    const locatorHash = await hashStripeBillingLocator("customer", customerId);
+    const tombstone = await ctx.db
+      .query("billing_stripe_deletion_tombstones")
+      .withIndex("by_locatorHash", (q) => q.eq("locatorHash", locatorHash))
+      .unique();
+    if (!tombstone) {
+      await ctx.db.insert("billing_stripe_deletion_tombstones", {
+        locatorHash,
+        locatorKind: "customer",
+        createdAt: Date.now(),
+      });
+    }
+
+    const profile = await ctx.db
+      .query("billing_profiles")
+      .withIndex("by_stripeCustomerId", (q) =>
+        q.eq("stripeCustomerId", customerId),
+      )
+      .unique();
+    if (!profile) return { updated: false };
+
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      profile.ownerId,
+      args.ownerGeneration,
+    );
+    if (
+      !shouldApplyStripeResourceEvent({
+        storedAt:
+          profile.stripeCustomerUpdatedAt ?? profile.stripeUpdatedAt ?? 0,
+        storedEventId: profile.stripeCustomerEventId,
+        storedTerminal: profile.stripeCustomerTerminal,
+        incomingAt: args.stripeEventCreatedAt,
+        incomingEventId: args.stripeEventId,
+        incomingTerminal: true,
+      })
+    ) {
+      return { updated: false };
+    }
+
+    const now = Date.now();
+    const nextCustomerAuthorityEpoch =
+      (profile.stripeCustomerAuthorityEpoch ?? 0) + 1;
+    await ctx.db.patch(profile._id, {
+      activePlan: "free",
+      subscriptionStatus: "customer_deleted",
+      stripeCustomerId: "",
+      stripeSubscriptionId: "",
+      stripePriceId: "",
+      defaultPaymentMethodId: "",
+      paymentMethodBrand: "",
+      paymentMethodLast4: "",
+      currentPeriodStart: 0,
+      currentPeriodEnd: 0,
+      cancelAtPeriodEnd: false,
+      stripeCustomerUpdatedAt: args.stripeEventCreatedAt,
+      stripeCustomerEventId: args.stripeEventId?.trim() || undefined,
+      stripeCustomerTerminal: true,
+      stripeCustomerAuthorityEpoch: nextCustomerAuthorityEpoch,
+      stripeCustomerCreateIdempotencyKey: undefined,
+      // A terminal customer event is an explicit revocation boundary, not an
+      // adoption opportunity. Closing the scan at the new epoch prevents a
+      // later reset from rewriting pre-deletion operations (and their old
+      // customer-create idempotency keys) into the fresh authority epoch.
+      stripeCustomerAdoptionScanEpoch: nextCustomerAuthorityEpoch,
+      stripeSubscriptionTerminal: true,
+      updatedAt: now,
+    });
+
+    await ctx.runMutation(
+      internal.social.profiles.recomputeBadgeForOwnerInternal,
+      { ownerId: profile.ownerId },
+    );
+    return { updated: true };
+  },
+});
+
+const resolveStripeEventOwner = async (
+  ctx: MutationCtx,
+  args: {
+    ownerId?: string;
+    stripeCustomerId?: string;
+    stripeSubscriptionId?: string;
+    stripePaymentMethodId?: string;
+    stripeCheckoutSessionId?: string;
+  },
+): Promise<{
+  ownerId: string;
+  ownerGeneration: string;
+  disposition: "allow" | "retry" | "discard";
+}> => {
+  let ownerId = toSafeString(args.ownerId);
+  const customerId = toSafeString(args.stripeCustomerId);
+  const subscriptionId = toSafeString(args.stripeSubscriptionId);
+  const paymentMethodId = toSafeString(args.stripePaymentMethodId);
+  const checkoutSessionId = toSafeString(args.stripeCheckoutSessionId);
+
+  const hasActiveExactMigration = async (
+    fromOwnerId: string,
+    toOwnerId?: string,
+  ): Promise<boolean> => {
+    const rows = toOwnerId
+      ? await ctx.db
+          .query("auth_owner_migrations")
+          .withIndex("by_fromOwnerId_and_toOwnerId", (q) =>
+            q.eq("fromOwnerId", fromOwnerId).eq("toOwnerId", toOwnerId),
+          )
+          .take(2)
+      : await ctx.db
+          .query("auth_owner_migrations")
+          .withIndex("by_fromOwnerId_and_updatedAt", (q) =>
+            q.eq("fromOwnerId", fromOwnerId),
+          )
+          .take(2);
+    return rows.some((row) => row.status !== "complete");
+  };
+
+  const [customerProfiles, subscriptionProfiles, paymentMethodProfiles] =
+    await Promise.all([
+      customerId
+        ? ctx.db
+            .query("billing_profiles")
+            .withIndex("by_stripeCustomerId", (q) =>
+              q.eq("stripeCustomerId", customerId),
+            )
+            .take(2)
+        : [],
+      subscriptionId
+        ? ctx.db
+            .query("billing_profiles")
+            .withIndex("by_stripeSubscriptionId", (q) =>
+              q.eq("stripeSubscriptionId", subscriptionId),
+            )
+            .take(2)
+        : [],
+      paymentMethodId
+        ? ctx.db
+            .query("billing_profiles")
+            .withIndex("by_defaultPaymentMethodId", (q) =>
+              q.eq("defaultPaymentMethodId", paymentMethodId),
+            )
+            .take(2)
+        : [],
+    ]);
+  const strongOwnerSignals = new Set(
+    [
+      ...customerProfiles.map((profile) => profile.ownerId),
+      ...subscriptionProfiles.map((profile) => profile.ownerId),
+      ...paymentMethodProfiles.map((profile) => profile.ownerId),
+    ].filter((value): value is string => Boolean(value)),
+  );
+  if (strongOwnerSignals.size > 1) {
+    return { ownerId, ownerGeneration: "", disposition: "discard" };
+  }
+  const strongOwnerId = strongOwnerSignals.values().next().value ?? "";
+  if (ownerId && strongOwnerId && ownerId !== strongOwnerId) {
+    const [sourceOwnerHash, destinationOwnerHash] = await Promise.all([
+      ownershipMigrationSourceDigest(ownerId),
+      ownershipMigrationSourceDigest(strongOwnerId),
+    ]);
+    const aliases = await ctx.db
+      .query("billing_stripe_owner_aliases")
+      .withIndex("by_sourceOwnerHash_and_destinationOwnerHash", (q) =>
+        q
+          .eq("sourceOwnerHash", sourceOwnerHash)
+          .eq("destinationOwnerHash", destinationOwnerHash),
+      )
+      .take(2);
+    if (aliases.length !== 1) {
+      if (
+        (await hasActiveExactMigration(ownerId, strongOwnerId)) ||
+        (await hasActiveExactMigration(strongOwnerId, ownerId))
+      ) {
+        return {
+          ownerId: strongOwnerId,
+          ownerGeneration: "",
+          disposition: "retry",
+        };
+      }
+      return { ownerId, ownerGeneration: "", disposition: "discard" };
+    }
+    ownerId = strongOwnerId;
+  } else {
+    ownerId ||= strongOwnerId;
+  }
+
+  for (const [kind, value] of [
+    ["customer", customerId],
+    ["subscription", subscriptionId],
+    ["payment_method", paymentMethodId],
+    ["checkout_session", checkoutSessionId],
+  ] as const) {
+    if (!value) continue;
+    const locatorHash = await hashStripeBillingLocator(kind, value);
+    const tombstone = await ctx.db
+      .query("billing_stripe_deletion_tombstones")
+      .withIndex("by_locatorHash", (q) => q.eq("locatorHash", locatorHash))
+      .unique();
+    if (tombstone) {
+      return { ownerId, ownerGeneration: "", disposition: "discard" };
+    }
+    const debtLocator = await ctx.db
+      .query("billing_owner_deletion_locators")
+      .withIndex("by_locatorHash", (q) => q.eq("locatorHash", locatorHash))
+      .unique();
+    if (debtLocator) {
+      ownerId ||= debtLocator.ownerId;
+      return { ownerId, ownerGeneration: "", disposition: "discard" };
+    }
+  }
+
+  if (!ownerId) {
+    return { ownerId: "", ownerGeneration: "", disposition: "allow" };
+  }
+  if (await hasActiveExactMigration(ownerId)) {
+    return { ownerId, ownerGeneration: "", disposition: "retry" };
+  }
+  const lifecycle = await ctx.db
+    .query("cloud_owner_lifecycles")
+    .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+    .unique();
+  if (lifecycle?.state === "deleting") {
+    return {
+      ownerId,
+      ownerGeneration: lifecycle.generation,
+      disposition: "discard",
+    };
+  }
+  if (lifecycle?.state === "resetting") {
+    return {
+      ownerId,
+      ownerGeneration: lifecycle.generation,
+      disposition: "retry",
+    };
+  }
+  if (await hasOwnerMigrationSourceFence(ctx, ownerId)) {
+    return {
+      ownerId,
+      ownerGeneration: lifecycle?.generation ?? LEGACY_OWNER_GENERATION,
+      disposition: "discard",
+    };
+  }
+  try {
+    const active = await assertOwnerMigrationWriteAllowed(ctx, ownerId);
+    return {
+      ownerId,
+      ownerGeneration: active.generation,
+      disposition: "allow",
+    };
+  } catch {
+    // Source owners are permanently discarded above. Any remaining canonical
+    // write fence is an incoming migration (or a concurrent lifecycle
+    // transition), so Stripe should retry after ownership settles and must not
+    // materialize a destination-owned event meanwhile.
+    return {
+      ownerId,
+      ownerGeneration: lifecycle?.generation ?? LEGACY_OWNER_GENERATION,
+      disposition: "retry",
+    };
+  }
+};
+
 export const recordStripeEvent = internalMutation({
   args: {
     eventId: v.string(),
+    claimId: v.string(),
     eventType: v.string(),
     ownerId: v.optional(v.string()),
     stripeCustomerId: v.optional(v.string()),
     stripeSubscriptionId: v.optional(v.string()),
+    stripePaymentMethodId: v.optional(v.string()),
+    stripeCheckoutSessionId: v.optional(v.string()),
     createdAt: v.number(),
   },
+  returns: v.object({
+    accepted: v.boolean(),
+    status: v.union(
+      v.literal("accepted"),
+      v.literal("duplicate"),
+      v.literal("in_progress"),
+      v.literal("retry"),
+      v.literal("discarded"),
+    ),
+  }),
   handler: async (ctx, args) => {
+    const now = Date.now();
+    const owner = await resolveStripeEventOwner(ctx, args);
+    if (owner.disposition === "discard") {
+      return { accepted: false, status: "discarded" as const };
+    }
+    if (owner.disposition === "retry") {
+      return { accepted: false, status: "retry" as const };
+    }
     const existing = await ctx.db
       .query("billing_stripe_events")
       .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
       .unique();
 
     if (existing) {
-      return { accepted: false };
+      const processed =
+        existing.processingState === "processed" ||
+        (existing.processingState === undefined &&
+          existing.processedAt !== undefined);
+      if (processed) {
+        return { accepted: false, status: "duplicate" as const };
+      }
+      if (
+        existing.processingState === "processing" &&
+        (existing.claimExpiresAt ?? 0) > now &&
+        existing.claimId !== args.claimId
+      ) {
+        return { accepted: false, status: "in_progress" as const };
+      }
+      if (
+        existing.processingState === "retry" &&
+        (existing.nextRetryAt ?? 0) > now
+      ) {
+        return { accepted: false, status: "in_progress" as const };
+      }
+      await ctx.db.patch(existing._id, {
+        eventType: args.eventType,
+        ownerId: owner.ownerId,
+        ownerGeneration: owner.ownerGeneration || undefined,
+        stripeCustomerId: toSafeString(args.stripeCustomerId),
+        stripeSubscriptionId: toSafeString(args.stripeSubscriptionId),
+        stripePaymentMethodId:
+          toSafeString(args.stripePaymentMethodId) || undefined,
+        stripeCheckoutSessionId:
+          toSafeString(args.stripeCheckoutSessionId) || undefined,
+        processingState: "processing",
+        claimId: args.claimId,
+        claimExpiresAt: now + STRIPE_EVENT_CLAIM_MS,
+        lastError: undefined,
+        nextRetryAt: undefined,
+        attempts: (existing.attempts ?? 0) + 1,
+        updatedAt: now,
+      });
+      return { accepted: true, status: "accepted" as const };
     }
 
     await ctx.db.insert("billing_stripe_events", {
       eventId: args.eventId,
       eventType: args.eventType,
-      ownerId: toSafeString(args.ownerId),
+      ownerId: owner.ownerId,
+      ownerGeneration: owner.ownerGeneration || undefined,
       stripeCustomerId: toSafeString(args.stripeCustomerId),
       stripeSubscriptionId: toSafeString(args.stripeSubscriptionId),
+      stripePaymentMethodId:
+        toSafeString(args.stripePaymentMethodId) || undefined,
+      stripeCheckoutSessionId:
+        toSafeString(args.stripeCheckoutSessionId) || undefined,
       createdAt: args.createdAt,
-      processedAt: Date.now(),
+      receivedAt: now,
+      processingState: "processing",
+      claimId: args.claimId,
+      claimExpiresAt: now + STRIPE_EVENT_CLAIM_MS,
+      attempts: 1,
+      updatedAt: now,
     });
 
-    return { accepted: true };
+    return { accepted: true, status: "accepted" as const };
+  },
+});
+
+/** Reads the immutable admission fence for one active webhook claim. */
+export const getStripeEventClaimFenceInternal = internalQuery({
+  args: { eventId: v.string(), claimId: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      ownerId: v.string(),
+      ownerGeneration: v.string(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const event = await ctx.db
+      .query("billing_stripe_events")
+      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+      .unique();
+    if (
+      !event ||
+      event.processingState !== "processing" ||
+      event.claimId !== args.claimId
+    ) {
+      return null;
+    }
+    return {
+      ownerId: event.ownerId,
+      ownerGeneration: event.ownerGeneration ?? "",
+    };
+  },
+});
+
+export const completeStripeEvent = internalMutation({
+  args: { eventId: v.string(), claimId: v.string(), processedAt: v.number() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("billing_stripe_events")
+      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+      .unique();
+    if (
+      !existing ||
+      existing.processingState !== "processing" ||
+      existing.claimId !== args.claimId
+    ) {
+      return false;
+    }
+    await ctx.db.patch(existing._id, {
+      processingState: "processed",
+      claimId: undefined,
+      claimExpiresAt: undefined,
+      processedAt: args.processedAt,
+      updatedAt: args.processedAt,
+    });
+    return true;
+  },
+});
+
+export const releaseStripeEventClaim = internalMutation({
+  args: {
+    eventId: v.string(),
+    claimId: v.string(),
+    error: v.optional(v.string()),
+    now: v.optional(v.number()),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("billing_stripe_events")
+      .withIndex("by_eventId", (q) => q.eq("eventId", args.eventId))
+      .unique();
+    if (
+      !existing ||
+      existing.processingState !== "processing" ||
+      existing.claimId !== args.claimId
+    ) {
+      return false;
+    }
+    const now = args.now ?? Date.now();
+    const attempts = Math.max(1, existing.attempts ?? 1);
+    await ctx.db.patch(existing._id, {
+      processingState: "retry",
+      claimId: undefined,
+      claimExpiresAt: undefined,
+      lastError: args.error?.slice(0, 2_000),
+      nextRetryAt: now + Math.min(60_000, 1_000 * 2 ** (attempts - 1)),
+      updatedAt: now,
+    });
+    return true;
   },
 });
 
@@ -1672,6 +5556,10 @@ export const deleteStripeEvent = internalMutation({
 export const syncSubscriptionFromStripe = internalMutation({
   args: {
     ownerId: v.optional(v.string()),
+    ownerGeneration: v.string(),
+    stripeEventCreatedAt: v.number(),
+    stripeEventId: v.optional(v.string()),
+    stripeEventTerminal: v.optional(v.boolean()),
     stripeCustomerId: v.string(),
     stripeSubscriptionId: v.string(),
     stripePriceId: v.optional(v.string()),
@@ -1684,32 +5572,149 @@ export const syncSubscriptionFromStripe = internalMutation({
     paymentMethodBrand: v.optional(v.string()),
     paymentMethodLast4: v.optional(v.string()),
   },
+  returns: v.object({
+    updated: v.boolean(),
+    ownerId: v.union(v.string(), v.null()),
+    activePlan: planValidator,
+  }),
   handler: async (ctx, args) => {
     const normalizedCustomerId = toSafeString(args.stripeCustomerId);
+    const normalizedSubscriptionId = toSafeString(args.stripeSubscriptionId);
     let ownerId = toSafeString(args.ownerId);
 
-    if (!ownerId && normalizedCustomerId) {
-      const byCustomer = await ctx.db
-        .query("billing_profiles")
-        .withIndex("by_stripeCustomerId", (q) =>
-          q.eq("stripeCustomerId", normalizedCustomerId),
-        )
-        .unique();
-      ownerId = byCustomer?.ownerId ?? emptyString;
+    const [byCustomer, bySubscription] = await Promise.all([
+      normalizedCustomerId
+        ? ctx.db
+            .query("billing_profiles")
+            .withIndex("by_stripeCustomerId", (q) =>
+              q.eq("stripeCustomerId", normalizedCustomerId),
+            )
+            .unique()
+        : null,
+      normalizedSubscriptionId
+        ? ctx.db
+            .query("billing_profiles")
+            .withIndex("by_stripeSubscriptionId", (q) =>
+              q.eq("stripeSubscriptionId", normalizedSubscriptionId),
+            )
+            .unique()
+        : null,
+    ]);
+    for (const linked of [byCustomer, bySubscription]) {
+      if (linked && ownerId && linked.ownerId !== ownerId) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "Stripe subscription is linked to a different account.",
+        });
+      }
+      ownerId ||= linked?.ownerId ?? "";
     }
 
     if (!ownerId) {
       return { updated: false, ownerId: null, activePlan: "free" as const };
     }
 
-    const { profile, usage } = await ensureBillingRecordsForOwner(ctx, ownerId);
+    if (normalizedCustomerId) {
+      const customerLocatorHash = await hashStripeBillingLocator(
+        "customer",
+        normalizedCustomerId,
+      );
+      const deletedCustomer = await ctx.db
+        .query("billing_stripe_deletion_tombstones")
+        .withIndex("by_locatorHash", (q) =>
+          q.eq("locatorHash", customerLocatorHash),
+        )
+        .unique();
+      if (deletedCustomer) {
+        return { updated: false, ownerId, activePlan: "free" as const };
+      }
+    }
+
+    const { profile, usage } = await ensureBillingRecordsForOwner(
+      ctx,
+      ownerId,
+      args.ownerGeneration,
+    );
+    if (profile.stripeCustomerTerminal === true) {
+      return {
+        updated: false,
+        ownerId,
+        activePlan: profile.activePlan as SubscriptionPlan,
+      };
+    }
     const normalizedStatus = args.subscriptionStatus.trim().toLowerCase();
+    const incomingTerminal =
+      args.stripeEventTerminal === true || normalizedStatus === "canceled";
+    const differentSubscription = Boolean(
+      normalizedSubscriptionId &&
+        profile.stripeSubscriptionId &&
+        profile.stripeSubscriptionId !== normalizedSubscriptionId,
+    );
+    if (differentSubscription && incomingTerminal) {
+      return {
+        updated: false,
+        ownerId,
+        activePlan: profile.activePlan as SubscriptionPlan,
+      };
+    }
+    const sameTerminalSubscription =
+      profile.stripeSubscriptionTerminal === true &&
+      profile.stripeSubscriptionId === normalizedSubscriptionId;
+    const replacingTerminalSubscription =
+      differentSubscription &&
+      profile.stripeSubscriptionTerminal === true &&
+      !incomingTerminal;
+    if (
+      (sameTerminalSubscription && !incomingTerminal) ||
+      (!replacingTerminalSubscription &&
+        !shouldApplyStripeResourceEvent({
+          storedAt:
+            profile.stripeSubscriptionUpdatedAt ?? profile.stripeUpdatedAt ?? 0,
+          storedEventId: profile.stripeSubscriptionEventId,
+          storedTerminal: profile.stripeSubscriptionTerminal,
+          incomingAt: args.stripeEventCreatedAt,
+          incomingEventId: args.stripeEventId,
+          incomingTerminal,
+        }))
+    ) {
+      return {
+        updated: false,
+        ownerId,
+        activePlan: profile.activePlan as SubscriptionPlan,
+      };
+    }
+    if (
+      normalizedCustomerId &&
+      profile.stripeCustomerId &&
+      profile.stripeCustomerId !== normalizedCustomerId
+    ) {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "Account already has a different Stripe customer.",
+      });
+    }
+    if (
+      normalizedSubscriptionId &&
+      profile.stripeSubscriptionId &&
+      profile.stripeSubscriptionId !== normalizedSubscriptionId &&
+      profile.stripeSubscriptionTerminal !== true
+    ) {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "Account already has a different Stripe subscription.",
+      });
+    }
     const requestedPlan =
       args.requestedPlan && args.requestedPlan !== "free"
         ? args.requestedPlan
         : null;
     const planFromPriceId = findPlanForStripePriceId(args.stripePriceId);
-    const resolvedPaidPlan = requestedPlan ?? planFromPriceId;
+    // The live Stripe price is authoritative. Subscription metadata is only a
+    // bootstrap hint because Billing Portal plan changes do not rewrite it.
+    const normalizedPriceId = toSafeString(args.stripePriceId);
+    const resolvedPaidPlan = normalizedPriceId
+      ? planFromPriceId
+      : requestedPlan;
     const nextPlan: SubscriptionPlan =
       ACTIVE_SUBSCRIPTION_STATUSES.has(normalizedStatus) && resolvedPaidPlan
         ? resolvedPaidPlan
@@ -1726,24 +5731,46 @@ export const syncSubscriptionFromStripe = internalMutation({
         : nextCurrentPeriodStart > 0
           ? nextCurrentPeriodStart
           : now;
+    const applyPaymentMethod = shouldApplyStripeResourceEvent({
+      storedAt:
+        profile.stripePaymentMethodUpdatedAt ?? profile.stripeUpdatedAt ?? 0,
+      storedEventId: profile.stripePaymentMethodEventId,
+      incomingAt: args.stripeEventCreatedAt,
+      incomingEventId: args.stripeEventId,
+    });
 
     await ctx.db.patch(profile._id, {
       activePlan: nextPlan,
       subscriptionStatus: normalizedStatus,
       stripeCustomerId: normalizedCustomerId || profile.stripeCustomerId,
+      ...(normalizedCustomerId &&
+      normalizedCustomerId !== profile.stripeCustomerId
+        ? {
+            stripeCustomerUpdatedAt: args.stripeEventCreatedAt,
+            stripeCustomerEventId: args.stripeEventId?.trim() || undefined,
+            stripeCustomerTerminal: false,
+          }
+        : {}),
       stripeSubscriptionId:
-        nextPlan === "free"
-          ? emptyString
-          : toSafeString(args.stripeSubscriptionId),
+        normalizedSubscriptionId || profile.stripeSubscriptionId,
       stripePriceId:
         nextPlan === "free" ? emptyString : toSafeString(args.stripePriceId),
-      defaultPaymentMethodId: toSafeString(args.defaultPaymentMethodId),
-      paymentMethodBrand: toSafeString(args.paymentMethodBrand),
-      paymentMethodLast4: toSafeString(args.paymentMethodLast4),
+      ...(applyPaymentMethod
+        ? {
+            defaultPaymentMethodId: toSafeString(args.defaultPaymentMethodId),
+            paymentMethodBrand: toSafeString(args.paymentMethodBrand),
+            paymentMethodLast4: toSafeString(args.paymentMethodLast4),
+            stripePaymentMethodUpdatedAt: args.stripeEventCreatedAt,
+            stripePaymentMethodEventId: args.stripeEventId?.trim() || undefined,
+          }
+        : {}),
       currentPeriodStart: nextCurrentPeriodStart,
       currentPeriodEnd: nextCurrentPeriodEnd,
       cancelAtPeriodEnd: args.cancelAtPeriodEnd === true,
       monthlyAnchorAt: nextAnchor,
+      stripeSubscriptionUpdatedAt: args.stripeEventCreatedAt,
+      stripeSubscriptionEventId: args.stripeEventId?.trim() || undefined,
+      stripeSubscriptionTerminal: incomingTerminal,
       updatedAt: now,
     });
 
@@ -1852,6 +5879,8 @@ export const setAdminBillingPlan = internalMutation({
 export const recordInvoicePayment = internalMutation({
   args: {
     ownerId: v.optional(v.string()),
+    ownerGeneration: v.string(),
+    stripeEventCreatedAt: v.number(),
     stripeCustomerId: v.optional(v.string()),
     stripeInvoiceId: v.string(),
     stripePaymentIntentId: v.optional(v.string()),
@@ -1863,25 +5892,45 @@ export const recordInvoicePayment = internalMutation({
     periodStart: v.optional(v.number()),
     periodEnd: v.optional(v.number()),
   },
+  returns: v.object({ recorded: v.boolean() }),
   handler: async (ctx, args) => {
     let ownerId = toSafeString(args.ownerId);
     const customerId = toSafeString(args.stripeCustomerId);
+    const subscriptionId = toSafeString(args.stripeSubscriptionId);
 
-    if (!ownerId && customerId) {
-      const byCustomer = await ctx.db
-        .query("billing_profiles")
-        .withIndex("by_stripeCustomerId", (q) =>
-          q.eq("stripeCustomerId", customerId),
-        )
-        .unique();
-      ownerId = byCustomer?.ownerId ?? emptyString;
+    const [byCustomer, bySubscription] = await Promise.all([
+      customerId
+        ? ctx.db
+            .query("billing_profiles")
+            .withIndex("by_stripeCustomerId", (q) =>
+              q.eq("stripeCustomerId", customerId),
+            )
+            .unique()
+        : null,
+      subscriptionId
+        ? ctx.db
+            .query("billing_profiles")
+            .withIndex("by_stripeSubscriptionId", (q) =>
+              q.eq("stripeSubscriptionId", subscriptionId),
+            )
+            .unique()
+        : null,
+    ]);
+    for (const linked of [byCustomer, bySubscription]) {
+      if (linked && ownerId && linked.ownerId !== ownerId) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "Stripe invoice is linked to a different account.",
+        });
+      }
+      ownerId ||= linked?.ownerId ?? "";
     }
 
     if (!ownerId) {
       return { recorded: false };
     }
 
-    await ensureBillingRecordsForOwner(ctx, ownerId);
+    await ensureBillingRecordsForOwner(ctx, ownerId, args.ownerGeneration);
 
     const existing = await ctx.db
       .query("billing_invoice_payments")
@@ -1891,18 +5940,63 @@ export const recordInvoicePayment = internalMutation({
       .unique();
 
     const now = Date.now();
+    const paymentIntentId = toSafeString(args.stripePaymentIntentId);
+    const currency = args.currency.trim().toLowerCase();
 
     if (existing) {
+      if (existing.ownerId !== ownerId) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "Stripe invoice ownership cannot be changed.",
+        });
+      }
+      if (
+        existing.stripePaymentIntentId &&
+        paymentIntentId &&
+        existing.stripePaymentIntentId !== paymentIntentId
+      ) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "Stripe invoice payment intent cannot be changed.",
+        });
+      }
+      if (
+        existing.stripeSubscriptionId &&
+        subscriptionId &&
+        existing.stripeSubscriptionId !== subscriptionId
+      ) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "Stripe invoice subscription cannot be changed.",
+        });
+      }
+      if (existing.currency.toLowerCase() !== currency) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "Stripe invoice currency cannot be changed.",
+        });
+      }
+      if (
+        (existing.lastStripeEventCreatedAt ?? 0) > args.stripeEventCreatedAt
+      ) {
+        return { recorded: false };
+      }
+      const incomingStatus = args.status.trim().toLowerCase();
+      const nextStatus =
+        existing.status.toLowerCase() === "paid" ? "paid" : incomingStatus;
       await ctx.db.patch(existing._id, {
-        ownerId,
-        stripePaymentIntentId: toSafeString(args.stripePaymentIntentId),
-        stripeSubscriptionId: toSafeString(args.stripeSubscriptionId),
-        amountPaidCents: Math.max(0, Math.floor(args.amountPaidCents)),
-        currency: args.currency,
+        stripePaymentIntentId:
+          paymentIntentId || existing.stripePaymentIntentId,
+        stripeSubscriptionId: subscriptionId || existing.stripeSubscriptionId,
+        amountPaidCents: Math.max(
+          existing.amountPaidCents,
+          Math.max(0, Math.floor(args.amountPaidCents)),
+        ),
         billingReason: args.billingReason,
-        status: args.status,
+        status: nextStatus,
         periodStart: toNonNegativeInt(args.periodStart),
         periodEnd: toNonNegativeInt(args.periodEnd),
+        lastStripeEventCreatedAt: args.stripeEventCreatedAt,
         updatedAt: now,
       });
       return { recorded: true };
@@ -1911,14 +6005,15 @@ export const recordInvoicePayment = internalMutation({
     await ctx.db.insert("billing_invoice_payments", {
       ownerId,
       stripeInvoiceId: args.stripeInvoiceId,
-      stripePaymentIntentId: toSafeString(args.stripePaymentIntentId),
-      stripeSubscriptionId: toSafeString(args.stripeSubscriptionId),
+      stripePaymentIntentId: paymentIntentId,
+      stripeSubscriptionId: subscriptionId,
       amountPaidCents: Math.max(0, Math.floor(args.amountPaidCents)),
-      currency: args.currency,
+      currency,
       billingReason: args.billingReason,
       status: args.status,
       periodStart: toNonNegativeInt(args.periodStart),
       periodEnd: toNonNegativeInt(args.periodEnd),
+      lastStripeEventCreatedAt: args.stripeEventCreatedAt,
       createdAt: now,
       updatedAt: now,
     });
@@ -1930,6 +6025,8 @@ export const recordInvoicePayment = internalMutation({
 export const recordUsageCreditPurchase = internalMutation({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
+    stripeEventCreatedAt: v.number(),
     stripeCheckoutSessionId: v.string(),
     stripePaymentIntentId: v.optional(v.string()),
     stripeCustomerId: v.string(),
@@ -1937,6 +6034,11 @@ export const recordUsageCreditPurchase = internalMutation({
     currency: v.string(),
     status: v.string(),
   },
+  returns: v.object({
+    recorded: v.literal(true),
+    credited: v.boolean(),
+    amountMicroCents: v.number(),
+  }),
   handler: async (ctx, args) => {
     const ownerId = args.ownerId.trim();
     const checkoutSessionId = args.stripeCheckoutSessionId.trim();
@@ -1947,7 +6049,11 @@ export const recordUsageCreditPurchase = internalMutation({
       });
     }
 
-    await ensureBillingRecordsForOwner(ctx, ownerId);
+    const { profile } = await ensureBillingRecordsForOwner(
+      ctx,
+      ownerId,
+      args.ownerGeneration,
+    );
     const amountCents = normalizeUsageCreditPurchaseAmountCents(
       args.amountCents,
     );
@@ -1958,6 +6064,55 @@ export const recordUsageCreditPurchase = internalMutation({
     const currency =
       args.currency.trim().toLowerCase() || USAGE_CREDIT_CURRENCY;
     const now = Date.now();
+    const customerTombstone = customerId
+      ? await (async () => {
+          const locatorHash = await hashStripeBillingLocator(
+            "customer",
+            customerId,
+          );
+          return await ctx.db
+            .query("billing_stripe_deletion_tombstones")
+            .withIndex("by_locatorHash", (q) =>
+              q.eq("locatorHash", locatorHash),
+            )
+            .unique();
+        })()
+      : null;
+
+    if (
+      customerId &&
+      !customerTombstone &&
+      profile.stripeCustomerId &&
+      profile.stripeCustomerId !== customerId
+    ) {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "Usage credit customer is linked to a different account.",
+      });
+    }
+    if (customerId && !customerTombstone) {
+      const linkedCustomer = await ctx.db
+        .query("billing_profiles")
+        .withIndex("by_stripeCustomerId", (q) =>
+          q.eq("stripeCustomerId", customerId),
+        )
+        .first();
+      if (linkedCustomer && linkedCustomer.ownerId !== ownerId) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "Usage credit customer is linked to a different account.",
+        });
+      }
+      if (
+        !profile.stripeCustomerId &&
+        profile.stripeCustomerTerminal !== true
+      ) {
+        await ctx.db.patch(profile._id, {
+          stripeCustomerId: customerId,
+          updatedAt: now,
+        });
+      }
+    }
 
     const existing = await ctx.db
       .query("billing_usage_credit_purchases")
@@ -1965,17 +6120,55 @@ export const recordUsageCreditPurchase = internalMutation({
         q.eq("stripeCheckoutSessionId", checkoutSessionId),
       )
       .unique();
-    const shouldCredit = status === "paid" && existing?.status !== "paid";
+    const legacyCredited =
+      existing?.creditedAt !== undefined || existing?.status === "paid";
+    const shouldCredit = status === "paid" && !legacyCredited;
 
     if (existing) {
+      if (
+        existing.ownerId !== ownerId ||
+        (existing.stripeCustomerId &&
+          customerId &&
+          existing.stripeCustomerId !== customerId) ||
+        (existing.stripePaymentIntentId &&
+          paymentIntentId &&
+          existing.stripePaymentIntentId !== paymentIntentId) ||
+        existing.amountMicroCents !== amountMicroCents ||
+        existing.currency.toLowerCase() !== currency
+      ) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "Usage credit purchase identity cannot be changed.",
+        });
+      }
+      const stale =
+        (existing.lastStripeEventCreatedAt ?? 0) > args.stripeEventCreatedAt;
       await ctx.db.patch(existing._id, {
-        ownerId,
         stripePaymentIntentId:
           paymentIntentId || existing.stripePaymentIntentId,
         stripeCustomerId: customerId || existing.stripeCustomerId,
-        amountMicroCents,
-        currency,
-        status,
+        status:
+          legacyCredited || shouldCredit
+            ? "paid"
+            : stale
+              ? existing.status
+              : status,
+        ...(legacyCredited
+          ? {
+              creditedAt: existing.creditedAt ?? existing.updatedAt,
+              creditedAmountMicroCents:
+                existing.creditedAmountMicroCents ?? existing.amountMicroCents,
+            }
+          : shouldCredit
+            ? {
+                creditedAt: now,
+                creditedAmountMicroCents: amountMicroCents,
+              }
+            : {}),
+        lastStripeEventCreatedAt: Math.max(
+          existing.lastStripeEventCreatedAt ?? 0,
+          args.stripeEventCreatedAt,
+        ),
         updatedAt: now,
       });
     } else {
@@ -1987,6 +6180,13 @@ export const recordUsageCreditPurchase = internalMutation({
         amountMicroCents,
         currency,
         status,
+        ...(shouldCredit
+          ? {
+              creditedAt: now,
+              creditedAmountMicroCents: amountMicroCents,
+            }
+          : {}),
+        lastStripeEventCreatedAt: args.stripeEventCreatedAt,
         createdAt: now,
         updatedAt: now,
       });
@@ -1994,7 +6194,7 @@ export const recordUsageCreditPurchase = internalMutation({
 
     if (!shouldCredit) {
       return {
-        recorded: true,
+        recorded: true as const,
         credited: false,
         amountMicroCents,
       };
@@ -2012,7 +6212,7 @@ export const recordUsageCreditPurchase = internalMutation({
     });
 
     return {
-      recorded: true,
+      recorded: true as const,
       credited: true,
       amountMicroCents,
     };
@@ -2036,8 +6236,17 @@ export type ManagedUsageLimitResult = {
 // commits a route pays for.
 export const runResolveManagedModelAccess = async (
   ctx: MutationCtx,
-  args: { ownerId: string; isAnonymous?: boolean },
+  args: {
+    ownerId: string;
+    isAnonymous?: boolean;
+    ownerGeneration: string;
+  },
 ): Promise<ManagedModelAccessResult> => {
+  await assertOwnerMigrationWriteAllowed(
+    ctx,
+    args.ownerId,
+    args.ownerGeneration,
+  );
   const { profile, usage } = await ensureBillingRecordsForOwner(
     ctx,
     args.ownerId,
@@ -2059,32 +6268,48 @@ export const runResolveManagedModelAccess = async (
     });
   }
 
-  const firstExceeded = findExceededWindow(snapshot);
-  const credit = firstExceeded
-    ? await getOwnerUsageCreditRow(ctx, args.ownerId)
-    : null;
-  // Purchased credits unblock a spent lifetime allowance the same way they
-  // unblock a spent window — the allowance caps what is free, not what a
-  // paying account may use.
-  const exceededWindow =
-    firstExceeded && getUsageCreditBalanceMicroCents(credit) > 0
-      ? null
-      : (firstExceeded?.window ?? null);
+  const credit = unlimited
+    ? null
+    : await getOwnerUsageCreditRow(ctx, args.ownerId);
+  const reservedMicroCents = unlimited
+    ? 0
+    : activeManagedUsageReservationMicroCents(usage);
+  const availableCreditMicroCents = getUsageCreditBalanceMicroCents(credit);
+  // Voice admission reserves a real monetary ceiling. Every other managed
+  // admission therefore sees both included headroom and purchased credits net
+  // of active reservations, rather than an advisory per-session maximum.
+  const firstExceeded = findExceededWindow(
+    snapshot,
+    (window) =>
+      Math.max(0, window.limit - window.used) + availableCreditMicroCents <=
+      reservedMicroCents,
+  );
+  const exceededWindow = firstExceeded?.window ?? null;
 
   return buildManagedModelAccessResult({
     plan,
     isAnonymous: args.isAnonymous,
     unlimited,
     exceededWindow,
-    lifetimeExhausted: exceededWindow !== null && firstExceeded?.lifetime === true,
+    lifetimeExhausted:
+      exceededWindow !== null && firstExceeded?.lifetime === true,
     now,
   });
 };
 
 export const runEnforceManagedUsageLimit = async (
   ctx: MutationCtx,
-  args: { ownerId: string; minimumRemainingMicroCents?: number },
+  args: {
+    ownerId: string;
+    minimumRemainingMicroCents?: number;
+    ownerGeneration: string;
+  },
 ): Promise<ManagedUsageLimitResult> => {
+  await assertOwnerMigrationWriteAllowed(
+    ctx,
+    args.ownerId,
+    args.ownerGeneration,
+  );
   const { profile, usage } = await ensureBillingRecordsForOwner(
     ctx,
     args.ownerId,
@@ -2120,25 +6345,22 @@ export const runEnforceManagedUsageLimit = async (
     0,
     Math.floor(args.minimumRemainingMicroCents ?? 0),
   );
-  const isBlockedByBuffer = (window: { used: number; limit: number }) =>
-    minimumRemainingMicroCents > 0 &&
-    Math.max(0, window.limit - window.used) <= minimumRemainingMicroCents;
+  const credit = await getOwnerUsageCreditRow(ctx, args.ownerId);
+  const reservedMicroCents = activeManagedUsageReservationMicroCents(usage);
+  const availableCreditMicroCents = getUsageCreditBalanceMicroCents(credit);
+  const requiredUnreservedMicroCents =
+    minimumRemainingMicroCents + reservedMicroCents;
+  const isBlockedByBuffer = (window: { used: number; limit: number }) => {
+    const availableMicroCents =
+      Math.max(0, window.limit - window.used) + availableCreditMicroCents;
+    return minimumRemainingMicroCents > 0
+      ? availableMicroCents < requiredUnreservedMicroCents
+      : availableMicroCents <= requiredUnreservedMicroCents;
+  };
 
   const firstExceeded = findExceededWindow(snapshot, isBlockedByBuffer);
 
   if (firstExceeded) {
-    const credit = await getOwnerUsageCreditRow(ctx, args.ownerId);
-    const availableCreditMicroCents = getUsageCreditBalanceMicroCents(credit);
-    if (availableCreditMicroCents > minimumRemainingMicroCents) {
-      return {
-        allowed: true,
-        plan,
-        retryAfterMs: 0,
-        message: emptyString,
-        unlimited: false,
-      };
-    }
-
     return {
       allowed: false,
       plan,
@@ -2161,7 +6383,24 @@ export const resolveManagedModelAccess = internalMutation({
   args: {
     ownerId: v.string(),
     isAnonymous: v.optional(v.boolean()),
+    ownerGeneration: v.string(),
   },
+  returns: v.object({
+    allowed: v.boolean(),
+    plan: planValidator,
+    unlimited: v.boolean(),
+    downgraded: v.boolean(),
+    modelAudience: v.union(
+      v.literal("anonymous"),
+      v.literal("free"),
+      v.literal("go"),
+      v.literal("pro"),
+      v.literal("go_fallback"),
+      v.literal("pro_fallback"),
+    ),
+    retryAfterMs: v.number(),
+    message: v.string(),
+  }),
   handler: async (ctx, args): Promise<ManagedModelAccessResult> =>
     await runResolveManagedModelAccess(ctx, args),
 });
@@ -2170,7 +6409,15 @@ export const enforceManagedUsageLimit = internalMutation({
   args: {
     ownerId: v.string(),
     minimumRemainingMicroCents: v.optional(v.number()),
+    ownerGeneration: v.string(),
   },
+  returns: v.object({
+    allowed: v.boolean(),
+    plan: planValidator,
+    unlimited: v.boolean(),
+    retryAfterMs: v.number(),
+    message: v.string(),
+  }),
   handler: async (ctx, args): Promise<ManagedUsageLimitResult> =>
     await runEnforceManagedUsageLimit(ctx, args),
 });
@@ -2178,6 +6425,7 @@ export const enforceManagedUsageLimit = internalMutation({
 export const logManagedUsage = internalMutation({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
     agentType: v.string(),
     model: v.string(),
     durationMs: v.number(),
@@ -2191,9 +6439,15 @@ export const logManagedUsage = internalMutation({
     reasoningTokens: v.optional(v.number()),
     costMicroCents: v.optional(v.number()),
   },
+  returns: v.object({
+    costMicroCents: v.number(),
+    creditConsumedMicroCents: v.number(),
+    plan: planValidator,
+  }),
   handler: async (ctx, args) =>
     await persistManagedUsage(ctx, {
       ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
       conversationId: args.conversationId,
       agentType: `proxy:${args.agentType}`,
       model: args.model,
@@ -2207,6 +6461,98 @@ export const logManagedUsage = internalMutation({
       reasoningTokens: args.reasoningTokens,
       costMicroCents: args.costMicroCents,
     }),
+});
+
+/**
+ * Charge one logical resumable relay request exactly once. Reading the durable
+ * receipt, recording usage, and setting `billedAt` share one Convex mutation,
+ * so concurrent/retried finalizers either OCC-retry into `already_billed` or
+ * commit the whole charge atomically. The receipt's captured owner generation
+ * prevents a delayed callback from crossing a reset/delete fence.
+ */
+export const logRelayManagedUsage = internalMutation({
+  args: {
+    relayRequestId: v.string(),
+    requestBinding: v.string(),
+    nowMs: v.number(),
+  },
+  returns: v.union(
+    v.literal("billed"),
+    v.literal("already_billed"),
+    v.literal("not_ready"),
+    v.literal("not_found"),
+    v.literal("conflict"),
+    v.literal("delegated"),
+  ),
+  handler: async (ctx, args) => {
+    const receipt = await ctx.db
+      .query("stella_relay_billing_receipts")
+      .withIndex("by_relayRequestId", (q) =>
+        q.eq("relayRequestId", args.relayRequestId),
+      )
+      .unique();
+    if (!receipt) return "not_found" as const;
+    if (receipt.requestBinding !== args.requestBinding) {
+      return "conflict" as const;
+    }
+    if (receipt.billingAuthority === "managed_dispatch") {
+      return "delegated" as const;
+    }
+    // Rows created before generation capture was introduced cannot be billed
+    // safely: resolving the owner's current generation here would let a
+    // delayed pre-reset request charge the reopened account.
+    if (receipt.ownerGeneration === undefined) {
+      return "conflict" as const;
+    }
+    if (receipt.billedAt !== undefined) return "already_billed" as const;
+    if (
+      receipt.phase !== "terminal" ||
+      receipt.terminalStatus === undefined ||
+      receipt.success === undefined ||
+      receipt.billingReady !== true
+    ) {
+      return "not_ready" as const;
+    }
+
+    const actualUsage = receipt.hasActualUsage
+      ? {
+          inputTokens: receipt.actualInputTokens,
+          outputTokens: receipt.actualOutputTokens,
+          totalTokens: receipt.actualTotalTokens,
+          cachedInputTokens: receipt.actualCachedInputTokens,
+          cacheWriteInputTokens: receipt.actualCacheWriteInputTokens,
+          reasoningTokens: receipt.actualReasoningTokens,
+          costMicroCents: receipt.actualCostMicroCents,
+        }
+      : undefined;
+    const usage = relayBillingUsageForDelivery({
+      estimatedInputTokens: receipt.estimatedInputTokens,
+      estimatedOutputTokens: receipt.estimatedOutputTokens,
+      success: receipt.success,
+      hasActualUsage: receipt.hasActualUsage,
+      actualUsage,
+    });
+    await persistManagedUsage(ctx, {
+      ownerId: receipt.ownerId,
+      ownerGeneration: receipt.ownerGeneration,
+      agentType: `proxy:${receipt.agentType}`,
+      model: receipt.model,
+      durationMs: receipt.durationMs ?? 0,
+      success: receipt.success,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      totalTokens: usage.totalTokens,
+      cachedInputTokens: usage.cachedInputTokens,
+      cacheWriteInputTokens: usage.cacheWriteInputTokens,
+      reasoningTokens: usage.reasoningTokens,
+      costMicroCents: usage.costMicroCents,
+    });
+    await ctx.db.patch(receipt._id, {
+      billedAt: args.nowMs,
+      updatedAt: args.nowMs,
+    });
+    return "billed" as const;
+  },
 });
 
 export const getManagedModelPrice = internalQuery({
@@ -2472,6 +6818,433 @@ export const getSubscriptionStatus = query({
   },
 });
 
+export const reserveStripeOperationInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    kind: stripeOperationKindValidator,
+    stripeCustomerId: v.optional(v.string()),
+    requestKey: v.string(),
+    requestFingerprint: v.string(),
+    now: v.number(),
+  },
+  returns: v.object({
+    operationId: v.string(),
+    ownerGeneration: v.string(),
+    idempotencyKey: v.string(),
+    stripeCustomerCreateIdempotencyKey: v.string(),
+    state: v.union(
+      v.literal("reserved"),
+      v.literal("provider_succeeded"),
+      v.literal("completed"),
+    ),
+    dispatchState: v.union(v.literal("idle"), v.literal("may_have_dispatched")),
+    activeStep: v.union(
+      v.literal("customer_create"),
+      v.literal("checkout_create"),
+      v.literal("portal_create"),
+      v.null(),
+    ),
+    stripeCustomerId: v.union(v.string(), v.null()),
+    stripeCheckoutSessionId: v.union(v.string(), v.null()),
+    stripePortalSessionId: v.union(v.string(), v.null()),
+    blockedReason: v.union(
+      v.literal("legacy_dispatch_active"),
+      v.literal("legacy_missing_receipt"),
+      v.null(),
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const ownerId = args.ownerId.trim();
+    const { generation } = await assertOwnerMigrationWriteAllowed(
+      ctx,
+      ownerId,
+      args.ownerGeneration,
+    );
+    const requestFingerprint = args.requestFingerprint.trim();
+    const requestKey = args.requestKey.trim();
+    if (
+      !/^[a-f0-9]{64}$/.test(requestKey) ||
+      !/^[a-f0-9]{64}$/.test(requestFingerprint)
+    ) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: "Stripe request identity is invalid.",
+      });
+    }
+    const profile = await ctx.db
+      .query("billing_profiles")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+      .unique();
+    if (!profile) {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "Billing profile is missing for this Stripe request.",
+      });
+    }
+    const customerAuthorityEpoch = profile.stripeCustomerAuthorityEpoch ?? 0;
+    const canonicalCustomerCreateIdempotencyKey =
+      await resolvePinnedStripeCustomerAuthorityKey(ctx, {
+        profile,
+        ownerId,
+        authorityEpoch: customerAuthorityEpoch,
+        now: args.now,
+      });
+    const requestedCustomerId = args.stripeCustomerId?.trim() ?? "";
+    if (
+      requestedCustomerId &&
+      (profile.stripeCustomerId !== requestedCustomerId ||
+        profile.stripeCustomerTerminal === true)
+    ) {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "Stripe customer authority is missing or has rotated.",
+      });
+    }
+    if (requestedCustomerId) {
+      const locatorHash = await hashStripeBillingLocator(
+        "customer",
+        requestedCustomerId,
+      );
+      const tombstone = await ctx.db
+        .query("billing_stripe_deletion_tombstones")
+        .withIndex("by_locatorHash", (q) => q.eq("locatorHash", locatorHash))
+        .unique();
+      if (tombstone) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "The Stripe customer for this request was deleted.",
+        });
+      }
+    }
+    const requestRows = await ctx.db
+      .query("billing_stripe_operations")
+      .withIndex("by_ownerId_and_kind_and_requestKey", (q) =>
+        q
+          .eq("ownerId", ownerId)
+          .eq("kind", args.kind)
+          .eq("requestKey", requestKey),
+      )
+      .order("desc")
+      .take(2);
+    if (requestRows.length > 1) {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "Duplicate Stripe request receipts require reconciliation.",
+      });
+    }
+    if (
+      requestRows[0] &&
+      requestRows[0].requestFingerprint !== requestFingerprint
+    ) {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "Billing request ID was already used with different details.",
+      });
+    }
+    const legacyRows = requestRows[0]
+      ? []
+      : await ctx.db
+          .query("billing_stripe_operations")
+          .withIndex("by_ownerId_and_kind_and_requestFingerprint", (q) =>
+            q
+              .eq("ownerId", ownerId)
+              .eq("kind", args.kind)
+              .eq("requestFingerprint", requestFingerprint),
+          )
+          .order("desc")
+          .take(2);
+    if (legacyRows.length > 1) {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "Duplicate Stripe request receipts require reconciliation.",
+      });
+    }
+    const existing = requestRows[0] ?? legacyRows[0];
+    if (existing) {
+      // Reset and destination-owner migration preserve operation receipts.
+      // Adopting the exact logical request also preserves every Stripe
+      // idempotency key, so a post-fence retry cannot create a second remote
+      // customer/session. A marked physical step is never adopted or replayed
+      // here; lifecycle quiescence owns its exact frozen-request recovery.
+      if (
+        existing.state === "reserved" &&
+        existing.dispatchState === undefined
+      ) {
+        if (existing.leaseExpiresAt <= args.now) {
+          await ctx.db.patch(existing._id, {
+            manualDebtReason: "legacy_missing_receipt",
+            updatedAt: args.now,
+          });
+        }
+        return {
+          operationId: existing.operationId,
+          ownerGeneration: existing.ownerGeneration,
+          idempotencyKey: existing.idempotencyKey,
+          stripeCustomerCreateIdempotencyKey:
+            existing.stripeCustomerCreateIdempotencyKey,
+          state: existing.state,
+          dispatchState: "idle" as const,
+          activeStep: null,
+          stripeCustomerId: existing.stripeCustomerId ?? null,
+          stripeCheckoutSessionId: existing.stripeCheckoutSessionId ?? null,
+          stripePortalSessionId: existing.stripePortalSessionId ?? null,
+          blockedReason:
+            existing.leaseExpiresAt <= args.now
+              ? ("legacy_missing_receipt" as const)
+              : ("legacy_dispatch_active" as const),
+        };
+      }
+      if (
+        existing.ownerGeneration !== generation &&
+        existing.dispatchState === "may_have_dispatched"
+      ) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "Stripe request reconciliation is still in progress.",
+        });
+      }
+      if (
+        (existing.stripeCustomerAuthorityEpoch ?? 0) !== customerAuthorityEpoch
+      ) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message:
+            "This billing request belongs to a deleted Stripe customer authority. Start a new request.",
+        });
+      }
+      const historicalResultShape = stripeHistoricalResultShape(existing);
+      if (historicalResultShape === "malformed") {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message:
+            "Stripe physical receipt history is malformed and requires reconciliation.",
+        });
+      }
+      if (historicalResultShape === "complete") {
+        const tupleHash = await hashStripeDeletedOperationTuple({
+          operationId: existing.operationId,
+          attemptId: existing.lastStripeAttemptId!,
+          step: existing.lastStripeStep!,
+          requestFingerprint: existing.lastStripeRequestFingerprint!,
+          idempotencyKey: existing.lastStripeIdempotencyKey!,
+          providerDeadlineAt: existing.lastStripeProviderDeadlineAt!,
+        });
+        const physicalReceipts = await ctx.db
+          .query("billing_stripe_physical_receipts")
+          .withIndex("by_tupleHash", (q) => q.eq("tupleHash", tupleHash))
+          .take(2);
+        if (
+          physicalReceipts.length > 1 ||
+          (physicalReceipts[0] &&
+            physicalReceipts[0].operationId !== existing.operationId)
+        ) {
+          throw new ConvexError({
+            code: "CONFLICT",
+            message:
+              "Stripe physical receipt history is duplicated and requires reconciliation.",
+          });
+        }
+        if (!physicalReceipts[0]) {
+          if (
+            hasCurrentStripeOperationIntegrity(existing) ||
+            !hasLegacyStripeOperationIntegrityVersion(existing) ||
+            !hasValidStripeOperationStateLocators(existing) ||
+            !hasCleanLegacyStripeOperationTransport(existing)
+          ) {
+            throw new ConvexError({
+              code: "CONFLICT",
+              message:
+                "Stripe physical receipt authority is missing and requires reconciliation.",
+            });
+          }
+          if (
+            !(await hasStripePhysicalReceiptCapacityForInsert(
+              ctx,
+              existing.operationId,
+            ))
+          ) {
+            throw new ConvexError({
+              code: "CONFLICT",
+              message:
+                "Stripe physical receipt capacity requires lifecycle repair.",
+            });
+          }
+          await ctx.db.insert("billing_stripe_physical_receipts", {
+            operationId: existing.operationId,
+            tupleHash,
+            createdAt: args.now,
+          });
+        }
+      }
+      if (
+        !(await ensureLegacyStripeOperationPhysicalReceiptProvenance(
+          ctx,
+          existing,
+        ))
+      ) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message:
+            "Stripe physical receipt provenance is incomplete and requires reconciliation.",
+        });
+      }
+      if (
+        hasCurrentStripeOperationIntegrity(existing) &&
+        !hasCleanIdleStripeOperationTransport(existing)
+      ) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message:
+            "Stripe operation transport requires lifecycle reconciliation before replay.",
+        });
+      }
+      if (
+        existing.terminalizedByManualResolutionId !== undefined &&
+        !(await hasMatchingStripeManualResolutionProof(ctx, existing))
+      ) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "Stripe manual-resolution authority is missing or changed.",
+        });
+      }
+      if (!hasCurrentStripeOperationIntegrity(existing)) {
+        if (
+          !hasLegacyStripeOperationIntegrityVersion(existing) ||
+          !hasValidStripeOperationStateLocators(existing) ||
+          !hasCleanLegacyStripeOperationTransport(existing)
+        ) {
+          throw new ConvexError({
+            code: "CONFLICT",
+            message:
+              "Stripe operation integrity requires lifecycle reconciliation before replay.",
+          });
+        }
+        await ctx.db.patch(existing._id, {
+          dispatchState: "idle",
+          integrityVersion: STRIPE_RECEIPT_INTEGRITY_VERSION,
+          lifecycleIntegrityVersion: undefined,
+          updatedAt: args.now,
+        });
+      }
+      if (existing.stripeCustomerId) {
+        const locatorHash = await hashStripeBillingLocator(
+          "customer",
+          existing.stripeCustomerId,
+        );
+        const tombstone = await ctx.db
+          .query("billing_stripe_deletion_tombstones")
+          .withIndex("by_locatorHash", (q) => q.eq("locatorHash", locatorHash))
+          .unique();
+        if (tombstone) {
+          throw new ConvexError({
+            code: "CONFLICT",
+            message:
+              "This billing request references a deleted Stripe customer.",
+          });
+        }
+      }
+      const canAdoptCanonicalCustomerKey =
+        (existing.dispatchState === "idle" ||
+          (hasLegacyStripeOperationIntegrityVersion(existing) &&
+            existing.dispatchState === undefined)) &&
+        existing.activeStep === undefined &&
+        existing.activeAttemptId === undefined &&
+        existing.activeRequestJson === undefined &&
+        existing.activeRequestFingerprint === undefined &&
+        existing.activeIdempotencyKey === undefined &&
+        existing.providerDeadlineAt === undefined &&
+        existing.quiescentAfterAt === undefined &&
+        existing.reconcileClaimId === undefined &&
+        existing.reconcileClaimExpiresAt === undefined;
+      if (existing.ownerGeneration !== generation) {
+        if (
+          !(await moveStripeOperationResolutionProofs(ctx, existing, {
+            fromOwnerId: existing.ownerId,
+            fromOwnerGeneration: existing.ownerGeneration,
+            toOwnerId: existing.ownerId,
+            toOwnerGeneration: generation,
+          }))
+        ) {
+          throw new ConvexError({
+            code: "CONFLICT",
+            message:
+              "Stripe resolution authority changed during reset adoption.",
+          });
+        }
+      }
+      await ctx.db.patch(existing._id, {
+        ownerGeneration: generation,
+        requestKey,
+        ...(canAdoptCanonicalCustomerKey
+          ? {
+              stripeCustomerCreateIdempotencyKey:
+                canonicalCustomerCreateIdempotencyKey,
+            }
+          : {}),
+        leaseExpiresAt: args.now + STRIPE_OPERATION_LEASE_MS,
+        lifecycleIntegrityVersion: undefined,
+        updatedAt: args.now,
+      });
+      return {
+        operationId: existing.operationId,
+        ownerGeneration: generation,
+        idempotencyKey: existing.idempotencyKey,
+        stripeCustomerCreateIdempotencyKey: canAdoptCanonicalCustomerKey
+          ? canonicalCustomerCreateIdempotencyKey
+          : existing.stripeCustomerCreateIdempotencyKey,
+        state: existing.state,
+        dispatchState: existing.dispatchState ?? "idle",
+        activeStep: existing.activeStep ?? null,
+        stripeCustomerId: existing.stripeCustomerId ?? null,
+        stripeCheckoutSessionId: existing.stripeCheckoutSessionId ?? null,
+        stripePortalSessionId: existing.stripePortalSessionId ?? null,
+        blockedReason: null,
+      };
+    }
+    const operationId = crypto.randomUUID();
+    const idempotencyKey = `stella-billing-operation-v1-${operationId}`;
+    const stripeCustomerCreateIdempotencyKey =
+      canonicalCustomerCreateIdempotencyKey;
+    await ctx.db.insert("billing_stripe_operations", {
+      ownerId,
+      ownerGeneration: generation,
+      operationId,
+      kind: args.kind,
+      state: "reserved",
+      dispatchState: "idle",
+      idempotencyKey,
+      stripeCustomerCreateIdempotencyKey,
+      stripeCustomerAuthorityEpoch: customerAuthorityEpoch,
+      integrityVersion: STRIPE_RECEIPT_INTEGRITY_VERSION,
+      requestKey,
+      requestFingerprint,
+      ...(requestedCustomerId
+        ? {
+            stripeCustomerId: requestedCustomerId,
+            stripeCustomerMetadataOwnerId: ownerId,
+          }
+        : {}),
+      leaseExpiresAt: args.now + STRIPE_OPERATION_LEASE_MS,
+      createdAt: args.now,
+      updatedAt: args.now,
+    });
+    return {
+      operationId,
+      ownerGeneration: generation,
+      idempotencyKey,
+      stripeCustomerCreateIdempotencyKey,
+      state: "reserved" as const,
+      dispatchState: "idle" as const,
+      activeStep: null,
+      stripeCustomerId: args.stripeCustomerId?.trim() || null,
+      stripeCheckoutSessionId: null,
+      stripePortalSessionId: null,
+      blockedReason: null,
+    };
+  },
+});
+
 export const createCheckoutSession = action({
   args: {
     plan: paidPlanValidator,
@@ -2481,6 +7254,7 @@ export const createCheckoutSession = action({
     // in-app purchase policy. Desktop/web omit both and are unaffected.
     source: v.optional(v.string()),
     appStoreCountry: v.optional(v.string()),
+    requestId: v.string(),
   },
   returns: v.object({
     url: v.string(),
@@ -2496,6 +7270,10 @@ export const createCheckoutSession = action({
     }
 
     const ownerId = identity.tokenIdentifier;
+    const { generation: ownerGeneration } = await assertOwnerDataAccessActive(
+      ctx,
+      ownerId,
+    );
     // iOS in-app purchase is offered only where the App Store storefront is
     // the United States. The client gates its UI on StoreKit's storefront and
     // attests it here; this is the server-side backstop that fails closed for
@@ -2526,6 +7304,11 @@ export const createCheckoutSession = action({
     const normalizedReturnUrl = normalizeReturnUrl(args.returnUrl);
     const successUrl = appendCheckoutStatus(normalizedReturnUrl, "success");
     const cancelUrl = appendCheckoutStatus(normalizedReturnUrl, "cancel");
+    const requestIdentity = await stripeOperationRequestIdentity(
+      "subscription_checkout",
+      args.requestId,
+      [args.plan, checkoutSource, normalizedReturnUrl],
+    );
     const stripe = getStripeClient();
 
     const billing: {
@@ -2539,6 +7322,7 @@ export const createCheckoutSession = action({
       usageUpdatedAt: number;
     } = await ctx.runMutation(internal.billing.ensureBillingRecords, {
       ownerId,
+      ownerGeneration,
     });
 
     if (
@@ -2552,20 +7336,155 @@ export const createCheckoutSession = action({
       });
     }
 
-    let stripeCustomerId = billing.stripeCustomerId;
+    const operation: {
+      operationId: string;
+      ownerGeneration: string;
+      idempotencyKey: string;
+      stripeCustomerCreateIdempotencyKey: string;
+      state: "reserved" | "provider_succeeded" | "completed";
+      dispatchState: "idle" | "may_have_dispatched";
+      activeStep:
+        | "customer_create"
+        | "checkout_create"
+        | "portal_create"
+        | null;
+      stripeCustomerId: string | null;
+      stripeCheckoutSessionId: string | null;
+      stripePortalSessionId: string | null;
+      blockedReason: "legacy_dispatch_active" | "legacy_missing_receipt" | null;
+    } = await ctx.runMutation(internal.billing.reserveStripeOperationInternal, {
+      ownerId,
+      ownerGeneration,
+      kind: "subscription_checkout",
+      stripeCustomerId: billing.stripeCustomerId || undefined,
+      ...requestIdentity,
+      now: Date.now(),
+    });
+
+    if (operation.blockedReason) {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "This legacy Stripe request requires reconciliation.",
+      });
+    }
+
+    if (operation.dispatchState === "may_have_dispatched") {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "This Stripe request is still being reconciled.",
+      });
+    }
+
+    if (operation.state !== "reserved" && operation.stripeCheckoutSessionId) {
+      const existingSession = await stripe.checkout.sessions.retrieve(
+        operation.stripeCheckoutSessionId,
+      );
+      assertStripeCheckoutSessionProviderBinding(existingSession, {
+        operationId: operation.operationId,
+        stripeCustomerId: operation.stripeCustomerId!,
+        expectedSessionId: operation.stripeCheckoutSessionId,
+      });
+      if (!existingSession.url) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "This checkout request has already finished.",
+        });
+      }
+      if (operation.state !== "completed") {
+        const completed = await ctx.runMutation(completeStripeOperationRef, {
+          ownerId,
+          ownerGeneration: operation.ownerGeneration,
+          operationId: operation.operationId,
+          now: Date.now(),
+        });
+        if (!completed) {
+          throw new ConvexError({
+            code: "CONFLICT",
+            message: "Stripe checkout completion authority changed.",
+          });
+        }
+      }
+      await assertStripeOperationResultReturn(ctx, {
+        ownerId,
+        ownerGeneration: operation.ownerGeneration,
+        operationId: operation.operationId,
+        stripeCustomerId: operation.stripeCustomerId!,
+        stripeCheckoutSessionId: existingSession.id,
+      });
+      return {
+        url: existingSession.url,
+        sessionId: existingSession.id,
+      };
+    }
+
+    let stripeCustomerId =
+      billing.stripeCustomerId || operation.stripeCustomerId || "";
 
     if (!stripeCustomerId) {
-      const customer = await stripe.customers.create({
+      const customerParams = {
+        // The customer idempotency key is intentionally shared by every
+        // logical checkout in one owner generation. Its request bytes must be
+        // shared too, or concurrent requestIds produce a Stripe idempotency
+        // mismatch instead of converging on one customer.
         metadata: {
           ownerId,
+          stellaCustomerAuthorityId:
+            operation.stripeCustomerCreateIdempotencyKey,
         },
-      });
-      stripeCustomerId = customer.id;
-
-      await ctx.runMutation(internal.billing.linkStripeCustomerToOwner, {
+      } satisfies Stripe.CustomerCreateParams;
+      const customerDispatch = await markStripeStep(ctx, {
         ownerId,
-        stripeCustomerId,
+        ownerGeneration: operation.ownerGeneration,
+        operationId: operation.operationId,
+        step: "customer_create",
+        requestJson: JSON.stringify(customerParams),
       });
+      let customer: Stripe.Customer;
+      try {
+        customer = await withInitialStripeProviderAuthority(
+          ctx,
+          customerDispatch,
+          async (provider) =>
+            await provider.customers.create(customerParams, {
+              idempotencyKey: customerDispatch.idempotencyKey,
+            }),
+        );
+      } catch (error) {
+        await settleDefinitiveStripeNoCreate(ctx, customerDispatch, error);
+        throw error;
+      }
+      stripeCustomerId = customer.id;
+      const customerSettlement = await ctx.runMutation(
+        settleStripeOperationDispatchRef,
+        {
+          ...customerDispatch,
+          stripeCustomerId,
+          now: Date.now(),
+        },
+      );
+      if (customerSettlement.customerDeleted) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "The Stripe customer was deleted during checkout setup.",
+        });
+      }
+    } else if (!billing.stripeCustomerId) {
+      // A receipt-authorized late/reconciled customer capture intentionally
+      // does not recreate billing profile state after a reset fence. Once the
+      // owner is open again, adopt that exact locator before creating Checkout.
+      const adoption = await ctx.runMutation(adoptStripeOperationCustomerRef, {
+        ownerId,
+        ownerGeneration: operation.ownerGeneration,
+        operationId: operation.operationId,
+        stripeCustomerId,
+        now: Date.now(),
+      });
+      if (!adoption.adopted) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "The captured Stripe customer is no longer active.",
+        });
+      }
     }
 
     // Stripe-hosted Checkout: returns a `url` we open in the user's
@@ -2608,18 +7527,58 @@ export const createCheckoutSession = action({
         ownerId,
         plan: args.plan,
         source: checkoutSource,
+        stellaOperationId: operation.operationId,
       },
       subscription_data: {
         metadata: {
           ownerId,
           plan: args.plan,
           source: checkoutSource,
+          stellaOperationId: operation.operationId,
         },
       },
     } as Stripe.Checkout.SessionCreateParams;
 
-    const checkoutSession =
-      await stripe.checkout.sessions.create(sessionParams);
+    const checkoutDispatch = await markStripeStep(ctx, {
+      ownerId,
+      ownerGeneration: operation.ownerGeneration,
+      operationId: operation.operationId,
+      step: "checkout_create",
+      requestJson: JSON.stringify(sessionParams),
+    });
+    let checkoutSession: Stripe.Checkout.Session;
+    try {
+      checkoutSession = await withInitialStripeProviderAuthority(
+        ctx,
+        checkoutDispatch,
+        async (provider) =>
+          await provider.checkout.sessions.create(sessionParams, {
+            idempotencyKey: checkoutDispatch.idempotencyKey,
+          }),
+      );
+    } catch (error) {
+      await settleDefinitiveStripeNoCreate(ctx, checkoutDispatch, error);
+      throw error;
+    }
+    const checkoutSettlement = await ctx.runMutation(
+      settleStripeOperationDispatchRef,
+      {
+        ...checkoutDispatch,
+        stripeCustomerId,
+        stripeCheckoutSessionId: checkoutSession.id,
+        now: Date.now(),
+      },
+    );
+    if (checkoutSettlement.customerDeleted) {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "The Stripe customer was deleted during checkout setup.",
+      });
+    }
+    assertStripeCheckoutSessionProviderBinding(checkoutSession, {
+      operationId: operation.operationId,
+      stripeCustomerId,
+    });
 
     if (!checkoutSession.url) {
       throw new ConvexError({
@@ -2627,6 +7586,26 @@ export const createCheckoutSession = action({
         message: "Stripe did not return a checkout URL.",
       });
     }
+
+    const completed: boolean = await ctx.runMutation(
+      completeStripeOperationRef,
+      {
+        ownerId,
+        ownerGeneration: operation.ownerGeneration,
+        operationId: operation.operationId,
+        now: Date.now(),
+      },
+    );
+    if (!completed)
+      throw new Error("Stripe checkout completion was superseded.");
+
+    await assertStripeOperationResultReturn(ctx, {
+      ownerId,
+      ownerGeneration: operation.ownerGeneration,
+      operationId: operation.operationId,
+      stripeCustomerId,
+      stripeCheckoutSessionId: checkoutSession.id,
+    });
 
     return {
       url: checkoutSession.url,
@@ -2695,6 +7674,7 @@ export const createUsageCreditCheckoutSession = action({
   args: {
     amountCents: v.number(),
     returnUrl: v.string(),
+    requestId: v.string(),
   },
   returns: v.object({
     url: v.string(),
@@ -2710,6 +7690,10 @@ export const createUsageCreditCheckoutSession = action({
     }
 
     const ownerId = identity.tokenIdentifier;
+    const { generation: ownerGeneration } = await assertOwnerDataAccessActive(
+      ctx,
+      ownerId,
+    );
     await enforceActionRateLimit(
       ctx,
       "billing_create_usage_credit_checkout_session",
@@ -2724,6 +7708,11 @@ export const createUsageCreditCheckoutSession = action({
     const normalizedReturnUrl = normalizeReturnUrl(args.returnUrl);
     const successUrl = appendCheckoutStatus(normalizedReturnUrl, "success");
     const cancelUrl = appendCheckoutStatus(normalizedReturnUrl, "cancel");
+    const requestIdentity = await stripeOperationRequestIdentity(
+      "usage_credit_checkout",
+      args.requestId,
+      [amountCents, normalizedReturnUrl],
+    );
     const stripe = getStripeClient();
     const billing: {
       ownerId: string;
@@ -2736,26 +7725,157 @@ export const createUsageCreditCheckoutSession = action({
       usageUpdatedAt: number;
     } = await ctx.runMutation(internal.billing.ensureBillingRecords, {
       ownerId,
+      ownerGeneration,
     });
 
-    let stripeCustomerId = billing.stripeCustomerId;
+    const operation: {
+      operationId: string;
+      ownerGeneration: string;
+      idempotencyKey: string;
+      stripeCustomerCreateIdempotencyKey: string;
+      state: "reserved" | "provider_succeeded" | "completed";
+      dispatchState: "idle" | "may_have_dispatched";
+      activeStep:
+        | "customer_create"
+        | "checkout_create"
+        | "portal_create"
+        | null;
+      stripeCustomerId: string | null;
+      stripeCheckoutSessionId: string | null;
+      stripePortalSessionId: string | null;
+      blockedReason: "legacy_dispatch_active" | "legacy_missing_receipt" | null;
+    } = await ctx.runMutation(internal.billing.reserveStripeOperationInternal, {
+      ownerId,
+      ownerGeneration,
+      kind: "usage_credit_checkout",
+      stripeCustomerId: billing.stripeCustomerId || undefined,
+      ...requestIdentity,
+      now: Date.now(),
+    });
+
+    if (operation.blockedReason) {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "This legacy Stripe request requires reconciliation.",
+      });
+    }
+
+    if (operation.dispatchState === "may_have_dispatched") {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "This Stripe request is still being reconciled.",
+      });
+    }
+
+    if (operation.state !== "reserved" && operation.stripeCheckoutSessionId) {
+      const existingSession = await stripe.checkout.sessions.retrieve(
+        operation.stripeCheckoutSessionId,
+      );
+      assertStripeCheckoutSessionProviderBinding(existingSession, {
+        operationId: operation.operationId,
+        stripeCustomerId: operation.stripeCustomerId!,
+        expectedSessionId: operation.stripeCheckoutSessionId,
+      });
+      if (!existingSession.url) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "This checkout request has already finished.",
+        });
+      }
+      if (operation.state !== "completed") {
+        const completed = await ctx.runMutation(completeStripeOperationRef, {
+          ownerId,
+          ownerGeneration: operation.ownerGeneration,
+          operationId: operation.operationId,
+          now: Date.now(),
+        });
+        if (!completed) {
+          throw new ConvexError({
+            code: "CONFLICT",
+            message: "Stripe checkout completion authority changed.",
+          });
+        }
+      }
+      await assertStripeOperationResultReturn(ctx, {
+        ownerId,
+        ownerGeneration: operation.ownerGeneration,
+        operationId: operation.operationId,
+        stripeCustomerId: operation.stripeCustomerId!,
+        stripeCheckoutSessionId: existingSession.id,
+      });
+      return {
+        url: existingSession.url,
+        sessionId: existingSession.id,
+      };
+    }
+
+    let stripeCustomerId =
+      billing.stripeCustomerId || operation.stripeCustomerId || "";
     if (!stripeCustomerId) {
-      const customer = await stripe.customers.create({
+      const customerParams = {
         metadata: {
           ownerId,
+          stellaCustomerAuthorityId:
+            operation.stripeCustomerCreateIdempotencyKey,
         },
-      });
-      stripeCustomerId = customer.id;
-      await ctx.runMutation(internal.billing.linkStripeCustomerToOwner, {
+      } satisfies Stripe.CustomerCreateParams;
+      const customerDispatch = await markStripeStep(ctx, {
         ownerId,
-        stripeCustomerId,
+        ownerGeneration: operation.ownerGeneration,
+        operationId: operation.operationId,
+        step: "customer_create",
+        requestJson: JSON.stringify(customerParams),
       });
+      let customer: Stripe.Customer;
+      try {
+        customer = await withInitialStripeProviderAuthority(
+          ctx,
+          customerDispatch,
+          async (provider) =>
+            await provider.customers.create(customerParams, {
+              idempotencyKey: customerDispatch.idempotencyKey,
+            }),
+        );
+      } catch (error) {
+        await settleDefinitiveStripeNoCreate(ctx, customerDispatch, error);
+        throw error;
+      }
+      stripeCustomerId = customer.id;
+      const customerSettlement = await ctx.runMutation(
+        settleStripeOperationDispatchRef,
+        {
+          ...customerDispatch,
+          stripeCustomerId,
+          now: Date.now(),
+        },
+      );
+      if (customerSettlement.customerDeleted) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "The Stripe customer was deleted during checkout setup.",
+        });
+      }
+    } else if (!billing.stripeCustomerId) {
+      const adoption = await ctx.runMutation(adoptStripeOperationCustomerRef, {
+        ownerId,
+        ownerGeneration: operation.ownerGeneration,
+        operationId: operation.operationId,
+        stripeCustomerId,
+        now: Date.now(),
+      });
+      if (!adoption.adopted) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "The captured Stripe customer is no longer active.",
+        });
+      }
     }
 
     const metadata = {
       ownerId,
       purpose: "usage_credit",
       amountCents: String(amountCents),
+      stellaOperationId: operation.operationId,
     };
     const sessionParams = {
       mode: "payment",
@@ -2785,14 +7905,72 @@ export const createUsageCreditCheckoutSession = action({
       },
     } as Stripe.Checkout.SessionCreateParams;
 
-    const checkoutSession =
-      await stripe.checkout.sessions.create(sessionParams);
+    const checkoutDispatch = await markStripeStep(ctx, {
+      ownerId,
+      ownerGeneration: operation.ownerGeneration,
+      operationId: operation.operationId,
+      step: "checkout_create",
+      requestJson: JSON.stringify(sessionParams),
+    });
+    let checkoutSession: Stripe.Checkout.Session;
+    try {
+      checkoutSession = await withInitialStripeProviderAuthority(
+        ctx,
+        checkoutDispatch,
+        async (provider) =>
+          await provider.checkout.sessions.create(sessionParams, {
+            idempotencyKey: checkoutDispatch.idempotencyKey,
+          }),
+      );
+    } catch (error) {
+      await settleDefinitiveStripeNoCreate(ctx, checkoutDispatch, error);
+      throw error;
+    }
+    const checkoutSettlement = await ctx.runMutation(
+      settleStripeOperationDispatchRef,
+      {
+        ...checkoutDispatch,
+        stripeCustomerId,
+        stripeCheckoutSessionId: checkoutSession.id,
+        now: Date.now(),
+      },
+    );
+    if (checkoutSettlement.customerDeleted) {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "The Stripe customer was deleted during checkout setup.",
+      });
+    }
+    assertStripeCheckoutSessionProviderBinding(checkoutSession, {
+      operationId: operation.operationId,
+      stripeCustomerId,
+    });
     if (!checkoutSession.url) {
       throw new ConvexError({
         code: "INTERNAL_ERROR",
         message: "Stripe did not return a checkout URL.",
       });
     }
+
+    const completed: boolean = await ctx.runMutation(
+      completeStripeOperationRef,
+      {
+        ownerId,
+        ownerGeneration: operation.ownerGeneration,
+        operationId: operation.operationId,
+        now: Date.now(),
+      },
+    );
+    if (!completed)
+      throw new Error("Stripe checkout completion was superseded.");
+
+    await assertStripeOperationResultReturn(ctx, {
+      ownerId,
+      ownerGeneration: operation.ownerGeneration,
+      operationId: operation.operationId,
+      stripeCustomerId,
+      stripeCheckoutSessionId: checkoutSession.id,
+    });
 
     return {
       url: checkoutSession.url,
@@ -2804,6 +7982,7 @@ export const createUsageCreditCheckoutSession = action({
 export const createBillingPortalSession = action({
   args: {
     returnUrl: v.string(),
+    requestId: v.string(),
   },
   returns: v.object({ url: v.string() }),
   handler: async (ctx, args): Promise<{ url: string }> => {
@@ -2816,6 +7995,10 @@ export const createBillingPortalSession = action({
     }
 
     const ownerId = identity.tokenIdentifier;
+    const { generation: ownerGeneration } = await assertOwnerDataAccessActive(
+      ctx,
+      ownerId,
+    );
     await enforceActionRateLimit(
       ctx,
       "billing_create_portal_session",
@@ -2834,6 +8017,7 @@ export const createBillingPortalSession = action({
       usageUpdatedAt: number;
     } = await ctx.runMutation(internal.billing.ensureBillingRecords, {
       ownerId,
+      ownerGeneration,
     });
 
     if (!billing.stripeCustomerId) {
@@ -2843,10 +8027,113 @@ export const createBillingPortalSession = action({
       });
     }
 
+    const normalizedReturnUrl = normalizeReturnUrl(args.returnUrl);
+    const requestIdentity = await stripeOperationRequestIdentity(
+      "billing_portal",
+      args.requestId,
+      [normalizedReturnUrl],
+    );
+    const operation: {
+      operationId: string;
+      ownerGeneration: string;
+      idempotencyKey: string;
+      stripeCustomerCreateIdempotencyKey: string;
+      state: "reserved" | "provider_succeeded" | "completed";
+      dispatchState: "idle" | "may_have_dispatched";
+      activeStep:
+        | "customer_create"
+        | "checkout_create"
+        | "portal_create"
+        | null;
+      stripeCustomerId: string | null;
+      stripeCheckoutSessionId: string | null;
+      stripePortalSessionId: string | null;
+      blockedReason: "legacy_dispatch_active" | "legacy_missing_receipt" | null;
+    } = await ctx.runMutation(internal.billing.reserveStripeOperationInternal, {
+      ownerId,
+      ownerGeneration,
+      kind: "billing_portal",
+      stripeCustomerId: billing.stripeCustomerId,
+      ...requestIdentity,
+      now: Date.now(),
+    });
+    if (operation.blockedReason) {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "This legacy Stripe request requires reconciliation.",
+      });
+    }
+    if (operation.dispatchState === "may_have_dispatched") {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "This Stripe request is still being reconciled.",
+      });
+    }
+    if (operation.state !== "reserved") {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "This billing portal request has already been completed.",
+      });
+    }
     const stripe = getStripeClient();
-    const session = await stripe.billingPortal.sessions.create({
+    const sessionParams = {
       customer: billing.stripeCustomerId,
-      return_url: normalizeReturnUrl(args.returnUrl),
+      return_url: normalizedReturnUrl,
+    } satisfies Stripe.BillingPortal.SessionCreateParams;
+    const portalDispatch = await markStripeStep(ctx, {
+      ownerId,
+      ownerGeneration: operation.ownerGeneration,
+      operationId: operation.operationId,
+      step: "portal_create",
+      requestJson: JSON.stringify(sessionParams),
+    });
+    let session: Stripe.BillingPortal.Session;
+    try {
+      session = await withInitialStripeProviderAuthority(
+        ctx,
+        portalDispatch,
+        async (provider) =>
+          await provider.billingPortal.sessions.create(sessionParams, {
+            idempotencyKey: portalDispatch.idempotencyKey,
+          }),
+      );
+    } catch (error) {
+      await settleDefinitiveStripeNoCreate(ctx, portalDispatch, error);
+      throw error;
+    }
+    const portalSettlement = await ctx.runMutation(
+      settleStripeOperationDispatchRef,
+      {
+        ...portalDispatch,
+        stripeCustomerId: billing.stripeCustomerId,
+        stripePortalSessionId: session.id,
+        now: Date.now(),
+      },
+    );
+    if (portalSettlement.customerDeleted) {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "The Stripe customer was deleted during portal setup.",
+      });
+    }
+    assertStripePortalSessionProviderBinding(session, billing.stripeCustomerId);
+    const published: boolean = await ctx.runMutation(
+      completeStripeOperationRef,
+      {
+        ownerId,
+        ownerGeneration: operation.ownerGeneration,
+        operationId: operation.operationId,
+        now: Date.now(),
+      },
+    );
+    if (!published) throw new Error("Stripe portal result was superseded.");
+
+    await assertStripeOperationResultReturn(ctx, {
+      ownerId,
+      ownerGeneration: operation.ownerGeneration,
+      operationId: operation.operationId,
+      stripeCustomerId: billing.stripeCustomerId,
+      stripePortalSessionId: session.id,
     });
 
     return {

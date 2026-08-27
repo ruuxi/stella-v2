@@ -5,6 +5,11 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import {
+  assertOwnerMigrationWriteAllowed,
+  hasOwnerMigrationWriteFence,
+} from "./auth";
+import { acquireTtsProviderDispatchGuard } from "./lib/tts_dispatch_guard";
 
 // ---------------------------------------------------------------------------
 // Mobile HLS progressive read-aloud transport.
@@ -31,6 +36,10 @@ const INWORLD_TTS_STREAM_URL = "https://api.inworld.ai/tts/v1/voice:stream";
 // clip is played back in real time (a ~3-minute clip must still resolve its
 // tail segments near the end of playback). Bounded and swept by the cron.
 const HLS_TTL_MS = 15 * 60 * 1000;
+// The upstream fetch is capped below this lease. A scheduled recovery may
+// take over only after the old request has been forcibly aborted, so two
+// attempts cannot cross the provider boundary concurrently.
+const HLS_ACTION_LEASE_MS = 9 * 60 * 1000;
 const MAX_TEXT_CHARS = 8000;
 
 // Target segment length. Short enough that the first segment is audible almost
@@ -40,6 +49,8 @@ const TARGET_SEGMENT_SEC = 2.0;
 // ~2 s ≈ 20 minutes of audio; the input cap makes this unreachable in practice.
 const MAX_HLS_SEGMENTS = 600;
 const MAX_TOTAL_AUDIO_BYTES = 24 * 1024 * 1024;
+const MIGRATION_SEGMENT_DELETE_BATCH = 48;
+const MIGRATION_TICKET_DELETE_BATCH = 8;
 
 // ---------------------------------------------------------------------------
 // Encoding helpers
@@ -199,12 +210,69 @@ const buildId3Timestamp = (startSec) => {
 // Mutations / queries
 // ---------------------------------------------------------------------------
 
+/**
+ * Discard ephemeral read-aloud state on either side of an ownership migration.
+ * These rows must never be transferred: a pending source scheduler callback
+ * could regain provider authority when the migration fence is removed. Child
+ * segment payloads drain before their parent ticket, in small fixed batches.
+ */
+export const discardOwnerTtsSessionsForMigrationInternal = internalMutation({
+  args: { ownerId: v.string() },
+  returns: v.object({
+    ready: v.boolean(),
+    deleted: v.number(),
+    pending: v.union(
+      v.literal(""),
+      v.literal("segments"),
+      v.literal("tickets"),
+    ),
+  }),
+  handler: async (ctx, args) => {
+    if (!(await hasOwnerMigrationWriteFence(ctx, args.ownerId))) {
+      throw new Error(
+        "TTS session discard requires an active owner migration fence.",
+      );
+    }
+    const segments = await ctx.db
+      .query("tts_hls_segments")
+      .withIndex("by_ownerId_and_createdAt", (q) =>
+        q.eq("ownerId", args.ownerId),
+      )
+      .take(MIGRATION_SEGMENT_DELETE_BATCH);
+    if (segments.length > 0) {
+      for (const row of segments) await ctx.db.delete(row._id);
+      return {
+        ready: false,
+        deleted: segments.length,
+        pending: "segments",
+      };
+    }
+    const tickets = await ctx.db
+      .query("tts_stream_tickets")
+      .withIndex("by_ownerId_and_createdAt", (q) =>
+        q.eq("ownerId", args.ownerId),
+      )
+      .take(MIGRATION_TICKET_DELETE_BATCH);
+    if (tickets.length > 0) {
+      for (const row of tickets) await ctx.db.delete(row._id);
+      return {
+        ready: false,
+        deleted: tickets.length,
+        pending: "tickets",
+      };
+    }
+    return { ready: true, deleted: 0, pending: "" };
+  },
+});
+
 // Create the HLS ticket row and schedule the single background synthesis. Used
 // by the mobile `prepare` route in place of the buffered `storeTicket`.
 export const startHlsSession = internalMutation({
   args: {
     ticket: v.string(),
     ownerId: v.string(),
+    ownerGeneration: v.string(),
+    providerDispatchId: v.optional(v.string()),
     text: v.string(),
     voice: v.string(),
     model: v.string(),
@@ -213,10 +281,19 @@ export const startHlsSession = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
     const now = Date.now();
     await ctx.db.insert("tts_stream_tickets", {
       ticket: args.ticket,
       ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      ...(args.providerDispatchId
+        ? { providerDispatchId: args.providerDispatchId.slice(0, 256) }
+        : {}),
       text: args.text.slice(0, MAX_TEXT_CHARS),
       voice: args.voice,
       model: args.model,
@@ -229,47 +306,94 @@ export const startHlsSession = internalMutation({
       hlsStatus: "pending",
       hlsSegments: [],
       hlsDone: false,
+      bufferStatus: "pending",
     });
     await ctx.scheduler.runAfter(0, internal.tts_hls.synthesizeHls, {
       ticket: args.ticket,
       ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
     });
     return null;
   },
 });
 
-// Read the synthesis job for a ticket (params + owner + expiry). Owner-bound.
-export const readHlsJob = internalQuery({
-  args: { ticket: v.string(), ownerId: v.string() },
+// Transactional single-winner claim. A duplicated scheduler delivery, an
+// expired/canceled ticket, or an old owner generation never crosses the
+// provider boundary.
+export const claimHlsSynthesis = internalMutation({
+  args: {
+    ticket: v.string(),
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    attemptId: v.string(),
+    nowMs: v.number(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      text: v.string(),
+      voice: v.string(),
+      model: v.string(),
+      speed: v.union(v.number(), v.null()),
+      conversationId: v.union(v.id("conversations"), v.null()),
+      providerDispatchId: v.union(v.string(), v.null()),
+      expiresAt: v.number(),
+    }),
+  ),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
     const row = await ctx.db
       .query("tts_stream_tickets")
       .withIndex("by_ticket", (q) => q.eq("ticket", args.ticket))
       .unique();
-    if (!row || row.ownerId !== args.ownerId) return null;
+    const status = row?.hlsStatus ?? "pending";
+    const recoverableClaim =
+      status === "pending" ||
+      (status === "synthesizing" &&
+        (row?.hlsLeaseExpiresAt ?? 0) <= args.nowMs);
+    if (
+      !row ||
+      row.ownerId !== args.ownerId ||
+      (row.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
+      row.expiresAt <= args.nowMs ||
+      row.hlsCanceledAt ||
+      row.hlsDone ||
+      row.synthesisTransport === "buffered" ||
+      !recoverableClaim
+    ) {
+      return null;
+    }
+    await ctx.db.patch(row._id, {
+      hlsStatus: "synthesizing",
+      hlsAttemptId: args.attemptId,
+      hlsLeaseExpiresAt: Math.min(
+        row.expiresAt,
+        args.nowMs + HLS_ACTION_LEASE_MS,
+      ),
+      synthesisTransport: "hls",
+    });
+    await ctx.scheduler.runAfter(
+      HLS_ACTION_LEASE_MS,
+      internal.tts_hls.synthesizeHls,
+      {
+        ticket: args.ticket,
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+      },
+    );
     return {
       text: row.text,
       voice: row.voice,
       model: row.model,
       speed: typeof row.speed === "number" ? row.speed : null,
       conversationId: row.conversationId ?? null,
+      providerDispatchId: row.providerDispatchId ?? null,
       expiresAt: row.expiresAt,
     };
-  },
-});
-
-export const markHlsSynthesizing = internalMutation({
-  args: { ticket: v.string(), ownerId: v.string() },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query("tts_stream_tickets")
-      .withIndex("by_ticket", (q) => q.eq("ticket", args.ticket))
-      .unique();
-    if (row && row.ownerId === args.ownerId && !row.hlsDone) {
-      await ctx.db.patch(row._id, { hlsStatus: "synthesizing" });
-    }
-    return null;
   },
 });
 
@@ -279,37 +403,73 @@ export const appendHlsSegment = internalMutation({
   args: {
     ticket: v.string(),
     ownerId: v.string(),
+    ownerGeneration: v.string(),
+    attemptId: v.string(),
     seq: v.number(),
     audio: v.string(),
     durationSec: v.number(),
-    expiresAt: v.number(),
   },
-  returns: v.null(),
+  returns: v.object({ accepted: v.boolean(), appended: v.boolean() }),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
     const now = Date.now();
-    await ctx.db.insert("tts_hls_segments", {
-      ticket: args.ticket,
-      ownerId: args.ownerId,
-      seq: args.seq,
-      audio: args.audio,
-      durationSec: args.durationSec,
-      createdAt: now,
-      expiresAt: args.expiresAt,
-    });
     const row = await ctx.db
       .query("tts_stream_tickets")
       .withIndex("by_ticket", (q) => q.eq("ticket", args.ticket))
       .unique();
-    if (row && row.ownerId === args.ownerId) {
-      const segments = Array.isArray(row.hlsSegments) ? row.hlsSegments : [];
-      await ctx.db.patch(row._id, {
-        hlsSegments: [
-          ...segments,
-          { seq: args.seq, durationSec: args.durationSec },
-        ],
-      });
+    if (
+      !row ||
+      row.ownerId !== args.ownerId ||
+      (row.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
+      row.hlsAttemptId !== args.attemptId ||
+      row.hlsStatus !== "synthesizing" ||
+      (row.hlsLeaseExpiresAt ?? 0) <= now ||
+      row.hlsCanceledAt ||
+      row.expiresAt <= now ||
+      row.hlsDone
+    ) {
+      return { accepted: false, appended: false };
     }
-    return null;
+    const existing = await ctx.db
+      .query("tts_hls_segments")
+      .withIndex("by_ticket_and_seq", (q) =>
+        q.eq("ticket", args.ticket).eq("seq", args.seq),
+      )
+      .unique();
+    if (existing) {
+      const replayed =
+        existing.ownerId === args.ownerId &&
+        (existing.ownerGeneration ?? "legacy") === args.ownerGeneration &&
+        existing.audio === args.audio &&
+        existing.durationSec === args.durationSec;
+      return { accepted: replayed, appended: false };
+    }
+    const segments = Array.isArray(row.hlsSegments) ? row.hlsSegments : [];
+    if (segments.length >= MAX_HLS_SEGMENTS || args.seq >= MAX_HLS_SEGMENTS) {
+      return { accepted: false, appended: false };
+    }
+    await ctx.db.insert("tts_hls_segments", {
+      ticket: args.ticket,
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      seq: args.seq,
+      audio: args.audio,
+      durationSec: args.durationSec,
+      createdAt: now,
+      expiresAt: row.expiresAt,
+    });
+    await ctx.db.patch(row._id, {
+      hlsSegments: [
+        ...segments,
+        { seq: args.seq, durationSec: args.durationSec },
+      ],
+      hlsLeaseExpiresAt: Math.min(row.expiresAt, now + HLS_ACTION_LEASE_MS),
+    });
+    return { accepted: true, appended: true };
   },
 });
 
@@ -317,16 +477,32 @@ export const finishHlsSession = internalMutation({
   args: {
     ticket: v.string(),
     ownerId: v.string(),
+    ownerGeneration: v.string(),
+    attemptId: v.string(),
     status: v.union(v.literal("done"), v.literal("error")),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
     const row = await ctx.db
       .query("tts_stream_tickets")
       .withIndex("by_ticket", (q) => q.eq("ticket", args.ticket))
       .unique();
-    if (row && row.ownerId === args.ownerId) {
-      await ctx.db.patch(row._id, { hlsStatus: args.status, hlsDone: true });
+    if (
+      row &&
+      row.ownerId === args.ownerId &&
+      (row.ownerGeneration ?? "legacy") === args.ownerGeneration &&
+      row.hlsAttemptId === args.attemptId
+    ) {
+      await ctx.db.patch(row._id, {
+        hlsStatus: args.status,
+        hlsDone: true,
+        hlsLeaseExpiresAt: undefined,
+      });
     }
     return null;
   },
@@ -335,14 +511,30 @@ export const finishHlsSession = internalMutation({
 // Cooperative stop beacon: the client posts this on "stop"; the synthesis loop
 // polls it and ends provider spend early (metered as interrupted).
 export const cancelHlsSession = internalMutation({
-  args: { ticket: v.string(), ownerId: v.string(), nowMs: v.number() },
+  args: {
+    ticket: v.string(),
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    nowMs: v.number(),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
     const row = await ctx.db
       .query("tts_stream_tickets")
       .withIndex("by_ticket", (q) => q.eq("ticket", args.ticket))
       .unique();
-    if (row && row.ownerId === args.ownerId && row.expiresAt > args.nowMs) {
+    if (
+      row &&
+      row.ownerId === args.ownerId &&
+      (row.ownerGeneration ?? "legacy") === args.ownerGeneration &&
+      row.expiresAt > args.nowMs &&
+      !row.hlsDone
+    ) {
       await ctx.db.patch(row._id, { hlsCanceledAt: args.nowMs });
     }
     return null;
@@ -350,13 +542,35 @@ export const cancelHlsSession = internalMutation({
 });
 
 export const readHlsCancelFlag = internalQuery({
-  args: { ticket: v.string() },
+  args: {
+    ticket: v.string(),
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    attemptId: v.string(),
+    nowMs: v.number(),
+  },
+  returns: v.union(v.null(), v.object({ canceled: v.boolean() })),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
     const row = await ctx.db
       .query("tts_stream_tickets")
       .withIndex("by_ticket", (q) => q.eq("ticket", args.ticket))
       .unique();
-    if (!row) return null;
+    if (
+      !row ||
+      row.ownerId !== args.ownerId ||
+      (row.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
+      row.hlsAttemptId !== args.attemptId ||
+      row.hlsStatus !== "synthesizing" ||
+      (row.hlsLeaseExpiresAt ?? 0) <= args.nowMs ||
+      row.expiresAt <= args.nowMs
+    ) {
+      return null;
+    }
     return { canceled: !!row.hlsCanceledAt };
   },
 });
@@ -364,13 +578,41 @@ export const readHlsCancelFlag = internalQuery({
 // Live playlist manifest for a ticket. Returns only {seq,durationSec} metadata,
 // never segment audio. Owner-bound + TTL-checked.
 export const readHlsPlaylist = internalQuery({
-  args: { ticket: v.string(), ownerId: v.string(), nowMs: v.number() },
+  args: {
+    ticket: v.string(),
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    nowMs: v.number(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      status: v.union(
+        v.literal("pending"),
+        v.literal("synthesizing"),
+        v.literal("done"),
+        v.literal("error"),
+      ),
+      done: v.boolean(),
+      segments: v.array(v.object({ seq: v.number(), durationSec: v.number() })),
+    }),
+  ),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
     const row = await ctx.db
       .query("tts_stream_tickets")
       .withIndex("by_ticket", (q) => q.eq("ticket", args.ticket))
       .unique();
-    if (!row || row.ownerId !== args.ownerId || row.expiresAt <= args.nowMs) {
+    if (
+      !row ||
+      row.ownerId !== args.ownerId ||
+      (row.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
+      row.expiresAt <= args.nowMs
+    ) {
       return null;
     }
     return {
@@ -382,15 +624,46 @@ export const readHlsPlaylist = internalQuery({
 });
 
 export const readHlsSegment = internalQuery({
-  args: { ticket: v.string(), ownerId: v.string(), seq: v.number() },
+  args: {
+    ticket: v.string(),
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    seq: v.number(),
+    nowMs: v.number(),
+  },
+  returns: v.union(v.null(), v.object({ audio: v.string() })),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
+    const ticket = await ctx.db
+      .query("tts_stream_tickets")
+      .withIndex("by_ticket", (q) => q.eq("ticket", args.ticket))
+      .unique();
+    if (
+      !ticket ||
+      ticket.ownerId !== args.ownerId ||
+      (ticket.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
+      ticket.expiresAt <= args.nowMs
+    ) {
+      return null;
+    }
     const seg = await ctx.db
       .query("tts_hls_segments")
       .withIndex("by_ticket_and_seq", (q) =>
         q.eq("ticket", args.ticket).eq("seq", args.seq),
       )
       .unique();
-    if (!seg || seg.ownerId !== args.ownerId) return null;
+    if (
+      !seg ||
+      seg.ownerId !== args.ownerId ||
+      (seg.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
+      seg.expiresAt <= args.nowMs
+    ) {
+      return null;
+    }
     return { audio: seg.audio };
   },
 });
@@ -400,244 +673,412 @@ export const readHlsSegment = internalQuery({
 // ---------------------------------------------------------------------------
 
 export const synthesizeHls = internalAction({
-  args: { ticket: v.string(), ownerId: v.string() },
+  args: {
+    ticket: v.string(),
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const job = await ctx.runQuery(internal.tts_hls.readHlsJob, {
+    const attemptId = crypto.randomUUID();
+    const job = await ctx.runMutation(internal.tts_hls.claimHlsSynthesis, {
       ticket: args.ticket,
       ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      attemptId,
+      nowMs: Date.now(),
     });
     if (!job) return null;
 
     const inworldApiKey = process.env.INWORLD_API_KEY ?? null;
     const requestChars = job.text.length;
     const startedAt = Date.now();
-    const expiresAt = job.expiresAt;
 
-    // Insert a pessimistic "interrupted" ledger row up front so a crash mid-run
-    // still records provider spend; finalized to the true terminal status.
-    const usage = await ctx
-      .runMutation(internal.billing.recordInternalTtsUsage, {
-        ownerId: args.ownerId,
+    const dispatch = await acquireTtsProviderDispatchGuard(ctx, {
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      dispatchId: job.providerDispatchId ?? `hls:${args.ticket}`,
+      kind: "hls",
+      usage: {
         provider: "inworld",
         model: job.model,
         voice: job.voice,
         ...(job.conversationId ? { conversationId: job.conversationId } : {}),
         streaming: true,
-        status: "interrupted",
         requestChars,
-        synthesizedChars: requestChars,
-        audioBytes: 0,
-        durationMs: 0,
-      })
-      .catch(() => null);
-    const usageId = usage && usage.usageId ? usage.usageId : null;
-
-    let audioBytes = 0;
-    let recorded = false;
-    const finalize = async (status) => {
-      if (recorded || !usageId) return;
-      recorded = true;
-      const synthesizedChars = status === "failed" ? 0 : requestChars;
-      await ctx
-        .runMutation(internal.billing.finalizeInternalTtsUsage, {
-          usageId,
-          status,
-          synthesizedChars,
-          audioBytes,
-          durationMs: Date.now() - startedAt,
-        })
-        .catch(() => undefined);
-    };
-
-    if (!inworldApiKey) {
-      await finalize("failed");
-      await ctx.runMutation(internal.tts_hls.finishHlsSession, {
-        ticket: args.ticket,
-        ownerId: args.ownerId,
-        status: "error",
-      });
-      return null;
-    }
-
-    await ctx.runMutation(internal.tts_hls.markHlsSynthesizing, {
-      ticket: args.ticket,
-      ownerId: args.ownerId,
+      },
     });
-
-    let upstream;
-    try {
-      upstream = await fetch(INWORLD_TTS_STREAM_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${inworldApiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          text: job.text,
-          voiceId: job.voice,
-          modelId: job.model,
-          audioConfig: {
-            audioEncoding: "MP3",
-            ...(job.speed !== null ? { speakingRate: job.speed } : {}),
-          },
-        }),
-      });
-    } catch (error) {
-      console.error(
-        "[voice/tts/hls] Failed to contact Inworld:",
-        error && error.message ? error.message : String(error),
-      );
-      await finalize("failed");
+    if (!dispatch) {
       await ctx.runMutation(internal.tts_hls.finishHlsSession, {
         ticket: args.ticket,
         ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        attemptId,
         status: "error",
       });
       return null;
     }
 
-    if (!upstream.ok || !upstream.body) {
-      await upstream.text().catch(() => undefined);
-      console.error("[voice/tts/hls] Inworld TTS failed:", upstream.status);
-      await finalize("failed");
-      await ctx.runMutation(internal.tts_hls.finishHlsSession, {
-        ticket: args.ticket,
-        ownerId: args.ownerId,
-        status: "error",
-      });
-      return null;
-    }
+    let providerMarked = false;
+    let providerReachedEof = false;
+    let providerResponseOk = false;
+    let providerAudioBytes = 0;
+    let providerDisposed = false;
+    let hlsFinished = false;
 
-    // ---- Streaming segmenter ------------------------------------------------
-    const reader = upstream.body.getReader();
-    const decoder = new TextDecoder();
-    let textBuffer = "";
-    let mp3 = new Uint8Array(0); // unparsed MP3 bytes
-    let aligned = false;
-    let segFrames = [];
-    let segDuration = 0;
-    let segStartSec = 0;
-    let seq = 0;
-    let capped = false;
-
-    const flushSegment = async () => {
-      if (segFrames.length === 0) return;
-      const segBytes = concatBytes([
-        buildId3Timestamp(segStartSec),
-        concatBytes(segFrames),
-      ]);
-      await ctx.runMutation(internal.tts_hls.appendHlsSegment, {
-        ticket: args.ticket,
-        ownerId: args.ownerId,
-        seq,
-        audio: bytesToBase64(segBytes),
-        durationSec: segDuration,
-        expiresAt,
-      });
-      audioBytes += segBytes.length;
-      segStartSec += segDuration;
-      seq += 1;
-      segFrames = [];
-      segDuration = 0;
+    const usageSettlement = (ambiguous) => {
+      const completed =
+        !ambiguous && providerResponseOk && providerAudioBytes > 0;
+      return {
+        status: ambiguous
+          ? providerAudioBytes > 0
+            ? "partial"
+            : "interrupted"
+          : completed
+            ? "completed"
+            : "failed",
+        // A clean provider EOF makes transport outcome knowable, but a 4xx or
+        // 5xx does not prove the provider waived spend. Keep the full-request
+        // estimate unless authoritative billed units say otherwise.
+        synthesizedChars: ambiguous || providerReachedEof ? requestChars : 0,
+        audioBytes: providerAudioBytes,
+        durationMs: Date.now() - startedAt,
+      };
     };
 
-    // Consume every whole frame currently buffered, flushing segments when they
-    // reach the target duration. Leaves any trailing partial frame in `mp3`.
-    const drainFrames = async () => {
-      let cursor = 0;
-      if (!aligned) {
-        const skip = id3v2Length(mp3);
-        if (skip > 0) cursor = skip;
-      }
-      for (;;) {
-        if (seq >= MAX_HLS_SEGMENTS || audioBytes >= MAX_TOTAL_AUDIO_BYTES) {
-          capped = true;
-          break;
-        }
-        const frame = readFrame(mp3, cursor);
-        if (!frame) {
-          if (cursor + 4 > mp3.length) break; // need more bytes to decide
-          if (aligned) break; // stay aligned; wait for the rest of this frame
-          cursor += 1; // resync past leading junk
-          continue;
-        }
-        if (cursor + frame.frameLen > mp3.length) break; // frame not fully in yet
-        aligned = true;
-        segFrames.push(mp3.slice(cursor, cursor + frame.frameLen));
-        segDuration += frame.durationSec;
-        cursor += frame.frameLen;
-        if (segDuration >= TARGET_SEGMENT_SEC) await flushSegment();
-      }
-      mp3 = cursor > 0 ? mp3.slice(cursor) : mp3;
-    };
-
-    const ingest = async (bytes) => {
-      if (bytes.length === 0) return;
-      mp3 = mp3.length === 0 ? bytes : concatBytes([mp3, bytes]);
-      await drainFrames();
-    };
-
-    const takeLine = async (line) => {
-      const chunk = extractInworldAudioChunk(line);
-      if (chunk && chunk.length > 0) await ingest(chunk);
-    };
-
-    let canceled = false;
-    let errored = false;
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) textBuffer += decoder.decode(value, { stream: true });
-        let nl;
-        while ((nl = textBuffer.indexOf("\n")) >= 0) {
-          const line = textBuffer.slice(0, nl).trim();
-          textBuffer = textBuffer.slice(nl + 1);
-          if (line) await takeLine(line);
-        }
-        // Poll the cooperative stop beacon between network chunks.
-        const flag = await ctx.runQuery(internal.tts_hls.readHlsCancelFlag, {
-          ticket: args.ticket,
+    // Provider settlement is deliberately independent from whether segment
+    // publication succeeds. Once EOF is observed, provider work is settled;
+    // publication failures may still leave the HLS session in an error state.
+    const disposeProvider = async () => {
+      if (providerDisposed) return;
+      if (!providerMarked) {
+        await dispatch.release({ outcome: "not_dispatched", abort: true });
+      } else if (providerReachedEof) {
+        await dispatch.release({
+          outcome: "settled",
+          settlement: usageSettlement(false),
         });
-        if (!flag || flag.canceled) {
-          canceled = true;
-          await reader.cancel().catch(() => undefined);
-          break;
+      } else {
+        await dispatch.release({
+          outcome: "may_have_dispatched",
+          settlement: usageSettlement(true),
+          abort: true,
+        });
+      }
+      providerDisposed = true;
+    };
+
+    const finishHls = async (status) => {
+      if (hlsFinished) return;
+      await ctx.runMutation(internal.tts_hls.finishHlsSession, {
+        ticket: args.ticket,
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        attemptId,
+        status,
+      });
+      hlsFinished = true;
+    };
+
+    try {
+      if (!inworldApiKey) {
+        await disposeProvider();
+        await finishHls("error");
+        return null;
+      }
+
+      let upstream;
+      try {
+        // This durable marker is the last awaited operation before fetch. From
+        // this point onward, any missing response/body EOF is ambiguous spend.
+        await dispatch.markMayHaveDispatched();
+        providerMarked = true;
+        upstream = await dispatch.race(
+          fetch(INWORLD_TTS_STREAM_URL, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${inworldApiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              text: job.text,
+              voiceId: job.voice,
+              modelId: job.model,
+              audioConfig: {
+                audioEncoding: "MP3",
+                ...(job.speed !== null ? { speakingRate: job.speed } : {}),
+              },
+            }),
+            signal: dispatch.signal,
+          }),
+        );
+        if (dispatch.signal.aborted) {
+          throw (
+            dispatch.signal.reason ??
+            new Error("HLS provider dispatch was canceled.")
+          );
         }
-        if (capped) {
-          await reader.cancel().catch(() => undefined);
-          break;
+        providerResponseOk = upstream.ok;
+      } catch (error) {
+        console.error(
+          "[voice/tts/hls] Failed to contact Inworld:",
+          error && error.message ? error.message : String(error),
+        );
+        await disposeProvider();
+        await finishHls("error");
+        return null;
+      }
+
+      if (!upstream.ok) {
+        try {
+          if (upstream.body) {
+            await dispatch.race(upstream.text(), (reason) =>
+              upstream.body.cancel(reason),
+            );
+          }
+          if (dispatch.signal.aborted) {
+            throw (
+              dispatch.signal.reason ??
+              new Error("HLS provider dispatch was canceled.")
+            );
+          }
+          providerReachedEof = true;
+        } catch (error) {
+          console.error(
+            "[voice/tts/hls] Failed while consuming Inworld error response:",
+            error && error.message ? error.message : String(error),
+          );
+        }
+        console.error("[voice/tts/hls] Inworld TTS failed:", upstream.status);
+        await disposeProvider();
+        await finishHls("error");
+        return null;
+      }
+
+      if (!upstream.body) {
+        // A response with no body is already at EOF: provider outcome is known,
+        // even though it produced no publishable audio.
+        providerReachedEof = true;
+        await disposeProvider();
+        await finishHls("error");
+        return null;
+      }
+
+      // The lifecycle can fence between the pre-fetch transaction and the
+      // network response. Re-check before consuming or publishing any bytes.
+      const dispatchStillLive = await ctx
+        .runQuery(internal.tts_hls.readHlsCancelFlag, {
+          ticket: args.ticket,
+          ownerId: args.ownerId,
+          ownerGeneration: args.ownerGeneration,
+          attemptId,
+          nowMs: Date.now(),
+        })
+        .catch(() => null);
+      if (
+        !dispatchStillLive ||
+        dispatchStillLive.canceled ||
+        !(await dispatch.checkAllowed())
+      ) {
+        await dispatch
+          .race(upstream.body.cancel("HLS synthesis was canceled."), (reason) =>
+            upstream.body.cancel(reason),
+          )
+          .catch(() => undefined);
+        await disposeProvider();
+        await finishHls("done");
+        return null;
+      }
+
+      // ---- Streaming segmenter ------------------------------------------------
+      const reader = upstream.body.getReader();
+      const decoder = new TextDecoder();
+      let textBuffer = "";
+      let mp3 = new Uint8Array(0); // unparsed MP3 bytes
+      let aligned = false;
+      let segFrames = [];
+      let segDuration = 0;
+      let segStartSec = 0;
+      let seq = 0;
+      let capped = false;
+      let publishedAudioBytes = 0;
+
+      const flushSegment = async () => {
+        if (segFrames.length === 0) return;
+        if (!(await dispatch.checkAllowed())) {
+          throw new Error("HLS provider dispatch was canceled.");
+        }
+        const segBytes = concatBytes([
+          buildId3Timestamp(segStartSec),
+          concatBytes(segFrames),
+        ]);
+        const appended = await ctx.runMutation(
+          internal.tts_hls.appendHlsSegment,
+          {
+            ticket: args.ticket,
+            ownerId: args.ownerId,
+            ownerGeneration: args.ownerGeneration,
+            attemptId,
+            seq,
+            audio: bytesToBase64(segBytes),
+            durationSec: segDuration,
+          },
+        );
+        if (!appended.accepted) {
+          throw new Error(
+            "HLS synthesis generation was canceled or superseded.",
+          );
+        }
+        publishedAudioBytes += segBytes.length;
+        segStartSec += segDuration;
+        seq += 1;
+        segFrames = [];
+        segDuration = 0;
+      };
+
+      // Consume every whole frame currently buffered, flushing segments when they
+      // reach the target duration. Leaves any trailing partial frame in `mp3`.
+      const drainFrames = async () => {
+        let cursor = 0;
+        if (!aligned) {
+          const skip = id3v2Length(mp3);
+          if (skip > 0) cursor = skip;
+        }
+        for (;;) {
+          if (
+            seq >= MAX_HLS_SEGMENTS ||
+            providerAudioBytes >= MAX_TOTAL_AUDIO_BYTES ||
+            publishedAudioBytes >= MAX_TOTAL_AUDIO_BYTES
+          ) {
+            capped = true;
+            break;
+          }
+          const frame = readFrame(mp3, cursor);
+          if (!frame) {
+            if (cursor + 4 > mp3.length) break; // need more bytes to decide
+            if (aligned) break; // stay aligned; wait for the rest of this frame
+            cursor += 1; // resync past leading junk
+            continue;
+          }
+          if (cursor + frame.frameLen > mp3.length) break; // frame not fully in yet
+          aligned = true;
+          segFrames.push(mp3.slice(cursor, cursor + frame.frameLen));
+          segDuration += frame.durationSec;
+          cursor += frame.frameLen;
+          if (segDuration >= TARGET_SEGMENT_SEC) await flushSegment();
+        }
+        mp3 = cursor > 0 ? mp3.slice(cursor) : mp3;
+      };
+
+      const ingest = async (bytes) => {
+        if (bytes.length === 0) return;
+        mp3 = mp3.length === 0 ? bytes : concatBytes([mp3, bytes]);
+        await drainFrames();
+      };
+
+      const takeLine = async (line) => {
+        const chunk = extractInworldAudioChunk(line);
+        if (chunk && chunk.length > 0) {
+          providerAudioBytes += chunk.length;
+          await ingest(chunk);
+        }
+      };
+
+      let canceled = false;
+      let errored = false;
+      try {
+        for (;;) {
+          const { done, value } = await dispatch.race(reader.read(), (reason) =>
+            reader.cancel(reason),
+          );
+          if (done) {
+            if (dispatch.signal.aborted) {
+              throw (
+                dispatch.signal.reason ??
+                new Error("HLS provider dispatch was canceled.")
+              );
+            }
+            providerReachedEof = true;
+            break;
+          }
+          if (value) textBuffer += decoder.decode(value, { stream: true });
+          let nl;
+          while ((nl = textBuffer.indexOf("\n")) >= 0) {
+            const line = textBuffer.slice(0, nl).trim();
+            textBuffer = textBuffer.slice(nl + 1);
+            if (line) await takeLine(line);
+          }
+          // Poll the cooperative stop beacon between network chunks.
+          const flag = await ctx.runQuery(internal.tts_hls.readHlsCancelFlag, {
+            ticket: args.ticket,
+            ownerId: args.ownerId,
+            ownerGeneration: args.ownerGeneration,
+            attemptId,
+            nowMs: Date.now(),
+          });
+          if (!flag || flag.canceled) {
+            canceled = true;
+            await dispatch
+              .race(reader.cancel("HLS synthesis was canceled."), (reason) =>
+                reader.cancel(reason),
+              )
+              .catch(() => undefined);
+            break;
+          }
+          if (capped) {
+            await dispatch
+              .race(
+                reader.cancel("HLS synthesis exceeded its safety cap."),
+                (reason) => reader.cancel(reason),
+              )
+              .catch(() => undefined);
+            break;
+          }
+        }
+        if (providerReachedEof) {
+          textBuffer += decoder.decode();
+          const rest = textBuffer.trim();
+          if (rest) await takeLine(rest);
+        }
+      } catch (error) {
+        errored = true;
+        if (!providerReachedEof) {
+          await dispatch
+            .race(reader.cancel(error), (reason) => reader.cancel(reason))
+            .catch(() => undefined);
+        }
+        console.error(
+          "[voice/tts/hls] Segment stream failed:",
+          error && error.message ? error.message : String(error),
+        );
+      }
+
+      // Never publish a trailing segment after cancellation, lifecycle fencing,
+      // attempt supersession, provider failure, or a defensive size cap.
+      if (providerReachedEof && !canceled && !capped) {
+        try {
+          await flushSegment();
+        } catch {
+          errored = true;
         }
       }
-      if (!canceled && !capped) {
-        textBuffer += decoder.decode();
-        const rest = textBuffer.trim();
-        if (rest) await takeLine(rest);
-      }
+
+      const producedAudio = seq > 0;
+      await disposeProvider();
+      await finishHls(errored && !producedAudio ? "error" : "done");
+      return null;
     } catch (error) {
-      errored = true;
       console.error(
-        "[voice/tts/hls] Segment stream failed:",
+        "[voice/tts/hls] Synthesis action failed:",
         error && error.message ? error.message : String(error),
       );
+      await disposeProvider();
+      await finishHls("error");
+      return null;
+    } finally {
+      // Never let an exception erase the exact provider/billing disposition.
+      // Retrying the same release is safe because settlement is receipt-bound.
+      if (!providerDisposed) await disposeProvider();
     }
-
-    // Flush whatever trailing audio remains as the final segment.
-    await flushSegment().catch(() => undefined);
-
-    const producedAudio = seq > 0;
-    let status;
-    if (canceled) status = "interrupted";
-    else if (errored || capped) status = producedAudio ? "partial" : "failed";
-    else status = producedAudio ? "completed" : "failed";
-
-    await finalize(status);
-    await ctx.runMutation(internal.tts_hls.finishHlsSession, {
-      ticket: args.ticket,
-      ownerId: args.ownerId,
-      status: errored && !producedAudio ? "error" : "done",
-    });
-    return null;
   },
 });

@@ -4,27 +4,35 @@ import { createHash, randomUUID } from "node:crypto";
 import { uploadR2Object } from "../lib/r2_sigv4";
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
-import { action } from "../_generated/server";
+import { action, internalAction, type ActionCtx } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
 import { requireConnectedUserIdAction } from "../auth";
-import { getFalApiKey, submitFalRequest, fetchFalResultPayload } from "../media_fal_webhooks";
+import { assertOwnerDataAccessActive } from "../owner_lifecycle";
+import { EXTERNAL_MEDIA_SERVER_WRITE_BARRIER_MS } from "../account_external_media_store";
+import { getFalApiKey } from "../media_fal_webhooks";
+import { createMediaProviderDispatch } from "../lib/media_provider_dispatch";
 import {
-  RATE_STANDARD,
-  enforceActionRateLimit,
-} from "../lib/rate_limits";
+  reserveDurableFalImageJob,
+  waitForDurableFalImageUrl,
+} from "../lib/durable_fal_image_job";
+import { RATE_STANDARD, enforceActionRateLimit } from "../lib/rate_limits";
+import { requireConfiguredRawR2MediaTarget } from "../lib/raw_r2_media_target";
 import {
   assertPaidMediaTier,
   checkManagedUsageLimit,
 } from "../lib/managed_billing";
-import { emoji_pack_validator, emoji_pack_visibility_validator } from "../schema/emoji_packs";
+import {
+  emoji_pack_validator,
+  emoji_pack_visibility_validator,
+} from "../schema/emoji_packs";
 import { requireBoundedString } from "../shared_validators";
-import { EMOJI_SHEETS, EMOJI_SHEET_GRID_SIZE } from "./emoji_pack_grid_constants";
+import {
+  EMOJI_SHEETS,
+  EMOJI_SHEET_GRID_SIZE,
+} from "./emoji_pack_grid_constants";
 import { EMOJI_REFERENCE_SHEET_DATA_URLS } from "./emoji_pack_reference_images";
 
-const DEFAULT_BUCKET = "stella-emotes";
 const DEFAULT_PREFIX = "emoji-packs";
-const DEFAULT_PUBLIC_BASE =
-  "https://pub-58708621bfa94e3bb92de37cde354c0d.r2.dev";
 const DEFAULT_STYLE = "playful party style";
 const CACHE_CONTROL = "public, max-age=31536000, immutable";
 const FAL_ENDPOINT_ID = "openai/gpt-image-2/edit";
@@ -50,9 +58,6 @@ const normalizePrefix = (value: string | undefined): string =>
 
 const sha256Hex = (data: string | Buffer): string =>
   createHash("sha256").update(data).digest("hex");
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
 
 const slugify = (value: string): string =>
   value
@@ -101,72 +106,109 @@ const buildSheetEditPrompt = (style: string): string => {
   ].join("\n");
 };
 
-const extractFirstImageUrl = (output: unknown): string | null => {
-  if (!output || typeof output !== "object") return null;
-  const images = (output as { images?: Array<{ url?: unknown }> }).images;
-  if (!Array.isArray(images)) return null;
-  for (const entry of images) {
-    if (entry && typeof entry.url === "string" && entry.url.length > 0) {
-      return entry.url;
-    }
-  }
-  return null;
-};
+const buildSheetGenerationInput = (sheetIndex: number, style: string) => ({
+  prompt: buildSheetEditPrompt(style),
+  image_urls: [buildReferenceSheetDataUrl(sheetIndex)],
+  image_size: { width: SHEET_SIZE, height: SHEET_SIZE },
+  quality: "medium",
+  output_format: "webp",
+});
 
-const pollFalImageUrl = async (args: {
-  apiKey: string;
-  responseUrl: string;
-}): Promise<string> => {
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
-  let lastError = "";
-  while (Date.now() < deadline) {
-    try {
-      const output = await fetchFalResultPayload({
-        apiKey: args.apiKey,
-        url: args.responseUrl,
-      });
-      const imageUrl = extractFirstImageUrl(output);
-      if (imageUrl) return imageUrl;
-      lastError = "Fal result did not include an image URL.";
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : "Fal result was not ready.";
-    }
-    await sleep(POLL_INTERVAL_MS);
-  }
-  throw new Error(lastError || "Timed out waiting for emoji sheet generation.");
-};
-
-const submitSheet = async (args: {
-  apiKey: string;
-  webhookUrl: string;
-  sheetIndex: number;
-  style: string;
-}): Promise<string> => {
-  const referenceImageUrl = buildReferenceSheetDataUrl(args.sheetIndex);
-  const submitted = await submitFalRequest({
-    apiKey: args.apiKey,
+const reserveEmojiSheetGenerationJobForOwner = async (
+  ctx: ActionCtx,
+  args: {
+    ownerId: string;
+    ownerGeneration: string;
+    uploadId: string;
+    sheetIndex: number;
+    prompt: string;
+  },
+) => {
+  const generationInput = buildSheetGenerationInput(
+    args.sheetIndex,
+    args.prompt,
+  );
+  const requestInput = {
+    ...generationInput,
+    image_urls: [`[embedded emoji reference sheet ${args.sheetIndex}]`],
+  };
+  const clientRequestHash = sha256Hex(
+    JSON.stringify({
+      capability: "image_edit",
+      profile: "default",
+      input: generationInput,
+    }),
+  );
+  const identityHash = sha256Hex(
+    [
+      "emoji-pack-sheet:v3",
+      args.ownerId,
+      args.ownerGeneration,
+      args.uploadId,
+      String(args.sheetIndex),
+      clientRequestHash,
+    ].join("\0"),
+  );
+  return await reserveDurableFalImageJob(ctx, {
+    ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
+    jobId: `emoji_pack_generation_${identityHash.slice(0, 40)}`,
+    clientRequestKey: `emoji-pack-sheet-v3-${identityHash}`,
+    clientRequestHash,
+    capability: "image_edit",
+    profile: "default",
     endpointId: FAL_ENDPOINT_ID,
-    webhookUrl: args.webhookUrl,
-    input: {
-      prompt: buildSheetEditPrompt(args.style),
-      image_urls: [referenceImageUrl],
-      image_size: { width: SHEET_SIZE, height: SHEET_SIZE },
-      quality: "medium",
-      output_format: "webp",
-    },
+    prompt: generationInput.prompt,
+    input: generationInput,
+    requestInput,
   });
-  const responseUrl =
-    submitted.responseUrl ??
-    `https://queue.fal.run/${FAL_ENDPOINT_ID}/requests/${submitted.requestId}`;
-  return await pollFalImageUrl({ apiKey: args.apiKey, responseUrl });
 };
 
-const downloadImage = async (url: string): Promise<Buffer> => {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Image download failed (${response.status})`);
+/** Durable reservation seam shared with recovery and focused race tests. */
+export const reserveEmojiSheetGenerationJob = internalAction({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    uploadId: v.string(),
+    sheetIndex: v.number(),
+    prompt: v.string(),
+  },
+  returns: v.union(v.null(), v.object({ jobId: v.string() })),
+  handler: async (ctx, args) => {
+    if (!Number.isInteger(args.sheetIndex) || args.sheetIndex < 0) {
+      throw new Error("Emoji sheet index must be a non-negative integer.");
+    }
+    return await reserveEmojiSheetGenerationJobForOwner(ctx, args);
+  },
+});
+
+const downloadImage = async (args: {
+  ctx: Pick<ActionCtx, "runMutation">;
+  ownerId: string;
+  ownerGeneration: string;
+  authorityId: string;
+  url: string;
+}): Promise<Buffer> => {
+  const dispatch = createMediaProviderDispatch(args.ctx, {
+    ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
+    dispatchId: `media:fal_download:emoji_pack:${args.authorityId}`,
+    kind: "fal_download",
+  });
+  try {
+    const bytes = await dispatch.run(async (signal) => {
+      const response = await fetch(args.url, { signal });
+      if (!response.ok) {
+        throw new Error(`Image download failed (${response.status})`);
+      }
+      return Buffer.from(await response.arrayBuffer());
+    });
+    await dispatch.settle();
+    return bytes;
+  } catch (error) {
+    await dispatch.settle().catch(() => false);
+    throw error;
   }
-  return Buffer.from(await response.arrayBuffer());
 };
 
 export const generatePack = action({
@@ -177,6 +219,10 @@ export const generatePack = action({
   returns: emoji_pack_validator,
   handler: async (ctx, args): Promise<Doc<"emoji_packs">> => {
     const ownerId = await requireConnectedUserIdAction(ctx);
+    const { generation: ownerGeneration } = await assertOwnerDataAccessActive(
+      ctx,
+      ownerId,
+    );
     // Emoji packs are fal image generations like any other, so they sit
     // behind the same capability as the media pipeline.
     await assertPaidMediaTier(ctx, ownerId, "image_generation");
@@ -202,45 +248,88 @@ export const generatePack = action({
         message: "Prompt is required.",
       });
     }
-    const apiKey = getFalApiKey();
-    if (!apiKey) {
+    if (!getFalApiKey()) {
       throw new ConvexError({
         code: "SERVER_MISCONFIGURED",
         message: "Media generation is not configured yet.",
       });
     }
-    const siteUrl = requireEnv("CONVEX_SITE_URL").replace(/\/+$/, "");
-    const webhookUrl = `${siteUrl}/api/media/v1/webhooks/fal?jobId=${encodeURIComponent(`emoji-pack-${randomUUID()}`)}`;
+    const { bucket, publicBase } = requireConfiguredRawR2MediaTarget({
+      bucketEnv: "R2_EMOJI_BUCKET",
+      purpose: "Emoji pack generation",
+    });
     const r2 = {
       accessKeyId: requireEnv("R2_ACCESS_KEY_ID"),
       secretAccessKey: requireEnv("R2_SECRET_ACCESS_KEY"),
       endpoint: requireEnv("R2_ENDPOINT"),
-      bucket:
-        process.env.R2_EMOJI_BUCKET?.trim() ||
-        process.env.R2_PETS_BUCKET?.trim() ||
-        DEFAULT_BUCKET,
+      bucket,
     };
     const prefix = normalizePrefix(process.env.R2_EMOJI_PREFIX);
-    const publicBase = (
-      process.env.R2_PUBLIC_BASE_URL?.trim() || DEFAULT_PUBLIC_BASE
-    ).replace(/\/+$/, "");
     const packId = buildPackId(prompt);
     const ownerKey = sha256Hex(ownerId).slice(0, 24);
     const uploadId = randomUUID();
     const baseKey = `${prefix}/${ownerKey}/${packId}/${uploadId}`;
 
-    const imageUrls = await Promise.all(
-      EMOJI_SHEETS.map((_, sheetIndex) =>
-        submitSheet({ apiKey, webhookUrl, sheetIndex, style: prompt }),
-      ),
-    );
+    const generateSheet = async (sheetIndex: number): Promise<Buffer> => {
+      const reserved = await reserveEmojiSheetGenerationJobForOwner(ctx, {
+        ownerId,
+        ownerGeneration,
+        uploadId,
+        sheetIndex,
+        prompt,
+      });
+      if (!reserved) {
+        throw new Error(
+          "Emoji sheet generation was canceled before provider dispatch.",
+        );
+      }
+      const imageUrl = await waitForDurableFalImageUrl(ctx, {
+        ownerId,
+        ownerGeneration,
+        jobId: reserved.jobId,
+        deadlineAt: Date.now() + POLL_TIMEOUT_MS,
+        pollIntervalMs: POLL_INTERVAL_MS,
+      });
+      return await downloadImage({
+        ctx,
+        ownerId,
+        ownerGeneration,
+        authorityId: reserved.jobId,
+        url: imageUrl,
+      });
+    };
     const sheetBuffers = await Promise.all(
-      imageUrls.map((url) => downloadImage(url)),
+      EMOJI_SHEETS.map((_, sheetIndex) => generateSheet(sheetIndex)),
     );
     const sheetUrls = sheetBuffers.map((_, index) => {
       const key = `${baseKey}/sheet-${index + 1}.webp`;
       return `${publicBase}/${key}`;
     });
+
+    const now = Date.now();
+    await ctx.runMutation(
+      internal.account_external_media_store.reserveExternalMediaUploadInternal,
+      {
+        ownerId,
+        ownerGeneration,
+        uploadId,
+        uploadExpiresAt: now + EXTERNAL_MEDIA_SERVER_WRITE_BARRIER_MS,
+        objects: sheetBuffers.map((bytes, index) => ({
+          objectRole: `sheet-${index + 1}`,
+          storageKind: "raw-r2" as const,
+          bucket: r2.bucket,
+          r2Key: `${baseKey}/sheet-${index + 1}.webp`,
+          payloadSha256: sha256Hex(bytes),
+          publicUrl: sheetUrls[index]!,
+        })),
+        now,
+      },
+    );
+    await ctx.runMutation(
+      internal.account_external_media_store
+        .assertExternalMediaUploadDispatchInternal,
+      { ownerId, ownerGeneration, uploadId, now: Date.now() },
+    );
 
     await Promise.all(
       sheetBuffers.map((bytes, index) =>
@@ -254,15 +343,20 @@ export const generatePack = action({
       ),
     );
 
-    return await ctx.runMutation(internal.data.emoji_packs.createGeneratedPack, {
-      ownerId,
-      packId,
-      displayName: "Stella emoji pack",
-      description: prompt,
-      prompt,
-      coverEmoji: EMOJI_SHEETS[0]![0]!,
-      sheetUrls,
-      visibility: args.visibility,
-    });
+    return await ctx.runMutation(
+      internal.data.emoji_packs.createGeneratedPack,
+      {
+        ownerId,
+        uploadId,
+        ownerGeneration,
+        packId,
+        displayName: "Stella emoji pack",
+        description: prompt,
+        prompt,
+        coverEmoji: EMOJI_SHEETS[0]![0]!,
+        sheetUrls,
+        visibility: args.visibility,
+      },
+    );
   },
 });

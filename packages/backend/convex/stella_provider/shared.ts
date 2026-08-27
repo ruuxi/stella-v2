@@ -23,6 +23,13 @@ export type ResolvedManagedServerModelConfig = {
 
 export type AuthorizedStellaRequest = {
   ownerId: string;
+  /** Lifecycle generation captured before credentials, billing, or upstream IO. */
+  ownerGeneration?: string;
+  isAnonymous?: boolean;
+  /** Present only for an opaque cloud capability bound to one exact turn. */
+  cloudTurnId?: string;
+  /** Server-only final-dispatch authority; never forwarded to a provider. */
+  cloudTurnAuthority?: { tokenHash: string; turnId: string };
   agentType: string;
   relayProvider: ManagedGatewayProvider;
   requestJson: StellaRequestBody;
@@ -32,10 +39,27 @@ export type AuthorizedStellaRequest = {
   serviceTier?: string;
   apiKey: string;
   tokenEstimate: import("./billing").TokenEstimate;
+  /** Price-derived full-request fallback for a Stella-paid provider attempt. */
+  fallbackCostMicroCents?: number;
+  /**
+   * Server-only credential material for a cloud turn explicitly bound to the
+   * owner's connected engine. This intentionally exposes only what the
+   * native relay needs to authenticate one upstream request; callers must
+   * never serialize, log, or return this object to an executor or client.
+   */
+  userCredential?: {
+    provider: "anthropic" | "openai-codex";
+    accessToken: string;
+    /** Required by ChatGPT's Codex backend; absent for Anthropic. */
+    accountId?: string;
+    /** Compatibility only for legacy Stella-shaped Claude relay bodies. */
+    injectClaudeCodeIdentity?: boolean;
+  };
 };
 
 export const STELLA_API_BASE_PATH = "/api/stella";
 export const STELLA_MODELS_PATH = `${STELLA_API_BASE_PATH}/models`;
+export const STELLA_CLOUD_MODEL_PATH = `${STELLA_API_BASE_PATH}/cloud-model`;
 export const STELLA_RELAY_PATH_PREFIX = `${STELLA_API_BASE_PATH}/relay/`;
 export const STELLA_ANTHROPIC_MESSAGES_PATH = `${STELLA_API_BASE_PATH}/anthropic/v1/messages`;
 export const STELLA_OPENAI_CHAT_COMPLETIONS_PATH = `${STELLA_API_BASE_PATH}/openai/v1/chat/completions`;

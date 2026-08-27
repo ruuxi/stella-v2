@@ -48,6 +48,45 @@ export const remoteTurnRequestStateValidator = v.union(
   v.literal("cancelled"),
 );
 
+export const remoteTurnOwnerBindingStateValidator = v.union(
+  v.literal("bound"),
+  v.literal("legacy_unbound"),
+);
+
+export const remoteTurnAttemptSourceValidator = v.union(
+  v.literal("desktop"),
+  v.literal("fast_rescue"),
+  v.literal("orphan_watchdog"),
+  v.literal("cron_watchdog"),
+);
+
+export const remoteTurnAttemptStateValidator = v.union(
+  v.literal("active"),
+  v.literal("cancel_requested"),
+);
+
+export const remoteTurnAttemptPhaseValidator = v.union(
+  v.literal("running"),
+  v.literal("completion_accepted"),
+  v.literal("delivering"),
+);
+
+export const remoteTurnDispatchOutcomeValidator = v.union(
+  v.literal("in_flight"),
+  v.literal("succeeded"),
+  v.literal("failed"),
+  v.literal("aborted"),
+  v.literal("timed_out"),
+  v.literal("outcome_unknown"),
+);
+
+export const remoteTurnTerminalReasonValidator = v.union(
+  v.literal("ownership_migrated"),
+  v.literal("owner_data_changed"),
+  v.literal("legacy_unbound"),
+  v.literal("user_cancelled"),
+);
+
 export const threadStatusValidator = v.union(
   v.literal("active"),
   v.literal("idle"),
@@ -121,6 +160,10 @@ export const conversationsSchema = {
     deviceId: v.optional(v.string()),
     requestId: v.optional(v.string()),
     targetDeviceId: v.optional(v.string()),
+    /** Immutable source-owner binding for remote execution. Never recaptured. */
+    ownerId: v.optional(v.string()),
+    ownerGeneration: v.optional(v.string()),
+    ownerBindingState: v.optional(remoteTurnOwnerBindingStateValidator),
     /**
      * Set only on `remote_turn_request` events. Initialised to `"pending"`
      * at insert time, patched to `"claimed"` when a desktop device picks
@@ -133,6 +176,31 @@ export const conversationsSchema = {
     fulfilledAt: v.optional(v.number()),
     /** Set only on `remote_turn_request` events when the caller cancels. */
     cancelledAt: v.optional(v.number()),
+    requestTerminalReason: v.optional(remoteTurnTerminalReasonValidator),
+    /** Stable execution-attempt authority retained through cancellation debt. */
+    activeAttemptId: v.optional(v.string()),
+    activeAttemptSource: v.optional(remoteTurnAttemptSourceValidator),
+    activeAttemptDeviceId: v.optional(v.string()),
+    activeAttemptState: v.optional(remoteTurnAttemptStateValidator),
+    activeAttemptPhase: v.optional(remoteTurnAttemptPhaseValidator),
+    attemptStartedAt: v.optional(v.number()),
+    attemptLastHeartbeatAt: v.optional(v.number()),
+    attemptLeaseExpiresAt: v.optional(v.number()),
+    attemptHardExpiresAt: v.optional(v.number()),
+    attemptQuiescentAfterAt: v.optional(v.number()),
+    attemptCleanupJobId: v.optional(v.id("_scheduled_functions")),
+    attemptCancelRequestedAt: v.optional(v.number()),
+    completionAttemptId: v.optional(v.string()),
+    completionText: v.optional(v.string()),
+    completionAcceptedAt: v.optional(v.number()),
+    lastAttemptOutcome: v.optional(remoteTurnDispatchOutcomeValidator),
+    lastAttemptId: v.optional(v.string()),
+    lastAttemptFinishedAt: v.optional(v.number()),
+    providerDispatchCount: v.optional(v.number()),
+    providerDispatchOrdinal: v.optional(v.number()),
+    lastProviderDispatchId: v.optional(v.string()),
+    lastProviderDispatchOutcome: v.optional(remoteTurnDispatchOutcomeValidator),
+    lastProviderDispatchAt: v.optional(v.number()),
     payload: jsonValueValidator,
     channelEnvelope: optionalChannelEnvelopeValidator,
   })
@@ -152,12 +220,55 @@ export const conversationsSchema = {
       "type",
       "timestamp",
     ])
+    .index("by_targetDeviceId_and_type_and_requestState_and_timestamp", [
+      "targetDeviceId",
+      "type",
+      "requestState",
+      "timestamp",
+    ])
     // Lets the orphan watchdog enumerate unfulfilled remote turns directly by
     // lifecycle state + age, instead of fanning a per-device index scan across
     // every registered device every minute. Rows without `requestState` (all
     // non-`remote_turn_request` events) sort under `undefined` and are never
     // matched by the `.eq("requestState", …)` lookups.
     .index("by_requestState_and_timestamp", ["requestState", "timestamp"])
+    .index("by_requestState_and_attemptLeaseExpiresAt", [
+      "requestState",
+      "attemptLeaseExpiresAt",
+    ])
+    .index("by_ownerId_ownerGeneration_activeAttemptState", [
+      "ownerId",
+      "ownerGeneration",
+      "activeAttemptState",
+    ])
+    .index("by_ownerId_ownerGeneration_requestState", [
+      "ownerId",
+      "ownerGeneration",
+      "requestState",
+    ])
+    // Reset/account deletion rotate the owner generation at the fence, so
+    // their bounded remote-turn inventory must start from the immutable owner
+    // id and enumerate every pre-fence generation.
+    .index("by_ownerId_requestState", ["ownerId", "requestState"])
+    .index("by_ownerId_activeAttemptState", ["ownerId", "activeAttemptState"])
+    // Legacy remote attempts may predate immutable owner stamping. Destructive
+    // purge therefore needs a conversation-local active-attempt backstop that
+    // cannot be bypassed by a missing or corrupt event ownerId.
+    .index("by_conversationId_activeAttemptState", [
+      "conversationId",
+      "activeAttemptState",
+    ])
+    .index("by_conversationId_ownerBindingState_requestState", [
+      "conversationId",
+      "ownerBindingState",
+      "requestState",
+    ])
+    .index("by_ownerBindingState_and_requestState", [
+      "ownerBindingState",
+      "requestState",
+    ])
+    .index("by_attemptQuiescentAfterAt", ["attemptQuiescentAfterAt"])
+    .index("by_type_and_requestId", ["type", "requestId"])
     .index("by_requestId", ["requestId"]),
 
   attachments: defineTable({

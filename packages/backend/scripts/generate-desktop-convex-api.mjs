@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 const backendRoot = path.resolve(import.meta.dirname, "..");
@@ -169,5 +170,46 @@ export const api: PublicApiType = anyApi as unknown as PublicApiType;
 export type PublicApiType = ${body} & Record<string, any>;
 `;
 
-fs.writeFileSync(outputPath, source, "utf8");
-console.log(`Wrote ${path.relative(backendRoot, outputPath)}`);
+export const writeOrCheckDesktopConvexApi = ({
+  check,
+  expectedSource,
+  targetPath,
+  logger = console,
+}) => {
+  const relativeTarget = path.relative(backendRoot, targetPath);
+  if (check) {
+    const current = fs.existsSync(targetPath)
+      ? fs.readFileSync(targetPath, "utf8")
+      : null;
+    if (current !== expectedSource) {
+      logger.error(
+        `${relativeTarget} is stale. Run \`bun run generate:desktop-api\` from packages/backend.`,
+      );
+      return false;
+    }
+    logger.log(`Verified ${relativeTarget}.`);
+    return true;
+  }
+
+  fs.writeFileSync(targetPath, expectedSource, "utf8");
+  logger.log(`Wrote ${relativeTarget}`);
+  return true;
+};
+
+const isMain =
+  typeof process.argv[1] === "string" &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isMain) {
+  const args = process.argv.slice(2);
+  const check = args.length === 1 && args[0] === "--check";
+  if (args.length > 0 && !check) {
+    throw new Error("Usage: generate-desktop-convex-api.mjs [--check]");
+  }
+  const current = writeOrCheckDesktopConvexApi({
+    check,
+    expectedSource: source,
+    targetPath: outputPath,
+  });
+  if (!current) process.exitCode = 1;
+}

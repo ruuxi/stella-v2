@@ -5,15 +5,24 @@ import { internal } from "../_generated/api";
 import { internalAction, type ActionCtx } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
 import { resolveManagedModelConfigs } from "../agent/model_resolver";
-import { scheduleManagedUsage } from "../lib/managed_billing";
+import {
+  createManagedUsageDispatchGuard,
+} from "../lib/managed_billing";
+import {
+  createManagedDispatchRequestFingerprint,
+  estimateManagedModelFallbackCostMicroCents,
+} from "../lib/managed_dispatch";
 import { extractJsonBlock } from "../lib/json";
 import {
   assistantText,
   completeManagedChat,
-  usageSummaryFromAssistant,
+  runManagedDispatchAttempt,
+  type ManagedModelBillingContext,
+  type ManagedModelConfig,
 } from "../runtime_ai/managed";
 import { requireBoundedString } from "../shared_validators";
 import { isBlockedContentTag } from "../lib/content_tags";
+import { assertC8RetiredSurfaceUnavailable } from "../lib/c8_retired_surface";
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_TAGS = 8;
@@ -129,16 +138,18 @@ const buildSearchText = (args: {
 
 const fetchImage = async (
   url: string,
+  signal: AbortSignal,
 ): Promise<{ mimeType: string; data: string }> => {
-  const response = await fetch(url);
+  const response = await fetch(url, { signal });
   if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
     throw new ConvexError({
       code: "METADATA_IMAGE_FETCH_FAILED",
       message: "Could not inspect the generated Store image.",
     });
   }
-  const mimeType = response.headers.get("content-type")?.split(";")[0] ??
-    "image/webp";
+  const mimeType =
+    response.headers.get("content-type")?.split(";")[0] ?? "image/webp";
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (bytes.byteLength > MAX_IMAGE_BYTES) {
     throw new ConvexError({
@@ -152,8 +163,67 @@ const fetchImage = async (
   };
 };
 
+const createAssetMetadataBilling = async (args: {
+  ownerId: string;
+  ownerGeneration: string;
+  assetKind: "pet" | "emoji_pack";
+  userText: string;
+  imageUrls: string[];
+  images: Array<{ data: string }>;
+  config: ManagedModelConfig;
+  fallbackConfig?: ManagedModelConfig | null;
+}): Promise<ManagedModelBillingContext> => {
+  // Base64 image transport averages roughly four encoded characters per three
+  // bytes. Counting every three encoded characters as one input token remains
+  // deliberately conservative for a response-loss charge without admitting a
+  // zero-cost unknown attempt.
+  const inputTokens = Math.max(
+    1,
+    new TextEncoder().encode(
+      `${ASSET_METADATA_SYSTEM_PROMPT}\n${args.userText}`,
+    ).byteLength +
+      args.images.reduce(
+        (total, image) => total + Math.ceil(image.data.length / 3),
+        0,
+      ),
+  );
+  const estimate = (config: ManagedModelConfig) =>
+    estimateManagedModelFallbackCostMicroCents({
+      model: config.model,
+      inputTokens,
+      maxOutputTokens: config.maxOutputTokens ?? 4_096,
+    });
+  const primaryEstimate = estimate(args.config);
+  const fallbackEstimate = args.fallbackConfig
+    ? estimate(args.fallbackConfig)
+    : undefined;
+  return {
+    requestFingerprint: await createManagedDispatchRequestFingerprint(
+      "store-asset-metadata",
+      [
+        args.ownerId,
+        args.ownerGeneration,
+        args.assetKind,
+        args.userText,
+        ...args.imageUrls,
+      ].join("\0"),
+    ),
+    agentType: "service:store_asset_metadata",
+    fallbackCostMicroCents: Math.max(
+      primaryEstimate,
+      fallbackEstimate ?? primaryEstimate,
+    ),
+    fallbackCostMicroCentsByModel: {
+      [args.config.model]: primaryEstimate,
+      ...(args.fallbackConfig && fallbackEstimate
+        ? { [args.fallbackConfig.model]: fallbackEstimate }
+        : {}),
+    },
+  };
+};
+
 const generateMetadata = async (
-  ctx: Pick<ActionCtx, "runMutation" | "runQuery" | "scheduler">,
+  ctx: Pick<ActionCtx, "runMutation" | "runQuery">,
   args: {
     ownerId: string;
     assetKind: "pet" | "emoji_pack";
@@ -161,82 +231,138 @@ const generateMetadata = async (
     currentDisplayName?: string;
     currentDescription?: string;
     imageUrls: string[];
+    ownerGeneration: string;
   },
-): Promise<GeneratedAssetMetadata> => {
-  const { config, fallbackConfig } = await resolveManagedModelConfigs(
+): Promise<{
+  metadata: GeneratedAssetMetadata;
+  ownerGeneration: string;
+}> => {
+  const assertDispatch = async () => {
+    await ctx.runMutation(
+      internal.media_jobs.assertMediaProviderDispatchAllowed,
+      {
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+      },
+    );
+  };
+  await assertDispatch();
+  const { access, config, fallbackConfig } = await resolveManagedModelConfigs(
     ctx,
     "store_asset_metadata",
     args.ownerId,
   );
-  const images = await Promise.all(args.imageUrls.map(fetchImage));
-  const startedAt = Date.now();
+  if (access.ownerGeneration !== args.ownerGeneration) {
+    throw new ConvexError({
+      code: "OWNER_DATA_GENERATION_STALE",
+      message:
+        "This Store asset metadata job started before the account data changed.",
+    });
+  }
+  const images = await Promise.all(
+    args.imageUrls.map(async (url) => {
+      await assertDispatch();
+      const dispatchGuard = createManagedUsageDispatchGuard(ctx, {
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        beforeDispatch: assertDispatch,
+      });
+      return await runManagedDispatchAttempt({
+        dispatchGuard,
+        run: async (signal) => await fetchImage(url, signal),
+      });
+    }),
+  );
+  const userText = [
+    ASSET_METADATA_OUTPUT_INSTRUCTIONS,
+    "",
+    `Asset kind: ${args.assetKind}`,
+    args.currentDisplayName
+      ? `Creator-provided name: ${args.currentDisplayName}`
+      : "",
+    args.currentDescription
+      ? `Creator-provided description: ${args.currentDescription}`
+      : "",
+    args.prompt ? `Creator prompt/style notes: ${args.prompt}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  await assertDispatch();
   const message = await completeManagedChat({
     config,
     fallbackConfig,
+    dispatchGuard: createManagedUsageDispatchGuard(ctx, {
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      beforeDispatch: assertDispatch,
+    }),
+    billing: await createAssetMetadataBilling({
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      assetKind: args.assetKind,
+      userText,
+      imageUrls: args.imageUrls,
+      images,
+      config,
+      fallbackConfig,
+    }),
     context: {
       systemPrompt: ASSET_METADATA_SYSTEM_PROMPT,
-      messages: [{
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: [
-              ASSET_METADATA_OUTPUT_INSTRUCTIONS,
-              "",
-              `Asset kind: ${args.assetKind}`,
-              args.currentDisplayName
-                ? `Creator-provided name: ${args.currentDisplayName}`
-                : "",
-              args.currentDescription
-                ? `Creator-provided description: ${args.currentDescription}`
-                : "",
-              args.prompt ? `Creator prompt/style notes: ${args.prompt}` : "",
-            ]
-              .filter(Boolean)
-              .join("\n"),
-          },
-          ...images.map((image) => ({
-            type: "image" as const,
-            mimeType: image.mimeType,
-            data: image.data,
-          })),
-        ],
-        timestamp: Date.now(),
-      }],
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: userText,
+            },
+            ...images.map((image) => ({
+              type: "image" as const,
+              mimeType: image.mimeType,
+              data: image.data,
+            })),
+          ],
+          timestamp: Date.now(),
+        },
+      ],
     },
   });
-  await scheduleManagedUsage(ctx, {
-    ownerId: args.ownerId,
-    agentType: "service:store_asset_metadata",
-    model: message.model,
-    durationMs: Date.now() - startedAt,
-    success: true,
-    usage: usageSummaryFromAssistant(message),
-  });
-  return parseMetadata(assistantText(message));
+  return {
+    metadata: parseMetadata(assistantText(message)),
+    ownerGeneration: args.ownerGeneration,
+  };
 };
 
 export const enrichUserPet = internalAction({
-  args: { petId: v.id("user_pets") },
+  args: {
+    petId: v.id("user_pets"),
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Custom pet metadata");
     const row: Doc<"user_pets"> | null = await ctx.runQuery(
       internal.data.user_pets.getByIdInternal,
       { petId: args.petId },
     );
-    if (!row) return null;
-    const metadata = await generateMetadata(ctx, {
-      ownerId: row.ownerId,
+    if (!row || row.ownerId !== args.ownerId) return null;
+    const generated = await generateMetadata(ctx, {
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
       assetKind: "pet",
       currentDisplayName: row.displayName,
       currentDescription: row.description,
       prompt: row.prompt,
       imageUrls: [row.previewUrl ?? row.spritesheetUrl],
     });
+    const { metadata } = generated;
     const displayName = metadata.displayName ?? row.displayName;
     const description = metadata.description ?? row.description;
     await ctx.runMutation(internal.data.user_pets.patchGeneratedMetadata, {
       petId: args.petId,
+      ownerId: args.ownerId,
+      ownerGeneration: generated.ownerGeneration,
       metadata: {
         displayName,
         description,
@@ -256,46 +382,48 @@ export const enrichUserPet = internalAction({
 });
 
 export const enrichEmojiPack = internalAction({
-  args: { packId: v.id("emoji_packs") },
+  args: {
+    packId: v.id("emoji_packs"),
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const row: Doc<"emoji_packs"> | null = await ctx.runQuery(
       internal.data.emoji_packs.getByIdInternal,
       { packId: args.packId },
     );
-    if (!row) return null;
-    const metadata = await generateMetadata(ctx, {
-      ownerId: row.ownerId,
+    if (!row || row.ownerId !== args.ownerId) return null;
+    const generated = await generateMetadata(ctx, {
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
       assetKind: "emoji_pack",
       currentDisplayName: row.displayName,
       currentDescription: row.description,
       prompt: row.prompt,
-      imageUrls: [
-        ...(row.coverUrl ? [row.coverUrl] : []),
-        ...row.sheetUrls,
-      ],
+      imageUrls: [...(row.coverUrl ? [row.coverUrl] : []), ...row.sheetUrls],
     });
+    const { metadata } = generated;
     const displayName = metadata.displayName ?? row.displayName;
     const description = metadata.description ?? row.description;
-    await ctx.runMutation(
-      internal.data.emoji_packs.patchGeneratedMetadata,
-      {
-        packId: args.packId,
-        metadata: {
+    await ctx.runMutation(internal.data.emoji_packs.patchGeneratedMetadata, {
+      packId: args.packId,
+      ownerId: args.ownerId,
+      ownerGeneration: generated.ownerGeneration,
+      metadata: {
+        displayName,
+        ...(description ? { description } : {}),
+        tags: metadata.tags,
+        searchText: buildSearchText({
           displayName,
-          ...(description ? { description } : {}),
+          description,
+          prompt: row.prompt,
+          authorUsername: row.authorUsername,
           tags: metadata.tags,
-          searchText: buildSearchText({
-            displayName,
-            description,
-            prompt: row.prompt,
-            authorUsername: row.authorUsername,
-            tags: metadata.tags,
-          }),
-          updatedAt: Date.now(),
-        },
+        }),
+        updatedAt: Date.now(),
       },
-    );
+    });
     return null;
   },
 });

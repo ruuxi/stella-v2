@@ -15,6 +15,8 @@ import {
   MAX_DURABLE_IMAGE_SUBMISSION_PLAINTEXT_BYTES,
   MAX_PRIVATE_MEDIA_PAYLOAD_CHARS,
 } from "./media_image_limits";
+import { falSubmissionDispatchId } from "./media_jobs";
+import { createMediaProviderDispatch } from "./lib/media_provider_dispatch";
 
 type DurableImageSubmission = {
   input: Record<string, unknown>;
@@ -112,7 +114,11 @@ export const decryptAndParseImageSubmission = async (
  * and is never retried; a Fal webhook may still reconcile it by jobId.
  */
 export const submitReservedImageJob = internalAction({
-  args: { jobId: v.string(), encryptedPayload: v.optional(v.string()) },
+  args: {
+    jobId: v.string(),
+    ownerGeneration: v.string(),
+    encryptedPayload: v.optional(v.string()),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const attemptId = crypto.randomUUID();
@@ -123,6 +129,7 @@ export const submitReservedImageJob = internalAction({
       ? null
       : await ctx.runQuery(internal.media_jobs.getImageSubmissionPayload, {
           jobId: args.jobId,
+          ownerGeneration: args.ownerGeneration,
         });
     if (!args.encryptedPayload && !preview) return null;
     let encrypted = args.encryptedPayload;
@@ -133,6 +140,7 @@ export const submitReservedImageJob = internalAction({
       );
       if (
         !manifest ||
+        (manifest.ownerGeneration ?? "legacy") !== args.ownerGeneration ||
         manifest.state !== "held" ||
         manifest.jobId !== args.jobId ||
         manifest.writtenChunks !== manifest.expectedChunks ||
@@ -188,6 +196,7 @@ export const submitReservedImageJob = internalAction({
         if (!(error instanceof ImageSubmissionEnvelopeError)) throw error;
         await ctx.runMutation(internal.media_jobs.markSubmissionFailed, {
           jobId: args.jobId,
+          ownerGeneration: args.ownerGeneration,
           upstreamStatus: "SUBMISSION_PAYLOAD_REJECTED",
           error: {
             code: "SUBMISSION_PAYLOAD_REJECTED",
@@ -206,6 +215,7 @@ export const submitReservedImageJob = internalAction({
       if (!(error instanceof ImageSubmissionEnvelopeError)) throw error;
       await ctx.runMutation(internal.media_jobs.markSubmissionFailed, {
         jobId: args.jobId,
+        ownerGeneration: args.ownerGeneration,
         upstreamStatus: "SUBMISSION_PAYLOAD_REJECTED",
         error: {
           code: "SUBMISSION_PAYLOAD_REJECTED",
@@ -221,19 +231,40 @@ export const submitReservedImageJob = internalAction({
 
     const claim = await ctx.runMutation(
       internal.media_jobs.claimImageSubmission,
-      { jobId: args.jobId, attemptId, claimedAt: Date.now() },
+      {
+        jobId: args.jobId,
+        ownerGeneration: args.ownerGeneration,
+        attemptId,
+        claimedAt: Date.now(),
+      },
     );
     if (claim.state !== "claimed") return null;
 
+    const dispatchId = falSubmissionDispatchId(args.jobId);
+    const physicalDispatch = createMediaProviderDispatch(ctx, {
+      ownerId: claim.ownerId,
+      ownerGeneration: claim.ownerGeneration,
+      dispatchId,
+      attemptId,
+      jobId: args.jobId,
+      kind: "fal_submit",
+      exactAttemptPreReserved: true,
+    });
+
     try {
-      const submitted = await submitFalRequest({
-        apiKey,
-        endpointId: claim.endpointId,
-        input: submission.input,
-        webhookUrl: submission.webhookUrl,
-      });
+      const submitted = await physicalDispatch.run(
+        async (signal) =>
+          await submitFalRequest({
+            apiKey,
+            endpointId: claim.endpointId,
+            input: submission.input,
+            webhookUrl: submission.webhookUrl,
+            signal,
+          }),
+      );
       const state = await ctx.runMutation(internal.media_jobs.markSubmitted, {
         jobId: args.jobId,
+        ownerGeneration: args.ownerGeneration,
         submissionAttemptId: attemptId,
         providerRequestId: submitted.requestId,
         ...(submitted.gatewayRequestId
@@ -251,50 +282,69 @@ export const submitReservedImageJob = internalAction({
           : {}),
       });
       if (state.cancelRequested) {
-        await cancelFalRequest({
-          apiKey,
-          endpointId: claim.endpointId,
-          requestId: submitted.requestId,
-        }).catch(() => undefined);
+        await ctx
+          .runAction(
+            internal.media_image_submission.cancelPurgedProviderRequest,
+            { jobId: args.jobId },
+          )
+          .catch(() => undefined);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const code = (error as Error & { code?: unknown }).code;
-      if (isDefinitiveFalSubmissionRejection(error)) {
-        await ctx.runMutation(internal.media_jobs.markSubmissionFailed, {
-          jobId: args.jobId,
-          upstreamStatus: "ERROR",
-          error: {
-            message,
-            ...(typeof code === "string" && code.trim()
-              ? { code: code.trim() }
-              : {}),
-          },
-        });
+      if (!physicalDispatch.providerMayHaveStarted()) {
+        await physicalDispatch.settle();
+      } else if (isDefinitiveFalSubmissionRejection(error)) {
+        await ctx
+          .runMutation(internal.media_jobs.markSubmissionFailed, {
+            jobId: args.jobId,
+            ownerGeneration: args.ownerGeneration,
+            submissionAttemptId: attemptId,
+            notChargeablePolicy: "provider_definitive_rejection_not_chargeable",
+            upstreamStatus: "ERROR",
+            error: {
+              message,
+              ...(typeof code === "string" && code.trim()
+                ? { code: code.trim() }
+                : {}),
+            },
+          })
+          .catch(() => null);
+        await physicalDispatch.settle();
       } else {
-        await ctx.runMutation(internal.media_jobs.markImageSubmissionUnknown, {
-          jobId: args.jobId,
-          attemptId,
-          observedAt: Date.now(),
-          error: {
-            code: "SUBMISSION_OUTCOME_UNKNOWN",
-            message:
-              "Fal may have accepted this image, but Stella lost the submission response and will not submit it again.",
-            details: { cause: message },
-          },
-        });
+        await ctx
+          .runMutation(internal.media_jobs.markImageSubmissionUnknown, {
+            jobId: args.jobId,
+            ownerGeneration: args.ownerGeneration,
+            attemptId,
+            observedAt: Date.now(),
+            error: {
+              code: "SUBMISSION_OUTCOME_UNKNOWN",
+              message:
+                "Fal may have accepted this image, but Stella lost the submission response and will not submit it again.",
+              details: { cause: message },
+            },
+          })
+          .catch(() => false);
+        await physicalDispatch.abandon();
       }
     } finally {
       if (claim.manifestId) {
-        await ctx.runMutation(
-          internal.media_jobs.releaseImageSubmissionManifest,
-          { jobId: args.jobId, manifestId: claim.manifestId },
-        );
+        await ctx
+          .runMutation(internal.media_jobs.releaseImageSubmissionManifest, {
+            jobId: args.jobId,
+            ownerGeneration: args.ownerGeneration,
+            manifestId: claim.manifestId,
+          })
+          .catch(() => false);
       } else if (claim.storageId) {
-        await ctx.runMutation(
-          internal.media_jobs.releaseImageSubmissionPayload,
-          { jobId: args.jobId, storageId: claim.storageId },
-        );
+        await ctx
+          .runMutation(internal.media_jobs.releaseImageSubmissionPayload, {
+            jobId: args.jobId,
+            ownerGeneration: args.ownerGeneration,
+            storageId: claim.storageId,
+          })
+          .catch(() => false);
       }
     }
     return null;
@@ -456,30 +506,41 @@ export const cancelPurgedProviderRequest = internalAction({
   args: { jobId: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const row = await ctx.runQuery(
-      internal.media_jobs.getProviderCancellationByJob,
-      { jobId: args.jobId },
+    const attemptId = crypto.randomUUID();
+    const row = await ctx.runMutation(
+      internal.media_jobs.claimProviderCancellationAttempt,
+      { jobId: args.jobId, attemptId, now: Date.now() },
     );
     if (!row) return null;
     const apiKey = getFalApiKey();
     if (!apiKey)
       throw new Error("Media provider cancellation is not configured.");
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      Math.max(1, row.attemptDeadlineAt - Date.now()),
+    );
     try {
       await cancelFalRequest({
         apiKey,
         endpointId: row.endpointId,
         requestId: row.providerRequestId,
+        signal: controller.signal,
       });
       await ctx.runMutation(internal.media_jobs.completeProviderCancellation, {
         jobId: row.jobId,
+        attemptId,
       });
     } catch (error) {
       await ctx.runMutation(internal.media_jobs.failProviderCancellation, {
         jobId: row.jobId,
+        attemptId,
         failedAt: Date.now(),
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
+    } finally {
+      clearTimeout(timeout);
     }
     return null;
   },

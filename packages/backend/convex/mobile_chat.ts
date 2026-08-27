@@ -5,10 +5,7 @@ import {
   assertSensitiveSessionPolicyAction,
   isAnonymousIdentity,
 } from "./auth";
-import {
-  enforceActionRateLimit,
-  RATE_STANDARD,
-} from "./lib/rate_limits";
+import { enforceActionRateLimit, RATE_STANDARD } from "./lib/rate_limits";
 import { verifyPairedMobileSecret } from "./mobile_access";
 
 const MAX_DEVICE_ID_LENGTH = 256;
@@ -47,6 +44,16 @@ export const sendChat = action({
     await assertSensitiveSessionPolicyAction(ctx, identity);
 
     const ownerId = identity.tokenIdentifier;
+    const lifecycle = await ctx.runQuery(
+      internal.owner_lifecycle.getOwnerDataAccessStateInternal,
+      { ownerId },
+    );
+    if (!lifecycle.allowed) {
+      throw new ConvexError({
+        code: "OWNER_DATA_PURGE_ACTIVE",
+        message: "Account data is currently being reset or deleted.",
+      });
+    }
     await enforceActionRateLimit(
       ctx,
       "mobile_chat_send",
@@ -94,6 +101,7 @@ export const sendChat = action({
 
     await ctx.runMutation(internal.mobile_access.markPairedMobileSeen, {
       ownerId,
+      ownerGeneration: lifecycle.generation,
       desktopDeviceId,
       mobileDeviceId,
       seenAt: Date.now(),

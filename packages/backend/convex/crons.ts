@@ -1,13 +1,62 @@
-import { cronJobs } from "convex/server";
+import { cronJobs, makeFunctionReference } from "convex/server";
 import { internal } from "./_generated/api";
 
 const crons = cronJobs();
+
+const reconcileExecutionPlacementRef = makeFunctionReference<
+  "mutation",
+  { now?: number },
+  {
+    expiredOffers: number;
+    computerReconciliation: number;
+    cloudRetries: number;
+    cloudTerminals: number;
+    cloudCancellations: number;
+    expiredPayloads: number;
+  }
+>("execution_placement:reconcileExecutionPlacementInternal");
+
+const maintainAgentEventOwnershipRef = makeFunctionReference<
+  "action",
+  { maxBatches?: number },
+  unknown
+>("agent_event_ownership:maintainAgentEventOwnershipInternal");
+
+const sweepAutomaticDreamDispatchesRef = makeFunctionReference<
+  "mutation",
+  { now?: number; limit?: number },
+  { scheduled: number }
+>("cloud_dream:sweepAutomaticDreamDispatchesInternal");
+
+const sweepMemoryWipesRef = makeFunctionReference<
+  "action",
+  { limit?: number },
+  { attempted: number }
+>("cloud_memory_lifecycle:sweepDueMemoryWipesInternal");
+
+const sweepComposioSessionCleanupRef = makeFunctionReference<
+  "mutation",
+  { now?: number; limitPerState?: number },
+  { scheduled: number }
+>(
+  "composio_session_dispatch:sweepDueComposioSessionProvisioningCleanupInternal",
+);
+
+const drainLateStripeCleanupRef = makeFunctionReference<"action", {}, null>(
+  "stripe_operation_dispatch:drainLateStripeCleanupInternal",
+);
 
 crons.interval(
   "transient connector turn payload cleanup",
   { minutes: 5 },
   internal.channels.connector_turn_payloads.purgeExpired,
   { maxBatches: 10 },
+);
+crons.interval(
+  "stella relay resume cleanup",
+  { minutes: 1 },
+  internal.stella_provider.relay_resume_store.drainExpiredRelayResumeStreams,
+  {},
 );
 crons.interval(
   "thread lifecycle sweep",
@@ -82,6 +131,20 @@ crons.interval(
 );
 
 crons.interval(
+  "managed provider dispatch lease cleanup",
+  { minutes: 1 },
+  internal.billing.sweepManagedProviderDispatchesInternal,
+  {},
+);
+
+crons.interval(
+  "recover Composio session cleanup dispatches",
+  { minutes: 1 },
+  sweepComposioSessionCleanupRef,
+  { limitPerState: 8 },
+);
+
+crons.interval(
   "purge stale anonymous data",
   { hours: 24 },
   internal.anon_cleanup.purgeStaleAnonymousData,
@@ -94,16 +157,12 @@ crons.interval(
   internal.ai_proxy_data.purgeStaleDeviceUsage,
   { batchSize: 1000 },
 );
-
-
 crons.interval(
   "purge expired x oauth states",
   { hours: 1 },
   internal.data.integrations.purgeExpiredXOAuthStates,
   { batchSize: 200 },
 );
-
-
 crons.interval(
   "purge expired canvas shares",
   { hours: 1 },
@@ -130,6 +189,149 @@ crons.interval(
   { minutes: 5 },
   internal.tts_stream.purgeExpired,
   { maxBatches: 10 },
+);
+
+crons.interval(
+  "cloud app failure spike detection",
+  { minutes: 5 },
+  internal.cloud_apps.scanFailureSpikes,
+  {},
+);
+
+crons.interval(
+  "purge expired cloud turn tokens",
+  { minutes: 30 },
+  internal.cloud_apps.purgeExpiredTurnTokensInternal,
+  {},
+);
+
+crons.interval(
+  "repair legacy agent event ownership",
+  { hours: 6 },
+  maintainAgentEventOwnershipRef,
+  { maxBatches: 8 },
+);
+
+// Completion acceptance atomically creates each Dream dispatch. Immediate
+// scheduling is the fast path; this bounded sweep recovers killed actions,
+// stale leases and deployment restarts without scanning conversation history.
+crons.interval(
+  "recover automatic cloud Dream dispatches",
+  { minutes: 1 },
+  sweepAutomaticDreamDispatchesRef,
+  { limit: 20 },
+);
+
+// Memory-only erasure is object-first and cursor-driven. This sweep recovers
+// killed actions while the memory epoch remains closed, so restart can never
+// turn a partial deletion into an apparently successful empty home.
+crons.interval(
+  "resume cloud memory wipes",
+  { minutes: 1 },
+  sweepMemoryWipesRef,
+  { limit: 10 },
+);
+
+// Retries the storage half of a conversation delete. Convex tombstones
+// synchronously, but the transcript and its R2 segments live in the DO, and a
+// DO that was unreachable when the user pressed delete must not be the reason
+// their data survives.
+crons.interval(
+  "purge tombstoned cloud conversations",
+  { minutes: 5 },
+  internal.cloud_apps.sweepDeletedConversationsInternal,
+  { limit: 10 },
+);
+
+// Retires the resurrection fences left by finished purges. They are a random
+// conversation id and a timestamp -- no owner, no content -- and only have to
+// outlive an index flush that was in flight when the purge ran.
+crons.interval(
+  "retire purged cloud conversation tombstones",
+  { hours: 6 },
+  internal.cloud_apps.sweepConversationTombstonesInternal,
+  { limit: 500 },
+);
+
+// Index rows whose DO never flushed anything -- a dispatch that failed before
+// the builder saw it. Left alone they are permanent empty sidebar entries.
+crons.interval(
+  "sweep orphaned cloud conversations",
+  { hours: 6 },
+  internal.cloud_apps.sweepOrphanConversationsInternal,
+  { limit: 25 },
+);
+
+// One-shot in practice: drains the pre-DO transcript table. Remove this cron,
+// `drainLegacyCloudMessagesInternal`, and the `cloud_messages` table once every
+// deployment reports zero remaining rows.
+crons.interval(
+  "drain legacy cloud transcript rows",
+  { hours: 1 },
+  internal.cloud_apps.drainLegacyCloudMessagesInternal,
+  { limit: 200 },
+);
+
+crons.interval(
+  "dispatch due cloud schedules",
+  { minutes: 1 },
+  internal.cloud_schedule.dispatchDueSchedulesInternal,
+  {},
+);
+
+crons.interval(
+  "reclaim abandoned drive uploads",
+  { hours: 1 },
+  internal.cloud_drive.sweepStaleDriveUploadsInternal,
+  { limit: 100 },
+);
+
+// Destructive owner resets/deletions cross Convex, R2, Durable Objects, and
+// the cloud worker. A killed action must therefore resume from its durable
+// stage/lease instead of silently leaving a blocked, half-purged account.
+crons.interval(
+  "resume owner data purges",
+  { minutes: 1 },
+  internal.owner_lifecycle.sweepDueOwnerPurgeJobsInternal,
+  { limit: 10 },
+);
+
+// A platform-suspended Stripe action can report a provider success only after
+// permanent account deletion removed its owner-scoped operation row. The mark
+// retained a hash-only physical receipt; this sweep drains any short-lived raw
+// cleanup locator even if its transaction-scheduled first wake was lost.
+crons.interval(
+  "drain late Stripe deletion locators",
+  { minutes: 1 },
+  drainLateStripeCleanupRef,
+  {},
+);
+
+// Better Auth's delete-user route can time out after publishing the durable
+// whole-stack purge. Once that exact delete job completes, this sweep removes
+// any remaining component auth rows from the retained user locator.
+crons.interval(
+  "finalize completed auth account deletions",
+  { minutes: 1 },
+  internal.auth_account_deletion.sweepAuthAccountDeletionFinalizersInternal,
+  { limit: 10 },
+);
+
+// Successful anonymous -> connected migrations permanently retire the source
+// Better Auth principal. The completion mutation schedules this handoff
+// atomically; this sweep covers lost action responses and manual repairs.
+crons.interval(
+  "retire migrated anonymous auth principals",
+  { minutes: 1 },
+  internal.auth_migration.sweepMigratedSourceIdentityDeletionsInternal,
+  { limit: 10 },
+);
+
+crons.interval(
+  "reconcile automatic execution placement",
+  { seconds: 30 },
+  reconcileExecutionPlacementRef,
+  {},
 );
 
 export default crons;

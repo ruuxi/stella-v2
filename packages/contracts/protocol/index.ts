@@ -451,6 +451,8 @@ export type RuntimeChatPayload = {
   userMessageTimestamp?: number;
   agentType?: string;
   storageMode?: "cloud" | "local";
+  /** Exact owner-data epoch captured when this cloud turn was admitted. */
+  ownerGeneration?: string;
 };
 
 export type RuntimeVoiceTranscriptPayload = {
@@ -579,6 +581,8 @@ export type RuntimeAutomationTurnRequest = {
   executionPlacementRunId?: string;
   /** Transcript authority for this automation turn. */
   storageMode?: "cloud" | "local";
+  /** Exact owner-data epoch captured at the turn's admission boundary. */
+  ownerGeneration?: string;
   /** Stable cloud-journal id used to deduplicate a retried external request. */
   userMessageId?: string;
   agentType?: string;

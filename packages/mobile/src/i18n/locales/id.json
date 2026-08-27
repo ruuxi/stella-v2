@@ -41,7 +41,7 @@
     },
     "memory": {
       "title": "Memori",
-      "description": "Sertakan memori tersimpan dan profil Anda dalam konteks model Stella. Menonaktifkan ini akan membiarkan berkas memori tetap di perangkat Anda tetapi mengecualikannya dari giliran berikutnya."
+      "description": "Sertakan memori tersimpan dan profil Anda dalam konteks model Stella. Salinan cloud adalah salinan utama dan dienkripsi saat dikirim maupun disimpan; Stella juga dapat menyimpan salinan lokal. Menonaktifkan opsi ini akan mengecualikan memori dari percakapan berikutnya, tetapi tidak menghapusnya."
     },
     "developerPreviews": {
       "title": "Pratinjau berkas pengembang",
@@ -276,6 +276,54 @@
         "deleteDataFailed": "Tidak dapat menghapus data Anda. Coba lagi.",
         "deleteAccountFailed": "Tidak dapat menghapus akun Anda. Coba lagi.",
         "signInBeforeDelete": "Masuk sebelum menghapus akun Anda."
+      },
+      "cloudHome": {
+        "title": "Cloud Home",
+        "label": "Memori dan skill",
+        "summary": {
+          "checking": "Memeriksa memori dan skill lokal…",
+          "current": "Cloud Home sudah mutakhir. Memori yang diunggah: {memoryCount}. Paket skill yang diunggah: {skillCount}.",
+          "attention": "Cloud Home mempertahankan salinan cloud yang sudah ada ketika data lokal berbeda. Tinjau detail di bawah.",
+          "unavailable": "Sinkronisasi Cloud Home saat ini tidak tersedia.",
+          "intro": "Stella mengimpor memori lokal dan skill kustom yang relevan dengan aman ke akun cloud Anda."
+        },
+        "authorizationNote": "Skill yang diunggah tetap tidak tersedia bagi agen hingga versi persisnya diotorisasi secara eksplisit.",
+        "actions": {
+          "syncing": "Menyinkronkan…",
+          "import": "Impor ke akun ini",
+          "boundElsewhere": "Tertaut ke akun lain",
+          "blocked": "Impor diblokir",
+          "sync": "Sinkronkan sekarang"
+        }
+      },
+      "cloudSkills": {
+        "title": "Cloud Skills",
+        "loading": "Memuat Cloud Skills…",
+        "unavailable": "Cloud Skills tidak tersedia selama data akun dipindahkan, direset, atau dihapus.",
+        "empty": "Belum ada skill cloud kustom yang terinstal.",
+        "saved": "Tersimpan. Versi cloud yang tepat kini sudah mutakhir.",
+        "saveError": "Skill telah berubah atau akun tidak tersedia. Status cloud yang dimuat ulang akan digunakan; coba lagi setelah meninjaunya.",
+        "versionStatus": "{description} Versi: {version}. Status: {status}.",
+        "notPublished": "belum dipublikasikan",
+        "status": {
+          "disabled": "dinonaktifkan",
+          "authorized": "diotorisasi",
+          "notAuthorized": "belum diotorisasi untuk versi ini"
+        },
+        "agentScope": "Cakupan agen:",
+        "agentType": {
+          "orchestrator": "Orkestrator",
+          "general": "Umum"
+        },
+        "allowedTools": "Nama alat yang diizinkan (opsional, dipisahkan koma; ini tidak pernah menambahkan alat)",
+        "invalidTools": "Nama alat hanya boleh menggunakan huruf, angka, titik, garis bawah, titik dua, atau tanda hubung (maksimum 64 karakter).",
+        "actions": {
+          "saving": "Menyimpan…",
+          "revoke": "Cabut",
+          "authorize": "Otorisasi versi",
+          "disable": "Nonaktifkan",
+          "enable": "Aktifkan"
+        }
       }
     },
     "audio": {
@@ -2274,6 +2322,75 @@
       "deleteConfirmTitle": "Hapus akun",
       "deleteConfirmBody": "Tindakan ini menghapus akun Stella Anda secara permanen dan membuang data cloud terkait di server kami. Tidak bisa dibatalkan.",
       "deleteFailedTitle": "Tidak bisa menghapus akun"
+    },
+    "cloudHome": {
+      "settingsSection": "Cloud Home",
+      "settingsRowTitle": "Dokumen memori",
+      "settingsRowBody": "Lihat dan edit memori Stella yang menjadi versi acuan di cloud.",
+      "openSettingsLabel": "Buka memori Cloud Home",
+      "title": "Memori Cloud Home",
+      "subtitle": "Dokumen Stella yang menjadi versi acuan di cloud",
+      "backToSettingsLabel": "Kembali ke Pengaturan",
+      "backToDocumentsLabel": "Kembali ke dokumen Cloud Home",
+      "editorMeta": "{kind} · revisi {revision}",
+      "listMeta": "{kind} · revisi {revision} · {size}",
+      "signInTitle": "Masuk untuk menggunakan Cloud Home",
+      "signInBody": "Dokumen memori bersifat pribadi untuk akun Stella Anda.",
+      "signIn": "Masuk",
+      "signInAgain": "Masuk lagi",
+      "loading": "Memuat Cloud Home…",
+      "unavailableTitle": "Cloud Home tidak tersedia",
+      "unavailableBody": "Penerapan ini saat ini belum menyediakan layanan Cloud Home yang aman. File lokal Anda tidak diubah.",
+      "errors": {
+        "unauthorized": "Masuk lagi untuk mengakses Cloud Home.",
+        "unavailable": "Cloud Home saat ini tidak tersedia untuk akun ini.",
+        "invalid": "Cloud Home mengembalikan respons yang tidak valid.",
+        "network": "Cloud Home tidak dapat dijangkau. Coba lagi.",
+        "missingFromList": "Dokumen itu sudah tidak ada di Cloud Home. Muat ulang daftar.",
+        "removedWhileEditing": "Dokumen itu telah dihapus dari Cloud Home."
+      },
+      "notices": {
+        "saved": "Disimpan ke Cloud Home.",
+        "loadedLatest": "Versi cloud terbaru telah dimuat."
+      },
+      "conflict": {
+        "title": "Versi cloud telah berubah",
+        "changedBody": "Revisi {revision} menggantikan versi yang Anda edit. Draf Anda masih ada di sini.",
+        "removedBody": "Dokumen ini dihapus saat Anda mengeditnya. Draf Anda masih ada di sini.",
+        "reloadLabel": "Muat ulang versi cloud dan ganti draf ini",
+        "reloading": "Memuat ulang…",
+        "reload": "Muat ulang versi cloud"
+      },
+      "editor": {
+        "editLabel": "Edit {name}",
+        "saving": "Menyimpan…",
+        "save": "Simpan",
+        "unsaved": "Perubahan belum disimpan",
+        "upToDate": "Sudah terbaru"
+      },
+      "list": {
+        "retryLabel": "Coba lagi memuat memori Cloud Home",
+        "retry": "Coba lagi",
+        "loading": "Memuat dokumen…",
+        "emptyTitle": "Belum ada memori cloud",
+        "emptyBody": "Dokumen yang dibuat oleh Stella atau diimpor dari aplikasi desktop akan muncul di sini.",
+        "openDocumentLabel": "Buka {name}"
+      },
+      "kinds": {
+        "memory": "memori",
+        "profile": "profil",
+        "memory_map": "peta memori",
+        "core_memory": "memori inti",
+        "personality": "kepribadian",
+        "imported_markdown": "Markdown yang diimpor",
+        "user_markdown": "Markdown pengguna",
+        "archive": "arsip"
+      },
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      }
     },
     "carPlayDiagnostics": {
       "title": "Diagnostik CarPlay",

@@ -41,7 +41,7 @@
     },
     "memory": {
       "title": "Memorie",
-      "description": "Include amintirile salvate și profilul tău în contextul modelului Stella. Dezactivarea păstrează fișierele de memorie pe dispozitiv, dar le exclude din răspunsurile următoare."
+      "description": "Include amintirile salvate și profilul tău în contextul modelului Stella. Copia din cloud este cea de referință și este criptată atât în tranzit, cât și în repaus; Stella poate păstra și o copie locală. Dezactivarea acestei opțiuni exclude memoria din conversațiile viitoare, dar nu o șterge."
     },
     "developerPreviews": {
       "title": "Previzualizări de fișiere pentru dezvoltatori",
@@ -238,6 +238,54 @@
     },
     "account": {
       "title": "Cont",
+      "cloudHome": {
+        "title": "Cloud Home",
+        "label": "Memorie și abilități",
+        "summary": {
+          "checking": "Se verifică memoria și abilitățile locale…",
+          "current": "Cloud Home este actualizat. Memorie încărcată: {memoryCount}. Pachete de abilități încărcate: {skillCount}.",
+          "attention": "Cloud Home a păstrat copiile existente în cloud acolo unde datele locale erau diferite. Verifică detaliile de mai jos.",
+          "unavailable": "Sincronizarea Cloud Home nu este disponibilă momentan.",
+          "intro": "Stella importă în siguranță memoria locală și abilitățile personalizate aplicabile în contul tău cloud."
+        },
+        "authorizationNote": "Abilitățile încărcate rămân indisponibile agenților până când versiunea lor exactă este autorizată explicit.",
+        "actions": {
+          "syncing": "Se sincronizează…",
+          "import": "Importă în acest cont",
+          "boundElsewhere": "Asociat altui cont",
+          "blocked": "Import blocat",
+          "sync": "Sincronizează acum"
+        }
+      },
+      "cloudSkills": {
+        "title": "Cloud Skills",
+        "loading": "Se încarcă Cloud Skills…",
+        "unavailable": "Cloud Skills nu este disponibil cât timp datele contului sunt mutate, resetate sau șterse.",
+        "empty": "Nu este instalată încă nicio abilitate cloud personalizată.",
+        "saved": "Salvat. Versiunea cloud exactă este acum actualizată.",
+        "saveError": "Abilitatea s-a modificat sau contul nu este disponibil. Va fi folosită starea cloud reîncărcată; încearcă din nou după ce o verifici.",
+        "versionStatus": "{description} Versiune: {version}. Stare: {status}.",
+        "notPublished": "nepublicată",
+        "status": {
+          "disabled": "dezactivată",
+          "authorized": "autorizată",
+          "notAuthorized": "neautorizată pentru această versiune"
+        },
+        "agentScope": "Domeniul agentului:",
+        "agentType": {
+          "orchestrator": "Orchestrator",
+          "general": "General"
+        },
+        "allowedTools": "Numele instrumentelor permise (opțional, separate prin virgulă; această opțiune nu adaugă niciodată instrumente)",
+        "invalidTools": "Numele instrumentelor trebuie să conțină numai litere, cifre, puncte, caractere de subliniere, două puncte sau cratime (maximum 64 de caractere).",
+        "actions": {
+          "saving": "Se salvează…",
+          "revoke": "Revocă",
+          "authorize": "Autorizează versiunea",
+          "disable": "Dezactivează",
+          "enable": "Activează"
+        }
+      },
       "signOut": {
         "label": "Deconectează-te",
         "description": "Deconectează-te de la Stella pe acest dispozitiv.",
@@ -2330,6 +2378,75 @@
       "deleteConfirmTitle": "Șterge contul",
       "deleteConfirmBody": "Aceasta șterge definitiv contul tău Stella și elimină de pe serverele noastre datele din cloud asociate cu el. Această acțiune nu poate fi anulată.",
       "deleteFailedTitle": "Nu am putut șterge contul"
+    },
+    "cloudHome": {
+      "settingsSection": "Cloud Home",
+      "settingsRowTitle": "Documente de memorie",
+      "settingsRowBody": "Citește și editează memoria canonică Stella din cloud.",
+      "openSettingsLabel": "Deschide memoria Cloud Home",
+      "title": "Memorie Cloud Home",
+      "subtitle": "Documentele tale canonice Stella din cloud",
+      "backToSettingsLabel": "Înapoi la Setări",
+      "backToDocumentsLabel": "Înapoi la documentele Cloud Home",
+      "editorMeta": "{kind} · revizia {revision}",
+      "listMeta": "{kind} · revizia {revision} · {size}",
+      "signInTitle": "Autentifică-te pentru a folosi Cloud Home",
+      "signInBody": "Documentele de memorie sunt private și asociate contului tău Stella.",
+      "signIn": "Autentificare",
+      "signInAgain": "Autentifică-te din nou",
+      "loading": "Se încarcă Cloud Home…",
+      "unavailableTitle": "Cloud Home nu este disponibil",
+      "unavailableBody": "Această implementare nu oferă momentan acces la serviciul securizat Cloud Home. Fișierele tale locale nu au fost modificate.",
+      "errors": {
+        "unauthorized": "Autentifică-te din nou pentru a accesa Cloud Home.",
+        "unavailable": "Cloud Home nu este disponibil momentan pentru acest cont.",
+        "invalid": "Cloud Home a returnat un răspuns nevalid.",
+        "network": "Cloud Home nu a putut fi accesat. Încearcă din nou.",
+        "missingFromList": "Documentul nu mai există în Cloud Home. Reîncarcă lista.",
+        "removedWhileEditing": "Documentul a fost eliminat din Cloud Home."
+      },
+      "notices": {
+        "saved": "Salvat în Cloud Home.",
+        "loadedLatest": "Cea mai recentă versiune din cloud a fost încărcată."
+      },
+      "conflict": {
+        "title": "Versiunea din cloud s-a schimbat",
+        "changedBody": "Revizia {revision} a înlocuit versiunea pe care ai editat-o. Ciorna ta este încă aici.",
+        "removedBody": "Acest document a fost eliminat în timp ce îl editai. Ciorna ta este încă aici.",
+        "reloadLabel": "Reîncarcă versiunea din cloud și înlocuiește această ciornă",
+        "reloading": "Se reîncarcă…",
+        "reload": "Reîncarcă versiunea din cloud"
+      },
+      "editor": {
+        "editLabel": "Editează {name}",
+        "saving": "Se salvează…",
+        "save": "Salvează",
+        "unsaved": "Modificări nesalvate",
+        "upToDate": "Actualizat"
+      },
+      "list": {
+        "retryLabel": "Reîncearcă încărcarea memoriei Cloud Home",
+        "retry": "Încearcă din nou",
+        "loading": "Se încarcă documentele…",
+        "emptyTitle": "Nicio memorie în cloud încă",
+        "emptyBody": "Documentele create de Stella sau importate de pe computer vor apărea aici.",
+        "openDocumentLabel": "Deschide {name}"
+      },
+      "kinds": {
+        "memory": "memorie",
+        "profile": "profil",
+        "memory_map": "hartă a memoriei",
+        "core_memory": "memorie de bază",
+        "personality": "personalitate",
+        "imported_markdown": "Markdown importat",
+        "user_markdown": "Markdown al utilizatorului",
+        "archive": "arhivă"
+      },
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      }
     },
     "carPlayDiagnostics": {
       "title": "Diagnosticare CarPlay",

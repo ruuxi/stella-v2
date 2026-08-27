@@ -41,7 +41,7 @@
     },
     "memory": {
       "title": "Memoria",
-      "description": "Incluir las memorias guardadas y tu perfil en el contexto del modelo de Stella. Si lo desactivas, los archivos de memoria seguirán en tu dispositivo pero se excluirán de los próximos turnos."
+      "description": "Incluye los recuerdos guardados y tu perfil en el contexto del modelo de Stella. La copia en la nube es la fuente autorizada y está cifrada en tránsito y en reposo; Stella también puede conservar una copia local. Al desactivar esta opción, la memoria se excluye de futuras conversaciones, pero no se elimina."
     },
     "developerPreviews": {
       "title": "Vistas previas de archivos para desarrolladores",
@@ -238,6 +238,54 @@
     },
     "account": {
       "title": "Cuenta",
+      "cloudHome": {
+        "title": "Cloud Home",
+        "label": "Memoria y habilidades",
+        "summary": {
+          "checking": "Comprobando la memoria y las habilidades locales…",
+          "current": "Cloud Home está actualizado. Memoria subida: {memoryCount}. Paquetes de habilidades subidos: {skillCount}.",
+          "attention": "Cloud Home conservó las copias existentes en la nube cuando los datos locales diferían. Revisa los detalles a continuación.",
+          "unavailable": "La sincronización de Cloud Home no está disponible en este momento.",
+          "intro": "Stella importa de forma segura la memoria local y las habilidades personalizadas aplicables en tu cuenta en la nube."
+        },
+        "authorizationNote": "Las habilidades subidas no estarán disponibles para los agentes hasta que se autorice explícitamente su versión exacta.",
+        "actions": {
+          "syncing": "Sincronizando…",
+          "import": "Importar en esta cuenta",
+          "boundElsewhere": "Vinculado a otra cuenta",
+          "blocked": "Importación bloqueada",
+          "sync": "Sincronizar ahora"
+        }
+      },
+      "cloudSkills": {
+        "title": "Cloud Skills",
+        "loading": "Cargando Cloud Skills…",
+        "unavailable": "Cloud Skills no está disponible mientras se trasladan, restablecen o eliminan los datos de la cuenta.",
+        "empty": "Aún no hay habilidades personalizadas en la nube instaladas.",
+        "saved": "Guardado. La versión exacta en la nube ya está actualizada.",
+        "saveError": "La habilidad ha cambiado o la cuenta no está disponible. Se usará el estado recargado de la nube; vuelve a intentarlo después de revisarlo.",
+        "versionStatus": "{description} Versión: {version}. Estado: {status}.",
+        "notPublished": "sin publicar",
+        "status": {
+          "disabled": "desactivada",
+          "authorized": "autorizada",
+          "notAuthorized": "no autorizada para esta versión"
+        },
+        "agentScope": "Ámbito del agente:",
+        "agentType": {
+          "orchestrator": "Orquestador",
+          "general": "General"
+        },
+        "allowedTools": "Nombres de herramientas permitidos (opcional, separados por comas; esto nunca añade herramientas)",
+        "invalidTools": "Los nombres de herramientas solo pueden contener letras, números, puntos, guiones bajos, dos puntos o guiones (64 caracteres como máximo).",
+        "actions": {
+          "saving": "Guardando…",
+          "revoke": "Revocar",
+          "authorize": "Autorizar versión",
+          "disable": "Desactivar",
+          "enable": "Activar"
+        }
+      },
       "signOut": {
         "label": "Cerrar sesión",
         "description": "Cierra sesión de Stella en este dispositivo.",
@@ -2330,6 +2378,75 @@
       "deleteConfirmTitle": "Eliminar cuenta",
       "deleteConfirmBody": "Esto elimina permanentemente tu cuenta de Stella y borra de nuestros servidores los datos en la nube asociados a ella. Esto no se puede deshacer.",
       "deleteFailedTitle": "No se pudo eliminar la cuenta"
+    },
+    "cloudHome": {
+      "settingsSection": "Cloud Home",
+      "settingsRowTitle": "Documentos de memoria",
+      "settingsRowBody": "Lee y edita tu memoria canónica de Stella en la nube.",
+      "openSettingsLabel": "Abrir la memoria de Cloud Home",
+      "title": "Memoria de Cloud Home",
+      "subtitle": "Tus documentos canónicos de Stella en la nube",
+      "backToSettingsLabel": "Volver a Ajustes",
+      "backToDocumentsLabel": "Volver a los documentos de Cloud Home",
+      "editorMeta": "{kind} · revisión {revision}",
+      "listMeta": "{kind} · revisión {revision} · {size}",
+      "signInTitle": "Inicia sesión para usar Cloud Home",
+      "signInBody": "Los documentos de memoria son privados y están vinculados a tu cuenta de Stella.",
+      "signIn": "Iniciar sesión",
+      "signInAgain": "Volver a iniciar sesión",
+      "loading": "Cargando Cloud Home…",
+      "unavailableTitle": "Cloud Home no está disponible",
+      "unavailableBody": "Este despliegue no ofrece actualmente el servicio seguro de Cloud Home. Tus archivos locales no se han modificado.",
+      "errors": {
+        "unauthorized": "Vuelve a iniciar sesión para acceder a Cloud Home.",
+        "unavailable": "Cloud Home no está disponible para esta cuenta en este momento.",
+        "invalid": "Cloud Home devolvió una respuesta no válida.",
+        "network": "No se ha podido acceder a Cloud Home. Inténtalo de nuevo.",
+        "missingFromList": "Ese documento ya no está en Cloud Home. Recarga la lista.",
+        "removedWhileEditing": "Ese documento se eliminó de Cloud Home."
+      },
+      "notices": {
+        "saved": "Guardado en Cloud Home.",
+        "loadedLatest": "Se ha cargado la versión más reciente de la nube."
+      },
+      "conflict": {
+        "title": "La versión de la nube ha cambiado",
+        "changedBody": "La revisión {revision} sustituyó la versión que editaste. Tu borrador sigue aquí.",
+        "removedBody": "Este documento se eliminó mientras lo editabas. Tu borrador sigue aquí.",
+        "reloadLabel": "Recargar la versión de la nube y sustituir este borrador",
+        "reloading": "Recargando…",
+        "reload": "Recargar la versión de la nube"
+      },
+      "editor": {
+        "editLabel": "Editar {name}",
+        "saving": "Guardando…",
+        "save": "Guardar",
+        "unsaved": "Cambios sin guardar",
+        "upToDate": "Al día"
+      },
+      "list": {
+        "retryLabel": "Volver a intentar cargar la memoria de Cloud Home",
+        "retry": "Reintentar",
+        "loading": "Cargando documentos…",
+        "emptyTitle": "Aún no hay memoria en la nube",
+        "emptyBody": "Aquí aparecerán los documentos creados por Stella o importados desde el ordenador.",
+        "openDocumentLabel": "Abrir {name}"
+      },
+      "kinds": {
+        "memory": "memoria",
+        "profile": "perfil",
+        "memory_map": "mapa de memoria",
+        "core_memory": "memoria central",
+        "personality": "personalidad",
+        "imported_markdown": "Markdown importado",
+        "user_markdown": "Markdown del usuario",
+        "archive": "archivo"
+      },
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      }
     },
     "carPlayDiagnostics": {
       "title": "Diagnóstico de CarPlay",

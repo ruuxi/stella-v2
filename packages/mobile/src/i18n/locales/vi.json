@@ -41,7 +41,7 @@
     },
     "memory": {
       "title": "Bộ nhớ",
-      "description": "Đưa các ký ức đã lưu và hồ sơ của bạn vào ngữ cảnh mô hình của Stella. Khi tắt, các tệp bộ nhớ vẫn nằm trên thiết bị của bạn nhưng sẽ không được dùng trong các lượt sau."
+      "description": "Đưa các ký ức đã lưu và hồ sơ của bạn vào ngữ cảnh mô hình của Stella. Bản sao trên đám mây là bản chính thức và được mã hóa cả khi truyền lẫn khi lưu trữ; Stella cũng có thể giữ một bản sao cục bộ. Việc tắt tùy chọn này sẽ loại bộ nhớ khỏi các cuộc trò chuyện sau nhưng không xóa bộ nhớ đó."
     },
     "developerPreviews": {
       "title": "Xem trước tệp dành cho nhà phát triển",
@@ -276,6 +276,54 @@
         "deleteDataFailed": "Không thể xóa dữ liệu của bạn. Vui lòng thử lại.",
         "deleteAccountFailed": "Không thể xóa tài khoản của bạn. Vui lòng thử lại.",
         "signInBeforeDelete": "Đăng nhập trước khi xóa tài khoản của bạn."
+      },
+      "cloudHome": {
+        "title": "Cloud Home",
+        "label": "Bộ nhớ và kỹ năng",
+        "summary": {
+          "checking": "Đang kiểm tra bộ nhớ và kỹ năng cục bộ…",
+          "current": "Cloud Home hiện là phiên bản mới nhất. Bộ nhớ đã tải lên: {memoryCount}. Gói kỹ năng đã tải lên: {skillCount}.",
+          "attention": "Cloud Home đã giữ lại các bản sao hiện có trên đám mây ở những nơi dữ liệu cục bộ khác biệt. Hãy xem lại chi tiết bên dưới.",
+          "unavailable": "Tính năng đồng bộ Cloud Home hiện không khả dụng.",
+          "intro": "Stella nhập bộ nhớ cục bộ và các kỹ năng tùy chỉnh phù hợp vào tài khoản đám mây của bạn một cách an toàn."
+        },
+        "authorizationNote": "Các kỹ năng đã tải lên vẫn không khả dụng với tác nhân cho đến khi phiên bản chính xác của chúng được cấp quyền rõ ràng.",
+        "actions": {
+          "syncing": "Đang đồng bộ…",
+          "import": "Nhập vào tài khoản này",
+          "boundElsewhere": "Đã liên kết với tài khoản khác",
+          "blocked": "Nhập bị chặn",
+          "sync": "Đồng bộ ngay"
+        }
+      },
+      "cloudSkills": {
+        "title": "Cloud Skills",
+        "loading": "Đang tải Cloud Skills…",
+        "unavailable": "Cloud Skills không khả dụng trong khi dữ liệu tài khoản đang được di chuyển, đặt lại hoặc xóa.",
+        "empty": "Chưa cài đặt kỹ năng đám mây tùy chỉnh nào.",
+        "saved": "Đã lưu. Phiên bản chính xác trên đám mây hiện đã được cập nhật.",
+        "saveError": "Kỹ năng đã thay đổi hoặc tài khoản không khả dụng. Trạng thái đám mây được tải lại sẽ được sử dụng; hãy thử lại sau khi xem xét.",
+        "versionStatus": "{description} Phiên bản: {version}. Trạng thái: {status}.",
+        "notPublished": "chưa phát hành",
+        "status": {
+          "disabled": "đã tắt",
+          "authorized": "đã cấp quyền",
+          "notAuthorized": "chưa được cấp quyền cho phiên bản này"
+        },
+        "agentScope": "Phạm vi tác nhân:",
+        "agentType": {
+          "orchestrator": "Bộ điều phối",
+          "general": "Chung"
+        },
+        "allowedTools": "Tên công cụ được phép (không bắt buộc, phân tách bằng dấu phẩy; thao tác này không bao giờ thêm công cụ)",
+        "invalidTools": "Tên công cụ chỉ được dùng chữ cái, số, dấu chấm, dấu gạch dưới, dấu hai chấm hoặc dấu gạch ngang (tối đa 64 ký tự).",
+        "actions": {
+          "saving": "Đang lưu…",
+          "revoke": "Thu hồi",
+          "authorize": "Cấp quyền cho phiên bản",
+          "disable": "Tắt",
+          "enable": "Bật"
+        }
       }
     },
     "audio": {
@@ -2274,6 +2322,75 @@
       "deleteConfirmTitle": "Xóa tài khoản",
       "deleteConfirmBody": "Thao tác này xóa vĩnh viễn tài khoản Stella của bạn và gỡ dữ liệu đám mây liên quan trên máy chủ của chúng tôi. Không thể hoàn tác.",
       "deleteFailedTitle": "Không thể xóa tài khoản"
+    },
+    "cloudHome": {
+      "settingsSection": "Cloud Home",
+      "settingsRowTitle": "Tài liệu bộ nhớ",
+      "settingsRowBody": "Xem và chỉnh sửa bộ nhớ Stella có bản chính thức trên đám mây.",
+      "openSettingsLabel": "Mở bộ nhớ Cloud Home",
+      "title": "Bộ nhớ Cloud Home",
+      "subtitle": "Các tài liệu Stella chính thức của bạn trên đám mây",
+      "backToSettingsLabel": "Quay lại Cài đặt",
+      "backToDocumentsLabel": "Quay lại tài liệu Cloud Home",
+      "editorMeta": "{kind} · bản sửa đổi {revision}",
+      "listMeta": "{kind} · bản sửa đổi {revision} · {size}",
+      "signInTitle": "Đăng nhập để sử dụng Cloud Home",
+      "signInBody": "Tài liệu bộ nhớ là dữ liệu riêng tư trong tài khoản Stella của bạn.",
+      "signIn": "Đăng nhập",
+      "signInAgain": "Đăng nhập lại",
+      "loading": "Đang tải Cloud Home…",
+      "unavailableTitle": "Cloud Home không khả dụng",
+      "unavailableBody": "Bản triển khai này hiện không cung cấp dịch vụ Cloud Home bảo mật. Các tệp cục bộ của bạn không bị thay đổi.",
+      "errors": {
+        "unauthorized": "Đăng nhập lại để truy cập Cloud Home.",
+        "unavailable": "Cloud Home hiện không khả dụng cho tài khoản này.",
+        "invalid": "Cloud Home trả về phản hồi không hợp lệ.",
+        "network": "Không thể kết nối với Cloud Home. Hãy thử lại.",
+        "missingFromList": "Tài liệu đó không còn trong Cloud Home. Hãy tải lại danh sách.",
+        "removedWhileEditing": "Tài liệu đó đã bị xóa khỏi Cloud Home."
+      },
+      "notices": {
+        "saved": "Đã lưu vào Cloud Home.",
+        "loadedLatest": "Đã tải phiên bản mới nhất trên đám mây."
+      },
+      "conflict": {
+        "title": "Phiên bản trên đám mây đã thay đổi",
+        "changedBody": "Bản sửa đổi {revision} đã thay thế phiên bản bạn đang chỉnh sửa. Bản nháp của bạn vẫn còn ở đây.",
+        "removedBody": "Tài liệu này đã bị xóa trong khi bạn chỉnh sửa. Bản nháp của bạn vẫn còn ở đây.",
+        "reloadLabel": "Tải lại phiên bản trên đám mây và thay thế bản nháp này",
+        "reloading": "Đang tải lại…",
+        "reload": "Tải lại phiên bản trên đám mây"
+      },
+      "editor": {
+        "editLabel": "Chỉnh sửa {name}",
+        "saving": "Đang lưu…",
+        "save": "Lưu",
+        "unsaved": "Thay đổi chưa lưu",
+        "upToDate": "Đã cập nhật"
+      },
+      "list": {
+        "retryLabel": "Thử tải lại bộ nhớ Cloud Home",
+        "retry": "Thử lại",
+        "loading": "Đang tải tài liệu…",
+        "emptyTitle": "Chưa có bộ nhớ trên đám mây",
+        "emptyBody": "Tài liệu do Stella tạo hoặc được nhập từ ứng dụng máy tính sẽ xuất hiện tại đây.",
+        "openDocumentLabel": "Mở {name}"
+      },
+      "kinds": {
+        "memory": "bộ nhớ",
+        "profile": "hồ sơ",
+        "memory_map": "bản đồ bộ nhớ",
+        "core_memory": "bộ nhớ cốt lõi",
+        "personality": "tính cách",
+        "imported_markdown": "Markdown đã nhập",
+        "user_markdown": "Markdown của người dùng",
+        "archive": "kho lưu trữ"
+      },
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      }
     },
     "carPlayDiagnostics": {
       "title": "Chẩn đoán CarPlay",

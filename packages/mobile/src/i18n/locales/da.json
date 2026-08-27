@@ -41,7 +41,7 @@
     },
     "memory": {
       "title": "Hukommelse",
-      "description": "Inkludér gemte erindringer og din profil i Stellas modelkontekst. Slår du dette fra, bliver hukommelsesfilerne på din enhed, men udelades fra fremtidige svar."
+      "description": "Medtag gemte minder og din profil i Stellas modelkontekst. Cloudkopien er den autoritative version og er krypteret under overførsel og lagring; Stella kan også gemme en lokal kopi. Hvis du slår dette fra, udelades hukommelsen fra fremtidige samtaler, men den slettes ikke."
     },
     "developerPreviews": {
       "title": "Filforhåndsvisninger for udviklere",
@@ -238,6 +238,54 @@
     },
     "account": {
       "title": "Konto",
+      "cloudHome": {
+        "title": "Cloud Home",
+        "label": "Hukommelse og færdigheder",
+        "summary": {
+          "checking": "Kontrollerer lokal hukommelse og færdigheder…",
+          "current": "Cloud Home er opdateret. Uploadet hukommelse: {memoryCount}. Uploadede færdighedspakker: {skillCount}.",
+          "attention": "Cloud Home beholdt eksisterende kopier i skyen, hvor de lokale data var forskellige. Gennemgå oplysningerne nedenfor.",
+          "unavailable": "Cloud Home-synkronisering er ikke tilgængelig i øjeblikket.",
+          "intro": "Stella importerer sikkert lokal hukommelse og relevante brugerdefinerede færdigheder til din cloudkonto."
+        },
+        "authorizationNote": "Uploadede færdigheder forbliver utilgængelige for agenter, indtil deres præcise version udtrykkeligt er autoriseret.",
+        "actions": {
+          "syncing": "Synkroniserer…",
+          "import": "Importér til denne konto",
+          "boundElsewhere": "Tilknyttet en anden konto",
+          "blocked": "Import blokeret",
+          "sync": "Synkroniser nu"
+        }
+      },
+      "cloudSkills": {
+        "title": "Cloud Skills",
+        "loading": "Indlæser færdigheder i skyen…",
+        "unavailable": "Cloud Skills er ikke tilgængelige, mens kontodata flyttes, nulstilles eller slettes.",
+        "empty": "Der er endnu ikke installeret nogen brugerdefinerede færdigheder i skyen.",
+        "saved": "Gemt. Den præcise cloudversion er nu opdateret.",
+        "saveError": "Færdigheden er ændret, eller kontoen er ikke tilgængelig. Den genindlæste cloudtilstand bruges; prøv igen, når du har gennemgået den.",
+        "versionStatus": "{description} Version: {version}. Status: {status}.",
+        "notPublished": "ikke udgivet",
+        "status": {
+          "disabled": "deaktiveret",
+          "authorized": "autoriseret",
+          "notAuthorized": "ikke autoriseret til denne version"
+        },
+        "agentScope": "Agentområde:",
+        "agentType": {
+          "orchestrator": "Orkestrator",
+          "general": "Generel"
+        },
+        "allowedTools": "Tilladte værktøjsnavne (valgfrit, kommasepareret; dette tilføjer aldrig værktøjer)",
+        "invalidTools": "Værktøjsnavne må kun indeholde bogstaver, tal, punktum, understregningstegn, kolon eller bindestreg (højst 64 tegn).",
+        "actions": {
+          "saving": "Gemmer…",
+          "revoke": "Tilbagekald",
+          "authorize": "Autoriser version",
+          "disable": "Deaktiver",
+          "enable": "Aktivér"
+        }
+      },
       "signOut": {
         "label": "Log ud",
         "description": "Log ud af Stella på denne enhed.",
@@ -2304,6 +2352,75 @@
       "deleteConfirmTitle": "Slet konto",
       "deleteConfirmBody": "Dette sletter din Stella-konto permanent og fjerner de tilhørende clouddata på vores servere. Dette kan ikke fortrydes.",
       "deleteFailedTitle": "Kunne ikke slette kontoen"
+    },
+    "cloudHome": {
+      "settingsSection": "Cloud Home",
+      "settingsRowTitle": "Hukommelsesdokumenter",
+      "settingsRowBody": "Læs og rediger den autoritative version af Stellas hukommelse i skyen.",
+      "openSettingsLabel": "Åbn Cloud Home-hukommelse",
+      "title": "Cloud Home-hukommelse",
+      "subtitle": "Dine autoritative Stella-dokumenter i skyen",
+      "backToSettingsLabel": "Tilbage til Indstillinger",
+      "backToDocumentsLabel": "Tilbage til Cloud Home-dokumenter",
+      "editorMeta": "{kind} · revision {revision}",
+      "listMeta": "{kind} · revision {revision} · {size}",
+      "signInTitle": "Log ind for at bruge Cloud Home",
+      "signInBody": "Hukommelsesdokumenter er private for din Stella-konto.",
+      "signIn": "Log ind",
+      "signInAgain": "Log ind igen",
+      "loading": "Indlæser Cloud Home…",
+      "unavailableTitle": "Cloud Home er ikke tilgængelig",
+      "unavailableBody": "Denne udrulning stiller i øjeblikket ikke den sikre Cloud Home-tjeneste til rådighed. Dine lokale filer er ikke blevet ændret.",
+      "errors": {
+        "unauthorized": "Log ind igen for at få adgang til Cloud Home.",
+        "unavailable": "Cloud Home er ikke tilgængelig for denne konto lige nu.",
+        "invalid": "Cloud Home returnerede et ugyldigt svar.",
+        "network": "Der kunne ikke oprettes forbindelse til Cloud Home. Prøv igen.",
+        "missingFromList": "Dokumentet findes ikke længere i Cloud Home. Indlæs listen igen.",
+        "removedWhileEditing": "Dokumentet er blevet fjernet fra Cloud Home."
+      },
+      "notices": {
+        "saved": "Gemt i Cloud Home.",
+        "loadedLatest": "Den seneste cloudversion er indlæst."
+      },
+      "conflict": {
+        "title": "Cloudversionen er ændret",
+        "changedBody": "Revision {revision} har erstattet den version, du redigerede. Din kladde er stadig her.",
+        "removedBody": "Dokumentet blev fjernet, mens du redigerede det. Din kladde er stadig her.",
+        "reloadLabel": "Indlæs cloudversionen igen, og erstat denne kladde",
+        "reloading": "Indlæser igen…",
+        "reload": "Indlæs cloudversionen igen"
+      },
+      "editor": {
+        "editLabel": "Rediger {name}",
+        "saving": "Gemmer…",
+        "save": "Gem",
+        "unsaved": "Ikke-gemte ændringer",
+        "upToDate": "Ajourført"
+      },
+      "list": {
+        "retryLabel": "Prøv at indlæse Cloud Home-hukommelsen igen",
+        "retry": "Prøv igen",
+        "loading": "Indlæser dokumenter…",
+        "emptyTitle": "Ingen cloudhukommelse endnu",
+        "emptyBody": "Dokumenter, som Stella opretter, eller som importeres fra desktopappen, vises her.",
+        "openDocumentLabel": "Åbn {name}"
+      },
+      "kinds": {
+        "memory": "hukommelse",
+        "profile": "profil",
+        "memory_map": "hukommelseskort",
+        "core_memory": "kernehukommelse",
+        "personality": "personlighed",
+        "imported_markdown": "importeret Markdown",
+        "user_markdown": "bruger-Markdown",
+        "archive": "arkiv"
+      },
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      }
     },
     "carPlayDiagnostics": {
       "title": "CarPlay-diagnostik",

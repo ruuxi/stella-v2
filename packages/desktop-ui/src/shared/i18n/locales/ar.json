@@ -42,7 +42,7 @@
 
     "memory": {
       "title": "الذاكرة",
-      "description": "تضمين الذكريات المحفوظة وملفك الشخصي في سياق نموذج Stella. إيقاف هذا يُبقي ملفات الذاكرة على جهازك لكنه يستبعدها من الأدوار المقبلة."
+      "description": "ضمّن الذكريات المحفوظة وملفك الشخصي في سياق نموذج Stella. النسخة السحابية هي النسخة المعتمدة ومشفّرة أثناء النقل وعند التخزين؛ وقد يحتفظ Stella أيضًا بنسخة محلية. يؤدي إيقاف هذا الخيار إلى استبعاد الذاكرة من المحادثات المستقبلية، لكنه لا يحذفها."
     },
     "developerPreviews": {
       "title": "معاينات ملفات المطوّرين",
@@ -277,6 +277,54 @@
         "deleteDataFailed": "تعذّر حذف بياناتك. يرجى المحاولة مرة أخرى.",
         "deleteAccountFailed": "تعذّر حذف حسابك. يرجى المحاولة مرة أخرى.",
         "signInBeforeDelete": "سجّل الدخول قبل حذف حسابك."
+      },
+      "cloudHome": {
+        "title": "Cloud Home",
+        "label": "الذاكرة والمهارات",
+        "summary": {
+          "checking": "جارٍ التحقق من الذاكرة والمهارات المحلية…",
+          "current": "Cloud Home محدّث. الذاكرة المرفوعة: {memoryCount}. حزم المهارات المرفوعة: {skillCount}.",
+          "attention": "احتفظ Cloud Home بالنسخ السحابية الحالية عندما اختلفت البيانات المحلية. راجع التفاصيل أدناه.",
+          "unavailable": "مزامنة Cloud Home غير متاحة حاليًا.",
+          "intro": "يستورد Stella الذاكرة المحلية والمهارات المخصصة المناسبة بأمان إلى حسابك السحابي."
+        },
+        "authorizationNote": "تظل المهارات المرفوعة غير متاحة للوكلاء حتى يتم التصريح صراحةً بإصدارها المحدد.",
+        "actions": {
+          "syncing": "جارٍ المزامنة…",
+          "import": "استيراد إلى هذا الحساب",
+          "boundElsewhere": "مرتبط بحساب آخر",
+          "blocked": "الاستيراد محظور",
+          "sync": "مزامنة الآن"
+        }
+      },
+      "cloudSkills": {
+        "title": "Cloud Skills",
+        "loading": "جارٍ تحميل المهارات السحابية…",
+        "unavailable": "لا تتوفر Cloud Skills أثناء نقل بيانات الحساب أو إعادة تعيينها أو حذفها.",
+        "empty": "لم يتم تثبيت أي مهارات سحابية مخصصة بعد.",
+        "saved": "تم الحفظ. أصبح الإصدار السحابي المحدد هو الإصدار الحالي.",
+        "saveError": "تغيّرت المهارة أو أن الحساب غير متاح. سيتم استخدام حالة السحابة المعاد تحميلها؛ حاول مرة أخرى بعد مراجعتها.",
+        "versionStatus": "{description} الإصدار: {version}. الحالة: {status}.",
+        "notPublished": "غير منشور",
+        "status": {
+          "disabled": "معطّل",
+          "authorized": "مصرّح به",
+          "notAuthorized": "غير مصرّح لهذا الإصدار"
+        },
+        "agentScope": "نطاق الوكيل:",
+        "agentType": {
+          "orchestrator": "المنسّق",
+          "general": "عام"
+        },
+        "allowedTools": "أسماء الأدوات المسموح بها (اختياري، مفصولة بفواصل؛ لا يضيف هذا أي أدوات)",
+        "invalidTools": "يجب أن تستخدم أسماء الأدوات الأحرف أو الأرقام أو النقطة أو الشرطة السفلية أو النقطتين أو الشرطة فقط (64 كحد أقصى).",
+        "actions": {
+          "saving": "جارٍ الحفظ…",
+          "revoke": "إلغاء التصريح",
+          "authorize": "التصريح للإصدار",
+          "disable": "تعطيل",
+          "enable": "تفعيل"
+        }
       }
     },
     "audio": {
@@ -2410,6 +2458,75 @@
       "deleteConfirmTitle": "حذف الحساب",
       "deleteConfirmBody": "سيؤدي هذا إلى حذف حسابك في Stella نهائيًا وإزالة البيانات السحابية المرتبطة به من خوادمنا. لا يمكن التراجع عن ذلك.",
       "deleteFailedTitle": "تعذّر حذف الحساب"
+    },
+    "cloudHome": {
+      "settingsSection": "Cloud Home",
+      "settingsRowTitle": "مستندات الذاكرة",
+      "settingsRowBody": "اعرض ذاكرة Stella المعتمدة في السحابة وعدّلها.",
+      "openSettingsLabel": "فتح ذاكرة Cloud Home",
+      "title": "ذاكرة Cloud Home",
+      "subtitle": "مستندات Stella المعتمدة في السحابة",
+      "backToSettingsLabel": "العودة إلى الإعدادات",
+      "backToDocumentsLabel": "العودة إلى مستندات Cloud Home",
+      "editorMeta": "{kind} · المراجعة {revision}",
+      "listMeta": "{kind} · المراجعة {revision} · {size}",
+      "signInTitle": "سجّل الدخول لاستخدام Cloud Home",
+      "signInBody": "مستندات الذاكرة خاصة بحسابك في Stella.",
+      "signIn": "تسجيل الدخول",
+      "signInAgain": "تسجيل الدخول مجددًا",
+      "loading": "جارٍ تحميل Cloud Home…",
+      "unavailableTitle": "Cloud Home غير متاح",
+      "unavailableBody": "لا يوفّر هذا النشر حاليًا خدمة Cloud Home الآمنة. لم تتغيّر ملفاتك المحلية.",
+      "errors": {
+        "unauthorized": "سجّل الدخول مجددًا للوصول إلى Cloud Home.",
+        "unavailable": "Cloud Home غير متاح لهذا الحساب حاليًا.",
+        "invalid": "أعاد Cloud Home استجابة غير صالحة.",
+        "network": "تعذّر الوصول إلى Cloud Home. حاول مرة أخرى.",
+        "missingFromList": "لم يعد هذا المستند موجودًا في Cloud Home. أعد تحميل القائمة.",
+        "removedWhileEditing": "أُزيل هذا المستند من Cloud Home."
+      },
+      "notices": {
+        "saved": "تم الحفظ في Cloud Home.",
+        "loadedLatest": "تم تحميل أحدث نسخة سحابية."
+      },
+      "conflict": {
+        "title": "تغيّرت النسخة السحابية",
+        "changedBody": "حلّت المراجعة {revision} محل النسخة التي كنت تعدّلها. ما زالت مسودتك هنا.",
+        "removedBody": "أُزيل هذا المستند أثناء تعديله. ما زالت مسودتك هنا.",
+        "reloadLabel": "إعادة تحميل النسخة السحابية واستبدال هذه المسودة",
+        "reloading": "جارٍ إعادة التحميل…",
+        "reload": "إعادة تحميل النسخة السحابية"
+      },
+      "editor": {
+        "editLabel": "تعديل {name}",
+        "saving": "جارٍ الحفظ…",
+        "save": "حفظ",
+        "unsaved": "تغييرات غير محفوظة",
+        "upToDate": "محدّث"
+      },
+      "list": {
+        "retryLabel": "إعادة محاولة تحميل ذاكرة Cloud Home",
+        "retry": "إعادة المحاولة",
+        "loading": "جارٍ تحميل المستندات…",
+        "emptyTitle": "لا توجد ذاكرة سحابية بعد",
+        "emptyBody": "ستظهر هنا المستندات التي تنشئها Stella أو التي تستوردها من تطبيق سطح المكتب.",
+        "openDocumentLabel": "فتح {name}"
+      },
+      "kinds": {
+        "memory": "ذاكرة",
+        "profile": "ملف شخصي",
+        "memory_map": "خريطة ذاكرة",
+        "core_memory": "ذاكرة أساسية",
+        "personality": "شخصية",
+        "imported_markdown": "Markdown مستورد",
+        "user_markdown": "Markdown الخاص بالمستخدم",
+        "archive": "أرشيف"
+      },
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      }
     },
     "carPlayDiagnostics": {
       "title": "تشخيصات CarPlay",

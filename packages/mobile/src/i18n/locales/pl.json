@@ -41,7 +41,7 @@
     },
     "memory": {
       "title": "Pamięć",
-      "description": "Uwzględniaj zapisane wspomnienia i Twój profil w kontekście modelu Stelli. Po wyłączeniu pliki pamięci pozostaną na urządzeniu, ale nie będą używane w kolejnych odpowiedziach."
+      "description": "Uwzględniaj zapisane wspomnienia i swój profil w kontekście modelu Stelli. Kopia w chmurze jest nadrzędna i szyfrowana podczas przesyłania oraz przechowywania; Stella może też zachować kopię lokalną. Wyłączenie tej opcji wyklucza pamięć z przyszłych rozmów, ale jej nie usuwa."
     },
     "developerPreviews": {
       "title": "Podglądy plików dla deweloperów",
@@ -238,6 +238,54 @@
     },
     "account": {
       "title": "Konto",
+      "cloudHome": {
+        "title": "Cloud Home",
+        "label": "Pamięć i umiejętności",
+        "summary": {
+          "checking": "Sprawdzanie lokalnej pamięci i umiejętności…",
+          "current": "Cloud Home jest aktualny. Przesłana pamięć: {memoryCount}. Przesłane pakiety umiejętności: {skillCount}.",
+          "attention": "Cloud Home zachował istniejące kopie w chmurze w przypadkach, gdy dane lokalne się różniły. Zapoznaj się ze szczegółami poniżej.",
+          "unavailable": "Synchronizacja Cloud Home jest obecnie niedostępna.",
+          "intro": "Stella bezpiecznie importuje lokalną pamięć i odpowiednie niestandardowe umiejętności na Twoje konto w chmurze."
+        },
+        "authorizationNote": "Przesłane umiejętności pozostają niedostępne dla agentów, dopóki ich dokładna wersja nie zostanie wyraźnie autoryzowana.",
+        "actions": {
+          "syncing": "Synchronizowanie…",
+          "import": "Importuj na to konto",
+          "boundElsewhere": "Powiązano z innym kontem",
+          "blocked": "Import zablokowany",
+          "sync": "Synchronizuj teraz"
+        }
+      },
+      "cloudSkills": {
+        "title": "Cloud Skills",
+        "loading": "Ładowanie umiejętności z chmury…",
+        "unavailable": "Usługa Cloud Skills jest niedostępna podczas przenoszenia, resetowania lub usuwania danych konta.",
+        "empty": "Nie zainstalowano jeszcze żadnych niestandardowych umiejętności z chmury.",
+        "saved": "Zapisano. Dokładna wersja w chmurze jest teraz aktualna.",
+        "saveError": "Umiejętność uległa zmianie lub konto jest niedostępne. Zostanie użyty ponownie wczytany stan chmury; po jego sprawdzeniu spróbuj ponownie.",
+        "versionStatus": "{description} Wersja: {version}. Status: {status}.",
+        "notPublished": "nie opublikowano",
+        "status": {
+          "disabled": "wyłączona",
+          "authorized": "autoryzowana",
+          "notAuthorized": "brak autoryzacji dla tej wersji"
+        },
+        "agentScope": "Zakres agenta:",
+        "agentType": {
+          "orchestrator": "Orkiestrator",
+          "general": "Ogólny"
+        },
+        "allowedTools": "Dozwolone nazwy narzędzi (opcjonalnie, rozdzielone przecinkami; to nigdy nie dodaje narzędzi)",
+        "invalidTools": "Nazwy narzędzi mogą zawierać tylko litery, cyfry, kropkę, podkreślenie, dwukropek lub łącznik (maksymalnie 64 znaki).",
+        "actions": {
+          "saving": "Zapisywanie…",
+          "revoke": "Unieważnij",
+          "authorize": "Autoryzuj wersję",
+          "disable": "Wyłącz",
+          "enable": "Włącz"
+        }
+      },
       "signOut": {
         "label": "Wyloguj się",
         "description": "Wyloguj się ze Stelli na tym urządzeniu.",
@@ -2357,6 +2405,75 @@
       "deleteConfirmTitle": "Usuń konto",
       "deleteConfirmBody": "To trwale usuwa twoje konto Stella oraz powiązane z nim dane w chmurze na naszych serwerach. Tej operacji nie można cofnąć.",
       "deleteFailedTitle": "Nie udało się usunąć konta"
+    },
+    "cloudHome": {
+      "settingsSection": "Cloud Home",
+      "settingsRowTitle": "Dokumenty pamięci",
+      "settingsRowBody": "Wyświetlaj i edytuj pamięć Stelli, której nadrzędna wersja znajduje się w chmurze.",
+      "openSettingsLabel": "Otwórz pamięć Cloud Home",
+      "title": "Pamięć Cloud Home",
+      "subtitle": "Nadrzędne dokumenty Stelli w chmurze",
+      "backToSettingsLabel": "Wróć do Ustawień",
+      "backToDocumentsLabel": "Wróć do dokumentów Cloud Home",
+      "editorMeta": "{kind} · wersja {revision}",
+      "listMeta": "{kind} · wersja {revision} · {size}",
+      "signInTitle": "Zaloguj się, aby używać Cloud Home",
+      "signInBody": "Dokumenty pamięci są prywatne i przypisane do Twojego konta Stella.",
+      "signIn": "Zaloguj się",
+      "signInAgain": "Zaloguj się ponownie",
+      "loading": "Wczytywanie Cloud Home…",
+      "unavailableTitle": "Cloud Home jest niedostępny",
+      "unavailableBody": "To wdrożenie nie udostępnia obecnie bezpiecznej usługi Cloud Home. Twoje pliki lokalne nie zostały zmienione.",
+      "errors": {
+        "unauthorized": "Zaloguj się ponownie, aby uzyskać dostęp do Cloud Home.",
+        "unavailable": "Cloud Home nie jest teraz dostępny dla tego konta.",
+        "invalid": "Cloud Home zwrócił nieprawidłową odpowiedź.",
+        "network": "Nie udało się połączyć z Cloud Home. Spróbuj ponownie.",
+        "missingFromList": "Tego dokumentu nie ma już w Cloud Home. Wczytaj listę ponownie.",
+        "removedWhileEditing": "Ten dokument został usunięty z Cloud Home."
+      },
+      "notices": {
+        "saved": "Zapisano w Cloud Home.",
+        "loadedLatest": "Wczytano najnowszą wersję z chmury."
+      },
+      "conflict": {
+        "title": "Wersja w chmurze uległa zmianie",
+        "changedBody": "Wersja {revision} zastąpiła edytowaną przez Ciebie wersję. Twój szkic nadal jest tutaj.",
+        "removedBody": "Ten dokument został usunięty podczas edycji. Twój szkic nadal jest tutaj.",
+        "reloadLabel": "Wczytaj ponownie wersję z chmury i zastąp ten szkic",
+        "reloading": "Ponowne wczytywanie…",
+        "reload": "Wczytaj ponownie wersję z chmury"
+      },
+      "editor": {
+        "editLabel": "Edytuj {name}",
+        "saving": "Zapisywanie…",
+        "save": "Zapisz",
+        "unsaved": "Niezapisane zmiany",
+        "upToDate": "Aktualne"
+      },
+      "list": {
+        "retryLabel": "Spróbuj ponownie wczytać pamięć Cloud Home",
+        "retry": "Spróbuj ponownie",
+        "loading": "Wczytywanie dokumentów…",
+        "emptyTitle": "Brak pamięci w chmurze",
+        "emptyBody": "Tutaj pojawią się dokumenty utworzone przez Stellę lub zaimportowane z aplikacji komputerowej.",
+        "openDocumentLabel": "Otwórz {name}"
+      },
+      "kinds": {
+        "memory": "pamięć",
+        "profile": "profil",
+        "memory_map": "mapa pamięci",
+        "core_memory": "pamięć główna",
+        "personality": "osobowość",
+        "imported_markdown": "zaimportowany Markdown",
+        "user_markdown": "Markdown użytkownika",
+        "archive": "archiwum"
+      },
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      }
     },
     "carPlayDiagnostics": {
       "title": "Diagnostyka CarPlay",

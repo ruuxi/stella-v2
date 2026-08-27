@@ -42,7 +42,7 @@
 
     "memory": {
       "title": "Memory",
-      "description": "Include saved memories and your profile in Stella's model context. Turning this off keeps memory files on your device but excludes them from future turns."
+      "description": "Include saved memories and your profile in Stella’s model context. The cloud copy is authoritative and encrypted in transit and at rest; Stella may also keep a local copy. Turning this off excludes memory from future turns but does not delete it."
     },
     "developerPreviews": {
       "title": "Developer file previews",
@@ -277,6 +277,54 @@
         "deleteDataFailed": "Could not delete your data. Please try again.",
         "deleteAccountFailed": "Could not delete your account. Please try again.",
         "signInBeforeDelete": "Sign in before deleting your account."
+      },
+      "cloudHome": {
+        "title": "Cloud Home",
+        "label": "Memory and skills",
+        "summary": {
+          "checking": "Checking local memory and skills…",
+          "current": "Cloud Home is current. Memory uploaded: {memoryCount}. Skill packages uploaded: {skillCount}.",
+          "attention": "Cloud Home kept existing cloud copies where local data differed. Review the details below.",
+          "unavailable": "Cloud Home sync is currently unavailable.",
+          "intro": "Stella securely imports local memory and applicable custom skills into your cloud account."
+        },
+        "authorizationNote": "Uploaded skills remain unavailable to agents until their exact version is explicitly authorized.",
+        "actions": {
+          "syncing": "Syncing…",
+          "import": "Import to this account",
+          "boundElsewhere": "Bound to another account",
+          "blocked": "Import blocked",
+          "sync": "Sync now"
+        }
+      },
+      "cloudSkills": {
+        "title": "Cloud Skills",
+        "loading": "Loading cloud skills…",
+        "unavailable": "Cloud Skills are unavailable while account data is moving, resetting, or deleting.",
+        "empty": "No custom cloud skills are installed yet.",
+        "saved": "Saved. The exact cloud version is now current.",
+        "saveError": "The skill changed or the account is unavailable. Reloaded cloud state will be used; retry after reviewing it.",
+        "versionStatus": "{description} Version: {version}. Status: {status}.",
+        "notPublished": "not published",
+        "status": {
+          "disabled": "disabled",
+          "authorized": "authorized",
+          "notAuthorized": "not authorized for this version"
+        },
+        "agentScope": "Agent scope:",
+        "agentType": {
+          "orchestrator": "Orchestrator",
+          "general": "General"
+        },
+        "allowedTools": "Allowed tool names (optional, comma separated; this never adds tools)",
+        "invalidTools": "Tool names must use only letters, numbers, dot, underscore, colon, or dash (64 maximum).",
+        "actions": {
+          "saving": "Saving…",
+          "revoke": "Revoke",
+          "authorize": "Authorize version",
+          "disable": "Disable",
+          "enable": "Enable"
+        }
       }
     },
     "audio": {
@@ -2304,6 +2352,75 @@
       "deleteConfirmTitle": "Delete account",
       "deleteConfirmBody": "This permanently deletes your Stella account and removes cloud data associated with it on our servers. This cannot be undone.",
       "deleteFailedTitle": "Could not delete account"
+    },
+    "cloudHome": {
+      "settingsSection": "Cloud Home",
+      "settingsRowTitle": "Memory documents",
+      "settingsRowBody": "Read and edit your cloud-canonical Stella memory.",
+      "openSettingsLabel": "Open Cloud Home memory",
+      "title": "Cloud Home memory",
+      "subtitle": "Your cloud-canonical Stella documents",
+      "backToSettingsLabel": "Back to Settings",
+      "backToDocumentsLabel": "Back to Cloud Home documents",
+      "editorMeta": "{kind} · revision {revision}",
+      "listMeta": "{kind} · revision {revision} · {size}",
+      "signInTitle": "Sign in to use Cloud Home",
+      "signInBody": "Memory documents are private to your Stella account.",
+      "signIn": "Sign in",
+      "signInAgain": "Sign in again",
+      "loading": "Loading Cloud Home…",
+      "unavailableTitle": "Cloud Home is unavailable",
+      "unavailableBody": "This deployment does not currently expose the secure Cloud Home service. Your local files have not been changed.",
+      "errors": {
+        "unauthorized": "Sign in again to access Cloud Home.",
+        "unavailable": "Cloud Home is not available for this account right now.",
+        "invalid": "Cloud Home returned an invalid response.",
+        "network": "Cloud Home could not be reached. Try again.",
+        "missingFromList": "That document is no longer in Cloud Home. Reload the list.",
+        "removedWhileEditing": "That document was removed from Cloud Home."
+      },
+      "notices": {
+        "saved": "Saved to Cloud Home.",
+        "loadedLatest": "Loaded the latest cloud version."
+      },
+      "conflict": {
+        "title": "Cloud version changed",
+        "changedBody": "Revision {revision} replaced the version you edited. Your draft is still here.",
+        "removedBody": "This document was removed while you were editing. Your draft is still here.",
+        "reloadLabel": "Reload cloud version and replace this draft",
+        "reloading": "Reloading…",
+        "reload": "Reload cloud version"
+      },
+      "editor": {
+        "editLabel": "Edit {name}",
+        "saving": "Saving…",
+        "save": "Save",
+        "unsaved": "Unsaved changes",
+        "upToDate": "Up to date"
+      },
+      "list": {
+        "retryLabel": "Retry loading Cloud Home memory",
+        "retry": "Retry",
+        "loading": "Loading documents…",
+        "emptyTitle": "No cloud memory yet",
+        "emptyBody": "Documents created by Stella or imported from desktop will appear here.",
+        "openDocumentLabel": "Open {name}"
+      },
+      "kinds": {
+        "memory": "memory",
+        "profile": "profile",
+        "memory_map": "memory map",
+        "core_memory": "core memory",
+        "personality": "personality",
+        "imported_markdown": "imported markdown",
+        "user_markdown": "user markdown",
+        "archive": "archive"
+      },
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      }
     },
     "carPlayDiagnostics": {
       "title": "CarPlay diagnostics",

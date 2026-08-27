@@ -42,7 +42,7 @@
 
     "memory": {
       "title": "Memoria",
-      "description": "Includi i ricordi salvati e il tuo profilo nel contesto del modello di Stella. Disattivandolo, i file di memoria restano sul tuo dispositivo ma vengono esclusi dai turni successivi."
+      "description": "Includi i ricordi salvati e il tuo profilo nel contesto del modello di Stella. La copia nel cloud è quella autorevole ed è crittografata sia in transito sia a riposo; Stella può conservare anche una copia locale. Disattivando questa opzione, la memoria viene esclusa dalle conversazioni future ma non eliminata."
     },
     "developerPreviews": {
       "title": "Anteprime file per sviluppatori",
@@ -239,6 +239,54 @@
     },
     "account": {
       "title": "Account",
+      "cloudHome": {
+        "title": "Cloud Home",
+        "label": "Memoria e skill",
+        "summary": {
+          "checking": "Verifica della memoria e delle skill locali…",
+          "current": "Cloud Home è aggiornato. Memoria caricata: {memoryCount}. Pacchetti di skill caricati: {skillCount}.",
+          "attention": "Cloud Home ha mantenuto le copie cloud esistenti nei casi in cui i dati locali erano diversi. Controlla i dettagli qui sotto.",
+          "unavailable": "La sincronizzazione di Cloud Home non è al momento disponibile.",
+          "intro": "Stella importa in modo sicuro la memoria locale e le skill personalizzate applicabili nel tuo account cloud."
+        },
+        "authorizationNote": "Le skill caricate restano non disponibili per gli agenti finché la loro versione esatta non viene autorizzata esplicitamente.",
+        "actions": {
+          "syncing": "Sincronizzazione…",
+          "import": "Importa in questo account",
+          "boundElsewhere": "Associato a un altro account",
+          "blocked": "Importazione bloccata",
+          "sync": "Sincronizza ora"
+        }
+      },
+      "cloudSkills": {
+        "title": "Cloud Skills",
+        "loading": "Caricamento di Cloud Skills…",
+        "unavailable": "Cloud Skills non è disponibile mentre i dati dell’account vengono spostati, reimpostati o eliminati.",
+        "empty": "Non è ancora installata alcuna skill cloud personalizzata.",
+        "saved": "Salvato. La versione cloud esatta è ora aggiornata.",
+        "saveError": "La skill è cambiata o l’account non è disponibile. Verrà usato lo stato cloud ricaricato; riprova dopo averlo controllato.",
+        "versionStatus": "{description} Versione: {version}. Stato: {status}.",
+        "notPublished": "non pubblicata",
+        "status": {
+          "disabled": "disattivata",
+          "authorized": "autorizzata",
+          "notAuthorized": "non autorizzata per questa versione"
+        },
+        "agentScope": "Ambito dell’agente:",
+        "agentType": {
+          "orchestrator": "Orchestratore",
+          "general": "Generale"
+        },
+        "allowedTools": "Nomi degli strumenti consentiti (facoltativo, separati da virgole; questo non aggiunge mai strumenti)",
+        "invalidTools": "I nomi degli strumenti possono contenere solo lettere, numeri, punti, trattini bassi, due punti o trattini (massimo 64 caratteri).",
+        "actions": {
+          "saving": "Salvataggio…",
+          "revoke": "Revoca",
+          "authorize": "Autorizza versione",
+          "disable": "Disattiva",
+          "enable": "Attiva"
+        }
+      },
       "signOut": {
         "label": "Esci",
         "description": "Esci da Stella su questo dispositivo.",
@@ -2331,6 +2379,75 @@
       "deleteConfirmTitle": "Elimina account",
       "deleteConfirmBody": "Questo elimina definitivamente il tuo account Stella e rimuove dai nostri server i dati nel cloud associati. Non può essere annullato.",
       "deleteFailedTitle": "Impossibile eliminare l'account"
+    },
+    "cloudHome": {
+      "settingsSection": "Cloud Home",
+      "settingsRowTitle": "Documenti della memoria",
+      "settingsRowBody": "Consulta e modifica la memoria canonica di Stella nel cloud.",
+      "openSettingsLabel": "Apri la memoria di Cloud Home",
+      "title": "Memoria di Cloud Home",
+      "subtitle": "I tuoi documenti canonici di Stella nel cloud",
+      "backToSettingsLabel": "Torna alle Impostazioni",
+      "backToDocumentsLabel": "Torna ai documenti di Cloud Home",
+      "editorMeta": "{kind} · revisione {revision}",
+      "listMeta": "{kind} · revisione {revision} · {size}",
+      "signInTitle": "Accedi per usare Cloud Home",
+      "signInBody": "I documenti della memoria sono privati e associati al tuo account Stella.",
+      "signIn": "Accedi",
+      "signInAgain": "Accedi di nuovo",
+      "loading": "Caricamento di Cloud Home…",
+      "unavailableTitle": "Cloud Home non è disponibile",
+      "unavailableBody": "Questa distribuzione non rende attualmente disponibile il servizio sicuro Cloud Home. I file locali non sono stati modificati.",
+      "errors": {
+        "unauthorized": "Accedi di nuovo per usare Cloud Home.",
+        "unavailable": "Cloud Home non è al momento disponibile per questo account.",
+        "invalid": "Cloud Home ha restituito una risposta non valida.",
+        "network": "Impossibile raggiungere Cloud Home. Riprova.",
+        "missingFromList": "Il documento non è più presente in Cloud Home. Ricarica l'elenco.",
+        "removedWhileEditing": "Il documento è stato rimosso da Cloud Home."
+      },
+      "notices": {
+        "saved": "Salvato in Cloud Home.",
+        "loadedLatest": "È stata caricata la versione più recente dal cloud."
+      },
+      "conflict": {
+        "title": "La versione nel cloud è cambiata",
+        "changedBody": "La revisione {revision} ha sostituito la versione che stavi modificando. La bozza è ancora qui.",
+        "removedBody": "Il documento è stato rimosso mentre lo modificavi. La bozza è ancora qui.",
+        "reloadLabel": "Ricarica la versione nel cloud e sostituisci questa bozza",
+        "reloading": "Ricaricamento…",
+        "reload": "Ricarica la versione nel cloud"
+      },
+      "editor": {
+        "editLabel": "Modifica {name}",
+        "saving": "Salvataggio…",
+        "save": "Salva",
+        "unsaved": "Modifiche non salvate",
+        "upToDate": "Aggiornato"
+      },
+      "list": {
+        "retryLabel": "Riprova a caricare la memoria di Cloud Home",
+        "retry": "Riprova",
+        "loading": "Caricamento dei documenti…",
+        "emptyTitle": "Ancora nessuna memoria nel cloud",
+        "emptyBody": "I documenti creati da Stella o importati dall'app desktop verranno visualizzati qui.",
+        "openDocumentLabel": "Apri {name}"
+      },
+      "kinds": {
+        "memory": "memoria",
+        "profile": "profilo",
+        "memory_map": "mappa della memoria",
+        "core_memory": "memoria principale",
+        "personality": "personalità",
+        "imported_markdown": "Markdown importato",
+        "user_markdown": "Markdown dell'utente",
+        "archive": "archivio"
+      },
+      "sizes": {
+        "bytes": "{count} B",
+        "kilobytes": "{count} KB",
+        "megabytes": "{count} MB"
+      }
     },
     "carPlayDiagnostics": {
       "title": "Diagnostica CarPlay",

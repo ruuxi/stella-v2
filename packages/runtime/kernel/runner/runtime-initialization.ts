@@ -1,6 +1,14 @@
 import { mkdirSync, watch as fsWatch, type FSWatcher } from "node:fs";
 import path from "node:path";
-import { Effect, Fiber, Layer, ManagedRuntime, Scope } from "effect";
+import {
+  Cause,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  ManagedRuntime,
+  Scope,
+} from "effect";
 import {
   loadBundledAgents,
   mergeBundledAndExtensionAgents,
@@ -42,6 +50,70 @@ type ExtensionReloadResult = {
   status: "reloaded" | "busy" | "not-initialized" | "load-failed";
   reason?: string;
 };
+
+type LoadedExtensions = Awaited<ReturnType<typeof loadExtensions>>;
+
+/**
+ * Narrow dependency seam for the runner's startup transaction. Production
+ * uses the concrete extension/model runtimes and filesystem watchers below;
+ * deterministic lifecycle tests replace only the operations that need a
+ * settlement barrier.
+ */
+export type RuntimeInitializationLifecycleOverrides = {
+  loadExtensions?: (args: {
+    signal: AbortSignal;
+    extensionsPath: string;
+    services: ExtensionServices;
+  }) => Promise<LoadedExtensions>;
+  initializeModels?: (args: {
+    signal: AbortSignal;
+    stellaDataDir: string;
+  }) => Promise<void>;
+  refreshModels?: (args: {
+    signal: AbortSignal;
+    stellaDataDir: string;
+  }) => Promise<void>;
+  installLoadedExtensions?: (extensions: LoadedExtensions) => void;
+  startWatchers?: () => void;
+  stopWatchers?: () => void;
+};
+
+/**
+ * Interruptible Promise seam whose finalizer joins the actual Promise.
+ *
+ * `Effect.tryPromise` supplies the lifecycle AbortSignal. Its interruption is
+ * intentionally not enough on its own: an extension factory can ignore the
+ * signal, and closing SQLite while that promise still holds extension services
+ * would recreate the startup-after-shutdown race. The ensuring finalizer keeps
+ * scope close parked until the underlying promise really settles.
+ */
+const interruptAndJoinPromise = <A>(
+  operation: (signal: AbortSignal) => Promise<A>,
+): Effect.Effect<A, unknown> =>
+  Effect.suspend(() => {
+    let settlement: Promise<A> | null = null;
+    return Effect.tryPromise({
+      try: (signal) => {
+        signal.throwIfAborted();
+        settlement = operation(signal);
+        return settlement;
+      },
+      catch: (error) => error,
+    }).pipe(
+      Effect.ensuring(
+        Effect.suspend(() =>
+          settlement
+            ? Effect.promise(() =>
+                settlement!.then(
+                  () => undefined,
+                  () => undefined,
+                ),
+              )
+            : Effect.void,
+        ),
+      ),
+    );
+  });
 
 export type ExtensionWatchScope = "resource-tree" | "data-dir";
 
@@ -163,15 +235,19 @@ export const createRuntimeInitialization = (
   deps: {
     disposeConvexClient: () => void;
     shutdownTasks: () => void | Promise<void>;
+    lifecycle?: RuntimeInitializationLifecycleOverrides;
   },
 ) => {
+  const lifecycle = deps.lifecycle;
+  let initializationScope: Scope.Closeable | null = null;
+  let initializationGeneration = 0;
+  let runtimeStopPromise: Promise<void> | null = null;
+
   /**
    * Keep extension registry swaps synchronous so the orchestrator queue never
    * observes a partially installed extension set.
    */
-  const installLoadedExtensions = (
-    extensions: Awaited<ReturnType<typeof loadExtensions>>,
-  ): void => {
+  const installLoadedExtensions = (extensions: LoadedExtensions): void => {
     context.state.loadedAgents = mergeBundledAndExtensionAgents(
       extensions.agents,
     );
@@ -221,60 +297,135 @@ export const createRuntimeInitialization = (
     runtime: extensionRuntimeApi,
   });
 
-  /**
-   * Load extensions from disk and register hooks/tools/providers/agents.
-   * Used by initial startup. The F1 reload path uses
-   * `loadExtensions` + `installLoadedExtensions` directly so it can
-   * sandwich the sweep+install inside one synchronous block.
-   */
-  const loadAndRegisterExtensions = async (): Promise<void> => {
-    try {
-      const extensions = await loadExtensions(
-        context.paths.extensionsPath,
-        buildExtensionServices(),
-      );
-      installLoadedExtensions(extensions);
-    } catch (error) {
-      context.state.loadedAgents = loadBundledAgents();
-      console.error(
-        "[stella:extensions] Failed to load extensions:",
-        (error as Error).message,
-      );
-    }
-  };
-
   const initializeRuntime = () => {
+    if (context.state.initializationPromise) {
+      return context.state.initializationPromise;
+    }
+    const generation = ++initializationGeneration;
+    const scope = Scope.makeUnsafe();
+    initializationScope = scope;
+    const isCurrentGeneration = (): boolean =>
+      context.state.isRunning &&
+      initializationGeneration === generation &&
+      initializationScope === scope;
+
     // Stella's lifecycle hooks (memory, scheduling, and others) live in the
     // home-loaded stella-runtime extension and register through the same path
     // as any other user extension. The engine has no bundled extension tier.
-    const extensionsLoad = loadAndRegisterExtensions();
-    const modelsLoad = modelRuntime.initialize({
-      stellaDataDir: context.stellaDataDir,
-      allowNetwork: false,
-    });
-    void modelsLoad
-      .then(() => modelRuntime.refresh({ allowNetwork: true }))
-      .then(() => {
-        logger.info("model-runtime.catalog.ready", {
-          modelCount: modelRuntime.getAllModels().length,
-        });
-      })
-      .catch((error) => {
-        logger.warn("model-runtime.catalog.load-failed", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
+    const extensionsLoad = interruptAndJoinPromise((signal) =>
+      lifecycle?.loadExtensions
+        ? lifecycle.loadExtensions({
+            signal,
+            extensionsPath: context.paths.extensionsPath,
+            services: buildExtensionServices(),
+          })
+        : loadExtensions(
+            context.paths.extensionsPath,
+            buildExtensionServices(),
+          ),
+    ).pipe(
+      Effect.matchEffect({
+        onFailure: (error) =>
+          Effect.sync(() => {
+            if (!isCurrentGeneration()) return;
+            context.state.loadedAgents = loadBundledAgents();
+            console.error(
+              "[stella:extensions] Failed to load extensions:",
+              error instanceof Error ? error.message : String(error),
+            );
+          }),
+        onSuccess: (extensions) =>
+          Effect.sync(() => {
+            if (!isCurrentGeneration()) return;
+            (lifecycle?.installLoadedExtensions ?? installLoadedExtensions)(
+              extensions,
+            );
+          }),
+      }),
+    );
+    const modelsLoad = interruptAndJoinPromise((signal) =>
+      lifecycle?.initializeModels
+        ? lifecycle.initializeModels({
+            signal,
+            stellaDataDir: context.stellaDataDir,
+          })
+        : modelRuntime.initialize({
+            stellaDataDir: context.stellaDataDir,
+            allowNetwork: false,
+          }),
+    );
 
-    context.state.initializationPromise = Promise.all([
-      extensionsLoad,
-      modelsLoad,
-    ]).then(() => {
-      context.state.isInitialized = true;
-    });
+    const startup = Effect.all([extensionsLoad, modelsLoad], {
+      concurrency: "unbounded",
+    }).pipe(
+      Effect.flatMap(() =>
+        Effect.sync(() => {
+          if (!isCurrentGeneration()) return false;
+          context.state.isInitialized = true;
+          if (lifecycle?.startWatchers) {
+            lifecycle.startWatchers();
+          } else {
+            startExtensionWatcher();
+            startModelConfigWatcher();
+          }
+          return true;
+        }),
+      ),
+      Effect.flatMap((initialized) => {
+        if (!initialized) return Effect.void;
+        const refresh = interruptAndJoinPromise((signal) =>
+          lifecycle?.refreshModels
+            ? lifecycle.refreshModels({
+                signal,
+                stellaDataDir: context.stellaDataDir,
+              })
+            : modelRuntime.refresh({ allowNetwork: true, signal }),
+        ).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              if (!isCurrentGeneration()) return;
+              logger.info("model-runtime.catalog.ready", {
+                modelCount: modelRuntime.getAllModels().length,
+              });
+            }),
+          ),
+          Effect.catch((error) =>
+            Effect.sync(() => {
+              if (!isCurrentGeneration()) return;
+              logger.warn("model-runtime.catalog.load-failed", {
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }),
+          ),
+        );
+        return Effect.asVoid(
+          Effect.forkIn(refresh, scope, { startImmediately: true }),
+        );
+      }),
+    );
+    const fiber = initRuntime.runSync(
+      Effect.forkIn(startup, scope, { startImmediately: true }),
+    );
+    const completion = initRuntime
+      .runPromise(Fiber.await(fiber))
+      .then((exit) => {
+        if (Exit.isSuccess(exit)) return;
+        if (Cause.hasInterrupts(exit.cause) && !isCurrentGeneration()) return;
+        throw Cause.squash(exit.cause);
+      });
+    context.state.initializationPromise = completion;
     // Wake boot-window waiters parked on the readiness latch.
     context.state.initializationStarted.open();
+    // `start()` is intentionally void. Attach a rejection observer without
+    // replacing the shared promise that readiness callers await.
+    void completion.catch((error) => {
+      if (!isCurrentGeneration()) return;
+      logger.warn("runtime-initialization.failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
 
-    return context.state.initializationPromise;
+    return completion;
   };
 
   /**
@@ -521,18 +672,33 @@ export const createRuntimeInitialization = (
       }
     }
     resourceWatchers = [];
+    lifecycle?.stopWatchers?.();
   };
 
   const start = () => {
-    if (context.state.isRunning) return;
+    if (context.state.isRunning || runtimeStopPromise) return;
     context.state.isRunning = true;
     context.state.isInitialized = false;
-    void initializeRuntime().finally(() => {
-      // Start the extensions watcher only after initial load completes,
-      // so we don't race with the first registration.
-      startExtensionWatcher();
-      startModelConfigWatcher();
-    });
+    void initializeRuntime();
+  };
+
+  /**
+   * Interrupt and join the complete startup scope before any dependency that
+   * extension factories or model initialization can observe is disposed.
+   * Closing the scope also aborts/joins the post-ready catalog refresh.
+   */
+  const stopInitialization = async (): Promise<void> => {
+    initializationGeneration += 1;
+    const scope = initializationScope;
+    initializationScope = null;
+    const completion = context.state.initializationPromise;
+    context.state.initializationPromise = null;
+    if (scope) {
+      await initRuntime.runPromise(
+        Scope.close(scope, Exit.failCause(Cause.interrupt())),
+      );
+    }
+    await completion?.catch(() => undefined);
   };
 
   /**
@@ -584,7 +750,7 @@ export const createRuntimeInitialization = (
    */
   const SUPERVISOR_JOIN_TIMEOUT_MS = 15_000;
 
-  const stop = async (): Promise<void> => {
+  const stopRuntime = async (): Promise<void> => {
     logger.warn("runner.stop", {
       activeOrchestratorRunId: context.state.activeOrchestratorRunId,
       activeSupervisedRuns: context.state.supervisor.activeRunCount(),
@@ -594,10 +760,13 @@ export const createRuntimeInitialization = (
     stopExtensionWatcher();
     context.state.isRunning = false;
     context.state.isInitialized = false;
-    context.state.initializationPromise = null;
     // Re-arm the boot latch so a restarted runner's waiters park again
     // instead of observing the previous generation as already open.
     context.state.initializationStarted.reset();
+    // This join is deliberately before Convex, task, tool-host, and ultimately
+    // session-storage teardown. Even a user extension factory that ignores its
+    // abort signal must settle before its captured services can be closed.
+    await stopInitialization();
     deps.disposeConvexClient();
     // The cloud journal writer holds a retry timer and an in-memory queue.
     // Stopping it before the Convex client is gone would be pointless (it
@@ -689,6 +858,12 @@ export const createRuntimeInitialization = (
       10_000,
       () => logger.warn("runner.stop.compaction-shutdown-timeout", {}),
     );
+  };
+
+  const stop = (): Promise<void> => {
+    if (runtimeStopPromise) return runtimeStopPromise;
+    runtimeStopPromise = stopRuntime();
+    return runtimeStopPromise;
   };
 
   return {

@@ -883,7 +883,7 @@ ${MCP_GENERATED_SKILL_MARKER}
 
 # ${command.displayName}
 
-Imported MCP connector. Use the frozen \`connect\` client inside \`node_repl\`:
+Imported MCP connector. Use the frozen \`connect\` client inside \`code\`:
 
 \`\`\`js
 await connect.actions("${command.id}", { query: "<keywords>" }); // find actions (capped list)

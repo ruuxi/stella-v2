@@ -309,7 +309,7 @@ describe("OrchestratorSession", () => {
           _afterToolCall?: (context: unknown) => Promise<unknown>;
         }
       )._afterToolCall?.({
-        toolCall: { name: "node_repl" },
+        toolCall: { name: "code" },
         result: {
           content: [
             { type: "text", text: "Browser screenshot attached." },
@@ -376,8 +376,9 @@ describe("OrchestratorSession", () => {
       "World's best Personal AI Assistant",
     );
     expect(beforeReload?.toolsAllowlist).not.toContain("exec_command");
-    expect(afterReload?.toolsAllowlist).toContain("exec_command");
-    expect(afterReload?.toolsAllowlist).toContain("node_repl");
+    expect(afterReload?.toolsAllowlist).not.toContain("exec_command");
+    expect(afterReload?.toolsAllowlist).toContain("code");
+    expect(afterReload?.toolsAllowlist).not.toContain("node_repl");
 
     const toolMetadata = (name: string) => ({
       name,
@@ -420,8 +421,9 @@ describe("OrchestratorSession", () => {
 
     expect(advertisedTools[0]).toEqual(originalTools);
     expect(advertisedTools[1]).toEqual(updatedTools);
-    expect(advertisedTools[1]).toContain("exec_command");
-    expect(advertisedTools[1]).toContain("node_repl");
+    expect(advertisedTools[1]).not.toContain("exec_command");
+    expect(advertisedTools[1]).toContain("code");
+    expect(advertisedTools[1]).not.toContain("node_repl");
     await rm(tempRoot, { recursive: true, force: true });
   });
 

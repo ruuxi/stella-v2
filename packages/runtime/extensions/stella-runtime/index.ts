@@ -30,7 +30,7 @@ export const loadStellaRuntimeAgents = (
  * Bundles every Stella-specific runtime behavior that used to live as
  * hardcoded calls inside the kernel:
  *
- *   - Agent registration from backend-synchronized home markdown
+ *   - Agent registration from bundled runtime metadata and prompt bodies
  *   - Stale-user reminder
  *   - Orchestrator reminder (active-threads roster)
  *   - Thread-summaries record (post-subagent finalize, capability-gated)
@@ -42,9 +42,9 @@ export const loadStellaRuntimeAgents = (
  * store) supplied by the runtime at registration time.
  */
 const stellaRuntimeExtension: ExtensionFactory = (pi, services) => {
-  // Prompt bodies remain live and user-editable under `~/.stella/agents/`.
-  // Shipped capability metadata comes from this runtime extension so a body
-  // customization cannot freeze an older tool allowlist across updates.
+  // Shipped capability metadata and prompt bodies come from this runtime
+  // extension. Backend/cloud defaults are derived from these bundled sources;
+  // the local home directory is not a second source of prompt ownership.
   for (const agent of loadStellaRuntimeAgents(services.stellaDataDir)) {
     pi.registerAgent(agent);
   }

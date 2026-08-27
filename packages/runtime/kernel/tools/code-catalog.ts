@@ -1,10 +1,10 @@
 /**
  * Demoted-tool catalog helpers.
  *
- * Demoted tools leave the model's direct tool list whenever `node_repl` is
- * available and become callable only as `tools.<name>(args)` inside the REPL.
+ * Demoted tools leave the model's direct tool list whenever `code` is
+ * available and become callable only as `tools.<name>(args)` inside code.
  * This module renders the compact TypeScript-style signature catalog that is
- * appended to node_repl's description each turn, and implements the
+ * appended to code's description each turn, and implements the
  * deterministic scorer behind the in-REPL `tools.$search({ query })` lookup.
  *
  * Everything here is pure and never throws: a malformed schema degrades to
@@ -210,7 +210,7 @@ const renderToolBlock = (tool: DemotedToolCatalogEntry): CatalogBlock => {
 };
 
 /**
- * Token-budgeted catalog section for node_repl's description.
+ * Token-budgeted catalog section for code's description.
  *
  * Tools are grouped by namespace (`demoted.requiredConnectorProvider`,
  * falling back to the `<prefix>` of `<prefix>_rest` names). Within each
@@ -298,7 +298,7 @@ export const buildCatalogSection = (
     const total = valid.length;
     const header =
       shownCount === total
-        ? `## Demoted tools (COMPLETE — all ${total} shown; call via tools.<name> inside node_repl)`
+        ? `## Demoted tools (COMPLETE — all ${total} shown; call via tools.<name> inside code)`
         : `## Demoted tools (PARTIAL — ${shownCount} of ${total} shown; find the rest with await tools.$search({ query }))`;
 
     const lines: string[] = [header];

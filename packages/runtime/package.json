@@ -3,6 +3,12 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "test:bun": "bun scripts/run-bun-tests.mjs",
+    "test:vitest": "node ../../node_modules/vitest/vitest.mjs run --environment node --testTimeout 30000 tests",
+    "test:harness": "node --test scripts/*.test.mjs",
+    "test": "bun run test:bun && bun run test:vitest && bun run test:harness"
+  },
   "exports": {
     ".": "./index.ts",
     "./ai/model-runtime": "./ai/model-runtime.ts",
@@ -52,6 +58,8 @@
     "./kernel/agent-runtime/types.js": "./kernel/agent-runtime/types.ts",
     "./kernel/agents/local-agent-manager": "./kernel/agents/local-agent-manager.js",
     "./kernel/agents/local-agent-manager.js": "./kernel/agents/local-agent-manager.js",
+    "./kernel/home/home-service": null,
+    "./kernel/home/home-service.js": null,
     "./kernel/integrations/claude-code-session-runtime": "./kernel/integrations/claude-code-session-runtime.js",
     "./kernel/integrations/claude-code-session-runtime.js": "./kernel/integrations/claude-code-session-runtime.js",
     "./kernel/integrations/codex-agent-runtime": "./kernel/integrations/codex-agent-runtime.ts",

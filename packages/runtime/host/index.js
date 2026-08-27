@@ -11,11 +11,13 @@ import { isRestartContinuationEnabled, recordRestartShutdown, } from "../kernel/
 import { LocalSchedulerService } from "../kernel/local-scheduler-service.js";
 import { createScheduleScriptAuthEnv } from "../kernel/shared/schedule-scripts.js";
 import { createRemoteTurnBridge } from "../kernel/remote-turn-bridge.js";
+import { remoteTurnWorkerRunId } from "../kernel/remote-turn-attempt.js";
 import { getConvexErrorCode, isConvexUnauthenticatedError, shouldStopRemoteTurnForAuthFailure, } from "../kernel/runner/remote-turn-auth.js";
 import { createEmptySocialSessionServiceSnapshot } from "@stella/contracts";
 import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
 import { connectorLocalFollowupDeliveryId, resolveConnectorFollowupAction, resolveConnectorTerminalFollowup, } from "./connector-followup.js";
 import { ConnectorFollowupOutbox } from "./connector-followup-outbox.js";
+import { createExecutionPlacementBridge, placementLocalAgentThreadId, placementLocalChatRunId, } from "./execution-placement-bridge.js";
 import { getDesktopDatabasePath, initializeDesktopDatabase, } from "../kernel/storage/database-init.js";
 import { METHOD_NAMES, NOTIFICATION_NAMES, STELLA_RUNTIME_PROTOCOL_VERSION, } from "@stella/contracts/protocol";
 import { createRuntimeUnavailableError, } from "@stella/contracts/protocol/rpc-peer";
@@ -23,6 +25,7 @@ import { RuntimeWorkerLifecycleController, } from "./worker-lifecycle.js";
 import { buildUdsConnectionFactory, killDetachedWorker, retireDetachedWorkerRoot, } from "./uds-connection.js";
 import { buildStdioConnectionFactory } from "./stdio-connection.js";
 import { resolveRuntimePaths } from "../worker/runtime-paths.js";
+import { probeRunningWorker } from "../worker/lifecycle-server.js";
 import { Cause, Effect, Exit, Fiber } from "effect";
 import { forkDelayed, hostRuntime, } from "./effect-runtime.js";
 import { clearPendingWorkerRestartFlag, evaluateWorkerStaleness, persistPendingWorkerRestartFlag, quiescencePollEffect, } from "./staleness.js";
@@ -52,6 +55,9 @@ const loadSqliteDatabaseCtorSync = () => {
 };
 const AGENT_EVENT_BUFFER_LIMIT = 1_000;
 const AGENT_EVENT_BUFFER_TTL_MS = 10 * 60 * 1_000;
+const REMOTE_TURN_CANCEL_RETRY_COUNT = 4;
+const REMOTE_TURN_CANCEL_RETRY_DELAY_MS = 25;
+const REMOTE_TURN_CANCEL_ACK_TIMEOUT_MS = 500;
 export { retireDetachedWorkerRoot };
 const SYNTHETIC_RUN_EVENT_SEQ_FLOOR = 1e10;
 const parseDisplayUpdateParams = (params) => {
@@ -147,6 +153,8 @@ export class StellaRuntimeHost {
     hostConvexClientUrl = null;
     hostConvexClientAuthToken = null;
     hostRemoteTurnBridge = null;
+    hostExecutionPlacementBridge = null;
+    hostExecutionPlacementSyncQueue = Promise.resolve();
     hostRemoteTurnAuthWindowStartedAt = 0;
     hostRemoteTurnUnauthenticatedFailures = 0;
     hostRemoteTurnAuthRecoveryPromise = null;
@@ -174,11 +182,15 @@ export class StellaRuntimeHost {
     connectorFollowupOutbox = null;
     connectorFollowupDatabase = null;
     /**
-     * Tracks requestIds we've already actioned a cancel for, so reconnects
+     * Tracks exact requestId:attemptId pairs with positive cancel/join evidence,
+     * so reconnects
      * to `subscribeRemoteTurnCancelsForDevice` (which keeps returning
      * cancelled rows for the lookback window) don't fire repeat aborts.
      */
     cancelledRequestIds = new Set();
+    remoteTurnAttemptsByRequestId = new Map();
+    pendingRemoteTurnCancelsByRequestId = new Map();
+    remoteTurnWorkerRetirementPromise = null;
     hostRemoteTurnCancelUnsubscribe = null;
     constructor(options) {
         this.options = options;
@@ -706,12 +718,193 @@ export class StellaRuntimeHost {
             delete this.deviceIdentity.supersededDeviceId;
         }
     }
+    isCurrentRemoteTurnAttempt(binding) {
+        return this.remoteTurnAttemptsByRequestId.get(binding.requestId) === binding;
+    }
+    publishRemoteTurnConnectorTarget(binding) {
+        if (!this.isCurrentRemoteTurnAttempt(binding) ||
+            binding.cancelRequested ||
+            binding.signal.aborted) {
+            return false;
+        }
+        const connectorTarget = this.connectorFollowupOutbox?.armTarget({
+            conversationId: binding.localConversationId,
+            requestId: binding.requestId,
+            backendConversationId: binding.conversationId,
+        });
+        if (binding.previousConnectorTarget &&
+            binding.previousConnectorTarget.requestId !== binding.requestId) {
+            this.localConversationByRequestId.delete(binding.previousConnectorTarget.requestId);
+        }
+        this.connectorTargetsByLocalConversation.set(binding.localConversationId, {
+            ...(connectorTarget ?? {
+                requestId: binding.requestId,
+                backendConversationId: binding.conversationId,
+                initialTurnCompleted: false,
+            }),
+            attemptId: binding.attemptId,
+        });
+        this.localConversationByRequestId.set(binding.requestId, binding.localConversationId);
+        binding.published = true;
+        return true;
+    }
+    rollbackRemoteTurnConnectorTarget(binding) {
+        if (!binding.published) {
+            return;
+        }
+        const current = this.connectorTargetsByLocalConversation.get(binding.localConversationId);
+        if (current?.requestId !== binding.requestId ||
+            current?.attemptId !== binding.attemptId) {
+            binding.published = false;
+            return;
+        }
+        this.localConversationByRequestId.delete(binding.requestId);
+        const previous = binding.previousConnectorTarget;
+        if (previous) {
+            const restored = this.connectorFollowupOutbox?.armTarget({
+                conversationId: binding.localConversationId,
+                requestId: previous.requestId,
+                backendConversationId: previous.backendConversationId,
+            });
+            this.connectorTargetsByLocalConversation.set(binding.localConversationId, {
+                ...(restored ?? previous),
+                ...(previous.attemptId ? { attemptId: previous.attemptId } : {}),
+            });
+            this.localConversationByRequestId.set(previous.requestId, binding.localConversationId);
+        }
+        else {
+            this.connectorTargetsByLocalConversation.delete(binding.localConversationId);
+            this.connectorFollowupOutbox?.clearTarget(binding.localConversationId);
+        }
+        binding.published = false;
+    }
+    admitRemoteTurnAttempt(params) {
+        const requestId = typeof params?.requestId === "string" ? params.requestId.trim() : "";
+        const attemptId = typeof params?.attemptId === "string" ? params.attemptId.trim() : "";
+        const conversationId = typeof params?.conversationId === "string"
+            ? params.conversationId.trim()
+            : "";
+        const runId = typeof params?.runId === "string" ? params.runId.trim() : "";
+        const binding = requestId
+            ? this.remoteTurnAttemptsByRequestId.get(requestId)
+            : null;
+        const exact = Boolean(binding &&
+            binding.attemptId === attemptId &&
+            binding.localConversationId === conversationId &&
+            binding.runId === runId &&
+            runId === remoteTurnWorkerRunId(attemptId));
+        if (!exact ||
+            !this.started ||
+            !this.hostReady ||
+            binding.cancelRequested ||
+            binding.signal.aborted) {
+            if (exact) {
+                binding.admissionDenied = true;
+            }
+            return { accepted: false, attemptId, runId };
+        }
+        if (!this.publishRemoteTurnConnectorTarget(binding)) {
+            binding.admissionDenied = true;
+            return { accepted: false, attemptId, runId };
+        }
+        binding.admitted = true;
+        return { accepted: true, attemptId, runId };
+    }
+    async retireRemoteTurnWorker(binding, reason) {
+        if (binding.workerRetired) {
+            return true;
+        }
+        if (!this.remoteTurnWorkerRetirementPromise) {
+            this.remoteTurnWorkerRetirementPromise = (async () => {
+                console.warn(`[remote-turn] Retiring ambiguous worker for attempt ${binding.attemptId}: ${reason}`);
+                await this.workerController.stop("restart");
+                if (this.workerMode === "detached") {
+                    const stellaAppDir = this.options.initializeParams.stellaAppDir;
+                    await killDetachedWorker(stellaAppDir);
+                    const remainingPid = await probeRunningWorker(stellaAppDir);
+                    if (remainingPid != null) {
+                        throw new Error(`Runtime worker ${remainingPid} survived remote-turn retirement.`);
+                    }
+                }
+                if (this.started) {
+                    await this.workerController.ensureStarted();
+                }
+            })().finally(() => {
+                this.remoteTurnWorkerRetirementPromise = null;
+            });
+        }
+        try {
+            await this.remoteTurnWorkerRetirementPromise;
+            binding.workerRetired = true;
+            this.markRemoteTurnCancellationJoined(binding);
+            return true;
+        }
+        catch (error) {
+            console.warn(`[remote-turn] Failed to retire ambiguous worker for attempt ${binding.attemptId}:`, error instanceof Error ? error.message : String(error));
+            return false;
+        }
+    }
+    markRemoteTurnCancellationJoined(binding) {
+        binding.cancelJoined = true;
+        binding.resolveCancelJoined?.();
+        binding.resolveCancelJoined = null;
+    }
+    requestRemoteTurnCancellation(binding) {
+        binding.cancelRequested = true;
+        if (binding.cancelJoined || binding.workerSettled) {
+            this.markRemoteTurnCancellationJoined(binding);
+            return Promise.resolve(true);
+        }
+        if (binding.cancelJoinPromise) {
+            return binding.cancelJoinPromise;
+        }
+        binding.cancelJoinPromise = (async () => {
+            for (let attempt = 0; attempt < REMOTE_TURN_CANCEL_RETRY_COUNT; attempt += 1) {
+                if (binding.workerSettled) {
+                    this.markRemoteTurnCancellationJoined(binding);
+                    return true;
+                }
+                if (!binding.workerRequestSent) {
+                    await hostRuntime.runPromise(Effect.sleep(REMOTE_TURN_CANCEL_RETRY_DELAY_MS));
+                    continue;
+                }
+                if (binding.transportAmbiguous) {
+                    return await this.retireRemoteTurnWorker(binding, "worker transport became ambiguous");
+                }
+                const cancellationRequest = this.cancelChat(binding.runId)
+                    .then((receipt) => ({ receipt }))
+                    .catch((error) => ({ error }));
+                const response = await Promise.race([
+                    cancellationRequest,
+                    hostRuntime.runPromise(Effect.sleep(REMOTE_TURN_CANCEL_ACK_TIMEOUT_MS)).then(() => null),
+                ]);
+                if (response?.receipt?.cancelled === true) {
+                    this.markRemoteTurnCancellationJoined(binding);
+                    return true;
+                }
+                if (response === null || response?.error) {
+                    binding.transportAmbiguous = true;
+                    return await this.retireRemoteTurnWorker(binding, "exact cancellation ACK was ambiguous");
+                }
+                await hostRuntime.runPromise(Effect.sleep(REMOTE_TURN_CANCEL_RETRY_DELAY_MS));
+            }
+            if (!binding.workerRequestSent || binding.workerSettled) {
+                this.markRemoteTurnCancellationJoined(binding);
+                return true;
+            }
+            return await this.retireRemoteTurnWorker(binding, "exact cancellation was not registered in time");
+        })().finally(() => {
+            binding.cancelJoinPromise = null;
+        });
+        return binding.cancelJoinPromise;
+    }
     ensureHostRemoteTurnBridge() {
         if (this.hostRemoteTurnBridge || !this.deviceIdentity?.deviceId) {
             return;
         }
+        const remoteTurnDeviceId = this.deviceIdentity.deviceId;
         this.hostRemoteTurnBridge = createRemoteTurnBridge({
-            deviceId: this.deviceIdentity.deviceId,
+            deviceId: remoteTurnDeviceId,
             isEnabled: () => this.started && this.hostReady,
             isRunnerBusy: () => false,
             subscribeRemoteTurnRequests: ({ deviceId: targetDeviceId, since, onUpdate, onError, }) => {
@@ -741,86 +934,243 @@ export class StellaRuntimeHost {
                     subscription.unsubscribe();
                 };
             },
-            runLocalTurn: async ({ requestId, conversationId, userPrompt, agentType, modelOverride, provider, externalMessageId, attachments, }) => {
+            runLocalTurn: async ({ requestId, attemptId, conversationId, userPrompt, agentType, modelOverride, provider, externalMessageId, attachments, signal, confirmDispatchLease, }) => {
                 const localConversationId = this.configCache.cloudSyncEnabled
                     ? conversationId || (await this.getOrCreateDefaultConversationId())
                     : await this.getActiveLocalConversationId();
-                // Arm follow-up routing before the orchestrator turn runs so any
-                // assistant message the worker persists during this run already
-                // routes back to the connector. The map entry is cleared by the
-                // local-chat listener as soon as the user sends a non-connector
-                // message in this conversation.
-                const previousConnectorTarget = this.resolveConnectorFollowupTarget(localConversationId);
-                const connectorTarget = this.connectorFollowupOutbox?.armTarget({
-                    conversationId: localConversationId,
-                    requestId,
-                    backendConversationId: conversationId,
-                });
-                if (previousConnectorTarget &&
-                    previousConnectorTarget.requestId !== requestId) {
-                    this.localConversationByRequestId.delete(previousConnectorTarget.requestId);
+                const existingBinding = this.remoteTurnAttemptsByRequestId.get(requestId);
+                if (existingBinding && existingBinding.attemptId !== attemptId) {
+                    throw new Error(`Remote-turn request ${requestId} already has another active attempt.`);
                 }
-                this.connectorTargetsByLocalConversation.set(localConversationId, connectorTarget ?? {
-                    requestId,
-                    backendConversationId: conversationId,
-                    initialTurnCompleted: false,
+                let resolveCancelJoined;
+                const cancelJoinedPromise = new Promise((resolve) => {
+                    resolveCancelJoined = resolve;
                 });
-                this.localConversationByRequestId.set(requestId, localConversationId);
+                const binding = {
+                    requestId,
+                    attemptId,
+                    conversationId,
+                    localConversationId,
+                    runId: remoteTurnWorkerRunId(attemptId),
+                    signal,
+                    previousConnectorTarget: this.resolveConnectorFollowupTarget(localConversationId),
+                    published: false,
+                    admitted: false,
+                    admissionDenied: false,
+                    cancelRequested: this.pendingRemoteTurnCancelsByRequestId.get(requestId) === attemptId,
+                    cancelJoined: false,
+                    cancelJoinedPromise,
+                    resolveCancelJoined,
+                    cancelJoinPromise: null,
+                    workerRequestSent: false,
+                    workerSettled: false,
+                    workerRetired: false,
+                    transportAmbiguous: false,
+                };
+                this.remoteTurnAttemptsByRequestId.set(requestId, binding);
+                const cancelAndJoinRun = () => this.requestRemoteTurnCancellation(binding);
+                const handleAttemptAbort = () => {
+                    void cancelAndJoinRun();
+                };
+                signal.addEventListener("abort", handleAttemptAbort);
+                if (binding.cancelRequested || signal.aborted) {
+                    void cancelAndJoinRun();
+                }
                 // Stable event id shared with the worker turn so the runtime
                 // can exclude this display event from the legacy history shim
                 // (the same text reaches the model via the turn's prompt).
                 const connectorUserMessageId = `connector:${requestId}`;
-                await this.appendLocalChatEvent({
-                    conversationId: localConversationId,
-                    type: "user_message",
-                    eventId: connectorUserMessageId,
-                    payload: {
-                        text: userPrompt,
-                        source: "connector",
-                        ...(provider ? { provider } : {}),
-                        ...(attachments?.length ? { attachments } : {}),
-                    },
-                });
-                const result = await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_RUN_AUTOMATION, {
-                    conversationId: localConversationId,
-                    userPrompt,
-                    userMessageEventId: connectorUserMessageId,
-                    ...(agentType ? { agentType } : {}),
-                    ...(modelOverride ? { modelOverride } : {}),
-                    ...(attachments?.length ? { attachments } : {}),
-                    connectorDeliveryTarget: {
-                        requestId,
-                        conversationId,
-                        ...(provider ? { provider } : {}),
-                        ...(externalMessageId ? { externalMessageId } : {}),
-                    },
-                }, {
-                    ensureWorker: true,
-                    recordActivity: true,
-                    retryOnceOnDisconnect: true,
-                });
-                if (result.status === "ok" && result.finalText) {
+                let result;
+                let completedSuccessfully = false;
+                try {
+                    if (signal.aborted || binding.cancelRequested) {
+                        throw signal.reason instanceof Error
+                            ? signal.reason
+                            : new Error("Remote-turn attempt was cancelled before execution.");
+                    }
                     await this.appendLocalChatEvent({
                         conversationId: localConversationId,
-                        type: "assistant_message",
-                        payload: { text: result.finalText, source: "connector" },
+                        type: "user_message",
+                        eventId: connectorUserMessageId,
+                        payload: {
+                            text: userPrompt,
+                            source: "connector",
+                            ...(provider ? { provider } : {}),
+                            ...(attachments?.length ? { attachments } : {}),
+                        },
                     });
+                    if (signal.aborted || binding.cancelRequested) {
+                        throw signal.reason instanceof Error
+                            ? signal.reason
+                            : new Error("Remote-turn attempt was cancelled before execution.");
+                    }
+                    // Worker startup may await a process spawn/reconnect, so it
+                    // must finish before the final durable lease confirmation.
+                    await this.ensureWorkerStarted();
+                    if (signal.aborted || binding.cancelRequested) {
+                        throw signal.reason instanceof Error
+                            ? signal.reason
+                            : new Error("Remote-turn attempt was cancelled before execution.");
+                    }
+                    // Final exact-attempt lifecycle/migration fence. There are
+                    // no awaited preparation steps between this ACK and the
+                    // physical worker request below.
+                    await confirmDispatchLease();
+                    if (signal.aborted || binding.cancelRequested) {
+                        throw signal.reason instanceof Error
+                            ? signal.reason
+                            : new Error("Remote-turn attempt was cancelled before execution.");
+                    }
+                    binding.workerRequestSent = true;
+                    const workerRunPromise = this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_RUN_AUTOMATION, {
+                        conversationId: localConversationId,
+                        userPrompt,
+                        userMessageEventId: connectorUserMessageId,
+                        remoteTurnAttemptId: attemptId,
+                        ...(agentType ? { agentType } : {}),
+                        ...(modelOverride ? { modelOverride } : {}),
+                        ...(attachments?.length ? { attachments } : {}),
+                        rejectIfBusy: true,
+                        connectorDeliveryTarget: {
+                            requestId,
+                            conversationId,
+                            ...(provider ? { provider } : {}),
+                            ...(externalMessageId ? { externalMessageId } : {}),
+                        },
+                    }, {
+                        // Startup was joined before the final lease pulse; do
+                        // not introduce another awaited startup window here.
+                        ensureWorker: false,
+                        recordActivity: true,
+                        // A retry would be a second physical execution under an
+                        // ambiguous transport failure. Lease recovery, not the
+                        // worker transport, owns any replay decision.
+                        retryOnceOnDisconnect: false,
+                    });
+                    if (binding.cancelRequested || signal.aborted) {
+                        void cancelAndJoinRun();
+                    }
+                    const workerOutcome = workerRunPromise.then((workerResult) => ({ kind: "result", result: workerResult }), (error) => ({ kind: "error", error }));
+                    const workerOrCancel = await Promise.race([
+                        workerOutcome,
+                        binding.cancelJoinedPromise.then(() => ({ kind: "cancelled" })),
+                    ]);
+                    if (workerOrCancel.kind === "cancelled") {
+                        // A positive exact cancel ACK joins the run scope. The
+                        // outer JSON-RPC response may still be stuck in a lost
+                        // transport, but no provider/tool execution can survive.
+                        binding.workerSettled = true;
+                        return {
+                            status: "error",
+                            finalText: "",
+                            error: "Remote-turn execution was cancelled.",
+                        };
+                    }
+                    if (workerOrCancel.kind === "error") {
+                        binding.transportAmbiguous = true;
+                        const joined = await cancelAndJoinRun();
+                        if (!joined) {
+                            return {
+                                status: "uncertain",
+                                finalText: "",
+                                error: workerOrCancel.error instanceof Error
+                                    ? workerOrCancel.error.message
+                                    : String(workerOrCancel.error),
+                            };
+                        }
+                        throw workerOrCancel.error;
+                    }
+                    result = workerOrCancel.result;
+                    binding.workerSettled = true;
+                    if (binding.cancelJoinPromise) {
+                        await binding.cancelJoinPromise;
+                    }
+                    if (!signal.aborted && !binding.cancelRequested && result.status === "ok" && result.finalText) {
+                        await this.appendLocalChatEvent({
+                            conversationId: localConversationId,
+                            type: "assistant_message",
+                            payload: { text: result.finalText, source: "connector" },
+                        });
+                    }
+                    completedSuccessfully = !signal.aborted &&
+                        !binding.cancelRequested &&
+                        result.status === "ok";
+                    return result;
                 }
-                return result;
-            },
-            claimRemoteTurn: async ({ requestId, conversationId }) => {
-                const client = this.ensureHostConvexClient();
-                if (!client) {
-                    return;
+                finally {
+                    signal.removeEventListener("abort", handleAttemptAbort);
+                    if (!binding.workerRequestSent) {
+                        binding.workerSettled = true;
+                    }
+                    if (binding.cancelJoinPromise) {
+                        await binding.cancelJoinPromise;
+                    }
+                    if (!completedSuccessfully) {
+                        this.rollbackRemoteTurnConnectorTarget(binding);
+                    }
+                    if (this.isCurrentRemoteTurnAttempt(binding)) {
+                        this.remoteTurnAttemptsByRequestId.delete(requestId);
+                    }
+                    if (this.pendingRemoteTurnCancelsByRequestId.get(requestId) === attemptId) {
+                        this.pendingRemoteTurnCancelsByRequestId.delete(requestId);
+                    }
                 }
-                await client.mutation(anyApi.channels.connector_delivery.claimRemoteTurn, { requestId, conversationId });
             },
-            completeConnectorTurn: async ({ requestId, conversationId, text }) => {
+            claimRemoteTurn: async ({ requestId, attemptId, conversationId }) => {
                 const client = this.ensureHostConvexClient();
                 if (!client) {
                     throw new Error("Missing Convex client configuration.");
                 }
-                await client.mutation(anyApi.channels.connector_delivery.completeRemoteTurn, { requestId, conversationId, text });
+                return await client.mutation(anyApi.channels.connector_delivery.claimRemoteTurn, {
+                    requestId,
+                    conversationId,
+                    deviceId: remoteTurnDeviceId,
+                    attemptId,
+                });
+            },
+            heartbeatRemoteTurn: async ({ requestId, attemptId, conversationId }) => {
+                const client = this.ensureHostConvexClient();
+                if (!client) {
+                    throw new Error("Missing Convex client configuration.");
+                }
+                return await client.mutation(anyApi.channels.connector_delivery.heartbeatRemoteTurn, {
+                    requestId,
+                    conversationId,
+                    deviceId: remoteTurnDeviceId,
+                    attemptId,
+                });
+            },
+            completeConnectorTurn: async ({ requestId, attemptId, conversationId, text, }) => {
+                const client = this.ensureHostConvexClient();
+                if (!client) {
+                    throw new Error("Missing Convex client configuration.");
+                }
+                const ack = await client.mutation(anyApi.channels.connector_delivery.completeRemoteTurn, {
+                    requestId,
+                    conversationId,
+                    deviceId: remoteTurnDeviceId,
+                    attemptId,
+                    text,
+                });
+                if (!ack || ack.accepted !== true) {
+                    throw new Error("Remote-turn completion did not return an exact-attempt ACK.");
+                }
+            },
+            finishRemoteTurnAttempt: async ({ requestId, attemptId, conversationId, outcome, }) => {
+                const client = this.ensureHostConvexClient();
+                if (!client) {
+                    throw new Error("Missing Convex client configuration.");
+                }
+                const ack = await client.mutation(anyApi.channels.connector_delivery.finishRemoteTurnAttempt, {
+                    requestId,
+                    conversationId,
+                    deviceId: remoteTurnDeviceId,
+                    attemptId,
+                    outcome,
+                });
+                if (!ack || ack.acknowledged !== true) {
+                    throw new Error("Remote-turn terminal mutation did not return an exact-attempt ACK.");
+                }
             },
             log: (level, message, error) => {
                 const logger = level === "error" ? console.error : console.warn;
@@ -831,6 +1181,188 @@ export class StellaRuntimeHost {
                 logger(message, error);
             },
         });
+    }
+    async syncHostExecutionPlacement() {
+        const operation = this.hostExecutionPlacementSyncQueue.then(() => this.syncHostExecutionPlacementNow());
+        this.hostExecutionPlacementSyncQueue = operation.then(() => undefined, () => undefined);
+        return await operation;
+    }
+    async syncHostExecutionPlacementNow() {
+        const eligible = Boolean(this.started &&
+            this.hostReady &&
+            this.deviceIdentity?.deviceId &&
+            this.deviceIdentity?.publicKey &&
+            this.deviceIdentity?.privateKey &&
+            this.connectorFollowupDatabase &&
+            this.configCache.hasConnectedAccount &&
+            this.configCache.cloudSyncEnabled &&
+            this.getConfiguredHostAuthToken() &&
+            this.getConfiguredHostConvexUrl());
+        const client = eligible ? this.ensureHostConvexClient() : null;
+        if (this.hostExecutionPlacementBridge &&
+            client &&
+            this.hostExecutionPlacementBridge.client === client &&
+            this.hostExecutionPlacementBridge.isRunning) {
+            return;
+        }
+        const previous = this.hostExecutionPlacementBridge;
+        this.hostExecutionPlacementBridge = null;
+        if (previous) {
+            try {
+                await previous.stop();
+            }
+            catch (error) {
+                // Keep the stopped bridge as the only retry owner. A later sync
+                // must finish its durable cancellation/drain barrier before it
+                // can establish a replacement proof sequence.
+                this.hostExecutionPlacementBridge = previous;
+                throw error;
+            }
+        }
+        if (!eligible || !client || !this.connectorFollowupDatabase) {
+            return;
+        }
+        const bridge = createExecutionPlacementBridge({
+            client,
+            database: this.connectorFollowupDatabase,
+            deviceIdentity: this.deviceIdentity,
+            appVersion: "stella-desktop-v2",
+            getAvailability: async () => {
+                const health = await this.getWorkerHealth({
+                    ensureWorker: false,
+                }).catch(() => null);
+                const platformCapabilities = process.platform === "darwin" || process.platform === "win32"
+                    ? ["computer-use", "local-apps"]
+                    : [];
+                return {
+                    ready: Boolean(this.started &&
+                        this.hostReady &&
+                        this.configCache.hasConnectedAccount &&
+                        this.configCache.cloudSyncEnabled &&
+                        !isWorkerBusyForRestart(health)),
+                    chatSlots: 1,
+                    agentSlots: 1,
+                    capabilities: [
+                        "chat",
+                        "agent",
+                        "local-files",
+                        ...platformCapabilities,
+                    ],
+                };
+            },
+            runExecution: async ({ dispatch, payload }) => {
+                const prompt = typeof payload.prompt === "string" ? payload.prompt.trim() : "";
+                if (!prompt) {
+                    return {
+                        status: "error",
+                        error: "The accepted execution payload did not contain a prompt.",
+                    };
+                }
+                const userMessageEventId = `placement-user:${dispatch.dispatchId}`;
+                await this.appendLocalChatEvent({
+                    conversationId: dispatch.conversationId,
+                    eventId: userMessageEventId,
+                    type: "user_message",
+                    payload: {
+                        text: prompt,
+                        source: "execution-placement",
+                        dispatchId: dispatch.dispatchId,
+                    },
+                });
+                if (dispatch.kind === "agent") {
+                    const description = typeof payload.description === "string" &&
+                        payload.description.trim()
+                        ? payload.description.trim()
+                        : prompt.slice(0, 160);
+                    const result = await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_RUN_BLOCKING_AGENT, {
+                        conversationId: dispatch.conversationId,
+                        description,
+                        prompt,
+                        agentType: "general",
+                        threadId: placementLocalAgentThreadId(dispatch.dispatchId),
+                    }, {
+                        ensureWorker: true,
+                        recordActivity: true,
+                        retryOnceOnDisconnect: false,
+                    });
+                    return result.status === "ok"
+                        ? { status: "ok", finalText: result.finalText }
+                        : {
+                            status: "error",
+                            error: result.error || "The local agent failed.",
+                        };
+                }
+                const result = await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_RUN_AUTOMATION, {
+                    conversationId: dispatch.conversationId,
+                    userPrompt: prompt,
+                    userMessageEventId,
+                    rejectIfBusy: true,
+                    executionPlacementRunId: placementLocalChatRunId(dispatch.dispatchId),
+                }, {
+                    ensureWorker: true,
+                    recordActivity: true,
+                    retryOnceOnDisconnect: false,
+                });
+                if (result.status === "ok") {
+                    if (result.finalText) {
+                        await this.appendLocalChatEvent({
+                            conversationId: dispatch.conversationId,
+                            eventId: `placement-assistant:${dispatch.dispatchId}`,
+                            type: "assistant_message",
+                            payload: {
+                                text: result.finalText,
+                                source: "execution-placement",
+                                dispatchId: dispatch.dispatchId,
+                            },
+                        });
+                    }
+                    return { status: "ok", finalText: result.finalText };
+                }
+                return {
+                    status: "error",
+                    error: result.error || "The local execution failed.",
+                };
+            },
+            cancelExecution: async ({ dispatchId, kind, conversationId }) => {
+                if (kind === "agent") {
+                    const result = await this.cancelBlockingLocalAgent(placementLocalAgentThreadId(dispatchId), "Canceled by execution placement.");
+                    if (result?.canceled !== true) {
+                        throw new Error("The exact local-agent cancellation was not acknowledged.");
+                    }
+                    return;
+                }
+                const result = await this.cancelPlacementAutomation(placementLocalChatRunId(dispatchId), "Canceled by execution placement.");
+                if (result?.canceled !== true) {
+                    throw new Error("The exact local-chat cancellation was not acknowledged.");
+                }
+            },
+            log: (level, message, error) => {
+                const logger = level === "error" ? console.error : console.warn;
+                if (error === undefined) {
+                    logger(`[execution-placement] ${message}`);
+                }
+                else {
+                    logger(`[execution-placement] ${message}`, error);
+                }
+            },
+        });
+        this.hostExecutionPlacementBridge = bridge;
+        try {
+            await bridge.start();
+        }
+        catch (error) {
+            if (this.hostExecutionPlacementBridge === bridge) {
+                this.hostExecutionPlacementBridge = null;
+            }
+            try {
+                await bridge.stop();
+            }
+            catch (stopError) {
+                this.hostExecutionPlacementBridge = bridge;
+                throw new Error("Execution placement startup cleanup did not reach its cancellation/drain barrier.", { cause: stopError });
+            }
+            console.warn("[execution-placement] Desktop placement bridge did not start.", error);
+        }
     }
     async sendConnectorFollowup(args) {
         const client = this.ensureHostConvexClient();
@@ -985,17 +1517,37 @@ export class StellaRuntimeHost {
                 return;
             for (const row of rows) {
                 const requestId = typeof row?.requestId === "string" ? row.requestId : "";
-                if (!requestId || this.cancelledRequestIds.has(requestId))
+                const activeAttemptId = typeof row?.activeAttemptId === "string"
+                    ? row.activeAttemptId
+                    : "";
+                if (!requestId || !activeAttemptId)
                     continue;
-                this.cancelledRequestIds.add(requestId);
-                const localConversationId = this.resolveConnectorConversationForRequest(requestId);
-                if (!localConversationId)
+                const cancelKey = `${requestId}:${activeAttemptId}`;
+                if (this.cancelledRequestIds.has(cancelKey))
                     continue;
-                this.connectorTargetsByLocalConversation.delete(localConversationId);
-                this.localConversationByRequestId.delete(requestId);
-                this.connectorFollowupOutbox?.clearTarget(localConversationId);
-                void this.cancelChatByConversation(localConversationId).catch((error) => {
-                    console.warn("[runtime-host] cancelChatByConversation failed:", error instanceof Error ? error.message : String(error));
+                const binding = this.remoteTurnAttemptsByRequestId.get(requestId);
+                if (!binding) {
+                    // Cancellation can arrive after the server claim but before
+                    // runLocalTurn binds the local attempt. Preserve the exact
+                    // attempt and let that binding consume it before dispatch.
+                    this.pendingRemoteTurnCancelsByRequestId.set(requestId, activeAttemptId);
+                    continue;
+                }
+                if (binding.attemptId !== activeAttemptId)
+                    continue;
+                binding.cancelRequested = true;
+                void this.requestRemoteTurnCancellation(binding)
+                    .then((joined) => {
+                    if (!joined)
+                        return;
+                    this.cancelledRequestIds.add(cancelKey);
+                    this.rollbackRemoteTurnConnectorTarget(binding);
+                    if (this.pendingRemoteTurnCancelsByRequestId.get(requestId) === activeAttemptId) {
+                        this.pendingRemoteTurnCancelsByRequestId.delete(requestId);
+                    }
+                })
+                    .catch((error) => {
+                    console.warn("[runtime-host] Exact remote-turn cancellation failed:", error instanceof Error ? error.message : String(error));
                 });
             }
         }, (error) => {
@@ -1028,6 +1580,7 @@ export class StellaRuntimeHost {
         this.started = true;
         await this.initializeHostServices();
         this.syncHostRemoteTurnBridge();
+        await this.syncHostExecutionPlacement();
         this.events.emit("runtime-connected", undefined);
         this.events.emit("runtime-ready", await this.health());
         this.startDevWatcher(resolveDefaultWorkerEntryPath(this.options));
@@ -1038,6 +1591,10 @@ export class StellaRuntimeHost {
         }
         this.started = false;
         this.hostReady = false;
+        // Abort the leased remote attempt while the worker peer is still live.
+        // Its exact cancel/join (or worker retirement) must begin before the
+        // normal detached-worker disconnect/drain below.
+        this.hostRemoteTurnBridge?.stop();
         this.workerHealthCache = null;
         this.workerGeneration = 0;
         this.agentEventBuffers.clear();
@@ -1067,6 +1624,7 @@ export class StellaRuntimeHost {
         // connector rows now instead of waiting out an old offline backoff.
         this.connectorFollowupOutbox?.resume(true);
         this.syncHostRemoteTurnBridge();
+        await this.syncHostExecutionPlacement();
         const connection = this.workerController.getConnection();
         if (!connection?.peer) {
             return { ok: true };
@@ -1213,6 +1771,19 @@ export class StellaRuntimeHost {
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_RUN_BLOCKING_AGENT, payload, {
             ensureWorker: true,
             recordActivity: true,
+        });
+    }
+    async cancelBlockingLocalAgent(agentId, reason) {
+        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_CANCEL_BLOCKING_AGENT, { agentId, reason }, {
+            ensureWorker: true,
+            recordActivity: true,
+        });
+    }
+    async cancelPlacementAutomation(runId, reason) {
+        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_CANCEL_PLACEMENT_AUTOMATION, { runId, reason }, {
+            ensureWorker: true,
+            recordActivity: true,
+            retryOnceOnDisconnect: false,
         });
     }
     async createBackgroundAgent(payload) {
@@ -1469,6 +2040,9 @@ export class StellaRuntimeHost {
         this.hostReady = true;
     }
     async stopHostServices() {
+        await this.hostExecutionPlacementSyncQueue;
+        await this.hostExecutionPlacementBridge?.stop();
+        this.hostExecutionPlacementBridge = null;
         await this.connectorFollowupOutbox?.stop();
         this.connectorFollowupOutbox = null;
         this.connectorFollowupDatabase?.close();
@@ -1561,6 +2135,9 @@ export class StellaRuntimeHost {
                 token: null,
                 hasConnectedAccount: false,
             });
+        });
+        peer.registerRequestHandler(METHOD_NAMES.HOST_REMOTE_TURN_ADMIT, async (params) => {
+            return this.admitRemoteTurnAttempt(params);
         });
         peer.registerRequestHandler(METHOD_NAMES.HOST_APP_BROWSER_CONTEXT_GET, async () => {
             return ((await this.options.hostHandlers.getAppBrowserContext?.()) ?? {

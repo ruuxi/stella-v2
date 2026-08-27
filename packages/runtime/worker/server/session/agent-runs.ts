@@ -68,6 +68,9 @@ export interface Interface {
   readonly runAutomation: (payload: {
     conversationId: string;
     userPrompt: string;
+    rejectIfBusy?: boolean;
+    remoteTurnAttemptId?: string;
+    executionPlacementRunId?: string;
     agentType?: string;
     modelOverride?: string;
     toolWorkspaceRoot?: string;
@@ -106,16 +109,14 @@ export const layer = Layer.effect(
       typeof import("../../../kernel/agent-runtime/one-shot-completion.js")
     > | null = null;
     const loadOneShotCompletion = () =>
-      (oneShotCompletionModule ??= import(
-        "../../../kernel/agent-runtime/one-shot-completion.js"
-      ));
+      (oneShotCompletionModule ??=
+        import("../../../kernel/agent-runtime/one-shot-completion.js"));
     let chatPromptContextModule: Promise<
       typeof import("../../../kernel/chat-prompt-context.js")
     > | null = null;
     const loadChatPromptContext = () =>
-      (chatPromptContextModule ??= import(
-        "../../../kernel/chat-prompt-context.js"
-      ));
+      (chatPromptContextModule ??=
+        import("../../../kernel/chat-prompt-context.js"));
 
     /**
      * Append a fresh persisted assistant row for one completed assistant
@@ -146,7 +147,9 @@ export const layer = Layer.effect(
       const runtimeMetadata = {
         runtime: {
           ...(args.followedByToolCall ? { followedByToolCall: true } : {}),
-          ...(args.responseTarget ? { responseTarget: args.responseTarget } : {}),
+          ...(args.responseTarget
+            ? { responseTarget: args.responseTarget }
+            : {}),
           ...(Number.isFinite(args.streamStartedAtMs)
             ? { streamStartedAtMs: args.streamStartedAtMs }
             : {}),
@@ -511,7 +514,9 @@ export const layer = Layer.effect(
                   runId: ev.runId,
                   seq: ev.seq,
                   timezone: payload.timezone,
-                  ...(ev.followedByToolCall ? { followedByToolCall: true } : {}),
+                  ...(ev.followedByToolCall
+                    ? { followedByToolCall: true }
+                    : {}),
                   responseTarget: ev.responseTarget,
                   ...(streamStartedAtMs !== undefined
                     ? { streamStartedAtMs }
@@ -669,6 +674,15 @@ export const layer = Layer.effect(
             emitRunEvent({
               ...ev,
               type: AGENT_STREAM_EVENT_TYPES.STATUS,
+              conversationId: payload.conversationId,
+              ...(requestId ? { requestId } : {}),
+            });
+          },
+          onProviderLifecycle: (ev) => {
+            if (hiddenSystemRunIds.has(ev.runId)) return;
+            emitRunEvent({
+              ...ev,
+              type: AGENT_STREAM_EVENT_TYPES.PROVIDER_LIFECYCLE,
               conversationId: payload.conversationId,
               ...(requestId ? { requestId } : {}),
             });
@@ -968,10 +982,38 @@ export const layer = Layer.effect(
         payload.attachments,
         automationImageTarget,
       );
+      const remoteTurnAttemptId = payload.remoteTurnAttemptId?.trim();
+      const remoteRequestId =
+        payload.connectorDeliveryTarget?.requestId?.trim();
       return await (
         await runnerHandle.ensureInitialized()
       ).runAutomationTurn({
         ...payload,
+        ...(remoteTurnAttemptId
+          ? {
+              onRemoteTurnAdmitted: async (args) => {
+                if (
+                  args.attemptId !== remoteTurnAttemptId ||
+                  !remoteRequestId ||
+                  args.requestId !== remoteRequestId
+                ) {
+                  return false;
+                }
+                const receipt = await hostBus.request<{
+                  accepted?: boolean;
+                  attemptId?: string;
+                  runId?: string;
+                }>(METHOD_NAMES.HOST_REMOTE_TURN_ADMIT, args, {
+                  retryOnDisconnect: false,
+                });
+                return (
+                  receipt?.accepted === true &&
+                  receipt.attemptId === args.attemptId &&
+                  receipt.runId === args.runId
+                );
+              },
+            }
+          : {}),
         ...(materializedImageAttachments.length > 0
           ? {
               attachments: materializedImageAttachments.map(

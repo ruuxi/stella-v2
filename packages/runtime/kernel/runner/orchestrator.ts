@@ -48,6 +48,12 @@ import {
   normalizeChatRunInput,
 } from "./orchestrator-policy.js";
 import { shouldPersistLocalChatTranscript } from "./conversation-storage-mode.js";
+import { remoteTurnWorkerRunId } from "../remote-turn-attempt.js";
+import {
+  getPlacementCancellation,
+  normalizePlacementExecutionId,
+  persistPlacementCancellation,
+} from "./execution-placement-local-ownership.js";
 
 const logger = createRuntimeLogger("runner.orchestrator");
 const UI_VISIBILITY_HIDDEN = "hidden" as const;
@@ -128,6 +134,8 @@ export const createOrchestratorController = (
       onStream: (event) => currentCallbacks.onStream(event),
       onAgentReasoning: (event) => currentCallbacks.onAgentReasoning?.(event),
       onStatus: (event) => currentCallbacks.onStatus?.(event),
+      onProviderLifecycle: (event) =>
+        currentCallbacks.onProviderLifecycle?.(event),
       onToolStart: (event) => currentCallbacks.onToolStart(event),
       onToolEnd: (event) => currentCallbacks.onToolEnd(event),
       onError: (event) => currentCallbacks.onError(event),
@@ -798,6 +806,14 @@ export const createOrchestratorController = (
       attachments?: StartPreparedRunArgs["attachments"];
       connectorDeliveryTarget?: StartPreparedRunArgs["connectorDeliveryTarget"];
       userMessageEventId?: string;
+      remoteTurnAttemptId?: string;
+      executionPlacementRunId?: string;
+      onRemoteTurnAdmitted?: (args: {
+        requestId: string;
+        attemptId: string;
+        conversationId: string;
+        runId: string;
+      }) => Promise<boolean>;
     },
     resolveResult: (value: AutomationTurnResult) => void,
   ): Promise<{ runId: string }> => {
@@ -806,6 +822,15 @@ export const createOrchestratorController = (
         throw new Error("The orchestrator is already running.");
       }
 
+      const remoteTurnAttemptId = payload.remoteTurnAttemptId?.trim();
+      const executionPlacementRunId = payload.executionPlacementRunId
+        ? normalizePlacementExecutionId("chat", payload.executionPlacementRunId)
+        : undefined;
+      if (remoteTurnAttemptId && executionPlacementRunId) {
+        throw new Error(
+          "An automation turn cannot have both remote-turn and execution-placement ownership.",
+        );
+      }
       const {
         conversationId,
         userPrompt,
@@ -826,7 +851,9 @@ export const createOrchestratorController = (
         return { runId: "" };
       }
 
-      const runId = `local:auto:${crypto.randomUUID()}`;
+      const runId = remoteTurnAttemptId
+        ? remoteTurnWorkerRunId(remoteTurnAttemptId)
+        : (executionPlacementRunId ?? `local:auto:${crypto.randomUUID()}`);
       // Connector turns: the durable thread store is the single
       // model-context source, so the user timestamp tag the retired
       // local-events projection used to add at read time is stamped onto the
@@ -889,6 +916,41 @@ export const createOrchestratorController = (
           ),
         cleanupRun,
         onFatalError: createAutomationFatalErrorHandler(resolveResult),
+        ...(remoteTurnAttemptId || executionPlacementRunId
+          ? {
+              onPrepared: async () => {
+                if (executionPlacementRunId) {
+                  const cancellationReason = getPlacementCancellation({
+                    store: context.runtimeStore,
+                    kind: "chat",
+                    executionId: executionPlacementRunId,
+                  });
+                  if (cancellationReason) {
+                    throw new Error(cancellationReason);
+                  }
+                }
+                if (remoteTurnAttemptId) {
+                  const requestId = connectorDeliveryTarget?.requestId?.trim();
+                  if (!requestId || !payload.onRemoteTurnAdmitted) {
+                    throw new Error(
+                      "Remote-turn worker admission callback is unavailable.",
+                    );
+                  }
+                  const accepted = await payload.onRemoteTurnAdmitted({
+                    requestId,
+                    attemptId: remoteTurnAttemptId,
+                    conversationId,
+                    runId,
+                  });
+                  if (!accepted) {
+                    throw new Error(
+                      "Remote-turn worker admission was denied before execution.",
+                    );
+                  }
+                }
+              },
+            }
+          : {}),
       });
 
       return { runId };
@@ -907,6 +969,7 @@ export const createOrchestratorController = (
   const runAutomationTurn = async (payload: {
     conversationId: string;
     userPrompt: string;
+    rejectIfBusy?: boolean;
     storageMode?: "cloud" | "local";
     userMessageId?: string;
     agentType?: string;
@@ -915,6 +978,14 @@ export const createOrchestratorController = (
     attachments?: StartPreparedRunArgs["attachments"];
     connectorDeliveryTarget?: StartPreparedRunArgs["connectorDeliveryTarget"];
     userMessageEventId?: string;
+    remoteTurnAttemptId?: string;
+    executionPlacementRunId?: string;
+    onRemoteTurnAdmitted?: (args: {
+      requestId: string;
+      attemptId: string;
+      conversationId: string;
+      runId: string;
+    }) => Promise<boolean>;
   }): Promise<AutomationTurnResult> => {
     // Gate on the model this turn will actually run (a pinned override must
     // not be blocked because the default orchestrator route is unavailable).
@@ -929,6 +1000,13 @@ export const createOrchestratorController = (
       void executeOrQueueSystemOrchestratorTurn({
         hasActiveRun: Boolean(context.state.activeOrchestratorRunId),
         queueOrchestratorTurn,
+        rejectIfBusy: payload.rejectIfBusy,
+        onBusy: () =>
+          resolve({
+            status: "busy",
+            finalText: "",
+            error: "Stella is already handling another turn.",
+          }),
         execute: async () => {
           await startAutomationTurn(payload, resolve);
         },
@@ -936,12 +1014,12 @@ export const createOrchestratorController = (
     });
   };
 
-  const cancelLocalChat = async (runId: string): Promise<void> => {
+  const cancelLocalChat = async (runId: string): Promise<boolean> => {
     // Run lookup is the supervisor's keyed scope registry (the replacement
     // for the old `activeRunAbortControllers` map): a run is cancellable
     // from the moment admission registers its cooperative abort until its
     // fiber tree has fully settled.
-    if (!context.state.supervisor.hasRun(runId)) return;
+    if (!context.state.supervisor.hasRun(runId)) return false;
     const wasPreExecution = preparingRunIds.has(runId);
     const uiVisibility = context.state.activeOrchestratorUiVisibility;
     const callbacks = context.state.runCallbacksByRunId.get(runId);
@@ -957,7 +1035,7 @@ export const createOrchestratorController = (
         uiVisibility,
         reason: "Canceled",
       });
-      return;
+      return true;
     }
     // ONE joining cancel path: interrupt the run's fiber tree (root turn
     // fiber plus every adopted subagent attempt, provider stream, tool
@@ -972,6 +1050,25 @@ export const createOrchestratorController = (
     // tearing down.
     await context.state.supervisor.cancelRun(runId, "Canceled");
     clearActiveOrchestratorRun(runId);
+    return true;
+  };
+
+  const cancelPlacementAutomation = async (
+    runId: string,
+    reason?: string,
+  ): Promise<{ canceled: boolean }> => {
+    const exactRunId = normalizePlacementExecutionId("chat", runId);
+    // Persist synchronously before the first await. A delayed placement run
+    // delivered after worker restart observes this tombstone in `onPrepared`
+    // and cannot resurrect the exact dispatch-scoped owner.
+    persistPlacementCancellation({
+      store: context.runtimeStore,
+      kind: "chat",
+      executionId: exactRunId,
+      reason,
+    });
+    await cancelLocalChat(exactRunId);
+    return { canceled: true };
   };
 
   /**
@@ -1021,6 +1118,7 @@ export const createOrchestratorController = (
     sendMessage,
     sendUserMessage,
     runAutomationTurn,
+    cancelPlacementAutomation,
     cancelLocalChat,
     cancelLocalChatByConversation,
     getActiveOrchestratorRun,

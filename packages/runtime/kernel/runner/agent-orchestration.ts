@@ -39,6 +39,10 @@ import type { ThreadActivityRecord } from "@stella/contracts/local-chat";
 import { createRunnerImageDescriptionService } from "./model-selection.js";
 import { RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE } from "../storage/shared.js";
 import type { ComputerAgentCloudRecords } from "./computer-agent-cloud-records.js";
+import {
+  getPlacementCancellation,
+  persistPlacementCancellation,
+} from "./execution-placement-local-ownership.js";
 
 const LATE_SHELL_PRODUCED_FILES_DRAIN_MS = 2_000;
 
@@ -1072,8 +1076,25 @@ export const createAgentOrchestration = (
         error: "Local agent manager is unavailable.",
       };
     }
+    const requestedThreadId = request.threadId?.trim();
+    const cancellationReason = requestedThreadId
+      ? getPlacementCancellation({
+          store: context.runtimeStore,
+          kind: "agent",
+          executionId: requestedThreadId,
+        })
+      : null;
+    if (requestedThreadId && cancellationReason) {
+      return {
+        status: "error",
+        finalText: "",
+        error: cancellationReason,
+        threadId: requestedThreadId,
+      };
+    }
     const { threadId } = await context.state.localAgentManager.createAgent({
       ...request,
+      ...(requestedThreadId ? { threadId: requestedThreadId } : {}),
       storageMode: "local",
     });
     // Effect-native settlement (replaces the historical poll-until-terminal
@@ -1140,6 +1161,48 @@ export const createAgentOrchestration = (
     return await context.state.localAgentManager.cancelAgent(agentId, reason);
   };
 
+  const cancelBlockingLocalAgent = async (
+    agentId: string,
+    reason?: string,
+  ): Promise<{ canceled: boolean }> => {
+    const exactAgentId = agentId.trim();
+    if (!exactAgentId) return { canceled: false };
+    // This SQLite write is deliberately synchronous and precedes every
+    // lookup/await. The ACK therefore survives a worker restart in the gap
+    // before a delayed runBlockingLocalAgent RPC is delivered.
+    persistPlacementCancellation({
+      store: context.runtimeStore,
+      kind: "agent",
+      executionId: exactAgentId,
+      reason,
+    });
+
+    const manager = context.state.localAgentManager;
+    if (!manager) {
+      // The tombstone still acknowledges that no later blocking create in this
+      // runner instance can resurrect the exact ID.
+      return { canceled: true };
+    }
+    const record = context.runtimeStore.getAgentRecord?.(exactAgentId);
+    const hasActiveLocalOwner = manager
+      .listActiveAgentRuns()
+      .some((run) => run.runId === exactAgentId);
+    if ((!record || record.storageMode === "cloud") && !hasActiveLocalOwner) {
+      // Unknown IDs are pre-canceled locally. Never delegate to
+      // LocalAgentManager.cancelAgent's cloud-record fallback.
+      return { canceled: true };
+    }
+    if (record?.conversationId) {
+      context.state.backgroundExitWake?.disarm({
+        conversationId: record.conversationId,
+        agentId: exactAgentId,
+      });
+    } else {
+      context.state.backgroundExitWake?.disarm(exactAgentId);
+    }
+    return await manager.cancelAgentAndJoin(exactAgentId, reason);
+  };
+
   const shutdown = async (): Promise<void> => {
     await context.state.localAgentManager?.shutdown();
     shutdownSubagentRuntimes();
@@ -1149,6 +1212,7 @@ export const createAgentOrchestration = (
     runBlockingLocalAgent,
     createBackgroundAgent,
     cancelLocalAgent,
+    cancelBlockingLocalAgent,
     handleExternalAgentLifecycleEvent: handleAgentLifecycleEvent,
     hasDurableExternalLifecycleEvent: (event: AgentLifecycleEvent) => {
       if (!event.eventId) return false;

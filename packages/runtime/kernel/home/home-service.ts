@@ -14,7 +14,6 @@ import {
 import { reconcileSelectedPersonalityEffect } from "./personality-sync.js";
 import {
   applyPromptManifestIfCurrentEffect,
-  reconcileBundledManagerPromptFallbackEffect,
   reconcileRemotePromptManifestEffect,
   recordAppliedPromptManifestEffect,
   resolvePromptManifestEffect,
@@ -97,10 +96,6 @@ export interface Interface {
     stellaDataDir: string,
     agentMetadataDir: string,
   ) => Effect.Effect<BundledSyncReport[], unknown>;
-  readonly reconcileBundledManagerPromptFallback: (
-    stellaDataDir: string,
-    agentMetadataDir: string,
-  ) => Effect.Effect<BundledSyncReport, unknown>;
 }
 
 export class Service extends Context.Service<Service, Interface>()(
@@ -206,14 +201,6 @@ const make = (): Interface => ({
   ) {
     return yield* reconcileRemotePromptManifestEffect(
       manifest,
-      stellaDataDir,
-      agentMetadataDir,
-    );
-  }),
-  reconcileBundledManagerPromptFallback: Effect.fn(
-    "HomeService.reconcileBundledManagerPromptFallback",
-  )(function* (stellaDataDir: string, agentMetadataDir: string) {
-    return yield* reconcileBundledManagerPromptFallbackEffect(
       stellaDataDir,
       agentMetadataDir,
     );

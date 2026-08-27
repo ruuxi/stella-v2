@@ -42,6 +42,24 @@ describe("executeOrQueueSystemOrchestratorTurn", () => {
     expect(settled).toHaveBeenCalledOnce();
   });
 
+  it("fails closed without enqueueing when a leased system turn rejects busy", async () => {
+    const execute = vi.fn(async () => undefined);
+    const queueOrchestratorTurn = vi.fn();
+    const onBusy = vi.fn();
+
+    await executeOrQueueSystemOrchestratorTurn({
+      hasActiveRun: true,
+      queueOrchestratorTurn,
+      execute,
+      rejectIfBusy: true,
+      onBusy,
+    });
+
+    expect(onBusy).toHaveBeenCalledOnce();
+    expect(queueOrchestratorTurn).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("rejects and never executes when canceled before delivery", async () => {
     let queuedTurn: QueuedOrchestratorTurn | undefined;
     const execute = vi.fn(async () => undefined);

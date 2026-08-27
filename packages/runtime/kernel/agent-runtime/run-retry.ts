@@ -314,6 +314,11 @@ export const executeAgentRunWithRetry = async <
     classification: AgentRunFailureClassification,
   ) => boolean;
   abortSignal?: AbortSignal;
+  /**
+   * Effect-owned callers can expose cancellation state without fabricating a
+   * platform AbortSignal. They must also supply their own abortable `sleep`.
+   */
+  isCanceled?: () => boolean;
   onRetry?: (info: AgentRunRetryInfo) => void;
   random?: () => number;
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
@@ -321,6 +326,10 @@ export const executeAgentRunWithRetry = async <
   let resume = args.initialResume === true;
   const random = args.random ?? Math.random;
   const sleep = args.sleep ?? sleepWithAbort;
+  const classifyFailure = (error: unknown): AgentRunFailureClassification =>
+    args.isCanceled?.()
+      ? { retryable: false, category: "canceled" }
+      : classifyAgentRunFailure(error, args.abortSignal);
 
   for (;;) {
     if (!hasAgentRunAttemptBudget(args.state)) {
@@ -335,7 +344,7 @@ export const executeAgentRunWithRetry = async <
       result = await args.execute(resume);
     } catch (error) {
       const reason = errorMessage(error);
-      const classification = classifyAgentRunFailure(error, args.abortSignal);
+      const classification = classifyFailure(error);
       if (
         !classification.retryable ||
         !hasAgentRunAttemptBudget(args.state) ||
@@ -379,7 +388,7 @@ export const executeAgentRunWithRetry = async <
       result.errorMessage?.trim() ||
       (result.finalText.trim() ? undefined : AGENT_RUN_EMPTY_COMPLETION_ERROR);
     if (!reason) return result;
-    const classification = classifyAgentRunFailure(reason, args.abortSignal);
+    const classification = classifyFailure(reason);
     if (!classification.retryable) return result;
     if (
       !hasAgentRunAttemptBudget(args.state) ||

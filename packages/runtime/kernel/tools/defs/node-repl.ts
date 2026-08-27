@@ -5,14 +5,13 @@ import {
 } from "../../computer-use/kernel.js";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type { ToolDefinition } from "../types.js";
+import { CODE_TOOL_NAME } from "../code-tool.js";
 
-export type NodeReplToolOptions = NodeReplKernelManagerOptions & {
+export type CodeToolOptions = NodeReplKernelManagerOptions & {
   registry?: NodeReplKernelRegistry;
 };
 
-export const createNodeReplTool = (
-  options: NodeReplToolOptions,
-): ToolDefinition => {
+export const createCodeTool = (options: CodeToolOptions): ToolDefinition => {
   const registry = options.registry ?? new NodeReplKernelRegistry(options);
   const observationDetails = (
     observation: NodeReplCellObservation,
@@ -27,7 +26,7 @@ export const createNodeReplTool = (
     return {
       ...(includeCell
         ? {
-            nodeRepl: {
+            code: {
               cellId: observation.cellId,
               generation: observation.generation,
               status: observation.status,
@@ -77,7 +76,7 @@ export const createNodeReplTool = (
     };
     if (observation.status === "failed") {
       return {
-        error: observation.error ?? "Node REPL cell failed.",
+        error: observation.error ?? "Code cell failed.",
         details: observationDetails(observation, forceCellDetails),
         ...tracked,
       };
@@ -85,7 +84,7 @@ export const createNodeReplTool = (
     if (observation.status === "running") {
       const text = modelText(observation);
       return {
-        result: `${text}${text ? "\n" : ""}[node_repl running: cellId=${JSON.stringify(observation.cellId)} generation=${observation.generation} cursor=${observation.cursor} elapsedMs=${observation.elapsedMs}]`,
+        result: `${text}${text ? "\n" : ""}[code running: cellId=${JSON.stringify(observation.cellId)} generation=${observation.generation} cursor=${observation.cursor} elapsedMs=${observation.elapsedMs}]`,
         details: observationDetails(observation, forceCellDetails),
         ...tracked,
       };
@@ -104,10 +103,10 @@ export const createNodeReplTool = (
     };
   };
   return {
-    name: "node_repl",
+    name: CODE_TOOL_NAME,
     agentTypes: [AGENT_IDS.ORCHESTRATOR, AGENT_IDS.GENERAL],
     description:
-      'Run JavaScript in a persistent Node REPL with top-level await, or observe a previously yielded cell with cell_id; bindings persist within one generation (use var for reusable names). nodeRepl exposes write/emitImage/emitAudio/status/reset/help and cwd/home/tmp. Long cells yield with a generation-tagged cell ID; call node_repl again with cell_id to receive only new output or terminate it. Observations use a monotonic cursor. frozen sky controls desktop apps; frozen browser controls owned browser tabs (it defaults to the in-app browser; use browser.use("external") only for the user\'s signed-in Chromium browser and browser.use("in-app") to switch back). frozen connect runs third-party integrations. immutable tools exposes allowed Stella tools and refreshes between cells. Use tools.$list() for exact names/access expressions; non-identifier names require bracket notation such as tools["mcp.server/tool"](...). Use tools.$search({ query: "<capability>" }) for ranked signatures, and tools.$describe(name) for a complete unfamiliar schema. Use Promise.all for independent calls. Nested tools retain permissions, cancellation, file changes, produced-file omissions, and route artifacts; unawaited calls are drained with a bounded deadline. Batch dependent browser/computer actions in one cell, pass state_id for UI-derived actions, and use sky.wait_for_change when a mutation must become observable.',
+      'Run JavaScript with top-level await in Stella\'s persistent code runtime, or observe a previously yielded cell with cell_id; bindings persist within one generation (use var for reusable names). codeRuntime exposes write/emitImage/emitAudio/status/reset/help and cwd/home/tmp. Long cells yield with a generation-tagged cell ID; call code again with cell_id to receive only new output or terminate it. Observations use a monotonic cursor. frozen sky controls desktop apps; frozen browser controls owned browser tabs (it defaults to the in-app browser; use browser.use("external") only for the user\'s signed-in Chromium browser and browser.use("in-app") to switch back). frozen connect runs third-party integrations. immutable tools exposes allowed Stella tools and refreshes between cells. Use tools.$list() for exact names/access expressions; non-identifier names require bracket notation such as tools["mcp.server/tool"](...). Use tools.$search({ query: "<capability>" }) for ranked signatures, and tools.$describe(name) for a complete unfamiliar schema. Use Promise.all for independent calls. Nested tools retain permissions, cancellation, file changes, produced-file omissions, and route artifacts; tools requiring explicit approval are unavailable inside code and must be called directly. Unawaited calls are drained with a bounded deadline. Batch dependent browser/computer actions in one cell, pass state_id for UI-derived actions, and use sky.wait_for_change when a mutation must become observable.',
     promptSnippet:
       "Run persistent JavaScript, orchestrate allowed Stella tools, and control apps through frozen sky/browser/connect clients",
     parameters: {
@@ -128,8 +127,7 @@ export const createNodeReplTool = (
         },
         cell_id: {
           type: "string",
-          description:
-            "Generation-tagged ID returned by a running node_repl cell.",
+          description: "Generation-tagged ID returned by a running code cell.",
         },
         wait_ms: {
           type: "number",
@@ -203,3 +201,6 @@ export const createNodeReplTool = (
     },
   };
 };
+
+/** @deprecated Internal source-compatibility alias; the returned tool is `code`. */
+export const createNodeReplTool = createCodeTool;

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { initializeDesktopDatabase } from "../../kernel/storage/database-init.js";
+import { createCloudTranscriptWriter } from "../../kernel/runner/cloud-transcript-write.js";
 import { SessionStore } from "../../kernel/storage/session-store.js";
 import type { SqliteDatabase } from "../../kernel/storage/shared.js";
 import { VoiceRuntimeService } from "./service.js";
@@ -273,6 +274,12 @@ describe("voice conversation ownership", () => {
     const database = new Database(":memory:");
     initializeDesktopDatabase(database as unknown as SqliteDatabase);
     const store = new SessionStore(database as unknown as SqliteDatabase);
+    const cloudWriter = createCloudTranscriptWriter({
+      deviceId: "device-1",
+      store,
+      getAuthToken: () => null,
+      getBaseUrl: async () => null,
+    });
     const service = new VoiceRuntimeService({
       getRunner: () =>
         ({
@@ -288,11 +295,13 @@ describe("voice conversation ownership", () => {
               timestamp: Date.now(),
             }),
           notifyOrchestratorHistoryChanged: () => undefined,
-          appendCloudJournal: async () => ({
-            queued: true as const,
-            replayed: false,
-          }),
-          ...makeVoiceToolReceiptMethods(),
+          appendCloudJournal: cloudWriter.append,
+          beginVoiceToolCallReceipt: (args: Parameters<
+            SessionStore["beginVoiceToolCallReceipt"]
+          >[0]) => store.beginVoiceToolCallReceipt(args),
+          completeVoiceToolCallReceipt: (args: Parameters<
+            SessionStore["completeVoiceToolCallReceipt"]
+          >[0]) => store.completeVoiceToolCallReceipt(args),
           getVoiceOrchestratorConfig: async () => ({
             instructions: "Use tools.",
             tools: [
@@ -328,6 +337,12 @@ describe("voice conversation ownership", () => {
       .prepare("SELECT COUNT(*) AS count FROM runtime_thread_entries")
       .get() as { count: number };
     expect(row.count).toBe(0);
+    expect(store.countCloudJournalOutbox()).toBe(2);
+    const receiptRow = database
+      .prepare("SELECT COUNT(*) AS count FROM voice_tool_call_receipts")
+      .get() as { count: number };
+    expect(receiptRow.count).toBe(1);
+    cloudWriter.stop();
     database.close();
   });
 

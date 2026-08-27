@@ -23,12 +23,12 @@ import {
  * google calendar, …). On a hit, a hidden `<system-reminder>` is
  * attached to that user message:
  *
- *  - connected  → notes it's connected (agents use the node_repl
+ *  - connected  → notes it's connected (agents use the code
  *    `connect` client); nothing else
  *    to do, the orchestrator proceeds/delegates with that knowledge.
  *  - not connected → tells the orchestrator it can call the
  *    `connector_status` tool for this connector if relevant (directly, or
- *    as `tools.connector_status({...})` inside node_repl when the tool is
+ *    as `tools.connector_status({...})` inside code when the tool is
  *    demoted out of the direct list) — that call shows the inline connect
  *    card.
  *
@@ -56,19 +56,19 @@ export const MCP_HINT_REMINDER_KEY = "connector-mcp-hint";
 const MCP_KEYWORD_RE = /\bmcp\b/iu;
 
 export const MCP_HINT_REMINDER_TEXT =
-  'The user mentioned MCP. Agents can register an MCP server through the node_repl connect client — await connect.addMcp({ id, transport: { url: "…" } }) for hosted servers or transport: { command, args } for stdio — and connect.remove(id) uninstalls one (connect.documentation() has details).';
+  'The user mentioned MCP. Agents can register an MCP server through the code connect client — await connect.addMcp({ id, transport: { url: "…" } }) for hosted servers or transport: { command, args } for stdio — and connect.remove(id) uninstalls one (connect.documentation() has details).';
 
 export const buildConnectedReminderText = (
   entry: NativeConnectorCatalogEntry,
 ): string =>
-  `${entry.name} is connected (integration id \`${entry.id}\`). Agents can use it directly for this request via the node_repl connect client (await connect.call("${entry.id}", …)) — no setup needed.`;
+  `${entry.name} is connected (integration id \`${entry.id}\`). Agents can use it directly for this request via the code connect client (await connect.call("${entry.id}", …)) — no setup needed.`;
 
 export const buildOfferReminderText = (
   entry: NativeConnectorCatalogEntry,
 ): string =>
   [
     `This request may involve ${entry.name}. Stella has a ${entry.name} connector, but it is not connected yet.`,
-    `If using ${entry.name} would genuinely help, call the \`connector_status\` tool with connector "${entry.id}" (if it is not in your direct tool list, call it inside node_repl as tools.connector_status({ connector: "${entry.id}" })). That shows the user an inline connect card (the card is the consent — don't ask first) and returns the outcome: connected → delegate the task using it; declined → tell the user once they can connect it from the Store later, then proceed by other means (agents fall back to the browser).`,
+    `If using ${entry.name} would genuinely help, call the \`connector_status\` tool with connector "${entry.id}" (if it is not in your direct tool list, call it inside code as tools.connector_status({ connector: "${entry.id}" })). That shows the user an inline connect card (the card is the consent — don't ask first) and returns the outcome: connected → delegate the task using it; declined → tell the user once they can connect it from the Store later, then proceed by other means (agents fall back to the browser).`,
     `If ${entry.name} isn't actually relevant, ignore this note.`,
   ].join(" ");
 

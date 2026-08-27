@@ -240,7 +240,7 @@ export const createConnectorStatusTool = (
     };
     if (executable) {
       return {
-        result: `${entry.name} is enabled and exposes ${toolCount} executable tool${toolCount === 1 ? "" : "s"} (integration id \`${entry.id}\`, catalog: ${diagnostics.catalogSource}, provider: ${entry.provider}).${state.accountVerified ? " The provider account is connected." : " Backend account linkage is managed server-side and was not independently verified by this status check."} Agents use it inside node_repl: \`await connect.actions("${entry.id}")\` to inspect, \`await connect.call("${entry.id}", …)\` to run.`,
+        result: `${entry.name} is enabled and exposes ${toolCount} executable tool${toolCount === 1 ? "" : "s"} (integration id \`${entry.id}\`, catalog: ${diagnostics.catalogSource}, provider: ${entry.provider}).${state.accountVerified ? " The provider account is connected." : " Backend account linkage is managed server-side and was not independently verified by this status check."} Agents use it inside code: \`await connect.actions("${entry.id}")\` to inspect, \`await connect.call("${entry.id}", …)\` to run.`,
         details: { ...diagnostics, status: "executable" },
       };
     }
@@ -300,7 +300,7 @@ export const createConnectorStatusTool = (
 
     if (outcome.ok) {
       return {
-        result: `${entry.name} is now connected — the user approved the connect card. Continue the original task immediately (do not re-ask what they wanted); agents use it inside node_repl via \`await connect.call("${entry.id}", …)\`.`,
+        result: `${entry.name} is now connected — the user approved the connect card. Continue the original task immediately (do not re-ask what they wanted); agents use it inside code via \`await connect.call("${entry.id}", …)\`.`,
         details: { id: entry.id, status: "connected" },
       };
     }

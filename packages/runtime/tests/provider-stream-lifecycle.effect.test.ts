@@ -56,10 +56,14 @@ const terminalMessage = (
 const makeFakeProvider = (behavior: {
   /** Push the done terminal when the received signal aborts. */
   terminateOnAbort?: boolean;
+  emitProof?: boolean;
 }) => {
   const streams: Array<{
     stream: AssistantMessageEventStream;
     signal: AbortSignal | undefined;
+    emitProof: (proof: Parameters<
+      NonNullable<SimpleStreamOptions["onProviderRequestLifecycle"]>
+    >[0]) => void;
   }> = [];
   const streamFn = (
     _model: Model<Api>,
@@ -67,14 +71,46 @@ const makeFakeProvider = (behavior: {
     options?: SimpleStreamOptions,
   ): AssistantMessageEventStream => {
     const stream = new AssistantMessageEventStream();
-    streams.push({ stream, signal: options?.signal });
+    const emitProof = (proof: Parameters<
+      NonNullable<SimpleStreamOptions["onProviderRequestLifecycle"]>
+    >[0]) => {
+      void options?.onProviderRequestLifecycle?.(proof);
+    };
+    streams.push({ stream, signal: options?.signal, emitProof });
+    if (behavior.emitProof) {
+      const requestIdSha256 = "a".repeat(64);
+      void options?.onProviderRequestLifecycle?.({
+        phase: "request-admitted",
+        requestIdSha256,
+        physicalAttempt: 1,
+      });
+      void options?.onProviderRequestLifecycle?.({
+        phase: "request-dispatched",
+        requestIdSha256,
+        physicalAttempt: 1,
+      });
+      void options?.onProviderRequestLifecycle?.({
+        phase: "stream-open",
+        requestIdSha256,
+        physicalAttempt: 1,
+      });
+    }
     if (behavior.terminateOnAbort) {
-      const finish = () =>
+      const finish = () => {
+        if (behavior.emitProof) {
+          void options?.onProviderRequestLifecycle?.({
+            phase: "transport-closed",
+            requestIdSha256: "a".repeat(64),
+            physicalAttempt: 1,
+            outcome: "canceled",
+          });
+        }
         stream.push({
           type: "error",
           reason: "aborted",
           error: terminalMessage("aborted"),
         } as never);
+      };
       if (options?.signal?.aborted) {
         finish();
       } else {
@@ -193,6 +229,35 @@ describe("run-owned provider stream lifecycle", () => {
     expect(scope.liveCount()).toBe(0);
   });
 
+  it("emits stopped only after the adapter closes and the Effect delivery joins", async () => {
+    const scope = createSupervisedScope("test:stream-proof-join");
+    const provider = makeFakeProvider({
+      terminateOnAbort: true,
+      emitProof: true,
+    });
+    const lifecycle: Array<{ phase: string; requestIdSha256: string }> = [];
+    const wrapped = createRunScopedStreamFn({
+      base: provider.streamFn as never,
+      supervise: (resource) => scope.supervise(resource),
+      runId: "run-proof-join",
+      onLifecycle: (event) => lifecycle.push(event),
+    });
+
+    wrapped(FAKE_MODEL, FAKE_CONTEXT, {});
+    await scope.close("canceled");
+
+    expect(lifecycle.map((event) => event.phase)).toEqual([
+      "request-admitted",
+      "request-dispatched",
+      "stream-open",
+      "transport-closed",
+      "transport-joined",
+    ]);
+    expect(
+      lifecycle.every((event) => event.requestIdSha256 === "a".repeat(64)),
+    ).toBe(true);
+  });
+
   it("releases an abort-ignoring provider after the abandonment grace", async () => {
     const scope = createSupervisedScope("test:stream-abandon");
     const provider = makeFakeProvider({}); // never terminates
@@ -211,6 +276,46 @@ describe("run-owned provider stream lifecycle", () => {
     expect(elapsed).toBeGreaterThanOrEqual(40);
     expect(elapsed).toBeLessThan(PROVIDER_STREAM_ABORT_JOIN_GRACE_MS);
     expect(scope.liveCount()).toBe(0);
+  });
+
+  it("marks an abort-ignoring transport abandoned and outcome-unknown", async () => {
+    const scope = createSupervisedScope("test:stream-proof-abandon");
+    const provider = makeFakeProvider({ emitProof: true });
+    const phases: string[] = [];
+    const wrapped = createRunScopedStreamFn({
+      base: provider.streamFn as never,
+      supervise: (resource) => scope.supervise(resource),
+      runId: "run-proof-abandon",
+      abortJoinGraceMs: 25,
+      onLifecycle: (event) => phases.push(event.phase),
+    });
+
+    wrapped(FAKE_MODEL, FAKE_CONTEXT, {});
+    await scope.close("canceled");
+
+    expect(phases).toEqual([
+      "request-admitted",
+      "request-dispatched",
+      "stream-open",
+      "abandoned",
+      "outcome-unknown",
+    ]);
+    expect(phases).not.toContain("transport-joined");
+
+    provider.streams[0].emitProof({
+      phase: "transport-closed",
+      requestIdSha256: "a".repeat(64),
+      physicalAttempt: 1,
+      outcome: "canceled",
+    });
+    await flush();
+    expect(phases).toEqual([
+      "request-admitted",
+      "request-dispatched",
+      "stream-open",
+      "abandoned",
+      "outcome-unknown",
+    ]);
   });
 
   it("propagates synchronous and asynchronous provider-entry failures untouched", async () => {
@@ -233,9 +338,9 @@ describe("run-owned provider stream lifecycle", () => {
       supervise: (resource) => resources.push(resource),
       runId: "run-6",
     });
-    await expect(
-      wrappedAsync(FAKE_MODEL, FAKE_CONTEXT, {}),
-    ).rejects.toThrow(failure);
+    await expect(wrappedAsync(FAKE_MODEL, FAKE_CONTEXT, {})).rejects.toThrow(
+      failure,
+    );
     expect(resources).toHaveLength(0);
   });
 

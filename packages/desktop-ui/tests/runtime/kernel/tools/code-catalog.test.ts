@@ -131,7 +131,7 @@ describe("buildCatalogSection budgeter", () => {
       makeTool("connector_status", 40),
     ]);
     expect(section).toContain(
-      "## Demoted tools (COMPLETE — all 3 shown; call via tools.<name> inside node_repl)",
+      "## Demoted tools (COMPLETE — all 3 shown; call via tools.<name> inside code)",
     );
     expect(section).toContain("- example_connector (2 tools, 2 shown)");
     expect(section).toContain("- connector (1 tool, 1 shown)");

@@ -63,6 +63,10 @@ import type { ToolDefinition as BuiltinToolDefinition } from "./types.js";
 import { sanitizeToolError, sanitizeToolResult } from "./safety.js";
 import { describeToolCatalogEntry, searchToolCatalog } from "./code-catalog.js";
 import {
+  LEGACY_NODE_REPL_TOOL_NAME,
+  toolRequiresExplicitApproval,
+} from "./code-tool.js";
+import {
   NODE_REPL_EXCLUDED_TOOL_NAMES,
   NodeReplKernelRegistry,
 } from "../computer-use/kernel.js";
@@ -107,7 +111,13 @@ const copyCallableMetadata = (
  * at startup; extension tools are skipped with an error log so a bad extension
  * cannot shadow the intrinsic surface.
  */
-const isReservedToolName = (name: string): boolean => name.startsWith("$");
+const isReservedToolName = (name: string): boolean =>
+  name.startsWith("$") || name === LEGACY_NODE_REPL_TOOL_NAME;
+
+const reservedToolNameReason = (name: string): string =>
+  name === LEGACY_NODE_REPL_TOOL_NAME
+    ? '"node_repl" is reserved for legacy transcript compatibility; extensions must not advertise it because the public tool is "code".'
+    : '"$" names belong to code-runtime intrinsics like tools.$search and tools.$describe.';
 
 /**
  * Defense-in-depth gate consulted both at catalog filter time and at
@@ -160,6 +170,7 @@ export const collectReplSearchableTools = (
   for (const tool of tools) {
     if (NODE_REPL_EXCLUDED_TOOL_NAMES.has(tool.name)) continue;
     if (!allowedNames.has(tool.name)) continue;
+    if (toolRequiresExplicitApproval(tool.approval)) continue;
     if (!isAgentAllowedForTool(tool, context.agentType)) continue;
     if (
       isOrchestrationToolWithheld(tool.name, Boolean(context.parentAgentId))
@@ -267,8 +278,15 @@ export const createToolHost = ({
         shutdownMacStellaComputerSession(sessionId);
       }
     },
-    executeTool: (toolName, args, context, signal, onUpdate) =>
-      executeTool(toolName, args, context, signal, onUpdate),
+    executeTool: (toolName, args, context, signal, onUpdate) => {
+      const metadata = toolCatalog.get(toolName);
+      if (toolRequiresExplicitApproval(metadata?.approval)) {
+        return Promise.resolve({
+          error: `${toolName} requires explicit approval and cannot be invoked from code. Call it directly so the approval flow can run.`,
+        });
+      }
+      return executeTool(toolName, args, context, signal, onUpdate);
+    },
     // In-REPL `tools.$search` — runs host-side over the LIVE catalog so
     // connector/extension changes are visible immediately. Scope: exactly
     // the tools the calling context can invoke as `tools.<name>` in the
@@ -340,7 +358,7 @@ export const createToolHost = ({
       stellaAppDir: stateRoot,
       ...(cliBridgeSocketPath ? { cliBridgeSocketPath } : {}),
       onBridgeUnreachable: (message) =>
-        logError("node_repl connect bridge unreachable", message),
+        logError("code connect bridge unreachable", message),
     }),
   });
 
@@ -404,7 +422,7 @@ export const createToolHost = ({
   for (const tool of builtinTools) {
     if (isReservedToolName(tool.name)) {
       throw new Error(
-        `Built-in tool "${tool.name}" uses a reserved "$"-prefixed name; "$" names belong to Node REPL intrinsics like tools.$search and tools.$describe.`,
+        `Built-in tool "${tool.name}" uses a reserved name; ${reservedToolNameReason(tool.name)}`,
       );
     }
     toolCatalog.set(tool.name, copyCallableMetadata(tool));
@@ -421,7 +439,7 @@ export const createToolHost = ({
     (tool) => {
       if (isReservedToolName(tool.name)) {
         logError(
-          `Extension tool "${tool.name}" uses a reserved "$"-prefixed name; skipping registration. "$" names belong to Node REPL intrinsics like tools.$search and tools.$describe.`,
+          `Extension tool "${tool.name}" uses a reserved name; skipping registration. ${reservedToolNameReason(tool.name)}`,
         );
         return false;
       }
@@ -603,7 +621,7 @@ export const createToolHost = ({
         }
         // Demoted tools stay in the catalog: the runtime adapter
         // (`createPiTools`) decides per turn whether they surface directly or
-        // only through node_repl's catalog. Voice and other realtime surfaces
+        // only through code's catalog. Voice and other realtime surfaces
         // filter them out explicitly.
         // Swap the file-edit tool family to the agent's engine: Claude Code
         // wants Write/Edit, Stella wants apply_patch.
@@ -698,7 +716,7 @@ export const createToolHost = ({
       for (const tool of tools) {
         if (isReservedToolName(tool.name)) {
           logError(
-            `Extension tool "${tool.name}" uses a reserved "$"-prefixed name; skipping registration. "$" names belong to Node REPL intrinsics like tools.$search and tools.$describe.`,
+            `Extension tool "${tool.name}" uses a reserved name; skipping registration. ${reservedToolNameReason(tool.name)}`,
           );
           continue;
         }

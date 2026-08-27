@@ -26,6 +26,7 @@ export const layer = Layer.effect(
 
     const service = new VoiceRuntimeService({
       getRunner: () => runnerCell.get(),
+      storageMode: "cloud",
       getDeviceId: () => config.deviceId,
       emitAgentEvent: (payload) => {
         hostBus.notify(NOTIFICATION_NAMES.VOICE_AGENT_EVENT, payload);

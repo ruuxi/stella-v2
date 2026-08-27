@@ -2,8 +2,10 @@ import { Effect } from "effect";
 import {
   METHOD_NAMES,
   type RuntimeAttachmentRef,
+  type RuntimeLocalAgentCancellationRequest,
   type RuntimeLocalAgentRequest,
   type RuntimeOneShotCompletionRequest,
+  type RuntimePlacementAutomationCancellationRequest,
 } from "@stella/contracts/protocol";
 import {
   RunnerUnavailableError,
@@ -128,6 +130,9 @@ export const runsHandlers: WorkerRpcHandlers = {
           params as {
             conversationId: string;
             userPrompt: string;
+            rejectIfBusy?: boolean;
+            remoteTurnAttemptId?: string;
+            executionPlacementRunId?: string;
             agentType?: string;
             modelOverride?: string;
             toolWorkspaceRoot?: string;
@@ -140,6 +145,29 @@ export const runsHandlers: WorkerRpcHandlers = {
             };
             userMessageEventId?: string;
           },
+        ),
+      );
+    }),
+
+  [METHOD_NAMES.INTERNAL_WORKER_CANCEL_PLACEMENT_AUTOMATION]: (params) =>
+    Effect.gen(function* () {
+      const session = yield* WorkerSessions.sessionOrFail(
+        () => new RunnerUnavailableError(),
+      );
+      const payload = params as RuntimePlacementAutomationCancellationRequest;
+      const runId = typeof payload.runId === "string" ? payload.runId.trim() : "";
+      if (!runId) {
+        throw new Error(
+          "An execution-placement automation cancellation requires runId.",
+        );
+      }
+      const runner = yield* fromPromise(() =>
+        session.runner.ensureInitialized(),
+      );
+      return yield* fromPromise(() =>
+        runner.cancelPlacementAutomation(
+          runId,
+          typeof payload.reason === "string" ? payload.reason : undefined,
         ),
       );
     }),
@@ -158,6 +186,30 @@ export const runsHandlers: WorkerRpcHandlers = {
           ...payload,
           agentType: payload.agentType ?? "general",
         }),
+      );
+    }),
+
+  [METHOD_NAMES.INTERNAL_WORKER_CANCEL_BLOCKING_AGENT]: (params) =>
+    Effect.gen(function* () {
+      const session = yield* WorkerSessions.sessionOrFail(
+        () => new RunnerUnavailableError(),
+      );
+      const payload = params as RuntimeLocalAgentCancellationRequest;
+      const agentId =
+        typeof payload.agentId === "string" ? payload.agentId.trim() : "";
+      if (!agentId) {
+        throw new Error(
+          "A blocking local-agent cancellation requires agentId.",
+        );
+      }
+      const runner = yield* fromPromise(() =>
+        session.runner.ensureInitialized(),
+      );
+      return yield* fromPromise(() =>
+        runner.cancelBlockingLocalAgent(
+          agentId,
+          typeof payload.reason === "string" ? payload.reason : undefined,
+        ),
       );
     }),
 

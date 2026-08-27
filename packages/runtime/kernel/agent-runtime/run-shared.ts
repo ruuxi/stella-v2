@@ -12,6 +12,7 @@ import type { AgentMessage, ThinkingLevel } from "../agent-core/types.js";
 import { isDeepSeekV4FlashModel } from "@stella/contracts/stella-api";
 import { selectRecentByTokenBudget } from "../storage/shared.js";
 import { estimateRuntimeTokens } from "../runtime-threads.js";
+import { normalizeLegacyCodeHistory } from "../tools/code-tool.js";
 
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 128_000;
 const CONTEXT_PRUNE_RESERVE_TOKENS = 16_384;
@@ -211,7 +212,9 @@ export const buildDefaultTransformContext = (
     // LLM calls. Without re-stripping, all those screenshots stack up in
     // the prompt every subsequent turn, and a 4-step stella-computer task
     // overflows the managed runtime's payload budget.
-    const stripped = stripStaleImageBlocks(messages);
+    const stripped = stripStaleImageBlocks(
+      normalizeLegacyCodeHistory(messages),
+    );
     const totalTokens = stripped.reduce(
       (sum, message) => sum + estimateAgentMessageTokens(message),
       0,

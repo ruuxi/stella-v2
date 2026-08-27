@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createPiTools,
   extractAttachImageBlocks,
-  extractNodeReplImageBlocks,
+  extractCodeImageBlocks,
   truncateModelVisibleToolText,
 } from "@stella/runtime/kernel/agent-runtime/tool-adapters";
 import { MAX_IMAGE_BASE64_BYTES } from "@stella/runtime/ai/utils/image-payload";
@@ -315,12 +315,12 @@ App=com.apple.finder (pid 504)
   });
 });
 
-describe("typed node_repl images", () => {
+describe("typed code images", () => {
   it("materializes structured images without compatibility markers", async () => {
     const tempDir = createTempDir();
     const imgPath = writePng(tempDir, "typed node repl.png");
-    const images = await extractNodeReplImageBlocks({
-      nodeRepl: {
+    const images = await extractCodeImageBlocks({
+      code: {
         content: [
           {
             type: "image",
@@ -347,10 +347,10 @@ describe("typed node_repl images", () => {
     expect(existsSync(imgPath)).toBe(true);
   });
 
-  it("acknowledges kernel-owned screenshots by deleting them after attach", async () => {
+  it("keeps legacy nodeRepl image details readable after the rename", async () => {
     const tempDir = createTempDir();
     const imgPath = writePng(tempDir, "temporary browser screenshot.png");
-    const images = await extractNodeReplImageBlocks({
+    const images = await extractCodeImageBlocks({
       nodeRepl: {
         content: [
           {
@@ -397,23 +397,23 @@ describe("truncateModelVisibleToolText", () => {
 });
 
 describe("native tool-result persistence boundary", () => {
-  it("forwards typed node_repl images as native model content", async () => {
+  it("forwards typed code images as native model content", async () => {
     const tempDir = createTempDir();
     const imgPath = writePng(tempDir, "native typed image.png");
     const audioPath = path.join(tempDir, "typed audio.mp3");
     const [tool] = createPiTools({
-      runId: "run-node-repl-media",
-      rootRunId: "run-node-repl-media",
+      runId: "run-code-media",
+      rootRunId: "run-code-media",
       conversationId: "conversation-1",
       agentType: "general",
       deviceId: "device-1",
       stellaAppDir: tempDir,
       stellaDataDir: tempDir,
       agentDepth: 1,
-      toolsAllowlist: ["node_repl"],
+      toolsAllowlist: ["code"],
       toolCatalog: [
         {
-          name: "node_repl",
+          name: "code",
           description: "Run JavaScript",
           parameters: { type: "object", properties: {} },
         },
@@ -422,7 +422,7 @@ describe("native tool-result persistence boundary", () => {
       toolExecutor: async () => ({
         result: `[Audio output available at ${audioPath} (audio/mpeg).]`,
         details: {
-          nodeRepl: {
+          code: {
             cellId: "g1:cell",
             generation: 1,
             status: "completed",
@@ -458,7 +458,7 @@ describe("native tool-result persistence boundary", () => {
     );
     expect(existsSync(imgPath)).toBe(false);
     expect(result.details).toMatchObject({
-      nodeRepl: {
+      code: {
         content: expect.arrayContaining([
           { type: "audio", path: audioPath, mimeType: "audio/mpeg" },
         ]),
@@ -477,10 +477,10 @@ describe("native tool-result persistence boundary", () => {
       stellaAppDir: "/tmp/stella",
       stellaDataDir: "/tmp/stella",
       agentDepth: 1,
-      toolsAllowlist: ["node_repl"],
+      toolsAllowlist: ["code"],
       toolCatalog: [
         {
-          name: "node_repl",
+          name: "code",
           description: "Run JavaScript",
           parameters: { type: "object", properties: {} },
         },

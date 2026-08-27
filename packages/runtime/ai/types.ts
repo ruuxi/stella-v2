@@ -89,6 +89,21 @@ export interface ProviderResponse {
   headers: Record<string, string>;
 }
 
+/**
+ * Hash-only receipt emitted by a provider adapter for one real transport.
+ * The raw client/provider request id must never cross this callback.
+ */
+export type ProviderRequestLifecycleProof = {
+  phase:
+    | "request-admitted"
+    | "request-dispatched"
+    | "stream-open"
+    | "transport-closed";
+  requestIdSha256: string;
+  physicalAttempt: number;
+  outcome?: "completed" | "canceled" | "error";
+};
+
 export interface StreamOptions {
   temperature?: number;
   maxTokens?: number;
@@ -157,6 +172,14 @@ export interface StreamOptions {
   onResponse?: (
     response: ProviderResponse,
     model: Model<Api>,
+  ) => void | Promise<void>;
+  /**
+   * Internal diagnostic seam for real acceptance. Adapters emit only a
+   * SHA-256 identity plus lifecycle state; never raw ids, payloads, headers,
+   * prompts, or credentials.
+   */
+  onProviderRequestLifecycle?: (
+    proof: ProviderRequestLifecycleProof,
   ) => void | Promise<void>;
   /**
    * Optional callback fired before each backoff sleep when the provider

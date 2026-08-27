@@ -531,7 +531,7 @@ export const startPreparedOrchestratorRun = async (args: {
   userMessageId: string;
   cleanupRun: (runId: string, onCleanup?: () => void) => void;
   onFatalError: (error: unknown) => void;
-  onPrepared?: (prepared: PreparedOrchestratorRun) => void;
+  onPrepared?: (prepared: PreparedOrchestratorRun) => void | Promise<void>;
   onExecutionSessionCreated?: NonNullable<
     Parameters<typeof runOrchestratorTurn>[0]["onExecutionSessionCreated"]
   >;
@@ -555,7 +555,16 @@ export const startPreparedOrchestratorRun = async (args: {
     userMessageId: args.userMessageId,
   });
 
-  args.onPrepared?.(prepared);
+  try {
+    await args.onPrepared?.(prepared);
+    if (prepared.abortController.signal.aborted) {
+      throw new Error("Run canceled before execution.");
+    }
+  } catch (error) {
+    ensureRunCoordinator(args.context).releaseRun(args.runId);
+    args.context.state.supervisor.discardRun(args.runId);
+    throw error;
+  }
 
   launchPreparedOrchestratorRun({
     context: args.context,

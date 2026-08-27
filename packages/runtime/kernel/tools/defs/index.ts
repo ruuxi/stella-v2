@@ -33,7 +33,7 @@ import { createHtmlTool } from "./html.js";
 import { createImageGenTool } from "./image-gen.js";
 import { createMapTool } from "./map.js";
 import { createMultiToolUseParallelTool } from "./multi-tool-use-parallel.js";
-import { createNodeReplTool } from "./node-repl.js";
+import { createCodeTool } from "./code.js";
 import { readTool } from "./read.js";
 import { createRememberTool } from "./remember.js";
 import { createRequestCredentialTool } from "./request-credential.js";
@@ -109,7 +109,7 @@ export const buildBuiltinTools = (
   tools.push(writeTool);
   tools.push(editTool);
   tools.push(
-    createNodeReplTool({
+    createCodeTool({
       registry: options.nodeReplRegistry,
     }),
   );

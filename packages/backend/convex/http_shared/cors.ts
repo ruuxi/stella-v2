@@ -1,5 +1,11 @@
 import type { HttpRouter } from "convex/server";
 import { httpAction } from "../_generated/server";
+import {
+  DEV_APPS_HOST_ORIGIN,
+  getTrustedDevAppsHostOrigin,
+  resolvesToDevAppsHostOrigin,
+  type DevAppsHostTrustEnv,
+} from "../lib/dev_apps_host_origin";
 
 const DEFAULT_CORS_ALLOWED_ORIGINS = [
   "http://localhost:57314",
@@ -16,24 +22,43 @@ const parseCorsOriginList = (rawValue: string | undefined): string[] =>
     .map((value) => value.trim())
     .filter((value) => value.length > 0);
 
-const CORS_ALLOWED_ORIGINS = (() => {
+type CorsOriginEnv = DevAppsHostTrustEnv &
+  Readonly<{
+    SITE_URL?: string;
+    CORS_ALLOWED_ORIGINS?: string;
+  }>;
+
+export const buildCorsAllowedOrigins = (env: CorsOriginEnv): Set<string> => {
   const configured = new Set<string>(DEFAULT_CORS_ALLOWED_ORIGINS);
-  const siteUrl = process.env.SITE_URL;
-  if (siteUrl) {
-    configured.add(siteUrl);
-  }
-  const extraOrigins = parseCorsOriginList(process.env.CORS_ALLOWED_ORIGINS);
-  for (const origin of extraOrigins) {
+  const trustedDevAppsHostOrigin = getTrustedDevAppsHostOrigin(env);
+  const addConfiguredOrigin = (origin: string | undefined) => {
+    if (!origin) return;
+    if (
+      resolvesToDevAppsHostOrigin(origin) &&
+      trustedDevAppsHostOrigin !== DEV_APPS_HOST_ORIGIN
+    ) {
+      return;
+    }
     configured.add(origin);
+  };
+  const siteUrl = env.SITE_URL;
+  addConfiguredOrigin(siteUrl);
+  const extraOrigins = parseCorsOriginList(env.CORS_ALLOWED_ORIGINS);
+  for (const origin of extraOrigins) {
+    addConfiguredOrigin(origin);
   }
+  addConfiguredOrigin(trustedDevAppsHostOrigin ?? undefined);
   return configured;
-})();
+};
+
+const CORS_ALLOWED_ORIGINS = buildCorsAllowedOrigins(process.env);
 
 const isAllowedCorsOrigin = (origin: string | null) => {
   if (!origin) return true;
   if (origin.match(/^http:\/\/localhost(:\d+)?$/)) return true;
   if (origin.match(/^http:\/\/127\.0\.0\.1(:\d+)?$/)) return true;
-  if (origin.match(/^https:\/\/t-[a-z0-9]+\.stellatunnel\.com$/)) return true;
+  if (origin.match(/^https:\/\/t-[a-z0-9]+(?:-[a-z0-9]+)+\.stellatunnel\.com$/))
+    return true;
   return CORS_ALLOWED_ORIGINS.has(origin);
 };
 
@@ -41,7 +66,7 @@ export const getCorsHeaders = (origin: string | null) => {
   const headers: Record<string, string> = {
     "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
     "Access-Control-Allow-Headers":
-      "Content-Type, Authorization, Idempotency-Key, X-Stella-Request-Hash, X-Device-ID, X-Stella-Agent-Type, X-Stella-Voice-Session-ID, X-Stella-Mobile-Device-Id, X-Stella-Mobile-Pair-Secret, X-Stella-Mobile-Pair-Proof, X-Stella-Mobile-Pair-Proof-Issued-At, X-Stella-Mobile-Pair-Proof-Challenge, X-Stella-Mobile-Public-Key, X-Stella-Bridge-Session-Id, X-Stella-Bridge-Session-Secret, X-Stella-Bridge-Challenge-Id, X-Stella-Bridge-Encrypted",
+      "Content-Type, Authorization, Idempotency-Key, X-Stella-Request-Hash, X-Device-ID, X-Stella-Agent-Type, X-Stella-Relay-Request-Id, X-Stella-Voice-Session-ID, X-Stella-Mobile-Device-Id, X-Stella-Mobile-Pair-Secret, X-Stella-Mobile-Pair-Proof, X-Stella-Mobile-Pair-Proof-Issued-At, X-Stella-Mobile-Pair-Proof-Challenge, X-Stella-Mobile-Public-Key, X-Stella-Bridge-Session-Id, X-Stella-Bridge-Session-Secret, X-Stella-Bridge-Challenge-Id, X-Stella-Bridge-Encrypted",
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Max-Age": "86400",
     "Permissions-Policy": PERMISSIONS_POLICY,

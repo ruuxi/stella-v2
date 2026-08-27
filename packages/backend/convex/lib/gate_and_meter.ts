@@ -22,22 +22,23 @@
  * 402 capability), so a route replaces ~15 lines of serial checks with one
  * call.
  *
- * `meterManagedUsage` centralises post-response accounting. Convex requires the
- * scheduling of an off-path write to be awaited to be durable (a dangling,
- * un-awaited promise "might or might not complete" — Convex docs), and this is
- * a paid-by-the-second surface, so we do NOT fire-and-forget the billing write
- * (that would risk silently under-billing). Instead the write is committed via
- * the scheduler exactly as before, but wrapped so a metering failure can never
- * turn a successful transcription/synthesis into an error response.
+ * Billing deliberately does not live in this gate module. Every paid physical
+ * provider attempt owns one durable receipt, preventing an admitted request
+ * from escaping or duplicating its charge across a crash or lifecycle fence.
  */
 import { v } from "convex/values";
-import { internalMutation, type ActionCtx, type MutationCtx } from "../_generated/server";
+import {
+  internalMutation,
+  type ActionCtx,
+  type MutationCtx,
+} from "../_generated/server";
 import { internal } from "../_generated/api";
 import {
   runEnforceManagedUsageLimit,
   runResolveManagedModelAccess,
   type ManagedModelAccessResult,
 } from "../billing";
+import { assertOwnerMigrationWriteAllowed } from "../auth";
 import { runConsumeWebhookRateLimit } from "../rate_limits";
 import {
   buildCapabilityDenial,
@@ -50,7 +51,6 @@ import {
 import { errorResponse, withCors } from "../http_shared/cors";
 import { rateLimitResponse } from "../http_shared/webhook_controls";
 import { capabilityRequiredResponse } from "../http_shared/capability";
-import { scheduleManagedUsage, type ManagedUsageLogArgs } from "./managed_billing";
 
 export type ManagedGateStep = "rate" | "capability" | "usage";
 
@@ -59,9 +59,77 @@ type GateFailure =
   | { ok: false; gate: "capability"; denial: CapabilityDenial }
   | { ok: false; gate: "usage"; message: string; retryAfterMs: number };
 
-type GateSuccess = { ok: true; access: ManagedModelAccessResult | null };
+type GateSuccess = {
+  ok: true;
+  access: ManagedModelAccessResult | null;
+  /** Captured in the same transaction as the managed gate. */
+  ownerGeneration: string;
+};
 
 export type ManagedGateResult = GateSuccess | GateFailure;
+
+const managedModelAccessResultValidator = v.object({
+  allowed: v.boolean(),
+  plan: v.union(v.literal("free"), v.literal("go"), v.literal("pro")),
+  unlimited: v.boolean(),
+  downgraded: v.boolean(),
+  modelAudience: v.union(
+    v.literal("anonymous"),
+    v.literal("free"),
+    v.literal("go"),
+    v.literal("pro"),
+    v.literal("go_fallback"),
+    v.literal("pro_fallback"),
+  ),
+  retryAfterMs: v.number(),
+  message: v.string(),
+});
+
+const managedGateResultValidator = v.union(
+  v.object({
+    ok: v.literal(true),
+    access: v.union(v.null(), managedModelAccessResultValidator),
+    ownerGeneration: v.string(),
+  }),
+  v.object({
+    ok: v.literal(false),
+    gate: v.literal("rate"),
+    retryAfterMs: v.number(),
+  }),
+  v.object({
+    ok: v.literal(false),
+    gate: v.literal("capability"),
+    denial: v.object({
+      code: v.literal("CAPABILITY_REQUIRED"),
+      capability: v.union(
+        v.literal("image_generation"),
+        v.literal("video_generation"),
+        v.literal("audio_generation"),
+        v.literal("three_d_generation"),
+      ),
+      audience: v.union(
+        v.literal("anonymous"),
+        v.literal("free"),
+        v.literal("go"),
+        v.literal("pro"),
+      ),
+      minimumPlan: v.union(
+        v.null(),
+        v.literal("anonymous"),
+        v.literal("free"),
+        v.literal("go"),
+        v.literal("pro"),
+      ),
+      message: v.string(),
+    }),
+  }),
+  v.object({
+    ok: v.literal(false),
+    gate: v.literal("usage"),
+    message: v.string(),
+    retryAfterMs: v.number(),
+  }),
+);
 
 // Mirror of `capabilityAudienceFor` in `lib/managed_billing.ts`: fail closed
 // onto the weakest plan for an audience we cannot place, rather than handing
@@ -100,12 +168,20 @@ export const enforceManagedGate = internalMutation({
       }),
     ),
   },
+  returns: managedGateResultValidator,
   handler: async (ctx: MutationCtx, args): Promise<ManagedGateResult> => {
+    // Capture the lifecycle generation in the gate transaction. The action
+    // carries this through final provider dispatch and asynchronous metering,
+    // so an account reset cannot be followed by a delayed write into its
+    // reopened generation.
+    const { generation: ownerGeneration } =
+      await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
     let access: ManagedModelAccessResult | null = null;
     const ensureAccess = async (): Promise<ManagedModelAccessResult> => {
       if (!access) {
         access = await runResolveManagedModelAccess(ctx, {
           ownerId: args.ownerId,
+          ownerGeneration,
           ...(args.isAnonymous !== undefined
             ? { isAnonymous: args.isAnonymous }
             : {}),
@@ -137,8 +213,12 @@ export const enforceManagedGate = internalMutation({
         if (!args.usage) continue;
         const usage = await runEnforceManagedUsageLimit(ctx, {
           ownerId: args.ownerId,
+          ownerGeneration,
           ...(args.usage.minimumRemainingMicroCents !== undefined
-            ? { minimumRemainingMicroCents: args.usage.minimumRemainingMicroCents }
+            ? {
+                minimumRemainingMicroCents:
+                  args.usage.minimumRemainingMicroCents,
+              }
             : {}),
         });
         if (!usage.allowed) {
@@ -152,7 +232,7 @@ export const enforceManagedGate = internalMutation({
       }
     }
 
-    return { ok: true, access };
+    return { ok: true, access, ownerGeneration };
   },
 });
 
@@ -174,7 +254,11 @@ export type ManagedGateSpec = {
 };
 
 export type ManagedGateOutcome =
-  | { ok: true; access: ManagedModelAccessResult | null }
+  | {
+      ok: true;
+      access: ManagedModelAccessResult | null;
+      ownerGeneration: string;
+    }
   | { ok: false; response: Response };
 
 /**
@@ -189,16 +273,27 @@ export const runManagedGate = async (
   origin: string | null,
   spec: ManagedGateSpec,
 ): Promise<ManagedGateOutcome> => {
-  const result = await ctx.runMutation(internal.lib.gate_and_meter.enforceManagedGate, {
-    ownerId: spec.ownerId,
-    order: spec.order,
-    ...(spec.isAnonymous !== undefined ? { isAnonymous: spec.isAnonymous } : {}),
-    ...(spec.rateLimit ? { rateLimit: spec.rateLimit } : {}),
-    ...(spec.capability ? { capability: spec.capability } : {}),
-    ...(spec.usage ? { usage: spec.usage } : {}),
-  });
+  const result = await ctx.runMutation(
+    internal.lib.gate_and_meter.enforceManagedGate,
+    {
+      ownerId: spec.ownerId,
+      order: spec.order,
+      ...(spec.isAnonymous !== undefined
+        ? { isAnonymous: spec.isAnonymous }
+        : {}),
+      ...(spec.rateLimit ? { rateLimit: spec.rateLimit } : {}),
+      ...(spec.capability ? { capability: spec.capability } : {}),
+      ...(spec.usage ? { usage: spec.usage } : {}),
+    },
+  );
 
-  if (result.ok) return { ok: true, access: result.access };
+  if (result.ok) {
+    return {
+      ok: true,
+      access: result.access,
+      ownerGeneration: result.ownerGeneration,
+    };
+  }
 
   switch (result.gate) {
     case "rate":
@@ -216,30 +311,14 @@ export const runManagedGate = async (
         ),
       };
     case "usage":
-      return { ok: false, response: errorResponse(429, result.message, origin) };
-  }
-};
-
-/**
- * Commit managed usage accounting off the response path.
- *
- * The scheduler enqueue is still awaited (Convex only guarantees a scheduled
- * write once its scheduling promise resolves), so the accounting is durable —
- * this is a paid surface and we must never drop a billing write. What this
- * wrapper adds is isolation: a metering failure is logged and swallowed rather
- * than propagated, so it can never convert a successful upstream response into
- * an error for the user.
- */
-export const meterManagedUsage = async (
-  ctx: { scheduler: ActionCtx["scheduler"] },
-  args: ManagedUsageLogArgs,
-): Promise<void> => {
-  try {
-    await scheduleManagedUsage(ctx, args);
-  } catch (error) {
-    console.error(
-      "[gate_and_meter] Failed to schedule managed usage accounting:",
-      (error as Error).message,
-    );
+      return {
+        ok: false,
+        response: errorResponse(429, result.message, origin),
+      };
+    default:
+      return {
+        ok: false,
+        response: errorResponse(500, "Managed access gate failed.", origin),
+      };
   }
 };

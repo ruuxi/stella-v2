@@ -1,6 +1,8 @@
-import type { HttpRouter } from "convex/server";
+import { makeFunctionReference, type HttpRouter } from "convex/server";
 import { httpAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { requireUserIdentity } from "../auth";
+import { assertOwnerDataAccessActive } from "../owner_lifecycle";
 import {
   errorResponse,
   handleCorsRequest,
@@ -19,6 +21,7 @@ import {
   MAX_INTEGRATION_ACTION_SCHEMA_BYTES,
   MAX_PUBLISHED_INTEGRATION_ACTIONS,
 } from "../lib/native_integration_limits";
+import { composioUserIdForOwner } from "../lib/composio_identity";
 
 type StoreIntegrationRecord = {
   id?: unknown;
@@ -54,14 +57,239 @@ type PublishedIntegrationAction = {
   name: string;
   title?: string;
   description?: string;
+  annotations?: {
+    readOnlyHint: boolean;
+    destructiveHint: boolean;
+    idempotentHint: boolean;
+    source: "composio_tool_tags";
+  };
+  codeModePolicy?: {
+    effect: "read";
+    requiresApproval: false;
+    policyVersion: string;
+    toolkitVersion: string;
+    reviewedInputSchemaJson: string;
+    source: "stella_admin";
+  };
   inputSchemaJson: string;
 };
 
 const SAFE_ACTION_NAME = /^[A-Z][A-Z0-9_]{1,127}$/u;
+const SAFE_NATIVE_RUN_REQUEST_ID = /^[A-Za-z0-9._:-]{8,128}$/u;
+const SAFE_CODE_POLICY_VERSION = /^[A-Za-z0-9._:-]{1,128}$/u;
+const SAFE_COMPOSIO_TOOLKIT_VERSION = /^\d{8}_\d{2}$/u;
 const MAX_ADMIN_INTEGRATION_BODY_BYTES = 4 * 1024 * 1024;
+const MAX_ADMIN_COMPOSIO_RESOLUTION_BODY_BYTES = 16 * 1024;
 const MAX_NATIVE_INTEGRATION_REQUEST_BODY_BYTES = 1024 * 1024;
 const MAX_COMPOSIO_RESPONSE_BYTES = 2 * 1024 * 1024;
 const COMPOSIO_REQUEST_TIMEOUT_MS = 30_000;
+
+type ComposioProvisioningReservation =
+  | {
+      acquired: true;
+      status: "reserved";
+      providerDeadlineAt: number;
+      quiescentAfterAt: number;
+    }
+  | { acquired: false; status: "busy" | "outcome_unknown" }
+  | { acquired: false; status: "bound"; sessionId: string };
+
+const reserveComposioSessionRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    ownerGeneration: string;
+    integrationId: string;
+    toolkit: string;
+    composioUserId: string;
+    attemptId: string;
+    leaseId: string;
+    now: number;
+  },
+  ComposioProvisioningReservation
+>("composio_session_dispatch:reserveComposioSessionProvisioningInternal");
+const markComposioSessionRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    ownerGeneration: string;
+    attemptId: string;
+    leaseId: string;
+    now: number;
+  },
+  | { started: false }
+  | { started: true; providerDeadlineAt: number; quiescentAfterAt: number }
+>(
+  "composio_session_dispatch:markComposioSessionProvisioningMayHaveStartedInternal",
+);
+const recordComposioSessionLocatorRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    ownerGeneration: string;
+    attemptId: string;
+    leaseId: string;
+    sessionId: string;
+    now: number;
+  },
+  boolean
+>("composio_session_dispatch:recordComposioSessionProvisioningLocatorInternal");
+const bindComposioSessionRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    ownerGeneration: string;
+    integrationId: string;
+    toolkit: string;
+    composioUserId: string;
+    attemptId: string;
+    leaseId: string;
+    sessionId: string;
+    now: number;
+  },
+  boolean
+>("composio_session_dispatch:bindComposioSessionProvisioningInternal");
+const settleComposioSessionNotCreatedRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    ownerGeneration: string;
+    attemptId: string;
+    leaseId: string;
+  },
+  boolean
+>(
+  "composio_session_dispatch:settleComposioSessionProvisioningNotCreatedInternal",
+);
+const markComposioSessionUnknownRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    ownerGeneration: string;
+    attemptId: string;
+    leaseId: string;
+    now: number;
+    reason: string;
+  },
+  boolean
+>(
+  "composio_session_dispatch:markComposioSessionProvisioningOutcomeUnknownInternal",
+);
+const requestComposioSessionCleanupRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    ownerGeneration: string;
+    attemptId: string;
+    leaseId: string;
+    sessionId: string;
+    now: number;
+    reason: string;
+  },
+  boolean
+>(
+  "composio_session_dispatch:requestComposioSessionProvisioningCleanupInternal",
+);
+const resolveComposioSessionOutcomeRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    ownerGeneration: string;
+    integrationId: string;
+    toolkit: string;
+    composioUserId: string;
+    attemptId: string;
+    leaseId: string;
+    resolution:
+      | { kind: "recovered_session"; sessionId: string }
+      | { kind: "provider_confirmed_not_created" };
+    resolvedBy: string;
+    evidence: string;
+    now: number;
+  },
+  {
+    resolution: "recovered_session" | "provider_confirmed_not_created";
+    replayed: boolean;
+  }
+>(
+  "composio_session_dispatch:resolveComposioSessionProvisioningOutcomeInternal",
+);
+const resolveComposioPrincipalRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    provider: string;
+    sessionId: string;
+    composioUserId: string;
+    resolutionId: string;
+    resolvedBy: string;
+    evidence: string;
+    now: number;
+  },
+  { replayed: boolean }
+>("composio_purge_store:resolveOwnerComposioPrincipalInternal");
+
+const beginComposioNativeRunRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    ownerGeneration: string;
+    integrationId: string;
+    toolkit: string;
+    action: string;
+    revision: string;
+    expectedSessionId: string;
+    requestId: string;
+    fingerprint: string;
+    leaseId: string;
+    now: number;
+  },
+  { sessionId: string; providerDeadlineAt: number; leaseExpiresAt: number }
+>("composio_native_dispatch:beginComposioNativeRunInternal");
+
+const claimComposioNativeRunExecuteRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    ownerGeneration: string;
+    integrationId: string;
+    toolkit: string;
+    action: string;
+    revision: string;
+    expectedSessionId: string;
+    requestId: string;
+    fingerprint: string;
+    leaseId: string;
+    now: number;
+  },
+  { providerDeadlineAt: number; leaseExpiresAt: number }
+>("composio_native_dispatch:claimComposioNativeRunExecuteInternal");
+
+const settleComposioNativeRunRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    ownerGeneration: string;
+    requestId: string;
+    fingerprint: string;
+    leaseId: string;
+    outcome: "succeeded" | "failed" | "unknown";
+    now: number;
+  },
+  boolean
+>("composio_native_dispatch:settleComposioNativeRunInternal");
+
+export class ComposioUpstreamHttpError extends Error {
+  readonly status: number;
+
+  constructor(status: number) {
+    super(`Composio request failed (${status}).`);
+    this.name = "ComposioUpstreamHttpError";
+    this.status = status;
+  }
+}
+
+class ComposioDispatchDeadlineExpiredError extends Error {}
 
 const readString = (value: unknown) =>
   typeof value === "string" && value.trim() ? value.trim() : null;
@@ -73,6 +301,19 @@ const parseUnknownBody = async (request: Request) => {
       MAX_NATIVE_INTEGRATION_REQUEST_BODY_BYTES,
     );
     return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+};
+
+const requireActiveIntegrationIdentity = async (ctx: ActionCtx) => {
+  try {
+    const identity = await requireUserIdentity(ctx);
+    const { generation } = await assertOwnerDataAccessActive(
+      ctx,
+      identity.tokenIdentifier,
+    );
+    return { identity, ownerGeneration: generation };
   } catch {
     return null;
   }
@@ -91,9 +332,14 @@ const optionalTrimmedString = (value: unknown, maxLength: number) => {
 
 export const normalizePublishedIntegrationActions = (
   value: unknown,
-): { ok: true; actions: PublishedIntegrationAction[] } | { ok: false; error: string } => {
+):
+  | { ok: true; actions: PublishedIntegrationAction[] }
+  | { ok: false; error: string } => {
   if (!Array.isArray(value) || value.length === 0) {
-    return { ok: false, error: "At least one schema-bearing action is required." };
+    return {
+      ok: false,
+      error: "At least one schema-bearing action is required.",
+    };
   }
   if (value.length > MAX_PUBLISHED_INTEGRATION_ACTIONS) {
     return {
@@ -106,7 +352,10 @@ export const normalizePublishedIntegrationActions = (
   const actions: PublishedIntegrationAction[] = [];
   for (const raw of value) {
     if (!isJsonObject(raw)) {
-      return { ok: false, error: "Every integration action must be an object." };
+      return {
+        ok: false,
+        error: "Every integration action must be an object.",
+      };
     }
     const name = readString(raw.name);
     if (!name || !SAFE_ACTION_NAME.test(name) || names.has(name)) {
@@ -118,7 +367,10 @@ export const normalizePublishedIntegrationActions = (
     const title = optionalTrimmedString(raw.title, 512);
     const description = optionalTrimmedString(raw.description, 16_384);
     if (title === null || description === null) {
-      return { ok: false, error: `Integration action text is invalid: ${name}.` };
+      return {
+        ok: false,
+        error: `Integration action text is invalid: ${name}.`,
+      };
     }
     if (!isJsonObject(raw.inputSchema)) {
       return {
@@ -126,18 +378,87 @@ export const normalizePublishedIntegrationActions = (
         error: `Integration action is missing an object input schema: ${name}.`,
       };
     }
+    let annotations: PublishedIntegrationAction["annotations"];
+    if (raw.annotations !== undefined) {
+      if (
+        !isJsonObject(raw.annotations) ||
+        raw.annotations.source !== "composio_tool_tags" ||
+        typeof raw.annotations.readOnlyHint !== "boolean" ||
+        typeof raw.annotations.destructiveHint !== "boolean" ||
+        typeof raw.annotations.idempotentHint !== "boolean"
+      ) {
+        return {
+          ok: false,
+          error: `Integration action annotations are invalid: ${name}.`,
+        };
+      }
+      annotations = {
+        readOnlyHint: raw.annotations.readOnlyHint,
+        destructiveHint: raw.annotations.destructiveHint,
+        idempotentHint: raw.annotations.idempotentHint,
+        source: "composio_tool_tags",
+      };
+    }
+    let codeModePolicy: PublishedIntegrationAction["codeModePolicy"];
+    if (raw.codeModePolicy !== undefined) {
+      if (
+        !isJsonObject(raw.codeModePolicy) ||
+        raw.codeModePolicy.effect !== "read" ||
+        raw.codeModePolicy.requiresApproval !== false ||
+        raw.codeModePolicy.source !== "stella_admin" ||
+        typeof raw.codeModePolicy.policyVersion !== "string" ||
+        !SAFE_CODE_POLICY_VERSION.test(raw.codeModePolicy.policyVersion) ||
+        typeof raw.codeModePolicy.toolkitVersion !== "string" ||
+        !SAFE_COMPOSIO_TOOLKIT_VERSION.test(
+          raw.codeModePolicy.toolkitVersion,
+        ) ||
+        !isJsonObject(raw.codeModePolicy.reviewedInputSchema) ||
+        annotations?.readOnlyHint !== true ||
+        annotations.destructiveHint !== false
+      ) {
+        return {
+          ok: false,
+          error: `Integration Code policy is invalid: ${name}.`,
+        };
+      }
+      const reviewedInputSchemaJson = JSON.stringify(
+        raw.codeModePolicy.reviewedInputSchema,
+      );
+      if (
+        new TextEncoder().encode(reviewedInputSchemaJson).byteLength >
+        MAX_INTEGRATION_ACTION_SCHEMA_BYTES
+      ) {
+        return {
+          ok: false,
+          error: `Reviewed Integration Code schema is too large: ${name}.`,
+        };
+      }
+      codeModePolicy = {
+        effect: "read",
+        requiresApproval: false,
+        policyVersion: raw.codeModePolicy.policyVersion,
+        toolkitVersion: raw.codeModePolicy.toolkitVersion,
+        reviewedInputSchemaJson,
+        source: "stella_admin",
+      };
+    }
     const inputSchemaJson = JSON.stringify(raw.inputSchema);
     if (
       new TextEncoder().encode(inputSchemaJson).byteLength >
       MAX_INTEGRATION_ACTION_SCHEMA_BYTES
     ) {
-      return { ok: false, error: `Integration action schema is too large: ${name}.` };
+      return {
+        ok: false,
+        error: `Integration action schema is too large: ${name}.`,
+      };
     }
     names.add(name);
     actions.push({
       name,
       ...(title ? { title } : {}),
       ...(description ? { description } : {}),
+      ...(annotations ? { annotations } : {}),
+      ...(codeModePolicy ? { codeModePolicy } : {}),
       inputSchemaJson,
     });
   }
@@ -163,7 +484,9 @@ const readResponseTextBounded = async (
 ): Promise<string> => {
   const contentLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-    await response.body?.cancel("response byte limit exceeded").catch(() => undefined);
+    await response.body
+      ?.cancel("response byte limit exceeded")
+      .catch(() => undefined);
     throw new Error("Composio response exceeded the safe size limit.");
   }
   if (!response.body) return "";
@@ -176,7 +499,9 @@ const readResponseTextBounded = async (
       if (done) break;
       total += value.byteLength;
       if (total > maxBytes) {
-        await reader.cancel("response byte limit exceeded").catch(() => undefined);
+        await reader
+          .cancel("response byte limit exceeded")
+          .catch(() => undefined);
         throw new Error("Composio response exceeded the safe size limit.");
       }
       chunks.push(value);
@@ -203,12 +528,13 @@ const sha256Hex = async (value: string): Promise<string> => {
     .join("");
 };
 
-const readComposioApiKey = () =>
-  process.env.COMPOSIO_API_KEY?.trim() || null;
+const readComposioApiKey = () => process.env.COMPOSIO_API_KEY?.trim() || null;
 
 const readComposioBaseUrl = () =>
-  (process.env.COMPOSIO_TOOL_ROUTER_URL?.trim() ||
-    "https://backend.composio.dev/api/v3.1/tool_router").replace(/\/+$/u, "");
+  (
+    process.env.COMPOSIO_TOOL_ROUTER_URL?.trim() ||
+    "https://backend.composio.dev/api/v3.1/tool_router"
+  ).replace(/\/+$/u, "");
 
 const readComposioConnector = (record: StoreIntegrationRecord) => {
   const connector =
@@ -226,7 +552,7 @@ const readComposioConnector = (record: StoreIntegrationRecord) => {
   };
 };
 
-const requireComposioConfig = () => {
+export const requireComposioConfig = () => {
   const apiKey = readComposioApiKey();
   if (!apiKey) {
     return {
@@ -243,10 +569,11 @@ const requireComposioConfig = () => {
   };
 };
 
-const composioFetch = async (
+export const composioFetch = async (
   path: string,
   init: RequestInit,
   config: { apiKey: string; baseUrl: string },
+  options?: { maxResponseBytes?: number; signal?: AbortSignal },
 ) => {
   const controller = new AbortController();
   const timeout = setTimeout(
@@ -254,8 +581,12 @@ const composioFetch = async (
     COMPOSIO_REQUEST_TIMEOUT_MS,
   );
   try {
+    const signal = options?.signal
+      ? AbortSignal.any([controller.signal, options.signal])
+      : controller.signal;
     const response = await fetch(`${config.baseUrl}${path}`, {
       ...init,
+      redirect: "error",
       headers: {
         accept: "application/json",
         "content-type": "application/json",
@@ -263,19 +594,46 @@ const composioFetch = async (
         "x-consumer-api-key": config.apiKey,
         ...(init.headers ?? {}),
       },
-      signal: controller.signal,
+      signal,
     });
     const text = await readResponseTextBounded(
       response,
-      MAX_COMPOSIO_RESPONSE_BYTES,
+      Math.min(
+        Math.max(options?.maxResponseBytes ?? MAX_COMPOSIO_RESPONSE_BYTES, 1),
+        MAX_COMPOSIO_RESPONSE_BYTES,
+      ),
     );
     const payload = parseJsonObject(text) ?? (text ? { text } : {});
     if (!response.ok) {
       // Never reflect or log an upstream response body: provider errors can
       // contain request arguments or credentials.
-      throw new Error(`Composio request failed (${response.status}).`);
+      throw new ComposioUpstreamHttpError(response.status);
     }
     return payload;
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
+export const runComposioProviderCallBeforeDeadline = async <T>(args: {
+  providerDeadlineAt: number;
+  run: (signal: AbortSignal) => Promise<T>;
+  now?: () => number;
+}): Promise<{ started: false } | { started: true; value: T }> => {
+  const remainingMs = args.providerDeadlineAt - (args.now ?? Date.now)();
+  if (remainingMs <= 0) return { started: false };
+
+  // `run` is invoked synchronously after this deadline check, before this
+  // function yields. For fetch callers that means the provider request is
+  // either started under the persisted receipt deadline or is not started at
+  // all; a resumed action never receives a fresh timeout budget.
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort("Composio provider dispatch expired."),
+    remainingMs,
+  );
+  try {
+    return { started: true, value: await args.run(controller.signal) };
   } finally {
     clearTimeout(timeout);
   }
@@ -289,17 +647,59 @@ export const buildComposioSessionBody = (args: {
   toolkits: { enable: [args.toolkit] },
 });
 
-export const composioSessionIdFromPayload = (payload: Record<string, unknown>) =>
+export const composioSessionIdFromPayload = (
+  payload: Record<string, unknown>,
+) =>
   readString((payload as ComposioSessionResponse).id) ??
   readString((payload as ComposioSessionResponse).sessionId) ??
   readString((payload as ComposioSessionResponse).session_id) ??
   readString(
     payload.session && typeof payload.session === "object"
-      ? (payload.session as Record<string, unknown>).id ??
+      ? ((payload.session as Record<string, unknown>).id ??
           (payload.session as Record<string, unknown>).sessionId ??
-          (payload.session as Record<string, unknown>).session_id
+          (payload.session as Record<string, unknown>).session_id)
       : null,
   );
+
+export const composioSessionUserIdFromPayload = (
+  payload: Record<string, unknown>,
+) => {
+  const session = isJsonObject(payload.session) ? payload.session : null;
+  const data = isJsonObject(payload.data) ? payload.data : null;
+  const config = isJsonObject(payload.config)
+    ? payload.config
+    : isJsonObject(session?.config)
+      ? session.config
+      : isJsonObject(data?.config)
+        ? data.config
+        : null;
+  return (
+    readString(config?.user_id) ??
+    readString(config?.userId) ??
+    readString(payload.user_id) ??
+    readString(payload.userId) ??
+    readString(session?.user_id) ??
+    readString(session?.userId) ??
+    readString(data?.user_id) ??
+    readString(data?.userId)
+  );
+};
+
+/**
+ * Direct action execution is used for Code-safe calls so Stella can bind the
+ * reviewed action to an exact dated toolkit version. Derive the sibling v3.1
+ * API origin without accepting a model-controlled URL or arbitrary redirect.
+ */
+export const composioToolsApiBaseUrl = (toolRouterBaseUrl: string): string => {
+  const url = new URL(toolRouterBaseUrl);
+  if (!url.pathname.endsWith("/tool_router")) {
+    throw new Error("Composio Tool Router URL has an unsupported shape.");
+  }
+  url.pathname = url.pathname.slice(0, -"/tool_router".length);
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/$/u, "");
+};
 
 /**
  * Whether a tool-router `GET /session/{id}/toolkits` payload shows the
@@ -349,7 +749,8 @@ export const composioToolkitConnectedFromPayload = (
         : null;
     if (!connection) return false;
     const connectedAccount =
-      connection.connectedAccount && typeof connection.connectedAccount === "object"
+      connection.connectedAccount &&
+      typeof connection.connectedAccount === "object"
         ? (connection.connectedAccount as Record<string, unknown>)
         : connection.connected_account &&
             typeof connection.connected_account === "object"
@@ -369,10 +770,10 @@ export const composioLinkFromPayload = (payload: Record<string, unknown>) =>
   readString((payload as ComposioLinkResponse).redirect_url) ??
   readString(
     payload.data && typeof payload.data === "object"
-      ? (payload.data as Record<string, unknown>).link ??
+      ? ((payload.data as Record<string, unknown>).link ??
           (payload.data as Record<string, unknown>).url ??
           (payload.data as Record<string, unknown>).redirectUrl ??
-          (payload.data as Record<string, unknown>).redirect_url
+          (payload.data as Record<string, unknown>).redirect_url)
       : null,
   );
 
@@ -380,6 +781,7 @@ const ensureComposioSession = async (
   ctx: ActionCtx,
   args: {
     ownerId: string;
+    ownerGeneration: string;
     integrationId: string;
     toolkit: string;
     config: { apiKey: string; baseUrl: string };
@@ -398,34 +800,159 @@ const ensureComposioSession = async (
   } | null;
   const existingSessionId =
     existing?.mode === "composio"
-      ? readString(existing.externalId) ??
-        readString(existing.config?.sessionId)
+      ? (readString(existing.externalId) ??
+        readString(existing.config?.sessionId))
       : null;
   if (existingSessionId) return existingSessionId;
 
-  const userId = `stella_${(await sha256Hex(args.ownerId)).slice(0, 32)}`;
-  const payload = await composioFetch(
-    "/session",
-    {
-      method: "POST",
-      body: JSON.stringify(
-        buildComposioSessionBody({ userId, toolkit: args.toolkit }),
-      ),
-    },
-    args.config,
-  );
-  const sessionId = composioSessionIdFromPayload(payload);
-  if (!sessionId) throw new Error("Composio did not return a session id.");
-  await ctx.runMutation(
-    internal.data.integrations.upsertUserIntegrationForOwner,
-    {
+  const userId = await composioUserIdForOwner(args.ownerId);
+  const attemptId = crypto.randomUUID();
+  const leaseId = crypto.randomUUID();
+  const receipt = await ctx.runMutation(reserveComposioSessionRef, {
+    ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
+    integrationId: args.integrationId,
+    toolkit: args.toolkit,
+    composioUserId: userId,
+    attemptId,
+    leaseId,
+    now: Date.now(),
+  });
+  if (!receipt.acquired) {
+    if (receipt.status === "bound") return receipt.sessionId;
+    throw new Error(
+      receipt.status === "outcome_unknown"
+        ? "A prior Composio session create has an unknown outcome."
+        : "Composio session provisioning is already in progress.",
+    );
+  }
+
+  const marked = await ctx.runMutation(markComposioSessionRef, {
+    ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
+    attemptId,
+    leaseId,
+    now: Date.now(),
+  });
+  if (!marked.started) {
+    await ctx.runMutation(settleComposioSessionNotCreatedRef, {
       ownerId: args.ownerId,
-      provider: args.integrationId,
-      mode: "composio",
-      externalId: sessionId,
-      config: {},
-    },
-  );
+      ownerGeneration: args.ownerGeneration,
+      attemptId,
+      leaseId,
+    });
+    throw new Error("Composio session provisioning admission expired.");
+  }
+
+  let payload: Record<string, unknown>;
+  try {
+    const dispatched = await runComposioProviderCallBeforeDeadline({
+      providerDeadlineAt: marked.providerDeadlineAt,
+      run: async (signal) =>
+        await composioFetch(
+          "/session",
+          {
+            method: "POST",
+            body: JSON.stringify(
+              buildComposioSessionBody({ userId, toolkit: args.toolkit }),
+            ),
+          },
+          args.config,
+          { signal },
+        ),
+    });
+    if (!dispatched.started) {
+      // No provider call has started, so this is an authoritative no-create
+      // settlement. If a watchdog/operator already terminalized the row, the
+      // exact settlement safely returns false and cannot erase its audit.
+      await ctx
+        .runMutation(settleComposioSessionNotCreatedRef, {
+          ownerId: args.ownerId,
+          ownerGeneration: args.ownerGeneration,
+          attemptId,
+          leaseId,
+        })
+        .catch(() => false);
+      throw new ComposioDispatchDeadlineExpiredError();
+    }
+    payload = dispatched.value;
+  } catch (error) {
+    if (error instanceof ComposioDispatchDeadlineExpiredError) {
+      throw new Error("Composio session provisioning admission expired.");
+    }
+    // These client responses authoritatively reject session creation. Timeout,
+    // conflict, throttling, server, abort, and transport errors remain unknown:
+    // Composio currently has no session-list/idempotency API to reconcile them.
+    const definitelyNotCreated =
+      error instanceof ComposioUpstreamHttpError &&
+      [400, 401, 403, 404, 405, 413, 415, 422].includes(error.status);
+    if (definitelyNotCreated) {
+      await ctx.runMutation(settleComposioSessionNotCreatedRef, {
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        attemptId,
+        leaseId,
+      });
+    } else {
+      await ctx.runMutation(markComposioSessionUnknownRef, {
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        attemptId,
+        leaseId,
+        now: Date.now(),
+        reason: "Composio create response was not authoritative.",
+      });
+    }
+    throw error;
+  }
+  const sessionId = composioSessionIdFromPayload(payload);
+  if (!sessionId) {
+    await ctx.runMutation(markComposioSessionUnknownRef, {
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      attemptId,
+      leaseId,
+      now: Date.now(),
+      reason: "Composio create response omitted its session locator.",
+    });
+    throw new Error("Composio did not return a session id.");
+  }
+  await ctx.runMutation(recordComposioSessionLocatorRef, {
+    ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
+    attemptId,
+    leaseId,
+    sessionId,
+    now: Date.now(),
+  });
+  try {
+    await ctx.runMutation(bindComposioSessionRef, {
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      integrationId: args.integrationId,
+      toolkit: args.toolkit,
+      composioUserId: userId,
+      attemptId,
+      leaseId,
+      sessionId,
+      now: Date.now(),
+    });
+  } catch (error) {
+    // The exact locator remains durable until the scheduled cleanup worker has
+    // received DELETE and confirmed GET 404. Never drop it on a failed delete.
+    await ctx
+      .runMutation(requestComposioSessionCleanupRef, {
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        attemptId,
+        leaseId,
+        sessionId,
+        now: Date.now(),
+        reason: "The owner lifecycle closed before session binding.",
+      })
+      .catch(() => undefined);
+    throw error;
+  }
   return sessionId;
 };
 
@@ -463,6 +990,156 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
   ]);
 
   http.route({
+    path: "/api/admin/native-integrations/composio-principal/resolve",
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+      const admin = requireAdminRequest(request);
+      if (!admin.ok) return admin.response;
+      let body: unknown;
+      try {
+        const text = await readRequestTextBounded(
+          request,
+          MAX_ADMIN_COMPOSIO_RESOLUTION_BODY_BYTES,
+        );
+        body = JSON.parse(text) as unknown;
+      } catch (error) {
+        if (error instanceof RequestBodyLimitError) {
+          return jsonResponse({ error: error.message }, error.status);
+        }
+        return jsonResponse({ error: "Invalid resolution payload." }, 400);
+      }
+      if (!isJsonObject(body)) {
+        return jsonResponse({ error: "Invalid resolution payload." }, 400);
+      }
+      const ownerId = readString(body.ownerId);
+      const provider = readString(body.provider);
+      const sessionId = readString(body.sessionId);
+      const composioUserId = readString(body.composioUserId);
+      const resolutionId = readString(body.resolutionId);
+      const resolvedBy = readString(body.resolvedBy);
+      const evidence = readString(body.evidence);
+      if (
+        !ownerId ||
+        !provider ||
+        !sessionId ||
+        !composioUserId ||
+        !resolutionId ||
+        !resolvedBy ||
+        !evidence
+      ) {
+        return jsonResponse({ error: "Invalid resolution payload." }, 400);
+      }
+      try {
+        const result = await ctx.runMutation(resolveComposioPrincipalRef, {
+          ownerId,
+          provider,
+          sessionId,
+          composioUserId,
+          resolutionId,
+          resolvedBy,
+          evidence,
+          now: Date.now(),
+        });
+        return jsonResponse({ ok: true, ...result }, 200);
+      } catch (error) {
+        console.error(
+          "[native-integrations] Composio principal resolution rejected",
+          {
+            ownerId,
+            provider,
+            message: error instanceof Error ? error.message : String(error),
+          },
+        );
+        return jsonResponse(
+          { error: "Composio resolution was rejected." },
+          409,
+        );
+      }
+    }),
+  });
+
+  http.route({
+    path: "/api/admin/native-integrations/composio-provisioning/resolve",
+    method: "POST",
+    handler: httpAction(async (ctx, request) => {
+      const admin = requireAdminRequest(request);
+      if (!admin.ok) return admin.response;
+      let body: unknown;
+      try {
+        const text = await readRequestTextBounded(
+          request,
+          MAX_ADMIN_COMPOSIO_RESOLUTION_BODY_BYTES,
+        );
+        body = JSON.parse(text) as unknown;
+      } catch (error) {
+        if (error instanceof RequestBodyLimitError) {
+          return jsonResponse({ error: error.message }, error.status);
+        }
+        return jsonResponse({ error: "Invalid resolution payload." }, 400);
+      }
+      if (!isJsonObject(body)) {
+        return jsonResponse({ error: "Invalid resolution payload." }, 400);
+      }
+      const ownerId = readString(body.ownerId);
+      const ownerGeneration = readString(body.ownerGeneration);
+      const integrationId = readString(body.integrationId);
+      const toolkit = readString(body.toolkit);
+      const composioUserId = readString(body.composioUserId);
+      const attemptId = readString(body.attemptId);
+      const leaseId = readString(body.leaseId);
+      const resolvedBy = readString(body.resolvedBy);
+      const evidence = readString(body.evidence);
+      const resolutionKind = readString(body.resolution);
+      const sessionId = readString(body.sessionId);
+      if (
+        !ownerId ||
+        !ownerGeneration ||
+        !integrationId ||
+        !toolkit ||
+        !composioUserId ||
+        !attemptId ||
+        !leaseId ||
+        !resolvedBy ||
+        !evidence ||
+        (resolutionKind !== "recovered_session" &&
+          resolutionKind !== "provider_confirmed_not_created") ||
+        (resolutionKind === "recovered_session" && !sessionId) ||
+        (resolutionKind === "provider_confirmed_not_created" && sessionId)
+      ) {
+        return jsonResponse({ error: "Invalid resolution payload." }, 400);
+      }
+      try {
+        const result = await ctx.runMutation(resolveComposioSessionOutcomeRef, {
+          ownerId,
+          ownerGeneration,
+          integrationId,
+          toolkit,
+          composioUserId,
+          attemptId,
+          leaseId,
+          resolution:
+            resolutionKind === "recovered_session"
+              ? { kind: resolutionKind, sessionId: sessionId! }
+              : { kind: resolutionKind },
+          resolvedBy,
+          evidence,
+          now: Date.now(),
+        });
+        return jsonResponse({ ok: true, ...result }, 200);
+      } catch (error) {
+        console.error("[native-integrations] Composio resolution rejected", {
+          attemptId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return jsonResponse(
+          { error: "Composio resolution was rejected." },
+          409,
+        );
+      }
+    }),
+  });
+
+  http.route({
     path: "/api/admin/native-integrations/upsert",
     method: "POST",
     handler: httpAction(async (ctx, request) => {
@@ -484,18 +1161,32 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
       if (!isJsonObject(body)) {
         return jsonResponse({ error: "Invalid integration payload." }, 400);
       }
-      const normalizedActions = normalizePublishedIntegrationActions(body.actions);
+      const normalizedActions = normalizePublishedIntegrationActions(
+        body.actions,
+      );
       if (!normalizedActions.ok) {
         return jsonResponse({ error: normalizedActions.error }, 400);
       }
       try {
         const schemaValidation = await ctx.runAction(
-          internal.node.native_integration_schemas.validatePublishedActionSchemas,
+          internal.node.native_integration_schemas
+            .validatePublishedActionSchemas,
           {
-            actions: normalizedActions.actions.map((action) => ({
-              name: action.name,
-              inputSchemaJson: action.inputSchemaJson,
-            })),
+            actions: normalizedActions.actions.flatMap((action) => [
+              {
+                name: action.name,
+                inputSchemaJson: action.inputSchemaJson,
+              },
+              ...(action.codeModePolicy
+                ? [
+                    {
+                      name: `${action.name}#stella-reviewed`,
+                      inputSchemaJson:
+                        action.codeModePolicy.reviewedInputSchemaJson,
+                    },
+                  ]
+                : []),
+            ]),
           },
         );
         if (!schemaValidation.ok) {
@@ -565,8 +1256,8 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     method: "GET",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) return errorResponse(401, "Unauthorized", origin);
+        const admission = await requireActiveIntegrationIdentity(ctx);
+        if (!admission) return errorResponse(401, "Unauthorized", origin);
         const searchParams = new URL(request.url).searchParams;
         const id = readString(searchParams.get("id"))?.toLowerCase();
         if (!id) return errorResponse(400, "Missing integration id.", origin);
@@ -584,7 +1275,9 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
                 origin,
               );
             }
-            const inputSchema = JSON.parse(resolved.action.inputSchemaJson) as unknown;
+            const inputSchema = JSON.parse(
+              resolved.action.inputSchemaJson,
+            ) as unknown;
             if (!isJsonObject(inputSchema)) throw new Error("invalid schema");
             return jsonResponse(
               {
@@ -644,21 +1337,45 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
               origin,
             );
           }
-          const actions = publication.actions.map((action: {
-            name: string;
-            title?: string;
-            description?: string;
-            inputSchemaJson: string;
-          }) => {
-            const inputSchema = JSON.parse(action.inputSchemaJson) as unknown;
-            if (!isJsonObject(inputSchema)) throw new Error("invalid schema");
-            return {
-              name: action.name,
-              ...(action.title ? { title: action.title } : {}),
-              ...(action.description ? { description: action.description } : {}),
-              inputSchema,
-            };
-          });
+          const actions = publication.actions.map(
+            (action: {
+              name: string;
+              title?: string;
+              description?: string;
+              annotations?: {
+                readOnlyHint: boolean;
+                destructiveHint: boolean;
+                idempotentHint: boolean;
+                source: "composio_tool_tags";
+              };
+              codeModePolicy?: {
+                effect: "read";
+                requiresApproval: false;
+                policyVersion: string;
+                source: "stella_admin";
+              };
+              inputSchemaJson: string;
+              updatedAt: number;
+            }) => {
+              const inputSchema = JSON.parse(action.inputSchemaJson) as unknown;
+              if (!isJsonObject(inputSchema)) throw new Error("invalid schema");
+              return {
+                name: action.name,
+                ...(action.title ? { title: action.title } : {}),
+                ...(action.description
+                  ? { description: action.description }
+                  : {}),
+                ...(action.annotations
+                  ? { annotations: action.annotations }
+                  : {}),
+                ...(action.codeModePolicy
+                  ? { codeModePolicy: action.codeModePolicy }
+                  : {}),
+                revision: String(action.updatedAt),
+                inputSchema,
+              };
+            },
+          );
           return jsonResponse(
             {
               id: publication.id,
@@ -688,27 +1405,40 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) return errorResponse(401, "Unauthorized", origin);
-        const body = (await parseUnknownBody(request)) as
-          | NativeIntegrationRequestBody
-          | null;
+        const admission = await requireActiveIntegrationIdentity(ctx);
+        if (!admission) return errorResponse(401, "Unauthorized", origin);
+        const { identity, ownerGeneration } = admission;
+        const body = (await parseUnknownBody(
+          request,
+        )) as NativeIntegrationRequestBody | null;
         const id = readString(body?.id)?.toLowerCase();
         if (!id) return errorResponse(400, "Missing integration id.", origin);
         const integration = await loadPublicIntegration(ctx, id);
-        const connector = integration ? readComposioConnector(integration) : null;
+        const connector = integration
+          ? readComposioConnector(integration)
+          : null;
         if (!connector) {
-          return errorResponse(400, "Integration is not Composio-backed.", origin);
+          return errorResponse(
+            400,
+            "Integration is not Composio-backed.",
+            origin,
+          );
         }
         const composio = requireComposioConfig();
         if (!composio.config) return withCors(composio.response, origin);
         try {
           const sessionId = await ensureComposioSession(ctx, {
             ownerId: identity.tokenIdentifier,
+            ownerGeneration,
             integrationId: connector.id,
             toolkit: connector.toolkit,
             config: composio.config,
           });
+          await ctx.runMutation(
+            internal.data.integrations
+              .assertUserIntegrationDispatchAllowedInternal,
+            { ownerId: identity.tokenIdentifier, ownerGeneration },
+          );
           const payload = await composioFetch(
             `/session/${encodeURIComponent(sessionId)}/link`,
             {
@@ -719,7 +1449,11 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
           );
           const url = composioLinkFromPayload(payload);
           if (!url) {
-            return errorResponse(502, "Composio did not return a connect link.", origin);
+            return errorResponse(
+              502,
+              "Composio did not return a connect link.",
+              origin,
+            );
           }
           return jsonResponse({ url }, 200, origin);
         } catch (error) {
@@ -727,7 +1461,11 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
             id,
             message: error instanceof Error ? error.message : String(error),
           });
-          return errorResponse(502, "Could not create the connection link.", origin);
+          return errorResponse(
+            502,
+            "Could not create the connection link.",
+            origin,
+          );
         }
       }),
     ),
@@ -738,16 +1476,23 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     method: "GET",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) return errorResponse(401, "Unauthorized", origin);
+        const admission = await requireActiveIntegrationIdentity(ctx);
+        if (!admission) return errorResponse(401, "Unauthorized", origin);
+        const { identity, ownerGeneration } = admission;
         const id = readString(
           new URL(request.url).searchParams.get("id"),
         )?.toLowerCase();
         if (!id) return errorResponse(400, "Missing integration id.", origin);
         const integration = await loadPublicIntegration(ctx, id);
-        const connector = integration ? readComposioConnector(integration) : null;
+        const connector = integration
+          ? readComposioConnector(integration)
+          : null;
         if (!connector) {
-          return errorResponse(400, "Integration is not Composio-backed.", origin);
+          return errorResponse(
+            400,
+            "Integration is not Composio-backed.",
+            origin,
+          );
         }
         const composio = requireComposioConfig();
         if (!composio.config) return withCors(composio.response, origin);
@@ -762,6 +1507,11 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
           if (!sessionId) {
             return jsonResponse({ connected: false }, 200, origin);
           }
+          await ctx.runMutation(
+            internal.data.integrations
+              .assertUserIntegrationDispatchAllowedInternal,
+            { ownerId: identity.tokenIdentifier, ownerGeneration },
+          );
           const payload = await composioFetch(
             `/session/${encodeURIComponent(sessionId)}/toolkits`,
             { method: "GET" },
@@ -782,7 +1532,11 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
             id,
             message: error instanceof Error ? error.message : String(error),
           });
-          return errorResponse(502, "Could not check the connection status.", origin);
+          return errorResponse(
+            502,
+            "Could not check the connection status.",
+            origin,
+          );
         }
       }),
     ),
@@ -793,15 +1547,27 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) return errorResponse(401, "Unauthorized", origin);
-        const body = (await parseUnknownBody(request)) as
-          | NativeIntegrationRequestBody
-          | null;
+        const admission = await requireActiveIntegrationIdentity(ctx);
+        if (!admission) return errorResponse(401, "Unauthorized", origin);
+        const { identity, ownerGeneration } = admission;
+        const body = (await parseUnknownBody(
+          request,
+        )) as NativeIntegrationRequestBody | null;
         const id = readString(body?.id)?.toLowerCase();
         const action = readString(body?.action);
+        const requestId = readString(
+          request.headers.get("x-stella-request-id") ??
+            request.headers.get("idempotency-key"),
+        );
         if (!id || !action) {
           return errorResponse(400, "Missing integration action.", origin);
+        }
+        if (!requestId || !SAFE_NATIVE_RUN_REQUEST_ID.test(requestId)) {
+          return errorResponse(
+            400,
+            "A stable integration request id is required.",
+            origin,
+          );
         }
         if (!SAFE_ACTION_NAME.test(action) || !isJsonObject(body?.input)) {
           return errorResponse(400, "Invalid integration action.", origin);
@@ -815,7 +1581,11 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
         );
         const connector = resolved ? readComposioConnector(resolved) : null;
         if (!resolved || !connector) {
-          return errorResponse(400, "Integration action is not allowed.", origin);
+          return errorResponse(
+            400,
+            "Integration action is not allowed.",
+            origin,
+          );
         }
         let inputValidation: "valid" | "invalid" | "invalid_schema";
         try {
@@ -858,46 +1628,215 @@ export const registerNativeOAuthRoutes = (http: HttpRouter) => {
           connector.id,
         );
         if (!sessionId) {
-          return errorResponse(409, "Connect this integration before using it.", origin);
+          return errorResponse(
+            409,
+            "Connect this integration before using it.",
+            origin,
+          );
         }
         const composio = requireComposioConfig();
         if (!composio.config) return withCors(composio.response, origin);
+        const leaseId = crypto.randomUUID();
+        const revision = String(resolved.action.updatedAt);
+        const fingerprint = await sha256Hex(
+          JSON.stringify({
+            route: "native_integrations_run",
+            integrationId: id,
+            toolkit: connector.toolkit,
+            action,
+            revision,
+            sessionId,
+            input: body.input,
+          }),
+        );
+        let dispatch: {
+          sessionId: string;
+          providerDeadlineAt: number;
+          leaseExpiresAt: number;
+        };
         try {
-          const statusPayload = await composioFetch(
-            `/session/${encodeURIComponent(sessionId)}/toolkits`,
-            { method: "GET" },
-            composio.config,
+          // This transaction is the request binding and the owner-generation
+          // physical lease. It must win before even the provider status read:
+          // purge/migration can otherwise delete the session while the read is
+          // live, and an HTTP retry could execute a destructive action twice.
+          dispatch = await ctx.runMutation(beginComposioNativeRunRef, {
+            ownerId: identity.tokenIdentifier,
+            ownerGeneration,
+            integrationId: id,
+            toolkit: connector.toolkit,
+            action,
+            revision,
+            expectedSessionId: sessionId,
+            requestId,
+            fingerprint,
+            leaseId,
+            now: Date.now(),
+          });
+        } catch (error) {
+          console.error(
+            "[native-integrations] composio run admission rejected",
+            {
+              id,
+              requestId,
+              message: error instanceof Error ? error.message : String(error),
+            },
           );
+          return errorResponse(
+            409,
+            "This integration request was already used or is no longer admissible.",
+            origin,
+          );
+        }
+
+        const settle = async (outcome: "succeeded" | "failed" | "unknown") =>
+          await ctx.runMutation(settleComposioNativeRunRef, {
+            ownerId: identity.tokenIdentifier,
+            ownerGeneration,
+            requestId,
+            fingerprint,
+            leaseId,
+            outcome,
+            now: Date.now(),
+          });
+        try {
+          const statusRemainingMs = dispatch.providerDeadlineAt - Date.now();
+          if (statusRemainingMs <= 0) {
+            await settle("failed").catch(() => undefined);
+            return errorResponse(
+              409,
+              "This integration request expired before provider dispatch.",
+              origin,
+            );
+          }
+          const statusController = new AbortController();
+          const statusTimeout = setTimeout(
+            () => statusController.abort("Composio native-run status expired."),
+            statusRemainingMs,
+          );
+          let statusPayload: Record<string, unknown>;
+          try {
+            statusPayload = await composioFetch(
+              `/session/${encodeURIComponent(dispatch.sessionId)}/toolkits`,
+              { method: "GET" },
+              composio.config,
+              { signal: statusController.signal },
+            );
+          } finally {
+            clearTimeout(statusTimeout);
+          }
           if (
             !composioToolkitConnectedFromPayload(
               statusPayload,
               connector.toolkit,
             )
           ) {
+            await settle("failed");
             return errorResponse(
               409,
               "This integration is no longer connected.",
               origin,
             );
           }
-          const payload = await composioFetch(
-            `/session/${encodeURIComponent(sessionId)}/execute`,
-            {
-              method: "POST",
-              body: JSON.stringify({
-                tool_slug: action,
-                arguments: body.input,
-              }),
-            },
-            composio.config,
+          let executeAuthority: {
+            providerDeadlineAt: number;
+            leaseExpiresAt: number;
+          };
+          try {
+            // Status can suspend for most of the durable lease. Recheck the
+            // lifecycle, exact session/catalog revision, and receipt in one
+            // final transaction immediately before destructive provider I/O.
+            executeAuthority = await ctx.runMutation(
+              claimComposioNativeRunExecuteRef,
+              {
+                ownerId: identity.tokenIdentifier,
+                ownerGeneration,
+                integrationId: id,
+                toolkit: connector.toolkit,
+                action,
+                revision,
+                expectedSessionId: dispatch.sessionId,
+                requestId,
+                fingerprint,
+                leaseId,
+                now: Date.now(),
+              },
+            );
+          } catch {
+            await settle("failed").catch(() => undefined);
+            return errorResponse(
+              409,
+              "This integration request lost provider authority.",
+              origin,
+            );
+          }
+          const executeRemainingMs =
+            executeAuthority.providerDeadlineAt - Date.now();
+          if (executeRemainingMs <= 0) {
+            await settle("failed").catch(() => undefined);
+            return errorResponse(
+              409,
+              "This integration request expired before provider dispatch.",
+              origin,
+            );
+          }
+          let payload: Record<string, unknown>;
+          const executeController = new AbortController();
+          const executeTimeout = setTimeout(
+            () =>
+              executeController.abort("Composio native-run execute expired."),
+            executeRemainingMs,
           );
+          try {
+            payload = await composioFetch(
+              `/session/${encodeURIComponent(dispatch.sessionId)}/execute`,
+              {
+                method: "POST",
+                body: JSON.stringify({
+                  tool_slug: action,
+                  arguments: body.input,
+                }),
+              },
+              composio.config,
+              { signal: executeController.signal },
+            );
+          } catch (error) {
+            // Only explicit provider rejections that prove the action was not
+            // accepted can release the physical lease immediately. A timeout,
+            // throttle, conflict, oversized success body, or transport loss
+            // may follow execution and therefore remains unknown until expiry.
+            const outcome =
+              error instanceof ComposioUpstreamHttpError &&
+              [400, 401, 403, 404, 405, 413, 415, 422].includes(error.status)
+                ? ("failed" as const)
+                : ("unknown" as const);
+            await settle(outcome).catch(() => undefined);
+            throw error;
+          } finally {
+            clearTimeout(executeTimeout);
+          }
+          await settle("succeeded");
           return jsonResponse(payload, 200, origin);
         } catch (error) {
+          // A status-read transport failure also keeps its physical session
+          // lease through the hard deadline. Exact terminal settlement is
+          // idempotent, so this is safe if an inner branch already settled.
+          const outcome =
+            error instanceof ComposioUpstreamHttpError &&
+            error.status >= 400 &&
+            error.status < 500
+              ? ("failed" as const)
+              : ("unknown" as const);
+          await settle(outcome).catch(() => undefined);
           console.error("[native-integrations] composio run failed", {
             id,
+            requestId,
             message: error instanceof Error ? error.message : String(error),
           });
-          return errorResponse(502, "Could not run the integration action.", origin);
+          return errorResponse(
+            502,
+            "Could not run the integration action.",
+            origin,
+          );
         }
       }),
     ),

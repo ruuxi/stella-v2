@@ -1,7 +1,11 @@
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx, MutationCtx, QueryCtx } from "../_generated/server";
-import { runAgentTurn } from "../automation/runner";
+import {
+  runAgentTurn,
+  type RunAgentTurnBillingIdentity,
+} from "../automation/runner";
 import { requireConversationOwner } from "../auth";
+import type { ManagedDispatchGuard } from "../runtime_ai/managed";
 
 /**
  * Shared desktop handoff policy for backend-owned turns.
@@ -46,6 +50,9 @@ export const runAgentTurnWithBackendFallback = async (args: {
   prompt: string;
   agentType: string;
   ownerId: string;
+  ownerGeneration: string;
+  modelDispatchGuard: ManagedDispatchGuard;
+  billingIdentity: RunAgentTurnBillingIdentity;
   transient?: boolean;
   candidates: DesktopTurnCandidate[];
   userMessageId?: Id<"events">;
@@ -56,20 +63,29 @@ export const runAgentTurnWithBackendFallback = async (args: {
   let lastExecutionError: Error | null = null;
 
   for (const candidate of args.candidates) {
+    let result: Awaited<ReturnType<typeof runAgentTurn>>;
     try {
-      const result = await runAgentTurn({
+      result = await runAgentTurn({
         ctx: args.ctx,
         conversationId: args.conversationId,
         prompt: args.prompt,
         agentType: args.agentType,
         ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        modelDispatchGuard: args.modelDispatchGuard,
+        billingIdentity: args.billingIdentity,
         transient: args.transient,
         userMessageId: args.userMessageId,
       });
-      return { result, selectedMode: candidate.mode };
     } catch (error) {
       lastExecutionError = error as Error;
+      continue;
     }
+    // This helper has no downstream persistence/delivery CAS of its own, so
+    // the awaited usage write inside runAgentTurn is its final synchronous
+    // side effect. Do not replay a completed provider turn if settlement fails.
+    await result.settleExecution("succeeded");
+    return { result, selectedMode: candidate.mode };
   }
 
   throw lastExecutionError ?? new Error("No execution candidate succeeded");

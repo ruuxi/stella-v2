@@ -49,12 +49,88 @@ type SignRequestArgs = {
   metadata?: Record<string, string>;
 };
 
+const unsafeR2PathProjection = (value: string): string => {
+  let projection = value;
+  for (let depth = 0; depth <= value.length; depth += 1) {
+    const decoded = projection.replace(
+      /%(25|2e|2f|5c)/giu,
+      (_escape, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)),
+    );
+    if (decoded === projection) return projection;
+    projection = decoded;
+  }
+  return projection;
+};
+
+const encodeR2PathSegment = (value: string, label: string): string => {
+  const unsafeProjection = unsafeR2PathProjection(value);
+  if (
+    !value ||
+    unsafeProjection === "." ||
+    unsafeProjection === ".." ||
+    unsafeProjection.includes("/") ||
+    unsafeProjection.includes("\\")
+  ) {
+    throw new Error(`R2 ${label} contains an unsafe path segment.`);
+  }
+  try {
+    // A literal percent is data, not an already-encoded escape. Encoding it
+    // to `%25` preserves legacy keys containing `encodeURIComponent` output
+    // without admitting path separators or canonicalization ambiguity.
+    return encodeURIComponent(value).replace(
+      /[!'()*]/gu,
+      (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+    );
+  } catch {
+    throw new Error(`R2 ${label} is not valid Unicode.`);
+  }
+};
+
+const buildR2ObjectUrl = (args: {
+  endpoint: string;
+  bucket: string;
+  key: string;
+}): URL => {
+  let endpoint: URL;
+  try {
+    endpoint = new URL(args.endpoint);
+  } catch {
+    throw new Error("R2 endpoint is not a valid URL.");
+  }
+  if (
+    endpoint.protocol !== "https:" ||
+    endpoint.username ||
+    endpoint.password ||
+    endpoint.pathname !== "/" ||
+    endpoint.search ||
+    endpoint.hash
+  ) {
+    throw new Error("R2 endpoint must be an exact HTTPS origin.");
+  }
+
+  const encodedBucket = encodeR2PathSegment(args.bucket, "bucket");
+  const encodedKey = args.key
+    .split("/")
+    .map((segment) => encodeR2PathSegment(segment, "key"))
+    .join("/");
+  const expectedPathname = `/${encodedBucket}/${encodedKey}`;
+  const url = new URL(endpoint.origin);
+  url.pathname = expectedPathname;
+  if (
+    url.origin !== endpoint.origin ||
+    url.pathname !== expectedPathname ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error("R2 object path did not survive canonical construction.");
+  }
+  return url;
+};
+
 const signR2Request = (
   args: SignRequestArgs,
 ): { url: string; headers: Record<string, string> } => {
-  const url = new URL(
-    `${args.endpoint.replace(/\/+$/, "")}/${args.bucket}/${args.key}`,
-  );
+  const url = buildR2ObjectUrl(args);
   const region = "auto";
   const service = "s3";
   const amzDate = new Date()
@@ -158,6 +234,7 @@ export const uploadR2Object = async (args: {
     method: "PUT",
     headers: signed.headers,
     body: new Uint8Array(args.bytes),
+    signal: AbortSignal.timeout(60_000),
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -187,6 +264,7 @@ export const deleteR2Object = async (args: {
   const response = await fetch(signed.url, {
     method: "DELETE",
     headers: signed.headers,
+    signal: AbortSignal.timeout(60_000),
   });
   if (!response.ok && response.status !== 404) {
     const text = await response.text().catch(() => "");

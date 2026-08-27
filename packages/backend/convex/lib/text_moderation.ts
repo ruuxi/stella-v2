@@ -3,6 +3,7 @@ import { getModeConfig } from "../agent/model";
 import {
   assistantText,
   completeManagedChat,
+  type ManagedDispatchGuard,
 } from "../runtime_ai/managed";
 
 /**
@@ -24,6 +25,32 @@ export const TEXT_MODERATION_SYSTEM_PROMPT = [
   "Catch evasion such as repeated letters, leetspeak, separators, zero-width characters, and Unicode lookalikes.",
 ].join("\n");
 
+/**
+ * Store listing text moderation is narrow, unbilled safety/control-plane
+ * overhead. It protects a public catalog surface; it is not a user-requested
+ * generation feature. Every physical classifier try must still run through
+ * the caller's durable owner/generation dispatch guard. The terminal provider
+ * outcome is retained on that attempt receipt until bounded cleanup, while the
+ * publish action treats censored/failed classifications as fail-closed.
+ *
+ * Keep this named policy separate from Store security/image review, metadata,
+ * synthesis, and other user-visible generation. Those remain managed usage.
+ */
+export const STORE_LISTING_TEXT_SAFETY_POLICY = {
+  billing: "unbilled",
+  purpose: "safety_control_plane",
+  maxInputChars: 4_250,
+  rateLimitKey: "store_package_create_first_release",
+  classifierOutcomes: ["clean", "censored", "failed"],
+  dispatchAuditOutcomes: [
+    "succeeded",
+    "failed",
+    "aborted",
+    "timed_out",
+    "outcome_unknown",
+  ],
+} as const;
+
 export type TextModerationDecision = "clean" | "censored" | "failed";
 
 export function parseModerationResponse(raw: string): TextModerationDecision {
@@ -44,6 +71,7 @@ export function parseModerationResponse(raw: string): TextModerationDecision {
  */
 export async function classifyTextForModeration(
   text: string,
+  options: { dispatchGuard: ManagedDispatchGuard },
 ): Promise<TextModerationDecision> {
   if (!text.trim()) return "clean";
   try {
@@ -64,6 +92,7 @@ export async function classifyTextForModeration(
           },
         ],
       },
+      dispatchGuard: options.dispatchGuard,
     });
     return parseModerationResponse(assistantText(result));
   } catch (error) {
@@ -85,6 +114,7 @@ export async function classifyTextForModeration(
 export async function moderateStoreListingTextOrThrow(args: {
   displayName: string;
   description?: string;
+  dispatchGuard: ManagedDispatchGuard;
 }): Promise<void> {
   const fields: Array<{ label: string; value: string }> = [
     { label: "Name", value: args.displayName.trim() },
@@ -96,7 +126,15 @@ export async function moderateStoreListingTextOrThrow(args: {
   const composite = fields
     .map(({ label, value }) => `${label}: ${value}`)
     .join("\n");
-  const decision = await classifyTextForModeration(composite);
+  if (composite.length > STORE_LISTING_TEXT_SAFETY_POLICY.maxInputChars) {
+    throw new ConvexError({
+      code: "STORE_LISTING_TEXT_TOO_LARGE",
+      message: "Listing text is too large to moderate safely.",
+    });
+  }
+  const decision = await classifyTextForModeration(composite, {
+    dispatchGuard: args.dispatchGuard,
+  });
   if (decision === "censored") {
     throw new ConvexError({
       code: "STORE_LISTING_REJECTED",

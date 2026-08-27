@@ -19,6 +19,22 @@ export const mediaJobStatusValidator = v.union(
   v.literal("unknown"),
 );
 
+/** Every physical provider request that can spend media budget or return data. */
+export const mediaProviderDispatchKindValidator = v.union(
+  v.literal("fal_submit"),
+  v.literal("fal_poll"),
+  v.literal("fal_download"),
+  v.literal("google_lyria"),
+  v.literal("openrouter"),
+);
+
+export const mediaBillingDispositionStateValidator = v.union(
+  v.literal("pending"),
+  v.literal("billed"),
+  v.literal("not_chargeable"),
+  v.literal("unknown"),
+);
+
 export const mediaJobErrorValidator = v.object({
   message: v.string(),
   code: v.optional(v.string()),
@@ -94,6 +110,8 @@ export const mediaJobResponseValidator = v.object({
 export const mediaSchema = {
   media_jobs: defineTable({
     ownerId: v.string(),
+    /** Captured at reservation and carried through provider completion. */
+    ownerGeneration: v.optional(v.string()),
     jobId: v.string(),
     capability: v.string(),
     profile: v.string(),
@@ -135,6 +153,13 @@ export const mediaSchema = {
     submissionClaimedAt: v.optional(v.number()),
     connectorRequestId: v.optional(v.string()),
     billing: v.optional(mediaJobBillingValidator),
+    /** Durable accounting authority/disposition for paid provider work. */
+    billingDispositionState: v.optional(mediaBillingDispositionStateValidator),
+    billingDispositionPolicy: v.optional(v.string()),
+    billingDispositionReason: v.optional(v.string()),
+    billingDispositionUpdatedAt: v.optional(v.number()),
+    /** First exact attempt that changed the job from exempt to paid-pending. */
+    billingDispositionAttemptId: v.optional(v.string()),
     providerRequestId: v.optional(v.string()),
     providerGatewayRequestId: v.optional(v.string()),
     providerResponseUrl: v.optional(v.string()),
@@ -193,10 +218,63 @@ export const mediaSchema = {
       "connectorMediaDeliveryScheduledAt",
     ])
     .index("by_submissionState_and_updatedAt", ["submissionState", "updatedAt"])
+    .index("by_ownerId_and_submissionState_and_updatedAt", [
+      "ownerId",
+      "submissionState",
+      "updatedAt",
+    ])
+    .index("by_ownerId_and_billingDispositionState_and_updatedAt", [
+      "ownerId",
+      "billingDispositionState",
+      "updatedAt",
+    ])
     .index("by_provider_and_providerRequestId", [
       "provider",
       "providerRequestId",
     ]),
+
+  /**
+   * Exact physical-attempt authority for media provider I/O. A lifecycle
+   * fence first converts active rows to cancellation debt. Reset, account
+   * deletion, and either side of an owner migration then wait for an exact
+   * response acknowledgement or the provider-specific hard safety bound.
+   *
+   * Fal POSTs deliberately keep a much longer bound than ordinary HTTP: a
+   * lost submission response can still have allocated an asynchronous Fal
+   * job. Once its request id is durable, the media job plus provider-
+   * cancellation outbox take over that authority and this transport row can
+   * settle immediately.
+   */
+  media_provider_dispatch_leases: defineTable({
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    jobId: v.optional(v.string()),
+    dispatchId: v.string(),
+    attemptId: v.string(),
+    kind: mediaProviderDispatchKindValidator,
+    state: v.union(v.literal("active"), v.literal("cancel_requested")),
+    providerDeadlineAt: v.number(),
+    leaseExpiresAt: v.number(),
+    quiescentAfterAt: v.number(),
+    cleanupJobId: v.id("_scheduled_functions"),
+    cancelOperationId: v.optional(v.string()),
+    cancelGeneration: v.optional(v.string()),
+    cancelRequestedAt: v.optional(v.number()),
+    ambiguousAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_dispatchId", ["dispatchId"])
+    .index("by_dispatchId_and_attemptId", ["dispatchId", "attemptId"])
+    .index("by_jobId_and_attemptId", ["jobId", "attemptId"])
+    .index("by_ownerId_and_state", ["ownerId", "state"])
+    .index("by_ownerId_and_state_and_quiescentAfterAt", [
+      "ownerId",
+      "state",
+      "quiescentAfterAt",
+    ])
+    .index("by_ownerId_and_createdAt", ["ownerId", "createdAt"])
+    .index("by_quiescentAfterAt", ["quiescentAfterAt"]),
 
   /**
    * Per-job webhook log entries split out from `media_jobs.logs`. Each fal
@@ -206,6 +284,8 @@ export const mediaSchema = {
    */
   media_job_logs: defineTable({
     ownerId: v.string(),
+    /** Generation of the media job whose callback emitted this log. */
+    ownerGeneration: v.optional(v.string()),
     jobId: v.string(),
     ordinal: v.number(),
     receivedAt: v.number(),
@@ -221,6 +301,8 @@ export const mediaSchema = {
    */
   media_request_cancellations: defineTable({
     ownerId: v.string(),
+    /** Cancellation is scoped to the owner namespace that admitted it. */
+    ownerGeneration: v.optional(v.string()),
     clientRequestKey: v.string(),
     createdAt: v.number(),
   }).index("by_ownerId_and_clientRequestKey", ["ownerId", "clientRequestKey"]),
@@ -258,6 +340,8 @@ export const mediaSchema = {
    */
   media_private_payload_manifests: defineTable({
     ownerId: v.string(),
+    /** Prevents a pre-reset upload from attaching to the reopened owner. */
+    ownerGeneration: v.optional(v.string()),
     manifestId: v.string(),
     jobId: v.string(),
     clientRequestKey: v.string(),
@@ -282,6 +366,8 @@ export const mediaSchema = {
   /** Encrypted bounded chunks; owner and operation identity live on every row. */
   media_private_payload_chunks: defineTable({
     ownerId: v.string(),
+    /** Must equal the generation captured on the parent manifest. */
+    ownerGeneration: v.optional(v.string()),
     manifestId: v.string(),
     jobId: v.string(),
     index: v.number(),
@@ -294,11 +380,18 @@ export const mediaSchema = {
   /** Durable Fal cancellation outbox used by account deletion races. */
   media_provider_cancellations: defineTable({
     ownerId: v.string(),
+    /** Audit-only: cleanup remains allowed after the owner fence closes. */
+    ownerGeneration: v.optional(v.string()),
     jobId: v.string(),
     endpointId: v.string(),
     providerRequestId: v.string(),
     attempts: v.number(),
     nextAttemptAt: v.number(),
+    /** Exact physical cancellation PUT currently holding this outbox row. */
+    activeAttemptId: v.optional(v.string()),
+    attemptStartedAt: v.optional(v.number()),
+    attemptDeadlineAt: v.optional(v.number()),
+    attemptQuiescentAfterAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
     lastError: v.optional(v.string()),
@@ -310,6 +403,8 @@ export const mediaSchema = {
   /** Fal webhook receipt and transition are written in one transaction. */
   media_webhook_events: defineTable({
     ownerId: v.optional(v.string()),
+    /** Generation explicitly carried by the provider callback URL. */
+    ownerGeneration: v.optional(v.string()),
     scope: v.string(),
     dedupKey: v.string(),
     jobId: v.string(),

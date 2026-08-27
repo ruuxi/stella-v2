@@ -159,6 +159,7 @@ const buildMusicPrompt = ({
 export const generateMusic = async (args: {
   apiKey: string;
   parsedBody: ParsedMusicStreamRequest;
+  signal?: AbortSignal;
 }): Promise<GeneratedMusicResponse> => {
   const client = new GoogleGenAI({
     apiKey: args.apiKey,
@@ -181,6 +182,11 @@ export const generateMusic = async (args: {
     contents: prompt,
     config: {
       responseModalities: ["AUDIO", "TEXT"],
+      httpOptions: {
+        timeout: 60_000,
+        retryOptions: { attempts: 1 },
+      },
+      ...(args.signal ? { abortSignal: args.signal } : {}),
     },
   });
 

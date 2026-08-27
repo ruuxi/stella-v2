@@ -458,6 +458,19 @@ export const IPC_LOCAL_CHAT_THREAD_ACTIVITY_UPDATED =
 export const IPC_LOCAL_CHAT_TASK_DECORATION_UPDATED =
   "localChat:taskDecorationUpdated" as const;
 
+// ── Derived cloud journal cache ──────────────────────────────────────────
+
+export const IPC_CLOUD_CONVERSATION_CACHE_RETAIN_ACCOUNT =
+  "cloudConversationCache:retainAccount" as const;
+export const IPC_CLOUD_CONVERSATION_CACHE_ACTIVATE_AUTHORITY =
+  "cloudConversationCache:activateAuthority" as const;
+export const IPC_CLOUD_CONVERSATION_CACHE_READ =
+  "cloudConversationCache:read" as const;
+export const IPC_CLOUD_CONVERSATION_CACHE_REPLACE =
+  "cloudConversationCache:replace" as const;
+export const IPC_CLOUD_CONVERSATION_CACHE_PURGE_CONVERSATION =
+  "cloudConversationCache:purgeConversation" as const;
+
 // ── Social Sessions ─────────────────────────────────────────────────────────
 
 export const IPC_SOCIAL_SESSIONS_CREATE = "socialSessions:create" as const;

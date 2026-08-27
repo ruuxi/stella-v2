@@ -13,6 +13,11 @@ const webFetch = () =>
     maxAgentDepth: 2,
   }).WebFetch;
 
+const executeWebFetch = (
+  args: Record<string, unknown>,
+  signal: AbortSignal = new AbortController().signal,
+) => webFetch().execute(args, { signal });
+
 describe("backend WebFetch parity", () => {
   test("returns semantic markdown and keeps prompt optional", async () => {
     globalThis.fetch = (async () =>
@@ -21,7 +26,7 @@ describe("backend WebFetch parity", () => {
         { headers: { "content-type": "text/html" } },
       )) as typeof fetch;
 
-    const output = await webFetch().execute({
+    const output = await executeWebFetch({
       url: "https://example.test",
       format: "markdown",
     });
@@ -37,7 +42,7 @@ describe("backend WebFetch parity", () => {
         headers: { "content-type": "application/octet-stream" },
       })) as typeof fetch;
     expect(
-      await webFetch().execute({ url: "https://example.test/file" }),
+      await executeWebFetch({ url: "https://example.test/file" }),
     ).toContain("Unsupported or binary Content-Type");
   });
 
@@ -60,7 +65,7 @@ describe("backend WebFetch parity", () => {
         },
       )) as typeof fetch;
     expect(
-      await webFetch().execute({ url: "https://example.test/large" }),
+      await executeWebFetch({ url: "https://example.test/large" }),
     ).toContain("exceeds the 5242880 byte limit");
   });
 
@@ -73,8 +78,54 @@ describe("backend WebFetch parity", () => {
         headers: { location: "http://127.0.0.1/private" },
       });
     }) as typeof fetch;
-    const output = await webFetch().execute({ url: "https://example.test" });
+    const output = await executeWebFetch({ url: "https://example.test" });
     expect(output).toContain("Private and local network targets are blocked");
     expect(calls).toBe(1);
+  });
+
+  test("aborts a hanging response body without returning a late tool result", async () => {
+    const controller = new AbortController();
+    const abortError = new Error("nested tool canceled");
+    abortError.name = "AbortError";
+    let canceled = false;
+    let bodyStartedResolve!: () => void;
+    const bodyStarted = new Promise<void>((resolve) => {
+      bodyStartedResolve = resolve;
+    });
+    globalThis.fetch = (async (_input, init) => {
+      expect(init?.signal).toBe(controller.signal);
+      let pullCount = 0;
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          pull(streamController) {
+            pullCount += 1;
+            if (pullCount === 1) {
+              streamController.enqueue(new TextEncoder().encode("partial"));
+            } else {
+              bodyStartedResolve();
+            }
+          },
+          cancel() {
+            canceled = true;
+          },
+        }),
+        { headers: { "content-type": "text/plain" } },
+      );
+    }) as typeof fetch;
+
+    let returned = false;
+    const running = executeWebFetch(
+      { url: "https://example.test/hanging" },
+      controller.signal,
+    ).then((result) => {
+      returned = true;
+      return result;
+    });
+    await bodyStarted;
+    controller.abort(abortError);
+
+    await expect(running).rejects.toThrow("nested tool canceled");
+    expect(canceled).toBe(true);
+    expect(returned).toBe(false);
   });
 });

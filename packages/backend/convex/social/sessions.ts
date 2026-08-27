@@ -28,7 +28,12 @@ import {
   normalizeRelativeSessionPath,
   getSocialSessionConversationId,
 } from "./shared";
-import { getConnectedUserIdOrNull, requireConnectedUserId } from "../auth";
+import {
+  assertOwnerMigrationWriteAllowed,
+  getConnectedUserIdOrNull,
+  requireConnectedUserId,
+} from "../auth";
+import { assertOwnerDataAccessActive } from "../owner_lifecycle";
 import { clampPageLimit, requireBoundedString } from "../shared_validators";
 import {
   enforceActionRateLimit,
@@ -37,6 +42,7 @@ import {
   RATE_HOT_PATH,
   RATE_STANDARD,
 } from "../lib/rate_limits";
+import { assertC8RetiredSurfaceUnavailable } from "../lib/c8_retired_surface";
 
 const MAX_WORKSPACE_SLUG_LENGTH = 48;
 const MAX_WORKSPACE_FOLDER_NAME_LENGTH = 80;
@@ -177,6 +183,17 @@ const ensureSessionAcceptsTurns = (session: Doc<"stella_sessions">) => {
   }
 };
 
+const assertTurnRequesterWriteAllowed = async (
+  ctx: MutationCtx,
+  turn: Doc<"stella_session_turns">,
+) => {
+  await assertOwnerMigrationWriteAllowed(
+    ctx,
+    turn.requestedByOwnerId,
+    turn.requesterOwnerGeneration ?? "legacy",
+  );
+};
+
 const nextRoomTimestamp = () => Date.now();
 
 const appendSessionSystemMessage = async (
@@ -184,6 +201,8 @@ const appendSessionSystemMessage = async (
   args: {
     roomId: Id<"social_rooms">;
     senderOwnerId: string;
+    senderOwnerGeneration: string;
+    sourceTurnId?: Id<"stella_session_turns">;
     body: string;
   },
 ) => {
@@ -191,6 +210,8 @@ const appendSessionSystemMessage = async (
   await ctx.db.insert("social_messages", {
     roomId: args.roomId,
     senderOwnerId: args.senderOwnerId,
+    senderOwnerGeneration: args.senderOwnerGeneration,
+    ...(args.sourceTurnId ? { sourceTurnId: args.sourceTurnId } : {}),
     kind: "system",
     body: args.body,
     createdAt: timestamp,
@@ -208,6 +229,7 @@ const appendSessionFileOp = async (
     type: "upsert" | "delete" | "mkdir";
     relativePath: string;
     actorOwnerId: string;
+    actorOwnerGeneration: string;
     contentHash?: string;
     storageId?: Id<"_storage">;
     sizeBytes?: number;
@@ -223,6 +245,7 @@ const appendSessionFileOp = async (
     type: args.type,
     relativePath: args.relativePath,
     actorOwnerId: args.actorOwnerId,
+    actorOwnerGeneration: args.actorOwnerGeneration,
     contentHash: args.contentHash,
     storageId: args.storageId,
     sizeBytes: args.sizeBytes,
@@ -261,15 +284,16 @@ const createSessionMembers = async (
     .take(MAX_ROOM_MEMBERS_COLLECT);
   const timestamp = Date.now();
   await Promise.all(
-    roomMembers.map((member) =>
-      ctx.db.insert("stella_session_members", {
+    roomMembers.map(async (member) => {
+      await assertOwnerMigrationWriteAllowed(ctx, member.ownerId);
+      return await ctx.db.insert("stella_session_members", {
         sessionId,
         ownerId: member.ownerId,
         joinedAt: member.joinedAt,
         lastAppliedFileOpOrdinal: 0,
         updatedAt: timestamp,
-      }),
-    ),
+      });
+    }),
   );
 };
 
@@ -329,6 +353,12 @@ export const getFileBlobByHashInternal = internalQuery({
     if (!existing) {
       return null;
     }
+    if (existing.externalDeletedAt !== undefined) {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "File content is being finalized; retry the upload.",
+      });
+    }
     return {
       storageId: existing.storageId,
       sizeBytes: existing.sizeBytes,
@@ -337,10 +367,36 @@ export const getFileBlobByHashInternal = internalQuery({
   },
 });
 
+export const assertSessionFileUploadDispatchInternal = internalMutation({
+  args: {
+    sessionId: v.id("stella_sessions"),
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Shared sessions");
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
+    const session = await requireSessionHost(ctx, args.sessionId, args.ownerId);
+    if (session.status === "ended") {
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "Session is no longer active.",
+      });
+    }
+    return null;
+  },
+});
+
 export const recordFileUploadInternal = internalMutation({
   args: {
     sessionId: v.id("stella_sessions"),
     ownerId: v.string(),
+    ownerGeneration: v.string(),
     relativePath: v.string(),
     contentHash: v.string(),
     storageId: v.id("_storage"),
@@ -350,8 +406,16 @@ export const recordFileUploadInternal = internalMutation({
   returns: v.object({
     ordinal: v.number(),
     noop: v.boolean(),
+    retainedStorageId: v.id("_storage"),
+    submittedStorageRetained: v.boolean(),
   }),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Shared sessions");
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
     const session = await requireSessionHost(ctx, args.sessionId, args.ownerId);
     if (session.status === "ended") {
       throw new ConvexError({
@@ -366,16 +430,34 @@ export const recordFileUploadInternal = internalMutation({
         q.eq("sessionId", args.sessionId).eq("contentHash", args.contentHash),
       )
       .unique();
-    if (!existingBlob) {
-      await ctx.db.insert("stella_session_file_blobs", {
+    if (existingBlob?.externalDeletedAt !== undefined) {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "File content is being finalized; retry the upload.",
+      });
+    }
+    let canonicalBlob = existingBlob;
+    if (!canonicalBlob) {
+      const blobId = await ctx.db.insert("stella_session_file_blobs", {
         sessionId: args.sessionId,
+        createdByOwnerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
         contentHash: args.contentHash,
         storageId: args.storageId,
         sizeBytes: args.sizeBytes,
         contentType: args.contentType,
         createdAt: Date.now(),
       });
+      canonicalBlob = await ctx.db.get(blobId);
     }
+    if (!canonicalBlob) {
+      throw new ConvexError({
+        code: "INTERNAL_ERROR",
+        message: "Failed to retain uploaded session file.",
+      });
+    }
+    const retainedStorageId = canonicalBlob.storageId;
+    const submittedStorageRetained = retainedStorageId === args.storageId;
 
     const currentEntry = await ctx.db
       .query("stella_session_files")
@@ -385,15 +467,18 @@ export const recordFileUploadInternal = internalMutation({
       .unique();
 
     if (
-      currentEntry
-      && currentEntry.deleted === false
-      && currentEntry.contentHash === args.contentHash
-      && currentEntry.sizeBytes === args.sizeBytes
-      && currentEntry.contentType === args.contentType
+      currentEntry &&
+      currentEntry.deleted === false &&
+      currentEntry.contentHash === args.contentHash &&
+      currentEntry.storageId === retainedStorageId &&
+      currentEntry.sizeBytes === canonicalBlob.sizeBytes &&
+      currentEntry.contentType === canonicalBlob.contentType
     ) {
       return {
         ordinal: session.latestFileOpOrdinal,
         noop: true,
+        retainedStorageId,
+        submittedStorageRetained,
       };
     }
 
@@ -401,9 +486,11 @@ export const recordFileUploadInternal = internalMutation({
     if (currentEntry) {
       await ctx.db.patch(currentEntry._id, {
         contentHash: args.contentHash,
-        storageId: args.storageId,
-        sizeBytes: args.sizeBytes,
-        contentType: args.contentType,
+        storageId: retainedStorageId,
+        sizeBytes: canonicalBlob.sizeBytes,
+        contentType: canonicalBlob.contentType,
+        lastActorOwnerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
         deleted: false,
         updatedAt: timestamp,
       });
@@ -412,9 +499,11 @@ export const recordFileUploadInternal = internalMutation({
         sessionId: args.sessionId,
         relativePath: args.relativePath,
         contentHash: args.contentHash,
-        storageId: args.storageId,
-        sizeBytes: args.sizeBytes,
-        contentType: args.contentType,
+        storageId: retainedStorageId,
+        sizeBytes: canonicalBlob.sizeBytes,
+        contentType: canonicalBlob.contentType,
+        lastActorOwnerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
         deleted: false,
         updatedAt: timestamp,
       });
@@ -425,16 +514,19 @@ export const recordFileUploadInternal = internalMutation({
       type: "upsert",
       relativePath: args.relativePath,
       actorOwnerId: args.ownerId,
+      actorOwnerGeneration: args.ownerGeneration,
       contentHash: args.contentHash,
-      storageId: args.storageId,
-      sizeBytes: args.sizeBytes,
-      contentType: args.contentType,
+      storageId: retainedStorageId,
+      sizeBytes: canonicalBlob.sizeBytes,
+      contentType: canonicalBlob.contentType,
       timestamp,
     });
 
     return {
       ordinal: op.ordinal,
       noop: false,
+      retainedStorageId,
+      submittedStorageRetained,
     };
   },
 });
@@ -461,7 +553,9 @@ export const listSessions = query({
         return await createSessionSummary(ctx, session, ownerId);
       }),
     );
-    return summaries.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+    return summaries.filter((entry): entry is NonNullable<typeof entry> =>
+      Boolean(entry),
+    );
   },
 });
 
@@ -501,7 +595,10 @@ export const createSession = mutation({
   },
   returns: stellaSessionValidator,
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Shared sessions");
     const ownerId = await requireConnectedUserId(ctx);
+    const { generation: ownerGeneration } =
+      await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     await enforceMutationRateLimit(
       ctx,
       "session_create",
@@ -564,7 +661,11 @@ export const createSession = mutation({
     }
 
     const workspaceSlug = sanitizeWorkspaceSlug(args.workspaceSlug);
-    requireBoundedString(workspaceSlug, "workspaceSlug", MAX_WORKSPACE_SLUG_LENGTH);
+    requireBoundedString(
+      workspaceSlug,
+      "workspaceSlug",
+      MAX_WORKSPACE_SLUG_LENGTH,
+    );
     const workspaceFolderName = sanitizeWorkspaceFolderName(
       args.workspaceFolderName?.trim() || workspaceSlug,
     );
@@ -601,6 +702,7 @@ export const createSession = mutation({
     await appendSessionSystemMessage(ctx, {
       roomId: room._id,
       senderOwnerId: ownerId,
+      senderOwnerGeneration: ownerGeneration,
       body: "Stella mode started.",
     });
 
@@ -618,11 +720,17 @@ export const createSession = mutation({
 export const updateSessionStatus = mutation({
   args: {
     sessionId: v.id("stella_sessions"),
-    status: v.union(v.literal("active"), v.literal("paused"), v.literal("ended")),
+    status: v.union(
+      v.literal("active"),
+      v.literal("paused"),
+      v.literal("ended"),
+    ),
   },
   returns: stellaSessionValidator,
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Shared sessions");
     const ownerId = await requireConnectedUserId(ctx);
+    await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     await enforceMutationRateLimit(
       ctx,
       "session_update_status",
@@ -697,7 +805,10 @@ export const queueTurn = mutation({
   },
   returns: stellaSessionTurnValidator,
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Shared sessions");
     const ownerId = await requireConnectedUserId(ctx);
+    const { generation: requesterOwnerGeneration } =
+      await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     // Each queued turn schedules agent work on the host. Treat like a
     // standard chat send.
     await enforceMutationRateLimit(
@@ -707,7 +818,11 @@ export const queueTurn = mutation({
       RATE_STANDARD,
       "Too many turn requests. Please slow down and try again.",
     );
-    const session = await ensureActiveSessionForMember(ctx, args.sessionId, ownerId);
+    const session = await ensureActiveSessionForMember(
+      ctx,
+      args.sessionId,
+      ownerId,
+    );
     const prompt = args.prompt.trim();
     if (!prompt) {
       throw new ConvexError({
@@ -740,6 +855,7 @@ export const queueTurn = mutation({
       ordinal: nextOrdinal,
       status: "queued",
       requestedByOwnerId: ownerId,
+      requesterOwnerGeneration,
       requestId,
       prompt,
       agentType: args.agentType?.trim() || undefined,
@@ -833,7 +949,9 @@ export const claimTurn = mutation({
     turn: v.union(v.null(), stellaSessionTurnValidator),
   }),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Shared sessions");
     const ownerId = await requireConnectedUserId(ctx);
+    await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     // Hot path: host devices poll/claim turns. Use the loose hot-path tier.
     await enforceMutationRateLimit(
       ctx,
@@ -841,12 +959,21 @@ export const claimTurn = mutation({
       ownerId,
       RATE_HOT_PATH,
     );
-    const { deviceId } = await requireSessionHostDevice(ctx, args.sessionId, ownerId, args.deviceId);
+    const { deviceId } = await requireSessionHostDevice(
+      ctx,
+      args.sessionId,
+      ownerId,
+      args.deviceId,
+    );
     const turn = await ctx.db.get(args.turnId);
     if (!turn || turn.sessionId !== args.sessionId) {
       return { claimed: false, turn: null };
     }
-    if (turn.status === "completed" || turn.status === "failed" || turn.status === "canceled") {
+    if (
+      turn.status === "completed" ||
+      turn.status === "failed" ||
+      turn.status === "canceled"
+    ) {
       return { claimed: false, turn };
     }
     if (turn.status === "claimed" && turn.claimedByDeviceId === deviceId) {
@@ -855,6 +982,7 @@ export const claimTurn = mutation({
     if (turn.status !== "queued") {
       return { claimed: false, turn };
     }
+    await assertTurnRequesterWriteAllowed(ctx, turn);
     await ctx.db.patch(turn._id, {
       status: "claimed",
       claimedByDeviceId: deviceId,
@@ -878,20 +1006,33 @@ export const completeTurn = mutation({
   },
   returns: stellaSessionTurnValidator,
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Shared sessions");
     const ownerId = await requireConnectedUserId(ctx);
+    const { generation: hostOwnerGeneration } =
+      await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     await enforceMutationRateLimit(
       ctx,
       "session_complete_turn",
       ownerId,
       RATE_HOT_PATH,
     );
-    const { session, deviceId } = await requireSessionHostDevice(ctx, args.sessionId, ownerId, args.deviceId);
+    const { session, deviceId } = await requireSessionHostDevice(
+      ctx,
+      args.sessionId,
+      ownerId,
+      args.deviceId,
+    );
     const turn = await requireSessionTurn(ctx, args.sessionId, args.turnId);
-    if (turn.status === "completed" || turn.status === "failed" || turn.status === "canceled") {
+    if (
+      turn.status === "completed" ||
+      turn.status === "failed" ||
+      turn.status === "canceled"
+    ) {
       // Idempotent retry guard: a turn that already reached a terminal state
       // must not be re-completed (which would duplicate the system message).
       return turn;
     }
+    await assertTurnRequesterWriteAllowed(ctx, turn);
     const resultText = args.resultText.trim();
     requireBoundedString(resultText, "resultText", MAX_SESSION_RESULT_LENGTH);
     const now = Date.now();
@@ -913,6 +1054,8 @@ export const completeTurn = mutation({
     await appendSessionSystemMessage(ctx, {
       roomId: session.roomId,
       senderOwnerId: ownerId,
+      senderOwnerGeneration: hostOwnerGeneration,
+      sourceTurnId: turn._id,
       body: resultText,
     });
     return updated;
@@ -928,18 +1071,30 @@ export const failTurn = mutation({
   },
   returns: stellaSessionTurnValidator,
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Shared sessions");
     const ownerId = await requireConnectedUserId(ctx);
+    await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     await enforceMutationRateLimit(
       ctx,
       "session_fail_turn",
       ownerId,
       RATE_HOT_PATH,
     );
-    const { deviceId } = await requireSessionHostDevice(ctx, args.sessionId, ownerId, args.deviceId);
+    const { deviceId } = await requireSessionHostDevice(
+      ctx,
+      args.sessionId,
+      ownerId,
+      args.deviceId,
+    );
     const turn = await requireSessionTurn(ctx, args.sessionId, args.turnId);
-    if (turn.status === "completed" || turn.status === "failed" || turn.status === "canceled") {
+    if (
+      turn.status === "completed" ||
+      turn.status === "failed" ||
+      turn.status === "canceled"
+    ) {
       return turn;
     }
+    await assertTurnRequesterWriteAllowed(ctx, turn);
     const error = args.error.trim();
     requireBoundedString(error, "error", 4000);
     const now = Date.now();
@@ -969,20 +1124,28 @@ export const releaseTurn = mutation({
   },
   returns: stellaSessionTurnValidator,
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Shared sessions");
     const ownerId = await requireConnectedUserId(ctx);
+    await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     await enforceMutationRateLimit(
       ctx,
       "session_release_turn",
       ownerId,
       RATE_HOT_PATH,
     );
-    const { deviceId } = await requireSessionHostDevice(ctx, args.sessionId, ownerId, args.deviceId);
+    const { deviceId } = await requireSessionHostDevice(
+      ctx,
+      args.sessionId,
+      ownerId,
+      args.deviceId,
+    );
     const turn = await requireSessionTurn(ctx, args.sessionId, args.turnId);
     if (turn.status !== "claimed") {
       // Releasing only makes sense for a claimed turn; never resurrect a
       // terminal turn back into the queue.
       return turn;
     }
+    await assertTurnRequesterWriteAllowed(ctx, turn);
     await ctx.db.patch(turn._id, {
       status: "queued",
       claimedByDeviceId: undefined,
@@ -1058,7 +1221,7 @@ export const listWorkspaceFiles = query({
         updatedAt: file.updatedAt,
         downloadUrl:
           wantsUrls && file.storageId
-            ? (await ctx.storage.getUrl(file.storageId)) ?? undefined
+            ? ((await ctx.storage.getUrl(file.storageId)) ?? undefined)
             : undefined,
       })),
     );
@@ -1078,14 +1241,20 @@ export const markFileOpsApplied = mutation({
   },
   returns: stellaSessionMemberValidator,
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Shared sessions");
     const ownerId = await requireConnectedUserId(ctx);
+    await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     await enforceMutationRateLimit(
       ctx,
       "session_mark_file_ops_applied",
       ownerId,
       RATE_HOT_PATH,
     );
-    const membership = await requireSessionMembership(ctx, args.sessionId, ownerId);
+    const membership = await requireSessionMembership(
+      ctx,
+      args.sessionId,
+      ownerId,
+    );
     const session = await getSessionDoc(ctx, args.sessionId);
     const nextOrdinal = Math.max(0, Math.floor(args.lastAppliedFileOpOrdinal));
     if (nextOrdinal > session.latestFileOpOrdinal) {
@@ -1123,7 +1292,10 @@ export const createDirectory = mutation({
     noop: v.boolean(),
   }),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Shared sessions");
     const ownerId = await requireConnectedUserId(ctx);
+    const { generation: actorOwnerGeneration } =
+      await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     await enforceMutationRateLimit(
       ctx,
       "session_create_directory",
@@ -1146,10 +1318,10 @@ export const createDirectory = mutation({
       )
       .unique();
     if (
-      currentEntry
-      && currentEntry.deleted === false
-      && !currentEntry.contentHash
-      && !currentEntry.storageId
+      currentEntry &&
+      currentEntry.deleted === false &&
+      !currentEntry.contentHash &&
+      !currentEntry.storageId
     ) {
       return {
         ordinal: session.latestFileOpOrdinal,
@@ -1161,6 +1333,8 @@ export const createDirectory = mutation({
     if (currentEntry) {
       await ctx.db.patch(currentEntry._id, {
         deleted: false,
+        lastActorOwnerId: ownerId,
+        ownerGeneration: actorOwnerGeneration,
         updatedAt: timestamp,
         storageId: undefined,
         contentHash: undefined,
@@ -1171,6 +1345,8 @@ export const createDirectory = mutation({
       await ctx.db.insert("stella_session_files", {
         sessionId: args.sessionId,
         relativePath,
+        lastActorOwnerId: ownerId,
+        ownerGeneration: actorOwnerGeneration,
         deleted: false,
         updatedAt: timestamp,
       });
@@ -1180,6 +1356,7 @@ export const createDirectory = mutation({
       type: "mkdir",
       relativePath,
       actorOwnerId: ownerId,
+      actorOwnerGeneration,
       timestamp,
     });
     return {
@@ -1213,7 +1390,9 @@ export const listFileOps = query({
     return await Promise.all(
       ops.map(async (op) => ({
         op,
-        downloadUrl: op.storageId ? await ctx.storage.getUrl(op.storageId) ?? undefined : undefined,
+        downloadUrl: op.storageId
+          ? ((await ctx.storage.getUrl(op.storageId)) ?? undefined)
+          : undefined,
       })),
     );
   },
@@ -1225,7 +1404,9 @@ export const markSnapshotCreated = mutation({
   },
   returns: stellaSessionValidator,
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Shared sessions");
     const ownerId = await requireConnectedUserId(ctx);
+    await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     await enforceMutationRateLimit(
       ctx,
       "session_mark_snapshot_created",
@@ -1259,14 +1440,20 @@ export const acknowledgeFileOps = mutation({
     lastAppliedOrdinal: v.number(),
   }),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Shared sessions");
     const ownerId = await requireConnectedUserId(ctx);
+    await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     await enforceMutationRateLimit(
       ctx,
       "session_acknowledge_file_ops",
       ownerId,
       RATE_HOT_PATH,
     );
-    const membership = await requireSessionMembership(ctx, args.sessionId, ownerId);
+    const membership = await requireSessionMembership(
+      ctx,
+      args.sessionId,
+      ownerId,
+    );
     const session = await getSessionDoc(ctx, args.sessionId);
     const lastAppliedOrdinal = Math.max(
       0,
@@ -1296,7 +1483,10 @@ export const deleteFile = mutation({
     noop: v.boolean(),
   }),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Shared sessions");
     const ownerId = await requireConnectedUserId(ctx);
+    const { generation: actorOwnerGeneration } =
+      await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     await enforceMutationRateLimit(
       ctx,
       "session_delete_file",
@@ -1328,6 +1518,8 @@ export const deleteFile = mutation({
     const timestamp = Date.now();
     await ctx.db.patch(currentEntry._id, {
       deleted: true,
+      lastActorOwnerId: ownerId,
+      ownerGeneration: actorOwnerGeneration,
       updatedAt: timestamp,
       storageId: undefined,
       contentHash: undefined,
@@ -1339,6 +1531,7 @@ export const deleteFile = mutation({
       type: "delete",
       relativePath,
       actorOwnerId: ownerId,
+      actorOwnerGeneration,
       timestamp,
     });
     return {
@@ -1360,11 +1553,13 @@ export const uploadFile = action({
     ordinal: v.number(),
     noop: v.boolean(),
   }),
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ ordinal: number; noop: boolean }> => {
+  handler: async (ctx, args): Promise<{ ordinal: number; noop: boolean }> => {
+    assertC8RetiredSurfaceUnavailable("Shared sessions");
     const ownerId = await requireConnectedSocialUserIdAction(ctx);
+    const { generation: ownerGeneration } = await assertOwnerDataAccessActive(
+      ctx,
+      ownerId,
+    );
     // Each call writes bytes (up to ~700 KB) into Convex storage. Cap so a
     // host device that's been compromised can't inflate the storage bill.
     await enforceActionRateLimit(
@@ -1377,7 +1572,7 @@ export const uploadFile = action({
     const session: Doc<"stella_sessions"> | null = await ctx.runQuery(
       internal.social.sessions.getSessionInternal,
       {
-      sessionId: args.sessionId,
+        sessionId: args.sessionId,
       },
     );
     if (!session) {
@@ -1402,9 +1597,17 @@ export const uploadFile = action({
       });
     }
     requireBoundedString(contentHash, "contentHash", MAX_CONTENT_HASH_LENGTH);
-    requireBoundedString(args.contentBase64, "contentBase64", MAX_BASE64_LENGTH);
+    requireBoundedString(
+      args.contentBase64,
+      "contentBase64",
+      MAX_BASE64_LENGTH,
+    );
     const contentType = args.contentType?.trim() || "application/octet-stream";
-    requireBoundedString(contentType, "contentType", MAX_FILE_CONTENT_TYPE_LENGTH);
+    requireBoundedString(
+      contentType,
+      "contentType",
+      MAX_FILE_CONTENT_TYPE_LENGTH,
+    );
 
     const bytes = parseBase64Bytes(args.contentBase64);
     if (bytes.byteLength > MAX_FILE_BYTES) {
@@ -1418,22 +1621,54 @@ export const uploadFile = action({
       storageId: Id<"_storage">;
       sizeBytes: number;
       contentType: string;
-    } | null = await ctx.runQuery(internal.social.sessions.getFileBlobByHashInternal, {
-      sessionId: args.sessionId,
-      contentHash,
-    });
-    const storageId: Id<"_storage"> =
-      existingBlob?.storageId
-      ?? await ctx.storage.store(new Blob([bytes], { type: contentType }));
-
-    return await ctx.runMutation(internal.social.sessions.recordFileUploadInternal, {
-      sessionId: args.sessionId,
-      ownerId,
-      relativePath,
-      contentHash,
-      storageId,
-      sizeBytes: bytes.byteLength,
-      contentType,
-    });
+    } | null = await ctx.runQuery(
+      internal.social.sessions.getFileBlobByHashInternal,
+      {
+        sessionId: args.sessionId,
+        contentHash,
+      },
+    );
+    let newlyStoredId: Id<"_storage"> | null = null;
+    try {
+      if (!existingBlob) {
+        await ctx.runMutation(
+          internal.social.sessions.assertSessionFileUploadDispatchInternal,
+          {
+            sessionId: args.sessionId,
+            ownerId,
+            ownerGeneration,
+          },
+        );
+        newlyStoredId = await ctx.storage.store(
+          new Blob([bytes], { type: contentType }),
+        );
+      }
+      const storageId = existingBlob?.storageId ?? newlyStoredId;
+      if (!storageId) {
+        throw new Error("Session upload produced no storage locator.");
+      }
+      const recorded = await ctx.runMutation(
+        internal.social.sessions.recordFileUploadInternal,
+        {
+          sessionId: args.sessionId,
+          ownerId,
+          ownerGeneration,
+          relativePath,
+          contentHash,
+          storageId,
+          sizeBytes: bytes.byteLength,
+          contentType,
+        },
+      );
+      if (newlyStoredId && !recorded.submittedStorageRetained) {
+        await ctx.storage.delete(newlyStoredId);
+      }
+      return { ordinal: recorded.ordinal, noop: recorded.noop };
+    } catch (error) {
+      if (newlyStoredId) {
+        await ctx.storage.delete(newlyStoredId).catch(() => undefined);
+      }
+      throw error;
+    }
   },
 });

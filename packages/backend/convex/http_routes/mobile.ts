@@ -1,4 +1,4 @@
-import type { HttpRouter } from "convex/server";
+import { makeFunctionReference, type HttpRouter } from "convex/server";
 import { ConvexError } from "convex/values";
 import { httpAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
@@ -6,14 +6,23 @@ import {
   assertSensitiveSessionPolicyAction,
   createAuth,
   getAuthBaseUrl,
+  getUserIdentityOrNullAction,
   isAnonymousIdentity,
+  tokenIdentifierForBetterAuthUserId,
 } from "../auth";
 import { getAppReviewEmail } from "../lib/app_review_auth";
+import {
+  BROWSER_AUTH_HANDOFF_TOKEN_PATTERN,
+  buildBrowserAuthFragmentRedirect,
+  normalizeBrowserAuthReturnTarget,
+} from "../lib/browser_auth_callback";
+import { decideAnonymousLinkBinding } from "../lib/mobile_auth_link";
 import { AGENT_IDS } from "../lib/agent_constants";
 import { MANAGED_GATEWAY } from "../agent/model";
 import {
   resolveFallbackConfig,
   resolveModelConfig,
+  type ResolvedModelConfig,
 } from "../agent/model_resolver";
 import {
   buildOfflineChatContext,
@@ -39,23 +48,31 @@ import {
 import { readJsonBody } from "../http_shared/request";
 import { encodeSseData, sseResponse } from "../http_shared/sse";
 import { dollarsToMicroCents } from "../lib/billing_money";
+import {
+  estimateManagedModelFallbackCostMicroCents,
+  MANAGED_USAGE_BILLING_KIND,
+} from "../lib/managed_dispatch";
 import { getClientAddressKey } from "../lib/http_utils";
 import {
+  bindManagedProviderRequest,
+  createManagedUsageDispatchGuard,
   resolveManagedModelAccess,
-  scheduleManagedUsage,
 } from "../lib/managed_billing";
 import {
   assistantText,
   completeManagedChat,
+  estimateManagedContextInputTokens,
+  runManagedDispatchAttempt,
   streamManagedChat,
-  usageSummaryFromAssistant,
+  type ManagedDispatchOutcome,
+  type ManagedModelBillingContext,
 } from "../runtime_ai/managed";
+import { isRetryableProviderError } from "../runtime_ai/retry";
 import { MOBILE_BRIDGE_LEASE_MS } from "../mobile_bridge";
 import {
   verifyPairedMobileProof,
   verifyPairedMobileSecret,
 } from "../mobile_access";
-import type { AssistantMessage } from "../runtime_ai/types";
 
 const OFFLINE_CHAT_RATE_LIMIT = 12;
 const OFFLINE_CHAT_RATE_WINDOW_MS = 60_000;
@@ -72,6 +89,8 @@ const TRANSCRIBE_ANON_IP_RATE_LIMIT = 60;
 /** ~10 MB of base64 ≈ ~7.5 MB raw audio. Roughly 2 min of m4a. */
 const MAX_TRANSCRIBE_AUDIO_BASE64_CHARS = 10_000_000;
 const TRANSCRIBE_MODEL = "mistralai/voxtral-mini-transcribe";
+const TRANSCRIBE_FALLBACK_USD_PER_SECOND = 0.000003;
+const MANAGED_PROVIDER_REQUEST_ID_PATTERN = /^[A-Za-z0-9:._-]{8,256}$/u;
 const TRANSCRIBE_AUDIO_FORMATS = new Set([
   "wav",
   "mp3",
@@ -82,6 +101,12 @@ const TRANSCRIBE_AUDIO_FORMATS = new Set([
   "aac",
   "mp4",
 ]);
+
+class MobileTranscriptionUpstreamError extends Error {
+  constructor(readonly status: number) {
+    super(`Mobile transcription upstream returned ${status}`);
+  }
+}
 const MAX_BASE_URLS = 8;
 const MAX_DEVICE_ID_LENGTH = 256;
 const MAX_BRIDGE_CHALLENGE_LENGTH = 512;
@@ -102,6 +127,78 @@ const MAGIC_LINK_STATUS_RATE_WINDOW_MS = 60_000;
 /** Per-IP cap on `/api/mobile/pairing/complete` so brute-force is bounded. */
 const MOBILE_PAIRING_COMPLETE_RATE_LIMIT = 30;
 const MOBILE_PAIRING_COMPLETE_RATE_WINDOW_MS = 60_000;
+const MOBILE_EXECUTION_SUBMIT_RATE_LIMIT = 30;
+const MOBILE_EXECUTION_SUBMIT_RATE_WINDOW_MS = 60_000;
+
+type MobileExecutionDispatchResult = {
+  dispatchId: string;
+  idempotencyKey: string;
+  kind: "chat" | "agent";
+  ingress: "mobile";
+  subject: "portable" | "computer" | "cloud";
+  workspace?: string;
+  conversationId: string;
+  parentTurnId?: string;
+  threadId?: string;
+  state: string;
+  placement?: "computer" | "cloud";
+  executorDeviceId?: string;
+  executorPresenceSessionId?: string;
+  revision: number;
+  fallbackReason?: string;
+  cancelRequestId?: string;
+  cancelReason?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  resultJson?: string;
+  cloudTurnId?: string;
+  terminalAt?: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
+const submitMobileExecutionRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    ownerGeneration: string;
+    idempotencyKey: string;
+    payloadJson: string;
+    payloadHash: string;
+    kind: "chat" | "agent";
+    ingress: "mobile";
+    subject: "portable" | "computer" | "cloud";
+    conversationId: string;
+    parentTurnId?: string;
+    threadId?: string;
+    requestingDeviceId?: string;
+    pairGrantDeviceId?: string;
+    workspace?: string;
+    requiredCapabilities: Array<
+      "chat" | "agent" | "computer-use" | "local-files" | "local-apps"
+    >;
+    now: number;
+  },
+  MobileExecutionDispatchResult
+>("execution_placement:submitExecutionDispatchInternal");
+
+const mobileExecutionStatusRef = makeFunctionReference<
+  "query",
+  { ownerId: string; dispatchId: string },
+  MobileExecutionDispatchResult | null
+>("execution_placement:getExecutionDispatchStatusForOwnerInternal");
+
+const cancelMobileExecutionRef = makeFunctionReference<
+  "mutation",
+  {
+    ownerId: string;
+    ownerGeneration: string;
+    dispatchId: string;
+    cancelRequestId: string;
+    reason?: string;
+  },
+  MobileExecutionDispatchResult
+>("execution_placement:cancelExecutionDispatchForOwnerInternal");
 
 const parseOfflineHistory = (
   raw: unknown,
@@ -134,11 +231,145 @@ const MAGIC_LINK_RATE_LIMIT = 3;
 const MAGIC_LINK_IP_RATE_LIMIT = 10;
 const MAGIC_LINK_RATE_WINDOW_MS = 60_000;
 const MAGIC_LINK_EXPIRY_MS = 10 * 60_000;
+// The installed crossDomain provider issues browser OTTs for three minutes.
+// Do not keep an independently usable callback registration any longer.
+const BROWSER_SOCIAL_HANDOFF_EXPIRY_MS = 3 * 60_000;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+type AuthenticatedAccountOwnerResult =
+  | {
+      ownerId: string;
+      ownerGeneration: string;
+      name?: string;
+      isAnonymous: boolean;
+    }
+  | { response: Response };
 
 type AuthenticatedOwnerResult =
   | { ownerId: string; name?: string; isAnonymous: boolean }
   | { response: Response };
+
+type AnonymousLinkOwnerBinding =
+  | { fromOwnerId?: string; fromAuthUserId?: string }
+  | { response: Response };
+
+const BEARER_AUTHORIZATION_PATTERN = /^Bearer\s+\S+$/i;
+
+const resolveAnonymousLinkOwnerBinding = async (
+  ctx: ActionCtx,
+  request: Request,
+  origin: string | null,
+  requireAnonymousOwner: boolean,
+): Promise<AnonymousLinkOwnerBinding> => {
+  const authorization = request.headers.get("authorization")?.trim() ?? "";
+  let identity: Awaited<ReturnType<typeof getUserIdentityOrNullAction>> = null;
+  try {
+    identity = await getUserIdentityOrNullAction(ctx);
+  } catch {
+    // Invalid/expired JWTs are credentials, so never echo or log their value.
+    return {
+      response: errorResponse(
+        401,
+        "The anonymous session could not be verified.",
+        origin,
+      ),
+    };
+  }
+  const decision = decideAnonymousLinkBinding({
+    hasAuthorizationHeader: authorization.length > 0,
+    hasBearerAuthorization: BEARER_AUTHORIZATION_PATTERN.test(authorization),
+    ...(identity ? { identityOwnerId: identity.tokenIdentifier } : {}),
+    identityIsAnonymous: identity ? isAnonymousIdentity(identity) : false,
+    requireAnonymousOwner,
+  });
+  if (!decision.ok) {
+    return {
+      response: errorResponse(
+        401,
+        decision.reason === "invalid_authorization"
+          ? "The anonymous session could not be verified."
+          : "An authenticated anonymous session is required to preserve this conversation.",
+        origin,
+      ),
+    };
+  }
+  return decision.fromOwnerId
+    ? {
+        fromOwnerId: decision.fromOwnerId,
+        ...(identity && typeof identity.subject === "string"
+          ? { fromAuthUserId: identity.subject }
+          : {}),
+      }
+    : {};
+};
+
+const readBetterAuthResponseHeader = (
+  result: unknown,
+  wantedName: string,
+): string => {
+  if (!result || typeof result !== "object") return "";
+  const headers = (result as { headers?: unknown }).headers;
+  if (headers instanceof Headers) {
+    return headers.get(wantedName)?.trim() ?? "";
+  }
+  const headersList = (
+    headers as { _headersList?: Array<[string, string]> } | null | undefined
+  )?._headersList;
+  if (!Array.isArray(headersList)) return "";
+  const normalizedWantedName = wantedName.toLowerCase();
+  return (
+    headersList
+      .find(([name]) => name.toLowerCase() === normalizedWantedName)?.[1]
+      ?.trim() ?? ""
+  );
+};
+
+const readBetterAuthSessionCookie = (result: unknown): string =>
+  readBetterAuthResponseHeader(result, "set-better-auth-cookie") ||
+  readBetterAuthResponseHeader(result, "set-cookie");
+
+const readBetterAuthResponseUserId = (result: unknown): string => {
+  if (!result || typeof result !== "object") return "";
+  const response = (result as { response?: unknown }).response;
+  if (!response || typeof response !== "object") return "";
+  const user = (response as { user?: unknown }).user;
+  if (!user || typeof user !== "object") return "";
+  const id = (user as { id?: unknown }).id;
+  return typeof id === "string" ? id.trim() : "";
+};
+
+const browserAuthBridgeResponse = (
+  status: number,
+  location?: string,
+): Response => {
+  const headers = new Headers({
+    "Cache-Control": "no-store, max-age=0",
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+    Pragma: "no-cache",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+  });
+  if (location) headers.set("Location", location);
+  return new Response(null, { status, headers });
+};
+
+const authNoStoreJsonResponse = (
+  data: unknown,
+  status: number,
+  origin: string | null,
+): Response => {
+  const response = jsonResponse(data, status, origin);
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "no-store, max-age=0");
+  headers.set("Pragma", "no-cache");
+  headers.set("Referrer-Policy", "no-referrer");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+};
 
 const readConvexErrorCode = (error: unknown) => {
   if (!(error instanceof ConvexError)) {
@@ -175,7 +406,7 @@ const readConvexErrorMessage = (error: unknown, fallback: string) => {
 const requireMobileAccountOwner = async (
   ctx: ActionCtx,
   origin: string | null,
-): Promise<AuthenticatedOwnerResult> => {
+): Promise<AuthenticatedAccountOwnerResult> => {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) {
     return { response: errorResponse(401, "Unauthorized", origin) };
@@ -202,8 +433,29 @@ const requireMobileAccountOwner = async (
     };
   }
 
+  const [lifecycle, migrationFenced] = await Promise.all([
+    ctx.runQuery(internal.owner_lifecycle.getOwnerDataAccessStateInternal, {
+      ownerId: identity.tokenIdentifier,
+    }),
+    ctx.runQuery(internal.auth.hasOwnerMigrationWriteFenceInternal, {
+      ownerId: identity.tokenIdentifier,
+    }),
+  ]);
+  if (!lifecycle.allowed || migrationFenced) {
+    return {
+      response: errorResponse(
+        409,
+        migrationFenced
+          ? "This account is being linked. Refresh authentication and retry."
+          : "Account data is currently being reset or deleted.",
+        origin,
+      ),
+    };
+  }
+
   return {
     ownerId: identity.tokenIdentifier,
+    ownerGeneration: lifecycle.generation,
     name:
       typeof identity.name === "string" && identity.name.trim().length > 0
         ? identity.name.trim()
@@ -450,6 +702,52 @@ const requirePairedMobileCredentials = async (
   return { mobileDeviceId };
 };
 
+const createOfflineChatBilling = async (args: {
+  ctx: ActionCtx;
+  ownerId: string;
+  ownerGeneration: string;
+  requestId: string;
+  context: ReturnType<typeof buildOfflineChatContext>;
+  configs: readonly ResolvedModelConfig[];
+}): Promise<ManagedModelBillingContext> => {
+  const inputTokens = estimateManagedContextInputTokens(args.context);
+  const fallbackCostMicroCentsByModel = Object.fromEntries(
+    args.configs.map((config) => [
+      config.model,
+      estimateManagedModelFallbackCostMicroCents({
+        model: config.model,
+        inputTokens,
+        maxOutputTokens: config.maxOutputTokens ?? 32_768,
+      }),
+    ]),
+  );
+  const binding = await bindManagedProviderRequest(args.ctx, {
+    ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
+    route: "mobile_offline_chat",
+    requestId: args.requestId,
+    canonicalBody: JSON.stringify({
+      version: 1,
+      context: args.context,
+      configs: args.configs,
+    }),
+  });
+  if (binding.replayed) {
+    throw new ConvexError({
+      code: "REQUEST_ALREADY_ACCEPTED",
+      message: "This mobile request was already accepted.",
+    });
+  }
+  return {
+    requestFingerprint: binding.requestFingerprint,
+    agentType: "service:offline_chat",
+    fallbackCostMicroCents: Math.max(
+      ...Object.values(fallbackCostMicroCentsByModel),
+    ),
+    fallbackCostMicroCentsByModel,
+  };
+};
+
 const generateOfflineReply = async (args: {
   ctx: ActionCtx;
   ownerId: string;
@@ -459,6 +757,8 @@ const generateOfflineReply = async (args: {
   history: Array<{ role: "user" | "assistant"; text: string }>;
   images: OfflineChatImage[];
   model?: string | null;
+  requestId: string;
+  signal?: AbortSignal;
 }) => {
   const modelAccess = await resolveManagedModelAccess(args.ctx, args.ownerId, {
     isAnonymous: args.isAnonymous,
@@ -516,40 +816,45 @@ const generateOfflineReply = async (args: {
     message: args.message,
     images: args.images,
   });
-
-  const execute = async (config: typeof primaryConfig) =>
-    await completeManagedChat({
-      config,
-      context,
-    });
-
-  const startedAt = Date.now();
-  let activeModel = primaryConfig.model;
-  let result;
-  try {
-    result = await execute(primaryConfig);
-  } catch (error) {
-    if (
-      !fallbackConfig ||
-      (args.images.length > 0 && !modelSupportsOfflineImages(fallbackConfig))
-    ) {
-      throw error;
-    }
-    activeModel = fallbackConfig.model;
-    result = await execute(fallbackConfig);
-  }
-
-  await scheduleManagedUsage(args.ctx, {
+  const usableFallback =
+    fallbackConfig &&
+    (args.images.length === 0 || modelSupportsOfflineImages(fallbackConfig))
+      ? fallbackConfig
+      : undefined;
+  const billing = await createOfflineChatBilling({
+    ctx: args.ctx,
     ownerId: args.ownerId,
-    agentType: "service:offline_chat",
-    model: activeModel,
-    durationMs: Date.now() - startedAt,
-    success: true,
-    usage: usageSummaryFromAssistant(result),
+    ownerGeneration: modelAccess.ownerGeneration,
+    requestId: args.requestId,
+    context,
+    configs: usableFallback
+      ? [primaryConfig, usableFallback]
+      : [primaryConfig],
   });
-
-  const text = assistantText(result);
-  return text || "I'm here, but I couldn't generate a reply right now.";
+  const dispatchGuard = createManagedUsageDispatchGuard(args.ctx, {
+    ownerId: args.ownerId,
+    ownerGeneration: modelAccess.ownerGeneration,
+    spanExecution: true,
+  });
+  let outcome: ManagedDispatchOutcome = "failed";
+  try {
+    const result = await completeManagedChat({
+      config: primaryConfig,
+      fallbackConfig: usableFallback,
+      context,
+      request: { signal: args.signal },
+      billing,
+      dispatchGuard,
+    });
+    const text = assistantText(result);
+    outcome = "succeeded";
+    return text || "I'm here, but I couldn't generate a reply right now.";
+  } catch (error) {
+    outcome = dispatchGuard.signal.aborted ? "aborted" : "failed";
+    throw error;
+  } finally {
+    await dispatchGuard.finishExecution?.(outcome);
+  }
 };
 
 const streamOfflineReply = async (args: {
@@ -561,7 +866,9 @@ const streamOfflineReply = async (args: {
   history: Array<{ role: "user" | "assistant"; text: string }>;
   images: OfflineChatImage[];
   model?: string | null;
+  requestId: string;
   origin: string | null;
+  signal?: AbortSignal;
 }): Promise<Response> => {
   const modelAccess = await resolveManagedModelAccess(args.ctx, args.ownerId, {
     isAnonymous: args.isAnonymous,
@@ -581,6 +888,17 @@ const streamOfflineReply = async (args: {
   if (capabilityError) {
     return errorResponse(422, capabilityError, args.origin);
   }
+  const fallbackConfig = await resolveFallbackConfig(
+    args.ctx,
+    AGENT_IDS.OFFLINE_RESPONDER,
+    args.ownerId,
+    { access: modelAccess },
+  );
+  const usableFallback =
+    fallbackConfig &&
+    (args.images.length === 0 || modelSupportsOfflineImages(fallbackConfig))
+      ? fallbackConfig
+      : undefined;
 
   const responderLocaleDirective = getResponseLanguageSystemPrompt(
     await args.ctx.runQuery(internal.data.preferences.getLocaleForOwner, {
@@ -605,42 +923,70 @@ const streamOfflineReply = async (args: {
     message: args.message,
     images: args.images,
   });
+  const billing = await createOfflineChatBilling({
+    ctx: args.ctx,
+    ownerId: args.ownerId,
+    ownerGeneration: modelAccess.ownerGeneration,
+    requestId: args.requestId,
+    context,
+    configs: usableFallback ? [config, usableFallback] : [config],
+  });
 
-  const startedAt = Date.now();
-  const eventStream = streamManagedChat({ config, context });
-
+  const dispatchGuard = createManagedUsageDispatchGuard(args.ctx, {
+    ownerId: args.ownerId,
+    ownerGeneration: modelAccess.ownerGeneration,
+    spanExecution: true,
+  });
   const readable = new ReadableStream({
     async start(controller) {
+      let outcome: ManagedDispatchOutcome = "failed";
+      let closed = false;
+      let sawProviderError = false;
+      const enqueue = (value: Uint8Array) => {
+        if (closed) return;
+        try {
+          controller.enqueue(value);
+        } catch {
+          closed = true;
+        }
+      };
       try {
-        let finalMessage: AssistantMessage | null = null;
+        const eventStream = streamManagedChat({
+          config,
+          fallbackConfig: usableFallback,
+          context,
+          request: { signal: args.signal },
+          billing,
+          dispatchGuard,
+        });
         for await (const event of eventStream) {
           if (event.type === "text_delta") {
-            controller.enqueue(encodeSseData({ t: event.delta }));
+            enqueue(encodeSseData({ t: event.delta }));
           } else if (event.type === "done") {
-            finalMessage = event.message;
+            // Exact provider usage is captured by the physical receipt before
+            // the done event leaves the managed stream.
           } else if (event.type === "error") {
-            finalMessage = event.error;
+            sawProviderError = true;
+            enqueue(encodeSseData({ error: "Stream failed" }));
           }
         }
-        await scheduleManagedUsage(args.ctx, {
-          ownerId: args.ownerId,
-          agentType: "service:offline_chat",
-          model: config.model,
-          durationMs: Date.now() - startedAt,
-          success: true,
-          usage: usageSummaryFromAssistant(finalMessage),
-        });
-
-        // Keep the action alive until metering is durably scheduled. Closing
-        // the response first can end a streaming HTTP action before this await
-        // runs, leaving successful mobile turns unmetered.
-        controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
-        controller.close();
+        outcome = sawProviderError ? "failed" : "succeeded";
+        enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
       } catch (error) {
+        outcome = dispatchGuard.signal.aborted ? "aborted" : "failed";
         console.error("[mobile/offline-chat-stream] Error:", error);
-        controller.enqueue(encodeSseData({ error: "Stream failed" }));
-        controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
-        controller.close();
+        enqueue(encodeSseData({ error: "Stream failed" }));
+        enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
+      } finally {
+        if (!closed) {
+          try {
+            controller.close();
+          } catch {
+            // Client cancellation already closed the response body.
+          }
+          closed = true;
+        }
+        await dispatchGuard.finishExecution?.(outcome);
       }
     },
   });
@@ -652,6 +998,9 @@ export const registerMobileRoutes = (http: HttpRouter) => {
   registerCorsOptions(http, [
     "/api/mobile/offline-chat",
     "/api/mobile/offline-chat/stream",
+    "/api/mobile/execution/submit",
+    "/api/mobile/execution/status",
+    "/api/mobile/execution/cancel",
     "/api/mobile/transcribe",
     "/api/mobile/chat",
     "/api/mobile/pairing/complete",
@@ -665,6 +1014,302 @@ export const registerMobileRoutes = (http: HttpRouter) => {
     "/api/mobile/desktop-bridge/session/consume",
     "/api/mobile/desktop-bridge/tunnel-token",
   ]);
+
+  http.route({
+    path: "/api/mobile/execution/submit",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const owner = await requireMobileAccountOwner(ctx, origin);
+        if ("response" in owner) return owner.response;
+
+        const rateLimit = await consumeWebhookRateLimit(ctx, {
+          scope: "mobile_execution_submit",
+          key: owner.ownerId,
+          limit: MOBILE_EXECUTION_SUBMIT_RATE_LIMIT,
+          windowMs: MOBILE_EXECUTION_SUBMIT_RATE_WINDOW_MS,
+          blockMs: MOBILE_EXECUTION_SUBMIT_RATE_WINDOW_MS,
+        });
+        if (!rateLimit.allowed) {
+          return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
+        }
+
+        let body: Record<string, unknown>;
+        try {
+          const parsed = await request.json();
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            return errorResponse(400, "Invalid JSON body", origin);
+          }
+          body = parsed as Record<string, unknown>;
+        } catch {
+          return errorResponse(400, "Invalid JSON body", origin);
+        }
+
+        const desktopDeviceId = normalizeDeviceId(body.desktopDeviceId);
+        const desktopGrantWasSupplied =
+          body.desktopDeviceId !== undefined &&
+          body.desktopDeviceId !== null &&
+          body.desktopDeviceId !== "";
+        const idempotencyKey =
+          typeof body.idempotencyKey === "string"
+            ? body.idempotencyKey.trim()
+            : "";
+        const payloadJson =
+          typeof body.payloadJson === "string" ? body.payloadJson : "";
+        const payloadHash =
+          typeof body.payloadHash === "string"
+            ? body.payloadHash.trim().toLowerCase()
+            : "";
+        const conversationId =
+          typeof body.conversationId === "string"
+            ? body.conversationId.trim()
+            : "";
+        const kind = body.kind;
+        const workspace =
+          typeof body.workspace === "string" && body.workspace.trim()
+            ? body.workspace.trim().toLowerCase().slice(0, 128)
+            : undefined;
+        const subject = !workspace
+          ? "portable"
+          : workspace === "computer"
+            ? "computer"
+            : "cloud";
+        if (
+          (desktopGrantWasSupplied && !desktopDeviceId) ||
+          !/^[A-Za-z0-9._:-]{8,128}$/.test(idempotencyKey) ||
+          !payloadJson ||
+          !/^[a-f0-9]{64}$/.test(payloadHash) ||
+          !conversationId ||
+          (kind !== "chat" && kind !== "agent") ||
+          body.subject !== subject
+        ) {
+          return errorResponse(
+            400,
+            "A valid optional desktop grant, idempotency key, payload, conversation, kind, and server-derived subject are required.",
+            origin,
+          );
+        }
+
+        const challenge = [
+          "execution-placement-v1",
+          idempotencyKey,
+          conversationId,
+          payloadHash,
+          kind,
+          subject,
+        ].join(":");
+        const paired = desktopDeviceId
+          ? await requirePairedMobileCredentials(ctx, request, {
+              ownerId: owner.ownerId,
+              desktopDeviceId,
+              origin,
+              proofChallenge: challenge,
+            })
+          : undefined;
+        if (paired && "response" in paired) return paired.response;
+
+        const allowedCapabilities = new Set([
+          "chat",
+          "agent",
+          "computer-use",
+          "local-files",
+          "local-apps",
+        ] as const);
+        if (
+          body.requiredCapabilities !== undefined &&
+          (!Array.isArray(body.requiredCapabilities) ||
+            body.requiredCapabilities.length > 8 ||
+            body.requiredCapabilities.some(
+              (capability) =>
+                typeof capability !== "string" ||
+                !allowedCapabilities.has(
+                  capability as
+                    | "chat"
+                    | "agent"
+                    | "computer-use"
+                    | "local-files"
+                    | "local-apps",
+                ),
+            ))
+        ) {
+          return errorResponse(
+            400,
+            "Execution capabilities contain an unsupported requirement.",
+            origin,
+          );
+        }
+        const requiredCapabilities = [
+          ...new Set(
+            (body.requiredCapabilities ?? []) as Array<
+              "chat" | "agent" | "computer-use" | "local-files" | "local-apps"
+            >,
+          ),
+        ];
+        const parentTurnId =
+          typeof body.parentTurnId === "string" && body.parentTurnId.trim()
+            ? body.parentTurnId.trim().slice(0, 256)
+            : undefined;
+        const threadId =
+          typeof body.threadId === "string" && body.threadId.trim()
+            ? body.threadId.trim().slice(0, 256)
+            : undefined;
+        const lifecycle = await ctx.runQuery(
+          internal.owner_lifecycle.getOwnerDataAccessStateInternal,
+          { ownerId: owner.ownerId },
+        );
+        if (!lifecycle.allowed) {
+          return errorResponse(
+            409,
+            "Account data is currently being reset or deleted.",
+            origin,
+          );
+        }
+
+        try {
+          const result = await ctx.runMutation(submitMobileExecutionRef, {
+            ownerId: owner.ownerId,
+            ownerGeneration: lifecycle.generation,
+            idempotencyKey,
+            payloadJson,
+            payloadHash,
+            kind,
+            ingress: "mobile",
+            subject,
+            conversationId,
+            ...(parentTurnId ? { parentTurnId } : {}),
+            ...(threadId ? { threadId } : {}),
+            ...(paired && desktopDeviceId
+              ? {
+                  requestingDeviceId: paired.mobileDeviceId,
+                  pairGrantDeviceId: desktopDeviceId,
+                }
+              : {}),
+            ...(workspace ? { workspace } : {}),
+            requiredCapabilities,
+            now: Date.now(),
+          });
+          return jsonResponse(result, 202, origin);
+        } catch (error) {
+          const data =
+            error && typeof error === "object"
+              ? (error as { data?: { code?: unknown } }).data
+              : undefined;
+          const status = data?.code === "CONFLICT" ? 409 : 400;
+          return errorResponse(
+            status,
+            readConvexErrorMessage(error, "Execution admission failed."),
+            origin,
+          );
+        }
+      }),
+    ),
+  });
+
+  http.route({
+    path: "/api/mobile/execution/status",
+    method: "GET",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const owner = await requireMobileAccountOwner(ctx, origin);
+        if ("response" in owner) return owner.response;
+        const dispatchId = new URL(request.url).searchParams
+          .get("dispatchId")
+          ?.trim();
+        if (!dispatchId || dispatchId.length > 64) {
+          return errorResponse(
+            400,
+            "A valid execution dispatch is required.",
+            origin,
+          );
+        }
+        try {
+          const result = await ctx.runQuery(mobileExecutionStatusRef, {
+            ownerId: owner.ownerId,
+            dispatchId,
+          });
+          return jsonResponse(result, 200, origin);
+        } catch (error) {
+          const code = readConvexErrorCode(error);
+          return errorResponse(
+            code === "OWNERSHIP_MIGRATED" ? 409 : 400,
+            readConvexErrorMessage(error, "Execution status is unavailable."),
+            origin,
+          );
+        }
+      }),
+    ),
+  });
+
+  http.route({
+    path: "/api/mobile/execution/cancel",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        const owner = await requireMobileAccountOwner(ctx, origin);
+        if ("response" in owner) return owner.response;
+        let body: Record<string, unknown>;
+        try {
+          const parsed = await request.json();
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            return errorResponse(400, "Invalid JSON body", origin);
+          }
+          body = parsed as Record<string, unknown>;
+        } catch {
+          return errorResponse(400, "Invalid JSON body", origin);
+        }
+        const dispatchId =
+          typeof body.dispatchId === "string" ? body.dispatchId.trim() : "";
+        const cancelRequestId =
+          typeof body.cancelRequestId === "string"
+            ? body.cancelRequestId.trim()
+            : "";
+        const reason =
+          typeof body.reason === "string" && body.reason.trim()
+            ? body.reason.trim().slice(0, 512)
+            : undefined;
+        if (
+          !dispatchId ||
+          dispatchId.length > 64 ||
+          !cancelRequestId ||
+          cancelRequestId.length > 128
+        ) {
+          return errorResponse(
+            400,
+            "A valid execution dispatch and cancellation identity are required.",
+            origin,
+          );
+        }
+        const lifecycle = await ctx.runQuery(
+          internal.owner_lifecycle.getOwnerDataAccessStateInternal,
+          { ownerId: owner.ownerId },
+        );
+        if (!lifecycle.allowed) {
+          return errorResponse(
+            409,
+            "Account data is currently being reset or deleted.",
+            origin,
+          );
+        }
+        try {
+          const result = await ctx.runMutation(cancelMobileExecutionRef, {
+            ownerId: owner.ownerId,
+            ownerGeneration: lifecycle.generation,
+            dispatchId,
+            cancelRequestId,
+            ...(reason ? { reason } : {}),
+          });
+          return jsonResponse(result, 200, origin);
+        } catch (error) {
+          const code = readConvexErrorCode(error);
+          return errorResponse(
+            code === "CONFLICT" || code === "OWNERSHIP_MIGRATED" ? 409 : 400,
+            readConvexErrorMessage(error, "Execution cancellation failed."),
+            origin,
+          );
+        }
+      }),
+    ),
+  });
 
   http.route({
     path: "/api/mobile/offline-chat",
@@ -708,6 +1353,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         }
 
         const bodyResult = await readJsonBody<{
+          requestId?: unknown;
           message?: unknown;
           history?: unknown;
           images?: unknown;
@@ -715,6 +1361,11 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         }>(request, origin, "Invalid request body");
         if (!bodyResult.ok) return bodyResult.response;
         const body = bodyResult.body;
+        const requestId =
+          typeof body?.requestId === "string" ? body.requestId.trim() : "";
+        if (!MANAGED_PROVIDER_REQUEST_ID_PATTERN.test(requestId)) {
+          return errorResponse(400, "A valid requestId is required", origin);
+        }
 
         const message =
           typeof body?.message === "string"
@@ -742,6 +1393,8 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             history,
             images,
             model,
+            requestId,
+            signal: request.signal,
           });
           return jsonResponse({ text }, 200, origin);
         } catch (error) {
@@ -750,6 +1403,9 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           const status =
             code === "USAGE_LIMIT_REACHED"
               ? 429
+              : code === "IDEMPOTENCY_CONFLICT" ||
+                  code === "REQUEST_ALREADY_ACCEPTED"
+                ? 409
               : code === "UNSUPPORTED_INPUT_MODALITY"
                 ? 422
                 : 500;
@@ -802,6 +1458,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         }
 
         const bodyResult = await readJsonBody<{
+          requestId?: unknown;
           message?: unknown;
           history?: unknown;
           images?: unknown;
@@ -809,6 +1466,11 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         }>(request, origin, "Invalid request body");
         if (!bodyResult.ok) return bodyResult.response;
         const body = bodyResult.body;
+        const requestId =
+          typeof body.requestId === "string" ? body.requestId.trim() : "";
+        if (!MANAGED_PROVIDER_REQUEST_ID_PATTERN.test(requestId)) {
+          return errorResponse(400, "A valid requestId is required", origin);
+        }
 
         const message =
           typeof body.message === "string"
@@ -826,17 +1488,31 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           return errorResponse(400, "Message or image required", origin);
         }
 
-        return streamOfflineReply({
-          ctx,
-          ownerId: owner.ownerId,
-          userName: owner.name,
-          message,
-          isAnonymous: owner.isAnonymous,
-          history,
-          images,
-          model,
-          origin,
-        });
+        try {
+          return await streamOfflineReply({
+            ctx,
+            ownerId: owner.ownerId,
+            userName: owner.name,
+            message,
+            isAnonymous: owner.isAnonymous,
+            history,
+            images,
+            model,
+            requestId,
+            origin,
+            signal: request.signal,
+          });
+        } catch (error) {
+          const code = readConvexErrorCode(error);
+          return errorResponse(
+            code === "IDEMPOTENCY_CONFLICT" ||
+              code === "REQUEST_ALREADY_ACCEPTED"
+              ? 409
+              : 500,
+            readConvexErrorMessage(error, "Could not send your message"),
+            origin,
+          );
+        }
       }),
     ),
   });
@@ -886,12 +1562,18 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         }
 
         const bodyResult = await readJsonBody<{
+          requestId?: unknown;
           audio?: unknown;
           format?: unknown;
           language?: unknown;
         }>(request, origin, "Invalid request body");
         if (!bodyResult.ok) return bodyResult.response;
         const body = bodyResult.body;
+        const requestId =
+          typeof body.requestId === "string" ? body.requestId.trim() : "";
+        if (!MANAGED_PROVIDER_REQUEST_ID_PATTERN.test(requestId)) {
+          return errorResponse(400, "A valid requestId is required", origin);
+        }
 
         const audio = typeof body.audio === "string" ? body.audio : "";
         const format =
@@ -917,102 +1599,173 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           );
         }
 
-        const startedAt = Date.now();
-        try {
-          const upstream = await fetch(
-            `${MANAGED_GATEWAY.baseURL}/audio/transcriptions`,
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${apiKey}`,
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://stella.sh",
-                "X-OpenRouter-Title": "Stella",
-              },
-              body: JSON.stringify({
-                input_audio: {
-                  data: audio,
-                  format,
-                },
-                model: TRANSCRIBE_MODEL,
-                ...(language ? { language } : {}),
-              }),
-            },
-          );
+        const modelAccess = await resolveManagedModelAccess(
+          ctx,
+          owner.ownerId,
+          { isAnonymous: owner.isAnonymous },
+        );
+        if (!modelAccess.allowed) {
+          return errorResponse(429, modelAccess.message, origin);
+        }
 
-          if (!upstream.ok) {
-            const errText = await upstream.text().catch(() => "");
-            console.error(
-              "[mobile/transcribe] Upstream error",
-              upstream.status,
-              errText.slice(0, 500),
-            );
-            await scheduleManagedUsage(ctx, {
-              ownerId: owner.ownerId,
-              agentType: "service:mobile_dictation",
-              model: TRANSCRIBE_MODEL,
-              durationMs: Date.now() - startedAt,
-              success: false,
+        const upstreamBody = JSON.stringify({
+          input_audio: { data: audio, format },
+          model: TRANSCRIBE_MODEL,
+          ...(language ? { language } : {}),
+        });
+        let binding: Awaited<ReturnType<typeof bindManagedProviderRequest>>;
+        try {
+          binding = await bindManagedProviderRequest(ctx, {
+            ownerId: owner.ownerId,
+            ownerGeneration: modelAccess.ownerGeneration,
+            route: "mobile_transcription",
+            requestId,
+            canonicalBody: upstreamBody,
+          });
+          if (binding.replayed) {
+            throw new ConvexError({
+              code: "REQUEST_ALREADY_ACCEPTED",
+              message: "This transcription request was already accepted.",
             });
+          }
+        } catch (error) {
+          const code = readConvexErrorCode(error);
+          return errorResponse(
+            code === "IDEMPOTENCY_CONFLICT" ||
+              code === "REQUEST_ALREADY_ACCEPTED"
+              ? 409
+              : 400,
+            readConvexErrorMessage(error, "Invalid transcription request"),
+            origin,
+          );
+        }
+        const dispatchGuard = createManagedUsageDispatchGuard(ctx, {
+          ownerId: owner.ownerId,
+          ownerGeneration: modelAccess.ownerGeneration,
+          spanExecution: true,
+        });
+        const fallbackCostMicroCents = Math.max(
+          1,
+          dollarsToMicroCents(
+            Math.max(1, (audio.length * 0.75) / (16_000 * 2)) *
+              TRANSCRIBE_FALLBACK_USD_PER_SECOND,
+          ),
+        );
+        const billing = {
+          kind: MANAGED_USAGE_BILLING_KIND,
+          requestFingerprint: binding.requestFingerprint,
+          agentType: "service:mobile_dictation",
+          model: TRANSCRIBE_MODEL,
+          fallbackCostMicroCents,
+        } as const;
+
+        const startedAt = Date.now();
+        let executionOutcome: ManagedDispatchOutcome = "failed";
+        try {
+          const result = await runManagedDispatchAttempt({
+            dispatchGuard,
+            callerSignal: request.signal,
+            billing,
+            run: async (signal, receipt) => {
+              const upstream = await fetch(
+                `${MANAGED_GATEWAY.baseURL}/audio/transcriptions`,
+                {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${apiKey}`,
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://stella.sh",
+                    "X-OpenRouter-Title": "Stella",
+                  },
+                  body: upstreamBody,
+                  signal,
+                },
+              );
+              const bodyText = await upstream.text();
+              if (!upstream.ok) {
+                console.error(
+                  "[mobile/transcribe] Upstream error",
+                  upstream.status,
+                  bodyText.slice(0, 500),
+                );
+                await receipt.captureUsage({
+                  durationMs: Date.now() - startedAt,
+                  success: false,
+                  costMicroCents: fallbackCostMicroCents,
+                });
+                throw new MobileTranscriptionUpstreamError(upstream.status);
+              }
+              let parsed: {
+                text?: unknown;
+                usage?: {
+                  cost?: unknown;
+                  input_tokens?: unknown;
+                  output_tokens?: unknown;
+                  total_tokens?: unknown;
+                };
+              };
+              try {
+                parsed = JSON.parse(bodyText) as typeof parsed;
+              } catch {
+                await receipt.captureUsage({
+                  durationMs: Date.now() - startedAt,
+                  success: false,
+                  costMicroCents: fallbackCostMicroCents,
+                });
+                throw new Error("Transcription provider returned invalid JSON");
+              }
+              const usageNumber = (value: unknown) =>
+                typeof value === "number" && Number.isFinite(value)
+                  ? Math.max(0, Math.floor(value))
+                  : undefined;
+              const costMicroCents =
+                typeof parsed.usage?.cost === "number" &&
+                Number.isFinite(parsed.usage.cost)
+                  ? dollarsToMicroCents(Math.max(0, parsed.usage.cost))
+                  : fallbackCostMicroCents;
+              await receipt.captureUsage({
+                durationMs: Date.now() - startedAt,
+                success: true,
+                costMicroCents,
+                inputTokens: usageNumber(parsed.usage?.input_tokens),
+                outputTokens: usageNumber(parsed.usage?.output_tokens),
+                totalTokens: usageNumber(parsed.usage?.total_tokens),
+              });
+              return {
+                text:
+                  typeof parsed.text === "string" ? parsed.text.trim() : "",
+              };
+            },
+          });
+          executionOutcome = "succeeded";
+          return jsonResponse(result, 200, origin);
+        } catch (error) {
+          if (dispatchGuard.signal.aborted || request.signal.aborted) {
+            executionOutcome = "aborted";
             return errorResponse(
-              upstream.status >= 400 && upstream.status < 500
-                ? upstream.status
-                : 502,
+              409,
+              "Your account changed before transcription could start. Please retry.",
+              origin,
+            );
+          }
+          if (isRetryableProviderError(error)) {
+            executionOutcome = "outcome_unknown";
+          }
+          console.error("[mobile/transcribe] Error:", error);
+          if (error instanceof MobileTranscriptionUpstreamError) {
+            return errorResponse(
+              error.status >= 400 && error.status < 500 ? error.status : 502,
               "Could not transcribe that audio. Try again.",
               origin,
             );
           }
-
-          const parsed = (await upstream.json()) as {
-            text?: unknown;
-            usage?: {
-              cost?: unknown;
-              input_tokens?: unknown;
-              output_tokens?: unknown;
-              total_tokens?: unknown;
-            };
-          };
-          const text =
-            typeof parsed.text === "string" ? parsed.text.trim() : "";
-          const costUsd =
-            typeof parsed.usage?.cost === "number" &&
-            Number.isFinite(parsed.usage.cost)
-              ? Math.max(0, parsed.usage.cost)
-              : undefined;
-          const usageNumber = (value: unknown) =>
-            typeof value === "number" && Number.isFinite(value)
-              ? Math.max(0, Math.floor(value))
-              : undefined;
-          await scheduleManagedUsage(ctx, {
-            ownerId: owner.ownerId,
-            agentType: "service:mobile_dictation",
-            model: TRANSCRIBE_MODEL,
-            durationMs: Date.now() - startedAt,
-            success: true,
-            ...(costUsd !== undefined
-              ? { costMicroCents: dollarsToMicroCents(costUsd) }
-              : {}),
-            usage: {
-              inputTokens: usageNumber(parsed.usage?.input_tokens),
-              outputTokens: usageNumber(parsed.usage?.output_tokens),
-              totalTokens: usageNumber(parsed.usage?.total_tokens),
-            },
-          });
-          return jsonResponse({ text }, 200, origin);
-        } catch (error) {
-          console.error("[mobile/transcribe] Error:", error);
-          await scheduleManagedUsage(ctx, {
-            ownerId: owner.ownerId,
-            agentType: "service:mobile_dictation",
-            model: TRANSCRIBE_MODEL,
-            durationMs: Date.now() - startedAt,
-            success: false,
-          });
           return errorResponse(
             500,
             readConvexErrorMessage(error, "Could not transcribe that audio."),
             origin,
           );
+        } finally {
+          await dispatchGuard.finishExecution?.(executionOutcome);
         }
       }),
     ),
@@ -1170,6 +1923,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
 
         await ctx.runMutation(internal.mobile_push.upsertToken, {
           ownerId: owner.ownerId,
+          ownerGeneration: owner.ownerGeneration,
           mobileDeviceId,
           expoPushToken,
           ...(platform ? { platform } : {}),
@@ -1305,6 +2059,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             internal.mobile_access.completePairingSession,
             {
               ownerId: owner.ownerId,
+              ownerGeneration: owner.ownerGeneration,
               pairingCode,
               mobileDeviceId,
               ...(displayName ? { displayName } : {}),
@@ -1379,6 +2134,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           internal.mobile_bridge.upsertRegistration,
           {
             ownerId: owner.ownerId,
+            ownerGeneration: owner.ownerGeneration,
             deviceId,
             baseUrls,
             updatedAt,
@@ -1489,6 +2245,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
 
         await ctx.runMutation(internal.mobile_access.upsertConnectIntent, {
           ownerId: owner.ownerId,
+          ownerGeneration: owner.ownerGeneration,
           desktopDeviceId,
           mobileDeviceId: paired.mobileDeviceId,
           createdAt: Date.now(),
@@ -1554,6 +2311,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
 
         await ctx.runMutation(internal.mobile_access.markPairedMobileSeen, {
           ownerId: owner.ownerId,
+          ownerGeneration: owner.ownerGeneration,
           desktopDeviceId: deviceId,
           mobileDeviceId: paired.mobileDeviceId,
           seenAt: Date.now(),
@@ -1651,6 +2409,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         const now = Date.now();
         await ctx.runMutation(internal.mobile_access.markPairedMobileSeen, {
           ownerId: owner.ownerId,
+          ownerGeneration: owner.ownerGeneration,
           desktopDeviceId,
           mobileDeviceId: paired.mobileDeviceId,
           seenAt: now,
@@ -1660,6 +2419,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           internal.mobile_bridge.createSession,
           {
             ownerId: owner.ownerId,
+            ownerGeneration: owner.ownerGeneration,
             desktopDeviceId,
             mobileDeviceId: paired.mobileDeviceId,
             desktopChallenge,
@@ -1739,6 +2499,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           internal.mobile_bridge.consumeSession,
           {
             ownerId: owner.ownerId,
+            ownerGeneration: owner.ownerGeneration,
             desktopDeviceId: deviceId,
             sessionId,
             sessionSecret,
@@ -1820,8 +2581,149 @@ export const registerMobileRoutes = (http: HttpRouter) => {
   registerCorsOptions(http, [
     "/api/auth/link/send",
     "/api/auth/link/status",
+    "/api/auth/browser-social/start",
     "/api/auth/desktop-social/start",
   ]);
+
+  // Register the exact web-shell return URL server-side before OAuth starts.
+  // The provider callback carries only this opaque request id; the target is
+  // never accepted from the callback query string.
+  http.route({
+    path: "/api/auth/browser-social/start",
+    method: "POST",
+    handler: httpAction(async (ctx, request) =>
+      handleCorsRequest(request, async (origin) => {
+        let body: { returnTo?: unknown } | null = null;
+        try {
+          body = (await request.json()) as { returnTo?: unknown };
+        } catch {
+          return errorResponse(400, "Invalid JSON body", origin);
+        }
+        const returnTo = normalizeBrowserAuthReturnTarget({
+          rawReturnTo:
+            typeof body?.returnTo === "string" ? body.returnTo.trim() : "",
+          requestOrigin: origin ?? "",
+        });
+        if (!returnTo || !origin) {
+          return errorResponse(
+            400,
+            "Invalid browser auth return target.",
+            origin,
+          );
+        }
+
+        const ownerBinding = await resolveAnonymousLinkOwnerBinding(
+          ctx,
+          request,
+          origin,
+          true,
+        );
+        if ("response" in ownerBinding || !ownerBinding.fromOwnerId) {
+          return "response" in ownerBinding
+            ? ownerBinding.response
+            : errorResponse(
+                401,
+                "An authenticated anonymous session is required to preserve this conversation.",
+                origin,
+              );
+        }
+
+        const rateLimit = await consumeWebhookRateLimit(ctx, {
+          scope: "browser_social_auth_start",
+          key: getClientAddressKey(request) ?? ownerBinding.fromOwnerId,
+          limit: MAGIC_LINK_RATE_LIMIT,
+          windowMs: MAGIC_LINK_RATE_WINDOW_MS,
+          blockMs: MAGIC_LINK_RATE_WINDOW_MS,
+        });
+        if (!rateLimit.allowed) {
+          return withCors(rateLimitResponse(rateLimit.retryAfterMs), origin);
+        }
+
+        const authBaseUrl = getAuthBaseUrl().replace(/\/+$/, "");
+        const requestId = crypto.randomUUID();
+        const now = Date.now();
+        const created = await ctx.runMutation(
+          internal.mobile_auth.createBrowserSocialHandoff,
+          {
+            requestId,
+            provider: "google",
+            fromOwnerId: ownerBinding.fromOwnerId,
+            returnOrigin: origin,
+            returnTo,
+            expiresAt: now + BROWSER_SOCIAL_HANDOFF_EXPIRY_MS,
+            createdAt: now,
+          },
+        );
+        if (!created.ok) {
+          return errorResponse(
+            409,
+            "Account connection is unavailable while account data is changing.",
+            origin,
+          );
+        }
+        await ctx.scheduler.runAfter(
+          BROWSER_SOCIAL_HANDOFF_EXPIRY_MS + 30_000,
+          internal.mobile_auth.cleanupBrowserSocialHandoff,
+          { requestId },
+        );
+        return authNoStoreJsonResponse(
+          {
+            callbackURL: `${authBaseUrl}/api/auth/browser-social/verify?requestId=${encodeURIComponent(requestId)}`,
+          },
+          200,
+          origin,
+        );
+      }),
+    ),
+  });
+
+  // Better Auth's provider hook currently appends its one-time credential as
+  // `?ott=`. This no-render route consumes that query before any app shell or
+  // third-party asset loads, then redirects to the registered target with the
+  // credential in a fragment. The registration is atomically single-use.
+  http.route({
+    path: "/api/auth/browser-social/verify",
+    method: "GET",
+    handler: httpAction(async (ctx, request) => {
+      const url = new URL(request.url);
+      const requestIds = url.searchParams.getAll("requestId");
+      const tokens = url.searchParams.getAll("ott");
+      const hasUnexpectedParameter = Array.from(url.searchParams.keys()).some(
+        (key) => key !== "requestId" && key !== "ott",
+      );
+      const requestId = requestIds[0] ?? "";
+      const token = tokens[0] ?? "";
+      if (
+        requestIds.length !== 1 ||
+        tokens.length !== 1 ||
+        hasUnexpectedParameter ||
+        !requestId ||
+        !BROWSER_AUTH_HANDOFF_TOKEN_PATTERN.test(token)
+      ) {
+        return browserAuthBridgeResponse(400);
+      }
+
+      const handoff = await ctx.runMutation(
+        internal.mobile_auth.consumeBrowserSocialHandoff,
+        { requestId, nowMs: Date.now() },
+      );
+      if (!handoff.ok) {
+        return browserAuthBridgeResponse(
+          handoff.reason === "not_found" ? 400 : 410,
+        );
+      }
+      const returnTo = normalizeBrowserAuthReturnTarget({
+        rawReturnTo: handoff.returnTo,
+        requestOrigin: handoff.returnOrigin,
+      });
+      const redirect = returnTo
+        ? buildBrowserAuthFragmentRedirect({ returnTo, token })
+        : null;
+      return redirect
+        ? browserAuthBridgeResponse(302, redirect)
+        : browserAuthBridgeResponse(400);
+    }),
+  });
 
   // Start a desktop social sign-in and return a requestId for polling. The
   // OAuth callback lands on `/api/auth/desktop-social/verify`, where the OTT is
@@ -1863,7 +2765,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           { requestId },
         );
 
-        return jsonResponse(
+        return authNoStoreJsonResponse(
           {
             requestId,
             callbackURL: `${authBaseUrl}/api/auth/desktop-social/verify?requestId=${encodeURIComponent(requestId)}`,
@@ -1881,9 +2783,15 @@ export const registerMobileRoutes = (http: HttpRouter) => {
     method: "POST",
     handler: httpAction(async (ctx, request) =>
       handleCorsRequest(request, async (origin) => {
-        let body: { email?: unknown } | null = null;
+        let body: {
+          email?: unknown;
+          requireAnonymousOwner?: unknown;
+        } | null = null;
         try {
-          body = (await request.json()) as { email?: unknown };
+          body = (await request.json()) as {
+            email?: unknown;
+            requireAnonymousOwner?: unknown;
+          };
         } catch {
           return errorResponse(400, "Invalid JSON body", origin);
         }
@@ -1894,6 +2802,26 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             : "";
         if (!email || !EMAIL_PATTERN.test(email)) {
           return errorResponse(400, "A valid email is required.", origin);
+        }
+        if (
+          body?.requireAnonymousOwner !== undefined &&
+          typeof body.requireAnonymousOwner !== "boolean"
+        ) {
+          return errorResponse(
+            400,
+            "requireAnonymousOwner must be a boolean.",
+            origin,
+          );
+        }
+
+        const ownerBinding = await resolveAnonymousLinkOwnerBinding(
+          ctx,
+          request,
+          origin,
+          body?.requireAnonymousOwner === true,
+        );
+        if ("response" in ownerBinding) {
+          return ownerBinding.response;
         }
 
         const rateLimit = await ctx.runMutation(
@@ -1920,7 +2848,10 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             blockMs: MAGIC_LINK_RATE_WINDOW_MS,
           });
           if (!ipRateLimit.allowed) {
-            return withCors(rateLimitResponse(ipRateLimit.retryAfterMs), origin);
+            return withCors(
+              rateLimitResponse(ipRateLimit.retryAfterMs),
+              origin,
+            );
           }
         }
 
@@ -1937,6 +2868,12 @@ export const registerMobileRoutes = (http: HttpRouter) => {
         await ctx.runMutation(internal.mobile_auth.createPendingLinkRequest, {
           email,
           requestId,
+          ...(ownerBinding.fromOwnerId
+            ? { fromOwnerId: ownerBinding.fromOwnerId }
+            : {}),
+          ...(ownerBinding.fromAuthUserId
+            ? { fromAuthUserId: ownerBinding.fromAuthUserId }
+            : {}),
           expiresAt: now + MAGIC_LINK_EXPIRY_MS,
           createdAt: now,
         });
@@ -1958,7 +2895,10 @@ export const registerMobileRoutes = (http: HttpRouter) => {
                   body: { email: string };
                   headers: Headers;
                   returnHeaders: true;
-                }): Promise<unknown>;
+                }): Promise<{
+                  headers: Headers;
+                  response: { user: { id: string } };
+                }>;
               }
             ).signInAppReview;
             const signInResult = await signInAppReview({
@@ -1967,30 +2907,25 @@ export const registerMobileRoutes = (http: HttpRouter) => {
               returnHeaders: true,
             });
 
-            let sessionCookie = "";
-            const headersList = (signInResult as Record<string, unknown>)
-              ?.headers as { _headersList?: [string, string][] } | undefined;
-            if (Array.isArray(headersList?._headersList)) {
-              for (const [name, value] of headersList._headersList) {
-                if (
-                  name === "set-better-auth-cookie" ||
-                  name === "set-cookie"
-                ) {
-                  sessionCookie = value;
-                  break;
-                }
-              }
+            const sessionCookie = readBetterAuthSessionCookie(signInResult);
+            const connectedUserId = readBetterAuthResponseUserId(signInResult);
+            if (!sessionCookie || !connectedUserId) {
+              throw new Error("Missing verified session identity");
             }
 
-            if (!sessionCookie) {
-              throw new Error("Missing session cookie");
+            const completion = await ctx.runMutation(
+              internal.mobile_auth.completeLinkRequest,
+              {
+                requestId,
+                sessionCookie,
+                toOwnerId: tokenIdentifierForBetterAuthUserId(connectedUserId),
+              },
+            );
+            if (!completion.ok) {
+              throw new Error(
+                `Link request could not complete: ${completion.reason}`,
+              );
             }
-
-            await ctx.runMutation(internal.mobile_auth.completeLinkRequest, {
-              requestId,
-              ott: "app-review",
-              sessionCookie,
-            });
           } else {
             const callbackURL = `${authBaseUrl}/api/auth/link/verify?requestId=${encodeURIComponent(requestId)}`;
             await auth.api.signInMagicLink({
@@ -2003,7 +2938,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           return errorResponse(500, "Failed to send sign-in email.", origin);
         }
 
-        return jsonResponse({ requestId }, 200, origin);
+        return authNoStoreJsonResponse({ requestId }, 200, origin);
       }),
     ),
   });
@@ -2041,7 +2976,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
           return errorResponse(404, "Request not found", origin);
         }
 
-        return jsonResponse(result, 200, origin);
+        return authNoStoreJsonResponse(result, 200, origin);
       }),
     ),
   });
@@ -2058,6 +2993,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
 
       if (requestId && ott) {
         let sessionCookie = "";
+        let connectedUserId = "";
         try {
           const auth = createAuth(ctx);
           const verifyRes = await auth.api.verifyOneTimeToken({
@@ -2065,24 +3001,28 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             headers: new Headers(),
             returnHeaders: true,
           });
-          const headersList = (verifyRes as Record<string, unknown>)
-            ?.headers as { _headersList?: [string, string][] } | undefined;
-          if (Array.isArray(headersList?._headersList)) {
-            for (const [name, value] of headersList._headersList) {
-              if (name === "set-better-auth-cookie" || name === "set-cookie") {
-                sessionCookie = value;
-                break;
-              }
-            }
-          }
-        } catch (err) {
-          console.error("[desktop/auth] Server-side OTT verify failed:", err);
+          sessionCookie = readBetterAuthSessionCookie(verifyRes);
+          connectedUserId = readBetterAuthResponseUserId(verifyRes);
+        } catch {
+          // Never attach the thrown value here: provider errors may echo the
+          // one-time credential that arrived in the request query string.
+          console.error("[desktop/auth] Server-side OTT verification failed");
         }
-        await ctx.runMutation(internal.mobile_auth.completeLinkRequest, {
-          requestId,
-          ott,
-          ...(sessionCookie ? { sessionCookie } : {}),
-        });
+        if (sessionCookie && connectedUserId) {
+          const completion = await ctx.runMutation(
+            internal.mobile_auth.completeLinkRequest,
+            {
+              requestId,
+              sessionCookie,
+              toOwnerId: tokenIdentifierForBetterAuthUserId(connectedUserId),
+            },
+          );
+          if (!completion.ok) {
+            console.error(
+              `[desktop/auth] Link request completion rejected: ${completion.reason}`,
+            );
+          }
+        }
       }
 
       const websiteUrl =
@@ -2110,6 +3050,7 @@ export const registerMobileRoutes = (http: HttpRouter) => {
 
       if (requestId && ott) {
         let sessionCookie = "";
+        let connectedUserId = "";
         try {
           const auth = createAuth(ctx);
           const verifyRes = await auth.api.verifyOneTimeToken({
@@ -2117,24 +3058,28 @@ export const registerMobileRoutes = (http: HttpRouter) => {
             headers: new Headers(),
             returnHeaders: true,
           });
-          const headersList = (verifyRes as Record<string, unknown>)
-            ?.headers as { _headersList?: [string, string][] } | undefined;
-          if (Array.isArray(headersList?._headersList)) {
-            for (const [name, value] of headersList._headersList) {
-              if (name === "set-better-auth-cookie" || name === "set-cookie") {
-                sessionCookie = value;
-                break;
-              }
-            }
-          }
-        } catch (err) {
-          console.error("[mobile/auth] Server-side OTT verify failed:", err);
+          sessionCookie = readBetterAuthSessionCookie(verifyRes);
+          connectedUserId = readBetterAuthResponseUserId(verifyRes);
+        } catch {
+          // Keep credentials out of logs even when the auth library includes
+          // request input in its thrown error.
+          console.error("[mobile/auth] Server-side OTT verification failed");
         }
-        await ctx.runMutation(internal.mobile_auth.completeLinkRequest, {
-          requestId,
-          ott,
-          ...(sessionCookie ? { sessionCookie } : {}),
-        });
+        if (sessionCookie && connectedUserId) {
+          const completion = await ctx.runMutation(
+            internal.mobile_auth.completeLinkRequest,
+            {
+              requestId,
+              sessionCookie,
+              toOwnerId: tokenIdentifierForBetterAuthUserId(connectedUserId),
+            },
+          );
+          if (!completion.ok) {
+            console.error(
+              `[mobile/auth] Link request completion rejected: ${completion.reason}`,
+            );
+          }
+        }
       }
 
       const websiteUrl =

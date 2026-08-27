@@ -17,6 +17,10 @@ export const _listStaleAnonymousOwnerIds = internalQuery({
     cursor: v.union(v.string(), v.null()),
     cutoffMs: v.number(),
   },
+  returns: v.object({
+    ownerIds: v.array(v.string()),
+    nextCursor: v.union(v.string(), v.null()),
+  }),
   handler: async (ctx, args) => {
     // Only pass isAnonymous in the where clause so the adapter's findIndex
     // matches the isAnonymous_updatedAt index prefix. The updatedAt range
@@ -38,12 +42,30 @@ export const _listStaleAnonymousOwnerIds = internalQuery({
       .map((u) => u._id);
     const done = result.isDone === true;
 
-    return { ownerIds, nextCursor: done ? null : (result.continueCursor ?? null) };
+    return {
+      ownerIds,
+      nextCursor: done ? null : (result.continueCursor ?? null),
+    };
+  },
+});
+
+export const _hasActiveSourceOwnershipMigration = internalQuery({
+  args: { ownerId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("auth_owner_migrations")
+      .withIndex("by_fromOwnerId_and_updatedAt", (q) =>
+        q.eq("fromOwnerId", args.ownerId),
+      )
+      .take(2);
+    return rows.some((row) => row.status !== "complete");
   },
 });
 
 export const purgeStaleAnonymousData = internalAction({
   args: {},
+  returns: v.null(),
   handler: async (ctx) => {
     const cutoffMs = Date.now() - STALE_THRESHOLD_MS;
     let cursor: string | null = null;
@@ -61,11 +83,15 @@ export const purgeStaleAnonymousData = internalAction({
       for (const userId of batch.ownerIds) {
         // App tables key `ownerId` by the Convex tokenIdentifier
         // (`${issuer}|${betterAuthUserId}`), not the raw Better Auth user id.
-        await ctx.scheduler.runAfter(
-          0,
-          internal.account_deletion.purgeOwnerCloudData,
-          { ownerId: tokenIdentifierForBetterAuthUserId(userId) },
+        const ownerId = tokenIdentifierForBetterAuthUserId(userId);
+        const migrationActive: boolean = await ctx.runQuery(
+          internal.anon_cleanup._hasActiveSourceOwnershipMigration,
+          { ownerId },
         );
+        if (migrationActive) continue;
+        await ctx.scheduler.runAfter(0, internal.reset.resetOwnerDataInternal, {
+          ownerId,
+        });
         totalScheduled++;
       }
 

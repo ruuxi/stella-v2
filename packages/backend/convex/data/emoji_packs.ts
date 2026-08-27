@@ -10,15 +10,20 @@ import {
 } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
+  assertOwnerMigrationWriteAllowed,
   getConnectedUserIdOrNull,
   requireConnectedUserId,
 } from "../auth";
+import { commitExternalMediaUploadByUrls } from "../account_external_media_store";
 import {
   RATE_HOT_PATH,
   RATE_STANDARD,
   enforceMutationRateLimit,
 } from "../lib/rate_limits";
-import { filterDisplayableTags, isBlockedContentTag } from "../lib/content_tags";
+import {
+  filterDisplayableTags,
+  isBlockedContentTag,
+} from "../lib/content_tags";
 import {
   emoji_pack_validator,
   emoji_pack_visibility_validator,
@@ -48,7 +53,10 @@ const paginatedEmojiPacksValidator = v.object({
   ),
 });
 
-const emojiPackSortValidator = v.union(v.literal("installs"), v.literal("name"));
+const emojiPackSortValidator = v.union(
+  v.literal("installs"),
+  v.literal("name"),
+);
 
 const generatedMetadataValidator = v.object({
   displayName: v.string(),
@@ -280,12 +288,20 @@ export const getByIdInternal = internalQuery({
 export const patchGeneratedMetadata = internalMutation({
   args: {
     packId: v.id("emoji_packs"),
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
     metadata: generatedMetadataValidator,
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.packId);
     if (!row) return null;
+    if (row.ownerId !== args.ownerId) return null;
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
     const displayableTags = filterDisplayableTags(args.metadata.tags);
     await syncTagMembership(ctx, row, displayableTags, {
       visibility: row.visibility,
@@ -303,6 +319,8 @@ export const patchGeneratedMetadata = internalMutation({
 export const createGeneratedPack = internalMutation({
   args: {
     ownerId: v.string(),
+    uploadId: v.string(),
+    ownerGeneration: v.string(),
     packId: v.string(),
     displayName: v.string(),
     description: v.optional(v.string()),
@@ -315,6 +333,7 @@ export const createGeneratedPack = internalMutation({
   returns: emoji_pack_validator,
   handler: async (ctx, args): Promise<Doc<"emoji_packs">> => {
     const ownerId = normalizeRequiredText(args.ownerId, "ownerId", 256);
+    await assertOwnerMigrationWriteAllowed(ctx, ownerId, args.ownerGeneration);
     const packId = normalizePackId(args.packId);
     const existing = await ctx.db
       .query("emoji_packs")
@@ -326,10 +345,6 @@ export const createGeneratedPack = internalMutation({
         message: "An emoji pack with this ID already exists.",
       });
     }
-    const profile: { username: string } = await ctx.runMutation(
-      internal.social.profiles.ensureProfileForOwnerInternal,
-      { ownerId },
-    );
     const displayName = normalizeRequiredText(
       args.displayName,
       "displayName",
@@ -346,7 +361,6 @@ export const createGeneratedPack = internalMutation({
       ? normalizeUrl(args.coverUrl, "coverUrl")
       : undefined;
     const sheetUrls = normalizeSheetUrls(args.sheetUrls);
-    const authorUsername = profile.username.trim().toLowerCase();
     const now = Date.now();
     const id: Id<"emoji_packs"> = await ctx.db.insert("emoji_packs", {
       ownerId,
@@ -364,17 +378,31 @@ export const createGeneratedPack = internalMutation({
         description,
         tags: [],
         prompt,
-        authorUsername,
       }),
-      ...(authorUsername ? { authorUsername } : {}),
       installCount: 0,
       createdAt: now,
       updatedAt: now,
     });
+    await commitExternalMediaUploadByUrls(ctx, {
+      ownerId,
+      ownerGeneration: args.ownerGeneration,
+      uploadId: args.uploadId,
+      sourceKind: "emoji_pack",
+      sourceId: id,
+      objects: sheetUrls.map((publicUrl, index) => ({
+        objectRole: `sheet-${index + 1}`,
+        publicUrl,
+      })),
+      now,
+    });
     await ctx.scheduler.runAfter(
       0,
       internal.data.store_asset_metadata.enrichEmojiPack,
-      { packId: id },
+      {
+        packId: id,
+        ownerId,
+        ownerGeneration: args.ownerGeneration,
+      },
     );
     const row: Doc<"emoji_packs"> | null = await ctx.db.get(id);
     if (!row) {
@@ -389,6 +417,8 @@ export const createGeneratedPack = internalMutation({
 
 export const createPack = mutation({
   args: {
+    uploadId: v.string(),
+    ownerGeneration: v.string(),
     packId: v.string(),
     displayName: v.string(),
     description: v.optional(v.string()),
@@ -407,17 +437,22 @@ export const createPack = mutation({
       ownerId,
       RATE_STANDARD,
     );
-    return await ctx.runMutation(internal.data.emoji_packs.createGeneratedPack, {
-      ownerId,
-      packId: args.packId,
-      displayName: args.displayName,
-      ...(args.description ? { description: args.description } : {}),
-      ...(args.prompt ? { prompt: args.prompt } : {}),
-      coverEmoji: args.coverEmoji,
-      ...(args.coverUrl ? { coverUrl: args.coverUrl } : {}),
-      sheetUrls: args.sheetUrls,
-      visibility: args.visibility,
-    });
+    return await ctx.runMutation(
+      internal.data.emoji_packs.createGeneratedPack,
+      {
+        ownerId,
+        uploadId: args.uploadId,
+        ownerGeneration: args.ownerGeneration,
+        packId: args.packId,
+        displayName: args.displayName,
+        ...(args.description ? { description: args.description } : {}),
+        ...(args.prompt ? { prompt: args.prompt } : {}),
+        coverEmoji: args.coverEmoji,
+        ...(args.coverUrl ? { coverUrl: args.coverUrl } : {}),
+        sheetUrls: args.sheetUrls,
+        visibility: args.visibility,
+      },
+    );
   },
 });
 
@@ -535,9 +570,13 @@ export const syncTagMembership = async (
     .withIndex("by_packRef", (q) => q.eq("packRef", row._id))
     .take(MAX_TAGS_PER_PACK);
   const previousPublicTags =
-    row.visibility === "public" ? new Set(previousRows.map((r) => r.tag)) : new Set<string>();
+    row.visibility === "public"
+      ? new Set(previousRows.map((r) => r.tag))
+      : new Set<string>();
   const nextPublicTags =
-    next.visibility === "public" ? new Set(nextTags.slice(0, MAX_TAGS_PER_PACK)) : new Set<string>();
+    next.visibility === "public"
+      ? new Set(nextTags.slice(0, MAX_TAGS_PER_PACK))
+      : new Set<string>();
 
   for (const membership of previousRows) {
     await ctx.db.delete(membership._id);

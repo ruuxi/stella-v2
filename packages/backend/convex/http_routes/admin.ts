@@ -2,6 +2,7 @@ import type { HttpRouter } from "convex/server";
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { requireAdminRequest } from "../http_shared/admin";
+import { assertC8RetiredSurfaceUnavailable } from "../lib/c8_retired_surface";
 
 const ADMIN_DELETE_PATH = "/api/admin/delete";
 const ADMIN_BILLING_PLAN_PATH = "/api/admin/billing/plan";
@@ -158,6 +159,7 @@ export const registerAdminRoutes = (http: HttpRouter) => {
     path: ADMIN_STORE_PARTNER_BADGE_PATH,
     method: "POST",
     handler: httpAction(async (ctx, request) => {
+      assertC8RetiredSurfaceUnavailable("Store admin writes");
       const admin = requireAdminRequest(request);
       if (!admin.ok) return admin.response;
 
@@ -187,11 +189,13 @@ export const registerAdminRoutes = (http: HttpRouter) => {
       const { kind, id } = parsed;
       switch (kind) {
         case "catalog_pet":
+          assertC8RetiredSurfaceUnavailable("Pet catalog admin writes");
           return jsonResponse(
             200,
             await ctx.runMutation(internal.data.pets.deleteByPetId, { id }),
           );
         case "store_package":
+          assertC8RetiredSurfaceUnavailable("Store admin writes");
           return jsonResponse(
             200,
             await ctx.runMutation(internal.admin_deletes.deleteStorePackage, {
@@ -199,6 +203,7 @@ export const registerAdminRoutes = (http: HttpRouter) => {
             }),
           );
         case "user_pet":
+          assertC8RetiredSurfaceUnavailable("Custom pet admin writes");
           return jsonResponse(
             200,
             await ctx.runMutation(internal.admin_deletes.deleteUserPet, {
@@ -219,7 +224,7 @@ export const registerAdminRoutes = (http: HttpRouter) => {
               internal.admin_deletes.deleteMediaJob,
               { jobId: id },
             );
-            if (!result.hasMore) return jsonResponse(200, result);
+            if (result && !result.hasMore) return jsonResponse(200, result);
           }
           return jsonResponse(409, {
             error: "Media job delete needs another request.",
@@ -243,6 +248,7 @@ export const registerAdminRoutes = (http: HttpRouter) => {
             }),
           );
         case "social_message":
+          assertC8RetiredSurfaceUnavailable("Social admin writes");
           return jsonResponse(
             200,
             await ctx.runMutation(internal.admin_deletes.deleteSocialMessage, {
@@ -250,13 +256,14 @@ export const registerAdminRoutes = (http: HttpRouter) => {
             }),
           );
         case "stella_session": {
+          assertC8RetiredSurfaceUnavailable("Shared session admin writes");
           let result: { hasMore?: boolean } | null = null;
           for (let step = 0; step < SOCIAL_DELETE_MAX_STEPS; step += 1) {
             result = await ctx.runMutation(
               internal.admin_deletes.deleteStellaSessionBatch,
               { id },
             );
-            if (!result.hasMore) return jsonResponse(200, result);
+            if (result && !result.hasMore) return jsonResponse(200, result);
           }
           return jsonResponse(409, {
             error: "Session delete needs another request.",
@@ -266,20 +273,21 @@ export const registerAdminRoutes = (http: HttpRouter) => {
           });
         }
         case "social_room": {
+          assertC8RetiredSurfaceUnavailable("Social admin writes");
           let result: { hasMore?: boolean; label?: string } | null = null;
           for (let step = 0; step < SOCIAL_DELETE_MAX_STEPS; step += 1) {
             result = await ctx.runMutation(
               internal.admin_deletes.deleteSocialRoomBatch,
               { id },
             );
-            if (result.hasMore && result.label) {
+            if (result?.hasMore && result.label) {
               await ctx.runMutation(
                 internal.admin_deletes.deleteStellaSessionBatch,
                 { id: result.label },
               );
               continue;
             }
-            if (!result.hasMore) return jsonResponse(200, result);
+            if (result && !result.hasMore) return jsonResponse(200, result);
           }
           return jsonResponse(409, {
             error: "Social room delete needs another request.",

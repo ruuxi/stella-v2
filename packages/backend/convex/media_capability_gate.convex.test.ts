@@ -226,19 +226,7 @@ describe("media capability gating", () => {
     ensureEnv();
     const t = createTest();
     const owner = await onPlan(t, "pro");
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          value: "ek_test_realtime_secret",
-          id: "sess_test_realtime",
-          expires_at: Math.floor(Date.now() / 1_000) + 60,
-        }),
-        {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        },
-      ),
-    );
+    const providerFetch = vi.spyOn(globalThis, "fetch");
 
     const response = await owner.fetch("/api/voice/session", {
       method: "POST",
@@ -251,10 +239,11 @@ describe("media capability gating", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      clientSecret: "ek_test_realtime_secret",
-      sessionId: "sess_test_realtime",
+      clientSecret: "stella-server-created-call",
+      sdpEndpoint: "/api/voice/openai/sdp",
       voiceProvider: "openai",
     });
+    expect(providerFetch).not.toHaveBeenCalled();
     const leases = await t.run(
       async (ctx) => await ctx.db.query("billing_voice_sessions").take(2),
     );

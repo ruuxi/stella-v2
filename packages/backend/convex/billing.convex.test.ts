@@ -170,6 +170,7 @@ describe("free lifetime allowance", () => {
 
     const limit = await t.mutation(internal.billing.enforceManagedUsageLimit, {
       ownerId,
+      ownerGeneration: "legacy",
     });
     expect(limit).toMatchObject({
       allowed: false,
@@ -181,6 +182,7 @@ describe("free lifetime allowance", () => {
 
     const access = await t.mutation(internal.billing.resolveManagedModelAccess, {
       ownerId,
+      ownerGeneration: "legacy",
     });
     expect(access).toMatchObject({ allowed: false, plan: "free", downgraded: false });
   });
@@ -191,7 +193,10 @@ describe("free lifetime allowance", () => {
     await seedLifetimeSpend(t, { ownerId, spentUsd: FREE_LIFETIME_LIMIT_USD / 2 });
 
     expect(
-      await t.mutation(internal.billing.enforceManagedUsageLimit, { ownerId }),
+      await t.mutation(internal.billing.enforceManagedUsageLimit, {
+        ownerId,
+        ownerGeneration: "legacy",
+      }),
     ).toMatchObject({ allowed: true, plan: "free" });
   });
 
@@ -215,7 +220,10 @@ describe("free lifetime allowance", () => {
     });
 
     expect(
-      await t.mutation(internal.billing.enforceManagedUsageLimit, { ownerId }),
+      await t.mutation(internal.billing.enforceManagedUsageLimit, {
+        ownerId,
+        ownerGeneration: "legacy",
+      }),
     ).toMatchObject({ allowed: false });
   });
 
@@ -227,7 +235,10 @@ describe("free lifetime allowance", () => {
     await seedLifetimeSpend(t, { ownerId, plan: "go", spentUsd: 100 });
 
     expect(
-      await t.mutation(internal.billing.enforceManagedUsageLimit, { ownerId }),
+      await t.mutation(internal.billing.enforceManagedUsageLimit, {
+        ownerId,
+        ownerGeneration: "legacy",
+      }),
     ).toMatchObject({ allowed: true, plan: "go" });
   });
 
@@ -249,8 +260,77 @@ describe("free lifetime allowance", () => {
     });
 
     expect(
-      await t.mutation(internal.billing.enforceManagedUsageLimit, { ownerId }),
+      await t.mutation(internal.billing.enforceManagedUsageLimit, {
+        ownerId,
+        ownerGeneration: "legacy",
+      }),
     ).toMatchObject({ allowed: true, plan: "free" });
+  });
+
+  it("nets active reservations once against credits after the Free allowance", async () => {
+    const t = convexTest(schema, modules);
+    const ownerId = "lifetime-credited-reserved-owner";
+    const creditMicroCents = dollarsToMicroCents(5);
+    await seedLifetimeSpend(t, { ownerId, spentUsd: FREE_LIFETIME_LIMIT_USD });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      const usage = await ctx.db
+        .query("billing_usage_windows")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+        .unique();
+      if (!usage) throw new Error("missing usage window");
+      await ctx.db.patch(usage._id, {
+        activeReservedMicroCents: creditMicroCents - 1,
+        updatedAt: now,
+      });
+      await ctx.db.insert("billing_usage_credits", {
+        ownerId,
+        balanceMicroCents: creditMicroCents,
+        totalPurchasedMicroCents: creditMicroCents,
+        totalConsumedMicroCents: 0,
+        currency: "usd",
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    await expect(
+      t.mutation(internal.billing.enforceManagedUsageLimit, {
+        ownerId,
+        ownerGeneration: "legacy",
+      }),
+    ).resolves.toMatchObject({ allowed: true, plan: "free" });
+    await expect(
+      t.mutation(internal.billing.resolveManagedModelAccess, {
+        ownerId,
+        ownerGeneration: "legacy",
+      }),
+    ).resolves.toMatchObject({ allowed: true, plan: "free" });
+
+    await t.run(async (ctx) => {
+      const usage = await ctx.db
+        .query("billing_usage_windows")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
+        .unique();
+      if (!usage) throw new Error("missing usage window");
+      await ctx.db.patch(usage._id, {
+        activeReservedMicroCents: creditMicroCents,
+        updatedAt: Date.now(),
+      });
+    });
+
+    await expect(
+      t.mutation(internal.billing.enforceManagedUsageLimit, {
+        ownerId,
+        ownerGeneration: "legacy",
+      }),
+    ).resolves.toMatchObject({ allowed: false, plan: "free" });
+    await expect(
+      t.mutation(internal.billing.resolveManagedModelAccess, {
+        ownerId,
+        ownerGeneration: "legacy",
+      }),
+    ).resolves.toMatchObject({ allowed: false, plan: "free" });
   });
 
   it("counts requests as well as dollars so the budget can be measured", async () => {
@@ -260,6 +340,7 @@ describe("free lifetime allowance", () => {
     for (let i = 0; i < 3; i += 1) {
       await t.mutation(internal.billing.logManagedUsage, {
         ownerId,
+        ownerGeneration: "legacy",
         agentType: "orchestrator",
         model: "deepseek/deepseek-v4-flash",
         durationMs: 10,
@@ -355,6 +436,7 @@ describe("anonymous request allowance", () => {
     });
     await t.mutation(internal.billing.logManagedUsage, {
       ownerId: "https://issuer.test|anon-user",
+      ownerGeneration: "legacy",
       agentType: "orchestrator",
       model: "deepseek/deepseek-v4-flash",
       durationMs: 10,
@@ -430,6 +512,7 @@ describe("managed model billing", () => {
 
     const result = await t.mutation(internal.billing.logManagedUsage, {
       ownerId: "billing-test-owner",
+      ownerGeneration: "legacy",
       agentType: "proxy:orchestrator",
       model: "accounts/fireworks/models/deepseek-v4-flash-0731",
       durationMs: 100,

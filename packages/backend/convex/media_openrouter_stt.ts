@@ -134,11 +134,16 @@ const bytesToBase64 = (bytes: Uint8Array): string => {
 
 const fetchAudioAsBase64 = async (
   url: string,
+  signal?: AbortSignal,
 ): Promise<{ data: string; format: string }> => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const response = await fetch(url, { signal: controller.signal });
+    const response = await fetch(url, {
+      signal: signal
+        ? AbortSignal.any([controller.signal, signal])
+        : controller.signal,
+    });
     if (!response.ok) {
       throw new Error(`Failed to download audio (${response.status}).`);
     }
@@ -169,12 +174,13 @@ const fetchAudioAsBase64 = async (
 
 export const resolveOpenRouterAudioInput = async (
   audioUrl: string,
+  signal?: AbortSignal,
 ): Promise<{ data: string; format: string }> => {
   const trimmed = audioUrl.trim();
   if (/^data:[^;,\s]+;base64,/i.test(trimmed)) {
     return parseDataUriAudio(trimmed);
   }
-  return fetchAudioAsBase64(trimmed);
+  return fetchAudioAsBase64(trimmed, signal);
 };
 
 export type OpenRouterSpeechToTextResult = {
@@ -192,12 +198,13 @@ export const transcribeOpenRouterSpeechToText = async (args: {
   apiKey: string;
   endpointId: string;
   input: Record<string, unknown>;
+  signal?: AbortSignal;
 }): Promise<OpenRouterSpeechToTextResult> => {
   const audioUrl = asTrimmedString(args.input.audio_url);
   if (!audioUrl) {
     throw new Error("audio_url is required.");
   }
-  const audio = await resolveOpenRouterAudioInput(audioUrl);
+  const audio = await resolveOpenRouterAudioInput(audioUrl, args.signal);
   const language =
     asTrimmedString(args.input.language) ??
     asTrimmedString(args.input.language_code);
@@ -215,6 +222,7 @@ export const transcribeOpenRouterSpeechToText = async (args: {
       input_audio: audio,
       ...(language ? { language } : {}),
     }),
+    ...(args.signal ? { signal: args.signal } : {}),
   });
   const text = await upstream.text();
   if (!upstream.ok) {

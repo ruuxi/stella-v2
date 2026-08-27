@@ -3,7 +3,8 @@ import { v, ConvexError, Infer, type Value } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { getUserIdOrNull } from "./auth";
+import { assertOwnerMigrationWriteAllowed, getUserIdOrNull } from "./auth";
+import { assertOwnerDataWriteAllowed } from "./owner_lifecycle";
 import {
   jsonValueValidator,
   optionalChannelEnvelopeValidator,
@@ -14,6 +15,14 @@ import {
   selectRecentByTokenBudget,
 } from "./lib/context_window";
 import { eventTypeValidator } from "./schema/conversations";
+import {
+  remoteTurnAttemptPhaseValidator,
+  remoteTurnAttemptSourceValidator,
+  remoteTurnAttemptStateValidator,
+  remoteTurnDispatchOutcomeValidator,
+  remoteTurnOwnerBindingStateValidator,
+  remoteTurnTerminalReasonValidator,
+} from "./schema/conversations";
 import { CONNECTOR_TURN_PAYLOAD_REF } from "./channels/connector_privacy";
 
 const eventValidator = v.object({
@@ -25,6 +34,9 @@ const eventValidator = v.object({
   deviceId: v.optional(v.string()),
   requestId: v.optional(v.string()),
   targetDeviceId: v.optional(v.string()),
+  ownerId: v.optional(v.string()),
+  ownerGeneration: v.optional(v.string()),
+  ownerBindingState: v.optional(remoteTurnOwnerBindingStateValidator),
   requestState: v.optional(
     v.union(
       v.literal("pending"),
@@ -37,6 +49,30 @@ const eventValidator = v.object({
   claimedAt: v.optional(v.number()),
   fulfilledAt: v.optional(v.number()),
   cancelledAt: v.optional(v.number()),
+  requestTerminalReason: v.optional(remoteTurnTerminalReasonValidator),
+  activeAttemptId: v.optional(v.string()),
+  activeAttemptSource: v.optional(remoteTurnAttemptSourceValidator),
+  activeAttemptDeviceId: v.optional(v.string()),
+  activeAttemptState: v.optional(remoteTurnAttemptStateValidator),
+  activeAttemptPhase: v.optional(remoteTurnAttemptPhaseValidator),
+  attemptStartedAt: v.optional(v.number()),
+  attemptLastHeartbeatAt: v.optional(v.number()),
+  attemptLeaseExpiresAt: v.optional(v.number()),
+  attemptHardExpiresAt: v.optional(v.number()),
+  attemptQuiescentAfterAt: v.optional(v.number()),
+  attemptCleanupJobId: v.optional(v.id("_scheduled_functions")),
+  attemptCancelRequestedAt: v.optional(v.number()),
+  completionAttemptId: v.optional(v.string()),
+  completionText: v.optional(v.string()),
+  completionAcceptedAt: v.optional(v.number()),
+  lastAttemptOutcome: v.optional(remoteTurnDispatchOutcomeValidator),
+  lastAttemptId: v.optional(v.string()),
+  lastAttemptFinishedAt: v.optional(v.number()),
+  providerDispatchCount: v.optional(v.number()),
+  providerDispatchOrdinal: v.optional(v.number()),
+  lastProviderDispatchId: v.optional(v.string()),
+  lastProviderDispatchOutcome: v.optional(remoteTurnDispatchOutcomeValidator),
+  lastProviderDispatchAt: v.optional(v.number()),
   payload: jsonValueValidator,
   channelEnvelope: optionalChannelEnvelopeValidator,
 });
@@ -216,6 +252,7 @@ export const listRecentMessages = internalQuery({
     beforeTimestamp: v.optional(v.number()),
     excludeEventId: v.optional(v.id("events")),
   },
+  returns: v.array(eventValidator),
   handler: async (ctx, args) => {
     const requestedLimit = args.limit ?? 20;
     if (requestedLimit <= 0) {
@@ -227,9 +264,7 @@ export const listRecentMessages = internalQuery({
 
     // `beforeTimestamp` is part of the index range (not a JS post-filter) so
     // the newest `take` rows we read are already at-or-before the bound.
-    const takeMessagesOfType = (
-      type: "user_message" | "assistant_message",
-    ) => {
+    const takeMessagesOfType = (type: "user_message" | "assistant_message") => {
       const base = ctx.db.query("events");
       const query =
         args.beforeTimestamp !== undefined
@@ -515,6 +550,8 @@ type AppendEventArgs = {
   requestState?: "pending" | "claimed" | "fulfilled" | "cancelled";
   payload: Value;
   channelEnvelope?: Infer<typeof optionalChannelEnvelopeValidator>;
+  ownerId?: string;
+  ownerGeneration?: string;
 };
 
 const resolveAppendEventPayload = (args: AppendEventArgs) => {
@@ -549,11 +586,50 @@ const resolveAppendEventPayload = (args: AppendEventArgs) => {
   };
 };
 
-const appendEventCore = async (ctx: MutationCtx, args: AppendEventArgs) => {
+export const appendEventCore = async (
+  ctx: MutationCtx,
+  args: AppendEventArgs,
+  options?: { allowBoundRemoteTurn?: boolean },
+) => {
   const { payload, targetDeviceId, timestamp } =
     resolveAppendEventPayload(args);
 
   const conversation = await ctx.db.get(args.conversationId);
+  let remoteTurnBinding:
+    | {
+        ownerId: string;
+        ownerGeneration: string;
+        ownerBindingState: "bound";
+      }
+    | undefined;
+  if (args.type === "remote_turn_request") {
+    if (
+      !options?.allowBoundRemoteTurn ||
+      !args.ownerId ||
+      !args.ownerGeneration
+    ) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: "Remote turns require dedicated exact-owner admission.",
+      });
+    }
+    if (!conversation || conversation.ownerId !== args.ownerId) {
+      throw new ConvexError({
+        code: "OWNER_DATA_GENERATION_STALE",
+        message: "Remote turn owner does not match its conversation.",
+      });
+    }
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
+    remoteTurnBinding = {
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      ownerBindingState: "bound",
+    };
+  }
   // Stamp `requestState: "pending"` on freshly-inserted remote-turn requests
   // so the device subscription can filter unhandled rows at the index level
   // without doing per-event extra reads.
@@ -568,6 +644,7 @@ const appendEventCore = async (ctx: MutationCtx, args: AppendEventArgs) => {
     deviceId: args.deviceId,
     requestId: args.requestId,
     targetDeviceId,
+    ...remoteTurnBinding,
     ...(requestState !== undefined ? { requestState } : {}),
     payload,
     channelEnvelope: args.channelEnvelope,
@@ -597,6 +674,31 @@ export const appendInternalEvent = internalMutation({
   handler: async (ctx, args) => {
     return await appendEventCore(ctx, args);
   },
+});
+
+/** Dedicated remote-turn admission; the generic event writer must not recapture. */
+export const appendRemoteTurnRequestInternal = internalMutation({
+  args: {
+    conversationId: v.id("conversations"),
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+    timestamp: v.optional(v.number()),
+    requestId: v.string(),
+    targetDeviceId: v.optional(v.string()),
+    payload: jsonValueValidator,
+    channelEnvelope: optionalChannelEnvelopeValidator,
+  },
+  returns: v.union(v.null(), eventValidator),
+  handler: async (ctx, args) =>
+    await appendEventCore(
+      ctx,
+      {
+        ...args,
+        type: "remote_turn_request",
+        requestState: "pending",
+      },
+      { allowBoundRemoteTurn: true },
+    ),
 });
 
 export const listEventsSince = internalQuery({
@@ -685,6 +787,10 @@ export const subscribeRemoteTurnRequestsForDevice = query({
     if (!ownerId) {
       return [];
     }
+    const ownerGeneration = await assertOwnerDataWriteAllowed(ctx, ownerId)
+      .then((state) => state.generation)
+      .catch(() => null);
+    if (!ownerGeneration) return [];
     const maxItems = normalizeOptionalInt({
       value: args.limit,
       defaultValue: 10,
@@ -698,17 +804,24 @@ export const subscribeRemoteTurnRequestsForDevice = query({
     // O(1) field read on each row instead of two extra index lookups.
     const events = await ctx.db
       .query("events")
-      .withIndex("by_targetDeviceId_and_type_and_timestamp", (q) =>
-        q
-          .eq("targetDeviceId", args.deviceId)
-          .eq("type", "remote_turn_request")
-          .gte("timestamp", args.since),
+      .withIndex(
+        "by_targetDeviceId_and_type_and_requestState_and_timestamp",
+        (q) =>
+          q
+            .eq("targetDeviceId", args.deviceId)
+            .eq("type", "remote_turn_request")
+            .eq("requestState", "pending")
+            .gte("timestamp", args.since),
       )
       .order("desc")
       .take(maxItems * 2);
 
     const candidates = events.filter(
-      (event) => !event.requestState || event.requestState === "pending",
+      (event) =>
+        (!event.requestState || event.requestState === "pending") &&
+        event.ownerBindingState === "bound" &&
+        event.ownerId === ownerId &&
+        event.ownerGeneration === ownerGeneration,
     );
     const ownershipByConversation = await loadConversationOwnership(
       ctx,
@@ -756,11 +869,16 @@ export const subscribeRemoteTurnCancelsForDevice = query({
       requestId: v.string(),
       conversationId: v.id("conversations"),
       cancelledAt: v.number(),
+      activeAttemptId: v.optional(v.string()),
     }),
   ),
   handler: async (ctx, args) => {
-    const ownerId = await getUserIdOrNull(ctx);
-    if (!ownerId) {
+    // Cancellation must remain visible to the immutable source identity after
+    // an ownership-migration fence lands so its already-running desktop can
+    // join provider cancellation and ACK the exact attempt.
+    const identity = await ctx.auth.getUserIdentity();
+    const sourceOwnerId = identity?.tokenIdentifier;
+    if (!sourceOwnerId) {
       return [];
     }
     const maxItems = normalizeOptionalInt({
@@ -772,11 +890,14 @@ export const subscribeRemoteTurnCancelsForDevice = query({
 
     const events = await ctx.db
       .query("events")
-      .withIndex("by_targetDeviceId_and_type_and_timestamp", (q) =>
-        q
-          .eq("targetDeviceId", args.deviceId)
-          .eq("type", "remote_turn_request")
-          .gte("timestamp", args.since),
+      .withIndex(
+        "by_targetDeviceId_and_type_and_requestState_and_timestamp",
+        (q) =>
+          q
+            .eq("targetDeviceId", args.deviceId)
+            .eq("type", "remote_turn_request")
+            .eq("requestState", "cancelled")
+            .gte("timestamp", args.since),
       )
       .order("desc")
       .take(maxItems * 2);
@@ -784,27 +905,27 @@ export const subscribeRemoteTurnCancelsForDevice = query({
     const candidates = events.filter(
       (event) =>
         event.requestState === "cancelled" &&
+        event.ownerId === sourceOwnerId &&
+        event.ownerBindingState === "bound" &&
+        Boolean(event.activeAttemptId) &&
         Boolean(event.requestId) &&
         typeof event.cancelledAt === "number",
-    );
-    const ownershipByConversation = await loadConversationOwnership(
-      ctx,
-      candidates.map((event) => event.conversationId),
-      ownerId,
     );
     const out: {
       requestId: string;
       conversationId: Id<"conversations">;
       cancelledAt: number;
+      activeAttemptId?: string;
     }[] = [];
 
     for (const event of candidates) {
-      if (!ownershipByConversation.get(event.conversationId)) continue;
-
       out.push({
         requestId: event.requestId!,
         conversationId: event.conversationId,
         cancelledAt: event.cancelledAt!,
+        ...(event.activeAttemptId
+          ? { activeAttemptId: event.activeAttemptId }
+          : {}),
       });
       if (out.length >= maxItems) break;
     }
@@ -820,8 +941,10 @@ const findRemoteTurnRequest = async (
 ) =>
   await ctx.db
     .query("events")
-    .withIndex("by_requestId", (q) => q.eq("requestId", requestId))
-    .first();
+    .withIndex("by_type_and_requestId", (q) =>
+      q.eq("type", "remote_turn_request").eq("requestId", requestId),
+    )
+    .unique();
 
 /**
  * Public query — used by the local device runner for cross-restart dedup.

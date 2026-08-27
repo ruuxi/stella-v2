@@ -1,10 +1,9 @@
 import type { MutationCtx, QueryCtx, ActionCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { ConvexError, v } from "convex/values";
+import { requireBoundedString } from "../shared_validators";
 import {
-  requireBoundedString,
-} from "../shared_validators";
-import {
+  assertOwnerMigrationWriteAllowed,
   requireConnectedUserId,
   requireConnectedUserIdAction,
 } from "../auth";
@@ -99,8 +98,10 @@ export const socialRoomValidator = v.object({
   _creationTime: v.number(),
   kind: socialRoomKindValidator,
   roomKey: v.optional(v.string()),
+  dmLowOwnerId: v.optional(v.string()),
+  dmHighOwnerId: v.optional(v.string()),
   title: v.optional(v.string()),
-  createdByOwnerId: v.string(),
+  createdByOwnerId: v.optional(v.string()),
   stellaSessionId: v.optional(v.id("stella_sessions")),
   inviteCode: v.optional(v.string()),
   createdAt: v.number(),
@@ -125,16 +126,20 @@ export const socialMessageValidator = v.object({
   _creationTime: v.number(),
   roomId: v.id("social_rooms"),
   senderOwnerId: v.string(),
+  senderOwnerGeneration: v.optional(v.string()),
+  sourceTurnId: v.optional(v.id("stella_session_turns")),
   clientMessageId: v.optional(v.string()),
   kind: socialMessageKindValidator,
   body: v.string(),
   originalBody: v.optional(v.string()),
-  moderationStatus: v.optional(v.union(
-    v.literal("pending"),
-    v.literal("clean"),
-    v.literal("censored"),
-    v.literal("failed"),
-  )),
+  moderationStatus: v.optional(
+    v.union(
+      v.literal("pending"),
+      v.literal("clean"),
+      v.literal("censored"),
+      v.literal("failed"),
+    ),
+  ),
   moderatedAt: v.optional(v.number()),
   createdAt: v.number(),
   editedAt: v.optional(v.number()),
@@ -144,9 +149,9 @@ export const stellaSessionValidator = v.object({
   _id: v.id("stella_sessions"),
   _creationTime: v.number(),
   roomId: v.id("social_rooms"),
-  hostOwnerId: v.string(),
+  hostOwnerId: v.optional(v.string()),
   hostDeviceId: v.string(),
-  createdByOwnerId: v.string(),
+  createdByOwnerId: v.optional(v.string()),
   workspaceSlug: v.string(),
   workspaceFolderName: v.string(),
   conversationId: v.string(),
@@ -165,6 +170,7 @@ export const stellaSessionTurnValidator = v.object({
   ordinal: v.number(),
   status: stellaSessionTurnStatusValidator,
   requestedByOwnerId: v.string(),
+  requesterOwnerGeneration: v.optional(v.string()),
   requestId: v.optional(v.string()),
   prompt: v.string(),
   agentType: v.optional(v.string()),
@@ -195,6 +201,7 @@ export const stellaSessionFileOpValidator = v.object({
   type: stellaSessionFileOpTypeValidator,
   relativePath: v.string(),
   actorOwnerId: v.string(),
+  actorOwnerGeneration: v.optional(v.string()),
   contentHash: v.optional(v.string()),
   storageId: v.optional(v.id("_storage")),
   sizeBytes: v.optional(v.number()),
@@ -273,6 +280,9 @@ export const ensureSocialProfileDoc = async (
   ctx: MutationCtx,
   ownerId: string,
 ): Promise<Doc<"social_profiles">> => {
+  // Raw-owner callers (including delayed Better Auth hooks) must participate
+  // in both the permanent anonymous-source fence and owner lifecycle OCC.
+  await assertOwnerMigrationWriteAllowed(ctx, ownerId);
   const existing = await ctx.db
     .query("social_profiles")
     .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
@@ -306,10 +316,7 @@ export const requireSocialProfile = async (
   return await ensureSocialProfileDoc(ctx, ownerId);
 };
 
-export const getSocialProfileByOwnerId = async (
-  ctx: AnyCtx,
-  ownerId: string,
-) =>
+export const getSocialProfileByOwnerId = async (ctx: AnyCtx, ownerId: string) =>
   await ctx.db
     .query("social_profiles")
     .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
@@ -467,22 +474,27 @@ export const listAcceptedRelationshipsForOwner = async (
   return [...low, ...high];
 };
 
-export const getSocialSessionConversationId = (sessionId: Id<"stella_sessions">) =>
-  `social:stella:${sessionId}`;
+export const getSocialSessionConversationId = (
+  sessionId: Id<"stella_sessions">,
+) => `social:stella:${sessionId}`;
 
 const generateUsernameCandidate = (): string => {
   const adjective =
-    USERNAME_ADJECTIVES[Math.floor(Math.random() * USERNAME_ADJECTIVES.length)]!;
+    USERNAME_ADJECTIVES[
+      Math.floor(Math.random() * USERNAME_ADJECTIVES.length)
+    ]!;
   const noun =
     USERNAME_NOUNS[Math.floor(Math.random() * USERNAME_NOUNS.length)]!;
   const suffix = Math.floor(100 + Math.random() * 900);
   return `${adjective}-${noun}-${suffix}`;
 };
 
-const generateUniqueUsername = async (
-  ctx: MutationCtx,
-): Promise<string> => {
-  for (let attempt = 0; attempt < MAX_USERNAME_COLLISION_RETRIES; attempt += 1) {
+const generateUniqueUsername = async (ctx: MutationCtx): Promise<string> => {
+  for (
+    let attempt = 0;
+    attempt < MAX_USERNAME_COLLISION_RETRIES;
+    attempt += 1
+  ) {
     const candidate = generateUsernameCandidate();
     if (!USERNAME_REGEX.test(candidate) || RESERVED_USERNAMES.has(candidate)) {
       continue;

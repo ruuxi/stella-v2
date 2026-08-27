@@ -1,8 +1,4 @@
-import {
-  mutation,
-  query,
-  type MutationCtx,
-} from "../_generated/server";
+import { mutation, query, type MutationCtx } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
 import { ConvexError, v } from "convex/values";
 import {
@@ -16,6 +12,7 @@ import {
   loadRelationship,
 } from "./shared";
 import {
+  assertOwnerMigrationWriteAllowed,
   getConnectedUserIdOrNull,
   requireConnectedUserId,
 } from "../auth";
@@ -25,6 +22,7 @@ import {
   RATE_STANDARD,
   RATE_VERY_EXPENSIVE,
 } from "../lib/rate_limits";
+import { assertC8RetiredSurfaceUnavailable } from "../lib/c8_retired_surface";
 
 const socialFriendSummaryValidator = v.object({
   relationship: socialRelationshipValidator,
@@ -63,11 +61,18 @@ export const listFriends = query({
     const relationships = await listAcceptedRelationshipsForOwner(ctx, ownerId);
     const friends = await Promise.all(
       relationships.map(async (relationship) => {
-        const profile = await hydrateRelationshipPeer(ctx, ownerId, relationship);
+        const profile = await hydrateRelationshipPeer(
+          ctx,
+          ownerId,
+          relationship,
+        );
         return profile ? { relationship, profile } : null;
       }),
     );
-    return friends.filter((entry): entry is (typeof friends)[number] & NonNullable<typeof entry> => Boolean(entry));
+    return friends.filter(
+      (entry): entry is (typeof friends)[number] & NonNullable<typeof entry> =>
+        Boolean(entry),
+    );
   },
 });
 
@@ -98,13 +103,27 @@ export const listPendingRequests = query({
     ]);
 
     const entries = await Promise.all(
-      [...incoming.map((relationship) => ({ relationship, direction: "incoming" as const })), ...outgoing.map((relationship) => ({ relationship, direction: "outgoing" as const }))]
-        .map(async (entry) => {
-          const profile = await hydrateRelationshipPeer(ctx, ownerId, entry.relationship);
-          return profile ? { ...entry, profile } : null;
-        }),
+      [
+        ...incoming.map((relationship) => ({
+          relationship,
+          direction: "incoming" as const,
+        })),
+        ...outgoing.map((relationship) => ({
+          relationship,
+          direction: "outgoing" as const,
+        })),
+      ].map(async (entry) => {
+        const profile = await hydrateRelationshipPeer(
+          ctx,
+          ownerId,
+          entry.relationship,
+        );
+        return profile ? { ...entry, profile } : null;
+      }),
     );
-    return entries.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+    return entries.filter((entry): entry is NonNullable<typeof entry> =>
+      Boolean(entry),
+    );
   },
 });
 
@@ -125,8 +144,9 @@ export const getUnseenIncomingFriendRequestCount = query({
         q.eq("addresseeOwnerId", ownerId).eq("status", "pending"),
       )
       .take(MAX_PENDING_REQUESTS_PER_SIDE);
-    return incoming.filter((relationship) => relationship.createdAt > lastSeenAt)
-      .length;
+    return incoming.filter(
+      (relationship) => relationship.createdAt > lastSeenAt,
+    ).length;
   },
 });
 
@@ -134,7 +154,9 @@ export const markIncomingFriendRequestsSeen = mutation({
   args: {},
   returns: v.null(),
   handler: async (ctx) => {
+    assertC8RetiredSurfaceUnavailable("Social relationships");
     const ownerId = await requireConnectedUserId(ctx);
+    await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     await enforceMutationRateLimit(
       ctx,
       "social_mark_friend_requests_seen",
@@ -152,14 +174,18 @@ export const markIncomingFriendRequestsSeen = mutation({
 
 /**
  * Shared helper that produces (or revives) a pending friend-request row from
- * the caller to `targetOwnerId`. The two `sendFriendRequest*` mutations both
- * rate-limit + resolve their target profile before delegating here.
+ * the caller to `targetOwnerId`. The public mutation rate-limits and resolves
+ * its target profile before delegating here.
  */
 const upsertPendingFriendRequest = async (
   ctx: MutationCtx,
   ownerId: string,
   targetOwnerId: string,
 ): Promise<Doc<"social_relationships">> => {
+  await Promise.all([
+    assertOwnerMigrationWriteAllowed(ctx, ownerId),
+    assertOwnerMigrationWriteAllowed(ctx, targetOwnerId),
+  ]);
   if (targetOwnerId === ownerId) {
     throw new ConvexError({
       code: "INVALID_ARGUMENT",
@@ -175,7 +201,10 @@ const upsertPendingFriendRequest = async (
     // A block can only be lifted by the user who placed it (the addressee at
     // block time). Surface the same error as an unknown username so the
     // blocked sender can't detect the block.
-    if (existing.status === "blocked" && existing.addresseeOwnerId !== ownerId) {
+    if (
+      existing.status === "blocked" &&
+      existing.addresseeOwnerId !== ownerId
+    ) {
       throw new ConvexError({
         code: "NOT_FOUND",
         message: "No user found with that username",
@@ -228,7 +257,9 @@ export const sendFriendRequest = mutation({
   },
   returns: socialRelationshipValidator,
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Social relationships");
     const ownerId = await requireConnectedUserId(ctx);
+    await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     // Friend-request spam vector: cap aggressively per owner so a malicious
     // client can't probe usernames or harass other users.
     await enforceMutationRateLimit(
@@ -258,18 +289,31 @@ export const sendFriendRequest = mutation({
       });
     }
 
-    return await upsertPendingFriendRequest(ctx, ownerId, targetProfile.ownerId);
+    return await upsertPendingFriendRequest(
+      ctx,
+      ownerId,
+      targetProfile.ownerId,
+    );
   },
 });
 
 export const respondToFriendRequest = mutation({
   args: {
     requesterOwnerId: v.string(),
-    action: v.union(v.literal("accept"), v.literal("decline"), v.literal("block")),
+    action: v.union(
+      v.literal("accept"),
+      v.literal("decline"),
+      v.literal("block"),
+    ),
   },
   returns: socialRelationshipValidator,
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Social relationships");
     const ownerId = await requireConnectedUserId(ctx);
+    await Promise.all([
+      assertOwnerMigrationWriteAllowed(ctx, ownerId),
+      assertOwnerMigrationWriteAllowed(ctx, args.requesterOwnerId),
+    ]);
     await enforceMutationRateLimit(
       ctx,
       "social_respond_to_friend_request",
@@ -277,7 +321,11 @@ export const respondToFriendRequest = mutation({
       RATE_STANDARD,
       "Too many requests. Please slow down and try again.",
     );
-    const relationship = await loadRelationship(ctx, ownerId, args.requesterOwnerId);
+    const relationship = await loadRelationship(
+      ctx,
+      ownerId,
+      args.requesterOwnerId,
+    );
     if (!relationship || relationship.addresseeOwnerId !== ownerId) {
       throw new ConvexError({
         code: "NOT_FOUND",
@@ -324,7 +372,9 @@ export const removeFriend = mutation({
   },
   returns: v.object({ removed: v.boolean() }),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Social relationships");
     const ownerId = await requireConnectedUserId(ctx);
+    await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     await enforceMutationRateLimit(
       ctx,
       "social_remove_friend",
@@ -332,7 +382,11 @@ export const removeFriend = mutation({
       RATE_STANDARD,
       "Too many requests. Please slow down and try again.",
     );
-    const relationship = await loadRelationship(ctx, ownerId, args.otherOwnerId);
+    const relationship = await loadRelationship(
+      ctx,
+      ownerId,
+      args.otherOwnerId,
+    );
     if (!relationship) {
       return { removed: false };
     }

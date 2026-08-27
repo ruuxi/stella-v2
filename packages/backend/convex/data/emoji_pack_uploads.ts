@@ -4,17 +4,15 @@ import { createHash, randomUUID } from "node:crypto";
 import { signR2Put } from "../lib/r2_sigv4";
 import { ConvexError, v } from "convex/values";
 import { action } from "../_generated/server";
+import { internal } from "../_generated/api";
 import { requireConnectedUserIdAction } from "../auth";
-import {
-  RATE_STANDARD,
-  enforceActionRateLimit,
-} from "../lib/rate_limits";
+import { assertOwnerDataAccessActive } from "../owner_lifecycle";
+import { EXTERNAL_MEDIA_PRESIGNED_BARRIER_MS } from "../account_external_media_store";
+import { RATE_STANDARD, enforceActionRateLimit } from "../lib/rate_limits";
+import { requireConfiguredRawR2MediaTarget } from "../lib/raw_r2_media_target";
 import { requireBoundedString } from "../shared_validators";
 
-const DEFAULT_BUCKET = "stella-emotes";
 const DEFAULT_PREFIX = "emoji-packs";
-const DEFAULT_PUBLIC_BASE =
-  "https://pub-58708621bfa94e3bb92de37cde354c0d.r2.dev";
 const CACHE_CONTROL = "public, max-age=31536000, immutable";
 const MAX_PACK_ID = 64;
 const SHEET_COUNT = 3;
@@ -76,10 +74,15 @@ export const createUploadUrl = action({
   },
   returns: v.object({
     uploadId: v.string(),
+    ownerGeneration: v.string(),
     sheets: v.array(uploadTargetValidator),
   }),
   handler: async (ctx, args) => {
     const ownerId = await requireConnectedUserIdAction(ctx);
+    const { generation: ownerGeneration } = await assertOwnerDataAccessActive(
+      ctx,
+      ownerId,
+    );
     await enforceActionRateLimit(
       ctx,
       "emojiPacks.createUploadUrl",
@@ -103,36 +106,68 @@ export const createUploadUrl = action({
     const accessKeyId = requireEnv("R2_ACCESS_KEY_ID");
     const secretAccessKey = requireEnv("R2_SECRET_ACCESS_KEY");
     const endpoint = requireEnv("R2_ENDPOINT");
-    const bucket =
-      process.env.R2_EMOJI_BUCKET?.trim() ||
-      process.env.R2_PETS_BUCKET?.trim() ||
-      DEFAULT_BUCKET;
+    const { bucket, publicBase } = requireConfiguredRawR2MediaTarget({
+      bucketEnv: "R2_EMOJI_BUCKET",
+      purpose: "Emoji pack uploads",
+    });
     const prefix = normalizePrefix(process.env.R2_EMOJI_PREFIX);
-    const publicBase = (
-      process.env.R2_PUBLIC_BASE_URL?.trim() || DEFAULT_PUBLIC_BASE
-    ).replace(/\/+$/, "");
     const uploadId = randomUUID();
     const ownerKey = sha256Hex(ownerId).slice(0, 24);
     const baseKey = `${prefix}/${ownerKey}/${packId}/${uploadId}`;
-    const sheets = args.sheetSha256s.map((sha, index) => {
+    const descriptors = args.sheetSha256s.map((sha, index) => {
       const key = `${baseKey}/sheet-${index + 1}.webp`;
+      return {
+        objectRole: `sheet-${index + 1}`,
+        storageKind: "raw-r2" as const,
+        bucket,
+        key,
+        payloadHash: normalizeSha256(sha, `sheetSha256s[${index}]`),
+        publicUrl: `${publicBase}/${key}`,
+      };
+    });
+    const now = Date.now();
+    const uploadExpiresAt = now + EXTERNAL_MEDIA_PRESIGNED_BARRIER_MS;
+    await ctx.runMutation(
+      internal.account_external_media_store.reserveExternalMediaUploadInternal,
+      {
+        ownerId,
+        ownerGeneration,
+        uploadId,
+        uploadExpiresAt,
+        objects: descriptors.map((descriptor) => ({
+          objectRole: descriptor.objectRole,
+          storageKind: descriptor.storageKind,
+          bucket: descriptor.bucket,
+          r2Key: descriptor.key,
+          payloadSha256: descriptor.payloadHash,
+          publicUrl: descriptor.publicUrl,
+        })),
+        now,
+      },
+    );
+    await ctx.runMutation(
+      internal.account_external_media_store
+        .assertExternalMediaUploadDispatchInternal,
+      { ownerId, ownerGeneration, uploadId, now: Date.now() },
+    );
+    const sheets = descriptors.map((descriptor) => {
       const signed = signR2Put({
         accessKeyId,
         secretAccessKey,
         endpoint,
         bucket,
-        key,
-        payloadHash: normalizeSha256(sha, `sheetSha256s[${index}]`),
+        key: descriptor.key,
+        payloadHash: descriptor.payloadHash,
         contentType,
         cacheControl: CACHE_CONTROL,
       });
       return {
-        key,
-        publicUrl: `${publicBase}/${key}`,
+        key: descriptor.key,
+        publicUrl: descriptor.publicUrl,
         putUrl: signed.putUrl,
         headers: signed.headers,
       };
     });
-    return { uploadId, sheets };
+    return { uploadId, ownerGeneration, sheets };
   },
 });

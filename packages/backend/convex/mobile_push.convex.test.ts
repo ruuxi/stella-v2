@@ -35,6 +35,7 @@ describe("mobile_push.upsertToken idempotency", () => {
 
     await t.mutation(internal.mobile_push.upsertToken, {
       ownerId: OWNER,
+      ownerGeneration: "legacy",
       mobileDeviceId: DEVICE,
       expoPushToken: TOKEN,
       platform: "ios",
@@ -46,6 +47,7 @@ describe("mobile_push.upsertToken idempotency", () => {
     // and can't produce an OCC write conflict.
     await t.mutation(internal.mobile_push.upsertToken, {
       ownerId: OWNER,
+      ownerGeneration: "legacy",
       mobileDeviceId: DEVICE,
       expoPushToken: TOKEN,
       platform: "ios",
@@ -65,6 +67,7 @@ describe("mobile_push.upsertToken idempotency", () => {
 
     await t.mutation(internal.mobile_push.upsertToken, {
       ownerId: OWNER,
+      ownerGeneration: "legacy",
       mobileDeviceId: DEVICE,
       expoPushToken: TOKEN,
       platform: "ios",
@@ -72,6 +75,7 @@ describe("mobile_push.upsertToken idempotency", () => {
     });
     await t.mutation(internal.mobile_push.upsertToken, {
       ownerId: OWNER,
+      ownerGeneration: "legacy",
       mobileDeviceId: DEVICE,
       expoPushToken: rotated,
       platform: "ios",
@@ -91,6 +95,7 @@ describe("mobile_push.upsertToken idempotency", () => {
 
     await t.mutation(internal.mobile_push.upsertToken, {
       ownerId: OWNER,
+      ownerGeneration: "legacy",
       mobileDeviceId: DEVICE,
       expoPushToken: TOKEN,
       platform: "ios",
@@ -98,6 +103,7 @@ describe("mobile_push.upsertToken idempotency", () => {
     });
     await t.mutation(internal.mobile_push.upsertToken, {
       ownerId: OWNER,
+      ownerGeneration: "legacy",
       mobileDeviceId: DEVICE,
       expoPushToken: TOKEN,
       platform: "ios",
@@ -116,6 +122,7 @@ describe("mobile_push.upsertToken idempotency", () => {
       Array.from({ length: 6 }, (_, i) =>
         t.mutation(internal.mobile_push.upsertToken, {
           ownerId: OWNER,
+          ownerGeneration: "legacy",
           mobileDeviceId: DEVICE,
           expoPushToken: TOKEN,
           platform: "ios",

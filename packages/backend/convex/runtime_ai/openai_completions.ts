@@ -11,6 +11,7 @@ import type {
 import { AssistantMessageEventStream } from "./event_stream";
 import { headersToRecord } from "./headers";
 import { parseStreamingJson } from "./json_parse";
+import { isRetryableProviderError } from "./retry";
 import { supportsXhigh } from "./model_utils";
 import { sanitizeSurrogates } from "./sanitize_unicode";
 import { buildBaseOptions, clampReasoning } from "./simple_options";
@@ -449,6 +450,9 @@ export const streamOpenAICompletions: StreamFunction<
       output.stopReason = options?.signal?.aborted ? "aborted" : "error";
       output.errorMessage =
         error instanceof Error ? error.message : JSON.stringify(error);
+      if (!options?.signal?.aborted && isRetryableProviderError(error)) {
+        output.providerOutcomeUnknown = true;
+      }
       const rawMetadata = (error as OpenAIErrorWithMetadata | null)?.error
         ?.metadata?.raw;
       if (rawMetadata) {

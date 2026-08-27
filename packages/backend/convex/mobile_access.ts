@@ -8,11 +8,13 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import {
+  assertOwnerMigrationWriteAllowed,
   assertSensitiveSessionPolicy,
   isAnonymousIdentity,
   requireConnectedUserId,
   requireSensitiveUserId,
 } from "./auth";
+import { LEGACY_OWNER_GENERATION } from "./owner_lifecycle";
 import {
   constantTimeEqual,
   hashSha256Hex,
@@ -272,6 +274,8 @@ export const createPairingSession = mutation({
   }),
   handler: async (ctx, args) => {
     const ownerId = await requireSensitiveUserId(ctx);
+    const { generation: ownerGeneration } =
+      await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     // Each pairing session writes a new row + cleanup work. Tight cap so a
     // hijacked session can't churn pairing codes.
     await enforceMutationRateLimit(
@@ -286,13 +290,23 @@ export const createPairingSession = mutation({
       ownerId,
       desktopDeviceId: args.desktopDeviceId,
     });
-    if (existing && existing.expiresAt > createdAt) {
+    if (
+      existing &&
+      existing.expiresAt > createdAt &&
+      (existing.ownerGeneration ?? LEGACY_OWNER_GENERATION) === ownerGeneration
+    ) {
       return {
         pairingCode: existing.pairingCode,
         expiresAt: existing.expiresAt,
         createdAt: existing.createdAt,
         pairingUrl: `stella-mobile://stella?code=${encodeURIComponent(existing.pairingCode)}`,
       };
+    }
+    if (existing) {
+      // A reset rotates the generation and drains mobile control rows in a
+      // separate bounded transaction. If this mutation races that drain,
+      // never hand a pre-reset pairing capability back out.
+      await ctx.db.delete(existing._id);
     }
 
     const expiresAt = createdAt + MOBILE_PAIRING_SESSION_TTL_MS;
@@ -323,6 +337,7 @@ export const createPairingSession = mutation({
 
     await ctx.db.insert("mobile_pairing_sessions", {
       ownerId,
+      ownerGeneration,
       desktopDeviceId: args.desktopDeviceId,
       pairingCode,
       createdAt,
@@ -439,6 +454,11 @@ export const acknowledgeConnectIntent = mutation({
     if (!intent || intent.ownerId !== ownerId || intent.acknowledgedAt) {
       return null;
     }
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      ownerId,
+      intent.ownerGeneration ?? LEGACY_OWNER_GENERATION,
+    );
     await ctx.db.patch(args.intentId, { acknowledgedAt: Date.now() });
     return null;
   },
@@ -474,17 +494,26 @@ export const getPairedMobileDevice = internalQuery({
 export const markPairedMobileSeen = internalMutation({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
     desktopDeviceId: v.string(),
     mobileDeviceId: v.string(),
     seenAt: v.number(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
     const record = await getPairedMobileDeviceRecord(ctx, args);
     if (!record) {
       return null;
     }
-    await ctx.db.patch(record._id, { lastSeenAt: args.seenAt });
+    await ctx.db.patch(record._id, {
+      ownerGeneration: args.ownerGeneration,
+      lastSeenAt: args.seenAt,
+    });
     return null;
   },
 });
@@ -492,6 +521,7 @@ export const markPairedMobileSeen = internalMutation({
 export const completePairingSession = internalMutation({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
     pairingCode: v.string(),
     mobileDeviceId: v.string(),
     displayName: v.optional(v.string()),
@@ -520,6 +550,17 @@ export const completePairingSession = internalMutation({
       });
     }
 
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      pairingSession.ownerGeneration ?? LEGACY_OWNER_GENERATION,
+    );
+
     const approvedAt = Date.now();
     const pairSecret = randomPairSecret();
     const pairSecretHash = await hashSha256Hex(pairSecret);
@@ -532,6 +573,7 @@ export const completePairingSession = internalMutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, {
+        ownerGeneration: args.ownerGeneration,
         pairSecretHash,
         ...(args.displayName !== undefined
           ? { displayName: args.displayName }
@@ -543,6 +585,7 @@ export const completePairingSession = internalMutation({
     } else {
       await ctx.db.insert("paired_mobile_devices", {
         ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
         desktopDeviceId: pairingSession.desktopDeviceId,
         mobileDeviceId: args.mobileDeviceId,
         pairSecretHash,
@@ -568,12 +611,18 @@ export const completePairingSession = internalMutation({
 export const upsertConnectIntent = internalMutation({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
     desktopDeviceId: v.string(),
     mobileDeviceId: v.string(),
     createdAt: v.number(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
     const existing = await ctx.db
       .query("mobile_connect_intents")
       .withIndex("by_ownerId_and_desktopDeviceId_and_mobileDeviceId", (q) =>
@@ -587,6 +636,7 @@ export const upsertConnectIntent = internalMutation({
     const expiresAt = args.createdAt + MOBILE_CONNECT_INTENT_TTL_MS;
     if (existing) {
       await ctx.db.patch(existing._id, {
+        ownerGeneration: args.ownerGeneration,
         createdAt: args.createdAt,
         expiresAt,
         acknowledgedAt: undefined,
@@ -596,6 +646,7 @@ export const upsertConnectIntent = internalMutation({
 
     await ctx.db.insert("mobile_connect_intents", {
       ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
       desktopDeviceId: args.desktopDeviceId,
       mobileDeviceId: args.mobileDeviceId,
       createdAt: args.createdAt,

@@ -6,6 +6,8 @@ export const devicesSchema = {
   // to the feature that needs it (for example, mobile bridge registrations).
   devices: defineTable({
     ownerId: v.string(),
+    /** Exact owner-data generation in which this device registration was admitted. */
+    ownerGeneration: v.optional(v.string()),
     deviceId: v.string(),
     deviceName: v.optional(v.string()),
     devicePublicKey: v.optional(v.string()),
@@ -67,6 +69,8 @@ export const devicesSchema = {
 
   mobile_bridge_sessions: defineTable({
     ownerId: v.string(),
+    /** Generation that authorized this short-lived bridge handshake. */
+    ownerGeneration: v.optional(v.string()),
     desktopDeviceId: v.string(),
     mobileDeviceId: v.string(),
     sessionId: v.string(),
@@ -87,6 +91,8 @@ export const devicesSchema = {
 
   paired_mobile_devices: defineTable({
     ownerId: v.string(),
+    /** Last owner-data generation that authenticated this pairing. */
+    ownerGeneration: v.optional(v.string()),
     desktopDeviceId: v.string(),
     mobileDeviceId: v.string(),
     pairSecretHash: v.string(),
@@ -106,6 +112,8 @@ export const devicesSchema = {
 
   mobile_pairing_sessions: defineTable({
     ownerId: v.string(),
+    /** Exact owner-data generation in which the pairing code was minted. */
+    ownerGeneration: v.optional(v.string()),
     desktopDeviceId: v.string(),
     pairingCode: v.string(),
     createdAt: v.number(),
@@ -117,6 +125,8 @@ export const devicesSchema = {
 
   mobile_connect_intents: defineTable({
     ownerId: v.string(),
+    /** Exact owner-data generation in which this intent was admitted. */
+    ownerGeneration: v.optional(v.string()),
     desktopDeviceId: v.string(),
     mobileDeviceId: v.string(),
     createdAt: v.number(),
@@ -136,6 +146,8 @@ export const devicesSchema = {
 
   mobile_push_tokens: defineTable({
     ownerId: v.string(),
+    /** Last owner-data generation that authenticated this token binding. */
+    ownerGeneration: v.optional(v.string()),
     mobileDeviceId: v.string(),
     expoPushToken: v.string(),
     platform: v.optional(v.string()),
@@ -154,6 +166,16 @@ export const devicesSchema = {
     tunnelToken: v.string(),
     hostname: v.string(),
     dnsRecordId: v.optional(v.string()),
+    /**
+     * Provisioning rows are reserved before the first Cloudflare POST. They
+     * are durable cleanup locators and are never returned as usable tunnels.
+     * Undefined is a legacy/ready row.
+     */
+    provisionState: v.optional(
+      v.union(v.literal("provisioning"), v.literal("ready")),
+    ),
+    provisionGeneration: v.optional(v.string()),
+    provisionLeaseExpiresAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

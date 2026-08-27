@@ -84,7 +84,9 @@ const requireBackupOwner = async (
     blockMs: BACKUP_RATE_WINDOW_MS,
   });
   if (!rateLimit.allowed) {
-    return { response: withCors(rateLimitResponse(rateLimit.retryAfterMs), origin) };
+    return {
+      response: withCors(rateLimitResponse(rateLimit.retryAfterMs), origin),
+    };
   }
   return { ownerId };
 };
@@ -100,22 +102,40 @@ const getRequiredDeviceId = (request: Request) => {
   return deviceId;
 };
 
-const toErrorResponse = (
-  error: unknown,
-  origin: string | null,
-): Response => {
+const normalizeLegacyBackupOwner = async (
+  ctx: Parameters<Parameters<typeof httpAction>[0]>[0],
+  ownerId: string,
+  deviceId: string,
+) => {
+  while (true) {
+    const result = await ctx.runMutation(
+      internal.backups.normalizeLegacyBackupOwnerInternal,
+      { ownerId, deviceId },
+    );
+    if (!result.hasMore) return;
+  }
+};
+
+const toErrorResponse = (error: unknown, origin: string | null): Response => {
   if (error instanceof ConvexError) {
     const data = error.data as Record<string, unknown> | undefined;
     const message =
-      typeof data?.message === "string" ? data.message : "Backup request failed.";
+      typeof data?.message === "string"
+        ? data.message
+        : "Backup request failed.";
     const code = typeof data?.code === "string" ? data.code : "";
     const status =
-      code === "UNAUTHENTICATED" ? 401
-        : code === "UNAUTHORIZED" ? 403
-          : code === "SUBSCRIPTION_REQUIRED" ? 402
-          : code === "NOT_FOUND" ? 404
-            : code === "CONFLICT" ? 409
-              : 400;
+      code === "UNAUTHENTICATED"
+        ? 401
+        : code === "UNAUTHORIZED"
+          ? 403
+          : code === "SUBSCRIPTION_REQUIRED"
+            ? 402
+            : code === "NOT_FOUND"
+              ? 404
+              : code === "CONFLICT"
+                ? 409
+                : 400;
     return errorResponse(status, message, origin);
   }
   console.error("[backups] Unexpected error:", error);
@@ -142,18 +162,20 @@ export const registerBackupRoutes = (http: HttpRouter) => {
           if ("response" in owner) return owner.response;
           const ownerId = owner.ownerId;
           const deviceId = getRequiredDeviceId(request);
-          await ctx.runQuery(internal.backups.assertDeviceOwnedInternal, {
-            ownerId,
-            deviceId,
-          });
-          const key = await ctx.runAction(internal.backups.getKeyEscrowStatusInternal, {
-            ownerId,
-          });
+          await normalizeLegacyBackupOwner(ctx, ownerId, deviceId);
+          const key = await ctx.runAction(
+            internal.backups.getKeyEscrowStatusInternal,
+            {
+              ownerId,
+              deviceId,
+            },
+          );
           return jsonResponse({ key }, 200, origin);
         } catch (error) {
           return toErrorResponse(error, origin);
         }
-      })),
+      }),
+    ),
   });
 
   http.route({
@@ -168,24 +190,33 @@ export const registerBackupRoutes = (http: HttpRouter) => {
           if ("response" in owner) return owner.response;
           const ownerId = owner.ownerId;
           const sourceDeviceId = getRequiredDeviceId(request);
+          await normalizeLegacyBackupOwner(ctx, ownerId, sourceDeviceId);
           const body = await parseRouteJson<{
             keyBase64Url?: string;
             keyFingerprint?: string;
           }>(request);
           if (!body?.keyBase64Url || !body.keyFingerprint) {
-            return errorResponse(400, "Invalid backup key request body.", origin);
+            return errorResponse(
+              400,
+              "Invalid backup key request body.",
+              origin,
+            );
           }
-          const result = await ctx.runMutation(internal.backups.ensureKeyEscrowInternal, {
-            ownerId,
-            sourceDeviceId,
-            keyBase64Url: body.keyBase64Url,
-            keyFingerprint: body.keyFingerprint,
-          });
+          const result = await ctx.runMutation(
+            internal.backups.ensureKeyEscrowInternal,
+            {
+              ownerId,
+              sourceDeviceId,
+              keyBase64Url: body.keyBase64Url,
+              keyFingerprint: body.keyFingerprint,
+            },
+          );
           return jsonResponse(result, 200, origin);
         } catch (error) {
           return toErrorResponse(error, origin);
         }
-      })),
+      }),
+    ),
   });
 
   http.route({
@@ -198,27 +229,30 @@ export const registerBackupRoutes = (http: HttpRouter) => {
           if ("response" in owner) return owner.response;
           const ownerId = owner.ownerId;
           const deviceId = getRequiredDeviceId(request);
-          await ctx.runQuery(internal.backups.assertDeviceOwnedInternal, {
-            ownerId,
-            deviceId,
-          });
+          await normalizeLegacyBackupOwner(ctx, ownerId, deviceId);
           const url = new URL(request.url);
           const limitParam = url.searchParams.get("limit");
-          const sourceDeviceId = url.searchParams.get("sourceDeviceId")?.trim() || undefined;
+          const sourceDeviceId =
+            url.searchParams.get("sourceDeviceId")?.trim() || undefined;
           const limit =
             limitParam && limitParam.trim().length > 0
               ? Number(limitParam)
               : undefined;
-          const backups = await ctx.runQuery(internal.backups.listBackupsForOwnerInternal, {
-            ownerId,
-            sourceDeviceId,
-            limit,
-          });
+          const backups = await ctx.runQuery(
+            internal.backups.listBackupsForOwnerInternal,
+            {
+              ownerId,
+              deviceId,
+              sourceDeviceId,
+              limit,
+            },
+          );
           return jsonResponse({ backups }, 200, origin);
         } catch (error) {
           return toErrorResponse(error, origin);
         }
-      })),
+      }),
+    ),
   });
 
   http.route({
@@ -233,40 +267,60 @@ export const registerBackupRoutes = (http: HttpRouter) => {
           if ("response" in owner) return owner.response;
           const ownerId = owner.ownerId;
           const sourceDeviceId = getRequiredDeviceId(request);
+          await normalizeLegacyBackupOwner(ctx, ownerId, sourceDeviceId);
           const body = await parseRouteJson<{
             snapshotId?: string;
             snapshotHash?: string;
             createdAt?: number;
             objects?: Array<{
               objectId: string;
+              ciphertextSha256: string;
               plaintextSha256: string;
               plaintextSize: number;
               algorithm: string;
               ivBase64Url: string;
               authTagBase64Url: string;
             }>;
+            manifest?: {
+              ciphertextSha256: string;
+              plaintextSha256: string;
+              plaintextSize: number;
+              algorithm: string;
+              ivBase64Url: string;
+              authTagBase64Url: string;
+            };
           }>(request);
           if (
-            !body?.snapshotId
-            || !body.snapshotHash
-            || typeof body.createdAt !== "number"
-            || !Array.isArray(body.objects)
+            !body?.snapshotId ||
+            !body.snapshotHash ||
+            typeof body.createdAt !== "number" ||
+            !Array.isArray(body.objects) ||
+            !body.manifest
           ) {
-            return errorResponse(400, "Invalid backup prepare-upload body.", origin);
+            return errorResponse(
+              400,
+              "Invalid backup prepare-upload body.",
+              origin,
+            );
           }
-          const result = await ctx.runMutation(internal.backups.prepareUploadInternal, {
-            ownerId,
-            sourceDeviceId,
-            snapshotId: body.snapshotId,
-            snapshotHash: body.snapshotHash,
-            createdAt: body.createdAt,
-            objects: body.objects,
-          });
+          const result = await ctx.runMutation(
+            internal.backups.prepareUploadInternal,
+            {
+              ownerId,
+              sourceDeviceId,
+              snapshotId: body.snapshotId,
+              snapshotHash: body.snapshotHash,
+              createdAt: body.createdAt,
+              objects: body.objects,
+              manifest: body.manifest,
+            },
+          );
           return jsonResponse(result, 200, origin);
         } catch (error) {
           return toErrorResponse(error, origin);
         }
-      })),
+      }),
+    ),
   });
 
   http.route({
@@ -281,6 +335,7 @@ export const registerBackupRoutes = (http: HttpRouter) => {
           if ("response" in owner) return owner.response;
           const ownerId = owner.ownerId;
           const sourceDeviceId = getRequiredDeviceId(request);
+          await normalizeLegacyBackupOwner(ctx, ownerId, sourceDeviceId);
           const body = await parseRouteJson<{
             snapshotId?: string;
             snapshotHash?: string;
@@ -292,6 +347,7 @@ export const registerBackupRoutes = (http: HttpRouter) => {
             markLatest?: boolean;
             manifest?: {
               r2Key: string;
+              ciphertextSha256: string;
               plaintextSha256: string;
               plaintextSize: number;
               algorithm: string;
@@ -300,6 +356,7 @@ export const registerBackupRoutes = (http: HttpRouter) => {
             };
             uploadedObjects?: Array<{
               objectId: string;
+              ciphertextSha256: string;
               plaintextSha256: string;
               plaintextSize: number;
               algorithm: string;
@@ -309,36 +366,44 @@ export const registerBackupRoutes = (http: HttpRouter) => {
             }>;
           }>(request);
           if (
-            !body?.snapshotId
-            || !body.snapshotHash
-            || typeof body.createdAt !== "number"
-            || typeof body.version !== "number"
-            || typeof body.entryCount !== "number"
-            || typeof body.objectCount !== "number"
-            || !body.manifest
-            || !Array.isArray(body.uploadedObjects)
+            !body?.snapshotId ||
+            !body.snapshotHash ||
+            typeof body.createdAt !== "number" ||
+            typeof body.version !== "number" ||
+            typeof body.entryCount !== "number" ||
+            typeof body.objectCount !== "number" ||
+            !body.manifest ||
+            !Array.isArray(body.uploadedObjects)
           ) {
-            return errorResponse(400, "Invalid backup finalize-upload body.", origin);
+            return errorResponse(
+              400,
+              "Invalid backup finalize-upload body.",
+              origin,
+            );
           }
-          const result = await ctx.runMutation(internal.backups.finalizeUploadInternal, {
-            ownerId,
-            sourceDeviceId,
-            snapshotId: body.snapshotId,
-            snapshotHash: body.snapshotHash,
-            createdAt: body.createdAt,
-            sourceHostname: body.sourceHostname,
-            version: body.version,
-            entryCount: body.entryCount,
-            objectCount: body.objectCount,
-            markLatest: body.markLatest,
-            manifest: body.manifest,
-            uploadedObjects: body.uploadedObjects,
-          });
+          const result = await ctx.runMutation(
+            internal.backups.finalizeUploadInternal,
+            {
+              ownerId,
+              sourceDeviceId,
+              snapshotId: body.snapshotId,
+              snapshotHash: body.snapshotHash,
+              createdAt: body.createdAt,
+              sourceHostname: body.sourceHostname,
+              version: body.version,
+              entryCount: body.entryCount,
+              objectCount: body.objectCount,
+              markLatest: body.markLatest,
+              manifest: body.manifest,
+              uploadedObjects: body.uploadedObjects,
+            },
+          );
           return jsonResponse(result, 200, origin);
         } catch (error) {
           return toErrorResponse(error, origin);
         }
-      })),
+      }),
+    ),
   });
 
   http.route({
@@ -351,6 +416,7 @@ export const registerBackupRoutes = (http: HttpRouter) => {
           if ("response" in owner) return owner.response;
           const ownerId = owner.ownerId;
           const deviceId = getRequiredDeviceId(request);
+          await normalizeLegacyBackupOwner(ctx, ownerId, deviceId);
           const body = await parseRouteJson<{ snapshotId?: string }>(request);
           if (!body?.snapshotId) {
             return errorResponse(400, "Missing snapshotId.", origin);
@@ -367,7 +433,8 @@ export const registerBackupRoutes = (http: HttpRouter) => {
         } catch (error) {
           return toErrorResponse(error, origin);
         }
-      })),
+      }),
+    ),
   });
 
   http.route({
@@ -380,15 +447,28 @@ export const registerBackupRoutes = (http: HttpRouter) => {
           if ("response" in owner) return owner.response;
           const ownerId = owner.ownerId;
           const deviceId = getRequiredDeviceId(request);
-          const body = await parseRouteJson<{ objectIds?: string[] }>(request);
-          if (!body?.objectIds || !Array.isArray(body.objectIds)) {
-            return errorResponse(400, "Missing objectIds.", origin);
+          await normalizeLegacyBackupOwner(ctx, ownerId, deviceId);
+          const body = await parseRouteJson<{
+            snapshotId?: string;
+            objectIds?: string[];
+          }>(request);
+          if (
+            !body?.snapshotId ||
+            !body.objectIds ||
+            !Array.isArray(body.objectIds)
+          ) {
+            return errorResponse(
+              400,
+              "Missing snapshotId or objectIds.",
+              origin,
+            );
           }
           const result = await ctx.runAction(
             internal.backups.getObjectDownloadPlanInternal,
             {
               ownerId,
               deviceId,
+              snapshotId: body.snapshotId,
               objectIds: body.objectIds,
             },
           );
@@ -396,6 +476,7 @@ export const registerBackupRoutes = (http: HttpRouter) => {
         } catch (error) {
           return toErrorResponse(error, origin);
         }
-      })),
+      }),
+    ),
   });
 };

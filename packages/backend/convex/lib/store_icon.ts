@@ -1,22 +1,52 @@
-import {
-  fetchFalResultPayload,
-  getFalApiKey,
-  submitFalRequest,
-} from "../media_fal_webhooks";
+import { Infer, v } from "convex/values";
+import { internal } from "../_generated/api";
+import { internalAction, type ActionCtx } from "../_generated/server";
+import { encryptSecret } from "../data/secrets_crypto";
+import { dollarsToMicroCents } from "./billing_money";
+import { hashSha256Hex } from "./crypto_utils";
+import { checkManagedUsageLimit } from "./managed_billing";
 import { resolveMediaProfile } from "../media_catalog";
+import { getFalApiKey } from "../media_fal_webhooks";
+import {
+  MAX_PRIVATE_MEDIA_PAYLOAD_CHARS,
+  PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS,
+} from "../media_jobs";
+import { store_package_category_validator } from "../schema/store";
 import { isRecord } from "../shared_validators";
 
 const ICON_CAPABILITY_ID = "icon";
 const ICON_PROFILE_ID = "default";
-
-/**
- * Total wall-clock budget for a single icon generation. Flux Turbo typically
- * returns in 6-12s; we cap at 30s so a slow run never holds the publish UI
- * spinner for an unbounded amount of time. The publish flow treats a missing
- * icon as a non-fatal degrade and falls back to the gradient + monogram.
- */
 const ICON_TIMEOUT_MS = 30_000;
 const ICON_POLL_INTERVAL_MS = 1_500;
+const MAX_ICON_URL_LENGTH = 2_048;
+const MEDIA_FAL_WEBHOOK_PATH = "/api/media/v1/webhooks/fal";
+const ICON_MINIMUM_REMAINING_MICRO_CENTS = dollarsToMicroCents(0.003146);
+
+type StoreCategory = Infer<typeof store_package_category_validator>;
+
+type StoreIconRequest = {
+  ownerId: string;
+  ownerGeneration: string;
+  packageId: string;
+  displayName: string;
+  description: string;
+  category: StoreCategory;
+};
+
+const storeIconRequestValidator = {
+  ownerId: v.string(),
+  ownerGeneration: v.string(),
+  packageId: v.string(),
+  displayName: v.string(),
+  description: v.string(),
+  category: store_package_category_validator,
+};
+
+const reservedStoreIconValidator = v.object({ jobId: v.string() });
+const generatedStoreIconValidator = v.object({
+  jobId: v.string(),
+  iconUrl: v.optional(v.string()),
+});
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -24,13 +54,7 @@ const sleep = (ms: number): Promise<void> =>
 const buildIconPrompt = (args: {
   displayName: string;
   description: string;
-  category:
-    | "apps-games"
-    | "productivity"
-    | "customization"
-    | "skills-agents"
-    | "integrations"
-    | "other";
+  category: StoreCategory;
 }): string => {
   const role = (() => {
     switch (args.category) {
@@ -49,9 +73,6 @@ const buildIconPrompt = (args: {
         return "a Stella add-on";
     }
   })();
-  // Apple-leaning visual brief: minimal, flat, friendly, single subject,
-  // saturated solid background, no text, no UI chrome. Kept short so Flux
-  // doesn't drift into busy compositions.
   return [
     `App-store style icon for ${role} called "${args.displayName.trim()}".`,
     `Concept: ${args.description.trim()}.`,
@@ -62,93 +83,309 @@ const buildIconPrompt = (args: {
   ].join(" ");
 };
 
+const normalizeIconUrl = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > MAX_ICON_URL_LENGTH) return undefined;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === "https:" || parsed.protocol === "http:"
+      ? parsed.toString()
+      : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 const extractFirstImageUrl = (output: unknown): string | undefined => {
-  if (!isRecord(output)) return undefined;
-  const images = output.images;
-  if (!Array.isArray(images)) return undefined;
-  for (const entry of images) {
-    if (typeof entry === "string" && entry.trim()) {
-      return entry.trim();
-    }
-    if (isRecord(entry) && typeof entry.url === "string" && entry.url.trim()) {
-      return entry.url.trim();
-    }
+  if (!isRecord(output) || !Array.isArray(output.images)) return undefined;
+  for (const entry of output.images) {
+    const candidate =
+      typeof entry === "string"
+        ? entry
+        : isRecord(entry)
+          ? entry.url
+          : undefined;
+    const normalized = normalizeIconUrl(candidate);
+    if (normalized) return normalized;
   }
   return undefined;
+};
+
+const webhookUrlForJob = (args: {
+  jobId: string;
+  ownerGeneration: string;
+}): string | null => {
+  const siteUrl = process.env.CONVEX_SITE_URL?.trim();
+  if (!siteUrl) return null;
+  try {
+    const webhook = new URL(MEDIA_FAL_WEBHOOK_PATH, siteUrl);
+    webhook.searchParams.set("jobId", args.jobId);
+    webhook.searchParams.set("ownerGeneration", args.ownerGeneration);
+    return webhook.toString();
+  } catch {
+    return null;
+  }
+};
+
+const prepareStoreIconIdentity = async (args: StoreIconRequest) => {
+  const resolved = resolveMediaProfile(ICON_CAPABILITY_ID, ICON_PROFILE_ID);
+  if (!resolved || resolved.profile.provider !== "fal") return null;
+  const prompt = buildIconPrompt(args);
+  const input = {
+    prompt,
+    image_size: { width: 1024, height: 1024 },
+    num_images: 1,
+    output_format: "png",
+  };
+  const clientRequestHash = await hashSha256Hex(
+    JSON.stringify({
+      capability: ICON_CAPABILITY_ID,
+      profile: ICON_PROFILE_ID,
+      input,
+    }),
+  );
+  const identityHash = await hashSha256Hex(
+    [
+      "store-icon:v2",
+      args.ownerId,
+      args.ownerGeneration,
+      args.packageId,
+      clientRequestHash,
+    ].join("\0"),
+  );
+  return {
+    resolved,
+    prompt,
+    input,
+    clientRequestHash,
+    clientRequestKey: `store-icon-v2-${identityHash}`,
+    jobId: `store_icon_${identityHash.slice(0, 40)}`,
+  };
 };
 
 /**
- * Generate a square icon for a Store package via FAL's `icon` capability and
- * return the resulting public URL. Polls Fal's response endpoint directly so
- * we don't need a webhook round-trip — this lives inside an action that's
- * already async, and the caller awaits the result before showing the publish
- * draft to the user.
- *
- * Returns `undefined` for any failure mode (no API key, network issue,
- * timeout, malformed output). Icons are decorative; nothing else in the
- * publish path depends on them.
+ * Reserve Store auto-icon generation through the durable media submission
+ * outbox. The reservation, encrypted payload, provider locator, webhook,
+ * cancellation, purge, watchdog, and billing receipt are therefore identical
+ * to managed image_gen rather than a second best-effort Fal workflow.
  */
-export const generateStoreIconUrl = async (args: {
-  displayName: string;
-  description: string;
-  category:
-    | "apps-games"
-    | "productivity"
-    | "customization"
-    | "skills-agents"
-    | "integrations"
-    | "other";
-}): Promise<string | undefined> => {
-  const apiKey = getFalApiKey();
-  if (!apiKey) return undefined;
+const reserveStoreIconJobForOwner = async (
+  ctx: ActionCtx,
+  args: StoreIconRequest,
+): Promise<{ jobId: string } | null> => {
+  const prepared = await prepareStoreIconIdentity(args);
+  if (!prepared) return null;
 
-  const resolved = resolveMediaProfile(ICON_CAPABILITY_ID, ICON_PROFILE_ID);
-  if (!resolved) return undefined;
-
-  // Fal's queue API requires a webhook URL, but we never wait on the webhook —
-  // we poll the response_url directly. Pointing webhook at a known invalid
-  // path keeps Fal happy without holding a real route hostage. Any webhook
-  // delivery failures here are silent because we never observe them.
-  const webhookSentinel = "https://stella.invalid/api/media/v1/webhooks/fal";
-
-  let submission;
-  try {
-    submission = await submitFalRequest({
-      apiKey,
-      endpointId: resolved.profile.endpointId,
-      input: {
-        prompt: buildIconPrompt(args),
-        // Flux Turbo reads `image_size` rather than aspectRatio; 1024 square
-        // matches the default macOS app-icon canvas.
-        image_size: { width: 1024, height: 1024 },
-        num_images: 1,
-        output_format: "png",
-      },
-      webhookUrl: webhookSentinel,
-    });
-  } catch (error) {
-    console.warn("[store_icon] FAL submission failed", error);
-    return undefined;
-  }
-
-  const responseUrl = submission.responseUrl;
-  if (!responseUrl) {
-    return undefined;
-  }
-
-  const deadline = Date.now() + ICON_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    await sleep(ICON_POLL_INTERVAL_MS);
-    try {
-      const payload = await fetchFalResultPayload({ apiKey, url: responseUrl });
-      const imageUrl = extractFirstImageUrl(payload);
-      if (imageUrl) {
-        return imageUrl;
-      }
-    } catch {
-      // Fal returns 4xx until the job finishes; keep polling until the
-      // deadline. We swallow the per-attempt error rather than aborting.
+  // Reattachment never allocates new provider work, so it intentionally
+  // precedes fresh quota admission just like the public media endpoint.
+  const existing = await ctx.runQuery(
+    internal.media_jobs.getByOwnerClientRequestKey,
+    {
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      clientRequestKey: prepared.clientRequestKey,
+    },
+  );
+  if (existing) {
+    if (
+      existing.clientRequestHash &&
+      existing.clientRequestHash !== prepared.clientRequestHash
+    ) {
+      throw new Error(
+        "Store icon media identity was reused with another input.",
+      );
     }
+    return { jobId: existing.jobId };
   }
-  return undefined;
+
+  if (!getFalApiKey()) return null;
+
+  const admission = await checkManagedUsageLimit(ctx, args.ownerId, {
+    minimumRemainingMicroCents: ICON_MINIMUM_REMAINING_MICRO_CENTS,
+  });
+  if (!admission.allowed) return null;
+
+  const webhookUrl = webhookUrlForJob({
+    jobId: prepared.jobId,
+    ownerGeneration: args.ownerGeneration,
+  });
+  if (!webhookUrl) return null;
+
+  const encrypted = JSON.stringify(
+    await encryptSecret(JSON.stringify({ input: prepared.input, webhookUrl })),
+  );
+  if (
+    encrypted.length < 1 ||
+    encrypted.length > MAX_PRIVATE_MEDIA_PAYLOAD_CHARS
+  ) {
+    throw new Error("Encrypted Store icon submission exceeds safe limits.");
+  }
+  const chunks = Array.from(
+    {
+      length: Math.ceil(encrypted.length / PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS),
+    },
+    (_, index) =>
+      encrypted.slice(
+        index * PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS,
+        (index + 1) * PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS,
+      ),
+  );
+  // Each concurrent preparer gets a separate encrypted manifest because the
+  // encryption nonce differs. reserveIdempotentJob atomically adopts one and
+  // sends every losing manifest to cleanup; ciphertext can never be mixed.
+  const manifestId = `store_icon_payload_${prepared.jobId}_${crypto.randomUUID()}`;
+  let reservationFinished = false;
+  try {
+    const manifest = await ctx.runMutation(
+      internal.media_jobs.createPrivatePayloadManifest,
+      {
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        manifestId,
+        jobId: prepared.jobId,
+        clientRequestKey: prepared.clientRequestKey,
+        expectedChunks: chunks.length,
+        totalChars: encrypted.length,
+        createdAt: Date.now(),
+      },
+    );
+    if (manifest === "owner_purged") {
+      await ctx.runMutation(
+        internal.media_jobs.makePrivatePayloadManifestDeletable,
+        { manifestId },
+      );
+      return null;
+    }
+    if (manifest !== "created") {
+      throw new Error("Store icon private payload identity was not unique.");
+    }
+    for (let index = 0; index < chunks.length; index += 1) {
+      const appended = await ctx.runMutation(
+        internal.media_jobs.appendPrivatePayloadChunk,
+        {
+          ownerId: args.ownerId,
+          ownerGeneration: args.ownerGeneration,
+          manifestId,
+          index,
+          data: chunks[index]!,
+          writtenAt: Date.now(),
+        },
+      );
+      if (appended === "owner_purged") {
+        await ctx.runMutation(
+          internal.media_jobs.makePrivatePayloadManifestDeletable,
+          { manifestId },
+        );
+        return null;
+      }
+    }
+    const finalized = await ctx.runMutation(
+      internal.media_jobs.finalizePrivatePayloadManifest,
+      {
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        manifestId,
+        finalizedAt: Date.now(),
+      },
+    );
+    if (finalized === "owner_purged") {
+      await ctx.runMutation(
+        internal.media_jobs.makePrivatePayloadManifestDeletable,
+        { manifestId },
+      );
+      return null;
+    }
+
+    const reservation = await ctx.runMutation(
+      internal.media_jobs.reserveIdempotentJob,
+      {
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        jobId: prepared.jobId,
+        clientRequestKey: prepared.clientRequestKey,
+        clientRequestHash: prepared.clientRequestHash,
+        capability: ICON_CAPABILITY_ID,
+        profile: ICON_PROFILE_ID,
+        provider: "fal",
+        endpointId: prepared.resolved.profile.endpointId,
+        request: { prompt: prepared.prompt, input: prepared.input },
+        submissionPayloadManifestId: manifestId,
+      },
+    );
+    reservationFinished = true;
+    switch (reservation.state) {
+      case "created":
+      case "existing":
+        return { jobId: reservation.jobId };
+      case "owner_purged":
+      case "canceled":
+        return null;
+      case "conflict":
+        throw new Error("Store icon media reservation conflicted.");
+    }
+  } catch (error) {
+    if (!reservationFinished) {
+      await ctx
+        .runMutation(internal.media_jobs.makePrivatePayloadManifestDeletable, {
+          manifestId,
+        })
+        .catch(() => undefined);
+    }
+    throw error;
+  }
 };
+
+const waitForStoreIcon = async (
+  ctx: ActionCtx,
+  args: {
+    ownerId: string;
+    ownerGeneration: string;
+    jobId: string;
+    deadlineAt: number;
+  },
+): Promise<string | undefined> => {
+  for (;;) {
+    const job = await ctx.runQuery(internal.media_jobs.getByOwnerJobId, {
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      jobId: args.jobId,
+    });
+    if (!job) return undefined;
+    if (job.status === "succeeded") return extractFirstImageUrl(job.output);
+    if (["failed", "canceled", "unknown"].includes(job.status)) {
+      return undefined;
+    }
+    const remaining = args.deadlineAt - Date.now();
+    if (remaining <= 0) return undefined;
+    await sleep(Math.min(ICON_POLL_INTERVAL_MS, remaining));
+  }
+};
+
+/** Testable reservation seam; production publication calls generateStoreIcon. */
+export const reserveStoreIconJob = internalAction({
+  args: storeIconRequestValidator,
+  returns: v.union(v.null(), reservedStoreIconValidator),
+  handler: async (ctx, args) => await reserveStoreIconJobForOwner(ctx, args),
+});
+
+/**
+ * Preserve the current synchronous auto-icon UX for fast completions while
+ * leaving the media job durable after the 30-second UI wait expires.
+ */
+export const generateStoreIcon = internalAction({
+  args: storeIconRequestValidator,
+  returns: v.union(v.null(), generatedStoreIconValidator),
+  handler: async (ctx, args) => {
+    const deadlineAt = Date.now() + ICON_TIMEOUT_MS;
+    const reserved = await reserveStoreIconJobForOwner(ctx, args);
+    if (!reserved) return null;
+    const iconUrl = await waitForStoreIcon(ctx, {
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      jobId: reserved.jobId,
+      deadlineAt,
+    });
+    return { jobId: reserved.jobId, ...(iconUrl ? { iconUrl } : {}) };
+  },
+});

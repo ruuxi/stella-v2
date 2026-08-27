@@ -11,10 +11,17 @@ import { internal } from "../_generated/api";
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, Infer, v } from "convex/values";
 import {
+  assertOwnerMigrationWriteAllowed,
   getUserIdOrNull,
   requireSensitiveUserIdAction,
   requireUserId,
 } from "../auth";
+import { assertOwnerDataAccessActive } from "../owner_lifecycle";
+import {
+  assertManagedUsageDispatchAllowed,
+  createManagedUsageDispatchGuard,
+} from "../lib/managed_billing";
+import { commitStoreReleaseDiffRefs } from "../account_external_media_store";
 import { requireBoundedString } from "../shared_validators";
 import {
   store_package_category_validator,
@@ -31,7 +38,6 @@ import {
 } from "../schema/store";
 import { socialBadgeValidator } from "../schema/social";
 import { runStoreReleaseReviewAdvisory } from "../lib/store_release_reviews";
-import { generateStoreIconUrl } from "../lib/store_icon";
 import {
   enforceActionRateLimit,
   enforceMutationRateLimit,
@@ -40,6 +46,7 @@ import {
 } from "../lib/rate_limits";
 import { normalizeStoreCategory } from "../lib/store_artifacts";
 import { moderateStoreListingTextOrThrow } from "../lib/text_moderation";
+import { assertC8RetiredSurfaceUnavailable } from "../lib/c8_retired_surface";
 
 type StorePublishResult = Infer<typeof store_publish_result_validator>;
 type StoreReleaseDiffRef = Infer<typeof store_release_diff_ref_validator>;
@@ -627,6 +634,7 @@ export const getReadableReleaseForArtifactInternal = internalQuery({
 export const createFirstReleaseRecord = internalMutation({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
     packageId: v.string(),
     audience: v.optional(store_release_audience_validator),
     category: v.optional(store_package_category_validator),
@@ -644,7 +652,17 @@ export const createFirstReleaseRecord = internalMutation({
     authorBadge: v.optional(socialBadgeValidator),
     advisoryReview: v.optional(store_release_advisory_review_validator),
   },
+  returns: v.object({
+    package: store_package_validator,
+    release: store_package_release_validator,
+  }),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Store");
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
     const existing = await getPackageByPackageId(ctx, args.packageId);
     if (existing) {
       throw new ConvexError({
@@ -700,6 +718,16 @@ export const createFirstReleaseRecord = internalMutation({
       ...(isCircleRelease ? { reviewedAt: now } : {}),
       ...(args.advisoryReview ? { advisoryReview: args.advisoryReview } : {}),
     });
+    await commitStoreReleaseDiffRefs(ctx, {
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      sourceId: releaseRef,
+      refs: [
+        ...(args.diffRef ? [args.diffRef] : []),
+        ...(args.commitsDiffRef ? [args.commitsDiffRef] : []),
+      ],
+      now,
+    });
 
     if (isCircleRelease) {
       // Circle releases are live at creation, so the published pointers
@@ -725,6 +753,7 @@ export const createFirstReleaseRecord = internalMutation({
 export const createUpdateReleaseRecord = internalMutation({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
     packageId: v.string(),
     audience: v.optional(store_release_audience_validator),
     releaseNotes: v.optional(v.string()),
@@ -739,7 +768,17 @@ export const createUpdateReleaseRecord = internalMutation({
     authorBadge: v.optional(socialBadgeValidator),
     advisoryReview: v.optional(store_release_advisory_review_validator),
   },
+  returns: v.object({
+    package: store_package_validator,
+    release: store_package_release_validator,
+  }),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Store");
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
     const pkg = await getOwnedPackageByPackageId(
       ctx,
       args.ownerId,
@@ -795,6 +834,16 @@ export const createUpdateReleaseRecord = internalMutation({
       reviewStatus: isCircleRelease ? "approved" : "pending",
       ...(isCircleRelease ? { reviewedAt: now } : {}),
       ...(args.advisoryReview ? { advisoryReview: args.advisoryReview } : {}),
+    });
+    await commitStoreReleaseDiffRefs(ctx, {
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      sourceId: releaseRef,
+      refs: [
+        ...(args.diffRef ? [args.diffRef] : []),
+        ...(args.commitsDiffRef ? [args.commitsDiffRef] : []),
+      ],
+      now,
     });
 
     if (isCircleRelease) {
@@ -923,6 +972,7 @@ export const backfillPackageVisibility = internalMutation({
   args: { cursor: v.optional(v.union(v.string(), v.null())) },
   returns: v.null(),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Store");
     const page = await ctx.db
       .query("store_packages")
       .paginate({ cursor: args.cursor ?? null, numItems: 100 });
@@ -1172,6 +1222,7 @@ export const setPackageVisibility = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Store");
     const ownerId = await requireUserId(ctx);
     const normalizedPackageId = normalizePackageId(args.packageId);
     const pkg = await getOwnedPackageByPackageId(
@@ -1281,6 +1332,7 @@ export const deletePackage = mutation({
   args: { packageId: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Store");
     const ownerId = await requireUserId(ctx);
     const normalizedPackageId = normalizePackageId(args.packageId);
     const pkg = await getOwnedPackageByPackageId(
@@ -1312,6 +1364,7 @@ export const deletePackageReleasesBatch = internalMutation({
   args: { packageRef: v.id("store_packages") },
   returns: v.null(),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Store");
     const releases = await ctx.db
       .query("store_package_releases")
       .withIndex("by_packageRef_and_releaseNumber", (q) =>
@@ -1403,6 +1456,7 @@ export const recordPackageInstall = mutation({
   args: { packageId: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
+    assertC8RetiredSurfaceUnavailable("Store");
     const ownerId = await getUserIdOrNull(ctx);
     await enforceMutationRateLimit(
       ctx,
@@ -1429,7 +1483,17 @@ export const createFirstRelease = action({
   args: create_first_release_args_validator,
   returns: store_publish_result_validator,
   handler: async (ctx, args): Promise<StorePublishResult> => {
+    assertC8RetiredSurfaceUnavailable("Store");
     const ownerId = await requireSensitiveUserIdAction(ctx);
+    const { generation: ownerGeneration } = await assertOwnerDataAccessActive(
+      ctx,
+      ownerId,
+    );
+    const assertStoreDispatch = async () =>
+      await assertManagedUsageDispatchAllowed(ctx, {
+        ownerId,
+        ownerGeneration,
+      });
     await enforceActionRateLimit(
       ctx,
       "store_package_create_first_release",
@@ -1474,6 +1538,11 @@ export const createFirstRelease = action({
       await moderateStoreListingTextOrThrow({
         displayName,
         ...(description ? { description } : {}),
+        dispatchGuard: createManagedUsageDispatchGuard(ctx, {
+          ownerId,
+          ownerGeneration,
+          beforeDispatch: assertStoreDispatch,
+        }),
       });
       const diffForReview = await ctx.runAction(
         internal.data.store_git_artifacts.validateDiffRef,
@@ -1510,6 +1579,7 @@ export const createFirstRelease = action({
           ? undefined
           : await runStoreReleaseReviewAdvisory(ctx, {
               ownerId,
+              ownerGeneration,
               packageId,
               displayName,
               description: description ?? "",
@@ -1519,13 +1589,19 @@ export const createFirstRelease = action({
             });
 
       const author = await resolveCallerAuthor(ctx, ownerId);
-      const iconUrl =
-        manifest.iconUrl ??
-        (await generateStoreIconUrl({
-          displayName,
-          description: description ?? "",
-          category: normalizeStoreCategory(args.category ?? manifest.category),
-        }));
+      const generatedIcon = manifest.iconUrl
+        ? null
+        : await ctx.runAction(internal.lib.store_icon.generateStoreIcon, {
+            ownerId,
+            ownerGeneration,
+            packageId,
+            displayName,
+            description: description ?? "",
+            category: normalizeStoreCategory(
+              args.category ?? manifest.category,
+            ),
+          });
+      const iconUrl = manifest.iconUrl ?? generatedIcon?.iconUrl;
       const releaseManifest = {
         ...manifest,
         ...(iconUrl ? { iconUrl } : {}),
@@ -1534,6 +1610,7 @@ export const createFirstRelease = action({
         internal.data.store_packages.createFirstReleaseRecord,
         {
           ownerId,
+          ownerGeneration,
           packageId,
           ...(args.audience ? { audience: args.audience } : {}),
           displayName,
@@ -1570,7 +1647,17 @@ export const createUpdateRelease = action({
   args: create_release_args_validator,
   returns: store_publish_result_validator,
   handler: async (ctx, args): Promise<StorePublishResult> => {
+    assertC8RetiredSurfaceUnavailable("Store");
     const ownerId = await requireSensitiveUserIdAction(ctx);
+    const { generation: ownerGeneration } = await assertOwnerDataAccessActive(
+      ctx,
+      ownerId,
+    );
+    const assertStoreDispatch = async () =>
+      await assertManagedUsageDispatchAllowed(ctx, {
+        ownerId,
+        ownerGeneration,
+      });
     await enforceActionRateLimit(
       ctx,
       "store_package_create_update_release",
@@ -1644,6 +1731,7 @@ export const createUpdateRelease = action({
           ? undefined
           : await runStoreReleaseReviewAdvisory(ctx, {
               ownerId,
+              ownerGeneration,
               packageId,
               displayName: pkg.displayName,
               description: pkg.description ?? "",
@@ -1653,14 +1741,20 @@ export const createUpdateRelease = action({
             });
 
       const author = await resolveCallerAuthor(ctx, ownerId);
-      const iconUrl =
-        manifest.iconUrl ??
-        pkg.iconUrl ??
-        (await generateStoreIconUrl({
-          displayName: pkg.displayName,
-          description: pkg.description ?? "",
-          category: normalizeStoreCategory(pkg.category ?? manifest.category),
-        }));
+      const generatedIcon =
+        manifest.iconUrl || pkg.iconUrl
+          ? null
+          : await ctx.runAction(internal.lib.store_icon.generateStoreIcon, {
+              ownerId,
+              ownerGeneration,
+              packageId,
+              displayName: pkg.displayName,
+              description: pkg.description ?? "",
+              category: normalizeStoreCategory(
+                pkg.category ?? manifest.category,
+              ),
+            });
+      const iconUrl = manifest.iconUrl ?? pkg.iconUrl ?? generatedIcon?.iconUrl;
       const releaseManifest = {
         ...manifest,
         ...(iconUrl ? { iconUrl } : {}),
@@ -1669,6 +1763,7 @@ export const createUpdateRelease = action({
         internal.data.store_packages.createUpdateReleaseRecord,
         {
           ownerId,
+          ownerGeneration,
           packageId,
           ...(args.audience ? { audience: args.audience } : {}),
           releaseNotes,

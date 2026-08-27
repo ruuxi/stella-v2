@@ -110,13 +110,19 @@ export const socialSchema = {
     .index("by_lowOwnerId_and_status", ["lowOwnerId", "status"])
     .index("by_highOwnerId_and_status", ["highOwnerId", "status"])
     .index("by_requesterOwnerId_and_status", ["requesterOwnerId", "status"])
-    .index("by_addresseeOwnerId_and_status", ["addresseeOwnerId", "status"]),
+    .index("by_addresseeOwnerId_and_status", ["addresseeOwnerId", "status"])
+    .index("by_initiatedByOwnerId_and_updatedAt", [
+      "initiatedByOwnerId",
+      "updatedAt",
+    ]),
 
   social_rooms: defineTable({
     kind: socialRoomKindValidator,
     roomKey: v.optional(v.string()),
+    dmLowOwnerId: v.optional(v.string()),
+    dmHighOwnerId: v.optional(v.string()),
     title: v.optional(v.string()),
-    createdByOwnerId: v.string(),
+    createdByOwnerId: v.optional(v.string()),
     stellaSessionId: v.optional(v.id("stella_sessions")),
     // Community rooms only: uppercase join code shared out-of-band by
     // members ("invite code"). Absent on dm/group/global rooms.
@@ -126,7 +132,12 @@ export const socialSchema = {
     latestMessageAt: v.optional(v.number()),
   })
     .index("by_roomKey", ["roomKey"])
-    .index("by_createdByOwnerId_and_updatedAt", ["createdByOwnerId", "updatedAt"])
+    .index("by_dmLowOwnerId_and_updatedAt", ["dmLowOwnerId", "updatedAt"])
+    .index("by_dmHighOwnerId_and_updatedAt", ["dmHighOwnerId", "updatedAt"])
+    .index("by_createdByOwnerId_and_updatedAt", [
+      "createdByOwnerId",
+      "updatedAt",
+    ])
     .index("by_stellaSessionId", ["stellaSessionId"])
     .index("by_inviteCode", ["inviteCode"]),
 
@@ -141,11 +152,14 @@ export const socialSchema = {
   })
     .index("by_roomId_and_ownerId", ["roomId", "ownerId"])
     .index("by_ownerId_and_updatedAt", ["ownerId", "updatedAt"])
-    .index("by_roomId_and_joinedAt", ["roomId", "joinedAt"]),
+    .index("by_roomId_and_joinedAt", ["roomId", "joinedAt"])
+    .index("by_lastReadMessageId", ["lastReadMessageId"]),
 
   social_messages: defineTable({
     roomId: v.id("social_rooms"),
     senderOwnerId: v.string(),
+    senderOwnerGeneration: v.optional(v.string()),
+    sourceTurnId: v.optional(v.id("stella_session_turns")),
     clientMessageId: v.optional(v.string()),
     kind: socialMessageKindValidator,
     body: v.string(),
@@ -158,6 +172,7 @@ export const socialSchema = {
     .index("by_roomId_and_createdAt", ["roomId", "createdAt"])
     .index("by_roomId_and_clientMessageId", ["roomId", "clientMessageId"])
     .index("by_senderOwnerId_and_createdAt", ["senderOwnerId", "createdAt"])
+    .index("by_sourceTurnId", ["sourceTurnId"])
     .index("by_moderationStatus_and_createdAt", [
       "moderationStatus",
       "createdAt",
@@ -165,9 +180,9 @@ export const socialSchema = {
 
   stella_sessions: defineTable({
     roomId: v.id("social_rooms"),
-    hostOwnerId: v.string(),
+    hostOwnerId: v.optional(v.string()),
     hostDeviceId: v.string(),
-    createdByOwnerId: v.string(),
+    createdByOwnerId: v.optional(v.string()),
     workspaceSlug: v.string(),
     workspaceFolderName: v.string(),
     conversationId: v.string(),
@@ -179,6 +194,10 @@ export const socialSchema = {
     updatedAt: v.number(),
   })
     .index("by_roomId", ["roomId"])
+    .index("by_createdByOwnerId_and_updatedAt", [
+      "createdByOwnerId",
+      "updatedAt",
+    ])
     .index("by_hostOwnerId_and_status", ["hostOwnerId", "status"])
     // Lets `listPendingTurnsForHostDevice` look sessions up by the exact
     // host owner + device + status without a JS-side `.filter` over a
@@ -206,6 +225,7 @@ export const socialSchema = {
     ordinal: v.number(),
     status: stellaSessionTurnStatusValidator,
     requestedByOwnerId: v.string(),
+    requesterOwnerGeneration: v.optional(v.string()),
     requestId: v.optional(v.string()),
     prompt: v.string(),
     agentType: v.optional(v.string()),
@@ -218,23 +238,44 @@ export const socialSchema = {
     updatedAt: v.number(),
   })
     .index("by_sessionId_and_ordinal", ["sessionId", "ordinal"])
-    .index("by_sessionId_and_status_and_createdAt", ["sessionId", "status", "createdAt"])
-    .index("by_requestId", ["requestId"]),
+    .index("by_sessionId_and_status_and_createdAt", [
+      "sessionId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_requestId", ["requestId"])
+    .index("by_requestedByOwnerId_and_createdAt", [
+      "requestedByOwnerId",
+      "createdAt",
+    ]),
 
   stella_session_file_blobs: defineTable({
     sessionId: v.id("stella_sessions"),
+    createdByOwnerId: v.optional(v.string()),
+    ownerGeneration: v.optional(v.string()),
     contentHash: v.string(),
     storageId: v.id("_storage"),
+    // Durable confirmation that the external object was removed. The blob
+    // row remains as retry inventory until every dependent file/op locator
+    // has drained, then account purge deletes this row last.
+    externalDeletedAt: v.optional(v.number()),
     sizeBytes: v.number(),
     contentType: v.string(),
     createdAt: v.number(),
   })
     .index("by_sessionId_and_contentHash", ["sessionId", "contentHash"])
-    .index("by_sessionId_and_createdAt", ["sessionId", "createdAt"]),
+    .index("by_sessionId_and_createdAt", ["sessionId", "createdAt"])
+    .index("by_createdByOwnerId_and_createdAt", [
+      "createdByOwnerId",
+      "createdAt",
+    ])
+    .index("by_storageId", ["storageId"]),
 
   stella_session_files: defineTable({
     sessionId: v.id("stella_sessions"),
     relativePath: v.string(),
+    lastActorOwnerId: v.optional(v.string()),
+    ownerGeneration: v.optional(v.string()),
     contentHash: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
     sizeBytes: v.optional(v.number()),
@@ -244,6 +285,16 @@ export const socialSchema = {
   })
     .index("by_sessionId_and_relativePath", ["sessionId", "relativePath"])
     .index("by_sessionId_and_updatedAt", ["sessionId", "updatedAt"])
+    .index("by_lastActorOwnerId_and_updatedAt", [
+      "lastActorOwnerId",
+      "updatedAt",
+    ])
+    .index("by_storageId", ["storageId"])
+    .index("by_storageId_and_deleted_and_lastActorOwnerId", [
+      "storageId",
+      "deleted",
+      "lastActorOwnerId",
+    ])
     // Lets `listWorkspaceFiles` page over only live (non-tombstoned) files
     // ordered by path, so a session with many soft-deleted entries doesn't
     // cause us to read every row just to filter most of them out.
@@ -259,6 +310,7 @@ export const socialSchema = {
     type: stellaSessionFileOpTypeValidator,
     relativePath: v.string(),
     actorOwnerId: v.string(),
+    actorOwnerGeneration: v.optional(v.string()),
     contentHash: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
     sizeBytes: v.optional(v.number()),
@@ -266,5 +318,13 @@ export const socialSchema = {
     createdAt: v.number(),
   })
     .index("by_sessionId_and_ordinal", ["sessionId", "ordinal"])
-    .index("by_sessionId_and_createdAt", ["sessionId", "createdAt"]),
+    .index("by_sessionId_and_createdAt", ["sessionId", "createdAt"])
+    .index("by_actorOwnerId_and_createdAt", ["actorOwnerId", "createdAt"])
+    .index("by_storageId", ["storageId"])
+    .index("by_storageId_and_actorOwnerId", ["storageId", "actorOwnerId"])
+    .index("by_sessionId_and_relativePath_and_ordinal", [
+      "sessionId",
+      "relativePath",
+      "ordinal",
+    ]),
 };

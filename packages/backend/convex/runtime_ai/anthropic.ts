@@ -12,7 +12,7 @@ import type {
 import { AssistantMessageEventStream } from "./event_stream";
 import { headersToRecord } from "./headers";
 import { parseJsonWithRepair } from "./json_parse";
-import { retryProviderRequest } from "./retry";
+import { isRetryableProviderError, retryProviderRequest } from "./retry";
 import { buildBaseOptions, clampReasoning } from "./simple_options";
 import { transformMessages } from "./transform_messages";
 import { sanitizeSurrogates } from "./sanitize_unicode";
@@ -537,6 +537,7 @@ export const streamAnthropic: StreamFunction<
 > = (model, context, options) => {
   const stream = new AssistantMessageEventStream();
   void (async () => {
+    let cleanupResponseSignal: (() => void) | undefined;
     const output: AssistantMessage = {
       role: "assistant",
       content: [],
@@ -553,7 +554,7 @@ export const streamAnthropic: StreamFunction<
       let body = buildRequestBody(model, context, options);
       const nextBody = await options?.onPayload?.(body, model);
       if (nextBody !== undefined) body = nextBody as AnthropicRequestBody;
-      const response = await retryProviderRequest(
+      const responseAttempt = await retryProviderRequest(
         async () => {
           const requestSignal = createRequestSignal(
             options?.signal,
@@ -580,9 +581,13 @@ export const streamAnthropic: StreamFunction<
             if (!nextResponse.ok) {
               throw providerHttpError(nextResponse, await nextResponse.text());
             }
-            return nextResponse;
-          } finally {
+            return {
+              response: nextResponse,
+              cleanup: requestSignal.cleanup,
+            };
+          } catch (error) {
             requestSignal.cleanup();
+            throw error;
           }
         },
         {
@@ -590,6 +595,8 @@ export const streamAnthropic: StreamFunction<
           maxAttempts: options?.maxRetries,
         },
       );
+      const response = responseAttempt.response;
+      cleanupResponseSignal = responseAttempt.cleanup;
       await options?.onResponse?.(
         { status: response.status, headers: headersToRecord(response.headers) },
         model,
@@ -689,9 +696,8 @@ export const streamAnthropic: StreamFunction<
             const next = prior + event.delta.partial_json;
             toolInputByIndex.set(event.index, next);
             try {
-              block.arguments = parseJsonWithRepair<Record<string, unknown>>(
-                next,
-              );
+              block.arguments =
+                parseJsonWithRepair<Record<string, unknown>>(next);
             } catch {
               // Keep streaming partial JSON as deltas; parse when complete.
             }
@@ -727,9 +733,8 @@ export const streamAnthropic: StreamFunction<
             const raw = toolInputByIndex.get(event.index);
             if (raw) {
               try {
-                block.arguments = parseJsonWithRepair<Record<string, unknown>>(
-                  raw,
-                );
+                block.arguments =
+                  parseJsonWithRepair<Record<string, unknown>>(raw);
               } catch {
                 block.arguments = {};
               }
@@ -796,8 +801,15 @@ export const streamAnthropic: StreamFunction<
       output.stopReason = options?.signal?.aborted ? "aborted" : "error";
       output.errorMessage =
         error instanceof Error ? error.message : String(error);
+      if (!options?.signal?.aborted && isRetryableProviderError(error)) {
+        output.providerOutcomeUnknown = true;
+      }
       stream.push({ type: "error", reason: output.stopReason, error: output });
       stream.end();
+    } finally {
+      // Keep timeout and parent/lease abort forwarding live until the SSE body
+      // reaches a terminal event, not merely until response headers arrive.
+      cleanupResponseSignal?.();
     }
   })();
   return stream;

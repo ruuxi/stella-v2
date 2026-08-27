@@ -13,11 +13,19 @@ import {
   isRetryableProviderError,
   retryDelayMs,
   retryProviderRequest,
+  sleepForProviderRetry,
 } from "./retry";
 import { completeSimple, streamSimple } from "./stream";
 import { parseOpenAIChatUsage } from "./usage";
+import {
+  MANAGED_USAGE_BILLING_KIND,
+  type ManagedDispatchBillingEnvelope,
+  type ManagedDispatchCapturedUsage,
+} from "../lib/managed_dispatch";
+import { usageSummaryFromAssistant } from "../lib/managed_usage";
 import type {
   Api,
+  AssistantMessageEvent,
   AssistantMessage,
   Context,
   ImageContent,
@@ -29,10 +37,8 @@ import type {
   Tool,
   ToolCall,
 } from "./types";
-export {
-  usageSummaryFromAssistant,
-  type ManagedUsageSummary,
-} from "../lib/managed_usage";
+export { type ManagedUsageSummary } from "../lib/managed_usage";
+export { usageSummaryFromAssistant };
 
 export type ManagedProtocol =
   | "openai-completions"
@@ -66,6 +72,100 @@ export type ManagedModelConfig = {
   modalitiesInput?: ("text" | "image" | "audio" | "video" | "pdf")[];
 };
 
+type ManagedUsageBillingEnvelope = Extract<
+  ManagedDispatchBillingEnvelope,
+  { kind: typeof MANAGED_USAGE_BILLING_KIND }
+>;
+
+/** Stable logical attribution reused across physical primary/retry/fallbacks. */
+export type ManagedModelBillingContext = Omit<
+  ManagedUsageBillingEnvelope,
+  "kind" | "model"
+> & {
+  /** Optional exact conservative estimate for each primary/fallback model. */
+  fallbackCostMicroCentsByModel?: Readonly<Record<string, number>>;
+};
+
+const managedModelAttemptBilling = (
+  billing: ManagedModelBillingContext | undefined,
+  model: string,
+): ManagedUsageBillingEnvelope | undefined =>
+  billing
+    ? (() => {
+        const {
+          fallbackCostMicroCentsByModel,
+          fallbackCostMicroCents,
+          ...attribution
+        } = billing;
+        return {
+          kind: MANAGED_USAGE_BILLING_KIND,
+          ...attribution,
+          model,
+          fallbackCostMicroCents:
+            fallbackCostMicroCentsByModel?.[model] ?? fallbackCostMicroCents,
+        };
+      })()
+    : undefined;
+
+const capturedUsageFromAssistant = (
+  message: AssistantMessage,
+  startedAt: number,
+  success: boolean,
+): ManagedDispatchCapturedUsage => ({
+  durationMs: Math.max(0, Date.now() - startedAt),
+  success,
+  ...usageSummaryFromAssistant(message),
+});
+
+const assistantHasAuthoritativeProviderUsage = (
+  message: AssistantMessage,
+): boolean =>
+  message.usage.input > 0 ||
+  message.usage.output > 0 ||
+  message.usage.cacheRead > 0 ||
+  message.usage.cacheWrite > 0 ||
+  (message.usage.reasoningTokens ?? 0) > 0 ||
+  message.usage.totalTokens > 0 ||
+  message.usage.cost.total > 0;
+
+const capturedSuccessfulAssistantUsage = (
+  message: AssistantMessage,
+  startedAt: number,
+  billing: ManagedUsageBillingEnvelope,
+): ManagedDispatchCapturedUsage => {
+  const usage = capturedUsageFromAssistant(message, startedAt, true);
+  return assistantHasAuthoritativeProviderUsage(message)
+    ? usage
+    : { ...usage, costMicroCents: billing.fallbackCostMicroCents };
+};
+
+const managedAssistantFailureError = (message: AssistantMessage): Error => {
+  const error = new Error(message.errorMessage || "Managed completion failed");
+  if (
+    message.providerOutcomeUnknown === true ||
+    isRetryableProviderError(message)
+  ) {
+    (
+      error as Error & {
+        providerOutcomeUnknown?: boolean;
+      }
+    ).providerOutcomeUnknown = true;
+  }
+  return error;
+};
+
+/** Conservative prompt estimate after system text, history, and tools exist. */
+export function estimateManagedContextInputTokens(context: Context): number {
+  const serialized = JSON.stringify({
+    systemPrompt: context.systemPrompt ?? "",
+    messages: context.messages,
+    tools: context.tools ?? [],
+  });
+  // Three UTF-16 code units per token is deliberately more conservative than
+  // the four-character relay admission heuristic and includes tool schemas.
+  return Math.max(1, Math.ceil(serialized.length / 3));
+}
+
 type ManagedCompletionRequest = {
   temperature?: number;
   maxTokens?: number;
@@ -79,6 +179,464 @@ type ManagedCompletionRequest = {
   sessionId?: string;
   cacheRetention?: "none" | "short" | "long";
 };
+
+export type ManagedDispatchOutcome =
+  | "succeeded"
+  | "failed"
+  | "aborted"
+  | "timed_out"
+  | "outcome_unknown";
+
+export type ManagedDispatchLease = {
+  /** Aborts this physical provider attempt if its durable lease closes. */
+  signal: AbortSignal;
+  /** Absolute wall-clock deadline for this physical provider attempt. */
+  deadlineAt: number;
+  /**
+   * Durable last-pre-I/O marker for metered attempts. Before it resolves, an
+   * abort is definitively pre-dispatch; after it resolves, a crash may charge.
+   */
+  markMayHaveDispatched?: () => Promise<void>;
+  /** Persist exact variable usage under this receipt before settlement. */
+  captureUsage?: (usage: ManagedDispatchCapturedUsage) => Promise<void>;
+  /** Successful callback completion is invalid until exact usage is captured. */
+  requiresUsageCapture?: boolean;
+  /** Acknowledges only this provider try, never the enclosing agent turn. */
+  settle: (outcome: ManagedDispatchOutcome) => Promise<void>;
+};
+
+export type ManagedDispatchGuard = {
+  /** Stable enclosing-run cancellation, including lease loss or migration. */
+  signal: AbortSignal;
+  /**
+   * Acquires or renews dispatch authority immediately before one physical
+   * primary, retry, or fallback provider request.
+   */
+  beginDispatch: (
+    billing?: ManagedDispatchBillingEnvelope,
+  ) => Promise<ManagedDispatchLease>;
+  /** Releases an optional enclosing model/tool execution lease. */
+  finishExecution?: (outcome: ManagedDispatchOutcome) => Promise<void>;
+};
+
+class ManagedDispatchSettlementError extends Error {
+  constructor(cause: unknown) {
+    super(
+      `Managed provider dispatch settlement failed: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+    );
+    this.name = "ManagedDispatchSettlementError";
+    (this as Error & { cause?: unknown }).cause = cause;
+  }
+}
+
+export function composeManagedDispatchGuards(
+  ...guards: ManagedDispatchGuard[]
+): ManagedDispatchGuard {
+  if (guards.length === 0) {
+    throw new Error("At least one managed dispatch guard is required.");
+  }
+  const signal =
+    guards.length === 1
+      ? guards[0]!.signal
+      : AbortSignal.any(guards.map((guard) => guard.signal));
+  return {
+    signal,
+    beginDispatch: async (billing) => {
+      const acquired: ManagedDispatchLease[] = [];
+      try {
+        for (const guard of guards) {
+          acquired.push(await guard.beginDispatch(billing));
+        }
+      } catch (error) {
+        const cleanup = await Promise.allSettled(
+          acquired.reverse().map((lease) => lease.settle("aborted")),
+        );
+        const cleanupFailures = cleanup.filter(
+          (result) => result.status === "rejected",
+        );
+        if (cleanupFailures.length > 0) {
+          throw new ManagedDispatchSettlementError(
+            `Guard acquisition failed and ${cleanupFailures.length} acquired lease(s) could not settle: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+        throw error;
+      }
+
+      const usageCaptureLeases = acquired.filter((lease) => lease.captureUsage);
+      if (usageCaptureLeases.length > 1) {
+        const cleanup = await Promise.allSettled(
+          acquired.reverse().map((lease) => lease.settle("aborted")),
+        );
+        if (cleanup.some((result) => result.status === "rejected")) {
+          throw new ManagedDispatchSettlementError(
+            "Duplicate billing capture authorities could not be settled.",
+          );
+        }
+        throw new Error(
+          "Composite managed dispatch acquired multiple billing capture authorities.",
+        );
+      }
+
+      let settled = false;
+      return {
+        signal:
+          acquired.length === 1
+            ? acquired[0]!.signal
+            : AbortSignal.any(acquired.map((lease) => lease.signal)),
+        deadlineAt: Math.min(...acquired.map((lease) => lease.deadlineAt)),
+        markMayHaveDispatched: acquired.some(
+          (lease) => lease.markMayHaveDispatched,
+        )
+          ? async () => {
+              for (const lease of acquired) {
+                await lease.markMayHaveDispatched?.();
+              }
+            }
+          : undefined,
+        captureUsage: usageCaptureLeases[0]?.captureUsage
+          ? async (usage: ManagedDispatchCapturedUsage) =>
+              await usageCaptureLeases[0]!.captureUsage!(usage)
+          : undefined,
+        requiresUsageCapture: acquired.some(
+          (lease) => lease.requiresUsageCapture,
+        ),
+        settle: async (outcome) => {
+          if (settled) {
+            throw new Error("Composite managed dispatch lease settled twice.");
+          }
+          settled = true;
+          const results = await Promise.allSettled(
+            acquired.reverse().map((lease) => lease.settle(outcome)),
+          );
+          const failures = results.filter(
+            (result) => result.status === "rejected",
+          );
+          if (failures.length > 0) {
+            throw new ManagedDispatchSettlementError(
+              `${failures.length} composite managed dispatch lease settlement(s) failed.`,
+            );
+          }
+        },
+      };
+    },
+    finishExecution: async (outcome) => {
+      const results = await Promise.allSettled(
+        [...guards]
+          .reverse()
+          .flatMap((guard) =>
+            guard.finishExecution ? [guard.finishExecution(outcome)] : [],
+          ),
+      );
+      const failures = results.filter((result) => result.status === "rejected");
+      if (failures.length > 0) {
+        throw new ManagedDispatchSettlementError(
+          `${failures.length} managed execution settlement(s) failed.`,
+        );
+      }
+    },
+  };
+}
+
+function managedDispatchAbortError(message: string): Error {
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfManagedDispatchAborted(signal: AbortSignal): void {
+  if (!signal.aborted) return;
+  if (signal.reason instanceof Error) throw signal.reason;
+  throw managedDispatchAbortError("Managed provider dispatch was aborted");
+}
+
+async function beginManagedDispatchAttempt(args: {
+  dispatchGuard: ManagedDispatchGuard;
+  callerSignal?: AbortSignal;
+  billing?: ManagedDispatchBillingEnvelope;
+}) {
+  if (args.callerSignal?.aborted) {
+    throwIfManagedDispatchAborted(args.callerSignal);
+  }
+
+  const lease = await args.dispatchGuard.beginDispatch(args.billing);
+  if (!Number.isFinite(lease.deadlineAt)) {
+    try {
+      await lease.settle("failed");
+    } catch (error) {
+      throw new ManagedDispatchSettlementError(error);
+    }
+    throw new Error("Managed provider dispatch returned an invalid deadline");
+  }
+
+  const deadlineController = new AbortController();
+  let deadlineElapsed = false;
+  const remainingMs = lease.deadlineAt - Date.now();
+  const abortForDeadline = () => {
+    deadlineElapsed = true;
+    deadlineController.abort(
+      managedDispatchAbortError("Managed provider dispatch timed out"),
+    );
+  };
+  const deadlineTimer =
+    remainingMs > 0 ? setTimeout(abortForDeadline, remainingMs) : undefined;
+  if (remainingMs <= 0) abortForDeadline();
+
+  const signals = [lease.signal, deadlineController.signal];
+  if (args.callerSignal) signals.push(args.callerSignal);
+  const signal = AbortSignal.any(signals);
+  let settled = false;
+
+  return {
+    signal,
+    deadlineElapsed: () => deadlineElapsed,
+    markMayHaveDispatched: lease.markMayHaveDispatched,
+    captureUsage: lease.captureUsage,
+    requiresUsageCapture: lease.requiresUsageCapture === true,
+    settle: async (outcome: ManagedDispatchOutcome) => {
+      if (settled) {
+        throw new Error("Managed provider dispatch attempt settled twice");
+      }
+      settled = true;
+      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+      try {
+        await lease.settle(outcome);
+      } catch (error) {
+        throw new ManagedDispatchSettlementError(error);
+      }
+    },
+  };
+}
+
+function managedDispatchRunSignal(args: {
+  dispatchGuard: ManagedDispatchGuard;
+  callerSignal?: AbortSignal;
+}): AbortSignal {
+  return args.callerSignal
+    ? AbortSignal.any([args.dispatchGuard.signal, args.callerSignal])
+    : args.dispatchGuard.signal;
+}
+
+function managedDispatchFailureOutcome(
+  error: unknown,
+  attempt: {
+    signal: AbortSignal;
+    deadlineElapsed: () => boolean;
+  },
+): ManagedDispatchOutcome {
+  if (attempt.deadlineElapsed()) return "timed_out";
+  if (
+    error &&
+    typeof error === "object" &&
+    (error as { providerOutcomeUnknown?: unknown }).providerOutcomeUnknown ===
+      true
+  ) {
+    return "outcome_unknown";
+  }
+  if (
+    attempt.signal.aborted ||
+    (error instanceof Error &&
+      (error.name === "AbortError" ||
+        error.message.toLowerCase().includes("abort") ||
+        error.message.toLowerCase().includes("cancel")))
+  ) {
+    return "aborted";
+  }
+  if (isRetryableProviderError(error)) return "outcome_unknown";
+  return "failed";
+}
+
+/**
+ * A physical provider attempt whose lifetime is owned by a response stream.
+ * Callers must mark immediately before I/O and keep this handle open until the
+ * upstream body and every durable delivery/billing write have joined.
+ */
+export type ManagedDispatchAttemptHandle = {
+  signal: AbortSignal;
+  requiresUsageCapture: boolean;
+  markMayHaveDispatched: () => Promise<void>;
+  captureUsage: (usage: ManagedDispatchCapturedUsage) => Promise<void>;
+  settle: (outcome: ManagedDispatchOutcome) => Promise<void>;
+  settleFromError: (error: unknown) => Promise<ManagedDispatchOutcome>;
+};
+
+export async function openManagedDispatchAttempt(args: {
+  dispatchGuard: ManagedDispatchGuard;
+  callerSignal?: AbortSignal;
+  billing?: ManagedDispatchBillingEnvelope;
+}): Promise<ManagedDispatchAttemptHandle> {
+  const attempt = await beginManagedDispatchAttempt(args);
+  let marked = false;
+  let usageCaptured = false;
+
+  return {
+    signal: attempt.signal,
+    requiresUsageCapture: attempt.requiresUsageCapture,
+    markMayHaveDispatched: async () => {
+      if (marked) {
+        throw new Error("Managed provider dispatch attempt was marked twice.");
+      }
+      throwIfManagedDispatchAborted(attempt.signal);
+      if (
+        args.billing?.kind === MANAGED_USAGE_BILLING_KIND &&
+        !attempt.captureUsage
+      ) {
+        throw new Error(
+          "Managed usage billing descriptor has no capture authority.",
+        );
+      }
+      await attempt.markMayHaveDispatched?.();
+      marked = true;
+      throwIfManagedDispatchAborted(attempt.signal);
+    },
+    captureUsage: async (usage) => {
+      if (!marked) {
+        throw new Error("Managed provider usage was captured before dispatch.");
+      }
+      if (!attempt.captureUsage) {
+        throw new Error("Managed provider attempt has no usage receipt.");
+      }
+      await attempt.captureUsage(usage);
+      usageCaptured = true;
+    },
+    settle: async (outcome) => {
+      if (
+        outcome === "succeeded" &&
+        attempt.requiresUsageCapture &&
+        !usageCaptured
+      ) {
+        await attempt.settle("failed");
+        throw new Error(
+          "Managed provider attempt completed without exact usage capture.",
+        );
+      }
+      await attempt.settle(outcome);
+    },
+    settleFromError: async (error) => {
+      const outcome = managedDispatchFailureOutcome(error, attempt);
+      await attempt.settle(outcome);
+      return outcome;
+    },
+  };
+}
+
+export async function runManagedDispatchAttempt<T>(args: {
+  dispatchGuard: ManagedDispatchGuard;
+  callerSignal?: AbortSignal;
+  billing?: ManagedDispatchBillingEnvelope;
+  run: (
+    signal: AbortSignal,
+    receipt: {
+      captureUsage: (usage: ManagedDispatchCapturedUsage) => Promise<void>;
+    },
+  ) => Promise<T>;
+}): Promise<T> {
+  const attempt = await beginManagedDispatchAttempt(args);
+  let outcome: ManagedDispatchOutcome = "failed";
+  let usageCaptured = false;
+  const captureUsage = async (usage: ManagedDispatchCapturedUsage) => {
+    if (!attempt.captureUsage) {
+      throw new Error("Managed provider attempt has no usage receipt.");
+    }
+    await attempt.captureUsage(usage);
+    usageCaptured = true;
+  };
+  try {
+    throwIfManagedDispatchAborted(attempt.signal);
+    if (
+      args.billing?.kind === MANAGED_USAGE_BILLING_KIND &&
+      !attempt.captureUsage
+    ) {
+      throw new Error(
+        "Managed usage billing descriptor has no capture authority.",
+      );
+    }
+    await attempt.markMayHaveDispatched?.();
+    throwIfManagedDispatchAborted(attempt.signal);
+    const result = await args.run(attempt.signal, { captureUsage });
+    throwIfManagedDispatchAborted(attempt.signal);
+    if (attempt.requiresUsageCapture && !usageCaptured) {
+      throw new Error(
+        "Managed provider attempt completed without exact usage capture.",
+      );
+    }
+    outcome = "succeeded";
+    return result;
+  } catch (error) {
+    outcome = managedDispatchFailureOutcome(error, attempt);
+    throw error;
+  } finally {
+    await attempt.settle(outcome);
+  }
+}
+
+async function* withManagedDispatchStream<T>(args: {
+  dispatchGuard: ManagedDispatchGuard;
+  callerSignal?: AbortSignal;
+  billing?: ManagedDispatchBillingEnvelope;
+  run: (signal: AbortSignal) => AsyncIterable<T>;
+  isErrorEvent: (event: T) => boolean;
+  errorEventValue: (event: T) => unknown;
+  capturedUsageFromEvent?: (
+    event: T,
+  ) => ManagedDispatchCapturedUsage | undefined;
+}): AsyncGenerator<T> {
+  const attempt = await beginManagedDispatchAttempt(args);
+  let outcome: ManagedDispatchOutcome = "aborted";
+  let sawProviderError = false;
+  let providerErrorOutcome: ManagedDispatchOutcome = "failed";
+  let usageCaptured = false;
+  try {
+    throwIfManagedDispatchAborted(attempt.signal);
+    if (
+      args.billing?.kind === MANAGED_USAGE_BILLING_KIND &&
+      !attempt.captureUsage
+    ) {
+      throw new Error(
+        "Managed usage billing descriptor has no capture authority.",
+      );
+    }
+    await attempt.markMayHaveDispatched?.();
+    throwIfManagedDispatchAborted(attempt.signal);
+    for await (const event of args.run(attempt.signal)) {
+      throwIfManagedDispatchAborted(attempt.signal);
+      const capturedUsage = args.capturedUsageFromEvent?.(event);
+      if (capturedUsage) {
+        if (!attempt.captureUsage) {
+          throw new Error("Managed provider stream has no usage receipt.");
+        }
+        await attempt.captureUsage(capturedUsage);
+        usageCaptured = true;
+      }
+      if (args.isErrorEvent(event)) {
+        sawProviderError = true;
+        providerErrorOutcome = managedDispatchFailureOutcome(
+          args.errorEventValue(event),
+          attempt,
+        );
+      }
+      yield event;
+    }
+    throwIfManagedDispatchAborted(attempt.signal);
+    if (attempt.requiresUsageCapture && !usageCaptured) {
+      throw new Error(
+        "Managed provider stream completed without exact usage capture.",
+      );
+    }
+    outcome = sawProviderError ? providerErrorOutcome : "succeeded";
+  } catch (error) {
+    outcome = managedDispatchFailureOutcome(error, attempt);
+    throw error;
+  } finally {
+    if (outcome === "aborted" && sawProviderError) {
+      outcome = providerErrorOutcome;
+    }
+    await attempt.settle(outcome);
+  }
+}
 
 type OpenAIChatToolChoice =
   | "auto"
@@ -774,6 +1332,12 @@ function buildSimpleOptions(args: {
     extraBody: Object.keys(extraBody).length > 0 ? extraBody : undefined,
     signal: args.request?.signal,
     apiKey: resolveManagedGatewayApiKey(managedGateway),
+    // Managed retries live in completeManagedChat/streamManagedChat so the
+    // transaction-plane lifecycle fence runs immediately before every
+    // provider attempt. Anthropic's transport otherwise retries internally
+    // without returning through that fence. Its retry helper clamps zero to
+    // one total attempt, while the OpenAI SDK interprets zero as no retries.
+    maxRetries: 0,
     headers: args.request?.headers,
     sessionId: args.request?.sessionId,
     cacheRetention: args.request?.cacheRetention,
@@ -922,21 +1486,67 @@ export async function completeManagedChat(args: {
   context: Context;
   api?: ManagedProtocol;
   request?: ManagedCompletionRequest;
+  /** Acquired and settled around every physical provider try. */
+  dispatchGuard: ManagedDispatchGuard;
+  /** Exact per-physical-attempt billing receipt attribution. */
+  billing?: ManagedModelBillingContext;
 }): Promise<AssistantMessage> {
+  const runSignal = managedDispatchRunSignal({
+    dispatchGuard: args.dispatchGuard,
+    callerSignal: args.request?.signal,
+  });
   const execute = async (config: ManagedModelConfig, context: Context) => {
     const api = resolveManagedProtocol({ api: args.api, config });
     const message = await retryProviderRequest(
-      () =>
-        completeSimple(
-          buildManagedModel(config, api, args.request?.headers),
-          context,
-          buildSimpleOptions({
-            config,
-            request: args.request,
-          }),
-        ),
+      () => {
+        const startedAt = Date.now();
+        const billing = managedModelAttemptBilling(args.billing, config.model);
+        return runManagedDispatchAttempt({
+          dispatchGuard: args.dispatchGuard,
+          callerSignal: runSignal,
+          ...(billing ? { billing } : {}),
+          run: async (signal, receipt) => {
+            const message = await completeSimple(
+              buildManagedModel(config, api, args.request?.headers),
+              context,
+              buildSimpleOptions({
+                config,
+                request: { ...args.request, signal },
+              }),
+            );
+            // Protocol adapters represent transport/provider failures as a
+            // terminal assistant message. Throw inside the retry closure so a
+            // retryable failure returns through a fresh dispatch lease instead
+            // of silently bypassing the outer retry loop.
+            if (message.stopReason === "aborted") {
+              if (billing && assistantHasAuthoritativeProviderUsage(message)) {
+                await receipt.captureUsage(
+                  capturedUsageFromAssistant(message, startedAt, false),
+                );
+              }
+              throw managedDispatchAbortError(
+                message.errorMessage || "Managed completion was aborted",
+              );
+            }
+            if (message.stopReason === "error") {
+              if (billing && assistantHasAuthoritativeProviderUsage(message)) {
+                await receipt.captureUsage(
+                  capturedUsageFromAssistant(message, startedAt, false),
+                );
+              }
+              throw managedAssistantFailureError(message);
+            }
+            if (billing) {
+              await receipt.captureUsage(
+                capturedSuccessfulAssistantUsage(message, startedAt, billing),
+              );
+            }
+            return message;
+          },
+        });
+      },
       {
-        signal: args.request?.signal,
+        signal: runSignal,
         onRetry: ({ attempt, delayMs, error }) => {
           console.warn(
             `[managed-model] retrying provider request | model=${config.model} | attempt=${attempt} | delayMs=${delayMs} | error=${
@@ -946,9 +1556,6 @@ export async function completeManagedChat(args: {
         },
       },
     );
-    if (message.stopReason === "error" || message.stopReason === "aborted") {
-      throw new Error(message.errorMessage || "Managed completion failed");
-    }
     return message;
   };
 
@@ -978,17 +1585,60 @@ export function streamManagedChat(args: {
   context: Context;
   api?: ManagedProtocol;
   request?: ManagedCompletionRequest;
+  /** Acquired and settled around every physical provider try. */
+  dispatchGuard: ManagedDispatchGuard;
+  /** Exact per-physical-attempt billing receipt attribution. */
+  billing?: ManagedModelBillingContext;
 }) {
-  const streamForConfig = (config: ManagedModelConfig, context: Context) => {
+  const runSignal = managedDispatchRunSignal({
+    dispatchGuard: args.dispatchGuard,
+    callerSignal: args.request?.signal,
+  });
+  const streamForConfig = (
+    config: ManagedModelConfig,
+    context: Context,
+    signal: AbortSignal,
+  ) => {
     const api = resolveManagedProtocol({ api: args.api, config });
     return streamSimple(
       buildManagedModel(config, api, args.request?.headers),
       context,
       buildSimpleOptions({
         config,
-        request: args.request,
+        request: { ...args.request, signal },
       }),
     );
+  };
+
+  const streamDispatchAttempt = (
+    config: ManagedModelConfig,
+    context: Context,
+  ) => {
+    const startedAt = Date.now();
+    const billing = managedModelAttemptBilling(args.billing, config.model);
+    return withManagedDispatchStream({
+      dispatchGuard: args.dispatchGuard,
+      callerSignal: runSignal,
+      ...(billing ? { billing } : {}),
+      run: (signal) => streamForConfig(config, context, signal),
+      isErrorEvent: (event) => event.type === "error",
+      errorEventValue: (event) =>
+        event.type === "error" ? event.error : undefined,
+      capturedUsageFromEvent: billing
+        ? (event) =>
+            event.type === "done"
+              ? capturedSuccessfulAssistantUsage(
+                  event.message,
+                  startedAt,
+                  billing,
+                )
+              : event.type === "error"
+                ? assistantHasAuthoritativeProviderUsage(event.error)
+                  ? capturedUsageFromAssistant(event.error, startedAt, false)
+                  : undefined
+                : undefined
+        : undefined,
+    });
   };
 
   const fallbackConfig = args.fallbackConfig ?? undefined;
@@ -1010,40 +1660,31 @@ export function streamManagedChat(args: {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         let retryPrimary = false;
-        for await (const event of streamForConfig(args.config, args.context)) {
+        let retryPrimaryDelayMs = 0;
+        let primaryFailureEvent: Extract<
+          AssistantMessageEvent,
+          { type: "error" }
+        > | null = null;
+        for await (const event of streamDispatchAttempt(
+          args.config,
+          args.context,
+        )) {
           if (event.type === "error" && !emittedOutput) {
             if (
               attempt < maxAttempts &&
               isRetryableProviderError(event.error)
             ) {
-              const delayMs = retryDelayMs(attempt, event.error);
+              retryPrimaryDelayMs = retryDelayMs(attempt, event.error);
               console.warn(
-                `[managed-model] retrying provider stream | model=${args.config.model} | attempt=${attempt} | delayMs=${delayMs} | error=${
+                `[managed-model] retrying provider stream | model=${args.config.model} | attempt=${attempt} | delayMs=${retryPrimaryDelayMs} | error=${
                   event.error.errorMessage || event.reason
                 }`,
-              );
-              await new Promise<void>((resolve) =>
-                setTimeout(resolve, delayMs),
               );
               retryPrimary = true;
               break;
             }
-            if (fallbackConfig) {
-              console.warn(
-                `[managed-model] primary model failed before streaming output, attempting fallback | primary=${args.config.model} | fallback=${fallbackConfig.model} | error=${
-                  event.error.errorMessage || event.reason
-                }`,
-              );
-              for await (const fallbackEvent of streamForConfig(
-                fallbackConfig,
-                fallbackContext,
-              )) {
-                yield fallbackEvent;
-              }
-            } else {
-              yield event;
-            }
-            return;
+            primaryFailureEvent = event;
+            break;
           }
 
           if (event.type !== "error") {
@@ -1052,7 +1693,27 @@ export function streamManagedChat(args: {
           yield event;
         }
         if (retryPrimary) {
+          await sleepForProviderRetry(retryPrimaryDelayMs, runSignal);
           continue;
+        }
+        if (primaryFailureEvent) {
+          if (fallbackConfig) {
+            console.warn(
+              `[managed-model] primary model failed before streaming output, attempting fallback | primary=${args.config.model} | fallback=${fallbackConfig.model} | error=${
+                primaryFailureEvent.error.errorMessage ||
+                primaryFailureEvent.reason
+              }`,
+            );
+            for await (const fallbackEvent of streamDispatchAttempt(
+              fallbackConfig,
+              fallbackContext,
+            )) {
+              yield fallbackEvent;
+            }
+          } else {
+            yield primaryFailureEvent;
+          }
+          return;
         }
         return;
       } catch (error) {
@@ -1066,7 +1727,7 @@ export function streamManagedChat(args: {
               error instanceof Error ? error.message : String(error)
             }`,
           );
-          await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+          await sleepForProviderRetry(delayMs, runSignal);
           continue;
         }
         if (!isRetryableProviderError(error)) {
@@ -1078,7 +1739,7 @@ export function streamManagedChat(args: {
               error instanceof Error ? error.message : String(error)
             }`,
           );
-          for await (const fallbackEvent of streamForConfig(
+          for await (const fallbackEvent of streamDispatchAttempt(
             fallbackConfig,
             fallbackContext,
           )) {

@@ -1,5 +1,6 @@
 import type { HttpRouter } from "convex/server";
-import { httpAction } from "../_generated/server";
+import { ConvexError } from "convex/values";
+import { httpAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import {
   errorResponse,
@@ -24,11 +25,11 @@ import {
 import {
   MAX_PRIVATE_MEDIA_PAYLOAD_CHARS,
   PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS,
+  falSubmissionDispatchId,
   summarizeMediaRequestForStorage,
 } from "../media_jobs";
 import {
   buildFalResponseUrl,
-  cancelFalRequest,
   fetchFalResultPayload,
   getFalApiKey,
   isDefinitiveFalSubmissionRejection,
@@ -66,6 +67,8 @@ import {
   readRequestTextBounded,
   RequestBodyLimitError,
 } from "../http_shared/bounded_request_body";
+import { assertOwnerDataAccessActive } from "../owner_lifecycle";
+import { createMediaProviderDispatch } from "../lib/media_provider_dispatch";
 
 const MEDIA_API_BASE_PATH = "/api/media/v1";
 const MEDIA_CAPABILITIES_PATH = `${MEDIA_API_BASE_PATH}/capabilities`;
@@ -92,6 +95,34 @@ const MEDIA_AUTH_REQUIRED_MESSAGE =
   "Sign in to Stella to use media generation.";
 const MEDIA_AUTH_REQUIRED_ACTION =
   "Ask the user to open the Stella desktop app and finish signing in (Settings → Account, or the welcome screen on first launch). Once they're signed in, retry the same request — no payload changes needed.";
+
+const ownerFenceErrorCode = (error: unknown): string | null =>
+  error instanceof ConvexError &&
+  typeof error.data === "object" &&
+  error.data !== null &&
+  typeof (error.data as { code?: unknown }).code === "string"
+    ? (error.data as { code: string }).code
+    : null;
+
+const isOwnerFenceError = (error: unknown): boolean => {
+  const code = ownerFenceErrorCode(error);
+  return (
+    code === "OWNER_DATA_PURGE_ACTIVE" ||
+    code === "OWNER_DATA_GENERATION_STALE" ||
+    code === "OWNERSHIP_MIGRATED"
+  );
+};
+
+const assertMediaProviderDispatchAllowed = async (
+  ctx: Pick<ActionCtx, "runMutation">,
+  ownerId: string,
+  ownerGeneration: string,
+) => {
+  await ctx.runMutation(
+    internal.media_jobs.assertMediaProviderDispatchAllowed,
+    { ownerId, ownerGeneration },
+  );
+};
 
 type FalWebhookPayload = {
   request_id?: unknown;
@@ -548,6 +579,8 @@ export const registerMediaRoutes = (http: HttpRouter) => {
           realm: "stella-media",
         });
         if (!auth.ok) return auth.response;
+        const { generation: ownerGeneration } =
+          await assertOwnerDataAccessActive(ctx, auth.ownerId);
 
         const url = new URL(request.url);
         let jobId = asTrimmedString(url.searchParams.get("jobId"));
@@ -560,7 +593,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
         if (!jobId && clientRequestKey && requestHash) {
           const existing = await ctx.runQuery(
             internal.media_jobs.getByOwnerClientRequestKey,
-            { ownerId: auth.ownerId, clientRequestKey },
+            { ownerId: auth.ownerId, ownerGeneration, clientRequestKey },
           );
           if (!existing) {
             return errorResponse(404, "Media request not found.", origin);
@@ -584,6 +617,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
 
         const job = await ctx.runQuery(internal.media_jobs.getByOwnerJobId, {
           ownerId: auth.ownerId,
+          ownerGeneration,
           jobId,
         });
         if (!job) {
@@ -607,6 +641,8 @@ export const registerMediaRoutes = (http: HttpRouter) => {
           realm: "stella-media",
         });
         if (!auth.ok) return auth.response;
+        const { generation: ownerGeneration } =
+          await assertOwnerDataAccessActive(ctx, auth.ownerId);
 
         const clientRequestKey = request.headers.get("idempotency-key")?.trim();
         if (!clientRequestKey) {
@@ -628,6 +664,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
           internal.media_jobs.cancelIdempotentRequest,
           {
             ownerId: auth.ownerId,
+            ownerGeneration,
             clientRequestKey,
             canceledAt: Date.now(),
           },
@@ -645,26 +682,21 @@ export const registerMediaRoutes = (http: HttpRouter) => {
             },
           );
         }
-        if (
-          canceled.state === "canceled" &&
-          "endpointId" in canceled &&
-          canceled.endpointId &&
-          "providerRequestId" in canceled &&
-          canceled.providerRequestId
-        ) {
-          const apiKey = getFalApiKey();
-          if (apiKey) {
-            await cancelFalRequest({
-              apiKey,
-              endpointId: canceled.endpointId,
-              requestId: canceled.providerRequestId,
-            }).catch((error) => {
+        const canceledJobId = "jobId" in canceled ? canceled.jobId : undefined;
+        if (canceled.state === "canceled" && canceledJobId) {
+          await ctx
+            .runAction(
+              internal.media_image_submission.cancelPurgedProviderRequest,
+              { jobId: canceledJobId },
+            )
+            .catch((error) => {
+              // The durable cancellation outbox remains authoritative and its
+              // retry worker will continue after this best-effort fast path.
               console.error(
-                `[media/cancel] Fal cancellation failed for ${"jobId" in canceled ? canceled.jobId : clientRequestKey}:`,
+                `[media/cancel] Fal cancellation deferred for ${canceledJobId}:`,
                 error,
               );
             });
-          }
         }
         return jsonResponse(canceled, 200, origin);
       }),
@@ -684,6 +716,8 @@ export const registerMediaRoutes = (http: HttpRouter) => {
         });
         if (!auth.ok) return auth.response;
         const ownerId = auth.ownerId;
+        const { generation: ownerGeneration } =
+          await assertOwnerDataAccessActive(ctx, ownerId);
         const clientRequestKey = request.headers.get("idempotency-key")?.trim();
         if (
           clientRequestKey &&
@@ -765,7 +799,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
           if (clientRequestKey && clientRequestHash) {
             const existing = await ctx.runQuery(
               internal.media_jobs.getByOwnerClientRequestKey,
-              { ownerId, clientRequestKey },
+              { ownerId, ownerGeneration, clientRequestKey },
             );
             if (existing) {
               if (existing.clientRequestHash !== clientRequestHash) {
@@ -849,8 +883,9 @@ export const registerMediaRoutes = (http: HttpRouter) => {
           const falApiKey = provider === "fal" ? getFalApiKey() : null;
           const openRouterApiKey =
             provider === "openrouter"
-              ? (resolveManagedGatewayApiKey(getManagedGatewayConfig("openrouter")) ??
-                null)
+              ? (resolveManagedGatewayApiKey(
+                  getManagedGatewayConfig("openrouter"),
+                ) ?? null)
               : null;
           if (provider === "fal" && !falApiKey)
             return errorResponse(
@@ -868,7 +903,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
           const jobId = clientRequestKey
             ? `img_${(
                 await hashSha256Hex(
-                  `media-job:v1:${ownerId}:${clientRequestKey}`,
+                  `media-job:v2:${ownerId}:${ownerGeneration}:${clientRequestKey}`,
                 )
               ).slice(0, 40)}`
             : crypto.randomUUID();
@@ -883,7 +918,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
               const encrypted = await encryptSecret(
                 JSON.stringify({
                   input: submissionInput,
-                  webhookUrl: `${new URL(MEDIA_FAL_WEBHOOK_PATH, request.url).toString()}?jobId=${encodeURIComponent(jobId)}`,
+                  webhookUrl: `${new URL(MEDIA_FAL_WEBHOOK_PATH, request.url).toString()}?jobId=${encodeURIComponent(jobId)}&ownerGeneration=${encodeURIComponent(ownerGeneration)}`,
                 }),
               );
               const encryptedSubmissionPayload = JSON.stringify(encrypted);
@@ -900,7 +935,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
               }
               submissionPayloadManifestId = `payload_${(
                 await hashSha256Hex(
-                  `media-payload:v1:${ownerId}:${clientRequestKey}:${clientRequestHash}`,
+                  `media-payload:v2:${ownerId}:${ownerGeneration}:${clientRequestKey}:${clientRequestHash}`,
                 )
               ).slice(0, 48)}`;
               const chunks = Array.from(
@@ -916,10 +951,11 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                     (index + 1) * PRIVATE_MEDIA_PAYLOAD_CHUNK_CHARS,
                   ),
               );
-              const manifestState = await ctx.runMutation(
+              let manifestState = await ctx.runMutation(
                 internal.media_jobs.createPrivatePayloadManifest,
                 {
                   ownerId,
+                  ownerGeneration,
                   manifestId: submissionPayloadManifestId,
                   jobId,
                   clientRequestKey,
@@ -928,6 +964,60 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                   createdAt: Date.now(),
                 },
               );
+              if (manifestState === "uploading") {
+                // The deterministic manifest id is also the upload lease. A
+                // concurrent retry encrypts with a different nonce, so it
+                // must never append its ciphertext into the first request's
+                // manifest. Wait briefly for that request to finalize or
+                // reserve the shared job, then reattach instead.
+                const waitUntil = Date.now() + 2_000;
+                while (
+                  manifestState === "uploading" &&
+                  Date.now() < waitUntil
+                ) {
+                  const existingJob = await ctx.runQuery(
+                    internal.media_jobs.getByOwnerClientRequestKey,
+                    {
+                      ownerId,
+                      ownerGeneration,
+                      clientRequestKey,
+                    },
+                  );
+                  if (existingJob) {
+                    return jsonResponse(
+                      createMediaGenerateAcceptedResponse({
+                        jobId: existingJob.jobId,
+                        capability: existingJob.capability,
+                        profile: existingJob.profile,
+                        status: existingJob.status,
+                        upstreamStatus: existingJob.upstreamStatus,
+                        reattached: true,
+                        subscription: {
+                          query: MEDIA_SUBSCRIPTION_QUERY,
+                          args: { jobId: existingJob.jobId },
+                        },
+                      }),
+                      202,
+                      origin,
+                    );
+                  }
+                  await new Promise((resolve) => setTimeout(resolve, 25));
+                  manifestState =
+                    (
+                      await ctx.runQuery(
+                        internal.media_jobs.getPrivatePayloadManifest,
+                        { manifestId: submissionPayloadManifestId },
+                      )
+                    )?.state ?? "pending";
+                }
+                if (manifestState === "uploading") {
+                  return errorResponse(
+                    503,
+                    "An identical encrypted media upload is still being prepared; retry this request.",
+                    origin,
+                  );
+                }
+              }
               if (manifestState === "owner_purged") {
                 await ctx.runMutation(
                   internal.media_jobs.makePrivatePayloadManifestDeletable,
@@ -940,6 +1030,32 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                 );
               }
               if (manifestState === "pending") {
+                // Submission cleanup can flip held -> pending immediately
+                // after the winning request reserves its job. Close the
+                // query/manifest observation race with one final job lookup
+                // before treating pending as an orphaned upload.
+                const existingJob = await ctx.runQuery(
+                  internal.media_jobs.getByOwnerClientRequestKey,
+                  { ownerId, ownerGeneration, clientRequestKey },
+                );
+                if (existingJob) {
+                  return jsonResponse(
+                    createMediaGenerateAcceptedResponse({
+                      jobId: existingJob.jobId,
+                      capability: existingJob.capability,
+                      profile: existingJob.profile,
+                      status: existingJob.status,
+                      upstreamStatus: existingJob.upstreamStatus,
+                      reattached: true,
+                      subscription: {
+                        query: MEDIA_SUBSCRIPTION_QUERY,
+                        args: { jobId: existingJob.jobId },
+                      },
+                    }),
+                    202,
+                    origin,
+                  );
+                }
                 await ctx.runMutation(
                   internal.media_jobs.makePrivatePayloadManifestDeletable,
                   { manifestId: submissionPayloadManifestId },
@@ -950,12 +1066,13 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                   origin,
                 );
               }
-              if (manifestState !== "held") {
+              if (manifestState === "created") {
                 for (let index = 0; index < chunks.length; index += 1) {
                   const appendState = await ctx.runMutation(
                     internal.media_jobs.appendPrivatePayloadChunk,
                     {
                       ownerId,
+                      ownerGeneration,
                       manifestId: submissionPayloadManifestId,
                       index,
                       data: chunks[index]!,
@@ -978,6 +1095,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                   internal.media_jobs.finalizePrivatePayloadManifest,
                   {
                     ownerId,
+                    ownerGeneration,
                     manifestId: submissionPayloadManifestId,
                     finalizedAt: Date.now(),
                   },
@@ -998,6 +1116,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
             const reservation = await ctx
               .runMutation(internal.media_jobs.reserveIdempotentJob, {
                 ownerId,
+                ownerGeneration,
                 jobId,
                 clientRequestKey,
                 clientRequestHash,
@@ -1081,6 +1200,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
           } else {
             await ctx.runMutation(internal.media_jobs.createJob, {
               ownerId,
+              ownerGeneration,
               jobId,
               capability: resolved.capability.id,
               profile: resolved.profile.id,
@@ -1095,7 +1215,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
 
           const maySubmit = await ctx.runMutation(
             internal.media_jobs.beginSubmission,
-            { ownerId, jobId },
+            { ownerId, ownerGeneration, jobId },
           );
           if (!maySubmit) {
             return errorResponse(
@@ -1110,6 +1230,7 @@ export const registerMediaRoutes = (http: HttpRouter) => {
             if (!parsedMusic) {
               await ctx.runMutation(internal.media_jobs.markSubmissionFailed, {
                 jobId,
+                ownerGeneration,
                 upstreamStatus: "ERROR",
                 error: {
                   message:
@@ -1122,13 +1243,17 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                 origin,
               );
             }
+            const userProvidedApiKey = await getUserProviderKey(
+              ctx,
+              ownerId,
+              "llm:google",
+            );
             const apiKey =
-              (await getUserProviderKey(ctx, ownerId, "llm:google")) ??
-              process.env.GOOGLE_AI_API_KEY ??
-              null;
+              userProvidedApiKey ?? process.env.GOOGLE_AI_API_KEY ?? null;
             if (!apiKey) {
               await ctx.runMutation(internal.media_jobs.markSubmissionFailed, {
                 jobId,
+                ownerGeneration,
                 upstreamStatus: "ERROR",
                 error: {
                   message:
@@ -1141,11 +1266,34 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                 origin,
               );
             }
+            if (userProvidedApiKey) {
+              await ctx.runMutation(
+                internal.media_jobs.markJobUserProvidedKeyNotChargeableInternal,
+                {
+                  jobId,
+                  ownerGeneration,
+                  markedAt: Date.now(),
+                },
+              );
+            }
+            const physicalDispatch = createMediaProviderDispatch(ctx, {
+              ownerId,
+              ownerGeneration,
+              jobId,
+              dispatchId: `media:google_lyria:${jobId}`,
+              kind: "google_lyria",
+            });
+            let providerResponseConsumed = false;
             try {
-              const result = await generateMusic({
-                apiKey,
-                parsedBody: parsedMusic,
-              });
+              const result = await physicalDispatch.run(
+                async (signal) =>
+                  await generateMusic({
+                    apiKey,
+                    parsedBody: parsedMusic,
+                    signal,
+                  }),
+              );
+              providerResponseConsumed = true;
               const audioBytes = Uint8Array.from(
                 atob(result.audio.data),
                 (char) => char.charCodeAt(0),
@@ -1167,11 +1315,13 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                 promptLabel: result.promptLabel,
                 textParts: result.textParts,
               };
-              const billing = meterCompletedMediaJob({
-                endpointId: LYRIA_MUSIC_ENDPOINT_ID,
-                request: storedRequest,
-                output,
-              });
+              const billing = userProvidedApiKey
+                ? null
+                : meterCompletedMediaJob({
+                    endpointId: LYRIA_MUSIC_ENDPOINT_ID,
+                    request: storedRequest,
+                    output,
+                  });
               const meteredBilling =
                 billing && !("supported" in billing) ? billing : undefined;
               if (billing && "supported" in billing) {
@@ -1179,12 +1329,26 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                   `[media/generate] Failed to meter Lyria: ${billing.reason}`,
                 );
               }
-              await ctx.runMutation(internal.media_jobs.markGenerated, {
-                jobId,
-                upstreamStatus: "OK",
-                output: output as never,
-                ...(meteredBilling ? { billing: meteredBilling as never } : {}),
-              });
+              const completion = await ctx.runMutation(
+                internal.media_jobs.markGenerated,
+                {
+                  jobId,
+                  ownerGeneration,
+                  upstreamStatus: "OK",
+                  output: output as never,
+                  ...(meteredBilling
+                    ? { billing: meteredBilling as never }
+                    : {}),
+                },
+              );
+              await physicalDispatch.settle();
+              if (completion.billingDisposition === "unknown") {
+                return errorResponse(
+                  502,
+                  "Music was generated, but its billing metadata could not be reconciled. The output was retained without being published.",
+                  origin,
+                );
+              }
               const accepted = createMediaGenerateAcceptedResponse({
                 jobId,
                 capability: resolved.capability.id,
@@ -1198,8 +1362,24 @@ export const registerMediaRoutes = (http: HttpRouter) => {
               });
               return jsonResponse({ ...accepted, output }, 202, origin);
             } catch (error) {
+              if (
+                providerResponseConsumed ||
+                !physicalDispatch.providerMayHaveStarted()
+              ) {
+                await physicalDispatch.settle().catch(() => false);
+              } else {
+                await physicalDispatch.abandon().catch(() => false);
+              }
+              if (isOwnerFenceError(error)) {
+                return errorResponse(
+                  409,
+                  "Media generation was canceled because the account data generation changed.",
+                  origin,
+                );
+              }
               await ctx.runMutation(internal.media_jobs.markSubmissionFailed, {
                 jobId,
+                ownerGeneration,
                 upstreamStatus: "ERROR",
                 error: (createMediaJobError({
                   value: (error as Error).message,
@@ -1217,12 +1397,25 @@ export const registerMediaRoutes = (http: HttpRouter) => {
           }
 
           if (provider === "openrouter") {
+            const physicalDispatch = createMediaProviderDispatch(ctx, {
+              ownerId,
+              ownerGeneration,
+              jobId,
+              dispatchId: `media:openrouter:${jobId}`,
+              kind: "openrouter",
+            });
+            let providerResponseConsumed = false;
             try {
-              const result = await transcribeOpenRouterSpeechToText({
-                apiKey: openRouterApiKey!,
-                endpointId: resolved.profile.endpointId,
-                input: submissionInput,
-              });
+              const result = await physicalDispatch.run(
+                async (signal) =>
+                  await transcribeOpenRouterSpeechToText({
+                    apiKey: openRouterApiKey!,
+                    endpointId: resolved.profile.endpointId,
+                    input: submissionInput,
+                    signal,
+                  }),
+              );
+              providerResponseConsumed = true;
               const output = {
                 text: result.text,
                 ...(result.usage ? { usage: result.usage } : {}),
@@ -1239,12 +1432,26 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                   `[media/generate] Failed to meter ${resolved.profile.endpointId}: ${billing.reason}`,
                 );
               }
-              await ctx.runMutation(internal.media_jobs.markGenerated, {
-                jobId,
-                upstreamStatus: "OK",
-                output: output as never,
-                ...(meteredBilling ? { billing: meteredBilling as never } : {}),
-              });
+              const completion = await ctx.runMutation(
+                internal.media_jobs.markGenerated,
+                {
+                  jobId,
+                  ownerGeneration,
+                  upstreamStatus: "OK",
+                  output: output as never,
+                  ...(meteredBilling
+                    ? { billing: meteredBilling as never }
+                    : {}),
+                },
+              );
+              await physicalDispatch.settle();
+              if (completion.billingDisposition === "unknown") {
+                return errorResponse(
+                  502,
+                  "Transcription completed, but its billing metadata could not be reconciled. The output was retained without being published.",
+                  origin,
+                );
+              }
               const accepted = createMediaGenerateAcceptedResponse({
                 jobId,
                 capability: resolved.capability.id,
@@ -1258,8 +1465,24 @@ export const registerMediaRoutes = (http: HttpRouter) => {
               });
               return jsonResponse({ ...accepted, output }, 202, origin);
             } catch (error) {
+              if (
+                providerResponseConsumed ||
+                !physicalDispatch.providerMayHaveStarted()
+              ) {
+                await physicalDispatch.settle().catch(() => false);
+              } else {
+                await physicalDispatch.abandon().catch(() => false);
+              }
+              if (isOwnerFenceError(error)) {
+                return errorResponse(
+                  409,
+                  "Media generation was canceled because the account data generation changed.",
+                  origin,
+                );
+              }
               await ctx.runMutation(internal.media_jobs.markSubmissionFailed, {
                 jobId,
+                ownerGeneration,
                 upstreamStatus: "ERROR",
                 error: (createMediaJobError({
                   value: (error as Error).message,
@@ -1276,17 +1499,32 @@ export const registerMediaRoutes = (http: HttpRouter) => {
             }
           }
 
+          const physicalDispatch = createMediaProviderDispatch(ctx, {
+            ownerId,
+            ownerGeneration,
+            jobId,
+            dispatchId: falSubmissionDispatchId(jobId),
+            kind: "fal_submit",
+          });
+          let providerResponseConsumed = false;
           try {
-            const submitted = await submitFalRequest({
-              apiKey: falApiKey!,
-              endpointId: resolved.profile.endpointId,
-              input: submissionInput,
-              webhookUrl: `${new URL(MEDIA_FAL_WEBHOOK_PATH, request.url).toString()}?jobId=${encodeURIComponent(jobId)}`,
-            });
+            const submitted = await physicalDispatch.run(
+              async (signal) =>
+                await submitFalRequest({
+                  apiKey: falApiKey!,
+                  endpointId: resolved.profile.endpointId,
+                  input: submissionInput,
+                  webhookUrl: `${new URL(MEDIA_FAL_WEBHOOK_PATH, request.url).toString()}?jobId=${encodeURIComponent(jobId)}&ownerGeneration=${encodeURIComponent(ownerGeneration)}`,
+                  signal,
+                }),
+            );
+            providerResponseConsumed = true;
             const submissionState = await ctx.runMutation(
               internal.media_jobs.markSubmitted,
               {
                 jobId,
+                ownerGeneration,
+                submissionAttemptId: physicalDispatch.attemptId,
                 providerRequestId: submitted.requestId,
                 ...(submitted.gatewayRequestId
                   ? { providerGatewayRequestId: submitted.gatewayRequestId }
@@ -1304,16 +1542,17 @@ export const registerMediaRoutes = (http: HttpRouter) => {
               },
             );
             if (submissionState.cancelRequested) {
-              await cancelFalRequest({
-                apiKey: falApiKey!,
-                endpointId: resolved.profile.endpointId,
-                requestId: submitted.requestId,
-              }).catch((cancelError) => {
-                console.error(
-                  `[media/generate] Fal cancellation failed for ${jobId}:`,
-                  cancelError,
-                );
-              });
+              await ctx
+                .runAction(
+                  internal.media_image_submission.cancelPurgedProviderRequest,
+                  { jobId },
+                )
+                .catch((cancelError) => {
+                  console.error(
+                    `[media/generate] Fal cancellation failed for ${jobId}:`,
+                    cancelError,
+                  );
+                });
               return errorResponse(
                 409,
                 "This media request was canceled during submission.",
@@ -1339,27 +1578,64 @@ export const registerMediaRoutes = (http: HttpRouter) => {
             const errorCode = (error as Error & { code?: unknown }).code;
             const definitiveRejection =
               isDefinitiveFalSubmissionRejection(error);
-            if (!clientRequestKey || definitiveRejection) {
-              await ctx.runMutation(internal.media_jobs.markSubmissionFailed, {
-                jobId,
-                upstreamStatus: "ERROR",
-                error: (createMediaJobError({
-                  value: {
-                    message: (error as Error).message,
-                    ...(typeof errorCode === "string" && errorCode.trim()
-                      ? { code: errorCode.trim() }
-                      : {}),
-                  },
-                  fallbackMessage: "Media generation failed upstream.",
-                }) ?? {
-                  message: "Media generation failed upstream.",
-                }) as never,
-              });
+            if (
+              !physicalDispatch.providerMayHaveStarted() ||
+              definitiveRejection
+            ) {
+              await ctx
+                .runMutation(internal.media_jobs.markSubmissionFailed, {
+                  jobId,
+                  ownerGeneration,
+                  submissionAttemptId: physicalDispatch.attemptId,
+                  notChargeablePolicy:
+                    "provider_definitive_rejection_not_chargeable",
+                  upstreamStatus: "ERROR",
+                  error: (createMediaJobError({
+                    value: {
+                      message: (error as Error).message,
+                      ...(typeof errorCode === "string" && errorCode.trim()
+                        ? { code: errorCode.trim() }
+                        : {}),
+                    },
+                    fallbackMessage: "Media generation failed upstream.",
+                  }) ?? {
+                    message: "Media generation failed upstream.",
+                  }) as never,
+                })
+                .catch(() => null);
+              await physicalDispatch.settle().catch(() => false);
+              if (isOwnerFenceError(error)) {
+                return errorResponse(
+                  409,
+                  "Media generation was canceled because the account data generation changed.",
+                  origin,
+                );
+              }
             } else {
               // A timeout/network failure after POST send is ambiguous: Fal
               // may have accepted work and will still call our jobId webhook.
-              // Keep the durable reservation queued instead of resubmitting;
-              // the webhook completes it, or the stale-job policy fails it.
+              // Preserve exact provider authority for every request, including
+              // callers without an idempotency key. The webhook completes it,
+              // cancellation acknowledges it, or the 3h15m provider envelope
+              // makes it terminal; Stella never submits this job again.
+              await ctx
+                .runMutation(internal.media_jobs.markImageSubmissionUnknown, {
+                  jobId,
+                  ownerGeneration,
+                  attemptId: physicalDispatch.attemptId,
+                  observedAt: Date.now(),
+                  error: {
+                    code: "SUBMISSION_OUTCOME_UNKNOWN",
+                    message:
+                      "Fal may have accepted this media request, but Stella lost the submission response and will not submit it again.",
+                    details: {
+                      cause:
+                        error instanceof Error ? error.message : String(error),
+                    },
+                  },
+                })
+                .catch(() => false);
+              await physicalDispatch.abandon().catch(() => false);
               console.warn(
                 `[media/generate] Ambiguous Fal submission for ${jobId}; awaiting webhook/stale timeout:`,
                 error,
@@ -1380,6 +1656,9 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                 origin,
               );
             }
+            if (providerResponseConsumed) {
+              await physicalDispatch.abandon().catch(() => false);
+            }
             return errorResponse(
               502,
               `Fal request failed: ${(error as Error).message || "Unknown error"}`,
@@ -1388,6 +1667,13 @@ export const registerMediaRoutes = (http: HttpRouter) => {
           }
         } catch (error) {
           console.error("[media/generate] Unhandled error:", error);
+          if (isOwnerFenceError(error)) {
+            return errorResponse(
+              409,
+              "Media generation was canceled because the account data generation changed.",
+              origin,
+            );
+          }
           return errorResponse(500, "Media generation error", origin);
         }
       }),
@@ -1416,8 +1702,10 @@ export const registerMediaRoutes = (http: HttpRouter) => {
         const gatewayRequestId = asTrimmedString(payload.gateway_request_id);
         const upstreamStatus =
           asTrimmedString(payload.status)?.toUpperCase() ?? "ERROR";
-        const jobId =
-          new URL(request.url).searchParams.get("jobId")?.trim() || undefined;
+        const webhookUrl = new URL(request.url);
+        const jobId = webhookUrl.searchParams.get("jobId")?.trim() || undefined;
+        const callbackGeneration =
+          webhookUrl.searchParams.get("ownerGeneration")?.trim() || undefined;
         const dedupKey = `${requestId ?? jobId ?? "unknown"}:${await hashSha256Hex(rawBody)}`;
 
         const webhookJob =
@@ -1427,6 +1715,54 @@ export const registerMediaRoutes = (http: HttpRouter) => {
                 ...(requestId ? { providerRequestId: requestId } : {}),
               })
             : null;
+        const ownerGeneration =
+          callbackGeneration ?? webhookJob?.ownerGeneration ?? "legacy";
+        if (
+          webhookJob &&
+          callbackGeneration &&
+          callbackGeneration !== webhookJob.ownerGeneration
+        ) {
+          return jsonResponse(
+            { received: true, discarded: true, reason: "stale_generation" },
+            200,
+            origin,
+          );
+        }
+
+        if (webhookJob) {
+          try {
+            await assertMediaProviderDispatchAllowed(
+              ctx,
+              webhookJob.ownerId,
+              ownerGeneration,
+            );
+          } catch (error) {
+            if (!isOwnerFenceError(error)) throw error;
+            // A canceled deletion job may still need to learn the provider id
+            // so its provider-cancellation outbox can drain. The mutation only
+            // permits that exact cleanup-only terminal transition.
+            await ctx
+              .runMutation(internal.media_jobs.applyFalWebhook, {
+                ownerGeneration,
+                dedupKey,
+                ...(jobId ? { jobId } : {}),
+                ...(requestId ? { providerRequestId: requestId } : {}),
+                ...(gatewayRequestId
+                  ? { providerGatewayRequestId: gatewayRequestId }
+                  : {}),
+                upstreamStatus,
+                receivedAt: Date.now(),
+              })
+              .catch((applyError) => {
+                if (!isOwnerFenceError(applyError)) throw applyError;
+              });
+            return jsonResponse(
+              { received: true, discarded: true, reason: "owner_fenced" },
+              200,
+              origin,
+            );
+          }
+        }
         let output =
           upstreamStatus === "OK" && payload.payload !== undefined
             ? payload.payload
@@ -1447,9 +1783,35 @@ export const registerMediaRoutes = (http: HttpRouter) => {
               ? buildFalResponseUrl(webhookJob.endpointId, requestId)
               : undefined);
           if (apiKey && resultUrl) {
+            const resultDispatch = webhookJob
+              ? createMediaProviderDispatch(ctx, {
+                  ownerId: webhookJob.ownerId,
+                  ownerGeneration,
+                  jobId: webhookJob.jobId,
+                  dispatchId: `media:fal_poll:${webhookJob.jobId}:${dedupKey}`,
+                  kind: "fal_poll",
+                })
+              : null;
             try {
-              output = await fetchFalResultPayload({ apiKey, url: resultUrl });
+              if (resultDispatch) {
+                output = await resultDispatch.run(
+                  async (signal) =>
+                    await fetchFalResultPayload({
+                      apiKey,
+                      url: resultUrl,
+                      signal,
+                    }),
+                );
+                await resultDispatch.settle();
+              }
             } catch (error) {
+              if (resultDispatch) {
+                if (!resultDispatch.providerMayHaveStarted()) {
+                  await resultDispatch.settle().catch(() => false);
+                } else {
+                  await resultDispatch.abandon().catch(() => false);
+                }
+              }
               console.error(
                 "[media/webhook] Failed to fetch Fal result payload",
                 error,
@@ -1496,9 +1858,10 @@ export const registerMediaRoutes = (http: HttpRouter) => {
           );
         }
 
-        const applied = await ctx.runMutation(
-          internal.media_jobs.applyFalWebhook,
-          {
+        let applied: { notFound?: boolean; duplicate?: boolean };
+        try {
+          applied = await ctx.runMutation(internal.media_jobs.applyFalWebhook, {
+            ownerGeneration,
             dedupKey,
             ...(jobId ? { jobId } : {}),
             ...(requestId ? { providerRequestId: requestId } : {}),
@@ -1512,8 +1875,15 @@ export const registerMediaRoutes = (http: HttpRouter) => {
             ...(meteredBilling ? { billing: meteredBilling as never } : {}),
             ...(error ? { error: error as never } : {}),
             receivedAt: Date.now(),
-          },
-        );
+          });
+        } catch (applyError) {
+          if (!isOwnerFenceError(applyError)) throw applyError;
+          return jsonResponse(
+            { received: true, discarded: true, reason: "owner_fenced" },
+            200,
+            origin,
+          );
+        }
         if (applied.notFound) {
           // Do not consume the webhook identity before its durable job is
           // visible. Fal will retry this non-2xx response.

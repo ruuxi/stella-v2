@@ -59,7 +59,7 @@ type CapabilityActionResult =
   | { ok: true; access: ManagedModelAccess };
 
 export const requireCapabilityAction = async (
-  ctx: { runMutation: ActionCtx["runMutation"] },
+  ctx: Pick<ActionCtx, "runMutation" | "runQuery">,
   ownerId: string,
   capability: Capability,
   origin: string | null,

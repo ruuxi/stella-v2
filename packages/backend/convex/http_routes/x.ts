@@ -1,6 +1,7 @@
 import type { HttpRouter } from "convex/server";
 import { httpAction, type ActionCtx } from "../_generated/server";
 import { api, internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 import { decryptSecret } from "../data/secrets_crypto";
 import { requireSignedInAccountAction } from "../http_shared/auth";
 import {
@@ -55,6 +56,21 @@ type XApiRequestBody = {
 
 type JsonObject = Record<string, unknown>;
 
+type ConsumedXOAuthState = {
+  ownerId: string;
+  ownerGeneration: string;
+  codeVerifier: string;
+};
+
+type XConnectionView = {
+  xUserId: string;
+  username: string;
+  name?: string;
+  scopes: string[];
+  updatedAt: number;
+  accessTokenExpiresAt?: number;
+};
+
 const X_TOKEN_REFRESH_SKEW_MS = 60_000;
 const X_API_BASE_URL = "https://api.x.com";
 const X_API_ROUTES = [
@@ -86,10 +102,13 @@ const buildTokenSet = (tokenData: XTokenResponse, issuedAt: number) => ({
     typeof tokenData.scope === "string"
       ? tokenData.scope
       : Array.isArray(tokenData.scope)
-        ? tokenData.scope.filter((item): item is string => typeof item === "string")
+        ? tokenData.scope.filter(
+            (item): item is string => typeof item === "string",
+          )
         : null,
   expiresIn:
-    typeof tokenData.expires_in === "number" && Number.isFinite(tokenData.expires_in)
+    typeof tokenData.expires_in === "number" &&
+    Number.isFinite(tokenData.expires_in)
       ? Math.floor(tokenData.expires_in)
       : null,
   issuedAt,
@@ -103,7 +122,9 @@ const parseJsonBody = async <T>(request: Request): Promise<T | null> => {
   }
 };
 
-const parseStoredTokenSet = async (encryptedTokenSet: string): Promise<StoredXTokenSet> => {
+const parseStoredTokenSet = async (
+  encryptedTokenSet: string,
+): Promise<StoredXTokenSet> => {
   const raw = await decryptSecret(encryptedTokenSet);
   const parsed = JSON.parse(raw) as unknown;
   if (!isJsonObject(parsed)) {
@@ -113,11 +134,36 @@ const parseStoredTokenSet = async (encryptedTokenSet: string): Promise<StoredXTo
 };
 
 const accessTokenNeedsRefresh = (expiresAt: number | undefined) =>
-  typeof expiresAt === "number" && expiresAt <= Date.now() + X_TOKEN_REFRESH_SKEW_MS;
+  typeof expiresAt === "number" &&
+  expiresAt <= Date.now() + X_TOKEN_REFRESH_SKEW_MS;
+
+const captureXOAuthOwnerGeneration = async (
+  ctx: ActionCtx,
+  ownerId: string,
+): Promise<string> => {
+  const result: { ownerGeneration: string } = await ctx.runMutation(
+    internal.data.integrations.captureXOAuthOwnerGenerationInternal,
+    { ownerId },
+  );
+  return result.ownerGeneration;
+};
+
+const assertXOAuthDispatchAllowed = async (
+  ctx: ActionCtx,
+  ownerId: string,
+  ownerGeneration: string,
+): Promise<void> => {
+  await ctx.runMutation(
+    internal.data.integrations.assertXOAuthDispatchAllowedInternal,
+    { ownerId, ownerGeneration },
+  );
+};
 
 const refreshXToken = async (
   ctx: ActionCtx,
   ownerId: string,
+  ownerGeneration: string,
+  tokenRowId: Id<"x_oauth_tokens">,
   current: StoredXTokenSet,
   currentScopes: string[],
 ) => {
@@ -133,6 +179,7 @@ const refreshXToken = async (
     clientSecret,
     refreshToken,
   });
+  await assertXOAuthDispatchAllowed(ctx, ownerId, ownerGeneration);
   const tokenRes = await fetch(tokenRequest.url, tokenRequest.init);
   const tokenData = (await tokenRes.json()) as XTokenResponse;
   const accessToken = readNonEmptyString(tokenData.access_token);
@@ -147,21 +194,30 @@ const refreshXToken = async (
 
   const issuedAt = Date.now();
   const expiresIn =
-    typeof tokenData.expires_in === "number" && Number.isFinite(tokenData.expires_in)
+    typeof tokenData.expires_in === "number" &&
+    Number.isFinite(tokenData.expires_in)
       ? Math.floor(tokenData.expires_in)
       : null;
   const parsedScopes = parseXScope(tokenData.scope);
   const scopes = parsedScopes.length > 0 ? parsedScopes : currentScopes;
-  await ctx.runMutation(internal.data.integrations.updateXOAuthTokenSetForOwner, {
-    ownerId,
-    tokenSet: {
-      ...buildTokenSet(tokenData, issuedAt),
-      refreshToken: readNonEmptyString(tokenData.refresh_token) ?? refreshToken,
+  await ctx.runMutation(
+    internal.data.integrations.updateXOAuthTokenSetForOwner,
+    {
+      ownerId,
+      ownerGeneration,
+      tokenRowId,
+      tokenSet: {
+        ...buildTokenSet(tokenData, issuedAt),
+        refreshToken:
+          readNonEmptyString(tokenData.refresh_token) ?? refreshToken,
+      },
+      scopes,
+      tokenType: readNonEmptyString(tokenData.token_type) ?? "bearer",
+      ...(expiresIn
+        ? { accessTokenExpiresAt: issuedAt + expiresIn * 1000 }
+        : {}),
     },
-    scopes,
-    tokenType: readNonEmptyString(tokenData.token_type) ?? "bearer",
-    ...(expiresIn ? { accessTokenExpiresAt: issuedAt + expiresIn * 1000 } : {}),
-  });
+  );
 
   return accessToken;
 };
@@ -169,20 +225,34 @@ const refreshXToken = async (
 const loadXAccessToken = async (
   ctx: ActionCtx,
   ownerId: string,
+  ownerGeneration: string,
 ) => {
-  const row = await ctx.runQuery(internal.data.integrations.getXOAuthTokenForOwner, {
-    ownerId,
-  });
+  const row = await ctx.runQuery(
+    internal.data.integrations.getXOAuthTokenForOwner,
+    {
+      ownerId,
+      ownerGeneration,
+    },
+  );
   if (!row) {
     throw new Error("X is not connected. Run `stella-x-api connect` first.");
   }
   const tokenSet = await parseStoredTokenSet(row.encryptedTokenSet);
   const accessToken = readNonEmptyString(tokenSet.accessToken);
   if (!accessToken) {
-    throw new Error("X connection is missing an access token. Reconnect X in Stella.");
+    throw new Error(
+      "X connection is missing an access token. Reconnect X in Stella.",
+    );
   }
   if (accessTokenNeedsRefresh(row.accessTokenExpiresAt)) {
-    return await refreshXToken(ctx, ownerId, tokenSet, row.scopes);
+    return await refreshXToken(
+      ctx,
+      ownerId,
+      ownerGeneration,
+      row._id,
+      tokenSet,
+      row.scopes,
+    );
   }
   return accessToken;
 };
@@ -230,7 +300,10 @@ export const registerXRoutes = (http: HttpRouter) => {
           message: "Sign in to Stella to connect X.",
         });
         if (!auth.ok) return auth.response;
-        const result = await ctx.runMutation(api.data.integrations.createXConnectUrl, {});
+        const result = await ctx.runMutation(
+          api.data.integrations.createXConnectUrl,
+          {},
+        );
         return jsonResponse(result, 200, origin);
       }),
     ),
@@ -245,9 +318,28 @@ export const registerXRoutes = (http: HttpRouter) => {
           message: "Sign in to Stella to view X connections.",
         });
         if (!auth.ok) return auth.response;
-        const row = await ctx.runQuery(internal.data.integrations.getXOAuthTokenForOwner, {
-          ownerId: auth.ownerId,
-        });
+        let row: XConnectionView | null;
+        try {
+          const ownerGeneration = await captureXOAuthOwnerGeneration(
+            ctx,
+            auth.ownerId,
+          );
+          row = await ctx.runQuery(
+            internal.data.integrations.getXOAuthTokenForOwner,
+            {
+              ownerId: auth.ownerId,
+              ownerGeneration,
+            },
+          );
+        } catch (error) {
+          return errorResponse(
+            409,
+            error instanceof Error
+              ? error.message
+              : "X connections are temporarily unavailable.",
+            origin,
+          );
+        }
         return jsonResponse(
           {
             connections: row
@@ -291,8 +383,18 @@ export const registerXRoutes = (http: HttpRouter) => {
         }
 
         let accessToken: string;
+        let ownerGeneration: string;
         try {
-          accessToken = await loadXAccessToken(ctx, auth.ownerId);
+          ownerGeneration = await captureXOAuthOwnerGeneration(
+            ctx,
+            auth.ownerId,
+          );
+          accessToken = await loadXAccessToken(
+            ctx,
+            auth.ownerId,
+            ownerGeneration,
+          );
+          await assertXOAuthDispatchAllowed(ctx, auth.ownerId, ownerGeneration);
         } catch (error) {
           return errorResponse(
             401,
@@ -341,10 +443,19 @@ export const registerXRoutes = (http: HttpRouter) => {
         return htmlResponse(false, "Missing OAuth state.", 400);
       }
 
-      const consumedState = await ctx.runMutation(
-        internal.data.integrations.consumeXOAuthState,
-        { state },
-      );
+      let consumedState: ConsumedXOAuthState | null;
+      try {
+        consumedState = await ctx.runMutation(
+          internal.data.integrations.consumeXOAuthState,
+          { state },
+        );
+      } catch {
+        return htmlResponse(
+          false,
+          "This X connection request is no longer valid. Please start again.",
+          410,
+        );
+      }
       if (!consumedState) {
         return htmlResponse(
           false,
@@ -365,7 +476,9 @@ export const registerXRoutes = (http: HttpRouter) => {
       const clientSecret = process.env.X_CLIENT_SECRET;
       const convexSiteUrl = configuredOAuthSiteUrl();
       if (!clientId || !clientSecret || !convexSiteUrl) {
-        console.error("[x-oauth] Missing X_CLIENT_ID, X_CLIENT_SECRET, or OAuth site URL");
+        console.error(
+          "[x-oauth] Missing X_CLIENT_ID, X_CLIENT_SECRET, or OAuth site URL",
+        );
         return htmlResponse(false, "Server configuration error.", 500);
       }
 
@@ -378,6 +491,11 @@ export const registerXRoutes = (http: HttpRouter) => {
           redirectUri,
           codeVerifier: consumedState.codeVerifier,
         });
+        await assertXOAuthDispatchAllowed(
+          ctx,
+          consumedState.ownerId,
+          consumedState.ownerGeneration,
+        );
         const tokenRes = await fetch(tokenRequest.url, tokenRequest.init);
         const tokenData = (await tokenRes.json()) as XTokenResponse;
         const accessToken = readNonEmptyString(tokenData.access_token);
@@ -388,9 +506,18 @@ export const registerXRoutes = (http: HttpRouter) => {
             error: readNonEmptyString(tokenData.error),
             errorDescription: readNonEmptyString(tokenData.error_description),
           });
-          return htmlResponse(false, "X token exchange failed. Please retry connection.", 400);
+          return htmlResponse(
+            false,
+            "X token exchange failed. Please retry connection.",
+            400,
+          );
         }
 
+        await assertXOAuthDispatchAllowed(
+          ctx,
+          consumedState.ownerId,
+          consumedState.ownerGeneration,
+        );
         const meRes = await fetch("https://api.x.com/2/users/me", {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
@@ -405,34 +532,54 @@ export const registerXRoutes = (http: HttpRouter) => {
             hasData: Boolean(meData.data),
             hasErrors: Boolean(meData.errors),
           });
-          return htmlResponse(false, "Could not read the connected X account.", 400);
+          return htmlResponse(
+            false,
+            "Could not read the connected X account.",
+            400,
+          );
         }
 
         const issuedAt = Date.now();
         const expiresIn =
-          typeof tokenData.expires_in === "number" && Number.isFinite(tokenData.expires_in)
+          typeof tokenData.expires_in === "number" &&
+          Number.isFinite(tokenData.expires_in)
             ? Math.floor(tokenData.expires_in)
             : null;
         const parsedScopes = parseXScope(tokenData.scope);
-        const scopes = parsedScopes.length > 0 ? parsedScopes : Array.from(X_OAUTH_SCOPES);
+        const scopes =
+          parsedScopes.length > 0 ? parsedScopes : Array.from(X_OAUTH_SCOPES);
 
-        await ctx.runMutation(internal.data.integrations.upsertXOAuthTokensForOwner, {
-          ownerId: consumedState.ownerId,
-          xUserId,
-          username,
-          ...(name ? { name } : {}),
-          tokenSet: buildTokenSet(tokenData, issuedAt),
-          scopes,
-          tokenType: readNonEmptyString(tokenData.token_type) ?? "bearer",
-          ...(expiresIn ? { accessTokenExpiresAt: issuedAt + expiresIn * 1000 } : {}),
-        });
+        await ctx.runMutation(
+          internal.data.integrations.upsertXOAuthTokensForOwner,
+          {
+            ownerId: consumedState.ownerId,
+            ownerGeneration: consumedState.ownerGeneration,
+            xUserId,
+            username,
+            ...(name ? { name } : {}),
+            tokenSet: buildTokenSet(tokenData, issuedAt),
+            scopes,
+            tokenType: readNonEmptyString(tokenData.token_type) ?? "bearer",
+            ...(expiresIn
+              ? { accessTokenExpiresAt: issuedAt + expiresIn * 1000 }
+              : {}),
+          },
+        );
 
-        return htmlResponse(true, `Connected @${username} to Stella. You can close this tab.`, 200);
+        return htmlResponse(
+          true,
+          `Connected @${username} to Stella. You can close this tab.`,
+          200,
+        );
       } catch (err) {
         console.error("[x-oauth] Callback failed", {
           message: err instanceof Error ? err.message : String(err),
         });
-        return htmlResponse(false, "X connection failed. Please retry connection.", 500);
+        return htmlResponse(
+          false,
+          "X connection failed. Please retry connection.",
+          500,
+        );
       }
     }),
   });

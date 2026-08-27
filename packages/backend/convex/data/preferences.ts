@@ -1,10 +1,13 @@
-import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "../_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+  type MutationCtx,
+} from "../_generated/server";
 import { v, ConvexError } from "convex/values";
 import { requireUserId } from "../auth";
-import {
-  enforceMutationRateLimit,
-  RATE_SETTINGS,
-} from "../lib/rate_limits";
+import { enforceMutationRateLimit, RATE_SETTINGS } from "../lib/rate_limits";
 
 /**
  * Shared per-owner cap for every settings mutation in this file. Settings
@@ -12,16 +15,12 @@ import {
  * churn more than ~one update per second.
  */
 const PREFERENCE_RATE_SCOPE = "user_preferences_set";
-const ACTIVE_SUBSCRIPTION_STATUSES = new Set([
-  "active",
-  "trialing",
-  "past_due",
-]);
-
-const accountModeValidator = v.union(v.literal("private_local"), v.literal("connected"));
+const accountModeValidator = v.union(
+  v.literal("private_local"),
+  v.literal("connected"),
+);
 const ACCOUNT_MODE_KEY = "account_mode";
 const syncModeValidator = v.union(v.literal("on"), v.literal("off"));
-const SYNC_MODE_KEY = "sync_mode";
 export const PREFERRED_BROWSER_KEY = "preferred_browser";
 
 /**
@@ -82,10 +81,12 @@ const preferredBrowserValidator = v.union(
 
 const normalizeAccountMode = (
   value: string | null | undefined,
-): "private_local" | "connected" => (value === "connected" ? "connected" : "private_local");
+): "private_local" | "connected" =>
+  value === "connected" ? "connected" : "private_local";
 
-export const normalizeSyncMode = (value: string | null | undefined): "on" | "off" =>
-  value === "on" ? "on" : "off";
+export const normalizeSyncMode = (
+  value: string | null | undefined,
+): "on" | "off" => (value === "on" ? "on" : "off");
 
 export const upsertPreferenceRecord = async (
   ctx: MutationCtx,
@@ -95,7 +96,9 @@ export const upsertPreferenceRecord = async (
 ) => {
   const existing = await ctx.db
     .query("user_preferences")
-    .withIndex("by_ownerId_and_key", (q) => q.eq("ownerId", ownerId).eq("key", key))
+    .withIndex("by_ownerId_and_key", (q) =>
+      q.eq("ownerId", ownerId).eq("key", key),
+    )
     .unique();
 
   if (existing) {
@@ -146,7 +149,9 @@ export const getPreference = internalQuery({
     const ownerId = await requireUserId(ctx);
     const record = await ctx.db
       .query("user_preferences")
-      .withIndex("by_ownerId_and_key", (q) => q.eq("ownerId", ownerId).eq("key", args.key))
+      .withIndex("by_ownerId_and_key", (q) =>
+        q.eq("ownerId", ownerId).eq("key", args.key),
+      )
       .unique();
     return record?.value ?? null;
   },
@@ -161,7 +166,9 @@ export const getAccountMode = query({
     const ownerId = identity.tokenIdentifier;
     const record = await ctx.db
       .query("user_preferences")
-      .withIndex("by_ownerId_and_key", (q) => q.eq("ownerId", ownerId).eq("key", ACCOUNT_MODE_KEY))
+      .withIndex("by_ownerId_and_key", (q) =>
+        q.eq("ownerId", ownerId).eq("key", ACCOUNT_MODE_KEY),
+      )
       .unique();
     return normalizeAccountMode(record?.value ?? null);
   },
@@ -174,7 +181,12 @@ export const setAccountMode = mutation({
   returns: accountModeValidator,
   handler: async (ctx, args) => {
     const ownerId = await requireUserId(ctx);
-    await enforceMutationRateLimit(ctx, PREFERENCE_RATE_SCOPE, ownerId, RATE_SETTINGS);
+    await enforceMutationRateLimit(
+      ctx,
+      PREFERENCE_RATE_SCOPE,
+      ownerId,
+      RATE_SETTINGS,
+    );
     await upsertPreferenceRecord(ctx, ownerId, ACCOUNT_MODE_KEY, args.mode);
     return args.mode;
   },
@@ -183,16 +195,7 @@ export const setAccountMode = mutation({
 export const getSyncMode = query({
   args: {},
   returns: syncModeValidator,
-  handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return "off";
-    const ownerId = identity.tokenIdentifier;
-    const record = await ctx.db
-      .query("user_preferences")
-      .withIndex("by_ownerId_and_key", (q) => q.eq("ownerId", ownerId).eq("key", SYNC_MODE_KEY))
-      .unique();
-    return normalizeSyncMode(record?.value ?? null);
-  },
+  handler: async () => "off" as const,
 });
 
 export const setSyncMode = mutation({
@@ -201,26 +204,14 @@ export const setSyncMode = mutation({
   },
   returns: syncModeValidator,
   handler: async (ctx, args) => {
-    const ownerId = await requireUserId(ctx);
-    await enforceMutationRateLimit(ctx, PREFERENCE_RATE_SCOPE, ownerId, RATE_SETTINGS);
+    await requireUserId(ctx);
     if (args.mode === "on") {
-      const billingProfile = await ctx.db
-        .query("billing_profiles")
-        .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
-        .unique();
-      if (
-        !billingProfile
-        || billingProfile.activePlan === "free"
-        || !ACTIVE_SUBSCRIPTION_STATUSES.has(billingProfile.subscriptionStatus)
-      ) {
-        throw new ConvexError({
-          code: "SUBSCRIPTION_REQUIRED",
-          message: "Backups require an active Stella subscription.",
-        });
-      }
+      throw new ConvexError({
+        code: "FEATURE_DISABLED",
+        message: "Legacy backups are disabled.",
+      });
     }
-    await upsertPreferenceRecord(ctx, ownerId, SYNC_MODE_KEY, args.mode);
-    return args.mode;
+    return "off" as const;
   },
 });
 
@@ -231,8 +222,18 @@ export const setPreferredBrowser = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const ownerId = await requireUserId(ctx);
-    await enforceMutationRateLimit(ctx, PREFERENCE_RATE_SCOPE, ownerId, RATE_SETTINGS);
-    await upsertPreferenceRecord(ctx, ownerId, PREFERRED_BROWSER_KEY, args.browser);
+    await enforceMutationRateLimit(
+      ctx,
+      PREFERENCE_RATE_SCOPE,
+      ownerId,
+      RATE_SETTINGS,
+    );
+    await upsertPreferenceRecord(
+      ctx,
+      ownerId,
+      PREFERRED_BROWSER_KEY,
+      args.browser,
+    );
 
     return null;
   },
@@ -245,7 +246,9 @@ export const getAccountModeForOwner = internalQuery({
   handler: async (ctx, args) => {
     const record = await ctx.db
       .query("user_preferences")
-      .withIndex("by_ownerId_and_key", (q) => q.eq("ownerId", args.ownerId).eq("key", ACCOUNT_MODE_KEY))
+      .withIndex("by_ownerId_and_key", (q) =>
+        q.eq("ownerId", args.ownerId).eq("key", ACCOUNT_MODE_KEY),
+      )
       .unique();
     return normalizeAccountMode(record?.value ?? null);
   },
@@ -255,13 +258,8 @@ export const getSyncModeForOwner = internalQuery({
   args: {
     ownerId: v.string(),
   },
-  handler: async (ctx, args) => {
-    const record = await ctx.db
-      .query("user_preferences")
-      .withIndex("by_ownerId_and_key", (q) => q.eq("ownerId", args.ownerId).eq("key", SYNC_MODE_KEY))
-      .unique();
-    return normalizeSyncMode(record?.value ?? null);
-  },
+  returns: syncModeValidator,
+  handler: async () => "off" as const,
 });
 
 export const getPreferenceForOwner = internalQuery({
@@ -272,7 +270,9 @@ export const getPreferenceForOwner = internalQuery({
   handler: async (ctx, args) => {
     const record = await ctx.db
       .query("user_preferences")
-      .withIndex("by_ownerId_and_key", (q) => q.eq("ownerId", args.ownerId).eq("key", args.key))
+      .withIndex("by_ownerId_and_key", (q) =>
+        q.eq("ownerId", args.ownerId).eq("key", args.key),
+      )
       .unique();
     return record?.value ?? null;
   },

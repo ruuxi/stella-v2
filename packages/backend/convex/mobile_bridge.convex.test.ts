@@ -205,6 +205,7 @@ describe("desktop bridge registration", () => {
 
     const first = await t.mutation(internal.mobile_bridge.upsertRegistration, {
       ownerId,
+      ownerGeneration: "legacy",
       ...registrationArgs,
       updatedAt: initialUpdatedAt,
     });
@@ -212,6 +213,7 @@ describe("desktop bridge registration", () => {
 
     const early = await t.mutation(internal.mobile_bridge.upsertRegistration, {
       ownerId,
+      ownerGeneration: "legacy",
       ...registrationArgs,
       updatedAt: initialUpdatedAt + MOBILE_BRIDGE_LEASE_MS / 3 - 1,
     });
@@ -220,6 +222,7 @@ describe("desktop bridge registration", () => {
     const dueAt = initialUpdatedAt + MOBILE_BRIDGE_LEASE_MS / 3;
     const due = await t.mutation(internal.mobile_bridge.upsertRegistration, {
       ownerId,
+      ownerGeneration: "legacy",
       ...registrationArgs,
       updatedAt: dueAt,
     });
@@ -232,6 +235,7 @@ describe("desktop bridge last-known descriptor", () => {
     const t = createTest();
     await t.mutation(internal.mobile_bridge.upsertRegistration, {
       ownerId,
+      ownerGeneration: "legacy",
       ...registrationArgs,
       updatedAt: 1,
     });

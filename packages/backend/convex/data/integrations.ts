@@ -1,7 +1,12 @@
-import { mutation, internalMutation, internalQuery, query } from "../_generated/server";
+import {
+  mutation,
+  internalMutation,
+  internalQuery,
+  query,
+} from "../_generated/server";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { v, ConvexError, type Infer } from "convex/values";
-import { requireUserId } from "../auth";
+import { assertOwnerMigrationWriteAllowed, requireUserId } from "../auth";
 import {
   enforceMutationRateLimit,
   RATE_VERY_EXPENSIVE,
@@ -24,7 +29,7 @@ import {
   X_OAUTH_STATE_TTL_MS,
   X_PROVIDER_ID,
 } from "../lib/x_oauth";
-
+import { LEGACY_OWNER_GENERATION } from "../owner_lifecycle";
 
 const storeIntegrationConnectorValidator = v.object({
   type: v.literal("composio"),
@@ -37,6 +42,24 @@ const publishedIntegrationActionValidator = v.object({
   name: v.string(),
   title: v.optional(v.string()),
   description: v.optional(v.string()),
+  annotations: v.optional(
+    v.object({
+      readOnlyHint: v.boolean(),
+      destructiveHint: v.boolean(),
+      idempotentHint: v.boolean(),
+      source: v.literal("composio_tool_tags"),
+    }),
+  ),
+  codeModePolicy: v.optional(
+    v.object({
+      effect: v.literal("read"),
+      requiresApproval: v.literal(false),
+      policyVersion: v.string(),
+      toolkitVersion: v.string(),
+      reviewedInputSchemaJson: v.string(),
+      source: v.literal("stella_admin"),
+    }),
+  ),
   // Kept as a string because real JSON schemas can be much deeper than the
   // shared bounded JSON validator. HTTP ingestion validates/parses this once,
   // then this mutation stores each schema in its own bounded document.
@@ -45,6 +68,31 @@ const publishedIntegrationActionValidator = v.object({
 
 const SAFE_INTEGRATION_ID = /^[a-z0-9][a-z0-9_-]{0,127}$/u;
 const SAFE_ACTION_NAME = /^[A-Z][A-Z0-9_]{1,127}$/u;
+const SAFE_CODE_POLICY_VERSION = /^[A-Za-z0-9._:-]{1,128}$/u;
+const SAFE_COMPOSIO_TOOLKIT_VERSION = /^\d{8}_\d{2}$/u;
+
+const codeModeEligible = (action: {
+  annotations?: {
+    readOnlyHint: boolean;
+    destructiveHint: boolean;
+    idempotentHint: boolean;
+    source: "composio_tool_tags";
+  };
+  codeModePolicy?: {
+    effect: "read";
+    requiresApproval: false;
+    policyVersion: string;
+    toolkitVersion: string;
+    reviewedInputSchemaJson: string;
+    source: "stella_admin";
+  };
+}) =>
+  action.annotations?.source === "composio_tool_tags" &&
+  action.annotations.readOnlyHint === true &&
+  action.annotations.destructiveHint === false &&
+  action.codeModePolicy?.source === "stella_admin" &&
+  action.codeModePolicy.effect === "read" &&
+  action.codeModePolicy.requiresApproval === false;
 
 type ComposioConnector = {
   type: "composio";
@@ -77,22 +125,25 @@ const isExecutableStoreIntegration = (record: {
 
 const storeIntegrationStatusValues = new Set(["ready", "hidden"]);
 
-const normalizePublicIntegration = (record: {
-  id: string;
-  name?: string;
-  provider: string;
-  category?: string;
-  auth?: string[];
-  catalogToolCount?: number;
-  actionCount?: number;
-  description?: string;
-  sourceUrl?: string;
-  iconUrl?: string;
-  connector?: Record<string, unknown>;
-  enabled: boolean;
-  usagePolicy: string;
-  updatedAt: number;
-}, options?: { includeConnector?: boolean }) => {
+const normalizePublicIntegration = (
+  record: {
+    id: string;
+    name?: string;
+    provider: string;
+    category?: string;
+    auth?: string[];
+    catalogToolCount?: number;
+    actionCount?: number;
+    description?: string;
+    sourceUrl?: string;
+    iconUrl?: string;
+    connector?: Record<string, unknown>;
+    enabled: boolean;
+    usagePolicy: string;
+    updatedAt: number;
+  },
+  options?: { includeConnector?: boolean },
+) => {
   const status = storeIntegrationStatusValues.has(record.usagePolicy)
     ? record.usagePolicy
     : record.enabled
@@ -272,6 +323,53 @@ export const upsertPublicIntegration = internalMutation({
       }
       actionNames.add(action.name);
       if (
+        action.codeModePolicy &&
+        (!SAFE_CODE_POLICY_VERSION.test(action.codeModePolicy.policyVersion) ||
+          !SAFE_COMPOSIO_TOOLKIT_VERSION.test(
+            action.codeModePolicy.toolkitVersion,
+          ))
+      ) {
+        throw new ConvexError({
+          code: "INVALID_ARGUMENT",
+          message: `Integration Code policy version is invalid: ${action.name}`,
+        });
+      }
+      if (action.codeModePolicy) {
+        if (!codeModeEligible(action)) {
+          throw new ConvexError({
+            code: "INVALID_ARGUMENT",
+            message: `Integration Code policy lacks independent provider read-only evidence: ${action.name}`,
+          });
+        }
+        if (
+          new TextEncoder().encode(
+            action.codeModePolicy.reviewedInputSchemaJson,
+          ).byteLength > MAX_INTEGRATION_ACTION_SCHEMA_BYTES
+        ) {
+          throw new ConvexError({
+            code: "INVALID_ARGUMENT",
+            message: `Reviewed Integration Code schema is too large: ${action.name}`,
+          });
+        }
+        try {
+          const reviewedSchema = JSON.parse(
+            action.codeModePolicy.reviewedInputSchemaJson,
+          ) as unknown;
+          if (
+            !reviewedSchema ||
+            typeof reviewedSchema !== "object" ||
+            Array.isArray(reviewedSchema)
+          ) {
+            throw new Error("reviewed schema is not an object");
+          }
+        } catch {
+          throw new ConvexError({
+            code: "INVALID_ARGUMENT",
+            message: `Reviewed Integration Code schema is invalid: ${action.name}`,
+          });
+        }
+      }
+      if (
         new TextEncoder().encode(action.inputSchemaJson).byteLength >
         MAX_INTEGRATION_ACTION_SCHEMA_BYTES
       ) {
@@ -300,21 +398,22 @@ export const upsertPublicIntegration = internalMutation({
 
     const existingActions = await ctx.db
       .query("integration_actions")
-      .withIndex("by_integrationId_and_name", (q) =>
-        q.eq("integrationId", id),
-      )
+      .withIndex("by_integrationId_and_name", (q) => q.eq("integrationId", id))
       .take(MAX_PUBLISHED_INTEGRATION_ACTIONS + 1);
     if (existingActions.length > MAX_PUBLISHED_INTEGRATION_ACTIONS) {
       throw new ConvexError({
         code: "INTERNAL_ERROR",
-        message: "Existing integration action set exceeds the replacement bound.",
+        message:
+          "Existing integration action set exceeds the replacement bound.",
       });
     }
 
     // Convex mutations are transactional. Validate the full new set above,
     // then replace children and parent together so readers see either the old
     // complete publication or the new complete publication, never a partial.
-    await Promise.all(existingActions.map((action) => ctx.db.delete(action._id)));
+    await Promise.all(
+      existingActions.map((action) => ctx.db.delete(action._id)),
+    );
     const now = Date.now();
     await Promise.all(
       args.actions.map((action) =>
@@ -323,6 +422,9 @@ export const upsertPublicIntegration = internalMutation({
           name: action.name,
           title: action.title,
           description: action.description,
+          annotations: action.annotations,
+          codeModePolicy: action.codeModePolicy,
+          codeModeEligible: codeModeEligible(action) || undefined,
           searchText: [action.name, action.title, action.description]
             .filter((value): value is string => Boolean(value))
             .join(" "),
@@ -423,6 +525,8 @@ export const createXConnectUrl = mutation({
   returns: v.object({ url: v.string(), expiresAt: v.number() }),
   handler: async (ctx) => {
     const ownerId = await requireUserId(ctx);
+    const { generation: ownerGeneration } =
+      await assertOwnerMigrationWriteAllowed(ctx, ownerId);
 
     await enforceMutationRateLimit(
       ctx,
@@ -436,7 +540,10 @@ export const createXConnectUrl = mutation({
     const convexSiteUrl = configuredOAuthSiteUrl();
 
     if (!clientId || !convexSiteUrl) {
-      throw new ConvexError({ code: "INTERNAL_ERROR", message: "X OAuth is not configured" });
+      throw new ConvexError({
+        code: "INTERNAL_ERROR",
+        message: "X OAuth is not configured",
+      });
     }
 
     const now = Date.now();
@@ -456,6 +563,7 @@ export const createXConnectUrl = mutation({
 
     await ctx.db.insert("x_oauth_states", {
       ownerId,
+      ownerGeneration,
       stateHash,
       codeVerifier,
       expiresAt,
@@ -483,6 +591,7 @@ export const consumeXOAuthState = internalMutation({
     v.null(),
     v.object({
       ownerId: v.string(),
+      ownerGeneration: v.string(),
       codeVerifier: v.string(),
     }),
   ),
@@ -498,14 +607,26 @@ export const consumeXOAuthState = internalMutation({
     if (candidate.usedAt !== undefined) return null;
     if (candidate.expiresAt <= now) return null;
 
+    const ownerGeneration =
+      candidate.ownerGeneration ?? LEGACY_OWNER_GENERATION;
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      candidate.ownerId,
+      ownerGeneration,
+    );
     await ctx.db.patch(candidate._id, { usedAt: now });
-    return { ownerId: candidate.ownerId, codeVerifier: candidate.codeVerifier };
+    return {
+      ownerId: candidate.ownerId,
+      ownerGeneration,
+      codeVerifier: candidate.codeVerifier,
+    };
   },
 });
 
 export const upsertXOAuthTokensForOwner = internalMutation({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
     xUserId: v.string(),
     username: v.string(),
     name: v.optional(v.string()),
@@ -516,8 +637,15 @@ export const upsertXOAuthTokensForOwner = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
     const now = Date.now();
-    const encryptedTokenSet = await encryptSecret(JSON.stringify(args.tokenSet));
+    const encryptedTokenSet = await encryptSecret(
+      JSON.stringify(args.tokenSet),
+    );
     const existing = await ctx.db
       .query("x_oauth_tokens")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
@@ -525,6 +653,7 @@ export const upsertXOAuthTokensForOwner = internalMutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, {
+        ownerGeneration: args.ownerGeneration,
         xUserId: args.xUserId,
         username: args.username,
         name: args.name,
@@ -552,6 +681,7 @@ export const upsertXOAuthTokensForOwner = internalMutation({
 
     const tokenRowId = await ctx.db.insert("x_oauth_tokens", {
       ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
       xUserId: args.xUserId,
       username: args.username,
       name: args.name,
@@ -583,6 +713,7 @@ export const upsertXOAuthTokensForOwner = internalMutation({
 export const getXOAuthTokenForOwner = internalQuery({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
   },
   returns: v.union(
     v.null(),
@@ -590,6 +721,7 @@ export const getXOAuthTokenForOwner = internalQuery({
       _id: v.id("x_oauth_tokens"),
       _creationTime: v.number(),
       ownerId: v.string(),
+      ownerGeneration: v.string(),
       xUserId: v.string(),
       username: v.string(),
       name: v.optional(v.string()),
@@ -604,16 +736,27 @@ export const getXOAuthTokenForOwner = internalQuery({
     }),
   ),
   handler: async (ctx, args) => {
-    return await ctx.db
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
+    const row = await ctx.db
       .query("x_oauth_tokens")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
       .unique();
+    if (!row) return null;
+    const ownerGeneration = row.ownerGeneration ?? LEGACY_OWNER_GENERATION;
+    if (ownerGeneration !== args.ownerGeneration) return null;
+    return { ...row, ownerGeneration };
   },
 });
 
 export const updateXOAuthTokenSetForOwner = internalMutation({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
+    tokenRowId: v.id("x_oauth_tokens"),
     tokenSet: jsonObjectValidator,
     scopes: v.array(v.string()),
     tokenType: v.string(),
@@ -621,13 +764,28 @@ export const updateXOAuthTokenSetForOwner = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("x_oauth_tokens")
-      .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
-      .unique();
-    if (!existing) return null;
-    const encryptedTokenSet = await encryptSecret(JSON.stringify(args.tokenSet));
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
+    const existing = await ctx.db.get("x_oauth_tokens", args.tokenRowId);
+    if (
+      !existing ||
+      existing.ownerId !== args.ownerId ||
+      (existing.ownerGeneration ?? LEGACY_OWNER_GENERATION) !==
+        args.ownerGeneration
+    ) {
+      throw new ConvexError({
+        code: "X_OAUTH_CREDENTIAL_STALE",
+        message: "The X connection changed while its token was refreshing.",
+      });
+    }
+    const encryptedTokenSet = await encryptSecret(
+      JSON.stringify(args.tokenSet),
+    );
     await ctx.db.patch(existing._id, {
+      ownerGeneration: args.ownerGeneration,
       encryptedTokenSet: JSON.stringify(encryptedTokenSet),
       tokenKeyVersion: encryptedTokenSet.keyVersion,
       scopes: args.scopes,
@@ -652,13 +810,46 @@ export const updateXOAuthTokenSetForOwner = internalMutation({
   },
 });
 
+/** Capture the exact owner generation before an X action reads credentials. */
+export const captureXOAuthOwnerGenerationInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+  },
+  returns: v.object({ ownerGeneration: v.string() }),
+  handler: async (ctx, args) => {
+    const { generation: ownerGeneration } =
+      await assertOwnerMigrationWriteAllowed(ctx, args.ownerId);
+    return { ownerGeneration };
+  },
+});
+
+/** Final transaction-plane fence immediately before X provider I/O. */
+export const assertXOAuthDispatchAllowedInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
+    return null;
+  },
+});
+
 export const purgeExpiredXOAuthStates = internalMutation({
   args: {
     batchSize: v.optional(v.number()),
   },
   returns: v.object({ deleted: v.number(), hasMore: v.boolean() }),
   handler: async (ctx, args) => {
-    const batchSize = Math.min(Math.max(Math.floor(args.batchSize ?? 200), 1), 1000);
+    const batchSize = Math.min(
+      Math.max(Math.floor(args.batchSize ?? 200), 1),
+      1000,
+    );
     const now = Date.now();
     const expired = await ctx.db
       .query("x_oauth_states")
@@ -691,22 +882,32 @@ export const listXConnections = query({
   ),
   handler: async (ctx) => {
     const ownerId = await requireUserId(ctx);
+    const { generation: ownerGeneration } =
+      await assertOwnerMigrationWriteAllowed(ctx, ownerId);
     const rows = await ctx.db
       .query("x_oauth_tokens")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", ownerId))
       .take(1);
-    return rows.map((row) => ({
-      xUserId: row.xUserId,
-      username: row.username,
-      name: row.name,
-      scopes: row.scopes,
-      updatedAt: row.updatedAt,
-      accessTokenExpiresAt: row.accessTokenExpiresAt,
-    }));
+    return rows
+      .filter(
+        (row) =>
+          (row.ownerGeneration ?? LEGACY_OWNER_GENERATION) === ownerGeneration,
+      )
+      .map((row) => ({
+        xUserId: row.xUserId,
+        username: row.username,
+        name: row.name,
+        scopes: row.scopes,
+        updatedAt: row.updatedAt,
+        accessTokenExpiresAt: row.accessTokenExpiresAt,
+      }));
   },
 });
 
-const getPublicIntegrationByIdHandler = async (ctx: Pick<QueryCtx, "db">, args: { id: string }) => {
+const getPublicIntegrationByIdHandler = async (
+  ctx: Pick<QueryCtx, "db">,
+  args: { id: string },
+) => {
   const record = await ctx.db
     .query("integrations_public")
     .withIndex("by_integrationId", (q) => q.eq("id", args.id))
@@ -716,7 +917,6 @@ const getPublicIntegrationByIdHandler = async (ctx: Pick<QueryCtx, "db">, args: 
   }
   return record;
 };
-
 
 export const getPublicIntegrationById = internalQuery({
   args: {
@@ -732,7 +932,26 @@ const storedIntegrationActionValidator = v.object({
   name: v.string(),
   title: v.optional(v.string()),
   description: v.optional(v.string()),
+  annotations: v.optional(
+    v.object({
+      readOnlyHint: v.boolean(),
+      destructiveHint: v.boolean(),
+      idempotentHint: v.boolean(),
+      source: v.literal("composio_tool_tags"),
+    }),
+  ),
+  codeModePolicy: v.optional(
+    v.object({
+      effect: v.literal("read"),
+      requiresApproval: v.literal(false),
+      policyVersion: v.string(),
+      toolkitVersion: v.string(),
+      reviewedInputSchemaJson: v.string(),
+      source: v.literal("stella_admin"),
+    }),
+  ),
   inputSchemaJson: v.string(),
+  updatedAt: v.number(),
 });
 
 export const listPublicIntegrationActions = internalQuery({
@@ -785,7 +1004,10 @@ export const listPublicIntegrationActions = internalQuery({
         name: action.name,
         title: action.title,
         description: action.description,
+        annotations: action.annotations,
+        codeModePolicy: action.codeModePolicy,
         inputSchemaJson: action.inputSchemaJson,
+        updatedAt: action.updatedAt,
       })),
     };
   },
@@ -819,7 +1041,10 @@ export const getPublicIntegrationAction = internalQuery({
             name: action.name,
             title: action.title,
             description: action.description,
+            annotations: action.annotations,
+            codeModePolicy: action.codeModePolicy,
             inputSchemaJson: action.inputSchemaJson,
+            updatedAt: action.updatedAt,
           },
         }
       : null;
@@ -877,6 +1102,7 @@ export const upsertUserIntegration = internalMutation({
 export const upsertUserIntegrationForOwner = internalMutation({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
     provider: v.string(),
     mode: v.string(),
     externalId: v.optional(v.string()),
@@ -884,6 +1110,28 @@ export const upsertUserIntegrationForOwner = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
     return await upsertUserIntegrationForOwnerHandler(ctx, args);
+  },
+});
+
+/** Final transaction fence immediately before Composio session/link IO. */
+export const assertUserIntegrationDispatchAllowedInternal = internalMutation({
+  args: {
+    ownerId: v.string(),
+    ownerGeneration: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
+    return null;
   },
 });

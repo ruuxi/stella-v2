@@ -6,10 +6,15 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { isAnonymousIdentity, requireSensitiveUserIdentity } from "./auth";
+import {
+  assertOwnerMigrationWriteAllowed,
+  isAnonymousIdentity,
+  requireSensitiveUserIdentity,
+} from "./auth";
 import { resolveCurrentDeviceId } from "./device_identity";
 import { constantTimeEqual, hashSha256Hex } from "./lib/crypto_utils";
 import { requireBoundedString } from "./shared_validators";
+import { LEGACY_OWNER_GENERATION } from "./owner_lifecycle";
 
 export const MOBILE_BRIDGE_LEASE_MS = 15 * 60_000;
 /**
@@ -250,6 +255,7 @@ const consumeRegistrationRateLimit = async (
 
 type RegistrationUpsertArgs = {
   ownerId: string;
+  ownerGeneration: string;
   deviceId: string;
   baseUrls: string[];
   updatedAt: number;
@@ -261,6 +267,11 @@ const upsertRegistrationRecord = async (
   ctx: MutationCtx,
   args: RegistrationUpsertArgs,
 ) => {
+  await assertOwnerMigrationWriteAllowed(
+    ctx,
+    args.ownerId,
+    args.ownerGeneration,
+  );
   const deviceId = sanitizeRequiredDeviceId(args.deviceId);
   const sanitizedBaseUrls = sanitizeBaseUrls(args.baseUrls);
   const platform = sanitizeOptionalPlatform(args.platform);
@@ -276,11 +287,18 @@ const upsertRegistrationRecord = async (
   if (!device) {
     await ctx.db.insert("devices", {
       ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
       deviceId,
       ...(platform !== undefined ? { platform } : {}),
     });
-  } else if (platform !== undefined && platform !== device.platform) {
-    await ctx.db.patch(device._id, { platform });
+  } else if (
+    device.ownerGeneration !== args.ownerGeneration ||
+    (platform !== undefined && platform !== device.platform)
+  ) {
+    await ctx.db.patch(device._id, {
+      ownerGeneration: args.ownerGeneration,
+      ...(platform !== undefined ? { platform } : {}),
+    });
   }
   const existing = await ctx.db
     .query("mobile_bridge_registrations")
@@ -357,9 +375,12 @@ export const registerDesktopBridge = mutation({
     }
 
     const nowMs = Date.now();
+    const { generation: ownerGeneration } =
+      await assertOwnerMigrationWriteAllowed(ctx, identity.tokenIdentifier);
     await consumeRegistrationRateLimit(ctx, identity.tokenIdentifier, nowMs);
     const result = await upsertRegistrationRecord(ctx, {
       ownerId: identity.tokenIdentifier,
+      ownerGeneration,
       deviceId: args.deviceId,
       baseUrls: args.baseUrls,
       updatedAt: nowMs,
@@ -381,6 +402,7 @@ export const registerDesktopBridge = mutation({
 export const upsertRegistration = internalMutation({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
     deviceId: v.string(),
     baseUrls: v.array(v.string()),
     updatedAt: v.number(),
@@ -496,6 +518,7 @@ export const getRegistrationForOwnerDevice = internalQuery({
 export const createSession = internalMutation({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
     desktopDeviceId: v.string(),
     mobileDeviceId: v.string(),
     desktopChallenge: v.string(),
@@ -505,6 +528,11 @@ export const createSession = internalMutation({
   },
   returns: bridgeSessionValidator,
   handler: async (ctx: MutationCtx, args) => {
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
     const previous = await ctx.db
       .query("mobile_bridge_sessions")
       .withIndex("by_ownerId_and_desktopDeviceId_and_mobileDeviceId", (q) =>
@@ -525,6 +553,7 @@ export const createSession = internalMutation({
     const expiresAt = args.createdAt + MOBILE_BRIDGE_SESSION_TTL_MS;
     await ctx.db.insert("mobile_bridge_sessions", {
       ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
       desktopDeviceId: args.desktopDeviceId,
       mobileDeviceId: args.mobileDeviceId,
       sessionId,
@@ -548,6 +577,7 @@ export const createSession = internalMutation({
 export const consumeSession = internalMutation({
   args: {
     ownerId: v.string(),
+    ownerGeneration: v.string(),
     desktopDeviceId: v.string(),
     sessionId: v.string(),
     sessionSecret: v.string(),
@@ -569,6 +599,17 @@ export const consumeSession = internalMutation({
     ) {
       return null;
     }
+
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      args.ownerGeneration,
+    );
+    await assertOwnerMigrationWriteAllowed(
+      ctx,
+      args.ownerId,
+      session.ownerGeneration ?? LEGACY_OWNER_GENERATION,
+    );
 
     const secretOk = constantTimeEqual(
       await hashSha256Hex(args.sessionSecret),

@@ -3,6 +3,7 @@ import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { requireAdminRequest } from "../http_shared/admin";
 import { constantTimeEqual } from "../lib/crypto_utils";
+import { assertC8RetiredSurfaceUnavailable } from "../lib/c8_retired_surface";
 
 const PET_CATALOG_SEED_PATH = "/api/pets/seed";
 const ADMIN_PET_CATALOG_DELETE_PATH = "/api/admin/pets/delete";
@@ -85,6 +86,7 @@ export const registerPetRoutes = (http: HttpRouter) => {
     path: PET_CATALOG_SEED_PATH,
     method: "POST",
     handler: httpAction(async (ctx, request) => {
+      assertC8RetiredSurfaceUnavailable("Pet catalog HTTP writes");
       const expected = getSeedSecret();
       if (!expected) {
         return errorResponse(503, "Pet catalog seed endpoint disabled.");
@@ -122,6 +124,7 @@ export const registerPetRoutes = (http: HttpRouter) => {
     path: ADMIN_PET_CATALOG_DELETE_PATH,
     method: "POST",
     handler: httpAction(async (ctx, request) => {
+      assertC8RetiredSurfaceUnavailable("Pet catalog HTTP writes");
       const admin = requireAdminRequest(request);
       if (!admin.ok) return admin.response;
 

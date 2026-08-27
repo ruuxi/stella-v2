@@ -200,7 +200,7 @@ describe("native engine reasoning selection", () => {
     expect(env.STELLA_TURN_TOKEN).toBeUndefined();
     expect(env.STELLA_CODEX_TURN_TOKEN).toBeUndefined();
     expect(env.KEEP_ME).toBe("safe");
-    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("scoped-turn-token");
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("loopback-relay-sentinel");
     expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBe("unset");
   });
 

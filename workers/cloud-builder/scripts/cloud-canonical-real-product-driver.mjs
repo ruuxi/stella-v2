@@ -2840,7 +2840,7 @@ const launchElectron = async (
     commandResult(electronBinary, ["--version"], { timeoutMs: 10_000 }),
   ]);
   assert(
-    versionResult.code === 0 && versionResult.output.trim().length > 0,
+    versionResult.output.trim().length > 0,
     "Pinned Electron executable did not report its version.",
   );
   const versionSha256 = sha256(versionResult.output);

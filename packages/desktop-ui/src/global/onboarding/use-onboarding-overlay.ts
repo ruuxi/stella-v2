@@ -107,8 +107,6 @@ export function useOnboardingOverlay() {
   const resumePhase = onboardingDone ? null : resumePhaseRef.current;
   const isResuming = resumePhase !== null;
   const initialPhase: Phase = resumePhase ?? "capabilities";
-  const creatureInitialBirth =
-    onboardingDone || isResuming ? 1 : CREATURE_INITIAL_SIZE;
   const [hasExpanded, setHasExpanded] = useState(
     () => onboardingDone || isResuming,
   );
@@ -158,13 +156,11 @@ export function useOnboardingOverlay() {
     }, 400);
   }, []);
 
-  // "Start Stella" now opens the split flow directly. The centered intro
-  // moment used to sit in between and own this call; with it gone, the
-  // button is the only thing left that can hand off to the steps.
+  // "Start Stella" opens the split flow directly. The aurora mounts after
+  // this handoff (the entry screen has no creature), already at full birth.
   const startOnboarding = useCallback(() => {
     setHasStarted(true);
     setHasExpanded(true);
-    stellaAnimationRef.current?.startBirth();
     enterSplit();
   }, [enterSplit]);
 
@@ -237,7 +233,6 @@ export function useOnboardingOverlay() {
     splitEntering,
     onboardingKey,
     initialPhase,
-    creatureInitialBirth,
     persistPhase,
     stellaAnimationRef,
     triggerFlash,

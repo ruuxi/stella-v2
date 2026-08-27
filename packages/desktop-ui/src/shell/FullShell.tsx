@@ -126,7 +126,6 @@ function OnboardingExperience({
           stellaAnimationHidden={stellaHiddenByPhase}
           onboardingKey={onboarding.onboardingKey}
           initialPhase={onboarding.initialPhase}
-          creatureInitialBirth={onboarding.creatureInitialBirth}
           triggerFlash={onboarding.triggerFlash}
           startOnboarding={onboarding.startOnboarding}
           completeOnboarding={onboarding.completeOnboarding}

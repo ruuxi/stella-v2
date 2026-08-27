@@ -58,8 +58,7 @@ type WelcomeHtmlResponse = {
   welcomeHtml: string;
 };
 
-const DEFAULT_WELCOME_MESSAGE =
-  "Hey! I'm Stella, your AI assistant. What can I help you with today?";
+const DEFAULT_WELCOME_MESSAGE = "Welcome to Stella";
 
 const WELCOME_HTML_MODEL_CONFIG: ManagedModelConfig = {
   model: "google/gemini-3.6-flash",
